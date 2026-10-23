@@ -18,6 +18,7 @@ from record_numbers import assert_record_numbers, record_skeleton, skeleton_hash
 from solprop import _display, tools
 from solprop.driver import Simulation, SimulationSettings
 from solprop.driver.scan import Scan
+from solprop.driver.simulation import IncidentLaunch
 from solprop.exceptions import MaterialRangeWarning, ModeError, OutputError
 from solprop.grid import EnvelopeGrid, FreeGrid, RadialGrid
 from solprop.modes import (
@@ -218,6 +219,12 @@ def modal_records():
         # A declared transverse field projected onto this guide's one channel: the
         # channel's own profile, so the projection captures all of it.
         "ProjectedLaunch": project_transverse_field(printed_tables, printed_field),
+        # An incident beam's account: synthetic per-bin energies, a third captured.
+        "IncidentLaunch": IncidentLaunch(
+            np.full(3, 1.45),
+            np.array([2e-7, 6e-7, 2e-7]),
+            np.array([0.6e-7, 2e-7, 0.7e-7]),
+        ),
         "ProviderChannelMode": grin_guide.mode_collection.modes[0],
         "ModalSampling": grin_guide.sampling,
         # A moving guide's path record: synthetic numbers of the shape a sampled path
@@ -506,6 +513,7 @@ NAMES = sorted(
         "ProviderChannelMode",
         "ModalTransformTables",
         "ProjectedLaunch",
+        "IncidentLaunch",
         "GeneralModalRoute",
         "ModalMetricTables",
         "CoupledFlowTables",
@@ -898,6 +906,7 @@ def rounding(block: str) -> str:
         "ProviderChannelMode",
         "ModalTransformTables",
         "ProjectedLaunch",
+        "IncidentLaunch",
         "GeneralModalRoute",
         "ModalMetricTables",
         "CoupledFlowTables",

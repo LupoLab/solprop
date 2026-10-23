@@ -37,6 +37,7 @@ from solprop.modes import (
 from solprop.modes.material import JsonValue
 from solprop.physdata import fused_silica
 from solprop.profiles import PiecewiseLinear
+from solprop.pulses import GaussianPulse, SpatialPulse
 
 __all__ = ["ScaledPermittivity", "advanced", "coupled", "grin", "moving", "step_index"]
 
@@ -222,17 +223,23 @@ def grin(*, nonlinear: bool) -> Simulation:
             / C
         )
         period = 2 * np.pi / float(np.mean(-np.diff(beta)))
-        beam = np.zeros((nodes.xy.shape[0], 3))
-        beam[:, 0] = np.exp(-((np.hypot(nodes.xy[:, 0], nodes.xy[:, 1]) / 12e-6) ** 2))
+        # The incident beam's energy is over its whole plane; the channels launch
+        # the share they capture.
+        beam = SpatialPulse(
+            GaussianPulse(
+                wavelength=wavelength,
+                fwhm=300e-15,
+                energy=5e5 * 300e-15 * np.sqrt(np.pi / (4 * np.log(2))),
+            ),
+            12e-6,
+        )
         return Simulation.from_waveguide(
             (),
             0.1,
             provider=guide,
             grid=grid,
-            transverse=beam,
+            incident=beam,
             lambda0=wavelength,
-            fwhm=300e-15,
-            energy=5e5 * 300e-15 * np.sqrt(np.pi / (4 * np.log(2))),
             noise="input",
             seed=41,
             dz_max=period / 10,

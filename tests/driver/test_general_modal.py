@@ -25,8 +25,6 @@ and recorded beside the comparison rather than folded into it.
 
 import dataclasses
 import inspect
-import logging
-import warnings
 from collections.abc import Mapping
 from contextlib import ExitStack
 from typing import Any, cast
@@ -66,8 +64,10 @@ from solprop.driver.run import run_problem
 from solprop.driver.scan import Scan, run_scan
 from solprop.driver.simulation import (
     _GAS_KEYWORD_DEFAULTS,
+    IncidentLaunch,
+    _core_index,
     _in_channel,
-    _projected_launch,
+    _incident_launch,
     _refuse_gas_keywords,
     _shot_noise,
 )
@@ -89,7 +89,7 @@ from solprop.output.memory import MemoryOutput
 from solprop.physdata import n2_from_chi3
 from solprop.physdata.sellmeier import gamma as gas_susceptibility
 from solprop.processing import scans
-from solprop.pulses import GaussianPulse
+from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse
 from solprop.stats import StatsSpec, analytic_field, energy, physical_energy
 from solprop.stepper import FixedSchedule
 from solprop.translate.coupled import metric_at
@@ -507,131 +507,191 @@ def circular_pair_guide(grid):
     )
 
 
+def incident_beam(waist, jones=(1.0,)):
+    """Return an incident beam carrying the tests' pulse, launched at its waist."""
+    return SpatialPulse(
+        GaussianPulse(
+            wavelength=PULSE["lambda0"], fwhm=PULSE["fwhm"], energy=PULSE["energy"]
+        ),
+        waist,
+        jones=jones,
+    )
+
+
+def launched(guide, grid, incident, **overrides):
+    """Return a general modal simulation launching an incident beam."""
+    return Simulation.from_waveguide(
+        (),
+        GENERAL_Z_END,
+        provider=guide,
+        grid=grid,
+        lambda0=PULSE["lambda0"],
+        incident=incident,
+        **(RUN | overrides),
+    )
+
+
+def account(simulation) -> IncidentLaunch:
+    """Return the incident-energy account a simulation recorded."""
+    report = simulation.configuration["launch"]
+    assert isinstance(report, IncidentLaunch)
+    return report
+
+
 @pytest.mark.parametrize("kind", ["identity", "dense"])
-def test_the_projected_launch_carries_the_pulses_energy_and_the_declared_shape(
+def test_an_incident_launch_keeps_what_the_channels_capture_under_the_runs_metric(
     pair_guide, circular_pair_guide, grid, kind
 ):
-    """`transverse=` launches the profile's shape at the pulse's energy.
+    """`incident=` launches the captured amplitudes, and its account says so.
 
-    Three statements. The **shape** is the projection's: the share each channel takes is
-    what the declared field decides, here a 1 : 0.5 amplitude ratio. The **scale** is
-    the pulse's, so that ``energy=`` means on this launch what it means on ``channel=``.
-    And the energy that is matched is the run's own ``physical_energy`` **under its own
-    declared metric**, which on a declared dense basis is not the unweighted sum:
-    rescaling on ``sum_m |a_m|^2`` there would leave the launched energy short by the
-    basis's departure from orthonormal. On the identity route the weighted and
-    unweighted norms are the same object, so that launch is bitwise what it was.
+    The incident energy is the pulse's over the whole beam; the captured energy
+    is the launched state's physical energy under the run's own declared metric,
+    which on the dense circular basis is not the unweighted sum. Nothing is
+    rescaled, so the launched energy is the captured one and falls short of
+    ``energy=`` by what the channels miss. An x-polarised beam enters the even
+    parity channel alone, and splits equally between the two circular ones.
     """
     guide = pair_guide if kind == "identity" else circular_pair_guide
-    route = general_modal_route(
-        guide, grid, z_max=GENERAL_Z_END, omega_reference=float(grid.omega0)
-    )
-    assert route.metric.kind == kind
-    tables = route.tables
-    centre = int(tables.omega.size // 2)
-    profile = np.einsum(
-        "qcm,m->qc", tables.electric[0, :, :, :, centre], np.array([1.0, 0.5])
-    )
-    simulation = build(guide, grid, transverse=profile)
-    state = simulation._field0
-    assert state.shape[0] == 2
-    live = np.abs(state[0, 0]) > 0.0
-    assert_allclose(
-        np.abs(state[1, 0][live]) / np.abs(state[0, 0][live]),
-        0.5,
-        rtol=1e-6,
-        atol=0.0,
-    )
+    simulation = launched(guide, grid, incident_beam(1.3e-6))
+    report = account(simulation)
+    # One rescaling of the beam, summed over bins: a few rounding units.
+    assert report.incident_energy == pytest.approx(PULSE["energy"], rel=1e-13)
+    assert 0.5 * report.incident_energy < report.captured_energy
+    assert report.captured_energy < report.incident_energy
+    assert_allclose(report.uncaptured, report.incident - report.captured, rtol=0.0)
     problem = simulation.translate()
     metric = metric_at(problem.linear.modal_metric, 0.0)
     assert (metric is None) == (kind == "identity")
     assert_allclose(
         float(physical_energy(grid, problem.initial.field0[0], metric=metric)),
-        PULSE["energy"],
-        # The whitening is an eigendecomposition per bin, so the weighted norm the
-        # launch was scaled on and the one the statistic forms agree to rounding
-        # over the 288-bin reduction and not to the bit.
+        report.captured_energy,
+        # The statistic whitens by an eigendecomposition per bin and the account
+        # forms the quadratic form directly: rounding over the 65-bin reduction.
         rtol=1e-12,
         atol=0.0,
     )
+    state = simulation._field0[:, 0]
+    live = np.abs(state[0]) > 0.0
     if kind == "identity":
-        # And there the unweighted sum is the same statement, bit for bit.
-        assert float(physical_energy(grid, problem.initial.field0[0])) == float(
-            np.sum(energy(grid, problem.initial.field0[0]))
-        )
+        # The even channel's E_y and the odd channel's E_x vary as sin(2 theta),
+        # so their overlap with a uniformly polarised beam cancels on the
+        # azimuthal rule to rounding of the node sum.
+        assert np.max(np.abs(state[1])) < 1e-12 * np.max(np.abs(state[0]))
+    else:
+        assert_allclose(np.abs(state[1][live]), np.abs(state[0][live]), rtol=1e-6)
 
 
-def test_a_real_transverse_profile_is_the_contract_and_launches_as_its_complex_copy(
+def test_an_incident_launch_shares_a_coherent_beam_between_two_channels(
     pair_guide, grid
 ):
-    """A real profile is accepted under the hook and means what it says.
+    """A beam polarised between the parity channels fills both, coherently.
 
-    A real array is the common way to declare a beam, so the annotations say "real
-    or complex" and the launch converts it: the same values declared as a complex
-    array build the same state and the same projection, to the bit.
+    The Jones vector ``(1, 0.5j)`` puts half the even channel's amplitude in the
+    odd one, a quarter period behind (conjugated into the internal convention).
+    The two channels are a rotation of each other, so the total captured is the
+    x-polarised beam's: what is projected is the field, and the account is the
+    quadratic form of its amplitudes, not a sum of separately projected
+    intensities.
     """
-    tables = projected_tables(pair_guide, grid)
-    centre = int(tables.omega.size // 2)
-    profile = np.real(
-        np.einsum(
-            "qcm,m->qc", tables.electric[0, :, :, :, centre], np.array([1.0, 0.5])
-        )
+    tilted = launched(pair_guide, grid, incident_beam(1.3e-6, (1.0, 0.5j)))
+    straight = launched(pair_guide, grid, incident_beam(1.3e-6, (1.0, 0.0)))
+    state = tilted._field0[:, 0]
+    live = np.abs(state[0]) > 0.0
+    assert_allclose(state[1][live] / state[0][live], -0.5j, rtol=1e-6)
+    assert_allclose(
+        account(tilted).captured_energy,
+        account(straight).captured_energy,
+        rtol=1e-6,
     )
-    assert profile.dtype == np.float64
-    assert np.any(profile != 0.0)
-    real = build(pair_guide, grid, transverse=profile)._field0
-    declared = build(pair_guide, grid, transverse=profile.astype(complex))._field0
-    np.testing.assert_array_equal(real, declared)
-    spread = np.repeat(profile[:, :, None], tables.omega.size, axis=2)
-    projected = project_transverse_field(tables, spread)
-    expected = project_transverse_field(tables, spread.astype(complex))
-    np.testing.assert_array_equal(projected.amplitudes, expected.amplitudes)
 
 
-def test_the_two_launches_are_refused_together_and_an_empty_one_by_name(
-    pair_guide, grid
-):
-    """Two ways to say what is launched, and a profile no channel sees."""
+def test_a_beam_the_channels_cannot_see_is_a_valid_zero_launch(guide, grid):
+    """Zero capture by symmetry launches nothing and runs; no division by zero.
+
+    A y-polarised beam against the x-polarised even channel: their overlap is the
+    channel's E_y, which varies as sin(2 theta) and cancels on the azimuthal
+    rule. The bound is the square of the node sum's rounding, ``(n_nodes eps)**2``
+    of the incident energy, since an energy is quadratic in the amplitude.
+    """
+    simulation = launched(guide, grid, incident_beam(1.3e-6, (0.0, 1.0)))
+    report = account(simulation)
+    assert simulation.general is not None
+    nodes = int(simulation.general.tables.electric.shape[1])
+    bound = (nodes * np.finfo(float).eps) ** 2
+    assert 0.0 <= report.captured_energy < bound * report.incident_energy
+    assert report.uncaptured_energy == pytest.approx(report.incident_energy, rel=1e-13)
+    output = cast("MemoryOutput", simulation.run(progress="none"))
+    assert all(np.all(np.isfinite(kept(plane.field))) for plane in output.planes())
+    assert "captured share" in str(report)
+
+
+def test_the_incident_energy_does_not_depend_on_the_guides_aperture(guide, grid):
+    """The beam is normalised over its own plane, not over a guide's nodes.
+
+    The same beam into two strands of different radius carries the same incident
+    account, bin for bin and to the bit, because no node of either guide enters
+    it; what each captures differs.
+    """
+    wider = general_guide(grid=grid, radius=2.5e-6)
+    beam = incident_beam(1.3e-6)
+    narrow_account = account(launched(guide, grid, beam))
+    wide_account = account(launched(wider, grid, beam))
+    np.testing.assert_array_equal(narrow_account.incident, wide_account.incident)
+    np.testing.assert_array_equal(
+        narrow_account.reference_index, wide_account.reference_index
+    )
+    assert narrow_account.captured_energy != wide_account.captured_energy
+
+
+def test_the_incident_launch_refuses_what_it_does_not_carry(pair_guide, grid):
+    """Two launches at once, pulse keywords beside a beam, and beams it cannot place."""
+    beam = incident_beam(1.3e-6)
     with pytest.raises(DriverError, match="two ways to say what is launched"):
-        build(pair_guide, grid, channel=0, transverse=np.ones((2, 3), dtype=complex))
-    with pytest.raises(DriverError, match="lies on this guide's nodes"):
-        build(pair_guide, grid, transverse=np.ones((2, 3), dtype=complex))
-    tables = projected_tables(pair_guide, grid)
-    nodes, components = tables.electric.shape[1], tables.electric.shape[2]
-    with pytest.raises(DriverError, match="capture none of the declared"):
-        build(
-            pair_guide,
-            grid,
-            transverse=np.zeros((nodes, components), dtype=complex),
-        )
-    with pytest.raises(DriverError, match="one transverse profile"):
-        _projected_launch(
-            np.ones((2, 1, grid.n_omega), dtype=complex),
-            tables,
-            np.ones((nodes, components), dtype=complex),
-        )
+        launched(pair_guide, grid, beam, channel=0)
+    for keyword, value in (
+        ("fwhm", 20e-15),
+        ("width", 10e-15),
+        ("energy", 1e-12),
+        ("peak_power", 1.0),
+        ("phases", (0.0, 0.0, 1e-30)),
+        ("pulses", (GaussianPulse(wavelength=835e-9, fwhm=2e-14, energy=1e-12),)),
+        ("pulseshape", "sech"),
+    ):
+        with pytest.raises(DriverError, match=f"carries its own temporal.*{keyword}"):
+            launched(pair_guide, grid, beam, **{keyword: value})
+    temporal = beam.temporal
+    with pytest.raises(DriverError, match="PlanarPulse"):
+        launched(pair_guide, grid, PlanarPulse(temporal, 1e-6, waist_x=1e-6))
+    with pytest.raises(DriverError, match="propz=0"):
+        launched(pair_guide, grid, SpatialPulse(temporal, 1.3e-6, propz=-1e-4))
     # And a record the map itself refuses reaches the caller as this entry point's
     # own error: the launch promises `DriverError` and the map raises `ModeError`.
+    tables = projected_tables(pair_guide, grid)
     bare = dataclasses.replace(tables)
     object.__setattr__(bare, "coordinate_dual", None)
+    index = np.where(grid.active_mask & (grid.omega > 0), 1.45, 0.0)
     with pytest.raises(DriverError, match="carry no coordinate_dual"):
-        _projected_launch(
-            np.ones((1, 1, grid.n_omega), dtype=complex),
-            bare,
-            np.ones((nodes, components), dtype=complex),
-        )
+        _incident_launch(beam, grid, bare, index)
+    with pytest.raises(DriverError, match="finite and non-negative"):
+        _incident_launch(beam, grid, tables, -index)
     # And without a provider it is one of the general-guide keywords the
     # gas-filled route refuses by name, beside `channel=` and `kerr_form=`.
-    with pytest.raises(DriverError, match="transverse= belongs to the general modal"):
+    with pytest.raises(DriverError, match="incident= belongs to the general modal"):
         Simulation.from_waveguide(
             (MarcatiliMode(125e-6, "He", 1.0),),
             GENERAL_Z_END,
             gas="He",
             pressure=1.0,
             grid=grid,
-            transverse=np.ones((2, 3), dtype=complex),
+            incident=beam,
             **PULSE,
         )
+    # A guide whose first region is not on the axis has no core to enter through.
+    provider = pair_guide.field_provider
+    core, cladding = provider.regions
+    shifted = (dataclasses.replace(core, inner_radius=1e-7), cladding)
+    with pytest.raises(DriverError, match="does not start there"):
+        _core_index(shifted, grid)
 
 
 class _LossyLaw:
@@ -683,49 +743,81 @@ def test_a_complex_permittivity_never_reaches_the_forward_field_closure(guide):
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("dtype", [complex, float])
-def test_prop_waveguide_takes_a_declared_transverse_field_too(pair_guide, grid, dtype):
-    """The functional entry point forwards `transverse=`, and its run is the same.
+def test_a_poorly_captured_beam_launches_only_what_the_guide_takes(guide, grid):
+    """A beam much wider than the core enters with the little the guide captures.
 
-    `prop_waveguide` is the one-call form of `Simulation.from_waveguide(...).run`,
-    and a keyword it accepts but drops would silently launch into the lowest
-    channel instead of the declared field. Two steps are enough: the launch is
-    what is being checked.
+    A 20 um beam on a 1.5 um strand: the channel captures about one per cent of
+    it. The run's own entrance plane, through `prop_waveguide`, carries the
+    captured energy and not ``energy=``: nothing restores what missed. The
+    account is in the file's configuration as well as the simulation's.
     """
-    tables = projected_tables(pair_guide, grid)
-    centre = int(tables.omega.size // 2)
-    profile = np.einsum(
-        "qcm,m->qc", tables.electric[0, :, :, :, centre], np.array([1.0, 0.5])
-    )
-    # A real profile is the contract's common case; these fields are real
-    # to rounding, so its real part launches the same shape.
-    profile = profile.astype(complex) if dtype is complex else np.real(profile)
+    beam = incident_beam(20e-6)
     output = cast(
         "MemoryOutput",
         prop_waveguide(
             (),
             GENERAL_Z_END,
-            provider=pair_guide,
+            provider=guide,
             grid=grid,
-            transverse=profile,
+            lambda0=PULSE["lambda0"],
+            incident=beam,
             progress="none",
-            **(PULSE | RUN),
+            **RUN,
         ),
     )
+    report = account(launched(guide, grid, beam))
+    assert report.captured_energy < 0.02 * report.incident_energy
+    assert report.incident_energy == pytest.approx(PULSE["energy"], rel=1e-13)
     entrance = kept(output.planes()[0].field)
-    expected = build(pair_guide, grid, transverse=profile)._field0
-    # The same declared launch, to the bit: the file's plane is the state the
-    # entry point built, carried through one conjugation and back (ADR-017).
-    live = np.abs(expected[0, 0]) > 0.0
+    # Identity metric: the energy statistic is the sum of |a|^2, formed in the
+    # same order as the account's up to the frequency-sum association.
     assert_allclose(
-        np.abs(entrance[1, 0][live]) / np.abs(entrance[0, 0][live]),
-        0.5,
-        rtol=1e-6,
+        float(physical_energy(grid, entrance)),
+        report.captured_energy,
+        rtol=1e-12,
         atol=0.0,
     )
-    assert_allclose(
-        float(np.sum(energy(grid, entrance))), PULSE["energy"], rtol=1e-12, atol=0.0
+    assert output.metadata is not None
+    recorded = output.metadata.configuration["launch"]
+    assert isinstance(recorded, IncidentLaunch)
+    assert recorded.captured_energy == report.captured_energy
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+def test_the_incident_launch_is_the_same_on_every_cpu_receiver(guide, grid, backend):
+    """The launch is built before any backend: every CPU backend starts from it.
+
+    Ten half-micrometre steps on each receiver: the stored entrance
+    plane is the launched state, a lossless copy, so it agrees bit for bit with the
+    one the simulation built, and its energy is the captured energy.
+    """
+    if backend == "native":
+        pytest.importorskip("solprop_native")
+    beam = incident_beam(2e-6)
+    # Inside the default collar's explicit stability limit, 7e-7 m.
+    step = 5e-7
+    simulation = launched(
+        guide,
+        grid,
+        beam,
+        backend=backend,
+        save_planes=[10 * step],
+        dz_max=step,
+        dz_init=step,
+        schedule=FixedSchedule(np.full(10, step)),
     )
+    output = cast("MemoryOutput", simulation.run(progress="none"))
+    entrance = kept(output.planes()[0].field)
+    reference = launched(guide, grid, beam)._field0
+    np.testing.assert_array_equal(entrance, reference)
+    assert_allclose(
+        float(physical_energy(grid, entrance)),
+        account(simulation).captured_energy,
+        rtol=1e-12,
+        atol=0.0,
+    )
+    assert all(np.all(np.isfinite(kept(plane.field))) for plane in output.planes())
 
 
 def test_a_multichannel_input_is_refused_by_the_launch(pair_guide, grid):
@@ -2439,36 +2531,3 @@ def test_fixed_steps_beyond_the_collar_are_refused_at_translation():
         output = stable.run(progress="none")
         assert isinstance(output, MemoryOutput)
         assert all(np.all(np.isfinite(kept(plane.field))) for plane in output.planes())
-
-
-def test_a_projected_launch_reports_its_captured_share_and_warns_past_three_percent(
-    pair_guide, grid, caplog
-):
-    """`transverse=` logs the captured share at INFO and warns at 3 % missed or more.
-
-    A profile that is exactly a combination of the guide's channels at the centre bin is
-    captured there, and the launch logs that without a warning. Adding a random
-    perturbation of a fifth of the profile's norm leaves about half of it uncaptured,
-    and the launch warns, still at the pulse's energy.
-    """
-    route = general_modal_route(
-        pair_guide, grid, z_max=GENERAL_Z_END, omega_reference=float(grid.omega0)
-    )
-    tables = route.tables
-    centre = int(tables.omega.size // 2)
-    captured = np.einsum(
-        "qcm,m->qc", tables.electric[0, :, :, :, centre], np.array([1.0, 0.5])
-    )
-    with (
-        caplog.at_level(logging.INFO, logger="solprop.driver.simulation"),
-        warnings.catch_warnings(),
-    ):
-        warnings.simplefilter("error", GeneralModalBasisWarning)
-        build(pair_guide, grid, transverse=captured)
-    reports = [r.getMessage() for r in caplog.records if "capture" in r.getMessage()]
-    assert reports and "not captured" in reports[-1]
-    noise = np.random.default_rng(1).standard_normal(captured.shape)
-    noise *= 0.2 * np.linalg.norm(captured) / np.linalg.norm(noise)
-    with pytest.warns(GeneralModalBasisWarning, match="not captured"):
-        simulation = build(pair_guide, grid, transverse=captured + noise)
-    assert np.all(np.isfinite(simulation._field0))
