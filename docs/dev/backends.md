@@ -366,6 +366,16 @@ the shock term and Raman on is conserved exactly while the energy falls by 7.2e-
 profiles)` builds one. The three keyword arguments are what `stats()` needs and the kernel
 contract does not carry.
 
+**Spatial statistics measure the medium's flux** ([SEP 34](seps/sep-0034-medium-flux.md)).
+The shared spatial statistics, `backends.spatial.collect_spatial`, read the plane's
+coefficients through `problem.flux.at(z)` (kernel schema 35): energy and the far-field
+spectra weight each column and bin by the real admittance `c Re k_z/omega` of that root,
+and fluence, intensities and the on-axis spectrum synthesise the closure `G` from the
+complex admittance before forming `Re(E conj(G))/2`, signed and not clipped. The widths
+refuse a fluence negative beyond its rounding budget. The collar diagnostic,
+`backends.spatial.collar_field_fraction`, stays an electric-field-norm share and is named
+as one. A backend whose own statistics do not apply this measure refuses the schema.
+
 ## 3. `numba_cpu`: the compiled in-tree backend
 
 ### 3.1 Why numba, and what the measurements say

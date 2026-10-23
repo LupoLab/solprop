@@ -148,16 +148,15 @@ $\alpha=2$. Sprangle, Peñano and Hafizi (2002) define a "self-focusing power"
 $\lambda^2/(2\pi n_0n_2)$, also $\alpha=2$. When a paper says "$P/P_{\rm cr}=3$", find out which
 $P_{\rm cr}$ it means. solprop's `critical_power` uses the Townes constant. The guide's
 statement of it, in terms of $\chi^{(3)}$, is
-$P_{\rm crit}=\alpha\varepsilon_0c\lambda^2/(3\pi\chi^{(3)})$
+$P_{\rm crit}=\alpha n_0\varepsilon_0c\lambda^2/(3\pi\chi^{(3)})$
 ([critical power and self-focusing](../guide/free-space/model.md#critical-power-and-self-focusing)).
 For argon at 1 bar and 800 nm it gives about 9.2 GW.
 
-That value is lower than the physical Poynting-flux value by the factor $n_0$, because solprop's
-free-space routes measure power and intensity with the vacuum admittance
-$\tfrac12\varepsilon_0c$ ([spatial geometries](../guide/results/power-and-intensity.md)). In a gas
-the difference is a few parts in $10^4$. In a solid it is a factor of about 1.5 in the absolute
-energy and intensity reported, although ratios such as $P/P_{\rm crit}$ remain consistent. The
-design tool `self_focusing_power` returns the physical value.
+This is the physical power: solprop's free-space routes measure power, energy and
+intensity as the axial Poynting flux in the medium, $n_0\varepsilon_0c|E|^2/2$ for a
+paraxial beam ([energy and flux in a medium](../guide/free-space/flux.md)). The same energy
+in glass of index 1.5 therefore has a field $\sqrt{1.5}$ lower than in vacuum, and the
+design tool `self_focusing_power` returns the same value as `critical_power`.
 
 Where does a beam above the critical power collapse? For a collimated Gaussian in a pure Kerr
 medium, the empirical fit usually credited to Marburger (1975) gives
@@ -214,13 +213,13 @@ Cartesian grid doing something no radial calculation can.
 - The radial route uses the quasi-discrete Hankel transform: samples at Bessel zeros, a symmetric
   kernel that is unitary to about $10^{-11}$, cost $N^2$. Radius and point count are separate
   truncations.
-- Free-space grids reflect or wrap unless you declare an absorber, and solprop warns when fluence
-  reaches the collar.
+- Free-space grids reflect or wrap unless you declare an absorber, and solprop warns when the
+  field reaches the collar.
 - Cartesian grids carry any transverse structure at the cost of memory. Line grids are genuinely
   (1+1)-D: no collapse, no critical power.
 - $P_{\rm cr}=\alpha\lambda^2/(4\pi n_0n_2)$, with $\alpha=1.86225$ (Townes, lower bound), 1.8962
-  (collimated Gaussian), or 2 (sufficient, and often used). solprop uses the Townes value and a
-  vacuum power measure.
+  (collimated Gaussian), or 2 (sufficient, and often used). solprop uses the Townes value and the
+  physical power in the medium.
 - Marburger's collapse distance uses $z_R=kw_0^2/2$. Use the erratum form of Bergé et al.'s focused
   version.
 - A radial filament calculation cannot show azimuthal instability, multiple filaments, vortices or

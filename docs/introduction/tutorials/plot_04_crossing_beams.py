@@ -47,7 +47,7 @@ from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings
 from solprop.grid import EnvelopeGrid, FreeGrid
 from solprop.pulses import GaussianPulse
-from solprop.spatial import SpatialMedium, spatial_energy, spatial_fluence
+from solprop.spatial import SpatialFlux, SpatialMedium, spatial_energy, spatial_fluence
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController, RungeKutta
 
@@ -57,6 +57,7 @@ WAVELENGTH = 800e-9
 WAIST = 150e-6
 OFFSET = 0.4e-3
 ENERGY = 1e-9
+VACUUM = SpatialMedium()
 angle = np.arctan(2 * OFFSET / LENGTH)
 fringe_spacing = WAVELENGTH / (2 * np.sin(angle))
 grid = EnvelopeGrid.from_limits(LENGTH, WAVELENGTH, (700e-9, 950e-9), 400e-15)
@@ -86,10 +87,11 @@ print(f"grid: {space.n_x} x {space.n_y} transverse, {grid.n_t} temporal samples"
 # See :doc:`/guide/setup/grids` and :doc:`/guide/free-space/cartesian` before
 # adapting these transforms to measured fields.
 #
-# ``spatial_energy`` supplies the package's spatial energy measure. Normalising
-# each array separately sets equal beam energies; we then add **fields**, not
-# intensities. For initially overlapping beams, the total energy would also
-# include their interference term.
+# ``spatial_energy`` measures the physical energy crossing a plane, here in vacuum,
+# with the measure of that plane, a ``SpatialFlux`` (:doc:`/guide/free-space/flux`).
+# Normalising each array separately sets equal beam energies; we then add
+# **fields**, not intensities. For initially overlapping beams, the total energy
+# would also include their interference term.
 
 
 def launch(spatial_grid, direction):
@@ -99,7 +101,8 @@ def launch(spatial_grid, direction):
     tilt = np.exp(-1j * direction * x[..., None] * grid.omega * np.sin(angle) / C)
     physical = profile[..., None] * tilt * temporal[0, 0]
     spectrum = np.fft.fft2(physical, axes=(0, 1)).reshape(-1, 1, grid.n_omega)
-    return spectrum * np.sqrt(ENERGY / spatial_energy(grid, spatial_grid, spectrum))
+    flux = SpatialFlux.resolve(grid, spatial_grid, VACUUM)
+    return spectrum * np.sqrt(ENERGY / spatial_energy(spectrum, flux))
 
 
 left = launch(space, +1)
@@ -116,7 +119,7 @@ settings = SimulationSettings(
 simulation = Simulation.from_free(
     grid,
     space,
-    SpatialMedium(),
+    VACUUM,
     [],
     left + right,
     settings=settings,
@@ -126,7 +129,7 @@ run = simulation.run(progress="none")
 # %%
 # Watch overlap and separation
 # ----------------------------
-# Fluence integrates intensity over time and has units J/m². The snapshots show
+# Fluence integrates the axial flux over time and has units J/m². The snapshots show
 # the entrance, the central overlap plane, and the exit on one shared colour
 # scale. Bright and dark fringes at overlap redistribute the local fluence. After
 # the crossing, the beams separate again; their directions have not been changed
@@ -134,9 +137,12 @@ run = simulation.run(progress="none")
 # The x-z map beneath the snapshots takes the y = 0 slice from each saved plane.
 
 z = np.asarray(run["z"])
+flux = SpatialFlux.resolve(
+    grid, space, VACUUM
+)  # one vacuum: one measure at every plane
 fluence = np.array(
     [
-        spatial_fluence(grid, space, plane.field).reshape(space.n_y, space.n_x)
+        spatial_fluence(plane.field, flux).reshape(space.n_y, space.n_x)
         for plane in run.planes()
     ]
 )
@@ -196,7 +202,7 @@ for initial in (left, right):
     single = Simulation.from_free(
         grid,
         space,
-        SpatialMedium(),
+        VACUUM,
         [],
         initial,
         settings=check_settings,
@@ -209,7 +215,7 @@ individual_fluence = []
 for beam, direction in zip(individual, (+1, -1), strict=True):
     maps = np.array(
         [
-            spatial_fluence(grid, space, plane.field).reshape(space.n_y, space.n_x)
+            spatial_fluence(plane.field, flux).reshape(space.n_y, space.n_x)
             for plane in beam.planes()
         ]
     )
@@ -275,14 +281,15 @@ fine_space = FreeGrid(space.radius_x, 2 * space.n_x, space.radius_y, 2 * space.n
 fine = Simulation.from_free(
     grid,
     fine_space,
-    SpatialMedium(),
+    VACUUM,
     [],
     launch(fine_space, +1) + launch(fine_space, -1),
     settings=check_settings,
 ).run(progress="none")
 refinement_errors = []
+fine_flux = SpatialFlux.resolve(grid, fine_space, VACUUM)
 for fine_plane, coarse_index in zip(list(fine.planes())[1:], (20, 40), strict=True):
-    fine_map = spatial_fluence(grid, fine_space, fine_plane.field).reshape(
+    fine_map = spatial_fluence(fine_plane.field, fine_flux).reshape(
         fine_space.n_y, fine_space.n_x
     )
     common = fine_map[::2, ::2]

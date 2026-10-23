@@ -113,8 +113,9 @@ case.
 
 **The critical power** is {py:func}`~solprop.tools.self_focusing_power`,
 $P_{\rm cr}=1.86226\,\lambda^2/(4\pi n_0n_2)$ (Fibich and Gaeta, Opt. Lett. **25**, 335
-(2000)). It is {py:func}`solprop.spatial.critical_power` times $n_0$, so the package has
-one Townes constant.
+(2000)). It is {py:func}`solprop.spatial.critical_power` evaluated at `index=n0`: both
+measure the physical axial power in the medium, and the package has one Townes
+constant.
 
 {py:func}`~solprop.tools.gas_ratio` compares two gases at one wavelength, pressure and
 temperature — the ratio of their bulk dispersions and of their Kerr responses, by name —

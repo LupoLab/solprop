@@ -209,10 +209,30 @@ mode per active bin, fixed modulus and random phase. Its field-grid modulus is
 `sqrt(hbar omega/domega) sqrt(2 pi)/dt`. The internal draw is divided by the entrance
 square root. It is not a circular-Gaussian draw.
 
-**Spatial geometry.** Radial and Cartesian states retain physical V/m or V m units
-and have no modal power-weight row. Their energy and fluence functionals use the
-vacuum admittance until a medium-aware spatial flux contract is defined (roadmap); no constant
-factor alone corrects their broadband dispersive cases.
+**Spatial geometry** ([SEP 34](seps/sep-0034-medium-flux.md)). Radial, Cartesian and
+line states retain physical V/m or V m units and have no modal power-weight row. They are
+measured with the scalar axial admittance of the medium at the plane,
+`Y_c = eps0 c² k_z/omega` per transverse column and bin, zero on nonpropagating,
+inactive and nonpositive-frequency bins (`solprop.spatial.SpatialFlux`). Energy, beam
+and angular-port spectra, absorbed powers and the noise draw use `Y_z = Re Y_c`:
+`U = dt/(2 n_t) sum_{j,p,k} v_j gamma_k Y_z |E_jpk|²`, with `gamma_k` the endpoint
+weights above. Local fluence, intensity and on-axis quantities synthesise `E` and
+`G = Y_c E` with the **complex** admittance and form `S_z = 1/2 Re[E_a dot conj(G_a)]`;
+they are signed and never clipped, and widths refuse a fluence negative beyond its
+rounding budget. `peak_field` is the named physical-field diagnostic, `max |E_a|` in
+V/m, which ionisation uses. A launch normalises physical energy or peak axial power at
+its plane in the medium there; a plane at a declared index jump names its side
+(`before` or `after`). The hybrid planar guide uses the slab metric
+`w = c Re q/omega`, `q = sqrt((omega n_eff/c)² - k_y²)`, on its vacuum-normalised slab
+amplitudes, without a second `eps0 c/2`.
+
+**Varying radial medium.** A radial gas path adds the endpoint term
+`-1/2 ln[Y_z(omega,k_r,z)/Y_z(omega,k_r,z0)]` to the cumulative linear exponent, the
+spatial counterpart of `Phi_w`, so `Y_z |E|²` is invariant under the linear flow. It is
+admitted only when every propagating column meets the adiabatic certificate:
+`Lambda = TV(ln Re k_z)/2` over the run path, `R* = tanh² Lambda` and
+`delta* = expm1(Lambda tanh Lambda)` within `AdiabaticAccuracy` (default 1e-4 each;
+`solprop.adiabatic`).
 
 ## 5. Modes and polarisation
 
