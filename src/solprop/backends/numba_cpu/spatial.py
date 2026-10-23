@@ -38,6 +38,7 @@ __all__ = [
     "finish_material",
     "flux_measure",
     "make_far_field",
+    "make_flux_columns",
     "make_kernels",
     "pack_columns",
     "rotate_noise",
