@@ -1397,8 +1397,9 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
                 fraction = collar_field_fraction(self._problem, member)
                 if fraction > threshold:
                     self._logger.warning(
-                        "spatial collar contains %.6e of the beam's field norm at z = %.6e m, "
-                        "above diagnostic threshold %.6e; increase the transverse "
+                        "spatial collar contains %.6e of the beam's field norm at "
+                        "z = %.6e m, above diagnostic threshold %.6e; increase the "
+                        "transverse "
                         "window to check the influence of its boundary",
                         fraction,
                         self._z,
