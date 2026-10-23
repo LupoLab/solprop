@@ -256,7 +256,20 @@ def flux_from_record(record: Mapping[str, object]) -> FluxPlan:
     """
 
     def array(name: str, dtype: type) -> np.ndarray:
-        """Return one stored coefficient array."""
+        """Return one stored coefficient array.
+
+        Parameters
+        ----------
+        name : str
+            The record's key.
+        dtype : type
+            The array's dtype.
+
+        Returns
+        -------
+        numpy.ndarray
+            The array.
+        """
         return _stored(record[name], dtype)
 
     zeros = np.zeros(array("k_squared", complex).size)
@@ -314,11 +327,33 @@ def _admission(record: Mapping[str, object]) -> AdiabaticAdmission:
     """
 
     def number(name: str) -> float:
-        """Return one stored scalar."""
+        """Return one stored scalar.
+
+        Parameters
+        ----------
+        name : str
+            The record's key.
+
+        Returns
+        -------
+        float
+            The value.
+        """
         return float(cast("float", record[name]))
 
     def optional(name: str) -> float | None:
-        """Return one stored scalar that may be absent."""
+        """Return one stored scalar that may be absent.
+
+        Parameters
+        ----------
+        name : str
+            The record's key.
+
+        Returns
+        -------
+        float or None
+            The value, or None where it was not recorded.
+        """
         value = record.get(name)
         return None if value is None else float(cast("float", value))
 

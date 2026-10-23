@@ -326,7 +326,7 @@ class _AffineSquare:
         Returns
         -------
         numpy.ndarray
-            s in m^-2, shape ``(n_modes, n_omega)``.
+            The square s in m^-2, shape ``(n_modes, n_omega)``.
         """
         return self.base + np.sum(self.slope * values[:, None], axis=0)[None, :]
 
@@ -340,7 +340,7 @@ class _AffineSquare:
         change : numpy.ndarray
             The change of s, formed from the density changes, not by subtraction.
         reference : numpy.ndarray
-            s at the start of the change.
+            The square s at the start of the change.
         magnitude : numpy.ndarray
             The scale S of the terms forming s.
 
@@ -489,6 +489,18 @@ def _pieces(paths: Sequence[ZProfile], start: float, end: float) -> _Pieces:
     ]
 
     def table(name: str) -> np.ndarray:
+        """Return one field of every collapsed piece, paths by pieces.
+
+        Parameters
+        ----------
+        name : str
+            A :class:`~solprop.profiles.PathVariation` field.
+
+        Returns
+        -------
+        numpy.ndarray
+            Its first value per path and piece.
+        """
         return np.array([[float(getattr(c, name)[0]) for c in row] for row in rows])
 
     return _Pieces(

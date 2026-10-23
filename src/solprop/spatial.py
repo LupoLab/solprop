@@ -885,8 +885,11 @@ class SpatialFlux:
     def energy_scale(self) -> float:
         """Return the factor turning weighted ``|X|^2`` sums into joules.
 
-        ``eps0 c / 2`` for a field in V/m; one for planar slab amplitudes, whose
-        mode functions already carry it.
+        Returns
+        -------
+        float
+            ``eps0 c / 2`` for a field in V/m; one for planar slab amplitudes, whose
+            mode functions already carry it.
         """
         return 1.0 if isinstance(self.space, PlanarGrid) else 0.5 * EPS0 * C
 

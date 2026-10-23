@@ -927,7 +927,18 @@ def _far_field(  # noqa: PLR0913 - the far-field pass's whole context
     rated = operator if operator is not None else plane
 
     def axial(columns: slice) -> tuple[np.ndarray, np.ndarray]:
-        """Return the plane's admittance and the operator's rates for a chunk."""
+        """Return the plane's admittance and the operator's rates for a chunk.
+
+        Parameters
+        ----------
+        columns : slice
+            The transverse columns of the chunk.
+
+        Returns
+        -------
+        tuple of numpy.ndarray
+            The complex admittance and the four absorption rates.
+        """
         _, rates = axial_factors(rated, grid.omega, columns)
         return axial_admittance(plane, grid.omega, columns), rates
 

@@ -3052,9 +3052,33 @@ class SeriesOfPath(Displayed):
         bound = float(np.sum(np.abs(slope.coef)))
 
         def critical(low: float, high: float) -> Float[np.ndarray, " n"]:
+            """Return the derivative's real roots strictly inside an interval.
+
+            Parameters
+            ----------
+            low, high : float
+                The interval's ends in the series' variable.
+
+            Returns
+            -------
+            numpy.ndarray
+                The roots inside it.
+            """
             return real[(real > low) & (real < high)]
 
         def series(values: Float[np.ndarray, " n"]) -> Float[np.ndarray, " n"]:
+            """Evaluate the series as real values.
+
+            Parameters
+            ----------
+            values : numpy.ndarray
+                Points in the series' variable.
+
+            Returns
+            -------
+            numpy.ndarray
+                The series there.
+            """
             return np.asarray(self.series(values), dtype=float)
 
         return _mapped_variation(record, series, critical, lambda _low, _high: bound)

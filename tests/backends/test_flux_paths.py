@@ -4,6 +4,9 @@
 
 """Test physical flux through radial gas paths on every backend (SEP 34)."""
 
+from collections.abc import Mapping
+from typing import cast
+
 import numpy as np
 import pytest
 
@@ -102,8 +105,8 @@ def test_a_plane_or_flux_on_a_jump_needs_a_side():
         SpatialFlux.resolve(grid, space, medium, z=LENGTH / 2)
     before = SpatialFlux.resolve(grid, space, medium, z=LENGTH / 2, side="before")
     after = SpatialFlux.resolve(grid, space, medium, z=LENGTH / 2, side="after")
-    assert np.all(before.admittance().real <= after.admittance().real)
-    assert np.any(before.admittance().real < after.admittance().real)
+    assert np.all(np.real(before.admittance()) <= np.real(after.admittance()))
+    assert np.any(np.real(before.admittance()) < np.real(after.admittance()))
 
 
 def test_the_recorded_plane_measure_keeps_its_certificate():
@@ -112,7 +115,7 @@ def test_the_recorded_plane_measure_keeps_its_certificate():
     assert plan is not None
     assert plan.admission is not None
     for record in (flux_record(plan), serialise(flux_record(plan))):
-        rebuilt = flux_from_record(record)
+        rebuilt = flux_from_record(cast("Mapping[str, object]", record))
         admission = rebuilt.admission
         assert admission is not None
         assert admission.variation == plan.admission.variation

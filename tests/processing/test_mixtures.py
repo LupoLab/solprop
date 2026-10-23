@@ -180,6 +180,7 @@ def test_node_fluence_integrates_to_saved_energy(case, outputs):
         # its real admittance in the fill: the signed fluence integrates to the
         # axial-flux energy (SEP 34 section 4.2).
         space = simulation.spatial_grid
+        assert space is not None
         transverse = space.k_r**2 if isinstance(space, RadialGrid) else space.kperp_sq
         spectral = (
             spectral * admittance(simulation.medium, grid, transverse)[None, :, None, :]
