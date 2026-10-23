@@ -12,7 +12,7 @@ y) and the one per-channel table it needs, ``kappa_sq``.
 """
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 import numpy as np
@@ -29,13 +29,16 @@ from solprop.spatial import (
     quadrature_half_width,
 )
 from solprop.stats import StatsSpec
+from solprop.translate.chebyshev import PiecewiseChebyshev
 from solprop.translate.masks import Grids
 
 __all__ = [
+    "FluxPlan",
     "RateBounds",
     "SeparableOperator",
     "SpatialGeometry",
     "aperture_tables",
+    "axial_admittance",
     "axial_factors",
     "longitudinal_root",
     "rate_bounds",
@@ -764,25 +767,76 @@ def longitudinal_root(
     return root, propagating, attenuation
 
 
+def axial_admittance(
+    coefficients: SeparableOperator,
+    omega: Float[np.ndarray, " n_omega"],
+    columns: slice,
+) -> Complex[np.ndarray, "n_chunk n_omega"]:
+    """Return the dimensionless forward admittance ``c k_z / omega`` of a chunk.
+
+    The physical axial admittance is ``eps0 c`` times this value (SEP 34). It is the
+    root of :func:`longitudinal_root` on active propagating bins at positive
+    frequency, in the optics convention (positive imaginary part for loss), and zero
+    elsewhere: a nonpropagating or inactive column is not a forward power port.
+
+    Parameters
+    ----------
+    coefficients : SeparableOperator
+        The plane's or the run's constant coefficients.
+    omega : numpy.ndarray
+        Physical angular frequencies in rad/s, shape ``(n_omega,)``.
+    columns : slice
+        The transverse columns of the chunk.
+
+    Returns
+    -------
+    numpy.ndarray
+        Complex admittance, shape ``(n_chunk, n_omega)``.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.constants import C
+    >>> from solprop.translate.spatial import SeparableOperator, axial_admittance
+    >>> omega = np.array([0.0, C, 2 * C])
+    >>> vacuum = SeparableOperator(
+    ...     k_squared=(omega / C) ** 2 + 0j, kperp_sq=np.array([0.0, 2.25]),
+    ...     k_squared_low=np.zeros(3, complex), kperp_sq_low=np.zeros(2),
+    ...     frame=np.zeros(3), spectral_rate=np.zeros(3),
+    ...     prefactor_numerator=np.zeros(3, complex),
+    ...     prefactor_clamped=np.zeros(3, complex),
+    ...     active=np.array([False, True, True]), evanescent_rate=200.0, n_pol=1,
+    ...     z_span=(0.0, 1.0),
+    ... )
+    >>> np.round(axial_admittance(vacuum, omega, slice(None)).real, 12).tolist()
+    [[0.0, 1.0, 1.0], [0.0, 0.0, 0.661437827766]]
+    """
+    root, propagating, _ = longitudinal_root(coefficients, columns)
+    live = propagating & coefficients.active[None, :] & (omega > 0)[None, :]
+    admittance = np.zeros(root.shape, dtype=np.complex128)
+    np.divide(C * root, omega[None, :], out=admittance, where=live)
+    return admittance
+
+
 def axial_factors(
     coefficients: SeparableOperator,
     omega: Float[np.ndarray, " n_omega"],
     columns: slice,
 ) -> tuple[
-    Float[np.ndarray, "n_chunk n_omega"], Float[np.ndarray, "4 n_chunk n_omega"]
+    Complex[np.ndarray, "n_chunk n_omega"], Float[np.ndarray, "4 n_chunk n_omega"]
 ]:
-    """Return a chunk's obliquity and absorption rates for the far-field statistics.
+    """Return a chunk's admittance and absorption rates for the far-field statistics.
 
-    The weights of ``poynting_spectrum`` and ``absorbed_power`` (SEP 23 sections 4.8
-    and 4.9), from :func:`longitudinal_root`. The obliquity is ``c Re(k_z)/omega`` on
-    active propagating bins at positive frequency and zero elsewhere. The four power
-    rates, in the order of :data:`solprop.spatial.ABSORBED_CHANNELS`, are the
-    operator's spectral rate on every bin, as the stages apply it; the transverse
-    collar's rate on active bins (zero without one); ``2 min(|Im k_z|, cap)`` on active
-    evanescent bins; and ``2 Im k_z`` on active propagating bins, the material loss
-    (negative for gain). Together they are twice the negated real part of the
-    operator, so their power is the whole decrement of the energy under the linear
-    flow on this representation.
+    The weights of the far-field statistics (SEP 23 sections 4.8 and 4.9, measured
+    by SEP 34's axial flux), from :func:`longitudinal_root`. The admittance is
+    :func:`axial_admittance`. The four power rates, in the order of
+    :data:`solprop.spatial.ABSORBED_CHANNELS`, are the operator's spectral rate on
+    every bin, as the stages apply it; the transverse collar's rate on active bins
+    (zero without one); ``2 min(|Im k_z|, cap)`` on active evanescent bins; and
+    ``2 Im k_z`` on active propagating bins, the material loss (negative for gain).
+    Together they are twice the negated real part of the operator; weighted by the
+    real admittance, their power is the physical flux the linear flow removes. The
+    evanescent channel, whose admittance is zero, removes no physical flux.
 
     Parameters
     ----------
@@ -796,35 +850,11 @@ def axial_factors(
     Returns
     -------
     tuple of numpy.ndarray
-        The dimensionless obliquity, shape ``(n_chunk, n_omega)``, and the rates in
-        m^-1, shape ``(4, n_chunk, n_omega)``.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from solprop.constants import C
-    >>> from solprop.translate.spatial import SeparableOperator, axial_factors
-    >>> omega = np.array([0.0, C, 2 * C])
-    >>> vacuum = SeparableOperator(
-    ...     k_squared=(omega / C) ** 2 + 0j, kperp_sq=np.array([0.0, 2.25]),
-    ...     k_squared_low=np.zeros(3, complex), kperp_sq_low=np.zeros(2),
-    ...     frame=np.zeros(3), spectral_rate=np.zeros(3),
-    ...     prefactor_numerator=np.zeros(3, complex),
-    ...     prefactor_clamped=np.zeros(3, complex),
-    ...     active=np.array([False, True, True]), evanescent_rate=200.0, n_pol=1,
-    ...     z_span=(0.0, 1.0),
-    ... )
-    >>> obliquity, rates = axial_factors(vacuum, omega, slice(None))
-    >>> np.round(obliquity, 12).tolist()
-    [[0.0, 1.0, 1.0], [0.0, 0.0, 0.661437827766]]
-    >>> rates.shape, round(float(rates[2, 1, 1]), 12)
-    ((4, 2, 3), 2.2360679775)
+        The dimensionless complex admittance, shape ``(n_chunk, n_omega)``, and the
+        rates in m^-1, shape ``(4, n_chunk, n_omega)``.
     """
     root, propagating, attenuation = longitudinal_root(coefficients, columns)
     active = coefficients.active[None, :]
-    live = propagating & active & (omega > 0)[None, :]
-    obliquity = np.zeros(root.shape)
-    np.divide(C * np.real(root), omega[None, :], out=obliquity, where=live)
     rates = np.zeros((4, *root.shape))
     rates[0] = coefficients.spectral_rate[None, :]
     # The transverse collar's rate acts on the active band, as the operator applies
@@ -832,7 +862,49 @@ def axial_factors(
     rates[1] = np.where(active, _kperp_rate(coefficients, columns)[:, None], 0.0)
     rates[2] = np.where(active & ~propagating, 2.0 * attenuation, 0.0)
     rates[3] = np.where(active & propagating, 2.0 * attenuation, 0.0)
-    return obliquity, rates
+    return axial_admittance(coefficients, omega, columns), rates
+
+
+@dataclass(frozen=True, eq=False)
+class FluxPlan:
+    """The plane-measure coefficients of a spatial run at any position (SEP 34).
+
+    Kernel schema 35. The run's statistics read the axial admittance of the medium
+    at the plane they measure through :meth:`at`: a uniform medium's is the run's
+    own separable coefficients, and a radial gas path's replaces the material square
+    by its z table, so the root is :func:`longitudinal_root`'s at that position.
+
+    Attributes
+    ----------
+    base : SeparableOperator
+        Transverse squares, wall terms and active band, with the material square at
+        the entrance.
+    material : solprop.translate.chebyshev.PiecewiseChebyshev or None
+        The complex material square ``(omega n(omega, z) / c)**2`` in m^-2 along z,
+        value shape ``(n_omega,)``, for a radial medium that varies; None for a
+        uniform medium.
+    """
+
+    base: SeparableOperator
+    material: PiecewiseChebyshev | None = None
+
+    def at(self, z: float) -> SeparableOperator:
+        """Return the coefficients of the plane at ``z``.
+
+        Parameters
+        ----------
+        z : float
+            Position in m inside the translated span.
+
+        Returns
+        -------
+        SeparableOperator
+            The coefficients whose root is the plane's ``k_z``.
+        """
+        if self.material is None:
+            return self.base
+        square = np.asarray(self.material(float(z)), np.complex128)
+        return replace(self.base, k_squared=np.where(self.base.active, square, 0))
 
 
 def _far_field_columns(

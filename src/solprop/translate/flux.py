@@ -15,18 +15,18 @@ propagation see the same ``k_z``.
 import math
 
 import numpy as np
-from jaxtyping import Complex, Float
 
-from solprop.constants import C
 from solprop.exceptions import MaterialError
 from solprop.grid import FreeGrid, RadialGrid, TimeGrid
 from solprop.linear import Frame
 from solprop.modes.slab import PlanarGrid
 from solprop.spatial import EVANESCENT_RATE, SpatialDispersion, SpatialMedium
+from solprop.translate.chebyshev import build
+from solprop.translate.linop import LinearOperator
 from solprop.translate.planar import planar_kappa, square_residuals
-from solprop.translate.spatial import SeparableOperator, longitudinal_root
+from solprop.translate.spatial import FluxPlan, SeparableOperator
 
-__all__ = ["axial_admittance", "plane_coefficients"]
+__all__ = ["flux_plan", "plane_coefficients"]
 
 
 def plane_coefficients(
@@ -105,35 +105,57 @@ def plane_coefficients(
     )
 
 
-def axial_admittance(
-    coefficients: SeparableOperator,
-    omega: Float[np.ndarray, " n_omega"],
-    columns: slice,
-) -> Complex[np.ndarray, "n_chunk n_omega"]:
-    """Return the dimensionless forward admittance ``c k_z / omega`` of a chunk.
+def flux_plan(
+    space: RadialGrid | FreeGrid | PlanarGrid,
+    dispersion: SpatialDispersion,
+    linear: LinearOperator,
+    *,
+    tol: float,
+) -> FluxPlan:
+    """Build the run's plane-measure coefficients for its statistics.
 
-    The physical admittance is ``eps0 c`` times this value. It is the root of
-    :func:`solprop.translate.spatial.longitudinal_root` on active propagating bins
-    at positive frequency, in the optics convention (positive imaginary part for
-    loss), and zero elsewhere: a nonpropagating or inactive column is not a forward
-    power port. Its real part is the obliquity of the far-field statistics.
+    Cartesian, line and planar runs are uniform along z, so the run's own separable
+    coefficients are the measure everywhere. A radial run's coefficients at the
+    entrance are paired with a z table of the material square when its medium
+    varies, built on the medium's breakpoints as mandatory edges.
 
     Parameters
     ----------
-    coefficients : SeparableOperator
-        The plane's or the run's constant coefficients.
-    omega : numpy.ndarray
-        Physical angular frequencies in rad/s, shape ``(n_omega,)``.
-    columns : slice
-        The transverse columns of the chunk.
+    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
+        Transverse geometry.
+    dispersion : solprop.spatial.SpatialDispersion
+        The run's medium, temporal grid and evanescent cap.
+    linear : solprop.translate.linop.LinearOperator
+        The run's linear operator: its separable record and its span.
+    tol : float
+        Relative tolerance of the material table, positive.
 
     Returns
     -------
-    numpy.ndarray
-        Complex admittance, shape ``(n_chunk, n_omega)``.
+    FluxPlan
+        The run's plane measure.
     """
-    root, propagating, _ = longitudinal_root(coefficients, columns)
-    live = propagating & coefficients.active[None, :] & (omega > 0)[None, :]
-    admittance = np.zeros(root.shape, dtype=np.complex128)
-    np.divide(C * root, omega[None, :], out=admittance, where=live)
-    return admittance
+    if linear.separable is not None:
+        return FluxPlan(linear.separable)
+    grid = dispersion.grid
+    span = (float(linear.phi_breakpoints[0]), float(linear.phi_breakpoints[-1]))
+    base = plane_coefficients(
+        space, dispersion.medium, grid, 0.0, evanescent_rate=dispersion.evanescent_rate
+    )
+    paths = [
+        path
+        for path in dispersion.medium.parameter_paths.values()
+        if not path.is_constant
+    ]
+    if not paths:
+        return FluxPlan(base)
+    kinks = np.unique(np.concatenate([path.breakpoints for path in paths]))
+    material = build(
+        lambda positions: np.stack(
+            [dispersion.shared_values(float(one))[0] for one in positions]
+        ),
+        *span,
+        tol=tol,
+        mandatory_breakpoints=kinks[(kinks > span[0]) & (kinks < span[1])],
+    )
+    return FluxPlan(base, material)

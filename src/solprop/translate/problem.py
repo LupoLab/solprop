@@ -105,6 +105,7 @@ from solprop.translate.coupled import (
     section_expansion,
 )
 from solprop.translate.expansion import ParameterExpansion
+from solprop.translate.flux import flux_plan
 from solprop.translate.free import free_operators, free_transform
 from solprop.translate.general import (
     GeneralModalRoute,
@@ -149,7 +150,12 @@ from solprop.translate.responses import (
     response_kinks,
     unlanded_kinks,
 )
-from solprop.translate.spatial import RateBounds, SeparableOperator, rate_bounds
+from solprop.translate.spatial import (
+    FluxPlan,
+    RateBounds,
+    SeparableOperator,
+    rate_bounds,
+)
 from solprop.translate.tdse import TDSEDescriptor
 from solprop.translate.tdse_source import (
     STEADY_CURRENT_CERTIFICATE_LIMIT,
@@ -186,7 +192,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 34
+SCHEMA_VERSION = 35
 """Version of the kernel contract this module implements.
 
 Incremented on every change to the field list of ``docs/dev/kernel-contract.md``. A
@@ -408,6 +414,13 @@ class attribute ``helpers``, the backend's implementation of the per-stage Cheby
 rows and the Adams basis, which the shared driver, march and engines pass down
 (``solprop._helpers``). An older native build does not set it and would run solprop's
 Numba helpers, so it is refused.
+
+Version 35 (SEP 34) adds ``flux``, the spatial run's plane-measure coefficients
+(:class:`solprop.translate.spatial.FluxPlan`): every spatial statistic is the axial
+Poynting flux of the medium at its plane, weighted by the admittance
+``c k_z / omega`` of that plane's root, with the complex admittance for local flux.
+A radial gas path's cumulative operator gains the forward amplitude term
+``-ln(Y_z(z)/Y_z(0))/2``. A problem without spatial geometry carries no plan.
 """
 
 DEFAULT_COMPONENTS = ("x",)
@@ -971,6 +984,9 @@ class KernelProblem:
         Independent current source numerator, ``-crop_scale/(2 epsilon_0 c)``,
         shape ``(n_modes, n_pol, n_omega)``. Zero outside the retained band.
         Divide by the stage's real effective index without dividing by frequency.
+    flux : solprop.translate.spatial.FluxPlan or None, optional
+        A spatial run's plane-measure coefficients (version 35); required with
+        spatial geometry and absent otherwise.
 
     Examples
     --------
@@ -989,7 +1005,7 @@ class KernelProblem:
     ...     dz_max=0.1, dz_init=1e-3, shock=False, prefactor_index=1.0, density=1.0,
     ... )
     >>> problem.shape, problem.grid_kind, problem.schema_version
-    ((1, 1, 1, 4096), 'envelope', 34)
+    ((1, 1, 1, 4096), 'envelope', 35)
     """
 
     schema_version: int
@@ -1005,6 +1021,7 @@ class KernelProblem:
     stats_spec: StatsSpec
     tdse: TDSEDescriptor | None = None
     current_numerator: Float[np.ndarray, "n_modes n_pol n_omega"] | None = None
+    flux: FluxPlan | None = None
 
     @property
     def device_ready(self) -> bool:
@@ -2389,8 +2406,9 @@ def _spatial_assembly(
     LinearOperator,
     Transform,
     PiecewiseChebyshev | ParameterExpansion | SeparableOperator,
+    FluxPlan,
 ]:
-    """Assemble the operator, the transform and the prefactor of spatial geometry.
+    """Assemble the operator, the transform, the prefactor and the plane measure.
 
     Parameters
     ----------
@@ -2409,7 +2427,8 @@ def _spatial_assembly(
     Returns
     -------
     tuple
-        The operator, the transform and the already translated prefactor.
+        The operator, the transform, the already translated prefactor and the
+        run's plane measure.
     """
     dispersion = (
         SpatialDispersion(medium, grid, frame)
@@ -2456,7 +2475,12 @@ def _spatial_assembly(
                 margin=build.margin,
             )
         )
-        return linear, transform, prefactor
+        return (
+            linear,
+            transform,
+            prefactor,
+            flux_plan(spatial_grid, dispersion, linear, tol=build.tol),
+        )
     if isinstance(spatial_grid, FreeGrid):
         linear, prefactor = free_operators(
             spatial_grid,
@@ -2482,7 +2506,12 @@ def _spatial_assembly(
                 margin=build.margin,
             )
         )
-        return linear, transform, prefactor
+        return (
+            linear,
+            transform,
+            prefactor,
+            flux_plan(spatial_grid, dispersion, linear, tol=build.tol),
+        )
     linear, prefactor = radial_operators(
         spatial_grid,
         dispersion,
@@ -2507,7 +2536,12 @@ def _spatial_assembly(
             margin=build.margin,
         )
     )
-    return linear, transform, prefactor
+    return (
+        linear,
+        transform,
+        prefactor,
+        flux_plan(spatial_grid, dispersion, linear, tol=build.tol),
+    )
 
 
 def _general_assembly(
@@ -5826,12 +5860,13 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     # whole assembly: the dispersion, power-weight and prefactor tables all read them.
     with _shared_sampling():
         translated_prefactor = None
+        flux = None
         if general is not None:
             linear, transform, translated_prefactor = _general_assembly(
                 general, grid, mode_set, working_frame, build
             )
         elif spatial_grid is not None and medium is not None:
-            linear, transform, translated_prefactor = _spatial_assembly(
+            linear, transform, translated_prefactor, flux = _spatial_assembly(
                 spatial_grid, medium, grid, working_frame, build
             )
         else:
@@ -5954,6 +5989,7 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         stats_spec=StatsSpec() if stats_spec is None else stats_spec,
         tdse=tdse,
         current_numerator=None if tdse is None else current_numerator(grid),
+        flux=flux,
     )
     _validated(problem)
     logger.debug(

@@ -904,7 +904,7 @@ class SpatialFlux:
             loss), zero on nonpropagating, inactive and nonpositive-frequency bins,
             shape ``(n_chunk, n_omega)``.
         """
-        from solprop.translate.flux import axial_admittance  # noqa: PLC0415
+        from solprop.translate.spatial import axial_admittance  # noqa: PLC0415
 
         return axial_admittance(
             cast("SeparableOperator", self.coefficients),
@@ -1571,16 +1571,15 @@ FAR_FIELD_STATISTICS: tuple[str, ...] = (
     "aperture_on_axis_spectrum",
     "region_spectrum",
     "beam_spectrum",
-    "poynting_spectrum",
     "absorbed_power",
 )
-"""The six statistics :func:`aperture_statistics` forms, in catalogue order."""
+"""The five statistics :func:`aperture_statistics` forms, in catalogue order."""
 
-OPERATOR_STATISTICS: tuple[str, ...] = ("poynting_spectrum", "absorbed_power")
-"""The two far-field statistics that need the run's linear operator.
+OPERATOR_STATISTICS: tuple[str, ...] = ("absorbed_power",)
+"""The far-field statistic that needs the run's linear operator.
 
-A saved plane does not carry the operator, so they are backend statistics and
-:func:`solprop.stats.collect` refuses them by name.
+A saved plane does not carry the operator's absorption rates, so it is a backend
+statistic and :func:`solprop.stats.collect` refuses it by name.
 """
 
 ABSORBED_CHANNELS: tuple[str, ...] = (
@@ -1591,14 +1590,15 @@ ABSORBED_CHANNELS: tuple[str, ...] = (
 )
 """The channels of ``absorbed_power``, in the order of its four entries."""
 
-AxialFactors = Callable[[slice], tuple[np.ndarray, np.ndarray]]
-"""Per-chunk obliquity and absorption rates of the run's separable operator.
+AxialFactors = Callable[[slice], tuple[np.ndarray, np.ndarray | None]]
+"""Per-chunk admittance and absorption rates of the plane's medium (SEP 34).
 
-Called with a slice of transverse columns, it returns the dimensionless obliquity
-``c Re(k_z)/omega``, shape ``(n_chunk, n_omega)``, and the four power rates of
-:data:`ABSORBED_CHANNELS` in 1/m, shape ``(4, n_chunk, n_omega)``.
-:func:`solprop.translate.spatial.axial_factors` is the one implementation; a callable
-keeps the operator's representation, a translation-layer record, out of this module.
+Called with a slice of transverse columns, it returns the dimensionless complex
+admittance ``c k_z/omega``, shape ``(n_chunk, n_omega)``, zero on bins that are no
+forward power port, and the four power rates of :data:`ABSORBED_CHANNELS` in 1/m,
+shape ``(4, n_chunk, n_omega)``, or None where the run's operator is not available
+(a saved plane). :func:`solprop.translate.spatial.axial_factors` is the in-run
+implementation and :meth:`SpatialFlux.admittance` the saved-plane one.
 """
 
 _FAR_FIELD_BUDGET = 64 * 2**20
@@ -2064,21 +2064,24 @@ def aperture_statistics(
     field: Complex[np.ndarray, "n_modes n_pol n_omega"],
     tables: ApertureTables,
     *,
-    axial: AxialFactors | None = None,
+    axial: AxialFactors,
     chunk: int | None = None,
 ) -> dict[str, np.ndarray]:
     r"""Form the far-field statistics of one Cartesian or line spectrum (SEP 23).
 
-    The reference pass of equations (4), (5) and (7) to (11): the spectrum collected
-    through each aperture, :math:`S_a=\tfrac{\varepsilon_0c}{2}\sum_cw_cW_a^p\sum_q
-    \operatorname{sd}(E)`; the on-axis spectrum behind each aperture in a Fourier
-    plane, from :math:`A_{a,q}=\sum_c\alpha_cW_aE_{c,q}`; the spectrum in each box of
-    physical transverse wavevector; the beam spectrum; the axial-flux spectrum
-    weighted by the obliquity :math:`c\operatorname{Re}k_z/\omega`; and the power
+    The reference pass of SEP 23's equations, measured by the axial flux of the
+    medium (SEP 34): the spectrum collected through each aperture,
+    :math:`S_a=\tfrac{\varepsilon_0c}{2}\sum_cw_cW_a^p\eta_c\sum_q
+    \operatorname{sd}(E)` with the real admittance
+    :math:`\eta=c\operatorname{Re}k_z/\omega`; the on-axis spectrum behind each
+    aperture in a Fourier plane, the same-frequency pairing of the coherent
+    :math:`A_{a,q}=\sum_c\alpha_cW_aE_{c,q}` with its magnetic closure; the spectrum
+    in each box of physical transverse wavevector; the beam spectrum; and the power
     the spectral, transverse, evanescent and material channels of the linear
     operator remove, :math:`P_j=\tfrac{\varepsilon_0c}{2}\sum_cw_c\sum_{q,k}
-    \nu_kr_j|E|^2`. It walks the columns in chunks, forms the polarisation-summed
-    spectral density once per chunk and adds the chunk partials in ascending order.
+    \nu_k\eta r_j|E|^2`. It walks the columns in chunks, forms the
+    polarisation-summed spectral density once per chunk and adds the chunk partials
+    in ascending order.
 
     Parameters
     ----------
@@ -2092,9 +2095,9 @@ def aperture_statistics(
         ``(n_x*n_y, n_pol, n_omega)``.
     tables : ApertureTables
         The far-field tables of the request and the geometry.
-    axial : callable or None, optional
-        The operator's per-chunk obliquity and rates (:data:`AxialFactors`), needed
-        by ``poynting_spectrum`` and ``absorbed_power``.
+    axial : callable
+        The plane's per-chunk admittance and the operator's rates
+        (:data:`AxialFactors`); the rates are needed by ``absorbed_power``.
     chunk : int or None, optional
         Columns per chunk, at least 1; ``None`` bounds the chunk's temporaries at
         64 MiB.
@@ -2105,7 +2108,7 @@ def aperture_statistics(
         Each requested statistic: ``aperture_spectrum`` and ``region_spectrum`` in
         J/(rad/s), shapes ``(n_apertures, n_omega)`` and ``(n_regions, n_omega)``;
         ``aperture_on_axis_spectrum`` in J s/m^2, ``(n_apertures, n_omega)``;
-        ``beam_spectrum`` and ``poynting_spectrum`` in J/(rad/s), ``(n_omega,)``;
+        ``beam_spectrum`` in J/(rad/s), ``(n_omega,)``;
         ``absorbed_power`` in J/m, ``(4,)``, in the order of
         :data:`ABSORBED_CHANNELS`. On a line the spectra and powers are per metre
         of y, and the on-axis spectra stay local.
@@ -2115,9 +2118,9 @@ def aperture_statistics(
     OutputError
         If a name is not a far-field statistic, the field does not match the
         tables, a requested statistic needs a table the request does not carry, or
-        an operator statistic is asked for without the operator.
+        an operator statistic is asked for without the operator's rates.
     """
-    wanted = _far_field_request(names, grid, field, tables, axial)
+    wanted = _far_field_request(names, grid, field, tables)
     n_pol = field.shape[1]
     step = (
         max(1, _FAR_FIELD_BUDGET // (16 * (n_pol + 4) * grid.n_omega))
@@ -2139,9 +2142,8 @@ def _far_field_request(
     grid: TimeGrid,
     field: Complex[np.ndarray, "n_modes n_pol n_omega"],
     tables: ApertureTables,
-    axial: AxialFactors | None,
 ) -> set[str]:
-    """Check a far-field request against the field, its tables and the operator.
+    """Check a far-field request against the field and its tables.
 
     Parameters
     ----------
@@ -2153,8 +2155,6 @@ def _far_field_request(
         The spectrum, shape ``(n_x*n_y, n_pol, n_omega)``.
     tables : ApertureTables
         The far-field tables.
-    axial : callable or None
-        The operator's per-chunk factors.
 
     Returns
     -------
@@ -2191,13 +2191,6 @@ def _far_field_request(
     if "region_spectrum" in wanted and tables.n_regions == 0:
         msg = "region_spectrum needs spectral_regions, and the request carries none"
         raise OutputError(msg)
-    operated = wanted & set(OPERATOR_STATISTICS)
-    if operated and axial is None:
-        msg = (
-            f"{sorted(operated)} need the run's separable linear operator, which a "
-            "saved plane does not carry; a backend forms them during the run"
-        )
-        raise OutputError(msg)
     return wanted
 
 
@@ -2229,20 +2222,20 @@ class _FarFieldSums:
         self._grid = grid
         self._tables = tables
         self._beam = np.zeros(n_omega)
-        self._poynting = np.zeros(n_omega)
         self._absorbed = np.zeros(len(ABSORBED_CHANNELS))
         self._regions = np.zeros((tables.n_regions, n_omega))
         self._collected = np.zeros((tables.n_apertures, n_omega))
         self._amplitude = np.zeros(
             (tables.n_apertures, n_pol, n_omega), dtype=np.complex128
         )
+        self._closure = np.zeros_like(self._amplitude)
         self._energy_weights = fourier.energy_weights(n_omega, grid.dt, kind=grid.kind)
 
     def add(
         self,
         first: int,
         spectrum: Complex[np.ndarray, "n_chunk n_pol n_omega"],
-        axial: AxialFactors | None,
+        axial: AxialFactors,
     ) -> None:
         """Add one chunk of columns, starting at column `first`.
 
@@ -2252,14 +2245,21 @@ class _FarFieldSums:
             The chunk's first column.
         spectrum : numpy.ndarray
             The chunk of the spectrum, shape ``(n_chunk, n_pol, n_omega)``.
-        axial : callable or None
-            The operator's per-chunk factors.
+        axial : callable
+            The plane's per-chunk admittance and rates.
+
+        Raises
+        ------
+        OutputError
+            If ``absorbed_power`` is wanted and the rates are not available.
         """
         tables, grid, wanted = self._tables, self._grid, self._wanted
         stop = first + spectrum.shape[0]
         columns = np.arange(first, stop)
+        admittance, rates = axial(slice(first, stop))
+        real = np.real(admittance)
         density = np.sum(fourier.spectral_density(spectrum, grid.dt, kind=grid.kind), 1)
-        weighted = tables.weights[first:stop, None] * density
+        weighted = tables.weights[first:stop, None] * real * density
         k_x = tables.k_x[columns % tables.k_x.size]
         k_y = tables.k_y[columns // tables.k_x.size]
         if "beam_spectrum" in wanted:
@@ -2267,17 +2267,19 @@ class _FarFieldSums:
         if "region_spectrum" in wanted:
             self._add_regions(weighted, k_x, k_y)
         if wanted & _THROUGH_APERTURES:
-            self._add_apertures(first, spectrum, weighted, k_x, k_y)
-        if axial is not None and wanted & set(OPERATOR_STATISTICS):
-            obliquity, rates = axial(slice(first, stop))
-            if "poynting_spectrum" in wanted:
-                self._poynting += np.sum(weighted * obliquity, axis=0)
-            if "absorbed_power" in wanted:
-                squared = np.sum(np.abs(spectrum) ** 2, axis=1)
-                measured = (
-                    tables.weights[first:stop, None] * squared
-                ) * self._energy_weights
-                self._absorbed += np.sum(rates * measured[None], axis=(1, 2))
+            self._add_apertures(first, spectrum, admittance, weighted, k_x, k_y)
+        if "absorbed_power" in wanted:
+            if rates is None:
+                msg = (
+                    "absorbed_power needs the run's linear operator rates, which a "
+                    "saved plane does not carry; a backend forms it during the run"
+                )
+                raise OutputError(msg)
+            squared = np.sum(np.abs(spectrum) ** 2, axis=1)
+            measured = (
+                tables.weights[first:stop, None] * real * squared
+            ) * self._energy_weights
+            self._absorbed += np.sum(rates * measured[None], axis=(1, 2))
 
     def _add_regions(
         self,
@@ -2311,6 +2313,7 @@ class _FarFieldSums:
         self,
         first: int,
         spectrum: Complex[np.ndarray, "n_chunk n_pol n_omega"],
+        admittance: Complex[np.ndarray, "n_chunk n_omega"],
         weighted: Float[np.ndarray, "n_chunk n_omega"],
         k_x: Float[np.ndarray, " n_chunk"],
         k_y: Float[np.ndarray, " n_chunk"],
@@ -2323,6 +2326,8 @@ class _FarFieldSums:
             The chunk's first column.
         spectrum : numpy.ndarray
             The chunk of the spectrum.
+        admittance : numpy.ndarray
+            The chunk's complex admittance.
         weighted : numpy.ndarray
             ``w_c`` times the polarisation-summed spectral density.
         k_x, k_y : numpy.ndarray
@@ -2338,10 +2343,16 @@ class _FarFieldSums:
             if "aperture_on_axis_spectrum" in self._wanted:
                 # The weight enters the amplitude once under both weightings; the
                 # complex on-axis vector is multiplied as stored (section 4.6).
+                through = weight[:, None, :] * spectrum
                 self._amplitude[index] += np.einsum(
+                    "r,rpw->pw", tables.on_axis[first:stop], through
+                )
+                # The same aperture on the magnetic closure: the internal spectrum
+                # carries the conjugate admittance (SpatialFlux).
+                self._closure[index] += np.einsum(
                     "r,rpw->pw",
                     tables.on_axis[first:stop],
-                    weight[:, None, :] * spectrum,
+                    np.conj(admittance)[:, None, :] * through,
                 )
 
     def values(self) -> dict[str, np.ndarray]:
@@ -2354,15 +2365,17 @@ class _FarFieldSums:
         """
         conversion = 0.5 * EPS0 * C
         grid = self._grid
-        on_axis = np.sum(
-            fourier.spectral_density(self._amplitude, grid.dt, kind=grid.kind), axis=1
+        factor = fourier.spectral_density(
+            np.ones(grid.n_omega, complex), grid.dt, kind=grid.kind
+        )
+        on_axis = factor * np.sum(
+            np.real(self._amplitude * np.conj(self._closure)), axis=1
         )
         everything = {
             "aperture_spectrum": self._collected,
             "aperture_on_axis_spectrum": on_axis,
             "region_spectrum": self._regions,
             "beam_spectrum": self._beam,
-            "poynting_spectrum": self._poynting,
             "absorbed_power": self._absorbed,
         }
         return {
