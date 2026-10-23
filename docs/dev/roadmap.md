@@ -122,8 +122,11 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   a run-level `precision="single"` setting with a binary32 contract, `numpy_ref` as its
   oracle and a published record of which problems survive single precision, and an
   `mlx` backend for Apple-silicon GPUs on capillary fibre runs, radial and Cartesian
-  free space, with fixed-schedule batches through the existing interface. The state is
-  held at an exact power-of-two scale so binary32's range holds. The general modal
+  free space, with fixed-schedule batches through the existing interface and
+  envelope-grid plasma on the GPU in a later phase. Every narrowed buffer carries its
+  own power-of-two exponent and the state an exact scale, so binary32's range holds,
+  and the linear propagator is formed to binary64 accuracy; survival is judged against
+  criteria fixed before measurement. The general modal
   route, the planar kind, coupled flows, TDSE responses and noise models are refused
   under single precision; those, and single-precision and mixed modes of `native` and
   `numba_cpu`, remain open below.

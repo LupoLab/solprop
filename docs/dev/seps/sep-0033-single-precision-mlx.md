@@ -5,7 +5,7 @@
 | **SEP** | 33 |
 | **Title** | Single-precision propagation, and an MLX backend for Apple GPUs |
 | **Author** | John Travers |
-| **Drafting agent** | Opus 5.5 (2026-10-23) |
+| **Drafting agent** | Opus 5.5 (2026-10-23); Opus 5.5 (2026-10-23, revision after review) |
 | **Status** | Draft |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); GPT-6 (AI) |
@@ -20,22 +20,26 @@
 
 ## Part I — Proposal
 
+*Revised on 2026-10-23 after the human and AI reviews, with the maintainer's decisions on
+the review recorded in Part III. The response to the review (Part III) says what changed
+for each finding.*
+
 ### 1. Abstract
 
 Add a run-level arithmetic setting, `precision="single"`, under which the propagated
 state and every per-step pass are held in IEEE binary32, and add a backend, `mlx`, that
 executes such runs on Apple-silicon GPUs through Apple's MLX array framework. `numpy_ref`
 gains the same single-precision path first and is its oracle, so the proposal also
-answers, by measurement, which of solprop's problems survive single precision and
-which do not. The MLX backend covers three routes, in the order of their use and their
-measured gain: capillary fibre runs (mode-averaged and multimode, field and envelope
-grids), radial free space and Cartesian free space. The precision setting, its contract
-(what stays in binary64) and the binary32 bounds are written so that a later
-single-precision or mixed-precision mode of `native` or `numba_cpu` reuses them
-unchanged. Success is judged by agreement with `numpy_ref`'s single-precision path
-within binary32 rounding bounds, by the published survival record against
-double-precision references, and by recorded speed-ups over the native CPU backend on
-the same machine.
+answers, by measurement against criteria fixed in advance, which of solprop's problems
+survive single precision and which do not. The MLX backend covers three routes, in the
+order of their use and their measured gain: capillary fibre runs (mode-averaged and
+multimode), radial free space and Cartesian free space. The precision setting, its
+contract (what stays in binary64, how every buffer is kept in range), the binary32
+bounds and the survival criteria are written so that a later single-precision or
+mixed-precision mode of `native` or `numba_cpu` reuses them unchanged. Success is judged
+by agreement with `numpy_ref`'s single-precision path within binary32 rounding bounds,
+by the published survival record against binary64 references, and by recorded
+speed-ups over the native CPU backend on the same machine.
 
 ### 2. Motivation and scope
 
@@ -47,12 +51,18 @@ sharing the same memory, and no hardware binary64 arithmetic at all. Using it ne
 backend outside Kokkos, and that backend can only compute in binary32.
 
 **The indicative gain is large on the large problems.** A synthetic measurement
-(2026-10-23, an Apple M5 Max: 18 CPU cores, a 40-core GPU, MLX 0.32.4) timed one
-interaction-picture Kerr source evaluation — the stage combination, an inverse
-transform, $\gamma |E|^2 E$, a forward transform and the finish, with a real
-transverse-transform GEMM each way on the radial shape — as six chained evaluations per
-synchronisation. The CPU arm used the FFTW build the native backend links and fused
-parallel loops; all arms alternated in one process.
+(2026-10-23, an Apple-silicon laptop: 18 CPU cores, a 40-core GPU, MLX 0.32.4) timed one
+interaction-picture Kerr source evaluation: the stage combination with three earlier
+stages, an inverse transform, $\gamma |E|^2 E$, a forward transform and the finish
+$i\,w\,F$, with a real 256 × 256 transverse-transform GEMM each way on the radial shape
+and a three-dimensional transform on the Cartesian one. Six evaluations were chained
+per synchronisation, as in one DOPRI5 step. The GPU arm compiled the element-wise
+passes with `mx.compile` and ran with `MLX_ENABLE_TF32=0`, so every reported row,
+including the radial one, used float32 matrix products. The CPU arm used the FFTW
+3.3.11 build the native backend links, planned with `FFTW_MEASURE` at the fastest of 1,
+4 and 18 threads per shape, and fused parallel loops. The arms alternated within each of
+five rounds in one process on a machine under other load (load average 3–9); the table
+gives medians, which were within 9 % of the minima.
 
 | shape | CPU binary64, µs | MLX GPU binary32, µs | ratio |
 |---|---|---|---|
@@ -63,46 +73,47 @@ parallel loops; all arms alternated in one process.
 | radial, 256 × 4096 | 6968 | 512 | 13.6 |
 | Cartesian, 384 × 384 × 256 | 96 213 | 21 435 | 4.5 |
 
-The GPU results agreed with binary64 to 6–9 × 10⁻⁷ relative. The real native backend
-spends more per evaluation than the synthetic CPU arm (395 µs at $2^{14}$, from
-differencing fixed-schedule DOPRI5 runs), so both arms are lower bounds on a real
-step; and a tuned binary32 CPU build would narrow the large-shape ratios by up to the
-bandwidth factor of two. The small single-mode case gains little: the GPU's floor of
-about 80 µs per evaluation is launch and synchronisation latency.
+The GPU results agreed with binary64 to 6–9 × 10⁻⁷ relative. These figures are
+indicative only: the real native backend spends more per evaluation than the synthetic
+CPU arm (395 µs at $2^{14}$, from differencing fixed-schedule DOPRI5 runs), a real step
+does more work than six bare evaluations on either side, and a tuned binary32 CPU build
+would narrow the large-shape ratios by up to the bandwidth factor of two. The phases'
+own short-step measurements against `native` replace them (§7). The small single-mode
+case gains little: the GPU's floor of about 80 µs per evaluation is launch and
+synchronisation latency.
 
 **Single precision needs proving, not assuming.** Whether a supercontinuum, a filament
 or a dispersive-wave run survives binary32 depends on the problem: coherent dynamics
 with moderate dynamic range should; noise-seeded dynamics at high pulse energy, and
 anything that differences nearly equal large quantities, may not (§4). A
-single-precision oracle on `numpy_ref` makes that a measurement with a published
-record, and the record is what a later native single-precision mode would need too.
+single-precision oracle on `numpy_ref`, with survival criteria fixed before any
+comparison (§7.3), makes that a measurement with a published record, and the record is
+what a later native single-precision mode would need too.
 
 **In scope.**
 - The precision setting: `SimulationSettings.precision` and the keyword interfaces,
-  `KernelProblem.precision`, refusals on every backend that does not run it, and the
-  recorded metadata.
-- The single-precision contract (§4.2): what is binary32, what is evaluated in binary64
-  on the host, and the tolerance floor.
-- `numpy_ref`'s single-precision path on the routes below, as the oracle.
-- `tests/bounds.py` parametrised by the unit roundoff, and the binary32 bound ladder.
-- Exact power-of-two scaling of the state and scaled reductions, so that binary32's
-  range holds on every route in scope (§4.3).
-- The survival study: a manual page recording, per canonical case, the binary32 error
-  against binary64 and what is refused.
-- The `mlx` backend (an optional, macOS-arm64-only extra) on capillary fibre runs,
-  radial free space and Cartesian free space; fixed-schedule lockstep batches through
-  the existing `select_batch` interface where its member-owned form fits.
+  `KernelProblem.precision`, the shared single-precision admission (defaults and
+  refusals), the recorded configuration and ADR-052 (§9).
+- The single-precision contract (§4.2): what is binary32, what is formed in binary64,
+  how every narrowed buffer is kept in range (§4.3), and the tolerance floor.
+- `numpy_ref`'s single-precision path on the capabilities of §5.1, as the oracle.
+- `tests/bounds.py` with its formulas parameterised by the unit roundoff, and the
+  binary32 bounds with their limits of use (§7.1).
+- The survival study and its manual page, against the criteria of §7.3.
+- The `mlx` backend (an optional, macOS-arm64-only extra) on the capabilities and in
+  the phases of §5.1, with fixed-schedule lockstep batches through the existing
+  `select_batch` interface.
 
 **Not in scope.**
 - The general modal route, the hybrid planar kind, coupled flows, the moving solid
-  guide, TDSE responses and the far-field statistics: refused under single precision by
-  every backend, by name.
+  guide, TDSE responses, the dispersive electronic response, the far-field statistics
+  and `"cf4"` sections: refused under single precision by every backend, by name.
 - Noise models under single precision: refused by every backend, a known limitation
-  recorded on the manual page (§4.4). Admitting them is later work.
+  recorded on the manual page (§4.5). Admitting them is later work.
 - A fused batch axis on the GPU (new batch infrastructure), and adaptive or spatial
   batches, which no backend runs.
-- Single-precision or mixed-precision modes of `native` and `numba_cpu`. The contract
-  and bounds here are built for them; the modes themselves are a later SEP.
+- Single-precision or mixed-precision modes of `native` and `numba_cpu`. The contract,
+  bounds and criteria here are built for them; the modes themselves are a later SEP.
 - Storing outputs in binary32 (§9, Q6).
 - A Kokkos Metal backend, or SYCL through AdaptiveCpp (§10).
 
@@ -114,23 +125,39 @@ record, and the record is what a later native single-precision mode would need t
   history and noise, and a backend supplies `_trial_step`, `_apply_mask`, `stats` and,
   optionally, `_finish` and the Adams and low-storage hooks
   ([backends.md §1](../backends.md), [architecture.md §9](../architecture.md)).
+  Fixed-schedule batches run through `solprop.backends.batch.LockstepRunner`, whose
+  `_trial_step` calls each member's trial in turn and needs each member's host norm at
+  once.
 - **Device-ready stage terms.** A stage's z-dependent arrays cross the seam as fixed
   terms uploaded once and a bundle of host scalars per stage
   (`solprop.translate.stage`); the propagator exponent is
   $\Delta\Phi = \sum_t s_t \Phi_t$, with the weight differences $s_t$ formed on the host
   in binary64. A problem that took the z table is not `device_ready`
   ([kernel-contract.md §3](../kernel-contract.md)).
+- **The responses as they are.** Raman kernels are per particle, with `dt` folded into
+  the spectrum (`solprop.translate.raman.kernel_spectrum`), and multiplied by the
+  density in the pass (`backends.numpy_ref.passes.raman_polarisation`): a molecular
+  kernel's spectrum can be of order $10^{-50}$. The field-grid plasma forms the ionised
+  fraction as $f = 1 - (1 - p)\exp(-X)$ and the loss current from $1 - f$
+  (`backends.numpy_ref.passes.plasma_scan`, `plasma_current`); the envelope-grid plasma
+  keeps the neutral survival separately and evaluates its cycle moments with a
+  per-sample singular-value decomposition and adaptive angular quadrature
+  (`backends.numpy_ref.envelope_plasma`, `translate.envelope_plasma.cycle_moments`).
 - **The floating-point policy.** [SEP 25](archive/sep-0025-rounding-level-reproducibility.md)
   compares independent computations by numerical error, with five comparison classes
   and the bound helpers of `tests/bounds.py`, all written in binary64's `EPS` and `u`
   ([testing.md §3](../testing.md)).
-- **Precision today.** Everything is binary64. The translation layer builds its tables
-  in binary64; `numpy_ref` computes with NumPy and `scipy.fft`, both of which preserve
-  complex64 inputs; `numba_cpu` and `native` are binary64 throughout.
+- **Precision today.** Everything is binary64, and two normative pages say so:
+  [architecture.md §1](../architecture.md) ("Double precision throughout") and
+  [conventions.md §6](../conventions.md) (a complex128 kernel state). The translation
+  layer builds its tables in binary64; `numpy_ref` computes with NumPy and `scipy.fft`,
+  both of which preserve complex64 inputs; `numba_cpu` and `native` are binary64
+  throughout.
 - **Earlier decisions.** ADR-002 evaluated JAX as a CPU backend and did not adopt it;
-  ADR-020 orders the project's priorities as accuracy and reliability, then CPU
-  performance, then GPU ([decisions.md](../decisions.md)). §10 explains why this
-  proposal is consistent with both.
+  ADR-020 orders the priorities as accuracy and reliability, then CPU performance, then
+  GPU, and builds GPU paths only for what the CPU backends have validated; ADR-051
+  keeps no compatibility with earlier configurations or output schemas
+  ([decisions.md](../decisions.md)). §9 and §10 say how this proposal relates to each.
 - **The roadmap item** "Floating-point options and reduced precision" lists reduced
   precision as the one floating-point option with a large expected gain; this SEP takes
   up its MLX and entirely-single-precision bullets for the routes in scope.
@@ -139,137 +166,237 @@ record, and the record is what a later native single-precision mode would need t
 
 #### 4.1 Binary32 rounding in an interaction-picture step
 
-Binary32 has unit roundoff $u_{32} = 2^{-24} \approx 6.0 \times 10^{-8}$ and range
-$\approx 1.2 \times 10^{-38}$ to $3.4 \times 10^{38}$ (normal numbers); binary64 has
-$u_{64} = 2^{-53}$. Every bound of `tests/bounds.py` is linear in $u$, so the binary32
-ladder is the binary64 one scaled by $2^{29}$, with the same operation counts
-([accuracy.md §7](../accuracy.md)).
+Binary32 has unit roundoff $u_{32} = 2^{-24} \approx 6.0 \times 10^{-8}$, smallest
+normal number $2^{-126} \approx 1.2 \times 10^{-38}$ and largest
+$\approx 3.4 \times 10^{38}$; binary64 has $u_{64} = 2^{-53}$. The bounds of
+`tests/bounds.py` are not all linear in $u$: Higham's $\gamma_k = k u / (1 - k u)$ has
+a denominator that matters at binary32, so each formula is re-evaluated at $u_{32}$
+rather than scaled from its binary64 value (§7.1).
 
 Write a stage of the interaction-picture step as
 $k = \mathcal{N}(e^{\Delta\Phi}(A + \Delta z\,\textstyle\sum_j a_j k_j))$, where
-$\mathcal{N}$ is the source with its transforms. Three rounding contributions matter:
+$\mathcal{N}$ is the source with its transforms. Four rounding contributions matter;
+two are random in sign from step to step and two are coherent.
 
-1. **The source.** A transform pair on $n$ samples has relative normwise error of order
-   $u \log_2 n$ (the established `fft_bound` takes $512\,\epsilon \lceil \log_2 n\rceil$
-   as its margin), and the pointwise response adds a few $u$. The error enters the
-   state scaled by $\Delta z$: per step, relative to the state, about
+1. **The source** (random). A transform pair on $n$ samples has relative normwise error
+   of order $u \log_2 n$ [3], and the pointwise response adds a few $u$. The error
+   enters the state scaled by $\Delta z$: per step, relative to the state, about
    $c\,u\,\log_2 n \cdot \phi_{\mathrm{NL}}$, where
    $\phi_{\mathrm{NL}} \approx \Delta z\,\lVert\mathcal{N}\rVert / \lVert A \rVert$ is the
    step's nonlinear phase.
-2. **The state.** Holding the state in binary32 rounds it by up to $u$ relative at
-   every accepted step. Over $M$ steps independent roundings grow like
-   $u\sqrt{M}$, multiplied by the propagation's sensitivity (the growth factor of
-   `propagation_growth`); for strongly amplifying dynamics (modulation instability,
-   soliton fission) the sensitivity, not $\sqrt{M}$, dominates.
-3. **The linear phase.** $\Delta\Phi$ is formed from binary64 weight differences and
-   binary32 terms: its error is about $n_t\,u\,\max_t |s_t \Phi_t|$ radians for
-   $n_t$ terms, a single rounding for a constant operator. At the band edges,
-   $|\Delta\Phi|$ per step can reach $10^{2}$–$10^{4}$ rad, so the phase error there
-   is $10^{-5}$–$10^{-3}$ rad per step, accumulating as $\sqrt{M}$ — never as the
-   cumulative phase, which the interaction picture never forms. Whether this matters
-   depends on the spectral amplitude at those edges, largest on gradients whose
-   expansions combine many terms; §4.2 keeps $\Delta\Phi$ in binary32, and the
-   phase 1 study measures it against a binary64 increment (Q4).
+2. **The state** (random). Holding the state in binary32 rounds it by up to $u$
+   relative at every accepted step. *If* these roundings are independent and unbiased
+   and the dynamics do not amplify them, they grow like $u\sqrt{M}$ over $M$ steps;
+   this is a heuristic, not a bound. Amplifying dynamics (modulation instability,
+   soliton fission) multiply it by the propagation's sensitivity (the growth factor of
+   `propagation_growth`), which then dominates.
+3. **The linear propagator** (coherent). For a constant operator and step, the
+   propagator $e^{\Delta\Phi}$ is the same complex number at every step, so its
+   rounding error is applied with the same sign $M$ times and grows *linearly*. If
+   $\Delta\Phi$ itself is rounded to binary32, the propagator's relative error is about
+   $u\,|\Delta\Phi|$, and at the band edges $|\Delta\Phi|$ per step reaches
+   $10^{2}$–$10^{4}$ rad: a scalar witness with $\Delta\Phi = -1234.56789\,i$ gives a
+   relative error of $1.9 \times 10^{-5}$ after one multiplication and
+   $1.9 \times 10^{-1}$ after $10^4$, against binary64. If instead $\Delta\Phi$ is
+   formed, range-reduced and exponentiated to binary64 accuracy and only the propagator
+   is rounded, the error is about $u$ per step: $1.9 \times 10^{-8}$ after one
+   multiplication, $1.9 \times 10^{-4}$ after $10^4$. The contract takes the second
+   form (§4.2); its remaining drift, about $c\,M\,u_{32}$ per occupied bin, is a
+   budgeted error of the method (§7.3).
+4. **The coefficients** (coherent). Every table is rounded once at upload, so each
+   coefficient (a Kerr prefactor, a Raman kernel sample, a rate) carries a fixed
+   relative error of up to $u$. Its effect is a systematic error of the order of $u$
+   times the accumulated effect of that term, for example $u\,\Phi_{\mathrm{NL}}$ for a
+   total nonlinear phase $\Phi_{\mathrm{NL}}$: small, but coherent, and budgeted with
+   item 3.
 
-**The error estimate does not floor at $u$.** An embedded estimate is
-$\Delta z \sum_i (b_i - \hat b_i) k_i$; its rounding is about $u\,\phi_{\mathrm{NL}}$
-relative to the state, far below $u$ when the step's nonlinear phase is small. The
-controller therefore does not stall. The real floor is on the *useful* tolerance: a
-local error target below the per-step rounding of contributions 1–2 buys steps without
-accuracy. Taking the per-step rounding as $c\,u_{32}$ with $c$ of order 10 gives a
-floor of $\mathrm{rtol} \ge 10^{-6}$ (Q1); the study may raise it to $10^{-5}$ if
-$10^{-6}$ shows no accuracy gain over $10^{-5}$ on the canonical cases.
+**The controller sees only part of this.** An embedded estimate is
+$\Delta z \sum_i (b_i - \hat b_i) k_i$. It measures the method's truncation error and
+items 1–2 roughly, at about $u\,\phi_{\mathrm{NL}}$ relative to the state, so the
+controller does not stall. It is blind to items 3–4: with no nonlinear source the
+estimate is zero whatever the propagator's error. Those are therefore bounded by the
+contract and measured by dedicated tests (§7.2), not by the tolerance.
+
+**The floor is on the useful tolerance.** A local error target below the per-step
+rounding of items 1–2 buys steps without accuracy. Taking the per-step rounding as
+$c\,u_{32}$ with $c$ of order 10 gives a floor of $\mathrm{rtol} \ge 10^{-6}$ (Q1). The
+study may raise it to $10^{-5}$ by the rule of §7.3.
 
 #### 4.2 The single-precision contract
 
 Under `precision="single"`:
 
-- **Binary32:** the propagated state, the stage values, every transform, the
-  responses (Kerr, Raman, plasma), the transverse transforms (the Hankel GEMM, the
-  Cartesian transforms), the stage combinations, the error estimate's array and the
-  statistics' pointwise work.
-- **Binary64, on the host:** $z$, $\Delta z$, the controller and its norms' final
+- **Binary32:** the propagated state, the stage values, every transform, the responses
+  (Kerr, Raman, plasma), the transverse transforms (the Hankel GEMM, the Cartesian
+  transforms), the stage combinations, the error estimate's array and the statistics'
+  pointwise work.
+- **Binary64 on the host:** $z$, $\Delta z$, the controller and its norms' final
   scalar, the stage weight differences $s_t$ and every other bundle scalar, landing,
-  schedules and save planes. These are already host scalars.
-- **Binary64, built once and rounded at upload:** every table of the translation layer
-  (operator terms, prefactors, masks, Raman kernels, rate tables, quadrature and
-  transform matrices). The translation layer does not change; a backend rounds the
-  arrays it uploads.
+  schedules and save planes, and every combination of scalar coefficients and scale
+  exponents (§4.3) before it is rounded once to binary32.
+- **Binary64-accurate, then rounded:** the stage propagator $e^{\Delta\Phi}$: the
+  combination $\sum_t s_t\Phi_t$, its range reduction and its exponential are evaluated
+  to binary64 accuracy, and only the propagator is rounded (§4.1, item 3). On
+  `numpy_ref` this is binary64 arithmetic on binary64 terms; on `mlx`, which has no
+  binary64, the terms and weights are held as double-float pairs and the combination
+  and range reduction are evaluated in double-float arithmetic in one small kernel,
+  leaving binary32 `exp`, `cos` and `sin` of reduced arguments.
+- **Built once in binary64 and narrowed at upload:** every table of the translation
+  layer (operator terms, prefactors, masks, Raman kernels, rate tables, quadrature and
+  transform matrices), each narrowed with its own exponent (§4.3). The translation
+  layer does not change.
+- **Stable forms:** the field-grid plasma's fraction as
+  $f = p + (1 - p)\,[-\mathrm{expm1}(-X)]$ and its neutral survival as its own array,
+  $\sigma = (1 - p)\,e^{-X}$, with the loss current formed from $\sigma$, never from
+  $1 - f$. In binary32 at $p = 0$, $X = 10^{-8}$, the present subtraction gives $f = 0$
+  and the stable form $10^{-8}$; at $X = 20$, $1 - f$ rounds to zero while
+  $\sigma = 2.06 \times 10^{-9}$. These forms are part of the single-precision path
+  only; the binary64 path keeps its present arithmetic and results (§9).
 - **Accumulated, not summed naively:** every long reduction or running integral (the
-  norms, the statistics, the plasma's running integrals over time) uses a pairwise or
-  blocked order with the bound of its tree, or binary32 compensated summation, and
-  states that bound (§7): a sequential binary32 sum of $10^4$ terms could lose
+  norms, the statistics, the plasma's running integrals over time, the field grid's
+  band-exact running sums of
+  [SEP 18](archive/sep-0018-band-exact-plasma-integrals.md)) uses a pairwise or blocked
+  order with the bound of its tree, or binary32 compensated summation, and states that
+  bound: a sequential binary32 sum of $10^4$ terms could lose
   $10^4 u_{32} \approx 6 \times 10^{-4}$ of its value. The orders are the oracle's
-  (§6.2), so the other backends have a defined target (Q5). The ionised fraction keeps
-  its `expm1` form, which holds relative accuracy for a small fraction.
-- **Scaled:** the state is held as $\tilde a = a / s$ with an exact power of two $s$
-  (§4.3), and every sum of squares scales before squaring.
+  (§6.2), so the other backends have a defined target (Q5).
+- **Scaled:** the state at an exact power-of-two scale, every narrowed buffer with its
+  own exponent, and every sum of squares scaled before squaring (§4.3).
 - **Never:** flush-to-zero imposed by solprop, approximate transcendental functions,
   reduced-precision matrix products (TF32 or lower), or any fast-math flag, as
-  SEP 25 §5 requires. Subnormals a GPU flushes in hardware are accepted and recorded.
+  SEP 25 §5 requires. Subnormals a GPU flushes in hardware are accepted within the
+  absolute budget of §4.3.
 
-This is the contract `numpy_ref` implements as the oracle and `mlx` reproduces.
-A later mixed mode (binary32 source, binary64 state) differs only in its second item
-and needs a separate precision value, not a different contract (§6.1).
+This is the contract `numpy_ref` implements as the oracle and `mlx` reproduces; how
+`mlx` establishes each item on its runtime is §6.3. A later mixed mode (binary32
+source, binary64 state) differs in the first two items only and needs a separate
+precision value, not a different contract (§6.1).
 
-#### 4.3 Range and scaling
+#### 4.3 Range: every buffer, every intermediate
 
-**Pointwise work fits in SI units.** A field of $10^{12}$ V/m has $E^3 = 10^{36}$;
-$E^3$ above $3.4 \times 10^{38}$ needs $|E| > 7 \times 10^{12}$ V/m, an intensity of
-about $6 \times 10^{18}$ W/cm², far beyond the routes' strong-field regime. The
-electron density is below $10^{28}$ m⁻³. Rates such as $\exp(-a/|E|)$ underflow to
-zero, or to a flushed subnormal, at small fields; the binary64 path already reaches
-zero there for the smallest fields, and the difference is below every rate table's
-stated accuracy.
+**Why the state alone is not enough.** Pointwise work on the field fits in SI units: a
+field of $10^{12}$ V/m has $E^3 = 10^{36}$, and $E^3$ overflows only above
+$7 \times 10^{12}$ V/m (about $6 \times 10^{18}$ W/cm²). But other quantities do not:
 
-**Reductions do not.** The transforms are unnormalised, so a spectral sample is the
-temporal amplitude times up to the transform length. On the Cartesian route
-($n \approx 4 \times 10^7$ samples, fields near $10^{11}$ V/m) a spectral sample
-reaches about $4 \times 10^{18}$, its square about $10^{37}$, and an energy or fluence
-sum over the grid about $10^{44}$: an overflow. Fibre states (true-power amplitudes in
-$\sqrt{\mathrm{W}}$, conventions.md §4) have less extreme values but the same
-structure.
+- *Reductions.* The transforms are unnormalised, so on the Cartesian route
+  ($n \approx 4 \times 10^7$ samples, fields near $10^{11}$ V/m) a spectral sample
+  reaches about $4 \times 10^{18}$, its square $10^{37}$, and an energy sum over the
+  grid $10^{44}$: an overflow.
+- *Coefficient buffers.* A molecular Raman kernel's spectrum (nitrogen at 293 K,
+  $2.5 \times 10^{25}$ m⁻³, a 2 ps field grid) has a largest magnitude of about
+  $5 \times 10^{-50}$: every bin becomes zero in binary32, and no later prefactor can
+  recover it.
 
-**Scaling.** Two measures, both exact or bound-preserving:
+So the rule is per buffer and per intermediate, not per state.
 
-1. **A power-of-two state scale.** At `set_initial` the backend chooses
-   $s = 2^k$ with the launch's peak temporal amplitude $\max_t |a(t)| / s \in [1, 2)$,
-   and holds $\tilde a = a / s$. Because $s$ is a power of two, $a \mapsto a/s$ and its
-   inverse are exact in binary floating point (absent overflow and underflow), so the
-   scaling changes no rounding, only the headroom. The equation for $\tilde a$ is the
-   original with each response's homogeneous degree folded into its prefactor: a cubic
-   response (Kerr, Raman) takes $s^2$; the plasma's rates take the physical field
-   $s\,|\tilde a|$ (one exact multiplication) and its current is linear in the field;
-   the linear operator is unchanged. The controller's absolute tolerance is divided by
-   $s$; `observe`, `stats` and snapshots multiply by $s$ on the way out, and a resume
-   divides on the way in. With the peak near one, cubes and long sums have about thirty
-   orders of magnitude of headroom, and spectral wings $10^{-38}$ below the peak remain
-   representable, far below the binary32 rounding floor.
-2. **Scaled reductions.** Every sum of squares divides by a power-of-two scale chosen
-   from the largest magnitude before squaring, as LAPACK's `nrm2` does, and multiplies
-   back in binary64 on the host.
+**1. Block exponents for narrowed buffers.** Every array narrowed to binary32 at upload
+is stored as $\tilde B = B \cdot 2^{-e_B}$, with the integer $e_B$ chosen so that
+$\max |\tilde B| \in [1, 2)$ (zero for an all-zero buffer). Multiplying by a power of
+two is exact, so $\tilde B$ is $B$ rounded once, with no range loss for entries within
+$2^{-126}$ of the buffer's largest. Each exponent is carried as a host integer.
 
-The scale is private to the backend and the oracle: the physics and translation layers
-keep SI units, and no saved quantity changes. The survival study reports the largest
-and smallest magnitudes met in each case, after scaling.
+**2. A power-of-two state scale.** The state is held as $\tilde a = a / s$, with
+$s = 2^k$ chosen from the *launch* (`KernelProblem.initial`) so that its peak temporal
+amplitude over $s$ lies in $[1, 2)$, and $s = 1$ for an identically zero launch. Being
+a function of the problem, not of the state at `set_initial`, the scale is the same for
+a run, its restarts and its resumes (§5.3).
 
-#### 4.4 Noise
+**3. Coefficients combined on the host.** Each pass multiplies narrowed buffers and
+state by scalar coefficients: the density, the Raman amplitude, a prefactor's
+constant, the state scale's powers, and the buffers' exponents. These are combined into
+one coefficient per buffer product in binary64 on the host, as a binary64 mantissa and
+a separate integer exponent, and the combination is applied at the point in the pass
+where the intermediate it multiplies is largest, so that no intermediate leaves
+binary32's normal range. The Raman pass, for example, forms
+$\tilde K \cdot \widetilde{|E|^2}$ in the spectral domain with both factors near one,
+transforms back, and applies the combined coefficient
+$\rho\,\cdot 2^{e_K} \cdot s^2 \cdot (\text{constant})$ once to the product with
+$\tilde E$. Each pass declares, in a comment, the largest and smallest magnitude of its
+intermediates for the admitted inputs.
+
+**4. The scaled equations.** With $E = s\tilde E$ the physical field, each response
+term carries its homogeneity factor, folded into its combined coefficient:
+
+| term | dependence on $E$ | factor on $\tilde a$'s equation |
+|---|---|---|
+| linear operator, masks, absorbers, collars | linear | 1 |
+| Kerr (constant), third-harmonic term on envelope grids | cubic | $s^2$ |
+| scalar and tensor Raman | cubic | $s^2$ |
+| plasma rate $W$, fraction $f$, survival $\sigma$ | of $\lvert E\rvert$ | evaluated at $s\lvert\tilde E\rvert$ (one exact multiplication); unscaled |
+| free current $\propto \int f E\,dt$ (field and envelope) | linear at a given population | 1 |
+| loss current $I_p W \sigma E / \lvert E\rvert^2$ (field and envelope) | inverse at a given rate | $s^{-2}$ |
+| held-current streams (SEP 27) | as the stream it holds | the free or loss factor, per stream |
+
+The free and loss streams thus take different factors, and assembly sums them only
+after each has its own; the loss term's division is masked where the rate is exactly
+zero, as now, so no tiny $|E|^2$ is divided.
+
+**5. Statistics, tolerances and observation.** Each statistic declares its homogeneity
+degree $k_s$ in the state, and the host multiplies its binary32 result by $s^{k_s}$ in
+binary64:
+
+| statistics | $k_s$ |
+|---|---|
+| field observations, on-axis fields | 1 |
+| power, energy, intensity, fluence, spectral energy density, photon number | 2 |
+| widths, durations, centroids, bandwidths, positions, ratios, ionised fraction, electron density | 0 |
+
+The controller's absolute tolerance is divided by $s$; `observe` and snapshots multiply
+the state and every stored row by $s$ (§5.3).
+
+**6. Scaled reductions.** Every sum of squares divides by a power of two chosen from
+the largest magnitude before squaring, as LAPACK's `nrm2` does [2], and the host
+multiplies back in binary64.
+
+**7. Underflow budget.** An entry flushed to zero, by narrowing or by the GPU's
+hardware, has absolute error at most $2^{-126} \cdot 2^{e}$ in a buffer of exponent
+$e$, that is at most $2^{-126} \approx 10^{-38}$ relative to the buffer's largest
+entry, and a normwise contribution of at most $\sqrt{n}\,2^{-126}$ for $n$ entries:
+negligible beside $u_{32}$ wherever the buffer enters a product or a sum. It is not
+negligible where a quantity is *divided* by a flushed value or where a vanishing
+response is the result; the first is excluded by the masked divisions above, the second
+is tested (§7.2). Rates below the flush threshold of the rate buffer (about
+$10^{-22}$ s⁻¹ for a buffer whose largest rate is $10^{16}$ s⁻¹) ionise less than
+$10^{-34}$ of the gas in a picosecond.
+
+**Exactness and its limits.** Multiplying by a power of two commutes with rounding when
+nothing overflows or becomes subnormal, so a pass whose operations are the same and
+differ only by power-of-two factors gives identical results scaled or unscaled. Where
+the combined coefficients regroup a product of non-power-of-two scalars (a density
+times a prefactor, formed in binary64 and rounded once, against the unscaled path's two
+binary32 roundings), the rounding sequence differs, and scaled against unscaled is a
+class R comparison, not class P (§7.2).
+
+#### 4.4 Plasma populations in binary32
+
+The stable forms of §4.2 follow from writing the neutral survival
+$\sigma = (1 - p)\,e^{-X}$, with $X = \int W\,dt$ the exposure, and the fraction
+$f = 1 - \sigma = p + (1 - p)\,(1 - e^{-X})$; $1 - e^{-X} = -\mathrm{expm1}(-X)$ keeps
+relative accuracy for small $X$, and $\sigma$ keeps relative accuracy for large $X$,
+where $f$ rounds to one. $df/dt = W\sigma$, so the loss current
+$J_{\mathrm{loss}} = I_p W \sigma E/|E|^2$ and the ionisation work
+$\int E\cdot J_{\mathrm{loss}}\,dt = I_p (f_{\mathrm{end}} - p)$ are both formed from
+$\sigma$. The exposure $X$ itself is a running integral under the rules of §4.2. The
+envelope grid's path already holds the survival separately; its cycle moments are
+evaluated in binary64 on the host by `numpy_ref` (§6.2) and, on `mlx`, by the
+formulation of phase 4 (§6.3).
+
+#### 4.5 Noise
 
 A one-photon-per-mode seed (`noise`) has a spectral amplitude relative to the pulse's
 peak spectral amplitude of roughly $\sqrt{\hbar\omega_0\,n_{\mathrm{occ}}/E_p}$, with
 $n_{\mathrm{occ}}$ the occupied bins: about $1.6 \times 10^{-5}$ for a 1 µJ pulse over
-1000 bins, $5 \times 10^{-7}$ at 1 mJ. Accumulated binary32 rounding reaches
-$u_{32}\sqrt{M} \approx 6 \times 10^{-6}$ after $10^4$ steps. Noise-seeded
-statistics might survive at low energy and short lengths, and would fail at high
-energy. This SEP does not qualify that boundary: a noise model under single precision
-is refused by every backend, and the manual page records it as a known limitation
-(Q3).
+1000 bins, $5 \times 10^{-7}$ at 1 mJ. On the heuristic of §4.1, accumulated binary32
+rounding reaches $u_{32}\sqrt{M} \approx 6 \times 10^{-6}$ after $10^4$ steps.
+Noise-seeded statistics might survive at low energy and short lengths, and would fail
+at high energy. This SEP does not qualify that boundary: a noise model under single
+precision is refused by every backend, and the manual page records it as a known
+limitation (Q3).
 
 ### 5. Proposed interface
 
 ```text
 from solprop.driver import prop_capillary
-from solprop.stepper import RungeKutta
 
 out = prop_capillary(
     ...,                       # the physics, unchanged
@@ -278,19 +405,19 @@ out = prop_capillary(
     rtol=1e-5,                 # at or above the floor, 1e-6
     noise=None,                # noise models are refused under single precision
 )                              # the integrator defaults to RungeKutta() here
-# out.metadata records precision="single"; out.fields() returns binary64 arrays
+# the configuration records precision="single"; out.fields() returns binary64 arrays
 ```
 
 - **`precision`**: `Literal["double", "single"]` on `SimulationSettings`, `Simulation`
   and every keyword interface that takes `backend`. The default is `"double"`, and
-  nothing about a double-precision run changes.
+  nothing about a double-precision run's numbers changes.
 - **`backend="mlx"`** requires `precision="single"` and refuses `"double"` by name,
   saying that Apple GPUs have no binary64 arithmetic. It refuses any problem outside
-  its routes (§2) naming the backends that run it.
+  its capabilities (§5.1), naming the backends that run it.
 - **`backend="auto"`** with `precision="single"` resolves to `"mlx"` when MLX and a
   Metal device are present, and otherwise refuses, naming `numpy_ref` (the oracle, not
   a production backend) and the `mlx` extra. It never resolves to a backend that would
-  run in binary64.
+  run in binary64, and never to `numpy_ref`.
 - **`numba_cpu` and `native`** refuse `precision="single"` by name until a later SEP.
 - **Tolerances**: an explicit `rtol` below the single-precision floor, $10^{-6}$ (Q1),
   is refused with the floor in the message. Under single precision the default `rtol`
@@ -301,63 +428,118 @@ out = prop_capillary(
   explicit `Multistep` is refused until then. The low-storage march is admitted.
 - **Noise**: a noise model under single precision is refused by name, as a known
   limitation (Q3).
-- **Outputs**: `observe` returns binary64 host arrays (an exact widening), so files,
-  processing and plotting are unchanged; the run's metadata records the precision, and
-  the precision is part of the resume key, so a run cannot resume in the other
-  precision.
-- **Memory**: `estimate_memory` and the memory ledger count binary32 bytes for the
-  backend's resident arrays; `available_device_memory` on `mlx` reports the Metal
-  device's recommended working set less MLX's active memory.
+- **Outputs**: `observe` returns binary64 host arrays, so files, processing and
+  plotting are unchanged (§5.3).
+- **Memory**: `estimate_memory` and the memory ledger count binary32 bytes and, on
+  `mlx`, its graph, cache and compiled workspaces (§6.3); `available_device_memory` on
+  `mlx` reports the Metal device's recommended working set less MLX's active memory.
 - **Batches**: `backend="mlx"` implements `select_batch` with member-owned stages; a
   member agrees with its solo run within a binary32 matched-discrete bound.
+- **Failure**: a non-finite norm, state or statistic stops every run — adaptive, fixed
+  schedule and low-storage — with `ConvergenceError`, as in binary64.
+
+#### 5.1 Capabilities by backend and phase
+
+"Phase $n$" is the phase in which the capability is admitted; "refused" means refused by
+name for the whole of this SEP.
+
+| capability | `numpy_ref` single | `mlx` |
+|---|---|---|
+| fibre route, mode-averaged and multimode: gas capillaries, solid-core and GNLSE runs (`prop_gnlse`, `prop_capillary`, `prop_waveguide`), field and envelope grids | phase 1 | phase 2 |
+| constant Kerr, the envelope grid's third-harmonic term | phase 1 | phase 2 |
+| scalar and tensor Raman, gas Raman leaves and mixtures, the silica bundle | phase 1 | phase 2 |
+| field-grid plasma, including the held current | phase 1 | phase 2 |
+| envelope-grid plasma | phase 1 | phase 4; refused until then |
+| loss, both absorber schemes, the polarisation taper | phase 1 | phase 2 |
+| device-ready gradients (constant and expansion representations) | phase 1 | phase 2 |
+| the z table (not `device_ready`) | phase 1: evaluated in binary64, rounded | refused, naming the table's size, as on the native device builds |
+| radial free space, its collars and statistics | phase 1 | phase 3 |
+| Cartesian free space, including a line ($n_y = 1$) | phase 1 | phase 3 |
+| Runge–Kutta, the low-storage march | phase 1 | phase 2 |
+| Adams | study only (§7.3) | phase 4, if admitted |
+| fixed-schedule lockstep batches (fibre) | phase 1 | phase 2 |
+| default statistics, periodic statistics, on-axis statistics | phase 1 | phases 2–3, with their routes |
+| noise; dispersive electronic response; general modal; planar; coupled flows; moving guide; TDSE; far-field statistics; `"cf4"` | refused | refused |
+
+#### 5.2 Admission
+
+One shared admission function applies the single-precision defaults and refusals of
+§5 before any backend is constructed, so every interface and backend agrees.
+`KernelProblem.validate` refuses the routes and responses that no backend runs under
+single precision; each backend's own admission then refuses what §5.1 does not yet
+admit on it. The study (§7.3) reaches capabilities that public admission refuses, such
+as the Adams integrator, through a private test-only argument of the admission
+function, never through a public interface.
+
+#### 5.3 Configuration, resume and snapshots
+
+- **The configuration.** The precision is a field of the run's hashed configuration,
+  present for every run, double included, as ADR-051 requires of every serialised
+  field; the output schema version changes in phase 1. A file of an earlier output
+  schema is never resumed (ADR-051), so no meaning is assigned to its absence.
+- **Resume.** A resume in the other precision is refused, through the configuration's
+  hash and with a message naming both precisions. A resume in the same precision on
+  another backend (`numpy_ref` single to `mlx`, or back) is admitted and is a class T
+  comparison.
+- **The scale across a resume.** The scale is a function of the launch (§4.3), so a
+  resumed run recomputes the same $s$ from the same problem, whatever the peak of the
+  state it resumes from.
+- **Snapshots.** A `MarchSnapshot` stores the state, the stage and source rows, the
+  history and compensation rows, all homogeneous of degree one in the state. Each is
+  stored unscaled and widened to binary64 on the way out (multiplied by $s$, exact) and
+  divided by $s$ and narrowed on the way in (exact for values that were binary32), so a
+  snapshot round trip is class P. A row of another homogeneity, if a later phase adds
+  one, declares its degree as the statistics do. The Adams history's layout is
+  revisited when Adams is admitted (phase 4).
 
 ### 6. Implementation strategies
 
 #### 6.1 General support (outside the backends)
 
 - **The setting.** `SimulationSettings.precision` and the keyword interfaces pass a
-  `Precision` record into `assemble`, stored as `KernelProblem.precision`.
-  Recommended: a frozen record with named fields (`state`, `source`), each `"double"`
-  or `"single"`, and the public strings `"double"` and `"single"` mapping to equal
-  fields. A later mixed mode is then a third public value, not a schema redesign.
-  `SCHEMA_VERSION` changes in phase 1.
-- **Validation.** `KernelProblem.validate` refuses single precision on the routes out
-  of scope, naming the route, so every backend refuses alike; each backend's admission
-  then refuses what it does not run.
-- **The translation layer is unchanged.** Tables stay binary64; rounding to binary32 is
-  each backend's upload. This keeps the change out of the physics and translation
-  layers and is what a native single mode would also do.
-- **Bounds.** `tests/bounds.py` gains the unit roundoff as a parameter (default
-  binary64) and a `UNIT_ROUNDOFF_32`; `gamma`, `fft_bound`, `scan_bound` and the
-  ladder take it. Existing call sites are unchanged.
-- **Metadata and resume.** The precision enters `RunMetadata` and the resume key.
-- **Memory.** `estimate_memory` takes the element sizes from the precision.
-- **Defaults.** Under single precision the interfaces take the floor as their default
-  `rtol` and `RungeKutta()` as their default integrator, and refuse an explicit
-  `Multistep` and any noise model, in one shared admission function so that every
-  interface and backend agrees.
-- **Scaling helpers.** The choice of the power-of-two scale and the scaled sum of
-  squares (§4.3) are small shared helpers, so `numpy_ref`, `mlx` and a later native
-  mode compute the same scale.
+  `Precision` record into `assemble`, stored as `KernelProblem.precision`: a frozen
+  record with named fields (`state`, `source`), each `"double"` or `"single"`, the
+  public strings mapping to equal fields. A later mixed mode is then a third public
+  value, not a schema redesign. `SCHEMA_VERSION` changes in phase 1.
+- **Admission and validation** as §5.2.
+- **The translation layer is unchanged.** Tables stay binary64; narrowing with block
+  exponents is each backend's upload, through one shared helper. This keeps the change
+  out of the physics and translation layers and is what a native single mode would also
+  do.
+- **Range helpers.** The block exponent of a buffer, the state scale of a launch, the
+  combination of coefficients and exponents, and the scaled sum of squares (§4.3) are
+  small shared helpers in the translation layer's backend-facing utilities, so
+  `numpy_ref`, `mlx` and a later native mode compute the same exponents.
+- **Bounds** as §7.1.
+- **Configuration, metadata and resume** as §5.3.
+- **Memory.** `estimate_memory` takes the element sizes from the precision, and a
+  backend may add its runtime's own terms (§6.3).
+- **ADR-052** (§9), and the normative pages it amends (§8).
 
 #### 6.2 `numpy_ref`
 
 The oracle keeps one function per pass and no fusion. Under single precision it:
 
-- rounds uploaded terms and tables to float32/complex64 at construction;
-- relies on NumPy's and `scipy.fft`'s preservation of complex64, and on NumPy 2's
-  rule that Python scalars do not promote, for the arithmetic;
+- narrows uploaded terms and tables to float32/complex64 with their block exponents,
+  and combines coefficients as §4.3 prescribes;
+- holds the state at the launch's power-of-two scale;
+- forms the stage propagator from binary64 terms in binary64 and rounds it (§4.2), and
+  evaluates a z table in binary64 and rounds its result;
+- uses the stable population and survival forms of §4.4 on the field grid;
+- evaluates the envelope grid's cycle moments in binary64 on the host from the
+  binary32 field, rounding the results, with the existing decomposition and adaptive
+  quadrature;
+- evaluates reductions pairwise and running integrals (including the band-exact
+  running sums) as a blocked, compensated scan, each with its stated bound, rather than
+  with `np.sum`'s and `np.cumsum`'s orders: the oracle's orders are the target the other
+  backends are compared against (Q5);
+- relies on NumPy's and `scipy.fft`'s preservation of complex64, and on NumPy 2's rule
+  that Python scalars do not promote, for the remaining arithmetic;
 - asserts the dtype of the state and of every stage value after each pass, so that a
-  binary64 array that slips into a binary32 pass (a float64 table not rounded, an
-  intermediate created as complex128) fails a test instead of silently computing in
-  binary64;
-- holds the state at the power-of-two scale of §4.3 and folds it into the prefactors;
-- evaluates reductions pairwise and the running integrals over time (including the
-  field grid's band-exact running sums) as a blocked, compensated scan, each with its
-  stated bound, rather than with `np.sum`'s and `np.cumsum`'s orders: the oracle's
-  orders are the target the other backends are compared against (Q5);
-- has a private study switch that forms $\Delta\Phi$ in binary64 and rounds it, for
-  the phase increment's measurement (Q4).
+  binary64 array that slips into a binary32 pass fails a test instead of silently
+  computing in binary64;
+- has a private study switch that also evaluates the propagator from a binary32
+  $\Delta\Phi$, for the record of §7.2 only.
 
 Most of the package's explicit binary64 dtypes (about 740) are in the physics and
 translation layers, which do not change; `numpy_ref`'s files carry about fifty, and the
@@ -371,62 +553,102 @@ extra `solprop[mlx]`. Nothing outside it imports MLX; availability is probed wit
 `importlib.util.find_spec`, as for every backend.
 
 **Structure.** It subclasses the shared `StepDriver` like `numpy_ref`, so the march,
-controller, landing, history and noise are the shared ones. Its passes follow
+controller, landing, history and failure handling are the shared ones. Its passes follow
 `numpy_ref`'s in MLX, which is NumPy-like:
 
 - stage combination, responses and finish as `mx.compile`d functions, which fuse the
   element-wise work into one kernel per pass;
+- the stage propagator from double-float terms in one custom kernel (§4.2);
 - transforms by `mx.fft` (complex64 only; real transforms for field grids);
 - the radial route's Hankel transforms as real GEMMs on the real and imaginary parts;
 - the Cartesian route's two-dimensional transverse transforms by `mx.fft.fftn`;
-- the state at the shared power-of-two scale (§4.3), with the scale folded into the
-  prefactors as on the oracle;
+- the block exponents, state scale and combined coefficients of §4.3, shared with the
+  oracle through one helper;
 - the error norm and the statistics reduced on the device to a few scalars, scaled
   before squaring and copied to the host once per trial or plane;
-- custom Metal kernels (`mx.fast.metal_kernel`) only where a measured pass needs one,
-  for example a compensated scan for the plasma's running integrals.
+- compensated scans for the plasma's running integrals, and the stable population
+  forms, as custom kernels where MLX's own operations do not give the oracle's bound.
 
-**Evaluation and synchronisation.** MLX is lazy: a stage builds a graph and nothing
-runs until `mx.eval`. The backend evaluates once per trial step, when the controller
-needs the norm, so six stages queue without host round trips; this is the pattern the
-indicative measurement timed.
+**The arithmetic policy.** Each protected operation of §4.2 has a stated mechanism and
+evidence, separate from the TF32 admission:
 
-**Arithmetic settings.** MLX 0.32.4 on the M5 Max's GPU computes float32 matrix
-products in TF32 by default (a relative error of 7.7 × 10⁻⁴ was measured on 256 × 256
-products, against 2.9 × 10⁻⁷ in float32), and honours `MLX_ENABLE_TF32=0`, which
-restores float32 at about a quarter more GEMM time. TF32 is
-outside the contract (§4.2): the backend sets the variable before MLX is imported in
-its process, and at construction runs a probe product and refuses to run if its error
-exceeds the float32 bound, so a changed default in a later MLX cannot pass silently.
-Compiled functions and custom kernels use MLX's `"safe"` math mode, never `"fast"`.
+| operation | mechanism | evidence |
+|---|---|---|
+| matrix products | `MLX_ENABLE_TF32=0` (below) | a construction probe on each GEMM dispatch family the run uses (its shapes), against the discriminating bound of §7.1 |
+| stage propagator | custom kernel, double-float combination and range reduction, MLX's documented `"safe"` math mode | constant-operator and occupied-band tests over several steps (§7.2) |
+| `expm1`, survival, compensated sums and scans | custom kernels in `"safe"` mode | adversarial tests: small and saturated exposures, a compensation that must retain a known lost increment (which fails under reassociation), against the oracle |
+| finite-value detection | MLX's `isfinite` on the norm and the state | injected NaN and infinity in each pass, in fixed, low-storage and adaptive runs |
+| transforms | MLX's FFT, complex64 | a characterisation of the error of each transform length and kind the routes use, against `fft_bound` at $u_{32}$, in the test suite, and a construction probe at the run's own lengths |
+| other element-wise work in compiled functions | `mx.compile` exposes no math-mode setting | class R against the oracle on every pass, and the special-value and tiny-response tests of §7.2 |
 
-**Batches.** `select_batch` with member-owned stages, as on the other backends: each
-member's graph is queued and the batch is evaluated together, which shares the
-synchronisation without a fused batch axis. The gain over solo runs is measured in
-phase 2; if it is small, as on the native device builds, the batch is still provided
-for parity and the record says so (Q10).
+If a probe fails, or a protected operation cannot be established on the installed MLX
+and device, the backend refuses to run, naming the operation and what to do.
 
-**Cost.** Binary32 halves resident memory against `numpy_ref`. The GPU and CPU share
-memory, so a host copy for `observe` or `stats` is a copy, not a transfer. Kernel
-launch latency sets a floor of tens of microseconds per stage, which is why the small
-single-mode case gains little.
+**TF32 and an initialised MLX.** MLX 0.32.4 on that laptop's GPU computes float32 matrix
+products in TF32 by default (a relative error of $7.7 \times 10^{-4}$ was measured on
+256 × 256 products, against $2.9 \times 10^{-7}$ in float32), and its documentation says
+`MLX_ENABLE_TF32=0` keeps them in float32 and that many settings are read when a
+subsystem is first initialised. The backend sets the variable when its package is
+imported, if it is unset. If it is set to another value, or if MLX was already
+initialised in the process with TF32 enabled, the GEMM probe fails and the backend
+refuses, telling the user to set `MLX_ENABLE_TF32=0` before MLX is first used (in the
+shell, or before any `import mlx`).
+
+**Evaluation, memory and lifetimes.** MLX is lazy: a stage builds a graph and nothing
+runs until `mx.eval`. A graph holding a whole step can retain intermediates an eager
+pass would release, beside MLX's allocator cache and compiled workspaces. The backend
+therefore:
+
+- evaluates at least once per trial step (when the controller needs the norm), and
+  also at stage or node-chunk boundaries when the step's estimated live bytes exceed a
+  budget, so that lifetimes are bounded by a stage or a chunk;
+- sets MLX's cache limit from the admission estimate and counts the cache and compiled
+  workspaces in its memory ledger;
+- measures its peak memory (MLX's peak-memory counter) on the benchmark cases and
+  checks it against `estimate_memory` in the tests: the estimate must not be below the
+  measured peak.
+
+**Batches.** The existing `LockstepRunner` asks each member for its trial and its host
+norm in turn, so a synchronising member trial cannot queue all members first. `mlx`
+supplies its own batch runner, a subclass that keeps the public `select_batch`
+interface, the members' independent states, ledgers and statistics, and splits each
+member's trial into building its graph and reading its norm: it builds every member's
+trial, evaluates all norms together, then hands each member its norm. The gain over
+solo runs is measured in phase 2; the batch is kept for parity whatever it is, and the
+record says so (Q10).
+
+**Envelope-grid plasma.** The oracle's per-sample decomposition and adaptive quadrature
+do not map onto a compiled graph without host decisions. Phase 4 qualifies a device
+formulation: a closed-form decomposition of each sample's two-component field into its
+polarisation ellipse (batched, stable for circular, nearly linear and degenerate
+fields), a fixed quadrature with an error estimate per sample, and a device status flag
+that reports a refinement failure or a cutoff crossing to the host, which refuses the
+step as the oracle refuses. Because its discretisation differs from the adaptive
+reference, it is qualified as a discretisation (class T, against the oracle's adaptive
+moments), not as rounding. Until then `mlx` refuses envelope-grid plasma by name.
+
+**Cost.** Binary32 halves the bytes per resident element against `numpy_ref`; the peak
+is the measured one above. The GPU and CPU share memory, so a host copy for `observe` or
+`stats` is a copy, not a transfer. Kernel launch latency sets a floor of tens of
+microseconds per stage, which is why the small single-mode case gains little.
 
 **Testing without a GPU.** MLX also runs its graphs on the CPU. The backend accepts an
-internal device choice, so in continuous integration its tests run on MLX's CPU
-device, which checks the graph code and skips the custom Metal kernels. A local GPU
-lane, the whole `mlx` test suite on the Metal device, is part of each phase's
-definition of done, as the device lanes are for the native builds. Phase 2 checks once
-whether a hosted macOS runner exposes a usable Metal device and records the result
-(Q7).
+internal device choice, so in continuous integration its tests run on MLX's CPU device,
+which checks the graph code; the custom kernels' tests are GPU-only. A local GPU lane,
+the whole `mlx` test suite on the Metal device, is part of each phase's definition of
+done, as the device lanes are for the native builds. Phase 2 checks once whether a
+hosted macOS runner exposes a usable Metal device and records the result (Q7).
 
 #### 6.4 Paving the way for `native` and `numba_cpu`
 
 What this SEP builds and a later native or numba single mode would reuse unchanged: the
-public setting, the `Precision` record and its schema field, the route refusals, the
-contract of §4.2, the binary32 bounds, the oracle path, the survival record and the
-tolerance floor. What it would add on its own: templating or recompiling its kernels
-on the real type, Kokkos-FFT and Kokkos Kernels in single precision (both support
-it), and its own protected blocks. A mixed mode adds a third precision value.
+public setting, the `Precision` record and its schema field, the admission function,
+the contract of §4.2 with its range rules and stable forms, the binary32 bounds, the
+oracle path, the survival criteria and record, and the tolerance floor. What it would
+add on its own: templating or recompiling its kernels on the real type, Kokkos-FFT and
+Kokkos Kernels in single precision (both support it), binary64 propagators (which a CPU
+or NVIDIA build can compute natively), and its own protected blocks. A mixed mode adds a
+third precision value.
 
 #### 6.5 Dependencies
 
@@ -435,25 +657,112 @@ environment marker `sys_platform == "darwin" and platform_machine == "arm64"`, p
 to a tested minor version (`mlx>=0.32.4,<0.33` at drafting) and added to
 [dependencies.md](../dependencies.md), with the macOS floor taken from MLX's wheels.
 The maintainer has agreed to it as an optional extra. A pin is raised only in a pull
-request that runs the GPU lane and the TF32 probe (Q9).
+request that runs the GPU lane and the arithmetic probes (Q9).
 
 ### 7. Verification and validation
 
-**Class R, matched discrete computation.**
-- `mlx` against `numpy_ref`, both single precision, on fixed schedules with a
-  fixed-order method, every route and response in scope, within the binary32 ladder
-  (the binary64 ladder's operation counts at $u_{32}$, with the same margins).
-- A batch member against its solo run, and a repeated run against itself, within the
-  same bounds.
-- `numpy_ref` single precision against `numpy_ref` double precision for one step,
-  within a bound in $u_{32}$, which tests the oracle path itself.
+#### 7.1 Bounds at binary32
 
-**Class T, accuracy: the survival study.** Each canonical case below runs in double
-precision at a tight tolerance (the reference) and in single precision at the floor
-and at a looser tolerance. The record gives the field, spectrum and observable errors
-(energy, peak power, spectral energy per band, ionised fraction, beam width) and a
-verdict: survives, survives with a stated limit, or fails. Cases run on reduced
-windows in tests; the full-length comparison is a worked example, run by hand.
+- **Formulas, not factors.** `tests/bounds.py` takes the unit roundoff as a parameter
+  (default binary64) in every formula — `gamma`, `higham_gamma`, `fft_bound`,
+  `scan_bound`, `prefix_bound`, `stencil_bound`, `step_budget`, `propagation_growth` —
+  and adds `UNIT_ROUNDOFF_32`. Existing call sites are unchanged. Each formula states
+  its domain ($k u < 1$ for $\gamma_k$) and raises outside it.
+- **What the bounds include.** The narrowing of every input table (one rounding per
+  entry, entering as one more operation per use); signed sums bounded through the sum
+  of magnitudes, so that a cancelling sum's relative bound carries its condition
+  number; and the propagator's per-step error of §4.1.
+- **Where a bound stops being useful.** At binary32 the established `fft_bound` margin
+  is already $8.5 \times 10^{-4}$ at $2^{14}$ samples, before source counts and growth.
+  A class R bound larger than a tenth of the case's class T envelope (§7.3) is
+  uninformative: that comparison runs on a shorter window or fewer steps until its
+  bound is below a tenth, and the test says so. Backend agreement within a class R
+  bound is never a survival verdict.
+- **The TF32 probe's bound.** The probe multiplies Gaussian random factors of each
+  dispatch family's shapes and requires a normwise relative error below $2^{-17}$
+  ($7.6 \times 10^{-6}$): float32 products of inner dimension up to $10^3$ are expected
+  near $\sqrt{n}\,u_{32} \le 2 \times 10^{-6}$ (measured $2.9 \times 10^{-7}$ at 256),
+  TF32 near its own unit roundoff $2^{-11}$ (measured $7.7 \times 10^{-4}$), so the
+  threshold separates the two by more than a factor of four on each side.
+
+#### 7.2 Class R, class P and the targeted tests
+
+- **`mlx` against `numpy_ref`**, both single precision, on fixed schedules with a
+  fixed-order method, every capability of §5.1 in its phase, within the binary32
+  bounds of §7.1.
+- **Batch members** against their solo runs, and repeated runs against themselves,
+  within the same bounds.
+- **The oracle path.** `numpy_ref` single against `numpy_ref` double for one step,
+  within a bound in $u_{32}$.
+- **Scaling.** Scaled against unscaled responses and propagation, separately: class P
+  where the operation sequences differ only by power-of-two factors (§4.3), class R
+  where coefficients are regrouped; a Cartesian case whose unscaled energy sum would
+  overflow binary32 runs and reports its energy within its bound; the zero launch; a
+  resume whose state peak differs from the launch's keeps the launch's scale.
+- **Vanished responses.** A molecular Raman case (nitrogen at 293 K and
+  $2.5 \times 10^{25}$ m⁻³ on a 2 ps field grid, whose kernel spectrum peaks near
+  $5 \times 10^{-50}$) gives a nonzero Raman polarisation agreeing with binary64 within
+  its bound, on `numpy_ref` and on the GPU; every pass reports its intermediates'
+  largest and smallest magnitudes in the survival record.
+- **Plasma populations.** Small exposure ($X = 10^{-8}$), nonzero pre-ionisation and
+  saturation ($X = 20$) against independent witnesses: the free-electron density
+  $\rho f$, the current, and the ionisation work $I_p\rho(f_{\mathrm{end}} - p)$
+  against $\int E\cdot J_{\mathrm{loss}}\,dt$.
+- **The propagator.** Constant-operator runs with no source and an occupied band, over
+  several step sizes and $10^2$–$10^4$ steps, against the exact $e^{M\Delta\Phi}$: the
+  error grows no faster than $c\,M\,u_{32}$ with the $c$ the record states; the study
+  switch's binary32-$\Delta\Phi$ variant is recorded beside it.
+- **Arithmetic probes.** The GEMM probe on each dispatch family; the adversarial tests
+  of §6.3's table; the dtype guards of `numpy_ref`; a test that no float64 array
+  reaches an `mlx` pass; a pre-initialised MLX with TF32 on is refused.
+- **Resume and configuration.** Same-precision resume across `numpy_ref` and `mlx`
+  (class T); a snapshot round trip (class P); a resume in the other precision refused;
+  the precision present in every configuration's hash.
+- **Failure.** A non-finite value injected into each pass stops fixed, low-storage and
+  adaptive runs with `ConvergenceError`.
+- **Memory.** The measured peak on the benchmark cases does not exceed the estimate.
+
+#### 7.3 Class T: the survival study
+
+**Criteria, fixed before any comparison.** Phase 1 records these in Part II before its
+first single-precision comparison; they are the maintainer's (2026-10-23) and are not
+fitted to results.
+
+- **References.** For each case, a binary64 run on the *same* grid, discretisation,
+  plasma rule and quadrature, at $\mathrm{rtol} = 10^{-10}$, so that grid and
+  discretisation errors are common to both sides and the comparison isolates
+  precision. Its own accuracy is established by a second binary64 run at
+  $\mathrm{rtol} = 10^{-9}$: their difference must be below a tenth of every envelope
+  below, or the reference is tightened until it is.
+- **Metrics and envelopes.** Against the reference, at the end of the window:
+
+  | metric | envelope |
+  |---|---|
+  | field, normwise relative | $10^{-3}$ |
+  | spectral energy in each of 32 equal bands of the active band, for bands above −40 dB of the largest | 1 % |
+  | total energy | $10^{-4}$ relative |
+  | peak power (fibre) or peak intensity (spatial) | $10^{-3}$ relative |
+  | final ionised fraction, where above $10^{-6}$ | $10^{-3}$ relative |
+  | beam width (radial, Cartesian) | $10^{-3}$ relative |
+
+- **Verdicts.** *Survives*: every metric within its envelope at the floor and at
+  $\mathrm{rtol} = 10^{-5}$. *Survives with a limit*: within its envelopes only over a
+  stated shorter length, a stated lower energy or a stated looser tolerance, recorded
+  as such. *Fails*: otherwise. A failure becomes a refusal where the failing condition
+  can be detected from the problem before the run, and a documented limitation where it
+  cannot.
+- **The floor (Q1).** The floor rises from $10^{-6}$ to $10^{-5}$ if, on every case,
+  the error at $\mathrm{rtol} = 10^{-6}$ is not smaller than at $10^{-5}$ by more than
+  25 % in any metric.
+- **Adams (Q2).** Through the study's private admission (§5.2), the Adams integrator is
+  admitted in phase 4 only if, on every case, its error at the same `rtol` is at most
+  twice Runge–Kutta's in every metric and within every envelope.
+- **The propagator drift.** The constant-operator record (§7.2) states $c$ and the step
+  count at which $c\,M\,u_{32}$ reaches the field envelope; the manual page gives that
+  count as a limit.
+
+**Cases.** Reduced windows in tests; the full-length comparison is a worked example,
+run by hand.
 
 | case | route | expected |
 |---|---|---|
@@ -461,11 +770,11 @@ windows in tests; the full-length comparison is a worked example, run by hand.
 | reduced resonant dispersive-wave emission in helium, two modes, gradient | fibre, field | survives |
 | reduced comb-to-continuum, noise-free | fibre, field | survives with a limit |
 | argon plasma blue shift | fibre, field and envelope | to measure |
+| molecular Raman in nitrogen | fibre, field | to measure |
 | radial Kerr beam and a short plasma filament | radial | to measure |
 | Cartesian Gaussian diffraction and a Kerr beam | Cartesian | survives |
 | the dispersive-wave and plasma cases under the Adams integrator | fibre | to measure (Q2) |
-| a gradient case with $\Delta\Phi$ in binary32 and in binary64 | fibre, field | to measure (Q4) |
-| a noise model | any | refused: a known limitation (§4.4) |
+| a noise model | any | refused: a known limitation (§4.5) |
 | a tight-tolerance run below the floor | any | refused |
 
 **Analytic checks in single precision.** Dispersion-free SPM's phase
@@ -473,31 +782,33 @@ $P\int\gamma\,dz$; linear propagation of a chirped Gaussian; Gaussian-beam diffr
 on the radial and Cartesian routes; photon-number conservation in lossless Kerr
 propagation to the binary32 growth bound.
 
-**Arithmetic probes.** The TF32 probe (§6.3); the dtype guards of `numpy_ref`; a test
-that no float64 array reaches an `mlx` pass.
+#### 7.4 Benchmarks
 
-**Scaling.** On `numpy_ref`, a run at its chosen power-of-two scale against the same
-run forced to scale one, over a few steps of a case far from the range limits: a
-class P comparison, exact because scaling by a power of two commutes with rounding
-when nothing overflows or becomes subnormal. On `mlx`, the same pair within the class R
-bound. A Cartesian case whose unscaled energy sum would overflow binary32 runs and
-reports its energy to the binary32 bound.
-
-**Benchmarks.** Each phase records, on short windows, the time per accepted step of
-`mlx` against `native` (binary64, CPU) on the same Mac, at the shapes of §2 and the
-benchmark suite's corresponding cases, under the benchmark rules
-([benchmarks.md](../benchmarks.md#rules)). The records inform the user guide's advice;
-they are not merge gates.
+Each phase records, on short windows, the time per accepted step of `mlx` against
+`native` (binary64, CPU) on the same Mac, at the shapes of §2 and the benchmark suite's
+corresponding cases, under the benchmark rules
+([benchmarks.md](../benchmarks.md#rules)), with the MLX version, its precision settings
+and the measured peak memory. These replace §2's indicative figures in the user guide;
+they inform its advice and are not merge gates.
 
 ### 8. Documentation
 
 - A user guide page, *Single precision and Apple GPUs*, under the performance guide:
-  when to use it, what is refused, the survival record, and the tolerance floor.
+  when to use it, the capability table, what is refused, the survival record with its
+  criteria, the tolerance floor, the propagator's step-count limit and the known
+  limitations.
 - The backends guide ([Choosing a backend](../../guide/performance/backends.md)): the
-  `mlx` entry and its installation.
+  `mlx` entry, its installation and `MLX_ENABLE_TF32`.
+- The normative pages, amended when phase 1 changes their contracts:
+  [architecture.md §1](../architecture.md) ("Double precision throughout" becomes
+  double precision by default, single precision opt-in under ADR-052) and §9 (the `mlx`
+  backend); [conventions.md §6](../conventions.md) (the kernel state is complex128, or
+  complex64 under single precision, held at the run's scale); and
+  [kernel-contract.md](../kernel-contract.md) (the precision field, and that table
+  dtypes are binary64 at the seam and narrowed by backends).
 - [backends.md](../backends.md): a section on `mlx`, a column in §9 *What runs where*,
-  and §11's limits; [kernel-contract.md](../kernel-contract.md): the precision field;
-  [testing.md](../testing.md) §3: the binary32 bounds.
+  and §11's limits; [testing.md](../testing.md) §3: the binary32 bounds and their limits
+  of use; [decisions.md](../decisions.md): ADR-052.
 - Docstrings for `precision` on every interface that takes it.
 - A worked example comparing single and double precision on one capillary and one
   radial case, run by hand with `poe docs-examples`.
@@ -505,11 +816,23 @@ they are not merge gates.
 ### 9. Compatibility and impact
 
 - **Defaults unchanged.** `precision="double"` is the default; double-precision results
-  do not change.
-- **Schema.** `SCHEMA_VERSION` changes in phase 1 for `KernelProblem.precision`.
-- **Outputs.** No change to the output schema's arrays; the metadata gains the
-  precision. Storing fields in binary32 would halve file sizes and is deferred (Q6).
-- **Resume.** The precision is in the resume key.
+  do not change. The stable population forms, block exponents and binary64 propagators
+  belong to the single-precision path; the binary64 path keeps its arithmetic.
+- **Schemas.** `SCHEMA_VERSION` changes in phase 1 for `KernelProblem.precision`, and
+  the output schema for the configuration's precision field; under ADR-051 every
+  configuration's hash changes with it, and files of the earlier output schema are not
+  resumed.
+- **Outputs.** No change to the saved arrays. Storing fields in binary32 would halve
+  file sizes and is deferred (Q6).
+- **ADR-052 — Single precision as an opt-in arithmetic, validated against its oracle.**
+  Written at acceptance. It amends [architecture.md §1](../architecture.md)'s "Double
+  precision throughout": binary64 stays the default and the only arithmetic of
+  `numba_cpu` and `native`; binary32 is an explicit per-run choice under SEP 33's
+  contract. It records the exception to ADR-020 for the `mlx` route: a GPU path whose
+  results are validated against `numpy_ref`'s single-precision path, the CPU oracle,
+  rather than against a compiled CPU backend in the same precision, because no compiled
+  CPU backend computes in binary32 and Apple GPUs cannot compute in binary64. ADR-020's
+  first clause stands: no validated binary64 result moves.
 - **Luna.jl** has no single-precision mode; nothing to record on the differences page.
 
 ### 10. Alternatives considered
@@ -521,16 +844,16 @@ they are not merge gates.
   would have to be maintained against every Kokkos release.
 - **SYCL through AdaptiveCpp.** AdaptiveCpp's generic compiler has an experimental
   Metal target (no binary64, emulated 64-bit atomics, no `printf`, per-operation command
-  buffers). Kokkos's SYCL backend depends on oneAPI extensions and has no
+  buffers) [5]. Kokkos's SYCL backend depends on oneAPI extensions and has no
   AdaptiveCpp configuration, so this means porting that backend or rewriting the
   native kernels in SYCL, and still needs a Metal FFT. Worth revisiting if Kokkos gains
   an AdaptiveCpp configuration upstream.
 - **JAX on Metal, PyTorch's MPS device.** JAX's Metal plugin is experimental; ADR-002's
   measurements stand against JAX as a CPU backend. PyTorch's MPS device covers complex
   arithmetic and FFTs only partially. MLX is Apple's own, supports complex64 transforms
-  and custom Metal kernels, and is used here only for the Mac GPU, where no other
-  backend runs — so ADR-002's CPU comparison does not apply, and ADR-020's order is
-  respected: the proposal adds a GPU route without touching the CPU backends.
+  and custom Metal kernels, and is used here only for Apple GPUs, where no other
+  backend runs, so ADR-002's CPU comparison does not apply; ADR-052 records how the
+  route relates to ADR-020.
 - **A mixed mode first** (binary32 source, binary64 state) on `native`. Better accuracy
   for the same transform cost on CPUs and reduced-binary64 NVIDIA GPUs, but impossible
   on Apple GPUs, which have no binary64 for the state; it remains open on the roadmap
@@ -538,85 +861,93 @@ they are not merge gates.
 - **MLX without a `numpy_ref` path**, comparing against double-precision `numpy_ref`
   with tolerances sized for binary32. Less work, but every comparison would mix
   rounding with method and leave no oracle for a later native mode; not chosen.
-- **Double-float emulation of binary64 on the GPU.** Correctly rounded emulation costs
-  of the order of ten binary32 operations per binary64 one; for the whole state it
-  would erase the gain. It remains an option for the phase increments alone (Q4).
+- **A binary32 phase increment, measured first** (the draft's Q4). Simpler, but its
+  error is coherent and grows as $M\,u\,|\Delta\Phi|$, invisible to the controller
+  (§4.1): a binary64-accurate propagator costs one small element-wise kernel and removes
+  the $|\Delta\Phi|$ factor; not chosen.
+- **Double-float emulation of binary64 for the whole state.** Correctly rounded
+  emulation costs of the order of ten binary32 operations per binary64 one; for the
+  whole state it would erase the gain. Used only for the propagator's argument.
+- **Normalised transforms or a different unit system** instead of block exponents. Every
+  pass and convention would change, and the binary64 path with them; block exponents
+  and one state scale keep SI units at the seam and touch only the narrowed path.
 
 ### 11. Phases
 
-Each phase merges on its own with a green gate.
+Each phase merges on its own with a green gate, its local GPU lane where `mlx` is
+touched, and its report in Part II.
 
 **Phase 1 — The precision setting, the oracle path and the survival study.**
-- The setting, the `Precision` record, `KernelProblem.precision`, validation and
-  refusals on every backend; the single-precision defaults (the `rtol` floor,
-  `RungeKutta()`) and refusals (`Multistep`, noise) in one admission function;
-  metadata, resume key, memory estimate; `SCHEMA_VERSION`.
-- The shared scaling helpers (§4.3).
-- `numpy_ref`'s single-precision path on the fibre, radial and Cartesian routes: the
-  dtype guards, the power-of-two scale, the pairwise reductions and compensated scans,
-  and the study switch for $\Delta\Phi$.
-- `tests/bounds.py` parametrised by $u$; the class R test of `numpy_ref` single against
-  double over one step; the scaling tests.
-- The survival study on reduced cases, the Adams and $\Delta\Phi$ measurements among
-  them, and its manual page with the known limitations; the floor, Adams and
-  $\Delta\Phi$ outcomes recorded in Part II.
-- Verifies: no double-precision result changes (the existing suite), the R and T tests
-  above, the refusals.
+- The setting, the `Precision` record, `KernelProblem.precision`, the admission function
+  with its defaults and refusals, validation; the configuration field, the resume
+  refusal and the output schema; the memory estimate; `SCHEMA_VERSION`.
+- The shared range helpers (§4.3).
+- `numpy_ref`'s single-precision path on the capabilities of §5.1: block exponents and
+  combined coefficients, the state scale, binary64 propagators, the stable plasma forms,
+  the envelope-plasma moments in binary64, the pairwise reductions and compensated scans,
+  the dtype guards, and the study switch.
+- `tests/bounds.py` parameterised by $u$, with domains and limits of use; the class R,
+  class P and targeted tests of §7.2 on `numpy_ref`.
+- The survival criteria recorded in Part II, then the survival study on reduced cases,
+  the Adams measurement among them; its manual page with the known limitations; the
+  floor, Adams and propagator outcomes recorded in Part II.
+- The amended normative pages (§8).
+- Verifies: no double-precision result changes (the existing suite), the tests of §7.2
+  and the study of §7.3, the refusals.
 
 **Phase 2 — `mlx` on capillary fibre runs.**
-- The backend package, registry entry, extra and dependency record; the TF32 probe;
-  the CPU-device test lane in continuous integration and the local GPU lane.
-- Mode-averaged and multimode fibre runs on field and envelope grids: Kerr, scalar and
-  tensor Raman, field and envelope plasma, loss, both absorber schemes, device-ready
-  gradients; Runge–Kutta and the low-storage march; statistics; `observe`.
-- Fixed-schedule lockstep batches through `select_batch`, with their gain over solo
-  runs measured.
-- Verifies: class R against `numpy_ref` single on every response; batch members;
-  the scaling pair; benchmarks against `native` at $2^{14}$, $2^{16}$ and the
-  multimode shape.
+- The backend package, registry entry, extra and dependency record; the arithmetic
+  policy and its probes; the propagator kernel; the CPU-device test lane in continuous
+  integration and the local GPU lane.
+- The fibre capabilities of §5.1 for phase 2, including field-grid plasma with the
+  stable forms and compensated scans; Runge–Kutta and the low-storage march;
+  statistics; `observe`; snapshots.
+- The batch runner (§6.3), with its gain over solo runs measured.
+- Memory: bounded lifetimes, the cache limit and the measured peak against the estimate.
+- Verifies: class R against `numpy_ref` single on every response; batch members; the
+  scaling, vanished-response, population, propagator, failure and resume tests;
+  benchmarks against `native` at $2^{14}$, $2^{16}$ and the multimode shape.
 
 **Phase 3 — `mlx` on radial and Cartesian free space.**
-- The radial route (Hankel GEMMs, Kerr, plasma and Raman on nodes) and the Cartesian
-  route (transverse transforms), with their collars and statistics.
+- The radial route (Hankel GEMMs, Kerr, field plasma and Raman on nodes) and the
+  Cartesian route (transverse transforms), with their collars and statistics.
 - Verifies: class R against `numpy_ref` single; Gaussian-beam diffraction; the
-  Cartesian energy case that would overflow unscaled; benchmarks
-  against `native` on the radial and Cartesian shapes and the suite's filament and
-  Kerr-beam cases.
+  Cartesian energy case that would overflow unscaled; the GEMM probe on the radial
+  shapes; benchmarks against `native` on the radial and Cartesian shapes and the
+  suite's filament and Kerr-beam cases.
 
-**Phase 4 — Admissions the study allows, and measured kernels.**
-- The Adams integrator under single precision, if the phase 1 study admits it (Q2),
-  with the default integrator then restored to `Multistep` under single precision.
-- A double-float phase increment on the device, if the study showed $\Delta\Phi$ in
-  binary32 to be visible in observables (Q4).
-- Custom Metal kernels for the passes the phase 2–3 records show to be bound by launch
-  count or memory traffic.
+**Phase 4 — Envelope plasma on the device, admissions, measured kernels.**
+- Envelope-grid plasma on `mlx` through the device formulation of §6.3, qualified as a
+  discretisation.
+- The Adams integrator under single precision, if the study admits it (Q2), with the
+  default integrator then restored to `Multistep` under single precision and the
+  snapshot layout revisited.
+- Custom kernels for the passes the phase 2–3 records show to be bound by launch count
+  or memory traffic.
 - The worked example and the final records; the SEP becomes Final when every backend
   that admits single precision agrees with the oracle within its bounds.
 
 ### 12. Open questions
 
-The maintainer decided Q1–Q11 on 2026-10-23 (Part III). What remains open is what the
-phase 1 study and the phase 2–3 measurements settle within those decisions.
+The maintainer decided Q1–Q11 on 2026-10-23, and revised Q4 and decided Q12–Q14 on the
+review the same day (Part III). What remains open is what the phase 1 study and the
+phase 2–4 measurements settle within those decisions.
 
 - **Q1 — The tolerance floor. Decided:** $\mathrm{rtol} \ge 10^{-6}$; an explicit value
   below it is refused, and every interface's single-precision default is the floor.
-  *Open:* the study may raise the floor to $10^{-5}$ if $10^{-6}$ gains no accuracy
-  over it (phase 1).
-- **Q2 — Adams under single precision. Decided:** the phase 1 study measures it; until
-  it is admitted the single-precision default integrator is `RungeKutta()` and an
-  explicit `Multistep` is refused. *Open:* admission, in phase 4, if its accuracy
-  envelope stays within a fixed factor of Runge–Kutta's on the canonical cases.
+  *Open:* whether the rule of §7.3 raises it to $10^{-5}$ (phase 1).
+- **Q2 — Adams under single precision. Decided:** measured by the study through its
+  private admission; until admitted the single-precision default integrator is
+  `RungeKutta()` and an explicit `Multistep` is refused. *Open:* admission by the rule
+  of §7.3 (phase 4).
 - **Q3 — Noise. Decided:** refused under single precision by every backend, a known
   limitation recorded on the manual page; admitting noise is outside this SEP.
-- **Q4 — The phase increment. Decided:** $\Delta\Phi$ in binary32, measured in phase 1
-  against a binary64 increment through `numpy_ref`'s study switch on the gradient
-  cases. *Open:* a double-float increment on the device in phase 4, only if the
-  difference is visible in observables.
-- **Q5 — Reductions. Decided:** the oracle defines the orders: pairwise reductions and
-  a blocked, compensated scan for running integrals (the field grid's band-exact
-  running sums of [SEP 18](archive/sep-0018-band-exact-plasma-integrals.md) among
-  them), each with its bound; every `mlx` choice is a class R test against it.
-  *Open:* the per-pass forms on `mlx` (phases 2–3).
+- **Q4 — The phase increment. Decided, revised after the review:** the propagator is
+  formed, range-reduced and exponentiated to binary64 accuracy and then rounded, on
+  every backend that admits single precision; on `mlx` by a double-float kernel from
+  phase 2. *Open:* the drift constant $c$ and the step-count limit (phase 1).
+- **Q5 — Reductions. Decided:** the oracle defines the orders (§6.2); every `mlx` choice
+  is a class R test against it. *Open:* the per-pass forms on `mlx` (phases 2–3).
 - **Q6 — Binary32 outputs. Decided:** deferred; outputs stay binary64.
 - **Q7 — Continuous integration. Decided:** CI runs the `mlx` tests on MLX's CPU device;
   a local GPU lane is part of each phase's definition of done. *Open:* whether a hosted
@@ -625,12 +956,19 @@ phase 1 study and the phase 2–3 measurements settle within those decisions.
   present, otherwise a refusal naming the extra and `numpy_ref`; never `numpy_ref` by
   resolution.
 - **Q9 — The MLX pin. Decided:** `mlx>=0.32.4,<0.33`, the macOS floor from MLX's wheels,
-  raised only in a pull request that runs the GPU lane and the TF32 probe.
-- **Q10 — Batches. Decided:** member-owned batches through `select_batch` in phase 2,
-  kept for parity whatever their measured gain, which the record states; no fused
-  batch axis.
-- **Q11 — Range. Decided:** the exact power-of-two state scale and scaled reductions of
-  §4.3, private to the backends and shared through one helper.
+  raised only in a pull request that runs the GPU lane and the arithmetic probes.
+- **Q10 — Batches. Decided:** member-owned batches through `select_batch` and the `mlx`
+  batch runner in phase 2, kept for parity whatever their measured gain; no fused batch
+  axis.
+- **Q11 — Range. Decided, extended after the review:** block exponents for every
+  narrowed buffer, the launch's power-of-two state scale, coefficients combined on the
+  host, per-term homogeneity factors and scaled reductions (§4.3), shared through one
+  set of helpers.
+- **Q12 — Survival criteria. Decided:** the references, envelopes, verdicts and
+  admission rules of §7.3, recorded before any comparison.
+- **Q13 — Envelope plasma on `mlx`. Decided:** refused in phases 2–3; a device
+  formulation qualified as a discretisation in phase 4.
+- **Q14 — ADR-052. Decided:** written at acceptance (§9).
 
 ### 13. References
 
@@ -641,8 +979,10 @@ phase 1 study and the phase 2–3 measurements settle within those decisions.
 3. J. C. Schatzman, "Accuracy of the discrete Fourier transform and the fast Fourier
    transform," *SIAM J. Sci. Comput.* **17**, 1150–1166 (1996). doi:10.1137/S1064827593247023
 4. A. Hannun, J. Digani, A. Katharopoulos and R. Collobert, *MLX: Efficient and
-   flexible machine learning on Apple silicon*, software (2023);
-   documentation at https://ml-explore.github.io/mlx/ (accessed 2026-10-23).
+   flexible machine learning on Apple silicon*, software (2023); documentation,
+   including "Environment Variables", "Numerical Precision", `mlx.core.compile` and
+   `mlx.core.fast.metal_kernel`, at https://ml-explore.github.io/mlx/ (accessed
+   2026-10-23).
 5. AdaptiveCpp documentation, "Installation instructions for Metal (macOS),"
    https://adaptivecpp.github.io/AdaptiveCpp/install-metal/ (accessed 2026-10-23).
 
@@ -650,7 +990,7 @@ phase 1 study and the phase 2–3 measurements settle within those decisions.
 
 ## Part III — History
 
-- 2026-10-23: Drafted, after an indicative synthetic MLX measurement on an Apple M5 Max.
+- 2026-10-23: Drafted, after an indicative synthetic MLX measurement on an Apple-silicon laptop.
   The maintainer chose the routes (capillary fibre runs, radial and Cartesian free
   space; not the general modal route), batches only through the existing interface,
   MLX as an optional extra, and a `numpy_ref` single-precision oracle.
@@ -664,6 +1004,9 @@ phase 1 study and the phase 2–3 measurements settle within those decisions.
   that his human review be recorded. GPT-6 completed the AI review of Part I below.
   Review status is `Reviewed`; proposal status remains `Draft`. The review records
   questions and recommendations, not acceptance or maintainer dispositions.
+- 2026-10-23: Revised after the reviews (Opus 5.5): the maintainer's decisions on
+  R3, R6, R8 and R11 and the response to every point are below; Part I rewrites
+  §4.3 and §7 and adds §4.4, §5.1–5.3, the arithmetic policy of §6.3 and Q12–Q14.
 
 ### AI review — 2026-10-23 — GPT-6
 
@@ -854,3 +1197,111 @@ The population probes checked both small exposure and neutral survival. The MLX
 was checked; the proposal's synthetic timings, hardware-specific TF32 errors, Metal
 arithmetic and GPU execution were not independently reproduced. No physical
 coefficient or material model was transcribed or changed by this review.
+
+### Maintainer decisions on the AI review — 2026-10-23
+
+John Travers decided the four points that needed a maintainer's choice; the other seven
+were resolved technically in the response below.
+
+- **R3:** the binary64-accurate propagator is mandatory, on `mlx` by a double-float
+  kernel from phase 2. This revises the earlier decision on Q4 (binary32 first, then
+  measure).
+- **R6:** the survival criteria proposed in the response are accepted: the envelopes,
+  verdicts, floor rule and Adams rule of §7.3.
+- **R8:** `mlx` refuses envelope-grid plasma until phase 4, which qualifies a device
+  formulation; field-grid plasma stays in phase 2.
+- **R11 (the normative pages):** a new ADR-052, written at acceptance, makes single
+  precision an opt-in exception to "Double precision throughout" and records the
+  `mlx` route's relation to ADR-020.
+
+### Response to review — 2026-10-23
+
+Every point is taken. The revision of Part I on 2026-10-23 rewrites §4.3 (range) and
+§7 (verification), adds §4.4 (plasma populations), §5.1–5.3 (capabilities, admission,
+configuration) and the arithmetic policy of §6.3, and adds Q12–Q14. The binary64 path
+is unchanged throughout: every new form belongs to the single-precision path.
+
+- **R1 (range of response buffers).** Taken; confirmed against the code: Raman kernels
+  are per particle with `dt` folded in, so a molecular kernel's spectrum is of order
+  $10^{-50}$. §4.3 now applies the range rule per buffer and per intermediate: block
+  exponents for every narrowed buffer, coefficients (density, amplitudes, prefactor
+  constants, scale powers, exponents) combined on the host in binary64 and applied where
+  the intermediate they multiply is largest, and a declared magnitude range per pass.
+  §7.2 adds the nitrogen case of the review as a vanished-response test on `numpy_ref`
+  and the GPU, and the survival record reports intermediate ranges.
+- **R2 (scaling of plasma and statistics).** Taken; the reviewer's derivation is right.
+  §4.3 gives the scaled equations as a table of homogeneity factors: cubic terms take
+  $s^2$, the free current 1 and the loss current $s^{-2}$, each held-current stream its
+  own, with rates, fractions and survival evaluated at the physical field. Statistics
+  declare a homogeneity degree (1, 2 or 0, tabulated); the absolute tolerance is divided
+  by $s$; a zero launch takes $s = 1$. §7.2 tests scaled against unscaled responses and
+  propagation separately, class P only where the operation sequences differ by powers of
+  two, class R where coefficients are regrouped (§4.3, "Exactness and its limits").
+- **R3 (coherent phase rounding).** Taken, with the maintainer's decision above;
+  confirmed by reproducing the witness (binary32 argument: $1.89 \times 10^{-5}$ after
+  one multiplication, $1.89 \times 10^{-1}$ after $10^4$; binary64 exponential then
+  rounded: $1.89 \times 10^{-8}$ and $1.85 \times 10^{-4}$). §4.1 now separates random
+  from coherent contributions, calls $u\sqrt M$ a heuristic under stated assumptions,
+  budgets the propagator's drift and the coefficients' rounding linearly, and says the
+  controller cannot see either. §4.2 makes the propagator binary64-accurate (formed,
+  range-reduced and exponentiated, then rounded), so the study's two variants are those
+  the reviewer distinguishes: the switch evaluates the binary32-$\Delta\Phi$ form only
+  for the record. §7.2 adds constant-operator, occupied-band tests over several step
+  sizes; §7.3 turns the measured drift into a documented step-count limit.
+- **R4 (field-plasma population).** Taken; the draft's claim was wrong: the field path
+  computes $1 - (1 - p)e^{-X}$ and the loss from $1 - f$. §4.2 and the new §4.4 specify
+  the stable fraction and a separate survival array for the single-precision path, with
+  the loss current and ionisation work formed from the survival; the binary64 path keeps
+  its arithmetic (§9). §7.2 tests small exposure, pre-ionisation and saturation against
+  density, current and ionisation-work witnesses.
+- **R5 (bounds at binary32).** Taken. §4.1 no longer says the bounds scale by $2^{29}$;
+  §7.1 parameterises the formulas themselves, with their domains, includes input
+  narrowing and conditioned signed sums, defines when a class R bound is uninformative
+  (above a tenth of the class T envelope, so the window shortens), states that backend
+  agreement is never a survival verdict, and gives the TF32 probe a discriminating
+  bound ($2^{-17}$ normwise).
+- **R6 (reproducible decision rules).** Taken, with the maintainer's decision above.
+  §7.3 fixes, before any comparison: same-grid binary64 references at
+  $\mathrm{rtol} = 10^{-10}$ with their own convergence check, the metrics and
+  envelopes, the minimum signal (−40 dB bands), the three verdicts and what a failure
+  becomes, the floor rule (a 25 % gain), the Adams rule (at most twice Runge–Kutta's
+  error and within the envelopes) and the propagator limit. §5.2 says how the study
+  reaches Adams while public admission refuses it.
+- **R7 (MLX arithmetic policy).** Taken; checked against MLX 0.32.4's documentation:
+  `mx.compile` has no math-mode setting, `metal_kernel` has, and environment settings
+  can be latched at initialisation. §6.3 now has a per-operation table of mechanism and
+  evidence: protected operations in custom kernels in `"safe"` mode, each with
+  adversarial tests (including a compensation that fails under reassociation); compiled
+  element-wise work established by class R and special-value tests; transforms
+  characterised against `fft_bound`; the GEMM probe on every dispatch family. A process
+  where MLX was initialised with TF32 on is refused with an actionable message. §4.3
+  adds an absolute underflow budget and says where it does not hold.
+- **R8 (envelope plasma on the device).** Taken, with the maintainer's decision above;
+  confirmed: `_cycle_quantities` performs a per-sample SVD and `cycle_moments` refines
+  adaptively. §6.3 describes the phase 4 formulation (closed-form ellipse decomposition,
+  fixed quadrature with a per-sample error estimate, a device status flag) and its
+  qualification as a discretisation; `mlx` refuses envelope-grid plasma until then
+  (§5.1). `numpy_ref`'s single path evaluates the moments in binary64 on the host.
+- **R9 (resume and schema).** Taken, decided under ADR-051, which keeps no
+  compatibility with earlier configurations or output schemas: the precision is a field
+  of every run's hashed configuration, double included; the output schema changes, so
+  every hash changes and earlier files are not resumed, which removes the question of a
+  legacy meaning and of historical-hash tests. §5.3 fixes the scale from the launch, so
+  a resume or restart recomputes it; snapshot rows are degree-one in the state and are
+  stored unscaled in binary64 (class P round trip); a same-precision cross-backend
+  resume is class T; the other precision is refused. The Adams snapshot layout is
+  revisited in phase 4.
+- **R10 (lazy-graph memory and batch synchronisation).** Taken; confirmed:
+  `LockstepRunner._trial_step` needs each member's host norm at once. §6.3 bounds graph
+  lifetimes (evaluation at stage or chunk boundaries above a live-bytes budget), counts
+  MLX's cache and workspaces, and checks the measured peak against the estimate; it
+  defines an `mlx` batch runner that builds all members' trials before evaluating their
+  norms, behind the same `select_batch` interface with independent ledgers. §5 and §7.2
+  require failure detection in fixed, low-storage and adaptive runs.
+- **R11 (capability and documentation contracts).** Taken. §5.1 is a capability table
+  by backend and phase with its refusals (GNLSE and solid-core runs admitted with the
+  fibre route; the dispersive electronic response refused; the z table on `numpy_ref`
+  only). §8 names the normative pages to amend (architecture.md §1 and §9, conventions.md
+  §6, kernel-contract.md), and §9 drafts ADR-052. §2 now records the synthetic
+  benchmark's setup, including that every reported row ran with `MLX_ENABLE_TF32=0`, and
+  keeps it indicative until §7.4's measurements replace it.
