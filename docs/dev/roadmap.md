@@ -55,6 +55,7 @@ being implemented.
   37.5 μm tutorial; the incident-energy defect is its first implementation phase,
   after SEP 34's full public activation. Qualified provider-pair envelopes may
   replace conservative weak-guidance screens within the total model budget.
+  In progress: implementation has started on SEP 34's branch.
 
 - [SEP 34 — Medium flux for free-space propagation](seps/sep-0034-medium-flux.md):
   physical launch energy, complex-admittance local flux, consistent total-energy

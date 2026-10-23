@@ -6,7 +6,7 @@
 | **Title** | Coupling simulations and transporting ultrafast fields |
 | **Author** | John Travers |
 | **Drafting agent** | GPT-6 (draft and 2026-10-23 review response) |
-| **Status** | Accepted |
+| **Status** | In progress |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); Opus 5.5 (AI) |
 | **Type** | Feature |
@@ -15,7 +15,7 @@
 | **Requires** | [SEP 22](archive/sep-0022-memory-lean-spatial-execution.md): plane storage and input replacement; [SEP 23](archive/sep-0023-far-field-aperture-spectra.md): aperture definitions; [SEP 25](archive/sep-0025-rounding-level-reproducibility.md): numerical qualification; [SEP 34](sep-0034-medium-flux.md): shared medium flux and radial adiabatic transport |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | — |
+| **Implementation** | John Travers with Opus 5.5 (AI); on `feature/sep-0031-simulation-coupling` |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -1128,6 +1128,9 @@ No new material constant or experimental validation is claimed.
   explicit request to commit and merge both SEPs 31 and 34. Part I is frozen.
   SEP 34 is implemented first; this proposal's implementation record remains
   empty until its phases begin.
+- 2026-10-23: In progress. Implementation started on a branch cut from SEP 34's
+  implementation branch; it reaches main through its own pull request after
+  SEP 34 has merged.
 
 ### AI review — 2026-10-23
 
