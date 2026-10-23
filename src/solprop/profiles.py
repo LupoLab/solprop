@@ -68,6 +68,7 @@ __all__ = [
     "DensityPath",
     "FromCallable",
     "Linear",
+    "PathVariation",
     "PiecewiseLinear",
     "PressureGradient",
     "Scaled",
@@ -161,6 +162,177 @@ of the compressibility table has converged; the density then reproduces direct
 equation-of-state calls to about 1e-12 relative, which the tests assert at 1e-9."""
 
 
+@dataclass(frozen=True, eq=False)
+class PathVariation:
+    r"""The monotone structure of a path over a closed interval.
+
+    The interval is cut at `knots` into pieces. On each open piece the path is
+    continuous; its one-sided limits at the piece's ends are `first` and `last`, its
+    values lie in ``[low, high]`` and its total variation inside the piece is at most
+    `variation`. Where `monotone` holds the path is monotone on the piece and
+    ``variation == abs(last - first)`` exactly. A difference between one piece's
+    `last` and the next piece's `first` is a declared jump.
+
+    The record describes the represented path, the function the class evaluates,
+    not a physical profile it may approximate; an interpolation error is a separate
+    envelope.
+
+    Attributes
+    ----------
+    knots : numpy.ndarray
+        Piece edges in m, strictly increasing, at least two.
+    first, last : numpy.ndarray
+        Limits of the path at each piece's start from the right and at its end from
+        the left, shape ``(n_pieces,)``.
+    variation : numpy.ndarray
+        Upper bound of the total variation inside each open piece, at least
+        ``abs(last - first)``.
+    low, high : numpy.ndarray
+        Lower and upper bounds of the path on each closed piece, limits included.
+    monotone : numpy.ndarray
+        Whether each piece is certified monotone, so that its `variation` is exact.
+
+    Raises
+    ------
+    TranslationError
+        If the arrays are inconsistent or the bounds do not enclose the limits.
+
+    Examples
+    --------
+    >>> from solprop.profiles import PiecewiseLinear
+    >>> path = PiecewiseLinear.from_stages([0.0, 1.0, 2.0], [0.0, 2.0, 1.0])
+    >>> record = path.variation(0.0, 2.0)
+    >>> float(record.total_variation)
+    3.0
+    >>> record.jumps.size
+    0
+    """
+
+    knots: Float[np.ndarray, " n_knots"]
+    first: Float[np.ndarray, " n_pieces"]
+    last: Float[np.ndarray, " n_pieces"]
+    variation: Float[np.ndarray, " n_pieces"]
+    low: Float[np.ndarray, " n_pieces"]
+    high: Float[np.ndarray, " n_pieces"]
+    monotone: Bool[np.ndarray, " n_pieces"]
+
+    def __post_init__(self) -> None:
+        """Validate the pieces and freeze the arrays.
+
+        Raises
+        ------
+        TranslationError
+            If the shapes disagree, a value is not finite, the knots do not increase,
+            or a bound fails to enclose the piece's limits.
+        """
+        knots = _checked_edges(self.knots, "PathVariation")
+        arrays = {
+            name: np.array(getattr(self, name), dtype=float)
+            for name in ("first", "last", "variation", "low", "high")
+        }
+        monotone = np.array(self.monotone, dtype=bool)
+        pieces = knots.size - 1
+        if monotone.shape != (pieces,) or any(
+            a.shape != (pieces,) for a in arrays.values()
+        ):
+            raise TranslationError(
+                f"PathVariation needs {pieces} entries per piece for {knots.size} knots"
+            )
+        if not all(np.all(np.isfinite(a)) for a in arrays.values()):
+            raise TranslationError("PathVariation values must be finite")
+        first, last = arrays["first"], arrays["last"]
+        if (
+            np.any(arrays["variation"] < np.abs(last - first))
+            or np.any(arrays["low"] > np.minimum(first, last))
+            or np.any(arrays["high"] < np.maximum(first, last))
+        ):
+            raise TranslationError(
+                "PathVariation bounds must enclose each piece's one-sided limits"
+            )
+        for name, values in (("knots", knots), *arrays.items(), ("monotone", monotone)):
+            values.setflags(write=False)
+            object.__setattr__(self, name, values)
+
+    @property
+    def jumps(self) -> Float[np.ndarray, " n_jumps"]:
+        """Return the interior knots where the path jumps.
+
+        Returns
+        -------
+        numpy.ndarray
+            Positions in m where the next piece's `first` differs from `last`.
+        """
+        return self.knots[1:-1][self.first[1:] != self.last[:-1]]
+
+    @property
+    def total_variation(self) -> float:
+        """Return the enclosed total variation over the whole interval.
+
+        Returns
+        -------
+        float
+            The sum of the pieces' variations and the jumps' magnitudes, in the unit
+            of the path.
+        """
+        jumps = np.abs(self.first[1:] - self.last[:-1])
+        return float(np.sum(self.variation) + np.sum(jumps))
+
+    def collapse(self) -> "PathVariation":  # noqa: UP037 - evaluated in the class body
+        """Return the same enclosure as one piece over the whole interval.
+
+        Returns
+        -------
+        PathVariation
+            One piece whose variation includes every interior jump; it is monotone
+            only when every piece is, no jump reverses, and all move one way.
+        """
+        steps = np.concatenate(
+            [self.last - self.first, self.first[1:] - self.last[:-1]]
+        )
+        same_way = bool(np.all(steps >= 0.0) or np.all(steps <= 0.0))
+        monotone = bool(np.all(self.monotone)) and same_way
+        first, last = float(self.first[0]), float(self.last[-1])
+        total = abs(last - first) if monotone else self.total_variation
+        return PathVariation(
+            np.array([self.knots[0], self.knots[-1]]),
+            np.array([first]),
+            np.array([last]),
+            np.array([max(total, abs(last - first))]),
+            np.array([min(float(np.min(self.low)), first, last)]),
+            np.array([max(float(np.max(self.high)), first, last)]),
+            np.array([monotone]),
+        )
+
+    def scaled(self, factor: float) -> "PathVariation":  # noqa: UP037 - see collapse
+        """Return the enclosure of the path multiplied by a constant.
+
+        Parameters
+        ----------
+        factor : float
+            Finite multiplier.
+
+        Returns
+        -------
+        PathVariation
+            The scaled record; a negative factor swaps the bounds.
+        """
+        low, high = self.low * factor, self.high * factor
+        first, last = self.first * factor, self.last * factor
+        # Rounding is monotone, so a monotone piece stays one, but its variation is
+        # re-formed from the scaled limits rather than scaled with a separate error.
+        exact = np.abs(last - first)
+        scaled = np.maximum(self.variation * abs(factor), exact)
+        return PathVariation(
+            self.knots,
+            first,
+            last,
+            np.where(self.monotone, exact, scaled),
+            np.minimum(low, high),
+            np.maximum(low, high),
+            self.monotone,
+        )
+
+
 @runtime_checkable
 class ZProfile(Protocol):
     """A scalar path along the propagation axis.
@@ -176,8 +348,28 @@ class ZProfile(Protocol):
         ...
 
     @property
+    def jumps(self) -> Float[np.ndarray, " n_jumps"]:
+        """Return the declared discontinuities in m, a subset of the breakpoints."""
+        ...
+
+    @property
     def z_span(self) -> tuple[float, float]:
         """The interval in m over which the path is defined, as ``(start, end)``."""
+        ...
+
+    def variation(self, start: float, end: float) -> PathVariation:
+        """Enclose the monotone structure and total variation of the path.
+
+        Parameters
+        ----------
+        start, end : float
+            The closed interval in m, finite with ``start < end``.
+
+        Returns
+        -------
+        PathVariation
+            Pieces on which the path's values and variation are enclosed.
+        """
         ...
 
     @property
@@ -329,6 +521,185 @@ def _checked_pressures(
     return values
 
 
+def _interval_knots(
+    start: float, end: float, inner: Float[np.ndarray, " n_inner"]
+) -> Float[np.ndarray, " n_knots"]:
+    """Return the ends of an interval and the given positions strictly inside it.
+
+    Parameters
+    ----------
+    start, end : float
+        The closed interval in m.
+    inner : numpy.ndarray
+        Candidate knots in m, any order.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``start``, the candidates inside ``(start, end)`` sorted and unique, and
+        ``end``.
+
+    Raises
+    ------
+    TranslationError
+        If the interval is not finite or not increasing.
+    """
+    start, end = float(start), float(end)
+    if not (math.isfinite(start) and math.isfinite(end) and end > start):
+        raise TranslationError(
+            f"a variation interval needs finite start < end, got ({start}, {end})"
+        )
+    candidates = np.asarray(inner, dtype=float)
+    inside = np.unique(candidates[(candidates > start) & (candidates < end)])
+    return np.concatenate([[start], inside, [end]])
+
+
+def _monotone_pieces(
+    knots: Float[np.ndarray, " n_knots"],
+    first: Float[np.ndarray, " n_pieces"],
+    last: Float[np.ndarray, " n_pieces"],
+) -> PathVariation:
+    """Return the exact record of a path monotone between its knots.
+
+    Parameters
+    ----------
+    knots : numpy.ndarray
+        Piece edges in m.
+    first, last : numpy.ndarray
+        One-sided limits at each piece's ends.
+
+    Returns
+    -------
+    PathVariation
+        Monotone pieces whose variation is ``abs(last - first)``.
+    """
+    return PathVariation(
+        knots,
+        first,
+        last,
+        np.abs(last - first),
+        np.minimum(first, last),
+        np.maximum(first, last),
+        np.ones(first.shape, dtype=bool),
+    )
+
+
+def _continuous_monotone(
+    path: ZProfile, knots: Float[np.ndarray, " n_knots"]
+) -> PathVariation:
+    """Return the record of a continuous path monotone between the given knots.
+
+    Parameters
+    ----------
+    path : ZProfile
+        The path, continuous on the interval.
+    knots : numpy.ndarray
+        Piece edges in m between which the path is monotone.
+
+    Returns
+    -------
+    PathVariation
+        The exact record, from the path's values at the knots.
+    """
+    values = np.asarray(path(knots), dtype=float)
+    return _monotone_pieces(knots, values[:-1], values[1:])
+
+
+def _padded(record: PathVariation, start: float, end: float) -> PathVariation:
+    """Extend a record by constant pieces out to a wider interval.
+
+    Parameters
+    ----------
+    record : PathVariation
+        The record over a subinterval of ``[start, end]``.
+    start, end : float
+        The wider interval in m.
+
+    Returns
+    -------
+    PathVariation
+        The record, with a constant piece before and after it where the interval
+        extends beyond it: the path is held at its end values there.
+    """
+    pieces = [record]
+    if start < record.knots[0]:
+        value = np.array([record.first[0]])
+        pieces.insert(
+            0, _monotone_pieces(np.array([start, record.knots[0]]), value, value)
+        )
+    if end > record.knots[-1]:
+        value = np.array([record.last[-1]])
+        pieces.append(_monotone_pieces(np.array([record.knots[-1], end]), value, value))
+    if len(pieces) == 1:
+        return record
+    return PathVariation(
+        np.concatenate([pieces[0].knots, *(p.knots[1:] for p in pieces[1:])]),
+        *(
+            np.concatenate([getattr(p, name) for p in pieces])
+            for name in ("first", "last", "variation", "low", "high", "monotone")
+        ),
+    )
+
+
+def _mapped_variation(
+    record: PathVariation,
+    function: Callable[[Float[np.ndarray, " n"]], Float[np.ndarray, " n"]],
+    critical: Callable[[float, float], Float[np.ndarray, " n_critical"]],
+    slope: Callable[[float, float], float],
+) -> PathVariation:
+    """Enclose the variation of a scalar function applied to a path.
+
+    On a monotone piece of the inner path the composite is monotone between the
+    critical points of the function that lie in the piece's range, so its variation is
+    exact from the function's values at those points. On a piece that is not certified
+    monotone the variation is at most the function's largest slope on the range
+    times the inner variation.
+
+    Parameters
+    ----------
+    record : PathVariation
+        The inner path's record.
+    function : collections.abc.Callable
+        The outer function, vectorised.
+    critical : collections.abc.Callable
+        ``critical(low, high)`` returns every point in ``(low, high)`` where the
+        function may turn; extra points only cost evaluations.
+    slope : collections.abc.Callable
+        ``slope(low, high)`` returns an upper bound of ``abs(function')`` on the range.
+
+    Returns
+    -------
+    PathVariation
+        The composite's record, on the same knots.
+    """
+    pieces = record.first.size
+    first = np.asarray(function(record.first), dtype=float)
+    last = np.asarray(function(record.last), dtype=float)
+    variation = np.empty(pieces)
+    low = np.empty(pieces)
+    high = np.empty(pieces)
+    monotone = np.empty(pieces, dtype=bool)
+    for j in range(pieces):
+        lo, hi = float(record.low[j]), float(record.high[j])
+        turns = critical(lo, hi) if hi > lo else np.empty(0)
+        inner = np.sort(np.asarray(turns, dtype=float))
+        span = np.concatenate([[lo], inner, [hi]])
+        values = np.asarray(function(span), dtype=float)
+        low[j] = min(float(np.min(values)), first[j], last[j])
+        high[j] = max(float(np.max(values)), first[j], last[j])
+        if record.monotone[j]:
+            ordered = values if record.last[j] >= record.first[j] else values[::-1]
+            ordered = np.concatenate([[first[j]], ordered[1:-1], [last[j]]])
+            steps = np.diff(ordered)
+            variation[j] = float(np.sum(np.abs(steps)))
+            monotone[j] = bool(np.all(steps >= 0.0) or np.all(steps <= 0.0))
+        else:
+            variation[j] = slope(lo, hi) * float(record.variation[j])
+            monotone[j] = False
+        variation[j] = max(variation[j], abs(last[j] - first[j]))
+    return PathVariation(record.knots, first, last, variation, low, high, monotone)
+
+
 @dataclass(frozen=True, eq=False)
 class Constant:
     """A path that does not vary along z.
@@ -398,6 +769,32 @@ class Constant:
             Always ``True``.
         """
         return True
+
+    @property
+    def jumps(self) -> Float[np.ndarray, " n_jumps"]:
+        """Return the declared discontinuities, which for a constant are none.
+
+        Returns
+        -------
+        numpy.ndarray
+            Positions in m.
+        """
+        return np.empty(0, dtype=float)
+
+    def variation(self, start: float, end: float) -> PathVariation:
+        """Return the exact variation, which is zero.
+
+        Parameters
+        ----------
+        start, end : float
+            The closed interval in m, finite with ``start < end``.
+
+        Returns
+        -------
+        PathVariation
+            One flat piece.
+        """
+        return _continuous_monotone(self, _interval_knots(start, end, np.empty(0)))
 
     def __call__(self, z: Float[np.ndarray, " n_z"]) -> Float[np.ndarray, " n_z"]:
         """Return the constant value at each position.
@@ -588,6 +985,33 @@ class PiecewiseLinear(Displayed):
         """
         return bool(np.all(self.values == self.values[0]))
 
+    @property
+    def jumps(self) -> Float[np.ndarray, " n_jumps"]:
+        """Return the declared discontinuities, none for a continuous interpolant.
+
+        Returns
+        -------
+        numpy.ndarray
+            Positions in m.
+        """
+        return np.empty(0, dtype=float)
+
+    def variation(self, start: float, end: float) -> PathVariation:
+        """Return the exact variation: the path is monotone between its stages.
+
+        Parameters
+        ----------
+        start, end : float
+            The closed interval in m, finite with ``start < end``.
+
+        Returns
+        -------
+        PathVariation
+            One monotone piece per stage inside the interval, and flat pieces outside
+            the declared range.
+        """
+        return _continuous_monotone(self, _interval_knots(start, end, self.positions))
+
     def __call__(self, z: Float[np.ndarray, " n_z"]) -> Float[np.ndarray, " n_z"]:
         """Return the interpolated value at each position.
 
@@ -733,6 +1157,32 @@ class Linear(Displayed):
             ``True`` when ``start == end``.
         """
         return self._stages.is_constant
+
+    @property
+    def jumps(self) -> Float[np.ndarray, " n_jumps"]:
+        """Return the declared discontinuities, which for a linear path are none.
+
+        Returns
+        -------
+        numpy.ndarray
+            Positions in m.
+        """
+        return np.empty(0, dtype=float)
+
+    def variation(self, start: float, end: float) -> PathVariation:
+        """Return the exact variation of the two-stage table.
+
+        Parameters
+        ----------
+        start, end : float
+            The closed interval in m, finite with ``start < end``.
+
+        Returns
+        -------
+        PathVariation
+            The record of the equivalent :class:`PiecewiseLinear`.
+        """
+        return self._stages.variation(start, end)
 
     def __call__(self, z: Float[np.ndarray, " n_z"]) -> Float[np.ndarray, " n_z"]:
         """Return the interpolated value at each position.
@@ -1538,6 +1988,39 @@ class PressureGradient(Displayed):
         """
         return bool(np.all(self.pressures == self.pressures[0]))
 
+    @property
+    def jumps(self) -> Float[np.ndarray, " n_jumps"]:
+        """Return the declared discontinuities, which for a steady-flow fill are none.
+
+        Returns
+        -------
+        numpy.ndarray
+            Positions in m.
+        """
+        return np.empty(0, dtype=float)
+
+    def variation(self, start: float, end: float) -> PathVariation:
+        """Return the exact variation: the fill is monotone on every stage.
+
+        On a stage ``p^2`` is the convex combination of its end values with the
+        weight ``f``, and ``f`` is the running hydraulic resistance over its total:
+        the integral of a positive weight, so increasing. The pressure therefore runs
+        monotonically from one stage pressure to the next, and the bore's own kinks
+        never turn it.
+
+        Parameters
+        ----------
+        start, end : float
+            The closed interval in m, finite with ``start < end``.
+
+        Returns
+        -------
+        PathVariation
+            One monotone piece per stage inside the interval, and flat pieces outside
+            the fill.
+        """
+        return _continuous_monotone(self, _interval_knots(start, end, self.positions))
+
     def _stage_index(self, z: Float[np.ndarray, " n_z"]) -> Int[np.ndarray, " n_z"]:
         """Return the index of the stage each position falls in.
 
@@ -2116,7 +2599,25 @@ class DensityPath(Displayed):
         pressures = np.maximum(self.pressure(positions), 0.0)
         if self._table is not None:
             return self._along_temperature(positions, pressures)[0]
+        return self._from_pressure(pressures)
+
+    def _from_pressure(
+        self, pressure: Float[np.ndarray, " n_p"]
+    ) -> Float[np.ndarray, " n_p"]:
+        """Return the tabulated density at each pressure, at the one temperature.
+
+        Parameters
+        ----------
+        pressure : numpy.ndarray
+            Pressures in bar; a negative one is held at zero.
+
+        Returns
+        -------
+        numpy.ndarray
+            Number density in m^-3, the arithmetic of :meth:`__call__`.
+        """
         assert self._spline is not None
+        pressures = np.maximum(np.asarray(pressure, dtype=float), 0.0)
         values = np.maximum(np.asarray(self._spline(self._within(pressures))), 0.0)
         outside = ~self._covered(pressures)
         if np.any(outside):
@@ -2130,6 +2631,114 @@ class DensityPath(Displayed):
         # The spline through vacuum can carry a sub-ulp residual. A zero population
         # is an exact zero, including a component deliberately retained for updates.
         return np.where(pressures == 0.0, 0.0, values)
+
+    @property
+    def jumps(self) -> Float[np.ndarray, " n_jumps"]:
+        """Return the declared discontinuities of the pressure and temperature paths.
+
+        Returns
+        -------
+        numpy.ndarray
+            Positions in m; the density jumps only where an argument does.
+        """
+        if not isinstance(self.temperature, ZProfile):
+            return self.pressure.jumps
+        return np.unique(np.concatenate([self.pressure.jumps, self.temperature.jumps]))
+
+    def variation(self, start: float, end: float) -> PathVariation:
+        """Enclose the variation through the pressure path's monotone pieces.
+
+        The density is the tabulated cubic spline of the pressure. On a monotone
+        pressure piece the density is monotone between the spline's critical points
+        in the piece's pressure range, which are the real roots of its piecewise
+        quadratic derivative, found in closed form; the variation is then exact
+        from the values there. A pressure piece not certified monotone is bounded by
+        the spline's largest slope on its range times the pressure variation.
+
+        Parameters
+        ----------
+        start, end : float
+            The closed interval in m, finite with ``start < end``.
+
+        Returns
+        -------
+        PathVariation
+            The record of the tabulated density, constant outside the span.
+
+        Raises
+        ------
+        TranslationError
+            If the temperature varies along z: that two-dimensional table has no
+            enclosure here, and the spatial routes do not carry one.
+        """
+        knots = _interval_knots(start, end, np.empty(0))
+        if self._spline is None:
+            raise TranslationError(
+                "the variation of a density path whose temperature varies along z is "
+                "not enclosed; give one temperature"
+            )
+        low, high = self.z_span
+        inner_start, inner_end = max(float(start), low), min(float(end), high)
+        if not inner_end > inner_start:
+            value = self(np.array([min(max(float(start), low), high)]))
+            return _monotone_pieces(knots, value, value)
+        record = _mapped_variation(
+            self.pressure.variation(inner_start, inner_end),
+            self._from_pressure,
+            self._turning_pressures,
+            self._slope_bound,
+        )
+        return _padded(record, float(start), float(end))
+
+    def _turning_pressures(self, low: float, high: float) -> Float[np.ndarray, " n"]:
+        """Return the pressures in ``(low, high)`` where the tabulated density may turn.
+
+        Parameters
+        ----------
+        low, high : float
+            Pressure range in bar.
+
+        Returns
+        -------
+        numpy.ndarray
+            The real roots of the spline's derivative there, and the table's ends
+            and zero pressure where they fall inside, at which the arithmetic
+            changes branch.
+        """
+        spline = self._spline
+        assert spline is not None
+        roots = np.asarray(
+            spline.derivative().roots(discontinuity=False, extrapolate=False),
+            dtype=float,
+        )
+        candidates = np.concatenate([roots, [spline.x[0], spline.x[-1], 0.0]])
+        return candidates[(candidates > low) & (candidates < high)]
+
+    def _slope_bound(self, low: float, high: float) -> float:
+        """Return the largest ``abs(d(rho)/dp)`` of the spline on a pressure range.
+
+        Parameters
+        ----------
+        low, high : float
+            Pressure range in bar.
+
+        Returns
+        -------
+        float
+            The maximum over the range of the spline's piecewise quadratic
+            derivative, from its values at the range's ends, the spline knots and
+            the vertices inside, in m^-3 per bar.
+        """
+        spline = self._spline
+        assert spline is not None
+        slope = spline.derivative()
+        vertices = np.asarray(
+            slope.derivative().roots(discontinuity=False, extrapolate=False),
+            dtype=float,
+        )
+        candidates = np.concatenate([[low, high], spline.x, vertices])
+        inside = np.clip(candidates, max(low, spline.x[0]), min(high, spline.x[-1]))
+        return float(np.max(np.abs(slope(inside))))
 
     def _warn_outside(self, outside: Bool[np.ndarray, " n_z"]) -> None:
         """Log that some states lay outside the table built at construction.
@@ -2391,6 +3000,65 @@ class SeriesOfPath(Displayed):
         """
         return self.path.is_constant
 
+    @property
+    def jumps(self) -> Float[np.ndarray, " n_jumps"]:
+        """Return the inner path's declared discontinuities.
+
+        Returns
+        -------
+        numpy.ndarray
+            Positions in m.
+        """
+        return self.path.jumps
+
+    def variation(self, start: float, end: float) -> PathVariation:
+        """Enclose the variation through the series' critical points.
+
+        Parameters
+        ----------
+        start, end : float
+            The closed interval in m, finite with ``start < end``.
+
+        Returns
+        -------
+        PathVariation
+            The composite record: exact on a monotone inner piece between the
+            series' near-real critical points, otherwise the series' derivative bound
+            times the inner variation.
+
+        Raises
+        ------
+        TranslationError
+            If the inner path leaves the series' domain, where it extrapolates.
+        """
+        record = self.path.variation(start, end)
+        domain = (float(self.series.domain[0]), float(self.series.domain[1]))
+        if np.min(record.low) < domain[0] or np.max(record.high) > domain[1]:
+            raise TranslationError(
+                "the inner path leaves the series' domain, where it extrapolates; "
+                "its variation is not enclosed"
+            )
+        slope = self.series.deriv()
+        roots = slope.roots()
+        # A double critical point can come back as a close complex pair, so every
+        # root within a relative hair of the real axis is kept; an extra point
+        # only costs an evaluation.
+        width = domain[1] - domain[0]
+        real = np.real(roots[np.abs(np.imag(roots)) <= 1e-6 * width])
+        # |T_k| <= 1 on the window [-1, 1], so the magnitudes of the derivative's
+        # coefficients (already in the domain's unit) bound the slope on the domain.
+        if not np.array_equal(self.series.window, [-1.0, 1.0]):
+            raise TranslationError("a series' variation needs the window [-1, 1]")
+        bound = float(np.sum(np.abs(slope.coef)))
+
+        def critical(low: float, high: float) -> Float[np.ndarray, " n"]:
+            return real[(real > low) & (real < high)]
+
+        def series(values: Float[np.ndarray, " n"]) -> Float[np.ndarray, " n"]:
+            return np.asarray(self.series(values), dtype=float)
+
+        return _mapped_variation(record, series, critical, lambda _low, _high: bound)
+
     def __call__(self, z: Float[np.ndarray, " n_z"]) -> Float[np.ndarray, " n_z"]:
         """Return ``f(g(z))`` at each position.
 
@@ -2630,6 +3298,32 @@ class Scaled:
         """
         return self.factor == 0.0 or self.path.is_constant
 
+    @property
+    def jumps(self) -> Float[np.ndarray, " n_jumps"]:
+        """Return the underlying declared discontinuities in m.
+
+        Returns
+        -------
+        numpy.ndarray
+            Positions where the path jumps.
+        """
+        return self.path.jumps
+
+    def variation(self, start: float, end: float) -> PathVariation:
+        """Return the underlying record scaled by the factor.
+
+        Parameters
+        ----------
+        start, end : float
+            The closed interval in m, finite with ``start < end``.
+
+        Returns
+        -------
+        PathVariation
+            The scaled record, exact where the underlying one is.
+        """
+        return self.path.variation(start, end).scaled(self.factor)
+
     def __call__(self, z: Float[np.ndarray, " n_z"]) -> Float[np.ndarray, " n_z"]:
         """Evaluate the scaled path.
 
@@ -2726,6 +3420,67 @@ class Sum:
         """
         return all(p.is_constant for p in self.paths)
 
+    @property
+    def jumps(self) -> Float[np.ndarray, " n_jumps"]:
+        """Return the union of the component discontinuities in m.
+
+        Returns
+        -------
+        numpy.ndarray
+            Sorted unique positions.
+        """
+        return np.unique(np.concatenate([p.jumps for p in self.paths]))
+
+    def variation(self, start: float, end: float) -> PathVariation:
+        """Enclose the variation of the sum on the union of the component pieces.
+
+        On a piece where every component is certified monotone in the same
+        direction the sum is monotone and its variation exact; otherwise the
+        variation is at most the sum of the components', the triangle inequality.
+
+        Parameters
+        ----------
+        start, end : float
+            The closed interval in m, finite with ``start < end``.
+
+        Returns
+        -------
+        PathVariation
+            The record on the union of the components' knots.
+        """
+        knots = np.unique(
+            np.concatenate([p.variation(start, end).knots for p in self.paths])
+        )
+        pieces = [
+            [p.variation(a, b).collapse() for p in self.paths]
+            for a, b in itertools.pairwise(knots)
+        ]
+        first = np.array([sum(float(c.first[0]) for c in row) for row in pieces])
+        last = np.array([sum(float(c.last[0]) for c in row) for row in pieces])
+        low = np.array([sum(float(c.low[0]) for c in row) for row in pieces])
+        high = np.array([sum(float(c.high[0]) for c in row) for row in pieces])
+        bound = np.array([sum(float(c.variation[0]) for c in row) for row in pieces])
+        monotone = np.array(
+            [
+                all(bool(c.monotone[0]) for c in row)
+                and (
+                    all(c.last[0] >= c.first[0] for c in row)
+                    or all(c.last[0] <= c.first[0] for c in row)
+                )
+                for row in pieces
+            ]
+        )
+        exact = np.abs(last - first)
+        return PathVariation(
+            knots,
+            first,
+            last,
+            np.where(monotone, exact, np.maximum(bound, exact)),
+            np.minimum(low, np.minimum(first, last)),
+            np.maximum(high, np.maximum(first, last)),
+            monotone,
+        )
+
     def __call__(self, z: Float[np.ndarray, " n_z"]) -> Float[np.ndarray, " n_z"]:
         """Evaluate the sum in component order.
 
@@ -2775,6 +3530,13 @@ class FromCallable:
     ``derivative_is_analytic`` is ``False``, and a caller that needs an analytic
     ``beta_1`` (ADR-006) must supply one.
 
+    An arbitrary callable has no knowable variation: sampling it, or its derivative,
+    at finitely many points proves nothing between them. A caller that needs one
+    (the adiabatic certificate of :mod:`solprop.adiabatic`) declares it: `turning`
+    lists every position where the path may change direction, so that it is
+    monotone between consecutive members of the span's ends, `turning`, `kinks` and
+    `jumps`. Without that declaration :meth:`variation` refuses.
+
     Attributes
     ----------
     func : collections.abc.Callable
@@ -2782,10 +3544,18 @@ class FromCallable:
     span : tuple of float
         The interval in m the path is defined over, as ``(start, end)``.
     kinks : numpy.ndarray
-        Positions in m where the path jumps or kinks, strictly increasing. May be
-        empty.
+        Positions in m where the path kinks, strictly increasing. May be empty.
     slope : collections.abc.Callable or None
         The analytic derivative, if there is one.
+    jumps : numpy.ndarray
+        Positions in m strictly inside the span where the path is discontinuous,
+        strictly increasing. The callable's value at a jump is its limit from the
+        right, and the limit from the left is its value at the next float below.
+        May be empty; every jump is also a breakpoint.
+    turning : numpy.ndarray or None
+        Declared positions in m, inside the span and strictly increasing, where the
+        path may turn; ``None`` (the default) declares nothing and leaves the
+        variation unknown.
 
     Examples
     --------
@@ -2806,39 +3576,124 @@ class FromCallable:
     slope: Callable[[Float[np.ndarray, " n_z"]], Float[np.ndarray, " n_z"]] | None = (
         None
     )
+    jumps: Float[np.ndarray, " n_jumps"] = field(
+        default_factory=lambda: np.empty(0, dtype=float)
+    )
+    turning: Float[np.ndarray, " n_turning"] | None = None
 
     def __post_init__(self) -> None:
-        """Validate the declared span and breakpoints.
+        """Validate the declared span, breakpoints, jumps and turning points.
 
         Raises
         ------
         TranslationError
-            If the span is empty or a breakpoint lies outside it.
+            If the span is empty, a declared position lies outside it, or a list is
+            not strictly increasing.
         """
         start, end = float(self.span[0]), float(self.span[1])
         if not end > start:
             raise TranslationError(f"FromCallable needs end > start, got {self.span}")
-        edges = np.asarray(self.kinks, dtype=float)
-        if edges.size and (
-            np.any(np.diff(edges) <= 0.0) or edges[0] < start or edges[-1] > end
-        ):
-            raise TranslationError(
-                "FromCallable breakpoints must be strictly increasing and inside the "
-                f"span {self.span}, got {edges.tolist()}"
-            )
         object.__setattr__(self, "span", (start, end))
-        object.__setattr__(self, "kinks", edges)
+        object.__setattr__(self, "kinks", self._declared(self.kinks, "breakpoints"))
+        jumps = self._declared(self.jumps, "jumps")
+        if jumps.size and (jumps[0] <= start or jumps[-1] >= end):
+            raise TranslationError(
+                f"FromCallable jumps must lie strictly inside the span {self.span}"
+            )
+        object.__setattr__(self, "jumps", jumps)
+        if self.turning is not None:
+            object.__setattr__(
+                self, "turning", self._declared(self.turning, "turning points")
+            )
 
-    @property
-    def breakpoints(self) -> Float[np.ndarray, " n_breakpoints"]:
-        """Return the declared breakpoints.
+    def _declared(
+        self, positions: Float[np.ndarray, " n"] | Sequence[float], what: str
+    ) -> Float[np.ndarray, " n"]:
+        """Validate one declared list of positions.
+
+        Parameters
+        ----------
+        positions : array_like
+            Positions in m.
+        what : str
+            The name used in the error message.
 
         Returns
         -------
         numpy.ndarray
-            The positions in m.
+            The positions as a float array.
+
+        Raises
+        ------
+        TranslationError
+            If they are not strictly increasing inside the span.
         """
-        return self.kinks
+        start, end = self.span
+        edges = np.asarray(positions, dtype=float)
+        if edges.ndim != 1 or (
+            edges.size
+            and (np.any(np.diff(edges) <= 0.0) or edges[0] < start or edges[-1] > end)
+        ):
+            raise TranslationError(
+                f"FromCallable {what} must be strictly increasing and inside the "
+                f"span {self.span}, got {edges.tolist()}"
+            )
+        return edges
+
+    @property
+    def breakpoints(self) -> Float[np.ndarray, " n_breakpoints"]:
+        """Return the declared kinks and jumps.
+
+        Returns
+        -------
+        numpy.ndarray
+            The positions in m, sorted and unique.
+        """
+        if not self.jumps.size:
+            return self.kinks
+        return np.unique(np.concatenate([self.kinks, self.jumps]))
+
+    def variation(self, start: float, end: float) -> PathVariation:
+        """Return the variation the declaration fixes.
+
+        Parameters
+        ----------
+        start, end : float
+            The closed interval in m, inside the span, finite with ``start < end``.
+
+        Returns
+        -------
+        PathVariation
+            Monotone pieces between the declared positions, from the callable's
+            values and its one-sided limits at the jumps.
+
+        Raises
+        ------
+        TranslationError
+            If no turning points were declared, or the interval leaves the span,
+            where the callable's continuation is unknown.
+        """
+        if self.turning is None:
+            raise TranslationError(
+                "FromCallable has no declared variation: sampling a callable is not "
+                "a bound on it. Declare turning= (every position where the path may "
+                "change direction), or use a resolved profile such as PiecewiseLinear"
+            )
+        if start < self.span[0] or end > self.span[1]:
+            raise TranslationError(
+                f"the variation interval ({start}, {end}) leaves the declared span "
+                f"{self.span}"
+            )
+        knots = _interval_knots(
+            start, end, np.concatenate([self.turning, self.kinks, self.jumps])
+        )
+        values = self(knots)
+        # The left limit at a jump is the value at the next float below it.
+        below = values.copy()
+        at_jump = np.isin(knots, self.jumps)
+        if np.any(at_jump):
+            below[at_jump] = self(np.nextafter(knots[at_jump], -np.inf))
+        return _monotone_pieces(knots, values[:-1], below[1:])
 
     @property
     def z_span(self) -> tuple[float, float]:
