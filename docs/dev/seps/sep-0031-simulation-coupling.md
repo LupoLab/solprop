@@ -5,14 +5,14 @@
 | **SEP** | 31 |
 | **Title** | Coupling simulations and transporting ultrafast fields |
 | **Author** | John Travers |
-| **Drafting agent** | GPT-6 |
+| **Drafting agent** | GPT-6 (draft and 2026-10-23 review response) |
 | **Status** | Draft |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); Opus 5.5 (AI) |
 | **Type** | Feature |
 | **Created** | 2026-10-22 |
 | **Resolution** | — |
-| **Requires** | [SEP 22](archive/sep-0022-memory-lean-spatial-execution.md): plane storage and input replacement; [SEP 23](archive/sep-0023-far-field-aperture-spectra.md): aperture definitions; [SEP 25](archive/sep-0025-rounding-level-reproducibility.md): numerical qualification |
+| **Requires** | [SEP 22](archive/sep-0022-memory-lean-spatial-execution.md): plane storage and input replacement; [SEP 23](archive/sep-0023-far-field-aperture-spectra.md): aperture definitions; [SEP 25](archive/sep-0025-rounding-level-reproducibility.md): numerical qualification; [SEP 34](sep-0034-medium-flux.md): shared medium flux and radial adiabatic transport |
 | **Supersedes** | — |
 | **Superseded-by** | — |
 | **Implementation** | — |
@@ -28,9 +28,9 @@ the next simulation. These four blocks cover coupling between hollow or solid
 guides, incident Gaussian and arbitrary fields, nonlinear beam preparation before
 a capillary, outcoupling to an observation plane, and compression between stages.
 The incident field retains its absolute scale: light that is not captured is not
-restored by normalisation. A prerequisite replaces the vacuum spatial energy
-functional with the uniform-medium scalar axial-flux measure, consistently in
-launches, observations and noise. Qualification separates physical attenuation,
+restored by normalisation. The separate [SEP 34](sep-0034-medium-flux.md) supplies
+the shared medium-flux contract; coupling evaluates that measure on the host at
+each reference plane. Qualification separates physical attenuation,
 uncaptured forward power, representation error and model limitations, and compares
 short complete workflows on all three CPU backends. A required focused tutorial
 compares linear and mildly nonlinear radial focusing before coupling into a
@@ -72,9 +72,10 @@ and evanescent channels; feedback between stages or a cavity fixed-point solver;
 new mode solvers; high-NA vector free-space propagation; anisotropic crystal
 transport; resolved angular dispersion or spatial chirp inside prism/grating
 compressors; nonlinear thin elements; automatic optical layout optimisation;
-adaptive spatial meshes; a new distributed workflow scheduler; and smooth-gradient
-amplitude transport. Nonlinear gaps use the existing propagation routes. Field-grid
-Kerr/plasma/THG is a qualification case; it is not the teaching tutorial's model.
+adaptive spatial meshes; and a new distributed workflow scheduler. The radial
+adiabatic amplitude correction belongs to SEP 34, not to the host transport API.
+Nonlinear gaps use the existing propagation routes. Field-grid Kerr/plasma/THG
+is a qualification case; it is not the teaching tutorial's model.
 
 The release has no backward-compatibility requirement for this change. Replace
 inconsistent interfaces and defaults directly, update their callers, tests and
@@ -121,18 +122,19 @@ semantics, optics/compressor models, spatial transforms and same-problem input
 replacement. They do not qualify the cross-route compositions proposed here.
 This assessment is a source/test audit, not a new test-suite result.
 
-[SEP 5](sep-0005-solid-ionisation.md) derives a scalar axial-flux prerequisite for
-solid ionisation. This SEP owns its uniform-medium implementation for the existing
-spatial routes and the clean change of defaults; SEP 5 consumes it without a
-second normalisation option. [SEP 8](sep-0008-quadratic-crystal-optics.md) retains
-its different full-vector crystal E/H contract and interface solver.
+[SEP 34](sep-0034-medium-flux.md) owns spatial launch/noise/statistics consistency
+and the adiabatic correction for the existing radial gas-gradient route. This SEP
+and [SEP 5](sep-0005-solid-ionisation.md) consume its common measure; neither adds
+another normalisation policy. [SEP 8](sep-0008-quadratic-crystal-optics.md) retains
+its full-vector crystal E/H contract and interface solver.
 [SEP 9](sep-0009-propagation-statistics.md) measures fields within a propagation
-route; this SEP supplies transported fields and corrects existing spatial flux
-semantics without taking on SEP 9's additional measurement catalogue.
+route; this SEP supplies transported fields without taking on its additional
+measurement catalogue.
 [SEP 21](sep-0021-absorbing-boundaries.md) owns wider production time windows and
 escaped-field models; remapping a saved plane cannot recover already absorbed light.
-[SEP 29](sep-0029-compiled-backend-distribution.md) may relocate the Kokkos source;
-qualification follows that backend's then-current home rather than duplicating it.
+[SEP 29](sep-0029-compiled-backend-distribution.md) has moved the compiled backend
+into this repository as `native`, distributed as `solprop-native`. Qualification
+uses its CPU build. This draft's historical review retains the names it reviewed.
 
 ### 4. Theory
 
@@ -168,83 +170,45 @@ material and tracked gauge, not their entrance values. The target uses its own
 entrance reference. A change of modal gauge changes the amplitudes and the maps
 together and leaves the physical field unchanged.
 
-#### 4.2 Uniform-medium scalar axial flux
+#### 4.2 Shared plane measure
 
-Retain physical E as the propagated state, including the radial transform's V m
-units. For a homogeneous isotropic medium, let
-
-$$
- k(\omega)=n(\omega)\omega/c,\qquad
- k_z=\sqrt{k^2-|\boldsymbol\kappa|^2},\qquad
- Y_z=\varepsilon_0c^2\frac{\operatorname{Re}k_z}{\omega}.
-$$
-
-Use the existing forward branch on admitted propagating support and the same
-$\varepsilon_0,c$ constants as the source prefactor. This avoids a discrepancy
-from independently rounded values of $\mu_0$ and $\varepsilon_0$. Multiplication
-by $Y_z$ in transverse/frequency space defines a real spectral operator
-$\mathcal Y$. With analytic fields $\mathbf G_a=\mathcal Y\mathbf E_a$,
+[SEP 34](sep-0034-medium-flux.md) derives and implements the scalar axial-admittance
+measure, its analytic-signal endpoints, physical launch/noise scaling, statistics
+and radial adiabatic transport. For a plane in an isotropic medium it supplies
 
 $$
- S_z(\mathbf r,t)=\frac12\operatorname{Re}
-    [\mathbf E_a(\mathbf r,t)\cdot\mathbf G_a^*(\mathbf r,t)],
- \quad F(\mathbf r)=\int S_z\,dt,\quad U=\int F\,dA.
+ Y_z(\boldsymbol\kappa,\omega;z)
+ =\varepsilon_0c^2\frac{\operatorname{Re}k_z}{\omega},\qquad
+ U=\frac12\int\operatorname{Re}(\mathbf E_a\cdot\mathbf G_a^*)\,dA\,dt,
+ \quad \widetilde{\mathbf G}_a
+       =\mathcal Y_c\widetilde{\mathbf E}_a.
 $$
 
-This follows the scalar equation's axial flux. A monochromatic paraxial wave
-has $Y_z=n\varepsilon_0c$ and hence $S_z=n\varepsilon_0c|E_a|^2/2$.
-Broadband or angularly broad fields require the spectral multiplier, not a
-single index correction after squaring the time-domain field. This is not the
-full TE/TM metric of a tightly focused vector Maxwell field.
+Tildes here denote the transverse/frequency spectrum: apply admittance there,
+then reconstruct G in space and time. Here $\operatorname{Re}\mathcal Y_c=Y_z$.
+Local flux uses the full complex
+admittance (including the admitted gradient reconstruction term), whereas total
+energy uses its real part; replacing one by the other before reconstruction
+would lose absorbing-medium interference terms.
 
-To state the discrete rule, let $\hat E_{jpk}$ denote the stored raw temporal DFT
-at transverse spectral column j, component p and frequency k, and let $v_j$ be
-the existing transverse Parseval weights. Set $\gamma_k=1$ on an envelope grid;
-on a real-field grid set $\gamma_k=4$ on interior positive bins and 1 at the two
-real endpoints. Then
+The host plane evaluator and propagation statistics use the same definition and
+resolved material at the selected z. Coupling does not require an extra kernel
+statistic or a second flux implementation. Physical V/m remains the propagated
+spatial state; ordinary and general modal ports retain their derived native
+metrics. A planar hybrid port uses its modal/FFT metric, not a bulk index factor.
 
-$$
- U=\frac{\Delta t}{2N_t}
-   \sum_{j,p,k}v_j\gamma_kY_{z,jk}|\hat E_{jpk}|^2.
-$$
+A saved plane from an admitted radial gradient is a valid source. Its local
+admittance and accumulated frame/amplitude references must be available.
+Transport through a gradient remains an ordinary radial simulation under SEP 34;
+the `FreeSpace` element below is homogeneous. Refuse a nonadiabatic gradient or
+missing local reference, not every nonuniform medium. The scalar metric is not
+a replacement for the full-vector Maxwell treatment of high-NA or crystal fields.
 
-The matching local fluence uses synthesis of E and $\mathcal Y E$ before their
-product. It need not be positive at every point or instant. Width/FWHM operations
-that require a positive profile must report an unsupported signed profile rather
-than clipping it or silently measuring $|E|^2$ instead. Electric-field norms may
-remain explicitly named field diagnostics, not physical energy.
-
-Multiplying the existing scalar current prefactor
-$-1/(2\varepsilon_0c^2\operatorname{Re}k_z/\omega)$ by the energy weight cancels
-the admittance: spectral work is $-\operatorname{Re}(\hat E^*\hat J)/2$ in
-analytic units. This independent work identity is a qualification target beside
-Parseval; no change to ionisation's physical V/m argument follows from a new
-measurement. For a uniform passive medium, propagation multiplies each column
-by $\exp(i k_z L)$ and its energy by $\exp(-2\operatorname{Im}k_zL)$.
-
-DC carries no optical power definition through this $1/\omega$ expression.
-Require zero occupied DC, cutoff and nonpropagating support for energy-normalised
-coupling launches, and a margin from cutoff established by conditioning. Exact
-identity transfers on an already admitted grid retain its structural endpoint
-rules. Refuse an occupied Nyquist endpoint when a representation change cannot
-preserve its real-field meaning. Numerical evanescent attenuation in an existing
-propagation is not a physical port or a substitute for an interface calculation.
-
-Use the same measure for energy-normalised `SpatialPulse`, spatial noise, spectra,
-fluence, on-axis flux and flux-derived statistics. A requested launch energy fixes
-the integral once over the whole beam, never again after coupling. Normalise a
-noise draw so that each admitted transverse/frequency degree of freedom carries
-its declared photon energy in this metric; zero or ill-conditioned weights cannot
-be repaired by division. Audit controller norms and name their measure explicitly.
-The hybrid planar route needs its own modal/FFT metric, not an extra bulk index
-factor multiplying already power-normalised slab amplitudes.
-
-**Uniform media only.** A z-dependent $Y_z$ also changes amplitude transport in a
-lossless forward model. Merely changing diagnostics on the present varying-gas
-radial operator would not establish energy conservation. This SEP does not add
-that propagation term. An operation requiring this qualified spatial contract
-refuses a nonuniform medium; no legacy normalisation or hidden constant-medium
-substitution bypasses the refusal. Smooth gradients remain a separate proposal.
+On supported optical bands, `energy=` is the physical energy crossing the
+declared plane, not a vacuum-equivalent field norm. For a lossless paraxial plane
+wave its flux is $n_0\varepsilon_0c|E_a|^2/2$, using the phase index. SEP 34 explains
+the distinction from energy density and the conversion of an external meter
+reading through an explicit interface.
 
 #### 4.3 Projection, power and an interface are different objects
 
@@ -254,12 +218,12 @@ $$
  \langle\psi_m,\psi_n\rangle_F=
  \frac14\int(\mathbf e_n\times\mathbf h_m^*
              +\mathbf e_m^*\times\mathbf h_n)\cdot\hat{\mathbf z}\,dA,
- \qquad W_{mn}=\langle\psi_m,\psi_n\rangle_F.
+ \qquad F_{mn}=\langle\psi_m,\psi_n\rangle_F.
 $$
 
-The coordinates of a represented field satisfy $\mathbf a=W^{-1}\mathbf B$,
+The coordinates of a represented field satisfy $\mathbf a=F^{-1}\mathbf B$,
 where $B_m=\langle\psi_m,(\mathbf E,\mathbf H)\rangle_F$. The recovered
-power is $\mathbf a^\dagger W\mathbf a$. The package's existing E-only shortcut
+power is $\mathbf a^\dagger F\mathbf a$. The package's existing E-only shortcut
 doubles one half of B for a forward superposition in its admitted lossless basis.
 Its exact recovery on that subspace does **not** prove that an unrelated incident
 beam has the target guide's magnetic field. Use incident H when available; an
@@ -270,9 +234,9 @@ For scalar fields in a common positive power space, let S contain target basis
 columns and M the quadrature/power measure. Weighted least squares gives
 
 $$
- W=S^\dagger M S,\qquad
- \mathbf a=W^{-1}S^\dagger M\mathbf f,\qquad
- \|\mathbf f\|_M^2=\mathbf a^\dagger W\mathbf a+
+ G=S^\dagger M S,\qquad
+ \mathbf a=G^{-1}S^\dagger M\mathbf f,\qquad
+ \|\mathbf f\|_M^2=\mathbf a^\dagger G\mathbf a+
                  \|\mathbf f-S\mathbf a\|_M^2.
 $$
 
@@ -283,27 +247,81 @@ not automatically satisfy this identity. A basis outside a common admitted power
 space needs its declared interface approximation, not an assertion of orthogonal
 energy loss.
 
-Use forward overlap as an explicitly named approximation for weakly reflecting,
-matched-admittance guide junctions and aperture launches. Preserve the ordinary
-capillary model's approximations; its leaky wall attenuation does not supply a
-complete exterior E/H solution. Full-vector bound-guide coordinate recovery is
-admitted where the provider and closure are qualified. Strong index contrast,
-unresolved facet near fields, cutoff and a lossy/nonorthogonal provider without a
-derived dual are not silently treated as exact butt splices. Reference [1]
-distinguishes modal reciprocity from the full boundary-matching problem.
+Use F for the E/H flux matrix, G for the scalar least-squares Gram matrix,
+and Q for a native representation's spectral power metric. They coincide only
+when the synthesis and common measure establish that identity. In particular,
+ordinary saved true-power coefficients have Q equal to the identity; a general
+guide may have a dense Q. A profile overlap must not silently replace Q by G.
 
-For a proposed passive finite map C between native metrics $W_A,W_B$, require
+**Admitted models.** Make the following choices explicit in `CouplingModel`:
+
+1. `same_basis`: exact coordinate recovery in a checked common modal reference,
+   including a declared invertible basis/gauge change. Provider E/H and F recover
+   coordinates; this is not an interface calculation.
+2. `scalar_paraxial`: ordinary scalar capillary modes, incident
+   Gaussian/analytic/sampled scalar or transverse-Jones beams, and scalar
+   weak-guidance solid modes with physical profiles. Use the common local measure
+   $M_0=Y_0(\omega)dA/2$, with $Y_0=n_{\rm ref}\varepsilon_0c$, on the whole
+   incident plane; solve G and convert the resulting coordinates to the target's
+   native Q. Different capillary radii and weakly guiding fibre cross-sections
+   are admitted subject to the bounds below. The capillary core gas fixes
+   $n_{\rm ref}$; its wall loss is propagated by the guide model, not inferred
+   as facet transmission. Its scalar boundary approximation is reported.
+3. `vector_paraxial`: provider E/H for lossless bound general modes, in the same
+   weak-guidance/paraxial regime and a common transverse reference. Recover with
+   F using both incident E and H. An E-only incident beam explicitly uses
+   $\mathbf H_t=Y_0\hat{\mathbf z}\times\mathbf E_t$; this closure is qualified
+   against plane-wave Maxwell fields and provider H. Longitudinal field
+   reconstruction requires the provider or a separately declared closure;
+   an $O(\theta^2)$ axial-power error is not an $O(\theta^2)$ bound on every
+   omitted longitudinal field component.
+
+All other physical junctions are refused: strong index contrast, unresolved facet
+near fields, cutoff, unqualified lossy/nonorthogonal duals, arbitrary discontinuities
+and a request for reflected or radiation fields. A bulk entrance/exit index
+change uses a separate qualified planar interface before projection. Do not
+substitute modal effective indices into its Fresnel coefficients.
+Reference [1] explains why coordinate recovery alone is not boundary matching.
+
+**Admission rule.** `CouplingModel` takes a required positive `model_error`
+budget $\epsilon_m<1$; it is a dimensionless energy/axial-flux approximation
+target, separate from numerical accuracy. No universal index contrast or angle
+is called exact. For the two approximate models:
+
+- choose $\theta_*$ by $1-\cos\theta_*=\epsilon_m/8$ and bound angular tails
+  with §4.6's energy-weighted rule, for source and retained target subspace;
+- require $\Delta=\max|n^2-n_{\rm ref}^2|/(2n_{\rm ref}^2)\le\epsilon_m/8$
+  over the occupied band and dielectric regions of a weak-guidance solid
+  provider; this criterion does not apply to a capillary wall as if it were a
+  weakly guiding dielectric;
+- bound the relative metric defect between G and target Q, and between the
+  common source measure and its native Q, by $\epsilon_m/8$ each, using
+  conditioned quadratic forms on the retained subspaces;
+- for `vector_paraxial`, bound the transverse H-closure error in the same
+  normalised operator norm by $\epsilon_m/8$; supplied incident H is retained.
+  The bound concerns every admitted input in that port, not one lucky pulse.
+
+These are conservative screening allocations, not a theorem that small contrast
+alone bounds facet scattering. Each provider/model pair must additionally have
+an independent plane-wave or mode-matching benchmark envelope for omitted
+reflection and facet error. The sum of those errors, angular/metric/closure
+defects and resolved tails must fit $\epsilon_m$. Unqualified combinations
+remain refused. The independent benchmarks and budgets are deliverables, not
+permission to choose a different model during implementation.
+
+For a proposed passive finite map C between native metrics $Q_A,Q_B$, check
 
 $$
- C^\dagger W_BC\preceq W_A
+ C^\dagger Q_BC\preceq Q_A
 $$
 
-within a stated numerical and approximation budget. Compute a conditioned
-whitened-map singular-value or equivalent quadratic-form certificate. This is
-necessary, not sufficient, evidence of a correct interface. It does not license
-scaling a failed map down until it passes. Refine quadrature or reject the model;
-do not cap efficiency at one. Approval of the scalar/vector bridge and its
-admissible junction cases is the pre-acceptance question Q1.
+within the separately recorded numerical and model bounds, using a conditioned
+whitened-map singular-value or quadratic-form certificate. Small apparent gain
+within a model bound is reported as a model defect, never as negative absorption;
+outside the bound refine or refuse. Do not rescale C or clip efficiency to one.
+This certificate is necessary, not sufficient, evidence of a physical interface.
+Positive uncaptured power is claimed only in the common positive metric where
+the orthogonal-residual identity holds.
 
 Integrate incident power over its declared incident domain, including light
 outside the target aperture. Integrating only over the target core would erase
@@ -362,7 +380,7 @@ $$
 $$
 
 where $q_k=1$ for an envelope and $q_k=2$ on interior positive field bins
-(1 at endpoints). Then $\Delta\omega\sum f_k^\dagger W_kf_k$ is the
+(1 at endpoints). Then $\Delta\omega\sum f_k^\dagger Q_kf_k$ is the
 energy on the modal representation; apply the spatial metric analogously.
 Identical physical frequencies can be copied after this scaling and reference
 conversion, then divided by the target scale. Copying raw DFT amplitudes between
@@ -435,15 +453,45 @@ weight. The operation's plane must say whether it is a near-field, image or
 far-field plane. Rotations and reflections carry the coordinate handedness and
 Jones axes consistently.
 
-**Thin-screen qualification matters.** A pointwise mask with $|A|\le1$ is
-contractive in a local paraxial power measure, but not automatically in the
-nonlocal $\mathcal Y$ measure, since mask multiplication and $\mathcal Y$ do not
-commute. Sharp edges also generate high angles. Likewise, a thin phase factor
-does not model the entire E/H boundary condition. State the paraxial approximation
-and independently bound its angular/flux defect, or refuse the case; do not label
-every difference of two full-metric energies as absorbed screen energy. Q2 gates
-this model before acceptance. The optical-ordering and loss reports retain this
-distinction.
+**Thin-screen model and bound.** Use the local paraxial electric-field screen
+at each frequency; it is exact only in the local reference measure
+$U_0(E)=\int Y_0|\widetilde E|^2\,d\boldsymbol\kappa\,d\omega/2$ with the
+declared transform weights. For transparent media $Y_z/Y_0=\cos\theta$.
+For a selected angular cone $\theta\le\theta_*$,
+
+$$
+ 0\le U_0(E)-U_Y(E)
+ \le (1-\cos\theta_*)U_{0,\rm cone}(E)+U_{0,\rm tail}(E)
+ \equiv d(E).
+$$
+
+Evaluate both input and output, including the spectrum generated by a lens or
+aperture. Given the required `model_error` $\epsilon_m$, choose
+$1-\cos\theta_*=\epsilon_m/8$, and admit only if
+$[d(E_{\rm in})+d(E_{\rm out})]/U_Y(E_{\rm in})$, plus numerical/domain error,
+fits $\epsilon_m$. Zero input is an exact separate case. The tail is evaluated,
+not silently discarded. An unresolved hard-edge tail or significant
+nonpropagating content requires explicit removal with its own report or refusal.
+For a reusable map, certify the whole declared source subspace; for a single
+field, label the certificate as applying only to that field.
+
+For a phase screen $U_0$ is invariant; the inequality bounds its axial-flux
+defect. For a contractive amplitude/Jones screen, local loss
+$L_0=U_0(E_{\rm in})-U_0(E_{\rm out})$ is nonnegative, and the difference
+between L0 and the measured axial-energy decrement is bounded by the same sum
+of d terms. Report that difference as approximation error, not absorption.
+This gives a concrete admission rule; $|A|\le1$ alone is not enough in the
+nonlocal Y metric.
+
+For a mirror, specify incident/outgoing propagation normals and a shared
+s direction perpendicular to their plane; at normal incidence the caller's
+declared s axis resolves the degeneracy. Set
+$\hat{\mathbf p}_{\rm in/out}=\hat{\mathbf s}\times\hat{\mathbf k}_{\rm in/out}$.
+The right-handed local frames and the supplied complex p/s reflection
+coefficients define the Jones map. Convert the field between these frames
+explicitly, without conjugation; qualify normal-incidence and double-reflection
+signs. Coefficients calibrated in another p/s convention must be converted.
+The outgoing beam is forward relative to its own plane normal.
 
 For a normal-incidence, homogeneous, nonmagnetic, lossless planar interface,
 $t_E=2n_1/(n_1+n_2)$ and $r_E=(n_1-n_2)/(n_1+n_2)$ follow from tangential E/H
@@ -500,12 +548,32 @@ public surface is:
 | `FieldPlane.from_output(output, plane=..., source=...)` | Read one stored plane and validate/rebuild its spatial and frame reference |
 | `FieldPlane.from_analytic(grid, geometry, field, medium=..., reference=...)` | Sample an optics-convention physical analytic field with declared support and units |
 | `FieldPlane.from_samples(...)` | Bind existing physical arrays to explicit axes, units, domain, medium and reference |
-| `GaussianBeam` | Incident Gaussian temporal/spatial specification, curvature, displacement and Jones vector, normalised once before coupling |
+| `pulses.SpatialPulse` | The one Gaussian/super-Gaussian beam builder, extended to bind an incident plane and its physical energy |
+| `FieldPlane.from_pulse(pulse, grid, geometry, medium=..., reference=...)` | Build a plane from `SpatialPulse`; no second Gaussian implementation |
 | `regrid(plane, grid, ...)` | Controlled temporal representation/window/band conversion with its report |
 | `transport(plane, elements, ...)` | Apply an ordered sequence of spatial and spectral elements; return the resulting plane and report |
 | `couple(plane, target, ...)` | Project into an explicit target port; return `CouplingResult` |
 | `CouplingResult` | Target-bound `launch` and a structured `report`, including provenance and numerical/model certificates |
-| `Simulation.with_input(result.launch)` | Validate and install the already normalised target launch |
+| `driver.Simulation.input_port()` | Return the receiving grid, basis, medium, entrance reference and admitted coupling models |
+| `driver.Simulation.with_input(result.launch)` | Validate and install the already normalised target launch |
+| `coupling.CouplingModel` | Select the §4.3 model and explicit approximation budget |
+| `coupling.Outcouple` | Synthesize the guide exit under a declared forward interface model |
+| `coupling.FreeSpace` | Homogeneous angular-spectrum/Hankel transport with an output-plane sampling specification |
+| `coupling.ThinLens` | The qualified paraxial phase screen and its chromatic focal length |
+| `coupling.Aperture` / `coupling.TransmissionMask` | Intensity-defined aperture converted to amplitude / directly supplied complex field transmission |
+| `coupling.PlanarInterface` | A stated bulk Fresnel model in its admitted geometry |
+| `coupling.PolarisationTransform` / `coupling.Mirror` | Qualified Jones map / spectral reflection and incoming/outgoing frame map |
+| `coupling.SpectralTransfer` | Adapt a transfer function or compressor result, retaining affine-phase and efficiency metadata |
+
+`FieldPlane`, `CouplingResult`, `regrid`, `transport` and `couple` are public
+members of `solprop.coupling`; the table prefixes other modules explicitly.
+`GaussianBeam` is not introduced. `SpatialPulse` remains the single beam builder,
+and `FieldPlane.from_pulse` is its incident-field record boundary. The builder
+and analytic/sampled constructors share one normalisation/projection path.
+Replace ambiguous `propz` energy-at-waist semantics: requested energy is fixed
+at the declared launch plane after geometric preparation. A waist reference
+specifies shape/curvature; attenuation before that plane is a separate transport
+operation. No deprecated alias or alternate restored-energy launch survives.
 
 The plane records its native representation and units, temporal grid and absolute
 frequency lattice, power metric, transverse coordinates or modal reference,
@@ -531,6 +599,11 @@ modal coefficients keep `(n_modes, n_pol, n_omega)`, sampled local fields use
 distinction between `n_pol=1` and three physical components. No scalar squeezing
 occurs in these records.
 
+`energy=` on an incident pulse means the physical energy crossing the declared
+launch plane in its medium, before target coupling. A meter reading in air is
+converted through an explicit window/interface and its transmission. Direct
+modal amplitudes already describe light inside the guide.
+
 The named physical inputs are SI lengths, seconds, rad/s and radians; gas pressure
 uses the existing bar-valued user interface. Target geometry and medium are
 explicit. A finite-domain input says whether it declares the field to be zero
@@ -550,6 +623,9 @@ the current `transverse=` shape-plus-restored-energy path; either accept the
 incident-field record directly or route that spelling through its incident-energy
 semantics. There is no retained alternative that silently restores missed energy.
 Direct modal amplitudes remain an explicit internal launch, not an incident beam.
+The phase-1 fix must supply the incident integration domain and power measure at
+the existing profile boundary. Merely removing the final rescaling is insufficient
+if the profile was already normalised over the receiving guide's aperture.
 
 The target-bound launch includes a grid, basis, metric and entrance-position
 identity. `with_input` refuses mismatch rather than interpreting coincident array
@@ -573,7 +649,7 @@ transported = transport(
     geometry=receiving_plane_geometry,
 )
 coupled = couple(transported.plane, second_simulation.input_port(),
-                 model="forward_overlap")
+                 model=CouplingModel("scalar_paraxial", model_error=budget))
 second_run = second_simulation.with_input(coupled.launch).run()
 print(coupled.report)
 ```
@@ -583,8 +659,11 @@ interface approximation; it is not an implicit unit-efficiency Fresnel solver.
 For direct guide-to-guide transfer the same `couple` operation evaluates the
 overlap without a transverse propagation grid. `SpectralTransfer` adapts existing
 `optics` objects and compression results. Preserve `optics.Chain` as the
-frequency-only multiplication; an ordered spatial sequence must not inherit its
-statement that element order is immaterial.
+frequency-only multiplication. `transport` accepts a `Chain` directly as one
+frequency-only block, and accepts a chain as an item inside an ordered spatial
+sequence. The report records the block's factors and its position; only scalar
+frequency multipliers within that block commute. It never reorders a block past
+focusing, clipping, propagation, projection or a noncommuting Jones operation.
 
 The radial-input workflow replaces `exit_plane` with the output of an ordinary
 radial run and couples at the capillary entrance. Gaussian, analytic and sampled
@@ -594,7 +673,7 @@ A nonlinear gap is a spatial simulation between two such operations.
 
 #### 5.3 Refusals and outputs
 
-Refuse unsupported medium gradients, missing mode profiles or references,
+Refuse gradients outside SEP 34's admitted model, missing mode profiles or references,
 inconsistent units/measures, ill-conditioned power metrics, occupied unsupported
 bands/cutoff, unqualified lossy modal duals, unresolved windows, forbidden
 field/envelope response combinations and invalid symmetry reductions. Identity
@@ -628,8 +707,8 @@ structure figure when these modules are implemented.
 
 The offline application is a host operation using NumPy/SciPy, independent of the
 backend that created the source or runs the target. There is no reason to add a
-new propagation backend for it. Hot spatial flux/statistics/noise support does
-cross the seam and requires backend work. T passes immutable arrays/factored
+new propagation backend for it. SEP 34 owns the hot spatial flux/statistics/noise
+support that crosses the seam. There, T passes immutable arrays/factored
 admittance data; B does not construct a material, mode or optical element.
 
 Reuse aperture definitions, mode profiles, Hankel scalings, Fourier boundaries,
@@ -652,7 +731,9 @@ direct evaluation costs $O(N_\omega N_{\rm in}N_{\rm out})$ and is chunked.
 Use it as the reference and a supported small-problem implementation; qualify
 accelerations against the same discrete map. Cache plans by geometry, grid,
 material, basis and reference identity, not by a mutable object's address.
-Factored $Y_z$ data should preserve the spatial memory bounds of SEPs 22 and 28;
+Factored $Y_z$ data follow SEP 34 and the spatial memory bounds of
+[SEP 22](archive/sep-0022-memory-lean-spatial-execution.md) and
+[SEP 28](archive/sep-0028-free-space-evaluation.md);
 do not add a permanent transverse-by-frequency array when the root can be
 evaluated from existing separable coefficients in a bounded workspace.
 
@@ -665,25 +746,21 @@ conclusion.
 
 #### 6.3 Backends and schemas
 
-Implement uniform spatial flux on `numpy_ref`, then `numba_cpu`, then Kokkos CPU.
-Each incomplete backend refuses the new contract by name. Update in-run spatial
-statistics and offline equivalents together, including far-field energy weights
-within their existing measurement geometry. Keep a beam-coordinate diagnostic
-distinct from axial flux where that distinction is already physically meaningful;
-do not silently redefine all six SEP 23 outputs as the same observable.
+The coupling/transport maps are host-side NumPy/SciPy operations. SEP 34 owns the
+cross-backend flux changes, including an atomic public activation after
+`numpy_ref`, `numba_cpu` and `native` CPU qualification; this SEP does not make a
+working compiled spatial route temporarily refuse its existing inputs.
 
-New flux/reference records or protected driver changes bump `SCHEMA_VERSION` and
-its literal tests in the same phase. Saved plane references, metric identity and
-meaningful lineage require an output-schema bump. Current-schema read/write and
-resume tests are required, but old-file readers/migrations are not. If SEP 29 has
-moved Kokkos into `solprop-native`, make the same changes there instead of starting
-parallel changes in the old distribution.
+Plane reference, launch and driver changes bump the kernel schema only when they
+alter its protected contract; update literal tests and native consumers in the
+same change. Persisted plane reference and lineage changes bump the output schema.
+Use current-schema read/write/resume tests. No old-file migration is required.
 
-Offline host operations support outputs from any qualified CPU backend. Test
-NumPy-created inputs launched on Numba/Kokkos and the reverse. GPU acceleration
-of the offline maps is not required for this proposal; separately qualify GPU
-propagation and new native flux kernels on a device under the standing policy.
-No host fallback is hidden inside a device statistic.
+Test outputs and relaunches from all three CPU backends, including mixed
+source/receiver pairs. The numerical host map is shared, not reimplemented three
+times. GPU acceleration of offline maps is not required; native GPU propagation
+and its flux kernels follow SEP 34's separate device qualification. No host
+fallback is hidden inside a device statistic.
 
 ### 7. Verification and validation
 
@@ -696,8 +773,8 @@ hard zeros retain exact structural tests.
 
 | Case | Comparison and acceptance evidence |
 |---|---|
-| Uniform spatial flux | Direct time/space integration versus spectral Parseval on radial, Cartesian and line grids; monochromatic paraxial index factor; signed local-flux cases; current work and passive material attenuation |
-| Launch and noise | Requested incident energy before coupling, captured energy after coupling, and photon energy per admitted noise degree of freedom; reject zero/cutoff metric divisions |
+| Shared plane flux | Consume SEP 34's host evaluator; agree with its in-run observations at uniform and admitted radial-gradient planes, using analytic-signal rather than real-field endpoint integration |
+| Incident launch and noise | Requested physical energy before coupling and captured energy after coupling; carry SEP 34's already normalised noise without a second draw |
 | Identity and gauge | Same-guide recovery, rotated degenerate bases and coherent two-mode interference; physical E/H and energy invariant under a simultaneous basis/amplitude transformation |
 | Scalar overlap | Gaussian waist/displacement/tilt/curvature formulas and independent Gaussian–Bessel quadrature; deliberate poor and zero capture, with no restoration of energy |
 | Cross-guide coupling | Different radii, mode sets and supported solid guides; direct overlap versus synthesis/project route; passive-map certificate and explicit failures outside the admitted interface model |
@@ -706,7 +783,7 @@ hard zeros retain exact structural tests.
 | Linear transport | Gaussian diffraction and focus, independent Fresnel/Bessel evaluation, aperture diffraction, thin-element order, reflection/Jones signs, and finite-distance convergence to the Fraunhofer limit |
 | Spectral optics | Reuse existing element references; explicit $\lvert H\rvert^2$ attenuation, phase-only invariance in its admitted metric, no double Fresnel factor and an efficiency report that changes with spectral reshaping |
 | Temporal conversion | Equal-bin scaling, unequal windows/sample spacings, delays, CEP, carrier changes, spectral zeros and separated bands; field/envelope round trips only on common supported physics |
-| Refusals | Missing saved fields/references, gradient medium, unsupported measure/endpoint/cutoff, invalid provider dual, unresolved time/space support and route/backend mismatch |
+| Refusals | Missing saved fields/references, nonadiabatic gradient, unsupported measure/endpoint/cutoff, invalid provider dual, unresolved time/space support and route/backend mismatch |
 | Provenance | New-schema memory/HDF5 round trips, configuration identity changes, target-bound input mismatch, and no duplicate noise draw |
 
 Use at least three refinement levels when asserting an order. Vary domain size,
@@ -724,11 +801,16 @@ or fibres short enough to finish in seconds. Refine the physical approximation
 and propagation separately from the coupling calculation.
 
 The tutorial below is an additional gallery deliverable. Its convergence evidence
-must show that the nonlinear change in modal capture is larger than numerical
-uncertainty; the sign of that change is not assumed. Measure single/multimode
-overlaps, radial/Cartesian extraction, regridding and scaled-plane transport with
-actual input/output sizes and memory. Hot flux changes carry a short-window
-benchmark ledger entry. Never extrapolate a timing into a full experimental run.
+must resolve the absolute change in incident-energy-normalised fundamental share
+$s_{11}=U_{11}/U_{\rm incident}$ and first higher radial-mode share $s_{12}$.
+For each claimed nonzero change, the combined independently estimated numerical
+uncertainty of the two runs must be at most one tenth of its magnitude. This
+factor is a reporting criterion, not a physical constant. Report total capture
+separately; its change need not be the largest effect. Do not assume any sign.
+Measure single/multimode overlaps, radial/Cartesian extraction, regridding and
+scaled-plane transport with actual input/output sizes and memory. SEP 34 owns the
+short-window benchmark ledger for hot flux changes. Never extrapolate a timing
+into a full experimental run.
 
 ### 8. Documentation
 
@@ -752,7 +834,8 @@ Add **Nonlinear beam preparation and coupling into a capillary** as
 `docs/tutorials/free_space/plot_08_radial_capillary_coupling.py` (use the next free
 gallery number if that name is taken at implementation). It is a focused tutorial,
 executes on normal docs builds, and is linked from the new coupling chapter and
-the capillary/free-space guides. Generate its output through Sphinx; do not
+the capillary/free-space guides. The manual explains how to convert a meter
+reading through an entrance interface. Generate its output through Sphinx; do not
 hand-edit the rendered gallery.
 
 Use a scalar linearly polarised Gaussian on an envelope grid in uniform argon.
@@ -766,7 +849,7 @@ THG and Raman omitted explicitly. The starting specification is:
 | Argon pressure | 3 bar, uniform in gap and capillary |
 | Temperature | The declared material reference temperature, recorded in the example |
 | Gas gap before entrance | 20 mm |
-| Linear-focus 1/e² intensity radius | 50 μm, at the capillary entrance |
+| Linear-focus 1/e² intensity radius | 37.5 μm, at the capillary entrance; w/a = 0.5 |
 | Capillary radius | 75 μm |
 | Capillary segment | 5 mm |
 | Initial strength target | Linear-Gaussian on-axis nonlinear phase $B_{\rm lin}=0.3$ rad |
@@ -791,10 +874,20 @@ $$
 
 These equations follow directly from the Gaussian beam/pulse definitions and the
 package's scalar Kerr normalisation. A sizing probe with the current material
-functions gives about 14.1 μJ, 0.443 GW and 0.145 times the current critical-power
-estimate. These are provisional analytic estimates, not a propagated or
-converged result. Recompute with the corrected launch convention and recorded
-optmat material identity. Do not transplant the old vacuum energy scale.
+functions at the revised waist gives about 12.1 μJ, 0.379 GW and 0.124 of the
+physical critical-power estimate (the probe is recorded in the review response).
+These are provisional analytic estimates, not a propagated or converged result.
+Recompute with SEP 34's physical launch and critical-power conventions and
+recorded optmat material identity. The earlier 50 μm, 14.1 μJ sizing is
+superseded, not a regression target.
+
+The detuning is deliberate: the review identified a near-stationary fundamental
+overlap at the old waist. At w/a = 0.5, scalar Gaussian–Bessel quadrature puts
+about 0.906 of the incident energy in the fundamental and 0.092 in the next
+radial mode. These numbers size the lesson only; the propagated broadband
+complex field and converged mode set determine its results. Mild Kerr evolution
+must be demonstrated to change the named modal shares above their error bounds;
+neither a lens estimate nor the static overlap probe proves that outcome.
 
 Run two calculations from the identical physically focused incident field:
 linear propagation through the gap, and propagation with Kerr enabled. At the
@@ -818,6 +911,9 @@ assumption is not defensible, reduce the strength target and document the reason
 rather than silently adding plasma. The starting numbers are design coordinates,
 not a promise that every omitted process is negligible.
 
+Assess omitted ionisation at the revised, higher on-axis intensity; the review's
+assessment of the old waist is not a qualification of the new one.
+
 Keep the final tutorial deterministic and sized for a normal docs build. Full
 nonlinear propagation is permitted for this focused gallery when needed to show
 the effect, but its unit/parity regressions remain short. Report the runtime and
@@ -840,19 +936,17 @@ rescaled merely because their reported energy changes. Current-schema resume
 retains strict identities. Frame/reference metadata and flux records require
 versioned output/seam changes when implemented, not in this documentation patch.
 
-Corrected physical-energy semantics are qualified for uniform spatial media.
-The existing gradient route does not acquire conservation by relabelling it:
-operations requiring that contract refuse it pending a separate forward-amplitude
-derivation. No fallback retains the vacuum convention. The hybrid planar metric
-and general-vector metric keep their own derived meanings; neither is assigned
-the scalar bulk formula blindly.
+SEP 34 owns corrected spatial energy, noise and observables and preserves admitted
+radial gradient simulations through the adiabatic amplitude correction.
+Coupling consumes its local plane measure; uniform-only restrictions apply to
+the homogeneous `FreeSpace` element, not to all source simulations. The hybrid
+planar and general-vector metrics keep their own derived meanings.
 
-SEP 5 consumes the shared scalar flux prerequisite and retains its solid-carrier
-work. SEP 8 retains vector crystal fields/interfaces. SEP 9 retains its in-guide
-measurement scope. Update those drafts and the roadmap so only one proposal owns
-the common normalisation change. Preserve uncovered gradient, detector and
-multi-pass-cell work explicitly. Spatially resolved compressor layouts remain
-future work even though their ideal spectral transfer is usable between stages.
+SEP 5 consumes SEP 34 for solid carriers; SEP 8 retains vector crystal
+fields/interfaces; SEP 9 retains its in-guide measurements. Their dependencies
+and the roadmap follow that division. Nonadiabatic scattering, wider detector
+catalogues and multi-pass-cell assembly remain explicit future work. Spatially
+resolved compressor layouts remain outside this SEP.
 
 ### 10. Alternatives considered
 
@@ -874,49 +968,56 @@ future work even though their ideal spectral transfer is usable between stages.
 
 ### 11. Phases
 
-No numerical implementation begins until acceptance. Each phase records delivered
-paths, deviations, evidence, unresolved questions and handoff in Part II. The
-following phases are independently mergeable after their applicable checks;
-backend refusals remain explicit until parity is delivered.
+No numerical implementation begins until acceptance. SEP 34's public flux
+activation precedes the incident-launch change. Each phase records delivered
+paths, deviations, evidence, unresolved questions and handoff in Part II.
 
 | Phase | Deliverables | Required evidence |
 |---|---|---|
-| **1a — NumPy flux foundation** | Uniform scalar spatial flux, launch/noise/statistics consistency, current-schema metadata, admission rules and manual derivation | Parseval, monochromatic/angular limits, source work, material loss, signed local flux, refusal cases and short benchmark |
-| **1b — Numba flux** | Matching kernel/statistics implementation and memory accounting | Rounding-budget parity, interpreted-kernel coverage and short timing |
-| **1c — Kokkos CPU flux** | Native flux/launch/statistics support in the backend's current repository | CPU parity, schema refusal and memory/timing evidence; no hidden host statistics fallback |
-| **2 — Plane exchange** | `FieldPlane`, extraction, reference/frame records, same-basis relaunch and temporal remapping | Identity, scaling, delay/CEP and carrier tests; current-schema storage and target validation; all CPU source/target combinations |
-| **3 — Coupling** | Analytic/sampled/Gaussian inputs, scalar and admitted vector projections, direct guide overlaps, reports and unified incident-energy launches | Independent Gaussian/Bessel/general-mode references, passive certificates, domain/quadrature/modal refinement and deliberate loss cases |
-| **4 — Transport** | Outcoupling, homogeneous gaps, scaled observation planes, far field, thin focusing/apertures/Jones operations and spectral-optics composition | Independent diffraction and interface tests, thin-screen model bounds, operation order, bandwidth/efficiency/reflection signs and resource ledger |
-| **5 — Workflows and tutorial** | All eight compositions, nonlinear-input tutorial, manual examples, final capability matrix and cross-SEP/roadmap reconciliation | Short field-grid plasma/THG transfer, compressor chain, tutorial convergence and clean docs, complete CPU qualification |
+| **1 — Incident-energy correction** | Fix the present profile-launch defect with the shared physical measure and existing profile inputs, before introducing `FieldPlane`; preserve captured amplitudes rather than restoring requested energy | Poor and zero capture, full incident-domain normalisation, coherent mode shares and unchanged direct inside-guide amplitudes; all CPU receivers |
+| **2 — Plane exchange** | `FieldPlane`, source/target references, `input_port`, same-basis relaunch and temporal remapping | Identity, delay/CEP/carrier and equal/unequal-grid tests; current-schema persistence; all CPU source/receiver pairs |
+| **3 — Coupling** | Unify the phase-1 implementation behind analytic/sampled/`SpatialPulse` inputs, the concrete §4.3 models, overlaps, target-bound launches and reports | Gaussian/Bessel references, independently qualified provider/interface envelopes, passive-map certificates, and separate domain/quadrature/modal refinement |
+| **4 — Transport core** | Homogeneous propagation, outcoupling, finite and far observation planes, bounded thin screens, explicit reflection/Jones frames, and existing spectral optics | Independent diffraction and bulk-interface references, angular/flux-defect checks, ordering, explicit efficiencies and affine-phase provenance |
+| **5 — Integrated qualification and tutorial** | Eight bounded compositions from §2, the detuned radial tutorial, manual and capability matrix | Short field-grid Kerr/plasma/THG transfer, SPM → compressor → capillary, named modal-share uncertainty, CPU parity and final gates |
+
+**Final means this bounded core is complete.** Retain all eight compositions:
+they exercise distinct seams (guide identity, spatial input, analytic/sampled
+constructors, output-plane scaling and spectral phase). The required far field
+is scalar and paraxial with its stated error bound; mirrors are local-frame
+Jones/spectral maps, not coating or geometric-optics solvers; compressor blocks
+reuse existing spectral transfer functions. No general junction scattering,
+high-NA vector optics, resolved compressor layout, new in-run detector catalogue
+or multi-pass-cell scheduler is required for Final. Each phase is useful before
+Final; that status does not claim the wider optical-laboratory scope.
 
 During each slice run fast checks and directly affected modules. At the end run
 the full gate, slow lanes and coverage once, or use their CI evidence, as
-`AGENTS.md` specifies. After a failure rerun the failing modules. Do not perform
-full-length propagation as a test or timing. Device qualification is separate
-and recorded under the standing backend policy.
+`AGENTS.md` specifies. Run the native gate if protected native consumers change.
+After a failure rerun the failing modules. Tests/timings use short propagations;
+the focused gallery has the standing full-problem exception.
 
-The draft itself is documentation-only: run diff whitespace checks, codespell on
-changed files, `tests/test_seps.py`, and the warnings-as-errors Sphinx build.
-Do not implement a fake tutorial against nonexistent APIs to make a draft look
-delivered. Phase 5 supplies its runnable source and generated gallery.
+For this documentation revision run diff whitespace checks, codespell on changed
+files, `tests/test_seps.py` and the warnings-as-errors Sphinx build. Phase 5, not
+the draft, supplies the runnable tutorial.
 
 ### 12. Open questions
 
-These are explicit acceptance or qualification gates, not permission to choose a
-different physics model silently during implementation.
+The physical model choices below are proposed explicitly for review, not delegated
+to implementation. Qualification may narrow admission; a different model needs
+a recorded proposal revision.
 
-| Question | Resolution required |
+| Question | Disposition |
 |---|---|
-| **Q1 — Cross-model projection and interface admission** | Before acceptance, approve the concrete scalar-to-vector and cross-guide forward overlap models, including their common power spaces, E-only closures, passivity/conditioning bounds and refused index-contrast/facet cases. Same-basis recovery alone is insufficient evidence. |
-| **Q2 — Thin elements with angular flux** | Before acceptance, approve the paraxial thin-mask/lens and reflection-frame model, its quantified angular/flux defect and refusal conditions. A local amplitude mask does not automatically conserve the nonlocal axial-flux measure. |
-| **Q3 — Numerical admission budgets** | Phase 2/3 fixes error-target interfaces and justified conditioning/tail thresholds using independent refinement. No universal coupling-efficiency threshold is introduced. |
-| **Q4 — Source references and current-schema persistence** | Phase 2 determines the minimal accumulated frame/reference record needed for standalone extraction, and tests reconstruction against source simulations. Missing physical reference information is refused, never guessed. |
-| **Q5 — Tutorial parameters and convergence** | Phase 5 recomputes the proposed Gaussian sizing, verifies the Kerr-only regime, fixes mode count/grids and records whether a smaller strength was needed. The 14.1 μJ estimate is not a golden result. |
-| **Q6 — Deferred physics** | Smooth-gradient amplitude transport, full junction scattering, high-NA vector optics and resolved spatial compressors remain roadmap work. None is required to claim the narrower qualified scope as Final. |
-| **Q7 — Native backend location** | At Phase 1c use the backend home established by SEP 29 and record its commit; this is source coordination, not a scientific dependency on the distribution design. |
+| **Q1 — Cross-model projection** | Proposed resolution: the three models and error-budget admission in §4.3. Phase 3 must qualify each provider pair; no unqualified pair is admitted merely because a projection can be computed. |
+| **Q2 — Thin elements and reflection** | Proposed resolution: §4.6's local paraxial screen, input/output angular-flux defect bound and explicit p/s frames. Refinement cannot substitute for a missing model bound. |
+| **Q3 — Numerical admission budgets** | Phase 2/3 fixes numerical error interfaces and conditioning/tail implementation under the stated physical rules. No coupling-efficiency floor is introduced. |
+| **Q4 — Plane persistence** | Phase 2 fixes and tests the minimal standalone reference record; missing information is refused. |
+| **Q5 — Tutorial evidence** | The maintainer chose 37.5 μm on 2026-10-23. Phase 5 fixes grids/mode count, qualifies the Kerr-only regime and resolves changes in s11 and s12 to §7's criterion. |
+| **Q6 — Deferred physics** | General junction scattering, high-NA vector optics and resolved compressors remain roadmap work. Radial adiabatic amplitude transport moved to SEP 34 and is not deferred. |
+| **Q7 — Native backend location** | Closed: `native/` in this repository, distributed as `solprop-native`; changes use the same branch and native gate. |
 
-The selected scope, clean breaking-change policy, uniform-medium restriction and
-Kerr-only tutorial model are settled. They are not reopened by these questions.
+Review completion recorded in the header describes the historical review below.
+These revisions and SEP 34 still require acceptance; neither is marked Accepted.
 
 ### 13. References
 
@@ -963,6 +1064,12 @@ No new material constant or experimental validation is claimed.
 - 2026-10-23: Reviewed by Opus 5.5 (AI), with John Travers's human review recorded at
   his request. Part I is unchanged. The findings (R1–R10) and the maintainer's decisions
   on R1, R2 and R5 follow. Reviewed records completion of review, not acceptance;
+  status remains Draft.
+- 2026-10-23: Revised Part I in response to R1–R10, preserving the original review
+  below. Split medium flux into SEP 34, proposed bounded interface models,
+  moved the incident-energy defect to phase 1 and updated native-backend scope.
+  John selected the 37.5 μm tutorial waist and full complex admittance for local
+  flux traces. The response below records the resolutions and qualifications;
   status remains Draft.
 
 ### AI review — 2026-10-23
@@ -1225,3 +1332,91 @@ errors.
   **Requires**.
 - §4.4: keep the sentence forbidding an asserted universal coupling optimum. The
   probe in R4 confirms that the value depends on the profile and the mode set.
+
+### Response to review — 2026-10-23
+
+The revised Part I addresses all ten findings. The original review above remains
+the record of what was reviewed; its completion does not imply acceptance of this
+revision. John selected the detuned tutorial and complex-admittance treatment
+while the revision was being prepared.
+
+- **R1 — Accepted.** [SEP 34](sep-0034-medium-flux.md) now owns spatial energy,
+  launch, noise, statistics, adiabatic radial transport and their CPU-backend
+  qualification. SEP 31 consumes that contract. SEP 34's implementation may be
+  developed in private backend slices, but the public switch is atomic across
+  NumPy, Numba CPU and native CPU: no intermediate merge changes the default
+  convention while a supported CPU backend refuses existing runs. SEPs 5, 8
+  and 9 and the roadmap now point to the appropriate owner.
+- **R2 — Accepted with a correction to validation.** SEP 34 derives the
+  `−½ ∂z ln Y` amplitude term, its endpoint form and its relationship to the
+  existing radial linear operator. It preserves qualified smooth radial gas
+  gradients. The proposed sharp-gradient Fresnel test cannot be a convergence
+  target for this forward-only model: for n1 = 1 and n2 = 1.5 it predicts T = 1,
+  while Fresnel gives T = 0.96 and R = 0.04. Even a gas-sized step to n2 = 1.0008
+  has nonzero R ≈ 1.60 × 10⁻⁷. Instead, compare against an independently refined
+  wave solution in the adiabatic range and refuse profiles outside the admitted
+  error budget. Exact endpoint cancellation for represented weights is not a
+  guarantee about interpolation or model error. No additional FFT is needed
+  for the propagation correction, but derivatives, endpoint evaluation and
+  local-flux reconstruction still have costs that must be measured.
+- **R3 — Resolved by concrete proposals.** Section 4.3 names same-basis,
+  scalar-paraxial and vector-paraxial models, their profile requirements and
+  quantitative admission budgets. It requires provider/interface qualification
+  beyond small-angle or weak-guidance screens; passivity alone cannot establish
+  junction accuracy. Section 4.6 bounds the thin-screen discrepancy between
+  local paraxial power and axial flux, including spectral tails, and specifies
+  mirror coordinate frames. Unqualified pairs and exceeded budgets refuse
+  explicitly. These are proposed acceptance contracts, not claims that the
+  implementations have already met them.
+- **R4 — Accepted; maintainer choice recorded.** The tutorial now uses 37.5 μm
+  (w/a = 0.5) and B = 0.3 rad. It must resolve changes in incident-normalised
+  fundamental and first higher radial-mode shares, each to a combined numerical
+  uncertainty no larger than one tenth of the claimed change. Independent
+  Gaussian/Bessel quadrature gives fundamental/second-mode shares about
+  0.9062/0.0923 at w/a = 0.5 and 0.9220/0.0764 at 0.515. This supports detuning
+  as a useful teaching choice, but does not predict the propagated nonlinear
+  change. The review's comparison of a tiny change with numerical uncertainty
+  remains a hypothesis until the propagation and refinement study is run.
+- **R5 — Accepted and extended.** Incident energy is the physical energy crossing
+  the specified plane in its medium. An external meter reading requires explicit
+  interface transmission; phase index determines transparent plane-wave flux,
+  while group index appears in stored energy density. A further issue arose
+  during revision: in absorbing media the real admittance fixes integrated
+  energy, but its imaginary part contributes to local broadband interference
+  terms. John agreed to retain the full complex admittance for local traces and
+  its real part for total energy and noise. SEP 34 derives both contracts.
+- **R6 — Accepted.** Immediately after SEP 34, phase 1 fixes existing profile
+  launches before introducing `FieldPlane`. The fix preserves the captured
+  fraction using an explicit incident domain and measure; it does not merely
+  delete the last rescaling after an aperture-normalised input. Phase 3 folds
+  the same implementation into the unified coupling interface.
+- **R7 — Accepted.** `SpatialPulse` remains the sole Gaussian/spatial pulse
+  builder and `FieldPlane.from_pulse` consumes it. Section 5 lists modules,
+  constructors, `Simulation.input_port` and the minimum transport elements.
+  Existing frequency-only `Chain` values are accepted as one ordered transport
+  block; their internal scalar multiplication does not reorder spatial optics.
+- **R8 — Accepted.** The proposal uses the in-repository `native/` backend and
+  its CPU build. Q7 is closed, and SEP 34 owns its flux implementation and parity.
+- **R9 — Bounded scope retained and justified.** Section 11 makes Final depend on
+  the eight named compositions within the restricted paraxial, forward and
+  spectral-optics models. Each checks a distinct exchange or reference seam,
+  so none is left implicit. General junction scattering, high-NA vector optics
+  and spatially resolved compressors remain deferred. The short field-grid
+  Kerr/plasma/THG transfer and capillary → compressor → capillary qualification
+  remain mandatory.
+- **R10 — Accepted.** SEP 34 states the analytic-signal DC/Nyquist convention and
+  distinguishes its time-domain energy reference from a real-field endpoint
+  identity. SEP 31 uses F for the E/H pairing matrix, G for the scalar
+  least-squares Gram matrix and Q for the native power metric. Section 6.2 links
+  SEP 28's memory contract. The warning against a universal coupling optimum
+  remains in §4.4.
+
+**Sizing evidence, not propagation qualification.** A fresh analytic calculation
+with the current optmat 0.8.0 argon functions at 3 bar and 293.15 K gives
+n0 ≈ 1.00077206, n2 ≈ 3.09311 × 10⁻²³ m²/W and zR ≈ 5.5266 mm for the
+37.5 μm waist. The B = 0.3 estimate gives U ≈ 12.1136 μJ and P ≈ 0.379331 GW,
+or approximately 0.1238 of the critical-power estimate converted to physical
+power. The Gaussian sizing and independent scalar overlaps were recalculated;
+no nonlinear propagation, omitted-response assessment, grid convergence or
+backend qualification is claimed by this documentation revision. Those remain
+required implementation evidence.

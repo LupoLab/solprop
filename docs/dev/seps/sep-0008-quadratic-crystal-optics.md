@@ -5,7 +5,7 @@
 | **SEP** | 8 |
 | **Title** | Second-order nonlinearity and birefringent crystal optics |
 | **Author** | John Travers |
-| **Drafting agent** | GPT-6 Astra; GPT-6 (2026-10-22 coordination with SEP 31) |
+| **Drafting agent** | GPT-6 Astra; GPT-6 (2026-10-22 coordination with SEP 31; 2026-10-23 split to SEP 34) |
 | **Status** | Draft |
 | **Review status** | Not reviewed |
 | **Reviewers** | — |
@@ -1269,7 +1269,7 @@ documentation. At Final, manual pages link to this SEP and the changelog cites i
 ### 9. Compatibility and impact
 
 The crystal feature does not change existing scalar spatial, gas, capillary,
-modal and GNLSE defaults. SEP 31 separately changes the shared uniform-medium
+modal and GNLSE defaults. SEP 34 separately changes the shared uniform-medium
 scalar spatial flux convention. The crystal leaf is absent on
 those problems and allocates no crystal maps or physical-component buffers.
 No scalar gas-density normalization is applied to a bulk crystal susceptibility.
@@ -1293,7 +1293,7 @@ the transverse negative-wavevector/Fourier-origin convention as well as temporal
 conjugation; tests must cover both, not insert ad hoc sign changes in kernels.
 
 The general spatial vacuum-flux issue on the roadmap is solved here **only
-for the new crystal route**. [SEP 31](sep-0031-simulation-coupling.md) owns the
+for the new crystal route**. [SEP 34](sep-0034-medium-flux.md) owns the
 uniform isotropic scalar flux correction and its clean breaking change, with
 no legacy normalisation or old-file migration. Its scalar admittance must not
 replace this proposal's anisotropic vector E/H metric or interface solver.
@@ -1574,3 +1574,8 @@ verification is not verification of all coefficients in an article.
 - 2026-10-22: Linked SEP 31's shared uniform isotropic scalar flux work and clean
   breaking changes. The crystal E/H metric, interfaces and quadratic physics
   remain separate; no scalar-flux substitution is implied.
+
+- 2026-10-23: Reassigned the shared medium-flux prerequisite to
+  [SEP 34](sep-0034-medium-flux.md) following SEP 31's review and split.
+  SEP 31 retains field exchange and coupling; the shared flux proposal
+  includes admitted radial adiabatic transport and complex local flux.

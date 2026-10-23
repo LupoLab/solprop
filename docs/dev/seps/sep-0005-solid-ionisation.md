@@ -5,14 +5,14 @@
 | **SEP** | 5 |
 | **Title** | Solid ionisation and bulk filamentation |
 | **Author** | John Travers |
-| **Drafting agent** | GPT-6 Astra; Opus 5.5 (2026-09-29 revision for SEP 3's D15); GPT-6 (2026-10-22 coordination with SEP 31) |
+| **Drafting agent** | GPT-6 Astra; Opus 5.5 (2026-09-29 revision for SEP 3's D15); GPT-6 (2026-10-22 coordination with SEP 31; 2026-10-23 split to SEP 34) |
 | **Status** | Draft |
 | **Review status** | Not reviewed |
 | **Reviewers** | — |
 | **Type** | Feature |
 | **Created** | 2026-09-27 |
 | **Resolution** | — |
-| **Requires** | [SEP 3](archive/sep-0003-optmat-materials.md): material adapters and resolved material identities; [SEP 31](sep-0031-simulation-coupling.md): shared uniform-medium scalar flux |
+| **Requires** | [SEP 3](archive/sep-0003-optmat-materials.md): material adapters and resolved material identities; [SEP 34](sep-0034-medium-flux.md): shared medium flux and radial adiabatic transport |
 | **Supersedes** | — |
 | **Superseded-by** | — |
 | **Implementation** | — |
@@ -566,14 +566,16 @@ $$
  =\varepsilon_0c^2\frac{\operatorname{Re}k_z(k_\perp,\omega)}{\omega}.
 $$
 
-If $E_a$ is the analytic physical field and $G_a$ is synthesised after
-multiplying its spectrum by $Y_z$, define
+For transparent uniform media, if $E_a$ is the analytic physical field and
+$G_a$ is synthesised after multiplying its spectrum by $Y_z$, define
 
 $$
  S_z(\mathbf r,t)=\tfrac12\operatorname{Re}(E_aG_a^*),\qquad
  U=\int S_z\,dA\,dt .
 $$
 
+For absorbing media, local G uses SEP 34's complex admittance; its real
+part $Y_z$ weights total energy. The radial adiabatic closure is also SEP 34's.
 Equivalently use temporal Parseval and Hankel/Cartesian weights with $Y_z/2$.
 This is the metric of the **scalar equation**: metric-weighting its current
 source recovers $-\operatorname{Re}(\widehat E^*\widehat J)/2$.
@@ -588,13 +590,15 @@ Pointwise broadband flux need not be nonnegative; do not clip it into a
 rate drive. Rates use §4.1's positive proxy. Specify zero-frequency/endpoints
 and refuse launch energy on nonpropagating support.
 
-[SEP 31](sep-0031-simulation-coupling.md) owns the shared implementation for
-uniform isotropic media, including launches, noise, observations, endpoint rules
-and CPU parity. Use its constants consistently with the scalar source prefactor.
+[SEP 34](sep-0034-medium-flux.md) owns the shared implementation for isotropic
+media, including launches, noise, observations, endpoint rules, radial adiabatic
+transport and CPU parity. Use its constants consistently with the scalar source
+prefactor.
 This response consumes that convention without a separate normalisation switch.
 The change replaces the vacuum-weighted definitions directly; no legacy policy
-or old-file migration is required. A varying medium needs separately qualified
-amplitude transport and is outside this shared foundation.
+or old-file migration is required. Admitted radial gradients use SEP 34's
+adiabatic amplitude correction; nonadiabatic gradients still require a different
+propagation model.
 
 ### 5. Proposed interface
 
@@ -966,7 +970,7 @@ to the archived proposal.
 
 The feature is explicit and additive to gas physics: no ADK/PPT defaults,
 gas survival or gas-current convention changes. Spatial launch and observation
-semantics use SEP 31's shared axial-flux convention, which replaces the old
+semantics use SEP 34's shared axial-flux convention, which replaces the old
 vacuum-weighted default without a legacy option. Physical V/m state layout
 stays unchanged.
 
@@ -996,7 +1000,7 @@ even when their geometrical ingredients exist.
 | Instantaneous Drude index from carrier density | Misses finite-window current transients and obscures population/current coupling |
 | Copy constants into solprop | Conflicts with SEP 3's single data authority and loses provenance |
 | Evaluate the solid rates in solprop from optmat parameters | The first version of this Draft. It gives two homes to the normalisation question and diverges from SEP 3's D1/D15; withdrawn |
-| Retain vacuum and axial-flux normalisation policies | Duplicates semantics; use SEP 31's common uniform-medium convention with a clean breaking change |
+| Retain vacuum and axial-flux normalisation policies | Duplicates semantics; use SEP 34's common uniform-medium convention with a clean breaking change |
 | Declare damage at critical density | A termination criterion does not supply lattice/defect/damage dynamics |
 
 ### 11. Phases
@@ -1017,8 +1021,8 @@ optical/Kerr selection, source/range status and public source report. Verify uni
 mass/density semantics and discrepancies. Agree an installable dependency contract.
 Historical assumed bundles do not become recommendations without evidence.
 
-**Phase 1 — NumPy physics, flux and integration.** Consume SEP 31's qualified
-uniform-medium flux foundation. Deliver references, translation,
+**Phase 1 — NumPy physics, flux and integration.** Consume SEP 34's qualified
+medium-flux foundation. Deliver references, translation,
 launch/diagnostics, schema changes, output/resume, refusals, numerical tests and
 manual. Completion covers field/envelope, silica/YAG, radial/Cartesian/line and all
 selected baseline processes. Numba/Kokkos refuse the feature until qualified; the
@@ -1172,3 +1176,8 @@ No implementation phases have started.
   uniform-medium launch, noise and observation changes; this proposal consumes
   them without a second normalisation policy or old-file compatibility layer.
   Solid rates, kinetics and their qualification remain this proposal's scope.
+
+- 2026-10-23: Reassigned the shared medium-flux prerequisite to
+  [SEP 34](sep-0034-medium-flux.md) following SEP 31's review and split.
+  SEP 31 retains field exchange and coupling; the shared flux proposal
+  includes admitted radial adiabatic transport and complex local flux.

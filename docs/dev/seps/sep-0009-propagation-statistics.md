@@ -5,7 +5,7 @@
 | **SEP** | 9 |
 | **Title** | Broadband beam measurements and propagation statistics |
 | **Author** | John Travers |
-| **Drafting agent** | GPT-6 Astra; GPT-6 (2026-10-22 coordination with SEP 31) |
+| **Drafting agent** | GPT-6 Astra; GPT-6 (2026-10-22 coordination with SEP 31; 2026-10-23 split to SEP 34) |
 | **Status** | Draft |
 | **Review status** | Not reviewed |
 | **Reviewers** | — |
@@ -62,8 +62,8 @@ supply a beam width. Scalar and vector profiles, taper motion, material regions,
 modal coherence and saved-field amplitude conventions are in scope.
 
 Existing radial, Cartesian, line and hybrid planar statistics remain supported;
-their common flux measure follows [SEP 31](sep-0031-simulation-coupling.md)'s
-uniform-medium correction. Adding further time-resolved spatial measurements
+their common flux measure follows [SEP 34](sep-0034-medium-flux.md)'s
+medium-flux correction. Adding further time-resolved spatial measurements
 is outside this SEP. SEP 31 also owns transported observation-plane fields;
 the measurements here describe fields inside the propagation route.
 No new detector material model, polarisation analyser, finite-exposure response,
@@ -795,9 +795,9 @@ in each phase. At Final, the manual links back to the archived SEP.
 ### 9. Compatibility and impact
 
 The new measurements do not change an existing default statistic, units, reduction,
-temporal trace or output shape. SEP 31 separately changes the shared uniform-medium
-spatial flux measure. All new measurements here are opt-in. In particular,
-total temporal FWHM stays scalar,
+temporal trace or output shape. SEP 34 separately changes the shared medium-flux
+measure. All new measurements here are opt-in. In particular, total temporal
+FWHM stays scalar,
 `pressure` stays in bar, general-basis coordinate statistics remain restricted,
 `peak_intensity` stays on-axis on modal routes, and `quadrature_error` remains the
 cached stage alarm. Existing spatial `fwhm_r` is not evidence that a modal request
@@ -822,7 +822,7 @@ The broader inventory does not imply numerical identity with a differently
 normalised or differently sampled statistic.
 
 The roadmap's transverse-maximum intensity item is fully covered by this SEP.
-Multiple-ZDW selection, SEP 31's shared spatial flux, and the remaining ordinary
+Multiple-ZDW selection, SEP 34's shared spatial flux, and the remaining ordinary
 spatial accessor issues remain separate. The between-plane memory-output
 row-count defect is a prerequisite fix for qualification, not a statistics redesign.
 
@@ -973,3 +973,8 @@ No implementation has started.
 - 2026-10-22: Assigned shared uniform-medium spatial flux and transported
   observation planes to SEP 31. This proposal retains its in-route modal
   measurement scope; schema changes require no old-file compatibility layer.
+
+- 2026-10-23: Reassigned the shared medium-flux prerequisite to
+  [SEP 34](sep-0034-medium-flux.md) following SEP 31's review and split.
+  SEP 31 retains field exchange and coupling; the shared flux proposal
+  includes admitted radial adiabatic transport and complex local flux.

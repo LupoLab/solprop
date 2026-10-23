@@ -64,8 +64,8 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
 - [SEP 5 — Solid ionisation and bulk filamentation](seps/sep-0005-solid-ionisation.md):
   scalar bulk silica/YAG photoionisation, explicit simple avalanche and carrier
   removal, collisional currents, optmat solid rate models and parameter bundles
-  (which need upstream optmat work first), using SEP 31's shared uniform-medium
-  scalar spatial flux.
+  (which need upstream optmat work first), using SEP 34's shared medium flux and
+  radial adiabatic transport.
   Delayed-heating kinetics, subcycle rates and solid-guide ionisation remain
   follow-up work below; source-normalisation questions precede acceptance.
 - [SEP 7 — Laser gain dynamics in solid-core fibres](seps/sep-0007-laser-gain-dynamics.md):
@@ -82,7 +82,7 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   frequency-dependent modal fluence and time-resolved beam widths, spectral filters,
   per-mode durations, transverse peak intensity and distinct quadrature/modal-span
   diagnostics. General-guide embedded quadrature and current-source span diagnostics
-  remain open; SEP 31 covers the shared uniform-medium spatial-flux correction.
+  remain open; SEP 34 covers the shared medium-flux correction.
 - [SEP 10 — Low-rank Raman kernels along density paths](seps/sep-0010-low-rank-raman.md):
   explicitly requested spectral compression of density-dependent Raman kernels,
   extending SEP 1's contract and exact shifted-line FFT reference. Separate basis and
@@ -107,12 +107,13 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   independently asymmetric absorber ramps and implicit Runge–Kutta remain open.
 - [SEP 31 — Coupling simulations and transporting ultrafast fields](seps/sep-0031-simulation-coupling.md):
   reference-plane fields, coherent spatial synthesis/projection, ordered linear
-  transport and validated relaunch; uniform-medium scalar axial flux; temporal
+  transport and validated relaunch using SEP 34's shared medium flux; temporal
   grid conversion; forward guide coupling; and a focused radial Kerr-to-capillary
   tutorial. Clean breaking changes replace inconsistent energy semantics, with
   no legacy normalisation or old-file migration. General junction scattering,
-  high-NA vector propagation, resolved prism/grating layouts and smooth-gradient
-  amplitude transport remain open below.
+  high-NA vector propagation and resolved prism/grating layouts remain open below.
+  Its reviewed draft proposes concrete overlap/thin-screen models and a detuned
+  37.5 μm tutorial; the incident-energy defect is its first implementation phase.
 - [SEP 32 — Raman Maxwell–Bloch dynamics](seps/sep-0032-raman-maxwell-bloch.md):
   a separate scalar two-level population/coherence response, with equilibrium
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
@@ -130,6 +131,13 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   route, the planar kind, coupled flows, TDSE responses and noise models are refused
   under single precision; those, and single-precision and mixed modes of `native` and
   `numba_cpu`, remain open below.
+- [SEP 34 — Medium flux for free-space propagation](seps/sep-0034-medium-flux.md):
+  physical launch energy, complex-admittance local flux, consistent total-energy
+  and noise weights, and an adiabatic amplitude correction preserving admitted
+  radial gas-gradient runs. Public launch/noise/statistics changes activate
+  together after NumPy, Numba CPU and native CPU qualification. It supplies the
+  shared foundation for SEPs 5 and 31. Nonadiabatic/reflected-wave transport and
+  general vector free-space propagation remain outside its scope.
 
 The informal items below record work not fully covered by these proposals. When adding
 or revising a SEP, remove an informal item only if the proposal covers it in full;
@@ -311,12 +319,14 @@ handoffs, focusing, reflection and spectral optics on top of the existing free-s
 routes. Cell geometry, assembly and validation against independent propagation or
 experimental data remain open.
 
-**Coupling beyond forward uniform-medium transport.**
+**Coupling beyond the forward model.**
 [SEP 31](seps/sep-0031-simulation-coupling.md) covers forward overlaps, scalar
 homogeneous gaps and spectral compressors. A general junction calculation with
 reflected, radiated and evanescent fields, high-NA vector free-space transport,
-smooth-gradient amplitude transport, resolved prism/grating angular dispersion
+nonadiabatic gradient transport, resolved prism/grating angular dispersion
 and spatial chirp, and feedback between stages remain separate extensions.
+[SEP 34](seps/sep-0034-medium-flux.md) covers the existing radial route's
+adiabatic amplitude correction; it does not add general gradient scattering.
 
 **Elliptical hollow capillary modes.** Extend hollow-capillary modelling to elliptical
 bores specified by their two semi-axes, with mode profiles, dispersion, wall loss and
@@ -939,7 +949,7 @@ planes, apertures and polarisation optics; its partial coverage is noted below.
   two-dimensional slit (a line grid's aperture already is one).
 - *The flux factor in a dense medium*: the spectra are vacuum-normalised and low
   by about $\operatorname{Re}n$ inside a medium; whether they carry the medium's
-  admittance is covered by SEP 31's uniform-medium scalar flux. Until then
+  admittance is covered by SEP 34's medium flux. Until then
   `poynting_spectrum`'s ratio to `beam_spectrum` gives the factor.
 - *Radial and planar-hybrid geometry*: refused today, having no Cartesian transverse
   wavevector; a centred aperture on a radial grid would weight the Hankel
@@ -993,10 +1003,11 @@ and on-axis functionals use $\varepsilon_0 c/2$, the vacuum flux factor. In a de
 they are low by approximately the refractive index in the paraxial narrowband
 limit; the medium-dependent flux is not implemented.
 [SEP 8](seps/sep-0008-quadratic-crystal-optics.md) requires E/H flux for its new
-crystal route. [SEP 31](seps/sep-0031-simulation-coupling.md) covers uniform
-isotropic radial, Cartesian and line routes, with a distinct hybrid planar metric,
-and corrects launch, noise and observations together. Smooth-gradient amplitude
-transport and a general full-vector free-space model remain open.
+crystal route. [SEP 34](seps/sep-0034-medium-flux.md) covers uniform
+isotropic radial, Cartesian and line routes and admitted radial gradients,
+with a distinct hybrid planar metric, and corrects launch, noise and
+observations together. Nonadiabatic gradient scattering and a general
+full-vector free-space model remain open.
 
 **A lossy multimode taper at the default step bound.** The taper coupling carries each
 channel's loss inside its block, and over the default `dz_max` of half the fibre the
