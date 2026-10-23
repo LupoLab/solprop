@@ -33,6 +33,21 @@ def axial_root(medium, omega, space, z):
     return root
 
 
+def launch(grid, space, medium, *, evanescent):
+    """Return a Gaussian beam of waist R/6 with a 30 fs, 3 nJ pulse.
+
+    A sub-wavelength beam is mostly evanescent, which a flux-normalised launch
+    refuses; the flow is the test's subject, so that input is the explicit Hankel
+    spectrum of exp(-(r/w)^2), w^2/2 exp(-(k w)^2/4), times the pulse.
+    """
+    temporal = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9)
+    waist = space.radius / 6
+    if evanescent:
+        profile = waist**2 / 2 * np.exp(-((space.k_r * waist) ** 2) / 4)
+        return profile[:, None, None] * temporal.build(grid)
+    return SpatialPulse(temporal, waist).build(grid, space, medium=medium)
+
+
 @pytest.mark.parametrize("kind", ["field", "envelope"])
 @pytest.mark.parametrize("material", ["loss", "gain", "evanescent", "varying"])
 def test_radial_medium_flows_match_an_independent_cumulative_oracle(
@@ -58,16 +73,7 @@ def test_radial_medium_flows_match_an_independent_cumulative_oracle(
             else 1.0
         )
     )
-    temporal = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9)
-    if material == "evanescent":
-        # A sub-wavelength beam is mostly evanescent, which a flux-normalised launch
-        # refuses; the flow is this test's subject, so the input is the explicit
-        # Hankel spectrum of exp(-(r/w)^2), w^2/2 exp(-(k w)^2/4), times the pulse.
-        waist = radius / 6
-        profile = waist**2 / 2 * np.exp(-((space.k_r * waist) ** 2) / 4)
-        initial = profile[:, None, None] * temporal.build(grid)
-    else:
-        initial = SpatialPulse(temporal, radius / 6).build(grid, space, medium=medium)
+    initial = launch(grid, space, medium, evanescent=material == "evanescent")
     frame = dataclasses.replace(Frame.comoving(grid), beta0=0.0, beta1=0.0)
     # The varying argon medium extrapolated the registry's fit; optmat's argon is
     # qualified over the band (SEP 3, Phase 4a), and no medium warns.
