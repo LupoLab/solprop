@@ -146,10 +146,10 @@ KOKKOS_INLINE_FUNCTION std::size_t interval_index(const double z, const double* 
  * least one. The working type is the coefficients' (double, or Kokkos complex).
  */
 template <class Stored>
-KOKKOS_INLINE_FUNCTION Coefficient<Stored>::Value
+KOKKOS_INLINE_FUNCTION typename Coefficient<Stored>::Value
 clenshaw_column(const Stored* c, const std::size_t stride, const std::size_t n_terms,
                 const double x) {
-  using Value = Coefficient<Stored>::Value;
+  using Value = typename Coefficient<Stored>::Value;
   using Load = Coefficient<Stored>;
   if (n_terms == 1)
     return add(Load::load(c[0]), Value(mul(0.0, x)));
