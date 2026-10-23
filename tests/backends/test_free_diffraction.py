@@ -15,10 +15,15 @@ from backends.test_radial_diffraction import diffraction_reference
 from bounds import gamma
 from solprop.constants import C
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, RadialGrid
-from solprop.spatial import SpatialMedium, beam_radius
+from solprop.spatial import SpatialFlux, SpatialMedium, beam_radius
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.problem import assemble
 from spatial_records import record_metric
+
+
+def _vacuum(grid, space):
+    """Return the vacuum measure of the plane at z = 0 (SEP 34)."""
+    return SpatialFlux.resolve(grid, space, SpatialMedium())
 
 
 def gaussian_tail(a, spacing, first):
@@ -124,6 +129,10 @@ def test_cartesian_gaussian_width_gouy_exact_diffraction(
     expected_width = waist * math.sqrt(1 + fraction**2)
     # Positive sums propagate the pointwise amplitude envelope into the moment.
     radius_bound = moment_bound(space, continuum, bound, expected_width)
+    assert abs(flux_width(waist, wave, distance) / expected_width - 1) < 2e-6
+    expected_width = flux_width(waist, wave, distance)
+    # The width model's next order, (k0 w)^-4 ~ 6e-12 of the width.
+    radius_bound += 1e-11 * expected_width
     start = np.zeros((space.n_columns, 1, grid.n_omega), complex)
     start[:, 0, index] = spectrum
     state = propagate(spatial_backend_class, grid, space, start, distance)
@@ -131,13 +140,13 @@ def test_cartesian_gaussian_width_gouy_exact_diffraction(
     assert np.max(np.abs(physical - continuum)) < bound
     measured_axis = np.sum(space.on_axis * state[:, 0, index])
     assert abs(np.angle(measured_axis / axis)) < phase_bound
-    assert abs(beam_radius(grid, space, state) - expected_width) < radius_bound
+    assert abs(beam_radius(state, _vacuum(grid, space)) - expected_width) < radius_bound
     for label, value, limit in (
         ("amplitude", np.max(np.abs(physical - continuum)), bound),
         ("Gouy phase (rad)", abs(np.angle(measured_axis / axis)), phase_bound),
         (
             "moment width (m)",
-            abs(beam_radius(grid, space, state) - expected_width),
+            abs(beam_radius(state, _vacuum(grid, space)) - expected_width),
             radius_bound,
         ),
     ):
@@ -149,6 +158,26 @@ def test_cartesian_gaussian_width_gouy_exact_diffraction(
             limit,
             spatial_backend_class.name,
         )
+
+
+def flux_width(waist, wave, distance):
+    """Return a Gaussian's second-moment width of axial-flux fluence in vacuum.
+
+    The fluence is Re(E conj(G)), G the field filtered by the obliquity
+    eta = 1 - beta k^2 + O(k^4), beta = 1/(2 k0^2) (SEP 34). For the angular
+    spectrum X = exp(-p k^2), with |p|^2 and Re(p) of the paraxial Gaussian,
+    Parseval gives <r^2> = [4|p|^2 (<k^2> - beta <k^4>) + 4 beta Re(p) <k^2>]
+    / (1 - beta <k^2>), with <k^2> = 2/w^2 and <k^4> = 8/w^4 of |X|^2. At the waist
+    this is w (1 + 1/(2 k0^2 w^2)), 1.3e-6 wider for 80 um at 800 nm; the
+    neglected order is (k0 w)^-4 of the width.
+    """
+    p = complex(waist**2 / 4, distance / (2 * wave))
+    beta = 1 / (2 * wave**2)
+    k2, k4 = 2 / waist**2, 8 / waist**4
+    moment = (4 * abs(p) ** 2 * (k2 - beta * k4) + 4 * beta * p.real * k2) / (
+        1 - beta * k2
+    )
+    return math.sqrt(2 * moment)
 
 
 def moment_bound(space, profile, amplitude_error, width):

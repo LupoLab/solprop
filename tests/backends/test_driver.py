@@ -1038,8 +1038,10 @@ def test_the_surface_a_backend_subclasses_is_frozen(driver):
     Version 33 adds the analytic collar derivative to Grids (SEP 27), without
     changing these driver or stage signatures. Version 34 adds the class attribute
     ``helpers``, the backend's per-stage and per-step evaluations (SEP 29 phase 2).
+    Version 35 adds the problem's plane measure ``flux`` (SEP 34), without changing
+    these driver or stage signatures.
     """
-    assert SCHEMA_VERSION == 34, "the seam changed: rewrite the literals of this test"
+    assert SCHEMA_VERSION == 35, "the seam changed: rewrite the literals of this test"
     for name, signature in {
         "observe_members": (
             "(self) -> tuple[solprop.backends.protocol.Observation, ...]"

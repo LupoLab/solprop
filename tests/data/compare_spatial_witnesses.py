@@ -39,7 +39,7 @@ from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
 from solprop.physdata import Gas
 from solprop.physdata.glasses import GlassIndex
 from solprop.physdata.sellmeier import PoleSumSusceptibility, ReferenceState
-from solprop.spatial import SpatialMedium, on_axis_intensity
+from solprop.spatial import SpatialMedium
 from solprop.stepper import PIController
 
 # The test-only rate oracle lives beside the tests; a standalone run reaches it here.
@@ -304,6 +304,24 @@ def prepare(file, media, backend, rtol, checks, prefactor_index=None):
         medium=medium if space is not None else None,
     )
     return simulation, geometry, p
+
+
+def on_axis_intensity(grid, space, field):
+    """Return the peak on-axis field-norm intensity ``eps0 c |E_a|^2 / 2`` in W/m^2.
+
+    The witnesses' own measure, the electric-field norm of the vacuum convention,
+    kept beside their field-norm energies; the package's ``on_axis_intensity`` is
+    the medium's axial flux (SEP 34), which they do not record.
+    """
+    weights = (
+        space.spectral_weights / (2 * np.pi)
+        if isinstance(space, RadialGrid)
+        else space.on_axis
+    )
+    temporal = fourier.inverse(np.einsum("r,rpw->pw", weights, field), kind=grid.kind)
+    if grid.kind == "field":
+        temporal = fourier.analytic_signal(temporal)
+    return float(np.max(0.5 * EPS0 * C * np.sum(np.abs(temporal) ** 2, axis=0)))
 
 
 def observables(simulation, field):
