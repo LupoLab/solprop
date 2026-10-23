@@ -97,7 +97,7 @@ jobs:
   # Linux, and its report (coverage.xml) for the badge.
   coverage:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -107,7 +107,19 @@ jobs:
           enable-cache: true
       - run: uv python install 3.14
       - run: uv sync --locked
+      # The default lane's peak memory on four test workers is at the edge of the
+      # runner's 16 GB (the runner shut down mid-suite twice): swap turns a peak into a
+      # slowdown, and three workers lower it.
+      - name: Add swap
+        run: |
+          sudo fallocate -l 12G /swap.extra
+          sudo chmod 600 /swap.extra
+          sudo mkswap /swap.extra
+          sudo swapon /swap.extra
+          free -h
       - run: uv run poe cov
+        env:
+          PYTEST_XDIST_AUTO_NUM_WORKERS: "3"
       - if: ${{ !cancelled() }}
         uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
         with:
@@ -193,14 +205,14 @@ jobs:
   # numpy_ref is checked by the parity tests in every job.
   native-suite:
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 180
     env:
       CXX: g++-13
       # The driver tests select their backend from this variable, not from "auto".
       SOLPROP_TEST_BACKEND: native
-      # Two test workers: each holds a native state, and four exhausted the runner's
-      # memory at 87 % of the suite.
-      PYTEST_XDIST_AUTO_NUM_WORKERS: "2"
+      # Three test workers (with swap below): four exhausted the runner's memory at 87 %
+      # of the suite, and two did not finish in two hours.
+      PYTEST_XDIST_AUTO_NUM_WORKERS: "3"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -223,4 +235,14 @@ jobs:
         run: |
           uv pip install --python .venv/bin/python --no-deps wheelhouse/*.whl
           uv run --no-sync python -c "from solprop.backends.registry import resolve_name; assert resolve_name() == 'native', resolve_name()"
+      # The default lane's peak memory on four test workers is at the edge of the
+      # runner's 16 GB (the runner shut down mid-suite twice): swap turns a peak into a
+      # slowdown, and three workers lower it.
+      - name: Add swap
+        run: |
+          sudo fallocate -l 12G /swap.extra
+          sudo chmod 600 /swap.extra
+          sudo mkswap /swap.extra
+          sudo swapon /swap.extra
+          free -h
       - run: uv run --no-sync poe test
