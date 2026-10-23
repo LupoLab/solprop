@@ -343,6 +343,10 @@ elseif(SOLPROP_NATIVE_PROFILE STREQUAL "DISTRIBUTION")
       message(FATAL_ERROR "The distribution build could not find Accelerate.")
     endif()
     set(SOLPROP_NATIVE_BLAS_VENDOR ACCELERATE)
+    # Accelerate's legacy BLAS symbols are the Fortran ones (dgemm_). Declared here so
+    # that Kokkos Kernels does not probe a Fortran compiler for the convention
+    # (kokkoskernels_tpls.cmake), which a build machine need not have.
+    set(F77_BLAS_MANGLE "(name,NAME) name ## _")
     set(SOLPROP_NATIVE_BLAS_SELECTION "distribution: Accelerate (macOS)")
   elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR WIN32)
     set(_distribution_blas "${SOLPROP_NATIVE_DISTRIBUTION_BLAS}")
