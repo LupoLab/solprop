@@ -239,6 +239,86 @@ def test_noise_is_one_photon_per_admitted_bin() -> None:
     assert np.all(draw.spectrum[:, 0][~live] == 0)
 
 
+@pytest.mark.parametrize("order", [1, 2])
+@pytest.mark.parametrize("requested", [{"energy": 1e-6}, {"peak_power": 1e9}])
+@pytest.mark.parametrize("kind", ["envelope", "field"])
+def test_an_incident_beam_is_the_launch_its_build_gives(order, requested, kind) -> None:
+    """`SpatialPulse.incident` normalises over the whole plane, as `build` does.
+
+    Two independent normalisations of one beam in a glass of index 1.45: `build`
+    on a radial grid with the exact admittance of every k_r column, and
+    `incident` with the paraxial measure and the profile's closed-form plane
+    integral, sampled at the grid's own radii. They differ by the beam's
+    obliquity, ``(lambda / (2 pi n w))**2 ~ 2e-7`` for a 200 um waist (measured
+    1.5e-7 of the peak field), and by nothing else; the super-Gaussian checks
+    the area formula.
+    """
+    limits = (0.1, 800e-9, (650e-9, 1000e-9), 600e-15)
+    grid = (
+        EnvelopeGrid.from_limits(*limits)
+        if kind == "envelope"
+        else FieldGrid.from_limits(*limits)
+    )
+    space = RadialGrid(1e-3, 64)
+    pulse = SpatialPulse(
+        GaussianPulse(wavelength=800e-9, fwhm=30e-15, **requested), 2e-4, order=order
+    )
+    built = pulse.build(grid, space, medium=SpatialMedium(1.45))
+    field = np.moveaxis(space.hankel.inverse(np.moveaxis(built, 0, -1)), -1, 0)
+    index = np.where(grid.active_mask & (grid.omega > 0), 1.45, 0.0)
+    xy = np.stack([space.r, np.zeros_like(space.r)], axis=1)
+    sampled = pulse.incident(grid, xy, index=index)
+    assert sampled.field.shape == (space.n_r, 2, grid.n_omega)
+    scale = np.max(np.abs(field))
+    assert np.max(np.abs(field[:, 0] - sampled.field[:, 0])) < 1e-6 * scale
+    # One component is x-polarised: nothing in y.
+    assert not np.any(sampled.field[:, 1])
+    if "energy" in requested:
+        # The energy sum of one rescaling: a few rounding units.
+        assert np.sum(sampled.energy) == pytest.approx(1e-6, rel=1e-13)
+
+
+def test_an_incident_beam_counts_light_it_is_not_sampled_on() -> None:
+    """The incident energy is the whole plane's, wherever the beam is sampled."""
+    grid = _envelope()
+    index = np.where(grid.active_mask & (grid.omega > 0), 1.45, 0.0)
+    pulse = SpatialPulse(
+        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6),
+        2e-4,
+        jones=(1.0, 1.0j),
+    )
+    near = pulse.incident(grid, np.zeros((1, 2)), index=index)
+    far = pulse.incident(grid, np.array([[1e-3, 0.0], [0.0, 2e-3]]), index=index)
+    np.testing.assert_array_equal(near.energy, far.energy)
+    # A circular Jones vector: equal x and y a quarter period apart, conjugated
+    # into the internal convention.
+    np.testing.assert_allclose(
+        near.field[0, 1], -1j * near.field[0, 0], rtol=1e-15, atol=0.0
+    )
+    # At a fixed energy the field falls as the square root of the index.
+    glassier = pulse.incident(grid, np.zeros((1, 2)), index=4.0 * index)
+    np.testing.assert_allclose(
+        np.abs(glassier.field), np.abs(near.field) / 2.0, rtol=1e-14, atol=0.0
+    )
+
+
+def test_an_incident_beam_refuses_what_it_cannot_sample() -> None:
+    """A planar beam, a launch away from the waist and a malformed index."""
+    grid = _envelope()
+    index = np.where(grid.active_mask & (grid.omega > 0), 1.45, 0.0)
+    temporal = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6)
+    origin = np.zeros((1, 2))
+    with pytest.raises(PulseError, match="PlanarGrid"):
+        PlanarPulse(temporal, 2e-4, waist_x=5e-5).incident(grid, origin, index=index)
+    with pytest.raises(PulseError, match="propz=0"):
+        SpatialPulse(temporal, 2e-4, propz=-1e-3).incident(grid, origin, index=index)
+    for bad in (index[:-1], -index, np.full_like(index, np.nan)):
+        with pytest.raises(PulseError, match="finite and non-negative"):
+            SpatialPulse(temporal, 2e-4).incident(grid, origin, index=bad)
+    with pytest.raises(PulseError, match="no positive forward flux"):
+        SpatialPulse(temporal, 2e-4).incident(grid, origin, index=np.zeros_like(index))
+
+
 def test_flux_refusals() -> None:
     """Widths refuse a signed profile; a side needs a jump; the index is required."""
     grid = _envelope()
