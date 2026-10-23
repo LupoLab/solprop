@@ -27,6 +27,7 @@ jobs:
   # macOS, so each platform runs it once.
   static:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -46,6 +47,7 @@ jobs:
 
   docs:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -60,6 +62,7 @@ jobs:
   test:
     name: test (macos-latest)
     runs-on: macos-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -74,6 +77,7 @@ jobs:
   slow:
     name: slow (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -93,6 +97,7 @@ jobs:
   # Linux, and its report (coverage.xml) for the badge.
   coverage:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -115,6 +120,7 @@ jobs:
   # platform-independent and run in the static and docs jobs.
   windows:
     runs-on: windows-latest
+    timeout-minutes: 180
     env:
       PYTHONUTF8: "1"
     steps:
@@ -133,6 +139,7 @@ jobs:
   oldest:
     name: tests (lowest dependencies)
     runs-on: ubuntu-latest
+    timeout-minutes: 150
     env:
       VECLIB_MAXIMUM_THREADS: "1"
       OPENBLAS_NUM_THREADS: "1"
@@ -157,6 +164,7 @@ jobs:
   # test.
   native-quality:
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
     env:
       CXX: g++-13
       OMP_NUM_THREADS: "4"
@@ -185,10 +193,14 @@ jobs:
   # numpy_ref is checked by the parity tests in every job.
   native-suite:
     runs-on: ubuntu-24.04
+    timeout-minutes: 120
     env:
       CXX: g++-13
       # The driver tests select their backend from this variable, not from "auto".
       SOLPROP_TEST_BACKEND: native
+      # Two test workers: each holds a native state, and four exhausted the runner's
+      # memory at 87 % of the suite.
+      PYTEST_XDIST_AUTO_NUM_WORKERS: "2"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
