@@ -1,0 +1,7 @@
+WallLimits: where the condensed paraxial wall model stops being one
+  channels:     3
+  radius:       125 um
+  u_N/(k a):    0.009023
+  u_N/(k_0 a):  0.009024
+  2N/|a k_eff|: 0.009232
+  band:         2.3 Prad/s to 2.4 Prad/s

@@ -1,0 +1,7 @@
+MemoryOutput
+  state:           open
+  planes:          5, 0 m to 100 mm
+  field per plane: 2 x 1 x 512 (modes x components x omega)
+  statistics:      energy, fwhm_t, fwhm_t_outer, omega0, peak_power, peak_power_total
+  between planes:  none
+  run:             RunMetadata(multimode, envelope grid of 512, 2 modes, no backend, ...

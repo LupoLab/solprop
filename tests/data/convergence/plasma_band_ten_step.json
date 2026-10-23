@@ -1,0 +1,229 @@
+{
+ "axis": {
+  "label": "band",
+  "name": "band",
+  "unit": "omega/omega_max"
+ },
+ "case": {
+  "argon": "0.4 bar over 2 mm, 30 uJ; grid 110 nm - 4 um; seeds 160, 125, 113 nm",
+  "helium": "0.8 bar over 5 mm, 150 uJ; grid 90 nm - 4 um; seeds 120, 100, 93 nm",
+  "launch": "a 1.3 fs, 800 nm GaussianPulse and three 4 fs seeds of 2e-4 of its energy",
+  "quantity": "the coarse exit spectrum with the plasma on minus the same off",
+  "reference": "Richardson (4 X96 - X48)/3 of the plain trapezoid; its uncertainty from 24 and 48",
+  "run": "prop_capillary(125e-6, L, gas, p, lambda0=800e-9, grid=..., pulses=..., modes=1, schedule=FixedSchedule.uniform(0, L, L/10), noise=None, absorber_scheme='split_step', backend='numpy_ref')",
+  "source": "SEP 27 held current: DFT[gJ]/(i omega) - DFT[g'J]/(i omega)**2"
+ },
+ "columns": [
+  {
+   "atol": 1e-12,
+   "bound": 0.0001,
+   "name": "band_rule",
+   "rtol": 0.001,
+   "unit": "1 (relative)",
+   "why": "the qualified quantity, a difference of propagated spectra"
+  },
+  {
+   "atol": 1e-12,
+   "bound": null,
+   "name": "trapezoid",
+   "rtol": 1e-05,
+   "unit": "1 (relative)",
+   "why": "today's rule on the same grid, for scale"
+  },
+  {
+   "atol": 1e-12,
+   "bound": null,
+   "name": "reference",
+   "rtol": 0.01,
+   "unit": "1 (relative)",
+   "why": "the reference's own uncertainty, from the third refinement"
+  },
+  {
+   "atol": 1e-300,
+   "bound": null,
+   "name": "share",
+   "rtol": 1e-05,
+   "unit": "1",
+   "why": "the band's share of the active |change|^2"
+  }
+ ],
+ "luna": null,
+ "rows": [
+  {
+   "axis": "0.30-0.50",
+   "band_rule": 1.1436545270181746e-06,
+   "reference": 3.006415294318766e-08,
+   "series": "Ar",
+   "share": 0.016243311615307957,
+   "trapezoid": 0.012706406350168809,
+   "write": 0,
+   "written_by": "tests/driver/test_plasma_band_propagation.py::test_ten_band_steps_meet_their_targets[Ar]"
+  },
+  {
+   "axis": "0.50-0.70",
+   "band_rule": 2.3761456013469832e-07,
+   "reference": 6.013898122592035e-08,
+   "series": "Ar",
+   "share": 0.011205977468690302,
+   "trapezoid": 0.009759406580807737,
+   "write": 0,
+   "written_by": "tests/driver/test_plasma_band_propagation.py::test_ten_band_steps_meet_their_targets[Ar]"
+  },
+  {
+   "axis": "0.70-0.85",
+   "band_rule": 2.3741582947041042e-07,
+   "reference": 7.799631065642689e-08,
+   "series": "Ar",
+   "share": 0.002362860519229849,
+   "trapezoid": 0.010350386359228383,
+   "write": 0,
+   "written_by": "tests/driver/test_plasma_band_propagation.py::test_ten_band_steps_meet_their_targets[Ar]"
+  },
+  {
+   "axis": "0.85-0.95",
+   "band_rule": 5.143046750369192e-07,
+   "reference": 1.0991554117736299e-07,
+   "series": "Ar",
+   "share": 0.00013374240108882446,
+   "trapezoid": 0.020997187095607273,
+   "write": 0,
+   "written_by": "tests/driver/test_plasma_band_propagation.py::test_ten_band_steps_meet_their_targets[Ar]"
+  },
+  {
+   "axis": "0.95-1.00",
+   "band_rule": 8.183184007015497e-07,
+   "reference": 7.069371532809267e-07,
+   "series": "Ar",
+   "share": 8.299109882711386e-06,
+   "trapezoid": 0.06871943490805421,
+   "write": 0,
+   "written_by": "tests/driver/test_plasma_band_propagation.py::test_ten_band_steps_meet_their_targets[Ar]"
+  },
+  {
+   "axis": "1.00-1.10",
+   "band_rule": 8.636063953969772e-07,
+   "reference": 4.810553131622166e-07,
+   "series": "Ar",
+   "share": 7.950824859123727e-07,
+   "trapezoid": 0.04344218077807515,
+   "write": 0,
+   "written_by": "tests/driver/test_plasma_band_propagation.py::test_ten_band_steps_meet_their_targets[Ar]"
+  },
+  {
+   "axis": "active",
+   "band_rule": 5.033090755186394e-07,
+   "reference": 8.85990303288412e-09,
+   "series": "Ar",
+   "share": 1.0,
+   "trapezoid": 0.0028333270927522153,
+   "write": 0,
+   "written_by": "tests/driver/test_plasma_band_propagation.py::test_ten_band_steps_meet_their_targets[Ar]"
+  },
+  {
+   "axis": "0.30-0.50",
+   "band_rule": 3.882778308329213e-06,
+   "reference": 1.4021683582300043e-07,
+   "series": "He",
+   "share": 0.0009447867648189543,
+   "trapezoid": 0.03802401219043924,
+   "write": 0,
+   "written_by": "tests/driver/test_plasma_band_propagation.py::test_ten_band_steps_meet_their_targets[He]"
+  },
+  {
+   "axis": "0.50-0.70",
+   "band_rule": 1.6184378045923974e-06,
+   "reference": 2.7854238216412234e-07,
+   "series": "He",
+   "share": 0.0003469979651333929,
+   "trapezoid": 0.03478607390397349,
+   "write": 0,
+   "written_by": "tests/driver/test_plasma_band_propagation.py::test_ten_band_steps_meet_their_targets[He]"
+  },
+  {
+   "axis": "0.70-0.85",
+   "band_rule": 8.14879451293645e-07,
+   "reference": 3.151714244843404e-07,
+   "series": "He",
+   "share": 0.00021629487960257132,
+   "trapezoid": 0.02145823951245426,
+   "write": 0,
+   "written_by": "tests/driver/test_plasma_band_propagation.py::test_ten_band_steps_meet_their_targets[He]"
+  },
+  {
+   "axis": "0.85-0.95",
+   "band_rule": 5.942161433707752e-07,
+   "reference": 3.534146157689031e-07,
+   "series": "He",
+   "share": 0.00014887847665046204,
+   "trapezoid": 0.01657565570943888,
+   "write": 0,
+   "written_by": "tests/driver/test_plasma_band_propagation.py::test_ten_band_steps_meet_their_targets[He]"
+  },
+  {
+   "axis": "0.95-1.00",
+   "band_rule": 7.479367389747166e-07,
+   "reference": 2.722570855727288e-07,
+   "series": "He",
+   "share": 7.551706560288788e-05,
+   "trapezoid": 0.0245360584279959,
+   "write": 0,
+   "written_by": "tests/driver/test_plasma_band_propagation.py::test_ten_band_steps_meet_their_targets[He]"
+  },
+  {
+   "axis": "1.00-1.10",
+   "band_rule": 9.713866723147262e-07,
+   "reference": 2.048952635000702e-07,
+   "series": "He",
+   "share": 2.9766800046111248e-05,
+   "trapezoid": 0.027462763177371664,
+   "write": 0,
+   "written_by": "tests/driver/test_plasma_band_propagation.py::test_ten_band_steps_meet_their_targets[He]"
+  },
+  {
+   "axis": "active",
+   "band_rule": 5.962273740737946e-07,
+   "reference": 1.1377703889496804e-08,
+   "series": "He",
+   "share": 1.0,
+   "trapezoid": 0.0027817441083220202,
+   "write": 0,
+   "written_by": "tests/driver/test_plasma_band_propagation.py::test_ten_band_steps_meet_their_targets[He]"
+  }
+ ],
+ "schema": 1,
+ "study": "plasma_band_ten_step",
+ "title": "The band rule's held-current change over ten steps, against Richardson",
+ "writes": [
+  {
+   "backend": "numpy_ref",
+   "blas": "openblas 0.3.34.0.0",
+   "branch": "feature/sep-0027-phase-5",
+   "commit": "6665cc804ce844c951e357f041a8c0b666f376c2",
+   "fftw_planner": null,
+   "machine_id": "linux-x86-64",
+   "os": "Linux-6.17.0-14-generic-x86_64-with-glibc2.39",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.7",
+   "threads": {
+    "MKL_NUM_THREADS": "1",
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": "1",
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": "false",
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": "1",
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": "1",
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  }
+ ]
+}

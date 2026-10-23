@@ -1,0 +1,88 @@
+{
+ "axis": {
+  "label": "uniform steps per period",
+  "name": "n_steps",
+  "unit": "steps"
+ },
+ "case": {
+  "grid": "the narrow soliton grid, 4096 bins over 4 ps",
+  "metric": "phase-resolved recurrence error, ||final - e^{i phi} start|| / ||start||, with phi = -pi/4 (the internal convention)",
+  "problem": "N = 3 soliton of the GNLSE fixture, one soliton period",
+  "schedule": "uniform fixed steps"
+ },
+ "columns": [
+  {
+   "atol": 1e-12,
+   "bound": null,
+   "name": "error",
+   "rtol": 0.001,
+   "unit": "1 (relative to the input norm)",
+   "why": "a fixed schedule is a deterministic trajectory, so above the floor only round-off separates two machines; atol is a hundred times the round-off of the recurrence itself, which no rung of this ladder reaches"
+  },
+  {
+   "atol": 0.05,
+   "bound": null,
+   "name": "order",
+   "rtol": 0.0,
+   "unit": "1",
+   "why": "a log2 of two errors each known to 1e-3, so far tighter than the 4.5 to 8.0 the test asserts; null on the coarsest rung, which has no pair"
+  }
+ ],
+ "luna": null,
+ "rows": [
+  {
+   "axis": 200,
+   "error": 0.037179767493445655,
+   "order": null,
+   "series": "N = 3, fixed schedule",
+   "write": 0,
+   "written_by": "tests/backends/test_numpy_ref_soliton.py::test_the_third_order_soliton_recurs_at_the_scheme_s_order"
+  },
+  {
+   "axis": 400,
+   "error": 0.0010862286070304024,
+   "order": 5.097118079325008,
+   "series": "N = 3, fixed schedule",
+   "write": 0,
+   "written_by": "tests/backends/test_numpy_ref_soliton.py::test_the_third_order_soliton_recurs_at_the_scheme_s_order"
+  },
+  {
+   "axis": 800,
+   "error": 1.9196328794647318e-05,
+   "order": 5.822353524763962,
+   "series": "N = 3, fixed schedule",
+   "write": 0,
+   "written_by": "tests/backends/test_numpy_ref_soliton.py::test_the_third_order_soliton_recurs_at_the_scheme_s_order"
+  }
+ ],
+ "schema": 1,
+ "study": "soliton_n3",
+ "title": "The N = 3 soliton's recurrence against the step count",
+ "writes": [
+  {
+   "backend": "numba_cpu",
+   "blas": null,
+   "branch": "development",
+   "commit": "adcdaccc60133bd34435a71a4713964279551fc0",
+   "fftw_planner": null,
+   "machine_id": "darwin-arm64",
+   "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.5",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NUMBA_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  }
+ ]
+}

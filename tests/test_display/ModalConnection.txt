@@ -1,0 +1,9 @@
+ModalConnection: the cost of a basis that moves along z
+  channels:         2
+  z:                500 um
+  omega:            2.255900e+15 rad/s
+  largest:          3.0500e+02 1/m
+  self terms:       0.0000e+00 1/m largest
+  metric departure: 0.0000e+00 1/m
+  antisymmetry:     2.9000e-08 1/m
+  step:             15.3 nm

@@ -1,0 +1,10 @@
+ModalTransformTables: the flat E/H reference of a general guide
+  frequencies:   4 coarse, 4 fine, 2.2446e+15 to 2.2671e+15 rad/s
+  z:             snapshot at 0 m
+  channels:      1
+  nodes:         30
+  maps:          dense reference, synthesis and projection
+  reciprocal:    yes
+  profile error: 1.000e-09 largest
+  gauge:         analytic-real-transverse
+  policy:        dense-knots-cubic-frequency

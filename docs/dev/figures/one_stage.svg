@@ -1,0 +1,205 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="1200" height="1023.0" viewBox="0 0 1200 1023.0">
+<defs>
+</defs>
+<style>
+svg {
+    --ground: #fbfbfd;
+    --ink: #1b1f24;
+    --dim: #5b6673;
+    --rule: #c9d0da;
+    --p-fill: #e2f0e8;
+    --p-edge: #2c7a55;
+    --t-fill: #fceedd;
+    --t-edge: #a96a15;
+    --b-fill: #e3ebfa;
+    --b-edge: #2f5eb0;
+    --d-fill: #eee6f8;
+    --d-edge: #6f45a6;
+    --x-fill: #fce7ec;
+    --x-edge: #af3450;
+}
+@media (prefers-color-scheme: dark) {
+  svg {
+    --ground: #171a1f;
+    --ink: #e7eaef;
+    --dim: #9aa5b3;
+    --rule: #3a424e;
+    --p-fill: #16342a;
+    --p-edge: #5cb98a;
+    --t-fill: #3a2b15;
+    --t-edge: #e0a44f;
+    --b-fill: #17253f;
+    --b-edge: #7ba6e8;
+    --d-fill: #2a1f3e;
+    --d-edge: #b18fe0;
+    --x-fill: #3a1e26;
+    --x-edge: #e8879a;
+  }
+}
+.ground { fill: var(--ground); stroke: none; }
+.card { fill: var(--ground); stroke: var(--rule); stroke-width: 1.4; }
+.plain { fill: none; stroke: var(--rule); stroke-width: 1.4; }
+.planned { fill: none; stroke: var(--dim); stroke-width: 1.4;
+  stroke-dasharray: 5 4; }
+.arrow { fill: none; stroke: var(--dim); stroke-width: 1.4;
+  stroke-linecap: round; stroke-linejoin: round; }
+.head { fill: var(--dim); stroke: none; }
+.rule { fill: none; stroke: var(--rule); stroke-width: 1.4; }
+text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill: var(--ink);
+  white-space: pre; }
+.dim { fill: var(--dim); }
+.mid { text-anchor: middle; }
+.end { text-anchor: end; }
+.bold { font-weight: 600; }
+.fill-p { fill: var(--p-fill); stroke: var(--p-edge); }
+.edge-p { stroke: var(--p-edge); }
+.ink-p { fill: var(--p-edge); }
+.fill-t { fill: var(--t-fill); stroke: var(--t-edge); }
+.edge-t { stroke: var(--t-edge); }
+.ink-t { fill: var(--t-edge); }
+.fill-b { fill: var(--b-fill); stroke: var(--b-edge); }
+.edge-b { stroke: var(--b-edge); }
+.ink-b { fill: var(--b-edge); }
+.fill-d { fill: var(--d-fill); stroke: var(--d-edge); }
+.edge-d { stroke: var(--d-edge); }
+.ink-d { fill: var(--d-edge); }
+.fill-x { fill: var(--x-fill); stroke: var(--x-edge); }
+.edge-x { stroke: var(--x-edge); }
+.ink-x { fill: var(--x-edge); }
+</style>
+<rect x="0" y="0" width="1200" height="1023.0" class="ground" />
+<text x="32" y="44.0" font-size="21" class="bold">One stage of the interaction-picture step</text>
+<text x="32" y="64.0" font-size="12" class="dim">architecture.md §8: each numbered line is one pass over its data, and each is a named function in backends/numpy_ref/passes.py. stepper.md §2 is the step the seven passes</text>
+<text x="32" y="79.5" font-size="12" class="dim">sit inside.</text>
+<text x="32" y="109.0" font-size="12" class="bold dim">the seven passes of one stage</text>
+<rect x="32" y="121.0" width="430.0" height="66.0" rx="7" ry="7" class="fill-b" />
+<text x="42.0" y="143.0" font-size="15" class="bold ink-b">1   stage combine, lab frame, noise, pad</text>
+<text x="42.0" y="158.5" font-size="12" class="dim">u = exp(ΔΦ_i)·(y + h Σ_j a_ij k_j) + N(z_n + c_i h)</text>
+<text x="42.0" y="174.0" font-size="12" class="dim">numpy_ref  ·  stage_input</text>
+<path d="M247.0,190.0 L247.0,200.0" class="arrow" />
+<path d="M247.0,200.0 L243.4,191.0 L250.6,191.0 Z" class="head" />
+<rect x="32" y="203.0" width="430.0" height="66.0" rx="7" ry="7" class="fill-b" />
+<text x="42.0" y="225.0" font-size="15" class="bold ink-b">2   batched inverse FFT</text>
+<text x="42.0" y="240.5" font-size="12" class="dim">fine grid, n_modes · n_pol columns</text>
+<text x="42.0" y="256.0" font-size="12" class="dim">numpy_ref  ·  to_time</text>
+<path d="M247.0,272.0 L247.0,282.0" class="arrow" />
+<path d="M247.0,282.0 L243.4,273.0 L250.6,273.0 Z" class="head" />
+<rect x="32" y="285.0" width="430.0" height="66.0" rx="7" ry="7" class="fill-b" />
+<text x="42.0" y="307.0" font-size="15" class="bold ink-b">3   synthesis GEMM</text>
+<text x="42.0" y="322.5" font-size="12" class="dim">(nodes · n_pol) × n_modes by n_modes × n_to</text>
+<text x="42.0" y="338.0" font-size="12" class="dim">numpy_ref  ·  synthesise</text>
+<path d="M247.0,354.0 L247.0,364.0" class="arrow" />
+<path d="M247.0,364.0 L243.4,355.0 L250.6,355.0 Z" class="head" />
+<rect x="32" y="367.0" width="430.0" height="66.0" rx="7" ry="7" class="fill-b" />
+<text x="42.0" y="389.0" font-size="15" class="bold ink-b">4   fused response pass</text>
+<text x="42.0" y="404.5" font-size="12" class="dim">per column: collared non-plasma P, gJ and g'J</text>
+<text x="42.0" y="420.0" font-size="12" class="dim">numpy_ref  ·  nonlinear_polarisation · NonlinearSources · nonlinear_sources</text>
+<path d="M247.0,436.0 L247.0,446.0" class="arrow" />
+<path d="M247.0,446.0 L243.4,437.0 L250.6,437.0 Z" class="head" />
+<rect x="32" y="449.0" width="430.0" height="66.0" rx="7" ry="7" class="fill-b" />
+<text x="42.0" y="471.0" font-size="15" class="bold ink-b">5   projection GEMM</text>
+<text x="42.0" y="486.5" font-size="12" class="dim">back onto the modes, accumulated over chunks</text>
+<text x="42.0" y="502.0" font-size="12" class="dim">numpy_ref  ·  project</text>
+<path d="M247.0,518.0 L247.0,528.0" class="arrow" />
+<path d="M247.0,528.0 L243.4,519.0 L250.6,519.0 Z" class="head" />
+<rect x="32" y="531.0" width="430.0" height="66.0" rx="7" ry="7" class="fill-b" />
+<text x="42.0" y="553.0" font-size="15" class="bold ink-b">6   batched forward FFT</text>
+<text x="42.0" y="568.5" font-size="12" class="dim">three fine-grid streams</text>
+<text x="42.0" y="584.0" font-size="12" class="dim">numpy_ref  ·  to_frequency</text>
+<path d="M247.0,600.0 L247.0,610.0" class="arrow" />
+<path d="M247.0,610.0 L243.4,601.0 L250.6,601.0 Z" class="head" />
+<rect x="32" y="613.0" width="430.0" height="81.5" rx="7" ry="7" class="fill-b" />
+<text x="42.0" y="635.0" font-size="15" class="bold ink-b">7   crop, prefactor, windows, mask, frame</text>
+<text x="42.0" y="650.5" font-size="12" class="dim">k_i = exp(−ΔΦ_i)·p(ω)·W(ω)·crop(P̃ + A_J); acc_sol += b_i k_i,</text>
+<text x="42.0" y="666.0" font-size="12" class="dim">acc_err += e_i k_i</text>
+<text x="42.0" y="681.5" font-size="12" class="dim">numpy_ref  ·  held_plasma_spectrum · stage_output · accumulate</text>
+<rect x="498.0" y="367.0" width="356.0" height="459.5" rx="7" ry="7" class="fill-p" />
+<text x="508.0" y="389.0" font-size="15" class="bold ink-p">response_order, per column</text>
+<text x="508.0" y="410.5" font-size="12" class="bold ink-p">intensity</text>
+<text x="612.0" y="410.5" font-size="12" class="dim">|E|² on the fine time axis</text>
+<text x="508.0" y="426.0" font-size="12" class="bold ink-p">ionisation_rate</text>
+<text x="612.0" y="426.0" font-size="12" class="dim">a cubic spline in the log field —</text>
+<text x="612.0" y="441.5" font-size="12" class="dim">ionisation_rate</text>
+<text x="508.0" y="457.0" font-size="12" class="bold ink-p">plasma_scan</text>
+<text x="612.0" y="457.0" font-size="12" class="dim">independent channel exposures in t,</text>
+<text x="612.0" y="472.5" font-size="12" class="dim">by the running-integral rule —</text>
+<text x="612.0" y="488.0" font-size="12" class="dim">plasma_scan ·</text>
+<text x="612.0" y="503.5" font-size="12" class="dim">plasma_channel_fractions ·</text>
+<text x="612.0" y="519.0" font-size="12" class="dim">plasma_integration_diagnostics ·</text>
+<text x="612.0" y="534.5" font-size="12" class="dim">plasma_integration_statistics</text>
+<text x="508.0" y="550.0" font-size="12" class="bold ink-p">plasma_current</text>
+<text x="612.0" y="550.0" font-size="12" class="dim">weighted currents; physical P</text>
+<text x="612.0" y="565.5" font-size="12" class="dim">retained for direct response</text>
+<text x="612.0" y="581.0" font-size="12" class="dim">evaluation — plasma_current ·</text>
+<text x="612.0" y="596.5" font-size="12" class="dim">plasma_channels_polarisation</text>
+<text x="508.0" y="612.0" font-size="12" class="bold ink-p">kerr</text>
+<text x="612.0" y="612.0" font-size="12" class="dim">χ⁽³⁾, with the third harmonic where</text>
+<text x="612.0" y="627.5" font-size="12" class="dim">the grid holds it —</text>
+<text x="612.0" y="643.0" font-size="12" class="dim">kerr_polarisation</text>
+<text x="508.0" y="658.5" font-size="12" class="bold ink-p">dispersive_kerr</text>
+<text x="612.0" y="658.5" font-size="12" class="dim">χ⁽³⁾ at every quartet's</text>
+<text x="612.0" y="674.0" font-size="12" class="dim">frequencies: filtered fields,</text>
+<text x="612.0" y="689.5" font-size="12" class="dim">products, weights —</text>
+<text x="612.0" y="705.0" font-size="12" class="dim">dispersive_kerr_polarisation</text>
+<text x="508.0" y="720.5" font-size="12" class="bold ink-p">raman_drive</text>
+<text x="612.0" y="720.5" font-size="12" class="dim">one/three real histories on doubled</text>
+<text x="612.0" y="736.0" font-size="12" class="dim">grids, per chunk —</text>
+<text x="612.0" y="751.5" font-size="12" class="dim">raman_polarisation · raman_spectrum</text>
+<text x="612.0" y="767.0" font-size="12" class="dim">· mixture_raman_spectrum ·</text>
+<text x="612.0" y="782.5" font-size="12" class="dim">tensor_raman_spectrum</text>
+<text x="508.0" y="798.0" font-size="12" class="bold ink-p">accumulate</text>
+<text x="612.0" y="798.0" font-size="12" class="dim">gP_nonplasma, gJ and g'J in</text>
+<text x="612.0" y="813.5" font-size="12" class="dim">separate streams</text>
+<path d="M466.0,391.0 L494.0,391.0" class="arrow" />
+<path d="M494.0,391.0 L485.0,394.6 L485.0,387.4 Z" class="head" />
+<text x="498.0" y="840.5" font-size="12" class="dim">over a chunk of transform.node_chunk nodes, so the buffers are</text>
+<text x="498.0" y="854.5" font-size="12" class="dim">sized by the chunk and not by the quadrature rule</text>
+<rect x="498.0" y="860.5" width="356.0" height="81.5" rx="7" ry="7" class="fill-b" />
+<text x="508.0" y="882.5" font-size="15" class="bold ink-b">the two accumulators</text>
+<text x="508.0" y="898.0" font-size="12" class="dim">acc_sol += b_i k_i        acc_err += e_i k_i</text>
+<text x="508.0" y="913.5" font-size="12" class="dim">on the last stage the weak error norm is reduced</text>
+<text x="508.0" y="929.0" font-size="12" class="dim">in the same pass, in index order</text>
+<path d="M466.0,637.0 L480.0,637.0 L480.0,884.5 L494.0,884.5" class="arrow" />
+<path d="M494.0,884.5 L485.0,888.1 L485.0,880.9 Z" class="head" />
+<rect x="890.0" y="121.0" width="278.0" height="821.0" rx="7" ry="7" class="plain" />
+<text x="900.0" y="143.0" font-size="15" class="bold">the step around it</text>
+<text x="900.0" y="166.5" font-size="12" class="dim">DOPRI5: order 5, embedded order 4</text>
+<text x="900.0" y="182.0" font-size="12" class="dim">7 stages, 6 evaluations of N</text>
+<text x="900.0" y="197.5" font-size="12" class="dim">k1(n+1) = exp(ΔΦ(n))·k7(n)</text>
+<text x="900.0" y="213.0" font-size="12" class="dim">FSAL: numba_cpu takes it, numpy_ref not</text>
+<rect x="923.0" y="237.0" width="26.0" height="26.0" rx="7" ry="7" class="fill-d" />
+<text x="936.0" y="254.0" font-size="13" class="bold mid ink-d">1</text>
+<rect x="954.0" y="237.0" width="26.0" height="26.0" rx="7" ry="7" class="fill-d" />
+<text x="967.0" y="254.0" font-size="13" class="bold mid ink-d">2</text>
+<rect x="985.0" y="237.0" width="26.0" height="26.0" rx="7" ry="7" class="fill-d" />
+<text x="998.0" y="254.0" font-size="13" class="bold mid ink-d">3</text>
+<rect x="1016.0" y="237.0" width="26.0" height="26.0" rx="7" ry="7" class="fill-d" />
+<text x="1029.0" y="254.0" font-size="13" class="bold mid ink-d">4</text>
+<rect x="1047.0" y="237.0" width="26.0" height="26.0" rx="7" ry="7" class="fill-d" />
+<text x="1060.0" y="254.0" font-size="13" class="bold mid ink-d">5</text>
+<rect x="1078.0" y="237.0" width="26.0" height="26.0" rx="7" ry="7" class="fill-d" />
+<text x="1091.0" y="254.0" font-size="13" class="bold mid ink-d">6</text>
+<rect x="1109.0" y="237.0" width="26.0" height="26.0" rx="7" ry="7" class="planned" />
+<text x="1122.0" y="254.0" font-size="13" class="bold mid dim">7</text>
+<path d="M1122.0,266.0 L1122.0,277.0 L936.0,277.0 L936.0,266.0" class="arrow" />
+<path d="M936.0,266.0 L939.6,275.0 L932.4,275.0 Z" class="head" />
+<text x="1029.0" y="296.5" font-size="12" class="mid dim">FSAL:  k1(n+1) = exp(ΔΦ(n))·k7(n)</text>
+<text x="900.0" y="322.5" font-size="15" class="bold">once per step, not per stage</text>
+<text x="900.0" y="346.0" font-size="12" class="bold">accept_step</text>
+<text x="908.0" y="361.5" font-size="12" class="dim">y ← exp(ΔΦ)·(y + h·acc_sol)</text>
+<text x="900.0" y="377.0" font-size="12" class="bold">error_norm</text>
+<text x="908.0" y="392.5" font-size="12" class="dim">the embedded difference, reduced in</text>
+<text x="908.0" y="408.0" font-size="12" class="dim">index order</text>
+<text x="900.0" y="423.5" font-size="12" class="bold">apply_hard_mask</text>
+<text x="908.0" y="439.0" font-size="12" class="dim">active_mask, once per accepted step</text>
+<text x="900.0" y="454.5" font-size="12" class="bold">apply_temporal_rate</text>
+<text x="908.0" y="470.0" font-size="12" class="dim">the split-step absorber, when</text>
+<text x="908.0" y="485.5" font-size="12" class="dim">absorber_scheme is that</text>
+<text x="900.0" y="501.0" font-size="12" class="bold">absorber_term</text>
+<text x="908.0" y="516.5" font-size="12" class="dim">the in-stage absorber, masked to the</text>
+<text x="908.0" y="532.0" font-size="12" class="dim">active band</text>
+<text x="32" y="975.5" font-size="12" class="dim">Per step: 6 stages, 12 modal batched FFTs and 6 node-chunk FFT pairs for Raman, one controller decision, one accept pass, one hard-mask multiply. Steps land on save planes</text>
+<text x="32" y="991.0" font-size="12" class="dim">and hard kinks (ADR-009).</text>
+</svg>

@@ -1,0 +1,116 @@
+{
+ "atol": 1e-10,
+ "blas_threads": 6,
+ "energy": 0.000275,
+ "fftw_pool": "none",
+ "fftw_threads": 1,
+ "files": {
+  "luna_rdw_switches.json": {
+   "bytes": 336741,
+   "sha256": "f988516dcd7b086393e2c3ee24b592fe1ee3a03dc80dc1b0a45e173f6af9b492"
+  }
+ },
+ "full": {
+  "lambda_max": 4e-06,
+  "lambda_min": 9e-08,
+  "length": 1.5,
+  "modes": 4,
+  "n_save": 201,
+  "p_in": 0.8,
+  "p_out": 0.0,
+  "radius": 0.000125,
+  "trange": 4e-13
+ },
+ "generated": "2026-09-06T18:22:32+00:00",
+ "julia_threads": 1,
+ "julia_version": "julia version 1.12.6",
+ "lambda0": 8e-07,
+ "luna_branch": "modal-fixed",
+ "luna_commit": "de9db7c9a3b6e37fc71bb657540abab177242883",
+ "luna_describe": "de9db7c LinearOps: frozen_transverse kwarg for the free-space const linop",
+ "luna_path": "~/.julia/dev/Luna",
+ "note": "Energies are evaluated from the saved spectra with Fields.energyfuncs, the functional Stats.energy uses, so the REFERENCE row is comparable with the untrimmed stats/energy already in luna_rdw_full.h5. The temperature is solprop's ROOM_TEMPERATURE not Luna's roomtemp, as generate_luna_rdw.py already does. julia_threads, blas_threads, fftw_threads and fftw_pool were added by hand from the generator's own invocation (no `-t`, `JULIA_NUM_THREADS` unset): every runtime_s above is single-threaded Luna with a six-thread BLAS and FFTW left at one thread. No witness was regenerated.",
+ "quadrature_orders": [
+  32,
+  64,
+  128
+ ],
+ "runtime_s": {
+  "NEITHER": 4.142963886260986,
+  "NOLOSS": 152.47398900985718,
+  "NOPLASMA": 4.039050102233887,
+  "NOPLASMA_RTOL6": 3.8873119354248047,
+  "NOPLASMA_RTOL7": 5.311277866363525,
+  "NOPLASMA_RTOL8": 12.595491886138916,
+  "NOPLASMA_RTOL9": 39.2189679145813,
+  "NR128": 196.13332104682922,
+  "NR32": 56.415570974349976,
+  "NR64": 104.56413507461548,
+  "REFERENCE": 112.4961359500885,
+  "RTOL6": 104.57212114334106,
+  "RTOL7": 269.87246680259705,
+  "RTOL8": 736.4319250583649,
+  "RTOL9": 2319.6117041110992
+ },
+ "shotnoise": false,
+ "steps": {
+  "NEITHER": 503,
+  "NOLOSS": 5749,
+  "NOPLASMA": 465,
+  "NOPLASMA_RTOL6": 465,
+  "NOPLASMA_RTOL7": 790,
+  "NOPLASMA_RTOL8": 1966,
+  "NOPLASMA_RTOL9": 6729,
+  "NR128": 4365,
+  "NR32": 4365,
+  "NR64": 4365,
+  "REFERENCE": 4365,
+  "RTOL6": 4365,
+  "RTOL7": 12126,
+  "RTOL8": 37028,
+  "RTOL9": 117486
+ },
+ "switches": {
+  "NEITHER": {
+   "loss": false,
+   "plasma": false
+  },
+  "NOLOSS": {
+   "loss": false,
+   "plasma": true
+  },
+  "NOPLASMA": {
+   "loss": true,
+   "plasma": false
+  },
+  "REFERENCE": {
+   "loss": true,
+   "plasma": true
+  }
+ },
+ "tau_fwhm": 7.5e-15,
+ "temperature_k": 294.0,
+ "tolerance_exponents": [
+  6,
+  7,
+  8,
+  9
+ ],
+ "transverse_points": {
+  "NEITHER": 65,
+  "NOLOSS": 65,
+  "NOPLASMA": 65,
+  "NOPLASMA_RTOL6": 65,
+  "NOPLASMA_RTOL7": 65,
+  "NOPLASMA_RTOL8": 65,
+  "NOPLASMA_RTOL9": 65,
+  "NR128": 129,
+  "NR32": 33,
+  "NR64": 65,
+  "REFERENCE": 65,
+  "RTOL6": 65,
+  "RTOL7": 65,
+  "RTOL8": 65,
+  "RTOL9": 65
+ }
+}

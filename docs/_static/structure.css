@@ -1,0 +1,14 @@
+/* docs/dev/structure.md: the six structure figures span the window.
+   pydata-sphinx-theme caps the page at 88rem (bd-page-width) and the article at
+   60em (bd-article-container); on the figures page alone, selected by its section
+   id through :has(), both caps are lifted and the images fill the article. */
+.bd-container__inner:has(#the-structure-of-solprop-in-figures) {
+  max-width: none;
+}
+.bd-main .bd-content .bd-article-container:has(#the-structure-of-solprop-in-figures) {
+  max-width: none;
+}
+#the-structure-of-solprop-in-figures img {
+  width: 100%;
+  height: auto;
+}

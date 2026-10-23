@@ -1,0 +1,6 @@
+SilicaTensorResponse: the delayed tensor Raman of fused silica
+  fraction:            0.245 of chi3
+  instantaneous share: 0.755 of chi3
+  bundle:              silica_bundle/tensor (lin_2006)
+  digest:              51a392e7db72f41d0e7568105ab2ec0a82b6f7bc2df045c2691692f169d6f4fe
+  kernel amplitude:    (3/2) f_R = 0.3675 of chi3

@@ -1,0 +1,240 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+r"""
+Compare material choices
+========================
+
+The default material data for gases, solids, Raman responses and ionisation
+rates come from the curated library optmat
+(`SEP 3 <../../dev/seps/archive/sep-0003-optmat-materials.html>`_): a run
+with no ``materials=`` takes ``MaterialSelection()``, optmat's recommended model of
+each family. This tutorial shows how to see what a run resolved, how to declare a
+different material, and how to tell which part of the physics a change touches.
+
+It resolves and inspects optmat's models of argon, their identities, statuses and
+uncertainty; modifies one of them with optmat's own ``with_parameters``; and runs a
+short, 0.4 mm argon capillary with plasma (ten fixed steps, about a second each) once
+on the defaults and once for each of three *declared* changes: another gas index,
+a modified ionisation rate and a wall of the caller's own Sellmeier glass. A table
+separates what each change touched -- dispersion, electronic (Kerr) coefficient, Raman
+response, ionisation rate and solid index -- by reading the runs' material manifests.
+
+The guide is far too short to be a physical prediction; it ranks the changes. See
+:doc:`/guide/media/materials` for the full selection guide.
+"""
+
+import warnings
+from time import perf_counter
+
+import matplotlib.pyplot as plt
+import numpy as np
+from optmat.gas.ionisation_rates import ionisation_rate_model
+
+from solprop.boundaries import absorber
+from solprop.constants import C
+from solprop.driver import prop_capillary
+from solprop.grid import FieldGrid
+from solprop.nonlinear.optmat_raman import raman_status
+from solprop.nonlinear.optmat_rates import OptmatRate
+from solprop.physdata import MaterialSelection, SellmeierGlass, fused_silica, species
+from solprop.stepper import FixedSchedule
+
+started = perf_counter()
+
+# %%
+# What optmat resolves
+# --------------------
+# A built-in species carries optmat's models, each with an identity: a name, a status
+# and a SHA-256 digest that changes whenever the model's numbers can. The status says
+# how far optmat vouches for it (``validated``, ``provisional``, ``untested``,
+# ``comparison`` for a curated alternative, ``user`` for a caller's override).
+
+argon = species("Ar")
+silica = fused_silica()
+for item in (*argon.material_records, *silica.material_records):
+    print(f"{item.kind:24s} {item.name:24s} {item.status:10s} {item.digest:.12}")
+
+rate = OptmatRate("Ar", 800e-9)
+print(
+    f"\nionisation: {rate.optmat_model.identity.name}, {rate.status}, "
+    f"uncertainty factor {rate.uncertainty_factor}, "
+    f"zero below {rate.threshold:.2e} V/m, held above {rate.maximum_field:.2e} V/m"
+)
+print("Raman:", {gas: raman_status(gas) for gas in ("Ar", "N2", "H2", "N2O")})
+
+# %%
+# A quick experiment
+# ------------------
+# optmat's ``with_parameters`` modifies a curated model without touching optmat. The
+# result is status ``user``, lists what changed and keeps the digest of the model it
+# started from, so a run's record says exactly what was declared. Here argon's rate
+# with two effective electrons in place of one: twice the rate, at every field.
+
+curated = ionisation_rate_model("Ar", 800e-9)
+doubled = curated.with_parameters(electrons=2.0)
+identity = doubled.identity
+print(identity.status, identity.modified, identity.base == curated.identity.digest)
+field = np.array([2e10, 4e10])
+print("rate ratio:", OptmatRate(doubled)(field) / rate(field))
+
+# %%
+# One short run, four material choices
+# ------------------------------------
+# A 50 um-radius, 0.4 mm argon capillary at 1 bar with a 30 fs, 100 uJ pulse at
+# 800 nm and plasma on: the parameters, grid and ten fixed steps of the archived
+# witness. The absorbing collar is lengthened, as the witness's was, because the
+# default collar of so short a guide is too stiff for ten fixed steps.
+
+LENGTH = 4e-4
+GRID = FieldGrid.from_limits(LENGTH, 800e-9, (160e-9, 4e-6), 600e-15)
+
+
+def run(**choices):
+    """Propagate the witness capillary with the given material keywords."""
+    with warnings.catch_warnings():
+        # The padded grid reaches beyond every model's qualified range; each run says
+        # so once (MaterialRangeWarning), which is not this tutorial's point.
+        warnings.simplefilter("ignore")
+        return prop_capillary(
+            50e-6,
+            LENGTH,
+            "Ar",
+            1.0,
+            lambda0=800e-9,
+            grid=GRID,
+            absorber=absorber(GRID, boundary_length=1.0),
+            fwhm=30e-15,
+            energy=1e-4,
+            plasma=True,
+            schedule=FixedSchedule(np.full(10, LENGTH / 10)),
+            n_save=2,
+            backend="numpy_ref",
+            progress=None,
+            **choices,
+        )
+
+
+malitson = SellmeierGlass(
+    name="SiO2",
+    source="malitson",
+    wavelength_range=(210e-9, 3.71e-6),
+    citation="I. H. Malitson, J. Opt. Soc. Am. 55, 1205 (1965), relative to air",
+    poles=((0.6961663, 0.0684043), (0.4079426, 0.1162414), (0.8974794, 9.896161)),
+)
+runs = {
+    "default": run(),
+    "Borzsonyi's argon index": run(
+        materials=MaterialSelection(linear="borzsonyi_2008/sellmeier_Ar")
+    ),
+    "argon rate, two electrons": run(materials=MaterialSelection(ionisation=doubled)),
+    "Malitson's silica wall": run(cladding=malitson),
+}
+
+# %%
+# Which family each change touched
+# --------------------------------
+# A run's material manifest lists every optmat model it used, by kind, and the
+# citation of every material object the caller supplied. Comparing two manifests
+# kind by kind says which family a change reached, whatever the change was declared
+# as. The other columns are the change of the output: the spectrum's relative change
+# in norm, and the ionised fraction and peak power at the exit.
+
+FAMILIES = {
+    "dispersion": ("gas_refractive",),
+    "electronic": ("gas_hyperpolarizability",),
+    "Raman": ("raman_response",),
+    "ionisation": ("ionisation_rate",),
+    "solid index": ("solid",),
+}
+SOLID_OBJECTS = ("SellmeierGlass", "TabulatedGlass", "CompositeGlass")
+
+
+def used(output, family):
+    """Return what a run used for one family: its models and supplied solids."""
+    manifest = output.metadata.materials
+    models = {
+        (record.name, record.digest)
+        for record in manifest.records
+        if record.kind in FAMILIES[family]
+    }
+    if family == "solid index":
+        models |= {
+            (entry["object"], entry["citation"])
+            for entry in manifest.citations
+            if entry["object"] in SOLID_OBJECTS
+        }
+    return models
+
+
+def exit_values(output):
+    """Return the exit plane's stored spectrum, ionised fraction and peak power."""
+    spectrum = output.planes()[-1].field
+    electrons = float(np.sum(output["stats/electron_density"][-1]))
+    density = float(np.sum(output["stats/density"][-1]))
+    power = float(np.max(output["stats/peak_power"][-1]))
+    stored = np.ascontiguousarray(spectrum, dtype=np.complex128)
+    return stored, electrons / density, power
+
+
+reference, reference_fraction, reference_power = exit_values(runs["default"])
+print(f"{'declared change':26s}" + "".join(f"{name:>12s}" for name in FAMILIES))
+for label, output in runs.items():
+    if label == "default":
+        continue
+    touched = [
+        "changed" if used(output, family) != used(runs["default"], family) else "-"
+        for family in FAMILIES
+    ]
+    print(f"{label:26s}" + "".join(f"{mark:>12s}" for mark in touched))
+print()
+print(f"{'declared change':26s}{'spectrum':>10s}{'ionised':>10s}{'peak P':>10s}")
+for label, output in runs.items():
+    spectrum, fraction, power = exit_values(output)
+    change = np.linalg.norm(spectrum - reference) / np.linalg.norm(reference)
+    print(
+        f"{label:26s}{change:10.1e}{fraction / reference_fraction - 1:+10.2%}"
+        f"{power / reference_power - 1:+10.2%}"
+    )
+
+# %%
+# The rate dominates: twice the rate raises the ionised fraction at the exit by
+# three quarters and changes the spectrum by more than ten per cent. Another gas index
+# changes it by parts in ten thousand, almost all of it one constant phase of the
+# carrier, and a wall of another silica by parts in ten million: the light barely
+# reaches the wall of a 50 um core in 0.4 mm.
+#
+# The figure compares the exit spectra.
+
+omega = GRID.omega
+band = (omega > 2 * np.pi * C / 1100e-9) & (omega < 2 * np.pi * C / 500e-9)
+wavelength = 2 * np.pi * C / omega[band]
+peak = np.max(np.abs(reference.ravel()[band]) ** 2)
+
+
+def decibels(spectrum):
+    """Return a stored spectrum's intensity in dB relative to the default's peak."""
+    return 10 * np.log10(np.abs(spectrum.ravel()[band]) ** 2 / peak + 1e-30)
+
+
+fig, ax = plt.subplots(figsize=(7.0, 3.6))
+for label, output in runs.items():
+    ax.plot(wavelength * 1e9, decibels(exit_values(output)[0]), lw=1.2, label=label)
+ax.set_xlabel("wavelength (nm)")
+ax.set_ylabel("spectral intensity (dB)")
+ax.set_ylim(-40, 3)
+ax.legend(fontsize=8)
+fig.tight_layout()
+plt.show()
+
+print(f"run time {perf_counter() - started:.1f} s")
+
+# %%
+# Related reading
+# ---------------
+# Continue with :doc:`/guide/media/material-selection` for the model, options and
+# limits,
+# and :doc:`/guide/numerics/accuracy` for convergence checks.
+# For a paced propagation lesson, return to
+# :doc:`/introduction/lessons/plot_01_rdw`.

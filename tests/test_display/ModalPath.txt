@@ -1,0 +1,8 @@
+ModalPath: how a moving guide was sampled along z
+  sections:       2 (1 per kink interval)
+  span:           0 m to 1 mm
+  degree:         4
+  positions:      10
+  budget:         4.600e-05
+  held-out error: 2.000e-06
+  gram departure: 5.800e-06

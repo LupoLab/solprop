@@ -1,0 +1,5 @@
+ChannelBasis: a declared unitary change of a guide's channel basis
+  gauge:          circular(0,1)
+  channels:       HE1,1:left, HE1,1:right
+  blocks:         [0, 1]
+  unitary defect: 2.220e-16

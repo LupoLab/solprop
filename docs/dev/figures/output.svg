@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="1200" height="734.5" viewBox="0 0 1200 734.5">
+<defs>
+</defs>
+<style>
+svg {
+    --ground: #fbfbfd;
+    --ink: #1b1f24;
+    --dim: #5b6673;
+    --rule: #c9d0da;
+    --p-fill: #e2f0e8;
+    --p-edge: #2c7a55;
+    --t-fill: #fceedd;
+    --t-edge: #a96a15;
+    --b-fill: #e3ebfa;
+    --b-edge: #2f5eb0;
+    --d-fill: #eee6f8;
+    --d-edge: #6f45a6;
+    --x-fill: #fce7ec;
+    --x-edge: #af3450;
+}
+@media (prefers-color-scheme: dark) {
+  svg {
+    --ground: #171a1f;
+    --ink: #e7eaef;
+    --dim: #9aa5b3;
+    --rule: #3a424e;
+    --p-fill: #16342a;
+    --p-edge: #5cb98a;
+    --t-fill: #3a2b15;
+    --t-edge: #e0a44f;
+    --b-fill: #17253f;
+    --b-edge: #7ba6e8;
+    --d-fill: #2a1f3e;
+    --d-edge: #b18fe0;
+    --x-fill: #3a1e26;
+    --x-edge: #e8879a;
+  }
+}
+.ground { fill: var(--ground); stroke: none; }
+.card { fill: var(--ground); stroke: var(--rule); stroke-width: 1.4; }
+.plain { fill: none; stroke: var(--rule); stroke-width: 1.4; }
+.planned { fill: none; stroke: var(--dim); stroke-width: 1.4;
+  stroke-dasharray: 5 4; }
+.arrow { fill: none; stroke: var(--dim); stroke-width: 1.4;
+  stroke-linecap: round; stroke-linejoin: round; }
+.head { fill: var(--dim); stroke: none; }
+.rule { fill: none; stroke: var(--rule); stroke-width: 1.4; }
+text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill: var(--ink);
+  white-space: pre; }
+.dim { fill: var(--dim); }
+.mid { text-anchor: middle; }
+.end { text-anchor: end; }
+.bold { font-weight: 600; }
+.fill-p { fill: var(--p-fill); stroke: var(--p-edge); }
+.edge-p { stroke: var(--p-edge); }
+.ink-p { fill: var(--p-edge); }
+.fill-t { fill: var(--t-fill); stroke: var(--t-edge); }
+.edge-t { stroke: var(--t-edge); }
+.ink-t { fill: var(--t-edge); }
+.fill-b { fill: var(--b-fill); stroke: var(--b-edge); }
+.edge-b { stroke: var(--b-edge); }
+.ink-b { fill: var(--b-edge); }
+.fill-d { fill: var(--d-fill); stroke: var(--d-edge); }
+.edge-d { stroke: var(--d-edge); }
+.ink-d { fill: var(--d-edge); }
+.fill-x { fill: var(--x-fill); stroke: var(--x-edge); }
+.edge-x { stroke: var(--x-edge); }
+.ink-x { fill: var(--x-edge); }
+</style>
+<rect x="0" y="0" width="1200" height="734.5" class="ground" />
+<text x="32" y="44.0" font-size="21" class="bold">A saved run, and what reads it back</text>
+<text x="32" y="64.0" font-size="12" class="dim">architecture.md §10 and output/schema.py. One save protocol and one metadata schema behind MemoryOutput and HDF5Output; the datasets below are the ones HDF5Output creates,</text>
+<text x="32" y="79.5" font-size="12" class="dim">in the order it creates them.</text>
+<text x="32" y="109.0" font-size="12" class="bold dim">one file</text>
+<text x="700.0" y="109.0" font-size="12" class="bold dim">what it is for</text>
+<rect x="32" y="121.0" width="616.0" height="532.5" rx="7" ry="7" class="plain" />
+<text x="42.0" y="143.0" font-size="15" class="bold ink-d">run.h5   ·   output.hdf5.HDF5Output</text>
+<rect x="42.0" y="156.0" width="596.0" height="50.5" rx="7" ry="7" class="fill-d" />
+<text x="52.0" y="178.0" font-size="15" class="bold ink-d">z</text>
+<text x="202.0" y="178.0" font-size="12" class="dim">(n_z,) float64</text>
+<rect x="42.0" y="218.5" width="596.0" height="50.5" rx="7" ry="7" class="fill-d" />
+<text x="52.0" y="240.5" font-size="15" class="bold ink-d">field</text>
+<text x="202.0" y="240.5" font-size="12" class="dim">(n_z, n_modes, n_pol, n_omega) complex128</text>
+<text x="52.0" y="256.0" font-size="12" class="dim">spectral_convention = "optics"  (ADR-017)</text>
+<rect x="42.0" y="281.0" width="596.0" height="50.5" rx="7" ry="7" class="fill-d" />
+<text x="52.0" y="303.0" font-size="15" class="bold ink-d">noise_phase</text>
+<text x="202.0" y="303.0" font-size="12" class="dim">the same shape, float64</text>
+<text x="52.0" y="318.5" font-size="12" class="dim">spectral_convention = "fft"; present when a noise model ran</text>
+<rect x="42.0" y="343.5" width="596.0" height="97.0" rx="7" ry="7" class="fill-d" />
+<text x="52.0" y="365.5" font-size="15" class="bold ink-d">stats/</text>
+<text x="202.0" y="365.5" font-size="12" class="dim">one dataset per statistic, leading n_z</text>
+<text x="52.0" y="381.0" font-size="12" class="dim">energy · energy_window · peak_power · peak_power_window ·</text>
+<text x="52.0" y="396.5" font-size="12" class="dim">peak_intensity · fwhm_t · fwhm_r · electron_density ·</text>
+<text x="52.0" y="412.0" font-size="12" class="dim">peak_ionisation_rate · density · pressure · core_radius ·</text>
+<text x="52.0" y="427.5" font-size="12" class="dim">zdw · quadrature_error · omega0</text>
+<rect x="42.0" y="452.5" width="596.0" height="50.5" rx="7" ry="7" class="fill-d" />
+<text x="52.0" y="474.5" font-size="15" class="bold ink-d">step_history/</text>
+<text x="202.0" y="474.5" font-size="12" class="dim">one dataset per column, plus counts</text>
+<text x="52.0" y="490.0" font-size="12" class="dim">z, h, norm, accepted, wall_time  (schema.HISTORY_FIELDS)</text>
+<rect x="42.0" y="515.0" width="596.0" height="50.5" rx="7" ry="7" class="fill-d" />
+<text x="52.0" y="537.0" font-size="15" class="bold ink-d">step_stats/</text>
+<text x="202.0" y="537.0" font-size="12" class="dim">the periodic subset between planes, plus counts</text>
+<text x="52.0" y="552.5" font-size="12" class="dim">z, step  (schema.STEP_STATS_INDEX), then one dataset per statistic</text>
+<rect x="42.0" y="577.5" width="596.0" height="66.0" rx="7" ry="7" class="fill-d" />
+<text x="52.0" y="599.5" font-size="15" class="bold ink-d">meta/json</text>
+<text x="202.0" y="599.5" font-size="12" class="dim">RunMetadata as one JSON dataset</text>
+<text x="52.0" y="615.0" font-size="12" class="dim">grid, modes, simulation_kind, configuration, stepper, noise,</text>
+<text x="52.0" y="630.5" font-size="12" class="dim">backend (BackendRecord), versions, git (GitProvenance), created</text>
+<rect x="700.0" y="121.0" width="468.0" height="128.0" rx="7" ry="7" class="fill-d" />
+<text x="710.0" y="143.0" font-size="15" class="bold ink-d">RunMetadata.configuration_hash  ·  the resume key</text>
+<text x="710.0" y="158.5" font-size="12" class="dim">the digest of everything that was computed: the grid, the</text>
+<text x="710.0" y="174.0" font-size="12" class="dim">modes, the configuration, the stepper settings and the</text>
+<text x="710.0" y="189.5" font-size="12" class="dim">noise realisation. Not in it: the package versions, the git</text>
+<text x="710.0" y="205.0" font-size="12" class="dim">provenance, the wall clock, and which</text>
+<text x="710.0" y="220.5" font-size="12" class="dim">backend ran it, because a run continued on the other backend</text>
+<text x="710.0" y="236.0" font-size="12" class="dim">agrees with either uninterrupted run.</text>
+<rect x="700.0" y="289.0" width="468.0" height="87.5" rx="7" ry="7" class="fill-x" />
+<text x="710.0" y="311.0" font-size="15" class="bold ink-x">what reads it back</text>
+<text x="710.0" y="332.5" font-size="12" class="bold ink-x">output.hdf5</text>
+<text x="838.0" y="332.5" font-size="12" class="dim">open_file · resume · check_cache</text>
+<text x="710.0" y="348.0" font-size="12" class="bold ink-x">processing</text>
+<text x="838.0" y="348.0" font-size="12" class="dim">energy · fwhm_t · bandpass · arrival_time · g12</text>
+<text x="710.0" y="363.5" font-size="12" class="bold ink-x">plotting</text>
+<text x="838.0" y="363.5" font-size="12" class="dim">prop_2d · spec_1d · energy · spectral_display</text>
+<path d="M654.0,319.0 L694.0,319.0" class="arrow" />
+<path d="M694.0,319.0 L685.0,322.6 L685.0,315.4 Z" class="head" />
+<text x="32" y="687.0" font-size="12" class="dim">Fields are stored in the canonical layout (n_z, n_modes, n_pol, n_omega) in the optics sign convention (ADR-017): the output layer conjugates on save and on resume, and</text>
+<text x="32" y="702.5" font-size="12" class="dim">processing accessors squeeze trivial axes and accept convention="fft".</text>
+</svg>

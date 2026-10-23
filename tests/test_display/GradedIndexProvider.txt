@@ -1,0 +1,8 @@
+GradedIndexProvider: radial P1 elements, exact Bessel exterior
+  sector:        TE0
+  approximation: vector sector
+  channels:      1
+  radius:        25 um
+  elements:      8
+  extent:        2 core radii
+  exterior:      IndexMaterial

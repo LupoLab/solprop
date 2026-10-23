@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: >-
+  If you use solprop in published work, please cite this record for the software, and
+  the published sources of the models and data you use: the manual and each model's
+  docstring name them.
+type: software
+title: "solprop: ultrafast nonlinear pulse propagation"
+authors:
+  - family-names: Travers
+    given-names: John C.
+    orcid: "https://orcid.org/0000-0003-0350-9104"
+  - family-names: Brahms
+    given-names: Christian
+    orcid: "https://orcid.org/0000-0002-8009-3547"
+license: GPL-3.0-or-later
+repository-code: "https://github.com/LupoLab/solprop"
+keywords:
+  - nonlinear optics
+  - ultrafast optics
+  - pulse propagation
+  - UPPE
+  - GNLSE
+  - hollow-core fibre
+  - supercontinuum
+  - filamentation

@@ -1,0 +1,195 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""Waveguide modes.
+
+The mode protocol, capillary, rectangular and planar modes, transverse quadrature and
+mode collections (physics layer).
+"""
+
+from solprop.modes.antiresonant import (
+    TubeLattice,
+    VincettiMode,
+    core_radius_from_gap,
+    tube_gap,
+    tube_radius_from_gap,
+)
+from solprop.modes.capillary import (
+    EVANESCENT_INDEX_FLOOR,
+    CoherentWall,
+    LossSpec,
+    MarcatiliMode,
+    MarcatiliModel,
+    MarcatiliTerms,
+    ModeKind,
+    VectorWallOperator,
+    WallFamily,
+    WallImpedance,
+    WallLimits,
+    WallOperator,
+    bessel_zero,
+    taper_connection,
+    taper_coupling_block,
+    vector_wall_operator,
+    wall_connection,
+    wall_operator,
+    wall_square_root_metric,
+    worst_wall_limits,
+)
+from solprop.modes.collection import (
+    ModeCollection,
+    orthonormality,
+    overlap,
+    polarisation_pairs,
+    transverse_measure,
+)
+from solprop.modes.connection import (
+    MAX_STENCIL_SPAN,
+    STEP_FRACTION,
+    ModalConnection,
+    band_connection,
+    basis_connection,
+    connection_nodes,
+    modal_connection,
+)
+from solprop.modes.fill import GasFillMixin
+from solprop.modes.graded_index import (
+    MAX_EXTERIOR_TAIL_FRACTION,
+    GradedIndexProvider,
+    PowerLawPermittivity,
+    RadialPermittivity,
+)
+from solprop.modes.guide import (
+    MATERIAL_AGREEMENT_RTOL,
+    PROVIDER_BETA_RTOL,
+    ModalGuide,
+    ModalSampling,
+    ProviderChannelMode,
+    StepIndexProvider,
+    radial_node_rule,
+)
+from solprop.modes.material import (
+    GasKerr,
+    IndexMaterial,
+    MaterialKerr,
+    MaterialRegion,
+    PermittivityLaw,
+)
+from solprop.modes.protocol import ChannelLabel, CrossSection, Mode, TransverseMeasure
+from solprop.modes.quadrature import (
+    DEFAULT_N_THETA,
+    ModeMatrices,
+    TransverseQuadrature,
+    gauss_kronrod,
+    mode_matrix,
+    on_axis_rule,
+    quadrature_rule,
+    taper_scale,
+    transverse_quadrature,
+)
+from solprop.modes.rectangular import RectMode
+from solprop.modes.slab import (
+    PlanarGrid,
+    SlabMode,
+    SlabPolarisation,
+    gaussian_coupling,
+    gaussian_projection,
+    gaussian_to_per_unit_width,
+    per_unit_width_to_gaussian,
+)
+from solprop.modes.stepindex import StepIndexMode
+from solprop.modes.tabulated import (
+    IndexTable,
+    TabulatedHollowMode,
+    TabulatedMode,
+    sample_index_table,
+)
+from solprop.modes.vector import ModalNodeRule, ModalProvider, ModalSample, flux_product
+
+__all__ = [
+    "DEFAULT_N_THETA",
+    "EVANESCENT_INDEX_FLOOR",
+    "MATERIAL_AGREEMENT_RTOL",
+    "MAX_EXTERIOR_TAIL_FRACTION",
+    "MAX_STENCIL_SPAN",
+    "PROVIDER_BETA_RTOL",
+    "STEP_FRACTION",
+    "ChannelLabel",
+    "CoherentWall",
+    "CrossSection",
+    "GasFillMixin",
+    "GasKerr",
+    "GradedIndexProvider",
+    "IndexMaterial",
+    "IndexTable",
+    "LossSpec",
+    "MarcatiliMode",
+    "MarcatiliModel",
+    "MarcatiliTerms",
+    "MaterialKerr",
+    "MaterialRegion",
+    "ModalConnection",
+    "ModalGuide",
+    "ModalNodeRule",
+    "ModalProvider",
+    "ModalSample",
+    "ModalSampling",
+    "Mode",
+    "ModeCollection",
+    "ModeKind",
+    "ModeMatrices",
+    "PermittivityLaw",
+    "PlanarGrid",
+    "PowerLawPermittivity",
+    "ProviderChannelMode",
+    "RadialPermittivity",
+    "RectMode",
+    "SlabMode",
+    "SlabPolarisation",
+    "StepIndexMode",
+    "StepIndexProvider",
+    "TabulatedHollowMode",
+    "TabulatedMode",
+    "TransverseMeasure",
+    "TransverseQuadrature",
+    "TubeLattice",
+    "VectorWallOperator",
+    "VincettiMode",
+    "WallFamily",
+    "WallImpedance",
+    "WallLimits",
+    "WallOperator",
+    "band_connection",
+    "basis_connection",
+    "bessel_zero",
+    "connection_nodes",
+    "core_radius_from_gap",
+    "flux_product",
+    "gauss_kronrod",
+    "gaussian_coupling",
+    "gaussian_projection",
+    "gaussian_to_per_unit_width",
+    "modal_connection",
+    "mode_matrix",
+    "on_axis_rule",
+    "orthonormality",
+    "overlap",
+    "per_unit_width_to_gaussian",
+    "polarisation_pairs",
+    "quadrature_rule",
+    "radial_node_rule",
+    "sample_index_table",
+    "taper_connection",
+    "taper_coupling_block",
+    "taper_scale",
+    "transverse_measure",
+    "transverse_quadrature",
+    "tube_gap",
+    "tube_radius_from_gap",
+    "vector_wall_operator",
+    "wall_connection",
+    "wall_operator",
+    "wall_square_root_metric",
+    "worst_wall_limits",
+]

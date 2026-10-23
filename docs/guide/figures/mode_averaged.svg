@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="560" height="500" viewBox="0 0 560 500">
+<defs>
+</defs>
+<style>
+svg {
+    --ground: #fbfbfd;
+    --ink: #1b1f24;
+    --dim: #5b6673;
+    --rule: #c9d0da;
+    --gas-fill: #e9f1fb;
+    --gas-edge: #2f5eb0;
+    --glass-fill: #d5e9dc;
+    --glass-edge: #2c7a55;
+    --metal-fill: #e4e0d6;
+    --metal-edge: #7a6848;
+    --core-fill: #cfe0f4;
+    --core-edge: #2f5eb0;
+    --collar-fill: #f8e8d2;
+    --collar-edge: #a96a15;
+    --curve-a: #b8334f;
+    --curve-b: #6f45a6;
+    --curve-c: #a96a15;
+    --pol: #b8334f;
+}
+@media (prefers-color-scheme: dark) {
+  svg {
+    --ground: #171a1f;
+    --ink: #e7eaef;
+    --dim: #9aa5b3;
+    --rule: #3a424e;
+    --gas-fill: #18222f;
+    --gas-edge: #7ba6e8;
+    --glass-fill: #173528;
+    --glass-edge: #5cb98a;
+    --metal-fill: #35302a;
+    --metal-edge: #c9b48c;
+    --core-fill: #1d3150;
+    --core-edge: #7ba6e8;
+    --collar-fill: #3a2b15;
+    --collar-edge: #e0a44f;
+    --curve-a: #ee8ca0;
+    --curve-b: #b99ae6;
+    --curve-c: #e0a44f;
+    --pol: #ee8ca0;
+  }
+}
+.ground { fill: var(--ground); stroke: none; }
+.card { fill: var(--ground); stroke: var(--rule); stroke-width: 1.4; }
+.outline { fill: none; stroke: var(--ink); stroke-width: 1.4; }
+.boundary { fill: none; stroke: var(--curve-a); stroke-width: 1.4;
+  stroke-dasharray: 5 3; }
+.guide { fill: none; stroke: var(--dim); stroke-width: 1.4;
+  stroke-dasharray: 2 3; }
+.ring { fill: none; stroke: var(--rule); stroke-width: 1.4; }
+.leader { fill: none; stroke: var(--dim); stroke-width: 1.4; }
+.axis { fill: none; stroke: var(--dim); stroke-width: 1.4; }
+.head { fill: var(--dim); stroke: none; }
+.node { fill: var(--ink); stroke: none; }
+.node-dim { fill: var(--dim); stroke: none; }
+.pol { fill: none; stroke: var(--pol); stroke-width: 2.8;
+  stroke-linecap: round; }
+.pol-head { fill: var(--pol); stroke: none; }
+text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill: var(--ink); white-space: pre; }
+.dim { fill: var(--dim); }
+.mid { text-anchor: middle; }
+.end { text-anchor: end; }
+.bold { font-weight: 600; }
+.ink-pol { fill: var(--pol); }
+.gas { fill: var(--gas-fill); stroke: var(--gas-edge); stroke-width: 1.4; }
+.glass { fill: var(--glass-fill); stroke: var(--glass-edge); stroke-width: 1.4; }
+.metal { fill: var(--metal-fill); stroke: var(--metal-edge); stroke-width: 1.4; }
+.core { fill: var(--core-fill); stroke: var(--core-edge); stroke-width: 1.4; }
+.collar { fill: var(--collar-fill); stroke: var(--collar-edge); stroke-width: 1.4; }
+.curve-a { fill: none; stroke: var(--curve-a); stroke-width: 2.8; stroke-linejoin: round; stroke-linecap: round; }
+.ink-curve-a { fill: var(--curve-a); }
+.dot-curve-a { fill: var(--curve-a); stroke: none; }
+.curve-b { fill: none; stroke: var(--curve-b); stroke-width: 2.8; stroke-linejoin: round; stroke-linecap: round; }
+.ink-curve-b { fill: var(--curve-b); }
+.dot-curve-b { fill: var(--curve-b); stroke: none; }
+.curve-c { fill: none; stroke: var(--curve-c); stroke-width: 2.8; stroke-linejoin: round; stroke-linecap: round; }
+.ink-curve-c { fill: var(--curve-c); }
+.dot-curve-c { fill: var(--curve-c); stroke: none; }
+</style>
+<rect x="0" y="0" width="560" height="500" class="ground" />
+<text x="20.0" y="26.0" font-size="15" class="bold">Mode-averaged: one field and one area</text>
+<text x="20.0" y="44.0" font-size="11" class="dim">A capillary's HE₁₁ to scale, and the uniform disc of equal effective area that the</text>
+<text x="20.0" y="58.0" font-size="11" class="dim">mode-averaged route propagates in its place.</text>
+<path d="M288.0,210.0 A118.0,118.0,0,1,0,52.0,210.0 A118.0,118.0,0,1,0,288.0,210.0 Z M270.0,210.0 A100.0,100.0,0,1,0,70.0,210.0 A100.0,100.0,0,1,0,270.0,210.0 Z" class="glass" fill-rule="evenodd" />
+<circle cx="170.0" cy="210.0" r="100.0" class="gas" />
+<circle cx="170.0" cy="210.0" r="69.03" class="boundary" />
+<circle cx="170.0" cy="210.0" r="3.2" class="node" />
+<rect x="102.8" y="128.0" width="58.4" height="30.0" rx="7" ry="7" class="card" />
+<path d="M110.0,150.0 L154.0,150.0" class="pol" />
+<path d="M154.0,150.0 L145.0,153.6 L145.0,146.4 Z" class="pol-head" />
+<path d="M110.0,150.0 L119.0,146.4 L119.0,153.6 Z" class="pol-head" />
+<text x="132.0" y="141.0" font-size="11" class="mid ink-pol">A(t), √W</text>
+<path d="M28.0,132.0 L58.0,132.0" class="axis" />
+<path d="M58.0,132.0 L49.0,135.6 L49.0,128.4 Z" class="head" />
+<path d="M28.0,132.0 L28.0,102.0" class="axis" />
+<path d="M28.0,102.0 L31.6,111.0 L24.4,111.0 Z" class="head" />
+<text x="62.0" y="136.0" font-size="11" class="dim">x</text>
+<text x="28.0" y="97.0" font-size="11" class="dim mid">y</text>
+<circle cx="171.0" cy="210.0" r="2.2" class="node-dim" />
+<path d="M171.0,210.0 L325.0,88.0" class="leader" />
+<text x="330.0" y="92.0" font-size="12.5" class="">one node: the mode itself</text>
+<text x="330.0" y="106.0" font-size="11" class="dim">E = A / √(ε₀c A_eff / 2)</text>
+<circle cx="218.81" cy="161.19" r="2.2" class="node-dim" />
+<path d="M218.81,161.19 L325.0,136.0" class="leader" />
+<text x="330.0" y="140.0" font-size="12.5" class="">disc of area A_eff</text>
+<text x="330.0" y="154.0" font-size="11" class="dim">A_eff = 1.497 a²  (the GNLSE's</text>
+<text x="330.0" y="168.0" font-size="11" class="dim">surrogate profile)</text>
+<circle cx="279.0" cy="210.0" r="2.2" class="node-dim" />
+<path d="M279.0,210.0 L325.0,202.0" class="leader" />
+<text x="330.0" y="206.0" font-size="12.5" class="">no transverse boundary</text>
+<text x="330.0" y="220.0" font-size="11" class="dim">the wall is only in n_eff(ω)</text>
+<text x="330.0" y="234.0" font-size="11" class="dim">and its loss</text>
+<path d="M70.0,212.0 L70.0,465.0" class="guide" />
+<path d="M270.0,212.0 L270.0,465.0" class="guide" />
+<path d="M70.0,465.0 L282.0,465.0" class="axis" />
+<path d="M282.0,465.0 L273.0,468.6 L273.0,461.4 Z" class="head" />
+<path d="M70.0,465.0 L70.0,375.0" class="axis" />
+<text x="282.0" y="480.0" font-size="11" class="dim end">x</text>
+<text x="270.0" y="371.0" font-size="11" class="dim end">intensity × A_eff / P</text>
+<path d="M70.0,465.0 L71.25,464.98 L72.5,464.92 L73.75,464.82 L75.0,464.68 L76.25,464.49 L77.5,464.25 L78.75,463.98 L80.0,463.65 L81.25,463.28 L82.5,462.85 L83.75,462.38 L85.0,461.86 L86.25,461.29 L87.5,460.68 L88.75,460.01 L90.0,459.29 L91.25,458.52 L92.5,457.7 L93.75,456.83 L95.0,455.92 L96.25,454.95 L97.5,453.94 L98.75,452.88 L100.0,451.78 L101.25,450.64 L102.5,449.45 L103.75,448.22 L105.0,446.95 L106.25,445.64 L107.5,444.29 L108.75,442.91 L110.0,441.5 L111.25,440.06 L112.5,438.59 L113.75,437.09 L115.0,435.57 L116.25,434.02 L117.5,432.46 L118.75,430.88 L120.0,429.29 L121.25,427.68 L122.5,426.07 L123.75,424.45 L125.0,422.83 L126.25,421.21 L127.5,419.59 L128.75,417.98 L130.0,416.38 L131.25,414.78 L132.5,413.21 L133.75,411.65 L135.0,410.11 L136.25,408.59 L137.5,407.1 L138.75,405.64 L140.0,404.21 L141.25,402.82 L142.5,401.46 L143.75,400.14 L145.0,398.87 L146.25,397.64 L147.5,396.46 L148.75,395.32 L150.0,394.24 L151.25,393.22 L152.5,392.25 L153.75,391.33 L155.0,390.48 L156.25,389.69 L157.5,388.96 L158.75,388.3 L160.0,387.71 L161.25,387.18 L162.5,386.72 L163.75,386.32 L165.0,386.0 L166.25,385.75 L167.5,385.57 L168.75,385.47 L170.0,385.43 L171.25,385.47 L172.5,385.57 L173.75,385.75 L175.0,386.0 L176.25,386.32 L177.5,386.72 L178.75,387.18 L180.0,387.71 L181.25,388.3 L182.5,388.96 L183.75,389.69 L185.0,390.48 L186.25,391.33 L187.5,392.25 L188.75,393.22 L190.0,394.24 L191.25,395.32 L192.5,396.46 L193.75,397.64 L195.0,398.87 L196.25,400.14 L197.5,401.46 L198.75,402.82 L200.0,404.21 L201.25,405.64 L202.5,407.1 L203.75,408.59 L205.0,410.11 L206.25,411.65 L207.5,413.21 L208.75,414.78 L210.0,416.38 L211.25,417.98 L212.5,419.59 L213.75,421.21 L215.0,422.83 L216.25,424.45 L217.5,426.07 L218.75,427.68 L220.0,429.29 L221.25,430.88 L222.5,432.46 L223.75,434.02 L225.0,435.57 L226.25,437.09 L227.5,438.59 L228.75,440.06 L230.0,441.5 L231.25,442.91 L232.5,444.29 L233.75,445.64 L235.0,446.95 L236.25,448.22 L237.5,449.45 L238.75,450.64 L240.0,451.78 L241.25,452.88 L242.5,453.94 L243.75,454.95 L245.0,455.92 L246.25,456.83 L247.5,457.7 L248.75,458.52 L250.0,459.29 L251.25,460.01 L252.5,460.68 L253.75,461.29 L255.0,461.86 L256.25,462.38 L257.5,462.85 L258.75,463.28 L260.0,463.65 L261.25,463.98 L262.5,464.25 L263.75,464.49 L265.0,464.68 L266.25,464.82 L267.5,464.92 L268.75,464.98 L270.0,465.0" class="curve-a" />
+<path d="M70.0,465.0 L100.97,465.0 L100.97,420.0 L239.03,420.0 L239.03,465.0 L270.0,465.0" class="curve-b" />
+<path d="M330.0,388.0 L348.0,388.0" class="curve-a" />
+<text x="354.0" y="392.0" font-size="11" class="">HE₁₁, on its own profile</text>
+<path d="M330.0,402.0 L348.0,402.0" class="curve-b" />
+<text x="354.0" y="406.0" font-size="11" class="">the disc: P / A_eff</text>
+<text x="330.0" y="432.0" font-size="12.5" class="">on axis: 1.768 × P / A_eff</text>
+<text x="330.0" y="446.0" font-size="11" class="dim">self-phase modulation agrees on</text>
+<text x="330.0" y="460.0" font-size="11" class="dim">either; an ionisation rate does not</text>
+</svg>

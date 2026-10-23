@@ -1,0 +1,1682 @@
+[
+ {
+  "N": 8,
+  "wavelength_um": 0.7999999999999999,
+  "eta": 727.5844378404393,
+  "spectral_radius_offdiagonal_per_m": 11.34999968720276,
+  "dopri5_stable_step_m": 0.29074890669122955,
+  "max_diagonal_field_loss_per_m": 4.6102058766252565,
+  "alpha_1_marcatili_per_m": 0.04497916166685952,
+  "alpha_N_marcatili_per_m": 4.612435304785124,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 14.32791383128852,
+   "norm2_per_m": 14.327913831288512,
+   "max_real_per_m": 6.750644086019277e-16,
+   "min_real_per_m": -14.324450702450749,
+   "log_norm_per_m": 1.5890003348641009e-15
+  },
+  "offdiagonal": {
+   "rho_per_m": 11.349999687202777,
+   "norm2_per_m": 11.34999968720279,
+   "max_real_per_m": 4.1246798422381765,
+   "min_real_per_m": -11.347256335191572,
+   "log_norm_per_m": 4.1246798422381765
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 8,
+  "wavelength_um": 0.7999999999999999,
+  "eta": 797.4227928128806,
+  "spectral_radius_offdiagonal_per_m": 10.356384981031148,
+  "dopri5_stable_step_m": 0.3186440061898346,
+  "max_diagonal_field_loss_per_m": 4.206784226475561,
+  "alpha_1_marcatili_per_m": 0.04103988292142482,
+  "alpha_N_marcatili_per_m": 4.2084778345368505,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 13.073603145484762,
+   "norm2_per_m": 13.073603145484759,
+   "max_real_per_m": 3.206922397252993e-16,
+   "min_real_per_m": -13.070972290744578,
+   "log_norm_per_m": 5.882139823366691e-16
+  },
+  "offdiagonal": {
+   "rho_per_m": 10.356384981031153,
+   "norm2_per_m": 10.356384981031187,
+   "max_real_per_m": 3.763744735905571,
+   "min_real_per_m": -10.354300923238108,
+   "log_norm_per_m": 3.7637447359055733
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 8,
+  "wavelength_um": 3.0,
+  "eta": 194.02251675745046,
+  "spectral_radius_offdiagonal_per_m": 159.10787481902105,
+  "dopri5_stable_step_m": 0.020740645324774907,
+  "max_diagonal_field_loss_per_m": 64.4242594892454,
+  "alpha_1_marcatili_per_m": 0.6325194609402122,
+  "alpha_N_marcatili_per_m": 64.86237147354082,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 200.8532143711625,
+   "norm2_per_m": 200.85321437116235,
+   "max_real_per_m": 5.146072065015316e-15,
+   "min_real_per_m": -200.17373492463764,
+   "log_norm_per_m": 8.178941746937775e-15
+  },
+  "offdiagonal": {
+   "rho_per_m": 159.10787481902105,
+   "norm2_per_m": 159.10787481902054,
+   "max_real_per_m": 57.63938782294245,
+   "min_real_per_m": -158.56961840595716,
+   "log_norm_per_m": 57.63938782294256
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 8,
+  "wavelength_um": 3.0,
+  "eta": 212.64607808343482,
+  "spectral_radius_offdiagonal_per_m": 145.2553813697235,
+  "dopri5_stable_step_m": 0.022718607523396307,
+  "max_diagonal_field_loss_per_m": 58.848553297375965,
+  "alpha_1_marcatili_per_m": 0.5771233535825366,
+  "alpha_N_marcatili_per_m": 59.18171954817447,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 183.3662242425368,
+   "norm2_per_m": 183.3662242425367,
+   "max_real_per_m": 7.431095056516997e-15,
+   "min_real_per_m": -182.84936143369742,
+   "log_norm_per_m": 9.854093705577977e-15
+  },
+  "offdiagonal": {
+   "rho_per_m": 145.2553813697236,
+   "norm2_per_m": 145.25538136972338,
+   "max_real_per_m": 52.65088979242062,
+   "min_real_per_m": -144.84594334631487,
+   "log_norm_per_m": 52.65088979242048
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 8,
+  "wavelength_um": 6.0,
+  "eta": 97.01125837872523,
+  "spectral_radius_offdiagonal_per_m": 630.0797181495415,
+  "dopri5_stable_step_m": 0.005237432510431619,
+  "max_diagonal_field_loss_per_m": 252.57891565819958,
+  "alpha_1_marcatili_per_m": 2.5300778437608487,
+  "alpha_N_marcatili_per_m": 259.4494858941633,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 795.3945513027655,
+   "norm2_per_m": 795.3945513027653,
+   "max_real_per_m": 4.8575619005720977e-14,
+   "min_real_per_m": -784.792333064487,
+   "log_norm_per_m": 7.718146701805403e-14
+  },
+  "offdiagonal": {
+   "rho_per_m": 630.0797181495411,
+   "norm2_per_m": 630.0797181495418,
+   "max_real_per_m": 225.97844648802754,
+   "min_real_per_m": -621.6810653445993,
+   "log_norm_per_m": 225.97844648802788
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 8,
+  "wavelength_um": 6.0,
+  "eta": 106.32303904171741,
+  "spectral_radius_offdiagonal_per_m": 576.176477858106,
+  "dopri5_stable_step_m": 0.005727411872604569,
+  "max_diagonal_field_loss_per_m": 231.48475058559015,
+  "alpha_1_marcatili_per_m": 2.3084934143301465,
+  "alpha_N_marcatili_per_m": 236.72687819269788,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 727.3486479188463,
+   "norm2_per_m": 727.348647918846,
+   "max_real_per_m": 4.7306536909503506e-14,
+   "min_real_per_m": -719.2502866183665,
+   "log_norm_per_m": 8.40689928550576e-14
+  },
+  "offdiagonal": {
+   "rho_per_m": 576.1764778581069,
+   "norm2_per_m": 576.176477858107,
+   "max_real_per_m": 207.1058234876152,
+   "min_real_per_m": -569.7612802717997,
+   "log_norm_per_m": 207.10582348761488
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 8,
+  "wavelength_um": 8.0,
+  "eta": 72.75844378404393,
+  "spectral_radius_offdiagonal_per_m": 1108.7813570965143,
+  "dopri5_stable_step_m": 0.002976240517464572,
+  "max_diagonal_field_loss_per_m": 439.9673525496638,
+  "alpha_1_marcatili_per_m": 4.497916166685952,
+  "alpha_N_marcatili_per_m": 461.24353047851235,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 1399.6937603558026,
+   "norm2_per_m": 1399.693760355802,
+   "max_real_per_m": 2.1270793044657618e-14,
+   "min_real_per_m": -1367.0301979873411,
+   "log_norm_per_m": 3.503050587979725e-14
+  },
+  "offdiagonal": {
+   "rho_per_m": 1108.781357096517,
+   "norm2_per_m": 1108.7813570965177,
+   "max_real_per_m": 393.6319806248869,
+   "min_real_per_m": -1082.9065907466954,
+   "log_norm_per_m": 393.6319806248874
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 8,
+  "wavelength_um": 8.0,
+  "eta": 79.74227928128806,
+  "spectral_radius_offdiagonal_per_m": 1015.60505749713,
+  "dopri5_stable_step_m": 0.0032492945713883717,
+  "max_diagonal_field_loss_per_m": 404.5605901974408,
+  "alpha_1_marcatili_per_m": 4.103988292142481,
+  "alpha_N_marcatili_per_m": 420.847783453685,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 1282.0706741381377,
+   "norm2_per_m": 1282.0706741381375,
+   "max_real_per_m": 4.7285790317060004e-14,
+   "min_real_per_m": -1257.0172320980444,
+   "log_norm_per_m": 5.977092208826843e-14
+  },
+  "offdiagonal": {
+   "rho_per_m": 1015.6050574971318,
+   "norm2_per_m": 1015.6050574971322,
+   "max_real_per_m": 361.95409836509646,
+   "min_real_per_m": -995.7587237833255,
+   "log_norm_per_m": 361.9540983650961
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 8,
+  "wavelength_um": 12.0,
+  "eta": 48.505629189362615,
+  "spectral_radius_offdiagonal_per_m": 2425.8024409019026,
+  "dopri5_stable_step_m": 0.0013603745896030488,
+  "max_diagonal_field_loss_per_m": 935.9592919020529,
+  "alpha_1_marcatili_per_m": 10.120311375043395,
+  "alpha_N_marcatili_per_m": 1037.797943576653,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 3062.263374699489,
+   "norm2_per_m": 3062.2633746994898,
+   "max_real_per_m": 2.5249198725401313e-13,
+   "min_real_per_m": -2908.135362094906,
+   "log_norm_per_m": 1.8366701487822941e-13
+  },
+  "offdiagonal": {
+   "rho_per_m": 2425.8024409019017,
+   "norm2_per_m": 2425.8024409019,
+   "max_real_per_m": 837.3882919280554,
+   "min_real_per_m": -2303.708400174838,
+   "log_norm_per_m": 837.3882919280569
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 8,
+  "wavelength_um": 12.0,
+  "eta": 53.161519520858704,
+  "spectral_radius_offdiagonal_per_m": 2231.7667797233303,
+  "dopri5_stable_step_m": 0.001478649126773496,
+  "max_diagonal_field_loss_per_m": 868.2583403396562,
+  "alpha_1_marcatili_per_m": 9.233973657320586,
+  "alpha_N_marcatili_per_m": 946.9075127707915,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 2817.318325344269,
+   "norm2_per_m": 2817.318325344269,
+   "max_real_per_m": 1.2111563689805016e-13,
+   "min_real_per_m": -2697.780560353505,
+   "log_norm_per_m": 1.5387047171625587e-13
+  },
+  "offdiagonal": {
+   "rho_per_m": 2231.766779723326,
+   "norm2_per_m": 2231.766779723331,
+   "max_real_per_m": 776.8172984230613,
+   "min_real_per_m": -2137.0737482583204,
+   "log_norm_per_m": 776.8172984230616
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 10,
+  "wavelength_um": 0.7999999999999999,
+  "eta": 727.5844378404393,
+  "spectral_radius_offdiagonal_per_m": 22.8505234723668,
+  "dopri5_stable_step_m": 0.1444168228351836,
+  "max_diagonal_field_loss_per_m": 7.293580499968301,
+  "alpha_1_marcatili_per_m": 0.04497916166685952,
+  "alpha_N_marcatili_per_m": 7.299091545118739,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 27.499084017993976,
+   "norm2_per_m": 27.49908401799397,
+   "max_real_per_m": 1.6869066717749477e-15,
+   "min_real_per_m": -27.48870071827089,
+   "log_norm_per_m": 4.865759241521748e-15
+  },
+  "offdiagonal": {
+   "rho_per_m": 22.850523472366806,
+   "norm2_per_m": 22.850523472366845,
+   "max_real_per_m": 6.713239328047899,
+   "min_real_per_m": -22.84189540919613,
+   "log_norm_per_m": 6.713239328047893
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 10,
+  "wavelength_um": 0.7999999999999999,
+  "eta": 797.4227928128806,
+  "spectral_radius_offdiagonal_per_m": 20.85059113947271,
+  "dopri5_stable_step_m": 0.15826889405320974,
+  "max_diagonal_field_loss_per_m": 6.65564978362581,
+  "alpha_1_marcatili_per_m": 0.04103988292142482,
+  "alpha_N_marcatili_per_m": 6.659836496355711,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 25.09229857524179,
+   "norm2_per_m": 25.092298575241795,
+   "max_real_per_m": 1.8893499020712066e-15,
+   "min_real_per_m": -25.084410186260296,
+   "log_norm_per_m": 2.910883674873113e-15
+  },
+  "offdiagonal": {
+   "rho_per_m": 20.850591139472705,
+   "norm2_per_m": 20.850591139472673,
+   "max_real_per_m": 6.126067969133192,
+   "min_real_per_m": -20.84403623686348,
+   "log_norm_per_m": 6.1260679691331905
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 10,
+  "wavelength_um": 3.0,
+  "eta": 194.02251675745046,
+  "spectral_radius_offdiagonal_per_m": 319.7625102031936,
+  "dopri5_stable_step_m": 0.010320159164071516,
+  "max_diagonal_field_loss_per_m": 101.56428773908053,
+  "alpha_1_marcatili_per_m": 0.6325194609402122,
+  "alpha_N_marcatili_per_m": 102.64347485323229,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 384.8128969349813,
+   "norm2_per_m": 384.8128969349815,
+   "max_real_per_m": 2.0634963184918073e-14,
+   "min_real_per_m": -382.78460206699134,
+   "log_norm_per_m": 2.171908049864446e-14
+  },
+  "offdiagonal": {
+   "rho_per_m": 319.76251020319364,
+   "norm2_per_m": 319.7625102031937,
+   "max_real_per_m": 93.48294308647573,
+   "min_real_per_m": -318.0770868101977,
+   "log_norm_per_m": 93.48294308647597
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 10,
+  "wavelength_um": 3.0,
+  "eta": 212.64607808343482,
+  "spectral_radius_offdiagonal_per_m": 292.01491204607885,
+  "dopri5_stable_step_m": 0.011300792746773399,
+  "max_diagonal_field_loss_per_m": 92.83275538697261,
+  "alpha_1_marcatili_per_m": 0.5771233535825366,
+  "alpha_N_marcatili_per_m": 93.6539507300022,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 351.42050949393274,
+   "norm2_per_m": 351.4205094939326,
+   "max_real_per_m": 3.062846639007372e-14,
+   "min_real_per_m": -349.87641936577404,
+   "log_norm_per_m": 4.851498517424546e-14
+  },
+  "offdiagonal": {
+   "rho_per_m": 292.01491204607845,
+   "norm2_per_m": 292.0149120460782,
+   "max_real_per_m": 85.44616795517389,
+   "min_real_per_m": -290.7318413920213,
+   "log_norm_per_m": 85.44616795517418
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 10,
+  "wavelength_um": 6.0,
+  "eta": 97.01125837872523,
+  "spectral_radius_offdiagonal_per_m": 1259.3432464808286,
+  "dopri5_stable_step_m": 0.0026204134648926606,
+  "max_diagonal_field_loss_per_m": 393.8348844741416,
+  "alpha_1_marcatili_per_m": 2.5300778437608487,
+  "alpha_N_marcatili_per_m": 410.57389941292917,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 1515.5357724889195,
+   "norm2_per_m": 1515.5357724889202,
+   "max_real_per_m": 1.3518998732217616e-13,
+   "min_real_per_m": -1484.3202555687856,
+   "log_norm_per_m": 9.893335244257351e-14
+  },
+  "offdiagonal": {
+   "rho_per_m": 1259.3432464808286,
+   "norm2_per_m": 1259.343246480832,
+   "max_real_per_m": 362.4979302306321,
+   "min_real_per_m": -1233.404531517856,
+   "log_norm_per_m": 362.4979302306318
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 10,
+  "wavelength_um": 6.0,
+  "eta": 106.32303904171741,
+  "spectral_radius_offdiagonal_per_m": 1152.9932268581474,
+  "dopri5_stable_step_m": 0.0028621156856162506,
+  "max_diagonal_field_loss_per_m": 361.8134460075858,
+  "alpha_1_marcatili_per_m": 2.3084934143301465,
+  "alpha_N_marcatili_per_m": 374.6158029200088,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 1387.5506027637666,
+   "norm2_per_m": 1387.5506027637664,
+   "max_real_per_m": 5.329517639456928e-14,
+   "min_real_per_m": -1363.6349846542478,
+   "log_norm_per_m": 6.386353336558407e-14
+  },
+  "offdiagonal": {
+   "rho_per_m": 1152.9932268581474,
+   "norm2_per_m": 1152.9932268581483,
+   "max_real_per_m": 333.0243979846683,
+   "min_real_per_m": -1133.120405181246,
+   "log_norm_per_m": 333.0243979846681
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 10,
+  "wavelength_um": 8.0,
+  "eta": 72.75844378404393,
+  "spectral_radius_offdiagonal_per_m": 2204.1584115186397,
+  "dopri5_stable_step_m": 0.0014971700685189582,
+  "max_diagonal_field_loss_per_m": 678.6316041891272,
+  "alpha_1_marcatili_per_m": 4.497916166685952,
+  "alpha_N_marcatili_per_m": 729.9091545118738,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 2652.557934640654,
+   "norm2_per_m": 2652.5579346406544,
+   "max_real_per_m": 8.523102406611746e-14,
+   "min_real_per_m": -2557.6876906474204,
+   "log_norm_per_m": 3.12197560786433e-13
+  },
+  "offdiagonal": {
+   "rho_per_m": 2204.1584115186374,
+   "norm2_per_m": 2204.1584115186392,
+   "max_real_per_m": 624.6337274975555,
+   "min_real_per_m": -2125.3254316354523,
+   "log_norm_per_m": 624.6337274975549
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 10,
+  "wavelength_um": 8.0,
+  "eta": 79.74227928128806,
+  "spectral_radius_offdiagonal_per_m": 2023.055386767301,
+  "dopri5_stable_step_m": 0.0016311960718352679,
+  "max_diagonal_field_loss_per_m": 626.5695178549819,
+  "alpha_1_marcatili_per_m": 4.103988292142481,
+  "alpha_N_marcatili_per_m": 665.9836496355709,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 2434.612498967269,
+   "norm2_per_m": 2434.6124989672685,
+   "max_real_per_m": 9.9337265699974e-14,
+   "min_real_per_m": -2361.4714275905712,
+   "log_norm_per_m": 1.3175501667810117e-13
+  },
+  "offdiagonal": {
+   "rho_per_m": 2023.0553867672909,
+   "norm2_per_m": 2023.0553867672995,
+   "max_real_per_m": 576.7141569272267,
+   "min_real_per_m": -1962.2783889882496,
+   "log_norm_per_m": 576.7141569272253
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 10,
+  "wavelength_um": 12.0,
+  "eta": 48.505629189362615,
+  "spectral_radius_offdiagonal_per_m": 4754.970312731573,
+  "dopri5_stable_step_m": 0.0006940106421199208,
+  "max_diagonal_field_loss_per_m": 1403.658871932404,
+  "alpha_1_marcatili_per_m": 10.120311375043395,
+  "alpha_N_marcatili_per_m": 1642.2955976517167,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 5722.2902701112125,
+   "norm2_per_m": 5722.290270111211,
+   "max_real_per_m": 2.940890014148946e-13,
+   "min_real_per_m": -5290.235521670498,
+   "log_norm_per_m": 3.1470934321760346e-13
+  },
+  "offdiagonal": {
+   "rho_per_m": 4754.970312731575,
+   "norm2_per_m": 4754.970312731574,
+   "max_real_per_m": 1291.9714730317894,
+   "min_real_per_m": -4395.951911822952,
+   "log_norm_per_m": 1291.9714730317855
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 10,
+  "wavelength_um": 12.0,
+  "eta": 53.161519520858704,
+  "spectral_radius_offdiagonal_per_m": 4392.307554616024,
+  "dopri5_stable_step_m": 0.0007513135086662859,
+  "max_diagonal_field_loss_per_m": 1312.6733963490606,
+  "alpha_1_marcatili_per_m": 9.233973657320586,
+  "alpha_N_marcatili_per_m": 1498.463211680035,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 5285.849780348378,
+   "norm2_per_m": 5285.849780348379,
+   "max_real_per_m": 2.061630992542367e-13,
+   "min_real_per_m": -4947.3212962045645,
+   "log_norm_per_m": 6.492153499954218e-13
+  },
+  "offdiagonal": {
+   "rho_per_m": 4392.307554616025,
+   "norm2_per_m": 4392.307554616027,
+   "max_real_per_m": 1208.225599112947,
+   "min_real_per_m": -4111.005345861318,
+   "log_norm_per_m": 1208.2255991129473
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 12,
+  "wavelength_um": 0.7999999999999999,
+  "eta": 727.5844378404393,
+  "spectral_radius_offdiagonal_per_m": 40.26941101234405,
+  "dopri5_stable_step_m": 0.08194805727325957,
+  "max_diagonal_field_loss_per_m": 10.588319354859005,
+  "alpha_1_marcatili_per_m": 0.04497916166685952,
+  "alpha_N_marcatili_per_m": 10.59984015684183,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 46.956476732944324,
+   "norm2_per_m": 46.956476732944324,
+   "max_real_per_m": 2.4425441528501096e-15,
+   "min_real_per_m": -46.93095166195915,
+   "log_norm_per_m": 5.177999264854076e-15
+  },
+  "offdiagonal": {
+   "rho_per_m": 40.26941101234404,
+   "norm2_per_m": 40.26941101234402,
+   "max_real_per_m": 9.918408857725439,
+   "min_real_per_m": -40.24752096338514,
+   "log_norm_per_m": 9.918408857725407
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 12,
+  "wavelength_um": 0.7999999999999999,
+  "eta": 797.4227928128806,
+  "spectral_radius_offdiagonal_per_m": 36.74595743282892,
+  "dopri5_stable_step_m": 0.08980579716918119,
+  "max_diagonal_field_loss_per_m": 9.662752487527506,
+  "alpha_1_marcatili_per_m": 0.04103988292142482,
+  "alpha_N_marcatili_per_m": 9.67150526825235,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 42.8479248106082,
+   "norm2_per_m": 42.84792481060825,
+   "max_real_per_m": 2.730945864105494e-15,
+   "min_real_per_m": -42.82853158424284,
+   "log_norm_per_m": 3.0452366839207148e-15
+  },
+  "offdiagonal": {
+   "rho_per_m": 36.74595743282891,
+   "norm2_per_m": 36.745957432828966,
+   "max_real_per_m": 9.051401516173616,
+   "min_real_per_m": -36.72932599329814,
+   "log_norm_per_m": 9.051401516173604
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 12,
+  "wavelength_um": 3.0,
+  "eta": 194.02251675745046,
+  "spectral_radius_offdiagonal_per_m": 562.3109755676418,
+  "dopri5_stable_step_m": 0.005868638784204266,
+  "max_diagonal_field_loss_per_m": 146.81386158129348,
+  "alpha_1_marcatili_per_m": 0.6325194609402122,
+  "alpha_N_marcatili_per_m": 149.06025220558828,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 655.6873213970597,
+   "norm2_per_m": 655.68732139706,
+   "max_real_per_m": 3.484978789802806e-14,
+   "min_real_per_m": -650.7278454928121,
+   "log_norm_per_m": 1.0647256657037096e-13
+  },
+  "offdiagonal": {
+   "rho_per_m": 562.3109755676418,
+   "norm2_per_m": 562.3109755676403,
+   "max_real_per_m": 137.5251214421047,
+   "min_real_per_m": -558.0577779793771,
+   "log_norm_per_m": 137.5251214421048
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 12,
+  "wavelength_um": 3.0,
+  "eta": 212.64607808343482,
+  "spectral_radius_offdiagonal_per_m": 513.7124819022597,
+  "dopri5_stable_step_m": 0.006423826782989997,
+  "max_diagonal_field_loss_per_m": 134.294869248793,
+  "alpha_1_marcatili_per_m": 0.5771233535825366,
+  "alpha_N_marcatili_per_m": 136.0055428347987,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 599.0186495767773,
+   "norm2_per_m": 599.0186495767769,
+   "max_real_per_m": 2.9111091536045886e-14,
+   "min_real_per_m": -595.2395093062584,
+   "log_norm_per_m": 1.013163339568534e-13
+  },
+  "offdiagonal": {
+   "rho_per_m": 513.7124819022597,
+   "norm2_per_m": 513.712481902259,
+   "max_real_per_m": 125.79819101253793,
+   "min_real_per_m": -510.47152850423663,
+   "log_norm_per_m": 125.79819101253779
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 12,
+  "wavelength_um": 6.0,
+  "eta": 97.01125837872523,
+  "spectral_radius_offdiagonal_per_m": 2200.0601448871607,
+  "dopri5_stable_step_m": 0.0014999589932434571,
+  "max_diagonal_field_loss_per_m": 561.8534564944579,
+  "alpha_1_marcatili_per_m": 2.5300778437608487,
+  "alpha_N_marcatili_per_m": 596.2410088223531,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 2565.39816221311,
+   "norm2_per_m": 2565.3981622131105,
+   "max_real_per_m": 1.4709552774191238e-13,
+   "min_real_per_m": -2490.3213176834893,
+   "log_norm_per_m": 2.41568406867984e-13
+  },
+  "offdiagonal": {
+   "rho_per_m": 2200.0601448871475,
+   "norm2_per_m": 2200.060144887153,
+   "max_real_per_m": 526.3056499217654,
+   "min_real_per_m": -2135.674983984477,
+   "log_norm_per_m": 526.3056499217645
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 12,
+  "wavelength_um": 6.0,
+  "eta": 106.32303904171741,
+  "spectral_radius_offdiagonal_per_m": 2017.144941510382,
+  "dopri5_stable_step_m": 0.0016359756466132035,
+  "max_diagonal_field_loss_per_m": 517.6466456457978,
+  "alpha_1_marcatili_per_m": 2.3084934143301465,
+  "alpha_N_marcatili_per_m": 544.0221713391948,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 2352.1083902611294,
+   "norm2_per_m": 2352.1083902611294,
+   "max_real_per_m": 7.710029816231201e-14,
+   "min_real_per_m": -2294.3820346361026,
+   "log_norm_per_m": 1.3511187694068208e-13
+  },
+  "offdiagonal": {
+   "rho_per_m": 2017.1449415103866,
+   "norm2_per_m": 2017.1449415103762,
+   "max_real_per_m": 484.8957519390483,
+   "min_real_per_m": -1967.6393886527965,
+   "log_norm_per_m": 484.8957519390474
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 12,
+  "wavelength_um": 8.0,
+  "eta": 72.75844378404393,
+  "spectral_radius_offdiagonal_per_m": 3826.3394648745616,
+  "dopri5_stable_step_m": 0.0008624430817740274,
+  "max_diagonal_field_loss_per_m": 955.9682545988627,
+  "alpha_1_marcatili_per_m": 4.497916166685952,
+  "alpha_N_marcatili_per_m": 1059.984015684183,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 4461.734491216,
+   "norm2_per_m": 4461.734491216001,
+   "max_real_per_m": 1.7767239414056959e-13,
+   "min_real_per_m": -4237.169133584759,
+   "log_norm_per_m": 3.453209219813222e-13
+  },
+  "offdiagonal": {
+   "rho_per_m": 3826.3394648745616,
+   "norm2_per_m": 3826.339464874558,
+   "max_real_per_m": 895.485268846418,
+   "min_real_per_m": -3633.7544305028946,
+   "log_norm_per_m": 895.4852688464194
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 12,
+  "wavelength_um": 8.0,
+  "eta": 79.74227928128806,
+  "spectral_radius_offdiagonal_per_m": 3520.2773159369226,
+  "dopri5_stable_step_m": 0.0009374261468152841,
+  "max_diagonal_field_loss_per_m": 886.819990288924,
+  "alpha_1_marcatili_per_m": 4.103988292142481,
+  "alpha_N_marcatili_per_m": 967.1505268252349,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 4104.848214160213,
+   "norm2_per_m": 4104.8482141602135,
+   "max_real_per_m": 2.791694201177923e-13,
+   "min_real_per_m": -3930.6810365527335,
+   "log_norm_per_m": 3.665753760648915e-13
+  },
+  "offdiagonal": {
+   "rho_per_m": 3520.2773159369312,
+   "norm2_per_m": 3520.2773159369276,
+   "max_real_per_m": 830.7119337926994,
+   "min_real_per_m": -3370.913263352151,
+   "log_norm_per_m": 830.7119337927021
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 12,
+  "wavelength_um": 12.0,
+  "eta": 48.505629189362615,
+  "spectral_radius_offdiagonal_per_m": 8125.339467686904,
+  "dopri5_stable_step_m": 0.0004061368774958314,
+  "max_diagonal_field_loss_per_m": 1915.9183063446244,
+  "alpha_1_marcatili_per_m": 10.120311375043395,
+  "alpha_N_marcatili_per_m": 2384.9640352894125,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 9474.618676313868,
+   "norm2_per_m": 9474.618676313872,
+   "max_real_per_m": 3.2127670942210905e-13,
+   "min_real_per_m": -8491.986915946163,
+   "log_norm_per_m": 7.163546688107453e-13
+  },
+  "offdiagonal": {
+   "rho_per_m": 8125.339467686914,
+   "norm2_per_m": 8125.339467686901,
+   "max_real_per_m": 1794.700411223086,
+   "min_real_per_m": -7282.644168014475,
+   "log_norm_per_m": 1794.7004112230838
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 12,
+  "wavelength_um": 12.0,
+  "eta": 53.161519520858704,
+  "spectral_radius_offdiagonal_per_m": 7538.926912839713,
+  "dopri5_stable_step_m": 0.0004377280796262525,
+  "max_diagonal_field_loss_per_m": 1807.666325993487,
+  "alpha_1_marcatili_per_m": 9.233973657320586,
+  "alpha_N_marcatili_per_m": 2176.088685356779,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 8790.827510876969,
+   "norm2_per_m": 8790.827510876969,
+   "max_real_per_m": 6.63557809782009e-13,
+   "min_real_per_m": -8012.178148671008,
+   "log_norm_per_m": 4.3890558720200907e-13
+  },
+  "offdiagonal": {
+   "rho_per_m": 7538.9269128397145,
+   "norm2_per_m": 7538.9269128397145,
+   "max_real_per_m": 1693.297406194878,
+   "min_real_per_m": -6871.164904640059,
+   "log_norm_per_m": 1693.2974061948748
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 20,
+  "wavelength_um": 0.7999999999999999,
+  "eta": 727.5844378404393,
+  "spectral_radius_offdiagonal_per_m": 193.55022324409387,
+  "dopri5_stable_step_m": 0.017049838252256824,
+  "max_diagonal_field_loss_per_m": 29.853531026025344,
+  "alpha_1_marcatili_per_m": 0.04497916166685952,
+  "alpha_N_marcatili_per_m": 29.9437605956504,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 212.06018166821787,
+   "norm2_per_m": 212.06018166821787,
+   "max_real_per_m": 9.794615572464579e-15,
+   "min_real_per_m": -211.74044001746037,
+   "log_norm_per_m": 3.084319163014209e-14
+  },
+  "offdiagonal": {
+   "rho_per_m": 193.55022324409373,
+   "norm2_per_m": 193.55022324409396,
+   "max_real_per_m": 28.858377443420295,
+   "min_real_per_m": -193.25839067374645,
+   "log_norm_per_m": 28.858377443420377
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 20,
+  "wavelength_um": 0.7999999999999999,
+  "eta": 797.4227928128806,
+  "spectral_radius_offdiagonal_per_m": 176.6436599170491,
+  "dopri5_stable_step_m": 0.01868167813976263,
+  "max_diagonal_field_loss_per_m": 27.252710653845593,
+  "alpha_1_marcatili_per_m": 0.04103988292142482,
+  "alpha_N_marcatili_per_m": 27.321283535128817,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 193.53677812764514,
+   "norm2_per_m": 193.53677812764533,
+   "max_real_per_m": 8.7636900471843e-15,
+   "min_real_per_m": -193.293749422246,
+   "log_norm_per_m": 2.5497311292196506e-14
+  },
+  "offdiagonal": {
+   "rho_per_m": 176.64365991704898,
+   "norm2_per_m": 176.6436599170496,
+   "max_real_per_m": 26.344254209640358,
+   "min_real_per_m": -176.42184429935648,
+   "log_norm_per_m": 26.344254209640436
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 20,
+  "wavelength_um": 3.0,
+  "eta": 194.02251675745046,
+  "spectral_radius_offdiagonal_per_m": 2669.7644886920684,
+  "dopri5_stable_step_m": 0.0012360640850447027,
+  "max_diagonal_field_loss_per_m": 403.91661832203687,
+  "alpha_1_marcatili_per_m": 0.6325194609402122,
+  "alpha_N_marcatili_per_m": 421.08413337633385,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 2925.0844199203107,
+   "norm2_per_m": 2925.084419920311,
+   "max_real_per_m": 1.1050431360848941e-13,
+   "min_real_per_m": -2864.8364047560826,
+   "log_norm_per_m": 1.4602113481657774e-13
+  },
+  "offdiagonal": {
+   "rho_per_m": 2669.764488692074,
+   "norm2_per_m": 2669.7644886920707,
+   "max_real_per_m": 390.4522455667198,
+   "min_real_per_m": -2614.7753026350033,
+   "log_norm_per_m": 390.45224556671866
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 20,
+  "wavelength_um": 3.0,
+  "eta": 212.64607808343482,
+  "spectral_radius_offdiagonal_per_m": 2444.306094760338,
+  "dopri5_stable_step_m": 0.0013500764110820423,
+  "max_diagonal_field_loss_per_m": 371.07546674023075,
+  "alpha_1_marcatili_per_m": 0.5771233535825366,
+  "alpha_N_marcatili_per_m": 384.205549712749,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 2678.0645654637624,
+   "norm2_per_m": 2678.0645654637638,
+   "max_real_per_m": 1.4951440885419025e-13,
+   "min_real_per_m": -2631.9058385008,
+   "log_norm_per_m": 1.4401607126779297e-13
+  },
+  "offdiagonal": {
+   "rho_per_m": 2444.306094760338,
+   "norm2_per_m": 2444.3060947603353,
+   "max_real_per_m": 358.7058385102754,
+   "min_real_per_m": -2402.176394417431,
+   "log_norm_per_m": 358.70583851027607
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 20,
+  "wavelength_um": 6.0,
+  "eta": 97.01125837872523,
+  "spectral_radius_offdiagonal_per_m": 10080.373973648773,
+  "dopri5_stable_step_m": 0.00032736880681476395,
+  "max_diagonal_field_loss_per_m": 1439.590973729213,
+  "alpha_1_marcatili_per_m": 2.5300778437608487,
+  "alpha_N_marcatili_per_m": 1684.3365335053354,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 11044.399227789427,
+   "norm2_per_m": 11044.399227789434,
+   "max_real_per_m": 3.1641461820967653e-13,
+   "min_real_per_m": -10210.504946863926,
+   "log_norm_per_m": 8.24290634543674e-13
+  },
+  "offdiagonal": {
+   "rho_per_m": 10080.373973648793,
+   "norm2_per_m": 10080.373973648819,
+   "max_real_per_m": 1391.602877656308,
+   "min_real_per_m": -9319.267277590101,
+   "log_norm_per_m": 1391.6028776563066
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 20,
+  "wavelength_um": 6.0,
+  "eta": 106.32303904171741,
+  "spectral_radius_offdiagonal_per_m": 9311.541365308198,
+  "dopri5_stable_step_m": 0.0003543988981560815,
+  "max_diagonal_field_loss_per_m": 1346.2763714356233,
+  "alpha_1_marcatili_per_m": 2.3084934143301465,
+  "alpha_N_marcatili_per_m": 1536.822198850996,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 10202.040175629883,
+   "norm2_per_m": 10202.040175629885,
+   "max_real_per_m": 4.2058943140744074e-13,
+   "min_real_per_m": -9548.657779355535,
+   "log_norm_per_m": 1.809413186465314e-12
+  },
+  "offdiagonal": {
+   "rho_per_m": 9311.54136530819,
+   "norm2_per_m": 9311.541365308189,
+   "max_real_per_m": 1301.3988742630868,
+   "min_real_per_m": -8715.190331050755,
+   "log_norm_per_m": 1301.3988742630904
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 20,
+  "wavelength_um": 8.0,
+  "eta": 72.75844378404393,
+  "spectral_radius_offdiagonal_per_m": 16986.477769227757,
+  "dopri5_stable_step_m": 0.00019427217607043826,
+  "max_diagonal_field_loss_per_m": 2299.402626702904,
+  "alpha_1_marcatili_per_m": 4.497916166685952,
+  "alpha_N_marcatili_per_m": 2994.3760595650397,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 18610.960510765006,
+   "norm2_per_m": 18610.960510765006,
+   "max_real_per_m": 4.88356625244518e-13,
+   "min_real_per_m": -16308.842110869024,
+   "log_norm_per_m": 1.7151571147809147e-12
+  },
+  "offdiagonal": {
+   "rho_per_m": 16986.47776922774,
+   "norm2_per_m": 16986.477769227764,
+   "max_real_per_m": 2222.7531087674934,
+   "min_real_per_m": -14885.30287288942,
+   "log_norm_per_m": 2222.7531087674943
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 20,
+  "wavelength_um": 8.0,
+  "eta": 79.74227928128806,
+  "spectral_radius_offdiagonal_per_m": 15809.122023832235,
+  "dopri5_stable_step_m": 0.00020874024471600973,
+  "max_diagonal_field_loss_per_m": 2182.8761696226984,
+  "alpha_1_marcatili_per_m": 4.103988292142481,
+  "alpha_N_marcatili_per_m": 2732.1283535128814,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 17321.009669727595,
+   "norm2_per_m": 17321.009669727602,
+   "max_real_per_m": 5.000660865441571e-13,
+   "min_real_per_m": -15482.361542311513,
+   "log_norm_per_m": 7.649685418848108e-13
+  },
+  "offdiagonal": {
+   "rho_per_m": 15809.122023832244,
+   "norm2_per_m": 15809.122023832237,
+   "max_real_per_m": 2110.111006979473,
+   "min_real_per_m": -14130.96277333466,
+   "log_norm_per_m": 2110.1110069794804
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 20,
+  "wavelength_um": 12.0,
+  "eta": 48.505629189362615,
+  "spectral_radius_offdiagonal_per_m": 33648.94488494083,
+  "dopri5_stable_step_m": 9.807142575447809e-05,
+  "max_diagonal_field_loss_per_m": 4010.224966505249,
+  "alpha_1_marcatili_per_m": 10.120311375043395,
+  "alpha_N_marcatili_per_m": 6737.346134021342,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 36866.92397272726,
+   "norm2_per_m": 36866.923972727265,
+   "max_real_per_m": 8.179076503062816e-13,
+   "min_real_per_m": -28443.09432732045,
+   "log_norm_per_m": 2.574234618206987e-12
+  },
+  "offdiagonal": {
+   "rho_per_m": 33648.94488494088,
+   "norm2_per_m": 33648.94488494081,
+   "max_real_per_m": 3876.545980961113,
+   "min_real_per_m": -25960.400549967017,
+   "log_norm_per_m": 3876.545980961109
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 20,
+  "wavelength_um": 12.0,
+  "eta": 53.161519520858704,
+  "spectral_radius_offdiagonal_per_m": 31798.799946036215,
+  "dopri5_stable_step_m": 0.00010377750121388941,
+  "max_diagonal_field_loss_per_m": 3925.1163908133335,
+  "alpha_1_marcatili_per_m": 9.233973657320586,
+  "alpha_N_marcatili_per_m": 6147.288795403984,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 34839.84249857236,
+   "norm2_per_m": 34839.84249857235,
+   "max_real_per_m": 1.263667289544536e-12,
+   "min_real_per_m": -27839.44957754009,
+   "log_norm_per_m": 2.436586200226377e-12
+  },
+  "offdiagonal": {
+   "rho_per_m": 31798.799946036215,
+   "norm2_per_m": 31798.799946036197,
+   "max_real_per_m": 3794.2744600864744,
+   "min_real_per_m": -25409.4457447744,
+   "log_norm_per_m": 3794.274460086475
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 40,
+  "wavelength_um": 0.7999999999999999,
+  "eta": 727.5844378404393,
+  "spectral_radius_offdiagonal_per_m": 1584.797736701343,
+  "dopri5_stable_step_m": 0.0020822846496921068,
+  "max_diagonal_field_loss_per_m": 119.84121278694971,
+  "alpha_1_marcatili_per_m": 0.04497916166685952,
+  "alpha_N_marcatili_per_m": 121.29004924702338,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 1658.3047054668384,
+   "norm2_per_m": 1658.304705466838,
+   "max_real_per_m": 6.617397127025203e-14,
+   "min_real_per_m": -1648.3705416845085,
+   "log_norm_per_m": 4.737895394169471e-13
+  },
+  "offdiagonal": {
+   "rho_per_m": 1584.7977367013416,
+   "norm2_per_m": 1584.797736701345,
+   "max_real_per_m": 118.15217979296526,
+   "min_real_per_m": -1575.303920380158,
+   "log_norm_per_m": 118.15217979296514
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 40,
+  "wavelength_um": 0.7999999999999999,
+  "eta": 797.4227928128806,
+  "spectral_radius_offdiagonal_per_m": 1447.4497022631701,
+  "dopri5_stable_step_m": 0.00227987196711586,
+  "max_diagonal_field_loss_per_m": 109.56471588431728,
+  "alpha_1_marcatili_per_m": 0.04103988292142482,
+  "alpha_N_marcatili_per_m": 110.66745657688107,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 1514.5861182170133,
+   "norm2_per_m": 1514.5861182170124,
+   "max_real_per_m": 5.988630643153721e-14,
+   "min_real_per_m": -1507.0212147536647,
+   "log_norm_per_m": 3.849875144933036e-13
+  },
+  "offdiagonal": {
+   "rho_per_m": 1447.4497022631701,
+   "norm2_per_m": 1447.4497022631756,
+   "max_real_per_m": 108.02051906085768,
+   "min_real_per_m": -1440.2201250645066,
+   "log_norm_per_m": 108.02051906085758
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 40,
+  "wavelength_um": 3.0,
+  "eta": 194.02251675745046,
+  "spectral_radius_offdiagonal_per_m": 20727.694037777765,
+  "dopri5_stable_step_m": 0.00015920729020727073,
+  "max_diagonal_field_loss_per_m": 1457.8000276671155,
+  "alpha_1_marcatili_per_m": 0.6325194609402122,
+  "alpha_N_marcatili_per_m": 1705.6413175362666,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 21689.09745408181,
+   "norm2_per_m": 21689.097454081795,
+   "max_real_per_m": 8.149812553370388e-13,
+   "min_real_per_m": -20051.487842878476,
+   "log_norm_per_m": 5.312604893407881e-12
+  },
+  "offdiagonal": {
+   "rho_per_m": 20727.694037777757,
+   "norm2_per_m": 20727.694037777732,
+   "max_real_per_m": 1437.2539042751648,
+   "min_real_per_m": -19162.674052681108,
+   "log_norm_per_m": 1437.2539042751682
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 40,
+  "wavelength_um": 3.0,
+  "eta": 212.64607808343482,
+  "spectral_radius_offdiagonal_per_m": 19146.7877029919,
+  "dopri5_stable_step_m": 0.00017235267091222502,
+  "max_diagonal_field_loss_per_m": 1363.3051105081472,
+  "alpha_1_marcatili_per_m": 0.5771233535825366,
+  "alpha_N_marcatili_per_m": 1556.2611081123903,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 20034.864643695317,
+   "norm2_per_m": 20034.864643695317,
+   "max_real_per_m": 6.135684009065996e-13,
+   "min_real_per_m": -18751.74600815028,
+   "log_norm_per_m": 4.546718606698557e-12
+  },
+  "offdiagonal": {
+   "rho_per_m": 19146.787702991973,
+   "norm2_per_m": 19146.787702991947,
+   "max_real_per_m": 1344.0907913355838,
+   "min_real_per_m": -17920.545322549206,
+   "log_norm_per_m": 1344.0907913355798
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 40,
+  "wavelength_um": 6.0,
+  "eta": 97.01125837872523,
+  "spectral_radius_offdiagonal_per_m": 69190.39274657365,
+  "dopri5_stable_step_m": 4.7694482846585924e-05,
+  "max_diagonal_field_loss_per_m": 4060.949376459735,
+  "alpha_1_marcatili_per_m": 2.5300778437608487,
+  "alpha_N_marcatili_per_m": 6822.565270145066,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 72399.61996889443,
+   "norm2_per_m": 72399.61996889442,
+   "max_real_per_m": 1.775827503673977e-12,
+   "min_real_per_m": -55856.822271388475,
+   "log_norm_per_m": 1.6445051413496187e-11
+  },
+  "offdiagonal": {
+   "rho_per_m": 69190.39274657353,
+   "norm2_per_m": 69190.39274657349,
+   "max_real_per_m": 4003.7146629231347,
+   "min_real_per_m": -53380.88062055255,
+   "log_norm_per_m": 4003.7146629231224
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 40,
+  "wavelength_um": 6.0,
+  "eta": 106.32303904171741,
+  "spectral_radius_offdiagonal_per_m": 65386.045971403604,
+  "dopri5_stable_step_m": 5.0469483985057686e-05,
+  "max_diagonal_field_loss_per_m": 3974.764282038796,
+  "alpha_1_marcatili_per_m": 2.3084934143301465,
+  "alpha_N_marcatili_per_m": 6225.044432449561,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 68418.81786879603,
+   "norm2_per_m": 68418.81786879599,
+   "max_real_per_m": 1.6072905543967148e-12,
+   "min_real_per_m": -54671.37890451995,
+   "log_norm_per_m": 1.5620630335960086e-11
+  },
+  "offdiagonal": {
+   "rho_per_m": 65386.0459714036,
+   "norm2_per_m": 65386.04597140354,
+   "max_real_per_m": 3918.7442547080555,
+   "min_real_per_m": -52247.98389861261,
+   "log_norm_per_m": 3918.7442547080504
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 40,
+  "wavelength_um": 8.0,
+  "eta": 72.75844378404393,
+  "spectral_radius_offdiagonal_per_m": 107272.66396224216,
+  "dopri5_stable_step_m": 3.076273002003133e-05,
+  "max_diagonal_field_loss_per_m": 5490.812863950129,
+  "alpha_1_marcatili_per_m": 4.497916166685952,
+  "alpha_N_marcatili_per_m": 12129.004924702336,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 112248.24423766363,
+   "norm2_per_m": 112248.24423766359,
+   "max_real_per_m": 1.810610838070333e-12,
+   "min_real_per_m": -75524.05357352449,
+   "log_norm_per_m": 1.86184569804535e-11
+  },
+  "offdiagonal": {
+   "rho_per_m": 107272.66396224205,
+   "norm2_per_m": 107272.66396224218,
+   "max_real_per_m": 5413.425762507029,
+   "min_real_per_m": -72176.33090906413,
+   "log_norm_per_m": 5413.425762507038
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 40,
+  "wavelength_um": 8.0,
+  "eta": 79.74227928128806,
+  "spectral_radius_offdiagonal_per_m": 102697.83494630743,
+  "dopri5_stable_step_m": 3.2133101946358546e-05,
+  "max_diagonal_field_loss_per_m": 5515.518305710162,
+  "alpha_1_marcatili_per_m": 4.103988292142481,
+  "alpha_N_marcatili_per_m": 11066.745657688105,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 107461.22296161023,
+   "norm2_per_m": 107461.22296161011,
+   "max_real_per_m": 2.2693870892350887e-12,
+   "min_real_per_m": -75863.86757798507,
+   "log_norm_per_m": 2.0019555437956676e-11
+  },
+  "offdiagonal": {
+   "rho_per_m": 102697.83494630743,
+   "norm2_per_m": 102697.83494630747,
+   "max_real_per_m": 5437.7830076384325,
+   "min_real_per_m": -72501.08212239249,
+   "log_norm_per_m": 5437.783007638438
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 40,
+  "wavelength_um": 12.0,
+  "eta": 48.505629189362615,
+  "spectral_radius_offdiagonal_per_m": 185987.8553100582,
+  "dopri5_stable_step_m": 1.774309400201754e-05,
+  "max_diagonal_field_loss_per_m": 7335.760866310014,
+  "alpha_1_marcatili_per_m": 10.120311375043395,
+  "alpha_N_marcatili_per_m": 27290.261080580265,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 194614.4473062669,
+   "norm2_per_m": 194614.4473062668,
+   "max_real_per_m": 2.162411028946797e-12,
+   "min_real_per_m": -100900.61533643154,
+   "log_norm_per_m": 3.022511401602973e-11
+  },
+  "offdiagonal": {
+   "rho_per_m": 185987.8553100582,
+   "norm2_per_m": 185987.8553100582,
+   "max_real_per_m": 7232.371207184935,
+   "min_real_per_m": -96428.03659049701,
+   "log_norm_per_m": 7232.371207184942
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 40,
+  "wavelength_um": 12.0,
+  "eta": 53.161519520858704,
+  "spectral_radius_offdiagonal_per_m": 181153.94770582678,
+  "dopri5_stable_step_m": 1.8216550297644194e-05,
+  "max_diagonal_field_loss_per_m": 7627.405602317344,
+  "alpha_1_marcatili_per_m": 9.233973657320586,
+  "alpha_N_marcatili_per_m": 24900.177729798244,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 189556.33071495112,
+   "norm2_per_m": 189556.3307149511,
+   "max_real_per_m": 2.030789713265789e-12,
+   "min_real_per_m": -104912.07834061923,
+   "log_norm_per_m": 2.911092299057421e-11
+  },
+  "offdiagonal": {
+   "rho_per_m": 181153.9477058265,
+   "norm2_per_m": 181153.9477058269,
+   "max_real_per_m": 7519.905524328995,
+   "min_real_per_m": -100261.68517687544,
+   "log_norm_per_m": 7519.905524328987
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 160,
+  "wavelength_um": 0.7999999999999999,
+  "eta": 727.5844378404393,
+  "spectral_radius_offdiagonal_per_m": 95305.83417049573,
+  "dopri5_stable_step_m": 3.4625372399516716e-05,
+  "max_diagonal_field_loss_per_m": 1641.4499592767208,
+  "alpha_1_marcatili_per_m": 0.04497916166685952,
+  "alpha_N_marcatili_per_m": 1958.962440077719,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 96386.14984377791,
+   "norm2_per_m": 96386.14984377801,
+   "max_real_per_m": 2.3087729195376354e-12,
+   "min_real_per_m": -88229.82175139002,
+   "log_norm_per_m": 3.604759302338816e-11
+  },
+  "offdiagonal": {
+   "rho_per_m": 95305.83417049573,
+   "norm2_per_m": 95305.83417049577,
+   "max_real_per_m": 1637.1353007768823,
+   "min_real_per_m": -87240.92387090194,
+   "log_norm_per_m": 1637.135300776877
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 160,
+  "wavelength_um": 0.7999999999999999,
+  "eta": 797.4227928128806,
+  "spectral_radius_offdiagonal_per_m": 88163.87142642909,
+  "dopri5_stable_step_m": 3.743029822316481e-05,
+  "max_diagonal_field_loss_per_m": 1539.484151439305,
+  "alpha_1_marcatili_per_m": 0.04103988292142482,
+  "alpha_N_marcatili_per_m": 1787.39634552801,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 89163.23115029278,
+   "norm2_per_m": 89163.23115029266,
+   "max_real_per_m": 1.816175946319891e-12,
+   "min_real_per_m": -82749.04239568218,
+   "log_norm_per_m": 3.662534618762381e-11
+  },
+  "offdiagonal": {
+   "rho_per_m": 88163.87142642902,
+   "norm2_per_m": 88163.8714264291,
+   "max_real_per_m": 1535.437516729644,
+   "min_real_per_m": -81821.57421074004,
+   "log_norm_per_m": 1535.4375167296469
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 160,
+  "wavelength_um": 3.0,
+  "eta": 194.02251675745046,
+  "spectral_radius_offdiagonal_per_m": 759101.7467096186,
+  "dopri5_stable_step_m": 4.347243323183075e-06,
+  "max_diagonal_field_loss_per_m": 7405.018020700275,
+  "alpha_1_marcatili_per_m": 0.6325194609402122,
+  "alpha_N_marcatili_per_m": 27547.90931359293,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 767706.3565084198,
+   "norm2_per_m": 767706.356508421,
+   "max_real_per_m": 9.560258233411143e-12,
+   "min_real_per_m": -398028.22884719656,
+   "log_norm_per_m": 1.664964020951762e-10
+  },
+  "offdiagonal": {
+   "rho_per_m": 759101.74670962,
+   "norm2_per_m": 759101.7467096205,
+   "max_real_per_m": 7385.553446855723,
+   "min_real_per_m": -393567.04708270787,
+   "log_norm_per_m": 7385.5534468557025
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 160,
+  "wavelength_um": 3.0,
+  "eta": 212.64607808343482,
+  "spectral_radius_offdiagonal_per_m": 739372.3525527399,
+  "dopri5_stable_step_m": 4.4632450599572675e-06,
+  "max_diagonal_field_loss_per_m": 7699.416184044847,
+  "alpha_1_marcatili_per_m": 0.5771233535825366,
+  "alpha_N_marcatili_per_m": 25135.261108987645,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 747753.324691606,
+   "norm2_per_m": 747753.3246916061,
+   "max_real_per_m": 2.4747784036310307e-11,
+   "min_real_per_m": -413852.4684647565,
+   "log_norm_per_m": 1.7955378498801686e-10
+  },
+  "offdiagonal": {
+   "rho_per_m": 739372.3525527399,
+   "norm2_per_m": 739372.3525527406,
+   "max_real_per_m": 7679.177765386643,
+   "min_real_per_m": -409213.9253874194,
+   "log_norm_per_m": 7679.177765386661
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 160,
+  "wavelength_um": 6.0,
+  "eta": 97.01125837872523,
+  "spectral_radius_offdiagonal_per_m": 1699107.116615857,
+  "dopri5_stable_step_m": 1.9421965617875055e-06,
+  "max_diagonal_field_loss_per_m": 9274.866447311362,
+  "alpha_1_marcatili_per_m": 2.5300778437608487,
+  "alpha_N_marcatili_per_m": 110191.63725437172,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 1718366.9244192494,
+   "norm2_per_m": 1718366.9244192475,
+   "max_real_per_m": 5.994868145966266e-11,
+   "min_real_per_m": -498534.73070529127,
+   "log_norm_per_m": 1.687322375850506e-10
+  },
+  "offdiagonal": {
+   "rho_per_m": 1699107.1166158575,
+   "norm2_per_m": 1699107.1166158582,
+   "max_real_per_m": 9250.486854667946,
+   "min_real_per_m": -492947.051519752,
+   "log_norm_per_m": 9250.486854667903
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 160,
+  "wavelength_um": 6.0,
+  "eta": 106.32303904171741,
+  "spectral_radius_offdiagonal_per_m": 1684900.9956562296,
+  "dopri5_stable_step_m": 1.9585720517155532e-06,
+  "max_diagonal_field_loss_per_m": 9995.859987445296,
+  "alpha_1_marcatili_per_m": 2.3084934143301465,
+  "alpha_N_marcatili_per_m": 100541.04443595058,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 1703999.7734947426,
+   "norm2_per_m": 1703999.7734947389,
+   "max_real_per_m": 4.398497175428708e-11,
+   "min_real_per_m": -537288.9620910294,
+   "log_norm_per_m": 2.8842601316978657e-10
+  },
+  "offdiagonal": {
+   "rho_per_m": 1684900.9956562268,
+   "norm2_per_m": 1684900.9956562286,
+   "max_real_per_m": 9969.585216158895,
+   "min_real_per_m": -531266.9175569403,
+   "log_norm_per_m": 9969.5852161589
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 160,
+  "wavelength_um": 8.0,
+  "eta": 72.75844378404393,
+  "spectral_radius_offdiagonal_per_m": 2308377.2544494597,
+  "dopri5_stable_step_m": 1.4295756872665247e-06,
+  "max_diagonal_field_loss_per_m": 9629.466938246329,
+  "alpha_1_marcatili_per_m": 4.497916166685952,
+  "alpha_N_marcatili_per_m": 195896.2440077719,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 2334543.2929667737,
+   "norm2_per_m": 2334543.2929667737,
+   "max_real_per_m": 5.397385647962875e-11,
+   "min_real_per_m": -517594.91461850307,
+   "log_norm_per_m": 2.054738021233233e-10
+  },
+  "offdiagonal": {
+   "rho_per_m": 2308377.254449461,
+   "norm2_per_m": 2308377.25444946,
+   "max_real_per_m": 9604.155255036487,
+   "min_real_per_m": -511793.6049948691,
+   "log_norm_per_m": 9604.155255036458
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 160,
+  "wavelength_um": 8.0,
+  "eta": 79.74227928128806,
+  "spectral_radius_offdiagonal_per_m": 2297046.8525387445,
+  "dopri5_stable_step_m": 1.436627205210364e-06,
+  "max_diagonal_field_loss_per_m": 10450.417095685532,
+  "alpha_1_marcatili_per_m": 4.103988292142481,
+  "alpha_N_marcatili_per_m": 178739.634552801,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 2323084.4580920613,
+   "norm2_per_m": 2323084.4580920623,
+   "max_real_per_m": 3.780863948946464e-11,
+   "min_real_per_m": -561721.9290597779,
+   "log_norm_per_m": 1.9456985536744607e-10
+  },
+  "offdiagonal": {
+   "rho_per_m": 2297046.8525387454,
+   "norm2_per_m": 2297046.852538745,
+   "max_real_per_m": 10422.947491331171,
+   "min_real_per_m": -555426.034836666,
+   "log_norm_per_m": 10422.947491331182
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 160,
+  "wavelength_um": 12.0,
+  "eta": 48.505629189362615,
+  "spectral_radius_offdiagonal_per_m": 3510836.188378201,
+  "dopri5_stable_step_m": 9.399470163045132e-07,
+  "max_diagonal_field_loss_per_m": 9899.819768351164,
+  "alpha_1_marcatili_per_m": 10.120311375043395,
+  "alpha_N_marcatili_per_m": 440766.54901748686,
+  "radius_m": 0.00015,
+  "cladding_index": 1.3,
+  "whole_wall": {
+   "rho_per_m": 3550632.4022578956,
+   "norm2_per_m": 3550632.4022578946,
+   "max_real_per_m": 8.950490986764364e-11,
+   "min_real_per_m": -532126.6899402696,
+   "log_norm_per_m": 1.7857000129167867e-10
+  },
+  "offdiagonal": {
+   "rho_per_m": 3510836.188378198,
+   "norm2_per_m": 3510836.1883782037,
+   "max_real_per_m": 9873.797445057644,
+   "min_real_per_m": -526162.505207856,
+   "log_norm_per_m": 9873.797445057653
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ },
+ {
+  "N": 160,
+  "wavelength_um": 12.0,
+  "eta": 53.161519520858704,
+  "spectral_radius_offdiagonal_per_m": 3502930.6851059846,
+  "dopri5_stable_step_m": 9.420683126934769e-07,
+  "max_diagonal_field_loss_per_m": 10801.261650130804,
+  "alpha_1_marcatili_per_m": 9.233973657320586,
+  "alpha_N_marcatili_per_m": 402164.1777438023,
+  "radius_m": 0.00015,
+  "cladding_index": 1.45,
+  "whole_wall": {
+   "rho_per_m": 3542637.2881117435,
+   "norm2_per_m": 3542637.2881117496,
+   "max_real_per_m": 8.099947959287335e-11,
+   "min_real_per_m": -580580.2270701486,
+   "log_norm_per_m": 1.8740446548085822e-10
+  },
+  "offdiagonal": {
+   "rho_per_m": 3502930.685105978,
+   "norm2_per_m": 3502930.6851059827,
+   "max_real_per_m": 10772.86982793454,
+   "min_real_per_m": -574072.9651874183,
+   "log_norm_per_m": 10772.8698279346
+  },
+  "constant_section_variation_per_m": 0.0,
+  "constant_section_connection_per_m": 0.0
+ }
+]

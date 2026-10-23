@@ -1,0 +1,41 @@
+backend,method,rtol,calls,median_seconds,error
+"numba_cpu, Darwin/arm64, one thread",rk,1e-05,1381,,0.00014455974510284034
+"numba_cpu, Darwin/arm64, one thread",rk,1e-06,2065,1.9475091667845845,1.6429249820779777e-05
+"numba_cpu, Darwin/arm64, one thread",rk,1e-07,3163,2.9551102919504046,1.6764360495721963e-06
+"numba_cpu, Darwin/arm64, one thread",rk,1e-08,4921,4.569058999884874,1.6522713454481004e-07
+"numba_cpu, Darwin/arm64, one thread",rk,1e-09,7753,,1.4901473074068823e-08
+"numba_cpu, Darwin/arm64, one thread",exponential,1e-06,764,1.953162165824324,3.62004973574882e-05
+"numba_cpu, Darwin/arm64, one thread",exponential,1e-07,1007,,1.2850137876130234e-05
+"numba_cpu, Darwin/arm64, one thread",exponential,1e-08,1293,3.3858083747327328,1.650243116300038e-06
+"numba_cpu, Darwin/arm64, one thread",exponential,1e-09,1627,4.212054166942835,1.6277817380669956e-07
+"numba_cpu, Darwin/arm64, one thread",exponential,1e-10,2243,,1.8382492379153477e-08
+"Kokkos CPU, Darwin/arm64, one thread",rk,1e-05,1381,,0.00014455974507309317
+"Kokkos CPU, Darwin/arm64, one thread",rk,1e-06,2065,2.192032207734883,1.6429249779166847e-05
+"Kokkos CPU, Darwin/arm64, one thread",rk,1e-07,3163,3.4177502496168017,1.6764360082784247e-06
+"Kokkos CPU, Darwin/arm64, one thread",rk,1e-08,4921,5.13869324978441,1.6522708572512687e-07
+"Kokkos CPU, Darwin/arm64, one thread",rk,1e-09,7753,,1.4901463336746902e-08
+"Kokkos CPU, Darwin/arm64, one thread",exponential,1e-06,764,1.9277674579061568,3.6200497308685e-05
+"Kokkos CPU, Darwin/arm64, one thread",exponential,1e-07,1007,,1.2850137881257953e-05
+"Kokkos CPU, Darwin/arm64, one thread",exponential,1e-08,1293,3.1896561249159276,1.6502430655751296e-06
+"Kokkos CPU, Darwin/arm64, one thread",exponential,1e-09,1627,4.02269716700539,1.6277821518621907e-07
+"Kokkos CPU, Darwin/arm64, one thread",exponential,1e-10,2243,,1.838258209105433e-08
+"Kokkos HIP, one AMD CDNA 3 device (band norm)",rk,1e-05,1303,,0.0001422613038646637
+"Kokkos HIP, one AMD CDNA 3 device (band norm)",rk,1e-06,1909,0.5580449379999664,1.539160332846565e-05
+"Kokkos HIP, one AMD CDNA 3 device (band norm)",rk,1e-07,2863,0.8352974350000295,1.5302058161846052e-06
+"Kokkos HIP, one AMD CDNA 3 device (band norm)",rk,1e-08,4405,1.2791458579999926,1.556328912947897e-07
+"Kokkos HIP, one AMD CDNA 3 device (band norm)",rk,1e-09,6871,,1.4697935359200393e-08
+"Kokkos HIP, one AMD CDNA 3 device (band norm)",exponential,1e-06,746,0.6010218510000414,3.161655850755739e-05
+"Kokkos HIP, one AMD CDNA 3 device (band norm)",exponential,1e-07,977,,1.5927790329566523e-05
+"Kokkos HIP, one AMD CDNA 3 device (band norm)",exponential,1e-08,1263,1.0087352789996658,1.8789840463827001e-06
+"Kokkos HIP, one AMD CDNA 3 device (band norm)",exponential,1e-09,1555,1.2258283820001452,1.8487155792046763e-07
+"Kokkos HIP, one AMD CDNA 3 device (band norm)",exponential,1e-10,2128,,2.06804256339705e-08
+"Kokkos CUDA, one NVIDIA Hopper device (band norm)",rk,1e-05,1303,,0.00014226130386289546
+"Kokkos CUDA, one NVIDIA Hopper device (band norm)",rk,1e-06,1909,0.5146761550568044,1.5391603318956926e-05
+"Kokkos CUDA, one NVIDIA Hopper device (band norm)",rk,1e-07,2863,0.7699587680399418,1.5302057692481921e-06
+"Kokkos CUDA, one NVIDIA Hopper device (band norm)",rk,1e-08,4405,1.1873023258522153,1.5563285006384335e-07
+"Kokkos CUDA, one NVIDIA Hopper device (band norm)",rk,1e-09,6871,,1.4697954649497749e-08
+"Kokkos CUDA, one NVIDIA Hopper device (band norm)",exponential,1e-06,746,0.6714798239991069,3.16165585110325e-05
+"Kokkos CUDA, one NVIDIA Hopper device (band norm)",exponential,1e-07,977,,1.59277903615644e-05
+"Kokkos CUDA, one NVIDIA Hopper device (band norm)",exponential,1e-08,1263,1.1111007113941014,1.8789842005512067e-06
+"Kokkos CUDA, one NVIDIA Hopper device (band norm)",exponential,1e-09,1555,1.361996655818075,1.8487152204435062e-07
+"Kokkos CUDA, one NVIDIA Hopper device (band norm)",exponential,1e-10,2128,,2.068046993950434e-08

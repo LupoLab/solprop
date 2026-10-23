@@ -1,0 +1,3377 @@
+{
+ "axis": {
+  "label": "ladder rung",
+  "name": "rung",
+  "unit": "1"
+ },
+ "case": {
+  "backends": "numba_cpu and installed plugins against numpy_ref, the reference oracle",
+  "metric": "peak-normalised deviation of the final spectrum",
+  "why_not_bitwise": "compiled arithmetic and FFT plans may associate operations differently from NumPy"
+ },
+ "columns": [
+  {
+   "atol": 1e-17,
+   "bound": null,
+   "name": "deviation",
+   "rtol": 1.0,
+   "unit": "1 (peak-normalised)",
+   "why": "a factor of two: these are two or three ulps, whose last digits depend on the order a BLAS sums in, while a real change crosses the bound the rung's own test asserts"
+  },
+  {
+   "atol": 0.0,
+   "bound": null,
+   "name": "bound",
+   "rtol": 0.0,
+   "unit": "1 (peak-normalised)",
+   "why": "the rung's derived bound, an input rather than a measurement, so it is compared exactly and a quietly loosened bound is a failure"
+  },
+  {
+   "atol": 0.0,
+   "bound": null,
+   "name": "order",
+   "rtol": 0.0,
+   "unit": "1",
+   "why": "where the rung sits along the ladder, so the figure can order rungs that have no numeric axis; compared exactly"
+  }
+ ],
+ "luna": null,
+ "rows": [
+  {
+   "axis": "1",
+   "bound": 7.460698725481052e-13,
+   "deviation": 5.392653485377574e-18,
+   "order": 21,
+   "series": "free (native, envelope_kerr)",
+   "write": 2,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_kerr-native-1]"
+  },
+  {
+   "axis": "8",
+   "bound": 5.9685589803848416e-12,
+   "deviation": 2.1561569486163808e-17,
+   "order": 21,
+   "series": "free (native, envelope_kerr)",
+   "write": 2,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_kerr-native-8]"
+  },
+  {
+   "axis": "N",
+   "bound": 1.0658141036401503e-13,
+   "deviation": 3.752552700910866e-16,
+   "order": 21,
+   "series": "free (native, envelope_kerr)",
+   "write": 2,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_kerr-native-0]"
+  },
+  {
+   "axis": "1",
+   "bound": 7.460698725481052e-13,
+   "deviation": 9.644613623311015e-18,
+   "order": 21,
+   "series": "free (native, envelope_raman)",
+   "write": 2,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_raman-native-1]"
+  },
+  {
+   "axis": "8",
+   "bound": 5.9685589803848416e-12,
+   "deviation": 1.928395217321685e-17,
+   "order": 21,
+   "series": "free (native, envelope_raman)",
+   "write": 2,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_raman-native-8]"
+  },
+  {
+   "axis": "N",
+   "bound": 1.0658141036401503e-13,
+   "deviation": 4.0787316992060823e-16,
+   "order": 21,
+   "series": "free (native, envelope_raman)",
+   "write": 2,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_raman-native-0]"
+  },
+  {
+   "axis": "1",
+   "bound": 8.455458555545192e-13,
+   "deviation": 1.4376165109562992e-17,
+   "order": 21,
+   "series": "free (native, field_kerr)",
+   "write": 2,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_kerr-native-1]"
+  },
+  {
+   "axis": "8",
+   "bound": 6.764366844436154e-12,
+   "deviation": 7.190004417294488e-18,
+   "order": 21,
+   "series": "free (native, field_kerr)",
+   "write": 2,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_kerr-native-8]"
+  },
+  {
+   "axis": "N",
+   "bound": 1.2079226507921703e-13,
+   "deviation": 8.037043255883796e-16,
+   "order": 21,
+   "series": "free (native, field_kerr)",
+   "write": 2,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_kerr-native-0]"
+  },
+  {
+   "axis": "1",
+   "bound": 3.914379931323237e-11,
+   "deviation": 5.757597746433301e-17,
+   "order": 21,
+   "series": "free (native, field_plasma held current, 400 fs)",
+   "write": 19,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-native-1]"
+  },
+  {
+   "axis": "8",
+   "bound": 3.1315039450585895e-10,
+   "deviation": 5.75759774616317e-17,
+   "order": 21,
+   "series": "free (native, field_plasma held current, 400 fs)",
+   "write": 19,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-native-8]"
+  },
+  {
+   "axis": "N",
+   "bound": 5.591971330461767e-12,
+   "deviation": 7.849032790962197e-16,
+   "order": 21,
+   "series": "free (native, field_plasma held current, 400 fs)",
+   "write": 19,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-native-0]"
+  },
+  {
+   "axis": "1",
+   "bound": 1.0395240224183294e-11,
+   "deviation": 3.598899345287614e-18,
+   "order": 21,
+   "series": "free (native, field_plasma)",
+   "write": 2,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-native-1]"
+  },
+  {
+   "axis": "8",
+   "bound": 8.316192179346635e-11,
+   "deviation": 1.4392962231873547e-17,
+   "order": 21,
+   "series": "free (native, field_plasma)",
+   "write": 2,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-native-8]"
+  },
+  {
+   "axis": "N",
+   "bound": 1.4850343177404705e-12,
+   "deviation": 4.771147326113282e-16,
+   "order": 21,
+   "series": "free (native, field_plasma)",
+   "write": 2,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-native-0]"
+  },
+  {
+   "axis": "1",
+   "bound": 5.5706550483591855e-12,
+   "deviation": 5.403329578263265e-18,
+   "order": 21,
+   "series": "free (native_cuda, envelope_kerr)",
+   "write": 15,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_kerr-native-1]"
+  },
+  {
+   "axis": "8",
+   "bound": 4.4565240386873484e-11,
+   "deviation": 1.0780558581902421e-17,
+   "order": 21,
+   "series": "free (native_cuda, envelope_kerr)",
+   "write": 15,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_kerr-native-8]"
+  },
+  {
+   "axis": "N",
+   "bound": 7.958078640513122e-13,
+   "deviation": 6.007964345021191e-16,
+   "order": 21,
+   "series": "free (native_cuda, envelope_kerr)",
+   "write": 15,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_kerr-native-0]"
+  },
+  {
+   "axis": "1",
+   "bound": 5.5706550483591855e-12,
+   "deviation": 4.821129993430027e-18,
+   "order": 21,
+   "series": "free (native_cuda, envelope_raman)",
+   "write": 15,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_raman-native-1]"
+  },
+  {
+   "axis": "8",
+   "bound": 4.4565240386873484e-11,
+   "deviation": 1.9283940679106895e-17,
+   "order": 21,
+   "series": "free (native_cuda, envelope_raman)",
+   "write": 15,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_raman-native-8]"
+  },
+  {
+   "axis": "N",
+   "bound": 7.958078640513122e-13,
+   "deviation": 4.650088637014735e-16,
+   "order": 21,
+   "series": "free (native_cuda, envelope_raman)",
+   "write": 15,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_raman-native-0]"
+  },
+  {
+   "axis": "1",
+   "bound": 7.16227077646181e-12,
+   "deviation": 1.4374410768740432e-17,
+   "order": 21,
+   "series": "free (native_cuda, field_kerr)",
+   "write": 15,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_kerr-native-1]"
+  },
+  {
+   "axis": "8",
+   "bound": 5.729816621169448e-11,
+   "deviation": 5.749503875741272e-17,
+   "order": 21,
+   "series": "free (native_cuda, field_kerr)",
+   "write": 15,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_kerr-native-8]"
+  },
+  {
+   "axis": "N",
+   "bound": 1.0231815394945443e-12,
+   "deviation": 8.119206980597383e-16,
+   "order": 21,
+   "series": "free (native_cuda, field_kerr)",
+   "write": 15,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_kerr-native-0]"
+  },
+  {
+   "axis": "1",
+   "bound": 3.914379931323237e-11,
+   "deviation": 5.757597746433301e-17,
+   "order": 21,
+   "series": "free (native_cuda, field_plasma held current, 400 fs)",
+   "write": 20,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-native-1]"
+  },
+  {
+   "axis": "8",
+   "bound": 3.1315039450585895e-10,
+   "deviation": 5.757553819681111e-17,
+   "order": 21,
+   "series": "free (native_cuda, field_plasma held current, 400 fs)",
+   "write": 20,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-native-8]"
+  },
+  {
+   "axis": "N",
+   "bound": 5.591971330461767e-12,
+   "deviation": 9.05696220414538e-16,
+   "order": 21,
+   "series": "free (native_cuda, field_plasma held current, 400 fs)",
+   "write": 20,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-native-0]"
+  },
+  {
+   "axis": "1",
+   "bound": 1.0395240224183294e-11,
+   "deviation": 1.439435484348665e-17,
+   "order": 21,
+   "series": "free (native_cuda, field_plasma)",
+   "write": 15,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-native-1]"
+  },
+  {
+   "axis": "8",
+   "bound": 8.316192179346635e-11,
+   "deviation": 5.75761015941228e-17,
+   "order": 21,
+   "series": "free (native_cuda, field_plasma)",
+   "write": 15,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-native-8]"
+  },
+  {
+   "axis": "N",
+   "bound": 1.4850343177404705e-12,
+   "deviation": 7.760103785270923e-16,
+   "order": 21,
+   "series": "free (native_cuda, field_plasma)",
+   "write": 15,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-native-0]"
+  },
+  {
+   "axis": "1",
+   "bound": 5.5706550483591855e-12,
+   "deviation": 1.0783004982748648e-17,
+   "order": 21,
+   "series": "free (native_hip, envelope_kerr)",
+   "write": 16,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_kerr-native-1]"
+  },
+  {
+   "axis": "8",
+   "bound": 4.4565240386873484e-11,
+   "deviation": 1.0782532192243913e-17,
+   "order": 21,
+   "series": "free (native_hip, envelope_kerr)",
+   "write": 16,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_kerr-native-8]"
+  },
+  {
+   "axis": "N",
+   "bound": 7.958078640513122e-13,
+   "deviation": 6.372300253764881e-16,
+   "order": 21,
+   "series": "free (native_hip, envelope_kerr)",
+   "write": 16,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_kerr-native-0]"
+  },
+  {
+   "axis": "1",
+   "bound": 5.5706550483591855e-12,
+   "deviation": 7.713587305983709e-17,
+   "order": 21,
+   "series": "free (native_hip, envelope_raman)",
+   "write": 16,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_raman-native-1]"
+  },
+  {
+   "axis": "8",
+   "bound": 4.4565240386873484e-11,
+   "deviation": 1.9284117687640545e-17,
+   "order": 21,
+   "series": "free (native_hip, envelope_raman)",
+   "write": 16,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_raman-native-8]"
+  },
+  {
+   "axis": "N",
+   "bound": 7.958078640513122e-13,
+   "deviation": 6.699138754047164e-16,
+   "order": 21,
+   "series": "free (native_hip, envelope_raman)",
+   "write": 16,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_raman-native-0]"
+  },
+  {
+   "axis": "1",
+   "bound": 7.16227077646181e-12,
+   "deviation": 2.8752330219125984e-17,
+   "order": 21,
+   "series": "free (native_hip, field_kerr)",
+   "write": 16,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_kerr-native-1]"
+  },
+  {
+   "axis": "8",
+   "bound": 5.729816621169448e-11,
+   "deviation": 5.749701256679863e-17,
+   "order": 21,
+   "series": "free (native_hip, field_kerr)",
+   "write": 16,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_kerr-native-8]"
+  },
+  {
+   "axis": "N",
+   "bound": 1.0231815394945443e-12,
+   "deviation": 6.953696060996799e-16,
+   "order": 21,
+   "series": "free (native_hip, field_kerr)",
+   "write": 16,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_kerr-native-0]"
+  },
+  {
+   "axis": "1",
+   "bound": 1.0395240224183294e-11,
+   "deviation": 1.439435484348665e-17,
+   "order": 21,
+   "series": "free (native_hip, field_plasma)",
+   "write": 16,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-native-1]"
+  },
+  {
+   "axis": "8",
+   "bound": 8.316192179346635e-11,
+   "deviation": 5.757741937131842e-17,
+   "order": 21,
+   "series": "free (native_hip, field_plasma)",
+   "write": 16,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-native-8]"
+  },
+  {
+   "axis": "N",
+   "bound": 1.4850343177404705e-12,
+   "deviation": 6.612538123048147e-16,
+   "order": 21,
+   "series": "free (native_hip, field_plasma)",
+   "write": 16,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-native-0]"
+  },
+  {
+   "axis": "1",
+   "bound": 7.460698725481052e-13,
+   "deviation": 8.624237147678669e-17,
+   "order": 21,
+   "series": "free (numba_cpu, envelope_kerr)",
+   "write": 3,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_kerr-numba_cpu-1]"
+  },
+  {
+   "axis": "8",
+   "bound": 5.9685589803848416e-12,
+   "deviation": 5.174422486159168e-16,
+   "order": 21,
+   "series": "free (numba_cpu, envelope_kerr)",
+   "write": 3,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_kerr-numba_cpu-8]"
+  },
+  {
+   "axis": "N",
+   "bound": 1.0658141036401503e-13,
+   "deviation": 3.632703709141136e-16,
+   "order": 21,
+   "series": "free (numba_cpu, envelope_kerr)",
+   "write": 3,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_kerr-numba_cpu-0]"
+  },
+  {
+   "axis": "1",
+   "bound": 7.460698725481052e-13,
+   "deviation": 1.542714530199239e-16,
+   "order": 21,
+   "series": "free (numba_cpu, envelope_raman)",
+   "write": 3,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_raman-numba_cpu-1]"
+  },
+  {
+   "axis": "8",
+   "bound": 5.9685589803848416e-12,
+   "deviation": 3.0854305086571033e-16,
+   "order": 21,
+   "series": "free (numba_cpu, envelope_raman)",
+   "write": 3,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_raman-numba_cpu-8]"
+  },
+  {
+   "axis": "N",
+   "bound": 1.0658141036401503e-13,
+   "deviation": 4.012440900090603e-16,
+   "order": 21,
+   "series": "free (numba_cpu, envelope_raman)",
+   "write": 3,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_raman-numba_cpu-0]"
+  },
+  {
+   "axis": "1",
+   "bound": 8.455458555545192e-13,
+   "deviation": 1.1499007751482544e-16,
+   "order": 21,
+   "series": "free (numba_cpu, field_kerr)",
+   "write": 3,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_kerr-numba_cpu-1]"
+  },
+  {
+   "axis": "8",
+   "bound": 6.764366844436154e-12,
+   "deviation": 2.299758633636696e-16,
+   "order": 21,
+   "series": "free (numba_cpu, field_kerr)",
+   "write": 3,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_kerr-numba_cpu-8]"
+  },
+  {
+   "axis": "N",
+   "bound": 1.2079226507921703e-13,
+   "deviation": 9.595675141095906e-16,
+   "order": 21,
+   "series": "free (numba_cpu, field_kerr)",
+   "write": 3,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_kerr-numba_cpu-0]"
+  },
+  {
+   "axis": "1",
+   "bound": 3.914379931323237e-11,
+   "deviation": 5.757597746433301e-17,
+   "order": 21,
+   "series": "free (numba_cpu, field_plasma held current, 400 fs)",
+   "write": 17,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-numba_cpu-1]"
+  },
+  {
+   "axis": "8",
+   "bound": 3.1315039450585895e-10,
+   "deviation": 5.75759774616317e-17,
+   "order": 21,
+   "series": "free (numba_cpu, field_plasma held current, 400 fs)",
+   "write": 17,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-numba_cpu-8]"
+  },
+  {
+   "axis": "N",
+   "bound": 5.591971330461767e-12,
+   "deviation": 7.807977738237995e-16,
+   "order": 21,
+   "series": "free (numba_cpu, field_plasma held current, 400 fs)",
+   "write": 17,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-numba_cpu-0]"
+  },
+  {
+   "axis": "1",
+   "bound": 1.0395240224183294e-11,
+   "deviation": 1.1514287429768686e-16,
+   "order": 21,
+   "series": "free (numba_cpu, field_plasma)",
+   "write": 3,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-numba_cpu-1]"
+  },
+  {
+   "axis": "8",
+   "bound": 8.316192179346635e-11,
+   "deviation": 3.45428531370854e-16,
+   "order": 21,
+   "series": "free (numba_cpu, field_plasma)",
+   "write": 3,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-numba_cpu-8]"
+  },
+  {
+   "axis": "N",
+   "bound": 1.4850343177404705e-12,
+   "deviation": 4.1149147206482817e-16,
+   "order": 21,
+   "series": "free (numba_cpu, field_plasma)",
+   "write": 3,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-numba_cpu-0]"
+  },
+  {
+   "axis": "1",
+   "bound": 7.460698725481052e-13,
+   "deviation": 0.0,
+   "order": 21,
+   "series": "free (numpy_ref, envelope_kerr)",
+   "write": 4,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_kerr-numpy_ref-1]"
+  },
+  {
+   "axis": "8",
+   "bound": 5.9685589803848416e-12,
+   "deviation": 0.0,
+   "order": 21,
+   "series": "free (numpy_ref, envelope_kerr)",
+   "write": 4,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_kerr-numpy_ref-8]"
+  },
+  {
+   "axis": "N",
+   "bound": 1.0658141036401503e-13,
+   "deviation": 0.0,
+   "order": 21,
+   "series": "free (numpy_ref, envelope_kerr)",
+   "write": 4,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_kerr-numpy_ref-0]"
+  },
+  {
+   "axis": "1",
+   "bound": 7.460698725481052e-13,
+   "deviation": 0.0,
+   "order": 21,
+   "series": "free (numpy_ref, envelope_raman)",
+   "write": 4,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_raman-numpy_ref-1]"
+  },
+  {
+   "axis": "8",
+   "bound": 5.9685589803848416e-12,
+   "deviation": 0.0,
+   "order": 21,
+   "series": "free (numpy_ref, envelope_raman)",
+   "write": 4,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_raman-numpy_ref-8]"
+  },
+  {
+   "axis": "N",
+   "bound": 1.0658141036401503e-13,
+   "deviation": 0.0,
+   "order": 21,
+   "series": "free (numpy_ref, envelope_raman)",
+   "write": 4,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[envelope_raman-numpy_ref-0]"
+  },
+  {
+   "axis": "1",
+   "bound": 8.455458555545192e-13,
+   "deviation": 0.0,
+   "order": 21,
+   "series": "free (numpy_ref, field_kerr)",
+   "write": 4,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_kerr-numpy_ref-1]"
+  },
+  {
+   "axis": "8",
+   "bound": 6.764366844436154e-12,
+   "deviation": 0.0,
+   "order": 21,
+   "series": "free (numpy_ref, field_kerr)",
+   "write": 4,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_kerr-numpy_ref-8]"
+  },
+  {
+   "axis": "N",
+   "bound": 1.2079226507921703e-13,
+   "deviation": 0.0,
+   "order": 21,
+   "series": "free (numpy_ref, field_kerr)",
+   "write": 4,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_kerr-numpy_ref-0]"
+  },
+  {
+   "axis": "1",
+   "bound": 3.914379931323237e-11,
+   "deviation": 0.0,
+   "order": 21,
+   "series": "free (numpy_ref, field_plasma held current, 400 fs)",
+   "write": 18,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-numpy_ref-1]"
+  },
+  {
+   "axis": "8",
+   "bound": 3.1315039450585895e-10,
+   "deviation": 0.0,
+   "order": 21,
+   "series": "free (numpy_ref, field_plasma held current, 400 fs)",
+   "write": 18,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-numpy_ref-8]"
+  },
+  {
+   "axis": "N",
+   "bound": 5.591971330461767e-12,
+   "deviation": 0.0,
+   "order": 21,
+   "series": "free (numpy_ref, field_plasma held current, 400 fs)",
+   "write": 18,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-numpy_ref-0]"
+  },
+  {
+   "axis": "1",
+   "bound": 1.0395240224183294e-11,
+   "deviation": 0.0,
+   "order": 21,
+   "series": "free (numpy_ref, field_plasma)",
+   "write": 4,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-numpy_ref-1]"
+  },
+  {
+   "axis": "8",
+   "bound": 8.316192179346635e-11,
+   "deviation": 0.0,
+   "order": 21,
+   "series": "free (numpy_ref, field_plasma)",
+   "write": 4,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-numpy_ref-8]"
+  },
+  {
+   "axis": "N",
+   "bound": 1.4850343177404705e-12,
+   "deviation": 0.0,
+   "order": 21,
+   "series": "free (numpy_ref, field_plasma)",
+   "write": 4,
+   "written_by": "tests/backends/test_free_ladders.py::test_cartesian_nonlinear_ladder[field_plasma-numpy_ref-0]"
+  },
+  {
+   "axis": "a capillary with an absorber and a kink",
+   "bound": 7.105427357601002e-13,
+   "deviation": 9.29138380424406e-16,
+   "order": 4.0,
+   "series": "native against numpy_ref",
+   "write": 7,
+   "written_by": "tests/backends/test_numba_cpu.py::test_a_capillary_run_with_an_absorber_and_a_kink_agrees[native]"
+  },
+  {
+   "axis": "a full adaptive run",
+   "bound": 3.552713678800501e-13,
+   "deviation": 4.863460907024823e-16,
+   "order": 3.0,
+   "series": "native against numpy_ref",
+   "write": 7,
+   "written_by": "tests/backends/test_numba_cpu.py::test_a_full_adaptive_run_meets_the_reference_s_accuracy[native]"
+  },
+  {
+   "axis": "eight steps",
+   "bound": 2.842170943040401e-14,
+   "deviation": 2.19350719571782e-17,
+   "order": 2.0,
+   "series": "native against numpy_ref",
+   "write": 7,
+   "written_by": "tests/backends/test_numba_cpu.py::test_eight_steps_of_the_soliton_agree[native]"
+  },
+  {
+   "axis": "one linear application",
+   "bound": 7.105427357601002e-15,
+   "deviation": 3.0817745854223004e-22,
+   "order": 0.0,
+   "series": "native against numpy_ref",
+   "write": 7,
+   "written_by": "tests/backends/test_numba_cpu.py::test_the_linear_flow_is_the_reference_s[native]"
+  },
+  {
+   "axis": "one step",
+   "bound": 3.552713678800501e-15,
+   "deviation": 3.8254742549410596e-18,
+   "order": 1.0,
+   "series": "native against numpy_ref",
+   "write": 7,
+   "written_by": "tests/backends/test_numba_cpu.py::test_one_step_of_the_soliton_agrees[native]"
+  },
+  {
+   "axis": "the analytic field family",
+   "bound": 1e-13,
+   "deviation": 2.2251733101103554e-18,
+   "order": 5.0,
+   "series": "native against numpy_ref",
+   "write": 7,
+   "written_by": "tests/backends/test_numba_cpu.py::test_the_analytic_field_family_agrees[native]"
+  },
+  {
+   "axis": "the reduced M2 case",
+   "bound": 1e-10,
+   "deviation": 3.474433424069254e-14,
+   "order": 6.0,
+   "series": "native against numpy_ref",
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_reduced_m2_case_is_the_same_run_on_either_backend"
+  },
+  {
+   "axis": "a capillary with an absorber and a kink",
+   "bound": 1.5916157281026244e-09,
+   "deviation": 9.314637490027892e-16,
+   "order": 4.0,
+   "series": "native_cuda against numpy_ref",
+   "write": 1,
+   "written_by": "tests/backends/test_numba_cpu.py::test_a_capillary_run_with_an_absorber_and_a_kink_agrees[native]"
+  },
+  {
+   "axis": "a full adaptive run",
+   "bound": 9.549694368615746e-10,
+   "deviation": 6.099924200138536e-16,
+   "order": 3.0,
+   "series": "native_cuda against numpy_ref",
+   "write": 1,
+   "written_by": "tests/backends/test_numba_cpu.py::test_a_full_adaptive_run_meets_the_reference_s_accuracy[native]"
+  },
+  {
+   "axis": "eight steps",
+   "bound": 7.639755494892597e-11,
+   "deviation": 5.41530307052355e-17,
+   "order": 2.0,
+   "series": "native_cuda against numpy_ref",
+   "write": 1,
+   "written_by": "tests/backends/test_numba_cpu.py::test_eight_steps_of_the_soliton_agree[native]"
+  },
+  {
+   "axis": "one linear application",
+   "bound": 7.105427357601002e-15,
+   "deviation": 9.560561186659875e-22,
+   "order": 0.0,
+   "series": "native_cuda against numpy_ref",
+   "write": 1,
+   "written_by": "tests/backends/test_numba_cpu.py::test_the_linear_flow_is_the_reference_s[native]"
+  },
+  {
+   "axis": "one step",
+   "bound": 9.549694368615746e-12,
+   "deviation": 7.623288461472214e-18,
+   "order": 1.0,
+   "series": "native_cuda against numpy_ref",
+   "write": 1,
+   "written_by": "tests/backends/test_numba_cpu.py::test_one_step_of_the_soliton_agrees[native]"
+  },
+  {
+   "axis": "the analytic field family",
+   "bound": 1.1368683772161603e-12,
+   "deviation": 2.7256392641680895e-17,
+   "order": 5.0,
+   "series": "native_cuda against numpy_ref",
+   "write": 1,
+   "written_by": "tests/backends/test_numba_cpu.py::test_the_analytic_field_family_agrees[native]"
+  },
+  {
+   "axis": "the reduced M2 case",
+   "bound": 1e-10,
+   "deviation": 5.553432823803674e-13,
+   "order": 6.0,
+   "series": "native_cuda against numpy_ref",
+   "write": 1,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_reduced_m2_case_is_the_same_run_on_either_backend"
+  },
+  {
+   "axis": "a capillary with an absorber and a kink",
+   "bound": 1.5916157281026244e-09,
+   "deviation": 1.0150669109286978e-15,
+   "order": 4.0,
+   "series": "native_hip against numpy_ref",
+   "write": 11,
+   "written_by": "tests/backends/test_numba_cpu.py::test_a_capillary_run_with_an_absorber_and_a_kink_agrees[native]"
+  },
+  {
+   "axis": "a full adaptive run",
+   "bound": 9.549694368615746e-10,
+   "deviation": 5.812480418794084e-16,
+   "order": 3.0,
+   "series": "native_hip against numpy_ref",
+   "write": 11,
+   "written_by": "tests/backends/test_numba_cpu.py::test_a_full_adaptive_run_meets_the_reference_s_accuracy[native]"
+  },
+  {
+   "axis": "eight steps",
+   "bound": 7.639755494892597e-11,
+   "deviation": 1.941285865375418e-17,
+   "order": 2.0,
+   "series": "native_hip against numpy_ref",
+   "write": 11,
+   "written_by": "tests/backends/test_numba_cpu.py::test_eight_steps_of_the_soliton_agree[native]"
+  },
+  {
+   "axis": "one linear application",
+   "bound": 7.105427357601002e-15,
+   "deviation": 8.052713224343903e-22,
+   "order": 0.0,
+   "series": "native_hip against numpy_ref",
+   "write": 11,
+   "written_by": "tests/backends/test_numba_cpu.py::test_the_linear_flow_is_the_reference_s[native]"
+  },
+  {
+   "axis": "one step",
+   "bound": 9.549694368615746e-12,
+   "deviation": 4.090769043928426e-18,
+   "order": 1.0,
+   "series": "native_hip against numpy_ref",
+   "write": 11,
+   "written_by": "tests/backends/test_numba_cpu.py::test_one_step_of_the_soliton_agrees[native]"
+  },
+  {
+   "axis": "the analytic field family",
+   "bound": 1.1368683772161603e-12,
+   "deviation": 2.726159640212006e-17,
+   "order": 5.0,
+   "series": "native_hip against numpy_ref",
+   "write": 11,
+   "written_by": "tests/backends/test_numba_cpu.py::test_the_analytic_field_family_agrees[native]"
+  },
+  {
+   "axis": "the reduced M2 case",
+   "bound": 1e-10,
+   "deviation": 5.467724244850419e-13,
+   "order": 6.0,
+   "series": "native_hip against numpy_ref",
+   "write": 11,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_reduced_m2_case_is_the_same_run_on_either_backend"
+  },
+  {
+   "axis": "a capillary with an absorber and a kink",
+   "bound": 7.105427357601002e-13,
+   "deviation": 1.3920501061491723e-15,
+   "order": 4.0,
+   "series": "numba_cpu against numpy_ref",
+   "write": 8,
+   "written_by": "tests/backends/test_numba_cpu.py::test_a_capillary_run_with_an_absorber_and_a_kink_agrees[numba_cpu]"
+  },
+  {
+   "axis": "a full adaptive run",
+   "bound": 3.552713678800501e-13,
+   "deviation": 6.211733157907414e-16,
+   "order": 3.0,
+   "series": "numba_cpu against numpy_ref",
+   "write": 8,
+   "written_by": "tests/backends/test_numba_cpu.py::test_a_full_adaptive_run_meets_the_reference_s_accuracy[numba_cpu]"
+  },
+  {
+   "axis": "eight steps",
+   "bound": 2.842170943040401e-14,
+   "deviation": 1.9638747206911583e-16,
+   "order": 2.0,
+   "series": "numba_cpu against numpy_ref",
+   "write": 8,
+   "written_by": "tests/backends/test_numba_cpu.py::test_eight_steps_of_the_soliton_agree[numba_cpu]"
+  },
+  {
+   "axis": "one linear application",
+   "bound": 7.105427357601002e-15,
+   "deviation": 4.754581462470185e-16,
+   "order": 0.0,
+   "series": "numba_cpu against numpy_ref",
+   "write": 8,
+   "written_by": "tests/backends/test_numba_cpu.py::test_the_linear_flow_is_the_reference_s[numba_cpu]"
+  },
+  {
+   "axis": "one step",
+   "bound": 3.552713678800501e-15,
+   "deviation": 5.031670484497189e-17,
+   "order": 1.0,
+   "series": "numba_cpu against numpy_ref",
+   "write": 8,
+   "written_by": "tests/backends/test_numba_cpu.py::test_one_step_of_the_soliton_agrees[numba_cpu]"
+  },
+  {
+   "axis": "the analytic field family",
+   "bound": 1e-13,
+   "deviation": 4.602034772807504e-16,
+   "order": 5.0,
+   "series": "numba_cpu against numpy_ref",
+   "write": 8,
+   "written_by": "tests/backends/test_numba_cpu.py::test_the_analytic_field_family_agrees[numba_cpu]"
+  },
+  {
+   "axis": "the reduced M2 case",
+   "bound": 1e-10,
+   "deviation": 3.4783454939407e-14,
+   "order": 6.0,
+   "series": "numba_cpu against numpy_ref",
+   "write": 10,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_reduced_m2_case_is_the_same_run_on_either_backend"
+  },
+  {
+   "axis": "a capillary with an absorber and a kink",
+   "bound": 1.5916157281026244e-09,
+   "deviation": 1.2711157226288e-15,
+   "order": 4.0,
+   "series": "numba_cuda against numpy_ref",
+   "write": 5,
+   "written_by": "tests/backends/test_numba_cpu.py::test_a_capillary_run_with_an_absorber_and_a_kink_agrees[numba_cuda]"
+  },
+  {
+   "axis": "a full adaptive run",
+   "bound": 9.549694368615746e-10,
+   "deviation": 6.14477793096468e-16,
+   "order": 3.0,
+   "series": "numba_cuda against numpy_ref",
+   "write": 5,
+   "written_by": "tests/backends/test_numba_cpu.py::test_a_full_adaptive_run_meets_the_reference_s_accuracy[numba_cuda]"
+  },
+  {
+   "axis": "eight steps",
+   "bound": 7.639755494892597e-11,
+   "deviation": 5.193776461187426e-17,
+   "order": 2.0,
+   "series": "numba_cuda against numpy_ref",
+   "write": 5,
+   "written_by": "tests/backends/test_numba_cpu.py::test_eight_steps_of_the_soliton_agree[numba_cuda]"
+  },
+  {
+   "axis": "one linear application",
+   "bound": 7.105427357601002e-15,
+   "deviation": 2.9688654885845525e-18,
+   "order": 0.0,
+   "series": "numba_cuda against numpy_ref",
+   "write": 5,
+   "written_by": "tests/backends/test_numba_cpu.py::test_the_linear_flow_is_the_reference_s[numba_cuda]"
+  },
+  {
+   "axis": "one step",
+   "bound": 9.549694368615746e-12,
+   "deviation": 7.198931297809744e-18,
+   "order": 1.0,
+   "series": "numba_cuda against numpy_ref",
+   "write": 5,
+   "written_by": "tests/backends/test_numba_cpu.py::test_one_step_of_the_soliton_agrees[numba_cuda]"
+  },
+  {
+   "axis": "the analytic field family",
+   "bound": 1.1368683772161603e-12,
+   "deviation": 4.388287199303135e-16,
+   "order": 5.0,
+   "series": "numba_cuda against numpy_ref",
+   "write": 5,
+   "written_by": "tests/backends/test_numba_cpu.py::test_the_analytic_field_family_agrees[numba_cuda]"
+  },
+  {
+   "axis": "aliased (must exceed bound)",
+   "bound": 9.201528428093619e-13,
+   "deviation": 7.789494487878571e-05,
+   "order": 10,
+   "series": "polarisation (native, angular alias control)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_an_underresolved_angular_rule_creates_a_forbidden_harmonic[native]"
+  },
+  {
+   "axis": "resolved",
+   "bound": 9.201528428093619e-13,
+   "deviation": 8.029471980419084e-21,
+   "order": 10,
+   "series": "polarisation (native, angular alias control)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_an_underresolved_angular_rule_creates_a_forbidden_harmonic[native]"
+  },
+  {
+   "axis": "forbidden mode",
+   "bound": 4.9737991503207805e-12,
+   "deviation": 1.6192029125956741e-21,
+   "order": 10,
+   "series": "polarisation (native, azimuthal HE)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_full_azimuthal_propagation_obeys_selection_rules[native-kinds0-orders0-2]"
+  },
+  {
+   "axis": "forbidden mode",
+   "bound": 4.9737991503207805e-12,
+   "deviation": 2.3999319948611564e-21,
+   "order": 10,
+   "series": "polarisation (native, azimuthal TM)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_full_azimuthal_propagation_obeys_selection_rules[native-kinds1-orders1-1]"
+  },
+  {
+   "axis": 4096,
+   "bound": 0.033950813864171654,
+   "deviation": 0.0007430129567682631,
+   "order": 10,
+   "series": "polarisation (native, circular plasma energy)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_pays_the_ionisation_energy[native]"
+  },
+  {
+   "axis": 8192,
+   "bound": 0.008732301349966,
+   "deviation": 0.00018573215948025634,
+   "order": 10,
+   "series": "polarisation (native, circular plasma energy)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_pays_the_ionisation_energy[native]"
+  },
+  {
+   "axis": 16384,
+   "bound": 0.002671906733433292,
+   "deviation": 4.643175437923919e-05,
+   "order": 10,
+   "series": "polarisation (native, circular plasma energy)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_pays_the_ionisation_energy[native]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 2.586375558166768e-12,
+   "deviation": 1.9386807475674025e-19,
+   "order": 10,
+   "series": "polarisation (native, circular plasma)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_ionises_by_magnitude_through_the_backend[native]"
+  },
+  {
+   "axis": "rate and fraction",
+   "bound": 1.96109795069829e-12,
+   "deviation": 6.150978633085309e-15,
+   "order": 10,
+   "series": "polarisation (native, circular plasma)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_ionises_by_magnitude_through_the_backend[native]"
+  },
+  {
+   "axis": "1 steps",
+   "bound": 2.73558953267639e-13,
+   "deviation": 1.298732419733582e-19,
+   "order": 10,
+   "series": "polarisation (native, envelope)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-native-one]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 2.188471626141112e-12,
+   "deviation": 6.21786537506052e-20,
+   "order": 10,
+   "series": "polarisation (native, envelope)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-native-eight]"
+  },
+  {
+   "axis": "adaptive run",
+   "bound": 1.0004441719502225e-11,
+   "deviation": 3.430136140122228e-20,
+   "order": 10,
+   "series": "polarisation (native, envelope)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-native-adaptive]"
+  },
+  {
+   "axis": "one nonlinear evaluation",
+   "bound": 3.907985046680557e-14,
+   "deviation": 3.575739872164526e-16,
+   "order": 10,
+   "series": "polarisation (native, envelope)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_one_nonlinear_evaluation[envelope-native]"
+  },
+  {
+   "axis": "statistics after 1 steps",
+   "bound": 6.608047442569004e-13,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (native, envelope)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-native-one]"
+  },
+  {
+   "axis": "statistics after 8 steps",
+   "bound": 4.490630090003846e-12,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (native, envelope)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-native-eight]"
+  },
+  {
+   "axis": "statistics after adaptive run",
+   "bound": 2.0122570276726073e-11,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (native, envelope)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-native-adaptive]"
+  },
+  {
+   "axis": "1 steps",
+   "bound": 3.23296944770846e-13,
+   "deviation": 3.922992500129079e-20,
+   "order": 10,
+   "series": "polarisation (native, field_analytic)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-native-one]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 2.586375558166768e-12,
+   "deviation": 2.211678717373819e-20,
+   "order": 10,
+   "series": "polarisation (native, field_analytic)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-native-eight]"
+  },
+  {
+   "axis": "adaptive run",
+   "bound": 1.1823431123048082e-11,
+   "deviation": 2.3184275387444396e-20,
+   "order": 10,
+   "series": "polarisation (native, field_analytic)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-native-adaptive]"
+  },
+  {
+   "axis": "one nonlinear evaluation",
+   "bound": 4.618527782440657e-14,
+   "deviation": 6.029442460556866e-16,
+   "order": 10,
+   "series": "polarisation (native, field_analytic)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_one_nonlinear_evaluation[field_analytic-native]"
+  },
+  {
+   "axis": "statistics after 1 steps",
+   "bound": 8.739675649849499e-13,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (native, field_analytic)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-native-one]"
+  },
+  {
+   "axis": "statistics after 8 steps",
+   "bound": 5.400124791776794e-12,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (native, field_analytic)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-native-eight]"
+  },
+  {
+   "axis": "statistics after adaptive run",
+   "bound": 2.387423592153942e-11,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (native, field_analytic)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-native-adaptive]"
+  },
+  {
+   "axis": "1 steps",
+   "bound": 3.23296944770846e-13,
+   "deviation": 1.9118243263929895e-19,
+   "order": 10,
+   "series": "polarisation (native, field_real)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-native-one]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 2.586375558166768e-12,
+   "deviation": 4.645902610323649e-20,
+   "order": 10,
+   "series": "polarisation (native, field_real)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-native-eight]"
+  },
+  {
+   "axis": "adaptive run",
+   "bound": 1.1823431123048082e-11,
+   "deviation": 2.4590637526307082e-20,
+   "order": 10,
+   "series": "polarisation (native, field_real)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-native-adaptive]"
+  },
+  {
+   "axis": "one nonlinear evaluation",
+   "bound": 4.618527782440657e-14,
+   "deviation": 6.242022803635951e-16,
+   "order": 10,
+   "series": "polarisation (native, field_real)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_one_nonlinear_evaluation[field_real-native]"
+  },
+  {
+   "axis": "statistics after 1 steps",
+   "bound": 8.739675649849499e-13,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (native, field_real)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-native-one]"
+  },
+  {
+   "axis": "statistics after 8 steps",
+   "bound": 5.400124791776794e-12,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (native, field_real)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-native-eight]"
+  },
+  {
+   "axis": "statistics after adaptive run",
+   "bound": 2.387423592153942e-11,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (native, field_real)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-native-adaptive]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 9.586828269498384e-15,
+   "deviation": 8.965275914698915e-16,
+   "order": 10,
+   "series": "polarisation (native, linear TE)",
+   "write": 14,
+   "written_by": "tests/backends/test_polarised_runs.py::test_transverse_family_linear_flow_matches_its_neff[native-TE]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 9.587471903422734e-15,
+   "deviation": 8.093189076110354e-16,
+   "order": 10,
+   "series": "polarisation (native, linear TM)",
+   "write": 7,
+   "written_by": "tests/backends/test_polarised_runs.py::test_transverse_family_linear_flow_matches_its_neff[native-TM]"
+  },
+  {
+   "axis": "aliased (must exceed bound)",
+   "bound": 9.201528428093619e-13,
+   "deviation": 7.789494487878631e-05,
+   "order": 10,
+   "series": "polarisation (native_cuda, angular alias control)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_an_underresolved_angular_rule_creates_a_forbidden_harmonic[native]"
+  },
+  {
+   "axis": "resolved",
+   "bound": 9.201528428093619e-13,
+   "deviation": 8.108483975641636e-21,
+   "order": 10,
+   "series": "polarisation (native_cuda, angular alias control)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_an_underresolved_angular_rule_creates_a_forbidden_harmonic[native]"
+  },
+  {
+   "axis": "forbidden mode",
+   "bound": 4.9737991503207805e-12,
+   "deviation": 1.6667610958157237e-21,
+   "order": 10,
+   "series": "polarisation (native_cuda, azimuthal HE)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_full_azimuthal_propagation_obeys_selection_rules[native-kinds0-orders0-2]"
+  },
+  {
+   "axis": "forbidden mode",
+   "bound": 4.9737991503207805e-12,
+   "deviation": 2.8827263452815827e-21,
+   "order": 10,
+   "series": "polarisation (native_cuda, azimuthal TM)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_full_azimuthal_propagation_obeys_selection_rules[native-kinds1-orders1-1]"
+  },
+  {
+   "axis": 4096,
+   "bound": 0.033950813864171654,
+   "deviation": 0.000743012956768041,
+   "order": 10,
+   "series": "polarisation (native_cuda, circular plasma energy)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_pays_the_ionisation_energy[native]"
+  },
+  {
+   "axis": 8192,
+   "bound": 0.008732301349966,
+   "deviation": 0.00018573215947981225,
+   "order": 10,
+   "series": "polarisation (native_cuda, circular plasma energy)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_pays_the_ionisation_energy[native]"
+  },
+  {
+   "axis": 16384,
+   "bound": 0.002671906733433292,
+   "deviation": 4.643175437923919e-05,
+   "order": 10,
+   "series": "polarisation (native_cuda, circular plasma energy)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_pays_the_ionisation_energy[native]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 6.366462912410498e-11,
+   "deviation": 4.323684803015243e-19,
+   "order": 10,
+   "series": "polarisation (native_cuda, circular plasma)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_ionises_by_magnitude_through_the_backend[native]"
+  },
+  {
+   "axis": "rate and fraction",
+   "bound": 1.96109795069829e-12,
+   "deviation": 2.7669734143094503e-15,
+   "order": 10,
+   "series": "polarisation (native_cuda, circular plasma)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_ionises_by_magnitude_through_the_backend[native]"
+  },
+  {
+   "axis": "1 steps",
+   "bound": 6.366462912410498e-12,
+   "deviation": 7.380850028753438e-20,
+   "order": 10,
+   "series": "polarisation (native_cuda, envelope)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-native-one]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 5.093170329928398e-11,
+   "deviation": 2.7278436993573956e-20,
+   "order": 10,
+   "series": "polarisation (native_cuda, envelope)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-native-eight]"
+  },
+  {
+   "axis": "adaptive run",
+   "bound": 2.3283064365386963e-10,
+   "deviation": 3.551403975225534e-20,
+   "order": 10,
+   "series": "polarisation (native_cuda, envelope)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-native-adaptive]"
+  },
+  {
+   "axis": "one nonlinear evaluation",
+   "bound": 9.094947017729282e-13,
+   "deviation": 9.565314151265019e-16,
+   "order": 10,
+   "series": "polarisation (native_cuda, envelope)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_one_nonlinear_evaluation[envelope-native]"
+  },
+  {
+   "axis": "statistics after 1 steps",
+   "bound": 1.2846612662542618e-11,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (native_cuda, envelope)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-native-one]"
+  },
+  {
+   "axis": "statistics after 8 steps",
+   "bound": 1.0197709343628958e-10,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (native_cuda, envelope)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-native-eight]"
+  },
+  {
+   "axis": "statistics after adaptive run",
+   "bound": 4.657749741454609e-10,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (native_cuda, envelope)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-native-adaptive]"
+  },
+  {
+   "axis": "1 steps",
+   "bound": 7.958078640513122e-12,
+   "deviation": 7.41896812398221e-19,
+   "order": 10,
+   "series": "polarisation (native_cuda, field_analytic)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-native-one]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 6.366462912410498e-11,
+   "deviation": 3.709484061991104e-19,
+   "order": 10,
+   "series": "polarisation (native_cuda, field_analytic)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-native-eight]"
+  },
+  {
+   "axis": "adaptive run",
+   "bound": 2.9103830456733704e-10,
+   "deviation": 1.8547420309955526e-19,
+   "order": 10,
+   "series": "polarisation (native_cuda, field_analytic)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-native-adaptive]"
+  },
+  {
+   "axis": "one nonlinear evaluation",
+   "bound": 1.1368683772161603e-12,
+   "deviation": 7.213937397123565e-16,
+   "order": 10,
+   "series": "polarisation (native_cuda, field_analytic)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_one_nonlinear_evaluation[field_analytic-native]"
+  },
+  {
+   "axis": "statistics after 1 steps",
+   "bound": 1.6143530956469502e-11,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (native_cuda, field_analytic)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-native-one]"
+  },
+  {
+   "axis": "statistics after 8 steps",
+   "bound": 1.275566319236532e-10,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (native_cuda, field_analytic)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-native-eight]"
+  },
+  {
+   "axis": "statistics after adaptive run",
+   "bound": 5.823039828101173e-10,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (native_cuda, field_analytic)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-native-adaptive]"
+  },
+  {
+   "axis": "1 steps",
+   "bound": 7.958078640513122e-12,
+   "deviation": 4.6368550796139027e-20,
+   "order": 10,
+   "series": "polarisation (native_cuda, field_real)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-native-one]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 6.366462912410498e-11,
+   "deviation": 2.0898023433054473e-20,
+   "order": 10,
+   "series": "polarisation (native_cuda, field_real)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-native-eight]"
+  },
+  {
+   "axis": "adaptive run",
+   "bound": 2.9103830456733704e-10,
+   "deviation": 7.418968127382245e-19,
+   "order": 10,
+   "series": "polarisation (native_cuda, field_real)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-native-adaptive]"
+  },
+  {
+   "axis": "one nonlinear evaluation",
+   "bound": 1.1368683772161603e-12,
+   "deviation": 7.433176691423157e-16,
+   "order": 10,
+   "series": "polarisation (native_cuda, field_real)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_one_nonlinear_evaluation[field_real-native]"
+  },
+  {
+   "axis": "statistics after 1 steps",
+   "bound": 1.6143530956469502e-11,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (native_cuda, field_real)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-native-one]"
+  },
+  {
+   "axis": "statistics after 8 steps",
+   "bound": 1.275566319236532e-10,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (native_cuda, field_real)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-native-eight]"
+  },
+  {
+   "axis": "statistics after adaptive run",
+   "bound": 5.823039828101173e-10,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (native_cuda, field_real)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-native-adaptive]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 9.586828269498384e-15,
+   "deviation": 8.965275917084505e-16,
+   "order": 10,
+   "series": "polarisation (native_cuda, linear TE)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_transverse_family_linear_flow_matches_its_neff[native-TE]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 9.587471903422734e-15,
+   "deviation": 7.966077738948441e-16,
+   "order": 10,
+   "series": "polarisation (native_cuda, linear TM)",
+   "write": 15,
+   "written_by": "tests/backends/test_polarised_runs.py::test_transverse_family_linear_flow_matches_its_neff[native-TM]"
+  },
+  {
+   "axis": "aliased (must exceed bound)",
+   "bound": 9.201528428093619e-13,
+   "deviation": 7.789494487878631e-05,
+   "order": 10,
+   "series": "polarisation (native_hip, angular alias control)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_an_underresolved_angular_rule_creates_a_forbidden_harmonic[native]"
+  },
+  {
+   "axis": "resolved",
+   "bound": 9.201528428093619e-13,
+   "deviation": 7.868032252628861e-21,
+   "order": 10,
+   "series": "polarisation (native_hip, angular alias control)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_an_underresolved_angular_rule_creates_a_forbidden_harmonic[native]"
+  },
+  {
+   "axis": "forbidden mode",
+   "bound": 4.9737991503207805e-12,
+   "deviation": 1.0205785247241288e-21,
+   "order": 10,
+   "series": "polarisation (native_hip, azimuthal HE)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_full_azimuthal_propagation_obeys_selection_rules[native-kinds0-orders0-2]"
+  },
+  {
+   "axis": "forbidden mode",
+   "bound": 4.9737991503207805e-12,
+   "deviation": 2.8288736261507167e-21,
+   "order": 10,
+   "series": "polarisation (native_hip, azimuthal TM)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_full_azimuthal_propagation_obeys_selection_rules[native-kinds1-orders1-1]"
+  },
+  {
+   "axis": 4096,
+   "bound": 0.033950813864171654,
+   "deviation": 0.000743012956768041,
+   "order": 10,
+   "series": "polarisation (native_hip, circular plasma energy)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_pays_the_ionisation_energy[native]"
+  },
+  {
+   "axis": 8192,
+   "bound": 0.008732301349966,
+   "deviation": 0.0001857321594800343,
+   "order": 10,
+   "series": "polarisation (native_hip, circular plasma energy)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_pays_the_ionisation_energy[native]"
+  },
+  {
+   "axis": 16384,
+   "bound": 0.002671906733433292,
+   "deviation": 4.643175437923919e-05,
+   "order": 10,
+   "series": "polarisation (native_hip, circular plasma energy)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_pays_the_ionisation_energy[native]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 6.366462912410498e-11,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (native_hip, circular plasma)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_ionises_by_magnitude_through_the_backend[native]"
+  },
+  {
+   "axis": "rate and fraction",
+   "bound": 1.96109795069829e-12,
+   "deviation": 2.7669734143094503e-15,
+   "order": 10,
+   "series": "polarisation (native_hip, circular plasma)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_ionises_by_magnitude_through_the_backend[native]"
+  },
+  {
+   "axis": "1 steps",
+   "bound": 6.366462912410498e-12,
+   "deviation": 8.497351016341377e-20,
+   "order": 10,
+   "series": "polarisation (native_hip, envelope)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-native-one]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 5.093170329928398e-11,
+   "deviation": 4.7967466318850504e-20,
+   "order": 10,
+   "series": "polarisation (native_hip, envelope)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-native-eight]"
+  },
+  {
+   "axis": "adaptive run",
+   "bound": 2.3283064365386963e-10,
+   "deviation": 9.598176443577356e-20,
+   "order": 10,
+   "series": "polarisation (native_hip, envelope)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-native-adaptive]"
+  },
+  {
+   "axis": "one nonlinear evaluation",
+   "bound": 9.094947017729282e-13,
+   "deviation": 7.147256793691594e-16,
+   "order": 10,
+   "series": "polarisation (native_hip, envelope)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_one_nonlinear_evaluation[envelope-native]"
+  },
+  {
+   "axis": "statistics after 1 steps",
+   "bound": 1.2846612662542618e-11,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (native_hip, envelope)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-native-one]"
+  },
+  {
+   "axis": "statistics after 8 steps",
+   "bound": 1.0197709343628958e-10,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (native_hip, envelope)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-native-eight]"
+  },
+  {
+   "axis": "statistics after adaptive run",
+   "bound": 4.657749741454609e-10,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (native_hip, envelope)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-native-adaptive]"
+  },
+  {
+   "axis": "1 steps",
+   "bound": 7.958078640513122e-12,
+   "deviation": 7.41896812398221e-19,
+   "order": 10,
+   "series": "polarisation (native_hip, field_analytic)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-native-one]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 6.366462912410498e-11,
+   "deviation": 4.63685507748888e-20,
+   "order": 10,
+   "series": "polarisation (native_hip, field_analytic)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-native-eight]"
+  },
+  {
+   "axis": "adaptive run",
+   "bound": 2.9103830456733704e-10,
+   "deviation": 4.6368550774888815e-20,
+   "order": 10,
+   "series": "polarisation (native_hip, field_analytic)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-native-adaptive]"
+  },
+  {
+   "axis": "one nonlinear evaluation",
+   "bound": 1.1368683772161603e-12,
+   "deviation": 8.446953594097027e-16,
+   "order": 10,
+   "series": "polarisation (native_hip, field_analytic)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_one_nonlinear_evaluation[field_analytic-native]"
+  },
+  {
+   "axis": "statistics after 1 steps",
+   "bound": 1.6143530956469502e-11,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (native_hip, field_analytic)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-native-one]"
+  },
+  {
+   "axis": "statistics after 8 steps",
+   "bound": 1.275566319236532e-10,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (native_hip, field_analytic)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-native-eight]"
+  },
+  {
+   "axis": "statistics after adaptive run",
+   "bound": 5.823039828101173e-10,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (native_hip, field_analytic)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-native-adaptive]"
+  },
+  {
+   "axis": "1 steps",
+   "bound": 7.958078640513122e-12,
+   "deviation": 4.6368550796139027e-20,
+   "order": 10,
+   "series": "polarisation (native_hip, field_real)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-native-one]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 6.366462912410498e-11,
+   "deviation": 1.8547420318455604e-19,
+   "order": 10,
+   "series": "polarisation (native_hip, field_real)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-native-eight]"
+  },
+  {
+   "axis": "adaptive run",
+   "bound": 2.9103830456733704e-10,
+   "deviation": 4.636855079613903e-20,
+   "order": 10,
+   "series": "polarisation (native_hip, field_real)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-native-adaptive]"
+  },
+  {
+   "axis": "one nonlinear evaluation",
+   "bound": 1.1368683772161603e-12,
+   "deviation": 8.960330672653458e-16,
+   "order": 10,
+   "series": "polarisation (native_hip, field_real)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_one_nonlinear_evaluation[field_real-native]"
+  },
+  {
+   "axis": "statistics after 1 steps",
+   "bound": 1.6143530956469502e-11,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (native_hip, field_real)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-native-one]"
+  },
+  {
+   "axis": "statistics after 8 steps",
+   "bound": 1.275566319236532e-10,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (native_hip, field_real)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-native-eight]"
+  },
+  {
+   "axis": "statistics after adaptive run",
+   "bound": 5.823039828101173e-10,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (native_hip, field_real)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-native-adaptive]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 9.586828269498384e-15,
+   "deviation": 8.965275917084505e-16,
+   "order": 10,
+   "series": "polarisation (native_hip, linear TE)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_transverse_family_linear_flow_matches_its_neff[native-TE]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 9.587471903422734e-15,
+   "deviation": 7.966077738948441e-16,
+   "order": 10,
+   "series": "polarisation (native_hip, linear TM)",
+   "write": 16,
+   "written_by": "tests/backends/test_polarised_runs.py::test_transverse_family_linear_flow_matches_its_neff[native-TM]"
+  },
+  {
+   "axis": "aliased (must exceed bound)",
+   "bound": 9.201528428093619e-13,
+   "deviation": 7.789494487878571e-05,
+   "order": 10,
+   "series": "polarisation (numba_cpu, angular alias control)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_an_underresolved_angular_rule_creates_a_forbidden_harmonic[numba_cpu]"
+  },
+  {
+   "axis": "resolved",
+   "bound": 9.201528428093619e-13,
+   "deviation": 8.40204111978612e-21,
+   "order": 10,
+   "series": "polarisation (numba_cpu, angular alias control)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_an_underresolved_angular_rule_creates_a_forbidden_harmonic[numba_cpu]"
+  },
+  {
+   "axis": "forbidden mode",
+   "bound": 4.9737991503207805e-12,
+   "deviation": 1.6325099139643894e-21,
+   "order": 10,
+   "series": "polarisation (numba_cpu, azimuthal HE)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_full_azimuthal_propagation_obeys_selection_rules[numba_cpu-kinds0-orders0-2]"
+  },
+  {
+   "axis": "forbidden mode",
+   "bound": 4.9737991503207805e-12,
+   "deviation": 1.0413089412314754e-21,
+   "order": 10,
+   "series": "polarisation (numba_cpu, azimuthal TM)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_full_azimuthal_propagation_obeys_selection_rules[numba_cpu-kinds1-orders1-1]"
+  },
+  {
+   "axis": 4096,
+   "bound": 0.033950813864171654,
+   "deviation": 0.0007430129567682631,
+   "order": 10,
+   "series": "polarisation (numba_cpu, circular plasma energy)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_pays_the_ionisation_energy[numba_cpu]"
+  },
+  {
+   "axis": 8192,
+   "bound": 0.008732301349966,
+   "deviation": 0.00018573215948025634,
+   "order": 10,
+   "series": "polarisation (numba_cpu, circular plasma energy)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_pays_the_ionisation_energy[numba_cpu]"
+  },
+  {
+   "axis": 16384,
+   "bound": 0.002671906733433292,
+   "deviation": 4.643175437901714e-05,
+   "order": 10,
+   "series": "polarisation (numba_cpu, circular plasma energy)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_pays_the_ionisation_energy[numba_cpu]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 2.586375558166768e-12,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numba_cpu, circular plasma)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_ionises_by_magnitude_through_the_backend[numba_cpu]"
+  },
+  {
+   "axis": "rate and fraction",
+   "bound": 1.96109795069829e-12,
+   "deviation": 6.150978633085309e-15,
+   "order": 10,
+   "series": "polarisation (numba_cpu, circular plasma)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_ionises_by_magnitude_through_the_backend[numba_cpu]"
+  },
+  {
+   "axis": "1 steps",
+   "bound": 2.73558953267639e-13,
+   "deviation": 9.823737394870758e-17,
+   "order": 10,
+   "series": "polarisation (numba_cpu, envelope)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-numba_cpu-one]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 2.188471626141112e-12,
+   "deviation": 2.947121131240112e-16,
+   "order": 10,
+   "series": "polarisation (numba_cpu, envelope)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-numba_cpu-eight]"
+  },
+  {
+   "axis": "adaptive run",
+   "bound": 1.0004441719502225e-11,
+   "deviation": 3.9294948481594864e-16,
+   "order": 10,
+   "series": "polarisation (numba_cpu, envelope)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-numba_cpu-adaptive]"
+  },
+  {
+   "axis": "one nonlinear evaluation",
+   "bound": 3.907985046680557e-14,
+   "deviation": 3.717619398157193e-16,
+   "order": 10,
+   "series": "polarisation (numba_cpu, envelope)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_one_nonlinear_evaluation[envelope-numba_cpu]"
+  },
+  {
+   "axis": "statistics after 1 steps",
+   "bound": 6.608047442569004e-13,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numba_cpu, envelope)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-numba_cpu-one]"
+  },
+  {
+   "axis": "statistics after 8 steps",
+   "bound": 4.490630090003846e-12,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numba_cpu, envelope)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-numba_cpu-eight]"
+  },
+  {
+   "axis": "statistics after adaptive run",
+   "bound": 2.0122570276726073e-11,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numba_cpu, envelope)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-numba_cpu-adaptive]"
+  },
+  {
+   "axis": "1 steps",
+   "bound": 3.23296944770846e-13,
+   "deviation": 1.8992558397394451e-16,
+   "order": 10,
+   "series": "polarisation (numba_cpu, field_analytic)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-numba_cpu-one]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 2.586375558166768e-12,
+   "deviation": 5.699003879766515e-16,
+   "order": 10,
+   "series": "polarisation (numba_cpu, field_analytic)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-numba_cpu-eight]"
+  },
+  {
+   "axis": "adaptive run",
+   "bound": 1.1823431123048082e-11,
+   "deviation": 3.800365968912974e-16,
+   "order": 10,
+   "series": "polarisation (numba_cpu, field_analytic)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-numba_cpu-adaptive]"
+  },
+  {
+   "axis": "one nonlinear evaluation",
+   "bound": 4.618527782440657e-14,
+   "deviation": 6.121776496645255e-16,
+   "order": 10,
+   "series": "polarisation (numba_cpu, field_analytic)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_one_nonlinear_evaluation[field_analytic-numba_cpu]"
+  },
+  {
+   "axis": "statistics after 1 steps",
+   "bound": 8.739675649849499e-13,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numba_cpu, field_analytic)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-numba_cpu-one]"
+  },
+  {
+   "axis": "statistics after 8 steps",
+   "bound": 5.400124791776794e-12,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numba_cpu, field_analytic)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-numba_cpu-eight]"
+  },
+  {
+   "axis": "statistics after adaptive run",
+   "bound": 2.387423592153942e-11,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numba_cpu, field_analytic)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-numba_cpu-adaptive]"
+  },
+  {
+   "axis": "1 steps",
+   "bound": 3.23296944770846e-13,
+   "deviation": 1.8992558406098536e-16,
+   "order": 10,
+   "series": "polarisation (numba_cpu, field_real)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-numba_cpu-one]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 2.586375558166768e-12,
+   "deviation": 7.611846836754266e-16,
+   "order": 10,
+   "series": "polarisation (numba_cpu, field_real)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-numba_cpu-eight]"
+  },
+  {
+   "axis": "adaptive run",
+   "bound": 1.1823431123048082e-11,
+   "deviation": 3.800365970654641e-16,
+   "order": 10,
+   "series": "polarisation (numba_cpu, field_real)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-numba_cpu-adaptive]"
+  },
+  {
+   "axis": "one nonlinear evaluation",
+   "bound": 4.618527782440657e-14,
+   "deviation": 7.55901933692921e-16,
+   "order": 10,
+   "series": "polarisation (numba_cpu, field_real)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_one_nonlinear_evaluation[field_real-numba_cpu]"
+  },
+  {
+   "axis": "statistics after 1 steps",
+   "bound": 8.739675649849499e-13,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numba_cpu, field_real)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-numba_cpu-one]"
+  },
+  {
+   "axis": "statistics after 8 steps",
+   "bound": 5.400124791776794e-12,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numba_cpu, field_real)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-numba_cpu-eight]"
+  },
+  {
+   "axis": "statistics after adaptive run",
+   "bound": 2.387423592153942e-11,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numba_cpu, field_real)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-numba_cpu-adaptive]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 9.586828269498384e-15,
+   "deviation": 8.091118165804689e-16,
+   "order": 10,
+   "series": "polarisation (numba_cpu, linear TE)",
+   "write": 13,
+   "written_by": "tests/backends/test_polarised_runs.py::test_transverse_family_linear_flow_matches_its_neff[numba_cpu-TE]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 9.587471903422734e-15,
+   "deviation": 8.093189076110354e-16,
+   "order": 10,
+   "series": "polarisation (numba_cpu, linear TM)",
+   "write": 8,
+   "written_by": "tests/backends/test_polarised_runs.py::test_transverse_family_linear_flow_matches_its_neff[numba_cpu-TM]"
+  },
+  {
+   "axis": "aliased (must exceed bound)",
+   "bound": 9.201528428093619e-13,
+   "deviation": 7.789470961475691e-05,
+   "order": 10,
+   "series": "polarisation (numba_cuda, angular alias control)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_an_underresolved_angular_rule_creates_a_forbidden_harmonic[numba_cuda]"
+  },
+  {
+   "axis": "resolved",
+   "bound": 9.201528428093619e-13,
+   "deviation": 8.235489778571505e-21,
+   "order": 10,
+   "series": "polarisation (numba_cuda, angular alias control)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_an_underresolved_angular_rule_creates_a_forbidden_harmonic[numba_cuda]"
+  },
+  {
+   "axis": "forbidden mode",
+   "bound": 4.9737991503207805e-12,
+   "deviation": 7.694970262409499e-22,
+   "order": 10,
+   "series": "polarisation (numba_cuda, azimuthal HE)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_full_azimuthal_propagation_obeys_selection_rules[numba_cuda-kinds0-orders0-2]"
+  },
+  {
+   "axis": "forbidden mode",
+   "bound": 4.9737991503207805e-12,
+   "deviation": 1.9389459038959164e-21,
+   "order": 10,
+   "series": "polarisation (numba_cuda, azimuthal TM)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_full_azimuthal_propagation_obeys_selection_rules[numba_cuda-kinds1-orders1-1]"
+  },
+  {
+   "axis": 4096,
+   "bound": 0.033950813864171654,
+   "deviation": 0.000743012956767819,
+   "order": 10,
+   "series": "polarisation (numba_cuda, circular plasma energy)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_pays_the_ionisation_energy[numba_cuda]"
+  },
+  {
+   "axis": 8192,
+   "bound": 0.008732301349966,
+   "deviation": 0.0001857321594795902,
+   "order": 10,
+   "series": "polarisation (numba_cuda, circular plasma energy)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_pays_the_ionisation_energy[numba_cuda]"
+  },
+  {
+   "axis": 16384,
+   "bound": 0.002671906733433292,
+   "deviation": 4.643175437923919e-05,
+   "order": 10,
+   "series": "polarisation (numba_cuda, circular plasma energy)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_pays_the_ionisation_energy[numba_cuda]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 6.366462912410498e-11,
+   "deviation": 3.392186567734074e-19,
+   "order": 10,
+   "series": "polarisation (numba_cuda, circular plasma)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_ionises_by_magnitude_through_the_backend[numba_cuda]"
+  },
+  {
+   "axis": "rate and fraction",
+   "bound": 1.96109795069829e-12,
+   "deviation": 2.7669734143094503e-15,
+   "order": 10,
+   "series": "polarisation (numba_cuda, circular plasma)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_ionises_by_magnitude_through_the_backend[numba_cuda]"
+  },
+  {
+   "axis": "1 steps",
+   "bound": 6.366462912410498e-12,
+   "deviation": 9.823751838680997e-17,
+   "order": 10,
+   "series": "polarisation (numba_cuda, envelope)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-numba_cuda-one]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 5.093170329928398e-11,
+   "deviation": 1.9647503677361996e-16,
+   "order": 10,
+   "series": "polarisation (numba_cuda, envelope)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-numba_cuda-eight]"
+  },
+  {
+   "axis": "adaptive run",
+   "bound": 2.3283064365386963e-10,
+   "deviation": 2.947125551604299e-16,
+   "order": 10,
+   "series": "polarisation (numba_cuda, envelope)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-numba_cuda-adaptive]"
+  },
+  {
+   "axis": "one nonlinear evaluation",
+   "bound": 9.094947017729282e-13,
+   "deviation": 5.027165883605553e-16,
+   "order": 10,
+   "series": "polarisation (numba_cuda, envelope)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_one_nonlinear_evaluation[envelope-numba_cuda]"
+  },
+  {
+   "axis": "statistics after 1 steps",
+   "bound": 1.2846612662542618e-11,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numba_cuda, envelope)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-numba_cuda-one]"
+  },
+  {
+   "axis": "statistics after 8 steps",
+   "bound": 1.0197709343628958e-10,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numba_cuda, envelope)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-numba_cuda-eight]"
+  },
+  {
+   "axis": "statistics after adaptive run",
+   "bound": 4.657749741454609e-10,
+   "deviation": 1.1896345810468174e-16,
+   "order": 10,
+   "series": "polarisation (numba_cuda, envelope)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-numba_cuda-adaptive]"
+  },
+  {
+   "axis": "1 steps",
+   "bound": 7.958078640513122e-12,
+   "deviation": 9.496293444058297e-17,
+   "order": 10,
+   "series": "polarisation (numba_cuda, field_analytic)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-numba_cuda-one]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 6.366462912410498e-11,
+   "deviation": 1.899258688811659e-16,
+   "order": 10,
+   "series": "polarisation (numba_cuda, field_analytic)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-numba_cuda-eight]"
+  },
+  {
+   "axis": "adaptive run",
+   "bound": 2.9103830456733704e-10,
+   "deviation": 1.8992586888116596e-16,
+   "order": 10,
+   "series": "polarisation (numba_cuda, field_analytic)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-numba_cuda-adaptive]"
+  },
+  {
+   "axis": "one nonlinear evaluation",
+   "bound": 1.1368683772161603e-12,
+   "deviation": 6.388765395730861e-16,
+   "order": 10,
+   "series": "polarisation (numba_cuda, field_analytic)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_one_nonlinear_evaluation[field_analytic-numba_cuda]"
+  },
+  {
+   "axis": "statistics after 1 steps",
+   "bound": 1.6143530956469502e-11,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numba_cuda, field_analytic)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-numba_cuda-one]"
+  },
+  {
+   "axis": "statistics after 8 steps",
+   "bound": 1.275566319236532e-10,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numba_cuda, field_analytic)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-numba_cuda-eight]"
+  },
+  {
+   "axis": "statistics after adaptive run",
+   "bound": 5.823039828101173e-10,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numba_cuda, field_analytic)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-numba_cuda-adaptive]"
+  },
+  {
+   "axis": "1 steps",
+   "bound": 7.958078640513122e-12,
+   "deviation": 4.7481467242051584e-17,
+   "order": 10,
+   "series": "polarisation (numba_cuda, field_real)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-numba_cuda-one]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 6.366462912410498e-11,
+   "deviation": 1.8992586896820624e-16,
+   "order": 10,
+   "series": "polarisation (numba_cuda, field_real)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-numba_cuda-eight]"
+  },
+  {
+   "axis": "adaptive run",
+   "bound": 2.9103830456733704e-10,
+   "deviation": 1.8992586896820626e-16,
+   "order": 10,
+   "series": "polarisation (numba_cuda, field_real)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-numba_cuda-adaptive]"
+  },
+  {
+   "axis": "one nonlinear evaluation",
+   "bound": 1.1368683772161603e-12,
+   "deviation": 6.951517790192639e-16,
+   "order": 10,
+   "series": "polarisation (numba_cuda, field_real)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_one_nonlinear_evaluation[field_real-numba_cuda]"
+  },
+  {
+   "axis": "statistics after 1 steps",
+   "bound": 1.6143530956469502e-11,
+   "deviation": 1.1895970256459865e-16,
+   "order": 10,
+   "series": "polarisation (numba_cuda, field_real)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-numba_cuda-one]"
+  },
+  {
+   "axis": "statistics after 8 steps",
+   "bound": 1.275566319236532e-10,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numba_cuda, field_real)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-numba_cuda-eight]"
+  },
+  {
+   "axis": "statistics after adaptive run",
+   "bound": 5.823039828101173e-10,
+   "deviation": 1.189597025645983e-16,
+   "order": 10,
+   "series": "polarisation (numba_cuda, field_real)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-numba_cuda-adaptive]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 9.58682826948515e-15,
+   "deviation": 7.96406968353737e-16,
+   "order": 10,
+   "series": "polarisation (numba_cuda, linear TE)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_transverse_family_linear_flow_matches_its_neff[numba_cuda-TE]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 9.587471903422734e-15,
+   "deviation": 7.966108075865175e-16,
+   "order": 10,
+   "series": "polarisation (numba_cuda, linear TM)",
+   "write": 6,
+   "written_by": "tests/backends/test_polarised_runs.py::test_transverse_family_linear_flow_matches_its_neff[numba_cuda-TM]"
+  },
+  {
+   "axis": "aliased (must exceed bound)",
+   "bound": 9.201528428093619e-13,
+   "deviation": 7.789494487878571e-05,
+   "order": 10,
+   "series": "polarisation (numpy_ref, angular alias control)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_an_underresolved_angular_rule_creates_a_forbidden_harmonic[numpy_ref]"
+  },
+  {
+   "axis": "resolved",
+   "bound": 9.201528428093619e-13,
+   "deviation": 8.382492120142744e-21,
+   "order": 10,
+   "series": "polarisation (numpy_ref, angular alias control)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_an_underresolved_angular_rule_creates_a_forbidden_harmonic[numpy_ref]"
+  },
+  {
+   "axis": "forbidden mode",
+   "bound": 4.9737991503207805e-12,
+   "deviation": 1.6434060270428861e-21,
+   "order": 10,
+   "series": "polarisation (numpy_ref, azimuthal HE)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_full_azimuthal_propagation_obeys_selection_rules[numpy_ref-kinds0-orders0-2]"
+  },
+  {
+   "axis": "forbidden mode",
+   "bound": 4.9737991503207805e-12,
+   "deviation": 9.703272190162473e-22,
+   "order": 10,
+   "series": "polarisation (numpy_ref, azimuthal TM)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_full_azimuthal_propagation_obeys_selection_rules[numpy_ref-kinds1-orders1-1]"
+  },
+  {
+   "axis": 4096,
+   "bound": 0.033950813864171654,
+   "deviation": 0.0007430129567682631,
+   "order": 10,
+   "series": "polarisation (numpy_ref, circular plasma energy)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_pays_the_ionisation_energy[numpy_ref]"
+  },
+  {
+   "axis": 8192,
+   "bound": 0.008732301349966,
+   "deviation": 0.00018573215948036736,
+   "order": 10,
+   "series": "polarisation (numpy_ref, circular plasma energy)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_pays_the_ionisation_energy[numpy_ref]"
+  },
+  {
+   "axis": 16384,
+   "bound": 0.002671906733433292,
+   "deviation": 4.643175437901714e-05,
+   "order": 10,
+   "series": "polarisation (numpy_ref, circular plasma energy)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_pays_the_ionisation_energy[numpy_ref]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 2.586375558166768e-12,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numpy_ref, circular plasma)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_ionises_by_magnitude_through_the_backend[numpy_ref]"
+  },
+  {
+   "axis": "rate and fraction",
+   "bound": 1.96109795069829e-12,
+   "deviation": 6.150978633085309e-15,
+   "order": 10,
+   "series": "polarisation (numpy_ref, circular plasma)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_circular_plasma_ionises_by_magnitude_through_the_backend[numpy_ref]"
+  },
+  {
+   "axis": "1 steps",
+   "bound": 2.73558953267639e-13,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numpy_ref, envelope)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-numpy_ref-one]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 2.188471626141112e-12,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numpy_ref, envelope)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-numpy_ref-eight]"
+  },
+  {
+   "axis": "adaptive run",
+   "bound": 1.0004441719502225e-11,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numpy_ref, envelope)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-numpy_ref-adaptive]"
+  },
+  {
+   "axis": "one nonlinear evaluation",
+   "bound": 3.907985046680557e-14,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numpy_ref, envelope)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_one_nonlinear_evaluation[envelope-numpy_ref]"
+  },
+  {
+   "axis": "statistics after 1 steps",
+   "bound": 6.608047442569004e-13,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numpy_ref, envelope)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-numpy_ref-one]"
+  },
+  {
+   "axis": "statistics after 8 steps",
+   "bound": 4.490630090003846e-12,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numpy_ref, envelope)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-numpy_ref-eight]"
+  },
+  {
+   "axis": "statistics after adaptive run",
+   "bound": 2.0122570276726073e-11,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numpy_ref, envelope)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[envelope-numpy_ref-adaptive]"
+  },
+  {
+   "axis": "1 steps",
+   "bound": 3.23296944770846e-13,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numpy_ref, field_analytic)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-numpy_ref-one]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 2.586375558166768e-12,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numpy_ref, field_analytic)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-numpy_ref-eight]"
+  },
+  {
+   "axis": "adaptive run",
+   "bound": 1.1823431123048082e-11,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numpy_ref, field_analytic)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-numpy_ref-adaptive]"
+  },
+  {
+   "axis": "one nonlinear evaluation",
+   "bound": 4.618527782440657e-14,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numpy_ref, field_analytic)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_one_nonlinear_evaluation[field_analytic-numpy_ref]"
+  },
+  {
+   "axis": "statistics after 1 steps",
+   "bound": 8.739675649849499e-13,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numpy_ref, field_analytic)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-numpy_ref-one]"
+  },
+  {
+   "axis": "statistics after 8 steps",
+   "bound": 5.400124791776794e-12,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numpy_ref, field_analytic)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-numpy_ref-eight]"
+  },
+  {
+   "axis": "statistics after adaptive run",
+   "bound": 2.387423592153942e-11,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numpy_ref, field_analytic)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_analytic-numpy_ref-adaptive]"
+  },
+  {
+   "axis": "1 steps",
+   "bound": 3.23296944770846e-13,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numpy_ref, field_real)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-numpy_ref-one]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 2.586375558166768e-12,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numpy_ref, field_real)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-numpy_ref-eight]"
+  },
+  {
+   "axis": "adaptive run",
+   "bound": 1.1823431123048082e-11,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numpy_ref, field_real)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-numpy_ref-adaptive]"
+  },
+  {
+   "axis": "one nonlinear evaluation",
+   "bound": 4.618527782440657e-14,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numpy_ref, field_real)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_one_nonlinear_evaluation[field_real-numpy_ref]"
+  },
+  {
+   "axis": "statistics after 1 steps",
+   "bound": 8.739675649849499e-13,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numpy_ref, field_real)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-numpy_ref-one]"
+  },
+  {
+   "axis": "statistics after 8 steps",
+   "bound": 5.400124791776794e-12,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numpy_ref, field_real)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-numpy_ref-eight]"
+  },
+  {
+   "axis": "statistics after adaptive run",
+   "bound": 2.387423592153942e-11,
+   "deviation": 0.0,
+   "order": 10,
+   "series": "polarisation (numpy_ref, field_real)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_polarisation_routes_propagate_the_same_field[field_real-numpy_ref-adaptive]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 9.586828269498384e-15,
+   "deviation": 8.965275914698915e-16,
+   "order": 10,
+   "series": "polarisation (numpy_ref, linear TE)",
+   "write": 12,
+   "written_by": "tests/backends/test_polarised_runs.py::test_transverse_family_linear_flow_matches_its_neff[numpy_ref-TE]"
+  },
+  {
+   "axis": "8 steps",
+   "bound": 9.587471903422734e-15,
+   "deviation": 8.093189076110354e-16,
+   "order": 10,
+   "series": "polarisation (numpy_ref, linear TM)",
+   "write": 9,
+   "written_by": "tests/backends/test_polarised_runs.py::test_transverse_family_linear_flow_matches_its_neff[numpy_ref-TM]"
+  }
+ ],
+ "schema": 1,
+ "study": "backend_equivalence",
+ "title": "compiled backends against the numpy_ref oracle, bound and measurement per rung",
+ "writes": [
+  {
+   "backend": "native",
+   "blas": null,
+   "branch": "development",
+   "commit": "2005f96d77c2d7d508cf21dc443fb41794aa8aac",
+   "fftw_planner": "estimate",
+   "machine_id": "darwin-arm64",
+   "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.5",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": "FALSE",
+    "OMP_NUM_THREADS": "1",
+    "OMP_PLACES": "threads",
+    "OMP_PROC_BIND": "close",
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": "1",
+    "SOLPROP_BLAS_THREADS": "1",
+    "SOLPROP_FFTW_THREADS": "1",
+    "SOLPROP_NATIVE_THREADS": "1",
+    "SOLPROP_NUMBA_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1"
+   }
+  },
+  {
+   "backend": "native_cuda",
+   "blas": "openblas 0.3.34.0.0",
+   "branch": "HEAD",
+   "commit": "14a9ea96faa85dc5386b2709765642ee30242fe2",
+   "fftw_planner": null,
+   "machine_id": "7c8ec9d6cf02-x86-64",
+   "os": "Linux-6.8.0-138-generic-x86_64-with-glibc2.39",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.7",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": "8",
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": null,
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": "1",
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": "8",
+    "SOLPROP_NUMBA_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  },
+  {
+   "backend": "native",
+   "blas": null,
+   "branch": "development",
+   "commit": "182f7ac7bcd0047fce324394eff16528a98da60f",
+   "fftw_planner": null,
+   "machine_id": "darwin-arm64",
+   "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.5",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": null,
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": "false",
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": "1",
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  },
+  {
+   "backend": "numba_cpu",
+   "blas": null,
+   "branch": "development",
+   "commit": "182f7ac7bcd0047fce324394eff16528a98da60f",
+   "fftw_planner": null,
+   "machine_id": "darwin-arm64",
+   "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.5",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": null,
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": "false",
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": "1",
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  },
+  {
+   "backend": "numpy_ref",
+   "blas": null,
+   "branch": "development",
+   "commit": "182f7ac7bcd0047fce324394eff16528a98da60f",
+   "fftw_planner": null,
+   "machine_id": "darwin-arm64",
+   "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.5",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": null,
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": "false",
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": "1",
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  },
+  {
+   "backend": "numba_cuda",
+   "blas": "openblas 0.3.34.0.0",
+   "branch": "master",
+   "commit": "ff9e2e6cb0fd6103307ee713ea9a1f67f987fc3c",
+   "fftw_planner": "estimate",
+   "machine_id": "8d3b90865f4c-x86-64",
+   "os": "Linux-6.8.0-138-generic-x86_64-with-glibc2.39",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.6",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": "1",
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": "false",
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": "1",
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": "1",
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  },
+  {
+   "backend": "numba_cuda",
+   "blas": "openblas 0.3.34.0.0",
+   "branch": "snapshot",
+   "commit": "ac22bcbfe21305b7580233f1108176271c7182ba",
+   "fftw_planner": "estimate",
+   "machine_id": "5e947c0abfc0-x86-64",
+   "os": "Linux-6.8.0-138-generic-x86_64-with-glibc2.39",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.6",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": "1",
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": "false",
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": "1",
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": "1",
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  },
+  {
+   "backend": "native",
+   "blas": null,
+   "branch": "development",
+   "commit": "93e8ee6a2376b69d02db74dceaea4abf05a91699",
+   "fftw_planner": "estimate",
+   "machine_id": "darwin-arm64",
+   "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.5",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": "1",
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": "false",
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": "1",
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": "1",
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": "1"
+   }
+  },
+  {
+   "backend": "numba_cpu",
+   "blas": null,
+   "branch": "development",
+   "commit": "93e8ee6a2376b69d02db74dceaea4abf05a91699",
+   "fftw_planner": "estimate",
+   "machine_id": "darwin-arm64",
+   "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.5",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": "1",
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": "false",
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": "1",
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": "1",
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": "1"
+   }
+  },
+  {
+   "backend": "numpy_ref",
+   "blas": null,
+   "branch": "development",
+   "commit": "93e8ee6a2376b69d02db74dceaea4abf05a91699",
+   "fftw_planner": "estimate",
+   "machine_id": "darwin-arm64",
+   "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.5",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": "1",
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": "false",
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": "1",
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": "1",
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": "1"
+   }
+  },
+  {
+   "backend": "numba_cpu",
+   "blas": null,
+   "branch": "development",
+   "commit": "4f831f5787cf5c5387f51ce350036b5dbf3261e3",
+   "fftw_planner": "estimate",
+   "machine_id": "darwin-arm64",
+   "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.5",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": "1",
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": null,
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": "1",
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": null,
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": "1"
+   }
+  },
+  {
+   "backend": "native_hip",
+   "blas": "openblas 0.3.34.0.0",
+   "branch": "development",
+   "commit": "0d140a277a5a471c564adf45b006ebac7cd88339",
+   "fftw_planner": null,
+   "machine_id": "solprop-gpu-mi325x-x86-64",
+   "os": "Linux-6.8.0-137-generic-x86_64-with-glibc2.39",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.7",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": "1",
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": "false",
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": "1",
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": "1",
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  },
+  {
+   "backend": "numpy_ref",
+   "blas": null,
+   "branch": "change/room-temperature-293",
+   "commit": "b2b2e0da16c94ebd50f31c77931888944b1456e1",
+   "fftw_planner": "estimate",
+   "machine_id": "darwin-arm64",
+   "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.5",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": null,
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": null,
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": null,
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  },
+  {
+   "backend": "numba_cpu",
+   "blas": null,
+   "branch": "change/room-temperature-293",
+   "commit": "b2b2e0da16c94ebd50f31c77931888944b1456e1",
+   "fftw_planner": "estimate",
+   "machine_id": "darwin-arm64",
+   "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.5",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": null,
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": null,
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": null,
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  },
+  {
+   "backend": "native",
+   "blas": null,
+   "branch": "change/room-temperature-293",
+   "commit": "b2b2e0da16c94ebd50f31c77931888944b1456e1",
+   "fftw_planner": "estimate",
+   "machine_id": "darwin-arm64",
+   "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.5",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": null,
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": null,
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": null,
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  },
+  {
+   "backend": "native_cuda",
+   "blas": "openblas 0.3.34.0.0",
+   "branch": "main",
+   "commit": "678b8d0c84ac3c88a15c0ea199b8989c3915fd34",
+   "fftw_planner": "estimate",
+   "machine_id": "linux-x86-64",
+   "os": "Linux-6.8.0-83-generic-x86_64-with-glibc2.39",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.7",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": "1",
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": "false",
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": "1",
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  },
+  {
+   "backend": "native_hip",
+   "blas": "openblas 0.3.34.0.0",
+   "branch": "main",
+   "commit": "782cb766d03477a59cb94507a355a2ebbe2a17f8",
+   "fftw_planner": "estimate",
+   "machine_id": "linux-x86-64",
+   "os": "Linux-6.8.0-137-generic-x86_64-with-glibc2.39",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.7",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": "1",
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": "false",
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": "1",
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  },
+  {
+   "backend": "numba_cpu",
+   "blas": "openblas 0.3.34.0.0",
+   "branch": "HEAD",
+   "commit": "b71045467c6c14c5c790a12431896c1cef98e799",
+   "fftw_planner": null,
+   "machine_id": "linux-x86-64",
+   "os": "Linux-6.17.0-14-generic-x86_64-with-glibc2.39",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.7",
+   "threads": {
+    "MKL_NUM_THREADS": "1",
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": "1",
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": "false",
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": "1",
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": "1",
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  },
+  {
+   "backend": "numpy_ref",
+   "blas": "openblas 0.3.34.0.0",
+   "branch": "HEAD",
+   "commit": "b71045467c6c14c5c790a12431896c1cef98e799",
+   "fftw_planner": null,
+   "machine_id": "linux-x86-64",
+   "os": "Linux-6.17.0-14-generic-x86_64-with-glibc2.39",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.7",
+   "threads": {
+    "MKL_NUM_THREADS": "1",
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": "1",
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": "false",
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": "1",
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": "1",
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  },
+  {
+   "backend": "native",
+   "blas": "openblas 0.3.34.0.0",
+   "branch": "HEAD",
+   "commit": "b71045467c6c14c5c790a12431896c1cef98e799",
+   "fftw_planner": null,
+   "machine_id": "linux-x86-64",
+   "os": "Linux-6.17.0-14-generic-x86_64-with-glibc2.39",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.7",
+   "threads": {
+    "MKL_NUM_THREADS": "1",
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": "1",
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": "false",
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": "1",
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": "1",
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  },
+  {
+   "backend": "native_cuda",
+   "blas": "openblas 0.3.34.0.0",
+   "branch": "feature/sep-0028-kokkos",
+   "commit": "0d44e0148cd90feeded94dfbc67aaf0dc8fa4755",
+   "fftw_planner": null,
+   "machine_id": "linux-x86-64",
+   "os": "Linux-6.8.0-90-generic-x86_64-with-glibc2.39",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.7",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": "1",
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": "false",
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": "1",
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  }
+ ]
+}

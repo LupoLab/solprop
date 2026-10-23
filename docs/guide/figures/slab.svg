@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="560" height="440" viewBox="0 0 560 440">
+<defs>
+</defs>
+<style>
+svg {
+    --ground: #fbfbfd;
+    --ink: #1b1f24;
+    --dim: #5b6673;
+    --rule: #c9d0da;
+    --gas-fill: #e9f1fb;
+    --gas-edge: #2f5eb0;
+    --glass-fill: #d5e9dc;
+    --glass-edge: #2c7a55;
+    --metal-fill: #e4e0d6;
+    --metal-edge: #7a6848;
+    --core-fill: #cfe0f4;
+    --core-edge: #2f5eb0;
+    --collar-fill: #f8e8d2;
+    --collar-edge: #a96a15;
+    --curve-a: #b8334f;
+    --curve-b: #6f45a6;
+    --curve-c: #a96a15;
+    --pol: #b8334f;
+}
+@media (prefers-color-scheme: dark) {
+  svg {
+    --ground: #171a1f;
+    --ink: #e7eaef;
+    --dim: #9aa5b3;
+    --rule: #3a424e;
+    --gas-fill: #18222f;
+    --gas-edge: #7ba6e8;
+    --glass-fill: #173528;
+    --glass-edge: #5cb98a;
+    --metal-fill: #35302a;
+    --metal-edge: #c9b48c;
+    --core-fill: #1d3150;
+    --core-edge: #7ba6e8;
+    --collar-fill: #3a2b15;
+    --collar-edge: #e0a44f;
+    --curve-a: #ee8ca0;
+    --curve-b: #b99ae6;
+    --curve-c: #e0a44f;
+    --pol: #ee8ca0;
+  }
+}
+.ground { fill: var(--ground); stroke: none; }
+.card { fill: var(--ground); stroke: var(--rule); stroke-width: 1.4; }
+.outline { fill: none; stroke: var(--ink); stroke-width: 1.4; }
+.boundary { fill: none; stroke: var(--curve-a); stroke-width: 1.4;
+  stroke-dasharray: 5 3; }
+.guide { fill: none; stroke: var(--dim); stroke-width: 1.4;
+  stroke-dasharray: 2 3; }
+.ring { fill: none; stroke: var(--rule); stroke-width: 1.4; }
+.leader { fill: none; stroke: var(--dim); stroke-width: 1.4; }
+.axis { fill: none; stroke: var(--dim); stroke-width: 1.4; }
+.head { fill: var(--dim); stroke: none; }
+.node { fill: var(--ink); stroke: none; }
+.node-dim { fill: var(--dim); stroke: none; }
+.pol { fill: none; stroke: var(--pol); stroke-width: 2.8;
+  stroke-linecap: round; }
+.pol-head { fill: var(--pol); stroke: none; }
+text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill: var(--ink); white-space: pre; }
+.dim { fill: var(--dim); }
+.mid { text-anchor: middle; }
+.end { text-anchor: end; }
+.bold { font-weight: 600; }
+.ink-pol { fill: var(--pol); }
+.gas { fill: var(--gas-fill); stroke: var(--gas-edge); stroke-width: 1.4; }
+.glass { fill: var(--glass-fill); stroke: var(--glass-edge); stroke-width: 1.4; }
+.metal { fill: var(--metal-fill); stroke: var(--metal-edge); stroke-width: 1.4; }
+.core { fill: var(--core-fill); stroke: var(--core-edge); stroke-width: 1.4; }
+.collar { fill: var(--collar-fill); stroke: var(--collar-edge); stroke-width: 1.4; }
+.curve-a { fill: none; stroke: var(--curve-a); stroke-width: 2.8; stroke-linejoin: round; stroke-linecap: round; }
+.ink-curve-a { fill: var(--curve-a); }
+.dot-curve-a { fill: var(--curve-a); stroke: none; }
+.curve-b { fill: none; stroke: var(--curve-b); stroke-width: 2.8; stroke-linejoin: round; stroke-linecap: round; }
+.ink-curve-b { fill: var(--curve-b); }
+.dot-curve-b { fill: var(--curve-b); stroke: none; }
+.curve-c { fill: none; stroke: var(--curve-c); stroke-width: 2.8; stroke-linejoin: round; stroke-linecap: round; }
+.ink-curve-c { fill: var(--curve-c); }
+.dot-curve-c { fill: var(--curve-c); stroke: none; }
+</style>
+<rect x="0" y="0" width="560" height="440" class="ground" />
+<text x="20.0" y="26.0" font-size="15" class="bold">Planar hollow guides, uniform in y</text>
+<text x="20.0" y="44.0" font-size="11" class="dim">Plates at x = ±a, a = 63.5 µm (Akturk et al. 2009) to scale in x, and the slab rule:</text>
+<text x="20.0" y="58.0" font-size="11" class="dim">24 Gauss nodes in x on y = 0, the measured 6h + 6 for h = 3; one y node of unit width.</text>
+<rect x="65.0" y="128.0" width="21.13" height="160.0" rx="0" ry="0" class="glass" />
+<rect x="253.87" y="128.0" width="21.13" height="160.0" rx="0" ry="0" class="glass" />
+<rect x="86.13" y="128.0" width="167.74" height="160.0" rx="0" ry="0" class="gas" />
+<path d="M222.0,144.0 L222.0,130.0" class="axis" />
+<path d="M222.0,130.0 L225.6,139.0 L218.4,139.0 Z" class="head" />
+<path d="M222.0,272.0 L222.0,286.0" class="axis" />
+<path d="M222.0,286.0 L218.4,277.0 L225.6,277.0 Z" class="head" />
+<text x="170.0" y="120.0" font-size="11" class="dim mid">uniform in y (per unit width)</text>
+<circle cx="86.54" cy="208.0" r="1.71" class="node" />
+<circle cx="88.25" cy="208.0" r="1.71" class="node" />
+<circle cx="91.31" cy="208.0" r="1.71" class="node" />
+<circle cx="95.66" cy="208.0" r="1.71" class="node" />
+<circle cx="101.23" cy="208.0" r="1.71" class="node" />
+<circle cx="107.93" cy="208.0" r="1.71" class="node" />
+<circle cx="115.65" cy="208.0" r="1.71" class="node" />
+<circle cx="124.26" cy="208.0" r="1.71" class="node" />
+<circle cx="133.62" cy="208.0" r="1.71" class="node" />
+<circle cx="143.58" cy="208.0" r="1.71" class="node" />
+<circle cx="153.97" cy="208.0" r="1.71" class="node" />
+<circle cx="164.63" cy="208.0" r="1.71" class="node" />
+<circle cx="175.37" cy="208.0" r="1.71" class="node" />
+<circle cx="186.03" cy="208.0" r="1.71" class="node" />
+<circle cx="196.42" cy="208.0" r="1.71" class="node" />
+<circle cx="206.38" cy="208.0" r="1.71" class="node" />
+<circle cx="215.74" cy="208.0" r="1.71" class="node" />
+<circle cx="224.35" cy="208.0" r="1.71" class="node" />
+<circle cx="232.07" cy="208.0" r="1.71" class="node" />
+<circle cx="238.77" cy="208.0" r="1.71" class="node" />
+<circle cx="244.34" cy="208.0" r="1.71" class="node" />
+<circle cx="248.69" cy="208.0" r="1.71" class="node" />
+<circle cx="251.75" cy="208.0" r="1.71" class="node" />
+<circle cx="253.46" cy="208.0" r="1.71" class="node" />
+<path d="M123.87,184.0 L123.87,152.0" class="pol" />
+<path d="M123.87,152.0 L127.47,161.0 L120.27,161.0 Z" class="pol-head" />
+<path d="M123.87,184.0 L120.27,175.0 L127.47,175.0 Z" class="pol-head" />
+<text x="131.87" y="172.0" font-size="11" class="ink-pol">TE: E along y</text>
+<rect x="125.67" y="234.0" width="88.65" height="30.0" rx="7" ry="7" class="card" />
+<path d="M148.0,256.0 L192.0,256.0" class="pol" />
+<path d="M192.0,256.0 L183.0,259.6 L183.0,252.4 Z" class="pol-head" />
+<path d="M148.0,256.0 L157.0,252.4 L157.0,259.6 Z" class="pol-head" />
+<text x="170.0" y="247.0" font-size="11" class="mid ink-pol">TM: E along x</text>
+<path d="M28.0,112.0 L58.0,112.0" class="axis" />
+<path d="M58.0,112.0 L49.0,115.6 L49.0,108.4 Z" class="head" />
+<path d="M28.0,112.0 L28.0,82.0" class="axis" />
+<path d="M28.0,82.0 L31.6,91.0 L24.4,91.0 Z" class="head" />
+<text x="62.0" y="116.0" font-size="11" class="dim">x</text>
+<text x="28.0" y="77.0" font-size="11" class="dim mid">y</text>
+<circle cx="264.43" cy="158.0" r="2.2" class="node-dim" />
+<path d="M264.43,158.0 L355.0,92.0" class="leader" />
+<text x="360.0" y="96.0" font-size="12.5" class="">x = ±a: one wall pair,</text>
+<text x="360.0" y="110.0" font-size="11" class="dim">TE-like 1/s for TE, TM-like</text>
+<text x="360.0" y="124.0" font-size="11" class="dim">ε_cl / (ε_co s) for TM</text>
+<text x="360.0" y="164.0" font-size="12.5" class="">E zero outside the gap; the</text>
+<text x="360.0" y="178.0" font-size="11" class="dim">wall pair's complex κ² in β²</text>
+<text x="360.0" y="192.0" font-size="11" class="dim">(Laakmann–Steier, b → ∞)</text>
+<text x="360.0" y="206.0" font-size="11" class="dim">N = ε₀c a/2 and A_eff = 4a/3</text>
+<text x="360.0" y="220.0" font-size="11" class="dim">per metre of y: W/m and J/m</text>
+<path d="M86.13,290.0 L86.13,408.0" class="guide" />
+<path d="M253.87,290.0 L253.87,408.0" class="guide" />
+<path d="M65.0,363.0 L287.0,363.0" class="axis" />
+<path d="M287.0,363.0 L278.0,366.6 L278.0,359.4 Z" class="head" />
+<path d="M65.0,408.0 L65.0,318.0" class="axis" />
+<text x="287.0" y="378.0" font-size="11" class="dim end">x</text>
+<text x="275.0" y="314.0" font-size="11" class="dim end">E_y(x)</text>
+<path d="M65.0,363.0 L86.13,363.0 L87.18,362.2 L88.23,361.39 L89.28,360.59 L90.33,359.79 L91.37,358.99 L92.42,358.19 L93.47,357.39 L94.52,356.6 L95.57,355.81 L96.62,355.02 L97.66,354.23 L98.71,353.45 L99.76,352.67 L100.81,351.9 L101.86,351.12 L102.91,350.36 L103.95,349.6 L105.0,348.84 L106.05,348.09 L107.1,347.34 L108.15,346.61 L109.2,345.87 L110.24,345.15 L111.29,344.43 L112.34,343.72 L113.39,343.01 L114.44,342.31 L115.49,341.63 L116.53,340.94 L117.58,340.27 L118.63,339.61 L119.68,338.95 L120.73,338.31 L121.78,337.67 L122.82,337.05 L123.87,336.43 L124.92,335.83 L125.97,335.23 L127.02,334.65 L128.07,334.07 L129.11,333.51 L130.16,332.96 L131.21,332.42 L132.26,331.89 L133.31,331.38 L134.36,330.87 L135.4,330.38 L136.45,329.9 L137.5,329.44 L138.55,328.99 L139.6,328.55 L140.65,328.12 L141.69,327.71 L142.74,327.31 L143.79,326.92 L144.84,326.55 L145.89,326.19 L146.94,325.85 L147.98,325.52 L149.03,325.2 L150.08,324.9 L151.13,324.62 L152.18,324.35 L153.23,324.09 L154.27,323.85 L155.32,323.63 L156.37,323.42 L157.42,323.22 L158.47,323.04 L159.52,322.88 L160.56,322.73 L161.61,322.59 L162.66,322.48 L163.71,322.37 L164.76,322.29 L165.81,322.22 L166.85,322.16 L167.9,322.12 L168.95,322.1 L170.0,322.09 L171.05,322.1 L172.1,322.12 L173.15,322.16 L174.19,322.22 L175.24,322.29 L176.29,322.37 L177.34,322.48 L178.39,322.59 L179.44,322.73 L180.48,322.88 L181.53,323.04 L182.58,323.22 L183.63,323.42 L184.68,323.63 L185.73,323.85 L186.77,324.09 L187.82,324.35 L188.87,324.62 L189.92,324.9 L190.97,325.2 L192.02,325.52 L193.06,325.85 L194.11,326.19 L195.16,326.55 L196.21,326.92 L197.26,327.31 L198.31,327.71 L199.35,328.12 L200.4,328.55 L201.45,328.99 L202.5,329.44 L203.55,329.9 L204.6,330.38 L205.64,330.87 L206.69,331.38 L207.74,331.89 L208.79,332.42 L209.84,332.96 L210.89,333.51 L211.93,334.07 L212.98,334.65 L214.03,335.23 L215.08,335.83 L216.13,336.43 L217.18,337.05 L218.22,337.67 L219.27,338.31 L220.32,338.95 L221.37,339.61 L222.42,340.27 L223.47,340.94 L224.51,341.63 L225.56,342.31 L226.61,343.01 L227.66,343.72 L228.71,344.43 L229.76,345.15 L230.8,345.87 L231.85,346.61 L232.9,347.34 L233.95,348.09 L235.0,348.84 L236.05,349.6 L237.09,350.36 L238.14,351.12 L239.19,351.9 L240.24,352.67 L241.29,353.45 L242.34,354.23 L243.38,355.02 L244.43,355.81 L245.48,356.6 L246.53,357.39 L247.58,358.19 L248.63,358.99 L249.67,359.79 L250.72,360.59 L251.77,361.39 L252.82,362.2 L253.87,363.0 L275.0,363.0" class="curve-a" />
+<path d="M65.0,363.0 L86.13,363.0 L87.18,365.41 L88.23,367.81 L89.28,370.19 L90.33,372.55 L91.37,374.88 L92.42,377.16 L93.47,379.39 L94.52,381.57 L95.57,383.69 L96.62,385.73 L97.66,387.69 L98.71,389.57 L99.76,391.35 L100.81,393.04 L101.86,394.62 L102.91,396.1 L103.95,397.45 L105.0,398.69 L106.05,399.81 L107.1,400.8 L108.15,401.65 L109.2,402.37 L110.24,402.96 L111.29,403.41 L112.34,403.71 L113.39,403.88 L114.44,403.9 L115.49,403.78 L116.53,403.52 L117.58,403.12 L118.63,402.58 L119.68,401.91 L120.73,401.1 L121.78,400.15 L122.82,399.08 L123.87,397.88 L124.92,396.56 L125.97,395.13 L127.02,393.58 L128.07,391.93 L129.11,390.17 L130.16,388.33 L131.21,386.39 L132.26,384.37 L133.31,382.28 L134.36,380.13 L135.4,377.91 L136.45,375.64 L137.5,373.33 L138.55,370.98 L139.6,368.61 L140.65,366.21 L141.69,363.8 L142.74,361.39 L143.79,358.99 L144.84,356.6 L145.89,354.23 L146.94,351.9 L147.98,349.6 L149.03,347.34 L150.08,345.15 L151.13,343.01 L152.18,340.94 L153.23,338.95 L154.27,337.05 L155.32,335.23 L156.37,333.51 L157.42,331.89 L158.47,330.38 L159.52,328.99 L160.56,327.71 L161.61,326.55 L162.66,325.52 L163.71,324.62 L164.76,323.85 L165.81,323.22 L166.85,322.73 L167.9,322.37 L168.95,322.16 L170.0,322.09 L171.05,322.16 L172.1,322.37 L173.15,322.73 L174.19,323.22 L175.24,323.85 L176.29,324.62 L177.34,325.52 L178.39,326.55 L179.44,327.71 L180.48,328.99 L181.53,330.38 L182.58,331.89 L183.63,333.51 L184.68,335.23 L185.73,337.05 L186.77,338.95 L187.82,340.94 L188.87,343.01 L189.92,345.15 L190.97,347.34 L192.02,349.6 L193.06,351.9 L194.11,354.23 L195.16,356.6 L196.21,358.99 L197.26,361.39 L198.31,363.8 L199.35,366.21 L200.4,368.61 L201.45,370.98 L202.5,373.33 L203.55,375.64 L204.6,377.91 L205.64,380.13 L206.69,382.28 L207.74,384.37 L208.79,386.39 L209.84,388.33 L210.89,390.17 L211.93,391.93 L212.98,393.58 L214.03,395.13 L215.08,396.56 L216.13,397.88 L217.18,399.08 L218.22,400.15 L219.27,401.1 L220.32,401.91 L221.37,402.58 L222.42,403.12 L223.47,403.52 L224.51,403.78 L225.56,403.9 L226.61,403.88 L227.66,403.71 L228.71,403.41 L229.76,402.96 L230.8,402.37 L231.85,401.65 L232.9,400.8 L233.95,399.81 L235.0,398.69 L236.05,397.45 L237.09,396.1 L238.14,394.62 L239.19,393.04 L240.24,391.35 L241.29,389.57 L242.34,387.69 L243.38,385.73 L244.43,383.69 L245.48,381.57 L246.53,379.39 L247.58,377.16 L248.63,374.88 L249.67,372.55 L250.72,370.19 L251.77,367.81 L252.82,365.41 L253.87,363.0 L275.0,363.0" class="curve-b" />
+<path d="M360.0,326.0 L378.0,326.0" class="curve-a" />
+<text x="384.0" y="330.0" font-size="11" class="">TE1</text>
+<path d="M360.0,340.0 L378.0,340.0" class="curve-b" />
+<text x="384.0" y="344.0" font-size="11" class="">TE3</text>
+<text x="360.0" y="366.0" font-size="12.5" class="">a centred beam reaches odd</text>
+<text x="360.0" y="380.0" font-size="11" class="dim">orders only; no self-focusing</text>
+<text x="360.0" y="394.0" font-size="11" class="dim">or instability in y here</text>
+</svg>

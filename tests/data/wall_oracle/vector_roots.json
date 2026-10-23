@@ -1,0 +1,554 @@
+[
+ {
+  "wavelength": 8e-07,
+  "clad": 1.3,
+  "roots": [
+   {
+    "family": "TE",
+    "radial": 1,
+    "q": {
+     "real": 3.831701969137613,
+     "imag": -0.003915479760324302
+    },
+    "boundary_residual": 2.4264489469820853e-16,
+    "attenuation_radius": 1.2734968123027505e-05,
+    "grazing_attenuation_radius": 1.2734958238085433e-05,
+    "relative_grazing_error": 7.762052993687263e-07
+   },
+   {
+    "family": "TM",
+    "radial": 1,
+    "q": {
+     "real": 3.831692209469578,
+     "imag": -0.0066171986485789
+    },
+    "boundary_residual": 1.330799611726291e-16,
+    "attenuation_radius": 2.1522164425888034e-05,
+    "grazing_attenuation_radius": 2.152207942236438e-05,
+    "relative_grazing_error": 3.949596225627516e-06
+   },
+   {
+    "family": "HE",
+    "radial": 1,
+    "q": {
+     "real": 2.404820733310012,
+     "imag": -0.0033052132381309078
+    },
+    "boundary_residual": 7.116251110915078e-18,
+    "attenuation_radius": 6.746863992750258e-06,
+    "grazing_attenuation_radius": 6.746874250028926e-06,
+    "relative_grazing_error": 1.5203008516539995e-06
+   },
+   {
+    "family": "EH",
+    "radial": 1,
+    "q": {
+     "real": 5.135617285570988,
+     "imag": -0.007058519393804747
+    },
+    "boundary_residual": 5.375860551183459e-19,
+    "attenuation_radius": 3.0770124277243666e-05,
+    "grazing_attenuation_radius": 3.076958298884569e-05,
+    "relative_grazing_error": 1.7591671559902267e-05
+   }
+  ],
+  "wall_gram": [
+   [
+    1.6191897240035962,
+    0.4153311931459037
+   ],
+   [
+    0.4153311931459037,
+    1.6191897240035962
+   ]
+  ],
+  "wall_eigenvalues": [
+   1.2038585308576923,
+   2.0345209171495
+  ],
+  "angular_rotation_residual": 8.881784197001252e-16
+ },
+ {
+  "wavelength": 8e-07,
+  "clad": 1.45,
+  "roots": [
+   {
+    "family": "TE",
+    "radial": 1,
+    "q": {
+     "real": 3.8317034661264904,
+     "imag": -0.0030975676022698758
+    },
+    "boundary_residual": 1.604281549185529e-16,
+    "attenuation_radius": 1.0074739878703413e-05,
+    "grazing_attenuation_radius": 1.0074715047023388e-05,
+    "relative_grazing_error": 2.4647525920240554e-06
+   },
+   {
+    "family": "TM",
+    "radial": 1,
+    "q": {
+     "real": 3.8316919981436364,
+     "imag": -0.006512677773072741
+    },
+    "boundary_residual": 1.633153549277532e-17,
+    "attenuation_radius": 2.118221344080169e-05,
+    "grazing_attenuation_radius": 2.1182088386366675e-05,
+    "relative_grazing_error": 5.9037821358298714e-06
+   },
+   {
+    "family": "HE",
+    "radial": 1,
+    "q": {
+     "real": 2.404821066822039,
+     "imag": -0.0030157435102154684
+    },
+    "boundary_residual": 5.3453902644553736e-17,
+    "attenuation_radius": 6.155976227956553e-06,
+    "grazing_attenuation_radius": 6.155982438213722e-06,
+    "relative_grazing_error": 1.0088165830479667e-06
+   },
+   {
+    "family": "EH",
+    "radial": 1,
+    "q": {
+     "real": 5.135623370488102,
+     "imag": -0.006440387450718437
+    },
+    "boundary_residual": 2.4573784570332855e-18,
+    "attenuation_radius": 2.8075541909538942e-05,
+    "grazing_attenuation_radius": 2.8074780333971945e-05,
+    "relative_grazing_error": 2.7126679458922e-05
+   }
+  ],
+  "wall_gram": [
+   [
+    1.4773809523809525,
+    0.5250000000000002
+   ],
+   [
+    0.5250000000000002,
+    1.4773809523809525
+   ]
+  ],
+  "wall_eigenvalues": [
+   0.9523809523809522,
+   2.002380952380953
+  ],
+  "angular_rotation_residual": 4.440892098500626e-16
+ },
+ {
+  "wavelength": 3e-06,
+  "clad": 1.3,
+  "roots": [
+   {
+    "family": "TE",
+    "radial": 1,
+    "q": {
+     "real": 3.8316497130559157,
+     "imag": -0.014682383901300784
+    },
+    "boundary_residual": 8.243022981763049e-17,
+    "attenuation_radius": 0.000179087306933928,
+    "grazing_attenuation_radius": 0.00017908535022307642,
+    "relative_grazing_error": 1.0926135773470236e-05
+   },
+   {
+    "family": "TM",
+    "radial": 1,
+    "q": {
+     "real": 3.8315124027712923,
+     "imag": -0.024815224093072175
+    },
+    "boundary_residual": 1.953829829947088e-16,
+    "attenuation_radius": 0.00030267103716386803,
+    "grazing_attenuation_radius": 0.00030265424187699914,
+    "relative_grazing_error": 5.549331397025625e-05
+   },
+   {
+    "family": "HE",
+    "radial": 1,
+    "q": {
+     "real": 2.4047577131828732,
+     "imag": -0.012394290942758105
+    },
+    "boundary_residual": 1.3834655590199404e-17,
+    "attenuation_radius": 9.487589012999089e-05,
+    "grazing_attenuation_radius": 9.487791914103179e-05,
+    "relative_grazing_error": 2.1385492633863024e-05
+   },
+   {
+    "family": "EH",
+    "radial": 1,
+    "q": {
+     "real": 5.135551799198025,
+     "imag": -0.026472587119974546
+    },
+    "boundary_residual": 1.1936861925337717e-17,
+    "attenuation_radius": 0.0004328043933584215,
+    "grazing_attenuation_radius": 0.00043269726078064264,
+    "relative_grazing_error": 0.00024759245664185414
+   }
+  ],
+  "wall_gram": [
+   [
+    1.6191897240035962,
+    0.4153311931459037
+   ],
+   [
+    0.4153311931459037,
+    1.6191897240035962
+   ]
+  ],
+  "wall_eigenvalues": [
+   1.2038585308576923,
+   2.0345209171495
+  ],
+  "angular_rotation_residual": 8.881784197001252e-16
+ },
+ {
+  "wavelength": 3e-06,
+  "clad": 1.45,
+  "roots": [
+   {
+    "family": "TE",
+    "radial": 1,
+    "q": {
+     "real": 3.8316707596603408,
+     "imag": -0.011615549135763667
+    },
+    "boundary_residual": 2.656796780573738e-16,
+    "attenuation_radius": 0.00014168059192495226,
+    "grazing_attenuation_radius": 0.0001416756803487664,
+    "relative_grazing_error": 3.4667743777694326e-05
+   },
+   {
+    "family": "TM",
+    "radial": 1,
+    "q": {
+     "real": 3.8315094097162685,
+     "imag": -0.02442390005721555
+    },
+    "boundary_residual": 1.0809385234735993e-16,
+    "attenuation_radius": 0.00029789782914426376,
+    "grazing_attenuation_radius": 0.0002978731179332814,
+    "relative_grazing_error": 8.295884890130445e-05
+   },
+   {
+    "family": "HE",
+    "radial": 1,
+    "q": {
+     "real": 2.404762401342896,
+     "imag": -0.011308857156457899
+    },
+    "boundary_residual": 4.624536665363807e-17,
+    "attenuation_radius": 8.656727407964236e-05,
+    "grazing_attenuation_radius": 8.656850303738047e-05,
+    "relative_grazing_error": 1.4196361205143226e-05
+   },
+   {
+    "family": "EH",
+    "radial": 1,
+    "q": {
+     "real": 5.135637427959647,
+     "imag": -0.024156955491202992
+    },
+    "boundary_residual": 1.4110669231876315e-17,
+    "attenuation_radius": 0.0003949523633593878,
+    "grazing_attenuation_radius": 0.00039480159844648054,
+    "relative_grazing_error": 0.00038187513297938125
+   }
+  ],
+  "wall_gram": [
+   [
+    1.4773809523809525,
+    0.5250000000000002
+   ],
+   [
+    0.5250000000000002,
+    1.4773809523809525
+   ]
+  ],
+  "wall_eigenvalues": [
+   0.9523809523809522,
+   2.002380952380953
+  ],
+  "angular_rotation_residual": 4.440892098500626e-16
+ },
+ {
+  "wavelength": 6e-06,
+  "clad": 1.3,
+  "roots": [
+   {
+    "family": "TE",
+    "radial": 1,
+    "q": {
+     "real": 3.8314810434936946,
+     "imag": -0.0293604739390898
+    },
+    "boundary_residual": 2.89321667592311e-17,
+    "attenuation_radius": 0.000716372807684725,
+    "grazing_attenuation_radius": 0.0007163414008923057,
+    "relative_grazing_error": 4.384332998230711e-05
+   },
+   {
+    "family": "TM",
+    "radial": 1,
+    "q": {
+     "real": 3.830930962818665,
+     "imag": -0.04963514037053367
+    },
+    "boundary_residual": 9.646475200807491e-17,
+    "attenuation_radius": 0.0012108849413535385,
+    "grazing_attenuation_radius": 0.0012106169675079965,
+    "relative_grazing_error": 0.00022135312219639935
+   },
+   {
+    "family": "HE",
+    "radial": 1,
+    "q": {
+     "real": 2.4045541591464703,
+     "imag": -0.024786909675790142
+    },
+    "boundary_residual": 3.439579602907626e-17,
+    "attenuation_radius": 0.00037947918168127463,
+    "grazing_attenuation_radius": 0.00037951167656412717,
+    "relative_grazing_error": 8.562288029378973e-05
+   },
+   {
+    "family": "EH",
+    "radial": 1,
+    "q": {
+     "real": 5.135340790016135,
+     "imag": -0.05296556822024891
+    },
+    "boundary_residual": 8.565071897427762e-18,
+    "attenuation_radius": 0.001732507868770105,
+    "grazing_attenuation_radius": 0.0017307890431225706,
+    "relative_grazing_error": 0.0009930878950061839
+   }
+  ],
+  "wall_gram": [
+   [
+    1.6191897240035962,
+    0.4153311931459037
+   ],
+   [
+    0.4153311931459037,
+    1.6191897240035962
+   ]
+  ],
+  "wall_eigenvalues": [
+   1.2038585308576923,
+   2.0345209171495
+  ],
+  "angular_rotation_residual": 8.881784197001252e-16
+ },
+ {
+  "wavelength": 6e-06,
+  "clad": 1.45,
+  "roots": [
+   {
+    "family": "TE",
+    "radial": 1,
+    "q": {
+     "real": 3.831565167944918,
+     "imag": -0.02322897163774648
+    },
+    "boundary_residual": 1.7845426184992398e-16,
+    "attenuation_radius": 0.0005667813590382895,
+    "grazing_attenuation_radius": 0.0005667027213950656,
+    "relative_grazing_error": 0.00013876348260732918
+   },
+   {
+    "family": "TM",
+    "radial": 1,
+    "q": {
+     "real": 3.8309187153223627,
+     "imag": -0.04885655076701688
+    },
+    "boundary_residual": 2.854828264795294e-17,
+    "attenuation_radius": 0.00119188687721051,
+    "grazing_attenuation_radius": 0.0011914924717331256,
+    "relative_grazing_error": 0.00033101801878010484
+   },
+   {
+    "family": "HE",
+    "radial": 1,
+    "q": {
+     "real": 2.404572887866531,
+     "imag": -0.02261654316406906
+    },
+    "boundary_residual": 3.023707302658485e-18,
+    "attenuation_radius": 0.0003462543046342279,
+    "grazing_attenuation_radius": 0.0003462740121495219,
+    "relative_grazing_error": 5.6913064805708125e-05
+   },
+   {
+    "family": "EH",
+    "radial": 1,
+    "q": {
+     "real": 5.135684080046015,
+     "imag": -0.048349659077273975
+    },
+    "boundary_residual": 5.068758760775929e-17,
+    "attenuation_radius": 0.0015816269711041648,
+    "grazing_attenuation_radius": 0.0015792063937859222,
+    "relative_grazing_error": 0.0015327808497784812
+   }
+  ],
+  "wall_gram": [
+   [
+    1.4773809523809525,
+    0.5250000000000002
+   ],
+   [
+    0.5250000000000002,
+    1.4773809523809525
+   ]
+  ],
+  "wall_eigenvalues": [
+   0.9523809523809522,
+   2.002380952380953
+  ],
+  "angular_rotation_residual": 4.440892098500626e-16
+ },
+ {
+  "wavelength": 1.2e-05,
+  "clad": 1.3,
+  "roots": [
+   {
+    "family": "TE",
+    "radial": 1,
+    "q": {
+     "real": 3.830807888434351,
+     "imag": -0.05868668468152854
+    },
+    "boundary_residual": 4.735451578725485e-17,
+    "attenuation_radius": 0.002865874462487084,
+    "grazing_attenuation_radius": 0.0028653656035692227,
+    "relative_grazing_error": 0.00017758952547874962
+   },
+   {
+    "family": "TM",
+    "radial": 1,
+    "q": {
+     "real": 3.828594107068013,
+     "imag": -0.09930727074995511
+    },
+    "boundary_residual": 3.4791190022523156e-15,
+    "attenuation_radius": 0.004846706944658662,
+    "grazing_attenuation_radius": 0.004842467870031986,
+    "relative_grazing_error": 0.0008753955091596044
+   },
+   {
+    "family": "HE",
+    "radial": 1,
+    "q": {
+     "real": 2.4037396366995196,
+     "imag": -0.04956040560906789
+    },
+    "boundary_residual": 1.8866020689748582e-17,
+    "attenuation_radius": 0.0015175248219847432,
+    "grazing_attenuation_radius": 0.0015180467062565087,
+    "relative_grazing_error": 0.00034378670275070355
+   },
+   {
+    "family": "EH",
+    "radial": 1,
+    "q": {
+     "real": 5.134504197459268,
+     "imag": -0.1060978805467472
+    },
+    "boundary_residual": 1.719722932833717e-17,
+    "attenuation_radius": 0.006950963048699362,
+    "grazing_attenuation_radius": 0.006923156172490282,
+    "relative_grazing_error": 0.00401650280829613
+   }
+  ],
+  "wall_gram": [
+   [
+    1.6191897240035962,
+    0.4153311931459037
+   ],
+   [
+    0.4153311931459037,
+    1.6191897240035962
+   ]
+  ],
+  "wall_eigenvalues": [
+   1.2038585308576923,
+   2.0345209171495
+  ],
+  "angular_rotation_residual": 8.881784197001252e-16
+ },
+ {
+  "wavelength": 1.2e-05,
+  "clad": 1.45,
+  "roots": [
+   {
+    "family": "TE",
+    "radial": 1,
+    "q": {
+     "real": 3.8311433986976287,
+     "imag": -0.046440957433657185
+    },
+    "boundary_residual": 1.513064657992336e-16,
+    "attenuation_radius": 0.0022680724435587087,
+    "grazing_attenuation_radius": 0.0022668108855802625,
+    "relative_grazing_error": 0.0005565342863276257
+   },
+   {
+    "family": "TM",
+    "radial": 1,
+    "q": {
+     "real": 3.8285406935126645,
+     "imag": -0.09778237101105361
+    },
+    "boundary_residual": 4.05122672141757e-15,
+    "attenuation_radius": 0.004772217352470361,
+    "grazing_attenuation_radius": 0.004765969886932502,
+    "relative_grazing_error": 0.001310848722520852
+   },
+   {
+    "family": "HE",
+    "radial": 1,
+    "q": {
+     "real": 2.4038141698627142,
+     "imag": -0.04522365706665899
+    },
+    "boundary_residual": 4.172317587896567e-17,
+    "attenuation_radius": 0.0013847778996773335,
+    "grazing_attenuation_radius": 0.0013850960485980875,
+    "relative_grazing_error": 0.00022969448297538442
+   },
+   {
+    "family": "EH",
+    "radial": 1,
+    "q": {
+     "real": 5.135890056547529,
+     "imag": -0.09699174603683326
+    },
+    "boundary_residual": 4.922896937154148e-17,
+    "attenuation_radius": 0.006356101486644252,
+    "grazing_attenuation_radius": 0.006316825575143689,
+    "relative_grazing_error": 0.006217665983229148
+   }
+  ],
+  "wall_gram": [
+   [
+    1.4773809523809525,
+    0.5250000000000002
+   ],
+   [
+    0.5250000000000002,
+    1.4773809523809525
+   ]
+  ],
+  "wall_eigenvalues": [
+   0.9523809523809522,
+   2.002380952380953
+  ],
+  "angular_rotation_residual": 4.440892098500626e-16
+ }
+]

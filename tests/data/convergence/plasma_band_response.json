@@ -1,0 +1,488 @@
+{
+ "axis": {
+  "label": "band",
+  "name": "band",
+  "unit": "omega/omega_max"
+ },
+ "case": {
+  "field": "transform-limited Gaussians in the coarse spectrum (an 800 nm pump of amplitude 1 and the seeds of relative amplitude 0.03), zero phase, centred, times the spectral window, zero-padded onto each fine grid and normalised to the stated peak on the ffac 6 grid",
+  "grid": "FieldGrid.from_limits(1.0, 800e-9, limits, 400e-15, ffac) with limits 90 nm - 4 um (He) or 110 nm - 4 um (Ar); ffac 6 for the rule, 24, 48 and 96 for the reference",
+  "medium": "optmat's default rate, OptmatRate(gas, 800e-9), tabulated over [1e8, 3 E_peak] V/m; density 2e25 m^-3; no pre-ionisation; one scalar column",
+  "norm": "relative L2 error of FFT(P w_fine) dt in each band of omega/omega_max, and over the active band",
+  "reference": "R = (4 P96 - P48) / 3 of the plain trapezoid column; its uncertainty (4 P48 - P24) / 3 against R",
+  "work identity": "the source's work through the transform, sum E* (i omega) (w P)^ on the kept bins, against int E (w J + w' P) dt with the collar's spectral derivative (section 4.8), relative"
+ },
+ "columns": [
+  {
+   "atol": 1e-12,
+   "bound": 0.0001,
+   "name": "band_rule",
+   "rtol": 0.001,
+   "unit": "1 (relative)",
+   "why": "the qualified quantity; a difference of two spectra each known to round-off, so stable to far better than the tolerance"
+  },
+  {
+   "atol": 1e-12,
+   "bound": null,
+   "name": "trapezoid",
+   "rtol": 1e-06,
+   "unit": "1 (relative)",
+   "why": "today's rule on the same grid, for scale"
+  },
+  {
+   "atol": 1e-12,
+   "bound": null,
+   "name": "reference",
+   "rtol": 0.001,
+   "unit": "1 (relative)",
+   "why": "the reference's own uncertainty, from the third refinement"
+  },
+  {
+   "atol": 1e-300,
+   "bound": null,
+   "name": "share",
+   "rtol": 1e-06,
+   "unit": "1",
+   "why": "the band's share of the active |P|^2; asserted bands hold >= 1e-6"
+  }
+ ],
+ "luna": null,
+ "rows": [
+  {
+   "axis": "0.30-0.50",
+   "band_rule": 1.295609772672904e-06,
+   "reference": 1.156940786302897e-07,
+   "series": "Ar 2.5e10 V/m, 30 fs",
+   "share": 0.000127173248354264,
+   "trapezoid": 0.010805561294857565,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[Ar 2.5e10 V/m, 30 fs]"
+  },
+  {
+   "axis": "0.50-0.70",
+   "band_rule": 1.3119425242163623e-06,
+   "reference": 4.407017987179627e-07,
+   "series": "Ar 2.5e10 V/m, 30 fs",
+   "share": 2.846807475293276e-05,
+   "trapezoid": 0.03438380451023481,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[Ar 2.5e10 V/m, 30 fs]"
+  },
+  {
+   "axis": "0.70-0.85",
+   "band_rule": 4.923731444708627e-05,
+   "reference": 6.20588601438076e-07,
+   "series": "Ar 2.5e10 V/m, 30 fs",
+   "share": 7.468606686234252e-07,
+   "trapezoid": 0.042859892791255134,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[Ar 2.5e10 V/m, 30 fs]"
+  },
+  {
+   "axis": "0.85-0.95",
+   "band_rule": 4.214284067049432e-06,
+   "reference": 1.4600476508496345e-06,
+   "series": "Ar 2.5e10 V/m, 30 fs",
+   "share": 1.3218862165024552e-05,
+   "trapezoid": 0.0769934944607345,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[Ar 2.5e10 V/m, 30 fs]"
+  },
+  {
+   "axis": "0.95-1.00",
+   "band_rule": 4.4179474416989646e-05,
+   "reference": 1.8299338711382915e-06,
+   "series": "Ar 2.5e10 V/m, 30 fs",
+   "share": 6.285393140410323e-07,
+   "trapezoid": 0.08149666108937727,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[Ar 2.5e10 V/m, 30 fs]"
+  },
+  {
+   "axis": "1.00-1.10",
+   "band_rule": 0.00019993076288623508,
+   "reference": 3.0028313872355936e-06,
+   "series": "Ar 2.5e10 V/m, 30 fs",
+   "share": 1.707888912464031e-08,
+   "trapezoid": 0.09962994511016794,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[Ar 2.5e10 V/m, 30 fs]"
+  },
+  {
+   "axis": "active",
+   "band_rule": 1.2178042537925152e-06,
+   "reference": 6.370701607698462e-09,
+   "series": "Ar 2.5e10 V/m, 30 fs",
+   "share": 1.0,
+   "trapezoid": 0.0034384745620995335,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[Ar 2.5e10 V/m, 30 fs]"
+  },
+  {
+   "axis": "work identity",
+   "band_rule": 4.143773947307139e-07,
+   "reference": null,
+   "series": "Ar 2.5e10 V/m, 30 fs",
+   "share": null,
+   "trapezoid": 0.002851402873480069,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[Ar 2.5e10 V/m, 30 fs]"
+  },
+  {
+   "axis": "0.30-0.50",
+   "band_rule": 2.2136892911018852e-06,
+   "reference": 4.386344962053958e-07,
+   "series": "Ar 4e10 V/m, 1.3 fs",
+   "share": 2.4323577744342595e-05,
+   "trapezoid": 0.018680786004422273,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[Ar 4e10 V/m, 1.3 fs]"
+  },
+  {
+   "axis": "0.50-0.70",
+   "band_rule": 1.0353798328127723e-06,
+   "reference": 6.844529777965623e-07,
+   "series": "Ar 4e10 V/m, 1.3 fs",
+   "share": 1.6992167005291784e-05,
+   "trapezoid": 0.019507075539876805,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[Ar 4e10 V/m, 1.3 fs]"
+  },
+  {
+   "axis": "0.70-0.85",
+   "band_rule": 5.544146087759328e-07,
+   "reference": 1.3885223451709215e-06,
+   "series": "Ar 4e10 V/m, 1.3 fs",
+   "share": 3.760193759946331e-06,
+   "trapezoid": 0.0416019043950823,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[Ar 4e10 V/m, 1.3 fs]"
+  },
+  {
+   "axis": "0.85-0.95",
+   "band_rule": 7.669676559234945e-07,
+   "reference": 2.181474666888117e-06,
+   "series": "Ar 4e10 V/m, 1.3 fs",
+   "share": 9.748869288304753e-07,
+   "trapezoid": 0.06195969198004337,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[Ar 4e10 V/m, 1.3 fs]"
+  },
+  {
+   "axis": "0.95-1.00",
+   "band_rule": 2.4866517238278533e-06,
+   "reference": 3.081453154227662e-06,
+   "series": "Ar 4e10 V/m, 1.3 fs",
+   "share": 2.4607317444041156e-07,
+   "trapezoid": 0.07311843870120686,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[Ar 4e10 V/m, 1.3 fs]"
+  },
+  {
+   "axis": "1.00-1.10",
+   "band_rule": 3.2696666032199515e-06,
+   "reference": 4.094345918950402e-06,
+   "series": "Ar 4e10 V/m, 1.3 fs",
+   "share": 2.590456058970537e-07,
+   "trapezoid": 0.08306326137214684,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[Ar 4e10 V/m, 1.3 fs]"
+  },
+  {
+   "axis": "active",
+   "band_rule": 1.7721994150909475e-07,
+   "reference": 5.781994083344086e-09,
+   "series": "Ar 4e10 V/m, 1.3 fs",
+   "share": 1.0,
+   "trapezoid": 0.0006928867957314419,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[Ar 4e10 V/m, 1.3 fs]"
+  },
+  {
+   "axis": "work identity",
+   "band_rule": 3.7949309472651294e-08,
+   "reference": null,
+   "series": "Ar 4e10 V/m, 1.3 fs",
+   "share": null,
+   "trapezoid": 0.00036561163071491265,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[Ar 4e10 V/m, 1.3 fs]"
+  },
+  {
+   "axis": "0.30-0.50",
+   "band_rule": 3.042362818286486e-06,
+   "reference": 2.7653727087804934e-07,
+   "series": "Ar 8e10 V/m, 1.3 fs (saturating)",
+   "share": 1.3806957095320303e-05,
+   "trapezoid": 0.03190088673150059,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[Ar 8e10 V/m, 1.3 fs (saturating)]"
+  },
+  {
+   "axis": "0.50-0.70",
+   "band_rule": 1.2677042324741065e-05,
+   "reference": 4.332565433388653e-06,
+   "series": "Ar 8e10 V/m, 1.3 fs (saturating)",
+   "share": 3.2231299022845245e-08,
+   "trapezoid": 0.14880125494109808,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[Ar 8e10 V/m, 1.3 fs (saturating)]"
+  },
+  {
+   "axis": "0.70-0.85",
+   "band_rule": 2.4251012180198048e-05,
+   "reference": 4.095684123532911e-06,
+   "series": "Ar 8e10 V/m, 1.3 fs (saturating)",
+   "share": 9.587282579391914e-09,
+   "trapezoid": 0.11825008232616159,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[Ar 8e10 V/m, 1.3 fs (saturating)]"
+  },
+  {
+   "axis": "0.85-0.95",
+   "band_rule": 2.9985138340677735e-05,
+   "reference": 4.8274319424815075e-06,
+   "series": "Ar 8e10 V/m, 1.3 fs (saturating)",
+   "share": 2.841254056921664e-09,
+   "trapezoid": 0.1496291782385374,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[Ar 8e10 V/m, 1.3 fs (saturating)]"
+  },
+  {
+   "axis": "0.95-1.00",
+   "band_rule": 4.172795195219009e-05,
+   "reference": 4.629148138619694e-06,
+   "series": "Ar 8e10 V/m, 1.3 fs (saturating)",
+   "share": 2.0309582427869235e-09,
+   "trapezoid": 0.16262727533256224,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[Ar 8e10 V/m, 1.3 fs (saturating)]"
+  },
+  {
+   "axis": "1.00-1.10",
+   "band_rule": 7.701759407192677e-05,
+   "reference": 3.926307110578709e-06,
+   "series": "Ar 8e10 V/m, 1.3 fs (saturating)",
+   "share": 1.8129078749851557e-09,
+   "trapezoid": 0.1612330793923771,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[Ar 8e10 V/m, 1.3 fs (saturating)]"
+  },
+  {
+   "axis": "active",
+   "band_rule": 1.2600824540190855e-06,
+   "reference": 6.29950730670809e-09,
+   "series": "Ar 8e10 V/m, 1.3 fs (saturating)",
+   "share": 1.0,
+   "trapezoid": 0.005978701778143803,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[Ar 8e10 V/m, 1.3 fs (saturating)]"
+  },
+  {
+   "axis": "work identity",
+   "band_rule": 9.212646761014298e-07,
+   "reference": null,
+   "series": "Ar 8e10 V/m, 1.3 fs (saturating)",
+   "share": null,
+   "trapezoid": 0.003734272427758034,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[Ar 8e10 V/m, 1.3 fs (saturating)]"
+  },
+  {
+   "axis": "0.30-0.50",
+   "band_rule": 1.4637844901126684e-06,
+   "reference": 3.7098433172559753e-07,
+   "series": "He 6e10 V/m, 1.3 fs",
+   "share": 1.2341024872243302e-05,
+   "trapezoid": 0.011793191324833776,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[He 6e10 V/m, 1.3 fs]"
+  },
+  {
+   "axis": "0.50-0.70",
+   "band_rule": 1.0781374789499622e-06,
+   "reference": 6.630421980901721e-07,
+   "series": "He 6e10 V/m, 1.3 fs",
+   "share": 7.294020674939763e-06,
+   "trapezoid": 0.020401086702983715,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[He 6e10 V/m, 1.3 fs]"
+  },
+  {
+   "axis": "0.70-0.85",
+   "band_rule": 4.3050371140730094e-07,
+   "reference": 1.2956787620444673e-06,
+   "series": "He 6e10 V/m, 1.3 fs",
+   "share": 1.9385157755040925e-06,
+   "trapezoid": 0.043380067605889965,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[He 6e10 V/m, 1.3 fs]"
+  },
+  {
+   "axis": "0.85-0.95",
+   "band_rule": 7.359544110972208e-07,
+   "reference": 1.994454306041534e-06,
+   "series": "He 6e10 V/m, 1.3 fs",
+   "share": 5.903861547004433e-07,
+   "trapezoid": 0.06463015658256968,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[He 6e10 V/m, 1.3 fs]"
+  },
+  {
+   "axis": "0.95-1.00",
+   "band_rule": 2.7646695436287468e-06,
+   "reference": 2.924727070344215e-06,
+   "series": "He 6e10 V/m, 1.3 fs",
+   "share": 1.6323484719556087e-07,
+   "trapezoid": 0.07423608181338533,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[He 6e10 V/m, 1.3 fs]"
+  },
+  {
+   "axis": "1.00-1.10",
+   "band_rule": 3.5544007905114596e-06,
+   "reference": 3.6351934577663046e-06,
+   "series": "He 6e10 V/m, 1.3 fs",
+   "share": 2.068416064167739e-07,
+   "trapezoid": 0.08764720314657093,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[He 6e10 V/m, 1.3 fs]"
+  },
+  {
+   "axis": "active",
+   "band_rule": 1.7750068102906976e-06,
+   "reference": 3.89686235730517e-09,
+   "series": "He 6e10 V/m, 1.3 fs",
+   "share": 1.0,
+   "trapezoid": 0.00046969944349095654,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[He 6e10 V/m, 1.3 fs]"
+  },
+  {
+   "axis": "work identity",
+   "band_rule": 2.1593087917715081e-07,
+   "reference": null,
+   "series": "He 6e10 V/m, 1.3 fs",
+   "share": null,
+   "trapezoid": 0.0001763048633489639,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[He 6e10 V/m, 1.3 fs]"
+  },
+  {
+   "axis": "0.30-0.50",
+   "band_rule": 6.512021354299124e-06,
+   "reference": 8.086633719766593e-07,
+   "series": "He 9e10 V/m, 1.3 fs",
+   "share": 1.5060820010520172e-06,
+   "trapezoid": 0.05916935145026825,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[He 9e10 V/m, 1.3 fs]"
+  },
+  {
+   "axis": "0.50-0.70",
+   "band_rule": 8.253762112934418e-07,
+   "reference": 1.8187283350749307e-06,
+   "series": "He 9e10 V/m, 1.3 fs",
+   "share": 3.406888728120755e-07,
+   "trapezoid": 0.017850866568698637,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[He 9e10 V/m, 1.3 fs]"
+  },
+  {
+   "axis": "0.70-0.85",
+   "band_rule": 6.167328698168695e-07,
+   "reference": 2.709866348469785e-06,
+   "series": "He 9e10 V/m, 1.3 fs",
+   "share": 9.85661031531115e-08,
+   "trapezoid": 0.027140495675547778,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[He 9e10 V/m, 1.3 fs]"
+  },
+  {
+   "axis": "0.85-0.95",
+   "band_rule": 6.471427781880004e-07,
+   "reference": 3.614573343028682e-06,
+   "series": "He 9e10 V/m, 1.3 fs",
+   "share": 2.945550949654102e-08,
+   "trapezoid": 0.056117391831021726,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[He 9e10 V/m, 1.3 fs]"
+  },
+  {
+   "axis": "0.95-1.00",
+   "band_rule": 2.232797370718319e-06,
+   "reference": 6.726617567317495e-06,
+   "series": "He 9e10 V/m, 1.3 fs",
+   "share": 5.630813280105309e-09,
+   "trapezoid": 0.0674193282850246,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[He 9e10 V/m, 1.3 fs]"
+  },
+  {
+   "axis": "1.00-1.10",
+   "band_rule": 3.9471110823650916e-06,
+   "reference": 8.227718832257034e-06,
+   "series": "He 9e10 V/m, 1.3 fs",
+   "share": 6.352680506154688e-09,
+   "trapezoid": 0.051049170944591674,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[He 9e10 V/m, 1.3 fs]"
+  },
+  {
+   "axis": "active",
+   "band_rule": 3.0145698840743273e-07,
+   "reference": 3.812226828811052e-09,
+   "series": "He 9e10 V/m, 1.3 fs",
+   "share": 1.0,
+   "trapezoid": 0.0014517546867148636,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[He 9e10 V/m, 1.3 fs]"
+  },
+  {
+   "axis": "work identity",
+   "band_rule": 8.839036174101977e-07,
+   "reference": null,
+   "series": "He 9e10 V/m, 1.3 fs",
+   "share": null,
+   "trapezoid": 0.002593388020049936,
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band_response.py::test_the_band_rule_meets_its_targets_on_ionising_fields[He 9e10 V/m, 1.3 fs]"
+  }
+ ],
+ "schema": 1,
+ "study": "plasma_band_response",
+ "title": "The band rule's plasma polarisation on ionising fields, against Richardson",
+ "writes": [
+  {
+   "backend": null,
+   "blas": null,
+   "branch": "feature/sep-0018-band-integrals-1",
+   "commit": "c3c8cbc73c4abf921306ac688a955884de83fe4e",
+   "fftw_planner": null,
+   "machine_id": "darwin-arm64",
+   "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.5",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": null,
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": null,
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": null,
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  }
+ ]
+}

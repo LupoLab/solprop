@@ -1,0 +1,9 @@
+ModalSample: internal-convention E/H on physical nodes
+  omega:      2.255870e+15 rad/s
+  z:          0 m
+  channels:   1
+  nodes:      30
+  gauge:      analytic-real-transverse
+  provider:   {"channels": [{"azimuthal_order": 1, "display_label": "HE1,1:even", "fa...
+  residual:   1.646e-15 largest
+  reciprocal: yes

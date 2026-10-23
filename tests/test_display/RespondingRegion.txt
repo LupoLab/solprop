@@ -1,0 +1,5 @@
+MaterialRegion: core
+  inner:     0 m
+  outer:     Constant(value=2.5e-07, span=(0.0, inf))
+  material:  IndexMaterial
+  responses: MaterialKerr(n2=2.6e-20 m^2/W)

@@ -1,0 +1,135 @@
+{
+ "axis": {
+  "label": "coarse level of the pair",
+  "name": "n_steps",
+  "unit": "steps"
+ },
+ "case": {
+  "case": "the reduced M2 capillary (2 modes, 1 m) of tests/data/luna_rdw.json",
+  "media": "Luna's own helium susceptibility and cladding table",
+  "metric": "relative L2 difference of the in-band spectral energy density between successive levels, normalised by the finest level",
+  "plasma_source": "SEP 27 held current, A_J, when plasma is enabled",
+  "schedule": "uniform fixed steps at 250, 500 and 1000"
+ },
+ "columns": [
+  {
+   "atol": 1e-12,
+   "bound": null,
+   "name": "difference",
+   "rtol": 0.05,
+   "unit": "1 (relative to the finest level's norm)",
+   "why": "a twentieth: a fixed schedule reproduces above round-off, and this is the width of the claim each rung makes about the case's order"
+  },
+  {
+   "atol": 0.2,
+   "bound": null,
+   "name": "order",
+   "rtol": 0.0,
+   "unit": "1",
+   "why": "what a twentieth in each of two differences costs a log2 ratio; null on the coarser pair, which has nothing to be a ratio with"
+  }
+ ],
+ "luna": null,
+ "rows": [
+  {
+   "axis": 250,
+   "difference": 2.9217286471066214e-05,
+   "order": null,
+   "series": "constant fill, no plasma",
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_scheme_shows_its_own_order_on_the_smooth_version_of_the_case"
+  },
+  {
+   "axis": 500,
+   "difference": 3.9377728349773494e-07,
+   "order": 6.213298498717986,
+   "series": "constant fill, no plasma",
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_scheme_shows_its_own_order_on_the_smooth_version_of_the_case"
+  },
+  {
+   "axis": 250,
+   "difference": 0.00013350734320521083,
+   "order": null,
+   "series": "constant fill, plasma",
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_other_two_switches_of_the_order_study"
+  },
+  {
+   "axis": 500,
+   "difference": 2.166542729203723e-06,
+   "order": 5.945380595199915,
+   "series": "constant fill, plasma",
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_other_two_switches_of_the_order_study"
+  },
+  {
+   "axis": 250,
+   "difference": 9.455665630515672e-06,
+   "order": null,
+   "series": "vacuum gradient, no plasma",
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_other_two_switches_of_the_order_study"
+  },
+  {
+   "axis": 500,
+   "difference": 3.541758139837481e-06,
+   "order": 1.4167133236472784,
+   "series": "vacuum gradient, no plasma",
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_other_two_switches_of_the_order_study"
+  },
+  {
+   "axis": 250,
+   "difference": 3.761373402611324e-05,
+   "order": null,
+   "series": "vacuum gradient, plasma",
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_m2_case_is_first_order_and_the_two_reasons_are_known"
+  },
+  {
+   "axis": 500,
+   "difference": 1.3172892494473564e-05,
+   "order": 1.5136873677294989,
+   "series": "vacuum gradient, plasma",
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_m2_case_is_first_order_and_the_two_reasons_are_known"
+  }
+ ],
+ "schema": 1,
+ "study": "m2_order",
+ "title": "The M2 case's convergence order, one switch at a time",
+ "writes": [
+  {
+   "backend": "numba_cpu",
+   "blas": "openblas 0.3.34.0.0",
+   "branch": "HEAD",
+   "commit": "7fc63c9186a39331811f099607000cb9687bd0ea",
+   "fftw_planner": null,
+   "machine_id": "linux-x86-64",
+   "os": "Linux-6.17.0-14-generic-x86_64-with-glibc2.39",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.7",
+   "threads": {
+    "MKL_NUM_THREADS": "1",
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": "1",
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": "false",
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": "1",
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": "1",
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  }
+ ]
+}

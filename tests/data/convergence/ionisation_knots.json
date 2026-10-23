@@ -1,0 +1,105 @@
+{
+ "axis": {
+  "label": "cubic intervals",
+  "name": "n_intervals",
+  "unit": "intervals"
+ },
+ "case": {
+  "field_range": "the default, Eb/2500 to 2 Eb, raised to the rate's threshold and lowered to its maximum field",
+  "probe": "9999 points, uniform in log field",
+  "rate": "optmat's PPT (ppt_ilkov), neon, 800 nm",
+  "why_neon": "its rate carries no clamped barrier-suppression correction, so nothing but the interpolation error is measured"
+ },
+ "columns": [
+  {
+   "atol": 0.0,
+   "bound": null,
+   "name": "knots",
+   "rtol": 0.0,
+   "unit": "knots",
+   "why": "the table's own size, an input rather than a measurement, so it is compared exactly"
+  },
+  {
+   "atol": 9.094947017729347e-13,
+   "bound": null,
+   "name": "error",
+   "rtol": 0.0,
+   "unit": "1 (absolute, in the natural logarithm of the rate)",
+   "why": "absolute evaluation-scale roundoff: 32 rounded operations at a verified log-rate magnitude bound of 128, including both machines"
+  },
+  {
+   "atol": 0.0,
+   "bound": null,
+   "name": "ratio",
+   "rtol": 0.0019550342130987292,
+   "unit": "1",
+   "why": "each error exceeds 1024 absolute roundoff floors; propagating both operand bounds gives relative ratio uncertainty 2/(1024-1); null on the coarsest rung, which has no pair"
+  }
+ ],
+ "luna": null,
+ "rows": [
+  {
+   "axis": 64,
+   "error": 1.1226172276224133e-06,
+   "knots": 65.0,
+   "ratio": null,
+   "series": "PPT neon",
+   "write": 0,
+   "written_by": "tests/translate/test_ionisation_tables.py::test_the_error_falls_at_fourth_order_as_the_knots_double"
+  },
+  {
+   "axis": 128,
+   "error": 5.127118640757544e-08,
+   "knots": 129.0,
+   "ratio": 21.895674866937426,
+   "series": "PPT neon",
+   "write": 0,
+   "written_by": "tests/translate/test_ionisation_tables.py::test_the_error_falls_at_fourth_order_as_the_knots_double"
+  },
+  {
+   "axis": 256,
+   "error": 3.202742959729221e-09,
+   "knots": 257.0,
+   "ratio": 16.008523647464425,
+   "series": "PPT neon",
+   "write": 0,
+   "written_by": "tests/translate/test_ionisation_tables.py::test_the_error_falls_at_fourth_order_as_the_knots_double"
+  }
+ ],
+ "schema": 1,
+ "study": "ionisation_knots",
+ "title": "Interpolation error of an ionisation rate table against its knot count",
+ "writes": [
+  {
+   "backend": null,
+   "blas": null,
+   "branch": "HEAD",
+   "commit": "9bc569d1378dea180158480752beb35e1f98c1cf",
+   "fftw_planner": "estimate",
+   "machine_id": "darwin-arm64",
+   "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.5",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": "1",
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": null,
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": "1",
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": null,
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  }
+ ]
+}

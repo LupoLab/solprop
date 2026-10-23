@@ -1,0 +1,6 @@
+WallOperator: the condensed Robin wall of an HE_1m block
+  channels:           3
+  frequencies:        3 active
+  largest field loss: 0.9611 1/m
+  largest coupling:   0.006417 1/m
+  limits:             WallLimits(3 channels, worst=quasi_static=0.009232)

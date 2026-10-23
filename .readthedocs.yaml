@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Read the Docs: the manual, built from the locked environment with uv, exactly as
+# `poe docs` builds it (warnings are errors). The worked examples' output is committed
+# (docs/auto_examples/), so nothing long runs here; the tutorials execute as in every
+# normal build. The native package is not installed: the manual needs no compiled code.
+version: 2
+
+build:
+  os: ubuntu-24.04
+  tools:
+    python: "3.14"
+  jobs:
+    # solprop's version comes from the repository's tags (hatch-vcs).
+    post_checkout:
+      - git fetch --unshallow --tags || true
+    create_environment:
+      - asdf plugin add uv
+      - asdf install uv latest
+      - asdf global uv latest
+    install:
+      - UV_PROJECT_ENVIRONMENT=$READTHEDOCS_VIRTUALENV_PATH uv sync --frozen
+    build:
+      html:
+        - UV_PROJECT_ENVIRONMENT=$READTHEDOCS_VIRTUALENV_PATH uv run --no-sync sphinx-build -b html -W -n --keep-going docs $READTHEDOCS_OUTPUT/html

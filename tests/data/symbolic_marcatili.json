@@ -1,0 +1,177 @@
+{
+ "cases": {
+  "luna-full-metal-like": {
+   "alpha": 0.029011570688382,
+   "beta": [
+    7857863.683260663,
+    3.337445272756337e-09,
+    -1.8980223741739087e-29,
+    8.8053003293087e-44
+   ],
+   "cladding": [
+    0.036759,
+    5.5698
+   ],
+   "model": "full",
+   "source": "luna",
+   "zdw": 7.225347947615635e-07
+  },
+  "luna-full-silica-like": {
+   "alpha": 2.2150582601505033,
+   "beta": [
+    7857865.680691109,
+    3.3374435723343587e-09,
+    -1.6808863770762086e-29,
+    8.435602926657206e-44
+   ],
+   "cladding": [
+    1.45,
+    0.0
+   ],
+   "model": "full",
+   "source": "luna",
+   "zdw": 7.289459086128618e-07
+  },
+  "luna-reduced-metal-like": {
+   "alpha": 0.028831153253145923,
+   "beta": [
+    7857864.649385849,
+    3.337445748564259e-09,
+    -1.897197826859659e-29,
+    8.806058449473558e-44
+   ],
+   "cladding": [
+    0.036759,
+    5.5698
+   ],
+   "model": "reduced",
+   "source": "luna",
+   "zdw": 7.225818831386078e-07
+  },
+  "luna-reduced-silica-like": {
+   "alpha": 2.2161536777569384,
+   "beta": [
+    7857866.638999733,
+    3.337444058558384e-09,
+    -1.6818706310009565e-29,
+    8.440254582820937e-44
+   ],
+   "cladding": [
+    1.45,
+    0.0
+   ],
+   "model": "reduced",
+   "source": "luna",
+   "zdw": 7.289431065526442e-07
+  },
+  "solprop-full-metal-like": {
+   "alpha": 0.029011570688382,
+   "beta": [
+    7857863.683260663,
+    3.337445272756337e-09,
+    -1.8980223741735623e-29,
+    8.805300329308905e-44
+   ],
+   "cladding": [
+    0.036759,
+    5.5698
+   ],
+   "model": "full",
+   "source": "solprop",
+   "zdw": 7.225347947616343e-07
+  },
+  "solprop-full-silica-like": {
+   "alpha": 2.2150582601505033,
+   "beta": [
+    7857865.680691109,
+    3.3374435723343587e-09,
+    -1.6808863770758622e-29,
+    8.435602926657412e-44
+   ],
+   "cladding": [
+    1.45,
+    0.0
+   ],
+   "model": "full",
+   "source": "solprop",
+   "zdw": 7.289459086129361e-07
+  },
+  "solprop-reduced-metal-like": {
+   "alpha": 0.028831153253145923,
+   "beta": [
+    7857864.649385849,
+    3.337445748564259e-09,
+    -1.8971978268595044e-29,
+    8.80605844947415e-44
+   ],
+   "cladding": [
+    0.036759,
+    5.5698
+   ],
+   "model": "reduced",
+   "source": "solprop",
+   "zdw": 7.225818831386158e-07
+  },
+  "solprop-reduced-silica-like": {
+   "alpha": 2.2161536777569384,
+   "beta": [
+    7857866.638999733,
+    3.337444058558384e-09,
+    -1.6818706310008018e-29,
+    8.440254582821528e-44
+   ],
+   "cladding": [
+    1.45,
+    0.0
+   ],
+   "model": "reduced",
+   "source": "solprop",
+   "zdw": 7.289431065526662e-07
+  }
+ },
+ "inputs": {
+  "luna": {
+   "fill_density": 4.933761614599279e+25,
+   "poles": [
+    [
+     0.0002033229,
+     0.00020612
+    ],
+    [
+     0.0003445831,
+     0.008066
+    ]
+   ],
+   "reference_density": 2.6541047057884805e+25
+  },
+  "solprop": {
+   "fill_density": 4.933761535130051e+25,
+   "poles": [
+    [
+     0.0002033229,
+     0.00020612
+    ],
+    [
+     0.0003445831,
+     0.008066
+    ]
+   ],
+   "reference_density": 2.6541046630382087e+25
+  }
+ },
+ "provenance": {
+  "after": "Luna test/symbolic_marcatilli.py on the modal-fixed checkout, extended to the reduced model and to both losses",
+  "derived_with": "sympy 1.14.0",
+  "gas": "Ar",
+  "generated": "2026-09-05T10:05:48+00:00",
+  "generated_by": "tests/data/generate_symbolic_marcatili.py",
+  "index_source": "borzsonyi",
+  "note": "Symbolic derivatives, not finite differences. The 'solprop' cases share their inputs with the package and so test the calculus; the 'luna' cases use the constants Luna hard-codes and reproduce its published numbers.",
+  "pressure_bar": 2.0,
+  "python": "3.14.5",
+  "radius_m": 5e-05,
+  "temperature_k": 294.0,
+  "u_nm": 2.4048255576957724,
+  "wavelength_m": 8e-07
+ }
+}

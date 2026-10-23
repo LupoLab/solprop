@@ -1,0 +1,6 @@
+Compression by taylor
+  found:      GDD -562.2 fs^2
+  duration:   60 fs before, 30 fs after, 30 fs at the transform limit
+  peak power: 19.57 MW before, 39.14 MW after, 39.14 MW at the limit
+  quality:    1 of the transform-limited peak power
+  search:     converged: Solution found. (<n> evaluations)

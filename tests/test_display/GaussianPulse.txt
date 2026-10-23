@@ -1,0 +1,6 @@
+GaussianPulse
+  wavelength:     800 nm
+  fwhm:           30 fs
+  energy:         1 uJ
+  spectral phase: CEP 0.3 rad, GDD 250 fs^2
+  delay:          0 s

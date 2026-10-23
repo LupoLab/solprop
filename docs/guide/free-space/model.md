@@ -1,0 +1,464 @@
+# The free-space model
+
+This is the reference for free-space propagation, a beam in a bulk medium rather than in a
+waveguide. It defines what a free-space run evolves and in which units, derives the exact
+longitudinal operator, the absorbing spatial collar and the critical power, and gives the
+definitions behind the line grid, the run's memory and its CPU execution. Setting up,
+running and reading a beam, with snippets that run as written, is the how-to,
+[beams in bulk media](beams.md). Where free space sits among solprop's other transverse
+decompositions, with a figure for each and the assumptions each makes, is in
+[spatial decompositions](../setup/spatial-decompositions.md).
+
+A free-space run evolves the physical electric field itself, not the amplitudes of
+guided modes. Its state columns are transverse spatial frequencies, from one of three
+grids:
+
+| grid | columns | assumes | medium | entry point |
+|---|---|---|---|---|
+| {py:class}`~solprop.grid.RadialGrid` | Hankel frequencies $k_r$ of the order-zero [Hankel transform](hankel.md) | each Cartesian polarisation component cylindrically symmetric | constant, or a gas whose pressure varies along z | `prop_radial`, `Simulation.from_radial` |
+| {py:class}`~solprop.grid.FreeGrid` | 2-D Fourier frequencies $(k_x, k_y)$, x fastest ([Cartesian free space](cartesian.md)) | nothing: periodic box | constant | `prop_free`, `Simulation.from_free` |
+| {py:class}`~solprop.grid.LineGrid` | $k_x$ alone | uniform in y ([the line](#the-line-uniform-in-y)) | constant | `prop_free`, `Simulation.from_free` |
+
+The radial transform does not represent azimuthal structure: a tilted, astigmatic or
+multi-filament beam needs the Cartesian grid. Everything else is shared with fibre
+propagation: the temporal grid ([grids](../setup/grids.md)), the Kerr and plasma responses, the
+interaction-picture stepper ([the solver](../numerics/solver.md)) and the output handlers
+([output](../results/output.md)).
+
+## Field units and transverse measure
+
+The analytic intensity is $I=\varepsilon_0 c\sum_p|E_{a,p}|^2/2$, in W/m², summed over
+the Cartesian polarisation components $p$. Integrating over time gives the fluence in
+J/m², and integrating that over the cross-section gives the energy in J. A
+{py:class}`~solprop.grid.RadialGrid` carries the physical area weights for $2\pi r\,dr$
+and the spectral weights for $2\pi k_r\,dk_r$. Its stored Hankel spectrum is in V m; the
+physical-space field is in V/m. The [Hankel transform page](hankel.md) derives both
+scalings and the raw transform's truncation and floating-point error: it is not exactly
+orthogonal at finite size. The Cartesian grid's stored spectrum is a raw DFT, also in
+V/m ([Cartesian free space](cartesian.md#transform-and-energy)). The factor
+$\varepsilon_0c/2$ is the vacuum flux: inside a dense medium the energy, intensity and
+fluence are low by about the refractive index, a known limitation discussed in
+[power and intensity](../results/power-and-intensity.md).
+
+{py:class}`~solprop.pulses.SpatialPulse` wraps any scalar temporal pulse in a transverse
+beam. Its transverse field is `exp(-(r/waist)**(2*order))`, so `waist` is the 1/e²
+intensity radius and `order=1` is a Gaussian. The wrapper normalises the transverse
+profile with the spectral energy measure, so the temporal pulse's `energy` or `peak_power`
+is the whole beam's energy or peak power at the waist plane, in the free-space field
+units. The optional `jones=` vector is in the optics convention and is normalised before
+it is applied; each component then has its own scalar transform.
+
+{py:func}`~solprop.noise.spatial_noise` draws the same one-photon-per-bin model as the
+fibre routes ([shot noise](../media/noise.md)) and divides each transverse column by
+`sqrt(epsilon_0*c*spectral_weight/2)`, so the weighted spectral energy of each active bin
+is still `hbar*omega`. The `input` and `modified` noise models use the same draw, with
+the same propagation semantics and recorded seed as on a fibre.
+
+## Exact longitudinal operator
+
+{py:class}`~solprop.spatial.SpatialMedium` names the medium: a gas, a glass, a gas mixture
+or a constant complex refractive index; `SpatialMedium()` is vacuum. A gas can carry a
+pressure {py:class}`~solprop.profiles.ZProfile` along z on the radial grid; its density
+and susceptibility use the same material functions as a capillary
+([materials](../media/materials.md)): optmat's built-in gas, or a `susceptibility=` of the
+caller's own beside optmat's equation of state. A run resolves a named gas into its
+one-population mixture and binds an optmat rate's energy per event to the input's peak
+field; its declared responses are the caller's, so a Kerr response at optmat's
+coefficient is `KerrResponse(gamma3(gas, wavelength=lambda0))`
+([materials](../media/material-selection.md#selecting-a-runs-materials)). A mixture carries its own
+temperature, so `temperature=` beside one is either the mixture's or refused. The
+medium's density is also the one its nonlinear responses take: an explicit response
+density (`SimulationSettings.density`) beside a gas or a mixture is refused, since the
+dispersion and the nonlinearity would then describe different fills. To hold a gas at a
+given number density, give the medium that density, `SpatialMedium("Ar").at_density(rho)`.
+
+Let $k=n(\omega,z)\omega/c$ and $q=k^2-k_r^2$. For $\Re q>0$, the principal square
+root defines $k_z=\sqrt q=\kappa+i\eta$. The internal linear operator is
+$D=-\eta-i(\kappa-\text{frame})-\alpha_\omega/2$, with $\alpha_\omega$ the spectral
+absorber rate ([absorbing boundaries](../numerics/boundaries.md)). No paraxial approximation is made:
+$k_z$ is exact for every transverse frequency. A positive imaginary material index is
+loss and a negative one is gain. The frame is evaluated at transverse frequency zero and
+follows the field and envelope conventions of [the linear operator](../numerics/linear-operator.md).
+
+The nonlinear polarisation prefactor, before temporal crop scaling, is
+$-i\omega^2/(2\varepsilon_0c^2\kappa)$. It uses the same `epsilon_0` as the intensity
+functional: independently rounded `mu_0` and `epsilon_0` table entries need not satisfy
+their defining relation to machine precision, so the coefficient is derived from
+`epsilon_0` and the exact `c`.
+
+For $\Re q\le0$ the column is evanescent, and the declared numerical model uses the
+attenuation `min(abs(Im(sqrt(q))), 200)` in m⁻¹ and the clamped prefactor `-i*omega/2`.
+The value 200 m⁻¹ is a numerical choice that keeps evanescent columns bounded; it is not
+a material absorption coefficient, and it does not cap propagating material loss or gain.
+Inactive temporal frequencies have zero operator and prefactor.
+
+**Setting the evanescent rate.** Physically a non-propagating column decays as
+$e^{-|\Im k_z|z}$, with $|\Im k_z|\approx(k_\perp^2-\Re k^2)^{1/2}$ of order
+$10^6$–$10^7$ m⁻¹ on a sub-wavelength grid. Over a 40 µm slab the default cap attenuates
+such a column by less than one per cent, so a thin sample whose evanescent content must
+decay as it physically does sets the cap itself,
+`SimulationSettings(evanescent_rate=...)`, in m⁻¹. `None`, the default, keeps
+{py:data}`~solprop.spatial.EVANESCENT_RATE`. The largest physical rate the grid holds is
+{py:func}`~solprop.spatial.physical_evanescent_rate`: at each frequency
+$\Im\sqrt{k^2-k_\perp^2}$ is monotone in $k_\perp^2$, so the search sorts the columns
+once and evaluates the largest transverse square at every frequency, in
+$O(n_\omega\log n_{\mathrm{modes}})$. For glass of index 1.45 on a 0.4 µm grid it is
+about $7\times10^6$ m⁻¹ at 1.1 µm:
+
+```{code-block} python
+from solprop.spatial import physical_evanescent_rate
+
+rate = physical_evanescent_rate(space, medium, grid)
+settings = dataclasses.replace(settings, evanescent_rate=rate)
+```
+
+The setting is refused on a run without a spatial grid and must be positive and finite;
+a `SpatialPulse` launched with `propz=` keeps the default cap for its pre-propagation,
+since a physical rate would overflow a backward launch. The setting is recorded in the
+run's configuration only when given.
+
+**The exponent budget.** Every backend forms the inverse propagator
+$e^{-D\Delta z}$, whose decaying columns grow as $e^{\lambda_-\Delta z}$ with
+$\lambda_-=\max(-\Re D)$; past $\ln(\mathrm{DBL\_MAX})\approx709.78$ the factor is
+infinite and the next transform spreads it to every column. A gain medium grows the
+forward factor as $e^{\lambda_+\Delta z}$, over one step for the Runge-Kutta marches and
+over up to $q+1$ steps for an Adams method of largest order $q$. An adaptive run finds
+its own limit, since its controller rejects a non-finite trial and shrinks; a step the
+run cannot shrink -- a replayed schedule's longest step, or the floor `dz_min` -- is
+checked at translation against sufficient bounds on $\lambda_\pm$ from the same
+sorted search. Past the limit translation refuses the run, naming the binding term,
+the factor and the admissible step and rate: for example, a replayed step of 0.1 mm
+with `evanescent_rate=7.4e6` forms $e^{740}$ and is refused, naming steps of at most
+96 µm. Within a tenth of the limit it warns
+({py:class}`~solprop.exceptions.ExponentBudgetWarning`): such a run completes only while
+its field stays below $e$ to the margin. A run is refused only when it could not
+complete, and the default cap keeps every default schedule far inside the budget. The check covers the
+Cartesian, line and planar kinds from the separable operator's search, and the radial
+kind from its operator table: the exact extremes of $\Re D$ in a constant medium, and a
+sufficient bound from the rate's Chebyshev series in a varying one. A radial refusal
+names the radial operator's attenuation as a whole, since the evanescent cap, the
+spectral rate and the medium's loss are not separable there, and the admissible step.
+
+**Launching away from the waist.** A `SpatialPulse` with `propz=` set is carried from its
+waist by this exact operator before the run starts, with the entrance medium held fixed
+during the launch; a negative distance launches before the waist, so the beam focuses in
+the run. Exponential overflow raises. By default the launch is made in the run's own
+entrance medium; `SpatialPulse.build(grid, space, medium=SpatialMedium())` launches through
+vacuum instead, and the array it returns is the run's input
+([focusing, and launching away from the waist](beams.md#focusing-and-launching-away-from-the-waist)).
+The [radial tutorial](../../auto_tutorials/free_space/plot_01_radial.rst) launches its beam
+this way.
+
+## Spatial collar and statistics
+
+The outer `window_factor` of each spatial grid (a tenth by default) is its **collar**, a
+Planck window that falls from one to zero. It absorbs only when the run declares an
+absorber, `SimulationSettings(absorber=absorber(grid))` ({py:func}`solprop.boundaries.absorber`);
+without one, energy that reaches the edge of the grid is reflected by the radial
+transform's $E = 0$ at $R$, or wraps around the periodic Cartesian box.
+
+With an absorber, the spatial window defines a power rate
+`alpha_r = 12.6*(1-window)/boundary.in_stage_length` — the collar's `collar_length`,
+which is its `reference_length` unless set
+([two lengths](../numerics/boundaries.md#two-lengths-the-spectral-rate-and-the-in-stage-collars)) —
+the same bounded profile as the
+temporal collar ([why the temporal rate is not the logarithm](../numerics/boundaries.md#why-the-temporal-rate-is-not-the-logarithm)).
+It enters every nonlinear stage as `F diag(-alpha_r/2) B E`, independently of the
+material prefactor. The rate does not depend on time, so the radial backends compose its
+fixed matrices once at construction; the Cartesian backends apply the same term through
+their transverse FFT pair, `fft2(-alpha_r/2 * ifft2 E)`, without a dense matrix. Selecting
+the temporal `split_step` scheme does not split the spatial absorber.
+
+Like the temporal in-stage absorber, the spatial term is conditionally stable. The
+fixed-step stability diagnostic uses the weighted inverse transform $T$: the largest
+spatial power rate is bounded by `max(alpha_r)*norm(T,2)**2`, with a floating-point
+budget on that norm, and the temporal in-stage maximum rate is added when present. A
+replayed step or step floor above `2*STABILITY_RADIUS/combined_rate` is refused at
+translation. This is a
+rate diagnostic, not a guarantee that a chosen step resolves diffraction or nonlinear
+evolution.
+
+At every saved plane the driver measures the fraction of the physical fluence in nodes
+where the spatial window is below one, and logs a warning above the requested relative
+tolerance, with a rounding floor `gamma(64*n_columns + 16*ceil(log2(n_t)))`, where
+`n_columns` is `n_r` for a radial run and `n_x*n_y` for a Cartesian one. The warning prints
+the fraction and the threshold. It changes neither the state nor the step controller, and
+it adds no device transfer between saved planes. When it fires, repeat the run with a
+larger radius to find out whether the boundary influences the result. A plane that keeps
+no field ([field retention](../results/output.md)) is observed without its field, so the
+diagnostic, which reads the field, is not evaluated there: the run logs that once and
+counts the planes in its execution record (`collar_diagnostic_skipped`). Keep the field
+on the planes whose collar share you want checked.
+
+**Statistics.** The default set for a spatial run (`default_spec("radial")` or
+`default_spec("free")`) is `energy`, `on_axis_intensity`, `peak_intensity`,
+`beam_radius`, `fwhm_r` and `on_axis_spectrum`. The [statistics catalogue](../results/statistics.md)
+distinguishes `peak_intensity`, the largest intensity over the physical samples, from
+`on_axis_intensity`, reconstructed separately on the axis. The widths use the
+time-integrated fluence: `beam_radius` records the second-moment radius and the
+interpolated central 1/e² radius, and `fwhm_r` is a full width. An empty beam has no
+width, and a profile whose axis fluence lies below a threshold (hollow at that level) has
+no central width at it; these entries are NaN. The thresholds are fractions of the peak
+fluence, so a flat top whose first samples ripple above the reconstructed axis value keeps
+its widths. The saved on-axis spectrum is the real spectral fluence density, in J s/m²,
+summed over polarisation.
+
+{py:func}`~solprop.spatial.radial_fluence_widths` is the public host reduction for an
+already integrated radial fluence. It validates the supplied samples and weights; the
+native backend calls it after transferring its small fluence vector.
+
+### Far-field and Fourier-plane statistics
+
+A Cartesian or line run can also record the spectrum a detector behind the sample would
+see through apertures in a far-field or Fourier plane, in boxes of transverse
+wavevector, of the whole beam and of its axial flux, and the power the absorbers remove
+([far-field apertures](../results/statistics.md#far-field-apertures-and-angular-regions)).
+They rest on three statements about where the light goes after the run's last plane.
+
+**The far zone, or a Fourier plane.** The run ends at a planar exit face into vacuum
+(air, to the precision of the mapping); phase matching there conserves the transverse
+wavevector $\boldsymbol\kappa$, so a component leaves at $\sin\theta=c|\boldsymbol\kappa|/\omega$
+whatever the medium of the run, and only components with $|\boldsymbol\kappa|<\omega/c$
+leave at all. Fresnel transmission at the face, which depends on angle and polarisation,
+is not modelled, as at every end of a simulation. In the far zone of the exit plane --
+Fresnel number $a^2/(\lambda z_m)\ll1$ for a source of transverse size $a$ at distance
+$z_m$ -- the field in a direction is the angular spectrum at that direction's
+$\boldsymbol\kappa$, by stationary phase (L. Mandel and E. Wolf, *Optical Coherence and
+Quantum Optics*, Cambridge University Press, 1995,
+[doi:10.1017/CBO9781139644105](https://doi.org/10.1017/CBO9781139644105)), and it meets
+the plane $z_m$ at $z_m\tan\theta$. In the back focal plane of a lens of focal length $f$
+the paraxial relation $\mathbf x=f c\boldsymbol\kappa/\omega$ holds within thin-lens
+optics whatever the distance from the sample to the lens (J. W. Goodman, *Introduction
+to Fourier Optics*, 4th ed., W. H. Freeman, 2017), so an aperture's `distances` entry is
+either $z_m$ or $f$.
+
+**The paraxial error.** The statistics use the paraxial position $z_m\sin\theta$,
+$\mathbf x\simeq(z_mc/\omega)\boldsymbol\kappa$, short of the far-zone one by the factor
+$\cos\theta$: a relative error $1-\cos\theta\approx\theta^2/2$, $1.25\times10^{-3}$ at
+50 mrad. It is the statistic's definition, exact for a Fourier plane, not an error the
+tests bound; an exact $\tan\theta$ mapping for wide-angle emission is a roadmap item.
+
+**The vacuum flux.** Every spectrum is the vacuum flux functional
+$\varepsilon_0c|E|^2/2$ integrated over the transverse spectrum, as `energy` is. Inside a
+dense medium the physical axial flux is higher by about $\operatorname{Re}n(\omega)$ for
+a paraxial beam: `poynting_spectrum` weights the beam spectrum by the obliquity
+$c\operatorname{Re}k_z/\omega$, which is that factor, so the ratio of `poynting_spectrum`
+to `beam_spectrum` is the correction a reader can apply. The medium-aware flux itself is
+the roadmap's known issue *The vacuum flux factor in spatial functionals*. Once the light
+has left the face into vacuum the two agree up to the obliquity $\cos\theta$.
+
+## Construct and run a beam
+
+The how-to builds and runs beams with `prop_radial` and `prop_free`
+([beams in bulk media](beams.md#a-beam-in-argon)), which combine construction and
+execution. `Simulation.from_radial` and `Simulation.from_free` take the same arguments and
+separate the two:
+
+```{code-block} python
+from solprop.driver import Simulation, SimulationSettings
+from solprop.grid import EnvelopeGrid, RadialGrid
+from solprop.pulses import GaussianPulse, SpatialPulse
+from solprop.spatial import SpatialMedium
+from solprop.stats import default_spec
+from solprop.stepper import PIController
+
+grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
+space = RadialGrid(radius=600e-6, n_r=64)
+pulse = SpatialPulse(
+    GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9),
+    waist=60e-6,
+)
+settings = SimulationSettings(
+    controller=PIController(rtol=1e-8, atol=1e-14),
+    save_planes=[0.5e-3, 1e-3],
+    dz_init=1e-4,
+    dz_max=5e-4,
+    stats=default_spec("radial"),
+    backend="numpy_ref",
+)
+simulation = Simulation.from_radial(
+    grid,
+    space,
+    SpatialMedium(),
+    [],
+    pulse,
+    settings=settings,
+)
+output = simulation.run()
+```
+
+The empty response sequence gives exact linear diffraction in the selected temporal
+frame; add response objects — a `KerrResponse`, a plasma response — to the sequence for
+nonlinear propagation ([nonlinear responses](../media/nonlinear.md)). The absolute tolerance is
+in the stored Hankel spectrum's units, V m. The settings carry no absorber, so the collar
+here absorbs nothing ([above](#spatial-collar-and-statistics)). Translation is cached, so
+a second `run()` reuses it.
+
+A spatial run's output metadata stores the spatial axes, frequency ordering,
+integration weights, collar, units and transform scalings. The state-layout names are
+those of every other run, with `n_modes` interpreted as transverse spectral columns.
+The geometry is part of the resume key.
+
+## Critical power and self-focusing
+
+For a scalar monochromatic paraxial field in an isotropic Kerr medium,
+$i\partial_z A+(2k)^{-1}\nabla_\perp^2 A+g|A|^2A=0$, with
+$g=3k\chi^{(3)}/(8n^2)$ and $k=2\pi n/\lambda_\mathrm{vac}$.
+The positive radial stationary solution satisfies
+$Q''+Q'/r-Q+Q^3=0$. If $\alpha=\int_0^\infty Q^2r\,dr$, rescaling that
+equation and integrating $\varepsilon_0c|A|^2/2$ gives
+
+$$P_\mathrm{crit}=\frac{\alpha\varepsilon_0c\lambda_\mathrm{vac}^2}{3\pi\chi^{(3)}}.$$
+
+{py:func}`~solprop.spatial.critical_power` uses `alpha=1.86226`, the Townes value; call it
+with the wavelength and the medium's $\chi^{(3)}$, for example
+`critical_power(800e-9, chi3("Ar", pressure=1.2, wavelength=800e-9))` with `chi3` from
+{py:mod}`solprop.physdata`. The independent
+stationary boundary-value calculation gives `1.86225552049`; the paper's approximate
+`1.86225` misses a half-last-decimal rounding allowance of `5e-6` by giving an error
+of `5.52049e-6`. This numerical check is not an interval certificate.
+[Fibich and Gaeta (2000), equations 6–7](https://www.math.tau.ac.il/~fibich/Manuscripts/critical00.pdf)
+derive the Townes baseline and the Gaussian negative-Hamiltonian sufficient value
+`alpha=2`; their computed threshold for a collimated Gaussian is `1.8962` (their Table 1),
+less than 2 % above the Townes value. Their physical dielectric Poynting power is `n` times the package's
+declared vacuum field measure. The formula above includes that conversion.
+
+The [radial tutorial](../../auto_tutorials/free_space/plot_01_radial.rst) runs a 2 nJ beam launched
+from vacuum into argon, far below this baseline, and separately a collimated diagnostic
+at twice it. Twice `1.86226` exceeds the Gaussian sufficient value `2`; this does not predict
+where a temporally varying, exact-UPPE pulse will collapse. Plasma, higher-order
+responses, discretisation and departure from the paraxial approximation further
+limit such a comparison.
+
+For comparison the tutorial prints the Marburger estimate of the collapse distance,
+$z_\mathrm{M}=0.367z_R/\sqrt{(\sqrt{P/P_\mathrm{crit}}-0.852)^2-0.0219}$,
+the collimated Gaussian fit of [Marburger (1975)](https://doi.org/10.1016/0079-6727(75)90003-8),
+in the form given by [Couairon and Mysyrowicz (2007), equation 5](https://doi.org/10.1016/j.physrep.2006.12.005),
+with $z_R=kw_0^2/2$.
+solprop does not compute it and nothing depends on it: no uniform accuracy bound for that
+fit is claimed here. The tutorial's diagnostic run stops at `0.3 z_R` to illustrate the
+initial contraction, not a resolved collapse.
+
+## Cartesian example and memory
+
+`FreeGrid(radius_x, n_x, radius_y, n_y)` names x before y, and `window_factor=0` leaves
+no collar at all; a Cartesian run is shown in
+[Cartesian and line beams](beams.md#cartesian-and-line-beams). The [Cartesian tutorial](../../auto_tutorials/free_space/plot_02_cartesian.rst)
+adds argon Kerr propagation. The scalar second-moment width uses the fluence centroid, and
+the interpolated widths use circular averages of the bilinear fluence interpolant; both
+definitions and their sampling errors are derived under
+[fluence widths](cartesian.md#fluence-widths).
+
+**Memory.** A Cartesian run costs $n_xn_y$ columns per time sample, so its memory is
+what limits it. Compiled stages retain one full transverse scratch and bounded temporal columns.
+The node budget, 1 GiB by default on free-space, line and planar grids (64 MiB on
+modal routes), allows twenty complex-equivalent buffers per physical
+component per fine time sample. Eight cover the response and its FFT pairs, three
+cover doubled Raman scratch, 3.5 cover device plasma scans, two cover split-step
+transforms and 2.5 cover statistics. One more covers real-FFT endpoint bins. This
+inventory is conservative even though some response families cannot coexist. Persistent
+frequency-only material vectors and one `kperp_sq` vector replace coefficient volumes.
+The native backend stores its FFT scratch with transverse axes last, so Kokkos-FFT does not allocate
+full-volume transposition temporaries on execution. Canonical state order is unchanged.
+
+The buffer ledger counts retained arrays and separately records process allocator
+net growth while constructing opaque FFTW plans. The native backend additionally measures device
+free-memory decrease across plan construction. These plan measurements include vendor
+workspace but are not upper bounds or process high-water marks: allocator reuse and
+shared caches affect them. Whether a full-size run fits a GPU is therefore settled by
+measuring its plan usage on that device, not by the ledger alone.
+
+## The line, uniform in y
+
+{py:class}`~solprop.grid.LineGrid` is the Cartesian grid's x axis alone: the same centred
+samples, FFT order and Planck collar, with one y sample at $y = 0$ carrying $k_y = 0$,
+no y collar and a unit y measure. The field is uniform
+in y, so every transverse integral is over x **per metre of y**: the spatial and
+spectral weights are $\Delta x$ and $\Delta x/n_x$ in m, the energy is in J/m and the
+power in W/m, while intensity and fluence stay local, in W/m² and J/m². The run records
+`transverse_measure = "per_unit_width"`, and processing and the plots label from it, as
+for the [slab](../waveguides/planar.md#hollow-planar-waveguides).
+{py:class}`~solprop.pulses.SpatialPulse` takes its energy or peak power in J/m or W/m on a
+line; its waist is the 1/e² intensity half-width in x.
+{py:func}`~solprop.modes.slab.gaussian_to_per_unit_width` converts the energy of a beam
+of 1/e field radius $w_y$ in y to the J/m at its centre. The noise draw is one photon per
+column and bin per metre of y, a declared convention.
+
+The run is the Cartesian one with $n_y = 1$: the same separable exact operator with
+$k_\perp^2 = k_x^2$, the same two-axis FFT with a unit y extent, and the same collar,
+statistics and memory layout, on `numpy_ref`, `numba_cpu` and `native` (its CPU build and
+its CUDA build). The widths are one-dimensional: the
+second moment $2\sqrt{\langle(x-\bar x)^2\rangle}$ is the 1/e² half-width of a Gaussian
+fluence, as the plane's $\sqrt{2\langle r^2\rangle}$ is its radius, and the threshold
+widths average the two sides of the centroid. Varying media are refused, as on the plane.
+
+**The physics of one free dimension.** A Gaussian of waist $w_0$ still widens as
+$w_0\sqrt{1+(z/z_R)^2}$ with $z_R = kw_0^2/2$, but its axial amplitude falls as
+$(1+(z/z_R)^2)^{-1/4}$ and its Gouy phase is $\tfrac12\arctan(z/z_R)$, half the round
+beam's. The tests measure both, and the width, against these closed forms to 2e-6, the
+size of the exact operator's first non-paraxial term $(kw_0)^{-2}$.
+
+Kerr self-focusing in one transverse dimension does not collapse. The equation above,
+$i\partial_zA + (2k)^{-1}\partial_x^2A + g|A|^2A = 0$ with $g = 3k\chi^{(3)}/(8n^2)$, has
+the stable stationary solution $A_0\operatorname{sech}(x/x_0)$ when
+$gkA_0^2 = 1/x_0^2$, so $A_0^2 = 8/(3k_0^2\chi^{(3)}x_0^2)$ and $n$ cancels as it does in
+the Townes power. Its power per metre of y is
+
+$$P'_\mathrm{sol} = \frac{\varepsilon_0 c}{2}\int|A|^2dx = \frac{8\varepsilon_0c}{3k_0^2\chi^{(3)}x_0}
+= \frac{2\varepsilon_0c\lambda_\mathrm{vac}^2}{3\pi^2\chi^{(3)}x_0}
+\approx 0.3419\,\frac{P_\mathrm{crit}}{x_0},$$
+
+a family of solitons, one for every width, rather than a threshold. This power is derived
+here and held by the tests described next; it has not been checked against an independent
+(1+1)-D soliton reference. In
+argon at 1 bar and 800 nm a 100 µm soliton carries 3.1×10¹³ W/m. The tests hold it over
+three diffraction lengths $k x_0^2$ at the temporal peak of a 1 ps pulse to 3×10⁻⁴ of
+its peak, and see half its power diffract. There is no critical power:
+{py:func}`~solprop.spatial.critical_power` refuses a `LineGrid` by name rather than
+return a number in W that a power in W/m cannot be compared with. A sheet beam's
+modulational instability in y is outside the model.
+
+A line run is shown in [Cartesian and line beams](beams.md#cartesian-and-line-beams), and
+the [line tutorial](../../auto_tutorials/free_space/plot_03_line.rst) runs a Kerr line beam
+at the soliton power and at half of it.
+
+## CPU execution settings
+
+The default backend is the installed native package, and otherwise `numba_cpu`; see
+[backend selection](../performance/resources.md#backend-choice-and-scan-workers). Thread counts
+and the other performance settings shared by every route are on the
+[performance page](../performance/tuning.md); what follows is specific to free space.
+
+On `numba_cpu`, radial envelopes use real BLAS products for both parts of the complex
+field, including vector and chunked transforms. Cartesian envelopes arrange their shared
+transverse scratch for contiguous x/y FFTs; field runs keep contiguous frequency columns.
+Large Cartesian problems parallelise independent stage columns, and envelopes also
+parallelise the strided copies to and from the bounded temporal buffers. These choices
+preserve the transform scaling and each component's arithmetic.
+
+A free-space run has two FFT pools, one for the temporal transforms and one for the
+transverse ones. `SOLPROP_FFTW_THREADS` sets the temporal pool and
+`SOLPROP_TRANSVERSE_FFTW_THREADS` the transverse pool; unset, each uses a size-based rule
+of one or four workers, capped by the available CPUs. Direct `NumbaCpuBackend`
+construction also accepts `fftw_threads` and `transverse_fftw_threads`, and
+`SOLPROP_NUMBA_THREADS` sets the kernel pool. Set them before starting Python, for
+example
+
+```console
+SOLPROP_NUMBA_THREADS=12 SOLPROP_FFTW_THREADS=4 \
+SOLPROP_TRANSVERSE_FFTW_THREADS=12 python beam.py
+```
+
+These counts were measured as a starting point for a large Cartesian beam on one
+twelve-core machine; they are not defaults, and the best counts depend on the machine and
+the grid, so time a few steps before a long run. The run's metadata records both FFT pools, the
+scratch layout, the parallel passes and the radial GEMM selection.
+
+The native backend uses column loops for Cartesian stage operations. Its builds that
+link a vendor BLAS can pack whole scalar radial envelopes into real BLAS buffers when the
+shape and the node budget permit it, and the memory ledger counts those buffers
+([the native backend](../performance/native.md)).
+
+## Related calculations
+
+For a first calculation, follow [beams in bulk media](beams.md), the [radial filament](../../introduction/lessons/plot_03_filament.rst) or the [crossing-beam lesson](../../introduction/lessons/plot_04_crossing_beams.rst). Use [Hankel](hankel.md) and [Cartesian](cartesian.md) transforms for the detailed spatial sampling conventions, and [boundaries](../numerics/boundaries.md) when checking energy lost at a collar.

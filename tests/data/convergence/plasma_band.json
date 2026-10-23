@@ -1,0 +1,141 @@
+{
+ "axis": {
+  "label": "lambda or samples in the window",
+  "name": "rung",
+  "unit": "1"
+ },
+ "case": {
+  "boundary": "two band integrals (the default grid's K = 4 taps) of a band-limited tone at theta = pi/3, 4096 samples, whose envelope is lambda of its peak at the window's start, against the exact causal double integral",
+  "closed form": "argon, a constant 1e9 V/m field and a constant 1e14 1/s rate over 10 fs, against the closed-form polarisation, with the default grid's taps at every rung (theta_b fixed)",
+  "energy identity": "the work the field does on the medium against Ip times the electrons, on a Gaussian pulse, He minus Ar sharing one rate, with the default grid's taps at every rung"
+ },
+ "columns": [
+  {
+   "atol": 2e-12,
+   "bound": null,
+   "name": "deviation",
+   "rtol": 1e-06,
+   "unit": "1 (relative)",
+   "why": "sums of a few thousand terms, compared well above their round-off; atol is that floor, about 8193 eps"
+  },
+  {
+   "atol": 0.0,
+   "bound": null,
+   "name": "ratio",
+   "rtol": 0.001,
+   "unit": "1",
+   "why": "the deviation over lambda on the boundary series (kappa), its fall per doubling on the ladders; null on a ladder's coarsest rung; rtol covers the finest closed-form rung, about 1e4 eps above round-off, whose last bits differ between platforms"
+  }
+ ],
+ "luna": null,
+ "rows": [
+  {
+   "axis": "1e-04",
+   "deviation": 0.003009924653563535,
+   "ratio": 30.09924653563535,
+   "series": "boundary",
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band.py::test_the_whole_window_error_is_the_boundary_budget"
+  },
+  {
+   "axis": "1e-06",
+   "deviation": 3.343977034717106e-05,
+   "ratio": 33.43977034717106,
+   "series": "boundary",
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band.py::test_the_whole_window_error_is_the_boundary_budget"
+  },
+  {
+   "axis": "1e-08",
+   "deviation": 3.7545630449987927e-06,
+   "ratio": 375.45630449987925,
+   "series": "boundary",
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band.py::test_the_whole_window_error_is_the_boundary_budget"
+  },
+  {
+   "axis": 1025,
+   "deviation": 8.669753388717313e-11,
+   "ratio": null,
+   "series": "closed form",
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band.py::test_the_band_closed_form_converges_at_least_at_second_order"
+  },
+  {
+   "axis": 2049,
+   "deviation": 1.6127349445349167e-11,
+   "ratio": 5.375807982642499,
+   "series": "closed form",
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band.py::test_the_band_closed_form_converges_at_least_at_second_order"
+  },
+  {
+   "axis": 4097,
+   "deviation": 3.3363850551011074e-12,
+   "ratio": 4.833779428633856,
+   "series": "closed form",
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band.py::test_the_band_closed_form_converges_at_least_at_second_order"
+  },
+  {
+   "axis": 8193,
+   "deviation": 4.394289720988098e-08,
+   "ratio": null,
+   "series": "energy identity",
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band.py::test_the_band_energy_identity_converges_at_second_order"
+  },
+  {
+   "axis": 16385,
+   "deviation": 1.1071347949531685e-08,
+   "ratio": 3.969064779663054,
+   "series": "energy identity",
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band.py::test_the_band_energy_identity_converges_at_second_order"
+  },
+  {
+   "axis": 32769,
+   "deviation": 2.771527674028107e-09,
+   "ratio": 3.994673426241028,
+   "series": "energy identity",
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma_band.py::test_the_band_energy_identity_converges_at_second_order"
+  }
+ ],
+ "schema": 1,
+ "study": "plasma_band",
+ "title": "The plasma column's band rule: boundary budget and ladders",
+ "writes": [
+  {
+   "backend": null,
+   "blas": null,
+   "branch": "feature/sep-0018-band-integrals-1",
+   "commit": "92e9b576671a0ea28731e47a9989e95bb433b7c7",
+   "fftw_planner": null,
+   "machine_id": "darwin-arm64",
+   "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.5",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": null,
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": null,
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": null,
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  }
+ ]
+}

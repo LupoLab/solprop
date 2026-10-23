@@ -1,0 +1,1167 @@
+{
+ "solprop_commit": "70385582b02632a358b527be98a58c6b5860eb0c",
+ "optmat_version": "0.2.0",
+ "conditions": {
+  "wavelength_m": 8e-07,
+  "pressure_bar": 1.0,
+  "temperature_k": 294.0
+ },
+ "gases": {
+  "He": {
+   "n_minus_1_percent": -0.1956441331994352,
+   "gamma3_kerr_percent": 1.9806419459321267,
+   "density_ppm": -0.3389459272140627,
+   "adiabatic_threshold_mev": -0.819600868580604,
+   "thg_over_kerr": 1.0600364378687268,
+   "optmat_intervals_nm": [
+    [
+     60.0,
+     Infinity
+    ]
+   ],
+   "identity": {
+    "index": "35a2009af3fb6ed78bc41a57d6a0d3c88df4375cc4131fc51f67eae092a917f7",
+    "kerr": "43eacd620eb11febe0ba16404b2d95c03265a668d2ddaf807926dbbf8c8eb603",
+    "eos": "3ef5e835bc01cf3cd96cbf1e4c7abb6cdeb437abcda5c9b3edae77253daa5303"
+   },
+   "warnings": {
+    "solprop_index": [],
+    "optmat_index": [],
+    "optmat_kerr": [],
+    "optmat_thg": []
+   }
+  },
+  "Ne": {
+   "n_minus_1_percent": -0.29805208822237805,
+   "gamma3_kerr_percent": 41.54767921888942,
+   "density_ppm": -0.3389459268809958,
+   "adiabatic_threshold_mev": -0.48259994007598034,
+   "thg_over_kerr": 1.0753845790359686,
+   "optmat_intervals_nm": [
+    [
+     76.0,
+     Infinity
+    ]
+   ],
+   "identity": {
+    "index": "d4dfe3a9ba39cb1076dce1a3b37a9b8296ea225541ffb3c13fdb4dbfa6b302a8",
+    "kerr": "1444edb43536356f52e6d161c11d3d017ffc0c18d8b525f6c2646ead94cfe5c9",
+    "eos": "bb2dc33ae341703986c7322d947f3d18b04702cd82103c43fd5efc7d2a6f9cef"
+   },
+   "warnings": {
+    "solprop_index": [],
+    "optmat_index": [],
+    "optmat_kerr": [],
+    "optmat_thg": []
+   }
+  },
+  "Ar": {
+   "n_minus_1_percent": -0.05035934220692928,
+   "gamma3_kerr_percent": 23.129407567971416,
+   "density_ppm": 5.698726295966239,
+   "adiabatic_threshold_mev": -1.223013672294009,
+   "thg_over_kerr": 1.1768925959743761,
+   "optmat_intervals_nm": [
+    [
+     107.5,
+     Infinity
+    ]
+   ],
+   "identity": {
+    "index": "f0efa785e42d599996fe251d7b42114618398b885af7966a09b86e10e54985bb",
+    "kerr": "d15700d61f7a55127fe2bc84bd8f9ab5d9887b200d42a98db26705c0d31a7fd0",
+    "eos": "85ee5c2688ac8be4e160b49e1864a82fc4e20ae659fd5f9be230e683d4caf219"
+   },
+   "warnings": {
+    "solprop_index": [],
+    "optmat_index": [],
+    "optmat_kerr": [],
+    "optmat_thg": []
+   }
+  },
+  "Kr": {
+   "n_minus_1_percent": -0.03870952481483947,
+   "gamma3_kerr_percent": 2.9962338846980074,
+   "density_ppm": 1.1283768046599363,
+   "adiabatic_threshold_mev": 7.510692316484239,
+   "thg_over_kerr": 1.2561067502879073,
+   "optmat_intervals_nm": [
+    [
+     125.0,
+     Infinity
+    ]
+   ],
+   "identity": {
+    "index": "02ae999f96d11d3e901786b4cd025d3846ee040f8087e6e9d1b4bf5468e1434f",
+    "kerr": "489b9537e2604e1e5d9e2f5cf13a82c10d48e9b6e5d2302bcd3ac1b9628a7390",
+    "eos": "125d26a80c1a32acb28a32f15c521cab1c519cfe0cc31136dec7a4e039541f65"
+   },
+   "warnings": {
+    "solprop_index": [],
+    "optmat_index": [],
+    "optmat_kerr": [],
+    "optmat_thg": []
+   }
+  },
+  "Xe": {
+   "n_minus_1_percent": -0.20035134596623205,
+   "gamma3_kerr_percent": -4.494015496367099,
+   "density_ppm": 1.1283768044378917,
+   "adiabatic_threshold_mev": -0.9922884584027222,
+   "thg_over_kerr": 1.3876585750706711,
+   "optmat_intervals_nm": [
+    [
+     148.0,
+     Infinity
+    ]
+   ],
+   "identity": {
+    "index": "c33d08a6b937174e87a3d54133d35f647be58f360ec2753d2d31fe38c8ff766e",
+    "kerr": "b7199e53c4c3cca17b7670787984b2eba0b6ca35498665240197cfef69b59631",
+    "eos": "59966dc8187d83b1a2612e39845fb24565f9edf994d012f710d6bf8b1733a27c"
+   },
+   "warnings": {
+    "solprop_index": [],
+    "optmat_index": [],
+    "optmat_kerr": [],
+    "optmat_thg": []
+   }
+  },
+  "H2": {
+   "n_minus_1_percent": 0.05972913362848331,
+   "gamma3_kerr_percent": 8.52833581369934,
+   "density_ppm": 1.1283768044378917,
+   "adiabatic_threshold_mev": -0.33195402387004835,
+   "thg_over_kerr": 1.1998877749256347,
+   "optmat_intervals_nm": [
+    [
+     112.0,
+     Infinity
+    ]
+   ],
+   "identity": {
+    "index": "22cf9ed6252594929803ddc97b1c2b30dfd786be6b4c618714b73eae3cb0ccda",
+    "kerr": "93a87404d07133103cf234947136e217e8fe08f901c9e4e7ca94d838ee906f27",
+    "eos": "b0498bbd8ed999af8383b60036b0008bae9aa871f03e9cad89bad8fef5b91881"
+   },
+   "warnings": {
+    "solprop_index": [],
+    "optmat_index": [],
+    "optmat_kerr": [],
+    "optmat_thg": []
+   }
+  },
+  "D2": {
+   "n_minus_1_percent": -1.2099452612094552,
+   "gamma3_kerr_percent": 5.57267828744743,
+   "density_ppm": -0.06231951044100015,
+   "adiabatic_threshold_mev": -0.49425021305231925,
+   "thg_over_kerr": 1.195795686034852,
+   "optmat_intervals_nm": [
+    [
+     112.0,
+     Infinity
+    ]
+   ],
+   "identity": {
+    "index": "619e0de82548d3b105a2878e330aa1aa669f711fbb64aef604e6902754be5516",
+    "kerr": "962c510b6136d3fbec8affc1c06a1049d0ddad5c4db32becabe9815ce602adb0",
+    "eos": "d803881e1c53e0d82440c8955428b1401b18baddb4ba7c8a00065b942dbb200e"
+   },
+   "warnings": {
+    "solprop_index": [],
+    "optmat_index": [],
+    "optmat_kerr": [],
+    "optmat_thg": []
+   }
+  },
+  "N2": {
+   "n_minus_1_percent": -0.03218275768224199,
+   "gamma3_kerr_percent": 7.467206206482735,
+   "density_ppm": 5.698726296188283,
+   "adiabatic_threshold_mev": -0.5225832959734208,
+   "thg_over_kerr": 1.1627381735124889,
+   "optmat_intervals_nm": [
+    [
+     145.0,
+     Infinity
+    ]
+   ],
+   "identity": {
+    "index": "494a5480d34262d5c0cc59fe4d78d2d191b8f1db3438ffe8241aa69b9f68dbc2",
+    "kerr": "e3a9a730506c0d7bccca25bd3f757fd63277697a55f34a4a3cba727e9e20d32a",
+    "eos": "fda8fdb5206b7caafb85c19e945e7ec6a7ed2ffeafec9657ac301798eff1f48e"
+   },
+   "warnings": {
+    "solprop_index": [],
+    "optmat_index": [],
+    "optmat_kerr": [],
+    "optmat_thg": []
+   }
+  },
+  "O2": {
+   "n_minus_1_percent": 0.009916284949706977,
+   "gamma3_kerr_percent": 7.336323086281893,
+   "density_ppm": -14.74757406116911,
+   "adiabatic_threshold_mev": -0.07825448850497249,
+   "thg_over_kerr": 1.2600182668737305,
+   "optmat_intervals_nm": [
+    [
+     195.0,
+     Infinity
+    ]
+   ],
+   "identity": {
+    "index": "d21bd63d78a692ffbfa8b201e9d4753359614e9c9b913fa3e6a19b067cb4f395",
+    "kerr": "72bf8dbf433efd298f9dcc88bc87ba5f547fe66971218580cbe1897766148892",
+    "eos": "6d873cc8706ce2ba16077b74310d1edc71019cec779c6b8a5d9ed27752f4cb14"
+   },
+   "warnings": {
+    "solprop_index": [],
+    "optmat_index": [],
+    "optmat_kerr": [],
+    "optmat_thg": []
+   }
+  },
+  "CH4": {
+   "n_minus_1_percent": -0.3076232794421929,
+   "gamma3_kerr_percent": 7.158491097323627,
+   "density_ppm": 5.698726296188283,
+   "adiabatic_threshold_mev": -5.198663636869783,
+   "thg_over_kerr": 1.2938221815528008,
+   "optmat_intervals_nm": [
+    [
+     240.1,
+     1122.6
+    ],
+    [
+     1136.6,
+     1148.5
+    ],
+    [
+     1176.9,
+     1187.4
+    ],
+    [
+     1187.9,
+     1312.7
+    ],
+    [
+     11123.5,
+     12088.2
+    ]
+   ],
+   "identity": {
+    "index": "2ab13e0979311e0efb2b94f86305368f037b63bb821b616e5b81346eab092253",
+    "kerr": "9f1b94723a5a854cec6ba3f3e989740b83e1f26d5ff07c34c6292f9e35731714",
+    "eos": "1f9c7c1e432eb1b13bc545a3baef359c56399488a9f10d1327a7306772e4feea"
+   },
+   "warnings": {
+    "solprop_index": [
+     "MaterialRangeWarning: CH4 'quanfu-he' is fitted over 307-725 nm; the requested spectrum spans 800-800 nm, beyond its long-wavelength end, where the expression is smooth but unverifie"
+    ],
+    "optmat_index": [],
+    "optmat_kerr": [],
+    "optmat_thg": []
+   }
+  },
+  "SF6": {
+   "n_minus_1_percent": 0.19549131283422838,
+   "gamma3_kerr_percent": 5.800983386942193,
+   "density_ppm": 1.1283768044378917,
+   "adiabatic_threshold_mev": 29.999999999997222,
+   "thg_over_kerr": 1.1241646454234122,
+   "optmat_intervals_nm": [
+    [
+     230.0,
+     5000.0
+    ]
+   ],
+   "identity": {
+    "index": "985d058bbf39f9ca76b758371f40aa5b0ad6fe2e01a3bb0679e8376afa1ff29a",
+    "kerr": "6beebe044eb5216fc5553ae2c592c7d802c6fb15bf35fad2a224c2eef5186c1a",
+    "eos": "c53e6f9688a8e6b5792b9fdf7ae3080c0a93a141379f9af91102f178a8ffa090"
+   },
+   "warnings": {
+    "solprop_index": [
+     "MaterialRangeWarning: SF6 'quanfu-he' is fitted over 264-725 nm; the requested spectrum spans 800-800 nm, beyond its long-wavelength end, where the expression is smooth but unverifie"
+    ],
+    "optmat_index": [],
+    "optmat_kerr": [],
+    "optmat_thg": []
+   }
+  },
+  "N2O": {
+   "n_minus_1_percent": 0.41781587685936206,
+   "gamma3_kerr_percent": -4.8651479741172015,
+   "density_ppm": 1.128376804215847,
+   "adiabatic_threshold_mev": -12.197080595074855,
+   "thg_over_kerr": 1.2126436781609198,
+   "optmat_intervals_nm": [
+    [
+     320.2,
+     1515.7
+    ],
+    [
+     1517.6,
+     1950.2
+    ],
+    [
+     4814.1,
+     4956.0
+    ],
+    [
+     6752.2,
+     7048.5
+    ]
+   ],
+   "identity": {
+    "index": "02de9acb04f33c0c067b82951465e7a36162acbc42055466ede3a5968d968360",
+    "kerr": "af5fb99ea4e3cb55ba6c77acf7910c722118423c6bdd13109eb12d340e2cf4e9",
+    "eos": "f0cc1b2ce0585faec60ed296c113b3fa3d0bebd01e5712c615308b46fb0394ee"
+   },
+   "warnings": {
+    "solprop_index": [
+     "MaterialRangeWarning: N2O 'quanfu-he' is fitted over 307-725 nm; the requested spectrum spans 800-800 nm, beyond its long-wavelength end, where the expression is smooth but unverifie"
+    ],
+    "optmat_index": [],
+    "optmat_kerr": [],
+    "optmat_thg": [
+     "ModelRangeWarning: thg hyperpolarizability of N2O evaluated at W2 = 1.88e+09 cm^-2, beyond the fitted data (9.07e+08 cm^-2): the dispersion form is extrapolated"
+    ]
+   }
+  }
+ },
+ "solids": {
+  "fused silica": {
+   "model": "fit/SiO2",
+   "digest": "93e901d77368d216638925816ac673213057706c3456adb55d02d397b3500399",
+   "points": {
+    "300 nm": {
+     "solprop": [
+      1.4877929755577788,
+      9.881558186549475e-31
+     ],
+     "optmat": [
+      1.4882409531807455,
+      0.0
+     ],
+     "real_difference": 0.00044797762296666654,
+     "warnings": {
+      "solprop": [],
+      "optmat": []
+     }
+    },
+    "1000 nm": {
+     "solprop": [
+      1.450417409406875,
+      1.0000000000000024e-30
+     ],
+     "optmat": [
+      1.4508083519980628,
+      1.9708289439457857e-86
+     ],
+     "real_difference": 0.00039094259118788166,
+     "warnings": {
+      "solprop": [],
+      "optmat": []
+     }
+    },
+    "5000 nm": {
+     "solprop": [
+      1.3404572894914368,
+      0.004762444913475843
+     ],
+     "optmat": [
+      1.3381784075819625,
+      0.005322947156400132
+     ],
+     "real_difference": -0.0022788819094743396,
+     "warnings": {
+      "solprop": [
+       "MaterialRangeWarning: SiO2 'malitson+franta' is valid over 210-3710 nm; the requested spectrum spans 5000-5000 nm. Source: real part: I. H. Malitson, 'Interspecimen comparison of the"
+      ],
+      "optmat": []
+     }
+    },
+    "110 nm": {
+     "solprop": [
+      0.0,
+      0.7250437967866352
+     ],
+     "optmat": [
+      1.8046440620862774,
+      0.7389694541829068
+     ],
+     "real_difference": 1.8046440620862774,
+     "warnings": {
+      "solprop": [
+       "MaterialRangeWarning: SiO2 'malitson+franta' is valid over 210-3710 nm; the requested spectrum spans 110-110 nm. Source: real part: I. H. Malitson, 'Interspecimen comparison of the r"
+      ],
+      "optmat": []
+     }
+    },
+    "120 nm": {
+     "solprop": [
+      2.940559546842581,
+      0.9492711004925765
+     ],
+     "optmat": [
+      2.2399290819620408,
+      0.9688261761327507
+     ],
+     "real_difference": -0.7006304648805401,
+     "warnings": {
+      "solprop": [
+       "MaterialRangeWarning: SiO2 'malitson+franta' is valid over 210-3710 nm; the requested spectrum spans 120-120 nm. Source: real part: I. H. Malitson, 'Interspecimen comparison of the r"
+      ],
+      "optmat": []
+     }
+    }
+   }
+  },
+  "CaF2": {
+   "model": "daimon_2002/sellmeier_20C",
+   "digest": "3ee6f75701131f297f9b80db16b6db57c8a4619c4f4968770ca74d9602acaea4",
+   "points": {
+    "300 nm": {
+     "solprop": [
+      1.4540367223548727,
+      0.0
+     ],
+     "optmat": [
+      1.4544600043847038,
+      0.0
+     ],
+     "real_difference": 0.00042328202983110685,
+     "warnings": {
+      "solprop": [],
+      "optmat": []
+     }
+    },
+    "1000 nm": {
+     "solprop": [
+      1.4289194559167167,
+      0.0
+     ],
+     "optmat": [
+      1.4293124516135314,
+      0.0
+     ],
+     "real_difference": 0.0003929956968147241,
+     "warnings": {
+      "solprop": [],
+      "optmat": []
+     }
+    },
+    "5000 nm": {
+     "solprop": [
+      1.3992521410303156,
+      0.0
+     ],
+     "optmat": [
+      1.3996350067731833,
+      0.0
+     ],
+     "real_difference": 0.0003828657428677218,
+     "warnings": {
+      "solprop": [
+       "MaterialRangeWarning: CaF2 'daimon' is valid over 138-2326 nm; the requested spectrum spans 5000-5000 nm. Source: M. Daimon and A. Masumura, 'High-accuracy measurements of the refrac"
+      ],
+      "optmat": [
+       "ModelRangeWarning: daimon_2002/sellmeier_20C (CaF2) evaluated outside 137.9-2326 nm, the range its source supports"
+      ]
+     }
+    }
+   }
+  },
+  "MgF2 o": {
+   "model": "dodge_1984/sellmeier_o",
+   "digest": "fc41a994d4b2dedd1aa4e85083a48413241840450871911c0607504ff100d2a7",
+   "points": {
+    "300 nm": {
+     "solprop": [
+      1.3929789503052652,
+      0.0
+     ],
+     "optmat": [
+      1.3933920482872268,
+      0.0
+     ],
+     "real_difference": 0.00041309798196165204,
+     "warnings": {
+      "solprop": [],
+      "optmat": []
+     }
+    },
+    "1000 nm": {
+     "solprop": [
+      1.373583442608789,
+      0.0
+     ],
+     "optmat": [
+      1.373956575575233,
+      0.0
+     ],
+     "real_difference": 0.00037313296644403415,
+     "warnings": {
+      "solprop": [],
+      "optmat": []
+     }
+    },
+    "5000 nm": {
+     "solprop": [
+      1.3340415607974783,
+      0.0
+     ],
+     "optmat": [
+      1.334423198402133,
+      0.0
+     ],
+     "real_difference": 0.00038163760465481644,
+     "warnings": {
+      "solprop": [],
+      "optmat": []
+     }
+    }
+   }
+  },
+  "BaF2": {
+   "model": "malitson_1964/sellmeier",
+   "digest": "5b447fea1ecedad53583449633e612bbec507785271f245ea98ccfe218637741",
+   "points": {
+    "300 nm": {
+     "solprop": [
+      1.5009785546023215,
+      0.0
+     ],
+     "optmat": [
+      1.5014240248238013,
+      0.0
+     ],
+     "real_difference": 0.0004454702214797823,
+     "warnings": {
+      "solprop": [],
+      "optmat": []
+     }
+    },
+    "1000 nm": {
+     "solprop": [
+      1.4685588688642406,
+      0.0
+     ],
+     "optmat": [
+      1.4689498428873156,
+      0.0
+     ],
+     "real_difference": 0.00039097402307497475,
+     "warnings": {
+      "solprop": [],
+      "optmat": []
+     }
+    },
+    "5000 nm": {
+     "solprop": [
+      1.4510240929385776,
+      0.0
+     ],
+     "optmat": [
+      1.451415052770128,
+      0.0
+     ],
+     "real_difference": 0.00039095983155035263,
+     "warnings": {
+      "solprop": [],
+      "optmat": []
+     }
+    }
+   }
+  },
+  "sapphire o": {
+   "model": "weber_2003/sellmeier_o",
+   "digest": "db50f8a5db4dc70915efe118f44ce5c122a617bdfcbc772ad4bd4eca461e766c",
+   "points": {
+    "300 nm": {
+     "solprop": [
+      1.8143544173585668,
+      0.0
+     ],
+     "optmat": [
+      1.814913192968117,
+      0.0
+     ],
+     "real_difference": 0.0005587756095501994,
+     "warnings": {
+      "solprop": [],
+      "optmat": []
+     }
+    },
+    "1000 nm": {
+     "solprop": [
+      1.7556780777757108,
+      0.0
+     ],
+     "optmat": [
+      1.756156455490974,
+      0.0
+     ],
+     "real_difference": 0.00047837771526326733,
+     "warnings": {
+      "solprop": [],
+      "optmat": []
+     }
+    },
+    "5000 nm": {
+     "solprop": [
+      1.6240317502662858,
+      0.0
+     ],
+     "optmat": [
+      1.6245480788773368,
+      0.0
+     ],
+     "real_difference": 0.0005163286110509979,
+     "warnings": {
+      "solprop": [],
+      "optmat": []
+     }
+    }
+   }
+  },
+  "N-BK7": {
+   "model": "schott_2023/sellmeier",
+   "digest": "e918a377209787632964108d3af9511c97b016ef3db5220175e75cae37fdb0fd",
+   "points": {
+    "300 nm": {
+     "solprop": [
+      1.5527702635738705,
+      0.0
+     ],
+     "optmat": [
+      1.553246392535507,
+      0.0
+     ],
+     "real_difference": 0.0004761289616364017,
+     "warnings": {
+      "solprop": [],
+      "optmat": [
+       "ModelRangeWarning: schott_2023/sellmeier (N-BK7) evaluated outside 312.7-2326 nm, the range its source supports"
+      ]
+     }
+    },
+    "1000 nm": {
+     "solprop": [
+      1.507502203984908,
+      0.0
+     ],
+     "optmat": [
+      1.5079122822984576,
+      0.0
+     ],
+     "real_difference": 0.0004100783135496666,
+     "warnings": {
+      "solprop": [],
+      "optmat": []
+     }
+    },
+    "5000 nm": {
+     "solprop": [
+      1.3965252243506636,
+      0.0
+     ],
+     "optmat": [
+      1.396982346241671,
+      0.0
+     ],
+     "real_difference": 0.0004571218910074393,
+     "warnings": {
+      "solprop": [
+       "MaterialRangeWarning: BK7 'schott' is valid over 300-2500 nm; the requested spectrum spans 5000-5000 nm. Source: SCHOTT N-BK7, Zemax catalogue of 2017-01-20; refractiveindex.info spe"
+      ],
+      "optmat": [
+       "ModelRangeWarning: schott_2023/sellmeier (N-BK7) evaluated outside 312.7-2326 nm, the range its source supports"
+      ]
+     }
+    }
+   }
+  },
+  "silver": {
+   "model": "table/Ag",
+   "digest": "e1eb568f1dfb25e7d1817914d2bcc47a65a29816e19c6f7ecbfc47541a38c584",
+   "points": {
+    "300 nm": {
+     "solprop": [
+      1.4241974266005104,
+      0.9612276327601618
+     ],
+     "optmat": [
+      1.4271458694782635,
+      0.9639228100903098
+     ],
+     "real_difference": 0.002948442877753088,
+     "warnings": {
+      "solprop": [],
+      "optmat": []
+     }
+    },
+    "1000 nm": {
+     "solprop": [
+      0.06961852614882726,
+      7.1584971694593245
+     ],
+     "optmat": [
+      0.06959696924733917,
+      7.157548488925726
+     ],
+     "real_difference": -2.1556901488084534e-05,
+     "warnings": {
+      "solprop": [],
+      "optmat": []
+     }
+    },
+    "5000 nm": {
+     "solprop": [
+      1.245508670339975,
+      36.66597305567291
+     ],
+     "optmat": [
+      1.2475000581444091,
+      36.66631335513493
+     ],
+     "real_difference": 0.001991387804434197,
+     "warnings": {
+      "solprop": [],
+      "optmat": []
+     }
+    },
+    "120 nm": {
+     "solprop": [
+      1.3461473195950675,
+      0.8833483838816196
+     ],
+     "optmat": [
+      1.222250919737525,
+      0.5676157839445809
+     ],
+     "real_difference": -0.12389639985754242,
+     "warnings": {
+      "solprop": [],
+      "optmat": []
+     }
+    }
+   }
+  },
+  "aluminium": {
+   "model": "table/Al",
+   "digest": "0229d404b7f2a35900a800addefc4d3cbc4ae20ed1f6353a1a3d4ead4888d5df",
+   "points": {
+    "300 nm": {
+     "solprop": [
+      0.2049916380000001,
+      3.100858199000001
+     ],
+     "optmat": [
+      0.2755810170430807,
+      3.613279774182288
+     ],
+     "real_difference": 0.0705893790430806,
+     "warnings": {
+      "solprop": [],
+      "optmat": []
+     }
+    },
+    "1000 nm": {
+     "solprop": [
+      1.126639087,
+      8.511598888
+     ],
+     "optmat": [
+      1.3526595177239409,
+      9.58255165664426
+     ],
+     "real_difference": 0.22602043072394085,
+     "warnings": {
+      "solprop": [],
+      "optmat": []
+     }
+    },
+    "5000 nm": {
+     "solprop": [
+      8.886648100000032,
+      49.13166400000012
+     ],
+     "optmat": [
+      8.674771633008621,
+      48.594559157623294
+     ],
+     "real_difference": -0.21187646699141105,
+     "warnings": {
+      "solprop": [],
+      "optmat": []
+     }
+    },
+    "800 nm": {
+     "solprop": [
+      2.3736532980000034,
+      7.522581336999997
+     ],
+     "optmat": [
+      2.7951577697129006,
+      8.449228599541982
+     ],
+     "real_difference": 0.4215044717128973,
+     "warnings": {
+      "solprop": [],
+      "optmat": []
+     }
+    }
+   }
+  }
+ },
+ "silica_nonlinear": {
+  "default": {
+   "digest": "ed1fe616e913b3d2d63193fc4660ae8f218c9887c79309ac7dc38d24ae85a59c",
+   "raman_fraction": 0.2187974665554266,
+   "paired": true,
+   "n2": {
+    "800 nm": 2.587475709927027e-20,
+    "1030 nm": 2.525660411997569e-20,
+    "1550 nm": 2.4731728176578224e-20
+   },
+   "n2_electronic": {
+    "800 nm": 2.0213425798212895e-20,
+    "1030 nm": 1.973052312473166e-20,
+    "1550 nm": 1.9320488708005448e-20
+   }
+  },
+  "tensor": {
+   "digest": "51a392e7db72f41d0e7568105ab2ec0a82b6f7bc2df045c2691692f169d6f4fe",
+   "raman_fraction": 0.245,
+   "paired": false,
+   "n2": {
+    "800 nm": 2.587475709927027e-20,
+    "1030 nm": 2.525660411997569e-20,
+    "1550 nm": 2.4731728176578224e-20
+   },
+   "n2_electronic": {
+    "800 nm": 1.9535441609949055e-20,
+    "1030 nm": 1.9068736110581645e-20,
+    "1550 nm": 1.867245477331656e-20
+   }
+  }
+ },
+ "rates": {
+  "He": {
+   "solprop_default": "PPT",
+   "optmat_model": "rate/default/He@800nm",
+   "digest": "9adda704ee41661b6a7379eba32974e8728a92bbe0c437fdee343abcff481d03",
+   "status": "validated",
+   "uncertainty_factor": 1.3,
+   "maximum_field_v_per_m": 209914785642.81155,
+   "energy_kind": "adiabatic",
+   "ratios": {
+    "5e+13 W/cm2": {
+     "field_v_per_m": 19409541813.540585,
+     "ratio": 2.149428365202501,
+     "above_maximum_field": false
+    },
+    "1e+14 W/cm2": {
+     "field_v_per_m": 27449237272.156773,
+     "ratio": 1.6738736784322363,
+     "above_maximum_field": false
+    },
+    "3e+14 W/cm2": {
+     "field_v_per_m": 47543473584.38886,
+     "ratio": 1.3008519297970487,
+     "above_maximum_field": false
+    }
+   }
+  },
+  "Ne": {
+   "solprop_default": "PPT",
+   "optmat_model": "rate/default/Ne@800nm",
+   "digest": "65c6eeb78d2541897d550ba43427120c1f9ec5b6781960b2bfb1678a91c81a56",
+   "status": "validated",
+   "uncertainty_factor": 1.5,
+   "maximum_field_v_per_m": 161472527067.4288,
+   "energy_kind": "adiabatic",
+   "ratios": {
+    "5e+13 W/cm2": {
+     "field_v_per_m": 19409541813.540585,
+     "ratio": 0.7648308449273667,
+     "above_maximum_field": false
+    },
+    "1e+14 W/cm2": {
+     "field_v_per_m": 27449237272.156773,
+     "ratio": 0.607459660552109,
+     "above_maximum_field": false
+    },
+    "3e+14 W/cm2": {
+     "field_v_per_m": 47543473584.38886,
+     "ratio": 0.5049207873229216,
+     "above_maximum_field": false
+    }
+   }
+  },
+  "Ar": {
+   "solprop_default": "PPT",
+   "optmat_model": "rate/default/Ar@800nm",
+   "digest": "3e4de638311c2f12ef70e1bcd045031903154a10a8a7c5d51192e721cb8e2e51",
+   "status": "validated",
+   "uncertainty_factor": 1.5,
+   "maximum_field_v_per_m": 86240097986.706,
+   "energy_kind": "adiabatic",
+   "ratios": {
+    "5e+13 W/cm2": {
+     "field_v_per_m": 19409541813.540585,
+     "ratio": 2.541655801037908,
+     "above_maximum_field": false
+    },
+    "1e+14 W/cm2": {
+     "field_v_per_m": 27449237272.156773,
+     "ratio": 2.4515042001326433,
+     "above_maximum_field": false
+    },
+    "3e+14 W/cm2": {
+     "field_v_per_m": 47543473584.38886,
+     "ratio": 3.530512966834232,
+     "above_maximum_field": false
+    }
+   }
+  },
+  "Kr": {
+   "solprop_default": "PPT",
+   "optmat_model": "rate/default/Kr@800nm",
+   "digest": "5c10f709a0a97a0bc3fcf51b4bde55cd1c261c4ccd61eb340b9f037e349c1cb5",
+   "status": "validated",
+   "uncertainty_factor": 2.0,
+   "maximum_field_v_per_m": 68053395683.20158,
+   "energy_kind": "adiabatic",
+   "ratios": {
+    "5e+13 W/cm2": {
+     "field_v_per_m": 19409541813.540585,
+     "ratio": 1.4002782391994997,
+     "above_maximum_field": false
+    },
+    "1e+14 W/cm2": {
+     "field_v_per_m": 27449237272.156773,
+     "ratio": 1.0276397021458359,
+     "above_maximum_field": false
+    },
+    "3e+14 W/cm2": {
+     "field_v_per_m": 47543473584.38886,
+     "ratio": 0.7576101284138362,
+     "above_maximum_field": false
+    }
+   }
+  },
+  "Xe": {
+   "solprop_default": "PPT",
+   "optmat_model": "rate/default/Xe@800nm",
+   "digest": "d8c4dc418b6d957cce5adf38244098dcc154c6d92478d1c2ffdd5313b24070c7",
+   "status": "validated",
+   "uncertainty_factor": 2.0,
+   "maximum_field_v_per_m": 51089142613.41173,
+   "energy_kind": "adiabatic",
+   "ratios": {
+    "5e+13 W/cm2": {
+     "field_v_per_m": 19409541813.540585,
+     "ratio": 1.7540299036536924,
+     "above_maximum_field": false
+    },
+    "1e+14 W/cm2": {
+     "field_v_per_m": 27449237272.156773,
+     "ratio": 1.2644363777654581,
+     "above_maximum_field": false
+    },
+    "3e+14 W/cm2": {
+     "field_v_per_m": 47543473584.38886,
+     "ratio": 0.9568193121936185,
+     "above_maximum_field": false
+    }
+   }
+  },
+  "H2": {
+   "solprop_default": "IsotropicMOADK",
+   "optmat_model": "molecular_rate/default/H2@800nm",
+   "digest": "e2c17d8995d87a2fef13a4f57562356651f1c07dc470a4bddd5e5d87c152bb39",
+   "status": "validated",
+   "uncertainty_factor": 1.5,
+   "maximum_field_v_per_m": 72095003467.81107,
+   "energy_kind": "vertical",
+   "ratios": {
+    "5e+13 W/cm2": {
+     "field_v_per_m": 19409541813.540585,
+     "ratio": 25.155721738420446,
+     "above_maximum_field": false
+    },
+    "1e+14 W/cm2": {
+     "field_v_per_m": 27449237272.156773,
+     "ratio": 3.283676513283801,
+     "above_maximum_field": false
+    },
+    "3e+14 W/cm2": {
+     "field_v_per_m": 47543473584.38886,
+     "ratio": 0.854476912357596,
+     "above_maximum_field": false
+    }
+   }
+  },
+  "D2": {
+   "solprop_default": "IsotropicMOADK",
+   "optmat_model": "molecular_rate/default/D2@800nm",
+   "digest": "23a8fd3ff2dde78030aa85526cf5d6aa2ac0b5717c0df9a607d4e14db84cbe6f",
+   "status": "validated",
+   "uncertainty_factor": 2.0,
+   "maximum_field_v_per_m": 72095003467.81107,
+   "energy_kind": "vertical",
+   "ratios": {
+    "5e+13 W/cm2": {
+     "field_v_per_m": 19409541813.540585,
+     "ratio": 27.594475258502236,
+     "above_maximum_field": false
+    },
+    "1e+14 W/cm2": {
+     "field_v_per_m": 27449237272.156773,
+     "ratio": 3.5107549447030393,
+     "above_maximum_field": false
+    },
+    "3e+14 W/cm2": {
+     "field_v_per_m": 47543473584.38886,
+     "ratio": 0.8895245976261156,
+     "above_maximum_field": false
+    }
+   }
+  },
+  "N2": {
+   "solprop_default": "IsotropicMOADK",
+   "optmat_model": "molecular_rate/default/N2@800nm",
+   "digest": "c915374ae0dac4733a7411357a27371d876812528712c53021569ac77c787d5f",
+   "status": "validated",
+   "uncertainty_factor": 1.5,
+   "maximum_field_v_per_m": 72064142985.79669,
+   "energy_kind": "vertical",
+   "ratios": {
+    "5e+13 W/cm2": {
+     "field_v_per_m": 19409541813.540585,
+     "ratio": 26.495352011251796,
+     "above_maximum_field": false
+    },
+    "1e+14 W/cm2": {
+     "field_v_per_m": 27449237272.156773,
+     "ratio": 2.8699881589184266,
+     "above_maximum_field": false
+    },
+    "3e+14 W/cm2": {
+     "field_v_per_m": 47543473584.38886,
+     "ratio": 0.42944213141250276,
+     "above_maximum_field": false
+    }
+   }
+  },
+  "O2": {
+   "solprop_default": "IsotropicMOADK",
+   "optmat_model": "molecular_rate/default/O2@800nm",
+   "digest": "c0c5501656338beba8bf0a9bf2e4805cdcc06b569692510be166fff24c2602b2",
+   "status": "validated",
+   "uncertainty_factor": 2.0,
+   "maximum_field_v_per_m": 51540506446.082924,
+   "energy_kind": "vertical",
+   "ratios": {
+    "5e+13 W/cm2": {
+     "field_v_per_m": 19409541813.540585,
+     "ratio": 4.983952991130477,
+     "above_maximum_field": false
+    },
+    "1e+14 W/cm2": {
+     "field_v_per_m": 27449237272.156773,
+     "ratio": 1.381309445592502,
+     "above_maximum_field": false
+    },
+    "3e+14 W/cm2": {
+     "field_v_per_m": 47543473584.38886,
+     "ratio": 0.443363021316288,
+     "above_maximum_field": false
+    }
+   }
+  },
+  "CH4": {
+   "solprop_default": "ADK",
+   "optmat_model": "molecular_rate/default/CH4@800nm",
+   "digest": "8b6b0ea50fe5867aecf76929fbd59ebb9e5059485c150b2da264eb3f1291a119",
+   "status": "validated",
+   "uncertainty_factor": 2.0,
+   "maximum_field_v_per_m": 61921524522.19427,
+   "energy_kind": "vertical",
+   "ratios": {
+    "5e+13 W/cm2": {
+     "field_v_per_m": 19409541813.540585,
+     "ratio": 1.0560359391132081,
+     "above_maximum_field": false
+    },
+    "1e+14 W/cm2": {
+     "field_v_per_m": 27449237272.156773,
+     "ratio": 0.3747578842606006,
+     "above_maximum_field": false
+    },
+    "3e+14 W/cm2": {
+     "field_v_per_m": 47543473584.38886,
+     "ratio": 0.13608523925448593,
+     "above_maximum_field": false
+    }
+   }
+  },
+  "SF6": {
+   "solprop_default": "ADK",
+   "optmat_model": "molecular_rate/default/SF6@800nm",
+   "digest": "d0f2356189c9c7057c05dc0925851e36c5dfbd9aaed0b4461fff22761f3b3013",
+   "status": "untested",
+   "uncertainty_factor": 10.0,
+   "maximum_field_v_per_m": 73085329065.13313,
+   "energy_kind": "vertical",
+   "ratios": {
+    "5e+13 W/cm2": {
+     "field_v_per_m": 19409541813.540585,
+     "ratio": 854.9410874277374,
+     "above_maximum_field": false
+    },
+    "1e+14 W/cm2": {
+     "field_v_per_m": 27449237272.156773,
+     "ratio": 125.78105410403845,
+     "above_maximum_field": false
+    },
+    "3e+14 W/cm2": {
+     "field_v_per_m": 47543473584.38886,
+     "ratio": 30.127149525158938,
+     "above_maximum_field": false
+    }
+   }
+  },
+  "N2O": {
+   "solprop_default": "ADK",
+   "optmat_model": "molecular_rate/default/N2O@800nm",
+   "digest": "f18e1c1200229e08792056ed2e4893197acff83ad8e1146577affc09a98c5a4b",
+   "status": "validated",
+   "uncertainty_factor": 3.0,
+   "maximum_field_v_per_m": 49327619144.84349,
+   "energy_kind": "vertical",
+   "ratios": {
+    "5e+13 W/cm2": {
+     "field_v_per_m": 19409541813.540585,
+     "ratio": 5.506870188570256,
+     "above_maximum_field": false
+    },
+    "1e+14 W/cm2": {
+     "field_v_per_m": 27449237272.156773,
+     "ratio": 0.9611214865380119,
+     "above_maximum_field": false
+    },
+    "3e+14 W/cm2": {
+     "field_v_per_m": 47543473584.38886,
+     "ratio": 0.1483740945485865,
+     "above_maximum_field": false
+    }
+   }
+  }
+ }
+}

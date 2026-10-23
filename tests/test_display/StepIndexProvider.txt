@@ -1,0 +1,4 @@
+StepIndexProvider: exact bound E/H, unit full-domain power
+  channels: HE11
+  regions:  core, cladding
+  z domain: 0 m to inf

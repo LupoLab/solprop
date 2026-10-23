@@ -1,0 +1,5 @@
+ModalGuide: a mode collection and its full-vector provider
+  provider: StepIndexProvider(HE11, 2 regions)
+  channels: HE1,1:even
+  regions:  core, cladding
+  sampling: none (built from constructed modes; cannot be propagated)

@@ -1,0 +1,51 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+.python-version
+
+# Tooling caches
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
+.mypy_cache/
+.basedpyright/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Sphinx / gallery
+docs/_build/
+docs/auto_tutorials/
+docs/introduction/lessons/
+docs/api/generated/
+docs/sg_execution_times.rst
+docs/auto_examples/**/sg_execution_times.rst
+
+# Numba / FFTW caches
+*.nbi
+*.nbc
+*.fftw_wisdom
+
+# OS and editors
+.DS_Store
+.idea/
+
+# The worked examples' generated pages under docs/auto_examples/ ARE committed (they
+# are reused, not regenerated, by every normal docs build); sphinx-gallery's link
+# resolution cache beside them is rewritten by every build and is not.
+docs/auto_examples/searchindex
+
+# Local agent state, and the benchmark suite's runs and baselines
+.claude/
+.benchmarks/
+*.profraw
+*.profdata

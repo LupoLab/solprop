@@ -1,0 +1,5 @@
+MaterialKerr: an instantaneous isotropic Kerr response
+  declared as: chi3
+  chi3:        2.2e-22 m^2/V^2
+  n2:          from chi3, at the frequency asked for
+  measured at: the frequency asked for

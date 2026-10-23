@@ -1,0 +1,123 @@
+# Changelog
+
+All notable changes to solprop are recorded here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions come from git tags.
+
+<!-- start changelog -->
+
+## Unreleased
+
+The first public release. It contains:
+
+### Added
+
+- **Propagation equations.** The unidirectional pulse propagation equation (UPPE) and
+  the generalised nonlinear Schrödinger equation (GNLSE), for the real electric field or
+  a complex envelope, in waveguides and in free space.
+- **Waveguides.**
+  - Gas-filled hollow capillaries, mode-averaged or with resolved modes. Tapers,
+    pressure gradients and gas flow are supported, as is a coherent wall that couples
+    the modes.
+  - Antiresonant hollow-core fibres (the Vincetti model).
+  - Step-index, graded-index, rectangular and planar guides.
+  - Modes tabulated from arrays or from external mode solvers.
+  - A general modal route for any guide that supplies its own electric and magnetic
+    mode fields, including guides that change along their length.
+- **Free space.** Radial, Cartesian and line grids with the exact (non-paraxial)
+  diffraction operator. Planar guides can be resolved across their width. Absorbing
+  spatial boundaries are included, and far-field and aperture statistics.
+- **Media and responses.**
+  - Gases, gas mixtures, glasses and metals from the [optmat](https://github.com/LupoLab/optmat)
+    material library.
+  - Kerr and third-harmonic nonlinearity, including a dispersive electronic response.
+  - Photoionisation with atomic and molecular rate models, and plasma on field and
+    envelope grids.
+  - Rotational and vibrational Raman responses, scalar and vector.
+  - Quantum shot noise.
+  - An optional helium TDSE atomic response for research. Its native backend is not
+    yet publicly available.
+- **Numerics.**
+  - Two adaptive integrators: a low-call exponential Adams method (the default) and an
+    embedded interaction-picture Runge–Kutta pair. A low-storage Runge–Kutta variant is
+    included.
+  - The linear propagation is integrated exactly, and absorbing boundaries act as rates.
+  - Fixed and adaptive schedules.
+  - Bounded, rounding-level reproducibility across backends.
+- **Backends.**
+  - A NumPy reference backend and a compiled Numba CPU backend.
+  - The optional [native backend](https://solprop.readthedocs.io/en/latest/guide/performance/native.html)
+    (`backend="native"`), the solprop-native distribution built from `native/` in this
+    repository at solprop's own version: C++20 kernels on Kokkos, Kokkos Kernels and
+    Kokkos-FFT, bound with nanobind, for multi-core CPUs (OpenMP) and for NVIDIA and AMD
+    GPUs (CUDA, HIP). `pip install solprop[native]` installs a precompiled CPU wheel on
+    macOS on Apple silicon, Linux on x86-64 and aarch64, and Windows on x86-64; other
+    platforms and GPUs build it from source. `backend="auto"` selects it when installed,
+    except on a processor below the installed build's CPU baseline, where it uses
+    `numba_cpu` and warns once, naming the missing features; `backend="native"` raises
+    there.
+  - Each backend is tested against the reference implementation within derived error
+    bounds.
+- **The native backend.**
+  - `NativeBackend` runs one trial step per native call, with states, views and FFT
+    plans resident in the execution space; `NativeBatchBackend` runs fixed-schedule
+    batches with fused accepted updates.
+  - Every route: mode-averaged, multimode and general modal guides (moving guides and
+    coupled flows included), radial, Cartesian, line and hybrid planar free space, on
+    field and envelope grids; Kerr, third-harmonic, field and envelope plasma (both
+    running-integral rules), scalar, vector and tensor Raman, gas mixtures, the
+    dispersive electronic response, noise, absorbing boundaries, statistics including
+    the far-field and on-axis plasma statistics.
+  - All three integrators: the Runge–Kutta march, the resident low-call Adams method in
+    both formulations (with dense output and coupled sections), and the low-storage
+    march. The resident Adams history is copied to the host for periodic snapshots and
+    kept resume histories, and installed again on a resume, which continues it (SEP 29).
+    The CF4 coupled-flow method and the TDSE response are refused by name.
+  - The Chebyshev z table on CPU builds (SEP 29): its coefficients are held resident,
+    and each native call evaluates the table at its positions into term slots that
+    the stage weights select, so a moving dispersion, three or more species on
+    independent density paths (modal and radial), a multimode taper without its
+    coupling and a forced table run under every integrator and in batches, and
+    `backend="auto"` runs them. GPU builds refuse the table by name, giving its size
+    and naming the CPU backends.
+  - Execution spaces: OpenMP, or Kokkos Threads (`SOLPROP_NATIVE_ENABLE_THREADS`), with
+    FFTW or MKL's FFTW interface on CPUs; CUDA with cuFFT and cuBLAS; HIP with rocFFT
+    and rocBLAS. Device builds are qualified on a data-centre NVIDIA GPU and an AMD
+    Instinct GPU.
+  - Build profiles (`SOLPROP_NATIVE_PROFILE`): `LOCAL`, the default, compiled for the
+    build machine with a vendor BLAS found at configure time; `DISTRIBUTION`, for wheels,
+    compiled for a CPU baseline (`SOLPROP_NATIVE_CPU_BASELINE`; x86-64-v3, Apple M1 or
+    Neoverse N1, and x86-64-v2 for an older x86-64 processor from source) checked before
+    the extension loads (`/proc/cpuinfo` on Linux, `IsProcessorFeaturePresent` on
+    Windows), with Accelerate on macOS or an
+    OpenBLAS built with OpenMP and carried in the wheel; and `REFERENCE`, with no vendor
+    BLAS or machine-specific code. Multiply-adds are contracted outside a few protected
+    blocks, and builds agree to rounding.
+  - Threads: a process cap (`SOLPROP_NATIVE_THREADS`) and kernel, FFT and Raman pools,
+    read once at import, with per-operation widths chosen by problem size; a host
+    OpenBLAS is fitted to the same pool.
+  - Introspection: `build_info()` and `python -m solprop_native` report provenance,
+    providers, libraries and thread settings; `check_build()` checks the build against
+    the installed solprop's kernel-contract schema and named members.
+  - The per-stage Chebyshev rows of the scalar tables and the Adams basis weights run as
+    strict C++ transcriptions of solprop's own, so a native run never calls Numba. Each
+    backend supplies these evaluations through `StepDriver.helpers` (kernel schema
+    34): the NumPy reference its uncompiled Python, `numba_cpu` the same functions
+    compiled.
+  - Profiling: named kernels, regions and allocations (`solprop_native.*`) for Kokkos
+    Tools, a per-state memory ledger, and an optional Clang coverage build
+    (`SOLPROP_NATIVE_ENABLE_COVERAGE`).
+  - Wheels carry the licence texts of the libraries compiled into them or copied in by
+    the wheel repair (FFTW, the OpenMP runtime; `SOLPROP_NATIVE_BUNDLED_LICENCES`).
+- **Workflows.**
+  - HDF5 output, including periodic snapshots, provenance, and resuming an interrupted
+    run, which continues the Adams history on every backend; a history the resuming
+    backend cannot continue restarts and says why, and a method that keeps none warns.
+  - Statistics along the propagation.
+  - Parameter scans on process pools and Slurm clusters.
+  - Processing and plotting.
+  - Soliton and dispersive-wave design tools.
+  - Pulse compressors: Taylor phase, chirped mirrors, materials, gratings and prisms.
+  - An interactive session through `import solprop.sol as sol`.
+- **Documentation.** An introduction with executable lessons, a user guide, a
+  long-form primer on the physics and numerics, focused tutorials and worked examples,
+  the API reference, and a developer's guide with the design records (SEPs and ADRs).

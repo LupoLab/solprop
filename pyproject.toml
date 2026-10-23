@@ -1,0 +1,374 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[project]
+name = "solprop"
+description = "Ultrafast nonlinear pulse propagation: UPPE and GNLSE, field and envelope, guided and free space"
+readme = "README.md"
+# The wheel ships the code (GPL) and Luna.jl's chirped-mirror data (MIT); REUSE.toml
+# records the licence of every file, and the documentation is CC-BY-4.0.
+license = "GPL-3.0-or-later AND MIT"
+license-files = ["LICENSE", "src/solprop/physdata/data/mirrors/NOTICE"]
+authors = [{ name = "John Travers", email = "jtravs@gmail.com" }]
+requires-python = ">=3.14"
+# The `native` extra pins solprop-native to this version (hatch_build.py).
+dynamic = ["version", "optional-dependencies"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+# Each floor is the oldest release that has CPython 3.14 wheels for Linux, macOS and
+# Windows and provides the APIs solprop uses, unless a comment names a stricter reason;
+# the `oldest` CI job tests them (docs/dev/dependencies.md).
+dependencies = [
+    # 2.5: under 2.3 and 2.4 the free-space reference runs produce NaN (cause not yet
+    # identified; docs/dev/dependencies.md).
+    "numpy>=2.5",
+    # optmat's floor: its stored fits reproduce bit for bit from SciPy 1.18.
+    "scipy>=1.18",
+    # 3.10.7: earlier releases call pyparsing APIs that current pyparsing deprecates.
+    "matplotlib>=3.10.7",
+    "h5py>=3.15",
+    # 0.67: the first release that supports NumPy 2.5.
+    "numba>=0.67",
+    "pyfftw>=0.15.1",
+    # Every built-in material model (SEP 3): gases with their equation of state and
+    # transport, solids, Raman responses and ionisation rates.
+    "optmat[gas]>=0.8.0",
+    # The BLAS pool is one of the four the numba_cpu backend owns (backends.md 3.4:
+    # a factor of nine on one step from the pool configuration alone), and no BLAS
+    # exposes a runtime thread count except through the library walk this does.
+    "threadpoolctl>=3.1",
+    # Array annotations are evaluated at import time in every module (AGENTS.md, Typing),
+    # so the annotation package is a runtime dependency; beartype (the checker) is dev-only.
+    # 0.3.11: under earlier releases the test session's import hook wraps the compiled
+    # kernels, which numba then cannot compile or cache.
+    "jaxtyping>=0.3.11",
+    "tqdm>=4.67",
+]
+
+[project.urls]
+Documentation = "https://solprop.readthedocs.io/en/latest/"
+Source = "https://github.com/LupoLab/solprop"
+
+# The native backend is the `native` extra, pinned to solprop's own version by
+# hatch_build.py: `pip install solprop[native]`. Its distribution, solprop-native, is
+# built from native/ in this repository. Until it is published, the TDSE provider
+# Pyroraptor is installed separately (docs/guide/media/tdse.md).
+
+[dependency-groups]
+dev = [
+    # The type checker is pinned exactly: it releases weekly and an unpinned bump silently
+    # changes what "no new errors" means. Bump it deliberately, in its own commit.
+    "basedpyright==1.39.10",
+    "scipy-stubs",
+    "beartype",
+    # Used only by tests/data/generate_symbolic_marcatili.py, run by hand, to re-derive
+    # the Marcatili beta and its frequency derivatives symbolically; it is
+    # in the dev group because pyright and the doctest collection import that script.
+    "sympy",
+    "pytest>=8",
+    "pytest-xdist",
+    "pytest-randomly",
+    "pytest-regressions",
+    "pytest-cov",
+    "hypothesis",
+    "poethepoet",
+    "pre-commit",
+    "codespell",
+    # `poe reuse`: every file declares its copyright and licence (REUSE.toml, SPDX headers).
+    "reuse[charset-normalizer]>=6.2",
+    "numpydoc>=1.9",
+    "sphinx>=8",
+    "myst-parser",
+    "pydata-sphinx-theme",
+    "sphinx-gallery",
+    # Used only by the figure scripts docs/dev/figures/build.py (the structure figures)
+    # and docs/guide/figures/geometries.py (the geometry figures), run by hand with
+    # `poe figures` and never by the docs build; the SVGs they write are committed, so an
+    # install without this group still builds the manual.
+    "drawsvg>=2.4",
+    "ruff>=0.16.6",
+    "psutil>=7.1.0",
+    # The native gate (native/scripts/check.sh). The C++ formatter is pinned so the check
+    # does not depend on the machine's LLVM (Ubuntu's 18 and Homebrew's 23 format
+    # native/src/general.cpp differently); the build tools let it build the editable
+    # package and the distribution wheel without isolation.
+    "clang-format==23.1.0",
+    "nanobind>=2.9",
+    "scikit-build-core>=0.11",
+    "setuptools-scm>=8",
+    "scipy-openblas32>=0.3.34; sys_platform == 'linux' or sys_platform == 'win32'",
+]
+
+# ------------------------------------------------------------------- build / version
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.version.raw-options]
+# Before the first tag (and in a fresh clone without history) the version is 0.0.0.
+fallback_version = "0.0.0"
+
+[tool.hatch.metadata.hooks.custom]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/solprop"]
+
+[tool.hatch.build.targets.sdist]
+# The native distribution is built from native/ on its own (SEP 29).
+exclude = ["native/"]
+
+# --------------------------------------------------------------------------- uv workspace
+# One lock for both distributions. `uv sync --extra native` builds and installs the
+# native package from native/ (editable); a plain `uv sync` leaves it out and removes
+# a copy installed by hand.
+[tool.uv.workspace]
+members = ["native"]
+
+[tool.uv.sources]
+solprop-native = { workspace = true }
+
+# ------------------------------------------------------------------------------ ruff
+[tool.ruff]
+line-length = 88
+target-version = "py314"          # keep equal to requires-python
+src = ["src", "tests"]
+extend-exclude = ["native/build", "native/dist*", "docs/_build", "docs/auto_tutorials", "docs/introduction/lessons", "docs/auto_examples", "docs/api/generated"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",      # pycodestyle
+    "F",           # pyflakes (F403/F405 ban wildcard imports)
+    "I",           # isort
+    "N",           # pep8-naming
+    "D",           # pydocstyle -> the whole docstring section
+    "ANN",         # flake8-annotations -> "annotate every public signature"
+    "UP",          # pyupgrade -> X | None, built-in generics
+    "B",           # bugbear
+    "SIM",         # simplify
+    "C4",          # comprehensions
+    "PTH",         # use pathlib, not os.path
+    "T20",         # no print/pprint in library code
+    "TID",         # tidy imports (absolute only, below)
+    "RET",         # return consistency
+    "ARG",         # unused arguments
+    "PGH",         # PGH004 bans blanket `# noqa`
+    "NPY",         # NumPy-specific: NPY002 catches legacy np.random.seed
+    "PL",          # pylint subset; PLR0913 = too many arguments
+    "RUF",         # ruff-specific; RUF100 catches stale noqa
+]
+ignore = [
+    "PLR2004",     # magic values: too noisy in numerical code
+    "ANN401",      # allow a commented, confined `Any`
+    # jaxtyping shape specifications are strings that are deliberately not Python
+    # expressions (`Float[np.ndarray, " n_omega"]`), so pyflakes reads them as broken
+    # forward annotations. jaxtyping's own documentation requires this ignore; without
+    # it the annotation style AGENTS.md mandates cannot be written at all.
+    "F722",        # forward-annotation-syntax-error: jaxtyping shape strings
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"              # auto-disables the D rules that conflict
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.isort]
+known-first-party = ["solprop"]
+
+[tool.ruff.lint.pylint]
+max-args = 6                      # forces a config dataclass past this
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**"          = ["D", "ANN", "PLR2004", "ARG"]   # dummies implement protocols with unused args
+"benchmarks/**"     = ["D", "ANN", "T20"]
+# Independent oracles and rejected prototypes that tests compare against: research code,
+# held to the benchmark rules rather than the package's.
+"tests/oracles/**"   = ["D", "ANN", "T20", "PLR2004", "ARG"]
+"tests/prototypes/**" = ["D", "ANN", "T20", "PLR2004", "ARG"]
+"docs/conf.py"      = ["D", "ANN"]
+"docs/introduction/tutorials/**" = ["D", "ANN", "T20", "E402"]  # the same gallery cell conventions
+"docs/tutorials/**" = ["D", "ANN", "T20", "E402"]   # gallery scripts: cells and prints
+"docs/examples/**" = ["D", "ANN", "T20", "E402"]    # worked examples: the same
+"docs/auto_examples/**" = ["D", "ANN", "T20", "E402"]   # their committed copies
+
+# -------------------------------------------------------------------------- type check
+[tool.basedpyright]               # basedpyright also reads [tool.pyright]
+include = ["src", "tests", "benchmarks"]
+exclude = ["tests/oracles", "tests/prototypes"]
+# The rejected plasma prototypes some kernel tests compare against import each other by name.
+extraPaths = ["tests/prototypes"]
+typeCheckingMode = "standard"     # "strict" once the baseline is clean
+pythonVersion = "3.14"
+failOnWarnings = true
+# numba and pyfftw ship no stubs; prefer narrow ignores at the import over a
+# module-wide switch. scipy-stubs covers SciPy.
+reportMissingTypeStubs = false
+
+# ------------------------------------------------------------------------------ pytest
+[tool.pytest.ini_options]
+testpaths = ["tests", "src"]      # src so --doctest-modules sees Examples
+pythonpath = ["."]               # the tests import the benchmark suite as `benchmarks`
+# Numerical record_property fixtures require the legacy JUnit property format.
+junit_family = "legacy"
+addopts = "-ra --strict-markers --strict-config --doctest-modules -m 'not slow and not gpu and not benchmark'"
+filterwarnings = ["error"]        # add targeted `ignore::...` entries as needed
+markers = [
+    # The three tiers of docs/dev/testing.md section 2, one marker each; a test carries
+    # at most one of them and tests/test_tiers.py asserts it. Fast is the absence of a
+    # marker, and both fast and medium run in the default lane, so `addopts` excludes
+    # only the two selections that are lanes rather than tiers.
+    "medium: a short real run, seconds not milliseconds; in the default lane, and alone with `poe test-medium`",
+    "slow: milestones, ladders and the CtC-size build; not in the default or coverage lanes; `poe test-slow`",
+    "gpu: needs a device (a GPU build of the native backend); run with -m gpu",
+    "benchmark: run by no lane at all; each says in its docstring how to run it by hand",
+]
+xfail_strict = true
+
+# ---------------------------------------------------------------------------- coverage
+[tool.coverage.run]
+source = ["solprop"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 100
+show_missing = true
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "@overload",
+    "raise NotImplementedError",
+    "^\\s*\\.\\.\\.$",   # Protocol and abstract method bodies
+]
+
+# ---------------------------------------------------------------------------- numpydoc
+[tool.numpydoc_validation]
+checks = ["all", "ES01", "SA01", "EX01", "GL01", "GL02"]   # "all" minus these: extended summary,
+# see-also and examples are optional; GL01/GL02 (quote placement) conflict with ruff's numpy style
+exclude = ['\.__init__$', '^test_']
+
+# ----------------------------------------------------------------------------- codespell
+[tool.codespell]
+# Reference PDFs contain compressed binary streams, not spelling-checkable text.
+skip = "uv.lock,*.json,*.csv,*.h5,*.pdf,*.map,*.js,*.css,*/_build/*,*/auto_tutorials/*,*/introduction/lessons/*,*/auto_examples/*,*/generated/*,*/.venv/*,*/.git/*,*.inv,*/_inventories/*,./build/*,./native/build/*,./native/dist*"
+quiet-level = 3
+# "commun" is the standard abbreviation of Optics Communications in a citation; "RIN" is
+# relative intensity noise; "Hart" is a surname (McKenna and van der Hart).
+ignore-words-list = "te,nd,ket,dout,ans,eto,towin,pto,ther,commun,rin,hart"
+
+# --------------------------------------------------------------------------- task runner
+[tool.poe.tasks]
+lint-fix   = "ruff check --fix ."
+fmt        = "ruff format ."
+lint       = "ruff check ."
+types      = "basedpyright"
+docstrings = "python -m numpydoc lint src/solprop/*.py src/solprop/**/*.py docs/dev/figures/build.py docs/guide/figures/geometries.py docs/primer/figures/primer_figures.py"
+spell      = "codespell"
+reuse      = "reuse lint"
+test-medium = "pytest -m medium --durations=0"   # the tier timed against its 60 s budget
+docs       = "sphinx-build -b html -W -n --keep-going docs docs/_build/html"
+# Python rather than `rm -rf`, so the task also runs on Windows.
+docs-clean = "python -c \"import shutil; [shutil.rmtree(p, ignore_errors=True) for p in ('docs/_build', 'docs/introduction/lessons', 'docs/auto_tutorials', 'docs/api/generated')]\""
+
+[tool.poe.tasks.bench]
+cmd = "python -m benchmarks"
+help = "Run the bounded core quick suite; pass list, run, compare or qualify options."
+
+# The test lanes run under xdist: one worker per core, with `loadgroup` and a default
+# group per module assigned by tests/conftest.py. Module fixtures stay on one worker;
+# explicit xdist_group marks let independent expensive cases run on separate workers.
+# Every thread pool stays at one thread per worker so eighteen workers do not fight over
+# the same cores. SOLPROP_NATIVE_THREADS is the native backend's own process cap
+# (OMP_NUM_THREADS does not set it). NUMBA_NUM_THREADS is left alone: it is a ceiling,
+# and the tests that compare thread counts ask numba_cpu for several threads.
+[tool.poe.tasks.test]
+cmd = "pytest -n auto --dist loadgroup"
+env = { PYTHONUTF8 = "1", SOLPROP_NATIVE_THREADS = "1", VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
+help = "Default lane (fast and medium tiers) under xdist; plain `pytest` runs it serially."
+
+[tool.poe.tasks.test-slow]
+sequence = ["test-slow-functional", "test-statistics-cost"]
+env = { PYTHONUTF8 = "1", SOLPROP_NATIVE_THREADS = "1", VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
+help = "Slow lane, followed by the statistics cost check without competing test workers."
+
+[tool.poe.tasks.test-slow-functional]
+# `--durations=0` times every test: it is the data the tiers are maintained from.
+cmd = "pytest -m slow -k 'not test_the_statistics_channel_costs_under_a_quarter_of_a_step' --durations=0 -n auto --dist loadgroup"
+env = { PYTHONUTF8 = "1", SOLPROP_NATIVE_THREADS = "1", VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
+help = "Functional slow tests: the milestones, ladders and CtC-size build."
+
+[tool.poe.tasks.test-statistics-cost]
+cmd = "pytest -m slow tests/driver/test_prop_capillary.py::test_the_statistics_channel_costs_under_a_quarter_of_a_step"
+env = { PYTHONUTF8 = "1", SOLPROP_NATIVE_THREADS = "1", VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
+help = "Measure periodic statistics on ten steps, after the parallel slow tests finish."
+
+# The CPU coverage lane runs in two passes, and the reason is measurable. Only the
+# compiled modules need NUMBA_DISABLE_JIT to have their bodies counted, and disabling
+# the compiler for the whole suite makes every run in it interpret those kernels
+# instead: with numba_cpu the default backend, tests/driver alone goes from 37 s to
+# 182 s. So the first pass runs the kernel-body suites interpreted -- a few seconds,
+# and enough for 100 % of bodies.py, kernels.py and the spatial kernels, whose parallel
+# variants share their source lines with the serial instances the suites exercise --
+# and the second runs everything else compiled and appends. Both passes measure
+# coverage-cpu.ini's source, which is now the whole package.
+# Both passes run under xdist with one thread per worker, as `poe test` does;
+# pytest-cov combines the workers' data, and the second pass appends to the first.
+[tool.poe.tasks.cov-kernels]
+cmd = "pytest tests/backends/test_bodies.py tests/backends/test_numba_cpu_kernels.py tests/backends/test_numba_band_kernels.py tests/backends/test_numba_held_plasma.py tests/backends/test_numba_mixture_channels.py tests/backends/test_numba_cpu_fraction_reuse.py tests/backends/test_envelope_plasma_host.py tests/backends/test_envelope_plasma_geometries.py tests/backends/test_vector_raman.py tests/backends/test_vector_raman_routes.py tests/backends/test_numba_general_kernels.py tests/backends/test_numba_flow_kernels.py tests/backends/test_numba_planar_kernels.py tests/backends/test_numba_dispersive_kernels.py tests/backends/test_numba_low_storage_kernels.py tests/backends/test_numba_far_field_kernels.py --cov --cov-config=coverage-cpu.ini --cov-report= --cov-fail-under=0 -p no:randomly -n auto --dist loadgroup"
+env = { PYTHONUTF8 = "1", NUMBA_DISABLE_JIT = "1", SOLPROP_NATIVE_THREADS = "1", VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
+help = "Coverage pass 1: the compiled bodies, run in the interpreter so they are counted."
+
+[tool.poe.tasks.cov-rest]
+cmd = "pytest --cov --cov-config=coverage-cpu.ini --cov-append --cov-report=term-missing --durations=25 -m 'not slow and not gpu and not benchmark' -n auto --dist loadgroup"
+env = { PYTHONUTF8 = "1", SOLPROP_NATIVE_THREADS = "1", VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
+help = "Coverage pass 2: everything else, compiled; 100 % of the CPU source required."
+
+[tool.poe.tasks.cov]
+sequence = ["cov-kernels", "cov-rest"]
+help = "Coverage lane: the kernel bodies interpreted, then the rest compiled (CPU source)."
+
+# The structure figures and the geometry figures are drawn on demand, not by the docs
+# build: the SVGs are committed and `structure.md` and `spatial-decompositions.md` only
+# include them, so the manual builds with no drawing library present. Run this after
+# editing a figure and commit what it writes; tests/test_structure_figures.py and
+# tests/test_geometry_figures.py fail if a committed SVG is not what its script draws.
+[tool.poe.tasks.figures]
+sequence = [
+    { cmd = "python docs/dev/figures/build.py" },
+    { cmd = "python docs/guide/figures/geometries.py" },
+    { cmd = "python docs/primer/figures/primer_figures.py" },
+]
+help = "Redraw the structure, geometry and primer figures (needs the dev group)."
+
+# The worked examples (docs/examples/) are never executed by `poe docs`: their
+# generated pages, figures and checksums under docs/auto_examples/ are committed and
+# reused. This task executes them -- every stale one by default, or one by name even if
+# it is current -- and rewrites docs/auto_examples/, which is then committed. Each takes
+# minutes to half an hour; run it on a quiet machine (AGENTS.md, Documentation).
+[tool.poe.tasks.docs-examples]
+cmd = "sphinx-build -b html -W -n --keep-going docs docs/_build/html"
+# A positional argument is exported under its own name, which is what conf.py reads.
+args = [{ name = "SOLPROP_RUN_EXAMPLES", positional = true, default = "stale", help = "A worked example's script name (plot_NN_...), or 'stale' for every changed one." }]
+help = "Execute the worked examples and refresh their committed output (slow)."
+
+[tool.poe.tasks.check]
+sequence = ["lint-fix", "fmt", "lint", "types", "docstrings", "spell", "reuse", "test", "docs"]
+help = "The definition-of-done gate, in order."
+
+# The native package's gate: its lint and strict types, C++ format, clang-tidy, the
+# native tests, ASan and UBSan, its pytest suite, and the distribution wheel's build
+# and smoke test (native/scripts/check.sh; bash, so Linux and macOS).
+[tool.poe.tasks.check-native]
+cmd = "bash native/scripts/check.sh"
+help = "The native package's gate (C++ and its Python adapter)."
+
+[tool.poe.tasks.check-all]
+sequence = ["check", "check-native"]
+help = "The repository's whole gate: solprop's, then the native package's."

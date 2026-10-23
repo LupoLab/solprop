@@ -1,0 +1,4 @@
+ModalNodeRule: Cartesian nodes with declared material ownership
+  nodes:    30
+  regions:  2
+  identity: interfaces, n_r, n_theta, omega, outer_radius, tail_power_bound, tail_pow...

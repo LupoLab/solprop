@@ -1,0 +1,37 @@
+{
+ "accepted_steps": 117486,
+ "atol": 1e-10,
+ "blas_threads": 1,
+ "energy": 0.000275,
+ "full": {
+  "lambda_max": 4e-06,
+  "lambda_min": 9e-08,
+  "length": 1.5,
+  "modes": 4,
+  "n_save": 201,
+  "p_in": 0.8,
+  "p_out": 0.0,
+  "radius": 0.000125,
+  "trange": 4e-13
+ },
+ "generated": "2026-09-07T00:00:51+00:00",
+ "julia_threads": 1,
+ "julia_version": "julia version 1.12.6",
+ "lambda0": 8e-07,
+ "luna_branch": "modal-fixed",
+ "luna_commit": "de9db7c9a3b6e37fc71bb657540abab177242883",
+ "luna_describe": "de9db7c LinearOps: frozen_transverse kwarg for the free-space const linop",
+ "luna_path": "~/.julia/dev/Luna",
+ "raw_bytes": 163404009,
+ "rtol": 1e-09,
+ "runtime_s": 2113.8,
+ "sha256": "61abdee3c84ab13955e1eae47a73bcc408aad457ab5124b30ab16406cfaf61ab",
+ "shotnoise": false,
+ "stats_kept": [
+  "stats/z",
+  "stats/energy"
+ ],
+ "stored_bytes": 3952614,
+ "tau_fwhm": 7.5e-15,
+ "temperature_k": 294.0
+}

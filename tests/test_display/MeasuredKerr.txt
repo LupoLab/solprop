@@ -1,0 +1,5 @@
+MaterialKerr: an instantaneous isotropic Kerr response
+  declared as: n2
+  chi3:        from n2, at 1.55 um
+  n2:          2.6e-20 m^2/W
+  measured at: 1.55 um

@@ -1,0 +1,146 @@
+{
+ "axis": {
+  "label": "uniform steps per period",
+  "name": "n_steps",
+  "unit": "steps"
+ },
+ "case": {
+  "backend": "the default backend only (docs/dev/testing.md section 2)",
+  "grid": "the wide grid, 350 nm to 3 um over 4 ps, 8192 bins",
+  "metric": "phase-resolved recurrence error, as above",
+  "problem": "N = 6 soliton of the GNLSE fixture, one soliton period",
+  "schedule": "uniform fixed steps"
+ },
+ "columns": [
+  {
+   "atol": 1e-09,
+   "bound": null,
+   "name": "error",
+   "rtol": 0.2,
+   "unit": "1 (relative to the input norm)",
+   "why": "a fifth: the ladder ends on the band's own floor of about 5e-9, where sixty-four thousand steps of a different transform accumulate differently, and atol carries that floor outright"
+  },
+  {
+   "atol": 0.5,
+   "bound": null,
+   "name": "order",
+   "rtol": 0.0,
+   "unit": "1",
+   "why": "what a fifth in one rung costs a log2 ratio; null on the coarsest rung, which has no pair, and meaningless once a rung is on the floor"
+  }
+ ],
+ "luna": null,
+ "rows": [
+  {
+   "axis": 8000,
+   "error": 9.205075566963939e-06,
+   "order": null,
+   "series": "wide band, taper off",
+   "write": 1,
+   "written_by": "tests/backends/test_numpy_ref_soliton.py::test_the_sixth_order_soliton_converges_at_the_scheme_s_order_on_a_wide_band"
+  },
+  {
+   "axis": 16000,
+   "error": 6.120226658287526e-08,
+   "order": 7.232700671770782,
+   "series": "wide band, taper off",
+   "write": 1,
+   "written_by": "tests/backends/test_numpy_ref_soliton.py::test_the_sixth_order_soliton_converges_at_the_scheme_s_order_on_a_wide_band"
+  },
+  {
+   "axis": 32000,
+   "error": 8.924569546556192e-09,
+   "order": 2.7777305918205406,
+   "series": "wide band, taper off",
+   "write": 0,
+   "written_by": "tests/backends/test_numpy_ref_soliton.py::test_the_wide_band_ladder_at_every_rung_and_with_the_taper_on"
+  },
+  {
+   "axis": 64000,
+   "error": 4.657690349957152e-09,
+   "order": 0.9381678559019,
+   "series": "wide band, taper off",
+   "write": 0,
+   "written_by": "tests/backends/test_numpy_ref_soliton.py::test_the_wide_band_ladder_at_every_rung_and_with_the_taper_on"
+  },
+  {
+   "axis": 8000,
+   "error": 9.164129482897227e-06,
+   "order": null,
+   "series": "wide band, taper on",
+   "write": 0,
+   "written_by": "tests/backends/test_numpy_ref_soliton.py::test_the_wide_band_ladder_at_every_rung_and_with_the_taper_on"
+  },
+  {
+   "axis": 16000,
+   "error": 9.646086029586228e-08,
+   "order": 6.569910355880269,
+   "series": "wide band, taper on",
+   "write": 0,
+   "written_by": "tests/backends/test_numpy_ref_soliton.py::test_the_wide_band_ladder_at_every_rung_and_with_the_taper_on"
+  },
+  {
+   "axis": 32000,
+   "error": 6.109773149589491e-08,
+   "order": 0.6588248619153324,
+   "series": "wide band, taper on",
+   "write": 0,
+   "written_by": "tests/backends/test_numpy_ref_soliton.py::test_the_wide_band_ladder_at_every_rung_and_with_the_taper_on"
+  }
+ ],
+ "schema": 1,
+ "study": "soliton_n6",
+ "title": "Milestone M1: the N = 6 soliton's recurrence on a band that holds it",
+ "writes": [
+  {
+   "backend": "numba_cpu",
+   "blas": null,
+   "branch": "development",
+   "commit": "d3505dc7c4ac168a1d8e6da816055c7b2b3911ae",
+   "fftw_planner": null,
+   "machine_id": "darwin-arm64",
+   "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.5",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NUMBA_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  },
+  {
+   "backend": "numba_cpu",
+   "blas": null,
+   "branch": "development",
+   "commit": "adcdaccc60133bd34435a71a4713964279551fc0",
+   "fftw_planner": null,
+   "machine_id": "darwin-arm64",
+   "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.5",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NUMBA_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  }
+ ]
+}

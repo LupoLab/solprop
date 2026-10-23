@@ -1,0 +1,50 @@
+backend,method,rtol,calls,median_seconds,error
+"numba_cpu, Darwin/arm64, one thread",rk,0.001,169,0.22460337495431304,3.7875363905217293e-07
+"numba_cpu, Darwin/arm64, one thread",rk,0.0001,169,,3.7875363905217293e-07
+"numba_cpu, Darwin/arm64, one thread",rk,1e-05,169,,3.664641114829986e-07
+"numba_cpu, Darwin/arm64, one thread",rk,1e-06,181,0.2374364580027759,4.246079059270262e-08
+"numba_cpu, Darwin/arm64, one thread",rk,1e-07,223,,2.9076022189129707e-09
+"numba_cpu, Darwin/arm64, one thread",rk,1e-08,301,,2.355025416465268e-10
+"numba_cpu, Darwin/arm64, one thread",rk,1e-09,439,,1.6494136433046682e-11
+"numba_cpu, Darwin/arm64, one thread",rk2,0.001,67,0.09217095794156194,8.510068106648483e-05
+"numba_cpu, Darwin/arm64, one thread",rk2,0.0001,85,,1.2705927116167367e-05
+"numba_cpu, Darwin/arm64, one thread",rk2,1e-05,103,0.1404281253926456,1.054784449694412e-06
+"numba_cpu, Darwin/arm64, one thread",rk2,1e-06,139,0.18613849999383092,7.949052608040131e-08
+"numba_cpu, Darwin/arm64, one thread",rk2,1e-07,193,,2.2175500431674578e-08
+"numba_cpu, Darwin/arm64, one thread",rk2,1e-08,283,,4.673503901798532e-09
+"numba_cpu, Darwin/arm64, one thread",rk2,1e-09,439,,1.3738511261098191e-10
+"numba_cpu, Darwin/arm64, one thread",interaction,0.001,30,0.0719349579885602,0.00020595110888410134
+"numba_cpu, Darwin/arm64, one thread",interaction,0.0001,44,0.10940237483009696,8.070366440532182e-06
+"numba_cpu, Darwin/arm64, one thread",interaction,1e-05,64,0.15253929095342755,7.467604214380807e-07
+"numba_cpu, Darwin/arm64, one thread",interaction,1e-06,95,0.22582575026899576,7.70104657813507e-08
+"numba_cpu, Darwin/arm64, one thread",interaction,1e-07,122,,5.793880867072485e-09
+"numba_cpu, Darwin/arm64, one thread",interaction,1e-08,177,,4.53561570184157e-10
+"numba_cpu, Darwin/arm64, one thread",interaction,1e-09,258,,3.873559041878026e-11
+"numba_cpu, Darwin/arm64, one thread",exponential,0.0001,28,0.12501204200088978,3.102831110537857e-05
+"numba_cpu, Darwin/arm64, one thread",exponential,1e-05,36,0.17097920877858996,3.7010548741279117e-06
+"numba_cpu, Darwin/arm64, one thread",exponential,1e-06,45,0.2167014591395855,2.4092304926369826e-07
+"numba_cpu, Darwin/arm64, one thread",exponential,1e-07,61,0.30214383313432336,2.4720633661563823e-08
+"numba_cpu, Darwin/arm64, one thread",exponential,1e-08,86,,2.6665467176678084e-09
+"numba_cpu, Darwin/arm64, one thread",exponential,1e-09,121,,2.8427941885325307e-10
+"numba_cpu, Darwin/arm64, one thread",exponential,1e-10,176,,2.74489645908932e-11
+"Kokkos CPU, Darwin/arm64, one thread",rk,0.001,169,0.2790929162874818,3.7875363904338576e-07
+"Kokkos CPU, Darwin/arm64, one thread",rk,0.0001,169,,3.7875363904338576e-07
+"Kokkos CPU, Darwin/arm64, one thread",rk,1e-05,169,,3.664641114771258e-07
+"Kokkos CPU, Darwin/arm64, one thread",rk,1e-06,181,0.29734000004827976,4.246079048438692e-08
+"Kokkos CPU, Darwin/arm64, one thread",rk,1e-07,223,,2.907602228649317e-09
+"Kokkos CPU, Darwin/arm64, one thread",rk,1e-08,301,,2.355025494887452e-10
+"Kokkos CPU, Darwin/arm64, one thread",rk,1e-09,439,,1.649413992184023e-11
+"Kokkos CPU, Darwin/arm64, one thread",interaction,0.001,30,0.07288695778697729,0.00020595110888422906
+"Kokkos CPU, Darwin/arm64, one thread",interaction,0.0001,44,0.10606558341532946,8.070366440551912e-06
+"Kokkos CPU, Darwin/arm64, one thread",interaction,1e-05,64,0.15393625013530254,7.46760421446613e-07
+"Kokkos CPU, Darwin/arm64, one thread",interaction,1e-06,95,0.22744837496429682,7.701046572075384e-08
+"Kokkos CPU, Darwin/arm64, one thread",interaction,1e-07,122,,5.793880815448363e-09
+"Kokkos CPU, Darwin/arm64, one thread",interaction,1e-08,177,,4.535614500016214e-10
+"Kokkos CPU, Darwin/arm64, one thread",interaction,1e-09,258,,3.8735343786391736e-11
+"Kokkos CPU, Darwin/arm64, one thread",exponential,0.0001,28,0.12276070890948176,3.1028311105432514e-05
+"Kokkos CPU, Darwin/arm64, one thread",exponential,1e-05,36,0.16421724995598197,3.701054874222828e-06
+"Kokkos CPU, Darwin/arm64, one thread",exponential,1e-06,45,0.21256362507119775,2.409230491644951e-07
+"Kokkos CPU, Darwin/arm64, one thread",exponential,1e-07,61,0.29547670809552073,2.472063362841169e-08
+"Kokkos CPU, Darwin/arm64, one thread",exponential,1e-08,86,,2.6665466592935427e-09
+"Kokkos CPU, Darwin/arm64, one thread",exponential,1e-09,121,,2.8427947203581566e-10
+"Kokkos CPU, Darwin/arm64, one thread",exponential,1e-10,176,,2.744893302496819e-11

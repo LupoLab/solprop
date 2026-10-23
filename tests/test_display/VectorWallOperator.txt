@@ -1,0 +1,8 @@
+VectorWallOperator: the condensed vector wall of one azimuthal order
+  azimuthal order:    1
+  families:           HE_1m (J_0, 2), EH_1m (J_2, 2)
+  channels:           4
+  frequencies:        3 active
+  largest field loss: 0.9092 1/m
+  wall anisotropy:    0.3577 of the mean impedance
+  limits:             WallLimits(4 channels, worst=quasi_static=0.01253)

@@ -1,0 +1,9 @@
+RegionalResponseTables: the compiled response of each material region
+  responses:     1
+  regions:       [0]
+  components:    3
+  delayed terms: none (Kerr only)
+  intervals:     1
+  fine samples:  8
+  model:         isotropic-kerr
+  policy:        dense-nodes

@@ -1,0 +1,191 @@
+{
+ "axis": {
+  "label": "uniform steps over [0, 1]",
+  "name": "n_steps",
+  "unit": "steps"
+ },
+ "case": {
+  "problem": "y' = -y on [0, 1], y(0) = 1",
+  "reference": "exp(-1), the exact solution",
+  "schedule": "uniform fixed steps"
+ },
+ "columns": [
+  {
+   "atol": 1e-15,
+   "bound": null,
+   "name": "error",
+   "rtol": 1e-06,
+   "unit": "1 (absolute, on a solution of order unity)",
+   "why": "atol is about four ulps of exp(-1), the round-off floor the finest rung sits on; rtol is tight above it, where the ladder is truncation"
+  },
+  {
+   "atol": 0.2,
+   "bound": null,
+   "name": "order",
+   "rtol": 0.0,
+   "unit": "1",
+   "why": "what a six per cent move in one rung costs a log2 ratio, that being the floor tolerance above; null on the coarsest rung, which has no pair"
+  }
+ ],
+ "luna": null,
+ "rows": [
+  {
+   "axis": 8,
+   "error": 8.262281053772469e-08,
+   "order": null,
+   "series": "DOPRI5 embedded",
+   "write": 0,
+   "written_by": "tests/stepper/test_tableau.py::test_the_observed_order_converges_onto_the_stated_order[DOPRI5]"
+  },
+  {
+   "axis": 16,
+   "error": 4.8441504141294445e-09,
+   "order": 4.092224568953192,
+   "series": "DOPRI5 embedded",
+   "write": 0,
+   "written_by": "tests/stepper/test_tableau.py::test_the_observed_order_converges_onto_the_stated_order[DOPRI5]"
+  },
+  {
+   "axis": 32,
+   "error": 2.930746756391045e-10,
+   "order": 4.046903446040138,
+   "series": "DOPRI5 embedded",
+   "write": 0,
+   "written_by": "tests/stepper/test_tableau.py::test_the_observed_order_converges_onto_the_stated_order[DOPRI5]"
+  },
+  {
+   "axis": 64,
+   "error": 1.8019419290027372e-11,
+   "order": 4.023643887798105,
+   "series": "DOPRI5 embedded",
+   "write": 0,
+   "written_by": "tests/stepper/test_tableau.py::test_the_observed_order_converges_onto_the_stated_order[DOPRI5]"
+  },
+  {
+   "axis": 8,
+   "error": 3.844437157507485e-09,
+   "order": null,
+   "series": "DOPRI5 solution",
+   "write": 0,
+   "written_by": "tests/stepper/test_tableau.py::test_the_observed_order_converges_onto_the_stated_order[DOPRI5]"
+  },
+  {
+   "axis": 16,
+   "error": 1.0833534069831785e-10,
+   "order": 5.1491965420181165,
+   "series": "DOPRI5 solution",
+   "write": 0,
+   "written_by": "tests/stepper/test_tableau.py::test_the_observed_order_converges_onto_the_stated_order[DOPRI5]"
+  },
+  {
+   "axis": 32,
+   "error": 3.212097254845503e-12,
+   "order": 5.075844564425811,
+   "series": "DOPRI5 solution",
+   "write": 0,
+   "written_by": "tests/stepper/test_tableau.py::test_the_observed_order_converges_onto_the_stated_order[DOPRI5]"
+  },
+  {
+   "axis": 64,
+   "error": 9.792167077193881e-14,
+   "order": 5.035743590766161,
+   "series": "DOPRI5 solution",
+   "write": 0,
+   "written_by": "tests/stepper/test_tableau.py::test_the_observed_order_converges_onto_the_stated_order[DOPRI5]"
+  },
+  {
+   "axis": 8,
+   "error": 4.6284034160848364e-08,
+   "order": null,
+   "series": "Tsit5 embedded",
+   "write": 0,
+   "written_by": "tests/stepper/test_tableau.py::test_the_observed_order_converges_onto_the_stated_order[Tsit5]"
+  },
+  {
+   "axis": 16,
+   "error": 2.62790306182481e-09,
+   "order": 4.13853065303856,
+   "series": "Tsit5 embedded",
+   "write": 0,
+   "written_by": "tests/stepper/test_tableau.py::test_the_observed_order_converges_onto_the_stated_order[Tsit5]"
+  },
+  {
+   "axis": 32,
+   "error": 1.5670514885712805e-10,
+   "order": 4.067787570162808,
+   "series": "Tsit5 embedded",
+   "write": 0,
+   "written_by": "tests/stepper/test_tableau.py::test_the_observed_order_converges_onto_the_stated_order[Tsit5]"
+  },
+  {
+   "axis": 64,
+   "error": 9.569511849605306e-12,
+   "order": 4.033463439690939,
+   "series": "Tsit5 embedded",
+   "write": 0,
+   "written_by": "tests/stepper/test_tableau.py::test_the_observed_order_converges_onto_the_stated_order[Tsit5]"
+  },
+  {
+   "axis": 8,
+   "error": 8.617854208026188e-10,
+   "order": null,
+   "series": "Tsit5 solution",
+   "write": 0,
+   "written_by": "tests/stepper/test_tableau.py::test_the_observed_order_converges_onto_the_stated_order[Tsit5]"
+  },
+  {
+   "axis": 16,
+   "error": 2.0774826303693317e-11,
+   "order": 5.374420372032158,
+   "series": "Tsit5 solution",
+   "write": 0,
+   "written_by": "tests/stepper/test_tableau.py::test_the_observed_order_converges_onto_the_stated_order[Tsit5]"
+  },
+  {
+   "axis": 32,
+   "error": 5.598299601672352e-13,
+   "order": 5.213703907551501,
+   "series": "Tsit5 solution",
+   "write": 0,
+   "written_by": "tests/stepper/test_tableau.py::test_the_observed_order_converges_onto_the_stated_order[Tsit5]"
+  },
+  {
+   "axis": 64,
+   "error": 1.6264767310758543e-14,
+   "order": 5.105166609078076,
+   "series": "Tsit5 solution",
+   "write": 0,
+   "written_by": "tests/stepper/test_tableau.py::test_the_observed_order_converges_onto_the_stated_order[Tsit5]"
+  }
+ ],
+ "schema": 1,
+ "study": "tableau_order",
+ "title": "Global order of the DOPRI5 and Tsit5 weights on a scalar decay",
+ "writes": [
+  {
+   "backend": null,
+   "blas": null,
+   "branch": "development",
+   "commit": "14d18f3f9fd5ab97e01683c062a609a728b67963",
+   "fftw_planner": null,
+   "machine_id": "darwin-arm64",
+   "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.5",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NUMBA_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  }
+ ]
+}

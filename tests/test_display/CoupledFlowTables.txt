@@ -1,0 +1,11 @@
+CoupledFlowTables: a generator whose channels couple
+  representation: factored
+  frequencies:    4, 1.0000e+15 to 2.0000e+15 rad/s
+  z:              0 m to 1 mm
+  channels:       2
+  sections:       frozen_residual
+  wall:           yes
+  connection:     no
+  residual:       0.000e+00 1/m largest
+  gauge:          lab
+  certificate:    factored

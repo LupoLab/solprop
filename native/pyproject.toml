@@ -1,0 +1,129 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[build-system]
+requires = [
+  "nanobind>=2.9",
+  # The distribution profile's Linux and Windows BLAS, copied into the wheel; never a runtime
+  # dependency. Other builds ignore it.
+  "scipy-openblas32>=0.3.34; sys_platform == 'linux' or sys_platform == 'win32'",
+  "scikit-build-core>=0.11",
+  # The version comes from the repository, as solprop's does (one version for both).
+  "setuptools-scm>=8",
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "solprop-native"
+dynamic = ["version"]
+description = "The compiled native backend for solprop, built on Kokkos"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+# The wheel carries the licence; a copy of the root LICENSE, since license-files cannot
+# reach outside the project directory.
+license-files = ["LICENSE"]
+requires-python = ">=3.14"
+dependencies = [
+  "numpy>=2.3",
+]
+
+[project.urls]
+Documentation = "https://solprop.readthedocs.io/en/latest/guide/performance/native.html"
+Source = "https://github.com/LupoLab/solprop/tree/main/native"
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+# One version for solprop and solprop-native, from the repository's tags: the same
+# setuptools-scm scheme as solprop's hatch-vcs, rooted at the repository.
+metadata.version.provider = "scikit_build_core.metadata.setuptools_scm"
+build-dir = "build/{wheel_tag}"
+cmake.build-type = "Release"
+cmake.define.BUILD_TESTING = "OFF"
+wheel.packages = ["src/solprop_native"]
+wheel.exclude = ["**/__pycache__/**"]
+
+[[tool.scikit-build.overrides]]
+if.platform-system = "^darwin$"
+if.platform-machine = "^arm64$"
+cmake.args = ["-DCMAKE_CXX_COMPILER=/opt/homebrew/opt/llvm/bin/clang++"]
+
+[[tool.scikit-build.overrides]]
+if.platform-system = "^darwin$"
+if.platform-machine = "^x86_64$"
+cmake.args = ["-DCMAKE_CXX_COMPILER=/usr/local/opt/llvm/bin/clang++"]
+
+# The release wheels (.github/workflows/wheels.yml; docs/dev/releasing.md): CPython 3.14,
+# not free-threaded, one 64-bit wheel per platform, the distribution profile. The
+# libraries each wheel bundles are built from pinned sources by native/ci/ before the
+# build, and the repair step copies them into the wheel.
+[tool.cibuildwheel]
+build = "cp314-*"
+skip = ["cp314t-*", "*-musllinux_*"]
+archs = ["auto64"]
+build-verbosity = 1
+config-settings = { "cmake.define.SOLPROP_NATIVE_PROFILE" = "DISTRIBUTION", "build-dir" = "build/cibw-{wheel_tag}" }
+# A first smoke test in cibuildwheel's test environment, beside solprop from the same
+# checkout (check_build reads solprop's kernel contract); the suite and the
+# coexistence check run in the workflow's test jobs.
+before-test = "python -m pip install {project}"
+test-command = "python -I {package}/ci/smoke.py"
+
+# manylinux_2_28 (glibc 2.28, GCC 14): x86-64-v3 or Neoverse N1 baseline, the OpenMP
+# OpenBLAS the configure step builds (cmake/OpenMPOpenBLAS.cmake), FFTW built in the
+# container, and auditwheel copying FFTW and libgomp into the wheel. The checkout is
+# copied into the container under another owner, and the version and the build's
+# commit record both read it with git.
+[tool.cibuildwheel.linux]
+before-all = "git config --global --add safe.directory '*' && bash {package}/ci/build-deps.sh /opt/solprop-deps"
+environment = { CMAKE_ARGS = "-DFFTW_ROOT=/opt/solprop-deps -DSOLPROP_NATIVE_BUNDLED_LICENCES=/opt/solprop-deps/licences" }
+repair-wheel-command = "LD_LIBRARY_PATH=/opt/solprop-deps/lib:$LD_LIBRARY_PATH auditwheel repair -w {dest_dir} {wheel}"
+
+# Apple silicon: apple-m1 baseline, Accelerate, and libomp and FFTW built for the
+# deployment target (Homebrew's need the build machine's macOS); delocate copies them.
+# native/ci/build-wheel-macos.sh runs the same steps locally: keep the two in step.
+[tool.cibuildwheel.macos]
+before-all = "bash {package}/ci/build-deps.sh /tmp/solprop-deps"
+environment = { MACOSX_DEPLOYMENT_TARGET = "14.0", CMAKE_ARGS = "-DFFTW_ROOT=/tmp/solprop-deps -DSOLPROP_NATIVE_LIBOMP_LIBRARY=/tmp/solprop-deps/lib/libomp.dylib -DSOLPROP_NATIVE_LIBOMP_INCLUDE_DIR=/tmp/solprop-deps/include -DSOLPROP_NATIVE_BUNDLED_LICENCES=/tmp/solprop-deps/licences" }
+repair-wheel-command = "delocate-wheel --require-archs {delocate_archs} --require-target-macos-version 14.0 -w {dest_dir} -v {wheel}"
+
+# Windows x64: Clang on the MSVC ABI (the workflow sets up the MSVC environment),
+# Kokkos OpenMP, FFTW and OpenBLAS built static on LLVM's libomp, and delvewheel
+# copying libomp.dll into the wheel under a mangled name.
+[tool.cibuildwheel.windows]
+before-all = "powershell -NoProfile -ExecutionPolicy Bypass -File {package}\\ci\\build-deps-windows.ps1 -Prefix C:\\solprop-deps"
+environment = { CMAKE_GENERATOR = "Ninja", CC = "clang", CXX = "clang++", CMAKE_ARGS = "-DSOLPROP_NATIVE_DISTRIBUTION_BLAS=OPENMP_OPENBLAS -DSOLPROP_NATIVE_OPENBLAS_ROOT=C:/solprop-deps/openblas -DFFTW_ROOT=C:/solprop-deps/fftw -DFFTW_DOUBLE_LIB=C:/solprop-deps/fftw/lib/fftw3.lib -DFFTW_FLOAT_LIB=C:/solprop-deps/fftw/lib/fftw3f.lib -DFFTW_DOUBLE_OPENMP_LIB=C:/solprop-deps/fftw/lib/fftw3_omp.lib -DFFTW_FLOAT_OPENMP_LIB=C:/solprop-deps/fftw/lib/fftw3f_omp.lib -DOpenMP_CXX_FLAGS=-fopenmp -DOpenMP_CXX_LIB_NAMES=libomp -DOpenMP_libomp_LIBRARY=C:/solprop-deps/libomp/lib/libomp.lib -DSOLPROP_NATIVE_BUNDLED_LICENCES=C:/solprop-deps/licences" }
+repair-wheel-command = "delvewheel repair --add-path C:\\solprop-deps\\libomp\\bin -w {dest_dir} -v {wheel}"
+
+[tool.setuptools_scm]
+root = ".."
+fallback_version = "0.0.0"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-config", "--strict-markers"]
+filterwarnings = ["error"]
+markers = [
+  "gpu: focused tests that are useful during CUDA or HIP bring-up",
+]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "PERF", "PT", "RUF", "UP", "W"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+
+[tool.pyright]
+include = ["src", "tests", "benchmarks"]
+exclude = ["build", "dist", "dist-*", ".venv"]
+extraPaths = ["src", "../src"]
+pythonVersion = "3.14"
+typeCheckingMode = "strict"
+venvPath = ".."
+venv = ".venv"
+reportMissingTypeStubs = "error"
+reportMissingModuleSource = "none"

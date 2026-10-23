@@ -1,0 +1,98 @@
+{
+ "axis": {
+  "label": "interval width",
+  "name": "width",
+  "unit": "1"
+ },
+ "case": {
+  "degree": 8,
+  "function": "the smooth test function of tests/translate/test_chebyshev.py",
+  "probe": "401 points, uniform on the interval"
+ },
+ "columns": [
+  {
+   "atol": 0.0,
+   "bound": null,
+   "name": "width",
+   "rtol": 0.0,
+   "unit": "1",
+   "why": "the ladder's input rather than a measurement, so it is compared exactly; it is here to give the figure a numeric axis"
+  },
+  {
+   "atol": 1e-15,
+   "bound": null,
+   "name": "error",
+   "rtol": 1e-09,
+   "unit": "1 (absolute, on a function of order unity)",
+   "why": "pure interpolation arithmetic three orders above any round-off floor, so the tolerance is the one a platform difference cannot reach"
+  },
+  {
+   "atol": 1e-06,
+   "bound": null,
+   "name": "order",
+   "rtol": 0.0,
+   "unit": "1",
+   "why": "a log2 of two errors each known to 1e-9, so the order is known far better than this; null on the coarsest rung, which has no pair"
+  }
+ ],
+ "luna": null,
+ "rows": [
+  {
+   "axis": "0.2",
+   "error": 5.209612741197134e-10,
+   "order": 9.274867827668897,
+   "series": "degree 8",
+   "width": 0.2,
+   "write": 0,
+   "written_by": "tests/translate/test_chebyshev.py::test_the_interpolant_converges_at_the_expected_order_in_the_interval_width"
+  },
+  {
+   "axis": "0.4",
+   "error": 3.2271478511702867e-07,
+   "order": 9.42924991916917,
+   "series": "degree 8",
+   "width": 0.4,
+   "write": 0,
+   "written_by": "tests/translate/test_chebyshev.py::test_the_interpolant_converges_at_the_expected_order_in_the_interval_width"
+  },
+  {
+   "axis": "0.8",
+   "error": 0.00022248765840027218,
+   "order": null,
+   "series": "degree 8",
+   "width": 0.8,
+   "write": 0,
+   "written_by": "tests/translate/test_chebyshev.py::test_the_interpolant_converges_at_the_expected_order_in_the_interval_width"
+  }
+ ],
+ "schema": 1,
+ "study": "chebyshev_width",
+ "title": "Order of a fixed-degree Chebyshev interpolant in the interval width",
+ "writes": [
+  {
+   "backend": null,
+   "blas": null,
+   "branch": "development",
+   "commit": "14d18f3f9fd5ab97e01683c062a609a728b67963",
+   "fftw_planner": null,
+   "machine_id": "darwin-arm64",
+   "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.5",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NUMBA_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  }
+ ]
+}

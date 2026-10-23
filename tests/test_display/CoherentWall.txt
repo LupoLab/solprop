@@ -1,0 +1,7 @@
+CoherentWall: the condensed Robin wall of a capillary block
+  wall impedance:        mean
+  condition limit:       10000
+  validity limit:        0.25
+  sections per interval: 1
+  varying method:        frozen_residual
+  model:                 mean impedance, paraxial, frozen per section

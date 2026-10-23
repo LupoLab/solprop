@@ -1,0 +1,15 @@
+Simulation: 2 modes
+  grid:      FieldGrid(n_t=2048, window=455.4 fs, band=200-2000 nm, reference=800 nm)
+  mode 0:    MarcatiliMode(HE11, a=125 um, He, model=full, loss=True)
+  mode 1:    MarcatiliMode(HE12, a=125 um, He, model=full, loss=True)
+  responses: KerrResponse, PlasmaResponse
+  input:     <2x1x1025 complex>
+  noise:     none
+  settings:  SimulationSettings
+               save planes: <200 planes, 500 um to 100 mm>
+               tolerances:  rtol 1e-06, atol 1e-10
+               steps:       adaptive, dz_max 50 mm
+               shock term:  True
+               absorber:    nonlinear
+               statistics:  StatsSpec
+               backend:     <backend>

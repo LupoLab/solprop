@@ -1,0 +1,7 @@
+ModalPathTable: a moving guide's snapshots along z
+  sections:       1
+  span:           0 m to 1 mm
+  degree:         1
+  positions:      2
+  held-out error: 2.000e-06
+  gram departure: 5.800e-06

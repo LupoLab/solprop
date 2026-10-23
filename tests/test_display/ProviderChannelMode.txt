@@ -1,0 +1,5 @@
+ProviderChannelMode: TE0,1, from a provider
+  family:         TE
+  support:        1.02 um to 1.04 um
+  domain:         50 um
+  effective area: 371.1 um^2

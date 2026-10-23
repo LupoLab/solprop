@@ -1,0 +1,9 @@
+DenseModalTable: full E/H knots in one tracked gauge
+  frequencies: 4, 2.2333e+15 to 2.2784e+15 rad/s
+  z:           snapshot at 0 m
+  channels:    1
+  nodes:       30
+  degenerate:  none
+  basis:       the provider's own
+  gauge:       analytic-real-transverse
+  gram defect: 3.151e-01 of 1

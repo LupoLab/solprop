@@ -1,0 +1,198 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""Test session configuration.
+
+Shape and dtype annotations are checked at runtime during tests only; production imports
+are unaffected. The jaxtyping hook is installed for the whole session rather than as a
+context manager, so every ``solprop`` module imported later, by a test module or
+transitively, is instrumented with beartype; nothing has to be listed here. Under xdist
+each worker is its own process and loads this file before it loads ``solprop``, so every
+worker installs its own hook (``docs/dev/testing.md`` section 2).
+"""
+
+import importlib
+import importlib.util
+import sys
+
+import pytest
+from hypothesis import settings
+from jaxtyping import install_import_hook
+
+# Kept as a module attribute so the hook lives for the whole session.
+# beartype is configured with the PEP 484 numeric tower, so an ``int`` is accepted
+# where a ``float`` is annotated and a ``float`` where a ``complex`` is, as static
+# checkers assume.
+JAXTYPING_HOOK = install_import_hook(
+    "solprop",
+    "beartype.beartype(conf=beartype.BeartypeConf(is_pep484_tower=True))",
+)
+
+# Hypothesis's per-example deadline is a wall-clock limit, which a parallel lane on a
+# shared node exceeds without anything being wrong: the first example of a property
+# also pays the import and JIT costs. Examples are bounded by their count instead.
+settings.register_profile("solprop", deadline=None)
+settings.load_profile("solprop")
+
+# Any driver test can select the installed backend, even without collecting
+# tests/backends. On macOS Kokkos must load before pyFFTW's private OpenMP runtime.
+# A present but broken wheel fails here; only an absent optional wheel is omitted.
+if importlib.util.find_spec("solprop_native") is not None:
+    importlib.import_module("solprop_native")
+
+import convergence_records  # noqa: E402 - `tests/` reaches sys.path with this file
+import solprop  # noqa: E402, F401 - imported after the hook so the package is checked too
+from distribution import remember_nodeid  # noqa: E402 - test helper beside conftest
+
+# ------------------------------------------------------------------------- the tiers
+#
+# Which tier a test is in is a property of the collected item, so it is recorded from
+# the item rather than re-derived by reading the source. ``tryfirst`` is what makes the
+# record complete: pytest's own mark plugin deselects by ``-m`` inside this same hook,
+# so a hook running after it would see only the lane being run, and the check in
+# ``tests/test_tiers.py`` would quietly stop covering the tests that lane excludes.
+# The same ordering places default worker groups before xdist's non-wrapper hook
+# appends group suffixes. Tier and convergence-record identities stay unsuffixed.
+TIER_MARKERS = ("medium", "slow", "gpu", "benchmark")
+
+_COLLECTED_TIERS: dict[str, tuple[str, ...]] = {}
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_modifyitems(config, items):
+    """Record original tier identities, then assign groups before xdist names them."""
+    _COLLECTED_TIERS.clear()
+    for item in items:
+        remember_nodeid(item)
+        _COLLECTED_TIERS[item.nodeid] = tuple(
+            name for name in TIER_MARKERS if item.get_closest_marker(name) is not None
+        )
+    # Workers reset ``dist`` to "no" and retain the selected strategy in
+    # ``loadgroup``; checking only the controller option would split fixtures.
+    if config.getoption("loadgroup", default=False) or (
+        config.getoption("dist", default="no") == "loadgroup"
+    ):
+        _group_items_by_module(items)
+
+
+SHARED_SCOPES = ("module", "class", "package")
+"""Fixture scopes built once for several tests, which a worker group keeps together."""
+
+
+def _group_items_by_module(items):
+    """Keep shared fixtures together; spread tests that share none.
+
+    A test that uses a module-, class- or package-scoped fixture is grouped with the
+    rest of its module, or, when that fixture is parametrised, with the tests of the
+    same parameter, so each instance is built once on one worker. A test that shares
+    none goes wherever a worker is free: grouping it by module only queued the heavy
+    modules behind one worker. An explicit ``xdist_group`` is kept as declared; an item
+    the collector gives no fixture information (a doctest) keeps its module's group.
+    """
+    for item in items:
+        if item.get_closest_marker("xdist_group") is not None:
+            continue
+        shared = _shared_fixtures(item)
+        if shared is not None and not shared:
+            continue
+        module = item.nodeid.split("::", 1)[0]
+        callspec = getattr(item, "callspec", None)
+        instances = sorted(
+            f"{name}={callspec.indices[name]}"
+            for name in shared or ()
+            if callspec is not None and name in callspec.indices
+        )
+        suffix = "" if not instances else ":" + ",".join(instances)
+        item.add_marker(pytest.mark.xdist_group(name=f"module:{module}{suffix}"))
+
+
+def _shared_fixtures(item):
+    """Return the names of an item's shared-scope fixtures, or ``None`` if unknown.
+
+    Parameters
+    ----------
+    item : pytest.Item
+        The collected test.
+
+    Returns
+    -------
+    list of str or None
+        The fixtures of :data:`SHARED_SCOPES` it requests, directly or through others.
+    """
+    info = getattr(item, "_fixtureinfo", None)
+    if info is None:
+        return None
+    return [
+        name
+        for name, definitions in info.name2fixturedefs.items()
+        if definitions and definitions[-1].scope in SHARED_SCOPES
+    ]
+
+
+def pytest_collection_finish(session):
+    """Undo the session namespace's import side effects before any item runs.
+
+    ``--doctest-modules`` imports every module under ``src`` at collection, and
+    ``solprop.sol`` configures logging and a warning filter when it is imported: that is
+    its purpose. The suite tests the library's defaults, so they are restored here with
+    the module's own public ``end_session``; nothing in the library knows about the test
+    runner. A hook rather than a fixture, because a fixture of this file would not reach
+    the doctests collected from ``src``. ``tests/test_sol.py`` exercises the side
+    effects themselves, in subprocesses.
+    """
+    module = sys.modules.get("solprop.sol")
+    if module is not None:
+        module.end_session()
+
+
+@pytest.fixture(scope="session")
+def collected_tiers():
+    """Return ``nodeid -> tier markers`` for every item collected this session."""
+    return dict(_COLLECTED_TIERS)
+
+
+# ------------------------------------------------------------ recorded properties
+#
+# Under pytest-xdist a recorded property crosses to the controller through execnet,
+# which serialises builtin types only and stops the whole session on a numpy scalar.
+# Tests record what they measured, which is usually a numpy scalar, so the conversion
+# lives here once rather than in every call.
+
+
+def _plain(value):
+    """Return `value` with numpy scalars and arrays replaced by builtin types."""
+    if isinstance(value, dict):
+        return {key: _plain(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_plain(item) for item in value]
+    tolist = getattr(value, "tolist", None)
+    return tolist() if callable(tolist) else value
+
+
+@pytest.fixture
+def record_property(record_property):
+    """Record a property after converting numpy values, so the lanes run under xdist."""
+
+    def record(name, value):
+        record_property(name, _plain(value))
+
+    return record
+
+
+# ------------------------------------------------------- the convergence records
+#
+# A write run must never be silent: `SOLPROP_WRITE_RECORDS=1` changes files that are
+# committed, so the session says which ones at the end. `pytest.warns` is not usable
+# for this -- `filterwarnings = ["error"]` would turn the announcement into a failure.
+
+
+def pytest_terminal_summary(terminalreporter):
+    """Name every convergence record this session wrote."""
+    written = convergence_records.written_paths()
+    if not written:
+        return
+    terminalreporter.write_line("")
+    terminalreporter.write_line(f"convergence records written ({len(written)}):")
+    for path in written:
+        terminalreporter.write_line(f"  {convergence_records.relative(path)}")

@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+.DS_Store
+.venv/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+*.so
+*.dylib
+build/
+dist*/
+wheelhouse/
+.ruff_cache/
+.benchmarks/
+*.profraw
+*.profdata
+.claude/

@@ -1,0 +1,148 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # FFTW's measured planning is slow and machine-specific; CI plans by estimate.
+  SOLPROP_FFTW_PLAN: estimate
+
+jobs:
+  # Exactly the definition-of-done gate from AGENTS.md, then the slow and coverage lanes.
+  gate:
+    name: gate (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # hatch-vcs derives the version from tags
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+      - run: uv python install 3.14
+      - run: uv lock --check
+      - run: uv sync --locked
+      - run: uv run poe check
+      - run: uv run poe test-slow
+      # The whole package at 100 % of statements and branches, in the lane's two passes.
+      - run: uv run poe cov
+
+  # The default lane on Windows: numpy_ref and numba_cpu (the native package's Windows build
+  # is not yet in CI). The lint, type, docstring, spelling, REUSE and docs steps are
+  # platform-independent and run in the gate.
+  windows:
+    runs-on: windows-latest
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+      - run: uv python install 3.14
+      - run: uv sync --locked
+      - run: uv run poe test
+
+  # The floors in pyproject.toml are claims: test them. solprop with the lowest versions
+  # of its direct dependencies that the floors allow, and the test tools at their latest.
+  oldest:
+    name: tests (lowest dependencies)
+    runs-on: ubuntu-latest
+    env:
+      VECLIB_MAXIMUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - run: uv venv --python 3.14
+      - run: uv pip install --resolution lowest-direct -e .
+      - run: >-
+          uv pip install pytest pytest-xdist pytest-randomly pytest-regressions
+          hypothesis beartype sympy
+      - run: uv pip list
+      - run: .venv/bin/python -m pytest -n auto --dist loadgroup
+
+  # The native package's gate (native/scripts/check.sh): its format, lint and strict
+  # typing, clang-format, clang-tidy, the native tests, the ASan+UBSan native tests,
+  # pytest on an editable build, and the distribution wheel's build and isolated smoke
+  # test.
+  native-quality:
+    runs-on: ubuntu-24.04
+    env:
+      CXX: g++-13
+      OMP_NUM_THREADS: "4"
+      OMP_PROC_BIND: spread
+      OMP_PLACES: cores
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The full history: the version of both distributions comes from the tags.
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "26"
+      - name: Install the native toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang-tidy cmake g++-13 libfftw3-dev ninja-build pkg-config
+      - run: uv python install 3.14
+      - run: uv run --locked poe check-native
+
+  # The default lane with the native CPU backend, from this tree's distribution wheel.
+  # Every other job runs without it, so backend="auto" selects numba_cpu there, and
+  # numpy_ref is checked by the parity tests in every job.
+  native-suite:
+    runs-on: ubuntu-24.04
+    env:
+      CXX: g++-13
+      # The driver tests select their backend from this variable, not from "auto".
+      SOLPROP_TEST_BACKEND: native
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+      - name: Install the native toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes cmake g++-13 libfftw3-dev ninja-build pkg-config
+      - run: uv python install 3.14
+      - run: uv sync --locked
+      - name: Build the native CPU distribution wheel
+        working-directory: native
+        run: >-
+          uv build --python 3.14 --wheel
+          -Ccmake.define.SOLPROP_NATIVE_PROFILE=DISTRIBUTION --out-dir ../wheelhouse
+      - name: Install the wheel into the environment
+        run: |
+          uv pip install --python .venv/bin/python --no-deps wheelhouse/*.whl
+          uv run --no-sync python -c "from solprop.backends.registry import resolve_name; assert resolve_name() == 'native', resolve_name()"
+      - run: uv run --no-sync poe test

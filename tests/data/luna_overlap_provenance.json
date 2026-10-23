@@ -1,0 +1,52 @@
+{
+ "blas_threads": 6,
+ "fftw_pool": "none",
+ "fftw_threads": 1,
+ "files": {
+  "luna_overlap.json": {
+   "bytes": 474119,
+   "sha256": "a59e4564c928a1f1029f324f2ef5aa6a75d2bd2d4f77645ba5239a400878a1b8"
+  }
+ },
+ "full_modes": 4,
+ "gas": "He",
+ "generated": "2026-09-06T11:00:38+00:00",
+ "julia_threads": 1,
+ "julia_version": "julia version 1.12.6",
+ "lambda0": 8e-07,
+ "luna_branch": "modal-fixed",
+ "luna_commit": "de9db7c9a3b6e37fc71bb657540abab177242883",
+ "luna_describe": "de9db7c LinearOps: frozen_transverse kwarg for the free-space const linop",
+ "luna_path": "~/.julia/dev/Luna",
+ "note": "The temperature is solprop's ROOM_TEMPERATURE rather than Luna's roomtemp, as tests/data/generate_luna_rdw.py already does, so that 0.29 % of density is out of the comparison. Nothing here depends on the gas: the HE_1m profile and its normalisation are geometry alone. julia_threads, blas_threads, fftw_threads and fftw_pool were added by hand from the generator's own invocation (no `-t`, `JULIA_NUM_THREADS` unset): Luna ran single-threaded with a six-thread BLAS and FFTW left at one thread throughout. No witness was regenerated.",
+ "pressure_bar": 1.0,
+ "profile_fractions": [
+  0.1,
+  0.25,
+  0.5,
+  0.75,
+  0.9
+ ],
+ "quadrature_orders": [
+  64,
+  128,
+  256
+ ],
+ "radius": 0.000125,
+ "reduced_modes": 2,
+ "reference_nr": 512,
+ "temperature_k": 294.0,
+ "undepleted": {
+  "atol": 1e-14,
+  "energy": 3e-08,
+  "fwhm": 3e-14,
+  "lambda_max": 2e-06,
+  "lambda_min": 4e-07,
+  "length": 0.02,
+  "nr": 64,
+  "pressure": 1.0,
+  "rtol": 1e-11,
+  "seed": 0.001,
+  "trange": 6e-13
+ }
+}

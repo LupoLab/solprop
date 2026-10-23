@@ -1,0 +1,88 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""Describe indexed parameter scans and dispatch independent simulations."""
+
+from collections.abc import Callable, Sequence
+from pathlib import Path
+from typing import Literal
+
+from solprop.driver._scan_model import Scan, ScanPoint
+from solprop.driver._scan_run import execute_scan
+from solprop.driver.executors import Executor
+from solprop.driver.simulation import Simulation
+from solprop.processing.scans import Reduction, ScanOutput
+
+__all__ = ["Scan", "ScanPoint", "run_scan"]
+
+
+def run_scan(  # noqa: PLR0913 - the public scan controls
+    scan: Scan,
+    build: Callable[[ScanPoint], Simulation],
+    *,
+    output: Path | str,
+    executor: Executor | None = None,
+    reductions: Sequence[Reduction] = (),
+    fields: Literal["none", "planes", "all"] = "none",
+    field_planes: Sequence[int] = (),
+    stats: Literal["all", "none"] | Sequence[str] = "all",
+    retry_failed: bool = False,
+    stale_age: float = 600.0,
+    progress: Literal["auto", "bar", "log", "none"] = "auto",
+) -> ScanOutput:
+    """Run selected points and return a reader for their collected file.
+
+    Parameters
+    ----------
+    scan : Scan
+        Complete scan or selection of global indices.
+    build : callable
+        Build a Simulation from a ScanPoint, using ``point.seed`` for active noise.
+        Pool builders must be pickleable module-level callables. Cache a base
+        simulation lazily inside this callable for one translation per worker.
+    output : pathlib.Path or str
+        Collected HDF5 path. Matching completed points are skipped on rerun.
+    executor : Executor or None, optional
+        Execution policy. None uses the CLI policy, or Local outside the CLI.
+    reductions : sequence of Reduction, optional
+        Worker-side calculations with declared shape, dtype, units and provenance.
+    fields : {'none', 'planes', 'all'}, optional
+        Retain no fields, selected planes, or every saved plane.
+    field_planes : sequence of int, optional
+        Saved-plane indices for ``fields='planes'``; negative indices are allowed.
+    stats : {'all', 'none'} or sequence of str, optional
+        Retained statistics; all includes periodic rows. None is discouraged:
+        statistics are the diagnostics needed to assess a scan.
+    retry_failed : bool, optional
+        Retry previously failed points; false leaves them recorded as failures.
+    stale_age : float, optional
+        Positive lease age in seconds before abandoned running points are recovered.
+    progress : {'auto', 'bar', 'log', 'none'}, optional
+        One outer progress display; individual runs never draw their own bars.
+
+    Returns
+    -------
+    solprop.processing.scans.ScanOutput
+        Reader with global indices, masked incomplete points and exact statistics.
+
+    Raises
+    ------
+    DriverError
+        If controls are invalid or the executor cannot run the builder.
+    OutputError
+        If the file belongs to a different scan or stored configuration.
+    """
+    return execute_scan(
+        scan,
+        build,
+        output=output,
+        executor=executor,
+        reductions=reductions,
+        fields=fields,
+        field_planes=field_planes,
+        stats=stats,
+        retry_failed=retry_failed,
+        stale_age=stale_age,
+        progress=progress,
+    )

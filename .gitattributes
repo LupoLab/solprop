@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# LF everywhere, so a Windows checkout is byte-identical: the committed SVG figures,
+# the gallery checksums and the scan provenance hash compare file contents.
+* text=auto eol=lf
+
+# Written by Python's csv module, whose rows end in CRLF; kept exactly as written.
+docs/guide/figures/stepper-gallery/*.csv -text
+
+*.h5 binary
+*.npz binary
+*.pdf binary
+*.png binary
+*.inv binary
+*.zip binary

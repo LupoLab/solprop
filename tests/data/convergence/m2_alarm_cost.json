@@ -1,0 +1,94 @@
+{
+ "axis": {
+  "label": "radial quadrature order",
+  "name": "n_r",
+  "unit": "nodes"
+ },
+ "case": {
+  "band": "100-140 nm, the VUV band milestone M2 is about",
+  "case": "the reduced M2 capillary (2 modes, 1 m), adaptive at Luna's rtol",
+  "plasma_source": "SEP 27 held current, A_J",
+  "rule": "Gauss-Legendre with the embedded Kronrod pair that gives the alarm"
+ },
+ "columns": [
+  {
+   "atol": 0.0,
+   "bound": null,
+   "name": "vuv_energy",
+   "rtol": 0.001,
+   "unit": "arbitrary (summed spectral energy density in the band)",
+   "why": "a thousandth: the whole point of the row is that the band moves by 2e-5 across the ladder, so the comparison has to be tighter than that and looser than an adaptive run's platform-dependent step placement"
+  },
+  {
+   "atol": 1e-14,
+   "bound": 1e-06,
+   "name": "alarm",
+   "rtol": 1.0,
+   "unit": "1 (relative, the embedded pair's disagreement)",
+   "why": "a factor of two on a quantity that falls ten orders across the ladder, with atol at the projection's own round-off floor"
+  }
+ ],
+ "luna": null,
+ "rows": [
+  {
+   "alarm": 0.10273446396112107,
+   "axis": 8,
+   "series": "reduced M2 case",
+   "vuv_energy": 15688211621848.28,
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_quadrature_ladder_converges_and_the_alarm_falls_with_it"
+  },
+  {
+   "alarm": 8.212620098479791e-10,
+   "axis": 32,
+   "series": "reduced M2 case",
+   "vuv_energy": 15687182878097.537,
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_quadrature_ladder_converges_and_the_alarm_falls_with_it"
+  },
+  {
+   "alarm": 1.455226335153266e-11,
+   "axis": 48,
+   "series": "reduced M2 case",
+   "vuv_energy": 15687182878125.492,
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_quadrature_ladder_converges_and_the_alarm_falls_with_it"
+  }
+ ],
+ "schema": 1,
+ "study": "m2_alarm_cost",
+ "title": "What a coarse transverse rule costs the observable, on the M2 case",
+ "writes": [
+  {
+   "backend": "numba_cpu",
+   "blas": "openblas 0.3.34.0.0",
+   "branch": "HEAD",
+   "commit": "7fc63c9186a39331811f099607000cb9687bd0ea",
+   "fftw_planner": null,
+   "machine_id": "linux-x86-64",
+   "os": "Linux-6.17.0-14-generic-x86_64-with-glibc2.39",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.7",
+   "threads": {
+    "MKL_NUM_THREADS": "1",
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": "1",
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": "false",
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": "1",
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": "1",
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  }
+ ]
+}

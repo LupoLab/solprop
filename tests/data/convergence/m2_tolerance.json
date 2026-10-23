@@ -1,0 +1,139 @@
+{
+ "axis": {
+  "label": "relative step tolerance",
+  "name": "rtol",
+  "unit": "1"
+ },
+ "case": {
+  "case": "the full M2 capillary, 4 modes, 1.5 m",
+  "luna": "Luna.run called directly, because prop_capillary's interface cannot set a tolerance at all; rows from luna_rdw_switches.json",
+  "metric": "the second mode's energy at the exit plane",
+  "solprop": "prop_capillary with Luna's media, atol 1e-10"
+ },
+ "columns": [
+  {
+   "atol": 0.0,
+   "bound": null,
+   "name": "mode2_energy",
+   "rtol": 0.005,
+   "unit": "J",
+   "why": "half of one per cent: solprop's own answer moves by 2.3e-4 across three decades of tolerance, and a different step placement on another platform is worth the controller's 1e-6, so anything this wide is a real change"
+  },
+  {
+   "atol": 0.0,
+   "bound": null,
+   "name": "steps",
+   "rtol": null,
+   "unit": "accepted steps",
+   "why": "recorded, never compared: Luna's step count is not reproducible even across two machines, and solprop's is a property of the controller rather than of the answer"
+  }
+ ],
+ "luna": {
+  "branch": "modal-fixed",
+  "commit": "de9db7c9a3b6e37fc71bb657540abab177242883",
+  "sha256": "f988516dcd7b086393e2c3ee24b592fe1ee3a03dc80dc1b0a45e173f6af9b492",
+  "source": "luna_rdw_switches.json"
+ },
+ "rows": [
+  {
+   "axis": "1e-6",
+   "mode2_energy": 3.340816007790258e-06,
+   "series": "Luna, full case",
+   "steps": 4365.0,
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_full_case_tolerance_ladder_on_both_codes"
+  },
+  {
+   "axis": "1e-7",
+   "mode2_energy": 2.5425926506543556e-06,
+   "series": "Luna, full case",
+   "steps": 12126.0,
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_full_case_tolerance_ladder_on_both_codes"
+  },
+  {
+   "axis": "1e-8",
+   "mode2_energy": 2.1010703359764136e-06,
+   "series": "Luna, full case",
+   "steps": 37028.0,
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_full_case_tolerance_ladder_on_both_codes"
+  },
+  {
+   "axis": "1e-9",
+   "mode2_energy": 1.8928521473901396e-06,
+   "series": "Luna, full case",
+   "steps": 117486.0,
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_full_case_tolerance_ladder_on_both_codes"
+  },
+  {
+   "axis": "1e-6",
+   "mode2_energy": 1.883868891541926e-06,
+   "series": "solprop, full case",
+   "steps": 1905.0,
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_full_case_tolerance_ladder_on_both_codes"
+  },
+  {
+   "axis": "1e-7",
+   "mode2_energy": 1.8838644798876184e-06,
+   "series": "solprop, full case",
+   "steps": 2952.0,
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_full_case_tolerance_ladder_on_both_codes"
+  },
+  {
+   "axis": "1e-8",
+   "mode2_energy": 1.88386408942827e-06,
+   "series": "solprop, full case",
+   "steps": 4703.0,
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_full_case_tolerance_ladder_on_both_codes"
+  },
+  {
+   "axis": "1e-9",
+   "mode2_energy": 1.8838640671020946e-06,
+   "series": "solprop, full case",
+   "steps": 7458.0,
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_full_case_tolerance_ladder_on_both_codes"
+  }
+ ],
+ "schema": 1,
+ "study": "m2_tolerance",
+ "title": "The M2 second mode's exit energy against the step tolerance, both codes",
+ "writes": [
+  {
+   "backend": "numba_cpu",
+   "blas": null,
+   "branch": "development",
+   "commit": "93e8ee6a2376b69d02db74dceaea4abf05a91699",
+   "fftw_planner": "estimate",
+   "machine_id": "darwin-arm64",
+   "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.5",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": "1",
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": "false",
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": "1",
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": "1",
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": "1"
+   }
+  }
+ ]
+}

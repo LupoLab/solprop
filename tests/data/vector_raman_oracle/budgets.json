@@ -1,0 +1,18 @@
+{
+  "status": "Budgets fixed before the first experimental run; not production qualification",
+  "direct_sum": "gamma_(32*n) times the absolute causal convolution and contraction scale; epsilon=float64 eps",
+  "fft": "64*epsilon*ceil(log2(2*n)) times the L1 kernel times maximum absolute drive, plus the direct-sum bound",
+  "orientation": "gamma_(64*n_angles) for normalized fourth-degree orientation moments",
+  "oscillator_rtol": 2e-12,
+  "oscillator_atol": 2e-13,
+  "oscillator_repeat_relative_bound": 2e-9,
+  "temporal_counts": [129, 257, 513],
+  "temporal_order_lower": 1.8,
+  "temporal_order_upper": 5.0,
+  "floor_multiplier": 1000,
+  "propagation_gain_relative_target": 0.001,
+  "propagation_numerical_relative_target": 0.0001,
+  "undepleted_pump_fractional_change_max": 0.0001,
+  "carrier_averaging_relative_target": 0.01,
+  "note": "ODE budgets are dimensionless after amplitude/time scaling. Gain and carrier targets are proposed acceptance limits, not measured passes. Material uncertainty cannot enlarge an arithmetic bound."
+}

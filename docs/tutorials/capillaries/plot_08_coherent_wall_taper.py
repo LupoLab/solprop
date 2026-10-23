@@ -1,0 +1,189 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+r"""
+Mode conversion and loss in a taper with a coherent wall
+=============================================================
+
+A capillary whose bore varies along z is written in a basis attached to the local
+radius, and a moving basis costs a term: the **connection**
+
+``C_mn = (a'/a) 2 s_m s_n u_m u_n / (u_m^2 - u_n^2)``, ``C_nn = 0``,
+
+real and antisymmetric in the true-power amplitude, so on its own it moves no power
+out of the retained set --
+it moves it **between** the channels, and the channels it fills are the lossier ones
+(:doc:`/guide/waveguides/taper-coupling`).
+
+``prop_capillary(taper, ..., wall=CoherentWall())`` carries it, and so does a
+multimode taper without a wall, by default, beside each channel's own Marcatili loss
+(the *taper coupling*, :doc:`/guide/waveguides/capillaries`); ``taper_coupling=False``
+is the
+adiabatic route, on which every channel follows its local mode and linear taper
+conversion is
+omitted -- the comparison drawn here. The run is cut into
+sections on the linear operator's own intervals; inside each, the complete wall
+generator is **frozen** at the midpoint and integrated exactly, and everything the
+freezing leaves out -- the generator's variation and the connection -- is put back
+as an explicit term in the Runge-Kutta source. This example runs a 50 to 40 um
+transition over a fifth of a millimetre, launched into ``HE_11`` alone, and checks
+three numbers:
+
+* the walled taper keeps ``0.9287`` of the arriving energy in ``HE_11`` and puts
+  ``0.038`` in ``HE_12`` and ``0.033`` in ``HE_13``, where the adiabatic route leaves
+  ``5e-18`` there;
+* it therefore loses ``1.87e-3`` of the launched energy, more than either of the two
+  straight bores it runs between, where the adiabatic taper loses ``6.4e-4``;
+* freezing is a rearrangement and not an approximation: one frozen section per
+  interval and four of them agree to ``1.9e-10`` of the state.
+
+**Every channel keeps its own normalisation.** The cumulative operator beside a
+coupled block must act on every channel alike, so it renormalises a vacuum amplitude
+along the varying index by the lowest channel's effective index; the flow's own
+diagonal carries the rest of each channel's, ``-(1/2) d ln(w_n/w_1)/dz``, so the
+upper channels' amplitudes are good to the step error.
+"""
+
+import warnings
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+from solprop.boundaries import absorber
+from solprop.driver import prop_capillary
+from solprop.grid import FieldGrid
+from solprop.modes import CoherentWall
+from solprop.profiles import PiecewiseLinear
+from solprop.stepper import FixedSchedule
+
+# %%
+# The taper: straight, a linear transition, straight -- the shape of a 125 to 62.5 um
+# capillary taper, scaled to the radius and length a ten-step run allows. The corners
+# of the profile are where the sections start and end, and the fixed schedule lands
+# on every one of them (a schedule that comes near a corner without landing on it
+# is refused by name).
+length, steps = 2e-4, 10
+taper = PiecewiseLinear.from_stages(
+    (0.0, 6e-5, 1.4e-4, 2e-4), [50e-6, 50e-6, 40e-6, 40e-6]
+)
+grid = FieldGrid.from_limits(length, 800e-9, (400e-9, 1.6e-6), 300e-15)
+
+
+def run(wall, radius=taper, taper_coupling=True):
+    """Propagate three channels ten steps along `radius`, with or without a wall."""
+    # The band runs past helium's and silica's fitted ranges and the geometry is a
+    # marginal one on purpose, so that a fifth of a millimetre shows the wall: both
+    # warn, and both are silenced here, as is the advisory step of the coupled flow.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return prop_capillary(
+            radius,
+            length,
+            "He",
+            1.0,
+            lambda0=800e-9,
+            grid=grid,
+            absorber=absorber(grid, boundary_length=1e3),
+            fwhm=30e-15,
+            energy=1e-9,
+            modes=3,
+            n_save=11,
+            backend="numpy_ref",
+            wall=wall,
+            taper_coupling=taper_coupling,
+            schedule=FixedSchedule(np.full(steps, length / steps)),
+            dz_max=length / steps,
+            dz_init=length / steps,
+            plasma=False,
+            raman=False,
+            progress="none",
+        )
+
+
+def channel_energy(output):
+    """Return the positions and the energy in each channel at every save plane."""
+    planes = output.planes()
+    energy = np.array(
+        [np.asarray(plane.stats["energy"]).reshape(3, -1)[:, 0] for plane in planes]
+    )
+    return np.array([plane.z for plane in planes]), energy
+
+
+walled, plain = run(CoherentWall()), run(None, taper_coupling=False)
+coupled = run(None)
+straight = {radius: run(CoherentWall(), radius) for radius in (50e-6, 40e-6)}
+
+for name, output in (
+    ("taper, CoherentWall()", walled),
+    ("taper, no wall", coupled),
+    ("taper, adiabatic", plain),
+    ("50 um straight, wall", straight[50e-6]),
+    ("40 um straight, wall", straight[40e-6]),
+):
+    _, energy = channel_energy(output)
+    lost = 1.0 - energy[-1].sum() / energy[0].sum()
+    shares = energy[-1] / energy[-1].sum()
+    print(
+        f"{name:22s} lost {lost:.3e}; of what arrives: HE_11 {shares[0]:.5f}, "
+        f"HE_12 {shares[1]:.2e}, HE_13 {shares[2]:.2e}"
+    )
+
+# %%
+# What the record says about the sectioning: how many frozen sections the run was
+# cut into, the Chebyshev degree along z the generator was resolved at, whether a
+# connection was carried, and the advisory step a declared ``dz_max`` is warned
+# against. Ten steps of 20 um sit inside it.
+flow = walled.metadata.modal["flow"]
+print(
+    f"{flow['n_sections']} sections, n_deg {flow['n_deg']}, "
+    f"connection {flow['connection']}, advisory step {flow['advisory_step']:.3e} m"
+)
+
+# %%
+# Freezing is a rearrangement. Four frozen sections per interval freeze four
+# different blocks and carry four different residuals, and the answer does not
+# move: the residual is evaluated exactly, so what ``sections`` buys is a smaller
+# explicit term, not a new physical model. At finite step size, changing this split can
+# still change the numerical error, so section and step refinement are distinct checks.
+finer = run(CoherentWall(sections=4))
+coarse_field = walled.planes()[-1].field
+fine_field = finer.planes()[-1].field
+departure = np.max(np.abs(fine_field - coarse_field)) / np.max(np.abs(coarse_field))
+print(f"one section per interval against four: {departure:.2e} of the state")
+
+fig, ax = plt.subplots(figsize=(6.4, 3.8), constrained_layout=True)
+for output, style, label in (
+    (plain, ":", "adiabatic"),
+    (walled, "-", "CoherentWall()"),
+):
+    z, energy = channel_energy(output)
+    shares = energy / energy[0, 0]
+    shares = np.where(shares > 0.0, shares, np.nan)
+    for channel in range(3):
+        ax.semilogy(
+            z * 1e6,
+            shares[:, channel],
+            style,
+            color=f"C{channel}",
+            label=f"HE_1{channel + 1}, {label}",
+        )
+for corner in (60.0, 140.0):
+    ax.axvline(corner, color="grey", linewidth=0.6, linestyle="--")
+ax.set(
+    xlabel="z (um); the taper runs between the dashed lines",
+    ylabel="Fraction of the launched energy",
+    title="A 50 to 40 um taper converts HE_11 into the lossier orders",
+    ylim=(1e-22, 3.0),
+)
+ax.legend(frameon=False, fontsize="small", ncol=2)
+plt.show()
+
+# %%
+# Related reading
+# ---------------
+# Continue with :doc:`/guide/waveguides/taper-coupling` for the model, options and
+# limits,
+# and :doc:`/guide/numerics/accuracy` for convergence checks.
+# For a paced introduction to propagation, start with the
+# :doc:`/introduction/index`.

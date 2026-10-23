@@ -1,0 +1,10 @@
+ModalSampling: what a guide's channels were solved on
+  knots:         4
+  band:          1.811 Prad/s to 1.847 Prad/s
+  wavelengths:   1.02 um to 1.04 um
+  position:      0 m
+  nodes:         576
+  degenerate:    none
+  basis:         the provider's own
+  profile error: 5.025e-10
+  path:          none (a snapshot)

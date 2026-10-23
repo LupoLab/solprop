@@ -1,0 +1,110 @@
+{
+ "axis": {
+  "label": "samples in the window",
+  "name": "n_samples",
+  "unit": "samples"
+ },
+ "case": {
+  "closed form": "argon, a constant 1e9 V/m field and a constant 1e14 1/s rate over 10 fs, against the closed-form polarisation",
+  "energy identity": "the work the field does on the medium against Ip times the electrons, on a Gaussian pulse, He minus Ar sharing one rate"
+ },
+ "columns": [
+  {
+   "atol": 2e-12,
+   "bound": null,
+   "name": "deviation",
+   "rtol": 1e-09,
+   "unit": "1 (relative)",
+   "why": "seven orders above the round-off floor of a few thousand trapezoid terms; atol is that floor, about 8193 eps, so it is never what is tested"
+  },
+  {
+   "atol": 0.0,
+   "bound": null,
+   "name": "ratio",
+   "rtol": 1e-08,
+   "unit": "1",
+   "why": "the deviation's fall per doubling, a ratio of two numbers each known to 1e-9; null on the coarsest rung, which has no pair"
+  }
+ ],
+ "luna": null,
+ "rows": [
+  {
+   "axis": 1025,
+   "deviation": 9.45036637776653e-08,
+   "ratio": null,
+   "series": "closed form",
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma.py::test_the_closed_form_is_reached_at_second_order_in_the_step"
+  },
+  {
+   "axis": 2049,
+   "deviation": 2.3625916035533795e-08,
+   "ratio": 3.9999999845733014,
+   "series": "closed form",
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma.py::test_the_closed_form_is_reached_at_second_order_in_the_step"
+  },
+  {
+   "axis": 4097,
+   "deviation": 5.906479282235865e-09,
+   "ratio": 3.999999814879624,
+   "series": "closed form",
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma.py::test_the_closed_form_is_reached_at_second_order_in_the_step"
+  },
+  {
+   "axis": 8193,
+   "deviation": 9.918528359731393e-05,
+   "ratio": null,
+   "series": "energy identity",
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma.py::test_the_energy_identity_converges_at_second_order"
+  },
+  {
+   "axis": 16385,
+   "deviation": 2.4795950492206842e-05,
+   "ratio": 4.000059752840974,
+   "series": "energy identity",
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma.py::test_the_energy_identity_converges_at_second_order"
+  },
+  {
+   "axis": 32769,
+   "deviation": 6.198962692938181e-06,
+   "ratio": 4.000016086635629,
+   "series": "energy identity",
+   "write": 0,
+   "written_by": "tests/nonlinear/test_plasma.py::test_the_energy_identity_converges_at_second_order"
+  }
+ ],
+ "schema": 1,
+ "study": "plasma_trapezoid",
+ "title": "Second-order convergence of the plasma column in the sample spacing",
+ "writes": [
+  {
+   "backend": null,
+   "blas": null,
+   "branch": "development",
+   "commit": "14d18f3f9fd5ab97e01683c062a609a728b67963",
+   "fftw_planner": null,
+   "machine_id": "darwin-arm64",
+   "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.5",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_NUM_THREADS": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NUMBA_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  }
+ ]
+}

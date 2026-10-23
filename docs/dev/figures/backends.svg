@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="1200" height="927.0" viewBox="0 0 1200 927.0">
+<defs>
+</defs>
+<style>
+svg {
+    --ground: #fbfbfd;
+    --ink: #1b1f24;
+    --dim: #5b6673;
+    --rule: #c9d0da;
+    --p-fill: #e2f0e8;
+    --p-edge: #2c7a55;
+    --t-fill: #fceedd;
+    --t-edge: #a96a15;
+    --b-fill: #e3ebfa;
+    --b-edge: #2f5eb0;
+    --d-fill: #eee6f8;
+    --d-edge: #6f45a6;
+    --x-fill: #fce7ec;
+    --x-edge: #af3450;
+}
+@media (prefers-color-scheme: dark) {
+  svg {
+    --ground: #171a1f;
+    --ink: #e7eaef;
+    --dim: #9aa5b3;
+    --rule: #3a424e;
+    --p-fill: #16342a;
+    --p-edge: #5cb98a;
+    --t-fill: #3a2b15;
+    --t-edge: #e0a44f;
+    --b-fill: #17253f;
+    --b-edge: #7ba6e8;
+    --d-fill: #2a1f3e;
+    --d-edge: #b18fe0;
+    --x-fill: #3a1e26;
+    --x-edge: #e8879a;
+  }
+}
+.ground { fill: var(--ground); stroke: none; }
+.card { fill: var(--ground); stroke: var(--rule); stroke-width: 1.4; }
+.plain { fill: none; stroke: var(--rule); stroke-width: 1.4; }
+.planned { fill: none; stroke: var(--dim); stroke-width: 1.4;
+  stroke-dasharray: 5 4; }
+.arrow { fill: none; stroke: var(--dim); stroke-width: 1.4;
+  stroke-linecap: round; stroke-linejoin: round; }
+.head { fill: var(--dim); stroke: none; }
+.rule { fill: none; stroke: var(--rule); stroke-width: 1.4; }
+text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill: var(--ink);
+  white-space: pre; }
+.dim { fill: var(--dim); }
+.mid { text-anchor: middle; }
+.end { text-anchor: end; }
+.bold { font-weight: 600; }
+.fill-p { fill: var(--p-fill); stroke: var(--p-edge); }
+.edge-p { stroke: var(--p-edge); }
+.ink-p { fill: var(--p-edge); }
+.fill-t { fill: var(--t-fill); stroke: var(--t-edge); }
+.edge-t { stroke: var(--t-edge); }
+.ink-t { fill: var(--t-edge); }
+.fill-b { fill: var(--b-fill); stroke: var(--b-edge); }
+.edge-b { stroke: var(--b-edge); }
+.ink-b { fill: var(--b-edge); }
+.fill-d { fill: var(--d-fill); stroke: var(--d-edge); }
+.edge-d { stroke: var(--d-edge); }
+.ink-d { fill: var(--d-edge); }
+.fill-x { fill: var(--x-fill); stroke: var(--x-edge); }
+.edge-x { stroke: var(--x-edge); }
+.ink-x { fill: var(--x-edge); }
+</style>
+<rect x="0" y="0" width="1200" height="927.0" class="ground" />
+<text x="32" y="44.0" font-size="21" class="bold">One seam, one step loop, and the backends behind them</text>
+<text x="32" y="64.0" font-size="12" class="dim">backends.md §1: the protocol is drawn at the level of operations on the propagated state, never at the array-namespace level. A backend is constructed from a validated</text>
+<text x="32" y="79.5" font-size="12" class="dim">KernelProblem and host arrays and returns host arrays; its buffers, layout and plans are private.</text>
+<rect x="32" y="115.0" width="1136" height="196.0" rx="7" ry="7" class="fill-b" />
+<text x="42.0" y="137.0" font-size="15" class="bold ink-b">the seam  ·  backends.protocol.Backend</text>
+<text x="42.0" y="158.5" font-size="12" class="bold ink-b">set_initial</text>
+<text x="203.8" y="158.5" font-size="12" class="dim">the state and the noise realisation, host to device, once</text>
+<text x="42.0" y="174.0" font-size="12" class="bold ink-b">set_progress</text>
+<text x="203.8" y="174.0" font-size="12" class="dim">the observer each attempted step reports to; never an input</text>
+<text x="42.0" y="189.5" font-size="12" class="bold ink-b">propagate_to</text>
+<text x="203.8" y="189.5" font-size="12" class="dim">the shared step loop, returning a StepSummary</text>
+<text x="42.0" y="205.0" font-size="12" class="bold ink-b">observe</text>
+<text x="203.8" y="205.0" font-size="12" class="dim">host arrays: the field at the plane and the step history</text>
+<text x="42.0" y="220.5" font-size="12" class="bold ink-b">restore_call_ledgers</text>
+<text x="203.8" y="220.5" font-size="12" class="dim">resume cumulative calls; numerical history starts afresh</text>
+<text x="42.0" y="236.0" font-size="12" class="bold ink-b">stats</text>
+<text x="203.8" y="236.0" font-size="12" class="dim">one fused pass, a dict of small host arrays</text>
+<text x="42.0" y="251.5" font-size="12" class="bold ink-b">metadata</text>
+<text x="203.8" y="251.5" font-size="12" class="dim">what the execution was: pools, plans, digests, propagator mode</text>
+<text x="42.0" y="267.0" font-size="12" class="bold ink-b">memory_ledger</text>
+<text x="203.8" y="267.0" font-size="12" class="dim">every named buffer and its size</text>
+<text x="42.0" y="282.5" font-size="12" class="bold ink-b">available_device_memory</text>
+<text x="203.8" y="282.5" font-size="12" class="dim">free device bytes for batch admission; None on hosts</text>
+<text x="42.0" y="298.0" font-size="12" class="bold ink-b">close</text>
+<text x="203.8" y="298.0" font-size="12" class="dim">idempotent</text>
+<path d="M600.0,317.0 L600.0,349.0" class="arrow" />
+<path d="M600.0,349.0 L596.4,340.0 L603.6,340.0 Z" class="head" />
+<text x="600.0" y="325.0" font-size="12" class="mid dim">backends.registry.select(name, problem, grid=, modes=, profiles=)</text>
+<rect x="32" y="355.0" width="560.0" height="165.0" rx="7" ry="7" class="fill-d" />
+<text x="42.0" y="377.0" font-size="15" class="bold ink-d">backends/driver.py  ·  StepDriver, and no backend reimplements it</text>
+<text x="42.0" y="398.5" font-size="12" class="bold ink-d">the march and the landing</text>
+<text x="210.0" y="398.5" font-size="12" class="dim">_march_to</text>
+<text x="42.0" y="414.0" font-size="12" class="bold ink-d">the replay</text>
+<text x="210.0" y="414.0" font-size="12" class="dim">_replay_to · _schedule_index_at</text>
+<text x="42.0" y="429.5" font-size="12" class="bold ink-d">the history</text>
+<text x="210.0" y="429.5" font-size="12" class="dim">_record · observe</text>
+<text x="42.0" y="445.0" font-size="12" class="bold ink-d">the progress reporter</text>
+<text x="210.0" y="445.0" font-size="12" class="dim">set_progress</text>
+<text x="42.0" y="460.5" font-size="12" class="bold ink-d">the statistics channel</text>
+<text x="210.0" y="460.5" font-size="12" class="dim">_take_step_stats · stats</text>
+<text x="42.0" y="476.0" font-size="12" class="bold ink-d">the noise</text>
+<text x="210.0" y="476.0" font-size="12" class="dim">_noise_field · _noise_at · _noise_phase</text>
+<text x="42.0" y="491.5" font-size="12" class="bold ink-d">the per-stage bundle</text>
+<text x="210.0" y="491.5" font-size="12" class="dim">_hoist · _stage_scalars · _delta_phi · _prefactor ·</text>
+<text x="210.0" y="507.0" font-size="12" class="dim">_unitary_phase</text>
+<rect x="640.0" y="355.0" width="528.0" height="134.0" rx="7" ry="7" class="fill-d" />
+<text x="650.0" y="377.0" font-size="15" class="bold ink-d">the stepper it drives</text>
+<text x="650.0" y="398.5" font-size="12" class="bold ink-d">stepper.tableau</text>
+<text x="816.0" y="398.5" font-size="12" class="dim">DOPRI5, Tsit5, the order-condition checks</text>
+<text x="650.0" y="414.0" font-size="12" class="bold ink-d">stepper.controller</text>
+<text x="816.0" y="414.0" font-size="12" class="dim">PIController: propose, accepts, rejection_factor,</text>
+<text x="816.0" y="429.5" font-size="12" class="dim">equivalent_norm</text>
+<text x="650.0" y="445.0" font-size="12" class="bold ink-d">stepper.schedule</text>
+<text x="816.0" y="445.0" font-size="12" class="dim">landing, discover, calibrate, replay</text>
+<text x="650.0" y="460.5" font-size="12" class="bold ink-d">what a backend supplies</text>
+<text x="816.0" y="460.5" font-size="12" class="dim">_trial_step · _apply_mask · _finish · _begin_plane</text>
+<text x="816.0" y="476.0" font-size="12" class="dim">· _on_accepted_step</text>
+<path d="M600.0,526.0 L600.0,542.0 L307.0,542.0 L307.0,558.0" class="arrow" />
+<path d="M307.0,558.0 L303.4,549.0 L310.6,549.0 Z" class="head" />
+<rect x="32.0" y="564.0" width="550.0" height="97.0" rx="7" ry="7" class="fill-b" />
+<text x="42.0" y="586.0" font-size="15" class="bold ink-b">numpy_ref  ·  the oracle</text>
+<text x="42.0" y="601.5" font-size="12" class="dim">plain NumPy and scipy.fft</text>
+<text x="42.0" y="617.0" font-size="12" class="dim">one named function per pass</text>
+<text x="42.0" y="632.5" font-size="12" class="dim">the general representation, the z table included</text>
+<text x="42.0" y="648.0" font-size="12" class="dim">propagator_mode auto → tabulate</text>
+<text x="42.0" y="675.0" font-size="12" class="bold dim">_trial_step · _apply_mask · _finish · _observed_field</text>
+<path d="M600.0,526.0 L600.0,542.0 L893.0,542.0 L893.0,558.0" class="arrow" />
+<path d="M893.0,558.0 L889.4,549.0 L896.6,549.0 Z" class="head" />
+<rect x="618.0" y="564.0" width="550.0" height="97.0" rx="7" ry="7" class="fill-b" />
+<text x="628.0" y="586.0" font-size="15" class="bold ink-b">numba_cpu  ·  CPU fallback</text>
+<text x="628.0" y="601.5" font-size="12" class="dim">fused @njit columns over bodies.py</text>
+<text x="628.0" y="617.0" font-size="12" class="dim">TransformPlans: pyfftw, in place, FFTW_MEASURE</text>
+<text x="628.0" y="632.5" font-size="12" class="dim">ThreadPools: numba, FFTW, BLAS, OMP</text>
+<text x="628.0" y="648.0" font-size="12" class="dim">host z-table adapter; auto → recompute</text>
+<text x="628.0" y="675.0" font-size="12" class="bold dim">_trial_step · _apply_mask · _finish · _observed_field</text>
+<path d="M600.0,526.0 L600.0,705.0 L307.0,705.0 L307.0,721.0" class="arrow" />
+<path d="M307.0,721.0 L303.4,712.0 L310.6,712.0 Z" class="head" />
+<rect x="32.0" y="727.0" width="550.0" height="97.0" rx="7" ry="7" class="fill-b" />
+<text x="42.0" y="749.0" font-size="15" class="bold ink-b">native  ·  preferred if installed</text>
+<text x="42.0" y="764.5" font-size="12" class="dim">solprop-native distribution, native/</text>
+<text x="42.0" y="780.0" font-size="12" class="dim">C++20 Kokkos + persistent Kokkos-FFT plans</text>
+<text x="42.0" y="795.5" font-size="12" class="dim">one native call per seven-stage trial</text>
+<text x="42.0" y="811.0" font-size="12" class="dim">OpenMP on CPUs; CUDA and HIP on GPUs</text>
+<text x="42.0" y="838.0" font-size="12" class="bold dim">_trial_step · _apply_mask · _finish · _observed_field</text>
+<text x="32" y="879.5" font-size="12" class="dim">Three things every backend owes beyond the methods: deterministic reductions, the device form of the stage, and one step loop. The error norm is control flow, so a sum</text>
+<text x="32" y="895.0" font-size="12" class="dim">whose association depends on the thread count forks the trajectory.</text>
+</svg>

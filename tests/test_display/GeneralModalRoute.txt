@@ -1,0 +1,10 @@
+GeneralModalRoute: the seam leaves of one general modal guide
+  channels:              1
+  nodes:                 30
+  frequencies:           4 coarse, 4 fine
+  metric:                identity, defect 3.151e-01 of 1.000e+00
+  occupied departure:    0.000e+00
+  active-band departure: 0.000e+00
+  responses:             1 region(s), isotropic-kerr
+  gauge:                 analytic-real-transverse
+  certificate:           sampled-gram

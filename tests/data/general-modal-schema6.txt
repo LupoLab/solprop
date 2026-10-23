@@ -1,0 +1,5 @@
+Generated with the unchanged schema-6 output sources from solprop 41879467.
+Synthetic unit spectrum on a two-mode Marcatili set, no propagation or Luna data.
+It is the file output schema 7 has to keep readable: no channel labels on its mode
+records, no modal identity block, and a mode axis of two rows.
+Configuration SHA-256: 59fdd964fbab158c109abba1198908037c0142e744ece7b39d6066f11f740770

@@ -1,0 +1,19 @@
+{
+  "status": "Experimental budgets, fixed before the comparisons",
+  "rounding": "gamma_(64*n) times absolute weighted integrands; epsilon=float64 eps",
+  "adaptive_angular_rtol": 2e-10,
+  "angular_rtol": 2e-6,
+  "rate_interpolation_log_atol": 1e-7,
+  "cycle_table_rtol": 4e-6,
+  "negligible_rate_s_inverse": 1e-30,
+  "angular_orders": [16, 32, 64, 128, 256, 512],
+  "temporal_order": 2,
+  "temporal_order_lower": 1.8,
+  "temporal_order_upper": 5,
+  "floor_multiplier": 1000,
+  "spectral_rounding_relative": 2e-12,
+  "window_relative_target": 1e-5,
+  "controlled_envelope_relative_target": 0.01,
+  "short_range_ppt_quadrature_rtol": 1e-5,
+  "note": "Model discrepancy is reported separately and cannot enlarge numerical tolerances. No global atomic accuracy claim follows from these budgets."
+}

@@ -1,0 +1,439 @@
+{
+ "axis": {
+  "label": "interval pair, sorted by width",
+  "name": "pair",
+  "unit": "1"
+ },
+ "case": {
+  "frame": "co-moving",
+  "grid": "field grid, 800 nm, 400 nm to 2 um, 400 fs, 0.2 m",
+  "intervals": "twenty random pairs from default_rng(20240905)",
+  "mode": "Marcatili 125 um, optmat's helium 5 bar to 0.5 bar over 0.2 m, cladding 1.45",
+  "oracle": "scipy.integrate.quad_vec at epsabs 1e-13, its own error asserted below 1e-9 of the value scale before it is believed"
+ },
+ "columns": [
+  {
+   "atol": 1e-15,
+   "bound": null,
+   "name": "deviation",
+   "rtol": 1.0,
+   "unit": "1 (relative to the value scale of the interval)",
+   "why": "a factor of two: the quantity sits near 1e-10, at the oracle's own error and the operator's round-off, so its last digits are not reproducible, while any real change moves it by orders"
+  },
+  {
+   "atol": 0.0,
+   "bound": null,
+   "name": "bound",
+   "rtol": null,
+   "unit": "1 (relative to the value scale of the interval)",
+   "why": "the table's build tolerance carried through the integral, plus the oracle's own error estimate; recorded for the figure, not compared, since the round-off floor it is built from is a noise measurement"
+  },
+  {
+   "atol": 0.0,
+   "bound": null,
+   "name": "width",
+   "rtol": 0.0,
+   "unit": "m",
+   "why": "the interval's length, an input of the ladder rather than a measurement, so it is compared exactly"
+  }
+ ],
+ "luna": null,
+ "rows": [
+  {
+   "axis": 0,
+   "bound": 2.7679415245162125e-08,
+   "deviation": 3.6310291423973435e-11,
+   "series": "expansion",
+   "width": 0.0038407769621144894,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 1,
+   "bound": 2.7683007707237716e-08,
+   "deviation": 3.158174224996519e-11,
+   "series": "expansion",
+   "width": 0.0055530772584676535,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 2,
+   "bound": 2.768346743145041e-08,
+   "deviation": 4.0620626965097215e-11,
+   "series": "expansion",
+   "width": 0.005819413405062035,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 3,
+   "bound": 2.768061092687258e-08,
+   "deviation": 2.929808532967408e-11,
+   "series": "expansion",
+   "width": 0.008534582149885755,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 4,
+   "bound": 2.768773459251628e-08,
+   "deviation": 4.0074234471093374e-11,
+   "series": "expansion",
+   "width": 0.00941472899562358,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 5,
+   "bound": 2.769118612544155e-08,
+   "deviation": 3.3087496735432745e-11,
+   "series": "expansion",
+   "width": 0.011034117883746697,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 6,
+   "bound": 2.7684983882018866e-08,
+   "deviation": 3.338207974989943e-11,
+   "series": "expansion",
+   "width": 0.011997832226389449,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 7,
+   "bound": 2.7714620423885914e-08,
+   "deviation": 3.558956331156628e-11,
+   "series": "expansion",
+   "width": 0.034100036716202875,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 8,
+   "bound": 2.7697735045890312e-08,
+   "deviation": 4.592823560135402e-11,
+   "series": "expansion",
+   "width": 0.03658770755960703,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 9,
+   "bound": 2.7709258599073534e-08,
+   "deviation": 4.242453877673065e-11,
+   "series": "expansion",
+   "width": 0.04352740923878995,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 10,
+   "bound": 2.770066842052699e-08,
+   "deviation": 4.0116725840825315e-11,
+   "series": "expansion",
+   "width": 0.043617250373016156,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 11,
+   "bound": 2.7730927337274618e-08,
+   "deviation": 3.35741341085559e-11,
+   "series": "expansion",
+   "width": 0.044805819711055656,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 12,
+   "bound": 2.7708784112704488e-08,
+   "deviation": 3.885117453537523e-11,
+   "series": "expansion",
+   "width": 0.052655405649746204,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 13,
+   "bound": 2.7736367611055238e-08,
+   "deviation": 3.6301547697051403e-11,
+   "series": "expansion",
+   "width": 0.061776842990874284,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 14,
+   "bound": 2.7772258767159214e-08,
+   "deviation": 2.7433962989273493e-11,
+   "series": "expansion",
+   "width": 0.07888879889652199,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 15,
+   "bound": 2.7767621399606318e-08,
+   "deviation": 2.1710168352729008e-11,
+   "series": "expansion",
+   "width": 0.12012737759111836,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 16,
+   "bound": 2.7787353376517023e-08,
+   "deviation": 2.5814996292745957e-11,
+   "series": "expansion",
+   "width": 0.1351837800141486,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 17,
+   "bound": 2.779218813731594e-08,
+   "deviation": 2.073724347230607e-11,
+   "series": "expansion",
+   "width": 0.14091243150849125,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 18,
+   "bound": 2.781401914080703e-08,
+   "deviation": 1.54539766696349e-11,
+   "series": "expansion",
+   "width": 0.1579327528519153,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 19,
+   "bound": 2.782790548606714e-08,
+   "deviation": 1.8879332779942275e-11,
+   "series": "expansion",
+   "width": 0.16398722623794523,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 0,
+   "bound": 2.7679415245162125e-08,
+   "deviation": 6.070953643050048e-11,
+   "series": "z table",
+   "width": 0.0038407769621144894,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 1,
+   "bound": 2.7683007707237716e-08,
+   "deviation": 1.372964785562688e-10,
+   "series": "z table",
+   "width": 0.0055530772584676535,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 2,
+   "bound": 2.768346743145041e-08,
+   "deviation": 4.5540614808130576e-11,
+   "series": "z table",
+   "width": 0.005819413405062035,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 3,
+   "bound": 2.768061092687258e-08,
+   "deviation": 3.6050811868533113e-11,
+   "series": "z table",
+   "width": 0.008534582149885755,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 4,
+   "bound": 2.768773459251628e-08,
+   "deviation": 2.5590929476734058e-11,
+   "series": "z table",
+   "width": 0.00941472899562358,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 5,
+   "bound": 2.769118612544155e-08,
+   "deviation": 3.260090363763673e-11,
+   "series": "z table",
+   "width": 0.011034117883746697,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 6,
+   "bound": 2.7684983882018866e-08,
+   "deviation": 5.119720359196253e-11,
+   "series": "z table",
+   "width": 0.011997832226389449,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 7,
+   "bound": 2.7714620423885914e-08,
+   "deviation": 1.4411245645933275e-11,
+   "series": "z table",
+   "width": 0.034100036716202875,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 8,
+   "bound": 2.7697735045890312e-08,
+   "deviation": 2.315210264792618e-11,
+   "series": "z table",
+   "width": 0.03658770755960703,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 9,
+   "bound": 2.7709258599073534e-08,
+   "deviation": 2.5606972514219396e-11,
+   "series": "z table",
+   "width": 0.04352740923878995,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 10,
+   "bound": 2.770066842052699e-08,
+   "deviation": 2.2154900359692145e-11,
+   "series": "z table",
+   "width": 0.043617250373016156,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 11,
+   "bound": 2.7730927337274618e-08,
+   "deviation": 1.7059251720918976e-11,
+   "series": "z table",
+   "width": 0.044805819711055656,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 12,
+   "bound": 2.7708784112704488e-08,
+   "deviation": 1.9616711356390583e-11,
+   "series": "z table",
+   "width": 0.052655405649746204,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 13,
+   "bound": 2.7736367611055238e-08,
+   "deviation": 1.626993090269288e-11,
+   "series": "z table",
+   "width": 0.061776842990874284,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 14,
+   "bound": 2.7772258767159214e-08,
+   "deviation": 1.802480653831723e-11,
+   "series": "z table",
+   "width": 0.07888879889652199,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 15,
+   "bound": 2.7767621399606318e-08,
+   "deviation": 1.262724880106421e-11,
+   "series": "z table",
+   "width": 0.12012737759111836,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 16,
+   "bound": 2.7787353376517023e-08,
+   "deviation": 1.1012683458714248e-11,
+   "series": "z table",
+   "width": 0.1351837800141486,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 17,
+   "bound": 2.779218813731594e-08,
+   "deviation": 9.644786665517741e-12,
+   "series": "z table",
+   "width": 0.14091243150849125,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 18,
+   "bound": 2.781401914080703e-08,
+   "deviation": 9.886265411989927e-12,
+   "series": "z table",
+   "width": 0.1579327528519153,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  },
+  {
+   "axis": 19,
+   "bound": 2.782790548606714e-08,
+   "deviation": 1.2454990428703298e-11,
+   "series": "z table",
+   "width": 0.16398722623794523,
+   "write": 0,
+   "written_by": "tests/translate/test_linop.py::test_phi_reproduces_an_independent_quadrature_of_the_operator"
+  }
+ ],
+ "schema": 1,
+ "study": "phi_quadrature",
+ "title": "Cumulative operator against an independent quadrature of the same operator",
+ "writes": [
+  {
+   "backend": null,
+   "blas": null,
+   "branch": "feature/sep-0003-optmat-materials-final",
+   "commit": "d9f9f413f83207d1466bfeb0de8402fe589057cd",
+   "fftw_planner": "estimate",
+   "machine_id": "darwin-arm64",
+   "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.5",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": "1",
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": "false",
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": "1",
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": "1",
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": "1"
+   }
+  }
+ ]
+}

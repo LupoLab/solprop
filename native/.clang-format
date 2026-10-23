@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+BasedOnStyle: LLVM
+ColumnLimit: 88
+DerivePointerAlignment: false
+PointerAlignment: Left
+SortIncludes: CaseSensitive

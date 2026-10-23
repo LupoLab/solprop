@@ -1,0 +1,9 @@
+RegionalResponseTables: the compiled response of each material region
+  responses:     1
+  regions:       [0]
+  components:    3
+  delayed terms: 2
+  intervals:     1
+  fine samples:  8
+  model:         isotropic-kerr-real+silica-tensor-raman
+  policy:        dense-nodes

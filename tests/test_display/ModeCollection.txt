@@ -1,0 +1,3 @@
+ModeCollection: 2 modes
+  0: MarcatiliMode(HE11, a=125 um, He, model=full, loss=True)
+  1: MarcatiliMode(HE12, a=125 um, He, model=full, loss=True)

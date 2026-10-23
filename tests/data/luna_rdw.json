@@ -1,0 +1,66 @@
+{
+ "as_luna_wrote_them_bytes": {
+  "luna_rdw_full.h5": 32811185,
+  "luna_rdw_reduced.h5": 3091557
+ },
+ "blas_threads": 6,
+ "energy": 0.000275,
+ "fftw_pool": "none",
+ "fftw_threads": 1,
+ "files": {
+  "luna_rdw_full.h5": {
+   "bytes": 1596548,
+   "sha256": "0c9117d4c16b7b7563a9071f296ffb847acaf81c25134db41f66aad428955aca"
+  },
+  "luna_rdw_media.json": {
+   "bytes": 461210,
+   "sha256": "883d981f10de2359a8e4f91473ab1f328d77a823164f70cac793a607722e1676"
+  },
+  "luna_rdw_reduced.h5": {
+   "bytes": 1625432,
+   "sha256": "65e175bb6cd22e8a16c21f7ce3ad046977222b1e08ee18c297aec5c16e6717e4"
+  }
+ },
+ "full": {
+  "lambda_max": 4e-06,
+  "lambda_min": 9e-08,
+  "length": 1.5,
+  "modes": 4,
+  "n_save": 201,
+  "p_in": 0.8,
+  "p_out": 0.0,
+  "radius": 0.000125,
+  "trange": 4e-13
+ },
+ "full_trimmed_to_planes": [
+  0,
+  -1
+ ],
+ "generated": "2026-09-05T23:40:10+00:00",
+ "julia_threads": 1,
+ "julia_version": "julia version 1.12.6",
+ "lambda0": 8e-07,
+ "luna_branch": "modal-fixed",
+ "luna_commit": "de9db7c9a3b6e37fc71bb657540abab177242883",
+ "luna_describe": "de9db7c LinearOps: frozen_transverse kwarg for the free-space const linop",
+ "luna_path": "~/.julia/dev/Luna",
+ "note": "Regression witnesses, not truth. Generated at solprop's room temperature of 294.0 K rather than Luna's 293.15 K, and with the shot noise off; both departures are so that the comparison measures the solver. Luna's helium susceptibility and cladding index are emitted in luna_rdw_media.json because the package defaults differ from them by design. The full case's field is trimmed to the planes listed above; regenerate with tests/data/generate_luna_rdw.py. julia_threads, blas_threads, fftw_threads and fftw_pool were added by hand from the generator's own invocation (no `-t`, `JULIA_NUM_THREADS` unset): every runtime_s above is single-threaded Luna with a six-thread BLAS and FFTW left at one thread, not the automatic-FFTW, matched-thread-count runs tests/data/time_luna.py measures. No witness was regenerated.",
+ "reduced": {
+  "lambda_max": 1.5e-06,
+  "lambda_min": 1e-07,
+  "length": 1.0,
+  "modes": 2,
+  "n_save": 51,
+  "p_in": 1.2,
+  "p_out": 0.0,
+  "radius": 0.000125,
+  "trange": 2e-13
+ },
+ "runtime_s": {
+  "full": 104.96186208724976,
+  "reduced": 10.32799220085144
+ },
+ "shotnoise": false,
+ "tau_fwhm": 7.5e-15,
+ "temperature_k": 294.0
+}

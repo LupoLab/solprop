@@ -1,0 +1,207 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="1200" height="933.5" viewBox="0 0 1200 933.5">
+<defs>
+</defs>
+<style>
+svg {
+    --ground: #fbfbfd;
+    --ink: #1b1f24;
+    --dim: #5b6673;
+    --rule: #c9d0da;
+    --p-fill: #e2f0e8;
+    --p-edge: #2c7a55;
+    --t-fill: #fceedd;
+    --t-edge: #a96a15;
+    --b-fill: #e3ebfa;
+    --b-edge: #2f5eb0;
+    --d-fill: #eee6f8;
+    --d-edge: #6f45a6;
+    --x-fill: #fce7ec;
+    --x-edge: #af3450;
+}
+@media (prefers-color-scheme: dark) {
+  svg {
+    --ground: #171a1f;
+    --ink: #e7eaef;
+    --dim: #9aa5b3;
+    --rule: #3a424e;
+    --p-fill: #16342a;
+    --p-edge: #5cb98a;
+    --t-fill: #3a2b15;
+    --t-edge: #e0a44f;
+    --b-fill: #17253f;
+    --b-edge: #7ba6e8;
+    --d-fill: #2a1f3e;
+    --d-edge: #b18fe0;
+    --x-fill: #3a1e26;
+    --x-edge: #e8879a;
+  }
+}
+.ground { fill: var(--ground); stroke: none; }
+.card { fill: var(--ground); stroke: var(--rule); stroke-width: 1.4; }
+.plain { fill: none; stroke: var(--rule); stroke-width: 1.4; }
+.planned { fill: none; stroke: var(--dim); stroke-width: 1.4;
+  stroke-dasharray: 5 4; }
+.arrow { fill: none; stroke: var(--dim); stroke-width: 1.4;
+  stroke-linecap: round; stroke-linejoin: round; }
+.head { fill: var(--dim); stroke: none; }
+.rule { fill: none; stroke: var(--rule); stroke-width: 1.4; }
+text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill: var(--ink);
+  white-space: pre; }
+.dim { fill: var(--dim); }
+.mid { text-anchor: middle; }
+.end { text-anchor: end; }
+.bold { font-weight: 600; }
+.fill-p { fill: var(--p-fill); stroke: var(--p-edge); }
+.edge-p { stroke: var(--p-edge); }
+.ink-p { fill: var(--p-edge); }
+.fill-t { fill: var(--t-fill); stroke: var(--t-edge); }
+.edge-t { stroke: var(--t-edge); }
+.ink-t { fill: var(--t-edge); }
+.fill-b { fill: var(--b-fill); stroke: var(--b-edge); }
+.edge-b { stroke: var(--b-edge); }
+.ink-b { fill: var(--b-edge); }
+.fill-d { fill: var(--d-fill); stroke: var(--d-edge); }
+.edge-d { stroke: var(--d-edge); }
+.ink-d { fill: var(--d-edge); }
+.fill-x { fill: var(--x-fill); stroke: var(--x-edge); }
+.edge-x { stroke: var(--x-edge); }
+.ink-x { fill: var(--x-edge); }
+</style>
+<rect x="0" y="0" width="1200" height="933.5" class="ground" />
+<text x="32" y="44.0" font-size="21" class="bold">The kernel contract, section by section</text>
+<text x="32" y="64.0" font-size="12" class="dim">kernel-contract.md §1 to §8. KernelProblem is the only object that crosses into a backend: eleven fields, frozen, validated, versioned. On the left, what builds each</text>
+<text x="32" y="79.5" font-size="12" class="dim">section; on the right, what a backend does with it.</text>
+<text x="32" y="113.0" font-size="12" class="bold dim">built by</text>
+<text x="386.0" y="113.0" font-size="12" class="bold ink-t">translate.problem.KernelProblem</text>
+<text x="864.0" y="113.0" font-size="12" class="bold dim">read by a backend</text>
+<rect x="32" y="125.0" width="296.0" height="51.0" rx="7" ry="7" class="fill-t" />
+<text x="42.0" y="146.75" font-size="12" class="dim">derived from the content of §2 to §8</text>
+<text x="42.0" y="162.25" font-size="12" class="dim">by translate.assemble</text>
+<rect x="386.0" y="125.0" width="420.0" height="66.0" rx="7" ry="7" class="fill-t" />
+<text x="396.0" y="147.0" font-size="15" class="bold ink-t">§1   schema_version · grid_kind · shape · flags</text>
+<text x="396.0" y="162.5" font-size="12" class="dim">identity and validation</text>
+<text x="396.0" y="178.0" font-size="12" class="dim">translate.problem.Flags</text>
+<rect x="864.0" y="125.0" width="304.0" height="51.0" rx="7" ry="7" class="fill-b" />
+<text x="874.0" y="146.75" font-size="12" class="dim">specialises kernels at compile time;</text>
+<text x="874.0" y="162.25" font-size="12" class="dim">validate() refuses the rest</text>
+<path d="M334.0,150.5 L380.0,150.5" class="arrow" />
+<path d="M380.0,150.5 L371.0,154.1 L371.0,146.9 Z" class="head" />
+<path d="M812.0,150.5 L858.0,150.5" class="arrow" />
+<path d="M858.0,150.5 L849.0,154.1 L849.0,146.9 Z" class="head" />
+<rect x="32" y="188.0" width="296.0" height="51.0" rx="7" ry="7" class="fill-p" />
+<text x="42.0" y="217.5" font-size="12" class="dim">grid.py · boundaries.py · fourier.py</text>
+<rect x="386.0" y="188.0" width="420.0" height="66.0" rx="7" ry="7" class="fill-t" />
+<text x="396.0" y="210.0" font-size="15" class="bold ink-t">§2   grids</text>
+<text x="396.0" y="225.5" font-size="12" class="dim">grids and transforms</text>
+<text x="396.0" y="241.0" font-size="12" class="dim">translate.masks.Grids</text>
+<rect x="864.0" y="188.0" width="304.0" height="51.0" rx="7" ry="7" class="fill-b" />
+<text x="874.0" y="209.75" font-size="12" class="dim">crop/pad indices, masks, windows and the</text>
+<text x="874.0" y="225.25" font-size="12" class="dim">analytic temporal derivative</text>
+<path d="M334.0,213.5 L380.0,213.5" class="arrow" />
+<path d="M380.0,213.5 L371.0,217.1 L371.0,209.9 Z" class="head" />
+<path d="M812.0,213.5 L858.0,213.5" class="arrow" />
+<path d="M858.0,213.5 L849.0,217.1 L849.0,209.9 Z" class="head" />
+<rect x="32" y="251.0" width="296.0" height="51.0" rx="7" ry="7" class="fill-p" />
+<text x="42.0" y="280.5" font-size="12" class="dim">linear.py · modes/ · profiles.py</text>
+<rect x="386.0" y="251.0" width="420.0" height="66.0" rx="7" ry="7" class="fill-t" />
+<text x="396.0" y="273.0" font-size="15" class="bold ink-t">§3   linear</text>
+<text x="396.0" y="288.5" font-size="12" class="dim">linear operator</text>
+<text x="396.0" y="304.0" font-size="12" class="dim">translate.linop.LinearOperator</text>
+<rect x="864.0" y="251.0" width="304.0" height="51.0" rx="7" ry="7" class="fill-b" />
+<text x="874.0" y="272.75" font-size="12" class="dim">terms uploaded once, scalars per stage: ΔΦ</text>
+<text x="874.0" y="288.25" font-size="12" class="dim">= Σ_j w_j · terms_j</text>
+<path d="M334.0,276.5 L380.0,276.5" class="arrow" />
+<path d="M380.0,276.5 L371.0,280.1 L371.0,272.9 Z" class="head" />
+<path d="M812.0,276.5 L858.0,276.5" class="arrow" />
+<path d="M858.0,276.5 L849.0,280.1 L849.0,272.9 Z" class="head" />
+<rect x="32" y="314.0" width="296.0" height="51.0" rx="7" ry="7" class="fill-p" />
+<text x="42.0" y="343.5" font-size="12" class="dim">modes.quadrature · modes.collection</text>
+<rect x="386.0" y="314.0" width="420.0" height="66.0" rx="7" ry="7" class="fill-t" />
+<text x="396.0" y="336.0" font-size="15" class="bold ink-t">§4   transform</text>
+<text x="396.0" y="351.5" font-size="12" class="dim">multimode transform</text>
+<text x="396.0" y="367.0" font-size="12" class="dim">translate.modal.Transform</text>
+<rect x="864.0" y="314.0" width="304.0" height="51.0" rx="7" ry="7" class="fill-b" />
+<text x="874.0" y="335.75" font-size="12" class="dim">the two GEMMs: synthesis onto the nodes,</text>
+<text x="874.0" y="351.25" font-size="12" class="dim">projection back onto the modes</text>
+<path d="M334.0,339.5 L380.0,339.5" class="arrow" />
+<path d="M380.0,339.5 L371.0,343.1 L371.0,335.9 Z" class="head" />
+<path d="M812.0,339.5 L858.0,339.5" class="arrow" />
+<path d="M858.0,339.5 L849.0,343.1 L849.0,335.9 Z" class="head" />
+<rect x="32" y="377.0" width="296.0" height="51.0" rx="7" ry="7" class="fill-p" />
+<text x="42.0" y="406.5" font-size="12" class="dim">nonlinear/ · physdata/ · boundaries.py</text>
+<rect x="386.0" y="377.0" width="420.0" height="66.0" rx="7" ry="7" class="fill-t" />
+<text x="396.0" y="399.0" font-size="15" class="bold ink-t">§5   responses · tdse · current_numerator</text>
+<text x="396.0" y="414.5" font-size="12" class="dim">responses and the prefactor</text>
+<text x="396.0" y="430.0" font-size="12" class="dim">translate.responses.CompiledResponses</text>
+<rect x="864.0" y="377.0" width="304.0" height="51.0" rx="7" ry="7" class="fill-b" />
+<text x="874.0" y="398.75" font-size="12" class="dim">non-plasma P and held-current streams;</text>
+<text x="874.0" y="414.25" font-size="12" class="dim">independent TDSE P/J factors</text>
+<path d="M334.0,402.5 L380.0,402.5" class="arrow" />
+<path d="M380.0,402.5 L371.0,406.1 L371.0,398.9 Z" class="head" />
+<path d="M812.0,402.5 L858.0,402.5" class="arrow" />
+<path d="M858.0,402.5 L849.0,406.1 L849.0,398.9 Z" class="head" />
+<rect x="32" y="440.0" width="296.0" height="51.0" rx="7" ry="7" class="fill-p" />
+<text x="42.0" y="469.5" font-size="12" class="dim">pulses.py · noise.py</text>
+<rect x="386.0" y="440.0" width="420.0" height="66.0" rx="7" ry="7" class="fill-t" />
+<text x="396.0" y="462.0" font-size="15" class="bold ink-t">§6   initial</text>
+<text x="396.0" y="477.5" font-size="12" class="dim">initial state and noise</text>
+<text x="396.0" y="493.0" font-size="12" class="dim">translate.problem.Initial</text>
+<rect x="864.0" y="440.0" width="304.0" height="51.0" rx="7" ry="7" class="fill-b" />
+<text x="874.0" y="461.75" font-size="12" class="dim">set_initial once; the noise advances as N0</text>
+<text x="874.0" y="477.25" font-size="12" class="dim">· exp(i Im Φ)</text>
+<path d="M334.0,465.5 L380.0,465.5" class="arrow" />
+<path d="M380.0,465.5 L371.0,469.1 L371.0,461.9 Z" class="head" />
+<path d="M812.0,465.5 L858.0,465.5" class="arrow" />
+<path d="M858.0,465.5 L849.0,469.1 L849.0,461.9 Z" class="head" />
+<rect x="32" y="503.0" width="296.0" height="51.0" rx="7" ry="7" class="fill-d" />
+<text x="42.0" y="524.75" font-size="12" class="dim">stepper/</text>
+<text x="42.0" y="540.25" font-size="12" class="dim">tableau · controller · schedule</text>
+<rect x="386.0" y="503.0" width="420.0" height="66.0" rx="7" ry="7" class="fill-t" />
+<text x="396.0" y="525.0" font-size="15" class="bold ink-t">§7   stepper</text>
+<text x="396.0" y="540.5" font-size="12" class="dim">stepper settings and schedule</text>
+<text x="396.0" y="556.0" font-size="12" class="dim">translate.problem.StepperSettings</text>
+<rect x="864.0" y="503.0" width="304.0" height="51.0" rx="7" ry="7" class="fill-b" />
+<text x="874.0" y="524.75" font-size="12" class="dim">the controller's decision, and the planes</text>
+<text x="874.0" y="540.25" font-size="12" class="dim">and kinks to land on</text>
+<path d="M334.0,528.5 L380.0,528.5" class="arrow" />
+<path d="M380.0,528.5 L371.0,532.1 L371.0,524.9 Z" class="head" />
+<path d="M812.0,528.5 L858.0,528.5" class="arrow" />
+<path d="M858.0,528.5 L849.0,532.1 L849.0,524.9 Z" class="head" />
+<rect x="32" y="566.0" width="296.0" height="51.0" rx="7" ry="7" class="fill-d" />
+<text x="42.0" y="587.75" font-size="12" class="dim">stats.py</text>
+<text x="42.0" y="603.25" font-size="12" class="dim">the catalogue and the energy windows</text>
+<rect x="386.0" y="566.0" width="420.0" height="66.0" rx="7" ry="7" class="fill-t" />
+<text x="396.0" y="588.0" font-size="15" class="bold ink-t">§8   stats_spec</text>
+<text x="396.0" y="603.5" font-size="12" class="dim">statistics requests</text>
+<text x="396.0" y="619.0" font-size="12" class="dim">solprop.stats.StatsSpec</text>
+<rect x="864.0" y="566.0" width="304.0" height="51.0" rx="7" ry="7" class="fill-b" />
+<text x="874.0" y="587.75" font-size="12" class="dim">one fused pass per save plane,</text>
+<text x="874.0" y="603.25" font-size="12" class="dim">deterministic reductions</text>
+<path d="M334.0,591.5 L380.0,591.5" class="arrow" />
+<path d="M380.0,591.5 L371.0,595.1 L371.0,587.9 Z" class="head" />
+<path d="M812.0,591.5 L858.0,591.5" class="arrow" />
+<path d="M858.0,591.5 L849.0,595.1 L849.0,587.9 Z" class="head" />
+<rect x="32" y="651.0" width="1136" height="250.5" rx="7" ry="7" class="plain" />
+<text x="42.0" y="673.0" font-size="15" class="bold">Φ (§3) and the prefactor (§5) each take one of four representations, and device_ready is a predicate over the pair</text>
+<rect x="42.0" y="686.0" width="553.0" height="66.5" rx="7" ry="7" class="fill-t" />
+<text x="52.0" y="707.5" font-size="13" class="bold ink-t">"constant"</text>
+<text x="52.0" y="723.0" font-size="12" class="dim">phi_constant · prefactor_constant</text>
+<text x="52.0" y="738.5" font-size="12" class="dim">one term, and the distance as its weight</text>
+<rect x="605.0" y="686.0" width="553.0" height="66.5" rx="7" ry="7" class="fill-t" />
+<text x="615.0" y="707.5" font-size="13" class="bold ink-t">"expansion"</text>
+<text x="615.0" y="723.0" font-size="12" class="dim">ParameterExpansion: terms, weights</text>
+<text x="615.0" y="738.5" font-size="12" class="dim">n_terms of them, over the mode set's scalar paths</text>
+<rect x="42.0" y="762.5" width="553.0" height="66.5" rx="7" ry="7" class="planned" />
+<text x="52.0" y="784.0" font-size="13" class="bold dim">"table"</text>
+<text x="52.0" y="799.5" font-size="12" class="dim">phi_coefficients · prefactor</text>
+<text x="52.0" y="815.0" font-size="12" class="dim">a Clenshaw pass over the state's size × the degree</text>
+<rect x="605.0" y="762.5" width="553.0" height="66.5" rx="7" ry="7" class="fill-t" />
+<text x="615.0" y="784.0" font-size="13" class="bold ink-t">"separable"</text>
+<text x="615.0" y="799.5" font-size="12" class="dim">SeparableOperator: material and transverse vectors</text>
+<text x="615.0" y="815.0" font-size="12" class="dim">corrected split-square subtraction; no coefficient volume</text>
+<text x="42.0" y="856.5" font-size="12" class="dim">device_ready is exactly "neither of them is the z table". translate.stage splits a stage in two: terms, the fixed arrays uploaded once, and scalars, a small record of</text>
+<text x="42.0" y="872.0" font-size="12" class="dim">host floats per stage. A backend evaluates ΔΦ = stage.combine(weights, terms), or evaluates the separable vectors without a full coefficient volume;</text>
+<text x="42.0" y="887.5" font-size="12" class="dim">translate.stage.require_device_ready is the refusal device backends raise. Numba CPU also accepts z tables through its host adapter.</text>
+</svg>

@@ -1,0 +1,6 @@
+ChannelLabel: HE1,1:even
+  family:          HE
+  azimuthal order: 1
+  radial order:    1
+  parity:          even
+  handedness:      none

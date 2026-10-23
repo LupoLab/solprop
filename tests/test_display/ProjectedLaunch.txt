@@ -1,0 +1,5 @@
+ProjectedLaunch: a declared field in a guide's channels
+  channels:      1
+  frequencies:   4
+  peak captured: 694.2 mW
+  missed share:  6.338e-32

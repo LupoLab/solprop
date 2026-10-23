@@ -1,0 +1,311 @@
+{
+ "axis": {
+  "label": "metric",
+  "name": "metric",
+  "unit": "1"
+ },
+ "case": {
+  "full case": "4 modes, 1.5 m",
+  "media": "Luna's own helium susceptibility and cladding table",
+  "reduced case": "2 modes, 1 m",
+  "witness": "tests/data/luna_rdw_reduced.h5 and luna_rdw_full.h5, production Luna at the rtol = 1e-6 its interface cannot change"
+ },
+ "columns": [
+  {
+   "atol": 0.0,
+   "bound": null,
+   "name": "value",
+   "rtol": 0.02,
+   "unit": "1 for a ratio or a relative L2 distance, fs for an arrival",
+   "why": "a fiftieth: an adaptive run's step sequence is not bitwise across platforms, and what that costs the answer is the controller's 1e-6, four orders inside this, while every band below is wider still"
+  },
+  {
+   "atol": 0.0,
+   "bound": null,
+   "name": "low",
+   "rtol": 0.0,
+   "unit": "as the value",
+   "why": "the lower end of the band the test asserts, compared exactly so that a bound widened to fit a measurement is itself a failure"
+  },
+  {
+   "atol": 0.0,
+   "bound": null,
+   "name": "high",
+   "rtol": 0.0,
+   "unit": "as the value",
+   "why": "the upper end of the same band, compared exactly for the same reason"
+  }
+ ],
+ "luna": null,
+ "rows": [
+  {
+   "axis": "fourth mode, content",
+   "high": 1.0,
+   "low": 0.7,
+   "series": "full case, against converged Luna",
+   "value": 0.845512750697323,
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_full_m2_case_against_its_witness"
+  },
+  {
+   "axis": "fundamental, shape",
+   "high": 0.13,
+   "low": 0.06,
+   "series": "full case, against converged Luna",
+   "value": 0.08923627499423323,
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_full_m2_case_against_its_witness"
+  },
+  {
+   "axis": "second mode, content",
+   "high": 1.03,
+   "low": 0.97,
+   "series": "full case, against converged Luna",
+   "value": 0.9952546624627299,
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_full_m2_case_against_its_witness"
+  },
+  {
+   "axis": "third mode, content",
+   "high": 1.2,
+   "low": 0.95,
+   "series": "full case, against converged Luna",
+   "value": 1.0507146352802497,
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_full_m2_case_against_its_witness"
+  },
+  {
+   "axis": "VUV band over four modes",
+   "high": 1.25,
+   "low": 0.95,
+   "series": "full case, against production Luna",
+   "value": 1.0894263604997119,
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_full_m2_case_against_its_witness"
+  },
+  {
+   "axis": "fourth mode, content",
+   "high": 1.35,
+   "low": 1.0,
+   "series": "full case, against production Luna",
+   "value": 1.1645067590546319,
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_full_m2_case_against_its_witness"
+  },
+  {
+   "axis": "fundamental, content",
+   "high": 1.01,
+   "low": 0.98,
+   "series": "full case, against production Luna",
+   "value": 0.9946881720313787,
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_full_m2_case_against_its_witness"
+  },
+  {
+   "axis": "fundamental, shape",
+   "high": 0.4,
+   "low": 0.15,
+   "series": "full case, against production Luna",
+   "value": 0.2586611274025537,
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_full_m2_case_against_its_witness"
+  },
+  {
+   "axis": "second mode, content",
+   "high": 0.7,
+   "low": 0.45,
+   "series": "full case, against production Luna",
+   "value": 0.5638943938956574,
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_full_m2_case_against_its_witness"
+  },
+  {
+   "axis": "third mode, content",
+   "high": 1.25,
+   "low": 0.95,
+   "series": "full case, against production Luna",
+   "value": 1.0797012282961382,
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_full_m2_case_against_its_witness"
+  },
+  {
+   "axis": "VUV arrival, Luna",
+   "high": 5.0,
+   "low": 4.2,
+   "series": "reduced case",
+   "value": 4.621906039603893,
+   "write": 1,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_vuv_band_is_the_measured_fraction_of_lunas"
+  },
+  {
+   "axis": "VUV arrival, solprop",
+   "high": 5.1,
+   "low": 4.4,
+   "series": "reduced case",
+   "value": 4.729789146317129,
+   "write": 1,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_vuv_band_is_the_measured_fraction_of_lunas"
+  },
+  {
+   "axis": "VUV band in the fundamental",
+   "high": 1.5,
+   "low": 1.35,
+   "series": "reduced case",
+   "value": 1.42600286857708,
+   "write": 1,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_vuv_band_is_the_measured_fraction_of_lunas"
+  },
+  {
+   "axis": "VUV band over both modes",
+   "high": 1.37,
+   "low": 1.22,
+   "series": "reduced case",
+   "value": 1.2982208003821194,
+   "write": 1,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_vuv_band_is_the_measured_fraction_of_lunas"
+  },
+  {
+   "axis": "fundamental shape at rtol 1e-8",
+   "high": 0.08,
+   "low": 0.05,
+   "series": "reduced case",
+   "value": 0.0568534085253492,
+   "write": 2,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_step_tolerance_is_not_what_separates_the_two_codes"
+  },
+  {
+   "axis": "fundamental, content",
+   "high": 1.05,
+   "low": 1.01,
+   "series": "reduced case",
+   "value": 1.0278267360738425,
+   "write": 1,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_fundamental_mode_matches_luna_within_the_measured_bound"
+  },
+  {
+   "axis": "fundamental, shape",
+   "high": 0.08,
+   "low": 0.05,
+   "series": "reduced case",
+   "value": 0.056853703018371435,
+   "write": 1,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_fundamental_mode_matches_luna_within_the_measured_bound"
+  },
+  {
+   "axis": "second mode, content",
+   "high": 1.2,
+   "low": 1.0,
+   "series": "reduced case",
+   "value": 1.1066693579187887,
+   "write": 1,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_higher_modes_agree_now_that_the_set_shares_one_frame"
+  },
+  {
+   "axis": "two decades of tolerance, relative move",
+   "high": 0.001,
+   "low": 0.0,
+   "series": "reduced case",
+   "value": 6.728771860174955e-06,
+   "write": 2,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_step_tolerance_is_not_what_separates_the_two_codes"
+  }
+ ],
+ "schema": 1,
+ "study": "m2_witness_metrics",
+ "title": "Milestone M2 against its Luna witness, metric by metric",
+ "writes": [
+  {
+   "backend": "numba_cpu",
+   "blas": null,
+   "branch": "development",
+   "commit": "5c8b377acf00ca430e04ebbafe3f4f144a5919f3",
+   "fftw_planner": "estimate",
+   "machine_id": "darwin-arm64",
+   "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.5",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": "1",
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": "false",
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": "1",
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": "1",
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": "1"
+   }
+  },
+  {
+   "backend": "numba_cpu",
+   "blas": null,
+   "branch": "development",
+   "commit": "4f831f5787cf5c5387f51ce350036b5dbf3261e3",
+   "fftw_planner": "estimate",
+   "machine_id": "darwin-arm64",
+   "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.5",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": "1",
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": null,
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": "1",
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": null,
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": "1"
+   }
+  },
+  {
+   "backend": "numba_cpu",
+   "blas": null,
+   "branch": "feature/sep-0016-final",
+   "commit": "cd60f468b0891e120266a69d37beca1ef8a690fb",
+   "fftw_planner": null,
+   "machine_id": "darwin-arm64",
+   "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.5",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": null,
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": null,
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": null,
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  }
+ ]
+}

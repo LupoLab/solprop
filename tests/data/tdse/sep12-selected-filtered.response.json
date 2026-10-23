@@ -1,0 +1,90 @@
+{
+  "basis": {
+    "cut_energy": 1.7438978888824e-15,
+    "cuts": [],
+    "decay": 37794522518.15565,
+    "infinite_order": 30,
+    "lmax": 29,
+    "m": 0,
+    "name": "native-qualification-cut400-l29",
+    "potential": "helium_tong05",
+    "potential_version": 1,
+    "radial_edges": [
+      0.0,
+      3.527848070293333e-11,
+      7.055696140586666e-11,
+      1.058354421088e-10,
+      3.439651868536e-10,
+      5.820949315984e-10,
+      8.202246763432e-10,
+      1.058354421088e-09,
+      1.2851446541782855e-09,
+      1.5119348872685715e-09,
+      1.7387251203588568e-09,
+      1.9655153534491428e-09,
+      2.1923055865394285e-09,
+      2.4190958196297143e-09,
+      2.64588605272e-09,
+      2.8726762858102854e-09,
+      3.099466518900571e-09,
+      3.326256751990857e-09,
+      3.5530469850811427e-09,
+      3.779837218171428e-09,
+      4.006627451261714e-09,
+      4.233417684352e-09
+    ],
+    "radial_orders": [
+      14,
+      14,
+      14,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      12
+    ],
+    "scaling_angle": 0.15,
+    "scaling_radius": 4.233417684352e-09,
+    "source": "SEP 12 native qualification: custom E_cut=400 hartree, lmax=29; remaining radial/ECS/potential fields unchanged from basis 2b086180abfc614b55fd1251e5dd1caf3fa2c88de7e4bb86ba673b8af9e75a0a; provider 3e99e319ff48024b35083f262dfdab7c36871388"
+  },
+  "calibration": {
+    "basis_identity": "d0adcc4f172680fd0a721a91422484eab98fde1491e159fef0d3109214e0f4b7",
+    "identity": "sep12-native1537-cut400-q32-time-collar-research-v1",
+    "limitations": [
+      "Scale1.537 multiplies j_total-j1; coherent-current calibration does not establish ionisation scaling, an electron count or physical1%accuracy.",
+      "The combined basis/step/sampling configuration and finite physical window require the declared followup checks; radial lattice and ECS remain fixed and unqualified.",
+      "120--200nm is a numerical reporting band, not a validated material domain.",
+      "Explicit time_collar gates the subtracted native current before FFT; raw drive and histories remain unchanged.",
+      "Requested60fs finite history and source-filter width do not pass a1percent full-band source screen; this is an economical research approximation."
+    ],
+    "source": "Empirical scale1.537 from native weak-current evidence.",
+    "status": "research",
+    "uncertainty": null,
+    "wavelength_range": [
+      1.2e-07,
+      1.6e-06
+    ]
+  },
+  "cubic_scale": null,
+  "kerr_model": "tdse_native",
+  "max_atomic_step": 1.1582086638836308e-19,
+  "remainder_scale": 1.537,
+  "sampling": {
+    "refinement": 32
+  },
+  "target": "helium",
+  "source_filter": "time_collar"
+}

@@ -1,0 +1,9 @@
+ModalMetricTables: the physical flux metric of a modal basis
+  kind:        diagonal
+  frequencies: 4, 1.0000e+15 to 2.0000e+15 rad/s
+  z:           2, 0 m to 1 mm
+  channels:    2
+  eigenvalues: 5.000e-01 smallest
+  error:       1.000e-12 largest
+  gauge:       lab
+  certificate: sampled

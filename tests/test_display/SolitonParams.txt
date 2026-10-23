@@ -1,0 +1,20 @@
+MODE:
+  MarcatiliMode(HE11, a=125 um, He, model=full, loss=True)
+WAVEGUIDE:
+  Aeff = 2.34e-08 m^2, Lloss = 7.05e+00 m (1/e power)
+FILL:
+  0.4 bar He at 293.15 K, Pcr = 6.52e+11 W,
+  gamma = 4.88e-11 /(W m), n2 = 1.45e-21 cm^2/W
+PULSE:
+  3.000e-04 J, 1.000e-14 s @ 800.0 nm (shape: sech)
+DISPERSION:
+  -8.103e-30 s^2/m @ 800.0 nm, ZDW = 376.7 nm
+POWER:
+  2.64e+10 W (0.0406 of Pcr)
+INTENSITY:
+  1.13e+14 W/cm^2 mode-averaged, 2.00e+14 W/cm^2 on axis
+SOLITON:
+  Ld = 3.97e+00 m, Lnl = 7.74e-01 m, Lfiss = 1.75e+00 m, N = 2.26
+CONSTITUENTS (unchirped NLSE):
+  2 discrete solitons, area/pi = 2.26
+  largest P = 6.422e+10 W, T = 1.607e-15 s, kNL = 1.568e+00 1/m

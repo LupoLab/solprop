@@ -1,0 +1,98 @@
+{
+ "axis": {
+  "label": "radial quadrature order",
+  "name": "n_r",
+  "unit": "nodes"
+ },
+ "case": {
+  "grid": "field grid, 800 nm, 300 nm to 3 um, 100 fs, 2 cm",
+  "modes": "the first three HE_1m modes of a lossless helium capillary, 125 um radius, 1 bar, cladding 1.45",
+  "pulse": "10 fs, 2 uJ, repeated into all three modes",
+  "response": "Kerr with third harmonic, chi3 = 2.2e-52 m^2/V^2",
+  "rule": "Gauss-Legendre with the embedded Kronrod pair that gives the alarm"
+ },
+ "columns": [
+  {
+   "atol": 1e-14,
+   "bound": 1e-06,
+   "name": "alarm",
+   "rtol": 1.0,
+   "unit": "1 (relative, the embedded pair's disagreement)",
+   "why": "a factor of two on a quantity that falls fourteen orders across the ladder, with atol at the projection's own round-off floor so the converged rung is recorded rather than compared"
+  }
+ ],
+ "luna": null,
+ "rows": [
+  {
+   "alarm": 0.2365049068203451,
+   "axis": 8,
+   "series": "three HE_1m modes",
+   "write": 0,
+   "written_by": "tests/backends/test_numpy_ref_multimode.py::test_the_alarm_falls_with_the_radial_order_on_a_three_mode_set"
+  },
+  {
+   "alarm": 0.03315929212834619,
+   "axis": 16,
+   "series": "three HE_1m modes",
+   "write": 0,
+   "written_by": "tests/backends/test_numpy_ref_multimode.py::test_the_alarm_falls_with_the_radial_order_on_a_three_mode_set"
+  },
+  {
+   "alarm": 0.00014511495280178596,
+   "axis": 24,
+   "series": "three HE_1m modes",
+   "write": 0,
+   "written_by": "tests/backends/test_numpy_ref_multimode.py::test_the_alarm_falls_with_the_radial_order_on_a_three_mode_set"
+  },
+  {
+   "alarm": 1.7765212110069194e-08,
+   "axis": 32,
+   "series": "three HE_1m modes",
+   "write": 0,
+   "written_by": "tests/backends/test_numpy_ref_multimode.py::test_the_alarm_falls_with_the_radial_order_on_a_three_mode_set"
+  },
+  {
+   "alarm": 4.223717025225409e-15,
+   "axis": 48,
+   "series": "three HE_1m modes",
+   "write": 0,
+   "written_by": "tests/backends/test_numpy_ref_multimode.py::test_the_alarm_falls_with_the_radial_order_on_a_three_mode_set"
+  }
+ ],
+ "schema": 1,
+ "study": "quadrature_alarm",
+ "title": "The transverse quadrature alarm against the radial order, three modes",
+ "writes": [
+  {
+   "backend": "numba_cpu",
+   "blas": null,
+   "branch": "development",
+   "commit": "93e8ee6a2376b69d02db74dceaea4abf05a91699",
+   "fftw_planner": "estimate",
+   "machine_id": "darwin-arm64",
+   "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.5",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": "1",
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": "false",
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": "1",
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": "1",
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": "1"
+   }
+  }
+ ]
+}

@@ -1,0 +1,28 @@
+{
+    "title": "solprop: ultrafast nonlinear pulse propagation",
+    "upload_type": "software",
+    "license": "GPL-3.0-or-later",
+    "description": "solprop simulates ultrafast nonlinear optical pulse propagation with the unidirectional pulse propagation equation and the generalised nonlinear Schrödinger equation, for field and envelope, in single-mode, multimode and general modal waveguides and in radial, Cartesian, planar and line free-space geometries, with Kerr, Raman, plasma and ionisation responses.",
+    "creators": [
+        {
+            "name": "Travers, John C.",
+            "affiliation": "Heriot-Watt University",
+            "orcid": "0000-0003-0350-9104"
+        },
+        {
+            "name": "Brahms, Christian",
+            "affiliation": "Heriot-Watt University",
+            "orcid": "0000-0002-8009-3547"  
+        }
+    ],
+    "keywords": [
+        "nonlinear optics",
+        "ultrafast optics",
+        "pulse propagation",
+        "UPPE",
+        "GNLSE",
+        "hollow-core fibre",
+        "supercontinuum",
+        "filamentation"
+    ]
+}

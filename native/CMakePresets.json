@@ -1,0 +1,141 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 23,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "cpu-debug",
+      "displayName": "CPU debug development build",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/presets/cpu-debug",
+      "cacheVariables": {
+        "BUILD_TESTING": "ON",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "SOLPROP_NATIVE_ENABLE_CUDA": "OFF",
+        "SOLPROP_NATIVE_ENABLE_IPO": "OFF",
+        "SOLPROP_NATIVE_PROFILE": "REFERENCE",
+        "SOLPROP_NATIVE_WARNINGS_AS_ERRORS": "ON"
+      }
+    },
+    {
+      "name": "cpu-tidy",
+      "displayName": "CPU debug build with clang-tidy",
+      "inherits": "cpu-debug",
+      "binaryDir": "${sourceDir}/build/presets/cpu-tidy",
+      "cacheVariables": {
+        "SOLPROP_NATIVE_ENABLE_CLANG_TIDY": "ON"
+      }
+    },
+    {
+      "name": "cpu-sanitize",
+      "displayName": "CPU ASan and UBSan build",
+      "inherits": "cpu-debug",
+      "binaryDir": "${sourceDir}/build/presets/cpu-sanitize",
+      "cacheVariables": {
+        "SOLPROP_NATIVE_ENABLE_SANITIZERS": "ON"
+      }
+    },
+    {
+      "name": "cpu-benchmark",
+      "displayName": "Local (vendor BLAS, machine-native) CPU benchmark build",
+      "inherits": "cpu-debug",
+      "binaryDir": "${sourceDir}/build/presets/cpu-benchmark",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "SOLPROP_NATIVE_ENABLE_IPO": "ON",
+        "SOLPROP_NATIVE_PROFILE": "LOCAL",
+        "SOLPROP_NATIVE_BUILD_BENCHMARKS": "ON"
+      }
+    },
+    {
+      "name": "cuda-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "BUILD_TESTING": "ON",
+        "CMAKE_BUILD_TYPE": "Release",
+        "SOLPROP_NATIVE_BUILD_BENCHMARKS": "ON",
+        "SOLPROP_NATIVE_ENABLE_CUDA": "ON",
+        "SOLPROP_NATIVE_ENABLE_HIP": "OFF",
+        "SOLPROP_NATIVE_ENABLE_OPENMP": "OFF",
+        "SOLPROP_NATIVE_CUDA_ARCH": "HOPPER90",
+        "SOLPROP_NATIVE_DEVICE_TEAM_SIZE": "512",
+        "SOLPROP_NATIVE_ENABLE_IPO": "OFF",
+        "SOLPROP_NATIVE_HOST_ARCH": "OFF"
+      }
+    },
+    {
+      "name": "cuda-custom",
+      "displayName": "NVIDIA CUDA custom-GEMM validation build",
+      "inherits": "cuda-base",
+      "binaryDir": "${sourceDir}/build/presets/cuda-custom",
+      "cacheVariables": {
+        "SOLPROP_NATIVE_GEMM_PROVIDER": "CUSTOM",
+        "SOLPROP_NATIVE_ENABLE_TPL_BLAS": "OFF"
+      }
+    },
+    {
+      "name": "cuda-native",
+      "displayName": "NVIDIA CUDA native KokkosBlas validation build",
+      "inherits": "cuda-base",
+      "binaryDir": "${sourceDir}/build/presets/cuda-native",
+      "cacheVariables": {
+        "SOLPROP_NATIVE_GEMM_PROVIDER": "KOKKOSBLAS_NATIVE",
+        "SOLPROP_NATIVE_ENABLE_TPL_BLAS": "OFF"
+      }
+    },
+    {
+      "name": "cuda-tpl",
+      "displayName": "NVIDIA CUDA cuBLAS validation build",
+      "inherits": "cuda-base",
+      "binaryDir": "${sourceDir}/build/presets/cuda-tpl",
+      "cacheVariables": {
+        "SOLPROP_NATIVE_GEMM_PROVIDER": "KOKKOSBLAS_TPL",
+        "SOLPROP_NATIVE_ENABLE_TPL_BLAS": "ON"
+      }
+    },
+    {
+      "name": "cuda",
+      "displayName": "NVIDIA CUDA hybrid production build",
+      "inherits": "cuda-base",
+      "binaryDir": "${sourceDir}/build/presets/cuda",
+      "cacheVariables": {
+        "SOLPROP_NATIVE_GEMM_PROVIDER": "HYBRID",
+        "SOLPROP_NATIVE_ENABLE_TPL_BLAS": "ON"
+      }
+    },
+    {
+      "name": "hip",
+      "displayName": "AMD HIP source-validation build",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/presets/hip",
+      "cacheVariables": {
+        "BUILD_TESTING": "ON",
+        "CMAKE_BUILD_TYPE": "Release",
+        "SOLPROP_NATIVE_BUILD_BENCHMARKS": "ON",
+        "SOLPROP_NATIVE_ENABLE_CUDA": "OFF",
+        "SOLPROP_NATIVE_ENABLE_HIP": "ON",
+        "SOLPROP_NATIVE_ENABLE_OPENMP": "OFF",
+        "SOLPROP_NATIVE_HIP_ARCH": "AMD_GFX942",
+        "SOLPROP_NATIVE_GEMM_PROVIDER": "HYBRID",
+        "SOLPROP_NATIVE_ENABLE_TPL_BLAS": "ON",
+        "SOLPROP_NATIVE_ENABLE_IPO": "OFF",
+        "SOLPROP_NATIVE_HOST_ARCH": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    {"name": "cpu-debug", "configurePreset": "cpu-debug"},
+    {"name": "cpu-tidy", "configurePreset": "cpu-tidy"},
+    {"name": "cpu-sanitize", "configurePreset": "cpu-sanitize"},
+    {"name": "cpu-benchmark", "configurePreset": "cpu-benchmark"},
+    {"name": "cuda-custom", "configurePreset": "cuda-custom"},
+    {"name": "cuda-native", "configurePreset": "cuda-native"},
+    {"name": "cuda-tpl", "configurePreset": "cuda-tpl"},
+    {"name": "cuda", "configurePreset": "cuda"},
+    {"name": "hip", "configurePreset": "hip"}
+  ]
+}

@@ -1,0 +1,75 @@
+version = 1
+SPDX-PackageName = "solprop"
+SPDX-PackageSupplier = "John C. Travers <jtravs@gmail.com>"
+SPDX-PackageDownloadLocation = "https://github.com/LupoLab/solprop"
+
+# Copyright and licence for the files that cannot carry an inline SPDX header. Code
+# carries its own header, which takes precedence over these entries; where more than
+# one entry matches a file, the last one applies.
+
+# Everything else is part of the program: test and benchmark data, records, display
+# snapshots, notebooks and scripts generated from the examples, and the lock file.
+# The Luna.jl reference runs under tests/data are outputs the authors generated with
+# Luna.jl (MIT) through the driver scripts beside them.
+[[annotations]]
+path = "**"
+SPDX-FileCopyrightText = "2026 John C. Travers and contributors"
+SPDX-License-Identifier = "GPL-3.0-or-later"
+
+# Prose documentation and figures.
+[[annotations]]
+path = [
+    "**/*.md",
+    "**/*.rst",
+    "**/*.png",
+    "**/*.svg",
+    "**/*.pdf",
+    "docs/_static/**",
+    "docs/_templates/**",
+]
+SPDX-FileCopyrightText = "2026 John C. Travers and contributors"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+# Chirped-mirror data copied from Luna.jl (see the NOTICE beside them).
+[[annotations]]
+path = "src/solprop/physdata/data/mirrors/**"
+precedence = "override"
+SPDX-FileCopyrightText = "2021 Chris Brahms and John Travers"
+SPDX-License-Identifier = "MIT"
+
+# Intersphinx inventories vendored from each project's documentation (docs/conf.py).
+[[annotations]]
+path = "docs/_inventories/python.inv"
+precedence = "override"
+SPDX-FileCopyrightText = "2001 Python Software Foundation"
+SPDX-License-Identifier = "PSF-2.0"
+
+[[annotations]]
+path = "docs/_inventories/numpy.inv"
+precedence = "override"
+SPDX-FileCopyrightText = "2005-2025 NumPy Developers"
+SPDX-License-Identifier = "BSD-3-Clause"
+
+[[annotations]]
+path = "docs/_inventories/scipy.inv"
+precedence = "override"
+SPDX-FileCopyrightText = ["2001-2002 Enthought, Inc.", "2003 SciPy Developers"]
+SPDX-License-Identifier = "BSD-3-Clause"
+
+[[annotations]]
+path = "docs/_inventories/matplotlib.inv"
+precedence = "override"
+SPDX-FileCopyrightText = "2012 Matplotlib Development Team"
+SPDX-License-Identifier = "LicenseRef-Matplotlib"
+
+[[annotations]]
+path = "docs/_inventories/h5py.inv"
+precedence = "override"
+SPDX-FileCopyrightText = "2008 Andrew Collette and contributors"
+SPDX-License-Identifier = "BSD-3-Clause"
+
+[[annotations]]
+path = "docs/_inventories/numba.inv"
+precedence = "override"
+SPDX-FileCopyrightText = "2012 Anaconda, Inc."
+SPDX-License-Identifier = "BSD-2-Clause"

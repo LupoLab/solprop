@@ -1,0 +1,60 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: NVIDIA CUDA validation
+
+# Manual workflow for a self-hosted Linux runner labelled nvidia-gpu, with an NVIDIA
+# GPU, the CUDA Toolkit (nvcc, cuFFT, cuBLAS, Compute Sanitizer) and GCC 13 or newer.
+# Set the repository variable SOLPROP_NATIVE_CUDA_ARCH to the runner's Kokkos
+# architecture (for example AMPERE80, ADA89 or HOPPER90); HOPPER90 is used when unset.
+# The repository is public: keep this workflow dispatch-only and never let the
+# self-hosted runner pick up pull_request jobs, which would run code from forks on it.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cuda:
+    runs-on: [self-hosted, linux, x64, nvidia-gpu]
+    env:
+      CXX: g++-13
+      NVCC_WRAPPER_DEFAULT_COMPILER: g++-13
+      OMP_PROC_BIND: spread
+      OMP_PLACES: cores
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: 0.12.7
+          enable-cache: true
+      - name: Check CUDA toolchain
+        run: |
+          nvidia-smi
+          nvcc --version
+          compute-sanitizer --version
+      - name: Build CUDA extension
+        env:
+          CMAKE_ARGS: >-
+            -DSOLPROP_NATIVE_ENABLE_CUDA=ON
+            -DSOLPROP_NATIVE_ENABLE_OPENMP=OFF
+            -DSOLPROP_NATIVE_CUDA_ARCH=${{ vars.SOLPROP_NATIVE_CUDA_ARCH || 'HOPPER90' }}
+            -DBUILD_TESTING=OFF
+        run: |
+          uv sync --python 3.14
+          uv pip install --no-deps --no-build-isolation -e native
+      - name: Run CUDA correctness tests
+        working-directory: native
+        run: |
+          uv run --no-sync python -m solprop_native
+          OMP_NUM_THREADS="$(nproc)" uv run --no-sync pytest
+      - name: Run Compute Sanitizer
+        working-directory: native
+        run: |
+          compute-sanitizer --tool memcheck --error-exitcode 1 ../.venv/bin/pytest tests/test_numerics.py
+          compute-sanitizer --tool racecheck --error-exitcode 1 ../.venv/bin/pytest tests/test_numerics.py
