@@ -12,6 +12,7 @@ import sys
 import uuid
 from pathlib import Path
 
+from benchmarks.ab import ab, ab_options
 from benchmarks.collection import Collection, collect, prepared_python
 from benchmarks.comparison import compare, completed
 from benchmarks.planning import Selection, matrix
@@ -170,6 +171,11 @@ def parser_for() -> argparse.ArgumentParser:
         action="store_true",
         help="with --recheck, confirm retained reset/history/statistics evidence "
         "was reviewed for standard comparison",
+    )
+    ab_options(
+        commands.add_parser(
+            "ab", help="time two builds on a few cases quickly; exploratory only"
+        )
     )
     coverage_options(
         commands.add_parser(
@@ -504,6 +510,8 @@ def main(argv: list[str] | None = None) -> int:
         managed = manage(args)
         if managed is not None:
             return managed
+        if args.command == "ab":
+            return ab(args)
         options = None
         if args.command == "run" and args.resume is not None:
             plan, options = resume_request(args, tokens)

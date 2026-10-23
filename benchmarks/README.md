@@ -8,6 +8,7 @@ The standard benchmark suite
 uv run poe bench                                   # core set, quick mode, native CPU
 uv run poe bench run --mode standard --backend numba_cpu
 uv run python -m benchmarks compare RUN_A RUN_B
+uv run python -m benchmarks ab --case CASE --baseline-python OLD/bin/python  # fast A/B
 ```
 
 Runs and machine profiles go to `.benchmarks/suite/`, which git ignores; the benchmark rules

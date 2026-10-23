@@ -286,6 +286,53 @@ uv run python -m benchmarks run --case rdw --allow-accuracy-failure \
     --out .benchmarks/suite/runs/rdw-exploratory
 ```
 
+## Fast A/B comparison while iterating
+
+A standard paired comparison is a final check, not an iteration tool. Each sample is
+a fresh process that imports, constructs the case, runs a first window and only then
+its warm repetitions; standard mode adds paired pilots, a counter guard before every
+pair and five to eleven rounds. Construction dominates: in a standard run of the
+advanced set on a 36-core workstation it took about 70 % of the collection time, the
+first and timed windows about 9 % each, and guards, process start and validation the
+rest. The whole set at two widths took about five hours, though most windows last
+milliseconds to seconds.
+
+While developing a performance change, time only the cases it should affect with the
+`ab` command, and keep the standard comparison for the settled change:
+
+```sh
+uv run python -m benchmarks ab --case step_index_pair --case taper_wall \
+    --track adaptive-rk --threads 1 \
+    --baseline-python /path/to/baseline/bin/python \
+    --candidate-python /path/to/candidate/bin/python
+```
+
+Selection (`--case`, `--set`, `--all`, `--track`, `--threads`, `--backend`,
+`--machine-profile`) works as for `run`, defaulting like a quick run to the adaptive
+tracks at the production width. Cases, measurement windows and lead-ins come from the
+registry unchanged. Each round starts one worker per build and thread width. The
+worker constructs each selected case once, runs one untimed warm-up window, then
+times `--repeats` windows (default 5), each after the usual reset and lead-in. There
+are `--rounds` rounds (default 3), and the build that runs first alternates between
+rounds. A selection of a few cases therefore costs a few constructions per build
+instead of one per sample: four advanced cases at one track compare in a few minutes.
+
+The command prints, per configuration, each build's median window time, the median
+over rounds of the paired candidate/baseline ratio of per-round medians (below 1 means
+the candidate is faster), the range of those ratios over rounds, whether both builds
+took the same accepted and rejected steps, and the relative L2 difference between the
+two builds' retained fields from the first round. A geometric mean of the ratios
+follows. Passing the same interpreter for both builds gives an A/A control, whose
+ratio range shows the noise to expect on that machine.
+
+Results go to `.benchmarks/suite/ab/` unless `--out` names a new directory:
+`plan.json`, `results.json` with every timed window and the runtime identity of each
+worker, the raw worker logs and the saved fields. The guard takes one one-second
+reading before each worker and labels a busy machine, but never waits. There is no
+pilot, reference check, memory sampling, resume or adoption verdict; the batch
+exercise is not supported. Use a quiet machine, and confirm a promising result with a
+standard comparison.
+
 ## Numerical qualification
 
 Reference preparation is explicit and runs outside ordinary timing collection:
