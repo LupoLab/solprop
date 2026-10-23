@@ -44,6 +44,7 @@ __all__ = [
     "FarFieldLayout",
     "FarFieldTables",
     "collar_block",
+    "collar_field_fraction",
     "collect_spatial",
     "far_field_bands",
     "far_field_layout",
@@ -53,15 +54,19 @@ __all__ = [
     "slab_projection",
     "slab_rows",
     "slab_synthesis",
-    "spatial_collar_fraction",
 ]
 
 
-def spatial_collar_fraction(
+def collar_field_fraction(
     problem: KernelProblem,
     field: Complex[np.ndarray, "n_modes n_pol n_omega"],
 ) -> float:
-    """Measure the fraction of physical beam fluence in the declared spatial collar.
+    """Measure the fraction of the beam's field norm in the declared spatial collar.
+
+    A named electric-field-norm boundary diagnostic, the share of
+    ``integral |E_a|^2 dA dt`` on the collar's nodes: it says how much field reaches
+    the transverse boundary. It is not a fraction of the physical axial flux, which
+    the nonlocal admittance need not localise on those nodes (SEP 34 section 5.1).
 
     Parameters
     ----------
@@ -73,7 +78,7 @@ def spatial_collar_fraction(
     Returns
     -------
     float
-        Energy fraction on nodes where the spatial window is below one. Zero
+        Field-norm fraction on nodes where the spatial window is below one. Zero
         for an empty beam, absent geometry or a disabled spatial window.
 
     Notes
