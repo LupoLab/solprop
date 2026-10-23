@@ -201,7 +201,9 @@ def test_the_host_engine_on_native_hooks_round_trips_too(
     # Where the resident engine does not apply (a block of more than sixteen channels,
     # the untransported witness), the native backend runs solprop's host engine over
     # its hooks; that history crosses a resume in the host engine's own rows.
-    from solprop_native import NativeBackend  # noqa: PLC0415 - native only
+    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        NativeBackend,
+    )
 
     monkeypatch.setattr(NativeBackend, "_adams_engine", lambda *_: None)
     simulation = CASES[case](build_simulation, "native")()
@@ -274,7 +276,9 @@ def test_a_native_run_stopped_between_planes_continues_from_its_checkpoint(
     # The resident engine evaluates its sources itself, so the failure is injected at
     # its trial: the run stops at its last accepted step, strictly between two planes
     # past the first, and keeps the march's state beside the terminal checkpoint.
-    from solprop_native.backend import _ResidentAdams  # noqa: PLC0415 - native only
+    from solprop_native.backend import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        _ResidentAdams,
+    )
 
     build = soliton(build_simulation, "native")
     whole, part = tmp_path / "whole.h5", tmp_path / "part.h5"
@@ -424,7 +428,9 @@ def test_a_native_resume_under_modified_noise_continues_the_same_march(
     # evaluates its sources without the noise (a departure of about 1e-8 here). On a
     # prescribed schedule the resumed run is the uninterrupted discrete march, so it is
     # held to the matched bound the host engines meet, not to a restart's envelope.
-    from solprop_native import NativeBackend  # noqa: PLC0415 - native only
+    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        NativeBackend,
+    )
 
     from driver.test_envelope_plasma import build  # noqa: PLC0415 - shared case
     from march_bounds import simulation_bound  # noqa: PLC0415

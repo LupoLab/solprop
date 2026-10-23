@@ -23,9 +23,9 @@ from solprop.stepper.multistep import integrated_weights, lagrange_coefficients
 from solprop.translate.chebyshev import build
 
 try:
-    from solprop_native import (
-        NativeBackend,  # pyright: ignore[reportMissingImports]
-        _core,  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+    from solprop_native import (  # pyright: ignore[reportMissingImports]
+        NativeBackend,
+        _core,  # pyright: ignore[reportMissingModuleSource]
     )
     from solprop_native._helpers import NATIVE  # pyright: ignore[reportMissingImports]
 except ImportError:  # pragma: no cover - the native package is optional
