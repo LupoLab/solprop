@@ -516,6 +516,7 @@ def collect_spatial(  # noqa: PLR0913 - statistics context plus borrowed FFT wor
         Complex[np.ndarray, "n_pol n_omega"], Complex[np.ndarray, "n_pol n_omega"]
     ]
     | None = None,
+    closure: Complex[np.ndarray, "n_modes n_pol n_omega"] | None = None,
 ) -> dict[str, np.ndarray]:
     """Collect spatial statistics without retaining a full physical-space field.
 
@@ -553,6 +554,9 @@ def collect_spatial(  # noqa: PLR0913 - statistics context plus borrowed FFT wor
         ``sum_c alpha_c conj(eta_c) E_c``, each of shape ``(n_pol, n_omega)``, when a
         compiled pass has formed them (SEP 23 section 6); the axis statistics then
         read them instead of forming them here.
+    closure : numpy.ndarray or None, optional
+        The spectrum's magnetic closure ``conj(eta) E`` at this plane, when a
+        compiled pass has formed it; the local statistics then read it.
 
     Returns
     -------
@@ -602,8 +606,11 @@ def collect_spatial(  # noqa: PLR0913 - statistics context plus borrowed FFT wor
         wanted & {"on_axis_spectrum", "on_axis_intensity", "beam_radius", "fwhm_r"}
     )
     local_needed = bool(wanted & {"peak_intensity", "beam_radius", "fwhm_r"})
-    closure = None
-    if plane is not None and (local_needed or (axis_needed and axis is None)):
+    if (
+        closure is None
+        and plane is not None
+        and (local_needed or (axis_needed and axis is None))
+    ):
         # The internal spectrum carries the conjugate admittance (SpatialFlux).
         closure = np.empty_like(field)
         for columns in chunks:

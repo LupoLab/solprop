@@ -26,6 +26,7 @@ from solprop.exceptions import BackendError
 from solprop.grid import TimeGrid
 from solprop.spatial import ABSORBED_CHANNELS, FAR_FIELD_STATISTICS, ApertureTables
 from solprop.translate.problem import KernelProblem
+from solprop.translate.spatial import SeparableOperator
 
 __all__ = [
     "FarFieldPass",
@@ -35,6 +36,7 @@ __all__ = [
     "crop_columns",
     "far_field_sum",
     "finish_material",
+    "flux_measure",
     "make_far_field",
     "make_kernels",
     "pack_columns",
@@ -442,6 +444,154 @@ def rotate_noise(noise: np.ndarray, phase: np.ndarray, output: np.ndarray) -> No
             output[column, omega] = noise[column, omega] * complex(
                 np.cos(angle), np.sin(angle)
             )
+
+
+# ------------------------------------------------- the plane measure (SEP 34)
+
+
+@cache
+def make_flux_columns(*, parallel: bool) -> Any:
+    """Compile the per-column pass of the plane measure: energy and the closure.
+
+    Parameters
+    ----------
+    parallel : bool
+        Whether the columns run in a ``prange``; each column's sum is formed by one
+        thread in ascending frequency order, so the partials do not depend on the
+        thread count.
+
+    Returns
+    -------
+    callable
+        ``flux_columns(field, squares, kappa, active, omega, weights, energy,
+        closure, partials)``, documented on the compiled function.
+    """
+    columns = prange if parallel else range
+
+    @njit(cache=not parallel, nogil=True, parallel=parallel)
+    @no_type_check
+    def flux_columns(  # noqa: PLR0913, PLR0917 - one fused pass
+        field: np.ndarray,
+        squares: Any,
+        kappa: np.ndarray,
+        active: np.ndarray,
+        omega: np.ndarray,
+        weights: np.ndarray,
+        energy: np.ndarray,
+        closure: np.ndarray,
+        partials: np.ndarray,
+    ) -> None:
+        """Weigh each column by the plane's admittance (SEP 34 section 4.3).
+
+        Per column, ``w_c sum_k nu_k Re(eta) sum_q |E|^2`` into `partials`, and,
+        when `closure` has rows, the closure ``conj(eta) E`` of the internal
+        spectrum. ``eta = c k_z / omega`` is
+        :func:`solprop.translate.spatial.axial_admittance`'s, from the root of
+        ``longitudinal_root``'s compensated square, the wall term last.
+
+        Parameters
+        ----------
+        field : numpy.ndarray
+            One internal spectrum, shape ``(n_modes, n_pol, n_omega)``.
+        squares : tuple
+            The material square and its residual (complex, ``(n_omega,)``) and the
+            transverse square and its residual (real, ``(n_modes,)``).
+        kappa : numpy.ndarray
+            A planar run's wall terms, ``(n_channels, n_omega)``; no rows elsewhere.
+        active : numpy.ndarray
+            The active band, bool, ``(n_omega,)``.
+        omega : numpy.ndarray
+            Physical angular frequencies in rad/s.
+        weights : numpy.ndarray
+            The columns' spectral weights.
+        energy : numpy.ndarray
+            ``fourier.energy_weights`` of the grid.
+        closure : numpy.ndarray
+            Overwritten with the closure, the field's shape, or no rows to skip it.
+        partials : numpy.ndarray
+            Overwritten with each column's weighted energy sum, ``(n_modes,)``.
+        """
+        square, square_low, transverse, transverse_low = squares
+        n_pol = field.shape[1]
+        n_omega = field.shape[2]
+        n_channels = kappa.shape[0]
+        closed = closure.shape[0] > 0
+        for column in columns(field.shape[0]):
+            total = 0.0
+            for bin_ in range(n_omega):
+                longitudinal = (square[bin_] - transverse[column]) + (
+                    square_low[bin_] - transverse_low[column]
+                )
+                if n_channels > 0:
+                    longitudinal = longitudinal - kappa[column % n_channels, bin_]
+                closing = 0j
+                if active[bin_] and longitudinal.real > 0.0 and omega[bin_] > 0.0:
+                    closing = (C * np.sqrt(longitudinal).conjugate()) / omega[bin_]
+                power = 0.0
+                for pol in range(n_pol):
+                    value = field[column, pol, bin_]
+                    power += value.real * value.real + value.imag * value.imag
+                    if closed:
+                        closure[column, pol, bin_] = closing * value
+                total += energy[bin_] * (closing.real * power)
+            partials[column] = weights[column] * total
+
+    return flux_columns
+
+
+def flux_measure(
+    plane: SeparableOperator,
+    grid: TimeGrid,
+    weights: np.ndarray,
+    field: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    *,
+    closure: bool,
+    parallel: bool,
+) -> tuple[float, Complex[np.ndarray, "n_modes n_pol n_omega"] | None]:
+    """Return a spectrum's axial-flux energy and, when asked, its closure (SEP 34).
+
+    The compiled form of ``collect_spatial``'s ``energy`` and closure.
+
+    Parameters
+    ----------
+    plane : solprop.translate.spatial.SeparableOperator
+        The plane's coefficients (``FluxPlan.at``).
+    grid : solprop.grid.TimeGrid
+        The temporal grid.
+    weights : numpy.ndarray
+        The geometry's spectral weights.
+    field : numpy.ndarray
+        One internal spectrum.
+    closure : bool
+        Whether to form the closure ``conj(eta) E``.
+    parallel : bool
+        Whether the columns run in a ``prange``.
+
+    Returns
+    -------
+    tuple
+        The energy in J and the closure, or ``None``.
+    """
+    n_omega = field.shape[2]
+    kappa = (
+        np.empty((0, n_omega), np.complex128)
+        if plane.kappa_sq is None
+        else np.ascontiguousarray(plane.kappa_sq)
+    )
+    held = np.empty_like(field) if closure else np.empty((0, 1, 1), np.complex128)
+    partials = np.empty(field.shape[0])
+    make_flux_columns(parallel=parallel)(
+        field,
+        (plane.k_squared, plane.k_squared_low, plane.kperp_sq, plane.kperp_sq_low),
+        kappa,
+        plane.active,
+        np.ascontiguousarray(grid.omega),
+        np.ascontiguousarray(weights),
+        fourier.energy_weights(n_omega, grid.dt, kind=grid.kind),
+        held,
+        partials,
+    )
+    return 0.5 * EPS0 * C * float(np.sum(partials)), held if closure else None
 
 
 # ----------------------------------------------- far-field statistics (SEP 23)

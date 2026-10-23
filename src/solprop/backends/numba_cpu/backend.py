@@ -3807,6 +3807,26 @@ class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         axis = None
         if self._far_field_pass is not None:
             folded, axis = self._far_field_pass(spec.names, grid, field, tables)
+        # The plane measure's energy and the closure the local statistics read
+        # (SEP 34), in one compiled pass over the columns.
+        wanted = set(spec.names)
+        closure = None
+        flux = self._problem.flux
+        geometry = self._problem.transform.geometry
+        local = bool(wanted & {"peak_intensity", "beam_radius", "fwhm_r"}) or (
+            axis is None and bool(wanted & {"on_axis_spectrum", "on_axis_intensity"})
+        )
+        if flux is not None and geometry is not None and ("energy" in wanted or local):
+            energy, closure = spatial_kernels.flux_measure(
+                flux.at(self._z),
+                grid,
+                geometry.spectral_weights,
+                field,
+                closure=local,
+                parallel=self._parallel_spatial,
+            )
+            if "energy" in wanted:
+                folded["energy"] = np.asarray(energy)
         remaining = tuple(name for name in spec.names if name not in folded)
         import dataclasses  # noqa: PLC0415 - as in stats
 
@@ -3823,6 +3843,7 @@ class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             tables=tables,
             operator=self._problem.linear.separable,
             axis=axis,
+            closure=closure,
             # A slab's node volume is formed by the shared function, as on the
             # reference: it is n_x/n_p times the state.
             physical=self._free_physical(field) if volume else None,
