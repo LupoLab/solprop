@@ -7,8 +7,8 @@
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-10-23) |
 | **Status** | Draft |
-| **Review status** | Not reviewed |
-| **Reviewers** | — |
+| **Review status** | Reviewed |
+| **Reviewers** | John Travers (human); GPT-6 (AI) |
 | **Type** | Feature |
 | **Created** | 2026-10-23 |
 | **Resolution** | — |
@@ -660,3 +660,197 @@ phase 1 study and the phase 2–3 measurements settle within those decisions.
   new §4.3 on range: reductions of unnormalised spectra overflow binary32 on the
   Cartesian route, so the state is held at an exact power-of-two scale and sums of
   squares are scaled.
+- 2026-10-23: John Travers confirmed that he has read the proposal and requested
+  that his human review be recorded. GPT-6 completed the AI review of Part I below.
+  Review status is `Reviewed`; proposal status remains `Draft`. The review records
+  questions and recommendations, not acceptance or maintainer dispositions.
+
+### AI review — 2026-10-23 — GPT-6
+
+Reviewed all of Part I against the current implementation, the architecture and
+conventions, SEP 25 and SEP 0's acceptance criteria. **Recommendation: revise before
+acceptance.** The separate precision setting, reference path and measured survival
+study are a sound direction, but the range and arithmetic contracts need the
+clarifications below before they can define a reliable implementation.
+
+Only the review header and Part III have been changed. P1 findings concern numerical
+correctness or an unproven execution contract; P2 findings concern compatibility or
+implementation details that need a stated resolution. Maintainer decisions on these
+points are pending; the earlier decisions on Q1–Q11 have not been reinterpreted.
+
+1. **R1 (P1), §§4.2–4.3, 6.2–6.3 — State scaling does not protect every response
+   intermediate.** The current Raman representation is per particle, and
+   `translate.raman.kernel_spectrum` folds `dt` into the spectrum before
+   `backends.numpy_ref.passes.raman_polarisation` multiplies by density. A probe using
+   `FieldGrid.from_limits(0.01, 800e-9, (200e-9, 4e-6), 2e-12)`, nitrogen at
+   293.15 K and $2.5\times10^{25}$ m⁻³, and
+   `MaterialSelection(carrier_wavelength=800e-9)` gave a maximum kernel-spectrum
+   magnitude of $5.21\times10^{-50}$: all 32 769 bins became zero on conversion to
+   complex64. Multiplying a later prefactor cannot recover them. Normalising the
+   propagated state and scaling sums of squares therefore do not establish §4.3's
+   range claim. **Recommended change/question:** specify a range-safe representation
+   for each response buffer, including Raman spectra and scalar coefficients, with
+   coefficient combination or separate exact scales applied before narrowing. Add
+   molecular Raman tests that detect a vanished response, including the device's
+   subnormal behaviour; report intermediate ranges as well as the state's.
+
+2. **R2 (P1), §§4.3, 7 — Derive scaling for the complete plasma source and each
+   statistic.** The statement that the plasma current is linear in the field covers
+   the free current at a given population, but not ionisation loss. For
+   $E=s\tilde E$ and the population evaluated from the physical field,
+   $J_{\rm loss}=I_p W(s|\tilde E|)(1-f)E/|E|^2$ gives
+   $J_{\rm loss}/s=I_p W(s|\tilde E|)(1-f)\tilde E/(s^2|\tilde E|^2)$.
+   The free and loss streams thus need different scale factors. Likewise, field
+   observations scale by $s$, energy and power by $s^2$, and a fraction or width
+   does not acquire either factor; the blanket statement that `stats` multiplies by
+   $s$ is insufficient. **Recommended change/question:** give the scaled equations
+   for both field and envelope plasma, held-current assembly and all statistics,
+   including absolute tolerances and the zero launch. Qualify scaled versus unscaled
+   responses and propagation separately. Retain class P only where the actual
+   operation sequence is proved to commute with scaling; use class R when coefficient
+   regrouping changes the rounding sequence.
+
+3. **R3 (P1), §§4.1, 6.2, 7, Q4 — Linear-phase rounding can accumulate coherently
+   and escape the controller.** A constant increment is rounded in the same direction
+   on every step; re-anchoring avoids cumulative-phase subtraction but does not make
+   this error independent. As a scalar witness, repeatedly multiplying complex64 by
+   $\exp[-i\,\mathrm{float32}(1234.56789)]$ gives relative errors
+   $1.89\times10^{-5}$ after one multiplication and $1.89\times10^{-4}$ after ten,
+   against binary64. With no nonlinear source the embedded error is zero, so the
+   `rtol` floor cannot detect this. **Recommended change/question:** describe
+   $u\sqrt M$ as a heuristic under stated assumptions, and budget coherent phase
+   and coefficient errors as well. Add constant-operator, occupied-band tests over
+   several step sizes. The study needs to distinguish forming the increment in
+   binary64 and then rounding it from evaluating its exponential in binary64 and
+   then rounding the propagator: only the latter also isolates argument rounding.
+   What measured error triggers Q4's device remedy or a named refusal?
+
+4. **R4 (P1), §§4.2, 6.2, 7 — The field-plasma population is not already in the
+   stated stable form.** `backends.numpy_ref.passes.plasma_scan` currently computes
+   $f=1-(1-p)\exp(-X)$, whereas §4.2 says it keeps an `expm1` form. In binary32 at
+   $p=0$, $X=10^{-8}$ gives zero with the current subtraction and approximately
+   $10^{-8}$ with `-expm1(-X)`. At $X=20$, the rounded fraction is one while the
+   neutral survival is still $2.06\times10^{-9}$; reconstructing survival as $1-f$
+   also erases a nonzero loss current. The envelope path already retains survival
+   independently. **Recommended change/question:** explicitly include stable
+   population and survival evaluation in the single-precision field path, and test
+   small exposure, nonzero pre-ionisation and saturation against independent
+   density/current and ionisation-work witnesses. Keep the binary64 default's
+   compatibility promise explicit rather than assuming its implementation already
+   supplies this arithmetic.
+
+5. **R5 (P1), §§4.1, 6.1, 7 — Recompute bounds at binary32 and check that they
+   discriminate.** Not every helper is linear in $u$:
+   `tests.bounds.higham_gamma` is $ku/(1-ku)$, and `gamma` has the analogous
+   denominator in $\epsilon$. They cannot in general be obtained by multiplying
+   binary64 bounds by $2^{29}$; their domain restrictions matter at binary32.
+   Separately, the quoted FFT margin becomes $8.54\times10^{-4}$ at $2^{14}$
+   samples, before source counts and propagation growth, so a large ladder can pass
+   an error that the survival study would reject. **Recommended change/question:**
+   parameterise the formulas themselves, include table/input quantisation and
+   conditioned signed sums, and state where a bound becomes unusable. Define a
+   separate, discriminating GEMM bound for the TF32 probe. Fix useful class T
+   field, band and observable envelopes independently of these rounding margins;
+   backend agreement alone must not constitute a survival verdict.
+
+6. **R6 (P1), §§7, 11–12, Q1–Q2, Q4 — The study's decision rules are not yet
+   reproducible.** “Survives”, “visible in observables”, “no accuracy gain” and
+   Adams staying within a “fixed factor” have no stated thresholds. A tighter local
+   tolerance alone also does not establish the reference's global accuracy or
+   control its grid and plasma-integration errors. This matters because these
+   outcomes can change the public tolerance floor and integrator default.
+   **Recommended change/question:** before measuring candidates, specify each
+   canonical case, the reference-convergence evidence and uncertainty, the asserted
+   bands and minimum signal, the error metrics and application envelopes, and the
+   factors used for the three admission decisions. Which accuracy losses are
+   acceptable to the maintainer? Phase 1 can establish and record these criteria
+   before its comparisons; they need not be invented by the implementer or fitted
+   to a result. State how the study exercises Adams while public admission refuses
+   it, and record a failed case as a limitation or refusal.
+
+7. **R7 (P1), §§4.2, 6.3, 11 — `safe` custom-kernel mode is not a complete MLX
+   arithmetic policy.** The documented
+   [`metal_kernel` option](https://ml-explore.github.io/mlx/build/html/python/_autosummary/mlx.core.fast.metal_kernel.html)
+   controls custom kernels and promises special-value behaviour; the documented
+   [`mx.compile` interface](https://ml-explore.github.io/mlx/build/html/python/_autosummary/mlx.core.compile.html)
+   exposes no corresponding math-mode parameter. Neither statement alone establishes
+   the contract for compiled array operations, vendor transforms, compensated scans
+   or small-argument functions. The
+   [environment-variable documentation](https://ml-explore.github.io/mlx/build/html/usage/environment_variables.html)
+   also says precision settings can be latched at subsystem initialisation, so a
+   user who has already used MLX needs a defined outcome. **Recommended
+   change/question:** identify the supported mechanism and evidence for each
+   protected operation, separately from TF32 admission. Specify pre-initialised
+   process handling and an actionable refusal if safe arithmetic cannot be
+   established. Test the probe on the actual GEMM dispatch families and test
+   compensation, finite-value detection and tiny responses with adversarial inputs.
+   Accepting hardware flushing also needs an absolute underflow budget, beyond the
+   relative $u$ model.
+
+8. **R8 (P1), §§6.2–6.3, 11 phase 2 — Envelope plasma needs an explicit device
+   strategy.** Its current reference pass is more than pointwise NumPy arithmetic:
+   `backends.numpy_ref.envelope_plasma._cycle_quantities` performs an SVD at every
+   temporal sample, then `translate.envelope_plasma.cycle_moments` splits angular
+   intervals and refines 64–512-point quadrature with data-dependent convergence
+   checks. Translating this literally does not establish the promised compiled
+   response graph without intermediate host decisions. **Recommended change/question:**
+   choose and qualify a device formulation before promising phase 2 admission:
+   for example, a stable batched ellipse decomposition and bounded quadrature with
+   device status reporting, or a separately error-controlled representation.
+   Preserve scalar, circular, nearly linear and degenerate vector limits, cutoff
+   crossings and refinement failure. Any different discrete quadrature needs its
+   own accuracy qualification, rather than being classified solely as rounding
+   against the adaptive reference. If feasibility is deferred, name the phase and
+   the temporary refusal explicitly.
+
+9. **R9 (P2), §§4.3, 5–6, 9, 11 phase 4 — Specify resume and saved-schema
+   compatibility with the private scale.** A restart's peak can differ from the
+   launch's, so choosing $s$ in each `set_initial` call can change it. A
+   `MarchSnapshot` contains state, source/history rows and compensated rows, not
+   only an observed field. The current `output.schema.RunMetadata` also preserves
+   historical configuration hashes through explicit schema guards, while backend
+   provenance is outside the hash. **Recommended change/question:** state whether
+   the scale is retained or recomputed and how every restored row is converted;
+   distinguish exact storage round trips from class T resumed accuracy. Choose
+   whether precision lives in the existing hashed configuration or a versioned new
+   metadata field, and specify the meaning of legacy files without it. Add
+   same-precision cross-backend resume, changed-scale restart, wrong-precision
+   refusal and historical-hash tests. Revisit snapshot layout when Adams is admitted.
+
+10. **R10 (P2), §§5–6.3, 11 phases 2–3 — Budget lazy-graph memory and define the
+    batch synchronisation hook.** Binary32 halves the bytes per resident element;
+    it does not prove that peak resident memory is half the reference's. A graph
+    holding all stages and node chunks until evaluation can retain intermediates
+    that an eager pass would release, alongside MLX's allocator cache and compiled
+    workspaces. The existing `LockstepRunner._trial_step` calls each member's trial
+    and requires its host norm immediately, so using that loop with a synchronising
+    trial cannot queue all members before one evaluation. **Recommended
+    change/question:** specify bounded graph/chunk lifetimes, cache/workspace
+    accounting and a measured peak-memory check against the admission estimate.
+    Describe the MLX batch override that builds all member trials before evaluating
+    their norms, retaining the existing public interface and independent ledgers.
+    Require finite-value/failure detection for fixed and low-storage runs as well as
+    adaptive runs.
+
+11. **R11 (P2), §§2, 5, 8–9, 11 — Finish the capability and documentation
+    contracts.** “Capillary fibre runs” does not unambiguously say whether ordinary
+    GNLSE and solid mode-averaged runs, dispersive Kerr, scalar/tensor Raman mixtures,
+    or non-device-ready z tables are admitted on `numpy_ref` and `mlx` in each phase.
+    §8 also omits the normative architecture and conventions pages that currently
+    require double precision and a complex128 kernel state. **Recommended
+    change/question:** provide the phase/backend capability matrix and named
+    refusals, including statistics and device-ready requirements, and update those
+    normative pages when implementation changes their contracts. Record the
+    synthetic benchmark's reproducible setup and arithmetic settings, particularly
+    whether TF32 was disabled for the reported radial and multimode gains; retain
+    its indicative status until the actual short-step measurements are available.
+
+**Evidence and limits.** Review probes used the current NumPy/SciPy reference
+representation and scalar binary32 arithmetic; they did not implement or qualify a
+single-precision propagation path. The Raman probe and ten-multiplication phase
+witness above are short, independent counterexamples, not full propagation runs.
+The population probes checked both small exposure and neutral survival. The MLX
+0.32.4 documentation for precision settings, compilation and custom Metal kernels
+was checked; the proposal's synthetic timings, hardware-specific TF32 errors, Metal
+arithmetic and GPU execution were not independently reproduced. No physical
+coefficient or material model was transcribed or changed by this review.
