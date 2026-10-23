@@ -38,6 +38,7 @@ Proposals that are active, in draft, accepted, in progress or deferred.
 | [29](sep-0029-compiled-backend-distribution.md) | The native backend in solprop, distributed as binaries | In progress | Change |
 | [31](sep-0031-simulation-coupling.md) | Coupling simulations and transporting ultrafast fields | Draft | Feature |
 | [32](sep-0032-raman-maxwell-bloch.md) | Raman Maxwell–Bloch dynamics | Draft | Feature |
+| [33](sep-0033-single-precision-mlx.md) | Single-precision propagation, and an MLX backend for Apple GPUs | Draft | Feature |
 
 SEP 13, the standalone numerical prerequisite for SEP 12, SEP 14, which carried it to
 the compiled backends, and SEP 16, which unified the multistep family and made it the
@@ -89,6 +90,7 @@ sep-0021-absorbing-boundaries
 sep-0029-compiled-backend-distribution
 sep-0031-simulation-coupling
 sep-0032-raman-maxwell-bloch
+sep-0033-single-precision-mlx
 template
 archive/index
 ```

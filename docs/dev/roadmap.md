@@ -118,6 +118,15 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
   data and integration questions must be settled before acceptance; shared-level
   ladders, vector saturation and repeated-window histories remain future work.
+- [SEP 33 — Single-precision propagation, and an MLX backend for Apple GPUs](seps/sep-0033-single-precision-mlx.md):
+  a run-level `precision="single"` setting with a binary32 contract, `numpy_ref` as its
+  oracle and a published record of which problems survive single precision, and an
+  `mlx` backend for Apple-silicon GPUs on capillary fibre runs, radial and Cartesian
+  free space, with fixed-schedule batches through the existing interface. The state is
+  held at an exact power-of-two scale so binary32's range holds. The general modal
+  route, the planar kind, coupled flows, TDSE responses and noise models are refused
+  under single precision; those, and single-precision and mixed modes of `native` and
+  `numba_cpu`, remain open below.
 
 The informal items below record work not fully covered by these proposals. When adding
 or revising a SEP, remove an informal item only if the proposal covers it in full;
@@ -548,12 +557,15 @@ GPUs with slow double precision.
   cases and one noise-seeded case. Noise-seeded runs may fail it, since FP32 rounding can
   sit near a one-photon-per-mode seed for pulses of a microjoule and above. Adoption
   would be a SEP.
-- Entirely single precision, and Metal: Kokkos, Kokkos Kernels and Kokkos-FFT support
-  single precision on every backend in use. Kokkos has no Metal backend, Apple GPUs have
-  no FP64, and a Kokkos Metal backend would need a single-source C++ compiler for Metal
-  (the runtime part is modest: 5 to 10 thousand lines for each existing GPU backend). A
-  Mac GPU route would more plausibly be a separate array backend (for example MLX), and
-  only after the mixed-precision results.
+- Entirely single precision, and Metal: [SEP 33](seps/sep-0033-single-precision-mlx.md)
+  proposes the precision setting, a `numpy_ref` oracle and an MLX backend for Apple
+  GPUs on the fibre, radial and Cartesian routes. Open beyond it: single precision on
+  `native` and `numba_cpu` (Kokkos, Kokkos Kernels and Kokkos-FFT support it on every
+  backend in use), on the routes SEP 33 refuses, and noise models under single
+  precision, which SEP 33 refuses as a known limitation: binary32 rounding can reach a
+  one-photon-per-mode seed at high pulse energy. Kokkos has no Metal backend, and one
+  would need a single-source C++ compiler for Metal (the runtime part is modest: 5 to
+  10 thousand lines for each existing GPU backend).
 
 **Benchmark platform qualification beyond the initial CPU suite.**
 [SEP 30](seps/archive/sep-0030-standard-benchmark-suite.md) covers the standard suite, portable
