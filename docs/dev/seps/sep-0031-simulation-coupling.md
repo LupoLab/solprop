@@ -7,8 +7,8 @@
 | **Author** | John Travers |
 | **Drafting agent** | GPT-6 |
 | **Status** | Draft |
-| **Review status** | Not reviewed |
-| **Reviewers** | — |
+| **Review status** | Reviewed |
+| **Reviewers** | John Travers (human); Opus 5.5 (AI) |
 | **Type** | Feature |
 | **Created** | 2026-10-22 |
 | **Resolution** | — |
@@ -960,3 +960,268 @@ No new material constant or experimental validation is claimed.
   and uniform-medium flux. Required clean breaking changes with no legacy
   support and a mild-Kerr radial-input capillary tutorial. Identified cross-model
   projection and thin-screen flux as explicit pre-acceptance questions.
+- 2026-10-23: Reviewed by Opus 5.5 (AI), with John Travers's human review recorded at
+  his request. Part I is unchanged. The findings (R1–R10) and the maintainer's decisions
+  on R1, R2 and R5 follow. Reviewed records completion of review, not acceptance;
+  status remains Draft.
+
+### AI review — 2026-10-23
+
+**Assessment.** The direction is right and the physics is careful. Coupling through
+a coherent field at a reference plane, with absolute incident scale and a refusal to
+restore uncaptured light, fixes a real defect: `_projected_launch` today relaunches
+the full declared energy however badly the channels capture the profile, as its own
+docstring says. The derivations checked below are correct. The proposal is not yet
+acceptable as written, for three reasons. It bundles a cross-backend change of
+energy semantics with a host-only feature (R1). It removes a working capability,
+radial gas-gradient runs, where a closed-form correction is available (R2). And its
+two pre-acceptance gates, Q1 and Q2, ask for approval without proposing an answer
+(R3). The tutorial's operating point may not show the effect it is meant to teach
+(R4).
+
+**Maintainer decisions during review.** John asked for the flux question to be
+explained, then decided:
+
+- **R1:** split the medium-flux prerequisite into its own SEP.
+- **R2:** add the adiabatic amplitude term so that gradient runs keep working.
+- **R5:** `energy=` means the physical energy (time-integrated axial Poynting
+  flux) in the launch medium, because that is what an energy meter measures. He
+  asked "What is the actual correct definition we should use for the flux";
+  the answer is recorded under R5.
+
+**Review basis.** Read all of Part I against SEP 0, the architecture, conventions,
+the free-space model page and the current implementation. Checked:
+`Simulation.with_input`, `_projected_launch`, `project_transverse_field`, the vacuum
+½ε₀c factors throughout `solprop.spatial`, `fourier.energy_omega`'s endpoint
+convention, `spatial.aperture_profile` and the `optics.Chain` docstring. Every
+factual claim in §3 matched the code. Independently re-derived: the scalar flux and
+its discrete Parseval form (§4.2), the least-squares capture identity (§4.3), the
+Gaussian displacement and tilt overlaps, the J₀ normalisation (§4.4), the
+spectral-density scaling (§4.5), the Fresnel/Fraunhofer kernel, thin-lens sign and
+normal-incidence Fresnel coefficients (§4.6), and the tutorial's n₂, B-integral and
+energy formulas (§8.1). The tutorial sizing reproduces: n₂ ≈ 3×10⁻²³ m²/W at 3 bar
+gives P₀ ≈ 0.46 GW against the stated 0.443 GW. Peak intensity is about
+1.1×10¹³ W/cm², where argon ionisation is negligible, so the Kerr-only model is
+defensible. All four references resolve, via Crossref, to the stated authors,
+titles, volumes and pages. Ran one numerical probe (R4). This is a design review;
+no implementation was qualified.
+
+Priorities: **P1** must be resolved in Part I before acceptance; **P2** needs a
+concrete revision or recorded decision; **P3** is editorial. The drafting agent
+should answer each point in a `Response to review` subsection, following SEP 0.
+
+#### R1 — P1: Split the medium-flux prerequisite into its own SEP
+
+**Sections:** 1, 3, 4.2, 6.3, 9, 11 (phases 1a–1c).
+**Maintainer decision (2026-10-23):** split.
+
+SEP 31 contains two different kinds of work. Phases 1a–1c change the energy
+semantics of every free-space route. Today `spatial_energy`, the intensity and
+fluence functionals, `SpatialPulse(energy=…)`, `spatial_noise` and the in-run
+statistics all use the vacuum ½ε₀c factor. Phases 1a–1c replace it with the Y_z
+weighting. The statistics live in backend kernels, so the change needs work on all
+three backends, and it changes the physical results of solid-medium runs by about
+the refractive index. SEP 5 also depends on it. Phases 2–5 are host-only
+NumPy/SciPy operations between runs, and they need a consistent measure only at the
+hand-over plane. That measure can be evaluated offline from a saved field without a
+kernel change.
+
+The bundle also creates a merge hazard. §11 calls the phases independently
+mergeable, and §6.3 has incomplete backends "refuse the new contract by name" with
+no vacuum fallback. Between phase 1a and phase 1c, main would refuse ordinary
+spatial runs on the default compiled backend.
+
+**Requested revision:** move §4.2 (including the R2 term), the launch, noise and
+statistics consistency work, and phases 1a–1c into a separate SEP, "medium flux for
+free space". Within that SEP, the host-side launch and noise normalisation and the
+kernel statistics land together, or in an order that never leaves a backend
+refusing a currently working run. SEP 31 then lists that SEP under **Requires**.
+Its coupling and transport evaluate the plane measure on the host through the same
+shared definition. Update SEP 5's dependency and the roadmap entries that currently
+attribute the flux correction to SEP 31.
+
+#### R2 — P1: Keep radial gas-gradient runs, with the adiabatic amplitude term
+
+**Sections:** 4.2 (*Uniform media only*), 6.3, 9, 12 (Q6).
+**Maintainer decision (2026-10-23):** add the term; it belongs in the new flux SEP (R1).
+
+The radial route accepts a gas pressure `ZProfile`, for gas cells and jets (free-space
+model, *Exact longitudinal operator*); Cartesian and line already refuse varying
+media. As drafted, every operation needing the new flux contract refuses a
+nonuniform medium, and no vacuum fallback remains. Energy-normalised launches and
+energy statistics in those runs would therefore stop working. That is a regression
+of a working capability, and it is avoidable.
+
+For the scalar forward model in a medium varying slowly on the wavelength scale,
+conservation of $Y_z|\hat E|^2$ per transverse/frequency column requires
+
+$$
+ \partial_z\hat E=\Bigl(ik_z-\tfrac12\partial_z\ln Y_z\Bigr)\hat E
+ \;\Rightarrow\;
+ \hat E(z_1)=\sqrt{\frac{Y_z(z_0)}{Y_z(z_1)}}\,
+            e^{i\int_{z_0}^{z_1}k_z\,dz}\,\hat E(z_0).
+$$
+
+The amplitude factor is closed-form and diagonal. It joins the integrated linear
+exponent that the gradient route already evaluates, so it costs nothing per step.
+Paraxially it reduces to $\sqrt{n(z_0)/n(z_1)}$. It is the adiabatic (WKB) forward
+approximation and neglects reflection from the gradient. For gases, Δn ≈ 10⁻³ over
+millimetres, so that reflection is many orders below any tolerance. Check whether
+the nonlinear source prefactor's local $k_z$ stays consistent with this choice of
+propagated variable. As drafted, it uses the local value.
+
+**Requested revision:** derive the term in the new SEP. Apply it on all three
+backends. Qualify it as follows: a lossless gradient conserves the new energy to the
+rounding budget, a uniform medium is unchanged, and a sharpening gradient tends
+toward the transmitted share of an abrupt interface minus its reflection. Drop the
+gradient refusal from §4.2, §9 and Q6. The remaining refusals cover only cases the
+WKB model does not admit, such as abrupt steps that need an interface element.
+
+#### R3 — P1: Q1 and Q2 need proposed answers, not open approval
+
+**Sections:** 4.3, 4.6, 12 (Q1, Q2).
+
+Both questions are marked "before acceptance", but Part I proposes no model for the
+maintainers to approve. Accepting the SEP now would accept an open design, and
+leaving the choice to implementation is exactly what §12's preamble forbids.
+
+**Requested revision:** state the admitted cases concretely. For example, for Q1:
+
+1. A scalar forward overlap in the common uniform-medium paraxial measure for:
+   Gaussian or radial free-space fields into the ordinary capillary, capillary into
+   capillary of a different radius, and weakly guiding solid fibres below a stated
+   index contrast.
+2. Provider E/H for general vector modes, with an E-only incident field closed by
+   $\mathbf H=Y\hat z\times\mathbf E$ and a stated $O(\theta^2,\Delta n)$ error.
+3. Everything else refused.
+
+For Q2: the paraxial thin mask and lens in the local measure, with a defect bound
+computed from the flux fraction beyond a stated angle where $Y_z$ departs from its
+paraxial value by more than the tolerance, and refusal above it. Give the numbers or
+the rule that fixes them. Q3 can then stay an implementation-phase budget.
+
+#### R4 — P2: The tutorial sits at the stationary point of capture
+
+**Sections:** 7, 8.1, 12 (Q5).
+
+The linear-focus spot of 50 μm in a 75 μm capillary gives w/a = 0.667. Gaussian
+capture into the EH₁₁ mode peaks at w/a ≈ 0.645 (η ≈ 0.981), so capture there is
+nearly stationary in spot size. A direct quadrature of the §4.4 scalar overlap
+gives:
+
+| w/a | η₁₁ | η₁₂ |
+|---|---|---|
+| 0.645 | 0.9807 | 0.0052 |
+| 0.647 (−3 %) | 0.9807 | 0.0048 |
+| 0.667 (tutorial) | 0.9792 | 0.0020 |
+| 0.687 (+3 %) | 0.9756 | 0.0004 |
+| 0.500 | 0.9062 | 0.0923 |
+| 0.515 (+3 %) | 0.9220 | 0.0764 |
+
+At P/P_cr ≈ 0.15, the Kerr lens changes the entrance spot by a few per cent. Around
+the tutorial's point that moves total EH₁₁ capture by only 10⁻³ to 10⁻⁴. That is
+comparable with the numerical uncertainty that §7 requires the effect to exceed. The
+EH₁₂ share, in contrast, changes by a factor of several, and at w/a = 0.5 the
+fundamental's capture moves by about 1.6 % per 3 %.
+
+**Requested revision:** choose deliberately. One option is to make the stationarity
+the lesson: total capture is insensitive, while higher-mode content, wavefront and
+spectrum change. The other is to detune the focus so that capture is first-order
+sensitive. Name the quantity the convergence evidence must resolve in §7 and Q5,
+rather than "the nonlinear change in modal capture".
+
+#### R5 — P2: State what `energy=` physically means
+
+**Sections:** 1, 4.2, 5.1, 9.
+**Maintainer decision (2026-10-23):** physical energy in the launch medium.
+
+John's question was the principled one. A user knows a beam's energy from a meter
+and wants to model that energy. The answer should be in Part I, not left implicit in
+the Y_z formula:
+
+- Energy is the time-integrated axial Poynting flux through a plane. That is
+  conserved, and it is what a meter measures.
+- For a paraxial plane wave in a nonmagnetic medium, $S_z=\tfrac12 n\varepsilon_0c|E|^2$
+  with the **phase** index (Re k/ω), not the group index. The energy density
+  $\tfrac12\varepsilon_0nn_g|E|^2$ times $v_g=c/n_g$ gives the same result.
+- The vacuum ½ε₀c|E|² equals the energy only for n = 1. It overstates the field by
+  √n in glass, and by about 0.04 % (0.08 % in energy) in a few-bar gas. The modal routes already use
+  true power, so the vacuum measure is the inconsistent one.
+- A reading taken in air before an entrance window becomes the in-medium energy
+  through a declared interface element (Fresnel or AR transmission), never
+  implicitly.
+
+**Requested revision:** add a short paragraph with these points to the new flux SEP
+(R1), and a sentence to §5.1 here that `energy=` and a `GaussianBeam`'s energy mean
+the physical energy at the declared launch plane in its medium. Add a note to §8 that
+the manual explains the mapping from a meter reading.
+
+#### R6 — P2: Fix the incident-energy defect early and on its own
+
+**Sections:** 3, 5.1, 11.
+
+The fix to `_projected_launch`, which stops it restoring missed energy, is a current
+correctness defect. It does not depend on `FieldPlane`, regridding or transport. In
+the phase table it sits inside phase 3, behind phase 2's plane-exchange machinery.
+
+**Requested revision:** make the unified incident-energy launch (§5.1, *All spatial
+incident-field entry points converge*) the first deliverable after the flux SEP, with
+its own evidence: deliberate poor and zero capture, and no restored energy. Then
+order the remaining phases.
+
+#### R7 — P2: Interface gaps in §5
+
+**Sections:** 5.1, 5.2.
+
+1. `GaussianBeam` duplicates the Gaussian of `SpatialPulse`, while §5.1 says all
+   spatial incident-field entry points converge. Say whether `GaussianBeam`
+   replaces `SpatialPulse`'s Gaussian, wraps it, or is its incident-field record. A
+   clean breaking change is allowed, so pick one.
+2. The sketch in §5.2 uses `Simulation.input_port()`, `Outcouple`, `FreeSpace`,
+   `SpectralTransfer`, `ThinLens` and `Aperture`. None of them is in the §5.1 table.
+   List them with their modules and responsibilities, since the element vocabulary
+   is the public surface users will write against.
+3. Say whether `transport` accepts an existing `optics.Chain` directly (the frequency
+   block) and how it reports that the chain's order is not significant while the
+   spatial sequence's order is.
+
+#### R8 — P2: The native-backend text is out of date
+
+**Sections:** 3, 6.3, 11 (phase 1c), 12 (Q7).
+
+SEP 29's first phase has already moved the compiled backend into this repository as
+`native`; the free-space line-route text calls it that. The conditional "if SEP 29
+has moved Kokkos…" is now settled, and the phase name "Kokkos CPU flux" uses the old
+name.
+
+**Requested revision:** use `native` (its CPU build), drop the conditional, and close
+Q7. If R1 is taken, this moves with phases 1a–1c into the new SEP.
+
+#### R9 — P2: The "complete" criterion is broad
+
+**Sections:** 7, 11 (phase 5), 12 (Q6).
+
+The integrated qualification requires all eight workflows of §2. Those include the
+radial field-grid Kerr/plasma/THG transfer and an SPM → compressor → second-capillary
+chain. They are good targets. But Final status then depends on the far field,
+Jones/reflection frames and thin elements as well as the coupling core.
+
+**Requested revision:** consider letting the SEP reach Final on the coupling and
+transport core, with a clear list of what Final requires. Alternatively, state why
+every workflow is needed for the first useful release. Either way, keep the field-grid
+plasma/THG transfer, which is the case most likely to expose band and reference
+errors.
+
+#### R10 — P3: Editorial
+
+- §4.2: the discrete rule uses the analytic-signal convention, which keeps the DC and
+  Nyquist bins unscaled, as `fourier.energy_omega` does. Say that §7's "direct
+  time/space integration" means $\tfrac12\int|E_a|^2$. A real-field $\int E^2$
+  differs in those two bins.
+- §4.3, §4.5: W denotes the flux pairing matrix, the least-squares Gram matrix and
+  the per-frequency metric $W_k$. Distinguish them, or say that they coincide when
+  M is the flux measure.
+- §6.2 depends on SEP 28's memory bounds. Link SEP 28 there, or list it under
+  **Requires**.
+- §4.4: keep the sentence forbidding an asserted universal coupling optimum. The
+  probe in R4 confirms that the value depends on the profile and the mode set.
