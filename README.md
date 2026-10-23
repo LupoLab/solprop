@@ -3,9 +3,12 @@
 [![CI](https://github.com/LupoLab/solprop/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/LupoLab/solprop/actions/workflows/ci.yml)
 [![Documentation](https://readthedocs.org/projects/solprop/badge/?version=latest)](https://solprop.readthedocs.io/en/latest/)
 [![codecov](https://codecov.io/gh/LupoLab/solprop/graph/badge.svg)](https://codecov.io/gh/LupoLab/solprop)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![basedpyright](https://img.shields.io/badge/basedpyright-checked-42b983)](https://docs.basedpyright.com)
 [![PyPI](https://img.shields.io/pypi/v/solprop.svg)](https://pypi.org/project/solprop/)
 [![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](https://www.python.org/downloads/)
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
+[![REUSE](https://img.shields.io/badge/REUSE-compliant-green)](https://reuse.software)
 
 **Ultrafast nonlinear pulse propagation in Python** — from few-cycle pulses in
 gas-filled hollow-core fibres to multimode solid-core fibres and free-space beams.
