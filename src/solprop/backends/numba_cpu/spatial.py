@@ -483,8 +483,13 @@ def make_far_field(*, parallel: bool) -> Any:  # noqa: PLR0915 - one closure
 
         Each band walks its columns in ascending order with frequency innermost and
         adds, per slot and bin, the sums of equations (5) and (7) to (11) without
-        their constant factors: ``w_c sum_q |E|^2`` (times ``W^p``, the obliquity, a
-        rate or a region's membership) and the complex products ``alpha_c W E``.
+        their constant factors, measured by the medium's axial flux (SEP 34):
+        ``w_c Re(eta) sum_q |E|^2`` (times ``W^p``, a rate or a region's
+        membership), and the complex products ``alpha_c W E`` and their magnetic
+        closure ``alpha_c W conj(eta) E``. The admittance ``eta = c k_z/omega`` is
+        the operator's own root (``longitudinal_root``) on active propagating bins
+        at positive frequency and zero elsewhere, formed per element: no column by
+        frequency table is held.
 
         Parameters
         ----------
@@ -534,20 +539,18 @@ def make_far_field(*, parallel: bool) -> Any:  # noqa: PLR0915 - one closure
             omega,
         ) = operator
         beam = layout[0]
-        poynting = layout[1]
-        absorbed = layout[2]
-        region = layout[3]
-        aperture = layout[4]
-        stride = layout[5]
-        collected = layout[6]
-        amplitude = layout[7]
-        axis = layout[8]
+        absorbed = layout[1]
+        region = layout[2]
+        aperture = layout[3]
+        stride = layout[4]
+        collected = layout[5]
+        amplitude = layout[6]
+        axis = layout[7]
         n_x = k_x.shape[0]
         n_pol = field.shape[1]
         n_omega = field.shape[2]
         n_apertures = half_widths.shape[0] if aperture >= 0 else 0
         n_regions = regions.shape[0] if region >= 0 else 0
-        operated = poynting >= 0 or absorbed >= 0
         radius = 0.0
         origin = 0.0
         for band in bands(partials.shape[0]):
@@ -564,31 +567,28 @@ def make_far_field(*, parallel: bool) -> Any:  # noqa: PLR0915 - one closure
                     for pol in range(n_pol):
                         value = field[column, pol, bin_]
                         power += value.real * value.real + value.imag * value.imag
-                    weighted = weight * power
+                    longitudinal = (square[bin_] - transverse[column]) + (
+                        square_low[bin_] - transverse_low[column]
+                    )
+                    root, propagating, attenuation = _ROOT(longitudinal, evanescent)
+                    live = active[bin_]
+                    # The conjugate admittance the internal spectrum's closure takes.
+                    closing = 0j
+                    if live and propagating and omega[bin_] > 0.0:
+                        closing = (C * root.conjugate()) / omega[bin_]
+                    weighted = weight * power * closing.real
                     if beam >= 0:
                         partials[band, beam, bin_] += weighted
-                    if operated:
-                        longitudinal = (square[bin_] - transverse[column]) + (
-                            square_low[bin_] - transverse_low[column]
-                        )
-                        root, propagating, attenuation = _ROOT(longitudinal, evanescent)
-                        live = active[bin_]
-                        if poynting >= 0 and live and propagating and omega[bin_] > 0.0:
-                            partials[band, poynting, bin_] += weighted * (
-                                (C * root.real) / omega[bin_]
+                    if absorbed >= 0:
+                        partials[band, absorbed, bin_] += weighted * spectral_rate[bin_]
+                        if live:
+                            partials[band, absorbed + 1, bin_] += (
+                                weighted * kperp[column]
                             )
-                        if absorbed >= 0:
-                            partials[band, absorbed, bin_] += (
-                                weighted * spectral_rate[bin_]
+                            channel = absorbed + 3 if propagating else absorbed + 2
+                            partials[band, channel, bin_] += weighted * (
+                                2.0 * attenuation
                             )
-                            if live:
-                                partials[band, absorbed + 1, bin_] += (
-                                    weighted * kperp[column]
-                                )
-                                channel = absorbed + 3 if propagating else absorbed + 2
-                                partials[band, channel, bin_] += weighted * (
-                                    2.0 * attenuation
-                                )
                     for row in range(n_regions):
                         if _MEMBER(
                             kx,
@@ -604,6 +604,10 @@ def make_far_field(*, parallel: bool) -> Any:  # noqa: PLR0915 - one closure
                             product = alpha * field[column, pol, bin_]
                             partials[band, axis + 2 * pol, bin_] += product.real
                             partials[band, axis + 2 * pol + 1, bin_] += product.imag
+                            closed = alpha * (closing * field[column, pol, bin_])
+                            slot = axis + 2 * (n_pol + pol)
+                            partials[band, slot, bin_] += closed.real
+                            partials[band, slot + 1, bin_] += closed.imag
                     if n_apertures > 0 and shared:
                         radius = _RADIUS(
                             scale[0, bin_], kx, ky, centres[0, 0], centres[0, 1]
@@ -638,11 +642,14 @@ def make_far_field(*, parallel: bool) -> Any:  # noqa: PLR0915 - one closure
                         if amplitude >= 0:
                             slot = base + amplitude
                             for pol in range(n_pol):
-                                product = alpha * (
-                                    transmission * field[column, pol, bin_]
-                                )
+                                through = transmission * field[column, pol, bin_]
+                                product = alpha * through
                                 partials[band, slot + 2 * pol, bin_] += product.real
                                 partials[band, slot + 2 * pol + 1, bin_] += product.imag
+                                closed = alpha * (closing * through)
+                                again = slot + 2 * (n_pol + pol)
+                                partials[band, again, bin_] += closed.real
+                                partials[band, again + 1, bin_] += closed.imag
 
     return far_field_bands
 
@@ -693,7 +700,8 @@ class FarFieldPass:
     row of partials per band of columns, in a ``prange`` when `parallel`; stage two
     (:func:`far_field_sum`) adds the bands in ascending order; a finishing step on the
     host applies ``epsilon_0 c/2``, the spectral-density factor, the energy weights of
-    ``absorbed_power`` and ``|A|^2``. The partials are sized from the problem's own
+    ``absorbed_power`` and the pairing ``Re(A conj(G))`` of each on-axis amplitude
+    with its magnetic closure (SEP 34). The partials are sized from the problem's own
     request at construction (:func:`solprop.backends.spatial.far_field_partials`) and
     reused by every call, the periodic channel's included; a call that needs more slots
     than were sized for (a spec handed to the run loop with other tables) uses
@@ -710,7 +718,8 @@ class FarFieldPass:
     Raises
     ------
     BackendError
-        If the problem is not a Cartesian or line problem with a separable operator.
+        If the problem is not a Cartesian or line problem with a separable operator
+        that is its own plane measure.
     """
 
     def __init__(self, problem: KernelProblem, *, parallel: bool) -> None:
@@ -719,6 +728,12 @@ class FarFieldPass:
         operator = problem.linear.separable
         if geometry is None or geometry.kind != "free" or operator is None:
             msg = "the far-field pass needs a Cartesian or line separable problem"
+            raise BackendError(msg)
+        flux = problem.flux
+        if flux is None or flux.base is not operator or flux.material is not None:
+            # The pass reads the operator's root as the plane's (SEP 34): a uniform
+            # Cartesian or line medium's measure is its own separable record.
+            msg = "the far-field pass needs the run's own separable plane measure"
             raise BackendError(msg)
         n_slots, n_bands = far_field_partials(problem)
         self._n_x, self._n_y = geometry.shape
@@ -815,14 +830,20 @@ class FarFieldPass:
         tables: ApertureTables | None,
         *,
         shared: bool | None = None,
-    ) -> tuple[dict[str, np.ndarray], Complex[np.ndarray, "n_pol n_omega"] | None]:
+    ) -> tuple[
+        dict[str, np.ndarray],
+        tuple[
+            Complex[np.ndarray, "n_pol n_omega"], Complex[np.ndarray, "n_pol n_omega"]
+        ]
+        | None,
+    ]:
         """Form the requested far-field statistics and the on-axis amplitude.
 
         Parameters
         ----------
         names : collections.abc.Collection of str
             The statistics asked for. The far-field ones and ``on_axis_spectrum`` are
-            formed here; ``on_axis_intensity`` reads the returned amplitude.
+            formed here; ``on_axis_intensity`` reads the returned amplitudes.
         grid : solprop.grid.TimeGrid
             The temporal grid: its spacing, kind and frequencies.
         field : numpy.ndarray
@@ -841,7 +862,8 @@ class FarFieldPass:
         tuple
             The statistics formed here, as :func:`solprop.spatial.aperture_statistics`
             and :func:`solprop.spatial.on_axis_spectrum` define them, and the on-axis
-            amplitude ``sum_c alpha_c E_c`` in V/m, shape ``(n_pol, n_omega)``, or
+            amplitude ``sum_c alpha_c E_c`` in V/m with its magnetic closure
+            ``sum_c alpha_c conj(eta_c) E_c``, each of shape ``(n_pol, n_omega)``, or
             ``None`` when no axis statistic is asked for.
 
         Raises
@@ -908,7 +930,7 @@ def _finish(
     layout: FarFieldLayout,
     tables: ApertureTables | None,
     n_pol: int,
-) -> tuple[dict[str, np.ndarray], np.ndarray | None]:
+) -> tuple[dict[str, np.ndarray], tuple[np.ndarray, np.ndarray] | None]:
     """Apply the constant factors to the band sums.
 
     Parameters
@@ -929,8 +951,8 @@ def _finish(
     Returns
     -------
     tuple
-        The statistics and the on-axis amplitude, as :meth:`FarFieldPass.__call__`
-        documents.
+        The statistics and the on-axis amplitude with its closure, as
+        :meth:`FarFieldPass.__call__` documents.
     """
     conversion = 0.5 * EPS0 * C
     n_omega = totals.shape[1]
@@ -942,8 +964,6 @@ def _finish(
     values: dict[str, np.ndarray] = {}
     if "beam_spectrum" in wanted:
         values["beam_spectrum"] = conversion * (density * totals[layout.beam])
-    if "poynting_spectrum" in wanted:
-        values["poynting_spectrum"] = conversion * (density * totals[layout.poynting])
     if "absorbed_power" in wanted:
         energy = fourier.energy_weights(n_omega, grid.dt, kind=grid.kind)
         rows = totals[layout.absorbed : layout.absorbed + len(ABSORBED_CHANNELS)]
@@ -961,40 +981,53 @@ def _finish(
             values["aperture_on_axis_spectrum"] = np.stack(
                 [
                     _axis_spectrum(
-                        grid, _amplitude(totals, slot + layout.amplitude, n_pol)
+                        grid, *_amplitude(totals, slot + layout.amplitude, n_pol)
                     )
                     for slot in slots.tolist()
                 ]
             )
     axis = None if layout.axis < 0 else _amplitude(totals, layout.axis, n_pol)
     if axis is not None and "on_axis_spectrum" in wanted:
-        values["on_axis_spectrum"] = _axis_spectrum(grid, axis)
+        values["on_axis_spectrum"] = _axis_spectrum(grid, *axis)
     return values, axis
 
 
-def _amplitude(totals: np.ndarray, first: int, n_pol: int) -> np.ndarray:
-    """Return a complex amplitude from its real and imaginary slots.
+def _amplitude(
+    totals: np.ndarray, first: int, n_pol: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return a complex amplitude and its closure from their real and imaginary slots.
 
     Parameters
     ----------
     totals : numpy.ndarray
         The band sums, shape ``(n_slots, n_omega)``.
     first : int
-        The amplitude's first slot: real then imaginary part per polarisation.
+        The amplitude's first slot: real then imaginary part per polarisation, then
+        the closure's.
     n_pol : int
         Polarisation components.
 
     Returns
     -------
-    numpy.ndarray
-        The amplitude in V/m, complex, shape ``(n_pol, n_omega)``.
+    tuple of numpy.ndarray
+        The amplitude in V/m and its magnetic closure ``G / (eps0 c)``, complex,
+        each of shape ``(n_pol, n_omega)``.
     """
     stop = first + 2 * n_pol
-    return totals[first:stop:2] + 1j * totals[first + 1 : stop : 2]
+    end = stop + 2 * n_pol
+    return (
+        totals[first:stop:2] + 1j * totals[first + 1 : stop : 2],
+        totals[stop:end:2] + 1j * totals[stop + 1 : end : 2],
+    )
 
 
-def _axis_spectrum(grid: TimeGrid, amplitude: np.ndarray) -> np.ndarray:
-    """Return the spectral fluence of an on-axis amplitude, polarisations summed.
+def _axis_spectrum(
+    grid: TimeGrid, amplitude: np.ndarray, closure: np.ndarray
+) -> np.ndarray:
+    """Return the axial-flux spectral fluence of an on-axis amplitude (SEP 34).
+
+    The same-frequency pairing ``Re(A conj(G))`` of the amplitude with its closure,
+    polarisations summed.
 
     Parameters
     ----------
@@ -1002,11 +1035,17 @@ def _axis_spectrum(grid: TimeGrid, amplitude: np.ndarray) -> np.ndarray:
         The temporal grid.
     amplitude : numpy.ndarray
         The amplitude, shape ``(n_pol, n_omega)``.
+    closure : numpy.ndarray
+        Its magnetic closure, same shape.
 
     Returns
     -------
     numpy.ndarray
         J s/m^2 per bin, shape ``(n_omega,)``.
     """
-    density = fourier.spectral_density(amplitude, grid.dt, kind=grid.kind)
-    return 0.5 * EPS0 * C * np.sum(density, axis=0)
+    factor = fourier.spectral_density(
+        np.ones(grid.n_omega, dtype=np.complex128), grid.dt, kind=grid.kind
+    )
+    return (
+        0.5 * EPS0 * C * factor * np.sum(np.real(amplitude * np.conj(closure)), axis=0)
+    )
