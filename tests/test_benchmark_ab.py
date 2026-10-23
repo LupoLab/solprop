@@ -17,6 +17,16 @@ from benchmarks.records import read_record
 from benchmarks.registry import ADAPTIVE, FIXED, select
 
 
+@pytest.fixture(autouse=True)
+def _ample_memory(monkeypatch):
+    """Admit by the cases' estimates on a fixed machine, not this one's free memory.
+
+    A loaded 16 GB runner has too little free memory for the smoke case's estimate,
+    which would skip the rows these tests exercise; admission is patched where tested.
+    """
+    monkeypatch.setattr(system, "effective_memory", lambda: 64 * 2**30)
+
+
 @pytest.fixture
 def profile():
     return system.Profile("test-machine", 1, 2, (0, 1), "topology")

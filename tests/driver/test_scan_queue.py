@@ -18,6 +18,7 @@ import numpy as np
 import pytest
 
 from driver.test_scans import assert_same_march, build_point
+from solprop.driver.executors import pool as pool_module
 from solprop.driver.executors import queue as module
 from solprop.driver.executors._queue_state import (
     atomic_json,
@@ -324,7 +325,10 @@ def test_queue_refuses_different_scan_manifest(tmp_path):
 
 
 @pytest.mark.medium
-def test_queue_runs_real_simulations_and_matches_local(tmp_path):
+def test_queue_runs_real_simulations_and_matches_local(tmp_path, monkeypatch):
+    # The pool is sized from the scan, not from this long-lived test worker's peak
+    # memory (as in test_scans.py).
+    monkeypatch.setattr(pool_module, "peak_rss", lambda: 0)
     scan = Scan("real", power=[1.0, 2.0])
     queue = Queue(tmp_path / "queue", pool=Pool(workers=2))
     result = run_scan(

@@ -33,6 +33,7 @@ jobs:
   build:
     name: build (${{ matrix.id }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
@@ -77,6 +78,7 @@ jobs:
     name: test (${{ matrix.id }})
     needs: build
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
@@ -114,9 +116,21 @@ jobs:
       - run: uv run --no-sync python -I -m solprop_native
       - name: Coexistence with NumPy, SciPy, pyFFTW and Numba
         run: uv run --no-sync python -I native/ci/coexistence.py --bypass-guard
+      # The default lane's peak memory with four test workers is at the edge of a 16 GB
+      # runner (the aarch64 runner shut down mid-suite, as CI's did): swap on Linux and
+      # three workers, as in CI's native-suite job.
+      - name: Add swap
+        if: runner.os == 'Linux'
+        run: |
+          sudo fallocate -l 12G /swap.extra
+          sudo chmod 600 /swap.extra
+          sudo mkswap /swap.extra
+          sudo swapon /swap.extra
+          free -h
       - name: solprop's default lane on the native backend
         env:
           SOLPROP_TEST_BACKEND: native
+          PYTEST_XDIST_AUTO_NUM_WORKERS: "3"
         run: uv run --no-sync poe test
 
   # The x86-64 wheel's CPU floor under Intel's emulator: it works on a Haswell
