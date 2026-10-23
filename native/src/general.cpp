@@ -282,13 +282,15 @@ void cartesian_for(const char* label, const ExecutionSpace& execution,
 // element is the same functor; each (column, bin) is visited once.
 // 32 columns by 16 bins: the best of 32x16, 64x32 and 256x8 on one Zen 5 socket
 // (SEP 28; Apple silicon is within a few per cent across them).
-inline constexpr std::size_t crossing_tile_columns = 32;
-inline constexpr std::size_t crossing_tile_bins = 16;
+[[maybe_unused]] inline constexpr std::size_t crossing_tile_columns = 32;
+[[maybe_unused]] inline constexpr std::size_t crossing_tile_bins = 16;
 
 // A store that bypasses the caches where the CPU has one (x86 SSE2): a traversal that
 // writes a large volume it does not read (the scatter into the transverse scratch)
-// otherwise reads every line before writing it. Ordered by `stream_fence`.
-KOKKOS_INLINE_FUNCTION void stream_store(Complex& target, const Complex value) {
+// otherwise reads every line before writing it. Ordered by `stream_fence`. Device
+// builds compile out the host traversals that use these, hence `maybe_unused`.
+[[maybe_unused]] KOKKOS_INLINE_FUNCTION void stream_store(Complex& target,
+                                                         const Complex value) {
 #if defined(SOLPROP_NATIVE_STREAMING_STORES)
   _mm_stream_pd(reinterpret_cast<double*>(&target),
                 _mm_set_pd(value.imag(), value.real()));
@@ -297,7 +299,7 @@ KOKKOS_INLINE_FUNCTION void stream_store(Complex& target, const Complex value) {
 #endif
 }
 
-KOKKOS_INLINE_FUNCTION void stream_fence() {
+[[maybe_unused]] KOKKOS_INLINE_FUNCTION void stream_fence() {
 #if defined(SOLPROP_NATIVE_STREAMING_STORES)
   _mm_sfence();
 #endif
