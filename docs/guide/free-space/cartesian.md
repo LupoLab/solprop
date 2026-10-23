@@ -92,9 +92,12 @@ $$\Delta x\Delta y\sum_{ij}|f_{ij}|^2
  =\frac{\Delta x\Delta y}{N}\sum_{pq}|F_{pq}|^2.$$
 
 Thus physical area weights are $\Delta x\Delta y$ and spectral weights
-are $\Delta x\Delta y/N$. Multiplication by $\epsilon_0c/2$ and the temporal energy
-functional gives joules. Dividing the one-photon noise amplitude by $\sqrt{\epsilon_0c\Delta x\Delta y/(2N)}$ preserves its
-per-column, per-polarisation, per-bin energy for both noise models.
+are $\Delta x\Delta y/N$. Weighting each column and bin by its real axial admittance
+$Y_z=\varepsilon_0c^2\operatorname{Re}k_z/\omega$ in the medium, with the temporal energy
+functional, gives joules ([energy and flux in a medium](flux.md)). Dividing the
+one-photon noise amplitude by the square root of the same weight,
+$(\Delta x\Delta y/N)\,Y_z/2$, leaves one photon in every admitted column,
+polarisation and bin for both noise models.
 
 Reconstruction at the geometric origin uses
 $N^{-1}\exp[-i(k_xx_0+k_yy_0)]$ per stored column. This phase is necessary
@@ -159,7 +162,9 @@ coefficients.
 
 ## Fluence widths
 
-Widths integrate intensity over time first. The scalar second-moment radius
+Widths integrate the signed axial flux over time first, and refuse a fluence that is
+negative beyond its rounding budget ([local flux](flux.md#axial-admittance-and-local-flux)).
+The scalar second-moment radius
 is $\sqrt{2\sum F[(x-\bar x)^2+(y-\bar y)^2]/\sum F}$, where the centroid
 uses the same fluence. For uniform rectangular pixels the area cancels.
 For interpolated widths, bilinear interpolation supplies the fluence on

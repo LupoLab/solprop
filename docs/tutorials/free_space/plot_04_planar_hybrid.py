@@ -13,7 +13,7 @@ finite height, so the run integrates over y and reports energy in J, and the mod
 describe
 diffraction, whole-beam self-focusing and modulational instability in y,
 subject to the retained modes, grid, boundary and response assumptions. A 1 mJ, 100 fs
-pulse,
+pulse (the incident beam's physical energy in the argon fill),
 Gaussian in both directions (``w_x = 0.735a`` projected onto TE1, TE3 and TE5;
 ``w_y = 0.5 mm``), propagates 10 cm with the Kerr effect under the step controller;
 the run takes seconds on ``numpy_ref``, the reference backend. ``numba_cpu`` and the
@@ -32,7 +32,12 @@ from solprop.modes import PlanarGrid, SlabMode
 from solprop.nonlinear.responses import KerrResponse
 from solprop.physdata import gamma3
 from solprop.pulses import GaussianPulse, PlanarPulse
-from solprop.spatial import planar_fluence, planar_mode_energy
+from solprop.spatial import (
+    SpatialFlux,
+    SpatialMedium,
+    planar_fluence,
+    planar_mode_energy,
+)
 from solprop.stats import default_spec
 from solprop.stepper import PIController
 
@@ -42,7 +47,9 @@ half_gap, length = 63.5e-6, 0.1
 # %%
 # The grid carries the slab channels, their rule in x and the y axis with its
 # absorbing collar; the launch projects its x profile onto the modes, with signs, and
-# its energy is the incident beam's, so the modes carry the coupled share.
+# its energy is the incident beam's, measured in the fill, so the modes carry the
+# coupled share. Each mode's energy uses the slab metric, whose weight at k_y = 0 is
+# the mode's real effective index (:doc:`/guide/free-space/flux`).
 grid = EnvelopeGrid.from_limits(length, 800e-9, (650e-9, 1000e-9), 400e-15)
 modes = [SlabMode(half_gap, "Ar", 1.0, order=p) for p in (1, 3, 5)]
 space = PlanarGrid(modes, 1.5e-3, 64)
@@ -78,20 +85,24 @@ output = prop_planar(
     progress="none",
 )
 first, last = output.fields("fft")
+fill = SpatialMedium("Ar", pressure=1.0)  # the slab modes' own fill
+entrance = SpatialFlux.resolve(grid, space, fill)
+exit_plane = SpatialFlux.resolve(grid, space, fill, z=length)
 energy = np.ravel(output["stats/energy"])
 print(f"energy {energy[0] * 1e3:.4f} mJ -> {energy[-1] * 1e3:.4f} mJ")
-for mode, value in zip(modes, planar_mode_energy(grid, space, last), strict=True):
+for mode, value in zip(modes, planar_mode_energy(last, exit_plane), strict=True):
     print(f"  {mode.channel_label.display_label}: {value * 1e3:.5f} mJ")
 
 # %%
-# The fluence at the exit on the rule's (x, y) nodes, and across y after integrating
-# over the gap. The widths in y are the run's ``beam_radius`` statistic.
-fluence = planar_fluence(grid, space, last).reshape(space.n_y, space.x.size)
+# The fluence, the time-integrated axial flux, at the exit on the rule's (x, y) nodes,
+# and across y after integrating over the gap. The widths in y are the run's
+# ``beam_radius`` statistic.
+fluence = planar_fluence(last, exit_plane).reshape(space.n_y, space.x.size)
 figure, (section, profile) = plt.subplots(1, 2, figsize=(9, 3.6))
 section.pcolormesh(space.x * 1e6, space.y * 1e3, fluence * 1e-4, shading="nearest")
 section.set(xlabel="x (um)", ylabel="y (mm)", title="exit fluence (J/cm²)")
-for label, plane in (("entrance", first), ("exit", last)):
-    across = planar_fluence(grid, space, plane).reshape(space.n_y, -1) @ space.x_weights
+for label, plane, flux in (("entrance", first, entrance), ("exit", last, exit_plane)):
+    across = planar_fluence(plane, flux).reshape(space.n_y, -1) @ space.x_weights
     profile.plot(space.y * 1e3, across, label=label)
 profile.set(xlabel="y (mm)", ylabel="fluence across the gap (J/m)")
 profile.legend()

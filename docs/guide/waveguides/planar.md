@@ -232,13 +232,15 @@ wall model are the uniform slab's), the free-space evanescent model beyond cutof
 the prefactor $-i\omega^2/(2\epsilon_0c^2\operatorname{Re}k_z)$. At $k_y = 0$ this is
 the uniform slab exactly, so **a field uniform in y reproduces a slab run started from the
 same internal amplitude** -- to 2e-10 over ten steps, for the Kerr, Raman, field-plasma and
-envelope-plasma responses and both absorber schemes. The two launches are not the same
-amplitude for the same energy. Like free space, a planar run stores the vacuum-normalised
-amplitude, $|a|^2 = P$. `prop_waveguide` launches the true-power one of
-[power and intensity](../results/power-and-intensity.md), which in the internal amplitude gives
-$|a|^2 = P/\operatorname{Re}n_{\rm eff}$. So two runs launched with equal energies differ by
-the factor $\operatorname{Re}n_{\rm eff}$ in their Kerr phase, about $2.8\times10^{-4}$ per bar
-of argon. A Gaussian beam in y diffracts as the (1+1)-D Gaussian beam,
+envelope-plasma responses and both absorber schemes. A planar run measures its slab
+amplitudes with the explicit slab metric of
+[energy and flux in a medium](../free-space/flux.md#the-hybrid-planar-guide): the weight of
+column $(p, k_y)$ is $c\operatorname{Re}q/\omega$ with
+$q=\sqrt{(\omega n_{{\rm eff},p}/c)^2-k_y^2}$, which at $k_y = 0$ is $\operatorname{Re}n_{\rm eff}$,
+the weight of the true-power amplitude `prop_waveguide` launches
+([power and intensity](../results/power-and-intensity.md)). A mode launched with the same
+energy therefore has the same internal amplitude, $|a|^2 = P/\operatorname{Re}n_{\rm eff}$,
+on both routes. A Gaussian beam in y diffracts as the (1+1)-D Gaussian beam,
 $w(z)=w_0\sqrt{1+(z/z_R)^2}$ with axial amplitude $(1+(z/z_R)^2)^{-1/4}$ and Gouy phase
 $\tfrac12\arctan(z/z_R)$, times each mode's own loss and dispersion (measured within
 2e-6 of the paraxial forms, whose own error is $O(1/(kw_0)^2)$).
@@ -250,8 +252,8 @@ columns are $(p, k_y)$ with the channel fastest; the geometry integrates over y,
 reports **energy in J and power in W**, not per unit width. The launch is a
 {class}`~solprop.pulses.PlanarPulse`, a Gaussian of 1/e field radius $w_x$ projected onto
 the modes (with signs, {func}`~solprop.modes.slab.gaussian_projection`) times a Gaussian
-or super-Gaussian of radius $w_y$ in y; its energy is the incident beam's, so the modes
-carry the coupled share of it.
+or super-Gaussian of radius $w_y$ in y; its energy is the incident beam's physical energy
+in the fill, so the modes carry the coupled share of it.
 
 ```{code-block} python
 from solprop.driver import Simulation, SimulationSettings
@@ -294,8 +296,8 @@ against $P_c = 2\pi n_0/(k_0^2 n_2)$, "the critical power for 2D collapse", writ
 the whole-beam self-focusing length $L_{\rm sf}$ and the modulational-instability length
 $L_{\rm mi}$ in terms of $P/P_c$ of the power in the guide. The plates stop the whole
 beam collapsing as it would in free space, but a multimode x basis can still focus in
-x. Their $P_c$ is $2n_0^3/1.86226$ times the function's value, the Gaussian mass
-against the Townes one. `numpy_ref`, `numba_cpu` and the native CPU backend execute the
+x. Their $P_c$ is $2n_0^2/1.86226$ times the function's value (called with `index=n0`),
+the Gaussian mass against the Townes one and the $n_0^2$ of their $n_2$ convention. `numpy_ref`, `numba_cpu` and the native CPU backend execute the
 transform: the y FFT around the slab rule's synthesis and projection, each column's
 operator with its channel's wall term, every response family, both absorber schemes and
 the statistics, and both compiled backends agree with `numpy_ref` within derived

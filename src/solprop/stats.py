@@ -1620,14 +1620,6 @@ def _catalogue() -> dict[str, StatDefinition]:
             requires=("spatial_geometry",),
         ),
         StatDefinition(
-            name="poynting_spectrum",
-            summary="Axial-flux spectrum: the beam spectrum weighted by the obliquity.",
-            shape="(n_omega,)",
-            units="J/(rad/s)",
-            requires=("spatial_geometry", "separable_operator"),
-            backend=True,
-        ),
-        StatDefinition(
             name="absorbed_power",
             summary="Power each absorbing channel of the linear operator removes.",
             shape="(4,)",

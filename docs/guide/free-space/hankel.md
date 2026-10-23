@@ -5,7 +5,10 @@ radius. This reduces a two-dimensional cross-section to one radial coordinate,
 which is useful for a centred, circular beam. It cannot represent an off-axis
 beam, azimuthal breakup or multiple filaments. Start with the
 [radial filament lesson](../../introduction/lessons/plot_03_filament.rst) and
-[beam setup](beams.md) before using the transform directly.
+[beam setup](beams.md) before using the transform directly. The energy, fluence and
+intensity of a radial field are measured in the medium at the plane, with the axial
+admittance of each Hankel column; a radial run through a pressure gradient also carries
+the forward amplitude term and its certificate ([energy and flux in a medium](flux.md)).
 
 The quasi-discrete Hankel transform {py:class}`~solprop.hankel.QDHT` connects the
 radial field to its transverse spatial frequencies. Choose both the outer radius

@@ -23,8 +23,9 @@ Use this reference to find the saved statistic, shape and units for your geometr
      - ``(n_modes, n_pol)``
      - J
      - yes
-     - Modal column energies, or scalar whole-beam spatial energy with transverse
-       spectral weights and the factor :math:`\varepsilon_0 c/2`.
+     - Modal column energies, or scalar whole-beam spatial energy: the axial
+       Poynting flux of the medium at the plane, each transverse column weighted by
+       its real axial admittance :math:`\varepsilon_0c^2\operatorname{Re}k_z/\omega`.
    * - ``energy_window``
      - ``(n_windows, n_modes, n_pol)``
      - J
@@ -107,19 +108,22 @@ Use this reference to find the saved statistic, shape and units for your geometr
      - ``()``
      - W/m²
      - yes
-     - Largest analytic intensity in time on the spatial beam axis.
+     - Largest signed axial flux in time on the spatial beam axis, in the medium at
+       the plane.
    * - ``on_axis_spectrum``
      - ``(n_omega,)``
      - J s/m²
      - no
-     - On-axis spectral fluence density, summed over polarisation. Its sum times
-       the angular-frequency spacing is the on-axis fluence.
+     - On-axis spectral fluence density, summed over polarisation: the
+       same-frequency pairing of the coherent on-axis field and its magnetic closure.
+       Its sum times the angular-frequency spacing is the on-axis fluence.
    * - ``beam_radius``
      - ``(2,)``
      - m
      - no
      - Second-moment radius and interpolated central 1/e² radius of the
-       time-integrated fluence, in that order. Undefined radii are NaN.
+       time-integrated fluence, in that order. Undefined radii are NaN; a fluence
+       negative beyond its rounding budget is refused.
    * - ``fwhm_r``
      - ``()``
      - m
@@ -135,7 +139,8 @@ Use this reference to find the saved statistic, shape and units for your geometr
        ``ApertureSet``: the stored spectrum weighted, per frequency, by the profile
        at each column's paraxial image ``z c kappa / omega`` in the mask plane
        (``W**2`` under amplitude weighting, ``W`` at the corrected diameter under
-       quadrature weighting). Cartesian and line grids.
+       quadrature weighting) and by its real axial admittance. Cartesian and line
+       grids.
    * - ``aperture_on_axis_spectrum``
      - ``(n_apertures, n_omega)``
      - J s/m²
@@ -153,8 +158,9 @@ Use this reference to find the saved statistic, shape and units for your geometr
      - ``(n_omega,)``
      - J/(rad/s)
      - no
-     - The whole-beam spectral energy density of a Cartesian or line run. Its sum
-       times the angular-frequency spacing is ``energy``.
+     - The whole-beam axial-flux spectral density of a Cartesian or line run, in the
+       medium at the plane. Its sum times the angular-frequency spacing is
+       ``energy``.
 ```
 
 `pressure` is in bar, not pascals: it is read straight off the
@@ -166,7 +172,7 @@ user-interface object, which is the one documented exception to SI
 
 The entries below and the species entries later on this page carry
 `backend=True`, because a saved plane does not hold what they are about. The
-far-field `poynting_spectrum` and `absorbed_power` need the run's linear operator
+far-field `absorbed_power` needs the run's linear operator
 ([far-field apertures](statistics.md#far-field-apertures-and-angular-regions)). The electron
 density, the peak ionisation rate and the plasma integration diagnostics need the field
 at the quadrature nodes and the run's rate table; the peak intensity needs the mode profiles on
@@ -260,20 +266,13 @@ across the seam to reconstruct them.
        - f_0)` over nodes and populations: the loss current's work per ionisation
        potential against the electrons it freed, normalised by the most-ionised node.
        Second order in :math:`\delta t`; recorded, not acted on.
-   * - ``poynting_spectrum``
-     - ``(n_omega,)``
-     - J/(rad/s)
-     - no
-     - The axial-flux spectrum of a Cartesian or line run: ``beam_spectrum``
-       weighted by the obliquity :math:`c\operatorname{Re}k_z/\omega` of the run's
-       own operator, zero on evanescent and inactive bins. Its ratio to
-       ``beam_spectrum`` is the beam-averaged obliquity.
    * - ``absorbed_power``
      - ``(4,)``
      - J/m
      - yes
      - The power the spectral, transverse, evanescent and material channels of the
-       linear operator remove, in that order: together the whole energy decrement
+       linear operator remove, in that order, each weighted by the real axial
+       admittance as ``energy`` is: together the whole energy decrement
        of the linear flow on a Cartesian or line grid; on a line per metre of y, in J/m².
    * - ``plasma_boundary_level``
      - ``()``
@@ -291,16 +290,20 @@ integrates by the band rule
 ({py:class}`~solprop.nonlinear.responses.PlasmaResponse`'s `integration`), at each
 save plane, on every CPU backend; a native device build refuses them by name.
 
-For spatial runs, `peak_intensity` is the maximum over physical transverse samples
-and time; `on_axis_intensity` reconstructs the axis explicitly. For modal runs,
+For spatial runs, `peak_intensity` is the maximum of the signed local axial flux over
+physical transverse samples and time; `on_axis_intensity` reconstructs the axis
+explicitly. Both are measured in the medium at the plane, with the complex axial
+admittance ([energy and flux in a medium](../free-space/flux.md)). For modal runs,
 `peak_intensity` retains the on-axis definition above. A radial saved spectrum can be
-analysed by passing `space=radial_grid` to `collect`; this supplies the transverse
-measure and prevents a Hankel column from being interpreted as a modal amplitude.
-For example, `collect(default_spec("radial"), grid, plane, space=radial_grid)` returns
-whole-beam energy, both intensities, both radii, radial FWHM and the on-axis spectrum.
+analysed by passing `flux=SpatialFlux.resolve(grid, radial_grid, medium, z=plane.z)` to
+`collect`; this supplies the transverse measure and the medium at the plane, and
+prevents a Hankel column from being interpreted as a modal amplitude. For example,
+`collect(default_spec("radial"), grid, plane, flux=flux)` returns whole-beam energy,
+both intensities, both radii, radial FWHM and the on-axis spectrum.
 The radial second-moment radius is
-`sqrt(2 sum(w_r r² F) / sum(w_r F))`, where `F` is intensity integrated over the
-whole time window. Interpolated widths use linear interpolation from the separately
+`sqrt(2 sum(w_r r² F) / sum(w_r F))`, where `F` is the signed axial flux integrated
+over the whole time window; a profile negative beyond its rounding budget has no width
+and is refused. Interpolated widths use linear interpolation from the separately
 reconstructed axis to the radial samples. They describe the central lobe only;
 a hollow profile has a valid second moment but no central width at a threshold
 its axis fluence lies below (the thresholds are fractions of the peak fluence).

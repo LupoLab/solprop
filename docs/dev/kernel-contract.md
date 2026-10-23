@@ -52,7 +52,7 @@ hard-mask zeros, and explicitly exact zeros and no-ops.
 | `stepper` | frozen dataclass | section 7 (`translate.problem.StepperSettings`) |
 | `tdse` | `TDSEDescriptor` or `None` | immutable atomic specification, resolved response lattice and scientific identity; section 5 |
 | `current_numerator` | `(n_modes,n_pol,n_omega) float64` or `None` | independent current coefficient numerator, `-crop_scale/(2 epsilon_0 c)` on active bins; divided by the stage real effective index |
-| `flux` | `translate.spatial.FluxPlan` or `None` | the spatial run's plane measure (SEP 34): the separable coefficients and, for a varying radial path, the material-square z table whose `at(z)` gives the axial admittance `c k_z/omega` of the plane at `z`, with the path's adiabatic admission; required with spatial geometry and `None` without it |
+| `flux` | `FluxPlan` or `None` | a spatial run's plane measure ([SEP 34](seps/sep-0034-medium-flux.md), `translate.spatial.FluxPlan`): `base`, the separable coefficients with the entrance material square, whose principal root gives the dimensionless axial admittance `c k_z/omega` of every column and bin (zero on nonpropagating, inactive and nonpositive-frequency bins); `material`, the z table of the complex material square `(omega n/c)²` for a varying radial medium, `None` for a uniform one; and `admission`, the varying path's adiabatic certificate. `at(z)` gives a plane's coefficients. Every spatial statistic weights its columns by the real admittance at its plane (energy, spectra, absorbed powers) or synthesises the closure `G` with the complex one (fluence, intensities, on-axis spectrum). Required with spatial geometry and `None` otherwise; its active mask equals `grids.active_mask`. Added in version 35 |
 `KernelProblem` also carries one **property**, which is not a field and so not a row
 above: `device_ready` is true when Φ (§3) and the prefactor (§5) are each a weighted sum
 of a fixed set of arrays, and false when either took the z table.
@@ -398,7 +398,12 @@ attenuation and the admissible step. The modal kinds are not checked.
 The imaginary part of Φ is also the unitary phase for the noise field. Modal Φ
 includes the real endpoint term `-1/2 [ln w(z) - ln w(0)]`. It vanishes identically
 for a constant fill and for the GNLSE unit-index override. Statistics evaluate
-weights only through `translate.linop.power_weight_at(problem, z)`.
+weights only through `translate.linop.power_weight_at(problem, z)`. Radial Φ in a varying
+gas carries the spatial counterpart, `-1/2 ln[Y_z(ω,k_r,z)/Y_z(ω,k_r,0)]` with
+`Y_z ∝ Re k_z/ω`, evaluated from endpoint admittances in both the table and the
+parameter-expansion representations ([SEP 34](seps/sep-0034-medium-flux.md) §4.4); it
+is exactly zero in a uniform medium, and a radial statistic reads the admittance at its
+plane through `flux.at(z)`.
 
 An expansion may append an endpoint block with `endpoint_degrees` on the same
 parameter box. Its terms follow the integral block; its scalar weights are plain

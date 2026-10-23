@@ -119,12 +119,20 @@ modal weight — raises
 
 ## Spatial geometries
 
-Free-space runs propagate physical fields, and their energy, intensity and fluence
-routines use the vacuum admittance, $\varepsilon_0c/2$
-([free-space propagation](../free-space/model.md#field-units-and-transverse-measure)). This is a
-known limitation: in a dispersive medium the flux needs a frequency-dependent operator
-(the electric and magnetic fields synthesised separately), which no constant replacement
-provides, and the exact non-paraxial axial flux also needs the longitudinal wavevector,
-even in vacuum. Neither is implemented, so a spatial run's energy and intensity are the
-vacuum functionals of its field, and in a dense medium they are low by the refractive
-index.
+Free-space runs propagate the physical field in V/m, with no modal weight. Their energy,
+power, fluence and intensity are the axial Poynting flux of the medium at the measured
+plane ([energy and flux in a medium](../free-space/flux.md)). Each transverse column is
+weighted by the scalar axial admittance $\mathcal Y_c=\varepsilon_0c^2k_z/\omega$, the
+spatial counterpart of the modal weight $w$: it depends on frequency and, through the
+exact $k_z$, on the column's angle. Integrated energy uses its real part. Local
+quantities synthesise $E$ and the magnetic closure $G=\mathcal Y_cE$ separately and form
+$\tfrac12\operatorname{Re}(E_a\cdot G_a^*)$, exactly as the modal trace above pairs $a$
+with $a_w$. For a paraxial beam in a transparent medium this is $n_0\varepsilon_0c|E_a|^2/2$,
+so a launch of given energy in a medium of index $n_0$ has a field $\sqrt{n_0}$ lower than in
+vacuum. The local flux is signed and not clipped, and the electric field that drives
+ionisation is a separate diagnostic, {py:func}`~solprop.spatial.peak_field`.
+
+A radial run through a pressure gradient adds the same endpoint term
+$-\tfrac12\ln[Y_z(z)/Y_z(z_0)]$ to its linear exponent as a modal gradient does, so the
+energy of each column is conserved while its field amplitude changes; the path must meet
+an [adiabatic certificate](../free-space/flux.md#the-adiabatic-certificate).

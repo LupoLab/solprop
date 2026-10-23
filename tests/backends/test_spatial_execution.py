@@ -20,6 +20,7 @@ from solprop.exceptions import BackendError
 from solprop.grid import EnvelopeGrid, RadialGrid
 from solprop.nonlinear.responses import KerrResponse
 from solprop.pulses import GaussianPulse, SpatialPulse
+from solprop.spatial import SpatialMedium
 from spatial_records import record_metric
 
 free_case = test_free_ladders.free_case
@@ -47,7 +48,11 @@ def test_radial_real_blas_preserves_transform_and_memory_contract(
         jones=(1 + 0j,) if n_pol == 1 else (1 + 0j, 0.5j),
     )
     problem = make_problem(
-        grid, space, pulse.build(grid, space), [KerrResponse(1e-22, thg=False)]
+        grid,
+        space,
+        # make_problem's medium is the vacuum.
+        pulse.build(grid, space, medium=SpatialMedium()),
+        [KerrResponse(1e-22, thg=False)],
     )
     problem = dataclasses.replace(
         problem, transform=dataclasses.replace(problem.transform, node_chunk=chunk)

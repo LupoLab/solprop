@@ -955,11 +955,6 @@ planes, apertures and polarisation optics; its partial coverage is noted below.
   emission, where the paraxial map's $O(\theta^2)$ error matters.
 - *Other shapes*: rectangular and elliptical apertures, among them a
   two-dimensional slit (a line grid's aperture already is one).
-- *The flux factor in a dense medium*: the spectra are vacuum-normalised and low
-  by about $\operatorname{Re}n$ inside a medium; whether they carry the medium's
-  admittance is covered by SEP 34's medium flux. Until then
-  `poynting_spectrum`'s ratio to `beam_spectrum` gives the factor.
-  SEP 34 consolidates these into the axial-flux `beam_spectrum`.
 - *Radial and planar-hybrid geometry*: refused today, having no Cartesian transverse
   wavevector; a centred aperture on a radial grid would weight the Hankel
   spectrum's rings. SEP 31 covers radial offline transport and apertures;
@@ -1007,16 +1002,14 @@ fixed before qualifying its additional periodic scalar statistics.
 instead of refusing it; the numbers they give there are not energies. The scan reductions
 built on them already refuse spatial runs by name.
 
-**The vacuum flux factor in spatial functionals.** The spatial energy, intensity, fluence
-and on-axis functionals use $\varepsilon_0 c/2$, the vacuum flux factor. In a dense medium
-they are low by approximately the refractive index in the paraxial narrowband
-limit; the medium-dependent flux is not implemented.
-[SEP 8](seps/sep-0008-quadratic-crystal-optics.md) requires E/H flux for its new
-crystal route. [SEP 34](seps/sep-0034-medium-flux.md) covers uniform
-isotropic radial, Cartesian and line routes and admitted radial gradients,
-with a distinct hybrid planar metric, and corrects launch, noise and
-observations together. Gradient scattering outside its certificate,
-nonconstant absorption and a general full-vector free-space model remain open.
+**Free-space flux beyond the scalar forward model.** Spatial energy, intensity and
+fluence are the scalar axial flux of the medium at the plane
+([SEP 34](seps/sep-0034-medium-flux.md)), and a radial gas gradient is admitted only
+within its real-index adiabatic certificate. Gradient scattering outside that
+certificate, a radial path with varying (or any) loss, which needs a complex-index
+bound, varying media on the Cartesian and line grids, and the full vector TE/TM flux at
+high numerical aperture remain open. [SEP 8](seps/sep-0008-quadratic-crystal-optics.md)
+requires E/H flux for its crystal route.
 
 **A lossy multimode taper at the default step bound.** The taper coupling carries each
 channel's loss inside its block, and over the default `dz_max` of half the fibre the

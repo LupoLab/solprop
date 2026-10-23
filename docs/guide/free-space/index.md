@@ -14,6 +14,7 @@ extend them to focusing, diffraction and analysis.
 
 beams
 model
+flux
 hankel
 cartesian
 ```

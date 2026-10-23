@@ -249,7 +249,7 @@ def flux_from_record(record: Mapping[str, object]) -> FluxPlan:
     Returns
     -------
     FluxPlan
-        The run's plane measure, whose :meth:`FluxPlan.at` gives a saved plane's
+        The run's plane measure, whose ``FluxPlan.at`` gives a saved plane's
         coefficients at its own position.
     """
 

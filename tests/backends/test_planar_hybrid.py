@@ -502,8 +502,8 @@ def test_the_planar_launch_carries_the_coupled_share_of_the_incident_energy():
     """PlanarPulse: the incident beam's energy, the modes' share of it, in J.
 
     The energy statistic at the entrance is the pulse's energy times the sum of the
-    x shares (Arnold 2010's 98.8 % into TE1 at 0.735a), to the y axis's sampling of
-    the same Gaussian that normalises it (exact) and the rounding of the sums.
+    x shares (Arnold 2010's 98.8 % into TE1 at 0.735a), to the paraxial difference
+    between each mode's and the incident beam's admittance.
     """
     grid = ENVELOPE
     modes = [SlabMode(HALF_GAP, "Ar", 1.0, order=p) for p in (1, 3, 5)]
@@ -533,8 +533,12 @@ def test_the_planar_launch_carries_the_coupled_share_of_the_incident_energy():
         backend.close()
     shares = gaussian_coupling(modes, 0.735 * HALF_GAP)
     assert shares[0] == pytest.approx(0.988, abs=5e-4)
+    # The vacuum overlap shares carry the medium's measure to its paraxial
+    # envelope: each mode's energy is weighed by its own Re n_eff, the incident
+    # beam's by the k_x-averaged bulk admittance (SEP 34 section 4.3), which
+    # differ by about (kappa_p / k)**2 / 2 ~ 5e-6 for this argon gap.
     assert_allclose(
-        float(values["energy"][0]), 1e-3 * float(np.sum(shares)), rtol=1e-12
+        float(values["energy"][0]), 1e-3 * float(np.sum(shares)), rtol=1e-5
     )
     # The fluence integrated across the gap is Gaussian in y of 1/e^2 half-width w.
     moment, radius = np.ravel(values["beam_radius"])

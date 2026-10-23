@@ -260,8 +260,12 @@ launch before it) and a Jones vector (`jones`, see [polarisation](polarisation.m
 the [free-space](../free-space/model.md) radial, Cartesian and line grids; {py:class}`~solprop.pulses.PlanarPulse` projects an astigmatic Gaussian beam
 onto the slab modes of the hybrid planar grid (see
 [spatial decompositions](spatial-decompositions.md)). In both, the temporal pulse's
-`energy` or `peak_power` is that of the whole beam — per metre of y (J/m, W/m) on a line
-grid, which is uniform in y.
+`energy` or `peak_power` is the whole beam's physical energy or peak axial power through
+the launch plane, in the medium there — per metre of y (J/m, W/m) on a line grid, which
+is uniform in y. A beam built directly, `SpatialPulse.build(grid, space, medium=...,
+z=..., side=...)`, names that medium and plane; there is no vacuum default. A medium of
+index $n_0$ therefore carries a field $\sqrt{n_0}$ lower than vacuum for the same energy
+([energy and flux in a medium](../free-space/flux.md)).
 
 ## Where the quantum floor sits
 

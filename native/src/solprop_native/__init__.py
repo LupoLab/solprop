@@ -204,7 +204,9 @@ space. Schema 33 (solprop SEP 27) adds the analytic collar derivative and held-c
 source identity; its grid member is checked explicitly. Schema 34 (solprop SEP 29
 phase 2) adds the class attribute ``StepDriver.helpers``, through which solprop's
 shared stage and Adams code takes this backend's Chebyshev and basis helpers
-(``NativeBackend.helpers``); it is checked explicitly too.
+(``NativeBackend.helpers``); it is checked explicitly too. Schema 35 (solprop SEP 34)
+adds ``KernelProblem.flux``, the plane measure every spatial field statistic reads:
+this backend measures energy, spectra and local flux by it natively.
 
 solprop freezes this surface under its ``SCHEMA_VERSION`` (the test in its
 ``tests/backends/test_driver.py``); :func:`check_build` looks each member up so a

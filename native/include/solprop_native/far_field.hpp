@@ -16,11 +16,15 @@
 
 /*
  * The far-field statistics of solprop SEP 23 on a Cartesian or line grid: one banded
- * pass over the stored transverse spectrum that forms the beam and axial-flux spectra,
- * the four absorbed-power channels, the region spectra, each aperture's collected
- * spectrum and on-axis amplitude, and the on-axis amplitude itself (the `W = 1` slot,
- * which `on_axis_spectrum` reads). It mirrors solprop's `numba_cpu` pass: the slot
- * layout of `solprop.backends.spatial.far_field_layout`, the band edges of
+ * pass over the stored transverse spectrum that forms the beam spectrum, the four
+ * absorbed-power channels, the region spectra, each aperture's collected spectrum and
+ * on-axis amplitude, and the on-axis amplitude itself (the `W = 1` slot, which
+ * `on_axis_spectrum` reads). Every quantity is measured by the medium's axial flux
+ * (solprop SEP 34): a squared modulus is weighted by the real admittance
+ * `c Re k_z / omega` of the operator's root, and each amplitude carries its magnetic
+ * closure, the same sum with `conj(c k_z / omega)` applied first, formed per element
+ * (no column-by-frequency table is held). It mirrors solprop's `numba_cpu` pass: the
+ * slot layout of `solprop.backends.spatial.far_field_layout`, the band edges of
  * `far_field_bands` (the same units and budget), the radius of `mask_plane_radius`
  * compiled without contraction, the zeros of `aperture_weight` and the root of
  * `longitudinal_root`. Each band sums its columns in ascending order and the bands are
@@ -47,14 +51,12 @@ inline constexpr std::size_t far_field_absorbed_channels = 4;
 /** Where `tanh` saturates: correctly rounded, `tanh(t)` is exactly 1 for `t >= 22`. */
 inline constexpr double far_field_tanh_saturation = 22.0;
 
-/** The vacuum speed of light, m/s, exact in the SI; the obliquity `c Re k_z / omega`.
- */
+/** The vacuum speed of light, m/s, exact in the SI; the admittance `c k_z / omega`. */
 inline constexpr double far_field_speed_of_light = 299792458.0;
 
 /** The flags of `aperture_statistics`, from 32: 1 to 16 are `spatial_statistics`'. */
 enum FarFieldFlag : std::uint64_t {
   far_field_beam = 1ULL << 5U,
-  far_field_poynting = 1ULL << 6U,
   far_field_absorbed = 1ULL << 7U,
   far_field_regions = 1ULL << 8U,
   far_field_collected = 1ULL << 9U,
@@ -63,19 +65,20 @@ enum FarFieldFlag : std::uint64_t {
 };
 
 inline constexpr std::uint64_t far_field_flags =
-    far_field_beam | far_field_poynting | far_field_absorbed | far_field_regions |
-    far_field_collected | far_field_amplitude | far_field_axis;
+    far_field_beam | far_field_absorbed | far_field_regions | far_field_collected |
+    far_field_amplitude | far_field_axis;
 
 /**
  * Where each quantity of the pass lives in its slots, solprop's `FarFieldLayout`.
  *
- * The beam spectrum, the axial flux, the four absorbed channels, the regions, then per
- * aperture its collected spectrum and the real and imaginary parts of its on-axis
- * amplitude per polarisation, then the on-axis amplitude (`2 n_pol` slots); present
- * slots only, an absent quantity -1.
+ * The beam spectrum, the four absorbed channels, the regions, then per aperture its
+ * collected spectrum and its on-axis amplitude, then the on-axis amplitude itself; an
+ * amplitude is the real and imaginary parts per polarisation of the electric sum, then
+ * those of its magnetic closure (`4 n_pol` slots). Present slots only, an absent
+ * quantity -1.
  */
 struct FarFieldLayout {
-  long beam{-1}, poynting{-1}, absorbed{-1}, regions{-1}, apertures{-1};
+  long beam{-1}, absorbed{-1}, regions{-1}, apertures{-1};
   long stride{}, collected{-1}, amplitude{-1}, axis{-1};
   std::size_t n_slots{};
 };
@@ -186,7 +189,8 @@ KOKKOS_INLINE_FUNCTION bool far_field_member(const double k_x, const double k_y,
  * one is a team per band over its columns in ascending order, the team's threads over
  * frequency; stage two adds the bands in ascending order and applies the constant
  * factors (`intensity_factor`, the spectral-density prefactor, the energy weights and
- * `|A|^2`), so only the packed statistics cross to the host.
+ * each amplitude's pairing `Re(A conj(G))` with its closure), so only the packed
+ * statistics cross to the host.
  */
 class FarFieldPass {
 public:
@@ -217,7 +221,7 @@ public:
    * `apertures` is row-major `(n_apertures, 6 + n_omega)`: the six constants of
    * `far_field_aperture_constants` and the scale row `z c / omega` (m^2, zero at and
    * below zero frequency); `regions` row-major `(n_regions, 4)`. Returns, in order and
-   * present ones only: the beam and axial-flux spectra (`n_omega` each), the four
+   * present ones only: the beam spectrum (`n_omega`), the four
    * absorbed powers, the region spectra, the collected spectra and the apertures'
    * on-axis spectra (`n_omega` per row), and the on-axis spectrum (`n_omega`).
    */

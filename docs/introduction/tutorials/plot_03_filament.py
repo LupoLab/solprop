@@ -14,9 +14,10 @@ the beam and removes energy. A narrow high-intensity channel may persist over a
 substantial distance; this is optical filamentation.
 
 We follow an initially collimated 800 nm pulse in argon at 1 bar. Its intensity
-FWHM is 30 fs, its 1/e² intensity radius is 300 μm, and its peak power is three
-times the critical power returned by solprop's Kerr model. Unlike a modal guide,
-the transverse profile is free to evolve. Cylindrical symmetry lets us resolve
+FWHM is 30 fs, its 1/e² intensity radius is 300 μm, and its peak field on axis is
+:math:`1.21\times10^{10}` V/m, which puts its peak power at three times the
+critical power returned by solprop's Kerr model. Unlike a modal guide, the transverse
+profile is free to evolve. Cylindrical symmetry lets us resolve
 that evolution with one radial coordinate.
 
 This lesson introduces the relation between **fluence** (energy per unit area),
@@ -30,11 +31,15 @@ or multiple off-axis filaments. See :doc:`/guide/free-space/model` and
 # %%
 # Describe the beam and material
 # ------------------------------
-# ``critical_power`` uses the Townes threshold for the cubic paraxial model.
-# Setting the pulse above that threshold is a useful organising parameter, not a
-# guarantee of a particular focus position in a broadband, ionising calculation.
-# ``SpatialPulse`` normalises the transverse profile to the temporal pulse's whole
-# beam power. Its waist is a radius, not a diameter or an intensity FWHM.
+# ``critical_power`` uses the Townes threshold for the cubic paraxial model, as a
+# physical power in the medium at its carrier index. Setting the pulse above that
+# threshold is a useful organising parameter, not a guarantee of a particular focus
+# position in a broadband, ionising calculation. The beam is stated by its physical
+# field: a Gaussian of 1/e² intensity radius ``WAIST`` (a radius, not a diameter or an
+# intensity FWHM) times a temporal envelope of unit peak, scaled to ``FIELD`` and
+# Hankel transformed. Its power and energy are then measured, in the argon, as the
+# axial Poynting flux (:doc:`/guide/free-space/flux`). A ``SpatialPulse`` would fix
+# the energy or the power instead.
 
 import time
 
@@ -42,14 +47,22 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from solprop.boundaries import absorber
+from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings
 from solprop.grid import EnvelopeGrid, RadialGrid
 from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
 from solprop.nonlinear.optmat_rates import OptmatRate
 from solprop.nonlinear.responses import KerrResponse
-from solprop.physdata import chi3, gamma3
-from solprop.pulses import GaussianPulse, SpatialPulse
-from solprop.spatial import SpatialMedium, critical_power, spatial_fluence
+from solprop.physdata import chi3, gamma3, refractive_index
+from solprop.pulses import GaussianPulse
+from solprop.spatial import (
+    SpatialFlux,
+    SpatialMedium,
+    critical_power,
+    spatial_energy,
+    spatial_fluence,
+    spatial_power,
+)
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 
@@ -65,16 +78,19 @@ from solprop.stepper import PIController
 started = time.perf_counter()
 
 WAIST = 300e-6
+FIELD = 1.2127e10  # V/m, the peak of the analytic field on axis
 LENGTH = 0.25
 medium = SpatialMedium("Ar", pressure=1.0)
-power = critical_power(800e-9, chi3("Ar", pressure=1.0, wavelength=800e-9))
+index = float(refractive_index("Ar", 2 * np.pi * C / 800e-9, pressure=1.0))
+power = critical_power(800e-9, chi3("Ar", pressure=1.0, wavelength=800e-9), index=index)
 
 grid = EnvelopeGrid.from_limits(LENGTH, 800e-9, (500e-9, 1.4e-6), 300e-15, thg=False)
 space = RadialGrid(4 * WAIST, 128)
-pulse = SpatialPulse(
-    GaussianPulse(wavelength=800e-9, fwhm=30e-15, peak_power=3 * power),
-    waist=WAIST,
-)
+envelope = GaussianPulse(wavelength=800e-9, fwhm=30e-15, peak_power=1.0).build(grid)
+profile = np.exp(-((space.r / WAIST) ** 2))
+pulse = FIELD * space.hankel.forward(profile)[:, None, None] * envelope
+flux = SpatialFlux.resolve(grid, space, medium)
+peak_power = float(np.max(spatial_power(pulse, flux)))
 responses = [
     KerrResponse(gamma3("Ar", wavelength=800e-9), thg=False),
     EnvelopePlasmaResponse("Ar", OptmatRate("Ar", 800e-9)),
@@ -102,12 +118,13 @@ run = simulation.run(progress="none")
 # references in :doc:`/guide/free-space/model`; plasma arrests the Kerr-only
 # collapse, so the estimate is a reference marker rather than an expected answer.
 
-index = float(medium.index(np.array([grid.omega0]))[0].real)
+ratio = peak_power / power
 rayleigh = np.pi * index * WAIST**2 / 800e-9
-marburger = 0.367 * rayleigh / np.sqrt((np.sqrt(3.0) - 0.852) ** 2 - 0.0219)
+marburger = 0.367 * rayleigh / np.sqrt((np.sqrt(ratio) - 0.852) ** 2 - 0.0219)
 energy = np.asarray(run["stats/energy"]).reshape(-1)
-print(f"critical power: {power * 1e-9:.3g} GW; beam: {3 * power * 1e-9:.3g} GW")
-print(f"pulse energy: {energy[0] * 1e3:.3g} mJ; Marburger distance: {marburger:.3g} m")
+print(f"critical power: {power * 1e-9:.4g} GW; beam: {peak_power * 1e-9:.4g} GW")
+print(f"P/Pcr = {ratio:.4f}; launch energy {spatial_energy(pulse, flux) * 1e3:.4g} mJ")
+print(f"pulse energy: {energy[0] * 1e3:.4g} mJ; Marburger distance: {marburger:.3g} m")
 
 # %%
 # Read fluence and plasma together
@@ -121,7 +138,8 @@ print(f"pulse energy: {energy[0] * 1e3:.3g} mJ; Marburger distance: {marburger:.
 
 z = np.asarray(run["z"])
 planes = run.planes()
-fluence = np.array([spatial_fluence(grid, space, plane.field) for plane in planes])
+# The medium is uniform, so one measure serves every plane.
+fluence = np.array([spatial_fluence(plane.field, flux) for plane in planes])
 radius = np.asarray(space.r)
 mirrored = np.concatenate([-radius[::-1], radius])
 map_values = np.concatenate([fluence[:, ::-1], fluence], axis=1)
@@ -154,7 +172,7 @@ figure.tight_layout()
 # %%
 # What the figures do and do not show
 # -----------------------------------
-# The left panel integrates intensity over the whole pulse. A bright fluence core
+# The left panel integrates the axial flux over the whole pulse. A bright fluence core
 # therefore does not by itself tell us either the peak intensity or the duration.
 # The right panel supplies the peak intensity and electron density: compare their
 # rise with the contraction in the map. The signed radial axis is a mirrored view
