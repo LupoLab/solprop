@@ -537,9 +537,7 @@ def test_the_planar_launch_carries_the_coupled_share_of_the_incident_energy():
     # envelope: each mode's energy is weighed by its own Re n_eff, the incident
     # beam's by the k_x-averaged bulk admittance (SEP 34 section 4.3), which
     # differ by about (kappa_p / k)**2 / 2 ~ 5e-6 for this argon gap.
-    assert_allclose(
-        float(values["energy"][0]), 1e-3 * float(np.sum(shares)), rtol=1e-5
-    )
+    assert_allclose(float(values["energy"][0]), 1e-3 * float(np.sum(shares)), rtol=1e-5)
     # The fluence integrated across the gap is Gaussian in y of 1/e^2 half-width w.
     moment, radius = np.ravel(values["beam_radius"])
     assert_allclose([moment, radius], [500e-6, 500e-6], rtol=2e-3)

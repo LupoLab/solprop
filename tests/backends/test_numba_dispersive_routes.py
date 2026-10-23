@@ -113,7 +113,7 @@ def free_problem(
         grid,
         None,
         responses,
-        pulse.build(grid, space) * grid.active_mask,
+        pulse.build(grid, space, medium=SpatialMedium()) * grid.active_mask,
         spatial_grid=space,
         medium=SpatialMedium() if medium is None else medium,
         controller=PIController(rtol=1e-8, atol=1e-14),
