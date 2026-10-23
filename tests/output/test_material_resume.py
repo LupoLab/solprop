@@ -75,7 +75,7 @@ def selected():
 
 
 def test_the_current_schema_carries_the_manifest_through_memory_and_json(selected):
-    assert SCHEMA_VERSION == 23 == selected.schema_version
+    assert SCHEMA_VERSION == 24 == selected.schema_version
     memory = MemoryOutput()
     memory.open(selected)
     stored: Any = memory.metadata

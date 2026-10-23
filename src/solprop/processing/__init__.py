@@ -68,6 +68,7 @@ from solprop.processing.modal import (
     physical_energy,
     reconstructed_flux,
 )
+from solprop.processing.planes import PLANE_TOLERANCE, field_plane
 from solprop.processing.spectra import (
     DEFAULT_BANDPASS_BINS,
     DEFAULT_BANDPASS_FRACTION,
@@ -97,6 +98,7 @@ __all__ = [
     "DEFAULT_BANDPASS_BINS",
     "DEFAULT_BANDPASS_FRACTION",
     "FIELD_KINDS",
+    "PLANE_TOLERANCE",
     "SPECTRAL_AXES",
     "ArrivalMethod",
     "Band",
@@ -123,6 +125,7 @@ __all__ = [
     "electric_field",
     "energy",
     "field_autocorrelation",
+    "field_plane",
     "fwhm",
     "fwhm_f",
     "fwhm_t",

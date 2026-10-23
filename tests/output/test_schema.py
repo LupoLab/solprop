@@ -930,4 +930,4 @@ def test_raman_tensor_identity_survives_metadata_round_trip_and_controls_resume(
         assert original.configuration_hash() != other.configuration_hash()
         with pytest.raises(OutputError, match=r"configuration\.raman"):
             resolve_metadata_write(restored, other)
-    assert original.schema_version == 23
+    assert original.schema_version == 24

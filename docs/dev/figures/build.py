@@ -597,6 +597,7 @@ MODULES = {
         Module("polarisation.py"),
         Module("optics.py"),
         Module("tools.py"),
+        Module("coupling/", ("plane", "port", "remap")),
         Module(
             "physdata/",
             (
@@ -669,6 +670,7 @@ MODULES = {
                 "planar",
                 "spatial",
                 "flux",
+                "coupling",
                 "responses",
                 "ionisation",
                 "plasma_integration",
@@ -792,6 +794,7 @@ MODULES = {
                 "compression",
                 "mixtures",
                 "modal",
+                "planes",
                 "scans",
             ),
         ),
@@ -805,6 +808,7 @@ MODULES = {
 """Every module of the package, in its layer's band. All of these exist."""
 
 PLANNED = {
+    "P": (Module("coupling/", ("transport", "elements")),),
     "X": (Module("processing/", ("windows",)),),
 }
 """Modules `architecture.md` section 4 names that are not written yet.

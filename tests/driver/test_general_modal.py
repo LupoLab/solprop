@@ -1106,7 +1106,7 @@ def test_an_hdf5_file_carries_the_labels_and_the_identities(guide, grid, tmp_pat
     simulation = build(guide, grid)
     simulation.run(path, progress="none")
     stored = resume(path).metadata
-    assert stored.schema_version == 23
+    assert stored.schema_version == 24
     assert stored.modal is not None
     assert dict(stored.modal)["basis"] == "general_modal"
     labels = [dict(one.label) for one in stored.modes if one.label is not None]

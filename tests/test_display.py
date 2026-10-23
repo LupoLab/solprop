@@ -689,7 +689,7 @@ def test_the_run_record_names_its_power_convention(examples):
     # the spectral convention; a schema-5 record (which carries no material manifest)
     # reads back as the vacuum label.
     metadata = quiet(examples["Simulation"].metadata)
-    assert "optics spectra, poynting amplitudes, schema 23" in str(metadata)
+    assert "optics spectra, poynting amplitudes, schema 24" in str(metadata)
     older = replace(
         metadata, schema_version=5, quadrature=None, materials=MaterialManifest()
     )

@@ -57,6 +57,15 @@ from solprop.boundaries import (
 )
 from solprop.boundaries import absorber as collar
 from solprop.constants import C
+from solprop.coupling import (
+    CouplingLaunch,
+    InputPort,
+    PlaneBasis,
+    PlaneReference,
+    basis_identity,
+    modal_basis_identity,
+    space_record,
+)
 from solprop.driver import tdse_consistency
 from solprop.driver.material_output import (
     material_manifest,
@@ -240,6 +249,8 @@ from solprop.translate.coupled import (
     taper_identity,
     wall_identity,
 )
+from solprop.translate.coupling import frame_record
+from solprop.translate.coupling import input_port as fill_port
 from solprop.translate.envelope_plasma import (
     CycleIntegralData,
     assembly_record,
@@ -1025,6 +1036,7 @@ def metadata_for(  # noqa: PLR0913 - the record's parts, each a distinct object
     modal: Mapping[str, JsonValue] | None = None,
     materials: MaterialManifest | None = None,
     quadrature: TransverseQuadrature | None = None,
+    frame: Frame | None = None,
 ) -> RunMetadata:
     """Build the record that says what produced a run, and whether it may be resumed.
 
@@ -1066,6 +1078,10 @@ def metadata_for(  # noqa: PLR0913 - the record's parts, each a distinct object
         The transverse rule of a resolved modal run, recorded with its nodes and
         physical weights on the first mode's cross-section and part of the schema-17
         resume key (SEP 19). ``None`` for every other route.
+    frame : solprop.linear.Frame or None, optional
+        The run's frame, whose reference frequency is the origin of the linear frame
+        term on an envelope grid; ``None`` is the grid's co-moving frame. It enters
+        the schema-24 plane-reference record, not the hash.
 
     Returns
     -------
@@ -1190,6 +1206,7 @@ def metadata_for(  # noqa: PLR0913 - the record's parts, each a distinct object
         }
     tdse_record = None if problem.tdse is None else dataclasses.asdict(problem.tdse)
     return RunMetadata(
+        reference=_plane_reference_record(problem, grid, record, frame, modes, modal),
         grid=GridRecord.from_grid(grid),
         modes=tuple(ModeRecord.from_mode(mode) for mode in modes),
         simulation_kind=(
@@ -1211,6 +1228,119 @@ def metadata_for(  # noqa: PLR0913 - the record's parts, each a distinct object
         initial_z=problem.initial.z,
         tdse=tdse_record,
     )
+
+
+def _plane_reference_record(
+    problem: KernelProblem,
+    grid: TimeGrid,
+    configuration: Mapping[str, object],
+    frame: Frame | None,
+    modes: Sequence[Mode],
+    modal: Mapping[str, JsonValue] | None,
+) -> dict[str, object]:
+    """Return the schema-24 plane-reference record of a run (SEP 31).
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The translated problem, whose frame tables are integrated.
+    grid : solprop.grid.TimeGrid
+        Its temporal grid.
+    configuration : collections.abc.Mapping
+        The run's configuration; a ``coupling`` entry supplies the inherited origin
+        and the parent's provenance, and a ``spatial_grid`` the transverse basis.
+    frame : solprop.linear.Frame or None
+        The run's frame, or ``None`` for the co-moving one.
+    modes : collections.abc.Sequence
+        The propagated modes of a modal run.
+    modal : collections.abc.Mapping or None
+        The general modal identity, for a general guide.
+
+    Returns
+    -------
+    dict
+        ``carrier``, ``origin``, ``parent``, ``frame`` and ``basis``, as
+        :attr:`solprop.output.schema.RunMetadata.reference` documents them.
+    """
+    reference = grid.omega0 if frame is None else frame.omega0
+    coupling = configuration.get("coupling")
+    origin: object = PlaneReference().record()
+    parent: object = None
+    if isinstance(coupling, Mapping):
+        coupled = cast("Mapping[str, object]", coupling)
+        origin = coupled["origin"]
+        parent = coupled["source"]
+    return {
+        "carrier": float(grid.omega0),
+        "origin": origin,
+        "parent": parent,
+        "frame": frame_record(
+            problem.linear, reference if grid.kind == "envelope" else 0.0
+        ),
+        "basis": _plane_bases(problem, grid, configuration, modes, modal),
+    }
+
+
+def _plane_bases(
+    problem: KernelProblem,
+    grid: TimeGrid,
+    configuration: Mapping[str, object],
+    modes: Sequence[Mode],
+    modal: Mapping[str, JsonValue] | None,
+) -> dict[str, object]:
+    """Return a run's route and its basis identity at each planned plane.
+
+    A spatial basis is its transverse grid and a general one its checked reference,
+    the same at every plane; an ordinary mode set's basis is evaluated at each plane
+    (:func:`solprop.coupling.modal_basis_identity`), because a guide may vary.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The translated problem: its launch position and save planes.
+    grid : solprop.grid.TimeGrid
+        Its temporal grid.
+    configuration : collections.abc.Mapping
+        The run's configuration, carrying a spatial run's ``spatial_grid``.
+    modes : collections.abc.Sequence
+        The propagated modes of a modal run.
+    modal : collections.abc.Mapping or None
+        The general modal identity.
+
+    Returns
+    -------
+    dict
+        ``route``, ``z`` (the launch plane first, then the save planes, m) and
+        ``identity`` (one digest per plane, ``None`` on a planar run).
+    """
+    planes = [float(problem.initial.z), *map(float, problem.stepper.save_planes)]
+    geometry = problem.transform.geometry
+    identity: str | None
+    if geometry is not None:
+        route = {"radial": "radial", "free": "cartesian", "slab": "planar"}[
+            geometry.kind
+        ]
+        space = configuration.get("spatial_grid")
+        identity = (
+            basis_identity(cast("Literal['radial']", route), space_record(space))
+            if isinstance(space, RadialGrid | FreeGrid)
+            else None
+        )
+        identities = [identity] * len(planes)
+    elif modal is not None and modal.get("basis") == "general_modal":
+        route = "general_modal"
+        metric = cast("Mapping[str, JsonValue]", modal.get("metric") or {})
+        record = {
+            "channels": modal.get("channels"),
+            "tables": modal.get("tables"),
+            "guide": modal.get("guide"),
+            "metric": {"kind": metric.get("kind"), "gauge_id": metric.get("gauge_id")},
+        }
+        identities = [basis_identity("general_modal", record)] * len(planes)
+    else:
+        route = "modal"
+        identities = [modal_basis_identity(modes, grid, z) for z in planes]
+    return {"route": route, "z": planes, "identity": identities}
 
 
 def _one_material_context[**P, R](build: Callable[P, R]) -> Callable[P, R]:
@@ -1710,9 +1840,79 @@ class Simulation(Displayed):
                 )
         return self._problem
 
+    def input_port(self, z: float | None = None) -> InputPort:
+        """Return what this simulation can receive at its entrance (SEP 31).
+
+        The port is the receiving side of a transfer between simulations: its route,
+        temporal lattice and basis with their identities, the entrance plane and the
+        frame accumulated there, the native metric at the entrance, the reference
+        index of a spatial medium and, for a general guide that does not move, its
+        E/H reference at the nodes. A launch computed for it
+        (:func:`solprop.coupling.same_basis`) is accepted by :meth:`with_input`, and
+        a launch computed for any other port is refused.
+
+        Parameters
+        ----------
+        z : float or None, optional
+            An interior entrance in m, for a modal run continued from inside its own
+            path; None is the simulation's launch position.
+
+        Returns
+        -------
+        solprop.coupling.InputPort
+            The port, admitting the ``same_basis`` model.
+
+        Raises
+        ------
+        DriverError
+            For a hybrid planar run, whose slab columns are not exchanged in this
+            release, or an interior entrance outside the run.
+        """
+        problem = self.translate()
+        metadata = self.metadata()
+        reference = cast("Mapping[str, object]", metadata.reference)
+        bases = cast("Mapping[str, object]", reference["basis"])
+        route = cast("str", bases["route"])
+        if route == "planar":
+            msg = (
+                "a hybrid planar run's columns are slab amplitudes per y frequency; "
+                "planar planes are not exchanged in this release"
+            )
+            raise DriverError(msg)
+        if z is not None and not (
+            math.isfinite(z) and 0.0 <= z < float(np.max(self.settings.save_planes))
+        ):
+            msg = f"an interior entrance lies inside the run, got z = {z!r} m"
+            raise DriverError(msg)
+        identity = cast("list[str]", bases["identity"])[0]
+        if route == "modal" and z is not None:
+            identity = modal_basis_identity(self.modes, self.grid, z)
+        labels = tuple(mode.channel_label.display_label for mode in self.modes)
+        space = (
+            self.spatial_grid
+            if isinstance(self.spatial_grid, RadialGrid | FreeGrid)
+            else None
+        )
+        basis = PlaneBasis(
+            cast("Literal['modal', 'general_modal', 'radial', 'cartesian']", route),
+            identity,
+            labels,
+            space,
+        )
+        return fill_port(
+            problem,
+            self.grid,
+            route=basis.kind,
+            basis=basis,
+            frame=cast("dict[str, object] | None", reference["frame"]),
+            medium=self.medium,
+            tables=None if self.general is None else self.general.tables,
+            z=z,
+        )
+
     def with_input(
         self,
-        initial: Pulse | SpatialPulse | np.ndarray,
+        initial: Pulse | SpatialPulse | np.ndarray | CouplingLaunch,
         *,
         noise: NoiseRealisation | Literal["keep"] | None = "keep",
         initial_z: float | None = None,
@@ -1731,13 +1931,20 @@ class Simulation(Displayed):
 
         Parameters
         ----------
-        initial : Pulse, SpatialPulse or numpy.ndarray
+        initial : Pulse, SpatialPulse, numpy.ndarray or solprop.coupling.CouplingLaunch
             Pulse or internal-convention spectrum on the existing grid. The built
             shape must match the original input, including modes and polarisation.
             Modal amplitudes are in sqrt(W); spatial units follow the spatial grid.
+            A :class:`~solprop.coupling.CouplingLaunch` (SEP 31) must be bound to
+            this simulation's :meth:`input_port` -- its route, lattice, basis,
+            entrance and metric -- or it is refused whatever its shape; its
+            entrance sets the launch position, and its provenance and inherited
+            reference origin are recorded as ``configuration["coupling"]``.
         noise : NoiseRealisation, {'keep'} or None, optional
             Keep the existing noise, replace it explicitly, or disable it with None.
-            Noise spectra must match the existing grid and input shape.
+            Noise spectra must match the existing grid and input shape. A launch
+            carries the realised field of its source, so for a launch ``'keep'``
+            means no noise: no second floor is drawn unless a realisation is given.
         initial_z : float or None, optional
             Absolute launch position in metres. None retains this simulation's
             launch. An explicit position keeps only existing save planes beyond
@@ -1759,8 +1966,9 @@ class Simulation(Displayed):
         Raises
         ------
         DriverError
-            If the new field or noise shape differs or any sample is not finite, or
-            a `configuration` key is one the run records itself.
+            If the new field or noise shape differs or any sample is not finite, a
+            `configuration` key is one the run records itself, or a launch is bound
+            to another port or given beside an `initial_z`.
 
         Warns
         -----
@@ -1771,6 +1979,21 @@ class Simulation(Displayed):
         """
         if isinstance(noise, str) and noise != "keep":
             raise DriverError("noise must be keep, None, or a NoiseRealisation")
+        coupling = None
+        if isinstance(initial, CouplingLaunch):
+            if initial_z is not None:
+                msg = "a launch carries its own entrance: give no initial_z beside it"
+                raise DriverError(msg)
+            entrance = initial.port.geometry.z
+            interior = None if entrance == self.initial_z else entrance
+            refusal = self.input_port(interior).accepts(initial.port)
+            if refusal is not None:
+                msg = f"this launch was computed for another input port: {refusal}"
+                raise DriverError(msg)
+            coupling = initial.record()
+            initial_z = interior
+            noise = None if isinstance(noise, str) else noise
+            initial = initial.internal()
         original = self.translate()
         launch_z = self.initial_z if initial_z is None else initial_z
         settings = self.settings
@@ -1783,7 +2006,7 @@ class Simulation(Displayed):
                 )
             settings = dataclasses.replace(settings, save_planes=remaining)
         replacement_noise = self.noise if isinstance(noise, str) else noise
-        recorded = self._derived_configuration(initial, configuration)
+        recorded = self._derived_configuration(initial, configuration, coupling)
         updated = Simulation(
             self._base_grid,
             self.modes,
@@ -1854,6 +2077,7 @@ class Simulation(Displayed):
         self,
         initial: Pulse | SpatialPulse | np.ndarray,
         configuration: Mapping[str, object] | None,
+        coupling: Mapping[str, object] | None = None,
     ) -> dict[str, object]:
         """Return a derived run's extra configuration: this run's, the caller's keys.
 
@@ -1863,6 +2087,8 @@ class Simulation(Displayed):
             The replacement input.
         configuration : collections.abc.Mapping or None
             The caller's keys.
+        coupling : collections.abc.Mapping or None, optional
+            The provenance of a coupling launch, recorded as ``coupling``.
 
         Returns
         -------
@@ -1875,8 +2101,10 @@ class Simulation(Displayed):
             If a caller's key is one the run records itself.
         """
         recorded = dict(self.configuration)
-        # Nor does the constructor's incident-beam account describe it.
+        # Nor does the constructor's incident-beam account describe it, nor a
+        # coupling that launched this run.
         recorded.pop("launch", None)
+        recorded.pop("coupling", None)
         # A constructor's pulse recipe must never describe a replacement spectrum.
         # Arrays carry their exact input in metadata, without an inferred recipe.
         if "pulse" in recorded:
@@ -1884,7 +2112,9 @@ class Simulation(Displayed):
             if not isinstance(initial, np.ndarray):
                 recorded["pulse"] = initial
         if configuration:
-            clash = sorted(set(configuration) & set(self.metadata().configuration))
+            clash = sorted(
+                set(configuration) & ({"coupling"} | set(self.metadata().configuration))
+            )
             if clash:
                 msg = (
                     f"configuration keys {clash} are recorded by the run itself; "
@@ -1892,6 +2122,8 @@ class Simulation(Displayed):
                 )
                 raise DriverError(msg)
             recorded.update(configuration)
+        if coupling is not None:
+            recorded["coupling"] = dict(coupling)
         return recorded
 
     def _check_replaced_input(
@@ -2128,6 +2360,7 @@ class Simulation(Displayed):
                     modal=self._modal_identity(),
                     materials=self.material_manifest(),
                     quadrature=self.settings.quadrature,
+                    frame=self.frame,
                 )
         return self._metadata
 
