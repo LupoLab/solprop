@@ -65,7 +65,8 @@ The first public release. It contains:
     Kokkos-FFT, bound with nanobind, for multi-core CPUs (OpenMP) and for NVIDIA and AMD
     GPUs (CUDA, HIP). `pip install solprop[native]` installs a precompiled CPU wheel on
     macOS on Apple silicon, Linux on x86-64 and aarch64, and Windows on x86-64; other
-    platforms and GPUs build it from source. `backend="auto"` selects it when installed,
+    platforms and GPUs build it from source. A CUDA build needs GCC 14 or newer as the
+    host compiler and CUDA 12.8 or newer (qualified on CUDA 13). `backend="auto"` selects it when installed,
     except on a processor below the installed build's CPU baseline, where it uses
     `numba_cpu` and warns once, naming the missing features; `backend="native"` raises
     there.
