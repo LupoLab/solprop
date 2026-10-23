@@ -51,7 +51,9 @@ from solprop.backends.spatial import (
     AXIS_SPECTRUM_ONLY,
     FarFieldTables,
     far_field_partials,
+    fluence_budget,
     radial_absorber_matrix,
+    signed_fluence_widths,
 )
 from solprop.constants import EPS0, C
 from solprop.exceptions import BackendError, ConvergenceError
@@ -68,8 +70,6 @@ from solprop.profiles import ZProfile
 from solprop.spatial import (
     FAR_FIELD_STATISTICS,
     ApertureTables,
-    cartesian_fluence_widths,
-    radial_fluence_widths,
 )
 from solprop.stats import (
     METRIC_WEIGHTED_STATISTICS,
@@ -103,7 +103,6 @@ from solprop.translate.plasma_source import (
     _BENCHMARK_GATED,  # pyright: ignore[reportPrivateUsage] - refuse the private NumPy benchmark hook
 )
 from solprop.translate.problem import SCHEMA_VERSION, KernelProblem, PropagatorMode
-from solprop.translate.spatial import SpatialGeometry
 from solprop.translate.stage import (
     StageScalars,
     StageTerms,
@@ -148,7 +147,6 @@ _SPATIAL_STAT_FLAGS = {
 
 _FAR_FIELD_FLAGS = {
     "beam_spectrum": 1 << 5,
-    "poynting_spectrum": 1 << 6,
     "absorbed_power": 1 << 7,
     "region_spectrum": 1 << 8,
     "aperture_spectrum": 1 << 9,
@@ -163,7 +161,6 @@ other spatial kinds it stays ``spatial_statistics``' flag 8.
 
 _FAR_FIELD_ORDER = (
     "beam_spectrum",
-    "poynting_spectrum",
     "absorbed_power",
     "region_spectrum",
     "aperture_spectrum",
@@ -270,6 +267,7 @@ class NativeBackend(StepDriver[_core.State]):
         )
         if self._z_tables is not None:
             self._z_tables.upload(self._native_state)
+        _upload_flux_table(self._native_state, problem)
         self._last_loaded = np.empty(0, dtype=np.complex128)
         self._alarm = math.nan
         self._alarm_reported = False
@@ -1125,7 +1123,7 @@ class NativeBackend(StepDriver[_core.State]):
         for name in names:
             flags |= _SPATIAL_STAT_FLAGS[name]
         packed = np.asarray(
-            self._native_state.spatial_statistics(flags, 0.5 * EPS0 * C)
+            self._native_state.spatial_statistics(flags, 0.5 * EPS0 * C, self._z)
         ).ravel()
         offset = 0
         for name in (
@@ -1140,25 +1138,23 @@ class NativeBackend(StepDriver[_core.State]):
                 values[name] = data[None] if name == "on_axis_spectrum" else data
                 offset += count
         if names & {"beam_radius", "fwhm_r"}:
+            # The signed fluence, the axis fluence and each node's magnitude, whose
+            # largest value fixes the rounding budget (solprop SEP 34).
             count = self._problem.transform.n_nodes
             fluence = packed[offset : offset + count]
             axis_fluence = float(packed[offset + count])
-            widths = (
-                radial_fluence_widths(
-                    geometry.axes[0], fluence, geometry.spatial_weights, axis_fluence
-                )
-                if geometry.kind == "radial"
-                else _slab_widths(geometry, fluence)
-                if geometry.kind == "slab"
-                else cartesian_fluence_widths(
-                    geometry.axes[0], geometry.axes[1], fluence
-                )
+            magnitude = packed[offset + count + 1 : offset + 2 * count + 1]
+            n_pol = self._problem.shape[2]
+            budget = fluence_budget(
+                magnitude,
+                n_pol * self._problem.grids.n_t + self._problem.transform.n_modes,
             )
+            widths = signed_fluence_widths(geometry, fluence, budget, axis_fluence)
             if "beam_radius" in names:
                 values["beam_radius"] = np.asarray([widths[:2]])
             if "fwhm_r" in names:
                 values["fwhm_r"] = np.asarray([widths[2]])
-            offset += count + 1
+            offset += 2 * count + 1
         if offset != packed.size:
             raise BackendError(
                 f"native spatial statistics returned {packed.size} values; "
@@ -1203,7 +1199,6 @@ class NativeBackend(StepDriver[_core.State]):
         n_apertures = apertures.shape[0]
         rows = {
             "beam_spectrum": None,
-            "poynting_spectrum": None,
             "absorbed_power": 0,
             "region_spectrum": regions.shape[0],
             "aperture_spectrum": n_apertures,
@@ -2732,6 +2727,7 @@ def _native_problem(
         **_general_payload(problem),
         **_flow_payload(flow),
         **_dispersive_payload(problem),
+        **_flux_payload(problem),
         "n_omega": n_omega,
         "n_t": problem.grids.n_t,
         "n_to": problem.grids.n_to,
@@ -2969,21 +2965,64 @@ def _dispersive_payload(problem: KernelProblem) -> dict[str, object]:
     }
 
 
-def _slab_widths(
-    geometry: SpatialGeometry, fluence: npt.NDArray[np.float64]
-) -> tuple[float, float, float]:
-    """Measure a planar beam's widths in y from its fluence integrated across the gap.
+_LOCAL_FLUX_STATISTICS = frozenset(
+    {"on_axis_intensity", "peak_intensity", "beam_radius", "fwhm_r"}
+)
+"""The spatial statistics that synthesise the magnetic closure in time (SEP 34)."""
 
-    solprop's reference reduction for the hybrid planar kind: the node fluence
-    ``ix + n_x * iy`` times the node weights (the x rule times ``dy``), summed over x,
-    measured as a line in y by ``cartesian_fluence_widths``.
+
+def _flux_payload(problem: KernelProblem) -> dict[str, object]:
+    """Pack the plane measure of solprop SEP 34 (kernel schema 35).
+
+    A separable run (Cartesian, line, planar) is measured by its own operator's root,
+    which the native state already holds: nothing more is packed, and a plan that is
+    not that operator is refused. A radial run packs the entrance's material and
+    transverse squares and whether a material z table follows
+    (:func:`_upload_flux_table`); the admission record is not read. ``flux_closure``
+    sizes the magnetic closure's buffers for the problem's own local statistics.
     """
-    n_x, n_y = geometry.shape
-    across = np.sum((geometry.spatial_weights * fluence).reshape(n_y, n_x), axis=1)
-    moment, radius, fwhm = cartesian_fluence_widths(
-        geometry.axes[1], np.zeros(1), across
+    flux = problem.flux
+    if flux is None:
+        return {}
+    closure = bool(set(problem.stats_spec.names) & _LOCAL_FLUX_STATISTICS)
+    if problem.linear.separable is not None:
+        if flux.base is not problem.linear.separable or flux.material is not None:
+            raise BackendError(
+                "solprop-native measures a separable run by its own operator's root, "
+                "and this plane measure is another"
+            )
+        return {"flux_closure": closure}
+    base = flux.base
+    return {
+        "flux_k_squared": np.ascontiguousarray(base.k_squared, dtype=np.complex128),
+        "flux_k_squared_low": np.ascontiguousarray(
+            base.k_squared_low, dtype=np.complex128
+        ),
+        "flux_kperp_sq": np.ascontiguousarray(base.kperp_sq, dtype=np.float64),
+        "flux_kperp_sq_low": np.ascontiguousarray(base.kperp_sq_low, dtype=np.float64),
+        "flux_table": flux.material is not None,
+        "flux_closure": closure,
+    }
+
+
+def _upload_flux_table(native: _core.State, problem: KernelProblem) -> None:
+    """Make a radial plane measure's material z table resident, once (SEP 34)."""
+    flux = problem.flux
+    if flux is None or flux.material is None:
+        return
+    table = flux.material
+    low, high = table.z_span
+    slack = _EDGE_SLACK_FRACTION * (high - low)
+    n_intervals, n_terms = table.coefficients.shape[:2]
+    native.table_upload(
+        "flux",
+        np.ascontiguousarray(table.breakpoints, dtype=np.float64),
+        low - slack,
+        high + slack,
+        np.ascontiguousarray(table.coefficients, dtype=np.complex128).reshape(
+            n_intervals, n_terms, -1
+        ),
     )
-    return moment, radius, fwhm
 
 
 def _slab_payload(problem: KernelProblem) -> dict[str, object]:
