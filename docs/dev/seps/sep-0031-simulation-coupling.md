@@ -6,12 +6,12 @@
 | **Title** | Coupling simulations and transporting ultrafast fields |
 | **Author** | John Travers |
 | **Drafting agent** | GPT-6 (draft and 2026-10-23 review response) |
-| **Status** | Draft |
+| **Status** | Accepted |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); Opus 5.5 (AI) |
 | **Type** | Feature |
 | **Created** | 2026-10-22 |
-| **Resolution** | — |
+| **Resolution** | Accepted 2026-10-23 by John Travers after the S1–S4 responses recorded in Part III. SEP 34's public activation precedes this proposal's incident-launch change. |
 | **Requires** | [SEP 22](archive/sep-0022-memory-lean-spatial-execution.md): plane storage and input replacement; [SEP 23](archive/sep-0023-far-field-aperture-spectra.md): aperture definitions; [SEP 25](archive/sep-0025-rounding-level-reproducibility.md): numerical qualification; [SEP 34](sep-0034-medium-flux.md): shared medium flux and radial adiabatic transport |
 | **Supersedes** | — |
 | **Superseded-by** | — |
@@ -1124,6 +1124,10 @@ No new material constant or experimental validation is claimed.
   screen and the corrected tutorial beat-length derivation. Retained SEP 34's
   full activation before the incident-energy fix. The response below records
   the rationale; no implementation or new propagation qualification is claimed.
+- 2026-10-23: Accepted by John Travers after the review responses, with an
+  explicit request to commit and merge both SEPs 31 and 34. Part I is frozen.
+  SEP 34 is implemented first; this proposal's implementation record remains
+  empty until its phases begin.
 
 ### AI review — 2026-10-23
 

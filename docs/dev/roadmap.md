@@ -44,6 +44,28 @@ being implemented.
   phases 1 (one repository) and 2 (native parity) done; phase 3 (open source and
   wheels) next.
 
+- [SEP 31 — Coupling simulations and transporting ultrafast fields](seps/sep-0031-simulation-coupling.md):
+  reference-plane fields, coherent spatial synthesis/projection, ordered linear
+  transport and validated relaunch using SEP 34's shared medium flux; temporal
+  grid conversion; forward guide coupling; and a focused radial Kerr-to-capillary
+  tutorial. Clean breaking changes replace inconsistent energy semantics, with
+  no legacy normalisation or old-file migration. General junction scattering,
+  high-NA vector propagation and resolved prism/grating layouts remain open below.
+  Its accepted design specifies concrete overlap/thin-screen models and a detuned
+  37.5 μm tutorial; the incident-energy defect is its first implementation phase,
+  after SEP 34's full public activation. Qualified provider-pair envelopes may
+  replace conservative weak-guidance screens within the total model budget.
+
+- [SEP 34 — Medium flux for free-space propagation](seps/sep-0034-medium-flux.md):
+  physical launch energy, complex-admittance local flux, consistent total-energy
+  and noise weights, and a forward amplitude correction for radial real-index
+  paths, admitted by a total-variation certificate with default 10⁻⁴ budgets.
+  Declared weak steps can qualify; varying absorption is deferred. Public
+  launch/noise/statistics changes activate together after NumPy, Numba CPU,
+  native CPU and bounded CUDA/HIP qualification. It is implemented before SEP 31
+  and supplies the shared foundation for SEPs 5 and 31. General reflected-wave
+  and vector free-space transport remain outside its scope.
+
 ## Draft enhancement proposals
 
 SEPs under discussion; their scope may change and implementation has not been accepted.
@@ -105,17 +127,6 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   recommendations are remeasured on the current free-space evaluation.
   Spatial collar changes, adaptive recentering/expansion, a general offset-grid API,
   independently asymmetric absorber ramps and implicit Runge–Kutta remain open.
-- [SEP 31 — Coupling simulations and transporting ultrafast fields](seps/sep-0031-simulation-coupling.md):
-  reference-plane fields, coherent spatial synthesis/projection, ordered linear
-  transport and validated relaunch using SEP 34's shared medium flux; temporal
-  grid conversion; forward guide coupling; and a focused radial Kerr-to-capillary
-  tutorial. Clean breaking changes replace inconsistent energy semantics, with
-  no legacy normalisation or old-file migration. General junction scattering,
-  high-NA vector propagation and resolved prism/grating layouts remain open below.
-  Its reviewed draft proposes concrete overlap/thin-screen models and a detuned
-  37.5 μm tutorial; the incident-energy defect is its first implementation phase,
-  after SEP 34's full public activation. Qualified provider-pair envelopes may
-  replace conservative weak-guidance screens within the total model budget.
 - [SEP 32 — Raman Maxwell–Bloch dynamics](seps/sep-0032-raman-maxwell-bloch.md):
   a separate scalar two-level population/coherence response, with equilibrium
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
@@ -133,15 +144,6 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   route, the planar kind, coupled flows, TDSE responses and noise models are refused
   under single precision; those, and single-precision and mixed modes of `native` and
   `numba_cpu`, remain open below.
-- [SEP 34 — Medium flux for free-space propagation](seps/sep-0034-medium-flux.md):
-  physical launch energy, complex-admittance local flux, consistent total-energy
-  and noise weights, and a forward amplitude correction for radial real-index
-  paths, admitted by a total-variation certificate with default 10⁻⁴ budgets.
-  Declared weak steps can qualify; varying absorption is deferred. Public
-  launch/noise/statistics changes activate together after NumPy, Numba CPU,
-  native CPU and bounded CUDA/HIP qualification. It is implemented before SEP 31
-  and supplies the shared foundation for SEPs 5 and 31. General reflected-wave
-  and vector free-space transport remain outside its scope.
 
 The informal items below record work not fully covered by these proposals. When adding
 or revising a SEP, remove an informal item only if the proposal covers it in full;

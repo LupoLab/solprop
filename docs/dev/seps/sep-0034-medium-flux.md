@@ -6,12 +6,12 @@
 | **Title** | Medium flux for free-space propagation |
 | **Author** | John Travers |
 | **Drafting agent** | GPT-6 (draft and 2026-10-23 review response) |
-| **Status** | Draft |
+| **Status** | Accepted |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); Opus 5.5 (AI) |
 | **Type** | Change |
 | **Created** | 2026-10-23 |
-| **Resolution** | — |
+| **Resolution** | Accepted 2026-10-23 by John Travers after the A1–A7 responses and maintainer decisions recorded in Part III. Implement before SEP 31's public launch changes. |
 | **Requires** | [SEP 22](archive/sep-0022-memory-lean-spatial-execution.md): spatial execution and memory; [SEP 25](archive/sep-0025-rounding-level-reproducibility.md): qualification; [SEP 28](archive/sep-0028-free-space-evaluation.md): bounded spatial evaluation |
 | **Supersedes** | — |
 | **Superseded-by** | — |
@@ -792,6 +792,10 @@ not revalidated to additional precision by this draft.
   absorption, use the forward-component local closure and cap device planning
   at US$20. These settle proposal contracts; no implementation or device
   qualification is claimed.
+- 2026-10-23: Accepted by John Travers after the review responses, with an
+  explicit request to commit and merge both SEPs 31 and 34. Part I is frozen.
+  This proposal is implemented first. Qualification and the separate spending
+  go remain phase requirements; the implementation record remains empty.
 
 ### AI review — 2026-10-23
 
