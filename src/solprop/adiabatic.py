@@ -220,6 +220,10 @@ class AdiabaticAdmission:
     exact : bool
         Whether every piece was certified monotone, so that ``variation`` is the
         attained value up to rounding rather than an upper bound.
+    interpolation_envelope : float
+        Relative error of the run's tabulated operator against the represented
+        path, a separate envelope from the certificate's bounds (SEP 34 section
+        4.5); zero when no table stands between them.
     """
 
     identity: Mapping[str, object]
@@ -235,6 +239,7 @@ class AdiabaticAdmission:
     support: Bool[np.ndarray, "n_modes n_omega"] = field(repr=False)
     jumps: Float[np.ndarray, " n_jumps"] = field(repr=False)
     exact: bool = True
+    interpolation_envelope: float = 0.0
 
     def __post_init__(self) -> None:
         """Freeze the arrays."""
@@ -628,9 +633,9 @@ def certify_wave_path(  # noqa: PLR0913, PLR0917 - the affine model's arrays and
     jump_sizes = np.abs(pieces.first[:, 1:] - pieces.last[:, :-1])
     varies = np.sum(pieces.variation, axis=1) + np.sum(jump_sizes, axis=1) > 0.0
     if np.any(varies):
-        lossy = np.any(np.imag(chi)[varies] != 0.0, axis=0) | (
-            np.imag(permittivity) != 0.0
-        )
+        # Any loss makes Im k_z = Im(k**2) / (2 Re k_z) vary with Re k_z along a
+        # varying path, even when the absorbing component's own density is fixed.
+        lossy = np.any(np.imag(chi) != 0.0, axis=0) | (np.imag(permittivity) != 0.0)
         if np.any(lossy):
             where = int(np.argmax(lossy))
             raise MaterialError(

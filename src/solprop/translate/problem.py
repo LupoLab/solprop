@@ -2413,6 +2413,40 @@ def _check_operator_settings(
         raise TranslationError(msg)
 
 
+def _refuse_planes_at_jumps(
+    medium: SpatialMedium | None, planes: Float[np.ndarray, " n_z"]
+) -> None:
+    """Refuse a save plane on a declared index jump, whose side would be ambiguous.
+
+    SEP 34 section 4.4: a plane at a jump measures one side's forward closure, and
+    a request that does not say which is ambiguous.
+
+    Parameters
+    ----------
+    medium : solprop.spatial.SpatialMedium or None
+        The run's medium; None for a modal run, which has none.
+    planes : numpy.ndarray
+        The requested save positions in m.
+
+    Raises
+    ------
+    TranslationError
+        If a plane lies exactly on a declared jump.
+    """
+    if medium is None:
+        return
+    for name, path in medium.parameter_paths.items():
+        jumps = np.asarray(path.jumps)
+        hit = planes[np.isin(planes, jumps)]
+        if hit.size:
+            msg = (
+                f"save plane z = {float(hit[0])!r} m lies on a declared jump of the "
+                f"medium's {name} path, where its side would be ambiguous; move the "
+                "plane off the jump"
+            )
+            raise TranslationError(msg)
+
+
 def _spatial_assembly(
     spatial_grid: RadialGrid | FreeGrid | PlanarGrid,
     medium: SpatialMedium,
@@ -2534,11 +2568,15 @@ def _spatial_assembly(
         # SEP 34 section 4.5: every active propagating column must meet the
         # adiabatic budgets over the whole run path before the forward amplitude
         # transport is trusted.
-        admission = certify_radial_path(
-            dispersion,
-            spatial_grid.k_r**2,
-            (0.0, build.z_max),
-            build.adiabatic_accuracy,
+        admission = replace(
+            certify_radial_path(
+                dispersion,
+                spatial_grid.k_r**2,
+                (0.0, build.z_max),
+                build.adiabatic_accuracy,
+            ),
+            # The operator tables resolve the represented path to this tolerance.
+            interpolation_envelope=build.tol,
         )
     linear, prefactor = radial_operators(
         spatial_grid,
@@ -5860,6 +5898,7 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     if z_max <= 0.0:
         msg = f"save_planes must contain a positive position, got {planes}"
         raise TranslationError(msg)
+    _refuse_planes_at_jumps(medium, planes)
 
     thg = any(getattr(one, "thg", False) for one in responses)
     working_frame = frame if frame is not None else Frame.comoving(grid, thg=thg)
