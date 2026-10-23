@@ -45,7 +45,14 @@ from solprop.grid import FreeGrid, RadialGrid, TimeGrid
 from solprop.linear import Frame
 from solprop.modes.slab import PlanarGrid, gaussian_projection
 from solprop.optics import taylor_phase
-from solprop.spatial import SpatialDispersion, SpatialMedium
+from solprop.spatial import (
+    FluxSide,
+    SpatialDispersion,
+    SpatialFlux,
+    SpatialMedium,
+    plane_sample,
+    power_trace,
+)
 
 __all__ = [
     "CWPulse",
@@ -126,7 +133,8 @@ class SpatialPulse(Displayed):
     ----------
     temporal : Pulse
         Existing temporal pulse shape. Its energy or peak power sets the whole beam's
-        energy or peak power at the specified waist plane. On a
+        physical energy or peak axial power through the launch plane, in the medium
+        there (SEP 34). On a
         :class:`solprop.grid.LineGrid` the beam is uniform in y and these are per
         metre of y: the energy is in J/m and the peak power in W/m
         (:func:`solprop.modes.slab.gaussian_to_per_unit_width` converts a beam of
@@ -139,9 +147,9 @@ class SpatialPulse(Displayed):
         ``exp(-(r/waist)**(2*order))``, with ``r = |x|`` on a line.
     propz : float
         Signed launch pre-propagation distance in m, finite. Applied by the exact
-        longitudinal operator with the entrance material frozen. Zero launches at
-        the waist; negative values launch before it. Material loss changes launch
-        energy after normalisation at the waist plane.
+        longitudinal operator with the launch plane's material frozen. Zero launches
+        at the waist; negative values launch before it. Normalisation follows the
+        pre-propagation, so the launch plane carries the requested quantity.
     jones : tuple of complex
         One scalar component or two optics-convention Cartesian components (x, y).
         The vector is normalised to unit squared magnitude. Default is scalar.
@@ -221,10 +229,18 @@ class SpatialPulse(Displayed):
         grid: TimeGrid,
         space: RadialGrid | FreeGrid | PlanarGrid,
         *,
-        medium: SpatialMedium | None = None,
+        medium: SpatialMedium,
+        z: float = 0.0,
+        side: FluxSide | None = None,
         frame: Frame | None = None,
     ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
         """Build the beam's transverse and temporal spectrum on a spatial grid.
+
+        The requested energy or peak power is the physical axial Poynting flux
+        through the launch plane, in the medium there (SEP 34): what an energy
+        meter in that medium reads. Each member of a :class:`PulseSum` carries its
+        own requested quantity. Bins with no forward admittance (nonpropagating,
+        inactive or zero-frequency) are hard-masked to zero before normalisation.
 
         Parameters
         ----------
@@ -234,8 +250,12 @@ class SpatialPulse(Displayed):
             Transverse samples and their spectral integration measure. A
             :class:`solprop.modes.slab.PlanarGrid` is refused: its launch is a
             :class:`PlanarPulse`.
-        medium : solprop.spatial.SpatialMedium or None, optional
-            Entrance material for pre-propagation; None uses vacuum.
+        medium : solprop.spatial.SpatialMedium
+            The medium at the launch plane; there is no vacuum default.
+        z : float, optional
+            Position of the launch plane in m, at which the medium is evaluated.
+        side : {'before', 'after'} or None, optional
+            Side of a declared index jump at ``z``; required there.
         frame : solprop.linear.Frame or None, optional
             Launch frame, normally the run's frame. None uses the grid's co-moving
             frame without envelope THG.
@@ -250,7 +270,8 @@ class SpatialPulse(Displayed):
         ------
         PulseError
             If the grid is a planar one, the temporal pulse is not scalar, the beam
-            is unresolved or launch pre-propagation produces a nonfinite field.
+            has no propagating content or launch pre-propagation produces a
+            nonfinite field.
         """
         if isinstance(space, PlanarGrid):
             msg = (
@@ -258,10 +279,7 @@ class SpatialPulse(Displayed):
                 "PlanarPulse(temporal, waist_y, waist_x=...), not a SpatialPulse"
             )
             raise PulseError(msg)
-        temporal = self.temporal.build(grid)
-        if temporal.shape != (1, 1, grid.n_omega):
-            msg = "SpatialPulse requires a scalar single-column temporal pulse"
-            raise PulseError(msg)
+        flux = SpatialFlux.resolve(grid, space, medium, z=z, side=side)
         limit = _GAUSS_EXPONENT_CLIP ** (1 / (2 * self.order))
         radius = np.minimum(space.r, self.waist * limit) / self.waist
         profile = np.exp(-(radius ** (2 * self.order)))
@@ -270,43 +288,47 @@ class SpatialPulse(Displayed):
             if isinstance(space, RadialGrid)
             else np.fft.fft2(profile.reshape(space.n_y, space.n_x)).ravel()
         )
-        norm = (
-            0.5
-            * EPS0
-            * C
-            * float(np.sum(space.spectral_weights * np.abs(spectrum) ** 2))
-        )
-        if not math.isfinite(norm) or norm <= 0:
-            msg = "spatial beam is unresolved on this grid"
-            raise PulseError(msg)
         jones = np.asarray(self.jones, dtype=np.complex128)
         jones = jones / max(
             float(np.max(np.abs(np.real(jones)))), float(np.max(np.abs(np.imag(jones))))
         )
         jones = jones / np.sqrt(np.sum(np.abs(jones) ** 2))
-        field = (
-            spectrum[:, None, None]
-            / math.sqrt(norm)
-            * fourier.to_internal(jones)[None, :, None]
-            * temporal
+        live = np.concatenate(
+            [flux.admittance(columns) != 0 for columns in flux.chunks()]
         )
+        exponent = None
         if self.propz != 0:
-            material = SpatialMedium() if medium is None else medium
             working_frame = Frame.comoving(grid) if frame is None else frame
-            operator = SpatialDispersion(material, grid, working_frame).operator(
-                space.k_r**2 if isinstance(space, RadialGrid) else space
+            operator = SpatialDispersion(medium, grid, working_frame).operator(
+                space.k_r**2 if isinstance(space, RadialGrid) else space,
+                plane_sample(medium, z, side),
             )
             exponent = operator * self.propz
-            if np.max(np.real(exponent)) > math.log(np.finfo(float).max) - math.log(
-                max(1.0, float(np.max(np.abs(field))))
-            ):
-                msg = "spatial pre-propagation would overflow the field"
+        total = np.zeros((spectrum.size, jones.size, grid.n_omega), complex)
+        for member in _members(self.temporal):
+            temporal = member.build(grid)
+            if temporal.shape != (1, 1, grid.n_omega):
+                msg = "SpatialPulse requires a scalar single-column temporal pulse"
                 raise PulseError(msg)
-            field = field * np.exp(exponent)[:, None, :]
-        if not np.all(np.isfinite(field)):
+            # A unit-peak profile keeps intermediate values near the final scale.
+            field = (
+                spectrum[:, None, None]
+                * fourier.to_internal(jones)[None, :, None]
+                * temporal
+            )
+            if exponent is not None:
+                if np.max(np.real(exponent)) > math.log(np.finfo(float).max) - math.log(
+                    max(1.0, float(np.max(np.abs(field))))
+                ):
+                    msg = "spatial pre-propagation would overflow the field"
+                    raise PulseError(msg)
+                field = field * np.exp(exponent)[:, None, :]
+            field = field * live[:, None, :]
+            total += _normalised(member, temporal, field, flux, grid)
+        if not np.all(np.isfinite(total)):
             msg = "spatial pre-propagation produced a nonfinite field"
             raise PulseError(msg)
-        return np.asarray(field, dtype=np.complex128)
+        return np.asarray(total, dtype=np.complex128)
 
 
 @dataclass(frozen=True)
@@ -427,10 +449,18 @@ class PlanarPulse(SpatialPulse):
         grid: TimeGrid,
         space: RadialGrid | FreeGrid | PlanarGrid,
         *,
-        medium: SpatialMedium | None = None,
+        medium: SpatialMedium,
+        z: float = 0.0,
+        side: FluxSide | None = None,
         frame: Frame | None = None,
     ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
         """Build the launched ``(p, k_y)`` spectrum on a planar grid.
+
+        The requested energy or peak power is the **incident** beam's physical
+        axial flux in the fill medium, over the whole beam in x and the sampled y
+        axis (SEP 34): the x integral of the continuous Gaussian's angular spectrum
+        is taken by Gauss-Hermite quadrature of its admittance. The slab modes then
+        carry the coupled share of that beam.
 
         Parameters
         ----------
@@ -438,10 +468,14 @@ class PlanarPulse(SpatialPulse):
             Field or envelope temporal grid.
         space : solprop.modes.slab.PlanarGrid
             The slab modes in x and the y axis; any other grid is refused.
-        medium : solprop.spatial.SpatialMedium or None, optional
-            Unused: the launch is at the entrance, with no pre-propagation.
+        medium : solprop.spatial.SpatialMedium
+            The fill medium at the entrance.
+        z : float, optional
+            Position of the entrance plane in m.
+        side : {'before', 'after'} or None, optional
+            Side of a declared index jump at ``z``; required there.
         frame : solprop.linear.Frame or None, optional
-            Unused, for the same reason.
+            Unused: the launch is at the entrance, with no pre-propagation.
 
         Returns
         -------
@@ -454,15 +488,11 @@ class PlanarPulse(SpatialPulse):
         ------
         PulseError
             If the grid is not a planar one, the temporal pulse is not scalar, or
-            the beam is unresolved on the y axis.
+            the beam has no propagating content on the y axis.
         """
-        del medium, frame
+        del frame
         if not isinstance(space, PlanarGrid):
             msg = "a PlanarPulse launches into a PlanarGrid"
-            raise PulseError(msg)
-        temporal = self.temporal.build(grid)
-        if temporal.shape != (1, 1, grid.n_omega):
-            msg = "PlanarPulse requires a scalar single-column temporal pulse"
             raise PulseError(msg)
         limit = _GAUSS_EXPONENT_CLIP ** (1 / (2 * self.order))
         profile_y = np.exp(
@@ -472,28 +502,112 @@ class PlanarPulse(SpatialPulse):
             )
         )
         coupled = gaussian_projection(space.modes, self.waist_x, offset=self.offset_x)
-        # The incident beam's power over the whole x profile and the sampled y
-        # axis, for a unit-peak field: what the temporal pulse's energy refers to.
-        norm = (
-            0.5
-            * EPS0
-            * C
-            * self.waist_x
-            * math.sqrt(math.pi / 2)
-            * float(np.sum(profile_y**2))
-            * space.dy
-        )
-        if not math.isfinite(norm) or norm <= 0:
-            msg = "planar beam is unresolved on this grid's y axis"
-            raise PulseError(msg)
         jones = complex(self.jones[0])
         phase = complex(fourier.to_internal(np.array([jones / abs(jones)]))[0])
-        columns = (np.fft.fft(profile_y)[:, None] * coupled[None, :]).ravel()
-        field = columns[:, None, None] * (phase / math.sqrt(norm)) * temporal
-        if not np.all(np.isfinite(field)):
+        y_spectrum = np.fft.fft(profile_y)
+        incident = _incident_admittance(grid, space, medium, z, side, self.waist_x)
+        # The incident beam measured as y columns: the x integral of the unit-peak
+        # Gaussian's |E|^2 is waist_x sqrt(pi/2), its admittance averaged in k_x.
+        reference = _Plane(
+            weights=space.dy / space.n_y * np.ones(space.n_y),
+            admittance=incident,
+            scale=0.5 * EPS0 * C * self.waist_x * math.sqrt(math.pi / 2),
+        )
+        columns = (y_spectrum[:, None] * coupled[None, :]).ravel()
+        total = np.zeros((space.n_columns, 1, grid.n_omega), complex)
+        for member in _members(self.temporal):
+            temporal = member.build(grid)
+            if temporal.shape != (1, 1, grid.n_omega):
+                msg = "PlanarPulse requires a scalar single-column temporal pulse"
+                raise PulseError(msg)
+            beam = y_spectrum[:, None, None] * phase * temporal
+            factor = _normalising_factor(member, temporal, beam, reference, grid)
+            total += columns[:, None, None] * (phase * factor) * temporal
+        if not np.all(np.isfinite(total)):
             msg = "planar launch produced a nonfinite field"
             raise PulseError(msg)
-        return np.asarray(field, dtype=np.complex128)
+        return np.asarray(total, dtype=np.complex128)
+
+
+@dataclass(frozen=True)
+class _Plane:
+    """Column weights and admittance measuring a launch's reference beam.
+
+    Attributes
+    ----------
+    weights : numpy.ndarray
+        Transverse Parseval weight per column.
+    admittance : numpy.ndarray
+        Dimensionless admittance per column and bin.
+    scale : float
+        Factor turning weighted ``|X|^2`` sums into joules.
+    """
+
+    weights: Float[np.ndarray, " n_modes"]
+    admittance: Complex[np.ndarray, "n_modes n_omega"]
+    scale: float
+
+
+_HERMITE_ORDER = 64
+"""Gauss-Hermite nodes averaging a Gaussian's admittance over its x wave numbers."""
+
+
+def _incident_admittance(
+    grid: TimeGrid,
+    space: PlanarGrid,
+    medium: SpatialMedium,
+    z: float,
+    side: FluxSide | None,
+    waist_x: float,
+) -> Complex[np.ndarray, "n_y n_omega"]:
+    """Average the bulk admittance over an incident Gaussian's x wave numbers.
+
+    The Gaussian ``exp(-x**2/waist_x**2)`` has the power spectrum
+    ``exp(-k_x**2 waist_x**2 / 2)``, a normal density of standard deviation
+    ``1/waist_x``; its admittance-weighted energy is the unweighted one times this
+    average. The integrand is analytic away from cutoff, where its weight is
+    negligible for any beam the grid resolves.
+
+    Parameters
+    ----------
+    grid : solprop.grid.TimeGrid
+        Temporal grid.
+    space : solprop.modes.slab.PlanarGrid
+        The y axis.
+    medium : solprop.spatial.SpatialMedium
+        The fill medium.
+    z : float
+        Position of the entrance plane in m.
+    side : {'before', 'after'} or None
+        Side of a declared index jump at ``z``.
+    waist_x : float
+        The 1/e field radius in x, m.
+
+    Returns
+    -------
+    numpy.ndarray
+        Complex dimensionless admittance, shape ``(n_y, n_omega)``.
+    """
+    frame = Frame(grid.omega0, subtract_beta0=False, beta0=0.0, beta1=0.0)
+    material, _, _, _ = SpatialDispersion(medium, grid, frame).shared_values(
+        plane_sample(medium, z, side)
+    )
+    nodes, weights = np.polynomial.hermite.hermgauss(_HERMITE_ORDER)
+    square = material[None, :] - (space.k_y**2)[:, None]
+    omega = grid.omega
+    live = grid.active_mask[None, :] & (omega > 0)[None, :]
+    average = np.zeros(square.shape, complex)
+    for node, weight in zip(math.sqrt(2) * nodes / waist_x, weights, strict=True):
+        longitudinal = square - node**2
+        value = np.zeros(square.shape, complex)
+        np.divide(
+            C * np.sqrt(longitudinal),
+            omega[None, :],
+            out=value,
+            where=live & (np.real(longitudinal) > 0),
+        )
+        average += weight * value
+    return average / math.sqrt(math.pi)
 
 
 # --- shared validation and machinery --------------------------------------------------
@@ -555,6 +669,147 @@ def _scaling(energy: float | None, peak_power: float | None) -> tuple[float, _Qu
         raise PulseError(msg)
     _check_positive("peak_power", peak_power)
     return peak_power, "peak_power"
+
+
+def _members(pulse: Pulse) -> list[Pulse]:
+    """Return the members of a pulse sum, flattened, or the pulse itself.
+
+    Parameters
+    ----------
+    pulse : Pulse
+        A temporal pulse or a :class:`PulseSum`.
+
+    Returns
+    -------
+    list of Pulse
+        Each member carries its own requested energy or peak power.
+    """
+    if isinstance(pulse, PulseSum):
+        return [leaf for member in pulse.pulses for leaf in _members(member)]
+    return [pulse]
+
+
+def _target(
+    pulse: Pulse, temporal: np.ndarray, grid: TimeGrid
+) -> tuple[_Quantity, float]:
+    """Return which quantity a temporal pulse fixes and its requested value.
+
+    Parameters
+    ----------
+    pulse : Pulse
+        One temporal pulse.
+    temporal : numpy.ndarray
+        Its built spectrum, shape ``(1, 1, n_omega)``.
+    grid : solprop.grid.TimeGrid
+        Temporal grid.
+
+    Returns
+    -------
+    tuple
+        ``("peak_power", W)`` for a pulse given a peak power, otherwise
+        ``("energy", J)``: the energy its built spectrum carries.
+    """
+    peak = getattr(pulse, "peak_power", None)
+    if isinstance(pulse, ShapedPulse) and peak is not None:
+        return "peak_power", float(peak)
+    energy = fourier.energy_omega(temporal[0, 0], grid.dt, kind=grid.kind)
+    return "energy", float(energy)
+
+
+def _normalising_factor(
+    pulse: Pulse,
+    temporal: np.ndarray,
+    beam: np.ndarray,
+    plane: _Plane,
+    grid: TimeGrid,
+) -> float:
+    """Return the factor giving a beam its requested physical energy or peak power.
+
+    Parameters
+    ----------
+    pulse : Pulse
+        The temporal pulse fixing the request.
+    temporal : numpy.ndarray
+        Its built spectrum, shape ``(1, 1, n_omega)``.
+    beam : numpy.ndarray
+        The unnormalised beam's column spectra, ``(n_modes, n_pol, n_omega)``.
+    plane : _Plane
+        Its measure at the launch plane.
+    grid : solprop.grid.TimeGrid
+        Temporal grid.
+
+    Returns
+    -------
+    float
+        The amplitude factor.
+
+    Raises
+    ------
+    PulseError
+        If the beam carries no positive, finite forward flux.
+    """
+    quantity, target = _target(pulse, temporal, grid)
+    if quantity == "energy":
+        energy_weights = fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
+        density = np.sum(np.abs(beam) ** 2, axis=1)
+        measured = plane.scale * float(
+            np.sum(
+                plane.weights[:, None]
+                * energy_weights
+                * np.real(plane.admittance)
+                * density
+            )
+        )
+    else:
+        measured = float(
+            np.max(
+                power_trace(beam, plane.admittance, plane.weights, grid, plane.scale)
+            )
+        )
+    if not math.isfinite(measured) or measured <= 0:
+        msg = (
+            "the beam carries no positive forward flux at the launch plane: it is "
+            "unresolved on this grid or lies outside the propagating band"
+        )
+        raise PulseError(msg)
+    return math.sqrt(target / measured)
+
+
+def _normalised(
+    pulse: Pulse,
+    temporal: np.ndarray,
+    field: np.ndarray,
+    flux: SpatialFlux,
+    grid: TimeGrid,
+) -> np.ndarray:
+    """Scale a spatial beam to its requested physical energy or peak power.
+
+    Parameters
+    ----------
+    pulse : Pulse
+        The temporal pulse fixing the request.
+    temporal : numpy.ndarray
+        Its built spectrum, shape ``(1, 1, n_omega)``.
+    field : numpy.ndarray
+        The unnormalised beam spectrum, ``(n_modes, n_pol, n_omega)``.
+    flux : solprop.spatial.SpatialFlux
+        The launch plane's measure.
+    grid : solprop.grid.TimeGrid
+        Temporal grid.
+
+    Returns
+    -------
+    numpy.ndarray
+        The normalised beam.
+    """
+    plane = _Plane(
+        weights=flux.space.spectral_weights,
+        admittance=np.concatenate(
+            [flux.admittance(columns) for columns in flux.chunks()]
+        ),
+        scale=flux.energy_scale,
+    )
+    return field * _normalising_factor(pulse, temporal, field, plane, grid)
 
 
 def _frozen_phase(phase: Sequence[float] | np.ndarray) -> Float[np.ndarray, " n_deg"]:
