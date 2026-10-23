@@ -574,8 +574,10 @@ $$
  U=\int S_z\,dA\,dt .
 $$
 
-For absorbing media, local G uses SEP 34's complex admittance; its real
-part $Y_z$ weights total energy. The radial adiabatic closure is also SEP 34's.
+For uniform absorbing media, local G uses SEP 34's complex admittance; its real
+part $Y_z$ weights total energy. Certified real-index radial paths use its
+retained forward-component closure; omitted backward interference is outside
+that local measurement.
 Equivalently use temporal Parseval and Hankel/Cartesian weights with $Y_z/2$.
 This is the metric of the **scalar equation**: metric-weighting its current
 source recovers $-\operatorname{Re}(\widehat E^*\widehat J)/2$.
@@ -591,14 +593,15 @@ rate drive. Rates use §4.1's positive proxy. Specify zero-frequency/endpoints
 and refuse launch energy on nonpropagating support.
 
 [SEP 34](sep-0034-medium-flux.md) owns the shared implementation for isotropic
-media, including launches, noise, observations, endpoint rules, radial adiabatic
-transport and CPU parity. Use its constants consistently with the scalar source
-prefactor.
+media, including launches, noise, observations, endpoint rules, certified radial
+forward transport and backend qualification. Use its constants consistently with
+the scalar source prefactor.
 This response consumes that convention without a separate normalisation switch.
 The change replaces the vacuum-weighted definitions directly; no legacy policy
-or old-file migration is required. Admitted radial gradients use SEP 34's
-adiabatic amplitude correction; nonadiabatic gradients still require a different
-propagation model.
+or old-file migration is required. Admitted radial gradients and declared weak
+steps use SEP 34's forward amplitude correction. Paths outside its real-index
+certificate, varying absorption and general gradient scattering require a
+separate model.
 
 ### 5. Proposed interface
 
@@ -1181,3 +1184,6 @@ No implementation phases have started.
   [SEP 34](sep-0034-medium-flux.md) following SEP 31's review and split.
   SEP 31 retains field exchange and coupling; the shared flux proposal
   includes admitted radial adiabatic transport and complex local flux.
+- 2026-10-23: Aligned the shared-flux description with SEP 34's review response:
+  the real-index path certificate, forward-component local closure and deferral
+  of varying absorption. Solid-ionisation scope is unchanged.

@@ -187,7 +187,7 @@ $$
 Tildes here denote the transverse/frequency spectrum: apply admittance there,
 then reconstruct G in space and time. Here $\operatorname{Re}\mathcal Y_c=Y_z$.
 Local flux uses the full complex
-admittance (including the admitted gradient reconstruction term), whereas total
+admittance of the retained forward component, whereas total
 energy uses its real part; replacing one by the other before reconstruction
 would lose absorbing-medium interference terms.
 
@@ -197,12 +197,16 @@ statistic or a second flux implementation. Physical V/m remains the propagated
 spatial state; ordinary and general modal ports retain their derived native
 metrics. A planar hybrid port uses its modal/FFT metric, not a bulk index factor.
 
-A saved plane from an admitted radial gradient is a valid source. Its local
-admittance and accumulated frame/amplitude references must be available.
-Transport through a gradient remains an ordinary radial simulation under SEP 34;
-the `FreeSpace` element below is homogeneous. Refuse a nonadiabatic gradient or
-missing local reference, not every nonuniform medium. The scalar metric is not
-a replacement for the full-vector Maxwell treatment of high-NA or crystal fields.
+A saved plane from a radial path admitted by SEP 34 §4.5's per-column
+total-variation certificate is a valid source. Its local admittance, jump side
+where needed, path certificate and accumulated frame/amplitude references must
+be available. Transport through that path remains an ordinary radial simulation;
+the `FreeSpace` element below is homogeneous. Refuse a failed/missing certificate,
+an ambiguous jump side or an unsupported absorbing path, not every gradient.
+Record the certificate's scope: it bounds linear-background forward coordinates,
+not the complete nonlinear simulation or an omitted reflected field. The scalar
+metric is not a replacement for the full-vector Maxwell treatment of high-NA or
+crystal fields.
 
 On supported optical bands, `energy=` is the physical energy crossing the
 declared plane, not a vacuum-equivalent field norm. For a lossless paraxial plane
@@ -300,6 +304,15 @@ is called exact. For the two approximate models:
 - for `vector_paraxial`, bound the transverse H-closure error in the same
   normalised operator norm by $\epsilon_m/8$; supplied incident H is retained.
   The bound concerns every admitted input in that port, not one lucky pulse.
+
+The Δ screen is a conservative sufficient screen, not an immutable minimum
+budget for every solid-fibre pair. A qualified provider-pair benchmark envelope
+may replace **that screen** if it bounds the omitted vector/facet effects over
+the declared wavelength, geometry, alignment and mode span to the requested
+budget. Record its identity, range and independently bounded numerical error;
+do not extrapolate it. Angular support, metric/closure checks, passivity and
+the total budget still apply. Identical checked bases use `same_basis` directly
+and need no weak-guidance screen for coordinate recovery.
 
 These are conservative screening allocations, not a theorem that small contrast
 alone bounds facet scattering. Each provider/model pair must additionally have
@@ -518,6 +531,15 @@ specified material/reflection loss, aperture/model interpretation, basis loss
 where defined, intentional spectral/window removal, and unresolved numerical
 or model error. Known losses add sequentially in joules; multiplying broadband
 scalar efficiencies is generally wrong when an operation changes the spectrum.
+Carry SEP 34's source certificate as a separate, scoped report item. Where
+$\delta$ bounds the relative forward-field error in the same positive metric,
+$2\delta+\delta^2$ bounds the corresponding relative energy discrepancy;
+use that conversion and the admitted map norm before adding it to an
+energy-valued `model_error` budget. Do not add a field error directly to an
+energy-loss fraction. For successive field-error maps compose their bounds
+conservatively, rather than assuming independent errors cancel. A nonlinear
+source's background-path certificate alone supplies no end-to-end field-error
+bound; include its separate propagation qualification and report what is unknown.
 Retain spectral reports so wavelength-dependent coupling remains visible.
 
 For multiple coherent input channels, even a diagonal target metric does not
@@ -673,7 +695,8 @@ A nonlinear gap is a spatial simulation between two such operations.
 
 #### 5.3 Refusals and outputs
 
-Refuse gradients outside SEP 34's admitted model, missing mode profiles or references,
+Refuse paths failing SEP 34's §4.5 certificate or outside its scope,
+ambiguous jump sides, missing mode profiles or references,
 inconsistent units/measures, ill-conditioned power metrics, occupied unsupported
 bands/cutoff, unqualified lossy modal duals, unresolved windows, forbidden
 field/envelope response combinations and invalid symmetry reductions. Identity
@@ -783,7 +806,7 @@ hard zeros retain exact structural tests.
 | Linear transport | Gaussian diffraction and focus, independent Fresnel/Bessel evaluation, aperture diffraction, thin-element order, reflection/Jones signs, and finite-distance convergence to the Fraunhofer limit |
 | Spectral optics | Reuse existing element references; explicit $\lvert H\rvert^2$ attenuation, phase-only invariance in its admitted metric, no double Fresnel factor and an efficiency report that changes with spectral reshaping |
 | Temporal conversion | Equal-bin scaling, unequal windows/sample spacings, delays, CEP, carrier changes, spectral zeros and separated bands; field/envelope round trips only on common supported physics |
-| Refusals | Missing saved fields/references, nonadiabatic gradient, unsupported measure/endpoint/cutoff, invalid provider dual, unresolved time/space support and route/backend mismatch |
+| Refusals | Missing saved fields/references or required path certificate, exceeded gradient budget, ambiguous jump side, nonconstant absorbing path, unsupported measure/endpoint/cutoff, invalid provider dual, unresolved time/space support and route/backend mismatch |
 | Provenance | New-schema memory/HDF5 round trips, configuration identity changes, target-bound input mismatch, and no duplicate noise draw |
 
 Use at least three refinement levels when asserting an order. Vary domain size,
@@ -896,6 +919,23 @@ mode set. Launch each captured result through the 5 mm capillary with identical
 Kerr-only capillary physics, so the difference is the prepared incident field.
 Do not replace either entrance field by a fitted Gaussian or its power spectrum.
 
+Name the linear modal beating in the 5 mm segment. With
+$\beta_m\simeq nk_0-u_m^2/(2nk_0a^2)$, the fundamental/next radial-mode
+beat length is
+
+$$
+ L_{\rm beat}=\frac{2\pi}{|\beta_{12}-\beta_{11}|}
+ =\frac{8\pi^2 n a^2}{(u_{12}^2-u_{11}^2)\lambda_0}
+ \simeq22.5\ {\rm mm}.
+$$
+
+Here $u_{11},u_{12}$ are the first two J0 zeros, and the package labels the
+family HE_1m. Thus 5 mm is about 0.22 beat periods: the output contains partial
+linear mode beating, not merely modal filtering or a new nonlinear effect.
+Evaluate the actual dispersive beta and differential wall loss across the
+retained band when implementing the plots; the carrier estimate is explanatory.
+The identical capillary physics in the two cases controls for this evolution.
+
 Plot beam radius and on-axis intensity through the gap; entrance fluence and
 wavefront change; entrance temporal and spectral changes; incident/captured energy
 and modal shares; and the short capillary outputs. Specify the slice or spectral
@@ -968,9 +1008,13 @@ resolved compressor layouts remain outside this SEP.
 
 ### 11. Phases
 
-No numerical implementation begins until acceptance. SEP 34's public flux
-activation precedes the incident-launch change. Each phase records delivered
-paths, deviations, evidence, unresolved questions and handoff in Part II.
+No numerical implementation begins until acceptance. Implement SEP 34 first.
+Its full public flux activation precedes SEP 31's incident-launch change,
+as the maintainer chose on 2026-10-23, so there is no interval with corrected
+modal launches but inconsistent spatial observations. SEP 34's private host
+reference alone is not permission to merge SEP 31 phase 1 early. Each phase
+records delivered paths, deviations, evidence, unresolved questions and handoff
+in Part II.
 
 | Phase | Deliverables | Required evidence |
 |---|---|---|
@@ -1010,10 +1054,10 @@ a recorded proposal revision.
 |---|---|
 | **Q1 — Cross-model projection** | Proposed resolution: the three models and error-budget admission in §4.3. Phase 3 must qualify each provider pair; no unqualified pair is admitted merely because a projection can be computed. |
 | **Q2 — Thin elements and reflection** | Proposed resolution: §4.6's local paraxial screen, input/output angular-flux defect bound and explicit p/s frames. Refinement cannot substitute for a missing model bound. |
-| **Q3 — Numerical admission budgets** | Phase 2/3 fixes numerical error interfaces and conditioning/tail implementation under the stated physical rules. No coupling-efficiency floor is introduced. |
+| **Q3 — Numerical admission budgets** | Phase 2/3 implements the required model budget and justified numerical/conditioning/tail enclosures under §4.3. Qualified pair envelopes may replace the Δ screen, never the total error bound. No coupling-efficiency floor is introduced. |
 | **Q4 — Plane persistence** | Phase 2 fixes and tests the minimal standalone reference record; missing information is refused. |
 | **Q5 — Tutorial evidence** | The maintainer chose 37.5 μm on 2026-10-23. Phase 5 fixes grids/mode count, qualifies the Kerr-only regime and resolves changes in s11 and s12 to §7's criterion. |
-| **Q6 — Deferred physics** | General junction scattering, high-NA vector optics and resolved compressors remain roadmap work. Radial adiabatic amplitude transport moved to SEP 34 and is not deferred. |
+| **Q6 — Deferred physics** | General junction scattering, high-NA vector optics, varying absorption and resolved compressors remain roadmap work. Certified real-index radial forward amplitude transport belongs to SEP 34. |
 | **Q7 — Native backend location** | Closed: `native/` in this repository, distributed as `solprop-native`; changes use the same branch and native gate. |
 
 Review completion recorded in the header describes the historical review below.
@@ -1075,6 +1119,11 @@ No new material constant or experimental validation is claimed.
   after the response. No P1 finding remains; Part I unchanged by the reviewer.
 - 2026-10-23: Maintainer decision on S2 recorded: phase 1 follows SEP 34's
   activation.
+- 2026-10-23: Revised Part I for S1–S4 and the settled SEP 34 contracts. Added
+  scoped path-certificate accounting, benchmark replacement of the weak-guidance
+  screen and the corrected tutorial beat-length derivation. Retained SEP 34's
+  full activation before the incident-energy fix. The response below records
+  the rationale; no implementation or new propagation qualification is claimed.
 
 ### AI review — 2026-10-23
 
@@ -1507,3 +1556,41 @@ show partial beating rather than modal filtering. That is fine, but the tutorial
 text should say so, so that a reader does not mistake the beat phase for a
 nonlinear effect. Comparing linear-prepared and Kerr-prepared launches over the
 same segment already controls for it.
+
+### Response to re-review — 2026-10-23
+
+The original re-review above is retained. The following resolutions are now
+in Part I; the proposal remains `Draft` pending formal maintainer acceptance.
+
+- **S1 — Accepted with error units and scope made explicit.** Sections 4.2,
+  5.3 and 7 refer to SEP 34's per-column real-index path certificate, including
+  jump sides and refusal of nonconstant absorbing paths. Section 4.7 carries
+  that certificate separately in the report. A relative field error δ implies
+  an energy discrepancy bounded by 2δ + δ² in the same positive metric; this
+  conversion and the map norm are required before adding it to an energy
+  budget. The background-path certificate alone is not a bound on a nonlinear
+  source simulation, which retains its separate qualification. Local flux uses
+  SEP 34's retained forward-component closure.
+- **S2 — Maintainer decision retained.** Section 11 explicitly requires SEP 34
+  to be implemented and publicly activated first, including its required
+  backend qualification. This avoids mixed launch and observation conventions.
+  Its private host reference alone does not enable an earlier SEP 31 phase 1
+  merge.
+- **S3 — Accepted.** Section 4.3 allows an independently qualified provider-pair
+  envelope to replace the conservative Δ screen over its declared range.
+  It does not replace the angular/metric checks, passivity or total model-error
+  budget. Identical checked bases already use `same_basis`, avoiding an
+  artificial weak-guidance floor for coordinate recovery.
+- **S4 — Accepted with a formula correction.** Section 8.1 derives
+  $L_{\rm beat}=8\pi^2 n a^2/[(u_{12}^2-u_{11}^2)\lambda_0]$ from the scalar
+  capillary beta expansion. The re-review's numerical 22.5 mm estimate is
+  correct, but its printed formula is missing one factor of π. With the stated
+  carrier index and J0 zeros, the static estimate is 22.5045 mm, so 5 mm is
+  about 0.222 periods. The tutorial explains partial beating, uses the package's
+  HE_1m labels and requires evaluation of actual dispersive beta and wall loss
+  when the plots are implemented.
+
+All rereview points have proposal-level answers. Grid/mode convergence,
+interface qualification, the retained short field-grid Kerr/plasma/THG transfer,
+the compressor workflow and the tutorial's nonlinear signal-to-error margin
+remain mandatory implementation evidence, not unresolved design choices.

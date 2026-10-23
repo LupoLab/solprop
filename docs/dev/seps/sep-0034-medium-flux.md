@@ -5,7 +5,7 @@
 | **SEP** | 34 |
 | **Title** | Medium flux for free-space propagation |
 | **Author** | John Travers |
-| **Drafting agent** | GPT-6 |
+| **Drafting agent** | GPT-6 (draft and 2026-10-23 review response) |
 | **Status** | Draft |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); Opus 5.5 (AI) |
@@ -26,9 +26,10 @@ Give free-space launches, noise, energy, fluence and statistics one physical
 power convention in the declared medium. Replace the vacuum weight with the
 scalar forward equation's axial-admittance measure, using complex admittance
 for local flux and its real part for total energy. Preserve the existing radial
-gas-gradient capability by adding the adiabatic amplitude correction to its
-integrated linear operator. Qualify the reference, Numba CPU and native CPU
-implementations before activating the changed public semantics together.
+gas-gradient capability by adding the forward amplitude correction to its
+integrated linear operator, with a total-variation certificate for real-index
+paths. Qualify NumPy, Numba CPU, native CPU and bounded CUDA/HIP cases before
+activating the changed public semantics together.
 This is a clean breaking change with no legacy normalisation or old-file
 migration. It is the shared prerequisite for coupling in
 [SEP 31](sep-0031-simulation-coupling.md) and solid carriers in
@@ -53,18 +54,20 @@ host-side field exchange and transport of SEP 31.
 | Route or operation | Scope |
 |---|---|
 | Radial, Cartesian and uniform-in-y line free space | Shared scalar medium flux in uniform isotropic media; J and W for finite beams, J/m and W/m for line beams |
-| Radial gas pressure/density profiles | Preserve smooth admitted profiles with the adiabatic correction, local source prefactors and local-plane measurement |
+| Radial gas pressure/density profiles | Admit real-index paths, including declared weak steps, through the per-column certificate; use the forward amplitude correction, local source prefactors and local-plane measurement |
 | Cartesian and line varying media | Remain unsupported; this proposal does not add a propagation route |
-| Hybrid planar guide | Audit its modal/FFT power metric and all public spatial dispatches; do not multiply true-power slab coefficients by a bulk index |
+| Hybrid planar guide | The explicit modal/FFT metric in §4.3; retain its scalar slab synthesis and correct its currently vacuum-normalised coefficients |
 | Ordinary and general modal guides | Retain their own derived metrics; provide consistent dispatch, not a new normalisation |
 | Uniform absorbing scalar media | Integrated energy and attenuation use real admittance; local traces use the complex forward admittance |
-| Longitudinally varying absorbing media | The explicitly qualified weak-loss adiabatic extension in §4.4, not arbitrary complex-index WKB |
+| Longitudinally varying absorbing media | Deferred: uniform absorbing media remain supported, but a nonconstant absorbing radial path refuses pending a separate complex-index certificate |
 | Interfaces, high-NA vector fields, crystals | Outside scope; SEP 31 handles declared planar interfaces, SEP 8 handles vector crystals |
 
 No new material data, nonlinear response, spatial mode solver or dependency is
-introduced. General reflected/evanescent scattering and nonadiabatic gradients
-remain outside the propagation model. An abrupt step is not a gas-gradient
-approximation merely because its index contrast is small.
+introduced. General reflected/evanescent scattering remains outside the model.
+A real-index radial path, including declared weak steps, is admitted by §4.5's
+per-column certificate; small gas index contrast alone is not an admission test.
+Local observables describe the retained forward component, not an incident-plus-
+reflected Maxwell field. No general scattering solver is introduced.
 
 ### 3. Context
 
@@ -190,8 +193,9 @@ $\tfrac12\int\operatorname{Re}(\mathbf E_a\cdot\mathbf G_a^*)$.
 For a real constant admittance it reduces to
 $Y_z\int|E_a|^2/2$, not an unqualified $\int E^2$: the analytic-signal
 endpoints make those expressions differ if endpoints are occupied.
-Use synthetic finite constant-admittance endpoint tests for the discrete
-identity, without assigning the optical $1/\omega$ formula to DC.
+Use synthetic finite constant-admittance endpoint tests only for this discrete
+identity. They attach no optical meaning to DC and do not evaluate the optical
+$1/\omega$ formula there.
 
 Optical energy-normalised launches require unoccupied DC and unsupported
 nonpropagating/cutoff columns. Use established hard-mask zeros. Reject division
@@ -207,12 +211,33 @@ same transverse weights as the launch. This changes no noise ensemble or seed
 semantics. Modified-noise bookkeeping retains its existing meaning; an energy
 accessor or a relaunch never adds another draw automatically.
 
-The planar hybrid route uses its derived modal/FFT quadratic form, including
-cross terms if required. Its slab amplitudes are not raw bulk E samples. Audit
-dispatch and current vacuum factors, and demonstrate agreement with physical
-modal synthesis; never apply the bulk index twice.
+**Hybrid planar metric.** The current `PlanarGrid` synthesis uses
+$E(x,y,\omega)=\sum_p V_p(x)A_p(y,\omega)$ with
+$(\varepsilon_0c/2)\int V_p^*V_q\,dx=\delta_{pq}$.
+Its stored coefficients are vacuum-normalised, despite carrying power-amplitude
+units; `planar_mode_energy` currently states that explicitly. For the present
+orthogonal scalar slab family, translation supplies
 
-#### 4.4 Radial adiabatic amplitude transport
+$$
+ q_{p\ell k}=\sqrt{[(\omega_k/c)n_{{\rm eff},p}]^2-k_{y,\ell}^2},
+ \quad w_{p\ell k}=c\,\operatorname{Re}q_{p\ell k}/\omega_k,
+ \quad
+ U_p=\frac{\Delta t}{N_t}\frac{\Delta y}{N_y}
+       \sum_{\ell,k}\gamma_k w_{p\ell k}|\hat A_{p\ell k}|^2.
+$$
+
+The $\varepsilon_0c/2$ factor is already in V, so it is not applied again.
+For local measurements synthesize G with the same V and the complex factors
+$\varepsilon_0c^2q_{p\ell k}/\omega_k$ applied to A before synthesis.
+Orthogonality diagonalises the integrated energy, while local interference
+between modes remains. At $k_y=0$ the weight is $\operatorname{Re}n_{{\rm eff},p}$;
+it is not generally the bulk index. This closes the metric choice before
+implementation. Qualification checks the discrete Gram identity, including
+quadrature error. A future nonorthogonal family requires its own full metric,
+not this diagonal formula. Ordinary saved true-power modal amplitudes elsewhere
+keep their existing metric and must not be weighted a second time.
+
+#### 4.4 Radial forward amplitude transport
 
 The existing radial profile is uniform transversely and varies along z. In the
 transparent case each spectral column satisfies the scalar linear equation
@@ -236,7 +261,10 @@ amplitude ratio becomes $\sqrt{n(z_0)/n(z_1)}$. Keep E as the propagated
 variable; changing to a globally flux-normalised variable would also require
 changing every nonlinear drive and source, with no benefit here.
 
-In the internal convention and moving frame the accumulated linear operator is
+In the internal FFT convention of
+[conventions §2](../conventions.md), the plane wave has phase
+$\exp[i(\omega t-\beta z)]$. In that convention and the existing moving frame,
+the accumulated linear operator is
 
 $$
  \Phi(z_1)-\Phi(z_0)
@@ -252,68 +280,133 @@ endpoint admittance, using a stable log-ratio for near-equal values, rather than
 integrating a numerically differentiated table. Compose endpoints consistently
 across steps and restarts. The uniform-medium term is an exact zero.
 
-Local magnetic reconstruction in the adiabatic linear model also has a gradient
-term. Since $G=(-i/\mu_0\omega)\partial_z E$ in the optics convention,
+**Which field is retained.** Use the forward component in the exact
+directional decomposition of the scalar wave equation, not the approximate
+total field obtained by differentiating a truncated WKB ansatz. With
+$E_\pm=q^{-1/2}a_\pm e^{\pm i\theta}$, $\theta' = q$, the full linear field
+has $E=E_++E_-$ and $G=\varepsilon_0c^2q(E_+-E_-)/\omega$.
+The retained component therefore has
 
 $$
- \mathcal Y_{c,\rm ad}
- =\frac{\varepsilon_0c^2}{\omega}
-   \left(k_z+\frac{i}{2}\partial_z\ln Y_z\right).
+ G_+=\mathcal Y_c E_+ .
 $$
 
-Its real part remains $Y_z$, so total-energy and noise weights are unchanged;
-use this closure for local traces to the same adiabatic order. The derivative
-comes from the resolved smooth material path, not differencing noisy saved
-fields. This is a reconstruction term, not a second amplitude correction.
+Dropping backward coupling gives the amplitude equation above. Differentiating
+this approximate E alone would instead add
+$i\varepsilon_0c^2(\partial_z\ln Y_z)/(2\omega)$ to its local admittance.
+That is a different approximate-total-field closure, not the directional
+forward component controlled by the certificate below. It is removed from this
+proposal by the maintainer's decision on 2026-10-23. Uniform absorbing media
+still use the full complex $\mathcal Y_c$ of §4.2.
 
-For weak varying loss, keep the existing complex phase/attenuation and the real
-admittance correction above. This is a declared separated-loss scalar model,
-not the exact $k_z^{-1/2}$ WKB solution for an arbitrary complex q. Qualify its
-error independently against the complex scalar wave equation over the admitted
-loss/gradient range. Strongly absorbing varying profiles without that evidence
-are refused. Uniform absorption remains supported by §4.2.
+At a declared jump use the two one-sided values and the endpoint square-root
+factor. Split steps, dense output and interpolation at that location; never
+smooth a jump into a derivative spike. A saved plane at the jump records its
+side explicitly (`before` or `after`); a request without a side is ambiguous and
+refuses. Local traces use the corresponding side's forward closure and do not
+pretend to describe the microscopic interface plane.
 
-#### 4.5 Validity, reflection and source work
+Nonconstant absorbing radial paths are deferred by maintainer decision.
+Do not apply the real-q certificate to $\operatorname{Re}q$ while silently
+ignoring its varying imaginary part. Uniform absorption remains supported;
+varying loss needs a separately proposed complex-index bound and local model.
 
-Local indicators $|q'|/q^2$ and $|q''|/q^3$, endpoint smoothness and a margin
-from $q=0$ screen adiabaticity; none alone bounds accumulated reflection.
-For the trial WKB field the equation residual divided by E is
+#### 4.5 Real-index path certificate and source work
+
+For a propagating column let q be positive, real and of bounded variation,
+constant outside the declared path. Its exact scalar linear scattering problem
+has no incoming wave at the far end. Define
 
 $$
- r_{\rm WKB}=\frac34(q'/q)^2-\frac12q''/q.
+ \Lambda=\tfrac12\operatorname{TV}_{[z_0,z_1]}(\ln q)
+ =\tfrac12\int_{\rm smooth}|q'/q|\,dz
+  +\tfrac12\sum_{\rm jumps}|\ln(q_+/q_-)| .
 $$
 
-Use this residual and an independently converged one-dimensional scalar-wave
-reference to qualify profile families and an explicit model-error budget.
-Continuous piecewise profiles retain their declared derivative breakpoints;
-derivative jumps need their own reflection/error assessment [2]. They are not
-silently smoothed. A jump in the index itself requires an interface model.
+Write $E=q^{-1/2}(a e^{i\theta}+b e^{-i\theta})$ and
+$E'=iq^{1/2}(a e^{i\theta}-b e^{-i\theta})$. Substitution gives
+$a'=(q'/2q)b e^{-2i\theta}$ and
+$b'=(q'/2q)a e^{2i\theta}$, preserving $|a|^2-|b|^2$.
+For unit transmitted flux and $b(z_1)=0$, the magnitudes are $\cosh\rho$
+and $\sinh\rho$, with $|\rho'|\le|q'/(2q)|$.
+Across a jump, continuity of E and E' gives a hyperbolic transfer with parameter
+$\tfrac12\ln(q_+/q_-)$, so the same variation bound includes jumps.
+Consequently [3],
 
-A conservative transparent-profile reflection screen is available without a
-wavelength heuristic. Define $\theta(z)=\int q\,dz$ and exact amplitudes by
-$E=q^{-1/2}(a e^{i\theta}+b e^{-i\theta})$ and
-$E'=i q^{1/2}(a e^{i\theta}-b e^{-i\theta})$. Their coupled equations are
-$a'=(q'/2q)b e^{-2i\theta}$ and $b'=(q'/2q)a e^{2i\theta}$, preserving
-$|a|^2-|b|^2$. For unit transmitted flux and no incoming wave at the far end,
-write the magnitudes as $\cosh\rho$ and $\sinh\rho$. The equations bound
-$|\rho'|\le|q'/(2q)|$. With
-$\Lambda=\tfrac12\int|q'/q|dz$, this gives
-$R\le\tanh^2\Lambda$ for reflected power relative to incident power.
-This bound can be very conservative because it discards oscillatory cancellation.
-Use it only as a sufficient reflection bound; field and phase errors still need
-their separate reference bounds. When the screen is insufficient, qualify the
-actual smooth profile with a refined independent reference or refuse the
-requested accuracy. Do not describe a maximum local WKB indicator as a
-certified global error.
+$$
+ R\le R_*=\tanh^2\Lambda,\qquad
+ |\log(a(z)/a(z_0))|\le B_*=\Lambda\tanh\Lambda,\qquad
+ \delta_*=\operatorname{expm1}(B_*).
+$$
 
-**The abrupt-interface limit is not an acceptance target for this propagator.**
-For a lossless step from n1 to n2, the amplitude ratio above always gives
-$T_{\rm ad}=1$, whereas Fresnel continuity gives
-$T_{\rm F}=4n_1n_2/(n_1+n_2)^2=1-R_{\rm F}$.
-Sharpening a profile eventually leaves the adiabatic regime; the reference
-scattering solution approaches the Fresnel limit, and the forward-only model
-must signal that its error budget is exceeded. It cannot generate the missing
-reflected wave. This corrects the R2 validation request in SEP 31's review.
+The continuous complex logarithm is used. The second inequality follows by
+integrating $|a'/a|\le|q'/(2q)|\tanh\Lambda$; exponentiation bounds the
+relative complex forward-field error by $\delta_*$. At a passive transmitted
+endpoint, the logarithm of the transmission ratio has nonpositive real part,
+so $|e^w-1|\le|w|$ and the review's tighter endpoint bound $B_*$ is also valid.
+Use $\delta_*$ consistently for admission and interior forward coordinates,
+avoiding two meanings of `field_error`. Evaluate small quantities stably.
+
+For a monotone path $\Lambda=\tfrac12|\ln(q_1/q_0)|$ and
+$R_*=[(q_1-q_0)/(q_1+q_0)]^2$, attained by the abrupt step and conservative
+for smooth profiles with those endpoints. The forward approximation still
+transmits unit flux; the certificate bounds that error instead of claiming
+Fresnel transmission. Nonmonotone profiles use total variation, not endpoint
+contrast: many small oscillations can fail. Near cutoff, q varies much more
+than the bulk index, so even a gas path can fail.
+
+**Admission.** `AdiabaticAccuracy(field_error=1e-4,
+reflected_energy=1e-4)` is the default, chosen by the maintainer as a model
+budget, not a physical constant or an integrator tolerance. Both values are
+finite and positive; callers may tighten them. Every declared active
+propagating column must satisfy $\delta_*\le\epsilon_{\rm field}$ and
+$R_*\le\epsilon_{\rm reflection}$ over the entire run path. Do not reset the
+budget per step or discard a failing column because the initial pulse is weak
+there: nonlinear evolution can populate it. Existing nonpropagating support
+rules remain explicit; crossing q = 0 refuses the certified path.
+
+Construct a conservative upper enclosure of total variation for the resolved
+material representation. Split at declared knots/jumps and isolate extrema of
+the represented $\ln q$ (or bound its derivative on each interval); include
+root-isolation and arithmetic error. For a certified monotone interval only
+its endpoint log ratio is needed. The material interpolation error remains a
+separate error envelope: a proof for an interpolant is not proof for an arbitrary
+unresolved callable. A custom profile must supply bounded segments/variation
+metadata or be resolved under an independently justified interpolation envelope;
+sampling its derivative at finitely many points is not a certificate.
+The admission record carries the represented path identity, variation enclosure,
+interpolation envelope, per-column bounds, support and reference extent.
+The exact metadata layout and polynomial enclosure algorithm are Phase 1
+implementation choices under this fixed contract, not another physics decision.
+
+The following values from review A1 are **review witnesses, not new qualification
+results**. Its forward error means $|t_{\rm exact}/t_{\rm WKB}-1|$ at the exit.
+The original review is preserved in Part III; its profile widths and rounded
+values must become fully specified, refined tests before implementation claims
+them as evidence.
+
+| Review profile at 800 nm | Reported R | Reported R bound | Reported forward error | Reported B bound |
+|---|---|---|---|---|
+| Gas tanh ramp, Δn = 8 × 10⁻⁴, 1 mm | 2 × 10⁻²⁴ | 1.5 × 10⁻⁷ | 7 × 10⁻¹² | 1.5 × 10⁻⁷ |
+| Same contrast, abrupt step | 1.60 × 10⁻⁷ | 1.60 × 10⁻⁷ | 8.0 × 10⁻⁸ | 1.6 × 10⁻⁷ |
+| Nonmonotone Gaussian gas bump, 0.2 mm | 6 × 10⁻²⁵ | 6.4 × 10⁻⁷ | 6 × 10⁻¹¹ | 6.4 × 10⁻⁷ |
+| n = 1 → 1.5 tanh ramp, 0.5 μm | 7 × 10⁻¹⁰ | 0.040 | 1.4 × 10⁻³ | 0.040 |
+| n = 1 → 1.5 abrupt step | 0.0400 | 0.0400 | 0.020 | 0.041 |
+
+Energy conservation to 10⁻¹¹ alone does not establish reflected powers of
+10⁻²⁴; tiny reflected amplitudes need their own absolute error bounds.
+Independent scalar-wave solves are test witnesses, never a runtime requirement
+for each real-index profile family. No full-wave result is inferred from the
+table's printed precision.
+
+**Scope of the bound.** It certifies the retained forward part of the *linear
+background scattering problem*. The omitted backward amplitude can be
+$O(\sqrt{R_*})$, so neither total local E/H nor standing-wave maxima have
+the forward-field error bound. It does not certify nonlinear feedback,
+ionisation or arbitrary downstream sensitivity. Nonlinear runs retain the
+repository's separate accuracy/refinement requirements. A plane records this
+scope explicitly; a SEP 31 report must not relabel it a bound on the whole
+nonlinear simulation.
 
 The nonlinear source prefactors continue to use the **local** real $k_z$.
 For an analytic current the field source is $-J/(2Y_z)$; combining it with
@@ -340,16 +433,22 @@ The public spelling is proposed here:
 
 | Entry point | Contract |
 |---|---|
-| `SpatialFlux.resolve(grid, space, medium, z=...)` | Resolve units, propagating support and local complex/real admittance or the hybrid modal metric |
+| `SpatialFlux.resolve(grid, space, medium, z=..., side=...)` | Bind one physical plane, its support and complex/real admittance or the hybrid metric; side is required at a jump |
 | `spatial_energy(field, flux)` | Integrated physical energy on the declared plane; no vacuum default when the medium is omitted |
 | `spatial_fluence(field, flux)` and local intensity/axis accessors | Reconstruct E and G with the same complex closure; signed quantities remain signed |
 | `SpatialPulse.build(..., medium=..., reference=...)` | Normalise requested energy or peak axial power at the declared launch plane, after geometric preparation |
 | `spatial_noise(..., flux=...)` | Normalise the existing draw in the same entrance metric |
-| `AdiabaticAccuracy(field_error=..., reflected_energy=...)` | Explicit positive model-error budgets for a varying radial medium, separate from integration tolerance |
+| `AdiabaticAccuracy(field_error=1e-4, reflected_energy=1e-4)` | Default forward-field and reflected-energy budgets; callers may tighten them; exceeding either refuses |
 | `critical_power(..., index=...)` | Physical paraxial power at the specified real carrier index; not a broadband collapse prediction |
 
-The exact array signatures follow the existing axis vocabulary and are fixed in
-the first implementation phase. The required medium/reference is an intentional
+All field accessors use `(field, flux, ...)` in that order, including
+`spatial_intensity`, `on_axis_intensity`, `on_axis_spectrum`,
+`beam_radius`, `fwhm_r` and the three `planar_*` accessors.
+The flux record binds grid, geometry, medium, z and jump side once; evaluating
+it does not re-resolve the medium. A new plane needs a new record, with immutable
+material/path data shared where possible. This is the record SEP 31 extraction
+uses. Existing axis conventions fix the array contract; Phase 1 implements and
+tests these signatures. The required medium/reference is an intentional
 breaking signature change. `SpatialPulse` remains the beam builder; SEP 31 adds
 its field-plane adapter rather than duplicating its Gaussian.
 
@@ -365,6 +464,51 @@ units and source material identities. Accessors on a saved radial-gradient plane
 resolve its actual z. Missing metadata or a metric/basis mismatch is an explicit
 error. SEP 31 uses this same host plan; it need not ask a propagation kernel to
 measure an offline field.
+
+#### 5.1 Statistic and accessor decisions
+
+The following inventory covers the existing spatial catalogue and the public
+accessors in `solprop.spatial`. It is a contract for both in-run and saved-plane
+evaluation. “G in frequency” needs coherent transverse synthesis but can use
+temporal Parseval; it need not perform a temporal inverse transform.
+“G in time” requires the same analytic temporal reconstruction as E.
+“Exact” below means the signed flux of the declared scalar forward model.
+
+| Existing name(s) | Evaluation and resulting meaning |
+|---|---|
+| `energy`, `spatial_energy`, `planar_mode_energy` | Real diagonal weights, or the derived modal quadratic form; no G synthesis |
+| `beam_spectrum` | Real per-column axial-energy weights; its integral equals energy |
+| `poynting_spectrum` | Remove this redundant spelling when `beam_spectrum` becomes axial flux; update callers and schemas, with no alias |
+| `region_spectrum`, `aperture_spectrum` | Real axial weights with the existing angular membership/aperture quadrature; these remain declared angular-port measurements, not implicit facet transmission |
+| `on_axis_spectrum`, `aperture_on_axis_spectrum` | Synthesize coherent E and G at the axis, applying the same aperture to both; form their same-frequency real pairing, not a squared coherent E sum |
+| `spatial_fluence`, `planar_fluence` | G in frequency at physical nodes; signed time-integrated axial flux |
+| `spatial_intensity`, `planar_intensity` | G in time; signed local axial-flux trace |
+| `on_axis_intensity` | G in time at the axis; both accessor and saved statistic return its temporal maximum |
+| `peak_intensity` | G in time at physical nodes; maximum signed axial flux over time and the transverse rule, including between-plane evaluations |
+| `beam_radius`, `fwhm_r`; `radial_fluence_widths`, `cartesian_fluence_widths` | Widths of the same signed fluence; pure width helpers take an already computed profile, not a flux record |
+| `absorbed_power` | Real metric weights for diagonal material, spectral, transverse-wavevector and evanescent damping channels, in the existing channel order; units remain J/m. Nonpropagating field-norm damping is not physical absorbed energy |
+| Spatial collar diagnostic | Retain an explicitly named electric-field-norm boundary diagnostic; remove its claim to be a fraction of physical fluence. A physical masked-flux decrement requires its separate quadratic-form calculation |
+| Density, pressure and other scalar profile statistics | Unchanged profile evaluation; neither flux weights nor G |
+| Electron densities, species inventories, ionisation rates and plasma diagnostics | Retain physical-E rate/source definitions; flux is not substituted for E. Work diagnostics use the matching source-work identity |
+| Raw fields/spectra and phase accessors | Preserve field values and units; no flux weighting of an amplitude merely because it is displayed |
+
+Local-flux observables remain available in-run as requested, with no
+carrier-admittance substitute and no automatic move to offline-only access.
+Cache/reuse the E/G work shared by requested statistics and bound its chunks.
+For a single axis, contract spectral columns directly instead of reconstructing
+the full plane. Report added transforms, memory and timing by statistic group.
+
+No negative flux is clipped. A positive-profile width refuses a negative
+fluence profile outside its accounted arithmetic error, rather than changing
+its measure. Existing undefined-shape cases (a hollow centre or no half-maximum
+crossing) retain their documented undefined-width result; they are distinct
+from a signed-profile refusal. The explicit field-norm collar diagnostic is
+not a replacement intensity statistic and must be labelled as such.
+
+The aperture coordinates retain their existing declared Fourier-plane mapping.
+A corrected in-medium energy measure supplies no Fresnel transmission through
+a real exit face; that requires SEP 31's explicit interface. The detector
+measurement and its plane/medium are recorded so no energy change is invented.
 
 ### 6. Implementation strategies
 
@@ -409,10 +553,26 @@ leave the existing public path unchanged. They are not a user-selectable legacy
 normalisation. The activation removes replaced definitions and updates callers,
 tests, manual and current-schema contracts in the same change.
 
-Device kernels require the matching implementation and separate device evidence;
-portable source alone does not establish GPU support. The activation report must
-state the GPU capability matrix and any accepted, explicit temporary refusal.
-There is no hidden host statistics fallback. Existing CPU support is preserved.
+The shared native source changes GPU semantics in the activation commit too.
+The maintainer requires bounded qualification on one NVIDIA CUDA device and
+one AMD HIP device **before activation**: no new GPU refusal and no activation
+labelled unqualified. Prepare inputs, reference outputs and builds on CPU first.
+On each device run at most 40 deterministic qualification invocations, each
+with at most ten propagation steps; batch related assertions into those calls.
+Cover every changed device path: real weights, complex local G, field/envelope
+normalisation and noise, radial path endpoints/jumps, planar metrics, absorption,
+saved/in-run statistics, and bounded memory. Record hardware/software versions,
+error bounds and actual timings. This focused campaign supplements the native
+gate; it does not rerun a full experimental gallery on rented hardware.
+
+The total planning cap is **US$20**, including setup/build time, compute,
+storage and teardown, selected by the maintainer on 2026-10-23. No resource is
+provisioned by this draft, and the cap is not spending authorisation. At
+implementation request the maintainer's explicit go with then-current rates
+and a plan fitting the cap; stop before exceeding it. A blocked campaign
+delays public activation rather than weakening its contract.
+There is no hidden host statistics fallback. CPU and GPU evidence are reported
+separately even though both are required for this activation.
 
 Any changed seam records, protected driver hooks or stage bundles bump
 `SCHEMA_VERSION` and its literal contracts, with native consumers updated
@@ -436,13 +596,13 @@ not proof that WKB approximates the full wave equation.
 | Launch and supplied arrays | Correct physical requested energy at launch plane; fixed V/m data retain their amplitude; no implicit entrance-window transmission |
 | Noise | Photon energy per admitted degree of freedom, fixed-seed consistency, no double draw and explicit invalid-weight errors |
 | Gradient linear flow | Lossless represented endpoint-flow invariant within a rounding budget; exact zero correction in a uniform medium; forward/backward plane exchange and resume composition |
-| Gradient physical model | Independently refined scalar Helmholtz/mode-matching references for smooth rising/falling gas paths, derivatives and cutoffs; field, phase and reflection errors against the declared budgets |
-| Sharpening profile | Independent full-wave reference approaches Fresnel scattering; forward model exits admission rather than falsely producing the abrupt-interface transmission |
+| Gradient certificate | Independent scalar-wave test witnesses for monotone paths, bumps, repeated oscillations, kinks, declared steps and cutoff approaches; verify the TV enclosure and forward/reflection bounds separately from interpolation error, without runtime per-family solves |
+| Sharpening profile | A weak monotone step can stay admitted with its bounded missing reflection; a large-TV path refuses. The exact reference approaches Fresnel scattering; the forward approximation never claims to do so |
 | Nonlinear work | Local polarisation/current prefactor consistency; matched uniform limit and short gradient Kerr/plasma cases; physical E remains the rate drive |
-| Absorption | Uniform loss exponential, qualified weak-loss gradients, and separate physical versus numerical-absorber accounting |
+| Absorption | Uniform loss exponential; explicit refusal of nonconstant absorbing paths; separate physical and numerical-absorber accounting |
 | Signed/local statistics | No clipping; explicit refusal for undefined positive-profile measurements; common in-run/offline definitions and correct selected-plane medium |
 | Other representations | Hybrid planar reconstruction/metric identity and modal dispatch; no accidental bulk-index multiplication of true-power coefficients |
-| Backend and resources | NumPy/Numba/native CPU parity, source/target host exchange, current-schema round trips, memory ledger and short benchmarks |
+| Backend and resources | NumPy/Numba/native CPU parity, the bounded CUDA/HIP campaign before activation, source/target host exchange, current-schema round trips, memory ledger and short benchmarks |
 
 Existing numerical absorbers and nonpropagating-support rules need regression
 coverage. Show the effect of finite transverse/time windows independently.
@@ -455,15 +615,42 @@ steps. Never extrapolate these timings to full experiments.
 
 Add `docs/guide/free-space/flux.md` with the meter-energy definition, phase versus
 group index, complex local admittance, analytic-signal conventions, radial WKB
-derivation, validity/refusal rules and a short rising/falling gas-profile example.
+derivation, the TV certificate and its scope, explicit jump sides,
+validity/refusal rules and a short rising/falling gas-profile example.
 Link it from the free-space model, power/intensity, noise, input-pulse, radial
 and coupling guides. Update docstrings and all affected callers together.
 
-Recompute focused tutorial energy scales and critical-power ratios under the new
-definition, preserving whether each example is meant to hold physical energy or
-physical field fixed. Do not silently preserve both. SEP 31 owns its nonlinear
-coupling tutorial; this SEP supplies its correct physical sizing.
-Worked-example source changes require regeneration under the repository rules.
+The maintainer chose the following migration on 2026-10-23. Preserve the
+physical electric field in lessons teaching nonlinear dynamics; retain physical
+energy when that is the specified teaching input. These are choices of example
+controls, not a legacy-normalisation switch.
+
+| Source under `docs/` | Quantity held fixed and required update |
+|---|---|
+| `introduction/tutorials/plot_03_filament.py` | Physical incident E; retain the intended Kerr/plasma dynamics, report corrected energy and physical critical-power ratio |
+| `introduction/tutorials/plot_04_crossing_beams.py` | Physical energy of each specified beam; recompute the corrected normalisation |
+| `tutorials/free_space/plot_01_radial.py` | Weak diffraction case: physical incident energy. Nonlinear focusing case: physical E; update critical-power labels |
+| `tutorials/free_space/plot_02_cartesian.py` | Specified physical incident energy; update the launch and fluence measurement |
+| `tutorials/free_space/plot_03_line.py` | Physical E of the soliton and half-power comparison; derive the physical per-unit-width power from that field |
+| `tutorials/free_space/plot_04_planar_hybrid.py` | Specified physical incident energy; use the explicit slab metric and preserve captured-share semantics |
+| `tutorials/free_space/plot_05_low_storage.py` | Physical E for matched integrator comparisons; update the soliton-power label and spectral energy fraction |
+| `tutorials/free_space/plot_06_four_wave_mixing_scan.py` | Physical E of each pump; report corrected energies and flux-based region/absorption measurements |
+| `tutorials/free_space/plot_07_far_field_statistics.py` | Physical E of the nonlinear pumps; replace the duplicated beam/Poynting spectrum comparison and report corrected aperture and energy measurements |
+| SEP 31's new `plot_08_radial_capillary_coupling.py` | New physical sizing at the agreed B = 0.3 rad target; no old field or energy to preserve |
+
+Construct retained fields from their stated physical analytic amplitudes and
+geometries, then measure them with the new metric; do not preserve an old
+vacuum-normalisation helper in an example. At fixed E in a uniform medium the
+propagation equations do not change. The narrowband paraxial power and critical
+power both acquire n0; finite-angle/bandwidth ratios and all plotted flux traces
+must nevertheless be recomputed, not assumed identical.
+
+The current `docs/examples/` sources contain no free-space spatial launch in this
+inventory; their ordinary modal powers are unchanged. Recheck the inventory at
+implementation. Any worked-example source edit still requires regeneration.
+Gallery inputs/output labels and ordinary guide snippets must be updated
+together; run the normal galleries through Sphinx. SEP 31 owns its new coupling
+tutorial and its propagated convergence evidence.
 
 Update conventions, kernel/output contracts, backend capability pages,
 architecture and the Luna differences page in implementation, along with the
@@ -478,9 +665,10 @@ fail clearly. The scalar field state and Fourier convention remain unchanged,
 but an energy-normalised pulse in a medium generally has a different physical
 amplitude, and spatial observations report a different energy.
 
-Smooth admitted radial pressure profiles continue to work with the corrected
-amplitude transport. Nonadiabatic, discontinuous or unqualified strongly
-absorbing gradients require another model. Cartesian/line gradient restrictions
+Real-index radial pressure profiles continue to work when their per-column TV
+certificate meets the default or tightened budgets; declared weak jumps can
+qualify too. Exceeded budgets, turning points, unresolved variation and
+nonconstant absorbing paths refuse explicitly. Cartesian/line gradient restrictions
 remain as they are. Exact uniform propagation of a supplied array is unchanged;
 its launch scaling or reported physical power can change.
 
@@ -497,7 +685,9 @@ name SEP 34 as the flux dependency, while SEP 31 remains the coupling proposal.
 | Multiply every observable by one index | Only a narrowband paraxial limit; misses angular weighting and complex local flux |
 | Use group index in the Poynting factor | Confuses transported energy density with energy crossing a plane |
 | Use real admittance for every local trace | Correct total energy, incomplete local flux for absorbing broadband/angular fields |
-| Refuse every gradient | Removes a working route; add the adiabatic amplitude term for admitted profiles |
+| Refuse every gradient or index jump | Removes useful gas paths; apply the per-column TV certificate, including declared jumps |
+| Require a full-wave reference solve per profile family | Unnecessary for the real-q bound; retain independently refined solves as test witnesses |
+| Use the differentiated WKB total-field closure locally | Inconsistent with interpreting the certificate as controlling the retained directional field; use G = 𝒴c E for that component |
 | Demand the abrupt Fresnel limit from WKB | Mathematically impossible for a forward-flux-conserving reduction; use a scattering reference to delimit validity |
 | Propagate a new flux-normalised field | Requires changing all nonlinear drives/sources; retain physical E and add the endpoint term |
 | Activate one backend at a time | Creates inconsistent semantics or rejects default-backend runs; switch public paths atomically |
@@ -511,8 +701,8 @@ development slices, not separate public activations.
 
 | Phase | Deliverables | Exit evidence |
 |---|---|---|
-| **1 — Shared reference and admission** | Private physical/complex-flux reference, WKB endpoint and local-G derivations, independent scalar-wave witnesses, proposed signatures and provider/admission records | Discrete identities, reflected-wave counterexample, explicit error budgets and unchanged existing public behaviour |
-| **2 — Atomic CPU implementation** | NumPy first, then Numba and native CPU; update launch/noise/statistics, gradient flow, critical-power references, host processing, schemas and manual together | All directly affected modules, three-CPU parity, native gate, memory/timing evidence and no default-backend support gap |
+| **1 — Shared reference and admission** | Private physical/complex-flux reference, directional endpoint closure, TV admission/enclosures, explicit slab metric, independent scalar-wave witnesses and the specified interfaces | Discrete identities, step and oscillatory-path witnesses, default/tightened budgets, complete accessor inventory and unchanged existing public behaviour |
+| **2 — Atomic activation** | NumPy first, then Numba and native CPU; update launch/noise/statistics, gradient flow, physical power references, host processing, schemas and manual; qualify CUDA/HIP before the public switch | Directly affected modules, three-CPU parity, native gate, the approved bounded device campaign, memory/timing evidence and no backend support gap |
 | **3 — Qualification and completion** | Integrated gradient/absorber/reference tests, updated galleries, final capability matrix and handoff to SEPs 5/31 | Full gate, slow/coverage lanes once under the standing policy, documentation and recorded source/limitation reports |
 
 During development run fast checks and directly affected tests; after a failure
@@ -523,17 +713,24 @@ tests and Sphinx checks. No propagation implementation is claimed.
 
 ### 12. Open questions
 
-| Question | Resolution required |
-|---|---|
-| **Q1 — Adiabatic admission data** | Phase 1 fixes evaluable derivative/profile bounds and independent reference coverage for gas mixtures, derivative breakpoints and weak varying loss. The forward model and refusal of abrupt steps are already proposed above. |
-| **Q2 — Local trace closure** | Proposed resolution: complex homogeneous admittance and the stated adiabatic imaginary derivative term. Phase 1 independently verifies signs, cross-frequency terms and the approximation to the full scalar wave solution. |
-| **Q3 — Hybrid planar audit** | Phase 1 establishes the actual modal/FFT metric and lists every affected public dispatch; no bulk formula is applied by analogy. |
-| **Q4 — GPU activation** | Phase 2 records device evidence and any explicit accepted exception before public activation. No CPU exception is proposed. |
-| **Q5 — Error and resource interfaces** | Phase 1 fixes exact signatures and model-error defaults, if any, from independent evidence; no unrecorded physics tolerance or memory allocation is permitted. |
+No unresolved model choice is intentionally left to implementation. Acceptance
+settles the following contracts; evidence that they are implemented correctly
+belongs to the named phases.
 
-The physical-energy meaning, no-legacy policy, split from SEP 31, preservation
-of admitted radial gradients and three-CPU atomic activation are settled
-requirements. The new proposal has not inherited SEP 31's reviews or acceptance.
+| Former question | Decision and remaining evidence |
+|---|---|
+| **Q1 — Path admission** | Real positive q with the TV certificate, default 10⁻⁴ budgets and explicit jump sides. Phase 1 implements enclosures and independent witnesses. Nonconstant absorption is deferred to a separate proposal |
+| **Q2 — Local trace closure** | G = 𝒴c E for the retained forward component; full complex admittance in uniform absorbing media. No gradient derivative term and no claim to recover omitted backward interference. Phase 1 tests signs and cross terms |
+| **Q3 — Hybrid planar** | The diagonal metric and coherent local synthesis of §4.3. Phase 1 verifies the actual discrete Gram/Parseval identity |
+| **Q4 — GPU activation** | Bounded CUDA and HIP qualification before activation, US$20 planning cap, actual spend requiring a separate go. Phase 2 records results and capability matrices |
+| **Q5 — Interfaces and resources** | Field-first accessors bound to an immutable plane, shared in-run/offline semantics and the §5.1 inventory. Phase 1 fixes array record layouts and numerical enclosure details under those contracts; Phase 2 measures cost |
+
+Physical incident energy, the clean breaking change, exact signed model flux
+in-run, the explicit gallery control choices and SEP 34 activation before
+SEP 31 implementation are settled. Acceptance does not claim completed tests,
+device qualification or measured resource costs. If qualification requires a
+different model or scope, return for a proposal revision; do not change the
+accepted contract silently.
 
 ### 13. References
 
@@ -547,14 +744,23 @@ requirements. The new proposal has not inherited SEP 31's reviews or acceptance.
    [doi:10.1088/2040-8978/16/1/015707](https://doi.org/10.1088/2040-8978/16/1/015707);
    [author manuscript](https://luz.izt.uam.mx/mfg/arti/11-15/refl-disc-jo2014.pdf).
 
+3. M. Visser, “Some general bounds for 1-D scattering,” *Physical Review A*
+   **59**, 427–438 (1999).
+   [doi:10.1103/PhysRevA.59.427](https://doi.org/10.1103/PhysRevA.59.427);
+   [author manuscript](https://arxiv.org/abs/quant-ph/9901030).
+   Equations (80)–(82) give the monotone step bound.
+
 **Source audit.** The current spatial model, launch/noise functions, radial
 operator construction, conventions and critical-power documentation were
 inspected. The publisher record and abstract of [1] were checked for its
 unidirectional scope, not its complete derivation. The introduction and
 derivative-discontinuity discussion of [2] were inspected for the distinction
 between adiabatic and reflected-wave models; no coefficient from it is copied.
-The flux, endpoint, WKB and work identities above are derived from the stated
-scalar equations. A static Fresnel counterexample and a two-tone complex
+The real-q monotone reflection bound was checked against [3], including its
+step limit. The forward-coordinate and local-closure derivations above are
+given explicitly rather than inferred from reflection alone.
+The flux, endpoint, directional and work identities use the stated scalar
+equations. A static Fresnel counterexample and a two-tone complex
 admittance identity were evaluated. The latter confirms equal integrated energy
 but different local traces when imaginary admittance is discarded, with a
 rounding-sized residual against its analytic cross term. No new gradient
@@ -580,6 +786,12 @@ not revalidated to additional precision by this draft.
 - 2026-10-23: Maintainer decisions recorded beside A1 (default 10⁻⁴ adiabatic
   budget), A2 (short paid device qualification before activation) and A3 (exact
   in-run local flux). Part I unchanged.
+- 2026-10-23: Revised Part I in response to A1–A7. Added the real-index path
+  certificate, explicit statistic and gallery inventories, planar metric and
+  activation budget. Recorded the maintainer's choices to defer varying
+  absorption, use the forward-component local closure and cap device planning
+  at US$20. These settle proposal contracts; no implementation or device
+  qualification is claimed.
 
 ### AI review — 2026-10-23
 
@@ -761,3 +973,75 @@ call or is bound once per saved plane. The latter matters for SEP 31's
   "attained by an abrupt step; conservative for smooth profiles".
 - §13: Diamant and Fernández-Guasti appeared online in December 2013 in the 2014
   volume; the citation as written is correct.
+
+### Response to review — 2026-10-23
+
+The original review above is retained. Part I now records the following
+resolutions, including the maintainer's decisions made during revision.
+`Draft` and `Reviewed` remain distinct from formal acceptance.
+
+- **A1 — Accepted with a precise scope and closure.** Section 4.5 derives the
+  per-column total-variation certificate, including kinks and declared jumps,
+  with default 10⁻⁴ forward-field and reflected-energy budgets. Independent
+  wave solves remain test witnesses, not a runtime requirement for each family.
+  The variation must be conservatively enclosed for the resolved path; sampling
+  an arbitrary callable does not establish that bound. The review's
+  $B_*=\Lambda\tanh\Lambda$ bounds the complex logarithmic error and, by
+  passivity, the relative transmitted-field error at the exit. The proposal
+  uses $\operatorname{expm1}(B_*)$ for a consistent relative error bound also
+  covering interior forward coordinates. Three qualifications matter:
+  - “Any gas path” is too broad: nonmonotone total variation and near-cutoff
+    columns can exceed budget even at small bulk index contrast.
+  - The certificate controls the forward component of the linear background
+    problem. It does not bound an omitted backward field, its local interference,
+    or nonlinear feedback. A small reflected-energy bound is not the same as
+    a small total-local-field error.
+  - The review's transfer-matrix numbers are preserved as review witnesses.
+    Conservation to 10⁻¹¹ alone does not qualify reflected power near 10⁻²⁴;
+    implementation must establish independent amplitude errors and refinement.
+  The maintainer chose to defer nonconstant absorbing paths rather than leave
+  the complex-index model open. Uniform absorbing media remain supported.
+  The maintainer also chose `G = 𝒴c E` for the retained forward component
+  (§4.4), removing the derivative term obtained by differentiating a truncated
+  WKB total field. That earlier derivative is consistent with its different
+  field interpretation; it is not the local closure controlled by this
+  directional certificate. Declared jumps have explicit saved-plane sides.
+- **A2 — Accepted; spending decision separated from design.** Section 6.2
+  requires both CUDA and HIP qualification before the public switch, with at
+  most 40 short deterministic invocations on each device. The maintainer chose
+  a US$20 total planning cap including setup, compute, storage and teardown.
+  Actual provisioning and spending still require an explicit go with current
+  prices at implementation. There is no GPU refusal or unqualified activation.
+- **A3 — Accepted; every existing measurement classified.** Section 5.1 lists
+  real-weight, frequency-domain G and time-domain G evaluations, their signed
+  meanings and the existing peak/width conventions. Local spectra are not
+  generally diagonal-weight measurements; fluence can use temporal Parseval
+  without an additional temporal inverse transform. Shared reconstruction and
+  chunking keep costs explicit, to be measured in Phase 2. The redundant
+  `poynting_spectrum` spelling is removed when `beam_spectrum` adopts axial
+  flux. Ionisation still uses physical E, and the boundary-collar field-norm
+  diagnostic is labelled separately. Section 4.3 also resolves the planar
+  metric: the current slab coefficients are vacuum-normalised; the derived
+  axial weights and coherent local synthesis replace an unspecified audit.
+- **A4 — Accepted; maintainer control choices recorded.** Section 8 lists every
+  affected current spatial gallery source. Nonlinear filament, soliton and
+  four-wave-mixing lessons preserve their physical E; lessons prescribing
+  incident energy preserve that physical energy. The mixed radial lesson
+  specifies its two cases separately. At fixed E, uniform propagation is
+  unchanged, but finite-angle/bandwidth flux ratios and plotted measurements
+  must be recomputed rather than assuming a universal n0 rescaling.
+- **A5 — Accepted.** Section 4.4 explicitly identifies the internal FFT sign and
+  links the conventions that define it. The real endpoint amplitude term is
+  unchanged by that conjugation.
+- **A6 — Accepted.** Section 5 fixes field-first accessors and an immutable
+  flux record resolved once per physical plane, including a side at a jump.
+  A different plane binds a new record. SEP 31 extraction consumes that record.
+- **A7 — Accepted.** Section 4.3 states that the synthetic endpoint case tests
+  the discrete identity only and assigns no optical meaning to DC. Section 4.5
+  distinguishes a monotone step attaining the reflectance bound from smooth
+  profiles and nonmonotone total variation. The 2014 reference is retained.
+
+The remaining work is implementation evidence: numerical enclosures and
+independent references, backend parity, bounded device runs, resource costs and
+gallery qualification. Part II remains empty; no propagation or device campaign
+was run for this response.

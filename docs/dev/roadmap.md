@@ -113,7 +113,9 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   no legacy normalisation or old-file migration. General junction scattering,
   high-NA vector propagation and resolved prism/grating layouts remain open below.
   Its reviewed draft proposes concrete overlap/thin-screen models and a detuned
-  37.5 μm tutorial; the incident-energy defect is its first implementation phase.
+  37.5 μm tutorial; the incident-energy defect is its first implementation phase,
+  after SEP 34's full public activation. Qualified provider-pair envelopes may
+  replace conservative weak-guidance screens within the total model budget.
 - [SEP 32 — Raman Maxwell–Bloch dynamics](seps/sep-0032-raman-maxwell-bloch.md):
   a separate scalar two-level population/coherence response, with equilibrium
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
@@ -133,11 +135,13 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   `numba_cpu`, remain open below.
 - [SEP 34 — Medium flux for free-space propagation](seps/sep-0034-medium-flux.md):
   physical launch energy, complex-admittance local flux, consistent total-energy
-  and noise weights, and an adiabatic amplitude correction preserving admitted
-  radial gas-gradient runs. Public launch/noise/statistics changes activate
-  together after NumPy, Numba CPU and native CPU qualification. It supplies the
-  shared foundation for SEPs 5 and 31. Nonadiabatic/reflected-wave transport and
-  general vector free-space propagation remain outside its scope.
+  and noise weights, and a forward amplitude correction for radial real-index
+  paths, admitted by a total-variation certificate with default 10⁻⁴ budgets.
+  Declared weak steps can qualify; varying absorption is deferred. Public
+  launch/noise/statistics changes activate together after NumPy, Numba CPU,
+  native CPU and bounded CUDA/HIP qualification. It is implemented before SEP 31
+  and supplies the shared foundation for SEPs 5 and 31. General reflected-wave
+  and vector free-space transport remain outside its scope.
 
 The informal items below record work not fully covered by these proposals. When adding
 or revising a SEP, remove an informal item only if the proposal covers it in full;
@@ -323,10 +327,12 @@ experimental data remain open.
 [SEP 31](seps/sep-0031-simulation-coupling.md) covers forward overlaps, scalar
 homogeneous gaps and spectral compressors. A general junction calculation with
 reflected, radiated and evanescent fields, high-NA vector free-space transport,
-nonadiabatic gradient transport, resolved prism/grating angular dispersion
-and spatial chirp, and feedback between stages remain separate extensions.
+gradient transport outside SEP 34's certificate, varying absorption, resolved
+prism/grating angular dispersion and spatial chirp, and feedback between stages
+remain separate extensions.
 [SEP 34](seps/sep-0034-medium-flux.md) covers the existing radial route's
-adiabatic amplitude correction; it does not add general gradient scattering.
+certified forward amplitude correction, including admitted weak steps; it does
+not add general gradient scattering or a complex-index path certificate.
 
 **Elliptical hollow capillary modes.** Extend hollow-capillary modelling to elliptical
 bores specified by their two semi-axes, with mode profiles, dispersion, wall loss and
@@ -951,6 +957,7 @@ planes, apertures and polarisation optics; its partial coverage is noted below.
   by about $\operatorname{Re}n$ inside a medium; whether they carry the medium's
   admittance is covered by SEP 34's medium flux. Until then
   `poynting_spectrum`'s ratio to `beam_spectrum` gives the factor.
+  SEP 34 consolidates these into the axial-flux `beam_spectrum`.
 - *Radial and planar-hybrid geometry*: refused today, having no Cartesian transverse
   wavevector; a centred aperture on a radial grid would weight the Hankel
   spectrum's rings. SEP 31 covers radial offline transport and apertures;
@@ -1006,8 +1013,8 @@ limit; the medium-dependent flux is not implemented.
 crystal route. [SEP 34](seps/sep-0034-medium-flux.md) covers uniform
 isotropic radial, Cartesian and line routes and admitted radial gradients,
 with a distinct hybrid planar metric, and corrects launch, noise and
-observations together. Nonadiabatic gradient scattering and a general
-full-vector free-space model remain open.
+observations together. Gradient scattering outside its certificate,
+nonconstant absorption and a general full-vector free-space model remain open.
 
 **A lossy multimode taper at the default step bound.** The taper coupling carries each
 channel's loss inside its block, and over the default `dz_max` of half the fibre the
