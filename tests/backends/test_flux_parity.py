@@ -199,6 +199,7 @@ def test_a_width_refuses_a_fluence_negative_beyond_its_normwise_budget():
     """Rounding in a beam's wings is read as zero; a real negative lobe is refused."""
     _, problem = _free(LineGrid(4e-4, 24))
     geometry = problem.transform.geometry
+    assert geometry is not None
     x = geometry.axes[0]
     fluence = np.exp(-((x / 6e-5) ** 2))
     magnitude = np.abs(fluence)
