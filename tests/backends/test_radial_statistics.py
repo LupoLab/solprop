@@ -19,7 +19,7 @@ from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.output.schema import SavedPlane
 from solprop.profiles import Constant
 from solprop.pulses import GaussianPulse, SpatialPulse
-from solprop.spatial import SpatialMedium, spatial_fluence
+from solprop.spatial import SpatialFlux, SpatialMedium, spatial_fluence
 from solprop.stats import StatsSpec, collect, default_spec
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.problem import assemble
@@ -39,7 +39,7 @@ def case(request):
     return grid, space
 
 
-def statistic_bounds(grid, space, state, reference):
+def statistic_bounds(grid, space, state, reference, flux):
     """Propagate FFT/dot-product bounds through the fluence interpolation."""
     # At most two transforms, polarisation sum, and a fixed transverse reduction.
     relative = gamma(
@@ -49,7 +49,7 @@ def statistic_bounds(grid, space, state, reference):
         name: relative * float(np.max(np.abs(value)))
         for name, value in reference.items()
     }
-    fluence = spatial_fluence(grid, space, state)
+    fluence = spatial_fluence(state, flux)
     axis = float(reference["on_axis_spectrum"].sum() * grid.d_omega)
     perturbation = relative * max(float(fluence.max()), axis)
     positions = np.r_[0, space.r]
@@ -99,7 +99,8 @@ def test_radial_statistics_match_the_host_without_field_observation(
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 80e-6, jones=jones
     )
-    start = pulse.build(grid, space)
+    start = pulse.build(grid, space, medium=SpatialMedium())
+    flux = SpatialFlux.resolve(grid, space, SpatialMedium())
     spec = default_spec("radial")
     problem = assemble(
         grid,
@@ -125,8 +126,8 @@ def test_radial_statistics_match_the_host_without_field_observation(
         if steps:
             oracle.propagate_to(grid.length)
         state = oracle.observe().require_field()[0]
-        reference = collect(spec, grid, SavedPlane(z=0.0, field=state), space=space)
-        bounds = statistic_bounds(grid, space, state, reference)
+        reference = collect(spec, grid, SavedPlane(z=0.0, field=state), flux=flux)
+        bounds = statistic_bounds(grid, space, state, reference, flux)
         backend.set_initial(state[None], None)
         # Calling stats never calls observe(); the native lane transfers only its
         # packed reductions. All exposed statistics are requested together, then singly.
@@ -224,13 +225,29 @@ def test_spatial_statistics_require_geometry_and_named_dependencies(case):
             dataclasses.replace(transform, geometry=None, kind="modal"),
             state,
             z=0.0,
+            flux=None,
         )
     for profiles in (None, {}):
         with pytest.raises(BackendError, match="named profile"):
-            collect_spatial(spec, grid, transform, state, z=0.0, profiles=profiles)
+            collect_spatial(
+                spec, grid, transform, state, z=0.0, flux=None, profiles=profiles
+            )
     values = collect_spatial(
-        spec, grid, transform, state, z=0.0, profiles={"density": Constant(2.0)}
+        spec,
+        grid,
+        transform,
+        state,
+        z=0.0,
+        flux=None,
+        profiles={"density": Constant(2.0)},
     )
     assert values["density"] == 2.0
     with pytest.raises(BackendError, match="not spatial saved-field"):
-        collect_spatial(StatsSpec(names=("zdw",)), grid, transform, state, z=0.0)
+        collect_spatial(
+            StatsSpec(names=("zdw",)), grid, transform, state, z=0.0, flux=None
+        )
+    # A field statistic is measured by the plane's flux, which it must be given.
+    with pytest.raises(BackendError, match="plane measure"):
+        collect_spatial(
+            StatsSpec(names=("energy",)), grid, transform, state, z=0.0, flux=None
+        )

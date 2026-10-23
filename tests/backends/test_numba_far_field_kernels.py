@@ -56,7 +56,12 @@ from solprop.spatial import (
 )
 from solprop.stats import ApertureSet, ApertureWeighting, StatsSpec
 from solprop.stepper import PIController, RungeKutta
-from solprop.translate.spatial import aperture_tables, axial_factors, longitudinal_root
+from solprop.translate.spatial import (
+    aperture_tables,
+    axial_admittance,
+    axial_factors,
+    longitudinal_root,
+)
 
 DISTANCE = 0.25
 """Exit face to mask plane, m."""
@@ -166,7 +171,11 @@ def problem_of(grid, space, field, spec, *, medium=None, collar=None):
 
 
 def reference(names, grid, problem, field, tables):
-    """``numpy_ref``'s pass, with the on-axis spectrum of the contraction."""
+    """``numpy_ref``'s pass, with the on-axis spectrum of the contraction.
+
+    The on-axis spectrum pairs the coherent axis amplitude with its magnetic
+    closure, the same contraction of ``conj(eta) E`` (SEP 34).
+    """
     names = tuple({name for name in names if name in FAR_FIELD_STATISTICS})
     operator = problem.linear.separable
     values = aperture_statistics(
@@ -176,12 +185,14 @@ def reference(names, grid, problem, field, tables):
         tables,
         axial=functools.partial(axial_factors, operator, grid.omega),
     )
+    closing = np.conj(axial_admittance(operator, grid.omega, slice(None)))
     axis = np.einsum("r,rpw->pw", tables.on_axis, field)
+    closure = np.einsum("r,rpw->pw", tables.on_axis, closing[:, None] * field)
+    factor = fourier.spectral_density(
+        np.ones(grid.n_omega, complex), grid.dt, kind=grid.kind
+    )
     values["on_axis_spectrum"] = (
-        0.5
-        * EPS0
-        * C
-        * np.sum(fourier.spectral_density(axis, grid.dt, kind=grid.kind), axis=0)
+        0.5 * EPS0 * C * factor * np.sum(np.real(axis * np.conj(closure)), axis=0)
     )
     return values
 
@@ -310,27 +321,27 @@ def test_the_region_body_is_half_open_on_the_physical_wavevector():
 
 def test_the_layout_takes_only_the_present_slots():
     layout = far_field_layout(WITH_AXIS, n_apertures=3, n_regions=4, n_pol=2)
+    # Each amplitude holds its electric sum and its magnetic closure, 4 n_pol slots.
     assert layout == FarFieldLayout(
         beam=0,
-        poynting=1,
-        absorbed=2,
-        regions=6,
-        apertures=10,
-        stride=5,
+        absorbed=1,
+        regions=5,
+        apertures=9,
+        stride=9,
         collected=0,
         amplitude=1,
-        axis=25,
-        n_slots=29,
+        axis=36,
+        n_slots=44,
     )
     assert layout is not None
-    assert layout.array().tolist() == [0, 1, 2, 6, 10, 5, 0, 1, 25, 29]
+    assert layout.array().tolist() == [0, 1, 5, 9, 9, 0, 1, 36, 44]
     alone = far_field_layout(
         ("aperture_on_axis_spectrum",), n_apertures=2, n_regions=0, n_pol=1
     )
     assert alone is not None
     assert (alone.apertures, alone.stride, alone.collected, alone.amplitude) == (
         0,
-        2,
+        4,
         -1,
         0,
     )
@@ -377,14 +388,16 @@ def test_the_pass_matches_the_reference(kind, n_pol, profile, weighting):
     values, axis = FarFieldPass(problem, parallel=False)(WITH_AXIS, grid, field, tables)
     assert set(values) == set(WITH_AXIS)
     assert axis is not None
-    assert axis.shape == (n_pol, grid.n_omega)
+    assert [part.shape for part in axis] == [(n_pol, grid.n_omega)] * 2
     expected = reference(WITH_AXIS, grid, problem, field, tables)
     assert_matches(
         values, expected, magnitudes(WITH_AXIS, grid, problem, field, tables), problem
     )
-    # Every channel is live on this fixture, and every aperture collects.
+    # Every channel but the evanescent one is live on this fixture (an evanescent
+    # column carries no axial flux, SEP 34), and every aperture collects.
     assert np.all(np.max(values["aperture_spectrum"], axis=1) > 0)
-    assert np.all(values["absorbed_power"] > 0)
+    assert np.all(values["absorbed_power"][[0, 1, 3]] > 0)
+    assert values["absorbed_power"][2] == 0.0
     assert problem.linear.separable is not None
     _, propagating, _ = longitudinal_root(problem.linear.separable)
     assert not np.all(propagating)
@@ -416,7 +429,7 @@ def test_the_pass_matches_the_reference_on_a_line():
 
 def test_the_operator_slots_follow_gain_and_zero_frequency():
     # A field grid's zero-frequency bin and a gain medium: the material channel is
-    # negative, the obliquity and every weight zero at zero frequency.
+    # negative, the admittance and every weight zero at zero frequency.
     grid = time_grid("field")
     space = FreeGrid(3e-4, 8, 3e-4, 8, window_factor=0)
     spec = spec_of(holes("hard"))
@@ -427,7 +440,7 @@ def test_the_operator_slots_follow_gain_and_zero_frequency():
     values, _ = FarFieldPass(problem, parallel=False)(WITH_AXIS, grid, field, tables)
     expected = reference(WITH_AXIS, grid, problem, field, tables)
     assert values["absorbed_power"][3] < 0
-    assert values["poynting_spectrum"][0] == 0.0
+    assert values["beam_spectrum"][0] == 0.0
     assert np.all(values["aperture_spectrum"][:, 0] == 0.0)
     assert np.all(values["aperture_on_axis_spectrum"][:, 0] == 0.0)
     # The material channel's terms are signed: its bound is that of the magnitudes.
@@ -445,11 +458,11 @@ def test_the_operator_slots_follow_gain_and_zero_frequency():
 
 
 def test_a_partial_request_takes_only_its_slots():
-    # The axial flux without the absorbed power, the on-axis spectra through the
+    # The beam spectrum without the absorbed power, the on-axis spectra through the
     # holes without their collected spectra.
     grid = time_grid("envelope")
     space = fine_space()
-    names = ("poynting_spectrum", "aperture_on_axis_spectrum")
+    names = ("beam_spectrum", "aperture_on_axis_spectrum")
     spec = spec_of(holes("supergauss", size=FINE), names, regions=np.empty((0, 4)))
     field = random_field(space, 1, grid)
     problem = problem_of(grid, space, field, spec)
@@ -629,7 +642,7 @@ def test_the_partials_are_held_once_and_estimated_to_the_byte(monkeypatch):
     field = random_field(space, 2, grid)
     problem = problem_of(grid, space, field, spec)
     n_slots, n_bands = far_field_partials(problem)
-    assert (n_slots, n_bands) == (6 + 4 + 3 * 5 + 4, 10)
+    assert (n_slots, n_bands) == (5 + 4 + 3 * 9 + 8, 10)
     rows = far_field_memory(problem, "numba_cpu")
     assert rows == {"statistics_partials": 8 * (n_bands + 1) * n_slots * grid.n_omega}
     assert far_field_memory(problem, "numpy_ref") == {}
@@ -723,7 +736,7 @@ def test_numba_cpu_folds_the_axis_statistics_into_the_pass():
     space = FreeGrid(3e-4, 16, 3e-4, 16, window_factor=0.1)
     launch = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6), 6e-5
-    ).build(grid, space)
+    ).build(grid, space, medium=SpatialMedium(1 + 1e-6j))
     names = ("energy", "on_axis_intensity", "on_axis_spectrum", "beam_spectrum")
     problem = problem_of(grid, space, launch, StatsSpec(names=names))
     values = {}

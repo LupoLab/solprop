@@ -23,6 +23,7 @@ from solprop.backends.driver import StepDriver
 from solprop.backends.exponential import refuse_formulation
 from solprop.backends.low_storage import LowStorageMarch, schedule_key, table_steps
 from solprop.backends.memory import (
+    LOCAL_FLUX_STATISTICS,
     low_storage_flows,
     low_storage_stage_register,
     z_table_slots,
@@ -2965,12 +2966,6 @@ def _dispersive_payload(problem: KernelProblem) -> dict[str, object]:
     }
 
 
-_LOCAL_FLUX_STATISTICS = frozenset(
-    {"on_axis_intensity", "peak_intensity", "beam_radius", "fwhm_r"}
-)
-"""The spatial statistics that synthesise the magnetic closure in time (SEP 34)."""
-
-
 def _flux_payload(problem: KernelProblem) -> dict[str, object]:
     """Pack the plane measure of solprop SEP 34 (kernel schema 35).
 
@@ -2984,7 +2979,7 @@ def _flux_payload(problem: KernelProblem) -> dict[str, object]:
     flux = problem.flux
     if flux is None:
         return {}
-    closure = bool(set(problem.stats_spec.names) & _LOCAL_FLUX_STATISTICS)
+    closure = bool(set(problem.stats_spec.names) & LOCAL_FLUX_STATISTICS)
     if problem.linear.separable is not None:
         if flux.base is not problem.linear.separable or flux.material is not None:
             raise BackendError(

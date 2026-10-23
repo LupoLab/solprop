@@ -108,6 +108,7 @@ from solprop.translate.responses import ResponseStage
 
 __all__ = [
     "ESTIMATED_BACKENDS",
+    "LOCAL_FLUX_STATISTICS",
     "MEMORY_GROUPS",
     "RESIDENT_CHANNELS",
     "MemoryEstimate",
@@ -116,6 +117,7 @@ __all__ = [
     "estimate_guide_memory",
     "estimate_memory",
     "far_field_memory",
+    "flux_closure_memory",
     "held_current_memory",
     "ledger_groups",
     "low_storage_flow_scratch",
@@ -342,6 +344,7 @@ def estimate_memory(problem: KernelProblem, backend: str) -> MemoryEstimate:
         sum(base.values())
         + sum(dispersive_memory(problem, name).values())
         + sum(far_field_memory(problem, name).values())
+        + sum(flux_closure_memory(problem, name).values())
     )
     if isinstance(
         problem.stepper.integrator, LowStorageRungeKutta
@@ -1311,6 +1314,45 @@ def far_field_memory(problem: KernelProblem, backend: str) -> dict[str, int]:
     if native:
         return {"far_field_partials": 8 * n_bands * n_slots * problem.shape[3]}
     return {"statistics_partials": 8 * (n_bands + 1) * n_slots * problem.shape[3]}
+
+
+LOCAL_FLUX_STATISTICS = frozenset(
+    {"on_axis_intensity", "peak_intensity", "beam_radius", "fwhm_r"}
+)
+"""The spatial statistics that synthesise the magnetic closure in time (SEP 34)."""
+
+
+def flux_closure_memory(problem: KernelProblem, backend: str) -> dict[str, int]:
+    """Return the magnetic closure's transverse volume a backend holds (SEP 34).
+
+    A row of the ``base`` group, to the byte: on Kokkos a Cartesian, line or planar
+    run whose own request has a local flux statistic holds the closure's
+    transverse volume beside the transform's scratch, one state's bytes. Its time
+    rows and per-node magnitudes are chunk-sized statistics buffers, which the
+    reference's count already stands for; ``numpy_ref`` and ``numba_cpu`` form
+    the closure per call.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The translated problem.
+    backend : str
+        One of :data:`ESTIMATED_BACKENDS`.
+
+    Returns
+    -------
+    dict
+        Row name to bytes.
+    """
+    geometry = problem.transform.geometry
+    if (
+        backend != "native"
+        or geometry is None
+        or geometry.kind not in ("free", "slab")
+        or not set(problem.stats_spec.names) & LOCAL_FLUX_STATISTICS
+    ):
+        return {}
+    return {"flux_closure_transverse": 16 * math.prod(problem.shape[1:])}
 
 
 def dispersive_memory(problem: KernelProblem, backend: str) -> dict[str, int]:

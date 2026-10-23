@@ -31,14 +31,14 @@ from solprop.constants import EPS0, C
 from solprop.driver import Simulation, SimulationSettings
 from solprop.driver.run import run_problem
 from solprop.exceptions import BackendError, DriverError, OutputError
-from solprop.fourier import energy_weights
+from solprop.fourier import energy_weights, spectral_density
 from solprop.grid import EnvelopeGrid, FreeGrid, RadialGrid
 from solprop.output import MemoryOutput
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import FAR_FIELD_STATISTICS, SpatialMedium
 from solprop.stats import ApertureSet, StatsSpec
 from solprop.stepper import PIController, RungeKutta
-from solprop.translate.spatial import separable_values
+from solprop.translate.spatial import axial_admittance, separable_values
 
 ALL_SIX = FAR_FIELD_STATISTICS
 
@@ -140,6 +140,14 @@ def test_numba_cpu_forms_the_far_field_statistics_through_the_reference_pass(gri
 # -------------------------------------------------------------- item 8: axial flux
 
 
+def field_spectrum(problem, grid):
+    """The beam's spectrum with no admittance: ``eps0 c/2 sum_c w_c sd(E_c)``."""
+    field = problem.initial.field0[0]
+    weights = problem.transform.geometry.spectral_weights
+    density = np.sum(spectral_density(field, grid.dt, kind=grid.kind), axis=1)
+    return 0.5 * EPS0 * C * np.sum(weights[:, None] * density, axis=0)
+
+
 def paraxial_obliquity(k_waist):
     """The mean of sqrt(1 - u), u exponential of mean 2 / (k w0)^2, cut at u = 1."""
     mean = 2 / k_waist**2
@@ -164,11 +172,13 @@ def test_the_axial_flux_of_a_vacuum_gaussian_is_its_mean_obliquity(grid):
         grid,
         space,
         gaussian(waist),
-        spec=StatsSpec(names=("beam_spectrum", "poynting_spectrum")),
+        spec=StatsSpec(names=("beam_spectrum",)),
     )
-    values, _ = entrance(simulation)
+    values, problem = entrance(simulation)
     band = np.flatnonzero(grid.inband_mask)
-    ratio = values["poynting_spectrum"][0, band] / values["beam_spectrum"][0, band]
+    # The beam spectrum is the axial flux (SEP 34): the field's spectrum weighted
+    # per column by the real admittance, here the vacuum's obliquity.
+    ratio = values["beam_spectrum"][0, band] / field_spectrum(problem, grid)[band]
     expected = np.array([paraxial_obliquity(grid.omega[k] / C * waist) for k in band])
     assert np.all(ratio < 1)
     # The lattice sum of a smooth integrand (aliasing below exp(-70)), quad 1e-13 and
@@ -186,11 +196,11 @@ def test_the_axial_flux_in_a_gas_is_its_index(grid):
         space,
         gaussian(waist),
         medium=medium,
-        spec=StatsSpec(names=("beam_spectrum", "poynting_spectrum")),
+        spec=StatsSpec(names=("beam_spectrum",)),
     )
-    values, _ = entrance(simulation)
+    values, problem = entrance(simulation)
     band = np.flatnonzero(grid.inband_mask)
-    ratio = values["poynting_spectrum"][0, band] / values["beam_spectrum"][0, band]
+    ratio = values["beam_spectrum"][0, band] / field_spectrum(problem, grid)[band]
     index = np.real(medium.index(grid.omega[band], 0.0))
     # O = sqrt(n^2 - u) averages to n - mean(u)/(2n): within the obliquity term
     # 2/(k w0)^2 of Re n, and below it.
@@ -237,8 +247,12 @@ def channel_powers(problem, grid, field):
         ]
     )
     weights = problem.transform.geometry.spectral_weights
+    # Each channel's power is measured by the axial flux (SEP 34): the real
+    # admittance, zero on evanescent columns, weighs every bin.
+    admittance = np.real(axial_admittance(data, grid.omega, slice(None)))
     measure = (
         weights[:, None]
+        * admittance
         * np.abs(field[:, 0]) ** 2
         * energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
     )
@@ -271,7 +285,9 @@ def test_each_absorbed_channel_is_its_share_of_the_linear_decay(
         assert power[1] == 0.0
     else:
         assert power[1] > 0
-    for channel in (0, 1, 2, 3) if collar is not None else (0, 2, 3):
+    # An evanescent column carries no axial flux, so its channel removes none.
+    assert power[2] == 0.0
+    for channel in (0, 1, 3) if collar is not None else (0, 3):
         assert_within(
             power[channel],
             expected[channel],
@@ -281,7 +297,7 @@ def test_each_absorbed_channel_is_its_share_of_the_linear_decay(
             / abs(expected[channel]),
         )
     assert np.sign(power[3]) == np.sign(loss)  # loss, or gain with the sign reversed
-    assert power[2] > 0 and power[0] > 0
+    assert power[0] > 0
     # Their sum is the whole real part of the stages' own operator.
     data, geometry = problem.linear.separable, problem.transform.geometry
     assert data is not None and geometry is not None
@@ -292,6 +308,7 @@ def test_each_absorbed_channel_is_its_share_of_the_linear_decay(
         * C
         * np.sum(
             geometry.spectral_weights[:, None, None]
+            * np.real(axial_admittance(data, grid.omega, slice(None)))[:, None]
             * (-2 * np.real(operator[0]))
             * np.abs(problem.initial.field0[0]) ** 2
             * energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
@@ -318,8 +335,9 @@ def test_gain_reverses_the_material_channel(grid, lossy_launch):
         powers[loss] = entrance(simulation)[0]["absorbed_power"][0]
     # sqrt(conj q) = conj sqrt(q): the material rate flips sign, to rounding.
     assert_within(powers[-2e-5][3], -powers[2e-5][3], 4 * gamma(field.size + 16))
-    assert_within(powers[-2e-5][2], powers[2e-5][2], 4 * gamma(field.size + 16))
-    assert powers[2e-5][0] == powers[-2e-5][0] == 0.0  # no spectral absorber
+    # No flux on the evanescent columns and no spectral absorber.
+    assert powers[2e-5][2] == powers[-2e-5][2] == 0.0
+    assert powers[2e-5][0] == powers[-2e-5][0] == 0.0
 
 
 def test_the_absorbed_power_predicts_the_energy_step_at_its_orders(grid, lossy_launch):
@@ -473,7 +491,9 @@ def test_the_host_pass_refuses_what_it_was_not_given(grid):
     problem = simulation.translate()
     field = problem.initial.field0[0]
     with pytest.raises(BackendError, match="tables"):
-        collect_spatial(far_spec(), grid, problem.transform, field, z=0.0)
+        collect_spatial(
+            far_spec(), grid, problem.transform, field, z=0.0, flux=problem.flux
+        )
     tables = FarFieldTables(problem).for_spec(far_spec())
     # The saved-field names need no operator.
     beam = collect_spatial(
@@ -482,6 +502,7 @@ def test_the_host_pass_refuses_what_it_was_not_given(grid):
         problem.transform,
         field,
         z=0.0,
+        flux=problem.flux,
         tables=tables,
     )
     assert beam["beam_spectrum"].shape == (grid.n_omega,)
@@ -492,6 +513,7 @@ def test_the_host_pass_refuses_what_it_was_not_given(grid):
             problem.transform,
             field,
             z=0.0,
+            flux=problem.flux,
             tables=tables,
         )
 
@@ -560,7 +582,6 @@ def test_a_run_records_every_far_field_statistic_at_every_plane(grid):
         "aperture_on_axis_spectrum": (3, 2, grid.n_omega),
         "region_spectrum": (3, 4, grid.n_omega),
         "beam_spectrum": (3, grid.n_omega),
-        "poynting_spectrum": (3, grid.n_omega),
         "absorbed_power": (3, 4),
     }
     for name, shape in shapes.items():

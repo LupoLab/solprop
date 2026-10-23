@@ -578,7 +578,17 @@ def collect_spatial(  # noqa: PLR0913 - statistics context plus borrowed FFT wor
         raise BackendError(msg)
     values: dict[str, np.ndarray] = {}
     wanted = set(spec.names)
-    fielded = wanted - set(PROFILE_STATISTICS)
+    fielded = wanted & (
+        {
+            "energy",
+            "on_axis_spectrum",
+            "on_axis_intensity",
+            "peak_intensity",
+            "beam_radius",
+            "fwhm_r",
+        }
+        | set(FAR_FIELD_STATISTICS)
+    )
     if fielded and flux is None:
         msg = f"spatial statistics {sorted(fielded)} need the run's plane measure"
         raise BackendError(msg)

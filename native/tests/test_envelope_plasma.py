@@ -134,7 +134,7 @@ def test_envelope_current_streams_use_large_radial_projection() -> None:
     space = RadialGrid(1e-3, 256)
     initial = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-3), 1e-4
-    ).build(grid, space)
+    ).build(grid, space, medium=SpatialMedium())
     problem = assemble(
         grid,
         None,
@@ -222,7 +222,9 @@ def envelope_case(
             if route == "free"
             else RadialGrid(6e-4, 8, window_factor=0)
         )
-        initial = SpatialPulse(pulse, 80e-6, jones=jones).build(grid, space)
+        initial = SpatialPulse(pulse, 80e-6, jones=jones).build(
+            grid, space, medium=SpatialMedium(fill)
+        )
         problem = assemble(
             grid,
             None,

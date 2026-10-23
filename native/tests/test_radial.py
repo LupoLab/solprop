@@ -83,7 +83,7 @@ def test_radial_partial_chunks_preserve_the_reference_source(
     space = RadialGrid(1e-3, n_r)
     start = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6), 1e-4
-    ).build(grid, space)
+    ).build(grid, space, medium=SpatialMedium())
     problem = assemble(
         grid,
         None,
