@@ -25,7 +25,7 @@ also runs by hand.
 | CPU baseline | x86-64-v3 | Neoverse N1 | Apple M1 | x86-64-v3 |
 | host execution space | Kokkos OpenMP | Kokkos OpenMP | Kokkos OpenMP | Kokkos OpenMP |
 | OpenMP runtime | GCC's `libgomp` | GCC's `libgomp` | LLVM `libomp`, built for the target | LLVM `libomp` from the LLVM installation |
-| BLAS | OpenBLAS 0.3.34, OpenMP, `DYNAMIC_ARCH`, `solprop_` prefix (built by the configure step) | the same | Accelerate | OpenBLAS 0.3.34, OpenMP, `DYNAMIC_ARCH`, static |
+| BLAS | OpenBLAS 0.3.34, OpenMP, `DYNAMIC_ARCH`, `solprop_` prefix (built by the configure step) | the same | Accelerate | OpenBLAS 0.3.34, OpenMP, `DYNAMIC_ARCH` over the Haswell and Zen kernels only (no AVX-512 kernels), static |
 | FFTW 3.3.11 | shared, SSE2 and AVX codelets | shared, cycle counter | shared, cycle counter | static, SSE2 and AVX codelets |
 | repair | `auditwheel` | `auditwheel` | `delocate` | `delvewheel` (mangled names) |
 
