@@ -511,6 +511,50 @@ the next; the zero-fill copies into the kernels that fill the rest of the padded
 and a 1×1 map's transform scale, synthesis and projection into the response column
 ([architecture.md §8](architecture.md)).
 
+**Floating-point options and reduced precision.** What the floating-point policy
+([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md) §5) leaves untried,
+with the expected gains. Build options promise little: the transforms and the BLAS are in
+libraries these flags do not reach, and the policy already takes contraction and
+per-kernel reassociation. Only reduced precision promises a large factor, and mainly on
+GPUs with slow double precision.
+
+- Decided: contraction on, with the protected blocks strict; reassociation per kernel; no
+  umbrella fast-math, `nnan`/`ninf`, `nsz`, or approximate functions and reciprocals.
+  Measured and not adopted: libmvec `exp` and `log` under Clang (about 3 %, still behind
+  GCC) and Accelerate's vForce in the propagator (about 0.1 ms per window).
+- Value-safe options, not yet measured: `-fno-math-errno` and `-fno-trapping-math` change
+  no rounded result. Under GCC (the Linux builds) the first lets `sqrt` compile to one
+  instruction and vectorise; the second lets loops with conditional floating-point work
+  be if-converted. A few per cent at most, in the custom kernels only.
+- Subnormals: no build sets flush-to-zero. On x86-64 an operation on a subnormal can cost
+  of the order of a hundred cycles (NVIDIA GPUs and Apple silicon take them at full
+  speed), and spectral wings held down by an absorber or a per-step `exp(-rate dz)` could
+  reach that range on long runs. Count the subnormals in a long production run's field
+  first; flush-to-zero needs its own justification (SEP 25) only if they appear.
+- Double-precision transcendentals on GPUs with a reduced FP64 rate (NVIDIA's GA102 and
+  AD102 parts, such as the A40, run FP64 at 1/64 of FP32): the stage combination
+  evaluates `exp`, `cos` and `sin` per bin and stage, which there may cost as much as the
+  transforms. Profile first. Remedies that stay in double include deriving one stage's
+  propagator from another's (squaring a half-step propagator) and reusing propagators
+  while `dz` is unchanged.
+- A single-precision source evaluation inside a double-precision solver: the transforms,
+  the responses and the modal GEMMs in FP32; the state, the linear phase increments, the
+  Adams history and the running sums in FP64. Its rounding enters each step scaled by
+  `dz`, about FP32's epsilon times the step's nonlinear phase, so the error estimate's
+  floor stays near $10^{-8}$, against about $10^{-5}$ for a solver entirely in FP32.
+  Expected gain, unmeasured: up to the bandwidth factor of two on CPUs and data-centre
+  GPUs, possibly several times on reduced-FP64 GPUs. A first test needs no new data
+  types: round only the source evaluation to `complex64` in `numpy_ref`, on coherent
+  cases and one noise-seeded case. Noise-seeded runs may fail it, since FP32 rounding can
+  sit near a one-photon-per-mode seed for pulses of a microjoule and above. Adoption
+  would be a SEP.
+- Entirely single precision, and Metal: Kokkos, Kokkos Kernels and Kokkos-FFT support
+  single precision on every backend in use. Kokkos has no Metal backend, Apple GPUs have
+  no FP64, and a Kokkos Metal backend would need a single-source C++ compiler for Metal
+  (the runtime part is modest: 5 to 10 thousand lines for each existing GPU backend). A
+  Mac GPU route would more plausibly be a separate array backend (for example MLX), and
+  only after the mixed-precision results.
+
 **Benchmark platform qualification beyond the initial CPU suite.**
 [SEP 30](seps/archive/sep-0030-standard-benchmark-suite.md) covers the standard suite, portable
 records and durable incremental exports, with CPU timing collections on macOS and

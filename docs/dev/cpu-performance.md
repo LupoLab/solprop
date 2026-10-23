@@ -138,5 +138,8 @@ These are in the [roadmap](roadmap.md):
   - First compare compiler targets, then prototype at most one or two kernels.
   - A broad conversion to SIMD types is not justified.
 - **Selective run-time kernel dispatch** (SEP 29 §6.2).
+- **Value-safe floating-point options** (`-fno-math-errno`, `-fno-trapping-math`), a
+  subnormal count on long runs, and reduced precision: the roadmap's item on
+  floating-point options.
 - **Batched vector transcendentals for the plasma response.** About 38 % faster on the
   exp/log work itself, but it needs the dependent recurrence reorganised.
