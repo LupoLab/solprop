@@ -109,10 +109,12 @@ scenario that hides pyFFTW from the guard, to test whether it is still needed.
 2. Tag the release, `git tag -a vX.Y.Z`, and push the tag. The wheels workflow builds
    and tests every wheel and builds solprop's distributions.
 3. Publishing runs on the tag once the repository variable `PUBLISH` is `true`, through
-   PyPI's trusted publishing from the `pypi` environment: solprop's sdist and wheel,
-   and solprop-native's wheels. Each PyPI project (`solprop`, `solprop-native`) names
-   this repository, the workflow `wheels.yml` and the environment `pypi` as its trusted
-   publisher.
+   PyPI's trusted publishing, one job and GitHub environment per project: solprop's
+   sdist and wheel from the environment `pypi`, and solprop-native's wheels from
+   `pypi-native`. Each PyPI project names this repository, the workflow `wheels.yml` and
+   its environment as its trusted publisher (`solprop`: `pypi`; `solprop-native`:
+   `pypi-native`). PyPI ties a pending publisher to one project name per workflow and
+   environment, hence the two.
 4. Install the published release in a fresh environment, `pip install "solprop[native]"`
    on each platform, and check that `backend="auto"` resolves to `native`.
 

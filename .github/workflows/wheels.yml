@@ -196,11 +196,13 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
-  # Trusted publishing to PyPI on a release tag: solprop's sdist and wheel, and
-  # solprop-native's wheels only (no sdist: where no wheel matches, `solprop[native]`
-  # fails to resolve instead of building from source). Guarded until the PyPI
-  # projects, their trusted publishers and the `pypi` environment exist and the
-  # repository variable PUBLISH is set to "true".
+  # Trusted publishing to PyPI on a release tag, one job and GitHub environment per
+  # project (PyPI ties a pending trusted publisher to one project name per workflow and
+  # environment): solprop's sdist and wheel from `pypi`, and solprop-native's wheels
+  # only from `pypi-native` (no sdist: where no wheel matches, `solprop[native]` fails
+  # to resolve instead of building from source). Guarded until the PyPI projects, their
+  # trusted publishers and both environments exist and the repository variable PUBLISH
+  # is set to "true".
   publish:
     needs: [test, solprop-dist]
     if: vars.PUBLISH == 'true' && startsWith(github.ref, 'refs/tags/v')
@@ -212,13 +214,32 @@ jobs:
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: "*"
+          name: solprop-dist
+          path: dist
+      - run: ls dist
+      # TODO(release): check this SHA against the action's v1.14.3 release.
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: dist
+
+  publish-native:
+    needs: [test, solprop-dist]
+    if: vars.PUBLISH == 'true' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    environment:
+      name: pypi-native
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: "wheel-*"
           path: dist
           merge-multiple: true
       - name: Wheels only for solprop-native
         run: |
           ls dist
-          ! ls dist/solprop_native-*.tar.gz 2>/dev/null
+          ! ls dist/*.tar.gz 2>/dev/null
       # TODO(release): check this SHA against the action's v1.14.3 release.
       - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
         with:
