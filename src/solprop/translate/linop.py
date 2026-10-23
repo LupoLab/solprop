@@ -103,6 +103,7 @@ __all__ = [
     "constant_phi",
     "declared_paths",
     "delta_phi",
+    "endpoint_phi",
     "parameter_paths",
     "parameters_own_z",
     "phi_rate",
@@ -1707,36 +1708,86 @@ def _power_phi(
     if linear.phi_representation == "constant" or index is not None:
         return linear
     n_pol = linear.value_shape[2]
-    sample = _log_weight_sampler(modes, grid, n_pol, index)
+    frozen = [mode for mode in modes if isinstance(mode, ParameterisedMode)]
+
+    def value_at(
+        values: Mapping[str, float],
+    ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+        """Sample the weight inside the declared parameter box.
+
+        Parameters
+        ----------
+        values : collections.abc.Mapping
+            Physical parameter values inside the declared expansion box.
+
+        Returns
+        -------
+        numpy.ndarray
+            Weight values in the mode and frequency layout.
+        """
+        return _log_weight_sampler(
+            [mode.at_parameters(values) for mode in frozen], grid, n_pol, index
+        )(0.0)
+
+    return endpoint_phi(
+        linear,
+        _log_weight_sampler(modes, grid, n_pol, index),
+        value_at,
+        None
+        if linear.phi_expansion is None
+        else parameter_paths(modes, *linear.z_span),
+        quantity="logarithmic power weight",
+    )
+
+
+def endpoint_phi(
+    linear: LinearOperator,
+    sample: _OperatorAt,
+    value_at: _OperatorOf | None,
+    paths: Mapping[str, ZProfile] | None,
+    *,
+    quantity: str,
+) -> LinearOperator:
+    """Add a real endpoint difference ``f(z) - f(z_0)`` to a cumulative operator.
+
+    The amplitude terms of the flow that are exact endpoint differences -- the modal
+    power conversion and the radial adiabatic amplitude (SEP 34 section 4.4) -- are
+    resolved as the endpoint function itself, never as a differentiated table, and
+    joined to ``Phi``: a z table gains the resolved function less its entrance value,
+    an expansion an endpoint block over its own parameter box, whose weights
+    :func:`~solprop.translate.expansion.reweight_expansion` rebuilds for batch reuse.
+    An expansion that already carries an endpoint block is returned unchanged.
+
+    Parameters
+    ----------
+    linear : LinearOperator
+        Cumulative operator, a z table or an expansion.
+    sample : callable
+        ``z -> f(z)`` in the canonical layout, dimensionless.
+    value_at : callable or None
+        ``f`` at one point of the expansion's parameter box; needed for an expansion.
+    paths : collections.abc.Mapping or None
+        The expansion's varying parameter paths; needed for an expansion.
+    quantity : str
+        Name of ``f`` for the log and the refusal.
+
+    Returns
+    -------
+    LinearOperator
+        Operator whose ``Phi(z) - Phi(z_0)`` includes ``f(z) - f(z_0)``.
+
+    Raises
+    ------
+    TranslationError
+        If an expansion's endpoint quantity cannot be resolved on its parameter box.
+    """
     # Unlike D, this logarithm has no frame cancellation. Measure its own floor;
     # eight rounding units cover sampling and the coefficient transform.
     tol = max(8 * np.finfo(float).eps, 8 * _roundoff_floor(sample, linear.z_span[1]))
     if linear.phi_expansion is not None:
         if linear.phi_expansion.endpoint_degrees is not None:
             return linear
-        frozen = [mode for mode in modes if isinstance(mode, ParameterisedMode)]
-        paths = parameter_paths(modes, *linear.z_span)
-        assert paths is not None
-
-        def value_at(
-            values: Mapping[str, float],
-        ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
-            """Sample the weight inside the declared parameter box.
-
-            Parameters
-            ----------
-            values : collections.abc.Mapping
-                Physical parameter values inside the declared expansion box.
-
-            Returns
-            -------
-            numpy.ndarray
-                Weight values in the mode and frequency layout.
-            """
-            return _log_weight_sampler(
-                [mode.at_parameters(values) for mode in frozen], grid, n_pol, index
-            )(0.0)
-
+        assert value_at is not None and paths is not None
         # The tail test runs per element on the whole box, whose corners the path
         # never visits and where an element can be far smaller than anywhere along
         # z, so the floor along z does not bound the one the test meets.
@@ -1746,9 +1797,9 @@ def _power_phi(
         box_tol = max(tol, 8 * box_floor)
         if box_tol > tol:
             logger.info(
-                "Phi: the logarithmic power weight is evaluated to a relative "
-                "round-off floor of %.2e on the parameter box, so its tolerance is "
-                "raised from %.1e to %.1e",
+                "Phi: the %s is evaluated to a relative round-off floor of %.2e on "
+                "the parameter box, so its tolerance is raised from %.1e to %.1e",
+                quantity,
                 box_floor,
                 tol,
                 box_tol,
@@ -1757,9 +1808,7 @@ def _power_phi(
             linear.phi_expansion, value_at, paths, tol=box_tol
         )
         if expansion is None:
-            msg = (
-                "the logarithmic power weight could not resolve on Phi's parameter box"
-            )
+            msg = f"the {quantity} could not resolve on Phi's parameter box"
             raise TranslationError(msg)
         return replace(
             linear,
@@ -1768,12 +1817,12 @@ def _power_phi(
             phi_degrees=expansion.weights.degrees,
             hard_kinks=expansion.weights.hard_kinks,
         )
-    entrance = sample(0.0)
+    entrance = sample(linear.z_span[0])
 
     def correction(
         z: Float[np.ndarray, " n_z"],
     ) -> Complex[np.ndarray, "n_z n_batch n_modes n_pol n_omega"]:
-        """Sample the logarithmic contribution along z.
+        """Sample the endpoint function along z.
 
         Parameters
         ----------
@@ -1783,11 +1832,11 @@ def _power_phi(
         Returns
         -------
         numpy.ndarray
-            Logarithmic values with a leading position axis.
+            Endpoint values with a leading position axis.
         """
         return np.stack([sample(float(one)) for one in z])
 
-    # Resolve the log itself before subtracting its entrance value. A relative
+    # Resolve the function itself before subtracting its entrance value. A relative
     # tolerance on the vanishing endpoint difference would chase round-off at z=0.
     endpoint = build(
         correction,

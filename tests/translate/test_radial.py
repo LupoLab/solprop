@@ -23,9 +23,51 @@ from solprop.stepper import PIController
 from solprop.translate import radial
 from solprop.translate.chebyshev import DEFAULT_TOL
 from solprop.translate.expansion import ParameterExpansion
-from solprop.translate.linop import delta_phi
+from solprop.translate.linop import delta_phi, phi_rate
 from solprop.translate.problem import assemble
-from solprop.translate.radial import radial_operators, radial_transform
+from solprop.translate.radial import (
+    radial_operators,
+    radial_rate_bounds,
+    radial_transform,
+)
+
+
+def adiabatic_oracle(medium, grid, space, z0, z1):
+    """Return the endpoint amplitude exponent and its propagating set, independently.
+
+    SEP 34 section 4.4: ``-1/2 ln(Re k_z(z1) / Re k_z(z0))`` on active bins whose
+    longitudinal square has a positive real part, zero elsewhere, from the material
+    index alone and a plain logarithm of the ratio.
+    """
+    omega = grid.omega[grid.active_mask]
+
+    def square(z):
+        return (omega * medium.index(omega, z) / C) ** 2 - space.k_r[:, None] ** 2
+
+    start, end = square(z0), square(z1)
+    propagating = np.real(start) > 0
+    assert np.array_equal(propagating, np.real(end) > 0)
+    ratio = np.ones_like(np.real(start))
+    ratio[propagating] = np.real(np.sqrt(end[propagating])) / np.real(
+        np.sqrt(start[propagating])
+    )
+    exponent = np.zeros((space.n_r, grid.n_omega))
+    exponent[:, grid.active_mask] = -0.5 * np.log(ratio)
+    mask = np.zeros_like(exponent, dtype=bool)
+    mask[:, grid.active_mask] = propagating
+    return exponent, mask
+
+
+def endpoint_budget(exponent):
+    """Bound the represented endpoint term's error against the oracle, absolutely.
+
+    The endpoint function, a log-ratio of order 1e-4 for a gas, is resolved to a
+    relative target at eight times its measured round-off floor, about 1e-10 here
+    (each root carries a few rounding units against that small ratio); the Chebyshev
+    aliasing factor two at two endpoints makes 4e-10, rounded up to 1e-9. The
+    oracle's root, ratio and logarithm add 64 rounding units.
+    """
+    return 1e-9 * float(np.max(np.abs(exponent))) + gamma(64)
 
 
 @pytest.fixture
@@ -84,7 +126,13 @@ def test_varying_radial_medium_uses_cumulative_expansion(case, comoving):
             )
             assert quadrature_error <= quad_budget
             expected += centre * (right - left)
-            bound = rate_bound * (right - left) + quad_budget
+            # The adiabatic amplitude term is an endpoint quantity (SEP 34
+            # section 4.4), added from the independent root ratio.
+            amplitude, _ = adiabatic_oracle(medium, grid, space, left, right)
+            expected += amplitude
+            bound = (
+                rate_bound * (right - left) + quad_budget + endpoint_budget(amplitude)
+            )
             actual = delta_phi(operator, left, right)[0]
             assert_allclose(actual[:, 0], expected, rtol=0, atol=bound)
             np.testing.assert_array_equal(actual[:, 0], actual[:, 1])
@@ -175,3 +223,152 @@ def test_unresolved_density_expansion_refuses_a_silent_fallback(
             n_pol=1,
             z_max=grid.length,
         )
+
+
+def test_a_constant_radial_medium_carries_no_adiabatic_term(case):
+    grid, space = case
+    model = SpatialDispersion(
+        SpatialMedium("Ar", pressure=1.0), grid, Frame.comoving(grid)
+    )
+    operator, _ = radial_operators(space, model, n_pol=1, z_max=grid.length)
+    assert operator.phi_representation == "constant"
+    assert operator.phi_constant is not None
+    # The uniform medium's rate is the material operator itself, element by element:
+    # no real endpoint term enters, so the exactly integrated D z is unchanged.
+    np.testing.assert_array_equal(
+        operator.phi_constant[0, :, 0], model.operator(space.k_r**2)
+    )
+
+
+@pytest.mark.parametrize("route", ["expansion", "table"])
+def test_the_radial_adiabatic_term_matches_an_independent_oracle(
+    case, monkeypatch, route
+):
+    grid, _ = case
+    # Columns 0-2 cut off inside the band and the rest are evanescent throughout,
+    # with no column crossing the cutoff along the pressure ramp.
+    space = RadialGrid(1e-6, 16, window_factor=0.0)
+    medium = SpatialMedium("Ar", pressure=Linear(0.5, 1.5, grid.length))
+    model = SpatialDispersion(medium, grid, Frame.comoving(grid))
+    if route == "table":
+        monkeypatch.setattr(radial, "MAX_PARAMETERS", 0)
+    operator, _ = radial_operators(space, model, n_pol=1, z_max=grid.length)
+    assert operator.phi_representation == route
+    omega = grid.omega[grid.active_mask]
+
+    def attenuation(z):
+        square = (omega * medium.index(omega, z) / C) ** 2 - space.k_r[:, None] ** 2
+        root = np.sqrt(square)
+        return np.where(
+            np.real(square) > 0,
+            np.imag(root),
+            np.minimum(np.abs(np.imag(root)), model.evanescent_rate),
+        )
+
+    quad_budget = 1e-12  # absolute, on an attenuation integral of at most 0.2
+    for left, right in ((0.0, grid.length), (0.3 * grid.length, 0.55 * grid.length)):
+        amplitude, propagating = adiabatic_oracle(medium, grid, space, left, right)
+        assert propagating[:3].any()
+        assert not propagating[3:].any()
+        loss, error = quad_vec(
+            attenuation, left, right, epsabs=quad_budget / 8, epsrel=0.0
+        )
+        assert error <= quad_budget
+        expected = amplitude.copy()
+        expected[:, grid.active_mask] -= loss
+        actual = np.real(delta_phi(operator, left, right)[0, :, 0])
+        # Propagating bins: Re Phi is the endpoint term less the material loss
+        # integral, which is zero for argon; the integral contributes no real part.
+        assert_allclose(
+            actual[propagating],
+            expected[propagating],
+            rtol=0,
+            atol=endpoint_budget(amplitude) + quad_budget,
+        )
+        # Evanescent and inactive bins carry no endpoint term: their real part is
+        # the capped attenuation alone, to the integral's representation bound
+        # (relative 8 DEFAULT_TOL on a rate of at most the cap).
+        rest = ~propagating
+        assert_allclose(
+            actual[rest],
+            expected[rest],
+            rtol=0,
+            atol=8 * DEFAULT_TOL * model.evanescent_rate * (right - left) + quad_budget,
+        )
+        np.testing.assert_array_equal(actual[:, ~grid.active_mask], 0.0)
+
+
+def test_a_cutoff_crossing_along_the_path_refuses(case):
+    grid, _ = case
+    medium = SpatialMedium("Ar", pressure=Linear(0.5, 1.5, grid.length))
+    omega = grid.omega[grid.active_mask]
+    middle = omega.size // 2
+    low = float(omega[middle] * np.real(medium.index(omega, 0.0))[middle] / C)
+    high = float(omega[middle] * np.real(medium.index(omega, grid.length))[middle] / C)
+    assert high > low
+    # Place the first column's transverse wave number between the entrance and exit
+    # material wave numbers of one active bin, so its q = 0 lies inside the path.
+    unit = RadialGrid(1.0, 16, window_factor=0.0)
+    space = RadialGrid(float(unit.k_r[0]) / (0.5 * (low + high)), 16, window_factor=0.0)
+    assert low < space.k_r[0] < high
+    with pytest.raises(TranslationError, match="cutoff"):
+        radial_operators(
+            space,
+            SpatialDispersion(medium, grid, Frame.comoving(grid)),
+            n_pol=1,
+            z_max=grid.length,
+        )
+
+
+def test_reused_radial_expansion_carries_the_adiabatic_term(case):
+    grid, space = case
+    frame = Frame.comoving(grid)
+    source = SpatialDispersion(
+        SpatialMedium("Ar", pressure=Linear(0.5, 1.5, grid.length)), grid, frame
+    )
+    linear, prefactor = radial_operators(space, source, n_pol=1, z_max=grid.length)
+    assert linear.phi_expansion is not None
+    assert linear.phi_expansion.endpoint_degrees is not None
+    assert isinstance(prefactor, ParameterExpansion)
+    medium = SpatialMedium("Ar", pressure=Linear(1.3, 0.7, grid.length))
+    updated = SpatialDispersion(medium, grid, frame)
+    reused, _ = radial_operators(
+        space,
+        updated,
+        n_pol=1,
+        z_max=grid.length,
+        reuse_linear=linear.phi_expansion,
+        reuse_prefactor=prefactor,
+    )
+    fresh, _ = radial_operators(space, updated, n_pol=1, z_max=grid.length)
+    assert reused.phi_expansion is not None
+    assert reused.phi_expansion.terms is linear.phi_expansion.terms
+    for left, right in ((0.0, grid.length), (0.2 * grid.length, 0.9 * grid.length)):
+        amplitude, _ = adiabatic_oracle(medium, grid, space, left, right)
+        budget = endpoint_budget(amplitude)
+        for operator in (reused, fresh):
+            actual = np.real(delta_phi(operator, left, right)[0, :, 0])
+            assert_allclose(actual, amplitude, rtol=0, atol=budget)
+
+
+@pytest.mark.parametrize("route", ["expansion", "table"])
+def test_radial_rate_bounds_include_the_adiabatic_term(case, monkeypatch, route):
+    grid, space = case
+    # Lossless argon whose pressure falls: Re k_z decreases, so the only real part
+    # of D is the positive adiabatic rate -1/2 d ln(Re k_z)/dz.
+    medium = SpatialMedium("Ar", pressure=Linear(1.5, 0.5, grid.length))
+    if route == "table":
+        monkeypatch.setattr(radial, "MAX_PARAMETERS", 0)
+    model = SpatialDispersion(medium, grid, Frame.comoving(grid))
+    operator, _ = radial_operators(space, model, n_pol=1, z_max=grid.length)
+    assert operator.phi_representation == route
+    bounds = radial_rate_bounds(operator)
+    rates = np.stack(
+        [
+            np.real(phi_rate(operator, float(z)))
+            for z in np.linspace(*operator.z_span, 33)
+        ]
+    )
+    assert np.max(rates) > 0
+    assert bounds.gain >= np.max(rates)
+    assert bounds.loss >= max(-float(np.min(rates)), 0.0)
