@@ -200,7 +200,9 @@ print(f"missed share {missed:.3f}")
 # The same happens, less obviously, to a profile declared at **one** frequency and
 # held across the band: the channels' patterns change with frequency, so away from
 # where it was declared the field is no longer a guided superposition. The
-# projection reports that too, which is why a launch keyword reports it at all.
+# projection reports that too. The share is a reconstruction residual on the
+# guide's nodes, not radiated power: the energy account of an incident beam is
+# what ``incident=`` records (:doc:`/guide/waveguides/general-modal`).
 held = np.zeros_like(declared)
 support = np.any(np.abs(route.tables.electric[0]) > 0.0, axis=(0, 1, 2))
 held[:, :, support] = declared[:, :, centre][:, :, None]

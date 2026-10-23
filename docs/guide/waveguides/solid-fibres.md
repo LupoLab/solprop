@@ -247,49 +247,41 @@ cutoff there is refused by name, with the fraction of its power beyond the match
 radius. A larger core or contrast, or a grid that reaches less far into the infrared,
 admits more.
 
-**A launch declared as a field.** `transverse=` takes a field at the guide's own nodes
-— real or complex, shape `(n_nodes, 3)`, or `(n_nodes, 3, n_omega)` — and projects it onto every channel
-through the Poynting pairing. The pulse still sets the spectrum and the energy; the
-profile sets the share each channel takes. What the channels do not capture is
-reported, not discarded: {func}`~solprop.translate.modal_tables.project_transverse_field`
-returns it as `residual_share` before you commit to a run.
+**A launch declared as an incident beam.** `incident=` takes a
+{class}`~solprop.pulses.SpatialPulse`, whose energy is the physical energy over the whole
+beam at the entrance, in the core medium. The beam is normalised over its own plane,
+sampled at the guide's nodes and projected onto every channel through the Poynting
+pairing; the channels launch what they capture, and the rest is lost at the entrance
+rather than restored. The account, incident, captured and uncaptured energy per
+frequency, is recorded in the run's configuration
+({class}`~solprop.driver.simulation.IncidentLaunch`).
 
 ```python
-from solprop.translate.general import general_modal_route
-from solprop.translate.modal_tables import project_transverse_field
+from solprop.pulses import GaussianPulse, SpatialPulse
 
-nodes = grin_guide.sampling.nodes
-radius = np.hypot(nodes.xy[:, 0], nodes.xy[:, 1])
-beam = np.zeros((nodes.xy.shape[0], 3))  # a real profile; complex is accepted too
-beam[:, 0] = np.exp(-((radius / 8e-6) ** 2))  # x-polarised Gaussian, 8 um waist
-
-route = general_modal_route(
-    grin_guide, grin_grid, z_max=1e-3, omega_reference=float(grin_grid.omega0)
+beam = SpatialPulse(  # an x-polarised Gaussian, 12 um waist, at its waist
+    GaussianPulse(wavelength=1.03e-6, fwhm=50e-15, energy=1e-9), 12e-6
 )
-held = np.repeat(beam[:, :, None], grin_grid.n_omega, axis=2)
-projection = project_transverse_field(route.tables, held)
-print(f"missed share over the band: {projection.residual_share:.3f}")
-
 grin_run = prop_waveguide(
     (),
     1e-3,
     provider=grin_guide,
     grid=grin_grid,
-    transverse=beam,
+    incident=beam,
     lambda0=1.03e-6,
-    fwhm=50e-15,
-    energy=1e-9,
     n_save=3,
     dz_max=1e-4,
     dz_init=1e-4,
     progress="none",
 )
+launch = grin_run.metadata.configuration["launch"]
+print(f"captured {launch.captured_energy / launch.incident_energy:.3f} of the beam")
 ```
 
-`residual_share` is measured over the whole band, in the guide's quadrature norm: a
-profile held at one shape across the band stops being a guided superposition away from
-the frequency it was declared at, and that shows up here too. The energy is not reduced
-by what is missed: the declared `energy=` is launched into what the channels capture.
+The captured share is a physical loss in a common positive metric, which a weakly
+guiding fibre like this one approaches ([general modal propagation](general-modal.md)).
+The projected amplitudes are launched unscaled, so the run's `physical_energy` at the
+entrance is the captured energy, not `energy=`.
 
 The [graded-index worked example](../../auto_examples/waveguides/plot_04_graded_index_multimode.rst)
 runs a 100 µm core at full power over ten centimetres: self-imaging, geometric

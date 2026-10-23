@@ -40,6 +40,16 @@ The first public release. It contains:
   `SimulationSettings.adiabatic_accuracy`). `poynting_spectrum` is removed:
   `beam_spectrum` is the axial-flux spectrum. Kernel schema 35 (`flux`) and output
   schema 23 (`flux_model`, `flux_plan`).
+- **Incident beams into general modal guides**
+  ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0031-simulation-coupling.html),
+  phase 1). `from_waveguide(provider=..., incident=SpatialPulse(...))` and
+  `prop_waveguide` launch the share of an incident beam that the guide's channels
+  capture. The beam's energy is the physical energy over its whole plane in the core
+  medium, and the light that misses is lost rather than restored. `IncidentLaunch`
+  records the incident, captured and uncaptured energy per frequency in
+  `configuration["launch"]`, and `SpatialPulse.incident` samples a beam normalised over
+  its own plane. The node-sampled `transverse=` profile, its rescaling to `energy=`, the
+  3 % uncaptured warning and `LAUNCH_UNCAPTURED_WARNING` are removed.
 - **Media and responses.**
   - Gases, gas mixtures, glasses and metals from the [optmat](https://github.com/LupoLab/optmat)
     material library.

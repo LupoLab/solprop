@@ -113,17 +113,36 @@ Poynting flux, so a channel amplitude already is a true-power amplitude in $\sqr
 and no $\sqrt{\operatorname{Re}n_{\rm eff}}$ conversion happens anywhere on this route.
 The launched energy is the pulse's, to the last bit.
 
-**`transverse=` launches a declared field instead.** Where `channel=` names one channel,
-`transverse=` takes a transverse **field** at the guide's own quadrature nodes — shape
-`(n_nodes, n_components)`, or `(n_nodes, n_components, n_omega)` for a profile that
-changes across the band — and projects it onto every channel it overlaps. The map is the
-record's **coordinate dual**, $\mathbf a = W^{-1}\mathbf B$ with
+**`incident=` launches an incident beam instead.** Where `channel=` names one channel,
+`incident=` takes a {class}`~solprop.pulses.SpatialPulse` — a Gaussian or super-Gaussian
+beam carrying its own temporal pulse — and launches what the guide's channels capture of
+it ([SEP 31](../../dev/seps/sep-0031-simulation-coupling.md), phase 1):
+
+```text
+beam = SpatialPulse(GaussianPulse(wavelength=835e-9, fwhm=20e-15, energy=1e-9), 2e-6)
+simulation = Simulation.from_waveguide((), length, provider=guide, lambda0=835e-9,
+                                       grid=grid, incident=beam)
+simulation.configuration["launch"]   # incident, captured and uncaptured energy
+```
+
+The beam's `energy=` (or `peak_power=`) is the **physical energy crossing the entrance
+plane in the guide's core medium, over the whole beam**: what an energy meter in that
+medium would read. It is fixed in the paraxial measure $M_0 = Y_0\,\mathrm dA/2$ with
+$Y_0 = n_{\rm ref}(\omega)\varepsilon_0 c$, $n_{\rm ref}$ the real index of the core at
+each frequency, integrated over the beam's own plane in closed form
+({meth}`~solprop.pulses.SpatialPulse.incident`) — never over the guide's quadrature
+nodes, which cover only the guide. The correctly scaled field is then sampled at the
+nodes and projected onto every channel it overlaps.
+
+The map is the record's **coordinate dual**, $\mathbf a = W^{-1}\mathbf B$ with
 $B_m = \int(\mathbf E\times\mathbf h_m^* + \mathbf e_m^*\times\mathbf H)_z\,\mathrm dA/4$:
 the same Hermitian Poynting pairing the flux metric is built from, so synthesising a
 declared amplitude vector and projecting it back returns that vector exactly. It is *not*
 $Q$, the record's other map ([modal projection](modal-projection.md#the-synthesis-and-projection-maps)), which contracts
 a *polarisation* for a **source** term and carries the separate $-i\omega$; the two are
-different operations and give different numbers.
+different operations and give different numbers. The same map is public as
+{py:func}`~solprop.translate.modal_tables.project_transverse_field`, for a field you
+sample yourself.
 
 Only $\mathbf E$ is declared, so the $\mathbf H$ half of $B_m$ is closed by the
 **forward-field assumption**: for any superposition of these channels travelling forward
@@ -133,39 +152,47 @@ through this map to $1.4\times10^{-15}$ of them — rounding, not the basis's Gr
 so the closure is exact for this package's providers. It is exact for a **lossless**
 basis: the argument is that the Poynting cross matrix of such a basis is Hermitian, so
 the $\mathbf E$ and $\mathbf H$ halves of $B_m$ contribute equally. A complex
-{py:class}`~solprop.modes.material.PermittivityLaw` would break that symmetry and show
-up as a growing residual share, and no such basis can reach this map: both providers
-here refuse a complex permittivity when they solve, by name. An optmat index is never
+{py:class}`~solprop.modes.material.PermittivityLaw` would break that symmetry, and no
+such basis can reach this map: both providers here refuse a complex permittivity when
+they solve, by name. An optmat index is never
 complex here: {py:class}`~solprop.modes.material.IndexMaterial` and the step-index
 modes hold it as its recorded transparent approximation, warning once per run where
 the absorption it drops exceeds its bound
 ([materials](../media/material-selection.md#materials-from-optmat)). A region's
 `SilicaTensorResponse()` is optmat's tensor silica bundle by default, which agrees with
 Lin and Agrawal's own parameters to $4\times10^{-16}$. A future lossy provider
-would have to re-derive the closure rather than inherit it. A declared field that is not
-forward-propagating is not what comes back either, and nothing in the arithmetic can see
-the difference.
+would have to re-derive the closure rather than inherit it. Whether an incident beam
+has the guide's magnetic field is a separate question: the closure is exact on the
+channels' own span, and the beam's part outside that span is not captured.
 
-The pulse still supplies the spectrum and the energy: the profile decides the projection's
-**shape**, the share each channel takes, and the whole is scaled so that `energy=` means
-what it means on `channel=`. The norm it is scaled against is the run's own **declared
-metric**, so the statement is exact on a declared circular basis as well as on the
-identity. The profile's own scale is therefore immaterial, and the two keywords are
-refused together. **What the bound channels do not capture is named, not discarded**:
-call {py:func}`~solprop.translate.modal_tables.project_transverse_field` directly and
-read its `residual_share` — the fraction of the declared field, in the guide's own
-quadrature norm, that the channels miss — before committing to a run. A declared field
-with power in radiation modes, in a channel the guide never solved for, or simply outside
-the node rule's reach shows up there.
+**The launch is the captured amplitudes, unscaled.** Light the channels do not capture
+is lost at the entrance, not restored: a beam much wider than the core launches a small
+share of its energy, and a beam the channels cannot see at all — a y-polarised beam
+against a single x-polarised channel — launches nothing, which is a valid zero launch.
+The account is recorded as `configuration["launch"]`, an
+{class}`~solprop.driver.simulation.IncidentLaunch`, and reaches the file's configuration:
+the **incident** energy per frequency bin, the **captured** energy (the launched state's
+physical energy under the run's own declared metric, which is what the run's
+`physical_energy` statistic reads at the entrance), and their difference, the
+**uncaptured** energy, with totals. The captured energy is logged at INFO. No warning is
+raised for a poor capture: it is physics, not a defect.
 
-The energy is **not** reduced by what was missed: a profile the channels capture badly
-still launches the full declared `energy=`, redistributed over what they do capture.
-The launch logs the captured percentage at INFO every time, and warns
-({py:class}`~solprop.exceptions.GeneralModalBasisWarning`) when the channels miss 3 % or
-more ({py:data}`~solprop.driver.simulation.LAUNCH_UNCAPTURED_WARNING`), because the
-rescaling would otherwise hide the mismatch. The missed share is not clipped at one
-either — on a basis that is not exactly orthonormal the flux projection can overshoot,
-and a share above one says exactly that rather than "missed everything".
+Read the uncaptured energy with its model in mind. It is a physical loss only where the
+incident measure and the guide's own flux metric are a common positive metric
+(SEP 31 §4.3) — a weakly guiding guide, whose channels see an admittance close to
+$n_{\rm ref}\varepsilon_0 c$ wherever they carry power. On a strongly guiding strand the
+difference also carries the two measures' disagreement, and it is reported unclipped: a
+negative value would be an apparent gain of the model, never a negative loss. The
+projection's own `residual_share` is an electric-field reconstruction error in the
+guide's quadrature norm, not radiated power, and is not this account.
+
+The beam is launched at its waist (`propz=0`; otherwise it is refused, because carrying a
+beam to the entrance is transport, which this launch does not model) and centred on the
+guide's axis; a one-component Jones vector is polarised along x. The beam carries its own
+pulse, so `fwhm`, `width`, `energy`, `peak_power`, `phases`, `pulses` and `pulseshape` are
+refused beside it, as is `channel=`. Direct amplitudes — a named channel, or a state
+passed to {meth}`~solprop.driver.simulation.Simulation.with_input` — already describe
+light inside the guide and are launched as they are.
 
 Every gas keyword is **refused by name** beside a provider — `gas`, `pressure`,
 `temperature`, `kerr`, `thg`, `plasma`, `raman`, `n_r`, `n_theta` and the rest — because
@@ -342,7 +369,7 @@ it.
 | the guide: a provider, its material regions and their responses, solved on its own node rule at knots spanning the run's **active** band | `ModalGuide.from_provider(provider, omega, nodes=...)` | [running one](#running-one), [the three objects](modal-projection.md#the-three-objects) |
 | each region's response: the instantaneous cubic by `chi3=`, or by `n2=` with the wavelength `at=` it was measured at, and the silica tensor Raman model beside it; or a gas fill, whose law the run's electronic policy sets | `MaterialRegion(..., (MaterialKerr(...), SilicaTensorResponse(...)))`, `MaterialRegion(..., (GasKerr(mixture),))` | [the response at a node](modal-projection.md#the-response-at-a-node) |
 | the cubic's form | `kerr_form="real"` (the default, third harmonic included) or `"analytic"` | [the response at a node](modal-projection.md#the-response-at-a-node) |
-| the launch | `channel=` (an index or a label) or `transverse=` (a field at the guide's nodes) | [running one](#running-one) |
+| the launch | `channel=` (an index or a label) or `incident=` (a `SpatialPulse`, of which the captured share enters) | [running one](#running-one) |
 | a unitary change of basis — of an exactly degenerate block, which stays diagonal, or of a split one, which becomes a coupled flow | `basis=` and `degenerate_blocks=` on `from_provider` | [declaring a circular basis](modal-bases.md#declaring-a-circular-basis), [a split block](modal-bases.md#a-declared-basis-of-a-block-that-is-only-nearly-degenerate) |
 | the statistics | `physical_energy` and `analytic_flux` (the defaults), `spectral_flux` by name | [noise, statistics and what comes back](#noise-statistics-and-what-comes-back) |
 
@@ -469,8 +496,8 @@ Not implemented, and refused rather than approximated:
   for — over the table's frequency interpolation, the transverse rule and the step — is
   not implemented, and accepting a number nothing enforces would be a silent claim about
   accuracy;
-* a **backward or evanescent** declared launch. `transverse=` (above) projects a declared
-  field through the flux pairing with the forward-field closure, and nothing in the
+* a **backward or evanescent** declared launch. `incident=` (above) projects the
+  incident field through the flux pairing with the forward-field closure, and nothing in the
   arithmetic can see that a declared field was not forward-propagating; such a launch is
   built by hand and passed to
   {meth}`~solprop.driver.simulation.Simulation.with_input`;
