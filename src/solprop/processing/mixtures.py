@@ -125,22 +125,11 @@ def absorbed_spectral_energy(
     cross_sections = _array(record, "cross_section_m2")[selected]
     positions = _plane_indices(output, record)
     populations = _array(record, "density_m-3")[positions][:, selected]
-    spatial = output.metadata.spatial if output.metadata is not None else None
-    if spatial is None:
-        absorbed = np.einsum("smw,zmw,m->zsw", cross_sections, modal, weights)
-        return omega, absorbed * populations[:, :, None]
-    # A spatial column's energy is weighted by the plane's real admittance (SEP 34).
-    plan = flux_from_record(cast("Mapping[str, object]", spatial["flux_plan"]))
-    grid = grid_of(output)
-    flux = np.stack(
-        [
-            np.real(axial_admittance(plan.at(float(z)), grid.omega, slice(None)))[
-                :, grid.active_mask
-            ]
-            for z in np.asarray(output["z"])
-        ]
-    )
-    absorbed = np.einsum("smw,zmw,m,zmw->zsw", cross_sections, modal, weights, flux)
+    # On a spatial column the physical flux removed is 2 Im(k_z) times the axial
+    # flux, (eps0 c / 2)(c Re k_z / omega)|E|^2, and 2 Im(k_z) Re(k_z) = Im(k**2):
+    # the admittance cancels exactly, at every angle, leaving this cross section
+    # times eps0 c |E|^2 / 2 (SEP 34).
+    absorbed = np.einsum("smw,zmw,m->zsw", cross_sections, modal, weights)
     return omega, absorbed * populations[:, :, None]
 
 

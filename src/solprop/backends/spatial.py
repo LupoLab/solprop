@@ -44,6 +44,7 @@ __all__ = [
     "FarFieldLayout",
     "FarFieldTables",
     "collar_block",
+    "collar_field_fraction",
     "collect_spatial",
     "far_field_bands",
     "far_field_layout",
@@ -53,15 +54,19 @@ __all__ = [
     "slab_projection",
     "slab_rows",
     "slab_synthesis",
-    "spatial_collar_fraction",
 ]
 
 
-def spatial_collar_fraction(
+def collar_field_fraction(
     problem: KernelProblem,
     field: Complex[np.ndarray, "n_modes n_pol n_omega"],
 ) -> float:
-    """Measure the fraction of physical beam fluence in the declared spatial collar.
+    """Measure the fraction of the beam's field norm in the declared spatial collar.
+
+    A named electric-field-norm boundary diagnostic, the share of
+    ``integral |E_a|^2 dA dt`` on the collar's nodes: it says how much field reaches
+    the transverse boundary. It is not a fraction of the physical axial flux, which
+    the nonlocal admittance need not localise on those nodes (SEP 34 section 5.1).
 
     Parameters
     ----------
@@ -73,7 +78,7 @@ def spatial_collar_fraction(
     Returns
     -------
     float
-        Energy fraction on nodes where the spatial window is below one. Zero
+        Field-norm fraction on nodes where the spatial window is below one. Zero
         for an empty beam, absent geometry or a disabled spatial window.
 
     Notes
@@ -714,13 +719,17 @@ def _local_statistics(  # noqa: PLR0913 - the local pass's whole context
         )
         # A node's fluence sums n_pol * n_t products of two syntheses over the
         # columns; a few rounding units per term bound it relative to its magnitude.
-        budget[rows] = (
-            8
-            * (field.shape[1] * grid.n_t + transform.n_modes)
-            * np.finfo(float).eps
-            * magnitude
-        )
+        budget[rows] = magnitude
         peak = max(peak, float(np.max(intensity)))
+    # Every node's synthesis sums all columns, so its rounding is relative to the
+    # plane's largest product, not its own: a decayed node holds uncorrelated
+    # residue of E and G. A few units per term of that scale bound every node.
+    budget = (
+        8
+        * (field.shape[1] * grid.n_t + transform.n_modes)
+        * np.finfo(float).eps
+        * np.max(budget, initial=0.0)
+    )
     values: dict[str, np.ndarray] = {}
     if "peak_intensity" in wanted:
         values["peak_intensity"] = np.asarray(peak)

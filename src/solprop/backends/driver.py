@@ -41,7 +41,7 @@ from solprop.backends.protocol import (
     StepStats,
     StepSummary,
 )
-from solprop.backends.spatial import spatial_collar_fraction
+from solprop.backends.spatial import collar_field_fraction
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.grid import TimeGrid
 from solprop.log import NOT_ESTIMATED, NullReporter, ProgressReporter
@@ -1394,11 +1394,12 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
                 self._problem.stepper.controller.rtol, rounding / (1 - rounding)
             )
             for member in plane.field:
-                fraction = spatial_collar_fraction(self._problem, member)
+                fraction = collar_field_fraction(self._problem, member)
                 if fraction > threshold:
                     self._logger.warning(
-                        "spatial collar contains %.6e of beam fluence at z = %.6e m, "
-                        "above diagnostic threshold %.6e; increase the transverse "
+                        "spatial collar contains %.6e of the beam's field norm at "
+                        "z = %.6e m, above diagnostic threshold %.6e; increase the "
+                        "transverse "
                         "window to check the influence of its boundary",
                         fraction,
                         self._z,

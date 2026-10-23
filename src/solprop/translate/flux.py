@@ -221,6 +221,11 @@ def flux_record(plan: FluxPlan | None) -> dict[str, object]:
             "reflection": admission.reflection,
             "exact": admission.exact,
             "jumps": admission.jumps,
+            "interpolation_envelope": admission.interpolation_envelope,
+            "identity": repr(dict(admission.identity)),
+            "omega": admission.omega,
+            "spectral_variation": admission.spectral_variation,
+            "support": admission.support,
         }
     if plan.material is not None:
         table = plan.material
