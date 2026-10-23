@@ -21,9 +21,58 @@ env:
   SOLPROP_FFTW_PLAN: estimate
 
 jobs:
-  # Exactly the definition-of-done gate from AGENTS.md, then the slow and coverage lanes.
-  gate:
-    name: gate (${{ matrix.os }})
+  # The definition-of-done gate of AGENTS.md (`poe check`), split into jobs that run in
+  # parallel: the static checks, the documentation, the default test lane and the slow
+  # lane. The default lane runs with coverage on Linux (the coverage job) and plainly on
+  # macOS, so each platform runs it once.
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # hatch-vcs derives the version from tags
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+      - run: uv python install 3.14
+      - run: uv sync --locked
+      - run: uv lock --check
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run poe types
+      - run: uv run poe docstrings
+      - run: uv run poe spell
+      - run: uv run poe reuse
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # hatch-vcs derives the version from tags
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+      - run: uv python install 3.14
+      - run: uv sync --locked
+      - run: uv run poe docs
+
+  test:
+    name: test (macos-latest)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # hatch-vcs derives the version from tags
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+      - run: uv python install 3.14
+      - run: uv sync --locked
+      - run: uv run poe test
+
+  slow:
+    name: slow (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -37,15 +86,24 @@ jobs:
         with:
           enable-cache: true
       - run: uv python install 3.14
-      - run: uv lock --check
       - run: uv sync --locked
-      - run: uv run poe check
       - run: uv run poe test-slow
-      # The whole package at 100 % of statements and branches, in the lane's two passes.
+
+  # The default lane at 100 % of statements and branches (the lane's two passes), on
+  # Linux, and its report (coverage.xml) for the badge.
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # hatch-vcs derives the version from tags
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+      - run: uv python install 3.14
+      - run: uv sync --locked
       - run: uv run poe cov
-      # The report the coverage lane writes (coverage.xml), for the badge; from one
-      # platform, and only on this repository's pushes and pull requests.
-      - if: matrix.os == 'ubuntu-latest' && !cancelled()
+      - if: ${{ !cancelled() }}
         uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
         with:
           files: coverage.xml
@@ -54,7 +112,7 @@ jobs:
 
   # The default lane on Windows: numpy_ref and numba_cpu (the native package's Windows build
   # is not yet in CI). The lint, type, docstring, spelling, REUSE and docs steps are
-  # platform-independent and run in the gate.
+  # platform-independent and run in the static and docs jobs.
   windows:
     runs-on: windows-latest
     env:

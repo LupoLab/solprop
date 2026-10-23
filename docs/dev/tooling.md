@@ -179,8 +179,13 @@ build works offline and survives a flaky mirror; refresh the copies occasionally
 `.github/workflows/ci.yml` runs on every push to `main` and every pull request, with
 `SOLPROP_FFTW_PLAN=estimate`:
 
-- **gate** (Linux x86-64 and macOS arm64): `uv lock --check`, `uv sync --locked`,
-  `uv run poe check`, `uv run poe test-slow`, `uv run poe cov`.
+- **static** (Linux): `uv lock --check`, ruff (lint and format check), `poe types`,
+  `poe docstrings`, `poe spell`, `poe reuse`.
+- **docs** (Linux): `poe docs`.
+- **test** (macOS arm64): `poe test`, the default lane.
+- **coverage** (Linux x86-64): `poe cov`, the default lane with coverage (so Linux runs
+  the default lane once), and the report uploaded to Codecov for the badge.
+- **slow** (Linux and macOS): `poe test-slow`.
 - **windows**: `uv run poe test`, the default lane, on `numpy_ref` and `numba_cpu`.
 - **oldest** (Linux): the package installed with `uv pip install --resolution
   lowest-direct`, so every dependency sits at its floor, then the default lane

@@ -66,8 +66,9 @@ A change that touches `native/` runs `poe check-all` and follows the native rule
    [documentation checks](docs/dev/testing.md#documentation-only-changes).
 5. Open a pull request describing what changed, why, and how it was verified. Say plainly
    what you assumed, skipped or could not make pass. CI runs on every pull request: the
-   gate, slow and coverage lanes on Linux and macOS, the default lane on Windows, at the
-   lowest supported dependency versions, and with the native CPU backend.
+   gate's checks and the default lane on Linux (with coverage) and macOS, the slow lane on
+   both, the default lane on Windows, at the lowest supported dependency versions, and
+   with the native CPU backend.
 
 ## Review checklist
 

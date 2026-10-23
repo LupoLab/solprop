@@ -92,10 +92,12 @@ coverage lane requires 100 % of statements and branches of the whole package
 `# pragma: no cover` needs a reason on the same line.
 
 **CI** (`.github/workflows/ci.yml`) runs on every push to `main` and every pull request:
-the gate, the slow lane and the coverage lane on Linux and macOS; the default lane on
-Windows; the default lane at the lowest dependency versions; and the default lane with
-the native CPU backend (`docs/dev/tooling.md`, "CI"). The gate's steps are exactly
-`poe check`: change both in the same commit.
+`poe check` split into parallel jobs (the static checks and the documentation on Linux,
+the default lane on macOS, and on Linux the coverage lane, which is the default lane
+with coverage); the slow lane on Linux and macOS; the default lane on Windows; the
+default lane at the lowest dependency versions; and the default lane with the native
+CPU backend (`docs/dev/tooling.md`, "CI"). Between them the jobs run exactly
+`poe check`'s steps: change both in the same commit.
 
 **Changes touching `native/`** also run `uv run poe check-native` (or `uv run poe
 check-all` for both gates) and follow [`native/AGENTS.md`](native/AGENTS.md). CI runs the
