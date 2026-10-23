@@ -244,6 +244,7 @@ from solprop.translate.envelope_plasma import (
     cycle_moments,
 )
 from solprop.translate.expansion import ParameterExpansion
+from solprop.translate.flux import flux_record
 from solprop.translate.general import (
     GeneralModalRoute,
     general_modal_route,
@@ -1030,6 +1031,8 @@ def metadata_for(  # noqa: PLR0913 - the record's parts, each a distinct object
             "inverse_scale": geometry.inverse_scale,
             "window": geometry.window,
             "absorber_rate": geometry.absorber_rate,
+            "flux_model": "scalar-axial-admittance",
+            "flux_plan": flux_record(problem.flux),
         }
     tdse_record = None if problem.tdse is None else dataclasses.asdict(problem.tdse)
     return RunMetadata(

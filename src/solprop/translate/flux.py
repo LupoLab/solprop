@@ -13,20 +13,22 @@ propagation see the same ``k_z``.
 """
 
 import math
+from collections.abc import Mapping
+from typing import cast
 
 import numpy as np
 
-from solprop.exceptions import MaterialError
+from solprop.exceptions import MaterialError, TranslationError
 from solprop.grid import FreeGrid, RadialGrid, TimeGrid
 from solprop.linear import Frame
 from solprop.modes.slab import PlanarGrid
 from solprop.spatial import EVANESCENT_RATE, SpatialDispersion, SpatialMedium
-from solprop.translate.chebyshev import build
+from solprop.translate.chebyshev import PiecewiseChebyshev, build
 from solprop.translate.linop import LinearOperator
 from solprop.translate.planar import planar_kappa, square_residuals
 from solprop.translate.spatial import FluxPlan, SeparableOperator
 
-__all__ = ["flux_plan", "plane_coefficients"]
+__all__ = ["flux_from_record", "flux_plan", "flux_record", "plane_coefficients"]
 
 
 def plane_coefficients(
@@ -165,4 +167,97 @@ def flux_plan(
         material.hard_kinks,
     ):
         values.setflags(write=False)
+    return FluxPlan(base, material)
+
+
+def flux_record(plan: FluxPlan | None) -> dict[str, object]:
+    """Return a plane measure as plain arrays for the output's spatial record.
+
+    Parameters
+    ----------
+    plan : FluxPlan or None
+        The run's plane measure.
+
+    Returns
+    -------
+    dict
+        The coefficients :func:`flux_from_record` rebuilds the measure from.
+
+    Raises
+    ------
+    TranslationError
+        If a spatial run carries no plane measure.
+    """
+    if plan is None:
+        msg = "a spatial run's metadata needs its plane measure"
+        raise TranslationError(msg)
+    base = plan.base
+    record: dict[str, object] = {
+        "k_squared": base.k_squared,
+        "k_squared_low": base.k_squared_low,
+        "kperp_sq": base.kperp_sq,
+        "kperp_sq_low": base.kperp_sq_low,
+        "active": base.active,
+        "evanescent_rate": base.evanescent_rate,
+        "kappa_sq": base.kappa_sq,
+        "material": None,
+    }
+    if plan.material is not None:
+        table = plan.material
+        record["material"] = {
+            "coefficients": table.coefficients,
+            "breakpoints": table.breakpoints,
+            "degrees": table.degrees,
+            "hard_kinks": table.hard_kinks,
+        }
+    return record
+
+
+def flux_from_record(record: Mapping[str, object]) -> FluxPlan:
+    """Rebuild a plane measure from its output record.
+
+    Parameters
+    ----------
+    record : collections.abc.Mapping
+        The ``flux_plan`` entry of a spatial output record.
+
+    Returns
+    -------
+    FluxPlan
+        The run's plane measure, whose :meth:`FluxPlan.at` gives a saved plane's
+        coefficients at its own position.
+    """
+
+    def array(name: str, dtype: type) -> np.ndarray:
+        """Return one stored coefficient array."""
+        return np.asarray(record[name], dtype=dtype)
+
+    zeros = np.zeros(array("k_squared", complex).size)
+    kappa = record["kappa_sq"]
+    base = SeparableOperator(
+        k_squared=array("k_squared", complex),
+        kperp_sq=array("kperp_sq", float),
+        k_squared_low=array("k_squared_low", complex),
+        kperp_sq_low=array("kperp_sq_low", float),
+        frame=zeros,
+        spectral_rate=zeros,
+        prefactor_numerator=zeros.astype(complex),
+        prefactor_clamped=zeros.astype(complex),
+        active=array("active", bool),
+        evanescent_rate=float(cast("float", record["evanescent_rate"])),
+        n_pol=1,
+        # A measure is evaluated where it is asked; its span is never stepped.
+        z_span=(0.0, 1.0),
+        kappa_sq=None if kappa is None else np.asarray(kappa, complex),
+    )
+    stored = record["material"]
+    if stored is None:
+        return FluxPlan(base)
+    table = cast("Mapping[str, object]", stored)
+    material = PiecewiseChebyshev(
+        np.asarray(table["coefficients"], complex),
+        np.asarray(table["breakpoints"], float),
+        np.asarray(table["degrees"], np.intp),
+        np.asarray(table["hard_kinks"], float),
+    )
     return FluxPlan(base, material)

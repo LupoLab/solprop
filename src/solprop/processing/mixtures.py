@@ -16,7 +16,9 @@ from solprop.exceptions import ProcessingError
 from solprop.grid import TimeGrid
 from solprop.output.schema import Output
 from solprop.processing.axes import grid_of
-from solprop.processing.fields import get_field, get_spectral_density
+from solprop.processing.fields import get_spectral_density
+from solprop.translate.flux import flux_from_record
+from solprop.translate.spatial import axial_admittance
 
 __all__ = [
     "absorbed_spectral_energy",
@@ -123,7 +125,22 @@ def absorbed_spectral_energy(
     cross_sections = _array(record, "cross_section_m2")[selected]
     positions = _plane_indices(output, record)
     populations = _array(record, "density_m-3")[positions][:, selected]
-    absorbed = np.einsum("smw,zmw,m->zsw", cross_sections, modal, weights)
+    spatial = output.metadata.spatial if output.metadata is not None else None
+    if spatial is None:
+        absorbed = np.einsum("smw,zmw,m->zsw", cross_sections, modal, weights)
+        return omega, absorbed * populations[:, :, None]
+    # A spatial column's energy is weighted by the plane's real admittance (SEP 34).
+    plan = flux_from_record(cast("Mapping[str, object]", spatial["flux_plan"]))
+    grid = grid_of(output)
+    flux = np.stack(
+        [
+            np.real(axial_admittance(plan.at(float(z)), grid.omega, slice(None)))[
+                :, grid.active_mask
+            ]
+            for z in np.asarray(output["z"])
+        ]
+    )
+    absorbed = np.einsum("smw,zmw,m,zmw->zsw", cross_sections, modal, weights, flux)
     return omega, absorbed * populations[:, :, None]
 
 
@@ -172,8 +189,9 @@ def node_fluence(output: Output) -> Float[np.ndarray, "n_z n_nodes"]:
     """Reconstruct the pulse fluence at every transverse quadrature node.
 
     Apply the saved synthesis matrix and taper to the electric and magnetic-field
-    equivalents, then integrate analytic Poynting flux in J/m^2. Schema-5 files
-    retain their original vacuum-admittance functional. The temporal sum uses
+    equivalents, then integrate analytic Poynting flux in J/m^2. A spatial run's
+    magnetic field is the closure of the medium at each plane (SEP 34). The
+    temporal sum uses
     the grid's fine spacing and the complete saved band, with no added window. A
     mode-averaged run has one effective node and returns energy divided by A_eff.
     Radial and Cartesian runs reconstruct the physical electric field before the sum.
@@ -202,30 +220,84 @@ def node_fluence(output: Output) -> Float[np.ndarray, "n_z n_nodes"]:
         "mode_averaged",
     ):
         return _modal_fluence(output, record, grid)
-    time, field = get_field(
-        output, kind="analytic", convention="fft", oversampling=grid.n_to // grid.n_t
-    )
-    shape = output.fields().shape
-    modal = field.reshape(shape[0], shape[1], shape[2], time.size)
+    return _spatial_fluence(output, record, grid)
+
+
+def _spatial_fluence(
+    output: Output, record: Mapping[str, object], grid: TimeGrid
+) -> np.ndarray:
+    """Integrate the signed axial flux of a radial, Cartesian or planar run.
+
+    Each plane's field is paired with its magnetic closure, the conjugate of the
+    plane's own admittance applied to the stored spectrum (SEP 34), rebuilt from the
+    run's recorded plane measure at the plane's position.
+
+    Parameters
+    ----------
+    output : solprop.output.schema.Output
+        Saved spatial planes of output schema 23 or later.
+    record : collections.abc.Mapping
+        Saved synthesis and taper.
+    grid : solprop.grid.TimeGrid
+        Temporal grid defining frequency and Parseval weights.
+
+    Returns
+    -------
+    numpy.ndarray
+        Fluence in J/m^2, shape (n_z, n_nodes).
+
+    Raises
+    ------
+    ProcessingError
+        If the output predates the medium flux measure.
+    """
+    metadata = output.metadata
+    assert metadata is not None
+    spatial = metadata.spatial
+    if spatial is None or "flux_plan" not in spatial:
+        msg = (
+            "this spatial output predates the medium axial-flux measure (output "
+            "schema 23, SEP 34) and cannot be measured as one"
+        )
+        raise ProcessingError(msg)
+    plan = flux_from_record(cast("Mapping[str, object]", spatial["flux_plan"]))
     n_nodes = cast("int", record["n_nodes"])
-    if metadata.simulation_kind == "free":
-        assert metadata.spatial is not None
-        nx, ny = cast("tuple[int, int]", metadata.spatial["shape"])
-        physical = np.fft.ifft2(
-            modal.reshape(shape[0], ny, nx, shape[2], time.size), axes=(1, 2)
-        ).reshape(shape[0], n_nodes, shape[2], time.size)
-    else:
-        physical = np.einsum("rm,zmpt->zrpt", _array(record, "node_synthesis"), modal)
-        physical = physical.reshape(shape[0], n_nodes, -1, time.size)
     taper = _array(record, "taper")[_plane_indices(output, record)]
-    return (
-        EPS0
-        * C
-        / 2
-        * grid.dt_fine
-        * np.sum(np.abs(physical) ** 2, axis=(-2, -1))
-        * taper[:, None] ** 2
-    )
+    fields = output.fields("fft")
+    result = []
+    for field, z in zip(fields, np.asarray(output["z"]), strict=True):
+        closure = (
+            np.conj(axial_admittance(plan.at(float(z)), grid.omega, slice(None)))[
+                :, None
+            ]
+            * field
+        )
+        pair = []
+        for spectrum in (field, closure):
+            fine = fourier.oversample(spectrum, grid.n_to, kind=grid.kind)
+            samples = fourier.inverse(fine, kind=grid.kind)
+            analytic = (
+                fourier.analytic_signal(samples) if grid.kind == "field" else samples
+            )
+            if metadata.simulation_kind == "free":
+                assert metadata.spatial is not None
+                nx, ny = cast("tuple[int, int]", metadata.spatial["shape"])
+                physical = np.fft.ifft2(
+                    analytic.reshape(ny, nx, *analytic.shape[1:]), axes=(0, 1)
+                ).reshape(n_nodes, -1, analytic.shape[-1])
+            else:
+                physical = np.einsum(
+                    "rm,mpt->rpt", _array(record, "node_synthesis"), analytic
+                ).reshape(n_nodes, -1, analytic.shape[-1])
+            pair.append(physical)
+        result.append(
+            EPS0
+            * C
+            / 2
+            * grid.dt_fine
+            * np.sum(np.real(pair[0] * np.conj(pair[1])), axis=(-2, -1))
+        )
+    return np.asarray(result) * taper[:, None] ** 2
 
 
 def _modal_fluence(

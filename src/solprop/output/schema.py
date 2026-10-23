@@ -113,7 +113,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 22
+SCHEMA_VERSION = 23
 """Version of the record layout; incremented whenever a stored field changes meaning.
 
 Version 9 adds the SEP 13 stepping method. Independent version-10 branches added
@@ -165,6 +165,11 @@ full-transform steady-current certificate is execution evidence under
 ``backend.settings["plasma_source"]``, outside the hash. Every previous schema has a
 different resume key. A private gated benchmark
 carries ``_benchmark_plasma_source`` and refuses continuation even under this schema.
+Version 23 (SEP 34) measures every spatial energy, power, fluence and intensity as the
+axial Poynting flux of the medium at the plane: the spatial record names the
+``flux_model`` and carries the run's plane-measure coefficients (``flux_plan``), from
+which a saved plane's admittance at its own position is rebuilt. Earlier spatial
+records used the vacuum measure and are refused by the processing that needs one.
 """
 
 INLINE_ARRAY_LIMIT = 2**20
@@ -2674,6 +2679,16 @@ class RunMetadata(Displayed):
             self.schema_version < 4 or self.spatial is None
         ):
             msg = "spatial metadata requires schema 4 and a spatial geometry record"
+            raise OutputError(msg)
+        if (
+            self.spatial is not None
+            and self.schema_version >= 23
+            and "flux_model" not in self.spatial
+        ):
+            msg = (
+                "spatial metadata of schema 23 or later must name its flux_model "
+                "and carry its flux_plan (SEP 34)"
+            )
             raise OutputError(msg)
         if self.modal is not None and self.schema_version < 7:
             # The identity would be carried by the record and left out of the
