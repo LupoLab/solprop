@@ -91,13 +91,21 @@ jobs:
           enable-cache: true
       - run: uv python install 3.14
       - run: uv sync --locked
-      - run: uv run poe test-slow
+      # The statistics channel's cost budget is a timing measurement: on Linux only,
+      # where it runs alone on the runner; macOS's three shared cores make it noise.
+      - if: runner.os == 'Linux'
+        run: uv run poe test-slow
+      - if: runner.os != 'Linux'
+        run: uv run poe test-slow-functional
 
   # The default lane at 100 % of statements and branches (the lane's two passes), on
-  # Linux, and its report (coverage.xml) for the badge.
+  # Linux with the native package built from this tree (solprop's native paths are part
+  # of the 100 %), and its report (coverage.xml) for the badge.
   coverage:
     runs-on: ubuntu-latest
     timeout-minutes: 150
+    env:
+      CXX: g++-13
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -105,8 +113,12 @@ jobs:
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           enable-cache: true
+      - name: Install the native toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes cmake g++-13 libfftw3-dev ninja-build pkg-config
       - run: uv python install 3.14
-      - run: uv sync --locked
+      - run: uv sync --locked --extra native
       # The default lane's peak memory on four test workers is at the edge of the
       # runner's 16 GB (the runner shut down mid-suite twice): swap turns a peak into a
       # slowdown, and three workers lower it.
