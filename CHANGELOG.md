@@ -26,6 +26,20 @@ The first public release. It contains:
 - **Free space.** Radial, Cartesian and line grids with the exact (non-paraxial)
   diffraction operator. Planar guides can be resolved across their width. Absorbing
   spatial boundaries are included, and far-field and aperture statistics.
+- **Physical flux in free space**
+  ([SEP 34](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0034-medium-flux.html)).
+  Spatial launches, shot noise, energies, fluences, intensities and statistics measure
+  the axial Poynting flux of the medium at the plane (`SpatialFlux`), so a requested
+  energy is the physical energy there; local flux uses the complex admittance and is
+  signed, and `peak_field` names the physical-field diagnostic. Accessors take
+  `(field, flux)`; `SpatialPulse.build` and `spatial_noise` take the medium and plane.
+  `critical_power` takes the carrier `index=` and returns the physical power, `n0` times
+  the vacuum-measure value. A radial gas gradient carries the forward amplitude term
+  `-ln(Y_z(z)/Y_z(0))/2` and is admitted under a real-index adiabatic certificate
+  (`AdiabaticAccuracy`, default 1e-4 on field error and reflected energy;
+  `SimulationSettings.adiabatic_accuracy`). `poynting_spectrum` is removed:
+  `beam_spectrum` is the axial-flux spectrum. Kernel schema 35 (`flux`) and output
+  schema 23 (`flux_model`, `flux_plan`).
 - **Media and responses.**
   - Gases, gas mixtures, glasses and metals from the [optmat](https://github.com/LupoLab/optmat)
     material library.

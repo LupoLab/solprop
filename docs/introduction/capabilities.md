@@ -73,6 +73,10 @@ while Cartesian grids resolve both transverse coordinates. A line grid represent
 a field uniform in the other transverse direction. These descriptions have
 different computational costs, symmetries, and transverse measures; use
 [choosing a spatial description](spatial-description.md) to decide between them.
+Free-space energy, fluence and intensity are the physical axial Poynting flux in the
+medium, so a launch energy is what an energy meter there would read, and a radial gas
+pressure gradient is admitted under a certificate that bounds the reflection the forward
+model omits ([energy and flux in a medium](../guide/free-space/flux.md)).
 
 | Description | Typical calculation | Main modelling choice |
 |---|---|---|

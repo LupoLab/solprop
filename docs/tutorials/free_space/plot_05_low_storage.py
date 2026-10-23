@@ -11,8 +11,9 @@ with classical RK4 in the interaction picture, holding three copies of the state
 the adaptive marches hold fifteen or more. It has no error estimate, so its accuracy is
 measured from outside, on the quantity that matters, by three-level Richardson
 calibration
-(:doc:`/guide/numerics/fixed-schedules`). Here a 30 fs line beam at twice the soliton
-power self-phase modulates over one diffraction length, and the weak band is the light
+(:doc:`/guide/numerics/fixed-schedules`). Here a 30 fs line beam whose peak field is
+``sqrt(2)`` times the soliton's, twice the soliton power, self-phase modulates over one
+diffraction length, and the weak band is the light
 it generates below 690 nm: three parts in ten thousand of the energy. The whole field
 converges twenty times faster than that band, so a norm scored on the field would call
 a schedule converged while the band is still wrong. A few seconds on ``numpy_ref``.
@@ -24,12 +25,12 @@ import math
 import matplotlib.pyplot as plt
 import numpy as np
 
-from solprop.constants import EPS0, C
+from solprop.constants import C
 from solprop.driver import SimulationSettings, prop_free
 from solprop.grid import EnvelopeGrid, LineGrid
 from solprop.nonlinear.responses import KerrResponse
 from solprop.pulses import GaussianPulse
-from solprop.spatial import SpatialMedium
+from solprop.spatial import SpatialFlux, SpatialMedium, spatial_power
 from solprop.stepper import (
     FixedSchedule,
     LowStorageRungeKutta,
@@ -39,27 +40,28 @@ from solprop.stepper import (
 )
 
 # %%
-# A ``sech(x/x0)`` line beam carrying twice the (1+1)-D soliton power ``P'`` at the peak
-# of a 30 fs pulse, over one diffraction length ``k x0**2`` of vacuum with an absolute
-# Kerr susceptibility (the line tutorial's beam, shorter and stronger).
+# A ``sech(x/x0)`` line beam whose peak field is ``sqrt(2)`` times the (1+1)-D
+# soliton's, ``A0**2 = 8/(3 k0**2 chi3 x0**2)``, at the peak of a 30 fs pulse: twice
+# the soliton power ``P'``. It crosses one diffraction length ``k x0**2`` of vacuum
+# with an absolute Kerr susceptibility (the line tutorial's beam, shorter and
+# stronger). The temporal envelope has unit peak, so the field is stated directly.
 wavelength, chi3, x0 = 800e-9, 3e-26, 50e-6
 k0 = 2 * math.pi / wavelength
-soliton = 8 * EPS0 * C / (3 * k0**2 * chi3 * x0)
+amplitude = math.sqrt(2 * 8 / (3 * k0**2 * chi3 * x0**2))  # V/m
 length = k0 * x0**2
 space = LineGrid(20 * x0, 64, window_factor=0)
 grid = EnvelopeGrid.from_limits(
     length, wavelength, (600e-9, 1.1e-6), 400e-15, thg=False
 )
+vacuum = SpatialMedium()
+flux = SpatialFlux.resolve(grid, space, vacuum)
 profile = 1 / np.cosh(space.x / x0)
-transverse = np.fft.fft(profile)
-transverse /= math.sqrt(
-    0.5 * EPS0 * C * np.sum(space.spectral_weights * np.abs(transverse) ** 2)
-)
-temporal = GaussianPulse(
-    wavelength=wavelength, fwhm=30e-15, peak_power=2 * soliton
-).build(grid)
-start = transverse[:, None, None] * temporal
+envelope = GaussianPulse(wavelength=wavelength, fwhm=30e-15, peak_power=1.0).build(grid)
+start = amplitude * np.fft.fft(profile)[:, None, None] * envelope
+print(f"peak power {np.max(spatial_power(start, flux)):.4g} W/m, 2 P'")
 band = (2 * math.pi * C / grid.omega < 690e-9) & grid.active_mask
+# Each column's energy weight is its real axial admittance in vacuum, the obliquity.
+weight = space.spectral_weights[:, None] * np.real(flux.admittance())
 
 
 def replayed(schedule, mode="auto"):
@@ -76,7 +78,7 @@ def replayed(schedule, mode="auto"):
     result = prop_free(
         grid,
         space,
-        SpatialMedium(),
+        vacuum,
         [KerrResponse(chi3, thg=False)],
         start,
         settings=settings,
@@ -86,7 +88,7 @@ def replayed(schedule, mode="auto"):
 
 def band_fraction(field):
     """Return the energy fraction below 690 nm, summed over the line."""
-    spectrum = np.sum(np.abs(field) ** 2, axis=(0, 1))
+    spectrum = np.sum(weight * np.sum(np.abs(field) ** 2, axis=1), axis=0)
     return float(spectrum[band].sum() / spectrum.sum())
 
 
@@ -147,8 +149,8 @@ print(
 )
 
 # %%
-# The final spectrum, summed over the line, with the weak band shaded.
-spectrum = np.sum(np.abs(fields[rungs[-1]]) ** 2, axis=(0, 1))
+# The final spectral energy, summed over the line, with the weak band shaded.
+spectrum = np.sum(weight * np.sum(np.abs(fields[rungs[-1]]) ** 2, axis=1), axis=0)
 order = np.argsort(grid.omega)
 wavelengths = 2 * math.pi * C / grid.omega[order] * 1e9
 figure, (left, right) = plt.subplots(1, 2, figsize=(9, 3.6))
