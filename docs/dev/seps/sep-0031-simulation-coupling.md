@@ -1097,6 +1097,117 @@ No new material constant or experimental validation is claimed.
 
 ## Part II — Implementation record
 
+### Phase 1 report — incident-energy correction
+
+**Delivered (2026-10-24, `feature/sep-0031-simulation-coupling`).**
+
+- `pulses.SpatialPulse.incident(grid, xy, index=...)` returns an `IncidentField`:
+  the beam given its requested energy or peak power over its **whole** transverse
+  plane in the paraxial measure $M_0 = n_{\rm ref}\varepsilon_0c\,dA/2$, then
+  sampled at the given points, with the energy each bin carries through the plane.
+  It reuses `_Plane` and `_normalising_factor` (one "column" whose transverse
+  integral is the profile's closed form
+  $\int|u|^2dA=\pi w^2 2^{-1/N}\Gamma(1+1/N)$), as `PlanarPulse.build` does, and
+  shares the profile and Jones normalisation with `SpatialPulse.build`. No second
+  Gaussian is written.
+- `Simulation.from_waveguide(provider=..., incident=SpatialPulse(...))` and
+  `prop_waveguide(..., incident=...)` replace `transverse=`. The driver takes
+  $n_{\rm ref}(\omega)=\operatorname{Re}\sqrt{\varepsilon}$ of the guide's core
+  region (the region on the axis, whose law is z-independent, so it is the
+  entrance's), samples the beam at the entrance nodes, projects it with
+  `project_transverse_field` and launches the projected amplitudes **unscaled**.
+  A zero capture is a zero launch.
+- `driver.simulation.IncidentLaunch` records `reference_index`, `incident` and
+  `captured` per frequency bin (J), with `uncaptured` (not clipped) and totals,
+  as `configuration["launch"]`; it reaches the file's configuration and hash. The
+  captured energy is $\mathbf a^\dagger W\mathbf a$ under the run's declared
+  metric, the number `physical_energy` reads at the entrance. A derived run
+  (`with_input`) drops the record with the constructor's pulse.
+- Removed with no alias: `transverse=`, `_projected_launch`, the rescaling to
+  `energy=`, the 3 % `GeneralModalBasisWarning` and `LAUNCH_UNCAPTURED_WARNING`.
+  Channel launches and `with_input` arrays are unchanged.
+- The advanced benchmark's graded-index case (`benchmarks/guides.py`) launches
+  an incident 12 µm beam, so its launched energy is now the captured share.
+- Manual: [general modal propagation](../../guide/waveguides/general-modal.md),
+  [solid fibres](../../guide/waveguides/solid-fibres.md) (a runnable snippet),
+  [supplied guides](../../guide/waveguides/supplied-guides.md), a comment in the
+  graded-index tutorial, and the changelog.
+
+**Deviations and why.**
+
+1. *No analytic-callable input (item b).* A callable profile needs its own
+   public record of support, tail bound and quadrature. Phase 3's
+   `FieldPlane.from_analytic` is that record, and a phase-1 record would be a
+   public interface made only to be replaced. It is deferred to phase 3.
+2. *`propz` must be 0.* Carrying a beam from its waist to the entrance is
+   transport, and §5.1 changes the `propz` meaning in phase 3. The driver and
+   `SpatialPulse.incident` refuse a nonzero `propz` by name.
+3. *Keyword `incident=`, not `transverse=`.* The beam carries its own temporal
+   pulse, so the pulse keywords are refused beside it, as is `channel=`.
+4. *No warning remains.* A poor capture is physics. No numerical defect is
+   meaningful to warn about here: the projection's own failures are refusals.
+5. *Scalar Jones on a vector guide is x-polarised*, the package's capillary
+   default.
+
+**Verification run.** Targeted modules only, `uv run --no-sync pytest -n auto`:
+`tests/driver/test_general_modal.py`, `tests/translate/test_modal_transform_tables.py`,
+`tests/test_pulses.py`, `tests/test_spatial_flux.py` and `tests/test_display.py`,
+548 passed (medium tier included); `tests/test_benchmark_guides.py` 9 passed;
+`tests/test_guide_snippets.py` (compilation) 18 passed; doctests of `pulses.py`
+and `driver/simulation.py` pass. The solid-fibres page's snippets were executed
+by hand (3.3 s; a 12 µm beam into the 25 µm graded-index guide captures 0.964).
+ruff, ruff format, basedpyright (0 errors), numpydoc and codespell are clean on
+the changed files. Evidence, on the 1.5 µm step-index strand (index 1.45 in air):
+
+- `SpatialPulse.incident` agrees with `SpatialPulse.build` on a radial grid in
+  index 1.45 to 1.5e-7 of the peak field, the beam's obliquity, for Gaussian and
+  order-2 beams, energy and peak power, envelope and field grids.
+- Poor capture: a 20 µm beam captures 0.9 % (bound asserted: < 2 %); the run's
+  entrance-plane `physical_energy` equals the captured energy to 1e-12, not
+  `energy=`. A 1.3 µm beam captures 92 %.
+- Zero capture by symmetry: a y-polarised beam into the even HE11 channel captures
+  8e-36 of the incident energy (bound $(n_{\rm nodes}\epsilon)^2$) and runs.
+- Incident energy is bitwise the same for a 1.5 µm and a 2.5 µm strand; captured
+  differs.
+- Coherent shares: Jones $(1, 0.5i)$ gives $a_{\rm odd}/a_{\rm even}=-0.5i$
+  (internal convention) to 1e-6, with the captured total of the x-polarised beam;
+  on the dense circular basis an x-polarised beam splits equally.
+- Receivers: ten 0.5 µm steps on `numpy_ref`, `numba_cpu` and native CPU each store
+  an entrance plane bitwise equal to the launched state, whose energy is the
+  captured energy.
+
+Not run: the full gate, slow and coverage lanes (end of SEP), and GPU. The
+graded-index worked example (`docs/examples/waveguides/plot_04_graded_index_multimode.py`)
+still uses `transverse=`; it was **not** edited, because an edited worked example
+must be re-run by hand at full length and the normal build refuses a source that
+differs from its committed output.
+
+**Limitations.** The measure uses the core's index over the whole plane, so on a
+strongly guiding strand the uncaptured energy also carries the difference between
+$M_0$ and the guide's flux metric (the 1.45-in-air strand's best capture is 98 %
+for a 1 µm beam). The beam is centred, launched at its waist and transverse
+(no $E_z$). §4.3's admission screens, model budget and passivity certificate are
+not applied; they are phase 3's.
+
+**Open questions.**
+
+1. Should `with_input` accept a `SpatialPulse` on a general modal run, routed
+   through the same incident launch, or wait for phase 2's target-bound launch?
+2. Should `IncidentLaunch` carry the projection's electric-field residual as a
+   labelled numerical diagnostic, or stay energy-only as now?
+3. For a graded-index core, the on-axis law fixes $n_{\rm ref}$. Is that the
+   intended reference, or should it be the index averaged over the beam?
+4. The worked example `plot_04_graded_index_multimode` needs `incident=` and a
+   re-run by hand. Its launched energy will fall to the captured share unless its
+   requested energy is raised.
+
+**Handoff to phases 2 and 3.** `SpatialPulse.incident` is the normalisation
+`FieldPlane.from_pulse` should wrap, and `IncidentLaunch` is the precursor of
+`CouplingResult.report`. Phase 3 replaces `_incident_launch` with `couple(...,
+CouplingModel("scalar_paraxial", ...))`, adds the analytic and sampled inputs,
+`propz` transport and the §4.3 admission, and should fold `IncidentLaunch` into
+the report rather than keep both.
+
 ## Part III — History
 
 - 2026-10-22: Drafted after auditing existing launch, projection, spatial flux,
