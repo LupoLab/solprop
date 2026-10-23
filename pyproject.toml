@@ -326,7 +326,7 @@ env = { PYTHONUTF8 = "1", NUMBA_DISABLE_JIT = "1", SOLPROP_NATIVE_THREADS = "1",
 help = "Coverage pass 1: the compiled bodies, run in the interpreter so they are counted."
 
 [tool.poe.tasks.cov-rest]
-cmd = "pytest --cov --cov-config=coverage-cpu.ini --cov-append --cov-report=term-missing --durations=25 -m 'not slow and not gpu and not benchmark' -n auto --dist loadgroup"
+cmd = "pytest --cov --cov-config=coverage-cpu.ini --cov-append --cov-report=term-missing --cov-report=xml --durations=25 -m 'not slow and not gpu and not benchmark' -n auto --dist loadgroup"
 env = { PYTHONUTF8 = "1", SOLPROP_NATIVE_THREADS = "1", VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
 help = "Coverage pass 2: everything else, compiled; 100 % of the CPU source required."
 

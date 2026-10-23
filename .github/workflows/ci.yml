@@ -43,6 +43,14 @@ jobs:
       - run: uv run poe test-slow
       # The whole package at 100 % of statements and branches, in the lane's two passes.
       - run: uv run poe cov
+      # The report the coverage lane writes (coverage.xml), for the badge; from one
+      # platform, and only on this repository's pushes and pull requests.
+      - if: matrix.os == 'ubuntu-latest' && !cancelled()
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
+        with:
+          files: coverage.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
 
   # The default lane on Windows: numpy_ref and numba_cpu (the native package's Windows build
   # is not yet in CI). The lint, type, docstring, spelling, REUSE and docs steps are
