@@ -28,6 +28,8 @@ from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import (
     EDGE_MOMENTS,
     ApertureTables,
+    SpatialFlux,
+    SpatialMedium,
     aperture_profile,
     aperture_scale,
     aperture_statistics,
@@ -58,7 +60,55 @@ def grid():
 def gaussian(grid, space, waist, *, energy=1e-6):
     """A waist-plane Gaussian beam of 1/e^2 intensity radius `waist`, in J."""
     pulse = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=energy)
-    return SpatialPulse(pulse, waist).build(grid, space)
+    return SpatialPulse(pulse, waist).build(grid, space, medium=SpatialMedium())
+
+
+def axial(grid, space):
+    """The saved-plane admittance of a vacuum plane, chunk by chunk."""
+    flux = SpatialFlux.resolve(grid, space, SpatialMedium())
+    return lambda columns: (flux.admittance(columns), None)
+
+
+def obliquity(grid, space):
+    """The vacuum admittance c k_z / omega of every column and bin, independently.
+
+    ``sqrt(1 - (c kappa / omega)**2)`` on active propagating bins at positive
+    frequency, and zero on every other bin, which is no forward power port
+    (SEP 34 section 4.2).
+    """
+    columns = np.arange(space.n_columns)
+    if isinstance(space, LineGrid):
+        kappa_sq = space.k_x[columns] ** 2
+    else:
+        kappa_sq = (
+            space.k_x[columns % space.n_x] ** 2 + space.k_y[columns // space.n_x] ** 2
+        )
+    omega = grid.omega[None, :]
+    square = 1 - kappa_sq[:, None] * (C / np.where(omega > 0, omega, 1.0)) ** 2
+    live = grid.active_mask[None, :] & (omega > 0) & (square > 0)
+    return np.where(live, np.sqrt(np.where(live, square, 1.0)), 0.0)
+
+
+def flat(grid, space, field):
+    """Divide a spectrum by the root of its admittance, zero where there is none.
+
+    The axial-flux measure weighs ``|E|^2`` by the obliquity; this field's measured
+    density is then the plain ``|E|^2`` the paraxial closed forms integrate, so the
+    aperture geometry is tested free of the ~1/(k w)^2 obliquity.
+    """
+    eta = obliquity(grid, space)
+    root = np.sqrt(np.where(eta > 0, eta, 1.0))
+    return np.where(eta > 0, 1 / root, 0.0)[:, None, :] * field
+
+
+def share(part, whole):
+    """Each bin's share of the beam, NaN on bins that carry no flux at all."""
+    return np.divide(
+        part,
+        whole,
+        out=np.full(np.broadcast(part, whole).shape, np.nan),
+        where=whole > 0,
+    )
 
 
 def plane(field):
@@ -66,7 +116,8 @@ def plane(field):
 
 
 def far_field(spec, grid, space, field):
-    return collect(spec, grid, plane(field), space=space)
+    flux = SpatialFlux.resolve(grid, space, SpatialMedium())
+    return collect(spec, grid, plane(field), flux=flux)
 
 
 def hole(diameter, *, centre=(0.0, 0.0), **options):
@@ -277,7 +328,10 @@ def test_a_hole_enclosing_every_image_is_the_beam(grid):
         gamma(2 * (space.n_columns + 8)),
     )
     axis = collect(
-        StatsSpec(names=("on_axis_spectrum",)), grid, plane(field), space=space
+        StatsSpec(names=("on_axis_spectrum",)),
+        grid,
+        plane(field),
+        flux=SpatialFlux.resolve(grid, space, SpatialMedium()),
     )
     amplitude = np.einsum("r,rpw->pw", space.on_axis, field)
     magnitude = np.einsum("r,rpw->pw", np.abs(space.on_axis), np.abs(field))
@@ -304,7 +358,7 @@ def far_beam(grid):
     # (exp(-400)) and aliasing (exp(-79)) are below rounding. The mask-plane lattice
     # is then pi w0 / L = 0.079 of the far-field radius at every frequency.
     space = FreeGrid(20 * waist, 160, 20 * waist, 160, window_factor=0)
-    return space, waist, gaussian(grid, space, waist)
+    return space, waist, flat(grid, space, gaussian(grid, space, waist))
 
 
 def far_radius(grid, waist):
@@ -324,8 +378,12 @@ def edge_fraction(grid, space, field, diameter):
     scale = DISTANCE * C / grid.omega
     radius = np.hypot(scale[None, :] * k_x[:, None], scale[None, :] * k_y[:, None])
     near = np.abs(radius - diameter / 2) <= math.sqrt(2) * mask_spacing(grid, space)
-    density = space.spectral_weights[:, None] * np.sum(np.abs(field) ** 2, axis=1)
-    return np.sum(density * near, axis=0) / np.sum(density, axis=0)
+    density = (
+        space.spectral_weights[:, None]
+        * obliquity(grid, space)
+        * np.sum(np.abs(field) ** 2, axis=1)
+    )
+    return share(np.sum(density * near, axis=0), np.sum(density, axis=0))
 
 
 def test_a_centred_hard_hole_collects_the_gaussian_far_field_fraction(grid, far_beam):
@@ -335,12 +393,13 @@ def test_a_centred_hard_hole_collects_the_gaussian_far_field_fraction(grid, far_
         names=("beam_spectrum", "aperture_spectrum"), apertures=hole(diameter)
     )
     values = far_field(spec, grid, space, field)
-    fraction = values["aperture_spectrum"][0] / values["beam_spectrum"]
+    fraction = share(values["aperture_spectrum"][0], values["beam_spectrum"])
     expected = 1 - np.exp(-(diameter**2) / (2 * far_radius(grid, waist) ** 2))
     # Exact for the paraxial map: the hard edge's staircase, bounded by the energy
     # within one lattice diagonal of the edge, plus rounding.
     bound = edge_fraction(grid, space, field, diameter) + gamma(8 * space.n_columns)
-    assert np.all(np.abs(fraction - expected) <= bound)
+    live = values["beam_spectrum"] > 0  # the bins with a forward measure
+    assert np.all(np.abs(fraction - expected)[live] <= bound[live])
     assert np.max(expected) - np.min(expected) > 0.1  # the hole is chromatic
 
 
@@ -372,7 +431,7 @@ def test_a_smooth_hole_matches_the_profile_integral(grid, far_beam, weighting):
         )
     spec = StatsSpec(names=("beam_spectrum", "aperture_spectrum"), apertures=apertures)
     values = far_field(spec, grid, space, field)
-    fraction = values["aperture_spectrum"][0] / values["beam_spectrum"]
+    fraction = share(values["aperture_spectrum"][0], values["beam_spectrum"])
     half = float(
         quadrature_half_width(diameter / 2, width, "tanh")
         if weighting == "quadrature"
@@ -421,7 +480,7 @@ def test_a_gaussian_mask_passes_its_closed_form_share(grid, far_beam):
         apertures=mask,
     )
     values = far_field(spec, grid, space, field)
-    fraction = values["aperture_spectrum"][0] / values["beam_spectrum"]
+    fraction = share(values["aperture_spectrum"][0], values["beam_spectrum"])
     # A Gaussian amplitude mask exp(-(rho/r)^2) on a Gaussian beam passes the share
     # r^2 / (r^2 + w_ff^2) of its energy: a smooth integrand, so the lattice sum's
     # aliasing is below rounding, which gamma(8 n) bounds.
@@ -503,7 +562,7 @@ def test_a_fixed_wavevector_moves_as_one_over_omega(grid):
         spectral_regions=np.array([[0.0, np.inf, -np.inf, np.inf]]),
     )
     values = far_field(spec, grid, space, field)
-    fraction = values["aperture_spectrum"] / values["beam_spectrum"]
+    fraction = share(values["aperture_spectrum"], values["beam_spectrum"])
     # The image of one wavevector lies at z c kappa / omega: the hole placed for the
     # highest in-band frequency collects it there and not at the lowest, and the
     # other way round.
@@ -526,8 +585,9 @@ def test_quadrature_weighting_collects_the_hard_area():
     # 128 lattice cells either side of the axis: the disc of 40 and its tanh tail to
     # 15 widths (exp(-30)) fit inside.
     space = FreeGrid(1e-3, 256, 1e-3, 256, window_factor=0)
-    field = np.ones((space.n_columns, 1, grid.n_omega), dtype=complex)
-    index = grid.n_omega // 2
+    field = flat(grid, space, np.ones((space.n_columns, 1, grid.n_omega), complex))
+    # The carrier's bin: an active one, where the plane has a forward measure.
+    index = int(np.argmin(np.abs(grid.omega - grid.omega0)))
     scale = DISTANCE * C / grid.omega[index]
     delta_x, delta_y = unit_spacing(space)
     spacing = scale * delta_x  # the mask-plane lattice at the chosen bin
@@ -539,7 +599,11 @@ def test_quadrature_weighting_collects_the_hard_area():
             tables = aperture_tables(spec, grid, space)
         assert tables is not None
         values = aperture_statistics(
-            ("beam_spectrum", "aperture_spectrum"), grid, field, tables
+            ("beam_spectrum", "aperture_spectrum"),
+            grid,
+            field,
+            tables,
+            axial=axial(grid, space),
         )
         ratio = values["aperture_spectrum"][0, index] / values["beam_spectrum"][index]
         return ratio * space.n_columns * scale**2 * delta_x * delta_y
@@ -615,25 +679,29 @@ def test_the_beam_spectrum_integrates_to_the_energy(grid):
     )
 
 
-def test_nonzero_end_bins_are_overcounted_as_documented():
+def test_occupied_end_bins_carry_no_axial_flux():
+    # The end bins' analytic-signal weight differs from the interior's, so a plain
+    # spectral density over every bin would overcount them; the axial-flux measure
+    # admits no zero-frequency or inactive bin as a forward power port (SEP 34
+    # section 4.3), so occupied ends leave both statistics alone and the beam
+    # spectrum integrates to the energy.
     grid = FieldGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 60e-15)
     space = LineGrid(2e-4, 16, window_factor=0)
     rng = np.random.default_rng(5)
     field = rng.standard_normal((space.n_columns, 1, grid.n_omega)) + 0j
+    assert not grid.active_mask[0] and not grid.active_mask[-1]
     spec = StatsSpec(names=("energy", "beam_spectrum"))
     values = far_field(spec, grid, space, field)
-    ends = np.abs(field[:, 0, 0]) ** 2 + np.abs(field[:, 0, -1]) ** 2
-    overcount = (
-        0.5 * EPS0 * C * np.sum(space.spectral_weights * 3 * grid.dt * ends) / grid.n_t
-    )
-    assert overcount > 1e-3 * values["energy"]
+    inner = field.copy()
+    inner[:, :, [0, -1]] = 0
+    cleared = far_field(spec, grid, space, inner)
+    assert values["energy"] == cleared["energy"]
+    assert np.array_equal(values["beam_spectrum"], cleared["beam_spectrum"])
+    # Two orders of a sum of m positive terms with their roundings: 2 gamma_m.
     assert_within(
-        np.sum(values["beam_spectrum"]) * grid.d_omega - values["energy"],
-        overcount,
-        2
-        * gamma(space.n_columns * grid.n_omega + 16)
-        * (values["energy"] + overcount)
-        / overcount,
+        np.sum(values["beam_spectrum"]) * grid.d_omega,
+        values["energy"],
+        2 * gamma(space.n_columns * grid.n_omega + 16),
     )
 
 
@@ -863,7 +931,7 @@ def test_a_spec_refuses_a_missing_or_malformed_table():
 def test_collect_refuses_the_operator_statistics_and_radial_grids(grid):
     space = FreeGrid(3e-4, 8, 3e-4, 8, window_factor=0.1)
     field = gaussian(grid, space, 60e-6)
-    for name in ("poynting_spectrum", "absorbed_power"):
+    for name in ("absorbed_power",):
         with pytest.raises(OutputError, match=f"{name}.*linear operator"):
             far_field(StatsSpec(names=(name,)), grid, space, field)
     radial = RadialGrid(3e-4, 16)
@@ -872,7 +940,7 @@ def test_collect_refuses_the_operator_statistics_and_radial_grids(grid):
             StatsSpec(names=("beam_spectrum",)),
             grid,
             plane(np.zeros((16, 1, grid.n_omega), complex)),
-            space=radial,
+            flux=SpatialFlux.resolve(grid, radial, SpatialMedium()),
         )
     with pytest.raises(OutputError, match="requires spatial geometry"):
         collect(StatsSpec(names=("beam_spectrum",)), grid, plane(field))
@@ -892,15 +960,23 @@ def test_the_pass_refuses_what_its_tables_cannot_answer(grid):
         (("absorbed_power",), "linear operator"),
     ):
         with pytest.raises(OutputError, match=message):
-            aperture_statistics(names, grid, field, tables)
+            aperture_statistics(names, grid, field, tables, axial=axial(grid, space))
     with pytest.raises(OutputError, match="matching its tables"):
-        aperture_statistics(("beam_spectrum",), grid, field[:-1], tables)
+        aperture_statistics(
+            ("beam_spectrum",), grid, field[:-1], tables, axial=axial(grid, space)
+        )
     with pytest.raises(OutputError, match="at least one column"):
-        aperture_statistics(("beam_spectrum",), grid, field, tables, chunk=0)
+        aperture_statistics(
+            ("beam_spectrum",), grid, field, tables, axial=axial(grid, space), chunk=0
+        )
     assert aperture_tables(StatsSpec(names=("energy",)), grid, space) is None
     # Chunked or whole, the beam spectrum agrees to the summation bound.
-    whole = aperture_statistics(("beam_spectrum",), grid, field, tables)
-    chunked = aperture_statistics(("beam_spectrum",), grid, field, tables, chunk=5)
+    whole = aperture_statistics(
+        ("beam_spectrum",), grid, field, tables, axial=axial(grid, space)
+    )
+    chunked = aperture_statistics(
+        ("beam_spectrum",), grid, field, tables, axial=axial(grid, space), chunk=5
+    )
     assert_within(
         chunked["beam_spectrum"], whole["beam_spectrum"], gamma(2 * space.n_columns)
     )

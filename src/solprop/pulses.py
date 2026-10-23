@@ -818,7 +818,10 @@ def _normalising_factor(
                 power_trace(beam, plane.admittance, plane.weights, grid, plane.scale)
             )
         )
-    if not math.isfinite(measured) or measured <= 0:
+    if not (math.isfinite(measured) and math.isfinite(target)):
+        msg = "the launch beam is nonfinite: its temporal pulse or profile overflowed"
+        raise PulseError(msg)
+    if measured <= 0:
         msg = (
             "the beam carries no positive forward flux at the launch plane: it is "
             "unresolved on this grid or lies outside the propagating band"

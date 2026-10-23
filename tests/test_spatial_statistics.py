@@ -123,7 +123,9 @@ def test_bessel_energy_and_on_axis_spectral_fluence(grid, bessel_case):
     # The real admittance weighs each bin's temporal energy: the column carries the
     # temporal energy of sqrt(eta) times its pulse, not the vacuum 3 nJ.
     eta = _obliquity(grid, space.k_r[index])
-    weighted = float(energy_omega(np.sqrt(eta) * temporal[0, 0], grid.dt, kind=grid.kind))
+    weighted = float(
+        energy_omega(np.sqrt(eta) * temporal[0, 0], grid.dt, kind=grid.kind)
+    )
     expected_energy = 0.5 * EPS0 * C * weight * weighted
     expected_axis = 0.5 * EPS0 * C * (weight / (2 * np.pi)) ** 2 * weighted
     bound = gamma(8 * grid.n_omega + 32)
@@ -192,9 +194,7 @@ def test_fluence_widths_integrate_time_instead_of_selecting_the_peak(grid, besse
     # Each column's fluence is weighted by its vacuum admittance at its one bin.
     eta = [_obliquity(grid, space.k_r[j])[bins[j]] for j in range(2)]
     expected_profile = eta[0] * (coefficients[0] * j0(space.k_r[0] * space.r)) ** 2
-    expected_profile += (
-        4 * eta[1] * (coefficients[1] * j0(space.k_r[1] * space.r)) ** 2
-    )
+    expected_profile += 4 * eta[1] * (coefficients[1] * j0(space.k_r[1] * space.r)) ** 2
     expected_radius = np.sqrt(
         2
         * np.sum(space.radial_weights * space.r**2 * expected_profile)
