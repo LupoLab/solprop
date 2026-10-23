@@ -1227,7 +1227,8 @@ def _signed_fluence(
     Returns
     -------
     tuple of numpy.ndarray
-        Fluence in J/m^2 and a bound on its accumulated rounding, each per node.
+        Fluence in J/m^2 at the nodes and a bound on its accumulated rounding,
+        the same at every node.
     """
     grid = flux.grid
     weights = fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
@@ -1235,14 +1236,17 @@ def _signed_fluence(
     scale = 0.5 * EPS0 * C
     fluence = scale * np.sum(weights * np.real(field * np.conj(closure)), axis=(1, 2))
     magnitude = scale * np.sum(weights * np.abs(field) * np.abs(closure), axis=(1, 2))
-    # Each node sums n_pol*n_omega products after two transverse syntheses; a few
-    # rounding units per term bound the sum's error relative to its magnitude.
+    # The transverse syntheses sum every column, so each node's value carries
+    # rounding relative to the plane's largest product, not its own: where the
+    # beam has decayed, E and G are uncorrelated rounding residue. A few units per
+    # term of the plane's scale bound the error of every node.
     budget = (
         8
         * (spectrum.shape[1] * grid.n_omega + spectrum.shape[0])
-        * (np.finfo(float).eps * magnitude)
+        * np.finfo(float).eps
+        * np.max(magnitude, initial=0.0)
     )
-    return fluence, budget
+    return fluence, np.full(fluence.shape, budget)
 
 
 def spatial_fluence(

@@ -239,8 +239,9 @@ class SpatialPulse(Displayed):
         The requested energy or peak power is the physical axial Poynting flux
         through the launch plane, in the medium there (SEP 34): what an energy
         meter in that medium reads. Each member of a :class:`PulseSum` carries its
-        own requested quantity. Bins with no forward admittance (nonpropagating,
-        inactive or zero-frequency) are hard-masked to zero before normalisation.
+        own requested quantity. The inactive band and zero frequency are
+        hard-masked as everywhere; a beam with more than rounding-level content in
+        nonpropagating columns is refused, since no energy can be assigned to it.
 
         Parameters
         ----------
@@ -270,8 +271,8 @@ class SpatialPulse(Displayed):
         ------
         PulseError
             If the grid is a planar one, the temporal pulse is not scalar, the beam
-            has no propagating content or launch pre-propagation produces a
-            nonfinite field.
+            has no propagating content or more than rounding-level nonpropagating
+            content, or launch pre-propagation produces a nonfinite field.
         """
         if isinstance(space, PlanarGrid):
             msg = (
@@ -323,7 +324,7 @@ class SpatialPulse(Displayed):
                     msg = "spatial pre-propagation would overflow the field"
                     raise PulseError(msg)
                 field = field * np.exp(exponent)[:, None, :]
-            field = field * live[:, None, :]
+            field = _hard_masked(field, live, space.spectral_weights, grid)
             total += _normalised(member, temporal, field, flux, grid)
         if not np.all(np.isfinite(total)):
             msg = "spatial pre-propagation produced a nonfinite field"
@@ -669,6 +670,57 @@ def _scaling(energy: float | None, peak_power: float | None) -> tuple[float, _Qu
         raise PulseError(msg)
     _check_positive("peak_power", peak_power)
     return peak_power, "peak_power"
+
+
+def _hard_masked(
+    field: np.ndarray,
+    live: np.ndarray,
+    weights: np.ndarray,
+    grid: TimeGrid,
+) -> np.ndarray:
+    """Zero a beam's bins without forward admittance, refusing real content there.
+
+    The inactive band and zero frequency are the established hard masks. A
+    nonpropagating column inside the active band is no forward power port either,
+    and an energy-normalised launch requires it unoccupied (SEP 34 section 4.3):
+    content beyond the rounding of the beam's field norm there is refused.
+
+    Parameters
+    ----------
+    field : numpy.ndarray
+        The beam spectrum, ``(n_modes, n_pol, n_omega)``.
+    live : numpy.ndarray
+        Bins with nonzero admittance, ``(n_modes, n_omega)``.
+    weights : numpy.ndarray
+        Transverse Parseval weights, ``(n_modes,)``.
+    grid : solprop.grid.TimeGrid
+        Temporal grid.
+
+    Returns
+    -------
+    numpy.ndarray
+        The masked beam.
+
+    Raises
+    ------
+    PulseError
+        If the nonpropagating share of the field norm exceeds its rounding budget.
+    """
+    band = grid.active_mask & (grid.omega > 0)
+    norm = weights[:, None] * np.sum(np.abs(field) ** 2, axis=1)
+    removed = float(np.sum(norm[band[None, :] & ~live]))
+    total = float(np.sum(norm[:, band]))
+    # The transforms that formed the beam carry a few rounding units of its norm
+    # per bin they sum; content above that is physical.
+    budget = 8 * field.shape[0] * grid.n_omega * np.finfo(float).eps
+    if total > 0 and removed > budget * total:
+        msg = (
+            f"the beam puts {removed / total:.3e} of its field norm into columns "
+            "that do not propagate at the launch plane, which carry no energy: "
+            "widen the waist or refine the transverse grid"
+        )
+        raise PulseError(msg)
+    return field * live[:, None, :]
 
 
 def _members(pulse: Pulse) -> list[Pulse]:

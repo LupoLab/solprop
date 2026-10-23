@@ -2568,11 +2568,15 @@ def _spatial_assembly(
         # SEP 34 section 4.5: every active propagating column must meet the
         # adiabatic budgets over the whole run path before the forward amplitude
         # transport is trusted.
-        admission = certify_radial_path(
-            dispersion,
-            spatial_grid.k_r**2,
-            (0.0, build.z_max),
-            build.adiabatic_accuracy,
+        admission = replace(
+            certify_radial_path(
+                dispersion,
+                spatial_grid.k_r**2,
+                (0.0, build.z_max),
+                build.adiabatic_accuracy,
+            ),
+            # The operator tables resolve the represented path to this tolerance.
+            interpolation_envelope=build.tol,
         )
     linear, prefactor = radial_operators(
         spatial_grid,

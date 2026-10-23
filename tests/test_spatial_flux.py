@@ -263,7 +263,22 @@ def test_flux_refusals() -> None:
     with pytest.raises(GridError, match="nonnegative fluence"):
         beam_radius(spectrum, flux)
     # A metal-like index, Re(n**2) < 0, has no propagating column to carry energy.
-    with pytest.raises(PulseError, match="no positive forward flux"):
+    with pytest.raises(PulseError, match="do not propagate"):
         SpatialPulse(
             GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6), 2e-4
         ).build(grid, space, medium=SpatialMedium(0.1 + 2j))
+
+
+def test_widths_of_a_decayed_beam_on_a_wide_grid() -> None:
+    """Rounding residue far from the beam does not refuse a width."""
+    grid = _envelope()
+    space = RadialGrid(3e-3, 256)
+    medium = SpatialMedium("Ar", pressure=1.0)
+    pulse = SpatialPulse(
+        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6), 100e-6
+    )
+    spectrum = pulse.build(grid, space, medium=medium)
+    flux = SpatialFlux.resolve(grid, space, medium)
+    # A Gaussian's second-moment radius is its 1/e^2 waist, to the Hankel
+    # quadrature's resolution of a 100 um beam on 256 nodes.
+    assert beam_radius(spectrum, flux) == pytest.approx(100e-6, rel=1e-4)
