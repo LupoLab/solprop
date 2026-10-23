@@ -110,7 +110,7 @@ def test_hacc_run_records_model_window_consistency_and_ledger(fake, cache, windo
     simulation = _simulation(atomic_window=window)
     output = _run(simulation)
     assert output.metadata is not None
-    assert output.metadata.schema_version == SCHEMA_VERSION == 22
+    assert output.metadata.schema_version == SCHEMA_VERSION == 23
     descriptor = json.loads(plain(output.metadata.tdse)["configuration_json"])
     assert descriptor["schema"] == "solprop.tdse-descriptor.v5"
     assert descriptor["response"]["model"] == "hacc"

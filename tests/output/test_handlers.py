@@ -1200,8 +1200,8 @@ def test_a_plane_whose_channel_changes_its_statistics_is_refused(grid, metadata)
 
 def test_the_schema_version_is_twelve_for_integrated_run_records(metadata):
     """Combined launch, TDSE, step-limit and saved-plane policies version the file."""
-    assert SCHEMA_VERSION == 22
-    assert metadata.schema_version == 22
+    assert SCHEMA_VERSION == 23
+    assert metadata.schema_version == 23
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows has no SIGKILL")

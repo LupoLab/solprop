@@ -226,7 +226,7 @@ def test_the_problem_carries_the_leaf_and_its_stage_row(field_grid, mode):
     problem = problem_for(
         field_grid, mode, [DispersiveKerrResponse(ARGON, "polynomial")]
     )
-    assert problem.schema_version == SCHEMA_VERSION == 34
+    assert problem.schema_version == SCHEMA_VERSION == 35
     assert problem.grids.carrier_2w0 is None
     bundle = scalars(problem, 0.0, 0.05)
     expected = float(mode.density(np.array([0.05]))[0])
@@ -403,7 +403,7 @@ def test_a_free_column_holds_the_products_in_time_and_frequency(evaluator, produ
         grid,
         None,
         [DispersiveKerrResponse(ARGON, evaluator)],
-        pulse.build(grid, space),
+        pulse.build(grid, space, medium=SpatialMedium()),
         spatial_grid=space,
         medium=SpatialMedium(),
         controller=PIController(rtol=1e-8, atol=1e-14),

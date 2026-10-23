@@ -308,7 +308,7 @@ def test_cartesian_resume_distinguishes_legacy_cutoff_arithmetic(free_case):
         grid, space, SpatialMedium(), [], pulse, settings=settings
     )
     current = simulation.metadata()
-    assert current.schema_version == 22
+    assert current.schema_version == 23
     assert current.configuration["spatial_arithmetic"] == "split-square-v1"
     legacy_configuration = dict(current.configuration)
     del legacy_configuration["spatial_arithmetic"]

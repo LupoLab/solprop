@@ -18,7 +18,7 @@ operator, the quadrature, the compiled responses — are in [algorithms.md](algo
 already converted from the optics-convention user inputs; the output layer converts
 observations back. Backends never conjugate.
 
-**Current kernel schema: 34; saved-output schema: 22.** These versions are independent.
+**Current kernel schema: 35; saved-output schema: 23.** These versions are independent.
 Internal modal amplitudes are vacuum normalised; the launch and observation boundaries
 carry the true-power conversion, and every backend reads the modal power weight (§3) in its
 statistics alone. Radial columns are Hankel
@@ -52,6 +52,7 @@ hard-mask zeros, and explicitly exact zeros and no-ops.
 | `stepper` | frozen dataclass | section 7 (`translate.problem.StepperSettings`) |
 | `tdse` | `TDSEDescriptor` or `None` | immutable atomic specification, resolved response lattice and scientific identity; section 5 |
 | `current_numerator` | `(n_modes,n_pol,n_omega) float64` or `None` | independent current coefficient numerator, `-crop_scale/(2 epsilon_0 c)` on active bins; divided by the stage real effective index |
+| `flux` | `translate.spatial.FluxPlan` or `None` | the spatial run's plane measure (SEP 34): the separable coefficients and, for a varying radial path, the material-square z table whose `at(z)` gives the axial admittance `c k_z/omega` of the plane at `z`, with the path's adiabatic admission; required with spatial geometry and `None` without it |
 `KernelProblem` also carries one **property**, which is not a field and so not a row
 above: `device_ready` is true when Φ (§3) and the prefactor (§5) are each a weighted sum
 of a fixed set of arrays, and false when either took the z table.
@@ -88,7 +89,7 @@ expansion. A
 total-degree expansion is not part of the contract: it failed the joint memory and
 build-cost criterion on the short fixture.
 
-The current version is **34** (`solprop.translate.problem.SCHEMA_VERSION`), and the
+The current version is **35** (`solprop.translate.problem.SCHEMA_VERSION`), and the
 tables of this document describe it. A version bump that adds an optional field
 leaves every problem that does not use it unchanged, `schema_version` itself being the
 one thing that moves. Removing an admitted value needs no bump, because no consumer can
