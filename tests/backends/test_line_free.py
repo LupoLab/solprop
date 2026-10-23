@@ -32,6 +32,7 @@ from solprop.grid import EnvelopeGrid, FieldGrid, LineGrid
 from solprop.nonlinear.raman import DampedOscillator, RamanResponse, undamped_dephasing
 from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
 from solprop.pulses import GaussianPulse, SpatialPulse
+from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.translate.ionisation import build_rate_table
 
@@ -88,7 +89,11 @@ def line_case(request):
     else:
         responses = [KerrResponse(CHI3, thg=False)]
     problem = make_problem(
-        grid, space, pulse.build(grid, space), responses, density=density
+        grid,
+        space,
+        pulse.build(grid, space, medium=SpatialMedium()),
+        responses,
+        density=density,
     )
     plasma_names = (
         ("electron_density", "peak_ionisation_rate")

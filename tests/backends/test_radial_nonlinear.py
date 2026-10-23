@@ -312,7 +312,14 @@ def nonlinear_case(request):
         ]
     else:
         responses = [KerrResponse(CHI3, thg=False)]
-    return kind, grid, space, pulse.build(grid, space), responses, density
+    return (
+        kind,
+        grid,
+        space,
+        pulse.build(grid, space, medium=SpatialMedium()),
+        responses,
+        density,
+    )
 
 
 @pytest.mark.parametrize("steps", [0, 1, 8])

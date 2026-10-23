@@ -51,14 +51,21 @@ def test_spatial_pulse_preserves_whole_beam_energy(radial_case, jones):
     # amplitude rescaling. Their accumulated first-order errors are gamma below.
     operations = 8 * space.n_r + 4 * grid.n_omega
     bound = operations * EPS / (1 - operations * EPS)
-    field = pulse.build(grid, space)
+    field = pulse.build(grid, space, medium=SpatialMedium())
+    # The requested energy is the vacuum axial flux: each column and bin weighted
+    # by its obliquity c k_z / omega = sqrt(1 - (c k_r / omega)^2), derived here
+    # from the forward branch, on active positive-frequency bins (SEP 34).
+    omega = grid.omega
+    live = grid.active_mask & (omega > 0)
+    eta = np.zeros((space.n_r, grid.n_omega))
+    eta[:, live] = np.sqrt(1 - (C * space.k_r[:, None] / omega[live]) ** 2)
     measured = (
         0.5
         * EPS0
         * C
         * np.sum(
             space.spectral_weights[:, None]
-            * energy_omega(field, grid.dt, kind=grid.kind)
+            * energy_omega(np.sqrt(eta)[:, None, :] * field, grid.dt, kind=grid.kind)
         )
     )
     assert_allclose(measured, 3e-9, rtol=bound, atol=0)
@@ -78,7 +85,7 @@ def test_radial_operator_and_prefactor_match_vacuum_dispersion(radial_case):
         grid,
         None,
         [],
-        pulse.build(grid, space),
+        pulse.build(grid, space, medium=SpatialMedium()),
         spatial_grid=space,
         medium=SpatialMedium(),
         controller=PIController(rtol=1e-8, atol=1e-14),
@@ -114,7 +121,7 @@ def test_radial_linear_propagation_on_each_backend(
     radial_case, spatial_backend_class, steps
 ):
     grid, space, pulse = radial_case
-    start = pulse.build(grid, space)
+    start = pulse.build(grid, space, medium=SpatialMedium())
     wave = grid.omega[grid.active_mask] / C
     transverse = space.k_r[:, None] ** 2
     phase = np.zeros((space.n_r, grid.n_omega), dtype=np.complex128)
@@ -155,8 +162,16 @@ def test_spatial_launch_prepropagation_uses_the_exact_operator(radial_case):
     operator = SpatialDispersion(SpatialMedium(), grid, frame).operator(space.k_r**2)
     # This verifies launch plumbing independently of the radial assembly; the
     # operator itself is qualified against the rationalised vacuum expression above.
-    expected = pulse.build(grid, space) * np.exp(operator * distance)[:, None, :]
-    assert_allclose(launched.build(grid, space), expected, rtol=8 * EPS, atol=0)
+    expected = (
+        pulse.build(grid, space, medium=SpatialMedium())
+        * np.exp(operator * distance)[:, None, :]
+    )
+    assert_allclose(
+        launched.build(grid, space, medium=SpatialMedium()),
+        expected,
+        rtol=8 * EPS,
+        atol=0,
+    )
 
 
 def test_a_radial_run_keeps_the_general_kernel_regime(radial_case):
@@ -171,7 +186,7 @@ def test_a_radial_run_keeps_the_general_kernel_regime(radial_case):
         grid,
         None,
         [],
-        pulse.build(grid, space),
+        pulse.build(grid, space, medium=SpatialMedium()),
         spatial_grid=space,
         medium=SpatialMedium(),
         controller=PIController(rtol=1e-8, atol=1e-14),

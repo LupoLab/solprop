@@ -196,6 +196,22 @@ def assert_no_added_work(dispersive: float, constant: float):
     assert abs(dispersive - constant) <= 0.01 * abs(constant)
 
 
+def assert_flux_conserved(dispersive: float, constant: float, budget: float):
+    """Both lossless runs keep the axial-flux energy within the route's budget.
+
+    The free and planar routes measure energy by the axial flux of their medium
+    (SEP 34), which is the quantity the lossless linear flow conserves; an
+    instantaneous cubic source does no net work on it, since
+    ``sum_omega omega Im(E* P)`` is ``integral(E dP/dt dt)``, zero for ``P ~ E^3``.
+    What remains is the fixed-step integrator's truncation of a quadratic invariant
+    and rounding, which ``budget`` bounds. A response that did net work, or a
+    measure that were not the conserved one, would move the change by its own
+    share of the nonlinear exchange, far above the budget.
+    """
+    assert abs(constant) <= budget
+    assert abs(dispersive) <= budget
+
+
 # ----------------------------------------------------------------- free space
 
 
@@ -242,7 +258,8 @@ def free_problem(
         grid,
         None,
         [response],
-        pulse.build(grid, space) * (grid.active_mask if band is None else band),
+        pulse.build(grid, space, medium=SpatialMedium())
+        * (grid.active_mask if band is None else band),
         spatial_grid=space,
         medium=SpatialMedium(),
         controller=PIController(rtol=1e-8, atol=1e-14),
@@ -355,11 +372,10 @@ def free_energy_change(response: object, materials: MaterialSelection) -> float:
 def test_a_lossless_free_run_does_no_more_work_than_the_constant_cubic():
     """Ten fixed steps of a 15 fs, 3 uJ beam, the number-conserving sector.
 
-    The free route's energy is the vacuum ``eps0 c / 2 int |E|^2``, paraxial, and the
-    UPPE's conserved flux weights each column by its ``k_z``: the constant cubic's
-    run changes it by -2.0897e-11 at ten steps and twenty alike, and by a hundredth
-    of that for a beam three times wider. The dispersive run changes it by
-    -2.0896e-11.
+    The free route's energy is the vacuum axial flux, which weights each column by
+    its obliquity ``c k_z / omega``: the quantity the UPPE's lossless flow conserves.
+    Both runs change it by about 1e-16, rounding; the former paraxial measure
+    ``eps0 c / 2 int |E|^2`` changed by -2.09e-11, which the 1e-12 budget rejects.
     """
     dispersive = free_energy_change(
         DispersiveKerrResponse(ARGON, "polynomial", thg=False),
@@ -368,7 +384,7 @@ def test_a_lossless_free_run_does_no_more_work_than_the_constant_cubic():
     constant = free_energy_change(
         KerrResponse(carrier_gamma3(800e-9), thg=False), CARRIER
     )
-    assert_no_added_work(dispersive, constant)
+    assert_flux_conserved(dispersive, constant, 1e-12)
 
 
 # ---------------------------------------------------------------- planar hybrid
@@ -460,9 +476,11 @@ def test_without_dispersion_the_planar_derivative_is_the_constant_one(thg):
 def test_a_lossless_planar_run_does_no_more_work_than_the_constant_cubic():
     """Ten fixed steps over 2 mm of a 127 um argon gap, the number-conserving sector.
 
-    The planar measure sums the slab amplitudes' ``|a|^2``: the constant cubic's run
-    changes it by 6.484e-9 at ten steps and twenty alike, which is the truncated slab
-    basis and its paraxial weight, and the dispersive run by 6.493e-9.
+    The planar measure weighs the slab amplitudes by ``c Re(q)/omega``, the axial
+    flux of each mode and y column, which the lossless flow conserves (SEP 34 §4.3):
+    both runs change it by -4.3e-14 at ten steps and -2.2e-15 at twenty, the fixed
+    step's truncation falling as about its fourth power. The former measure, the
+    amplitudes' plain ``|a|^2``, changed by 6.48e-9, which the 1e-12 budget rejects.
     """
     changes = []
     for response, materials in (
@@ -475,7 +493,7 @@ def test_a_lossless_planar_run_does_no_more_work_than_the_constant_cubic():
         output = MemoryOutput()
         planar_simulation(response, steps=10, materials=materials).run(output)
         changes.append(relative_change(output, "energy"))
-    assert_no_added_work(*changes)
+    assert_flux_conserved(*changes, 1e-12)
 
 
 # -------------------------------------------------------------- general modal
