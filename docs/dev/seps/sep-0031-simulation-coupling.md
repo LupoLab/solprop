@@ -1157,7 +1157,7 @@ No new material constant or experimental validation is claimed.
 and `driver/simulation.py` pass. The solid-fibres page's snippets were executed
 by hand (3.3 s; a 12 µm beam into the 25 µm graded-index guide captures 0.964).
 ruff, ruff format, basedpyright (0 errors), numpydoc and codespell are clean on
-the changed files. Evidence, on the 1.5 µm step-index strand (index 1.45 in air):
+the changed files, and `poe docs` builds clean (warnings as errors, 2 min 45 s). Evidence, on the 1.5 µm step-index strand (index 1.45 in air):
 
 - `SpatialPulse.incident` agrees with `SpatialPulse.build` on a radial grid in
   index 1.45 to 1.5e-7 of the peak field, the beam's obliquity, for Gaussian and
