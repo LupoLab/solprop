@@ -21,7 +21,8 @@ raman_provider=${SOLPROP_NATIVE_CHECK_RAMAN_FFT_PROVIDER:-$raman_default}
 export CMAKE_ARGS="${CMAKE_ARGS:-} -DSOLPROP_NATIVE_RAMAN_FFT_PROVIDER=$raman_provider"
 
 if [[ $(uname -s) == "Linux" ]]; then
-  cxx_compiler=$(command -v g++)
+  # CXX when set (Linux CPU builds need GCC 14 or newer; Ubuntu 24.04's g++ is 13).
+  cxx_compiler=$(command -v "${CXX:-g++}")
 elif [[ -x /opt/homebrew/opt/llvm/bin/clang++ ]]; then
   cxx_compiler=/opt/homebrew/opt/llvm/bin/clang++
 elif [[ -x /usr/local/opt/llvm/bin/clang++ ]]; then
