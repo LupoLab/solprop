@@ -10,11 +10,13 @@ import pytest
 from solprop.driver.simulation import Simulation, SimulationSettings
 from solprop.exceptions import MaterialError, TranslationError
 from solprop.grid import EnvelopeGrid, RadialGrid
+from solprop.output.schema import serialise
 from solprop.profiles import FromCallable, Linear
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialFlux, SpatialMedium, spatial_energy
 from solprop.stats import StatsSpec
 from solprop.stepper.controller import PIController
+from solprop.translate.flux import flux_from_record, flux_record
 
 LENGTH = 1e-3
 ENERGY = 3e-9
@@ -102,3 +104,23 @@ def test_a_plane_or_flux_on_a_jump_needs_a_side():
     after = SpatialFlux.resolve(grid, space, medium, z=LENGTH / 2, side="after")
     assert np.all(before.admittance().real <= after.admittance().real)
     assert np.any(before.admittance().real < after.admittance().real)
+
+
+def test_the_recorded_plane_measure_keeps_its_certificate():
+    """A gradient run's output record rebuilds its plane measure and admission."""
+    plan = _case("numpy_ref", MEDIA["step"], [LENGTH]).translate().flux
+    assert plan is not None
+    assert plan.admission is not None
+    for record in (flux_record(plan), serialise(flux_record(plan))):
+        rebuilt = flux_from_record(record)
+        admission = rebuilt.admission
+        assert admission is not None
+        assert admission.variation == plan.admission.variation
+        assert admission.accuracy == plan.admission.accuracy
+        assert admission.z_span == plan.admission.z_span
+        assert np.array_equal(admission.support, plan.admission.support)
+        assert np.array_equal(admission.jumps, plan.admission.jumps)
+        # The material table is stored exactly, so the plane's coefficients agree.
+        assert np.array_equal(
+            rebuilt.at(0.7 * LENGTH).k_squared, plan.at(0.7 * LENGTH).k_squared
+        )
