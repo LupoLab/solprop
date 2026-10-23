@@ -87,10 +87,15 @@ elseif(SOLPROP_NATIVE_ENABLE_CUDA AND
   message(FATAL_ERROR "CUDA builds require GCC 11.5 or newer as the host compiler.")
 elseif(NOT SOLPROP_NATIVE_ENABLE_CUDA AND
        CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND
-       CMAKE_CXX_COMPILER_VERSION VERSION_LESS 13)
+       CMAKE_CXX_COMPILER_VERSION VERSION_LESS 14)
+  # GCC 13 compiles the out-of-line strict helpers (include/solprop_native/fp.hpp)
+  # through the stack, stalling every call on a failed store-to-load forward: coupled
+  # Multistep steps took 1.25 to 1.45 times as long as with GCC 14 (Cascade Lake,
+  # Zen 5).
   message(FATAL_ERROR
-    "The Linux validation build requires GCC 13 or newer; "
-    "found ${CMAKE_CXX_COMPILER_VERSION}.")
+    "Linux CPU builds require GCC 14 or newer; found ${CMAKE_CXX_COMPILER_VERSION}. "
+    "On Ubuntu 24.04 or Debian, install it with 'sudo apt install g++-14' and build "
+    "with CXX=g++-14 (a CMake cache that recorded another compiler must be removed).")
 endif()
 
 if(NOT APPLE AND NOT SOLPROP_NATIVE_ENABLE_CUDA AND

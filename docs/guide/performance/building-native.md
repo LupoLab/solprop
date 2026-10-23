@@ -24,7 +24,7 @@ the arithmetic is double precision throughout, and no build enables fast-math.
 | CMake | 3.23 or newer (with build isolation, scikit-build-core fetches one from PyPI if none is found) |
 | build tool | Ninja is recommended; scikit-build-core uses it when available |
 | C++20 compiler, macOS | Clang 14 or newer; Homebrew LLVM is recommended and selected by default |
-| C++20 compiler, Linux CPU | GCC 13 or newer, IntelLLVM (`icpx`) 2022 or newer, or Clang 14 or newer / AMD AOCC |
+| C++20 compiler, Linux CPU | GCC 14 or newer, IntelLLVM (`icpx`) 2022 or newer, or Clang 14 or newer / AMD AOCC |
 | C++20 compiler, CUDA | GCC 11.5 or newer as the host compiler, with the CUDA toolkit's `nvcc` |
 | C++20 compiler, HIP | ROCm's Clang (`hipcc` or `amdclang++`) |
 | OpenMP (CPU builds) | the compiler's runtime; on macOS Homebrew's `libomp` |
@@ -77,13 +77,14 @@ export SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk
 export CMAKE_ARGS="-DCMAKE_OSX_SYSROOT=$SDKROOT"
 ```
 
-**Linux**, on Debian or Ubuntu (24.04 ships GCC 13):
+**Linux**, on Debian or Ubuntu. Ubuntu 24.04's default compiler is GCC 13, which the build
+refuses; install GCC 14 from the distribution's archive:
 
 ```sh
-sudo apt install g++-13 cmake ninja-build pkg-config libfftw3-dev libopenblas-dev
+sudo apt install g++-14 cmake ninja-build pkg-config libfftw3-dev libopenblas-dev
 git clone https://github.com/LupoLab/solprop
 cd solprop
-CXX=g++-13 uv pip install --python /path/to/env/bin/python . ./native
+CXX=g++-14 uv pip install --python /path/to/env/bin/python . ./native
 ```
 
 `libfftw3-dev` provides the OpenMP and pthreads FFTW libraries in both precisions. For
@@ -356,7 +357,7 @@ pinned whichever is used.
 
 | compiler | notes |
 |---|---|
-| GCC 13 or newer | the reference route, with GNU OpenMP (`libgomp`) |
+| GCC 14 or newer | the reference route, with GNU OpenMP (`libgomp`). GCC 13 is refused: it compiles the strict floating-point helpers through the stack, and coupled Multistep steps took 1.25 to 1.45 times as long as with GCC 14 |
 | IntelLLVM (`icpx`) 2022 or newer | compiled with `-fp-model=precise` (its default is fast floating point) and then `-ffp-contract=fast-honor-pragmas`; requires `SOLPROP_NATIVE_FFTW_THREADING=PTHREADS` with FFTW, because distribution OpenMP FFTW libraries link GNU OpenMP; uses the compiler's own archiver for LTO |
 | Clang 14 or newer, AMD AOCC | compiled with `-fno-fast-math`, then `-ffp-contract=fast-honor-pragmas` |
 

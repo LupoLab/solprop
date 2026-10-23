@@ -92,6 +92,10 @@ The first public release. It contains:
     OpenBLAS built with OpenMP and carried in the wheel; and `REFERENCE`, with no vendor
     BLAS or machine-specific code. Multiply-adds are contracted outside a few protected
     blocks, and builds agree to rounding.
+  - Linux CPU builds from source need GCC 14 or newer (or IntelLLVM or Clang). GCC 13
+    is refused at configure time: it compiled the strict floating-point helpers through
+    the stack, and coupled Multistep steps took 1.25 to 1.45 times as long as with
+    GCC 14.
   - Threads: a process cap (`SOLPROP_NATIVE_THREADS`) and kernel, FFT and Raman pools,
     read once at import, with per-operation widths chosen by problem size; a host
     OpenBLAS is fitted to the same pool.
