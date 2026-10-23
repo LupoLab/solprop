@@ -296,8 +296,8 @@ against $P_c = 2\pi n_0/(k_0^2 n_2)$, "the critical power for 2D collapse", writ
 the whole-beam self-focusing length $L_{\rm sf}$ and the modulational-instability length
 $L_{\rm mi}$ in terms of $P/P_c$ of the power in the guide. The plates stop the whole
 beam collapsing as it would in free space, but a multimode x basis can still focus in
-x. Their $P_c$ is $2n_0^3/1.86226$ times the function's value, the Gaussian mass
-against the Townes one. `numpy_ref`, `numba_cpu` and the native CPU backend execute the
+x. Their $P_c$ is $2n_0^2/1.86226$ times the function's value (called with `index=n0`),
+the Gaussian mass against the Townes one and the $n_0^2$ of their $n_2$ convention. `numpy_ref`, `numba_cpu` and the native CPU backend execute the
 transform: the y FFT around the slab rule's synthesis and projection, each column's
 operator with its channel's wall term, every response family, both absorber schemes and
 the statistics, and both compiled backends agree with `numpy_ref` within derived

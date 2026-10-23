@@ -47,8 +47,9 @@ beam. Its transverse field is `exp(-(r/waist)**(2*order))`, so `waist` is the 1/
 intensity radius and `order=1` is a Gaussian. The wrapper normalises the beam in the
 medium's flux measure at the launch plane, so the temporal pulse's `energy` or
 `peak_power` is the whole beam's physical energy or peak axial power there: what an energy
-meter in that medium reads. Columns that carry no forward flux (nonpropagating, inactive
-or zero-frequency bins) are set to zero first. The optional `jones=` vector is in the optics convention and is normalised before
+meter in that medium reads. The inactive band and zero frequency are set to zero first,
+and a beam with more than rounding-level content in nonpropagating columns, which carry
+no energy, is refused. The optional `jones=` vector is in the optics convention and is normalised before
 it is applied; each component then has its own scalar transform.
 
 {py:func}`~solprop.noise.spatial_noise` draws the same one-photon-per-bin model as the
@@ -340,9 +341,9 @@ derive the Townes baseline and the Gaussian negative-Hamiltonian sufficient valu
 less than 2 % above the Townes value. Their power is the physical axial Poynting power
 in the medium, as every spatial energy in solprop is.
 
-The [radial tutorial](../../auto_tutorials/free_space/plot_01_radial.rst) runs a 2 nJ beam launched
-from vacuum into argon, far below this baseline, and separately a collimated diagnostic
-at twice it. Twice `1.86226` exceeds the Gaussian sufficient value `2`; this does not predict
+The [radial tutorial](../../auto_tutorials/free_space/plot_01_radial.rst) runs a beam focused as
+in vacuum and carrying 2 nJ in argon, far below this baseline, and separately a
+collimated diagnostic whose field carries twice it. Twice `1.86226` exceeds the Gaussian sufficient value `2`; this does not predict
 where a temporally varying, exact-UPPE pulse will collapse. Plasma, higher-order
 responses, discretisation and departure from the paraxial approximation further
 limit such a comparison.

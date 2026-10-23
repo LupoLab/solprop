@@ -118,10 +118,12 @@ when the endpoint bins are occupied.
 
 Only active, propagating columns at positive frequency are forward power ports. Every
 other bin has zero admittance: DC, inactive frequencies, and nonpropagating (cutoff or
-evanescent) columns. A launch is hard-masked to zero there before it is normalised. The
-numerical evanescent damping of the run does not make an evanescent column a physical
-power port. A medium with no propagating column, such as a metal-like index, has no
-forward flux to normalise and is refused.
+evanescent) columns. A launch is hard-masked to zero in the inactive band and at DC, as
+everywhere. A beam that puts more than rounding-level content into nonpropagating
+columns is refused, since no energy can be assigned to that content: widen the waist or
+refine the transverse grid. The numerical evanescent damping of the run does not make an
+evanescent column a physical power port. A medium with no propagating column, such as a
+metal-like index, has no forward flux to normalise and is refused.
 
 The one-photon-per-bin noise model ([shot noise](../media/noise.md)) is normalised in
 the same measure. Each admitted transverse column, polarisation and frequency bin carries
@@ -248,8 +250,10 @@ its $\Lambda$. The refusals are:
 - a column whose $\Lambda$ exceeds either budget;
 - a column that is propagating at one point of the path and not at another (it crosses
   $q=0$);
-- a path whose imaginary index varies along z: a uniformly absorbing medium is
-  supported, but a varying loss needs a complex-index bound that is not yet provided;
+- a varying path in a medium with any loss: $\operatorname{Im}k_z=\operatorname{Im}k^2/(2\operatorname{Re}k_z)$
+  then varies with $\operatorname{Re}k_z$ even where the absorbing component is uniform.
+  A uniformly absorbing medium is supported, but a varying loss needs a complex-index
+  bound that is not yet provided;
 - a custom profile ({py:class}`~solprop.profiles.FromCallable`) that does not declare
   where it may turn (`turning=`), its kinks and its jumps, because sampling a callable
   bounds nothing between the samples.
@@ -257,7 +261,9 @@ its $\Lambda$. The refusals are:
 {py:func}`~solprop.adiabatic.certify_radial_path` evaluates the certificate directly and
 returns an {py:class}`~solprop.adiabatic.AdiabaticAdmission`. The admission records the
 largest $\Lambda$, both bounds, the worst column, the support and whether every piece was
-certified monotone, in which case $\Lambda$ is attained rather than bounded. The
+certified monotone, in which case $\Lambda$ is attained rather than bounded. A run
+stores it in its plane measure, with the tolerance to which its operator tables resolve
+the represented path as a separate interpolation envelope. The
 enclosure does not sample. Every material solprop reads has a wave-number square affine
 in its number densities. On pieces where it is monotone, the variation is the endpoint
 log ratio. Elsewhere it is bounded from the densities' variation and the smallest $q^2$
@@ -280,7 +286,8 @@ amplitude term applies the endpoint square-root factor across it without smoothi
 into a derivative spike. At a jump the medium has two one-sided values, so a plane there
 is ambiguous. `SpatialFlux.resolve` and `SpatialPulse.build` refuse a position at a
 declared jump unless `side="before"` or `side="after"` says which one is meant. They also
-refuse a side at a position where there is no jump. The two sides give different
+refuse a side at a position where there is no jump. A run refuses a save plane placed
+exactly on a declared jump; save just before or after it. The two sides give different
 measures of the same field:
 
 ```python
