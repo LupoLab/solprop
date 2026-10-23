@@ -66,9 +66,12 @@ def geometry_case(envelope_mixture, geometry, n_pol):
             if geometry == "radial"
             else FreeGrid(3e-4, 4, 4e-4, 4, window_factor=0.0)
         )
-        initial = SpatialPulse(pulse, 80e-6, jones=jones).build(grid, space)
+        medium = SpatialMedium(mixture)
+        initial = SpatialPulse(pulse, 80e-6, jones=jones).build(
+            grid, space, medium=medium
+        )
         mode = None
-        kwargs = {"spatial_grid": space, "medium": SpatialMedium(mixture)}
+        kwargs = {"spatial_grid": space, "medium": medium}
     else:
         mode = MarcatiliMode(30e-6, mixture=mixture, cladding=1.45, loss=False)
         initial = pulse.build(grid) * np.asarray(jones)[None, :, None]

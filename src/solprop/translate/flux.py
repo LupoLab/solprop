@@ -255,7 +255,7 @@ def flux_from_record(record: Mapping[str, object]) -> FluxPlan:
 
     def array(name: str, dtype: type) -> np.ndarray:
         """Return one stored coefficient array."""
-        return np.asarray(record[name], dtype=dtype)
+        return _stored(record[name], dtype)
 
     zeros = np.zeros(array("k_squared", complex).size)
     kappa = record["kappa_sq"]
@@ -273,16 +273,45 @@ def flux_from_record(record: Mapping[str, object]) -> FluxPlan:
         n_pol=1,
         # A measure is evaluated where it is asked; its span is never stepped.
         z_span=(0.0, 1.0),
-        kappa_sq=None if kappa is None else np.asarray(kappa, complex),
+        kappa_sq=None if kappa is None else _stored(kappa, complex),
     )
     stored = record["material"]
     if stored is None:
         return FluxPlan(base)
     table = cast("Mapping[str, object]", stored)
     material = PiecewiseChebyshev(
-        np.asarray(table["coefficients"], complex),
-        np.asarray(table["breakpoints"], float),
-        np.asarray(table["degrees"], np.intp),
-        np.asarray(table["hard_kinks"], float),
+        _stored(table["coefficients"], complex),
+        _stored(table["breakpoints"], float),
+        _stored(table["degrees"], np.intp),
+        _stored(table["hard_kinks"], float),
     )
     return FluxPlan(base, material)
+
+
+def _stored(value: object, dtype: type) -> np.ndarray:
+    """Return a coefficient array as held in memory or as read back from a file.
+
+    A record written to JSON or HDF5 and read back nests each array as the
+    ``{"__ndarray__": ..., "__imaginary__": ...}`` form of
+    :func:`solprop.output.schema.serialise`, which a nested spatial record keeps.
+
+    Parameters
+    ----------
+    value : object
+        An array, a nested list, or its serialised form.
+    dtype : type
+        The array's dtype.
+
+    Returns
+    -------
+    numpy.ndarray
+        The array.
+    """
+    if isinstance(value, Mapping) and "__ndarray__" in value:
+        real = np.asarray(value["__ndarray__"], dtype=float)
+        if "__imaginary__" in value:
+            return np.asarray(
+                real + 1j * np.asarray(value["__imaginary__"], dtype=float), dtype
+            )
+        return np.asarray(value["__ndarray__"], dtype=dtype)
+    return np.asarray(value, dtype=dtype)

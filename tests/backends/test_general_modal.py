@@ -777,7 +777,7 @@ def spatial_case():
         grid,
         None,
         [],
-        pulse.build(grid, space),
+        pulse.build(grid, space, medium=SpatialMedium()),
         spatial_grid=space,
         medium=SpatialMedium(),
         controller=PIController(rtol=1e-8, atol=1e-14),

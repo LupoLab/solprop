@@ -25,7 +25,7 @@ import numpy as np
 import pytest
 
 from backends.conftest import soliton_field
-from backends.test_free_diffraction import gaussian_reference, moment_bound
+from backends.test_free_diffraction import flux_width, gaussian_reference, moment_bound
 from backends.test_numpy_ref_p2 import (
     BETA2_UNIT,
     Z0,
@@ -62,7 +62,7 @@ from solprop.nonlinear.responses import KerrResponse
 from solprop.output import MemoryOutput
 from solprop.output.schema import MarchSnapshot
 from solprop.pulses import GaussianPulse, SpatialPulse
-from solprop.spatial import SpatialMedium, beam_radius
+from solprop.spatial import SpatialFlux, SpatialMedium, beam_radius
 from solprop.stats import StatsSpec
 from solprop.stepper import (
     DOPRI5,
@@ -239,9 +239,13 @@ def test_the_cartesian_diffraction_reproduces_its_width_and_gouy_phase(fraction)
     assert np.max(np.abs(physical - continuum)) < bound
     measured_axis = np.sum(space.on_axis * state[:, 0, index])
     assert abs(np.angle(measured_axis / axis)) < math.asin(bound / abs(axis))
-    expected_width = waist * math.sqrt(1 + fraction**2)
+    # The axial-flux fluence's width (test_free_diffraction.flux_width), with the
+    # width model's next order, (k0 w)^-4 of it, in the bound.
+    expected_width = flux_width(waist, wave, distance)
     radius_bound = moment_bound(space, continuum, bound, expected_width)
-    assert abs(beam_radius(grid, space, state) - expected_width) < radius_bound
+    radius_bound += 1e-11 * expected_width
+    flux = SpatialFlux.resolve(grid, space, SpatialMedium())
+    assert abs(beam_radius(state, flux) - expected_width) < radius_bound
 
 
 # --- order four (section 7.1) -------------------------------------------------------
@@ -430,7 +434,7 @@ def test_a_cartesian_kerr_beam_converges_at_order_four():
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=2e-7), 80e-6
     )
-    start = pulse.build(grid, space)
+    start = pulse.build(grid, space, medium=SpatialMedium())
 
     def evaluate(schedule, integrator, mode="auto"):
         problem = assemble(
@@ -887,7 +891,7 @@ def spatial_collar_problem(steps, integrator):
         grid,
         None,
         [KerrResponse(1e-22, thg=False)],
-        pulse.build(grid, space),
+        pulse.build(grid, space, medium=SpatialMedium()),
         spatial_grid=space,
         medium=SpatialMedium(),
         controller=PIController(rtol=1e-8, atol=1e-14),
@@ -1366,7 +1370,11 @@ def cartesian_march(mode, *, noise=None, collar=False):
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 80e-6
     )
-    start = pulse.build(grid, space) if noise is None else np.zeros_like(noise.spectrum)
+    start = (
+        pulse.build(grid, space, medium=SpatialMedium())
+        if noise is None
+        else np.zeros_like(noise.spectrum)
+    )
     schedule = FixedSchedule.uniform(0.0, length, length / (100 if collar else 4))
     problem = assemble(
         grid,
@@ -1470,8 +1478,13 @@ def test_the_ledger_holds_three_registers_the_scratch_and_the_table(mode, collar
 
 def test_the_noise_adds_one_volume_and_the_estimate_names_it():
     noise = spatial_noise(
-        EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False),
-        FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0),
+        SpatialFlux.resolve(
+            EnvelopeGrid.from_limits(
+                1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
+            ),
+            FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0),
+            SpatialMedium(),
+        ),
         np.random.default_rng(7),
         model="modified",
     )
@@ -1531,7 +1544,11 @@ def test_the_noise_draw_never_enters_the_propagating_field():
         length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
     )
     space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0)
-    noise = spatial_noise(grid, space, np.random.default_rng(3), model="modified")
+    noise = spatial_noise(
+        SpatialFlux.resolve(grid, space, SpatialMedium()),
+        np.random.default_rng(3),
+        model="modified",
+    )
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 80e-6
     )
@@ -1540,7 +1557,7 @@ def test_the_noise_draw_never_enters_the_propagating_field():
         grid,
         None,
         [],
-        pulse.build(grid, space),
+        pulse.build(grid, space, medium=SpatialMedium()),
         spatial_grid=space,
         medium=SpatialMedium(),
         noise=noise,
@@ -1570,7 +1587,11 @@ def test_each_pass_carries_the_draw_at_its_own_position(monkeypatch):
         length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
     )
     space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0)
-    noise = spatial_noise(grid, space, np.random.default_rng(94), model="modified")
+    noise = spatial_noise(
+        SpatialFlux.resolve(grid, space, SpatialMedium()),
+        np.random.default_rng(94),
+        model="modified",
+    )
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 80e-6
     )
@@ -1579,7 +1600,7 @@ def test_each_pass_carries_the_draw_at_its_own_position(monkeypatch):
         grid,
         None,
         [KerrResponse(1e-22, thg=False)],
-        pulse.build(grid, space),
+        pulse.build(grid, space, medium=SpatialMedium()),
         spatial_grid=space,
         medium=SpatialMedium(),
         noise=noise,

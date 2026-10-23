@@ -107,9 +107,20 @@ def build(kind: str) -> Simulation:
 
 def split(kind: str):
     metadata = build(kind).metadata()
-    assert metadata.schema_version == SCHEMA_VERSION == 22
+    assert metadata.schema_version == SCHEMA_VERSION == 23
     # SEP 27 changes the global resume boundary, not these non-plasma records.
-    historical = dataclasses.replace(metadata, schema_version=21)
+    # SEP 34 adds the plane measure to the spatial record (output schema 23); the
+    # schema-21 projection leaves it out, and everything else must be unchanged.
+    spatial = (
+        None
+        if metadata.spatial is None
+        else {
+            key: value
+            for key, value in metadata.spatial.items()
+            if key not in ("flux_model", "flux_plan")
+        }
+    )
+    historical = dataclasses.replace(metadata, schema_version=21, spatial=spatial)
     return record_skeleton(without_optmat_release(historical.hashed()))
 
 

@@ -149,7 +149,7 @@ def planar_case(family):
         grid,
         None,
         responses,
-        pulse.build(grid, space),
+        pulse.build(grid, space, medium=SpatialMedium()),
         spatial_grid=space,
         medium=SpatialMedium(),
         # A reference length short enough that the y collar and the temporal

@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from flux_oracles import admittance
 from hankel_oracles import gamma
 from solprop.backends.registry import available
 from solprop.constants import EPS0, HBAR, C
@@ -28,6 +29,7 @@ from solprop.processing.axes import transverse_units
 from solprop.profiles import Linear
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import (
+    SpatialFlux,
     SpatialMedium,
     critical_power,
     spatial_energy,
@@ -36,6 +38,12 @@ from solprop.spatial import (
 from solprop.stepper import FixedSchedule, Multistep, PIController, RungeKutta
 from solprop.translate.linop import delta_phi
 from spatial_records import record_metric
+
+
+def _vacuum(grid, space):
+    """Return the vacuum measure of the plane at z = 0 (SEP 34)."""
+    return SpatialFlux.resolve(grid, space, SpatialMedium())
+
 
 EPS = np.finfo(float).eps
 
@@ -104,7 +112,9 @@ def test_free_interface_separable_flow_and_metadata(free_case, request, backend)
     defect = np.max(np.abs(finish - expected)) / np.max(np.abs(start))
     assert defect < field_bound
     energy_error = abs(
-        spatial_energy(grid, space, finish) / spatial_energy(grid, space, start) - 1
+        spatial_energy(finish, _vacuum(grid, space))
+        / spatial_energy(start, _vacuum(grid, space))
+        - 1
     )
     assert energy_error < energy_bound
     record_metric(
@@ -136,17 +146,24 @@ def test_spatial_noise_has_one_photon_in_every_column_bin(
     # involve fewer than 32 rounded operations per bin; there is no long reduction.
     bound = 32 * EPS / (1 - 32 * EPS)
     draw = spatial_noise(
-        grid, space, np.random.default_rng(313), model=model, n_pol=n_pol
+        _vacuum(grid, space), np.random.default_rng(313), model=model, n_pol=n_pol
     )
+    # A bin's photon is measured in the entrance metric, its real admittance (the
+    # vacuum obliquity) times the column's area weight; a bin that is no forward
+    # power port carries none (SEP 34 section 4.3).
+    eta = admittance(grid, space.kperp_sq)
     measured = (
         0.5
         * EPS0
         * C
         * space.spectral_weights[:, None, None]
+        * eta[:, None, :]
         * spectral_density(draw.spectrum, grid.dt, kind=grid.kind)
         * grid.d_omega
     )
-    wanted = np.broadcast_to(HBAR * grid.omega * grid.active_mask, measured.shape)
+    wanted = np.broadcast_to(
+        (HBAR * grid.omega * (eta > 0))[:, None, :], measured.shape
+    )
     assert_allclose(measured, wanted, rtol=bound, atol=0)
     errors = np.divide(
         np.abs(measured - wanted), wanted, out=np.zeros_like(wanted), where=wanted > 0
@@ -159,8 +176,7 @@ def test_spatial_noise_has_one_photon_in_every_column_bin(
         bound,
     )
     other = spatial_noise(
-        grid,
-        space,
+        _vacuum(grid, space),
         np.random.default_rng(313),
         model="modified" if model == "input" else "input",
         n_pol=n_pol,
@@ -308,7 +324,7 @@ def test_cartesian_resume_distinguishes_legacy_cutoff_arithmetic(free_case):
         grid, space, SpatialMedium(), [], pulse, settings=settings
     )
     current = simulation.metadata()
-    assert current.schema_version == 22
+    assert current.schema_version == 23
     assert current.configuration["spatial_arithmetic"] == "split-square-v1"
     legacy_configuration = dict(current.configuration)
     del legacy_configuration["spatial_arithmetic"]
@@ -390,7 +406,8 @@ def test_line_gaussian_diffracts_with_the_one_dimensional_closed_forms():
         assert abs(gouy - 0.5 * np.arctan(z / rayleigh)) < bound
         # The measure is per metre of y and the flow is lossless.
         energy_error = abs(
-            spatial_energy(grid, space, field) / spatial_energy(grid, space, fields[0])
+            spatial_energy(field, _vacuum(grid, space))
+            / spatial_energy(fields[0], _vacuum(grid, space))
             - 1
         )
         assert energy_error < gamma(32 * (space.n_columns + grid.n_omega))
@@ -419,14 +436,14 @@ def test_line_focal_witness_of_pr_416():
         settings=_line_settings(length, [length]),
     )
     launched, focus = output.fields("fft")
-    intensity = spatial_intensity(grid, space, focus)
+    intensity = spatial_intensity(focus, _vacuum(grid, space))
     peak = int(np.argmax(np.max(intensity, axis=0)))
     profile = intensity[:, peak] / np.max(intensity[:, peak])
     gaussian = np.exp(-2 * space.x**2 / waist**2)
     assert np.max(np.abs(profile - gaussian)) < 1e-3
-    launch = spatial_intensity(grid, space, launched)[:, peak]
+    launch = spatial_intensity(launched, _vacuum(grid, space))[:, peak]
     assert np.max(np.abs(launch / np.max(launch) - gaussian)) > 0.1
-    direct = SpatialPulse(temporal, waist).build(grid, space)
+    direct = SpatialPulse(temporal, waist).build(grid, space, medium=SpatialMedium())
     # Launch and run apply exp(-D L) and exp(+D L) with |D| L below k L at the
     # band's top: 64 rounded operations on a phase of that size bound the rest.
     phase = float(np.max(grid.omega)) / C * length
@@ -449,7 +466,7 @@ def test_line_equals_a_plane_uniform_in_y():
     plane = FreeGrid(1e-3, 64, 2e-4, 4, window_factor=0)
     start = SpatialPulse(
         GaussianPulse(wavelength=LINE_WAVELENGTH, fwhm=50e-15, energy=5e-2), 150e-6
-    ).build(grid, line)
+    ).build(grid, line, medium=SpatialMedium())
     uniform = np.zeros((plane.n_columns, 1, grid.n_omega), complex)
     uniform[: plane.n_x] = plane.n_y * start
     responses = [KerrResponse(3e-26, thg=False)]
@@ -471,8 +488,8 @@ def test_line_equals_a_plane_uniform_in_y():
     assert np.max(np.abs(plane_finish[plane.n_x :])) < bound * plane.n_y
     period = plane.n_y * 2 * (plane.radius_y / plane.n_y)
     assert_allclose(
-        spatial_energy(grid, plane, plane_finish),
-        period * spatial_energy(grid, line, finish),
+        spatial_energy(plane_finish, _vacuum(grid, plane)),
+        period * spatial_energy(finish, _vacuum(grid, line)),
         rtol=gamma(64 * (plane.n_columns + grid.n_omega)),
     )
 
@@ -502,13 +519,17 @@ def test_line_kerr_soliton_holds_at_its_power_per_metre(fraction):
     spectrum = np.fft.fft(profile)
     norm = 0.5 * EPS0 * C * np.sum(space.spectral_weights * np.abs(spectrum) ** 2)
     start = spectrum[:, None, None] / np.sqrt(norm) * temporal
-    launched = spatial_intensity(grid, space, start)
+    launched = spatial_intensity(start, _vacuum(grid, space))
     first = int(np.argmax(np.max(launched, axis=0)))
-    # The launched peak slice carries P' per metre of y (one sum of 256 terms).
+    # The launched peak slice carries P' per metre of y in the paraxial measure
+    # eps0 c |E|^2 / 2. Its axial flux is lower by the mean obliquity: for
+    # sech(x/x0), <k_x^2> = 1/(3 x0^2), so the flux is P' (1 - 1/(6 k0^2 x0^2)),
+    # 1.1e-6 below it. The next order, (k0 x0)^-4 ~ 4e-11, and the obliquity's
+    # change across the 1 ps pulse's 1e-3 relative bandwidth, ~2e-9, fit 1e-8.
     assert_allclose(
         np.sum(space.spatial_weights * launched[:, first]),
-        power,
-        rtol=gamma(64 * space.n_columns),
+        power * (1 - 1 / (6 * LINE_K**2 * x0**2)),
+        rtol=1e-8,
     )
     output = prop_free(
         grid,
@@ -518,7 +539,7 @@ def test_line_kerr_soliton_holds_at_its_power_per_metre(fraction):
         start,
         settings=_line_settings(length, [length], steps=10),
     )
-    final = spatial_intensity(grid, space, output.fields("fft")[-1])
+    final = spatial_intensity(output.fields("fft")[-1], _vacuum(grid, space))
     last = int(np.argmax(np.max(final, axis=0)))
     shape = final[:, last] / np.max(launched[:, first])
     deviation = float(np.max(np.abs(shape - profile**2)))
@@ -553,7 +574,7 @@ def test_line_run_is_recorded_and_labelled_per_metre_of_y(tmp_path):
     assert per_width(output) == "/m"
     # The launched energy is the pulse's, per metre of y.
     assert_allclose(
-        spatial_energy(grid, line, output.fields("fft")[0]),
+        spatial_energy(output.fields("fft")[0], _vacuum(grid, line)),
         1e-3,
         rtol=gamma(64 * (line.n_columns + grid.n_omega)),
     )
@@ -573,18 +594,22 @@ def test_line_run_is_recorded_and_labelled_per_metre_of_y(tmp_path):
 def test_line_noise_is_one_photon_per_column_per_metre_of_y(model):
     grid = EnvelopeGrid.from_limits(1e-3, LINE_WAVELENGTH, (600e-9, 1.2e-6), 150e-15)
     line = LineGrid(3e-4, 12, window_factor=0)
-    draw = spatial_noise(grid, line, np.random.default_rng(49), model=model)
+    draw = spatial_noise(_vacuum(grid, line), np.random.default_rng(49), model=model)
     # The plane's bound: fewer than 32 rounded operations per bin, no long sum.
     bound = 32 * EPS / (1 - 32 * EPS)
+    eta = admittance(grid, line.kperp_sq)
     measured = (
         0.5
         * EPS0
         * C
         * line.spectral_weights[:, None, None]
+        * eta[:, None, :]
         * spectral_density(draw.spectrum, grid.dt, kind=grid.kind)
         * grid.d_omega
     )
-    wanted = np.broadcast_to(HBAR * grid.omega * grid.active_mask, measured.shape)
+    wanted = np.broadcast_to(
+        (HBAR * grid.omega * (eta > 0))[:, None, :], measured.shape
+    )
     assert_allclose(measured, wanted, rtol=bound, atol=0)
 
 
@@ -596,9 +621,11 @@ def test_line_refusals_name_the_line():
     )
     settings = _line_settings(1e-3, [1e-3])
     with pytest.raises(GridError, match="LineGrid"):
-        critical_power(LINE_WAVELENGTH, 3e-26, space=line)
-    plane = critical_power(LINE_WAVELENGTH, 3e-26, space=FreeGrid(1e-3, 8, 1e-3, 8))
-    assert plane == critical_power(LINE_WAVELENGTH, 3e-26)
+        critical_power(LINE_WAVELENGTH, 3e-26, index=1.0, space=line)
+    plane = critical_power(
+        LINE_WAVELENGTH, 3e-26, index=1.0, space=FreeGrid(1e-3, 8, 1e-3, 8)
+    )
+    assert plane == critical_power(LINE_WAVELENGTH, 3e-26, index=1.0)
     # Constant media only, as on the plane: a gas path is refused.
     with pytest.raises(DriverError, match="constant"):
         Simulation.from_free(

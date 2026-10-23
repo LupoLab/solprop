@@ -379,13 +379,14 @@ class PlanarPulse(SpatialPulse):
     >>> from solprop.grid import EnvelopeGrid
     >>> from solprop.modes import PlanarGrid, SlabMode
     >>> from solprop.pulses import GaussianPulse, PlanarPulse
+    >>> from solprop.spatial import SpatialMedium
     >>> grid = EnvelopeGrid.from_limits(0.1, 800e-9, (650e-9, 1000e-9), 400e-15)
     >>> space = PlanarGrid([SlabMode(63.5e-6, order=p) for p in (1, 3)], 1e-3, 32)
     >>> pulse = PlanarPulse(
     ...     GaussianPulse(wavelength=800e-9, fwhm=100e-15, energy=1e-3),
     ...     250e-6, waist_x=0.735 * 63.5e-6,
     ... )
-    >>> pulse.build(grid, space).shape
+    >>> pulse.build(grid, space, medium=SpatialMedium()).shape
     (64, 1, 256)
     """
 
@@ -818,7 +819,10 @@ def _normalising_factor(
                 power_trace(beam, plane.admittance, plane.weights, grid, plane.scale)
             )
         )
-    if not math.isfinite(measured) or measured <= 0:
+    if not (math.isfinite(measured) and math.isfinite(target)):
+        msg = "the launch beam is nonfinite: its temporal pulse or profile overflowed"
+        raise PulseError(msg)
+    if measured <= 0:
         msg = (
             "the beam carries no positive forward flux at the launch plane: it is "
             "unresolved on this grid or lies outside the propagating band"

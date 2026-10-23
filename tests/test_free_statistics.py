@@ -14,6 +14,8 @@ from solprop.exceptions import GridError
 from solprop.grid import EnvelopeGrid, FreeGrid, LineGrid
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import (
+    SpatialFlux,
+    SpatialMedium,
     beam_radius,
     cartesian_fluence_widths,
     on_axis_spectrum,
@@ -118,13 +120,17 @@ def test_cartesian_fluence_integrates_to_beam_energy(request):
         80e-6,
         jones=(1, 0.4j),
     )
-    spectrum = pulse.build(grid, space)
+    medium = SpatialMedium()
+    spectrum = pulse.build(grid, space, medium=medium)
+    flux = SpatialFlux.resolve(grid, space, medium)
     bound = gamma(128 * (space.n_columns + grid.n_t))
-    fluence = spatial_fluence(grid, space, spectrum)
-    energy = spatial_energy(grid, space, spectrum)
+    fluence = spatial_fluence(spectrum, flux)
+    energy = spatial_energy(spectrum, flux)
+    # The launch normalises the same measure, so the requested energy returns.
+    assert abs(energy / 3e-9 - 1) < bound
     assert abs(np.dot(space.spatial_weights, fluence) / energy - 1) < bound
-    assert beam_radius(grid, space, spectrum) > 0
-    axis = float(np.sum(on_axis_spectrum(grid, space, spectrum)) * grid.d_omega)
+    assert beam_radius(spectrum, flux) > 0
+    axis = float(np.sum(on_axis_spectrum(spectrum, flux)) * grid.d_omega)
     center = fluence.reshape(space.n_y, space.n_x)[space.n_y // 2, space.n_x // 2]
     assert abs(axis / center - 1) < bound
     for name, defect in (

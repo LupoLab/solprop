@@ -32,6 +32,7 @@ from solprop.grid import FieldGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.nonlinear.responses import PlasmaResponse
 from solprop.profiles import Constant
 from solprop.pulses import GaussianPulse, SpatialPulse
+from solprop.spatial import SpatialMedium
 from solprop.stats import PLASMA_INTEGRATION_STATISTICS, StatsSpec
 from solprop.stepper import FixedSchedule
 from solprop.translate.ionisation import build_rate_table
@@ -92,7 +93,12 @@ def spatial(kind):
     )
     responses = [PlasmaResponse("Ar", build_rate_table(QuadraticRate(), (1e3, 1e10)))]
     problem = make_problem(
-        grid, space, pulse.build(grid, space), responses, steps=STEPS, density=1e22
+        grid,
+        space,
+        pulse.build(grid, space, medium=SpatialMedium()),
+        responses,
+        steps=STEPS,
+        density=1e22,
     )
     if kind != "radial":
         # A remainder chunk, so the band column meets a partial block.

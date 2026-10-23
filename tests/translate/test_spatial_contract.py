@@ -420,6 +420,9 @@ def test_spatial_contract_checks_geometry_before_spatial_execution(free_contract
             projection=np.ones((1, 1)),
             projection_coarse=np.ones((1, 1)),
         ),
+        # A problem without geometry carries no plane measure; dropping it too
+        # leaves the separable operator as the one inconsistency.
+        flux=None,
     )
     with pytest.raises(TranslationError, match="requires free or slab geometry"):
         without_geometry._check_spatial()
