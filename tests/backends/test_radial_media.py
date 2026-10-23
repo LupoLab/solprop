@@ -25,6 +25,14 @@ from solprop.translate.problem import assemble
 from spatial_records import record_metric
 
 
+def axial_root(medium, omega, space, z):
+    """Return ``Re k_z`` of every column on the active band, all propagating."""
+    square = (omega * medium.index(omega, z) / C) ** 2
+    root = np.real(np.sqrt(square[None] - space.k_r[:, None] ** 2))
+    assert np.all(root > 0)
+    return root
+
+
 @pytest.mark.parametrize("kind", ["field", "envelope"])
 @pytest.mark.parametrize("material", ["loss", "gain", "evanescent", "varying"])
 def test_radial_medium_flows_match_an_independent_cumulative_oracle(
@@ -90,6 +98,16 @@ def test_radial_medium_flows_match_an_independent_cumulative_oracle(
             assert quadrature_error <= quadrature_budget
             phase = centre * length + integral
             phase_bound += quadrature_budget
+            # SEP 34 section 4.4: the forward amplitude carries the endpoint factor
+            # sqrt(Re k_z(0) / Re k_z(L)) on propagating bins (all of them here). Its
+            # log-ratio is resolved to a relative 1e-9 of itself (the translation
+            # test's derivation), added to the phase budget absolutely.
+            amplitude = -0.5 * np.log(
+                axial_root(medium, omega, space, length)
+                / axial_root(medium, omega, space, 0.0)
+            )
+            phase = phase + amplitude
+            phase_bound += 1e-9 * float(np.max(np.abs(amplitude)))
         else:
             phase = centre * length
         relative_bound = np.expm1(phase_bound) + gamma(64)
@@ -128,3 +146,65 @@ def test_radial_medium_flows_match_an_independent_cumulative_oracle(
         )
     finally:
         backend.close()
+
+
+def test_radial_gradient_flow_conserves_axial_flux_and_resumes(spatial_backend_class):
+    length = 1e-4
+    grid = EnvelopeGrid.from_limits(
+        length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
+    )
+    space = RadialGrid(6e-4, 16, window_factor=0.0)
+    medium = SpatialMedium("Ar", pressure=Linear(0.5, 1.5, length))
+    initial = SpatialPulse(
+        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 1e-4
+    ).build(grid, space)
+    omega = grid.omega[grid.active_mask]
+    assert np.all(np.imag(medium.index(omega, 0.0)) == 0)
+    assert np.all(np.imag(medium.index(omega, length)) == 0)
+
+    def admittance(z):
+        # Y_z = eps0 c^2 Re k_z / omega; the common eps0 c^2 / omega cancels per bin.
+        return axial_root(medium, omega, space, z)
+
+    problem = assemble(
+        grid,
+        None,
+        [],
+        initial,
+        spatial_grid=space,
+        medium=medium,
+        frame=dataclasses.replace(Frame.comoving(grid), beta0=0.0, beta1=0.0),
+        controller=PIController(rtol=1e-8, atol=1e-14),
+        save_planes=[length / 2, length],
+        dz_max=length,
+        dz_init=length / 8,
+        schedule=FixedSchedule.uniform(0.0, length, length / 8),
+    )
+    backend = spatial_backend_class(problem, grid=grid)
+    try:
+        backend.set_initial(problem.initial.field0, None)
+        backend.propagate_to(length / 2)
+        middle = backend.observe().require_field().copy()
+        backend.propagate_to(length)
+        straight = backend.observe().require_field().copy()
+        backend.set_initial(middle, None, z=length / 2)
+        backend.propagate_to(length)
+        resumed = backend.observe().require_field()
+    finally:
+        backend.close()
+    entrance = admittance(0.0) * np.abs(initial[:, 0][:, grid.active_mask]) ** 2
+    exit_flux = admittance(length) * np.abs(straight[0, :, 0][:, grid.active_mask]) ** 2
+    # Lossless argon: Y_z |E|^2 is invariant under the represented flow up to twice
+    # the endpoint term's representation error (relative 1e-9 of a log-ratio below
+    # 2e-5 here) and the eight diagonal steps' rounding, 256 units on |E|^2.
+    exponent = float(np.max(np.abs(np.log(admittance(length) / admittance(0.0)))))
+    budget = (1e-9 * exponent + gamma(256)) * float(np.max(entrance))
+    assert np.max(np.abs(exit_flux - entrance)) <= budget
+    assert np.max(np.abs(exit_flux - entrance)) > 0 or exponent == 0
+    # Steps and a resume compose the cumulative endpoint term: the resumed march
+    # ends where the straight one does, to the rounding of four diagonal steps.
+    assert np.max(np.abs(resumed - straight)) <= gamma(64) * np.max(np.abs(straight))
+    # Without the endpoint factor, |E|^2 itself would be conserved; it is not.
+    plain = np.abs(straight[0, :, 0][:, grid.active_mask]) ** 2
+    entrance_plain = np.abs(initial[:, 0][:, grid.active_mask]) ** 2
+    assert np.max(np.abs(plain - entrance_plain)) > 100 * budget

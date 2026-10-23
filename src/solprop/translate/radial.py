@@ -9,10 +9,12 @@ from collections.abc import Callable, Mapping
 from dataclasses import replace
 
 import numpy as np
+from jaxtyping import Complex
 
 from solprop.boundaries import TEMPORAL_ALPHA_LENGTH, Absorber
 from solprop.exceptions import TranslationError
 from solprop.grid import RadialGrid, TimeGrid
+from solprop.profiles import ZProfile
 from solprop.spatial import SpatialDispersion
 from solprop.translate.chebyshev import (
     DEFAULT_TOL,
@@ -30,6 +32,7 @@ from solprop.translate.linop import (
     DEFAULT_MARGIN,
     LinearOperator,
     constant_phi,
+    endpoint_phi,
     tabulate,
 )
 from solprop.translate.modal import DEFAULT_NODE_BUDGET, Transform, _node_chunk
@@ -37,12 +40,21 @@ from solprop.translate.spatial import (
     RateBounds,
     SeparableOperator,
     SpatialGeometry,
+    longitudinal_root,
     separable_values,
 )
 
 __all__ = ["radial_operators", "radial_rate_bounds", "radial_transform"]
 
 logger = logging.getLogger(__name__)
+
+_CUTOFF_SAMPLES = 129
+"""Positions per path segment at which the propagating set is checked.
+
+A plain refusal of a cutoff crossing along the sampled path, ahead of the expansion and
+table builders, whose own samples are checked as well. It is not a certificate: the
+adiabatic admission (SEP 34 section 4.5) bounds the path's variation separately.
+"""
 
 
 def radial_transform(  # noqa: PLR0913 - geometry and the shared translation controls
@@ -175,6 +187,37 @@ def radial_operators(  # noqa: PLR0913 - material and the shared translation con
     grid = dispersion.grid
     rate = np.zeros(grid.n_omega) if absorber is None else absorber.spectral_rate
 
+    def material(model: SpatialDispersion, z: float = 0.0) -> SeparableOperator:
+        """Assemble the radial coefficients of one material sample.
+
+        Parameters
+        ----------
+        model : solprop.spatial.SpatialDispersion
+            Bulk material and frame at the sampled density.
+        z : float, optional
+            Position in m at which to evaluate the material.
+
+        Returns
+        -------
+        solprop.translate.spatial.SeparableOperator
+            Shared material vectors over the radial columns.
+        """
+        square, frame, numerator, clamped = model.shared_values(z)
+        return SeparableOperator(
+            k_squared=square,
+            kperp_sq=space.k_r**2,
+            k_squared_low=np.zeros_like(square),
+            kperp_sq_low=np.zeros(space.n_r),
+            frame=frame,
+            spectral_rate=rate,
+            prefactor_numerator=numerator * grid.crop_scale,
+            prefactor_clamped=clamped * grid.crop_scale,
+            active=grid.active_mask,
+            evanescent_rate=model.evanescent_rate,
+            n_pol=n_pol,
+            z_span=(0.0, span),
+        )
+
     def sampled(
         model: SpatialDispersion, z: float = 0.0
     ) -> tuple[np.ndarray, np.ndarray]:
@@ -192,23 +235,7 @@ def radial_operators(  # noqa: PLR0913 - material and the shared translation con
         tuple of numpy.ndarray
             Linear rate and cropped nonlinear prefactor, shared by polarisation.
         """
-        square, frame, numerator, clamped = model.shared_values(z)
-        return separable_values(
-            SeparableOperator(
-                k_squared=square,
-                kperp_sq=space.k_r**2,
-                k_squared_low=np.zeros_like(square),
-                kperp_sq_low=np.zeros(space.n_r),
-                frame=frame,
-                spectral_rate=rate,
-                prefactor_numerator=numerator * grid.crop_scale,
-                prefactor_clamped=clamped * grid.crop_scale,
-                active=grid.active_mask,
-                evanescent_rate=model.evanescent_rate,
-                n_pol=n_pol,
-                z_span=(0.0, span),
-            )
-        )
+        return separable_values(material(model, z))
 
     paths = {
         name: path
@@ -263,6 +290,14 @@ def radial_operators(  # noqa: PLR0913 - material and the shared translation con
         )
 
     working = _linear_roundoff_target(dispersion, space, sampled, span, tol)
+    adiabatic = _AdiabaticAmplitude(
+        dispersion,
+        lambda model, z: longitudinal_root(material(model, z))[:2],
+        paths,
+        kinks,
+        span,
+        n_pol,
+    )
     if len(paths) > MAX_PARAMETERS:
         linear_table = build(
             lambda positions: np.stack(
@@ -296,15 +331,17 @@ def radial_operators(  # noqa: PLR0913 - material and the shared translation con
         ):
             values.setflags(write=False)
         phi = linear_table.integral()
-        return LinearOperator(
-            phi_representation="table",
-            phi_breakpoints=phi.breakpoints,
-            phi_coefficients=phi.coefficients,
-            phi_degrees=phi.degrees,
-            hard_kinks=phi.hard_kinks,
-            phi_constant=None,
-            beta0=beta0,
-            beta1=beta1,
+        return adiabatic.add(
+            LinearOperator(
+                phi_representation="table",
+                phi_breakpoints=phi.breakpoints,
+                phi_coefficients=phi.coefficients,
+                phi_degrees=phi.degrees,
+                hard_kinks=phi.hard_kinks,
+                phi_constant=None,
+                beta0=beta0,
+                beta1=beta1,
+            )
         ), prefactor_table
     all_paths = dispersion.medium.parameter_paths
     linear = (
@@ -359,16 +396,18 @@ def radial_operators(  # noqa: PLR0913 - material and the shared translation con
         working,
         linear.n_terms,
     )
-    return LinearOperator(
-        phi_representation="expansion",
-        phi_breakpoints=linear.weights.breakpoints,
-        phi_coefficients=None,
-        phi_degrees=linear.weights.degrees,
-        hard_kinks=linear.weights.hard_kinks,
-        phi_constant=None,
-        phi_expansion=linear,
-        beta0=beta0,
-        beta1=beta1,
+    return adiabatic.add(
+        LinearOperator(
+            phi_representation="expansion",
+            phi_breakpoints=linear.weights.breakpoints,
+            phi_coefficients=None,
+            phi_degrees=linear.weights.degrees,
+            hard_kinks=linear.weights.hard_kinks,
+            phi_constant=None,
+            phi_expansion=linear,
+            beta0=beta0,
+            beta1=beta1,
+        )
     ), prefactor
 
 
@@ -387,9 +426,15 @@ def radial_rate_bounds(linear: LinearOperator) -> RateBounds:
     each term's real part. Both bounds are sufficient, never smaller than the rate the
     backends evaluate.
 
-    The rate's parts (medium, capped evanescent attenuation, spectral rate) are not
-    separable from ``D``, so the whole loss is reported as `propagating` and the other
-    terms are zero.
+    A varying medium's rate includes the adiabatic amplitude term
+    ``-1/2 d ln(Re k_z)/dz`` (SEP 34 section 4.4), which is positive where ``Re k_z``
+    falls: its endpoint block is one more set of terms of the expansion, or part of
+    the z table, so both bounds above include it and a lossless decreasing medium
+    reports a gain.
+
+    The rate's parts (medium, capped evanescent attenuation, spectral rate, adiabatic
+    amplitude) are not separable from ``D``, so the whole loss is reported as
+    `propagating` and the other terms are zero.
 
     Parameters
     ----------
@@ -444,6 +489,196 @@ def radial_rate_bounds(linear: LinearOperator) -> RateBounds:
         spectral=0.0,
         transverse=0.0,
     )
+
+
+class _AdiabaticAmplitude:
+    """The radial adiabatic amplitude term of the cumulative operator.
+
+    SEP 34 section 4.4: in the internal convention ``Phi(z1) - Phi(z0)`` carries the
+    real term ``-1/2 ln(Y_z(z1)/Y_z(z0))`` with ``Y_z = eps0 c^2 Re k_z / omega``,
+    which per radial column and frequency is ``-1/2 ln(Re k_z(z1)/Re k_z(z0))``.
+    It is applied on the active bins of the columns that propagate at the entrance
+    and is exactly zero elsewhere; a column whose propagating status changes along
+    the path is refused. The function resolved is the stable log-ratio against the
+    entrance root, which vanishes there and is an endpoint quantity, so it is never
+    obtained by differentiating a table (:func:`solprop.translate.linop.endpoint_phi`).
+
+    Parameters
+    ----------
+    dispersion : solprop.spatial.SpatialDispersion
+        Material along the run path.
+    roots : callable
+        ``(model, z) -> (k_z, propagating)``, each ``(n_r, n_omega)``, from the one
+        root evaluation the operator uses
+        (:func:`solprop.translate.spatial.longitudinal_root`).
+    paths : collections.abc.Mapping
+        The medium's varying parameter paths, by name.
+    kinks : numpy.ndarray
+        Breakpoints of those paths, m.
+    span : float
+        End of the tabulated range, m.
+    n_pol : int
+        State polarisation components, 1 or 2.
+
+    Raises
+    ------
+    TranslationError
+        If a column's propagating status changes along the sampled path.
+    """
+
+    def __init__(
+        self,
+        dispersion: SpatialDispersion,
+        roots: Callable[[SpatialDispersion, float], tuple[np.ndarray, np.ndarray]],
+        paths: Mapping[str, ZProfile],
+        kinks: np.ndarray,
+        span: float,
+        n_pol: int,
+    ) -> None:
+        self._dispersion = dispersion
+        self._roots = roots
+        self._paths = paths
+        self._n_pol = n_pol
+        root, propagating = roots(dispersion, 0.0)
+        self._mask = propagating & dispersion.grid.active_mask[None, :]
+        self._reference = np.where(self._mask, np.real(root), 1.0)
+        if not paths or not self._mask.any():
+            return
+        inner = [float(one) for one in kinks if 0.0 < float(one) < span]
+        positions = np.unique(
+            np.concatenate(
+                [
+                    np.linspace(low, high, _CUTOFF_SAMPLES)
+                    for low, high in zip([0.0, *inner], [*inner, span], strict=True)
+                ]
+            )
+        )
+        for z in positions:
+            self._admitted(dispersion, float(z))
+
+    def _admitted(self, model: SpatialDispersion, z: float) -> np.ndarray:
+        """Return ``Re k_z`` where the term applies, refusing a cutoff crossing.
+
+        Parameters
+        ----------
+        model : solprop.spatial.SpatialDispersion
+            Material sample.
+        z : float
+            Position in m at which to evaluate it.
+
+        Returns
+        -------
+        numpy.ndarray
+            ``Re k_z`` in m^-1, shape ``(n_r, n_omega)``; one where the term is zero.
+
+        Raises
+        ------
+        TranslationError
+            If the propagating set differs from the entrance's.
+        """
+        root, propagating = self._roots(model, z)
+        changed = (propagating & self._dispersion.grid.active_mask[None, :]) != (
+            self._mask
+        )
+        if np.any(changed):
+            column, frequency = np.argwhere(changed)[0]
+            msg = (
+                f"radial column {int(column)} at omega = "
+                f"{float(self._dispersion.grid.omega[frequency]):.6e} rad/s crosses "
+                f"the transverse cutoff (q = 0) near z = {z:.6e} m; the adiabatic "
+                "amplitude transport of a varying medium is refused across a cutoff"
+            )
+            raise TranslationError(msg)
+        return np.where(self._mask, np.real(root), 1.0)
+
+    def _log_ratio(
+        self, model: SpatialDispersion, z: float
+    ) -> Complex[np.ndarray, "1 n_r n_pol n_omega"]:
+        """Return ``-1/2 ln(Re k_z / Re k_z(0))`` in the canonical layout.
+
+        Parameters
+        ----------
+        model : solprop.spatial.SpatialDispersion
+            Material sample.
+        z : float
+            Position in m at which to evaluate it.
+
+        Returns
+        -------
+        numpy.ndarray
+            Dimensionless, complex with zero imaginary part.
+        """
+        wave = self._admitted(model, z)
+        reference = self._reference
+        # Within a factor two of the reference the difference is exact (Sterbenz), so
+        # log1p returns the small ratio to a few rounding units of itself rather than
+        # to an absolute unit of one.
+        near = (wave >= 0.5 * reference) & (wave <= 2.0 * reference)
+        ratio = np.where(
+            near,
+            np.log1p((wave - reference) / reference),
+            np.log(wave / reference),
+        )
+        values = np.where(self._mask, -0.5 * ratio, 0.0)
+        shape = (1, values.shape[0], self._n_pol, values.shape[1])
+        return np.broadcast_to(values[None, :, None, :], shape).astype(np.complex128)
+
+    def sample(self, z: float) -> Complex[np.ndarray, "1 n_r n_pol n_omega"]:
+        """Evaluate the term's endpoint function along the run path.
+
+        Parameters
+        ----------
+        z : float
+            Position in m.
+
+        Returns
+        -------
+        numpy.ndarray
+            Dimensionless endpoint function, canonical layout.
+        """
+        return self._log_ratio(self._dispersion, z)
+
+    def value_at(
+        self, values: Mapping[str, float]
+    ) -> Complex[np.ndarray, "1 n_r n_pol n_omega"]:
+        """Evaluate the endpoint function at one point of the parameter box.
+
+        Parameters
+        ----------
+        values : collections.abc.Mapping
+            Parameter values by name, inside the expansion's box.
+
+        Returns
+        -------
+        numpy.ndarray
+            Dimensionless endpoint function, canonical layout.
+        """
+        medium = self._dispersion.medium.at_parameters(values)
+        return self._log_ratio(replace(self._dispersion, medium=medium), 0.0)
+
+    def add(self, linear: LinearOperator) -> LinearOperator:
+        """Join the term to a z table or an expansion of ``Phi``.
+
+        Parameters
+        ----------
+        linear : solprop.translate.linop.LinearOperator
+            The cumulative dispersion operator.
+
+        Returns
+        -------
+        solprop.translate.linop.LinearOperator
+            The operator with the endpoint term; unchanged when no column propagates
+            or an expansion already carries it (batch reuse).
+        """
+        if not self._mask.any():
+            return linear
+        return endpoint_phi(
+            linear,
+            self.sample,
+            self.value_at,
+            self._paths,
+            quantity="radial adiabatic amplitude",
+        )
 
 
 def _linear_roundoff_target(
