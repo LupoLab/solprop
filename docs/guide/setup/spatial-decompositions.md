@@ -549,12 +549,15 @@ without one the field reflects at $R$), a Planck collar over the outer `window_f
 tenth by default) absorbs as a rate inside every stage, not as a mask ([spatial collar](../free-space/model.md#spatial-collar-and-statistics)).
 
 **Units.** The stored spectrum is in V m and the field in V/m. The weights carry the whole
-$2\pi$; the energy is in J.
+$2\pi$; the energy is in J, the axial Poynting flux of the medium at the plane
+([energy and flux in a medium](../free-space/flux.md)).
 
 **Propagation.** The raw quasi-discrete Hankel transform, a dense matrix transform, with the exact
 $k_z = \sqrt{k^2 - k_r^2}$ ([the Hankel transform](../free-space/hankel.md), [exact longitudinal
 operator](../free-space/model.md#exact-longitudinal-operator)). The medium may vary along z: a gas
-pressure profile is allowed.
+pressure profile is allowed, with the forward amplitude term that conserves each column's
+energy, when it meets the
+[adiabatic certificate](../free-space/flux.md#the-adiabatic-certificate).
 
 **Valid when** each Cartesian component is cylindrically symmetric about the axis: a
 round beam on axis, with a uniform polarisation.
@@ -588,7 +591,7 @@ default, so light leaving one side re-enters on the other): the periodic half-wi
 windows over the added width ([Cartesian free space](../free-space/cartesian.md)).
 
 **Units.** Stored and physical fields in V/m; spatial weights $\Delta x\Delta y$ and
-spectral weights $\Delta x\Delta y/N$; energy in J.
+spectral weights $\Delta x\Delta y/N$; energy in J, the axial flux of the medium.
 
 **Propagation.** The 2-D FFT with the separable exact operator: frequency-dependent $k^2$
 beside one $k_\perp^2$ vector, with the grazing-incidence arithmetic retained in two
@@ -730,11 +733,15 @@ up in y does not wrap around the periodic grid.
 slab's; the geometry integrates over y, so energy is in **J** and power in **W**, and
 the run's measure is `"area"`. A {class}`~solprop.pulses.PlanarPulse` is the astigmatic
 launch: $w_x$ projected onto the modes, with signs, and $w_y$ sampled on the y axis; its
-energy is the incident beam's, so the modes carry the coupled share (98.8 % into TE1 at
-$w_x = 0.735a$). {func}`~solprop.spatial.planar_mode_energy` and
+energy is the incident beam's physical energy in the fill, so the modes carry the
+coupled share (98.8 % into TE1 at $w_x = 0.735a$). The energy of each mode uses the
+explicit slab metric, whose weight at $k_y = 0$ is the mode's real effective index, not the
+bulk index ([the hybrid planar guide](../free-space/flux.md#the-hybrid-planar-guide)).
+{func}`~solprop.spatial.planar_mode_energy` and
 {func}`~solprop.spatial.planar_fluence` split a saved plane by mode and map it on the
-$(x, y)$ nodes, and {func}`~solprop.spatial.planar_intensity` gives the intensity there in
-time, whose peak binds an unbound optmat rate's energy per event, as on the other spatial
+$(x, y)$ nodes, and {func}`~solprop.spatial.planar_intensity` gives the signed axial
+flux there in time. The peak of the physical field, {func}`~solprop.spatial.peak_field`,
+binds an unbound optmat rate's energy per event, as on the other spatial
 routes ([ionisation](../media/ionisation.md)); the run's `beam_radius` and `fwhm_r` are the **widths in y** of the fluence
 integrated across the gap.
 

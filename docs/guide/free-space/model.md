@@ -15,7 +15,7 @@ grids:
 
 | grid | columns | assumes | medium | entry point |
 |---|---|---|---|---|
-| {py:class}`~solprop.grid.RadialGrid` | Hankel frequencies $k_r$ of the order-zero [Hankel transform](hankel.md) | each Cartesian polarisation component cylindrically symmetric | constant, or a gas whose pressure varies along z | `prop_radial`, `Simulation.from_radial` |
+| {py:class}`~solprop.grid.RadialGrid` | Hankel frequencies $k_r$ of the order-zero [Hankel transform](hankel.md) | each Cartesian polarisation component cylindrically symmetric | constant, or a gas whose pressure varies along z within the [adiabatic certificate](flux.md#the-adiabatic-certificate) | `prop_radial`, `Simulation.from_radial` |
 | {py:class}`~solprop.grid.FreeGrid` | 2-D Fourier frequencies $(k_x, k_y)$, x fastest ([Cartesian free space](cartesian.md)) | nothing: periodic box | constant | `prop_free`, `Simulation.from_free` |
 | {py:class}`~solprop.grid.LineGrid` | $k_x$ alone | uniform in y ([the line](#the-line-uniform-in-y)) | constant | `prop_free`, `Simulation.from_free` |
 
@@ -27,38 +27,44 @@ interaction-picture stepper ([the solver](../numerics/solver.md)) and the output
 
 ## Field units and transverse measure
 
-The analytic intensity is $I=\varepsilon_0 c\sum_p|E_{a,p}|^2/2$, in W/m², summed over
-the Cartesian polarisation components $p$. Integrating over time gives the fluence in
-J/m², and integrating that over the cross-section gives the energy in J. A
+The intensity is the axial Poynting flux of the medium at the measured plane,
+$S_z=\tfrac12\sum_p\operatorname{Re}(E_{a,p}G_{a,p}^*)$ in W/m², summed over the Cartesian
+polarisation components $p$, where $G=\mathcal Y_cE$ applies the axial admittance
+$\mathcal Y_c=\varepsilon_0c^2k_z/\omega$ to each spectral column. For a paraxial beam in a
+transparent medium it is $n_0\varepsilon_0c|E_a|^2/2$. Integrating over time gives the
+fluence in J/m², and integrating that over the cross-section gives the energy in J.
+[Energy and flux in a medium](flux.md) defines the measure, shows why local values are
+signed, and names the separate field diagnostic. A
 {py:class}`~solprop.grid.RadialGrid` carries the physical area weights for $2\pi r\,dr$
 and the spectral weights for $2\pi k_r\,dk_r$. Its stored Hankel spectrum is in V m; the
 physical-space field is in V/m. The [Hankel transform page](hankel.md) derives both
 scalings and the raw transform's truncation and floating-point error: it is not exactly
 orthogonal at finite size. The Cartesian grid's stored spectrum is a raw DFT, also in
-V/m ([Cartesian free space](cartesian.md#transform-and-energy)). The factor
-$\varepsilon_0c/2$ is the vacuum flux: inside a dense medium the energy, intensity and
-fluence are low by about the refractive index, a known limitation discussed in
-[power and intensity](../results/power-and-intensity.md).
+V/m ([Cartesian free space](cartesian.md#transform-and-energy)).
 
 {py:class}`~solprop.pulses.SpatialPulse` wraps any scalar temporal pulse in a transverse
 beam. Its transverse field is `exp(-(r/waist)**(2*order))`, so `waist` is the 1/e²
-intensity radius and `order=1` is a Gaussian. The wrapper normalises the transverse
-profile with the spectral energy measure, so the temporal pulse's `energy` or `peak_power`
-is the whole beam's energy or peak power at the waist plane, in the free-space field
-units. The optional `jones=` vector is in the optics convention and is normalised before
+intensity radius and `order=1` is a Gaussian. The wrapper normalises the beam in the
+medium's flux measure at the launch plane, so the temporal pulse's `energy` or
+`peak_power` is the whole beam's physical energy or peak axial power there: what an energy
+meter in that medium reads. Columns that carry no forward flux (nonpropagating, inactive
+or zero-frequency bins) are set to zero first. The optional `jones=` vector is in the optics convention and is normalised before
 it is applied; each component then has its own scalar transform.
 
 {py:func}`~solprop.noise.spatial_noise` draws the same one-photon-per-bin model as the
-fibre routes ([shot noise](../media/noise.md)) and divides each transverse column by
-`sqrt(epsilon_0*c*spectral_weight/2)`, so the weighted spectral energy of each active bin
-is still `hbar*omega`. The `input` and `modified` noise models use the same draw, with
+fibre routes ([shot noise](../media/noise.md)) and divides each transverse column and bin
+by the square root of its energy weight in the entrance medium,
+`epsilon_0*c*spectral_weight*Re(c*k_z/omega)/2`, so each admitted bin carries
+`hbar*omega` ([the discrete measure](flux.md#the-discrete-measure-endpoints-and-noise)).
+The `input` and `modified` noise models use the same draw, with
 the same propagation semantics and recorded seed as on a fibre.
 
 ## Exact longitudinal operator
 
 {py:class}`~solprop.spatial.SpatialMedium` names the medium: a gas, a glass, a gas mixture
 or a constant complex refractive index; `SpatialMedium()` is vacuum. A gas can carry a
-pressure {py:class}`~solprop.profiles.ZProfile` along z on the radial grid; its density
+pressure {py:class}`~solprop.profiles.ZProfile` along z on the radial grid, admitted
+when it meets the [adiabatic certificate](flux.md#the-adiabatic-certificate); its density
 and susceptibility use the same material functions as a capillary
 ([materials](../media/materials.md)): optmat's built-in gas, or a `susceptibility=` of the
 caller's own beside optmat's equation of state. A run resolves a named gas into its
@@ -75,14 +81,16 @@ given number density, give the medium that density, `SpatialMedium("Ar").at_dens
 Let $k=n(\omega,z)\omega/c$ and $q=k^2-k_r^2$. For $\Re q>0$, the principal square
 root defines $k_z=\sqrt q=\kappa+i\eta$. The internal linear operator is
 $D=-\eta-i(\kappa-\text{frame})-\alpha_\omega/2$, with $\alpha_\omega$ the spectral
-absorber rate ([absorbing boundaries](../numerics/boundaries.md)). No paraxial approximation is made:
+absorber rate. In a pressure gradient the accumulated operator also carries the real
+forward amplitude term $-\tfrac12\ln[Y_z(z)/Y_z(z_0)]$, with $Y_z=\varepsilon_0c^2\kappa/\omega$,
+which keeps each column's energy constant ([radial gas paths](flux.md#radial-gas-paths-forward-amplitude-transport)); it is exactly zero in a uniform medium ([absorbing boundaries](../numerics/boundaries.md)). No paraxial approximation is made:
 $k_z$ is exact for every transverse frequency. A positive imaginary material index is
 loss and a negative one is gain. The frame is evaluated at transverse frequency zero and
 follows the field and envelope conventions of [the linear operator](../numerics/linear-operator.md).
 
 The nonlinear polarisation prefactor, before temporal crop scaling, is
-$-i\omega^2/(2\varepsilon_0c^2\kappa)$. It uses the same `epsilon_0` as the intensity
-functional: independently rounded `mu_0` and `epsilon_0` table entries need not satisfy
+$-i\omega^2/(2\varepsilon_0c^2\kappa)$, with the local $\kappa$. It uses the same `epsilon_0`
+as the flux measure: independently rounded `mu_0` and `epsilon_0` table entries need not satisfy
 their defining relation to machine precision, so the coefficient is derived from
 `epsilon_0` and the exact `c`.
 
@@ -144,7 +152,9 @@ waist by this exact operator before the run starts, with the entrance medium hel
 during the launch; a negative distance launches before the waist, so the beam focuses in
 the run. Exponential overflow raises. By default the launch is made in the run's own
 entrance medium; `SpatialPulse.build(grid, space, medium=SpatialMedium())` launches through
-vacuum instead, and the array it returns is the run's input
+vacuum instead, and the array it returns is the run's input. Its requested energy is then
+the energy in vacuum: the same field carries $n_0$ times as much in the run's medium,
+which the run's `energy` statistic reports
 ([focusing, and launching away from the waist](beams.md#focusing-and-launching-away-from-the-waist)).
 The [radial tutorial](../../auto_tutorials/free_space/plot_01_radial.rst) launches its beam
 this way.
@@ -178,8 +188,10 @@ translation. This is a
 rate diagnostic, not a guarantee that a chosen step resolves diffraction or nonlinear
 evolution.
 
-At every saved plane the driver measures the fraction of the physical fluence in nodes
-where the spatial window is below one, and logs a warning above the requested relative
+At every saved plane the driver measures the fraction of the field's squared norm,
+$\sum_p|E_{a,p}|^2$ integrated over time, in nodes where the spatial window is below one.
+This is an electric-field-norm diagnostic of the edge, not a share of the physical flux.
+It logs a warning above the requested relative
 tolerance, with a rounding floor `gamma(64*n_columns + 16*ceil(log2(n_t)))`, where
 `n_columns` is `n_r` for a radial run and `n_x*n_y` for a Cartesian one. The warning prints
 the fraction and the threshold. It changes neither the state nor the step controller, and
@@ -193,15 +205,17 @@ on the planes whose collar share you want checked.
 **Statistics.** The default set for a spatial run (`default_spec("radial")` or
 `default_spec("free")`) is `energy`, `on_axis_intensity`, `peak_intensity`,
 `beam_radius`, `fwhm_r` and `on_axis_spectrum`. The [statistics catalogue](../results/statistics.md)
-distinguishes `peak_intensity`, the largest intensity over the physical samples, from
-`on_axis_intensity`, reconstructed separately on the axis. The widths use the
-time-integrated fluence: `beam_radius` records the second-moment radius and the
+distinguishes `peak_intensity`, the largest axial flux over the physical samples, from
+`on_axis_intensity`, reconstructed separately on the axis. Both are signed local flux in
+the medium at the plane ([local flux](flux.md#axial-admittance-and-local-flux)). The widths
+use the time-integrated fluence, and refuse one that is negative beyond its rounding
+budget: `beam_radius` records the second-moment radius and the
 interpolated central 1/e² radius, and `fwhm_r` is a full width. An empty beam has no
 width, and a profile whose axis fluence lies below a threshold (hollow at that level) has
 no central width at it; these entries are NaN. The thresholds are fractions of the peak
 fluence, so a flat top whose first samples ripple above the reconstructed axis value keeps
 its widths. The saved on-axis spectrum is the real spectral fluence density, in J s/m²,
-summed over polarisation.
+summed over polarisation: the same-frequency pairing of the coherent on-axis $E$ and $G$.
 
 {py:func}`~solprop.spatial.radial_fluence_widths` is the public host reduction for an
 already integrated radial fluence. It validates the supplied samples and weights; the
@@ -211,7 +225,7 @@ native backend calls it after transferring its small fluence vector.
 
 A Cartesian or line run can also record the spectrum a detector behind the sample would
 see through apertures in a far-field or Fourier plane, in boxes of transverse
-wavevector, of the whole beam and of its axial flux, and the power the absorbers remove
+wavevector and of the whole beam, and the power the absorbers remove
 ([far-field apertures](../results/statistics.md#far-field-apertures-and-angular-regions)).
 They rest on three statements about where the light goes after the run's last plane.
 
@@ -238,14 +252,14 @@ $\cos\theta$: a relative error $1-\cos\theta\approx\theta^2/2$, $1.25\times10^{-
 50 mrad. It is the statistic's definition, exact for a Fourier plane, not an error the
 tests bound; an exact $\tan\theta$ mapping for wide-angle emission is a roadmap item.
 
-**The vacuum flux.** Every spectrum is the vacuum flux functional
-$\varepsilon_0c|E|^2/2$ integrated over the transverse spectrum, as `energy` is. Inside a
-dense medium the physical axial flux is higher by about $\operatorname{Re}n(\omega)$ for
-a paraxial beam: `poynting_spectrum` weights the beam spectrum by the obliquity
-$c\operatorname{Re}k_z/\omega$, which is that factor, so the ratio of `poynting_spectrum`
-to `beam_spectrum` is the correction a reader can apply. The medium-aware flux itself is
-the roadmap's known issue *The vacuum flux factor in spatial functionals*. Once the light
-has left the face into vacuum the two agree up to the obliquity $\cos\theta$.
+**The axial flux in the medium.** Every spectrum weights each transverse column by its
+real axial admittance $Y_z=\varepsilon_0c^2\operatorname{Re}k_z/\omega$ in the run's
+medium, as `energy` does ([energy and flux in a medium](flux.md)), so `beam_spectrum`
+integrates to the energy. It is the power crossing the run's last plane inside the
+medium. The exit face's Fresnel transmission is not modelled, so the corrected measure
+supplies no transmission into vacuum; that needs an explicit interface. After the face,
+the flux of each direction in vacuum differs from the in-medium value by that
+transmission and by the change of obliquity.
 
 ## Construct and run a beam
 
@@ -306,22 +320,25 @@ $i\partial_z A+(2k)^{-1}\nabla_\perp^2 A+g|A|^2A=0$, with
 $g=3k\chi^{(3)}/(8n^2)$ and $k=2\pi n/\lambda_\mathrm{vac}$.
 The positive radial stationary solution satisfies
 $Q''+Q'/r-Q+Q^3=0$. If $\alpha=\int_0^\infty Q^2r\,dr$, rescaling that
-equation and integrating $\varepsilon_0c|A|^2/2$ gives
+equation gives a threshold on $\int|A|^2dS$ in which the index cancels. The paraxial
+axial power in the medium is $n_0\varepsilon_0c/2$ times that integral
+([energy and flux in a medium](flux.md)), so
 
-$$P_\mathrm{crit}=\frac{\alpha\varepsilon_0c\lambda_\mathrm{vac}^2}{3\pi\chi^{(3)}}.$$
+$$P_\mathrm{crit}=\frac{\alpha\,n_0\varepsilon_0c\lambda_\mathrm{vac}^2}{3\pi\chi^{(3)}}.$$
 
+At fixed $\chi^{(3)}$ this is $n_0$ times the value of a vacuum field measure.
 {py:func}`~solprop.spatial.critical_power` uses `alpha=1.86226`, the Townes value; call it
-with the wavelength and the medium's $\chi^{(3)}$, for example
-`critical_power(800e-9, chi3("Ar", pressure=1.2, wavelength=800e-9))` with `chi3` from
-{py:mod}`solprop.physdata`. The independent
+with the wavelength, the medium's $\chi^{(3)}$ and its real carrier index, for example
+`critical_power(800e-9, chi3("Ar", pressure=1.2, wavelength=800e-9), index=n0)` with
+`chi3` and `refractive_index` from {py:mod}`solprop.physdata`. The independent
 stationary boundary-value calculation gives `1.86225552049`; the paper's approximate
 `1.86225` misses a half-last-decimal rounding allowance of `5e-6` by giving an error
 of `5.52049e-6`. This numerical check is not an interval certificate.
 [Fibich and Gaeta (2000), equations 6–7](https://www.math.tau.ac.il/~fibich/Manuscripts/critical00.pdf)
 derive the Townes baseline and the Gaussian negative-Hamiltonian sufficient value
 `alpha=2`; their computed threshold for a collimated Gaussian is `1.8962` (their Table 1),
-less than 2 % above the Townes value. Their physical dielectric Poynting power is `n` times the package's
-declared vacuum field measure. The formula above includes that conversion.
+less than 2 % above the Townes value. Their power is the physical axial Poynting power
+in the medium, as every spatial energy in solprop is.
 
 The [radial tutorial](../../auto_tutorials/free_space/plot_01_radial.rst) runs a 2 nJ beam launched
 from vacuum into argon, far below this baseline, and separately a collimated diagnostic
@@ -401,11 +418,12 @@ size of the exact operator's first non-paraxial term $(kw_0)^{-2}$.
 Kerr self-focusing in one transverse dimension does not collapse. The equation above,
 $i\partial_zA + (2k)^{-1}\partial_x^2A + g|A|^2A = 0$ with $g = 3k\chi^{(3)}/(8n^2)$, has
 the stable stationary solution $A_0\operatorname{sech}(x/x_0)$ when
-$gkA_0^2 = 1/x_0^2$, so $A_0^2 = 8/(3k_0^2\chi^{(3)}x_0^2)$ and $n$ cancels as it does in
-the Townes power. Its power per metre of y is
+$gkA_0^2 = 1/x_0^2$, so $A_0^2 = 8/(3k_0^2\chi^{(3)}x_0^2)$ and the index cancels from the
+field, as it does in the Townes threshold. Its physical power per metre of y, the axial
+flux $n_0\varepsilon_0c|A|^2/2$ integrated over x, is
 
-$$P'_\mathrm{sol} = \frac{\varepsilon_0 c}{2}\int|A|^2dx = \frac{8\varepsilon_0c}{3k_0^2\chi^{(3)}x_0}
-= \frac{2\varepsilon_0c\lambda_\mathrm{vac}^2}{3\pi^2\chi^{(3)}x_0}
+$$P'_\mathrm{sol} = \frac{n_0\varepsilon_0 c}{2}\int|A|^2dx = \frac{8n_0\varepsilon_0c}{3k_0^2\chi^{(3)}x_0}
+= \frac{2n_0\varepsilon_0c\lambda_\mathrm{vac}^2}{3\pi^2\chi^{(3)}x_0}
 \approx 0.3419\,\frac{P_\mathrm{crit}}{x_0},$$
 
 a family of solitons, one for every width, rather than a threshold. This power is derived
