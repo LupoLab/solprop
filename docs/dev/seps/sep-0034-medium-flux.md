@@ -7,8 +7,8 @@
 | **Author** | John Travers |
 | **Drafting agent** | GPT-6 |
 | **Status** | Draft |
-| **Review status** | Not reviewed |
-| **Reviewers** | — |
+| **Review status** | In review |
+| **Reviewers** | Opus 5.5 (AI) |
 | **Type** | Change |
 | **Created** | 2026-10-23 |
 | **Resolution** | — |
@@ -573,3 +573,175 @@ not revalidated to additional precision by this draft.
   correction to the review's abrupt-interface validation target. The maintainer
   additionally chose full complex admittance for local flux traces; the real
   part remains the total-energy/noise measure. No implementation has started.
+- 2026-10-23: Reviewed by Opus 5.5 (AI), A1–A7 below; Part I unchanged. Review
+  status In review pending a human review; status remains Draft.
+
+### AI review — 2026-10-23
+
+**Assessment.** This is a sound, well-scoped change, and it answers the question
+that prompted it: `energy=` becomes the energy a meter would measure. The physics
+is correct where I checked it.
+
+- **Flux and index.** The phase-index flux and the energy-density cross-check
+  (§4.1) are correct.
+- **Admittance.** The complex/real admittance split (§4.2) is correct: full
+  transverse and time integration leaves only diagonal $\operatorname{Re}\mathcal Y_c$.
+- **WKB and closure.** The WKB amplitude term (§4.4) and the adiabatic magnetic
+  closure $\mathcal Y_{c,\rm ad}$ follow from $\mathbf H=(-i/\mu_0\omega)\partial_z\mathbf E$.
+- **Reflection bound.** The Bremmer equations and the $\tanh^2\Lambda$ bound (§4.5)
+  are correct.
+- **Work identity.** The work identity's cancellation of the gradient term is right.
+- **Critical power.** Scaling the critical power by $n_0$ is right, because the
+  Townes threshold fixes $\int|E|^2$ independently of $n_0$ at fixed χ³.
+
+Atomic three-CPU activation addresses the merge hazard raised against SEP 31.
+
+The main recommendation is a simplification. The draft's own reflection bound
+extends to a closed-form forward-field certificate. That certificate makes
+profile-family reference qualification, a required `AdiabaticAccuracy` argument
+and the blanket refusal of index steps unnecessary for the gas profiles this SEP
+exists to preserve (A1). The GPU consequence of a shared native source needs a
+decision before acceptance (A2).
+
+**Review basis.** Read all of Part I against SEP 0, SEP 31 (revised), the
+free-space model page and the code: the source prefactor in
+`spatial.SpatialMedium`'s radial operator, the vacuum factors in `solprop.spatial`,
+`fourier.energy_omega`, `profiles.PiecewiseLinear` and the `ZProfile` protocol,
+and the planar route's power weights. Each code claim in §3 matched. Both
+references resolve via Crossref to the stated authors, titles, volumes and
+article numbers. Ran an independent transfer-matrix solution of $E''+q^2E=0$
+(200 000 layers) for the cases in A1. This is a design review; nothing was
+implemented. Priorities as in SEP 31's review: **P1** before acceptance, **P2** a
+revision or recorded decision, **P3** editorial.
+
+#### A1 — P1: Replace profile qualification with the closed-form certificate
+
+**Sections:** 4.5, 5 (`AdiabaticAccuracy`), 7 (gradient rows), 9, 11 (phase 1),
+12 (Q1).
+
+§4.5 derives $|\rho'|\le|q'/2q|$ and hence $R\le\tanh^2\Lambda$, but then treats it as
+a crude screen and requires independent scalar-wave references per profile family,
+with index steps refused outright. The same coupled equations bound the error of
+the forward wave the propagator actually keeps:
+
+- From $a'=(q'/2q)be^{-2i\theta}$ and $|b|/|a|=\tanh\rho\le\tanh\Lambda$,
+  both $|\partial_z\ln|a||$ and $|\partial_z\arg a|$ are at most
+  $|q'/2q|\tanh\Lambda$. The forward wave's amplitude and phase therefore differ
+  from the adiabatic model by at most $\Lambda\tanh\Lambda$ (relative), while
+  reflected power is at most $\tanh^2\Lambda$.
+- Here $\Lambda=\tfrac12\operatorname{TV}(\ln q)$ over the path. It is defined for
+  kinks and for index jumps, where $q'$ is a delta. For a monotone path
+  $\Lambda=\tfrac12|\ln(q_1/q_0)|$, so $\tanh^2\Lambda=((q_1-q_0)/(q_1+q_0))^2$ is
+  **exactly the endpoint Fresnel reflectance**. The bound is attained by a step and
+  is conservative for any smooth ramp.
+
+Transfer-matrix check (forward error is $|t_{\rm exact}/t_{\rm WKB}-1|$ on the
+transmitted field):
+
+| Profile (800 nm) | R exact | tanh²Λ | forward error | Λ tanh Λ |
+|---|---|---|---|---|
+| Gas 0 → 3 bar (Δn = 8×10⁻⁴), tanh ramp, 1 mm | 2×10⁻²⁴ | 1.5×10⁻⁷ | 7×10⁻¹² | 1.5×10⁻⁷ |
+| Same contrast, abrupt step | 1.60×10⁻⁷ | 1.60×10⁻⁷ | 8.0×10⁻⁸ | 1.6×10⁻⁷ |
+| Non-monotone gas bump (Gaussian, 0.2 mm) | 6×10⁻²⁵ | 6.4×10⁻⁷ | 6×10⁻¹¹ | 6.4×10⁻⁷ |
+| n = 1 → 1.5, tanh ramp, 0.5 μm | 7×10⁻¹⁰ | 0.040 | 1.4×10⁻³ | 0.040 |
+| n = 1 → 1.5, abrupt step | 0.0400 | 0.0400 | 0.020 | 0.041 |
+
+Every case sits inside both bounds. R + T = 1 to 10⁻¹¹ confirms the solver.
+
+**Consequences.** For any gas path, Λ is about ½·Δn/n ≲ 10⁻³. The certified
+forward error is ≲ 10⁻⁶ whatever the profile shape, including the kinks of
+`PiecewiseLinear` and even pressure steps. Gas runs therefore need no reference
+solve and no per-family qualification. The certificate also does not depend on
+the abrupt-step limit failing: it states the forward model's error at a step
+(R/2 in amplitude) rather than forbidding the step.
+
+**Requested revision:**
+
+- Admit a radial path per propagating column when its computed Λ (from the
+  resolved material path, with $q=k_z(\kappa,\omega)$, so cutoff margins appear
+  naturally) gives $\Lambda\tanh\Lambda$ and $\tanh^2\Lambda$ within budget.
+- Give `AdiabaticAccuracy` a **default** budget, so ordinary gas runs keep their
+  current signature; the maintainer prefers robust defaults to required tuning.
+  Let callers tighten it.
+- Admit index jumps under the same rule, evaluating the local-flux closure away
+  from the jump plane, and refuse only on budget.
+- Keep the independent scalar-wave solver as a **test witness** that verifies the
+  certificate and the implementation, not as a per-family runtime qualification.
+- The bound needs real q, so the weak varying-loss case keeps its separate
+  qualification. That remains a genuine open item (Q1).
+- Record the derivation and the table above in §4.5.
+
+#### A2 — P2: Decide the native GPU state at activation now
+
+**Sections:** 6.2, 12 (Q4).
+
+The native backend's CPU and GPU builds share source. An atomic CPU activation
+therefore changes GPU spatial semantics in the same commit. Q4 admits an "accepted,
+explicit temporary refusal". That would be a new regression for GPU spatial users,
+created by a CPU-qualified change. GPU qualification also costs real money under
+the standing device policy.
+
+**Recommendation, for maintainer decision:** either include a short, bounded
+device qualification in phase 2, before activation (a few tens of calls on one
+NVIDIA and one AMD device, with a stated budget), or activate with the GPU build
+enabled and listed as *unqualified* in the capability matrix until the next
+device campaign. Prefer either to refusal, and settle the choice in Part I rather
+than at activation.
+
+#### A3 — P2: Enumerate which statistics need G
+
+**Sections:** 4.2, 5, 6.1, 7.
+
+Energy and spectra need only the real weights. They cost one multiply per column.
+Local fluence, peak intensity, on-axis traces and widths need G synthesis: extra
+inverse transverse and temporal transforms per evaluation. That could roughly
+double in-run statistics cost on every saved step. Peak-intensity statistics are
+also what users read against ionisation thresholds.
+
+**Requested revision:** list each existing spatial statistic and accessor as
+weight-only or needs-G. For each needs-G statistic, decide whether it becomes
+signed local flux (G synthesised in-run, cost measured), an offline/saved-plane
+accessor only, or a named field-intensity diagnostic at a declared admittance.
+For a transparent paraxial beam the last is $\tfrac12n_0\varepsilon_0c|E_a|^2$.
+Without this list, §7's "common in-run/offline definitions" leaves the cost and
+meaning of the most-used local statistic open.
+
+#### A4 — P2: State which tutorials hold energy and which hold field
+
+**Section:** 8.
+
+§8 correctly says each example must choose whether physical energy or physical
+field is held fixed. One consequence is worth recording. At fixed field, $P/P_{\rm cr}$,
+the B-integral and all nonlinear dynamics are unchanged, because both powers scale
+by $n_0$. At fixed energy, the field drops by $1/\sqrt{n_0}$: a negligible ≈ 4×10⁻⁴
+in gas, about 18 % in glass. List the affected gallery items with their choice, so
+the regeneration is reviewable and no gas example's figures move for a 10⁻⁴ reason.
+
+#### A5 — P3: State the internal sign in Φ
+
+**Section:** 4.4.
+
+Φ is written with $-i\int\operatorname{Re}k_z$, which is the internal transform
+sign rather than the optics convention used elsewhere in §4. Point to the
+conventions section that defines the internal sign, so the logarithmic term's real
+sign and the phase's imaginary sign can be checked against the code in one place.
+
+#### A6 — P3: Interface spelling
+
+**Section:** 5.
+
+`spatial_energy(field, flux)` drops `grid` and `space`, which `SpatialFlux`
+binds. Good. Use the same `(field, flux)` order for every accessor in the table,
+and say whether `SpatialFlux.resolve(..., z=)` on a gradient path re-resolves per
+call or is bound once per saved plane. The latter matters for SEP 31's
+`FieldPlane.from_output`.
+
+#### A7 — P3: Small points
+
+- §4.3: the synthetic finite constant-admittance endpoint test is a good idea. Note
+  that it tests only the discrete identity: no optical meaning is attached to DC.
+- §4.5: the bound and its exactness at a step make "can be very conservative"
+  accurate for smooth ramps but misleading in general. After A1, say instead
+  "attained by an abrupt step; conservative for smooth profiles".
+- §13: Diamant and Fernández-Guasti appeared online in December 2013 in the 2014
+  volume; the citation as written is correct.

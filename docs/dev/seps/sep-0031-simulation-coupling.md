@@ -1071,6 +1071,8 @@ No new material constant or experimental validation is claimed.
   John selected the 37.5 μm tutorial waist and full complex admittance for local
   flux traces. The response below records the resolutions and qualifications;
   status remains Draft.
+- 2026-10-23: AI re-review of the revised Part I by Opus 5.5 (S1–S4), recorded
+  after the response. No P1 finding remains; Part I unchanged by the reviewer.
 
 ### AI review — 2026-10-23
 
@@ -1420,3 +1422,83 @@ power. The Gaussian sizing and independent scalar overlaps were recalculated;
 no nonlinear propagation, omitted-response assessment, grid convergence or
 backend qualification is claimed by this documentation revision. Those remain
 required implementation evidence.
+
+### AI re-review of the revision — 2026-10-23
+
+**Assessment.** The revision resolves R1–R10. The split into
+[SEP 34](sep-0034-medium-flux.md) is clean, and §4.3's three named coupling models
+with an explicit `model_error` budget are concrete enough to approve. §4.6's
+thin-screen bound is correct: $0\le U_0-U_Y\le d(E)$ holds because $Y_z/Y_0=\cos\theta$
+on propagating columns, and the bound on the loss difference follows from the two
+one-sided brackets. `SpatialPulse` remaining the only beam builder settles the
+duplication. **No P1 finding remains.** SEP 31 can go forward for acceptance once
+SEP 34, which it requires, is settled. The points below are refinements.
+
+**Review basis.** Read the revised Part I in full, the response to review and the
+diff against the reviewed text. Recomputed the revised tutorial sizing with the
+stated optmat values: z_R = 5.527 mm, P₀ ≈ 0.380 GW and U ≈ 12.1 μJ, matching the
+draft. Peak on-axis intensity rises to about 1.7×10¹³ W/cm², which is still far
+below significant argon ionisation over 30 fs; §8.1 rightly requires it to be
+reassessed. Checked the R2 correction with an independent transfer-matrix solution
+of $E''+q^2E=0$ (recorded in the SEP 34 review).
+
+**On the R2 correction.** The response is right, and the original request was
+wrong. A forward-only adiabatic model transmits all the flux at a step. For
+n = 1 → 1.5 the exact solution gives R = 0.0400, while the model gives T = 1. A
+sharpening profile can only show the model leaving its admitted range; it cannot
+converge to Fresnel transmission. The SEP 34 review (A1) adds a closed-form bound
+that makes this precise.
+
+#### S1 — P2: Use SEP 34's closed-form certificate for gradient sources
+
+**Sections:** 4.2, 5.3, 7 (Refusals).
+
+§4.2 and §5.3 refuse "a nonadiabatic gradient", which leaves the criterion to
+SEP 34. The SEP 34 review (A1) recommends a closed-form, per-column certificate
+in place of profile-family qualification. If it is adopted, refer to that rule
+here rather than restating it. The coupling report then quotes the source plane's
+certified forward-field error alongside the other model errors in the
+`model_error` sum.
+
+#### S2 — P2: Phase 1 may need only SEP 34's host reference
+
+**Sections:** 11 (phase 1), 6.3.
+
+As written, the incident-energy correction waits for SEP 34's full three-backend
+activation. The defect it fixes is gross: a badly captured profile is relaunched at
+the full requested energy, an error of order one. It also lives on the modal launch
+path, not in a spatial kernel. The only physical input it needs is the incident
+measure at the entrance plane, and that is SEP 34's host reference definition. In
+a gas-filled capillary, the medium measure differs from the vacuum one by about
+10⁻³.
+
+**Recommendation, for maintainer decision:** either allow phase 1 to merge after
+SEP 34's phase 1 (shared host reference), with that ≈10⁻³ inconsistency against
+still-vacuum spatial observations documented until activation; or keep the
+present ordering and state the reason, which is no window of mixed conventions.
+Either is defensible. The SEP should say which was chosen.
+
+#### S3 — P3: The weak-guidance screen is strict for ordinary fibres
+
+**Section:** 4.3 (*Admission rule*).
+
+With $\Delta\le\epsilon_m/8$, a standard step-index single-mode fibre (Δ ≈ 0.36 %)
+needs $\epsilon_m\gtrsim2.9\,\%$. A 1 % model budget therefore refuses
+fibre-to-fibre coupling between such fibres, even identical ones, where the scalar
+overlap is exact by symmetry. The text already calls the allocation conservative
+and requires independent benchmarks. Say whether those benchmark envelopes may
+replace the Δ screen for a qualified provider pair. Otherwise the screen, not the
+physics, sets the smallest usable budget.
+
+#### S4 — P3: Name the mode beating in the tutorial capillary
+
+**Section:** 8.1.
+
+For a = 75 μm at 800 nm in near-unity-index gas, the EH₁₁–EH₁₂ beat length
+$2\pi/\Delta\beta=8\pi a^2/[(u_{12}^2-u_{11}^2)\lambda]$ is about 22.5 mm. The
+5 mm segment is roughly a quarter beat, and EH₁₂'s extra loss over 5 mm is
+negligible. At w/a = 0.5, with about 9 % in EH₁₂, the output profiles therefore
+show partial beating rather than modal filtering. That is fine, but the tutorial
+text should say so, so that a reader does not mistake the beat phase for a
+nonlinear effect. Comparing linear-prepared and Kerr-prepared launches over the
+same segment already controls for it.
