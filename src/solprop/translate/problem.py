@@ -1432,6 +1432,20 @@ class KernelProblem:
             msg = "power_weight_constant must match its degree-zero table"
             raise TranslationError(msg)
 
+    def _check_flux(self) -> None:
+        """Check a spatial problem carries its plane measure on the run's band."""
+        if (self.transform.geometry is None) != (self.flux is None):
+            msg = (
+                "a spatial problem requires its plane measure (flux), and a problem "
+                "without spatial geometry carries none"
+            )
+            raise TranslationError(msg)
+        if self.flux is not None and not np.array_equal(
+            self.flux.base.active, self.grids.active_mask
+        ):
+            msg = "the plane measure's active mask must match the temporal grid"
+            raise TranslationError(msg)
+
     def _check_spatial(self) -> None:
         """Check spatial geometry and the shared separable representation agree."""
         geometry = self.transform.geometry
@@ -1439,6 +1453,7 @@ class KernelProblem:
         if self.responses.separable is not separable:
             msg = "linear and responses must share the same separable coefficients"
             raise TranslationError(msg)
+        self._check_flux()
         if separable is not None:
             if geometry is None or geometry.kind not in ("free", "slab"):
                 msg = "a separable spatial operator requires free or slab geometry"

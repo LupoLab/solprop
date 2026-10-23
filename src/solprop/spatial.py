@@ -65,6 +65,7 @@ __all__ = [
     "mask_plane_radius",
     "on_axis_intensity",
     "on_axis_spectrum",
+    "peak_field",
     "physical_evanescent_rate",
     "planar_fluence",
     "planar_intensity",
@@ -1414,6 +1415,44 @@ def planar_intensity(
     """
     _check_flux(spectrum, flux, planar=True)
     return _local_intensity(spectrum, flux)
+
+
+def peak_field(
+    grid: TimeGrid,
+    space: RadialGrid | FreeGrid | PlanarGrid,
+    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"],
+) -> float:
+    """Return the largest physical analytic field magnitude at any node and time.
+
+    A named electric-field diagnostic, ``max sqrt(sum_pol |E_a|^2)`` in V/m: the
+    physical field that drives ionisation rates, not an axial flux (SEP 34).
+
+    Parameters
+    ----------
+    grid : solprop.grid.TimeGrid
+        Temporal grid.
+    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
+        Transverse geometry.
+    spectrum : numpy.ndarray
+        Internal radial spectrum in V m, Cartesian spectrum in V/m or planar slab
+        amplitudes, shape ``(n_modes, n_pol, n_omega)``.
+
+    Returns
+    -------
+    float
+        Peak field amplitude in V/m.
+
+    Raises
+    ------
+    GridError
+        If the spectrum's shape or finiteness is invalid.
+    """
+    if isinstance(space, PlanarGrid):
+        _check_planar(grid, space, spectrum)
+    else:
+        _check_field(grid, space, spectrum)
+    analytic = _analytic(grid, _synthesise(space, spectrum))
+    return float(np.sqrt(np.max(np.sum(np.abs(analytic) ** 2, axis=1))))
 
 
 def _check_planar(

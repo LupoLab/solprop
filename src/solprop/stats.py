@@ -52,21 +52,24 @@ from jaxtyping import Bool, Complex, Float
 from solprop import fourier
 from solprop.constants import EPS0, C
 from solprop.exceptions import ApertureEdgeWarning, OutputError
-from solprop.grid import FreeGrid, RadialGrid, TimeGrid
+from solprop.grid import TimeGrid
 from solprop.modes import base as modes_base
 from solprop.modes.protocol import Mode
+from solprop.modes.slab import PlanarGrid
 from solprop.output.schema import SavedPlane, SimulationKind
 from solprop.profiles import ZProfile
 from solprop.spatial import (
     FAR_FIELD_STATISTICS,
     OPERATOR_STATISTICS,
     ApertureProfile,
+    SpatialFlux,
     aperture_statistics,
     beam_radius,
     check_aperture_profile,
     fwhm_r,
     on_axis_intensity,
     on_axis_spectrum,
+    planar_intensity,
     spatial_energy,
     spatial_intensity,
 )
@@ -2510,7 +2513,7 @@ def collect(  # noqa: PLR0913 - a spec, a grid, a plane and four optional source
     *,
     modes: Sequence[Mode] | None = None,
     profiles: Mapping[str, ZProfile] | None = None,
-    space: RadialGrid | FreeGrid | None = None,
+    flux: SpatialFlux | None = None,
     metric: Complex[np.ndarray, "n_modes_metric_out n_modes_metric_in n_omega_metric"]
     | None = None,
 ) -> dict[str, np.ndarray]:
@@ -2534,9 +2537,11 @@ def collect(  # noqa: PLR0913 - a spec, a grid, a plane and four optional source
     profiles : collections.abc.Mapping, optional
         The z-profiles, keyed by statistic name. Needed by ``density``, ``pressure``
         and ``core_radius``.
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid or None, optional
-        Spatial geometry for a radial or Cartesian spectrum. Its measure replaces
-        modal energy normalization; spatial widths use time-integrated fluence.
+    flux : solprop.spatial.SpatialFlux or None, optional
+        The plane's measure for a radial or Cartesian spectrum, resolved at the
+        plane's own position (and jump side) in its medium: every spatial statistic
+        is that medium's axial Poynting flux (SEP 34), and widths use the signed
+        time-integrated fluence.
         The far-field statistics ``aperture_spectrum``,
         ``aperture_on_axis_spectrum``, ``region_spectrum`` and ``beam_spectrum``
         need a Cartesian grid or a line (SEP 23), and are formed in one pass by
@@ -2562,8 +2567,8 @@ def collect(  # noqa: PLR0913 - a spec, a grid, a plane and four optional source
         If a statistic's dependency is missing -- no windows for a windowed statistic,
         no modes for ``zdw``, or no profile for a profile statistic -- or if it is one
         a backend owns, which this function cannot form from a saved plane
-        (``poynting_spectrum`` and ``absorbed_power`` among them, refused by name
-        because a plane does not carry the linear operator); if a far-field statistic
+        (``absorbed_power`` among them, refused by name because a plane does not
+        carry the linear operator's rates); if a far-field statistic
         is asked of a radial grid, or of a line with an aperture off ``y = 0`` or a
         region excluding ``kappa_y = 0``; or if the plane kept no field (SEP 22).
 
@@ -2594,16 +2599,16 @@ def collect(  # noqa: PLR0913 - a spec, a grid, a plane and four optional source
     values: dict[str, np.ndarray] = {}
     # The far-field statistics share one pass over the columns (SEP 23).
     far_field = (
-        _far_field_statistics(spec, grid, space, field)
-        if space is not None and _SAVED_FAR_FIELD & set(spec.names)
+        _far_field_statistics(spec, flux, field)
+        if flux is not None and _SAVED_FAR_FIELD & set(spec.names)
         else {}
     )
     for name in spec.names:
-        if space is not None and name not in PROFILE_STATISTICS:
+        if flux is not None and name not in PROFILE_STATISTICS:
             values[name] = (
                 far_field[name]
                 if name in far_field
-                else _spatial_statistic(name, grid, space, field)
+                else _spatial_statistic(name, flux, field)
             )
         elif "spatial_geometry" in CATALOGUE[name].requires:
             msg = f"the {name!r} statistic requires spatial geometry"
@@ -2819,8 +2824,7 @@ _SAVED_FAR_FIELD = frozenset(FAR_FIELD_STATISTICS) - frozenset(OPERATOR_STATISTI
 
 def _far_field_statistics(
     spec: StatsSpec,
-    grid: TimeGrid,
-    space: RadialGrid | FreeGrid,
+    flux: SpatialFlux,
     field: Complex[np.ndarray, "n_modes n_pol n_omega"],
 ) -> dict[str, np.ndarray]:
     """Form every saved-field far-field statistic a spec asks for, in one pass.
@@ -2829,10 +2833,8 @@ def _far_field_statistics(
     ----------
     spec : StatsSpec
         The request, with its far-field tables.
-    grid : solprop.grid.TimeGrid
-        The temporal grid of the plane.
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        The transverse grid; the radial one is refused by name.
+    flux : solprop.spatial.SpatialFlux
+        The plane's measure; a radial grid is refused by name.
     field : numpy.ndarray
         Internal Cartesian spectrum in V/m, shape ``(n_x*n_y, n_pol, n_omega)``.
 
@@ -2845,15 +2847,24 @@ def _far_field_statistics(
     from solprop.translate.spatial import aperture_tables  # noqa: PLC0415
 
     names = [name for name in spec.names if name in _SAVED_FAR_FIELD]
-    tables = aperture_tables(spec, grid, space)
+    space = flux.space
+    if isinstance(space, PlanarGrid):
+        msg = "the far-field statistics read a Cartesian or line grid, not a planar one"
+        raise OutputError(msg)
+    tables = aperture_tables(spec, flux.grid, space)
     assert tables is not None  # the spec names a far-field statistic
-    return aperture_statistics(names, grid, field, tables)
+    return aperture_statistics(
+        names,
+        flux.grid,
+        field,
+        tables,
+        axial=lambda columns: (flux.admittance(columns), None),
+    )
 
 
 def _spatial_statistic(
     name: str,
-    grid: TimeGrid,
-    space: RadialGrid | FreeGrid,
+    flux: SpatialFlux,
     field: Complex[np.ndarray, "n_modes n_pol n_omega"],
 ) -> np.ndarray:
     """Evaluate a spatial saved-field statistic through its physics reference.
@@ -2862,10 +2873,8 @@ def _spatial_statistic(
     ----------
     name : str
         Requested spatial catalogue name.
-    grid : solprop.grid.TimeGrid
-        Temporal grid and Fourier convention.
-    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
-        Transverse transform and physical area weights.
+    flux : solprop.spatial.SpatialFlux
+        The plane's measure, binding its grids and medium.
     field : numpy.ndarray
         Internal spectrum, shape (n_modes, n_pol, n_omega): a Hankel spectrum in
         V m or a raw Cartesian DFT spectrum in V/m.
@@ -2876,22 +2885,24 @@ def _spatial_statistic(
         Scalar or array value in the catalogue's units.
     """
     if name == "energy":
-        return np.asarray(spatial_energy(grid, space, field))
+        return np.asarray(spatial_energy(field, flux))
     if name == "on_axis_intensity":
-        return np.asarray(on_axis_intensity(grid, space, field))
+        return np.asarray(on_axis_intensity(field, flux))
     if name == "on_axis_spectrum":
-        return on_axis_spectrum(grid, space, field)
+        return on_axis_spectrum(field, flux)
     if name == "peak_intensity":
-        return np.asarray(np.max(spatial_intensity(grid, space, field)))
+        local = (
+            planar_intensity(field, flux)
+            if isinstance(flux.space, PlanarGrid)
+            else spatial_intensity(field, flux)
+        )
+        return np.asarray(np.max(local))
     if name == "beam_radius":
         return np.asarray(
-            [
-                beam_radius(grid, space, field),
-                beam_radius(grid, space, field, method="1/e2"),
-            ]
+            [beam_radius(field, flux), beam_radius(field, flux, method="1/e2")]
         )
     if name == "fwhm_r":
-        return np.asarray(fwhm_r(grid, space, field))
+        return np.asarray(fwhm_r(field, flux))
     if name in OPERATOR_STATISTICS:
         msg = (
             f"the {name!r} statistic needs the run's separable linear operator, which "

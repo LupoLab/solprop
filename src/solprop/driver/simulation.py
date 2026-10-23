@@ -54,7 +54,7 @@ from solprop.boundaries import (
     warn_walkoff,
 )
 from solprop.boundaries import absorber as collar
-from solprop.constants import EPS0, C
+from solprop.constants import C
 from solprop.driver import tdse_consistency
 from solprop.driver.material_output import (
     material_manifest,
@@ -219,7 +219,7 @@ from solprop.pulses import (
     SechPulse,
     SpatialPulse,
 )
-from solprop.spatial import SpatialMedium, planar_intensity, spatial_intensity
+from solprop.spatial import SpatialFlux, SpatialMedium, peak_field
 from solprop.stats import (
     PLASMA_INTEGRATION_STATISTICS,
     StatsSpec,
@@ -1326,7 +1326,7 @@ class Simulation(Displayed):
                     grid, thg=any(bool(getattr(one, "thg", False)) for one in responses)
                 )
             self._field0 = initial.build(
-                grid, spatial_grid, medium=medium, frame=self.frame
+                grid, spatial_grid, medium=medium, z=initial_z, frame=self.frame
             )
         else:
             self._field0 = _built(initial, grid)
@@ -2947,8 +2947,7 @@ class Simulation(Displayed):
             None
             if noise is None
             else spatial_noise(
-                grid,
-                space,
+                SpatialFlux.resolve(grid, space, medium, z=simulation.initial_z),
                 np.random.default_rng(seed),
                 model=noise,
                 n_pol=field.shape[1],
@@ -8997,17 +8996,13 @@ def _spatial_input_peak(
     Returns
     -------
     tuple of float
-        The peak field amplitude in V/m, from the physical intensity's maximum, and
+        The peak physical field amplitude in V/m, and
         the circular share ``|S3|/S0`` of the pulse's Jones vector; a spectrum given
         as an array declares none and is taken as linear.
     """
     space = cast("RadialGrid | FreeGrid | PlanarGrid", simulation.spatial_grid)
-    intensity = (
-        planar_intensity(simulation.grid, space, simulation._field0)
-        if isinstance(space, PlanarGrid)
-        else spatial_intensity(simulation.grid, space, simulation._field0)
-    )
-    peak = math.sqrt(2.0 * float(np.max(intensity)) / (EPS0 * C))
+    # Ionisation is driven by the physical field, never by a signed axial flux.
+    peak = peak_field(simulation.grid, space, simulation._field0)
     jones = (
         np.asarray(initial.jones, dtype=np.complex128)
         if isinstance(initial, SpatialPulse)

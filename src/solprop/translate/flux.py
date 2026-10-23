@@ -158,4 +158,11 @@ def flux_plan(
         tol=tol,
         mandatory_breakpoints=kinks[(kinks > span[0]) & (kinks < span[1])],
     )
+    for values in (
+        material.coefficients,
+        material.breakpoints,
+        material.degrees,
+        material.hard_kinks,
+    ):
+        values.setflags(write=False)
     return FluxPlan(base, material)

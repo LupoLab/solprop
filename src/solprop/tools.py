@@ -661,8 +661,8 @@ def self_focusing_power(wavelength: float, index: float, n2: float) -> float:
     :math:`P_{\rm cr} = 1.86226\,\lambda^2/(4\pi n_0 n_2)`, the Townes power of Fibich
     and Gaeta (Opt. Lett. 25, 335 (2000)). It is
     :func:`solprop.spatial.critical_power` -- the package's one Townes constant --
-    times the linear index, because that function measures power without the material
-    factor ``n`` and this one with it. The paper prints the constant as 1.86225; the
+    at the linear index, both measuring the physical axial power in the medium
+    (SEP 34). The paper prints the constant as 1.86225; the
     computed value is 1.8622555, of which 1.86226 is the rounding.
 
     Parameters
@@ -687,7 +687,9 @@ def self_focusing_power(wavelength: float, index: float, n2: float) -> float:
     """
     linear = _positive("index", index)
     chi3 = chi3_from_n2(_positive("n2", n2), linear)
-    return linear * spatial.critical_power(_positive("wavelength", wavelength), chi3)
+    return spatial.critical_power(
+        _positive("wavelength", wavelength), chi3, index=linear
+    )
 
 
 def field_to_intensity(field: float) -> float:
