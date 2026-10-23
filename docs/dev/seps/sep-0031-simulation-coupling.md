@@ -1073,6 +1073,8 @@ No new material constant or experimental validation is claimed.
   status remains Draft.
 - 2026-10-23: AI re-review of the revised Part I by Opus 5.5 (S1–S4), recorded
   after the response. No P1 finding remains; Part I unchanged by the reviewer.
+- 2026-10-23: Maintainer decision on S2 recorded: phase 1 follows SEP 34's
+  activation.
 
 ### AI review — 2026-10-23
 
@@ -1463,6 +1465,9 @@ certified forward-field error alongside the other model errors in the
 #### S2 — P2: Phase 1 may need only SEP 34's host reference
 
 **Sections:** 11 (phase 1), 6.3.
+**Maintainer decision (2026-10-23):** keep the present ordering. The
+incident-energy fix lands after SEP 34's public activation, so there is no window
+of mixed conventions. State that reason in §11.
 
 As written, the incident-energy correction waits for SEP 34's full three-backend
 activation. The defect it fixes is gross: a badly captured profile is relaunched at

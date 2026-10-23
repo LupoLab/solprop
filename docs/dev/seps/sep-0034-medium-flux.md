@@ -7,8 +7,8 @@
 | **Author** | John Travers |
 | **Drafting agent** | GPT-6 |
 | **Status** | Draft |
-| **Review status** | In review |
-| **Reviewers** | Opus 5.5 (AI) |
+| **Review status** | Reviewed |
+| **Reviewers** | John Travers (human); Opus 5.5 (AI) |
 | **Type** | Change |
 | **Created** | 2026-10-23 |
 | **Resolution** | — |
@@ -575,6 +575,11 @@ not revalidated to additional precision by this draft.
   part remains the total-energy/noise measure. No implementation has started.
 - 2026-10-23: Reviewed by Opus 5.5 (AI), A1–A7 below; Part I unchanged. Review
   status In review pending a human review; status remains Draft.
+- 2026-10-23: John Travers's human review recorded at his request. Review status
+  Reviewed records completion of review, not acceptance; status remains Draft.
+- 2026-10-23: Maintainer decisions recorded beside A1 (default 10⁻⁴ adiabatic
+  budget), A2 (short paid device qualification before activation) and A3 (exact
+  in-run local flux). Part I unchanged.
 
 ### AI review — 2026-10-23
 
@@ -618,6 +623,9 @@ revision or recorded decision, **P3** editorial.
 
 **Sections:** 4.5, 5 (`AdiabaticAccuracy`), 7 (gradient rows), 9, 11 (phase 1),
 12 (Q1).
+**Maintainer decision (2026-10-23):** `AdiabaticAccuracy` has a default budget
+of 10⁻⁴ (forward-field error and reflected energy); callers may tighten it, and
+a path exceeding it refuses.
 
 §4.5 derives $|\rho'|\le|q'/2q|$ and hence $R\le\tanh^2\Lambda$, but then treats it as
 a crude screen and requires independent scalar-wave references per profile family,
@@ -674,6 +682,10 @@ the abrupt-step limit failing: it states the forward model's error at a step
 #### A2 — P2: Decide the native GPU state at activation now
 
 **Sections:** 6.2, 12 (Q4).
+**Maintainer decision (2026-10-23):** a short, bounded, paid device qualification
+before activation (one NVIDIA and one AMD device, a few tens of calls, budget
+stated in Part I); the spend itself still needs the maintainer's go. No GPU
+refusal and no unqualified activation.
 
 The native backend's CPU and GPU builds share source. An atomic CPU activation
 therefore changes GPU spatial semantics in the same commit. Q4 admits an "accepted,
@@ -691,6 +703,10 @@ than at activation.
 #### A3 — P2: Enumerate which statistics need G
 
 **Sections:** 4.2, 5, 6.1, 7.
+**Maintainer decision (2026-10-23):** in-run local statistics use the exact
+signed local flux, with G synthesised in-run, as the robust default; the extra
+cost is measured and reported, not avoided by a cheaper carrier-admittance
+substitute.
 
 Energy and spectra need only the real weights. They cost one multiply per column.
 Local fluence, peak intensity, on-axis traces and widths need G synthesis: extra
