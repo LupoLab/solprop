@@ -23,8 +23,8 @@
  * (solprop SEP 34): a squared modulus is weighted by the real admittance
  * `c Re k_z / omega` of the operator's root, and each amplitude carries its magnetic
  * closure, the same sum with `conj(c k_z / omega)` applied first, formed per element
- * (no column-by-frequency table is held). It mirrors solprop's `numba_cpu` pass: the slot
- * layout of `solprop.backends.spatial.far_field_layout`, the band edges of
+ * (no column-by-frequency table is held). It mirrors solprop's `numba_cpu` pass: the
+ * slot layout of `solprop.backends.spatial.far_field_layout`, the band edges of
  * `far_field_bands` (the same units and budget), the radius of `mask_plane_radius`
  * compiled without contraction, the zeros of `aperture_weight` and the root of
  * `longitudinal_root`. Each band sums its columns in ascending order and the bands are
@@ -65,8 +65,8 @@ enum FarFieldFlag : std::uint64_t {
 };
 
 inline constexpr std::uint64_t far_field_flags =
-    far_field_beam | far_field_absorbed | far_field_regions |
-    far_field_collected | far_field_amplitude | far_field_axis;
+    far_field_beam | far_field_absorbed | far_field_regions | far_field_collected |
+    far_field_amplitude | far_field_axis;
 
 /**
  * Where each quantity of the pass lives in its slots, solprop's `FarFieldLayout`.
@@ -189,7 +189,8 @@ KOKKOS_INLINE_FUNCTION bool far_field_member(const double k_x, const double k_y,
  * one is a team per band over its columns in ascending order, the team's threads over
  * frequency; stage two adds the bands in ascending order and applies the constant
  * factors (`intensity_factor`, the spectral-density prefactor, the energy weights and
- * each amplitude's pairing `Re(A conj(G))` with its closure), so only the packed statistics cross to the host.
+ * each amplitude's pairing `Re(A conj(G))` with its closure), so only the packed
+ * statistics cross to the host.
  */
 class FarFieldPass {
 public:

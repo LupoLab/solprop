@@ -278,9 +278,8 @@ void FarFieldPass::accumulate(const FarFieldLayout& layout, const std::size_t n_
                   const Complex value = field(column * n_pol + pol, bin);
                   power += value.real() * value.real() + value.imag() * value.imag();
                 }
-                const Complex longitudinal =
-                    (square(bin) - transverse(column)) +
-                    (square_low(bin) - transverse_low(column));
+                const Complex longitudinal = (square(bin) - transverse(column)) +
+                                             (square_low(bin) - transverse_low(column));
                 const Complex root = Kokkos::sqrt(longitudinal);
                 const bool propagating = longitudinal.real() > 0.0;
                 const double attenuation =

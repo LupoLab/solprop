@@ -791,7 +791,8 @@ public:
                                       channel_preionisation, power_weight);
   }
   std::vector<double> spatial_statistics(const std::uint64_t flags,
-                                         const double intensity_factor, const double z) {
+                                         const double intensity_factor,
+                                         const double z) {
     require_open();
     if (!general_state_)
       throw std::logic_error("spatial statistics require the general native state");

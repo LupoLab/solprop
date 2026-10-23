@@ -655,9 +655,8 @@ public:
    * fluence at each node, the axis fluence, then each node's magnitude
    * `dt sum |E| |G|`), packed in that order.
    */
-  [[nodiscard]] std::vector<double> spatial_statistics(std::uint64_t flags,
-                                                       double intensity_factor,
-                                                       double z);
+  [[nodiscard]] std::vector<double>
+  spatial_statistics(std::uint64_t flags, double intensity_factor, double z);
   /**
    * solprop SEP 23's far-field statistics of the accepted state on a Cartesian or line
    * grid, one banded pass; see `FarFieldPass::run` (`far_field.hpp`) for the tables,

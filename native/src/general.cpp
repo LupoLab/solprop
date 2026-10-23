@@ -563,8 +563,8 @@ struct SpatialCoefficients {
   // (solprop SEP 34, `axial_admittance`) on an active propagating bin at positive
   // frequency, zero elsewhere: the factor an internal (conjugate) spectrum takes to
   // its magnetic closure. Its real part weighs energy and spectra.
-  KOKKOS_INLINE_FUNCTION Complex closing(const std::size_t mode, const std::size_t omega,
-                                         const bool active,
+  KOKKOS_INLINE_FUNCTION Complex closing(const std::size_t mode,
+                                         const std::size_t omega, const bool active,
                                          const double frequency) const {
     const Complex longitudinal = longitudinal_square(mode, omega);
     if (!active || !(longitudinal.real() > 0.0) || !(frequency > 0.0))
@@ -2538,7 +2538,8 @@ void GeneralWorkspace::allocate() {
     flux_.square = ComplexView("solprop_native.flux.k_squared", n);
     flux_.square_low = ComplexView("solprop_native.flux.k_squared_low", n);
     flux_.transverse = RealView("solprop_native.flux.kperp_sq", problem_.n_modes);
-    flux_.transverse_low = RealView("solprop_native.flux.kperp_sq_low", problem_.n_modes);
+    flux_.transverse_low =
+        RealView("solprop_native.flux.kperp_sq_low", problem_.n_modes);
   }
   current_ = ComplexView2("solprop_native.state.current", columns, n);
   if (problem_.low_storage) {
@@ -6409,7 +6410,8 @@ void GeneralWorkspace::transverse_inverse() { transverse_inverse(transverse_); }
 // plan's own scratch or the magnetic closure's (solprop SEP 34).
 void GeneralWorkspace::transverse_inverse(const ComplexView3& scratch) {
   if (slab_inverse_)
-    KokkosFFT::execute(*slab_inverse_, scratch, scratch, KokkosFFT::Normalization::none);
+    KokkosFFT::execute(*slab_inverse_, scratch, scratch,
+                       KokkosFFT::Normalization::none);
   else
     KokkosFFT::execute(*transverse_inverse_, scratch, scratch,
                        KokkosFFT::Normalization::none);
@@ -10590,8 +10592,8 @@ void GeneralWorkspace::fill_statistics_closure() {
             envelope || index == 0 || index + 1 == n ? 1.0 : 2.0;
         const Complex closing =
             flux.closing(column / n_pol, index, active(index) != 0U, omega(index));
-        spectrum(column, index) =
-            analytic_scale / static_cast<double>(n_t) * (closing * current(column, index));
+        spectrum(column, index) = analytic_scale / static_cast<double>(n_t) *
+                                  (closing * current(column, index));
       });
   KokkosFFT::execute(*statistics_inverse_plan_, statistics_spectrum_, statistics_time_,
                      KokkosFFT::Normalization::none);
@@ -10644,8 +10646,9 @@ void GeneralWorkspace::separable_time_statistics(const std::size_t axis_peak,
                      (closed ? flux.closing(mode, index, live, omega(index)) * value
                              : value);
             }
-            const double scale = (envelope || index == 0 || index + 1 == n ? 1.0 : 2.0) /
-                                 static_cast<double>(n_t);
+            const double scale =
+                (envelope || index == 0 || index + 1 == n ? 1.0 : 2.0) /
+                static_cast<double>(n_t);
             spectrum(pol, index) = scale * sum;
           });
       KokkosFFT::execute(*statistics_inverse_plan_, statistics_spectrum_,
@@ -10653,7 +10656,8 @@ void GeneralWorkspace::separable_time_statistics(const std::size_t axis_peak,
       if (closed)
         Kokkos::deep_copy(
             execution_space_,
-            Kokkos::subview(closure, std::make_pair<std::size_t>(0, n_pol), Kokkos::ALL),
+            Kokkos::subview(closure, std::make_pair<std::size_t>(0, n_pol),
+                            Kokkos::ALL),
             Kokkos::subview(field, std::make_pair<std::size_t>(0, n_pol), Kokkos::ALL));
     }
     Kokkos::parallel_for(
@@ -10712,16 +10716,18 @@ void GeneralWorkspace::separable_time_statistics(const std::size_t axis_peak,
           "solprop_native.free.statistics_temporal_input",
           Range2(execution_space_, {0, 0}, {count * n_pol, n}),
           KOKKOS_LAMBDA(const std::size_t row, const std::size_t index) {
-            const double scale = (envelope || index == 0 || index + 1 == n ? 1.0 : 2.0) /
-                                 static_cast<double>(n_t);
+            const double scale =
+                (envelope || index == 0 || index + 1 == n ? 1.0 : 2.0) /
+                static_cast<double>(n_t);
             if (slab) {
               // Node ix of the chunk's y row iy: the slab synthesis of that row.
               const auto ix = row % n_x;
               const auto rows = first_row + (row / n_x) * n_p;
               Complex sum{};
               for (std::size_t channel = 0; channel < n_p; ++channel)
-                sum += synthesis(ix, channel) * source(index, layout.first(rows + channel),
-                                                       layout.second(rows + channel));
+                sum +=
+                    synthesis(ix, channel) * source(index, layout.first(rows + channel),
+                                                    layout.second(rows + channel));
               spectrum(row, index) = scale * (crop_scale * sum);
             } else {
               const auto node = first + row / n_pol;
@@ -10900,7 +10906,8 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
           for (std::size_t pol = 0; pol < n_pol; ++pol) {
             Complex electric{}, magnetic{};
             for (std::size_t mode = 0; mode < n_modes; ++mode) {
-              const Complex value = axis_weights(mode) * current(mode * n_pol + pol, index);
+              const Complex value =
+                  axis_weights(mode) * current(mode * n_pol + pol, index);
               electric += value;
               magnetic += flux.closing(mode, index, live, omega(index)) * value;
             }

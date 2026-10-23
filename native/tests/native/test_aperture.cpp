@@ -4,10 +4,11 @@
 
 // The far-field pass of solprop SEP 23 against a straightforward serial host reduction
 // of the same definitions, measured by the medium's axial flux (solprop SEP 34): the
-// beam spectrum, the absorbed channels, the regions, the apertures' collected and on-axis spectra and the on-axis spectrum, on a
-// plane and on a line of several blocks, on field and envelope grids. The two sum the
-// same terms in different associations, so they agree within a rounding bound fixed
-// before running (solprop SEP 25), never by bits; hard-edge membership is shared.
+// beam spectrum, the absorbed channels, the regions, the apertures' collected and
+// on-axis spectra and the on-axis spectrum, on a plane and on a line of several blocks,
+// on field and envelope grids. The two sum the same terms in different associations, so
+// they agree within a rounding bound fixed before running (solprop SEP 25), never by
+// bits; hard-edge membership is shared.
 
 #include "bounds.hpp"
 #include "solprop_native/core.hpp"
