@@ -10553,7 +10553,7 @@ void GeneralWorkspace::require_flux_closure() {
   const auto rows = statistics_time_.extent(0);
   const bool time = statistics_weighted_time_.extent(0) != rows;
   const bool magnitude = statistics_magnitude_.extent(0) != statistics_power_.extent(0);
-  const bool volume = problem_.separable_geometry() && flux_transverse_.size() == 0;
+  const bool volume = problem_.separable_geometry() && flux_transverse_.empty();
   if (!time && !magnitude && !volume)
     return;
   execution_space_.fence("solprop_native flux closure allocation");
@@ -10812,7 +10812,7 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
   if (!initialized_ || spatial_spectral_weights_.empty())
     throw std::logic_error(
         "spatial statistics need an initial field and spatial geometry");
-  if (flux_.square.size() == 0)
+  if (flux_.square.empty())
     throw std::logic_error("spatial statistics need the run's plane measure");
   if ((flags & ~std::uint64_t{31}) != 0 || !std::isfinite(intensity_factor) ||
       intensity_factor <= 0.0 || !std::isfinite(z))
