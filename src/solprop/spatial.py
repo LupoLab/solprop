@@ -774,8 +774,7 @@ def plane_sample(medium: SpatialMedium, z: float, side: FluxSide | None) -> floa
         msg = "side must be 'before', 'after' or None"
         raise MaterialError(msg)
     jump = any(
-        np.any(np.asarray(getattr(path, "jumps", ())) == z)
-        for path in medium.parameter_paths.values()
+        np.any(np.asarray(path.jumps) == z) for path in medium.parameter_paths.values()
     )
     if jump and side is None:
         msg = (

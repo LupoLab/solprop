@@ -44,6 +44,7 @@ from scipy.special import j0, jn_zeros
 
 import solprop.driver.tdse as tdse_runtime
 from solprop._display import Displayed, engineering, line, summarise
+from solprop.adiabatic import AdiabaticAccuracy
 from solprop.backends.multistep import CallLedger
 from solprop.backends.protocol import Backend
 from solprop.backends.registry import resolve_name, select
@@ -555,6 +556,10 @@ class SimulationSettings(Displayed):
         the default, carries none. It damps content reaching the grid's outer
         wavenumbers; it does not replace sizing the grid by the one-half rule.
         Refused on the radial and hybrid planar kinds and on modal runs.
+    adiabatic_accuracy : solprop.adiabatic.AdiabaticAccuracy or None
+        The forward-field and reflected-energy budgets a radial medium varying
+        along z must meet (SEP 34 section 4.5). ``None``, the default, is
+        ``AdiabaticAccuracy()``, both 1e-4; a path exceeding them is refused.
     tdse_execution : solprop.nonlinear.tdse.TDSEExecution or None
         Explicit atomic runtime resources for a TDSE response. Requires an explicit
         ``backend="numpy_ref"`` and a Multistep integrator. Execution resources are
@@ -614,6 +619,7 @@ class SimulationSettings(Displayed):
     field_planes: Sequence[int] = ()
     evanescent_rate: float | None = None
     transverse_absorber: TransverseCollar | None = None
+    adiabatic_accuracy: AdiabaticAccuracy | None = None
 
     def _planes_text(self) -> str:
         """Return the save planes summarised, for printing.
@@ -1552,6 +1558,7 @@ class Simulation(Displayed):
                     reuse=self._reuse,
                     evanescent_rate=settings.evanescent_rate,
                     transverse_absorber=settings.transverse_absorber,
+                    adiabatic_accuracy=settings.adiabatic_accuracy,
                 )
         return self._problem
 
@@ -1955,6 +1962,8 @@ class Simulation(Displayed):
                 configuration["evanescent_rate"] = self.settings.evanescent_rate
             if self.settings.transverse_absorber is not None:
                 configuration["transverse_absorber"] = self.settings.transverse_absorber
+            if self.settings.adiabatic_accuracy is not None:
+                configuration["adiabatic_accuracy"] = self.settings.adiabatic_accuracy
             if self.spatial_grid is not None:
                 configuration.update(
                     spatial_grid=self.spatial_grid, medium=self.medium, frame=self.frame

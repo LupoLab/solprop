@@ -40,6 +40,7 @@ from typing import Any, Literal, cast
 import numpy as np
 from jaxtyping import Bool, Complex, Float
 
+from solprop.adiabatic import AdiabaticAccuracy, certify_radial_path
 from solprop.boundaries import (
     STABILITY_RADIUS,
     Absorber,
@@ -2373,6 +2374,7 @@ class _Assembly:
     taper_coupling: bool = True
     evanescent_rate: float | None = None
     transverse_absorber: TransverseCollar | None = None
+    adiabatic_accuracy: AdiabaticAccuracy | None = None
 
 
 def _check_operator_settings(
@@ -2527,6 +2529,17 @@ def _spatial_assembly(
             prefactor,
             flux_plan(spatial_grid, dispersion, linear, tol=build.tol),
         )
+    admission = None
+    if not all(path.is_constant for path in medium.parameter_paths.values()):
+        # SEP 34 section 4.5: every active propagating column must meet the
+        # adiabatic budgets over the whole run path before the forward amplitude
+        # transport is trusted.
+        admission = certify_radial_path(
+            dispersion,
+            spatial_grid.k_r**2,
+            (0.0, build.z_max),
+            build.adiabatic_accuracy,
+        )
     linear, prefactor = radial_operators(
         spatial_grid,
         dispersion,
@@ -2555,7 +2568,7 @@ def _spatial_assembly(
         linear,
         transform,
         prefactor,
-        flux_plan(spatial_grid, dispersion, linear, tol=build.tol),
+        flux_plan(spatial_grid, dispersion, linear, tol=build.tol, admission=admission),
     )
 
 
@@ -5561,6 +5574,7 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     initial_z: float = 0.0,
     evanescent_rate: float | None = None,
     transverse_absorber: TransverseCollar | None = None,
+    adiabatic_accuracy: AdiabaticAccuracy | None = None,
 ) -> KernelProblem:
     """Turn the physics objects of a run into a validated kernel problem.
 
@@ -5736,6 +5750,10 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         A transverse-wavevector safety ramp folded into the Cartesian operator as
         ``SeparableOperator.kperp_rate`` (SEP 22 section 4.3). Refused on the radial
         and hybrid planar kinds and without a spatial grid.
+    adiabatic_accuracy : solprop.adiabatic.AdiabaticAccuracy or None, optional
+        The budgets a radial medium varying along z must meet for its forward
+        amplitude transport (SEP 34 section 4.5); None, the default, is
+        ``AdiabaticAccuracy()``. A path exceeding them is refused.
 
     Returns
     -------
@@ -5870,6 +5888,7 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         taper_coupling=taper_coupling,
         evanescent_rate=evanescent_rate,
         transverse_absorber=transverse_absorber,
+        adiabatic_accuracy=adiabatic_accuracy,
     )
     # Each mode's frequency-only terms are sampled once per frequency vector for the
     # whole assembly: the dispersion, power-weight and prefactor tables all read them.

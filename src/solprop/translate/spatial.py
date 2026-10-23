@@ -18,6 +18,7 @@ from typing import Literal
 import numpy as np
 from jaxtyping import Bool, Complex, Float
 
+from solprop.adiabatic import AdiabaticAdmission
 from solprop.constants import C
 from solprop.exceptions import OutputError, TranslationError
 from solprop.grid import FreeGrid, RadialGrid, TimeGrid
@@ -883,10 +884,14 @@ class FluxPlan:
         The complex material square ``(omega n(omega, z) / c)**2`` in m^-2 along z,
         value shape ``(n_omega,)``, for a radial medium that varies; None for a
         uniform medium.
+    admission : solprop.adiabatic.AdiabaticAdmission or None
+        The varying path's adiabatic certificate (SEP 34 section 4.5); None for a
+        uniform medium, which needs none.
     """
 
     base: SeparableOperator
     material: PiecewiseChebyshev | None = None
+    admission: AdiabaticAdmission | None = None
 
     def at(self, z: float) -> SeparableOperator:
         """Return the coefficients of the plane at ``z``.

@@ -18,6 +18,7 @@ from typing import cast
 
 import numpy as np
 
+from solprop.adiabatic import AdiabaticAdmission
 from solprop.exceptions import MaterialError, TranslationError
 from solprop.grid import FreeGrid, RadialGrid, TimeGrid
 from solprop.linear import Frame
@@ -113,6 +114,7 @@ def flux_plan(
     linear: LinearOperator,
     *,
     tol: float,
+    admission: AdiabaticAdmission | None = None,
 ) -> FluxPlan:
     """Build the run's plane-measure coefficients for its statistics.
 
@@ -131,6 +133,8 @@ def flux_plan(
         The run's linear operator: its separable record and its span.
     tol : float
         Relative tolerance of the material table, positive.
+    admission : solprop.adiabatic.AdiabaticAdmission or None, optional
+        The varying path's certificate, carried with the plan.
 
     Returns
     -------
@@ -167,7 +171,7 @@ def flux_plan(
         material.hard_kinks,
     ):
         values.setflags(write=False)
-    return FluxPlan(base, material)
+    return FluxPlan(base, material, admission)
 
 
 def flux_record(plan: FluxPlan | None) -> dict[str, object]:
@@ -201,7 +205,23 @@ def flux_record(plan: FluxPlan | None) -> dict[str, object]:
         "evanescent_rate": base.evanescent_rate,
         "kappa_sq": base.kappa_sq,
         "material": None,
+        "admission": None,
     }
+    if plan.admission is not None:
+        admission = plan.admission
+        # The certificate's scope: the linear background's forward coordinates,
+        # not the nonlinear run or an omitted reflected field (SEP 34 section 4.5).
+        record["admission"] = {
+            "scope": "linear-background forward field",
+            "z_span": admission.z_span,
+            "field_error_budget": admission.accuracy.field_error,
+            "reflected_energy_budget": admission.accuracy.reflected_energy,
+            "variation": admission.variation,
+            "field_error": admission.field_error,
+            "reflection": admission.reflection,
+            "exact": admission.exact,
+            "jumps": admission.jumps,
+        }
     if plan.material is not None:
         table = plan.material
         record["material"] = {

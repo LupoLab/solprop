@@ -48,14 +48,6 @@ __all__ = ["radial_operators", "radial_rate_bounds", "radial_transform"]
 
 logger = logging.getLogger(__name__)
 
-_CUTOFF_SAMPLES = 129
-"""Positions per path segment at which the propagating set is checked.
-
-A plain refusal of a cutoff crossing along the sampled path, ahead of the expansion and
-table builders, whose own samples are checked as well. It is not a certificate: the
-adiabatic admission (SEP 34 section 4.5) bounds the path's variation separately.
-"""
-
 
 def radial_transform(  # noqa: PLR0913 - geometry and the shared translation controls
     space: RadialGrid,
@@ -542,19 +534,9 @@ class _AdiabaticAmplitude:
         root, propagating = roots(dispersion, 0.0)
         self._mask = propagating & dispersion.grid.active_mask[None, :]
         self._reference = np.where(self._mask, np.real(root), 1.0)
-        if not paths or not self._mask.any():
-            return
-        inner = [float(one) for one in kinks if 0.0 < float(one) < span]
-        positions = np.unique(
-            np.concatenate(
-                [
-                    np.linspace(low, high, _CUTOFF_SAMPLES)
-                    for low, high in zip([0.0, *inner], [*inner, span], strict=True)
-                ]
-            )
-        )
-        for z in positions:
-            self._admitted(dispersion, float(z))
+        # The adiabatic certificate (solprop.adiabatic) has already refused a path
+        # crossing a cutoff; every sample the builders take is checked again below.
+        del kinks, span
 
     def _admitted(self, model: SpatialDispersion, z: float) -> np.ndarray:
         """Return ``Re k_z`` where the term applies, refusing a cutoff crossing.
