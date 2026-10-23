@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Weekly updates of the GitHub Actions the workflows pin by commit (the trailing comment
+# names the release). Python dependencies are updated deliberately through uv.lock, not
+# here.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
