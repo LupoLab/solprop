@@ -34,6 +34,7 @@ from solprop.log import configure_logging
 __all__ = ["SolpropError", "__version__", "configure_logging"]
 
 _SUBMODULES: Final = (
+    "adiabatic",
     "backends",
     "boundaries",
     "constants",
