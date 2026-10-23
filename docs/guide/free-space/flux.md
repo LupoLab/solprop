@@ -141,8 +141,8 @@ second:
 | entry point | returns |
 |---|---|
 | `SpatialFlux.resolve(grid, space, medium, z=0.0, side=None)` | the measure of the plane at `z` in `medium` |
-| `spatial_energy(field, flux)`, `planar_mode_energy(field, flux)` | energy in J (J/m on a line or a planar guide), from $Y_z$ |
-| `spatial_power(field, flux)` | axial power in W in time; its time integral is the energy |
+| `spatial_energy(field, flux)`, `planar_mode_energy(field, flux)` | energy in J (J/m on a line), from $Y_z$; per slab mode for the planar guide |
+| `spatial_power(field, flux)` | axial power in W (W/m on a line) in time; its time integral is the energy |
 | `spatial_fluence(field, flux)`, `planar_fluence(field, flux)` | signed fluence in J/m² at the nodes |
 | `spatial_intensity(field, flux)`, `planar_intensity(field, flux)` | signed local flux in W/m² at the nodes and times |
 | `on_axis_intensity(field, flux)`, `on_axis_spectrum(field, flux)` | the axial flux and its spectral density on the axis |
