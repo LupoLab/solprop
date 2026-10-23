@@ -561,7 +561,7 @@ def test_fraction_reuse_preserves_propagation_statistics_and_owned_buffers(
     It reuses the fraction the original column recomputes, so the two are one
     computation by two routes on one fixed schedule: a rounding comparison.
     """
-    from solprop.backends.numba_cpu import kernels  # noqa: PLC0415
+    from solprop.backends.numba_cpu import fft, kernels  # noqa: PLC0415
 
     problem, modes = ionising_capillary
     if stash:
@@ -600,7 +600,11 @@ def test_fraction_reuse_preserves_propagation_statistics_and_owned_buffers(
         backend = NumbaCpuBackend(problem, grid=field_grid, **options)
         try:
             assert backend.metadata()["plasma_fraction_reuse"] is True
-            assert backend.metadata()["numba_threads"] == threads
+            # The backend caps the request at the CPUs this process may run (a
+            # three-core runner gives three).
+            assert backend.metadata()["numba_threads"] == min(
+                threads, fft._available_threads()
+            )
             assert backend._spec.parallel is (regime == "large")
             if original:
                 backend._column = kernels.make_response_column(backend._spec)

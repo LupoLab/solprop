@@ -36,6 +36,18 @@ from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule
 
 
+@pytest.fixture(autouse=True)
+def _controller_without_history(monkeypatch):
+    """Size the pool from the scan alone, not from this test process's past.
+
+    The pool reserves the controller's peak resident memory. Here the controller is a
+    long-lived test worker whose peak comes from whatever tests it ran before, which on
+    a small runner (16 GB, several workers) leaves no room for one scan worker. These
+    tests are about the scan, not the budget, which has its own test below.
+    """
+    monkeypatch.setattr(pool, "peak_rss", lambda: 0)
+
+
 def build_point(point):
     """Return a short soliton fibre on a prescribed schedule at a fixed order.
 
