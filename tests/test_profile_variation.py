@@ -193,3 +193,86 @@ def test_a_record_refuses_bounds_that_miss_its_limits():
             np.array([1.0]),
             np.array([True]),
         )
+
+
+def test_a_density_through_an_uncertified_piece_takes_the_largest_slope():
+    pressure = Sum((Linear(1.0, 3.0, 1.5), Linear(3.0, 1.0, 1.5)))
+    inner = pressure.variation(0.1, 1.4)
+    assert not inner.monotone[0]
+    record = DensityPath(Gas.Ar, pressure).variation(0.1, 1.4)
+    assert not record.monotone[0]
+
+    def density(bar):
+        return float(DensityPath(Gas.Ar, Constant(bar))(np.array([0.5]))[0])
+
+    low, high = float(inner.low[0]), float(inner.high[0])
+    secant = (density(high) - density(low)) / (high - low)
+    expected = secant * inner.total_variation
+    # The bound is the spline's largest d(rho)/dp on the range, at least the secant;
+    # argon's compressibility moves that slope by well under 1 % over 2-6 bar.
+    assert expected <= record.total_variation <= (1 + 1e-2) * expected
+
+
+def test_a_density_is_held_at_its_end_values_outside_its_span():
+    path = DensityPath(Gas.Ar, FILL)
+    inner = path.variation(0.0, 1.5)
+    ends = path(np.array([0.0, 1.5]))
+    record = path.variation(-0.5, 2.0)
+    assert record.knots.tolist() == [-0.5, *inner.knots.tolist(), 2.0]
+    assert record.first[0] == record.last[0] == ends[0]
+    assert record.first[-1] == record.last[-1] == ends[1]
+    assert record.total_variation == inner.total_variation
+    beyond = path.variation(2.0, 3.0)
+    assert beyond.total_variation == 0.0
+    assert beyond.first.tolist() == [ends[1]]
+
+
+def test_the_declared_jumps_pass_through_the_composite_paths():
+    step = FromCallable(
+        lambda z: np.where(z < 0.5, 1.0, 2.0),
+        (0.0, 1.0),
+        jumps=np.array([0.5]),
+        turning=np.array([]),
+    )
+    assert FILL.jumps.size == 0
+    series = Chebyshev([0.0, 1.0], domain=[0.0, 4.0])
+    assert SeriesOfPath(step, series).jumps.tolist() == [0.5]
+    # A density jumps where its pressure or its temperature does.
+    temperature = FromCallable(
+        lambda z: np.where(z < 0.25, 293.15, 300.0),
+        (0.0, 1.0),
+        jumps=np.array([0.25]),
+        turning=np.array([]),
+    )
+    assert DensityPath(Gas.Ar, step, temperature).jumps.tolist() == [0.25, 0.5]
+
+
+def test_a_series_refuses_an_unenclosed_argument_or_window():
+    inner = Linear(-1.0, 1.0, 1.5)
+    narrow = Chebyshev([0.0, 0.0, 1.0], domain=[-0.5, 0.5])
+    with pytest.raises(TranslationError, match="leaves the series' domain"):
+        SeriesOfPath(inner, narrow).variation(0.1, 1.4)
+    shifted = Chebyshev([0.0, 0.0, 1.0], domain=[-1.0, 1.0], window=[0.0, 1.0])
+    with pytest.raises(TranslationError, match="window"):
+        SeriesOfPath(inner, shifted).variation(0.1, 1.4)
+
+
+@pytest.mark.parametrize(("start", "end"), [(1.0, 0.5), (0.0, math.inf)])
+def test_a_variation_interval_must_increase(start, end):
+    with pytest.raises(TranslationError, match="finite start < end"):
+        Linear(1.0, 3.0, 1.5).variation(start, end)
+
+
+def test_a_record_refuses_mismatched_or_nonfinite_pieces():
+    """A piece count the knots do not imply, or a nonfinite value, is refused.
+
+    The shapes are rejected first by the test session's runtime hook, so the guard
+    production relies on is driven through __post_init__ directly.
+    """
+    knots, one = np.array([0.0, 1.0]), np.array([1.0])
+    record = PathVariation(knots, one, one, np.zeros(1), one, one, np.array([True]))
+    object.__setattr__(record, "variation", np.zeros(2))
+    with pytest.raises(TranslationError, match="1 entries per piece"):
+        record.__post_init__()
+    with pytest.raises(TranslationError, match="finite"):
+        PathVariation(knots, one, one, np.array([math.nan]), one, one, np.array([True]))

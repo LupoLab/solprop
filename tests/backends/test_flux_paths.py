@@ -10,6 +10,7 @@ from typing import cast
 import numpy as np
 import pytest
 
+from solprop.adiabatic import AdiabaticAccuracy
 from solprop.driver.simulation import Simulation, SimulationSettings
 from solprop.exceptions import MaterialError, TranslationError
 from solprop.grid import EnvelopeGrid, RadialGrid
@@ -30,7 +31,12 @@ def _step(z: np.ndarray) -> np.ndarray:
     return np.where(z < LENGTH / 2, 1.0, 3.0)
 
 
-def _case(backend: str, medium: SpatialMedium, planes: list[float]) -> Simulation:
+def _case(
+    backend: str,
+    medium: SpatialMedium,
+    planes: list[float],
+    accuracy: AdiabaticAccuracy | None = None,
+) -> Simulation:
     """Return a short linear radial run of a 3 nJ beam through `medium`."""
     grid = EnvelopeGrid.from_limits(LENGTH, 800e-9, (600e-9, 1.2e-6), 150e-15)
     pulse = SpatialPulse(
@@ -43,6 +49,7 @@ def _case(backend: str, medium: SpatialMedium, planes: list[float]) -> Simulatio
         dz_init=LENGTH / 4,
         backend=backend,
         stats=StatsSpec(names=("energy", "peak_intensity")),
+        adiabatic_accuracy=accuracy,
     )
     return Simulation.from_radial(
         grid, RadialGrid(6e-4, 16), medium, [], pulse, settings=settings
@@ -127,3 +134,22 @@ def test_the_recorded_plane_measure_keeps_its_certificate():
         assert np.array_equal(
             rebuilt.at(0.7 * LENGTH).k_squared, plan.at(0.7 * LENGTH).k_squared
         )
+
+
+def test_a_set_adiabatic_budget_is_recorded_and_enforced():
+    """The budget enters the record and the digest, and a tight one refuses a step."""
+    default = _case("numpy_ref", MEDIA["step"], [LENGTH])
+    loose = AdiabaticAccuracy(field_error=1e-2, reflected_energy=1e-2)
+    chosen = _case("numpy_ref", MEDIA["step"], [LENGTH], accuracy=loose)
+    metadata = chosen.metadata()
+    assert metadata.configuration["adiabatic_accuracy"] is loose
+    assert "adiabatic_accuracy" not in default.metadata().configuration
+    assert metadata.configuration_hash() != default.metadata().configuration_hash()
+    plan = chosen.translate().flux
+    assert plan is not None
+    assert plan.admission is not None
+    assert plan.admission.accuracy == loose
+    # The 1 to 3 bar argon step reflects about 7e-8 of the power (Fresnel).
+    tight = AdiabaticAccuracy(reflected_energy=1e-9)
+    with pytest.raises(MaterialError, match="reflected energy"):
+        _case("numpy_ref", MEDIA["step"], [LENGTH], accuracy=tight).translate()

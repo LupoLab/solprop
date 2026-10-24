@@ -17,7 +17,7 @@ from solprop.constants import C
 from solprop.exceptions import TranslationError
 from solprop.grid import EnvelopeGrid, RadialGrid
 from solprop.linear import Frame
-from solprop.profiles import Linear
+from solprop.profiles import FromCallable, Linear
 from solprop.spatial import SpatialDispersion, SpatialMedium
 from solprop.stepper import PIController
 from solprop.translate import radial
@@ -318,6 +318,58 @@ def test_a_cutoff_crossing_along_the_path_refuses(case):
             n_pol=1,
             z_max=grid.length,
         )
+
+
+def test_a_cutoff_crossing_at_a_declared_jump_refuses(case, monkeypatch):
+    """Smooth tables either side of a jump still refuse the amplitude across q = 0."""
+    grid, _ = case
+    length = grid.length
+    medium = SpatialMedium(
+        "Ar",
+        pressure=FromCallable(
+            lambda z: np.where(z < length / 2, 0.5, 1.5),
+            (0.0, 1.2 * length),
+            jumps=np.array([length / 2]),
+            turning=np.empty(0),
+        ),
+    )
+    omega = grid.omega[grid.active_mask]
+    middle = omega.size // 2
+    low = float(omega[middle] * np.real(medium.index(omega, 0.0))[middle] / C)
+    high = float(omega[middle] * np.real(medium.index(omega, length))[middle] / C)
+    unit = RadialGrid(1.0, 16, window_factor=0.0)
+    space = RadialGrid(float(unit.k_r[0]) / (0.5 * (low + high)), 16, window_factor=0.0)
+    # The z tables break at the jump, so each side resolves and only the endpoint
+    # term's own check sees column 0 change its propagating status.
+    monkeypatch.setattr(radial, "MAX_PARAMETERS", 0)
+    with pytest.raises(TranslationError, match=r"radial column 0 .* crosses"):
+        radial_operators(
+            space,
+            SpatialDispersion(medium, grid, Frame.comoving(grid)),
+            n_pol=1,
+            z_max=length,
+        )
+
+
+def test_a_varying_medium_with_no_propagating_column_carries_no_amplitude(case):
+    grid, _ = case
+    # k_r[0] = 2.4e7 rad/m exceeds every band wave number (at most 1.1e7 rad/m).
+    space = RadialGrid(1e-7, 16, window_factor=0.0)
+    model = SpatialDispersion(
+        SpatialMedium("Ar", pressure=Linear(0.5, 1.5, grid.length)),
+        grid,
+        Frame.comoving(grid),
+    )
+    operator, _ = radial_operators(space, model, n_pol=1, z_max=grid.length)
+    assert operator.phi_expansion is not None
+    assert operator.phi_expansion.endpoint_degrees is None
+    # Every active bin is the capped attenuation alone, to the integral's
+    # representation bound (relative 8 DEFAULT_TOL on the cap).
+    actual = np.real(delta_phi(operator, 0.0, grid.length)[0, :, 0])
+    cap = model.evanescent_rate * grid.length
+    assert_allclose(
+        actual[:, grid.active_mask], -cap, rtol=0, atol=8 * DEFAULT_TOL * cap
+    )
 
 
 def test_reused_radial_expansion_carries_the_adiabatic_term(case):

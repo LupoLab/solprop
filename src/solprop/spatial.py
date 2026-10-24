@@ -683,30 +683,22 @@ def _check_transverse(kperp_sq: np.ndarray) -> None:
 
 
 def _check_field(
-    grid: TimeGrid, space: RadialGrid | FreeGrid | PlanarGrid, spectrum: np.ndarray
+    grid: TimeGrid, space: RadialGrid | FreeGrid, spectrum: np.ndarray
 ) -> None:
     """Validate the dimensions and finiteness of a spatial spectrum.
+
+    A planar grid's slab amplitudes are not field samples; every caller routes
+    them to :func:`_check_planar` before this check.
 
     Parameters
     ----------
     grid : solprop.grid.TimeGrid
         Temporal grid specifying the frequency count.
-    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        A :class:`solprop.modes.slab.PlanarGrid` is refused by name: its columns
-        are slab amplitudes, not field samples.
+    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
         Transverse geometry specifying the column count.
     spectrum : numpy.ndarray
         Internal spatial spectrum, shape (n_modes, n_pol, n_omega).
     """
-    if isinstance(space, PlanarGrid):
-        # A planar column is a slab amplitude per y frequency, not a field sample:
-        # these helpers would read it as the Cartesian grid's DFT and be wrong.
-        msg = (
-            "this spatial helper reads a radial or Cartesian field spectrum, and a "
-            "PlanarGrid's columns are slab amplitudes per y frequency: use "
-            "planar_mode_energy for the energy and planar_fluence for the fluence"
-        )
-        raise GridError(msg)
     space.validate()
     if (
         spectrum.ndim != 3

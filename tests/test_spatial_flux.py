@@ -5,18 +5,20 @@
 """Test the medium axial-flux measure of free-space planes (SEP 34)."""
 
 import math
+from typing import cast
 
 import numpy as np
 import pytest
 
 from solprop import fourier
 from solprop.constants import EPS0, HBAR, C
-from solprop.exceptions import GridError, MaterialError, PulseError
+from solprop.exceptions import GridError, MaterialError, PulseError, TranslationError
 from solprop.grid import EnvelopeGrid, FieldGrid, LineGrid, RadialGrid
 from solprop.modes import PlanarGrid, SlabMode
 from solprop.noise import spatial_noise
 from solprop.pulses import GaussianPulse, PlanarPulse, PulseSum, SpatialPulse
 from solprop.spatial import (
+    FluxSide,
     SpatialFlux,
     SpatialMedium,
     beam_radius,
@@ -24,11 +26,13 @@ from solprop.spatial import (
     on_axis_spectrum,
     planar_fluence,
     planar_mode_energy,
+    plane_sample,
     spatial_energy,
     spatial_fluence,
     spatial_intensity,
     spatial_power,
 )
+from solprop.translate.flux import flux_record, plane_coefficients
 
 EPS = np.finfo(float).eps
 
@@ -282,3 +286,37 @@ def test_widths_of_a_decayed_beam_on_a_wide_grid() -> None:
     # A Gaussian's second-moment radius is its 1/e^2 waist, to the Hankel
     # quadrature's resolution of a 100 um beam on 256 nodes.
     assert beam_radius(spectrum, flux) == pytest.approx(100e-6, rel=1e-4)
+
+
+def test_a_helper_refuses_the_other_grid_kind() -> None:
+    """Field helpers refuse slab amplitudes; slab helpers refuse a field spectrum."""
+    grid = _envelope()
+    medium = SpatialMedium("Ar", pressure=1.0)
+    slab = PlanarGrid([SlabMode(63.5e-6, "Ar", 1.0)], 1e-3, 16)
+    amplitudes = np.zeros((slab.n_columns, 1, grid.n_omega), complex)
+    with pytest.raises(GridError, match="use planar_fluence or planar_intensity"):
+        spatial_fluence(amplitudes, SpatialFlux.resolve(grid, slab, medium))
+    space = RadialGrid(1e-3, 16)
+    with pytest.raises(GridError, match="PlanarGrid's slab amplitudes"):
+        planar_fluence(_gaussian(grid, space), SpatialFlux.resolve(grid, space, medium))
+
+
+def test_a_plane_refuses_a_side_outside_its_vocabulary() -> None:
+    """A side other than 'before', 'after' or None is refused by name.
+
+    Past the test session's runtime hook, which rejects the Literal annotation
+    before the body is reached; in production no hook runs, and without this check
+    an unknown side at a jump would be read as 'after'.
+    """
+    unknown = cast("FluxSide", "middle")
+    with pytest.raises(MaterialError, match="side must be 'before', 'after' or None"):
+        plane_sample.__wrapped__(SpatialMedium(), 0.0, unknown)  # type: ignore[attr-defined]
+
+
+def test_the_plane_measure_refuses_a_missing_plan_or_position() -> None:
+    """A plane needs a finite position, and a spatial record its plane measure."""
+    grid = _envelope()
+    with pytest.raises(MaterialError, match="finite position"):
+        plane_coefficients(RadialGrid(1e-3, 16), SpatialMedium(), grid, math.nan)
+    with pytest.raises(TranslationError, match="needs its plane measure"):
+        flux_record(None)

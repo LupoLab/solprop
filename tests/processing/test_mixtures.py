@@ -284,6 +284,24 @@ def test_unrecorded_material_positions_are_refused(case, factor):
         processing.node_fluence(output)
 
 
+@pytest.mark.parametrize("case", ["radial"], indirect=True)
+def test_a_spatial_record_without_its_plane_measure_is_refused(case):
+    """A schema-22 spatial record predates the medium flux measure (SEP 34)."""
+    simulation, problem = case
+    metadata = simulation.metadata()
+    assert metadata.spatial is not None
+    spatial = {
+        key: value
+        for key, value in metadata.spatial.items()
+        if key not in {"flux_model", "flux_plan"}
+    }
+    output = MemoryOutput()
+    output.open(replace(metadata, schema_version=22, spatial=spatial))
+    output.save(SavedPlane(z=simulation.grid.length, field=problem.initial.field0[0]))
+    with pytest.raises(ProcessingError, match="predates the medium axial-flux"):
+        processing.node_fluence(output)
+
+
 def test_a_schema4_mixture_file_is_still_readable():
     path = Path(__file__).parents[1] / "data" / "mixture_schema4.h5"
     with HDF5Output(path, readonly=True) as output:
