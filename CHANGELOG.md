@@ -69,7 +69,8 @@ The first public release. It contains:
     host compiler and CUDA 12.8 or newer (qualified on CUDA 13). `backend="auto"` selects it when installed,
     except on a processor below the installed build's CPU baseline, where it uses
     `numba_cpu` and warns once, naming the missing features; `backend="native"` raises
-    there.
+    there
+    ([SEP 29](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0029-compiled-backend-distribution.html)).
   - Each backend is tested against the reference implementation within derived error
     bounds.
 - **The native backend.**

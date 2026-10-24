@@ -96,7 +96,7 @@ evaluated values, as on the host. A position already held, such as a step's end,
 is the next step's start, is not evaluated again. The compensated Adams march reads
 $D = \mathrm{d}\Phi/\mathrm{d}z$ from the derivative table in the same way. The GPU
 builds refuse a table rather than hold it on the device
-([SEP 29](../../dev/seps/sep-0029-compiled-backend-distribution.md), §6.6).
+([SEP 29](../../dev/seps/archive/sep-0029-compiled-backend-distribution.md), §6.6).
 
 ### Hard kinks, and what caps a step
 

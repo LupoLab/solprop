@@ -1,7 +1,7 @@
 # Releasing and the native wheels
 
 solprop is released as two distributions from one repository, at one version taken from
-the git tag ([SEP 29](seps/sep-0029-compiled-backend-distribution.md)):
+the git tag ([SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md)):
 
 - **`solprop`**, pure Python: a source distribution and one universal wheel.
 - **`solprop-native`**, the compiled backend built from `native/`: **wheels only**, one
@@ -120,3 +120,6 @@ scenario that hides pyFFTW from the guard, to test whether it is still needed.
 
 The actions in the workflows are pinned by commit; when updating one, take the commit of
 its release tag and keep the version in the trailing comment.
+
+The release recipe on this page was set up and qualified by
+[SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md).
