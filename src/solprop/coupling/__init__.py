@@ -16,6 +16,18 @@ launches a plane into a port of the same basis. Extraction from a saved run is
 ``docs/guide/workflows/coupling.md``.
 """
 
+from solprop.coupling.elements import (
+    Alignment,
+    Aperture,
+    FreeSpace,
+    Mirror,
+    PlanarInterface,
+    PolarisationTransform,
+    SpectralCalibration,
+    SpectralTransfer,
+    ThinLens,
+    TransmissionMask,
+)
 from solprop.coupling.plane import (
     PLANE_KINDS,
     Calibration,
@@ -43,31 +55,38 @@ from solprop.coupling.port import (
     same_basis,
 )
 from solprop.coupling.remap import DEFAULT_TOLERANCE, RegridReport, regrid
-
-# The transport core (solprop.coupling.transport and solprop.coupling.elements:
-# transport, FreeSpace, ThinLens, Aperture, TransmissionMask, PlanarInterface,
-# PolarisationTransform, Mirror, SpectralTransfer, Outcouple) is exported here when
-# it lands, beside the names below.
+from solprop.coupling.transport import TransportReport, transport
 
 __all__ = [
     "DEFAULT_TOLERANCE",
     "ENTRANCE_TOLERANCE",
     "METRIC_TOLERANCE",
     "PLANE_KINDS",
+    "Alignment",
+    "Aperture",
     "Calibration",
     "CouplingLaunch",
     "Exterior",
     "FieldPlane",
+    "FreeSpace",
     "InputPort",
     "MetricKind",
+    "Mirror",
     "NodalField",
+    "PlanarInterface",
     "PlaneBasis",
     "PlaneGeometry",
     "PlaneKind",
     "PlaneMetric",
     "PlaneProvenance",
     "PlaneReference",
+    "PolarisationTransform",
     "RegridReport",
+    "SpectralCalibration",
+    "SpectralTransfer",
+    "ThinLens",
+    "TransmissionMask",
+    "TransportReport",
     "basis_identity",
     "lattice_identity",
     "modal_basis_identity",
@@ -75,4 +94,5 @@ __all__ = [
     "regrid",
     "same_basis",
     "space_record",
+    "transport",
 ]

@@ -19,6 +19,12 @@ complex conjugate, as :func:`solprop.optics.stored_factor` does for a transfer
 function. Transverse transforms are not conjugated: they act on positions, which
 are the same in both conventions.
 
+A :class:`~solprop.coupling.plane.FieldPlane` is carried through a sequence of these
+elements by :func:`solprop.coupling.transport`, which converts it to this state and
+back and updates its reference, geometry, medium and metric; the state and the
+:class:`Element` protocol are the interface a new element is written against. Every
+refusal raises :class:`solprop.exceptions.CouplingError`.
+
 Energies are physical: the axial Poynting flux of the medium at the plane,
 :class:`solprop.spatial.SpatialFlux` and :func:`solprop.spatial.spatial_energy`
 (SEP 34). Every report closes its own ledger in joules,
@@ -43,13 +49,7 @@ from scipy.special import j0
 
 from solprop import fourier
 from solprop.constants import C
-from solprop.exceptions import (
-    ConvergenceError,
-    GridError,
-    MaterialError,
-    OpticsGeometryError,
-    PolarisationError,
-)
+from solprop.exceptions import CouplingError
 from solprop.grid import FreeGrid, LineGrid, RadialGrid, TimeGrid
 from solprop.optics import (
     Chain,
@@ -109,7 +109,9 @@ SpectralFunction = Callable[[Float[np.ndarray, " n_band"]], ArrayLike]
 class SpatialState:
     """A spatial field at one plane, with its grids, medium and local frame.
 
-    The plain input of every element. The single component of a scalar state
+    The plain input of every element; :func:`solprop.coupling.transport` builds it
+    from a :class:`~solprop.coupling.plane.FieldPlane` (the internal conjugate of
+    the plane's samples, its grid's frame axes as rows). The single component of a scalar state
     (``n_pol = 1``) is polarised along the frame's x axis; two components are the
     optics-convention ``(x, y)`` Jones components stored conjugated, as
     :meth:`solprop.pulses.SpatialPulse.build` stores them.
@@ -135,11 +137,9 @@ class SpatialState:
 
     Raises
     ------
-    GridError
+    CouplingError
         If the representation, the spectrum's shape, finiteness or band, or the
-        frame is invalid.
-    MaterialError
-        If the medium varies along z.
+        frame is invalid, or the medium varies along z.
     """
 
     grid: TimeGrid
@@ -157,7 +157,7 @@ class SpatialState:
                 "(per unit width) and a planar grid (slab amplitudes) are not field "
                 f"planes of a finite beam, got {type(space).__name__}"
             )
-            raise GridError(msg)
+            raise CouplingError(msg)
         spectrum = np.array(self.spectrum, dtype=np.complex128, copy=True)
         if (
             spectrum.ndim != 3
@@ -171,19 +171,19 @@ class SpatialState:
                 f"({space.n_columns}, 1 or 2, {self.grid.n_omega}), got "
                 f"{spectrum.shape}"
             )
-            raise GridError(msg)
+            raise CouplingError(msg)
         if np.any(spectrum[:, :, ~_band(self.grid)]):
             msg = (
                 "a spatial state is exactly zero outside the active band and at "
                 "nonpositive frequency, as a launch or a saved plane is"
             )
-            raise GridError(msg)
+            raise CouplingError(msg)
         if not all(path.is_constant for path in self.medium.parameter_paths.values()):
             msg = (
                 "transport between planes needs a homogeneous medium; a medium that "
                 "varies along z is an ordinary propagation, not a free-space element"
             )
-            raise MaterialError(msg)
+            raise CouplingError(msg)
         frame = _unit_frame(self.frame)
         spectrum.setflags(write=False)
         object.__setattr__(self, "spectrum", spectrum)
@@ -250,7 +250,7 @@ def _unit_frame(frame: ArrayLike) -> Float[np.ndarray, "3 3"]:
 
     Raises
     ------
-    GridError
+    CouplingError
         If the frame is not finite, orthonormal and right-handed.
     """
     values = np.array(frame, dtype=np.float64, copy=True)
@@ -264,7 +264,7 @@ def _unit_frame(frame: ArrayLike) -> Float[np.ndarray, "3 3"]:
             "a local frame is a right-handed orthonormal 3x3 array whose rows are "
             "the x, y and forward directions"
         )
-        raise GridError(msg)
+        raise CouplingError(msg)
     values.setflags(write=False)
     return values
 
@@ -1009,14 +1009,14 @@ def _spectral_values(
 
     Raises
     ------
-    MaterialError
+    CouplingError
         If the values are not finite or do not match the band.
     """
     result = values(omega) if callable(values) else values
     array = np.broadcast_to(np.asarray(result, dtype=np.complex128), omega.shape)
     if not np.all(np.isfinite(array)):
         msg = f"{name} must be finite on every band frequency"
-        raise MaterialError(msg)
+        raise CouplingError(msg)
     return np.array(array)
 
 
@@ -1030,12 +1030,12 @@ def _check_model_error(model_error: float) -> None:
 
     Raises
     ------
-    ConvergenceError
+    CouplingError
         If it is not finite and strictly between zero and one.
     """
     if not (math.isfinite(model_error) and 0 < model_error < 1):
         msg = f"model_error is a required budget in (0, 1), got {model_error!r}"
-        raise ConvergenceError(msg)
+        raise CouplingError(msg)
 
 
 # --------------------------------------------------------------------- thin screens
@@ -1141,23 +1141,20 @@ def _apply_screen(  # noqa: PLR0913 - the screen and its declarations
 
     Raises
     ------
-    MaterialError
-        If the screen amplifies anywhere.
-    GridError
-        If the screen's phase is undersampled where the field is.
-    ConvergenceError
-        If the certificate exceeds the budget.
+    CouplingError
+        If the screen amplifies anywhere, its phase is undersampled where the
+        field is, or the certificate exceeds the budget.
     """
     _check_model_error(model_error)
     if not np.all(np.isfinite(transmission)):
         msg = f"{element}: the transmission must be finite"
-        raise MaterialError(msg)
+        raise CouplingError(msg)
     if np.max(np.abs(transmission), initial=0.0) > 1 + 8 * _EPS:
         msg = (
             f"{element}: a passive screen has |T| <= 1; a gain screen is not "
             "a linear passive element"
         )
-        raise MaterialError(msg)
+        raise CouplingError(msg)
     band = _band(state.grid)
     index = np.real(_index(state.medium, state.grid))
     samples = _to_field(state.space, state.spectrum)
@@ -1172,7 +1169,7 @@ def _apply_screen(  # noqa: PLR0913 - the screen and its declarations
             "neighbouring nodes where the field is, beyond the grid's Nyquist rate; "
             "refine the transverse grid"
         )
-        raise GridError(msg)
+        raise CouplingError(msg)
     factor = np.ones((state.space.n_columns, state.grid.n_omega), dtype=np.complex128)
     factor[:, band] = fourier.to_internal(transmission)
     after = state.with_spectrum(_to_spectrum(state.space, factor[:, None, :] * samples))
@@ -1233,10 +1230,9 @@ def _screen_certificate(
 
     Raises
     ------
-    GridError
-        If a nonzero input carries no forward flux.
-    ConvergenceError
-        If the defect ratio exceeds the budget.
+    CouplingError
+        If a nonzero input carries no forward flux or the defect ratio exceeds
+        the budget.
     """
     cosine = 1 - model_error / 8
     if not np.any(before.spectrum):
@@ -1248,7 +1244,7 @@ def _screen_certificate(
     reference = spatial_energy(before.spectrum, flux)
     if reference <= 0:
         msg = "a thin screen's input carries no forward flux to certify against"
-        raise GridError(msg)
+        raise CouplingError(msg)
     ratio = (defect_in + defect_out) / reference + numerical
     if ratio > model_error:
         msg = (
@@ -1257,7 +1253,7 @@ def _screen_certificate(
             "cos(theta*) = 1 - model_error/8 or the transform is not resolved; "
             "relax the budget only if a larger axial-flux error is acceptable"
         )
-        raise ConvergenceError(msg)
+        raise CouplingError(msg)
     return ScreenCertificate(
         model_error, cosine, defect_in, defect_out, reference, numerical, ratio, False
     )
@@ -1290,7 +1286,7 @@ def _evaluate_transmission(
 
     Raises
     ------
-    MaterialError
+    CouplingError
         If the result does not broadcast to ``(n_nodes, n_band)``.
     """
     values = np.asarray(transmission(x, y, omega), dtype=np.complex128)
@@ -1301,7 +1297,7 @@ def _evaluate_transmission(
             f"{element}: the transmission must broadcast to (n_nodes, n_band) = "
             f"({x.size}, {omega.size}), got {values.shape}"
         )
-        raise MaterialError(msg) from error
+        raise CouplingError(msg) from error
 
 
 def _symmetric_transmission(
@@ -1333,7 +1329,7 @@ def _symmetric_transmission(
 
     Raises
     ------
-    GridError
+    CouplingError
         If the transmission depends on the azimuth.
     """
     radius = np.asarray(space.r)
@@ -1355,7 +1351,7 @@ def _symmetric_transmission(
                 f"{element} depends on the azimuth, and a radial grid holds only "
                 "cylindrically symmetric fields: use a Cartesian FreeGrid"
             )
-            raise GridError(msg)
+            raise CouplingError(msg)
     return reference
 
 
@@ -1400,7 +1396,7 @@ class ThinLens:
 
         Raises
         ------
-        MaterialError
+        CouplingError
             If a focal length is zero or not finite.
         """
         band = _band(state.grid)
@@ -1408,7 +1404,7 @@ class ThinLens:
         focal = np.real(_spectral_values(self.focal_length, omega, "focal_length"))
         if np.any(focal == 0):
             msg = "a thin lens needs a nonzero focal length on every band bin"
-            raise MaterialError(msg)
+            raise CouplingError(msg)
         wavenumber = np.real(_index(state.medium, state.grid))[band] * omega / C
         x, y = _nodes(state.space)
         square = x * x + y * y
@@ -1432,11 +1428,15 @@ class ThinLens:
 
 @dataclass(frozen=True, eq=False)
 class Aperture:
-    """An aperture whose intensity weight is converted to an amplitude.
+    """An aperture built on the SEP 23 edge profile, with its weighting declared.
 
-    :func:`solprop.spatial.aperture_profile` gives the SEP 23 edge profile ``W``,
-    used here as the **intensity** transmission; the field is multiplied by
-    ``sqrt(W)``. A hard aperture is the same either way.
+    :func:`solprop.spatial.aperture_profile` gives the edge profile ``W``. Its
+    meaning is fixed by `weighting`, exactly as for the in-run aperture statistics
+    of :class:`solprop.stats.ApertureSet`: ``'amplitude'`` (the default) takes
+    ``W`` as the **field** transmission, so the power goes as ``W**2``;
+    ``'quadrature'`` takes ``W`` as a **power** weight, applied to the field as
+    ``sqrt(W)``. SEP 31 §4.6's intensity-defined aperture is the ``'quadrature'``
+    case. A hard aperture (``W`` zero or one) is the same either way.
 
     Attributes
     ----------
@@ -1451,6 +1451,15 @@ class Aperture:
         Edge profile. Default ``'hard'``.
     centre : tuple of float
         Centre ``(x, y)`` in m in the local frame; a radial grid needs the axis.
+    weighting : {'amplitude', 'quadrature'}
+        ``'amplitude'`` applies ``W`` to the field, ``'quadrature'`` applies
+        ``sqrt(W)``. Default ``'amplitude'``.
+
+    Examples
+    --------
+    >>> from solprop.coupling import Aperture
+    >>> Aperture(1e-3, model_error=1e-2, weighting="quadrature").weighting
+    'quadrature'
     """
 
     radius: float
@@ -1458,6 +1467,7 @@ class Aperture:
     edge: float = 0.0
     kind: Literal["hard", "tanh", "rcos", "supergauss"] = "hard"
     centre: tuple[float, float] = (0.0, 0.0)
+    weighting: Literal["amplitude", "quadrature"] = "amplitude"
 
     def apply(self, state: SpatialState) -> ElementResult:
         """Apply the aperture.
@@ -1474,28 +1484,38 @@ class Aperture:
 
         Raises
         ------
-        GridError
-            If an off-axis aperture is asked of a radial grid.
+        CouplingError
+            If the weighting is unknown or an off-axis aperture is asked of a
+            radial grid.
         """
+        if self.weighting not in ("amplitude", "quadrature"):
+            msg = f"weighting is 'amplitude' or 'quadrature', got {self.weighting!r}"
+            raise CouplingError(msg)
         if isinstance(state.space, RadialGrid) and any(self.centre):
             msg = (
                 "an off-axis aperture breaks cylindrical symmetry: use a Cartesian "
                 "FreeGrid"
             )
-            raise GridError(msg)
+            raise CouplingError(msg)
         x, y = _nodes(state.space)
         distance = np.hypot(x - self.centre[0], y - self.centre[1])
         weight = aperture_profile(distance, self.radius, self.edge, self.kind)
-        amplitude = np.sqrt(weight)
+        amplitude = np.sqrt(weight) if self.weighting == "quadrature" else weight
         n_band = int(np.sum(_band(state.grid)))
         transmission = np.repeat(amplitude[:, None], n_band, axis=1).astype(complex)
         return _apply_screen(
             state,
             transmission,
-            element=f"Aperture(radius={self.radius:g} m, {self.kind})",
+            element=(
+                f"Aperture(radius={self.radius:g} m, {self.kind}, {self.weighting})"
+            ),
             model_error=self.model_error,
             phase_only=False,
-            notes=("intensity weight W converted to field amplitude sqrt(W)",),
+            notes=(
+                "power weight W applied to the field as sqrt(W)"
+                if self.weighting == "quadrature"
+                else "field transmission W; power goes as W**2",
+            ),
         )
 
 
@@ -1537,11 +1557,10 @@ class TransmissionMask:
 
         Raises
         ------
-        MaterialError
-            If sampled values have the wrong shape or a declared phase-only mask
-            changes the modulus.
-        GridError
-            If a function depends on the azimuth on a radial grid.
+        CouplingError
+            If sampled values have the wrong shape, a declared phase-only mask
+            changes the modulus, or a function depends on the azimuth on a
+            radial grid.
         """
         band = _band(state.grid)
         omega = state.grid.omega[band]
@@ -1573,13 +1592,13 @@ class TransmissionMask:
                     "TransmissionMask samples have shape (n_nodes,) or (n_nodes, "
                     f"n_band) = ({n_nodes}, {omega.size}), got {array.shape}"
                 )
-                raise MaterialError(msg)
+                raise CouplingError(msg)
             values = np.array(np.broadcast_to(array, (n_nodes, omega.size)))
         if self.phase_only and np.max(np.abs(np.abs(values) - 1), initial=0.0) > (
             8 * _EPS
         ):
             msg = "a mask declared phase-only must have unit modulus"
-            raise MaterialError(msg)
+            raise CouplingError(msg)
         return _apply_screen(
             state,
             values,
@@ -1631,24 +1650,23 @@ class Alignment:
 
         Raises
         ------
-        GridError
-            If a nonzero alignment is asked of a radial grid.
-        ConvergenceError
-            If a tilt has no budget or exceeds it.
+        CouplingError
+            If a nonzero alignment is asked of a radial grid, or a tilt has no
+            budget or exceeds it.
         """
         values = (*self.displacement, *self.tilt)
         if not all(math.isfinite(value) for value in values) or any(
             abs(angle) >= math.pi / 2 for angle in self.tilt
         ):
             msg = "alignment needs finite displacements and tilts below pi/2"
-            raise GridError(msg)
+            raise CouplingError(msg)
         if isinstance(state.space, RadialGrid):
             if any(values):
                 msg = (
                     "displacement and tilt break cylindrical symmetry: use a "
                     "Cartesian FreeGrid"
                 )
-                raise GridError(msg)
+                raise CouplingError(msg)
             flux = _flux(state)
             measured = _measure(state, flux)
             return ElementResult(state, _report("Alignment(none)", measured, measured))
@@ -1658,7 +1676,7 @@ class Alignment:
         if any(self.tilt):
             if self.model_error is None:
                 msg = "a tilt is a phase screen and needs its model_error budget"
-                raise ConvergenceError(msg)
+                raise CouplingError(msg)
             band = _band(state.grid)
             index = np.real(_index(state.medium, state.grid))[band]
             wavenumber = index * state.grid.omega[band] / C
@@ -1808,17 +1826,17 @@ def _check_passive_jones(
 
     Raises
     ------
-    PolarisationError
+    CouplingError
         If a matrix is not finite or its largest singular value exceeds one.
     """
     if not np.all(np.isfinite(jones)):
         msg = f"{element}: the Jones matrices must be finite"
-        raise PolarisationError(msg)
+        raise CouplingError(msg)
     if jones.size and float(np.max(np.linalg.svd(jones, compute_uv=False))) > (
         1 + 8 * _EPS
     ):
         msg = f"{element}: a passive Jones map has singular values of at most one"
-        raise PolarisationError(msg)
+        raise CouplingError(msg)
 
 
 @dataclass(frozen=True, eq=False)
@@ -1857,7 +1875,7 @@ class PolarisationTransform:
 
         Raises
         ------
-        PolarisationError
+        CouplingError
             If the matrices have the wrong shape or amplify.
         """
         omega = state.grid.omega[_band(state.grid)]
@@ -1867,7 +1885,7 @@ class PolarisationTransform:
             jones = np.array(np.broadcast_to(array, (omega.size, 2, 2)))
         except ValueError as error:
             msg = f"a Jones matrix is 2x2 per band bin, got shape {array.shape}"
-            raise PolarisationError(msg) from error
+            raise CouplingError(msg) from error
         _check_passive_jones(jones, "PolarisationTransform")
         after = state.with_spectrum(_apply_jones(state, jones))
         return _uniform_result(state, after, element="PolarisationTransform")
@@ -1892,13 +1910,13 @@ def _unit_vector(
 
     Raises
     ------
-    OpticsGeometryError
+    CouplingError
         If the vector is not a finite nonzero three-vector.
     """
     array = np.asarray(vector, dtype=np.float64)
     if array.shape != (3,) or not np.all(np.isfinite(array)) or not np.any(array):
         msg = f"{name} must be a finite nonzero three-vector"
-        raise OpticsGeometryError(msg)
+        raise CouplingError(msg)
     return array / np.linalg.norm(array)
 
 
@@ -1954,7 +1972,7 @@ class Mirror:
 
         Raises
         ------
-        OpticsGeometryError
+        CouplingError
             If the directions do not define a reflection with this s axis.
         """
         incident = _unit_vector(self.incident, "incident")
@@ -1962,13 +1980,13 @@ class Mirror:
         s_axis = _unit_vector(self.s_axis, "s_axis")
         if float(incident @ outgoing) > 1 - _FRAME_TOLERANCE:
             msg = "a mirror changes the propagation direction: outgoing == incident"
-            raise OpticsGeometryError(msg)
+            raise CouplingError(msg)
         if (
             abs(float(s_axis @ incident)) > _FRAME_TOLERANCE
             or abs(float(s_axis @ outgoing)) > _FRAME_TOLERANCE
         ):
             msg = "the s axis must be perpendicular to both propagation directions"
-            raise OpticsGeometryError(msg)
+            raise CouplingError(msg)
         return incident, outgoing, s_axis
 
     def apply(self, state: SpatialState) -> ElementResult:
@@ -1986,19 +2004,16 @@ class Mirror:
 
         Raises
         ------
-        OpticsGeometryError
-            If the geometry is invalid or the plane does not propagate along
-            `incident`.
-        PolarisationError
-            If a coefficient exceeds one in modulus.
-        GridError
-            If the mirror image cannot be represented exactly on a Cartesian grid.
+        CouplingError
+            If the geometry is invalid, the plane does not propagate along
+            `incident`, a coefficient exceeds one in modulus, or the mirror image
+            cannot be represented exactly on a Cartesian grid.
         """
         incident, outgoing, s_axis = self._geometry()
         frame = state.frame
         if float(frame[2] @ incident) < 1 - _FRAME_TOLERANCE:
             msg = "the plane does not propagate along the mirror's incident direction"
-            raise OpticsGeometryError(msg)
+            raise CouplingError(msg)
         p_in = np.cross(s_axis, incident)
         p_out = np.cross(s_axis, outgoing)
         rotation = np.array(
@@ -2055,7 +2070,7 @@ def _mirror_image(
 
     Raises
     ------
-    GridError
+    CouplingError
         If the map is not a reflection through x or y, or the reflected axis has
         an odd sample count and so is not symmetric about zero.
     """
@@ -2065,7 +2080,7 @@ def _mirror_image(
             "this mirror image is a reflection through an axis oblique to the grid; "
             "align the s axis with the local x or y axis"
         )
-        raise GridError(msg)
+        raise CouplingError(msg)
     shape = (space.n_y, space.n_x, *spectrum.shape[1:])
     samples = _to_field(space, spectrum).reshape(shape)
     for axis, count, flip in ((1, space.n_x, flips[0]), (0, space.n_y, flips[1])):
@@ -2075,7 +2090,7 @@ def _mirror_image(
                     "an odd sample count places no sample at zero, so the mirror "
                     "image is not on the grid; use an even count"
                 )
-                raise GridError(msg)
+                raise CouplingError(msg)
             samples = np.take(samples, (-np.arange(count)) % count, axis=axis)
     return _to_spectrum(space, samples.reshape(spectrum.shape))
 
@@ -2118,7 +2133,7 @@ class PlanarInterface:
 
         Raises
         ------
-        MaterialError
+        CouplingError
             If the plane is not in `first` or either medium is lossy.
         """
         grid = state.grid
@@ -2127,14 +2142,14 @@ class PlanarInterface:
                 "the plane is not in the interface's first medium; a Fresnel factor "
                 "is applied once, at the declared interface"
             )
-            raise MaterialError(msg)
+            raise CouplingError(msg)
         band = _band(grid)
         first = _index(self.first, grid)[band]
         second = _index(self.second, grid)[band]
         for values in (first, second):
             if np.any(np.abs(np.imag(values)) > 1e-12 * np.real(values)):
                 msg = "the normal-incidence interface model is for lossless media"
-                raise MaterialError(msg)
+                raise CouplingError(msg)
         n_1, n_2 = np.real(first), np.real(second)
         transmission = 2 * n_1 / (n_1 + n_2)
         reflectance = np.zeros(grid.n_omega)
@@ -2321,7 +2336,7 @@ class SpectralTransfer:
 
         Raises
         ------
-        MaterialError
+        CouplingError
             If an unknown callable carries no calibration.
         """
         if isinstance(self.calibration, SpectralCalibration):
@@ -2335,7 +2350,7 @@ class SpectralTransfer:
                 "calibration=SpectralCalibration(...) saying which affine phase it "
                 "removes"
             )
-            raise MaterialError(msg)
+            raise CouplingError(msg)
         return known
 
     def apply(self, state: SpatialState) -> ElementResult:
@@ -2353,7 +2368,7 @@ class SpectralTransfer:
 
         Raises
         ------
-        MaterialError
+        CouplingError
             If a lossy prediction lacks its efficiency, an efficiency is given to a
             lossy model, an efficiency is outside [0, 1], or the calibration is
             missing.
@@ -2372,13 +2387,13 @@ class SpectralTransfer:
                     "the transfer function already carries loss; an efficiency on "
                     "top of it would count the loss twice"
                 )
-                raise MaterialError(msg)
+                raise CouplingError(msg)
             efficiency = np.real(
                 _spectral_values(self.efficiency, grid.omega[band], "efficiency")
             )
             if np.any((efficiency < 0) | (efficiency > 1)):
                 msg = "an efficiency is a power fraction in [0, 1]"
-                raise MaterialError(msg)
+                raise CouplingError(msg)
             factor = factor.copy()
             factor[band] = factor[band] * np.sqrt(efficiency)
         elif self.predict_loss and phase_only:
@@ -2386,10 +2401,10 @@ class SpectralTransfer:
                 f"{type(self.transfer).__name__} is a phase-only model: a lossy "
                 "prediction needs an explicit efficiency="
             )
-            raise MaterialError(msg)
+            raise CouplingError(msg)
         if not np.all(np.isfinite(factor)) or np.max(np.abs(factor)) > 1 + 8 * _EPS:
             msg = "a passive transfer function is finite with |H| <= 1"
-            raise MaterialError(msg)
+            raise CouplingError(msg)
         after = state.with_spectrum(factor[None, None, :] * state.spectrum)
         notes: tuple[str, ...] = ()
         if isinstance(self.transfer, Chain):
@@ -2419,14 +2434,20 @@ class FreeSpace:
 
     :math:`k_z=\sqrt{(\omega n/c)^2-\kappa^2}` at each absolute frequency and
     transverse wave number, on the order-zero Hankel columns of a radial grid or the
-    DFT columns of a Cartesian one. A pure delay ``frame_delay`` is removed from the
-    whole field, :math:`e^{-i\omega\tau}`, so that the pulse stays in its window;
-    the report records it for the plane's reference.
+    DFT columns of a Cartesian one. An affine frame term is removed from the whole
+    field, :math:`e^{-i(\phi_f+\omega\tau_f)}`, so that the pulse stays in its
+    window; the report records ``delay_removed`` and ``phase_removed`` and
+    :func:`solprop.coupling.transport` adds them to the plane's reference.
 
     Without `output` the field stays on its grid, propagated exactly in its
-    periodic (Cartesian) or Dirichlet (radial) representation; the report states
-    the share that would wrap or reach the window edge. With `output`, a plane of
-    another radius or sampling is evaluated by chunked direct summation:
+    periodic (Cartesian) or Dirichlet (radial) representation. A column at angle
+    :math:`\theta` moves its rays by :math:`L\tan\theta`; content whose rays leave
+    the window would wrap (or reflect), which is the same condition as sampling the
+    propagator's phase :math:`k_zL` below its Nyquist rate in :math:`\kappa`. Content
+    beyond ``sampling_tolerance`` is refused, unless ``beyond_window='remove'``
+    declares its removal, which is then reported as removed energy. With `output`,
+    a plane of another radius or sampling is evaluated by chunked direct summation;
+    the method is always the caller's explicit choice:
 
     - ``output_method='angular'`` sums the propagated source spectrum at the output
       nodes (:math:`\sum_j v_jH_jJ_0(k_j\rho)/2\pi` or the trigonometric
@@ -2460,14 +2481,30 @@ class FreeSpace:
         and every nonpropagating column, are removed and reported. None removes
         nothing.
     frame_delay : float or None
-        Delay in s removed from the whole field; None removes the group delay of the
-        medium at the grid's reference frequency, ``beta1 L``.
+        Delay :math:`\tau_f` in s removed from the whole field; None removes the
+        group delay of the medium at the grid's reference frequency,
+        ``beta1(omega0) L``. :func:`solprop.coupling.transport` fills it from the
+        plane's frame when it is given one.
+    frame_phase : float
+        Constant phase :math:`\phi_f` in rad removed with the delay. Default 0.
     evanescent_tolerance : float or None
         Largest admitted reference-measure share of nonpropagating content; None is
         the rounding budget of the transforms that formed the field.
     sampling_tolerance : float
-        Share above which the wrap and edge diagnostics call the result inadequate.
-        Default 1e-6.
+        Largest admitted reference-measure share of content whose rays leave the
+        window (same-grid and angular routes), of field at the source edge
+        (angular output) and of aliased content (Fresnel output). Default 1e-6.
+    beyond_window : {'refuse', 'remove'}
+        What to do with content whose rays leave the window over the distance:
+        refuse it (the default), or remove it explicitly as an angular band,
+        reported as ``removed`` with ``window_removed`` in the diagnostics.
+
+    Examples
+    --------
+    >>> from solprop.coupling import FreeSpace
+    >>> from solprop.spatial import SpatialMedium
+    >>> FreeSpace(0.5, SpatialMedium(), beyond_window="remove").beyond_window
+    'remove'
     """
 
     distance: float
@@ -2476,8 +2513,10 @@ class FreeSpace:
     output_method: Literal["angular", "fresnel"] = "angular"
     band_limit: float | None = None
     frame_delay: float | None = None
+    frame_phase: float = 0.0
     evanescent_tolerance: float | None = None
     sampling_tolerance: float = 1e-6
+    beyond_window: Literal["refuse", "remove"] = "refuse"
 
     def _validate(self, state: SpatialState) -> None:
         """Check the element against the plane.
@@ -2489,33 +2528,41 @@ class FreeSpace:
 
         Raises
         ------
-        GridError
-            If the distance, method, band limit or output plane is invalid.
-        MaterialError
-            If the gap's medium is not the plane's.
+        CouplingError
+            If the distance, method, band limit or output plane is invalid, or
+            the gap's medium is not the plane's.
         """
-        if not math.isfinite(self.distance):
-            msg = f"distance must be finite, got {self.distance!r}"
-            raise GridError(msg)
+        if not (math.isfinite(self.distance) and math.isfinite(self.frame_phase)):
+            msg = (
+                f"distance and frame_phase must be finite, got {self.distance!r} and "
+                f"{self.frame_phase!r}"
+            )
+            raise CouplingError(msg)
+        if self.frame_delay is not None and not math.isfinite(self.frame_delay):
+            msg = f"frame_delay must be finite, got {self.frame_delay!r}"
+            raise CouplingError(msg)
+        if self.beyond_window not in ("refuse", "remove"):
+            msg = f"beyond_window is 'refuse' or 'remove', got {self.beyond_window!r}"
+            raise CouplingError(msg)
         if self.output_method not in ("angular", "fresnel"):
             msg = f"output_method is 'angular' or 'fresnel', got {self.output_method!r}"
-            raise GridError(msg)
+            raise CouplingError(msg)
         if self.band_limit is not None and not 0 < self.band_limit <= math.pi / 2:
             msg = f"band_limit is an angle in (0, pi/2], got {self.band_limit!r}"
-            raise GridError(msg)
+            raise CouplingError(msg)
         if not _same_medium(state.medium, self.medium, state.grid):
             msg = (
                 "the gap's medium is not the plane's: a change of medium is a "
                 "PlanarInterface, applied once"
             )
-            raise MaterialError(msg)
+            raise CouplingError(msg)
         if self.output is not None and (
             isinstance(self.output, LineGrid)
             or isinstance(self.output, RadialGrid)
             != isinstance(state.space, RadialGrid)
         ):
             msg = "the output plane must be the same kind of grid as the source"
-            raise GridError(msg)
+            raise CouplingError(msg)
 
     def _delay(self, state: SpatialState) -> float:
         """Return the delay removed from the whole field.
@@ -2549,16 +2596,15 @@ class FreeSpace:
         -------
         ElementResult
             The output plane and the report, whose diagnostics include
-            ``delay_removed`` in s.
+            ``delay_removed`` in s and ``phase_removed`` in rad.
 
         Raises
         ------
-        GridError
-            If the element is invalid, the field holds significant evanescent
-            content, the angular output leaves the source window, or the Fresnel
-            kernel is undersampled.
-        MaterialError
-            If the medium is not the plane's.
+        CouplingError
+            If the element is invalid, the medium is not the plane's, the field
+            holds significant evanescent content, its rays wrap beyond the window,
+            the angular output leaves the source window, or the Fresnel kernel is
+            undersampled.
         """
         self._validate(state)
         delay = self._delay(state)
@@ -2567,7 +2613,10 @@ class FreeSpace:
         kept, removed = self._limited(state, flux, measured_in)
         if self.output is not None and self.output_method == "fresnel":
             return self._fresnel(state, kept, measured_in, removed, delay)
-        propagated, absorbed, diagnostics = self._propagate(kept, flux, delay)
+        propagated, absorbed, window_removed, diagnostics = self._propagate(
+            kept, flux, delay
+        )
+        removed += window_removed
         notes: tuple[str, ...] = ()
         result = propagated
         if self.output is not None:
@@ -2576,16 +2625,17 @@ class FreeSpace:
                 msg = (
                     f"the propagated field puts {edge:.3e} of itself at the source "
                     "window's edge, and the angular output treats the source as zero "
-                    "beyond it: enlarge the source window or use "
-                    "output_method='fresnel'"
+                    "beyond it: enlarge the source window, or evaluate this plane "
+                    'with output_method="fresnel", which reaches any window'
                 )
-                raise GridError(msg)
+                raise CouplingError(msg)
             result = propagated.with_spectrum(
                 _angular_output(propagated, self.output), space=self.output
             )
             diagnostics["output_edge_share"] = _edge_share(result)
             notes = ("output plane by direct angular-spectrum summation",)
         diagnostics["delay_removed"] = delay
+        diagnostics["phase_removed"] = self.frame_phase
         measured_out = _measure(result, _flux(result))
         report = _report(
             f"FreeSpace(L={self.distance:g} m)",
@@ -2593,7 +2643,10 @@ class FreeSpace:
             measured_out,
             specified_loss=absorbed,
             removed=removed,
-            numerical_error=diagnostics["wrap_share"] * measured_in.energy,
+            numerical_error=(
+                0.0 if self.beyond_window == "remove" else diagnostics["wrap_share"]
+            )
+            * measured_in.energy,
             extras=_Extras(
                 reconstruction=self.distance < 0, diagnostics=diagnostics, notes=notes
             ),
@@ -2621,7 +2674,7 @@ class FreeSpace:
 
         Raises
         ------
-        GridError
+        CouplingError
             If evanescent content exceeds its tolerance, or any remains for a
             backward propagation.
         """
@@ -2637,7 +2690,7 @@ class FreeSpace:
                     "nonpropagating columns, which no forward plane carries; remove "
                     "them explicitly with band_limit= or widen the beam"
                 )
-                raise GridError(msg)
+                raise CouplingError(msg)
             return state, 0.0
         index = np.real(_index(state.medium, state.grid))
         reach = (index * state.grid.omega / C * math.sin(self.band_limit)) ** 2
@@ -2677,7 +2730,7 @@ class FreeSpace:
 
     def _propagate(
         self, state: SpatialState, flux: SpatialFlux, delay: float
-    ) -> tuple[SpatialState, float, dict[str, float]]:
+    ) -> tuple[SpatialState, float, float, dict[str, float]]:
         """Propagate the stored spectrum exactly on its own grid.
 
         Parameters
@@ -2692,39 +2745,70 @@ class FreeSpace:
         Returns
         -------
         tuple
-            The propagated plane, the energy absorbed by the medium in J, and the
-            wrap diagnostics.
+            The propagated plane, the energy absorbed by the medium in J, the
+            energy removed beyond the window in J, and the wrap diagnostics.
+
+        Raises
+        ------
+        CouplingError
+            If content whose rays leave the window exceeds ``sampling_tolerance``
+            and its removal is not declared.
         """
         grid = state.grid
         band = _band(grid)
-        spectrum = np.array(state.spectrum)
-        attenuated = np.array(state.spectrum)
         wrap = _WrapCount()
+        beyond = np.zeros((state.space.n_columns, grid.n_omega), dtype=bool)
         for columns in flux.chunks():
             k_z = self._wavenumber(state, columns)
-            # Optics exp(+i k_z L - i omega tau) crosses as its conjugate.
-            exponent = -1j * np.conj(k_z) * self.distance + 1j * grid.omega * delay
+            beyond[columns] = wrap.add(state, columns, k_z, self.distance)
+        share = wrap.share()
+        window_removed = 0.0
+        source = state
+        if self.beyond_window == "remove":
+            source = state.with_spectrum(~beyond[:, None, :] * state.spectrum)
+            window_removed = spatial_energy(state.spectrum, flux) - spatial_energy(
+                source.spectrum, flux
+            )
+        elif share > self.sampling_tolerance:
+            msg = (
+                f"{share:.3e} of the field travels beyond the window over "
+                f"{self.distance:g} m (largest ray shift {wrap.max_ratio:.3g} "
+                "half-widths) and would wrap: the propagator's phase is "
+                "undersampled there. Enlarge the window"
+                + (
+                    ', evaluate this output plane with output_method="fresnel", '
+                    "which reaches any window,"
+                    if self.output is not None
+                    else ", evaluate a larger output plane with output_method="
+                    '"fresnel",'
+                )
+                + " or declare the angular band removal with beyond_window='remove'"
+            )
+            raise CouplingError(msg)
+        spectrum = np.array(source.spectrum)
+        attenuated = np.array(source.spectrum)
+        for columns in flux.chunks():
+            k_z = self._wavenumber(state, columns)
+            # Optics exp(+i(k_z L - phi - omega tau)) crosses as its conjugate.
+            exponent = -1j * np.conj(k_z) * self.distance + 1j * (
+                grid.omega * delay + self.frame_phase
+            )
             factor = np.where(band[None, :], np.exp(exponent), 1.0)
             spectrum[columns] *= factor[:, None, :]
             attenuated[columns] *= np.abs(factor)[:, None, :]
-            wrap.add(state, columns, k_z, self.distance)
-        absorbed = spatial_energy(state.spectrum, flux) - spatial_energy(
+        absorbed = spatial_energy(source.spectrum, flux) - spatial_energy(
             attenuated, flux
         )
         if np.all(np.imag(_index(state.medium, grid))[band] == 0):
             absorbed = 0.0
         propagated = state.with_spectrum(spectrum)
-        edge = _edge_share(propagated)
-        share = wrap.share()
         diagnostics = {
             "wrap_share": share,
             "max_ray_shift_ratio": wrap.max_ratio,
-            "edge_share": edge,
-            "sampling_adequate": float(
-                share <= self.sampling_tolerance and edge <= self.sampling_tolerance
-            ),
+            "edge_share": _edge_share(propagated),
+            "window_removed": window_removed,
         }
-        return propagated, absorbed, diagnostics
+        return propagated, absorbed, window_removed, diagnostics
 
     def _fresnel(
         self,
@@ -2756,7 +2840,7 @@ class FreeSpace:
 
         Raises
         ------
-        GridError
+        CouplingError
             If the distance is not positive or the kernel is undersampled on the
             source grid.
         """
@@ -2764,7 +2848,7 @@ class FreeSpace:
         assert output is not None
         if self.distance <= 0:
             msg = "the Fresnel output needs a positive distance"
-            raise GridError(msg)
+            raise CouplingError(msg)
         grid = state.grid
         band = _band(grid)
         index = _index(state.medium, grid)
@@ -2791,7 +2875,7 @@ class FreeSpace:
                 f"nodes, and {aliased:.3e} of the field would alias with it; refine "
                 "the source grid or move the plane further"
             )
-            raise GridError(msg)
+            raise CouplingError(msg)
         bound = k_max * (reach + out_reach) ** 4 / (8 * self.distance**3)
         field_out = np.zeros(
             (output.n_columns, kept.n_pol, grid.n_omega), dtype=np.complex128
@@ -2800,7 +2884,7 @@ class FreeSpace:
             k = complex(index[bin_index]) * grid.omega[bin_index] / C
             field_out[:, :, bin_index] = _fresnel_bin(
                 kept.space, output, samples[:, :, bin_index], k, self.distance
-            ) * np.exp(1j * grid.omega[bin_index] * delay)
+            ) * np.exp(1j * (grid.omega[bin_index] * delay + self.frame_phase))
         result = kept.with_spectrum(_to_spectrum(output, field_out), space=output)
         measured_out = _measure(result, _flux(result))
         absorbed = float(
@@ -2822,6 +2906,7 @@ class FreeSpace:
                     "kernel_alias_share": aliased,
                     "output_edge_share": _edge_share(result),
                     "delay_removed": delay,
+                    "phase_removed": self.frame_phase,
                 },
                 notes=("paraxial Fresnel kernel from the source samples",),
             ),
@@ -2844,8 +2929,8 @@ class _WrapCount:
         columns: slice,
         k_z: Complex[np.ndarray, "n_chunk n_omega"],
         distance: float,
-    ) -> None:
-        """Add a chunk of columns.
+    ) -> Bool[np.ndarray, "n_chunk n_omega"]:
+        """Add a chunk of columns and return which of their bins leave the window.
 
         A column at angle theta moves its rays by ``L tan(theta) = L kappa / k_z``;
         beyond the window's half-width the periodic (Cartesian) or reflecting
@@ -2861,6 +2946,12 @@ class _WrapCount:
             Their longitudinal wave numbers, shape ``(n_chunk, n_omega)``.
         distance : float
             Propagation distance in m.
+
+        Returns
+        -------
+        numpy.ndarray
+            True where a propagating column's rays move beyond the window's
+            half-width, shape ``(n_chunk, n_omega)``.
         """
         grid = state.grid
         space = state.space
@@ -2892,6 +2983,7 @@ class _WrapCount:
         self.wrapped += float(np.sum(content[ratio > 1]))
         if np.any(occupied):
             self.max_ratio = max(self.max_ratio, float(np.max(ratio[occupied])))
+        return ratio > 1
 
     def share(self) -> float:
         """Return the wrapped share.

@@ -9,6 +9,7 @@ from collections.abc import Callable
 
 import numpy as np
 import pytest
+from tests.coupling.conftest import apply_sequence
 
 from solprop.constants import C
 from solprop.coupling.elements import (
@@ -24,14 +25,7 @@ from solprop.coupling.elements import (
     ThinLens,
     TransmissionMask,
 )
-from solprop.coupling.transport import transport
-from solprop.exceptions import (
-    ConvergenceError,
-    GridError,
-    MaterialError,
-    OpticsGeometryError,
-    PolarisationError,
-)
+from solprop.exceptions import CouplingError
 from solprop.grid import EnvelopeGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.optics import (
     Chain,
@@ -163,28 +157,28 @@ def test_mirror_images_a_displaced_cartesian_beam(beam: BeamFactory, centre: int
 def test_mirror_and_jones_refusals(beam: BeamFactory):
     space = RadialGrid(1e-3, 32)
     state = beam(space, 0.3e-3)
-    with pytest.raises(OpticsGeometryError, match="perpendicular"):
+    with pytest.raises(CouplingError, match="perpendicular"):
         Mirror(**CONDUCTOR, incident=(0, 0, 1), outgoing=(0, 0, -1), s_axis=(0, 1, 1))
-    with pytest.raises(OpticsGeometryError, match="three-vector"):
+    with pytest.raises(CouplingError, match="three-vector"):
         Mirror(**CONDUCTOR, incident=(0, 0, 0), outgoing=(0, 0, -1), s_axis=(0, 1, 0))
-    with pytest.raises(OpticsGeometryError, match="incident direction"):
+    with pytest.raises(CouplingError, match="incident direction"):
         Mirror(
             **CONDUCTOR, incident=(1, 0, 0), outgoing=(0, 0, 1), s_axis=(0, 1, 0)
         ).apply(state)
-    with pytest.raises(OpticsGeometryError, match="changes the propagation"):
+    with pytest.raises(CouplingError, match="changes the propagation"):
         Mirror(
             **CONDUCTOR, incident=(0, 0, 1), outgoing=(0, 0, 1), s_axis=(0, 1, 0)
         ).apply(state)
-    with pytest.raises(PolarisationError, match="singular values"):
+    with pytest.raises(CouplingError, match="singular values"):
         Mirror(
             1.2, 1.0, incident=(0, 0, 1), outgoing=(0, 0, -1), s_axis=(0, 1, 0)
         ).apply(state)
-    with pytest.raises(PolarisationError, match="singular values"):
+    with pytest.raises(CouplingError, match="singular values"):
         PolarisationTransform(np.array([[1.0, 1.0], [0.0, 1.0]])).apply(state)
-    with pytest.raises(PolarisationError, match="2x2"):
+    with pytest.raises(CouplingError, match="2x2"):
         PolarisationTransform(np.eye(3)).apply(state)
     cartesian = FreeGrid(1e-3, 16, 1e-3, 16)
-    with pytest.raises(GridError, match="oblique"):
+    with pytest.raises(CouplingError, match="oblique"):
         Mirror(
             **CONDUCTOR,
             incident=(0, 0, 1),
@@ -192,7 +186,7 @@ def test_mirror_and_jones_refusals(beam: BeamFactory):
             s_axis=(1, 1, 0),
         ).apply(beam(cartesian, 0.3e-3))
     odd = FreeGrid(1e-3, 15, 1e-3, 16)
-    with pytest.raises(GridError, match="odd sample count"):
+    with pytest.raises(CouplingError, match="odd sample count"):
         Mirror(
             **CONDUCTOR, incident=(0, 0, 1), outgoing=(0, 0, -1), s_axis=(0, 1, 0)
         ).apply(beam(odd, 0.3e-3))
@@ -244,12 +238,12 @@ def test_fresnel_interface_conserves_energy_and_tracks_the_medium(
     )
     assert abs(report.approximation_error) <= 1e-7 * report.energy_in
     assert result.state.medium is glass
-    with pytest.raises(MaterialError, match="applied once"):
+    with pytest.raises(CouplingError, match="applied once"):
         interface.apply(result.state)
-    with pytest.raises(MaterialError, match="PlanarInterface"):
+    with pytest.raises(CouplingError, match="PlanarInterface"):
         FreeSpace(0.1, air).apply(result.state)
     FreeSpace(0.1, glass).apply(result.state)
-    with pytest.raises(MaterialError, match="lossless"):
+    with pytest.raises(CouplingError, match="lossless"):
         PlanarInterface(air, SpatialMedium(1.5 + 0.01j)).apply(state)
     assert grid.n_omega > 0
 
@@ -310,14 +304,14 @@ def test_spectral_transfer_refusals_and_records(beam: BeamFactory, grid: Envelop
     space = RadialGrid(1e-3, 32)
     state = beam(space, 0.3e-3)
     gdd = TaylorPhase((0.0, 0.0, 500e-30), 800e-9)
-    with pytest.raises(MaterialError, match="explicit efficiency"):
+    with pytest.raises(CouplingError, match="explicit efficiency"):
         SpectralTransfer(gdd, predict_loss=True).apply(state)
-    with pytest.raises(MaterialError, match="twice"):
+    with pytest.raises(CouplingError, match="twice"):
         SpectralTransfer(Material("SiO2", 1e-3, loss=True), efficiency=0.9).apply(state)
-    with pytest.raises(MaterialError, match=r"\[0, 1\]"):
+    with pytest.raises(CouplingError, match=r"\[0, 1\]"):
         SpectralTransfer(gdd, efficiency=1.2).apply(state)
-    with pytest.raises(MaterialError, match="calibration"):
-        transport(state, [lambda omega: np.ones_like(omega, dtype=complex)])
+    with pytest.raises(CouplingError, match="calibration"):
+        apply_sequence(state, [lambda omega: np.ones_like(omega, dtype=complex)])
     record = SpectralCalibration(True, True, 800e-9, "measured compressor")
     custom = SpectralTransfer(
         lambda omega: np.exp(1j * 1e-30 * (omega - 2.35e15) ** 2), calibration=record
@@ -375,23 +369,23 @@ def test_thin_screens_stay_inside_their_certificates(beam: BeamFactory):
 def test_thin_screen_refusals(beam: BeamFactory, grid: EnvelopeGrid):
     space = RadialGrid(4e-3, 256)
     state = beam(space, 1e-3)
-    with pytest.raises(ConvergenceError, match="model_error"):
+    with pytest.raises(CouplingError, match="model_error"):
         ThinLens(0.5, model_error=1e-7).apply(state)
-    with pytest.raises(ConvergenceError, match=r"\(0, 1\)"):
+    with pytest.raises(CouplingError, match=r"\(0, 1\)"):
         ThinLens(0.5, model_error=0.0).apply(state)
-    with pytest.raises(GridError, match="Nyquist"):
+    with pytest.raises(CouplingError, match="Nyquist"):
         ThinLens(5e-3, model_error=0.5).apply(state)
-    with pytest.raises(MaterialError, match="nonzero focal"):
+    with pytest.raises(CouplingError, match="nonzero focal"):
         ThinLens(0.0, model_error=1e-3).apply(state)
-    with pytest.raises(MaterialError, match="passive"):
+    with pytest.raises(CouplingError, match="passive"):
         TransmissionMask(np.full(space.n_r, 1.1), model_error=1e-3).apply(state)
-    with pytest.raises(MaterialError, match="unit modulus"):
+    with pytest.raises(CouplingError, match="unit modulus"):
         TransmissionMask(
             np.full(space.n_r, 0.5), model_error=1e-3, phase_only=True
         ).apply(state)
-    with pytest.raises(MaterialError, match="n_nodes"):
+    with pytest.raises(CouplingError, match="n_nodes"):
         TransmissionMask(np.ones(3), model_error=1e-3).apply(state)
-    with pytest.raises(MaterialError, match="broadcast"):
+    with pytest.raises(CouplingError, match="broadcast"):
         TransmissionMask(lambda x, y, omega: np.ones(3), model_error=1e-3).apply(
             state.with_spectrum(state.spectrum, space=space)
         )
@@ -400,7 +394,7 @@ def test_thin_screen_refusals(beam: BeamFactory, grid: EnvelopeGrid):
 def test_radial_grids_refuse_symmetry_breaking(beam: BeamFactory):
     space = RadialGrid(4e-3, 64)
     state = beam(space, 1e-3)
-    with pytest.raises(GridError, match="azimuth"):
+    with pytest.raises(CouplingError, match="azimuth"):
         TransmissionMask(
             lambda x, y, omega: np.exp(-((x / 2e-3) ** 2))[:, None] + 0 * omega,
             model_error=1e-2,
@@ -410,11 +404,11 @@ def test_radial_grids_refuse_symmetry_breaking(beam: BeamFactory):
         model_error=1e-2,
     ).apply(state)
     assert symmetric.report.specified_loss > 0
-    with pytest.raises(GridError, match="off-axis"):
+    with pytest.raises(CouplingError, match="off-axis"):
         Aperture(1e-3, model_error=1e-2, centre=(1e-4, 0.0)).apply(state)
-    with pytest.raises(GridError, match="cylindrical symmetry"):
+    with pytest.raises(CouplingError, match="cylindrical symmetry"):
         Alignment(displacement=(1e-4, 0.0)).apply(state)
-    with pytest.raises(GridError, match="cylindrical symmetry"):
+    with pytest.raises(CouplingError, match="cylindrical symmetry"):
         Alignment(tilt=(1e-3, 0.0), model_error=1e-3).apply(state)
     assert Alignment().apply(state).report.element == "Alignment(none)"
 
@@ -432,33 +426,33 @@ def test_cartesian_masks_and_alignment_refusals(beam: BeamFactory):
         phase_only=True,
     ).apply(state)
     assert phase.report.specified_loss == 0.0
-    with pytest.raises(ConvergenceError, match="tilt"):
+    with pytest.raises(CouplingError, match="tilt"):
         Alignment(tilt=(1e-3, 0.0)).apply(state)
-    with pytest.raises(GridError, match="finite"):
+    with pytest.raises(CouplingError, match="finite"):
         Alignment(tilt=(2.0, 0.0), model_error=1e-3).apply(state)
 
 
 def test_state_validation(grid: EnvelopeGrid, air: SpatialMedium, beam: BeamFactory):
     space = RadialGrid(1e-3, 16)
     zero = np.zeros((16, 1, grid.n_omega), complex)
-    with pytest.raises(GridError, match="line grid"):
+    with pytest.raises(CouplingError, match="line grid"):
         SpatialState(grid, LineGrid(1e-3, 16), zero, air)
-    with pytest.raises(GridError, match="shape"):
+    with pytest.raises(CouplingError, match="shape"):
         SpatialState(grid, space, np.zeros((15, 1, grid.n_omega), complex), air)
     outside = zero.copy()
     outside[0, 0, np.flatnonzero(~grid.active_mask)[0]] = 1.0
-    with pytest.raises(GridError, match="outside the active band"):
+    with pytest.raises(CouplingError, match="outside the active band"):
         SpatialState(grid, space, outside, air)
     taper = SpatialMedium("Ar", Linear(1.0, 2.0, 0.1))
-    with pytest.raises(MaterialError, match="homogeneous"):
+    with pytest.raises(CouplingError, match="homogeneous"):
         SpatialState(grid, space, zero, taper)
-    with pytest.raises(GridError, match="right-handed"):
+    with pytest.raises(CouplingError, match="right-handed"):
         SpatialState(grid, space, zero, air, np.diag([1.0, 1.0, -1.0]))
     state = beam(space, 0.3e-3)
     assert not state.spectrum.flags.writeable
     assert not state.frame.flags.writeable
-    with pytest.raises(GridError, match="neither"):
-        transport(state, [3])
+    with pytest.raises(CouplingError, match="neither"):
+        apply_sequence(state, [3])
 
 
 def test_nonfinite_and_out_of_range_inputs_are_refused(
@@ -466,16 +460,16 @@ def test_nonfinite_and_out_of_range_inputs_are_refused(
 ):
     space = RadialGrid(1e-3, 32)
     state = beam(space, 0.3e-3)
-    with pytest.raises(MaterialError, match="finite on every band"):
+    with pytest.raises(CouplingError, match="finite on every band"):
         ThinLens(lambda omega: np.full(omega.shape, np.nan), model_error=1e-3).apply(
             state
         )
-    with pytest.raises(MaterialError, match="transmission must be finite"):
+    with pytest.raises(CouplingError, match="transmission must be finite"):
         TransmissionMask(np.full(space.n_r, np.nan), model_error=1e-3).apply(state)
-    with pytest.raises(PolarisationError, match="finite"):
+    with pytest.raises(CouplingError, match="finite"):
         PolarisationTransform(np.full((2, 2), np.inf)).apply(state)
     record = SpectralCalibration(None, None, None)
-    with pytest.raises(MaterialError, match=r"\|H\| <= 1"):
+    with pytest.raises(CouplingError, match=r"\|H\| <= 1"):
         SpectralTransfer(
             lambda omega: np.full(omega.shape, 2.0 + 0j), calibration=(record,)
         ).apply(state)
@@ -484,15 +478,23 @@ def test_nonfinite_and_out_of_range_inputs_are_refused(
     assert declared.report.energy_out == pytest.approx(
         declared.report.energy_in, rel=1e-14
     )
-    with pytest.raises(MaterialError, match="known optics element"):
+    with pytest.raises(CouplingError, match="known optics element"):
         SpectralTransfer(Chain((lambda omega: np.ones(omega.shape, complex),))).apply(
             state
         )
-    with pytest.raises(GridError, match="finite"):
+    with pytest.raises(CouplingError, match="finite"):
         FreeSpace(math.inf, air).apply(state)
     unknown = FreeSpace(0.1, air)
     object.__setattr__(unknown, "output_method", "spherical")
-    with pytest.raises(GridError, match="output_method"):
+    with pytest.raises(CouplingError, match="output_method"):
+        unknown.apply(state)
+    with pytest.raises(CouplingError, match="frame_phase must be finite"):
+        FreeSpace(0.1, air, frame_phase=math.nan).apply(state)
+    with pytest.raises(CouplingError, match="frame_delay must be finite"):
+        FreeSpace(0.1, air, frame_delay=math.inf).apply(state)
+    unknown = FreeSpace(0.1, air)
+    object.__setattr__(unknown, "beyond_window", "clip")
+    with pytest.raises(CouplingError, match="beyond_window"):
         unknown.apply(state)
     samples = np.ones((space.n_r, int(np.sum(grid.active_mask & (grid.omega > 0)))))
     sampled = TransmissionMask(0.5 * samples, model_error=1e-3).apply(state)
@@ -511,5 +513,5 @@ def test_a_field_with_no_forward_flux_cannot_be_certified(
     beyond = space.k_r > 1.1 * np.max(grid.omega[band]) / C
     spectrum[beyond, 0, :] = band
     state = SpatialState(grid, space, spectrum, air)
-    with pytest.raises(GridError, match="no forward flux"):
+    with pytest.raises(CouplingError, match="no forward flux"):
         ThinLens(1.0, model_error=1e-3).apply(state)
