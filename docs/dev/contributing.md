@@ -33,15 +33,15 @@ focused fix start with an agreed issue or written plan.
 
 Keep the manual, docstrings, tests, and changelog consistent with the behaviour.
 Check physical claims against their primary sources and report uncertainties.
-Run fast checks and directly affected tests during development, and the full gate
-before treating a change as complete:
+Run fast checks and directly affected tests during development. Continuous
+integration runs the full gate on every pull request,
 
 ```sh
 uv run poe check
 ```
 
-Continuous integration runs the slow and coverage lanes (`poe test-slow`,
-`poe cov`). A change to the documentation alone needs less; see
+together with the slow and coverage lanes (`poe test-slow`, `poe cov`); a change is
+complete when they pass there. A change to the documentation alone needs less; see
 [documentation-only changes](testing.md#documentation-only-changes).
 
 ## Work on the documentation
