@@ -20,6 +20,7 @@ from march_bounds import (
     assert_matched,
     simulation_bound,
 )
+from solprop import _process
 from solprop.driver._scan_context import _EXECUTOR
 from solprop.driver.executors import Local, pool
 from solprop.driver.executors.pool import MemoryBudget, Pool
@@ -539,19 +540,24 @@ def test_pool_rejects_unpickleable_reducer_before_output(tmp_path):
 
 
 def test_linux_allocation_uses_affinity_slurm_and_cgroup(tmp_path, monkeypatch):
-
-    quota = tmp_path / "cpu.max"
-    quota.write_text("200000 100000")
+    # The CPU quota is the thread budget's (ADR-052), read from this process's own
+    # cgroup: a two-CPU quota on a fake root, through the real reader.
+    root = tmp_path / "root"
+    (root / "proc/self").mkdir(parents=True)
+    (root / "proc/self/cgroup").write_text("0::/\n")
+    (root / "sys/fs/cgroup").mkdir(parents=True)
+    (root / "sys/fs/cgroup/cpu.max").write_text("200000 100000")
+    monkeypatch.setattr(
+        _process, "_own_cgroup_cpus", lambda: _process.cgroup_cpus(root)
+    )
+    monkeypatch.delenv("SOLPROP_THREADS", raising=False)
     memory = tmp_path / "memory.max"
     memory.write_text(str(1024**3))
     missing = tmp_path / "missing"
     monkeypatch.setattr(
         pool,
         "Path",
-        lambda name: {
-            "/sys/fs/cgroup/cpu.max": quota,
-            "/sys/fs/cgroup/memory.max": memory,
-        }.get(name, missing),
+        lambda name: {"/sys/fs/cgroup/memory.max": memory}.get(name, missing),
     )
     monkeypatch.setattr(pool.sys, "platform", "linux")
     monkeypatch.setattr(
