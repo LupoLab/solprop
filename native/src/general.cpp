@@ -290,7 +290,7 @@ void cartesian_for(const char* label, const ExecutionSpace& execution,
 // otherwise reads every line before writing it. Ordered by `stream_fence`. Device
 // builds compile out the host traversals that use these, hence `maybe_unused`.
 [[maybe_unused]] KOKKOS_INLINE_FUNCTION void stream_store(Complex& target,
-                                                         const Complex value) {
+                                                          const Complex value) {
 #if defined(SOLPROP_NATIVE_STREAMING_STORES)
   _mm_stream_pd(reinterpret_cast<double*>(&target),
                 _mm_set_pd(value.imag(), value.real()));

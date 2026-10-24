@@ -161,6 +161,22 @@ def test_a_callable_declares_its_jumps_and_turning_points():
     assert record.total_variation == pytest.approx(0.5 + 1.0 + 0.5, rel=4 * EPS)
 
 
+def test_a_sum_carries_the_union_of_its_jumps():
+    step = FromCallable(
+        lambda z: np.where(z < 0.5, 1.0, 2.0),
+        (0.0, 1.0),
+        jumps=np.array([0.5]),
+        turning=np.array([]),
+    )
+    later = FromCallable(
+        lambda z: np.where(z < 0.8, 0.0, 1.0),
+        (0.0, 1.0),
+        jumps=np.array([0.8]),
+        turning=np.array([]),
+    )
+    assert Sum((step, later, Linear(1.0, 2.0, 1.0))).jumps.tolist() == [0.5, 0.8]
+
+
 def test_a_callable_without_declared_variation_refuses():
     path = FromCallable(np.cos, (0.0, 4.0))
     with pytest.raises(TranslationError, match="no declared variation"):
