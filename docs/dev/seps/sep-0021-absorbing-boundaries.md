@@ -6,16 +6,16 @@
 | **Title** | Temporal boundaries: wider windows, absorption and the escaped field |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-10-16); GPT-6 (review revisions, 2026-10-16; window-strategy revision, 2026-10-20); Opus 5.5 (refresh against the integrated tree, 2026-10-24) |
-| **Status** | Draft |
+| **Status** | In progress |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); GPT-6 (AI); Fable 5.1 (AI); Opus 5.5 (AI) |
 | **Type** | Change |
 | **Created** | 2026-10-16 |
-| **Resolution** | — |
+| **Resolution** | Accepted 2026-10-24 by John Travers after his review of the refreshed proposal and the Opus 5.5 AI review and response recorded in Part III (LupoLab/solprop pull request 14, closed into the implementation pull request). |
 | **Requires** | [SEP 14](archive/sep-0014-stepper-efficiency.md) (the collar study and the Adams limits); [SEP 16](archive/sep-0016-unified-multistep.md) (the default multistep stepper and the collar ablation) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | — |
+| **Implementation** | John Travers with Opus 5.5 (AI); all phases on `feature/sep-0021-temporal-boundaries`, one pull request opened when the SEP is set Final |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -83,7 +83,7 @@ project's standing preference is a robust default over conditional speed-ups.
 or how much of the field sat inside it. `warn_walkoff` is an a-priori estimate from a
 span the caller supplies. The spatial routes already measure their collar's
 electric-field-norm share at field-bearing saved planes (`collar_field_fraction`,
-renamed and redefined by [SEP 34](sep-0034-medium-flux.md), which keeps it distinct
+renamed and redefined by [SEP 34](archive/sep-0034-medium-flux.md), which keeps it distinct
 from physical flux); SEP 22 deliberately
 skips that diagnostic at statistics-only planes. Neither that diagnostic nor sparse
 output is a boundary-safety monitor. The temporal collar has no equivalent. A run
@@ -219,8 +219,7 @@ size leaves.
 The campaign starts from the delivered contracts below, not the earlier drafting
 costs or proposed interfaces. This cross-check was first made on 2026-10-20 and
 refreshed on 2026-10-24 against the integrated tree (kernel schema 35, output
-schema 23): SEPs 22–30 are Final, SEP 34 is merged with one test phase open, and
-SEP 31's implementation is awaiting merge. A campaign records the exact solprop
+schema 24): SEPs 22–31 and 34 are Final. A campaign records the exact solprop
 revision, including its in-repository native backend, that it actually uses.
 
 | SEP | Contract this proposal must preserve | Consequence for SEP 21 |
@@ -232,17 +231,15 @@ revision, including its in-repository native backend, that it actually uses.
 | [28](archive/sep-0028-free-space-evaluation.md) | No seam change. Free-space chunks zero out-of-crop bins per chunk and alias the node field and polarisation onto the chunk's rows; CPU crossings are tiled; free-space, line and planar grids take a 1 GiB default node budget. | Guard reductions and accumulators must not assume a full-volume node field or reuse an aliased stage row without proving it holds the committed endpoint (§4.12). Measure monitor overhead on this execution path. |
 | [29](archive/sep-0029-compiled-backend-distribution.md) | The native backend lives in this repository as `solprop-native`, checked against the kernel schema and its contract tuples at import; native builds need GCC 14 or newer. | Native work lands in the same pull request as the Python backends, following the native contributor rules, and refuses unimplemented quantities by name. |
 | [30](archive/sep-0030-standard-benchmark-suite.md) | `benchmarks/` holds only the standard suite; campaign harnesses and raw results are kept with the project's development records. | Phase 0's harness follows that rule; cases that remain useful after the campaign, such as the wide-window references, become suite cases in phase 2 (§11). |
-| [31](sep-0031-simulation-coupling.md) | Remapping reports the share of a record's energy outside the temporal collar's flat region (`one_low`/`one_high`), and pulse measures average where the collar is exactly one; persisted frame records rebuild absolute phase and delay; a relaunched run is a new run with an inherited origin. SEP 31 leaves wider windows and escaped-field models to this SEP. | Geometry changes keep the meaning of the collar's flat-region fields or update those consumers; a window without temporal absorption still needs a defined edge band, for which the guard band is the candidate. Reuse the frame records to align fields in §4.8 and §4.11. Accumulators start at zero in a relaunched run unless Q22 decides otherwise. |
-| [34](sep-0034-medium-flux.md) | Spatial routes have a physical admittance metric, `SpatialFlux`, with endpoint weights and a radial endpoint term in the linear exponent. A collar need not commute with the admittance, so its quadratic-form change is measured, never inferred from a field-norm decrement. | The spatial metric $M$ of §4.6 is SEP 34's. Its radial endpoint term is joined to the cumulative linear exponent, so it belongs to $\mathcal L$, where it cancels $E^\dagger M'E$ for the retained forward field; the ledger must not count it twice. SEP 34's passivity rule answers part of Q15 on those routes. Its pending phase 3 adds a uniform-loss test that keeps the collar's field fraction negligible; that test must keep passing. |
+| [31](archive/sep-0031-simulation-coupling.md) | Remapping reports the share of a record's energy outside the temporal collar's flat region (`one_low`/`one_high`), and pulse measures average where the collar is exactly one; persisted frame records rebuild absolute phase and delay; a relaunched run is a new run with an inherited origin. SEP 31 leaves wider windows and escaped-field models to this SEP. | Geometry changes keep the meaning of the collar's flat-region fields or update those consumers; a window without temporal absorption still needs a defined edge band, for which the guard band is the candidate. Reuse the frame records to align fields in §4.8 and §4.11. Accumulators start at zero in a relaunched run unless Q22 decides otherwise. |
+| [34](archive/sep-0034-medium-flux.md) | Spatial routes have a physical admittance metric, `SpatialFlux`, with endpoint weights and a radial endpoint term in the linear exponent. A collar need not commute with the admittance, so its quadratic-form change is measured, never inferred from a field-norm decrement. | The spatial metric $M$ of §4.6 is SEP 34's. Its radial endpoint term is joined to the cumulative linear exponent, so it belongs to $\mathcal L$, where it cancels $E^\dagger M'E$ for the retained forward field; the ledger must not count it twice. SEP 34's passivity rule answers part of Q15 on those routes. Its uniform-loss test (`tests/backends/test_flux_gradients.py`), which keeps the collar's field fraction negligible, must keep passing. |
 
 **Execution order.** SEP 27 and SEP 28 are integrated, so the ordering this section
 recorded on 2026-10-20 is satisfied: the plasma campaign uses the qualified held-current
 source and the free-space costs are measured after SEP 28's changes, with no
-remeasurement caveat for earlier baselines. Work that edits the driver's accepted-step
-surface, the keyword interfaces or the output schema rebases onto SEP 31 once it is
-merged. Use the next free kernel and output schemas at landing, not numbers reserved
+remeasurement caveat for earlier baselines. Use the next free kernel and output schemas at landing, not numbers reserved
 by an older draft: SEP 31's frame follow-up and [SEP 33](sep-0033-single-precision-mlx.md)
-may take numbers first. If SEP 33 lands before phase 2, every new accumulator and
+may take numbers first; output schema 24 is SEP 31's. If SEP 33 lands before phase 2, every new accumulator and
 reduction states its accumulation precision and is covered in binary32. This is an
 integration constraint, not a requirement to finish the escaped-field reconstruction
 before choosing a useful window or alarm.
@@ -651,7 +648,7 @@ trace, which differs for a broadband dispersive index. Define zero occupancy for
 zero field. General modal and spatial routes must use their documented metric and
 state the diagnostic's meaning; a sum of squared internal modal amplitudes is not a
 universal physical energy. On spatial routes the metric is
-[SEP 34](sep-0034-medium-flux.md)'s axial admittance, with its endpoint weights; the
+[SEP 34](archive/sep-0034-medium-flux.md)'s axial admittance, with its endpoint weights; the
 spatial collar's `collar_field_fraction` is a field-norm share, not this proxy.
 
 **The energy ledger uses the actual evolution operator.** Write the route's energy as
@@ -2105,6 +2102,13 @@ parts) are cited through it.
 - 2026-10-24 (later): Reviewed by Opus 5.5 (AI), covering the unreviewed 2026-10-20
   revision and the refresh (AR1–AR12 below). The drafting agent's response revises
   Part I; no finding remains open. Next: human review and acceptance.
+
+- 2026-10-24: Accepted by John Travers after his review of the refreshed proposal and
+  the AI review and response; Part I is frozen. The same day set `In progress`, with
+  every phase on one branch, `feature/sep-0021-temporal-boundaries`, started on top of
+  the open native CPU optimisation pull request; the earlier draft pull request was
+  closed into it. On that base SEPs 29, 31 and 34 are Final, so §3.1's links and status
+  were updated before freezing.
 
 ### AI review — 2026-10-24 (Opus 5.5)
 

@@ -31,6 +31,16 @@ being implemented.
   identifies a new material contract. Ne/Xe, mixtures, mode-averaged and multimode
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
+- [SEP 21 — Temporal boundaries: wider windows, absorption and the escaped field](seps/sep-0021-absorbing-boundaries.md):
+  in progress. A campaign against wide-window references compares windows without
+  temporal absorption, monitored by guard regions, with collar strategies at matched
+  physical accuracy, including fixed asymmetric placement and prescribed frames
+  (phase 0a), and qualifies an escaped-field record separately (phase 0b). The
+  qualified strategies, guard monitor, absorbed-energy and occupancy diagnostics and
+  the keyword switches follow; an implicit–explicit collar only where it improves on
+  every admissible alternative. Spatial collar changes, adaptive recentering/expansion,
+  a general offset-grid API, independently asymmetric absorber ramps and implicit
+  Runge–Kutta remain open.
 
 
 ## Draft enhancement proposals
@@ -82,18 +92,6 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   and a composition-preserving mixture EOS. One resolved state feeds linear optics,
   Raman amplitudes, widths and shifts. Current upstream model selections, estimates
   and validity records govern admission; nonlinear local-field corrections remain open.
-- [SEP 21 — Temporal boundaries: wider windows, absorption and the escaped field](seps/sep-0021-absorbing-boundaries.md):
-  wider production windows without temporal absorption versus collar strategies at
-  matched physical accuracy, including fixed asymmetric placement, prescribed frames,
-  memory and guard-monitor costs. Its qualification decides between a monitored opt-in
-  and a default, with the warning/error policy, before adoption. An implicit–explicit
-  collar is pursued only where it can improve on the admissible retained-window
-  alternatives. Absorbed-energy and occupancy diagnostics, keyword switches, and an
-  opt-in escaped-field record after its own qualification remain in scope. Plasma
-  comparisons use the held-current source, and the affected CPU free-space cost
-  recommendations are remeasured on the current free-space evaluation.
-  Spatial collar changes, adaptive recentering/expansion, a general offset-grid API,
-  independently asymmetric absorber ramps and implicit Runge–Kutta remain open.
 - [SEP 32 — Raman Maxwell–Bloch dynamics](seps/sep-0032-raman-maxwell-bloch.md):
   a separate scalar two-level population/coherence response, with equilibrium
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
