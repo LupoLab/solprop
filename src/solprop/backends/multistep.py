@@ -2032,7 +2032,9 @@ class HostHistory:
             )
             if self.compensated:
                 self._states = np.zeros_like(self._store)
-                self._rates = np.zeros_like(self._store)
+                # The operator's rates are binary64 host data, differenced against
+                # the step's exponent, so they stay binary64 under SEP 33 too.
+                self._rates = np.zeros(self._store.shape, dtype=np.complex128)
         self._store[0] = value
         if self.compensated:
             assert self._states is not None and self._rates is not None
@@ -2341,6 +2343,10 @@ class HostHistory:
                 exponent, moments, nodes, slots[: width - 1], dz, block
             )
             lab = lab + compensation.predictor(order)
+            if state.dtype == np.complex64:
+                # SEP 33: the compensation is formed in binary64 from the binary32
+                # history and the prediction rounded once.
+                lab = lab.astype(np.complex64)
         source = backend._adams_lab_source(lab, z + dz, purpose="predictor")
         _, corrector = _exponential_rows(nodes, orders, width, helpers=backend.helpers)
         rows = kernels.defect_rows(nodes, orders, width)
@@ -2371,6 +2377,8 @@ class HostHistory:
             _divisor(backend, state),
             extra,
         )
+        if state.dtype == np.complex64:
+            advanced = np.asarray(advanced).astype(np.complex64)
         self._exponential_trial = _ExponentialTrial(
             z=z,
             dz=dz,

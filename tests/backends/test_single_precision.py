@@ -60,6 +60,7 @@ def gnlse(  # noqa: PLR0913 - the case's own knobs
     raman: bool = True,
     integrator: RungeKutta | LowStorageRungeKutta | None = None,
     beta0: float = 0.0,
+    taper: bool = False,
 ) -> Simulation:
     """Return a 1024-bin soliton fibre, replayed on a uniform schedule by default."""
     schedule = (
@@ -83,6 +84,7 @@ def gnlse(  # noqa: PLR0913 - the case's own knobs
         schedule=schedule,
         integrator=RungeKutta() if integrator is None else integrator,
         raman=raman,
+        polarisation_taper=taper,
     )
 
 
@@ -286,6 +288,13 @@ def test_the_oracle_agrees_with_binary64_within_a_binary32_bound(steps):
     n_to = gnlse("double").translate().grids.n_to
     bound = steps * (2 * U32 + 7 * 16 * EPS_32 * math.ceil(math.log2(n_to)))
     assert_within(single, double, bound, what=f"{steps} steps")
+
+
+def test_the_polarisation_taper_agrees_with_binary64_within_its_bound():
+    single = finish(gnlse("single", taper=True))
+    double = finish(gnlse("double", taper=True))
+    bound = 10 * (2 * U32 + 7 * 16 * EPS_32 * 10)
+    assert_within(single, double, bound)
 
 
 def test_a_capillary_with_plasma_agrees_with_binary64_within_its_bound():
