@@ -1293,7 +1293,7 @@ the transverse negative-wavevector/Fourier-origin convention as well as temporal
 conjugation; tests must cover both, not insert ad hoc sign changes in kernels.
 
 The general spatial vacuum-flux issue on the roadmap is solved here **only
-for the new crystal route**. [SEP 34](sep-0034-medium-flux.md) owns the
+for the new crystal route**. [SEP 34](archive/sep-0034-medium-flux.md) owns the
 uniform isotropic scalar flux correction and its clean breaking change, with
 no legacy normalisation or old-file migration. Its scalar admittance must not
 replace this proposal's anisotropic vector E/H metric or interface solver.
@@ -1576,6 +1576,6 @@ verification is not verification of all coefficients in an article.
   remain separate; no scalar-flux substitution is implied.
 
 - 2026-10-23: Reassigned the shared medium-flux prerequisite to
-  [SEP 34](sep-0034-medium-flux.md) following SEP 31's review and split.
+  [SEP 34](archive/sep-0034-medium-flux.md) following SEP 31's review and split.
   SEP 31 retains field exchange and coupling; the shared flux proposal
   includes admitted radial adiabatic transport and complex local flux.

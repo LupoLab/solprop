@@ -366,7 +366,7 @@ the shock term and Raman on is conserved exactly while the energy falls by 7.2e-
 profiles)` builds one. The three keyword arguments are what `stats()` needs and the kernel
 contract does not carry.
 
-**Spatial statistics measure the medium's flux** ([SEP 34](seps/sep-0034-medium-flux.md)).
+**Spatial statistics measure the medium's flux** ([SEP 34](seps/archive/sep-0034-medium-flux.md)).
 The shared spatial statistics, `backends.spatial.collect_spatial`, read the plane's
 coefficients through `problem.flux.at(z)` (kernel schema 35): energy and the far-field
 spectra weight each column and bin by the real admittance `c Re k_z/omega` of that root,
