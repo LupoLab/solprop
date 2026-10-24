@@ -26,5 +26,6 @@ sep-0027-held-plasma-current
 sep-0028-free-space-evaluation
 sep-0029-compiled-backend-distribution
 sep-0030-standard-benchmark-suite
+sep-0031-simulation-coupling
 sep-0034-medium-flux
 ```

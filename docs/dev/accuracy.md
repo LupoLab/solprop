@@ -745,7 +745,7 @@ that comparison, not a general estimate for a changing basis.
 
 ## 12. Coupling between simulations
 
-A coupling ([SEP 31](seps/sep-0031-simulation-coupling.md),
+A coupling ([SEP 31](seps/archive/sep-0031-simulation-coupling.md),
 [the manual's chapter](../guide/workflows/coupling.md)) joins two runs that each have
 their own accuracy envelope; the coupling adds its own, and the three are kept apart
 rather than folded into one number.

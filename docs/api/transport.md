@@ -14,3 +14,6 @@ page. Both names are importable from {mod}`solprop.coupling`.
 .. autoclass:: solprop.coupling.transport.TransportReport
    :members:
 ```
+
+Transport between planes was proposed and carried out by
+[SEP 31](../dev/seps/archive/sep-0031-simulation-coupling.md).

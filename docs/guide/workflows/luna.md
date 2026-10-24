@@ -225,7 +225,7 @@ and the launch is the projected amplitudes as they are. The energy the modes do 
 capture is not restored by renormalising to the requested energy (nor is it in Luna),
 and the coupling report states the incident, captured and uncaptured energies. A field taken from another run is coupled at its own
 physical scale ([coupling simulations](coupling.md),
-[SEP 31](../../dev/seps/sep-0031-simulation-coupling.md)).
+[SEP 31](../../dev/seps/archive/sep-0031-simulation-coupling.md)).
 
 ## More accurate numerics, the same physics
 

@@ -41,7 +41,7 @@ The first public release. It contains:
   `beam_spectrum` is the axial-flux spectrum. Kernel schema 35 (`flux`) and output
   schema 23 (`flux_model`, `flux_plan`).
 - **Incident beams into general modal guides**
-  ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0031-simulation-coupling.html),
+  ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0031-simulation-coupling.html),
   phases 1 and 3). `from_waveguide(provider=..., incident=SpatialPulse(...),
   coupling=CouplingModel("vector_paraxial", model_error=...))` and `prop_waveguide`
   launch the share of an incident beam that the guide's channels capture. The beam's
@@ -52,7 +52,7 @@ The first public release. It contains:
   3 % uncaptured warning, `LAUNCH_UNCAPTURED_WARNING` and `IncidentLaunch` are removed;
   a strongly guiding core is refused by the vector model's contrast screen.
 - **Plane exchange between simulations**
-  ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0031-simulation-coupling.html),
+  ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0031-simulation-coupling.html),
   phase 2). `solprop.coupling` holds `FieldPlane`, a coherent field at one plane with
   its reference, geometry, metric, basis identity and provenance; `regrid`, the direct
   finite-time Fourier remap between temporal grids with its loss report and no
@@ -62,7 +62,7 @@ The first public release. It contains:
   launch bound to it, recording `configuration["coupling"]` and drawing no new noise.
   Output schema 24 records each run's plane-reference record (`RunMetadata.reference`).
 - **Coupling models**
-  ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0031-simulation-coupling.html),
+  ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0031-simulation-coupling.html),
   phase 3). `couple(plane, port, model=CouplingModel(kind, model_error=...))` is the one
   path from a field plane to a launch bound to a port, returning the launch and an
   immutable `CouplingReport`. `same_basis` copies an identical basis, applies a declared
@@ -81,7 +81,7 @@ The first public release. It contains:
   field on a spatial grid under a declared interface model. Ports state the models they
   admit. The phase-2 `same_basis` function is removed in favour of `couple`.
 - **Transport between planes**
-  ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0031-simulation-coupling.html),
+  ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0031-simulation-coupling.html),
   phase 4). `coupling.transport` carries a radial or Cartesian `FieldPlane` through an
   ordered sequence of linear elements -- `FreeSpace` (exact angular-spectrum
   propagation, with an explicit `"angular"` or `"fresnel"` output plane), `ThinLens`,
@@ -93,7 +93,7 @@ The first public release. It contains:
   unless their removal is declared, and a same-grid field filling the window's outer
   band is refused beyond `FreeSpace(edge_tolerance=...)` (default 1e-4). Refusals raise `CouplingError`.
 - **Coupled workflows**
-  ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0031-simulation-coupling.html),
+  ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0031-simulation-coupling.html),
   phase 5). The eight compositions of the coupling chapter -- capillary into capillary,
   a nonlinear gas gap into a capillary, fibre into fibre, Gaussian, analytic and
   Cartesian beams into a guide, a guide's far field, and SPM, compression and relay

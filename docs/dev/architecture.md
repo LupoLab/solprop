@@ -136,7 +136,7 @@ kernel layout carries the transverse columns in its mode axis (see §12).
 | **T** translation | turns P objects into validated kernel-ready arrays and the `KernelProblem` contract | P, numpy, scipy | may be expensive once per problem; results cached and validated |
 | **B** backends | state buffers, transform plans, kernels, the inner z-loop, statistics kernels | numpy, numba, pyfftw; the native package in `native/` (Kokkos, Kokkos-FFT and nanobind); from P only the types and constants the seam names — never a physics object | all hot-path rules of [backends.md](backends.md); in-place and `out=` allowed here only |
 | **D** driver | `Simulation`, run loop over save planes, batch runners, `prop_capillary`/`prop_gnlse`, output handlers, statistics specs | P, T, B (through the seam only), h5py | none |
-| **X** processing / plotting | analysis of outputs, standard plots, design tools | numpy, scipy, matplotlib, D (outputs), T (reference tables and their identities, for `processing.modal` alone) — never B | none; may call backend statistics kernels through the D layer when a computation belongs on the device |
+| **X** processing / plotting | analysis of outputs, standard plots, design tools | numpy, scipy, matplotlib, D (outputs), T (reference tables and their identities, for `processing.modal`; the recorded plane measure, for `processing.mixtures` and `processing.planes`) — never B | none; may call backend statistics kernels through the D layer when a computation belongs on the device |
 
 **Transverse rules are built in P.** `modes/quadrature.py` constructs its rules
 numerically -- Laurie's Kronrod recursion, and the field-scale rules of
@@ -146,7 +146,7 @@ problem, and caches them. It is the one numerical construction kept in P: it yie
 nodes and weights for T to fold into the transform, and no compiled code, per-stage
 evaluation or hot loop enters P with it.
 
-**The one X → T edge.** `solprop.processing.modal` imports
+**The X → T edges.** `solprop.processing.modal` imports
 `solprop.translate.modal_tables.ModalTransformTables` and
 `solprop.translate.general.guide_identity`, and that is inherent to the output schema
 rather than incidental. A general modal file records what its E/H reference **is** --
@@ -159,7 +159,9 @@ same way. `processing.mixtures` and `processing.planes` rebuild a spatial plane'
 measure from the record with `translate.flux.flux_from_record` and
 `translate.spatial.axial_admittance` (SEP 34), and `processing.planes` reuses
 `processing.modal`'s checked tables and evaluates a general basis Gram with
-`translate.coupled.metric_at`. No other module of **X** imports **T**.
+`translate.coupled.metric_at`. These edges are deliberate (SEP 31): the measure a file
+records is rebuilt by the code that built it for the run, not by a second copy in **X**.
+No other module of **X** imports **T**.
 
 **Coupling crosses the layers without breaking them** (SEP 31). The field plane, the
 input port, the remap and `couple` are **P**; the driver's `Simulation.input_port()`

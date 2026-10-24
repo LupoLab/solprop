@@ -5,7 +5,7 @@ a fibre, a gas cell. Carrying only its spectrum or duration loses its wavefront,
 modal coherence and the frequency dependence of its transverse profile; carrying a bare
 array leaves its basis, units, frame and energy meaning implicit.
 {py:mod}`solprop.coupling` connects simulations through a **coherent field at a
-reference plane** instead ([SEP 31](../../dev/seps/sep-0031-simulation-coupling.md)).
+reference plane** instead ([SEP 31](../../dev/seps/archive/sep-0031-simulation-coupling.md)).
 This page covers reading a saved plane as a field plane, moving it between temporal
 grids, and coupling it into another simulation: a relaunch into the same basis, a
 beam or a guide's exit into a capillary or another fibre, a guide's exit field
@@ -195,7 +195,7 @@ run keeps its ionisation tables and their ranges, as every derived run does.
 ## Coupling between different representations
 
 A different guide, radius or medium is not a relaunch. Three quantities must then be
-kept apart ([SEP 31](../../dev/seps/sep-0031-simulation-coupling.md), section 4.3): the
+kept apart ([SEP 31](../../dev/seps/archive/sep-0031-simulation-coupling.md), section 4.3): the
 Hermitian E/H flux pairing $F$ of a modal basis, the Gram $G = S^\dagger MS$ of a scalar
 least-squares fit in a common measure $M$, and a representation's native power metric
 $Q$ -- the identity for ordinary true-power coefficients, a dense Gram for a declared
@@ -654,7 +654,7 @@ certificate (ratio $2.5\times10^{-4}$ against the budget of $10^{-3}$).
 ## Composing simulations
 
 The blocks above compose into the calculations
-[SEP 31](../../dev/seps/sep-0031-simulation-coupling.md) set out to support. Each is an
+[SEP 31](../../dev/seps/archive/sep-0031-simulation-coupling.md) set out to support. Each is an
 ordinary chain of runs and planes; nothing schedules them, and each run keeps its own
 step control. The test suite runs every one of them as a short integrated case
 (`tests/coupling/test_workflows.py`), asserting its energy ledger.
@@ -731,3 +731,6 @@ relayed, ledger = transport(
 second = couple(relayed, port, model=CouplingModel("scalar_paraxial", model_error=0.05))
 print(ledger.specified_loss, ledger.removed, second.report.efficiency)
 ```
+
+Field planes, coupling models and their budgets, and transport between planes were
+proposed and carried out by [SEP 31](../../dev/seps/archive/sep-0031-simulation-coupling.md).

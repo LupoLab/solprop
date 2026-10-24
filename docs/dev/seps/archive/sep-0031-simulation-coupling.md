@@ -6,17 +6,17 @@
 | **Title** | Coupling simulations and transporting ultrafast fields |
 | **Author** | John Travers |
 | **Drafting agent** | GPT-6 (draft and 2026-10-23 review response) |
-| **Status** | In progress |
+| **Status** | Final |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); Opus 5.5 (AI) |
 | **Type** | Feature |
 | **Created** | 2026-10-22 |
-| **Resolution** | Accepted 2026-10-23 by John Travers after the S1–S4 responses recorded in Part III. SEP 34's public activation precedes this proposal's incident-launch change. |
-| **Requires** | [SEP 22](archive/sep-0022-memory-lean-spatial-execution.md): plane storage and input replacement; [SEP 23](archive/sep-0023-far-field-aperture-spectra.md): aperture definitions; [SEP 25](archive/sep-0025-rounding-level-reproducibility.md): numerical qualification; [SEP 34](archive/sep-0034-medium-flux.md): shared medium flux and radial adiabatic transport |
+| **Resolution** | Accepted 2026-10-23 by John Travers after the S1–S4 responses recorded in Part III. SEP 34's public activation precedes this proposal's incident-launch change. Final 2026-10-24 by John Travers after phase 5 and the maintainer decisions of 2026-10-24, with the remaining follow-up work moved to the roadmap (Part II, "Closing"). |
+| **Requires** | [SEP 22](sep-0022-memory-lean-spatial-execution.md): plane storage and input replacement; [SEP 23](sep-0023-far-field-aperture-spectra.md): aperture definitions; [SEP 25](sep-0025-rounding-level-reproducibility.md): numerical qualification; [SEP 34](sep-0034-medium-flux.md): shared medium flux and radial adiabatic transport |
 | **Supersedes** | — |
 | **Superseded-by** | — |
 | **Implementation** | John Travers with Opus 5.5 (AI); on `feature/sep-0031-simulation-coupling` |
-| **Manual pages** | — |
+| **Manual pages** | [Coupling simulations](../../../guide/workflows/coupling.md); [General modal propagation](../../../guide/waveguides/general-modal.md) (incident launch); [Solid-core fibres: the general modal route](../../../guide/waveguides/solid-fibres.md); [Supplying a waveguide](../../../guide/waveguides/supplied-guides.md); [Transport between planes](../../../api/transport.md) and the `solprop.coupling` and `processing.field_plane` entries of the [API index](../../../api/index.md); the tutorial [nonlinear beam preparation and coupling into a capillary](../../../auto_tutorials/free_space/plot_08_radial_capillary_coupling.rst); the worked example [spatiotemporal propagation in a graded-index multimode fibre](../../../auto_examples/waveguides/plot_04_graded_index_multimode.rst) |
 
 ## Part I — Proposal
 
@@ -28,7 +28,7 @@ the next simulation. These four blocks cover coupling between hollow or solid
 guides, incident Gaussian and arbitrary fields, nonlinear beam preparation before
 a capillary, outcoupling to an observation plane, and compression between stages.
 The incident field retains its absolute scale: light that is not captured is not
-restored by normalisation. The separate [SEP 34](archive/sep-0034-medium-flux.md) supplies
+restored by normalisation. The separate [SEP 34](sep-0034-medium-flux.md) supplies
 the shared medium-flux contract; coupling evaluates that measure on the host at
 each reference plane. Qualification separates physical attenuation,
 uncaptured forward power, representation error and model limitations, and compares
@@ -85,11 +85,11 @@ shims or old-file migration. A changed schema may refuse an older file clearly.
 ### 3. Context
 
 The relevant implementation is already divided across the layers of
-[architecture](../architecture.md):
+[architecture](../../architecture.md):
 
 - `solprop.driver.simulation.Simulation.with_input` accepts an array on an existing
   grid, in its existing basis, and shares translated tables. The
-  [interior-launch workflow](../../guide/results/interior-launch.md) deliberately
+  [interior-launch workflow](../../../guide/results/interior-launch.md) deliberately
   retains the parent's frame. It does not establish a transfer between unrelated
   guides or temporal grids.
 - `solprop.pulses.SpatialPulse` builds Gaussian/super-Gaussian beams and can launch
@@ -102,18 +102,18 @@ The relevant implementation is already divided across the layers of
   reconstruction residual in a quadrature norm. It is not a radiated-power
   calculation. `Simulation`'s `_projected_launch` subsequently rescales the
   projected shape to the pulse's full requested energy, even when capture is poor.
-  The [general-modal manual](../../guide/waveguides/general-modal.md) documents this.
+  The [general-modal manual](../../../guide/waveguides/general-modal.md) documents this.
 - `solprop.processing.modal` reconstructs E/H only against checked reference
   identities. Ordinary modal states instead use the true-power boundary
   $b=\sqrt{\operatorname{Re}n_{\rm eff}}a$. General-guide coordinates can carry
   a dense flux metric. A universal unweighted sum of squared amplitudes is wrong.
 - `solprop.optics` already supplies `TransferFunction`, `TaylorPhase`, `Material`,
   `ChirpedMirror`, `GratingPair`, `PrismPair` and `Chain`.
-  [Compression](../../guide/workflows/compression.md) and its tests cover their
+  [Compression](../../../guide/workflows/compression.md) and its tests cover their
   signs, loss conventions and parameter searches. This SEP reuses those models.
 - `solprop.spatial` and the radial/Cartesian routes propagate physical electric
   fields, but their energy, intensity and fluence currently use vacuum admittance.
-  [Free-space conventions](../../guide/free-space/model.md) explicitly identify
+  [Free-space conventions](../../../guide/free-space/model.md) explicitly identify
   that limitation. Existing far-field statistics are selected diagnostics, not a
   coherent output field at an arbitrary receiving plane.
 
@@ -122,17 +122,17 @@ semantics, optics/compressor models, spatial transforms and same-problem input
 replacement. They do not qualify the cross-route compositions proposed here.
 This assessment is a source/test audit, not a new test-suite result.
 
-[SEP 34](archive/sep-0034-medium-flux.md) owns spatial launch/noise/statistics consistency
+[SEP 34](sep-0034-medium-flux.md) owns spatial launch/noise/statistics consistency
 and the adiabatic correction for the existing radial gas-gradient route. This SEP
-and [SEP 5](sep-0005-solid-ionisation.md) consume its common measure; neither adds
-another normalisation policy. [SEP 8](sep-0008-quadratic-crystal-optics.md) retains
+and [SEP 5](../sep-0005-solid-ionisation.md) consume its common measure; neither adds
+another normalisation policy. [SEP 8](../sep-0008-quadratic-crystal-optics.md) retains
 its full-vector crystal E/H contract and interface solver.
-[SEP 9](sep-0009-propagation-statistics.md) measures fields within a propagation
+[SEP 9](../sep-0009-propagation-statistics.md) measures fields within a propagation
 route; this SEP supplies transported fields without taking on its additional
 measurement catalogue.
-[SEP 21](sep-0021-absorbing-boundaries.md) owns wider production time windows and
+[SEP 21](../sep-0021-absorbing-boundaries.md) owns wider production time windows and
 escaped-field models; remapping a saved plane cannot recover already absorbed light.
-[SEP 29](archive/sep-0029-compiled-backend-distribution.md) has moved the compiled backend
+[SEP 29](sep-0029-compiled-backend-distribution.md) has moved the compiled backend
 into this repository as `native`, distributed as `solprop-native`. Qualification
 uses its CPU build. This draft's historical review retains the names it reviewed.
 
@@ -140,7 +140,7 @@ uses its CPU build. This draft's historical review retains the names it reviewed
 
 #### 4.1 One physical plane, several representations
 
-Use SI and the optics convention of [conventions](../conventions.md): positive
+Use SI and the optics convention of [conventions](../../conventions.md): positive
 propagation phase $\exp(+i\beta L)$ and delay $\exp(+i\omega\tau)$. A plane has
 an oriented local transverse basis, a forward normal and a physical origin. Its
 temporal reference is independent of a simulation's local z origin. Reflection
@@ -172,7 +172,7 @@ together and leaves the physical field unchanged.
 
 #### 4.2 Shared plane measure
 
-[SEP 34](archive/sep-0034-medium-flux.md) derives and implements the scalar axial-admittance
+[SEP 34](sep-0034-medium-flux.md) derives and implements the scalar axial-admittance
 measure, its analytic-signal endpoints, physical launch/noise scaling, statistics
 and radial adiabatic transport. For a plane in an isotropic medium it supplies
 
@@ -755,8 +755,8 @@ Use it as the reference and a supported small-problem implementation; qualify
 accelerations against the same discrete map. Cache plans by geometry, grid,
 material, basis and reference identity, not by a mutable object's address.
 Factored $Y_z$ data follow SEP 34 and the spatial memory bounds of
-[SEP 22](archive/sep-0022-memory-lean-spatial-execution.md) and
-[SEP 28](archive/sep-0028-free-space-evaluation.md);
+[SEP 22](sep-0022-memory-lean-spatial-execution.md) and
+[SEP 28](sep-0028-free-space-evaluation.md);
 do not add a permanent transverse-by-frequency array when the root can be
 evaluated from existing separable coefficients in a bounded workspace.
 
@@ -787,7 +787,7 @@ fallback is hidden inside a device statistic.
 
 ### 7. Verification and validation
 
-Use [testing](../testing.md), [accuracy](../accuracy.md) and SEP 25. A matched
+Use [testing](../../testing.md), [accuracy](../../accuracy.md) and SEP 25. A matched
 discrete operation uses a rounding budget based on reduction length, transform
 error and conditioning. A changed grid, modal truncation or propagation uses
 independent refinement and an accuracy envelope. Do not demand bitwise agreement
@@ -1128,9 +1128,9 @@ No new material constant or experimental validation is claimed.
   Channel launches and `with_input` arrays are unchanged.
 - The advanced benchmark's graded-index case (`benchmarks/guides.py`) launches
   an incident 12 µm beam, so its launched energy is now the captured share.
-- Manual: [general modal propagation](../../guide/waveguides/general-modal.md),
-  [solid fibres](../../guide/waveguides/solid-fibres.md) (a runnable snippet),
-  [supplied guides](../../guide/waveguides/supplied-guides.md), a comment in the
+- Manual: [general modal propagation](../../../guide/waveguides/general-modal.md),
+  [solid fibres](../../../guide/waveguides/solid-fibres.md) (a runnable snippet),
+  [supplied guides](../../../guide/waveguides/supplied-guides.md), a comment in the
   graded-index tutorial, and the changelog.
 
 **Deviations and why.**
@@ -2358,6 +2358,68 @@ LP01 0.933, LP02 0.0625. The figures changed only in their last digits.
   is recorded here. The `couple` comparison at V = 1.5 bins shows a ~2e-5
   implementation difference attributed to the guide's tabulation, not to the facet.
 
+### Closing — 2026-10-24
+
+The maintainer set this SEP Final on 2026-10-24, after phase 5 and the decisions above.
+Phases 1–5 are merged on `feature/sep-0031-simulation-coupling` and reported in this
+part. Delivered overall: the incident-energy correction (a beam's energy met over its
+whole plane in the core medium, the uncaptured share lost rather than restored); plane
+exchange (`FieldPlane`, `processing.field_plane`, `regrid`, `InputPort` and the
+plane-reference record of output schema 24); coupling (`couple` under `same_basis`,
+`scalar_paraxial` and `vector_paraxial`, with its `CouplingReport`, its energy budget and
+the recorded capillary, fibre-pair, beam-into-fibre and vector facet envelopes, and
+`Outcouple`); the transport core (`transport` through the linear elements, with its
+sequential ledger in joules); and the eight compositions of §2 as integrated tests, the
+focused capillary-coupling tutorial and the graded-index worked example rerun on the
+incident launch. Coupling and transport are NumPy/SciPy code outside the propagation
+kernels; the compositions' tests run their source and receiving simulations on
+`numpy_ref`, `numba_cpu` and the native CPU build.
+
+**End-of-SEP evidence.** On pull request #9 every CI job passed on 12abb59: the test
+lanes with coverage at 100 %, the slow lanes on Linux and macOS, Windows, the lowest
+supported dependencies and the native suite. The run on this commit was pending when it
+was written.
+
+**The phase 5 open questions.** Questions 1 (superseded by `couple` and the
+`CouplingReport`), 2 (the on-axis index kept as a graded core's reference), 3 (the
+graded-index worked example, rerun above), 4 (basis identity by digest, kept), 8
+(`same_basis` outside the band, still refused; `regrid(crop_band=True)` crops) and 13
+(`Outcouple` kept a separate synthesis step) are resolved as recommended. Questions 6
+(A2), 10 (A1), 11 (B1) and 16 (A3) are resolved by the maintainer decisions above.
+Question 9, the `processing` → `translate.flux` edge, is recorded as deliberate in
+[architecture](../../architecture.md) §3. Questions 5, 7, 12, 14, 15 and 17 are the
+roadmap items below.
+
+Moved to the [roadmap](../../roadmap.md):
+- **regrid's band loss in physical energy** (per-bin admittance), beside the
+  record-norm share (question 5);
+- **field planes in the output schema**: `field_plane` on the general modal accessor
+  whitelist and the frame recorded in `FieldPlane`, so `transport` needs no `frame=`,
+  both with the next output-schema change (questions 7 and 15);
+- **the general guide's angular item at every occupied bin**, now at most five, after
+  measuring its cost (question 12);
+- **a public per-bin spatial energy spectrum** replacing the transport elements' private
+  `_energy_spectrum`, with the `aperture_profile` docstring's amplitude and quadrature
+  weighting, when `spatial.py` is next open (question 14);
+- **a graded-index facet envelope** for `vector_paraxial`: the same mode-matching solver
+  with a layered core; graded guides are admitted now with an uncounted envelope item
+  (A1);
+- **field planes from modified-noise runs**: reconstructing the auxiliary `noise_phase`
+  would lift `field_plane`'s refusal (A2);
+- **the coupling envelopes beyond their measured range**: the capillary envelope beyond
+  $\delta = 10^{-2}$, only if narrow infrared capillaries need it (question 17); the
+  beam-into-fibre envelope's LP01-only range (V 1.5–2.4, contrast to 0.01) and its
+  cone-edge truncation near V 2.4; the vector facet envelope's unresolved bands just above
+  the HE12 and HE13 cutoffs, which rest on the analytic ceiling; the order in Δ of the
+  fibre-pair `STEP_INDEX_ENVELOPE`, to re-measure; and the measurement of every envelope at
+  the profile wavelength against the frozen profile;
+- **other exit interfaces for `Outcouple`**, which offers only the matched interface (a
+  declared planar-interface model);
+- **vector coupling into a moving general guide**, whose sampled-path port carries no
+  E/H and so admits only `same_basis`;
+- **two slow medium-tier envelope tests** (about 30–50 s each), for the slow tier if CI
+  time becomes a constraint.
+
 ## Part III — History
 
 - 2026-10-22: Drafted after auditing existing launch, projection, spatial flux,
@@ -2393,6 +2455,8 @@ LP01 0.933, LP02 0.0625. The figures changed only in their last digits.
   implementation branch; it reaches main through its own pull request after
   SEP 34 has merged.
 - 2026-10-24: Phase 2, plane exchange, implemented; report in Part II.
+- 2026-10-24: Final. Phases 1–5 merged and reported, the maintainer decisions recorded;
+  the remaining work moved to the roadmap (Part II, "Closing"). Archived.
 
 ### AI review — 2026-10-23
 
@@ -2662,7 +2726,7 @@ the record of what was reviewed; its completion does not imply acceptance of thi
 revision. John selected the detuned tutorial and complex-admittance treatment
 while the revision was being prepared.
 
-- **R1 — Accepted.** [SEP 34](archive/sep-0034-medium-flux.md) now owns spatial energy,
+- **R1 — Accepted.** [SEP 34](sep-0034-medium-flux.md) now owns spatial energy,
   launch, noise, statistics, adiabatic radial transport and their CPU-backend
   qualification. SEP 31 consumes that contract. SEP 34's implementation may be
   developed in private backend slices, but the public switch is atomic across
@@ -2746,7 +2810,7 @@ required implementation evidence.
 ### AI re-review of the revision — 2026-10-23
 
 **Assessment.** The revision resolves R1–R10. The split into
-[SEP 34](archive/sep-0034-medium-flux.md) is clean, and §4.3's three named coupling models
+[SEP 34](sep-0034-medium-flux.md) is clean, and §4.3's three named coupling models
 with an explicit `model_error` budget are concrete enough to approve. §4.6's
 thin-screen bound is correct: $0\le U_0-U_Y\le d(E)$ holds because $Y_z/Y_0=\cos\theta$
 on propagating columns, and the bound on the loss difference follows from the two

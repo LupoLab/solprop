@@ -386,3 +386,6 @@ The ones a user meets first:
   `physical_energy` and `analytic_flux` ([reading the output](../results/reading-output.md));
 * on a moving guide, a noise model, a lockstep batch, a CF4 flow or a fixed schedule
   that straddles a kink (above).
+
+The incident-beam launch into a fibre and its coupling budget were proposed and carried
+out by [SEP 31](../../dev/seps/archive/sep-0031-simulation-coupling.md).

@@ -117,7 +117,7 @@ The launched energy is the pulse's, to the last bit.
 `incident=` takes a {class}`~solprop.pulses.SpatialPulse` — a Gaussian or super-Gaussian
 beam carrying its own temporal pulse — and launches what the guide's channels capture of
 it, coupled under a declared model
-([SEP 31](../../dev/seps/sep-0031-simulation-coupling.md);
+([SEP 31](../../dev/seps/archive/sep-0031-simulation-coupling.md);
 [coupling simulations](../workflows/coupling.md)):
 
 ```text
@@ -516,3 +516,6 @@ the declared one or more, as above. And on a constant guide the node rule is fro
 the entrance geometry (a moving solid guide's rule moves with its interfaces, section by
 section): the rule's certified tail bound and its sampled Gram belong to that geometry
 and to no other.
+
+The incident-beam launch (`incident=` under `coupling=`) and its coupling budget were
+proposed and carried out by [SEP 31](../../dev/seps/archive/sep-0031-simulation-coupling.md).

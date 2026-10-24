@@ -1694,7 +1694,7 @@ views sized from the problem. A fill whose populations follow independent densit
 paths takes the z table, which every CPU backend runs (on `native` the CPU build only);
 a shared pressure path does not. Device builds are not qualified on these runs.
 
-**Coupling between runs** ([SEP 31](seps/sep-0031-simulation-coupling.md)) never crosses
+**Coupling between runs** ([SEP 31](seps/archive/sep-0031-simulation-coupling.md)) never crosses
 the seam: a field plane is read from a run's stored output and its record, coupled and
 transported in NumPy and SciPy on the host, and installed in the receiving run as its
 initial state through `with_input`. A source and a receiver may therefore run on

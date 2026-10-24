@@ -507,3 +507,5 @@ print(f"run time {time.perf_counter() - started:.1f} s")
 # :doc:`/guide/workflows/coupling` describes planes, ports, coupling models and
 # their budgets. :doc:`/guide/free-space/model` and
 # :doc:`/guide/waveguides/capillaries` describe the two propagations.
+# The design is
+# :doc:`SEP 31 </dev/seps/archive/sep-0031-simulation-coupling>`.

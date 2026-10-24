@@ -234,7 +234,7 @@ admitted only when every propagating column meets the adiabatic certificate:
 `delta* = expm1(Lambda tanh Lambda)` within `AdiabaticAccuracy` (default 1e-4 each;
 `solprop.adiabatic`).
 
-**Field planes and coupling** ([SEP 31](seps/sep-0031-simulation-coupling.md)). A
+**Field planes and coupling** ([SEP 31](seps/archive/sep-0031-simulation-coupling.md)). A
 `FieldPlane` holds a stored spectrum exactly as the output does: the optics-convention
 raw DFT of each column, referenced to the window centre, in √W (ordinary and general
 modal coordinates), V m (the Hankel spectrum of a radial field) or V/m (the DFT of a

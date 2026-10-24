@@ -74,7 +74,7 @@ A saved result needs the grid, field convention, material models, response choic
        checkout when there is one, and when the run started.
    * - ``reference``
      - The **plane-reference record** (output schema 24,
-       `SEP 31 <../../dev/seps/sep-0031-simulation-coupling.html>`_): the carrier, the
+       `SEP 31 <../../dev/seps/archive/sep-0031-simulation-coupling.html>`_): the carrier, the
        frame integral of the terms the linear operator removed (exact Chebyshev
        antiderivatives of the frame's ``beta_0`` and ``beta_1`` tables, with the frequency
        origin of the linear term), the reference origin of the run's path, the parent
