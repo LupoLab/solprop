@@ -23,7 +23,7 @@ import pytest
 
 from bounds import EPS_32, UNIT_ROUNDOFF_32, assert_within, higham_gamma, prefix_bound
 from solprop.backends.memory import estimate_memory
-from solprop.backends.numpy_ref import passes
+from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.backends.numpy_ref.single import (
     NumpySingleBackend,
     plasma_current_single,
@@ -47,7 +47,8 @@ from solprop.spatial import SpatialMedium
 from solprop.stepper import LowStorageRungeKutta, PIController, RungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
-from solprop.translate.precision import combine
+from solprop.translate.precision import combine, precision_named
+from vector_raman_cases import vector_problem
 
 U32 = UNIT_ROUNDOFF_32
 
@@ -419,6 +420,32 @@ def test_a_radial_plasma_beam_agrees_with_binary64_within_its_bound():
     depth = math.ceil(math.log2(grid.n_t)) + 32
     bound = 10 * (2 * U32 + 7 * (16 * EPS_32 * depth + 4 * higham_gamma(depth, U32)))
     assert_within(fields["single"], fields["double"], bound)
+
+
+@pytest.mark.parametrize("family", ["envelope", "field"])
+def test_tensor_raman_on_two_components_agrees_with_binary64(family):
+    """Both helicities and an oblique delayed probe through H2's tensor ladder."""
+    problem, grid, modes = vector_problem(family=family, steps=8)
+    fields = {}
+    for precision, backend_class in (
+        ("double", NumpyRefBackend),
+        ("single", NumpySingleBackend),
+    ):
+        case = dataclasses.replace(problem, precision=precision_named(precision))
+        backend = backend_class(case, grid=grid, modes=modes)
+        try:
+            backend.set_initial(case.initial.field0, None)
+            backend.propagate_to(float(case.stepper.save_planes[-1]))
+            fields[precision] = backend.observe().field
+        finally:
+            backend.close()
+    depth = math.ceil(math.log2(2 * grid.n_t)) + 4
+    assert_within(fields["single"], fields["double"], step_bound_oracle(8, depth))
+
+
+def step_bound_oracle(steps: int, depth: int) -> float:
+    """Return the oracle tests' bound for `steps` steps of transforms of `depth`."""
+    return steps * (2 * U32 + 7 * 16 * EPS_32 * depth)
 
 
 # Targeted tests: the review's counterexamples.

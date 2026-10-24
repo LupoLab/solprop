@@ -28,12 +28,7 @@ pytest.importorskip("mlx.core")
 
 import mlx.core as mx
 
-from backends.test_single_precision import (
-    capillary,
-    finish,
-    gnlse,
-    loaded,
-)
+from backends.test_single_precision import capillary, gnlse
 from bounds import EPS_32, UNIT_ROUNDOFF_32, assert_within, higham_gamma
 from solprop.backends.memory import estimate_memory
 from solprop.backends.mlx_gpu.arithmetic import (
@@ -44,11 +39,14 @@ from solprop.backends.mlx_gpu.arithmetic import (
 )
 from solprop.backends.mlx_gpu.backend import MlxBackend
 from solprop.backends.mlx_gpu.passes import DeviceRateTable
+from solprop.backends.numpy_ref.single import NumpySingleBackend
 from solprop.backends.protocol import Backend
 from solprop.backends.registry import available, select, select_batch
 from solprop.driver import Simulation
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.stepper import LowStorageRungeKutta
+from solprop.translate.precision import SINGLE
+from vector_raman_cases import vector_problem
 
 U32 = UNIT_ROUNDOFF_32
 
@@ -200,6 +198,23 @@ def test_a_resume_across_the_oracle_and_mlx_continues_the_run():
         second.propagate_to(0.05)
         resumed = second.observe().field
     assert_within(resumed, whole, step_bound(10, 2, 11))
+
+
+@pytest.mark.parametrize("family", ["envelope", "field"])
+def test_tensor_raman_on_two_components_agrees_with_the_oracle(family):
+    problem, grid, modes = vector_problem(family=family, steps=8)
+    problem = dataclasses.replace(problem, precision=SINGLE)
+    fields = []
+    for backend_class in (MlxBackend, NumpySingleBackend):
+        backend = backend_class(problem, grid=grid, modes=modes)
+        try:
+            backend.set_initial(problem.initial.field0, None)
+            backend.propagate_to(float(problem.stepper.save_planes[-1]))
+            fields.append(backend.observe().field)
+        finally:
+            backend.close()
+    depth = math.ceil(math.log2(2 * grid.n_t)) + 4
+    assert_within(fields[0], fields[1], step_bound(8, 4, depth))
 
 
 # The protected operations.
