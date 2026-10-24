@@ -10,14 +10,13 @@ the time range asked for; and a multimode run must say which mode it means, rath
 silently taking the first.
 """
 
-import matplotlib.pyplot as plt
+from typing import TYPE_CHECKING
+
 import numpy as np
 from jaxtyping import Float
 from matplotlib.axes import Axes
 from matplotlib.colors import Colormap
 from matplotlib.figure import Figure
-from scipy.signal import ShortTimeFFT
-from scipy.signal.windows import gaussian
 
 from solprop.constants import C
 from solprop.exceptions import ModeError
@@ -32,6 +31,9 @@ from solprop.plotting.style import (
 )
 from solprop.processing.axes import ModeSelection, SpectralAxis
 from solprop.processing.fields import get_field, nearest_plane
+
+if TYPE_CHECKING:
+    from scipy.signal import ShortTimeFFT
 
 __all__ = ["DEFAULT_GATE_POSITIONS", "spectrogram"]
 
@@ -138,6 +140,8 @@ def spectrogram(  # noqa: PLR0913 - a plane, a mode, two axes and the colour sca
     frequency = transform.f
     positive = frequency > 0.0
     values, ordinate = _ordinate(axis, frequency[positive], intensity[positive])
+    import matplotlib.pyplot as plt  # noqa: PLC0415 - pyplot loads on first plot
+
     ax = plt.subplots(figsize=(8.0, 5.0))[1] if ax is None else ax
     if log:
         floor = float(np.max(values)) * 10.0 ** ((db_min - 10.0) / 10.0)
@@ -155,7 +159,7 @@ def spectrogram(  # noqa: PLR0913 - a plane, a mode, two axes and the colour sca
     return figure
 
 
-def _transform(dt: float, width: float, span: float, positions: int) -> ShortTimeFFT:
+def _transform(dt: float, width: float, span: float, positions: int) -> "ShortTimeFFT":  # noqa: UP037 - the runtime type hook resolves this at import
     """Return the short-time transform of a Gaussian gate of the given width.
 
     Parameters
@@ -179,6 +183,10 @@ def _transform(dt: float, width: float, span: float, positions: int) -> ShortTim
     solprop.exceptions.ModeError
         Never; the signature is stable for callers that catch it.
     """
+    # scipy.signal takes half a second to import: only a spectrogram needs it.
+    from scipy.signal import ShortTimeFFT  # noqa: PLC0415
+    from scipy.signal.windows import gaussian  # noqa: PLC0415
+
     sigma = width * _FWHM_TO_SIGMA
     half = max(int(np.ceil(_GATE_SIGMAS * sigma / dt)), 1)
     window = gaussian(2 * half + 1, sigma / dt)

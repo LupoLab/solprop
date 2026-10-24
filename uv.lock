@@ -971,16 +971,16 @@ wheels = [
 
 [[package]]
 name = "optmat"
-version = "0.8.0"
+version = "0.9.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jaxtyping" },
     { name = "numpy" },
     { name = "scipy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/79/f8/3ccb6002d576390da7de9ed164c17843cc3d0e17d5ac5a028ed656d5a821/optmat-0.8.0.tar.gz", hash = "sha256:213e9eaefbfa917e8bb0542c6bad661e2e0af988d8dd1acb55d751c0848c799a", size = 17522428, upload-time = "2026-10-16T16:58:09.237Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/78/2d/0aa0d6d145fe88795faed2e86dc6b506c5d477742a93355cc173a6af5522/optmat-0.9.1.tar.gz", hash = "sha256:2d562f577586101397d710d3777b364aa1d9bb1fd5f3365298cab1e0c6f46159", size = 17617286, upload-time = "2026-10-24T14:36:41.381Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d0/34/1e780588d947a4c9e24ea8a8987087659404e2228b9f7468bfd3c1d51e43/optmat-0.8.0-py3-none-any.whl", hash = "sha256:47e687f1966c27ddf02b9370bc10ef06e90ab58511ddc145c5c74f0e54a2b9b4", size = 17646650, upload-time = "2026-10-16T16:58:05.254Z" },
+    { url = "https://files.pythonhosted.org/packages/2e/53/08fe14dbbb426c5054b36bfa7d91ffcfae08e54343ac6cf3b35a64821339/optmat-0.9.1-py3-none-any.whl", hash = "sha256:bae638a6c7f47ba345937f3c63053bc502ce7db5ece4cacee22869e877990825", size = 17804758, upload-time = "2026-10-24T14:36:37.533Z" },
 ]
 
 [package.optional-dependencies]
@@ -1615,7 +1615,7 @@ requires-dist = [
     { name = "matplotlib", specifier = ">=3.10.7" },
     { name = "numba", specifier = ">=0.67" },
     { name = "numpy", specifier = ">=2.5" },
-    { name = "optmat", extras = ["gas"], specifier = ">=0.8.0" },
+    { name = "optmat", extras = ["gas"], specifier = ">=0.9.1" },
     { name = "pyfftw", specifier = ">=0.15.1" },
     { name = "scipy", specifier = ">=1.18" },
     { name = "solprop-native", marker = "extra == 'native'", editable = "native" },

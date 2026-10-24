@@ -210,17 +210,19 @@ def _resolve(name: str, wavelength: float, form: str) -> object:
     """
     from optmat.exceptions import OptmatError  # noqa: PLC0415 - optmat is lazy
     from optmat.gas.ionisation_rates import (  # noqa: PLC0415 - optmat is lazy
+        ionisation_rate_coverage,
         ionisation_rate_model,
-        ionisation_rate_models,
     )
     from optmat.gas.molecular_ionisation_rates import (  # noqa: PLC0415 - as above
+        molecular_rate_coverage,
         molecular_rate_model,
-        molecular_rate_models,
     )
 
     registry = "default" if form == _RECOMMENDED else form
-    atomic = ionisation_rate_models()
-    molecular = molecular_rate_models()
+    # Each family's model names and the gases they cover, read without building any
+    # model: only the one asked for is built.
+    atomic = ionisation_rate_coverage()
+    molecular = molecular_rate_coverage()
     atoms = {gas.value for gas in atomic["default"]}
     molecules = {gas.value for gas in molecular["default"]}
     if name in atoms:

@@ -14,8 +14,8 @@ import pytest
 from former_gas_laws import AR_BORZSONYI, XE_BORZSONYI
 from optmat.conditions import State
 from optmat.exceptions import StateError
-from optmat.gas.air import air_equation_of_state, air_model
-from optmat.gas.eos import equation_of_state
+from optmat.gas.air import air_model
+from optmat.gas.eos import air_equation_of_state, equation_of_state
 from optmat.gas.models.registry import default_model, model
 
 from solprop.constants import EPS0, K_B, C

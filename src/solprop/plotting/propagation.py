@@ -17,7 +17,6 @@ and power auto-scaled.
 from collections.abc import Sequence
 from typing import Literal
 
-import matplotlib.pyplot as plt
 import numpy as np
 from jaxtyping import Float
 from matplotlib.axes import Axes
@@ -159,6 +158,8 @@ def prop_2d(  # noqa: PLR0913 - the two axes, the two ranges and the colour scal
     factor, label = spectral_display(axis)
     figures = []
     for index, name in enumerate(labels):
+        import matplotlib.pyplot as plt  # noqa: PLC0415 - pyplot loads on first plot
+
         figure, (spectral, temporal) = plt.subplots(1, 2, figsize=(12, 4))
         _spectral_map(
             spectral,
@@ -471,6 +472,8 @@ def _axis(ax: Axes | None, figsize: tuple[float, float]) -> Axes:
     """
     if ax is not None:
         return ax
+    import matplotlib.pyplot as plt  # noqa: PLC0415 - pyplot loads on first plot
+
     return plt.subplots(figsize=figsize)[1]
 
 

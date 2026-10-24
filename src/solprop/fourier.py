@@ -37,7 +37,6 @@ from typing import Literal
 import numpy as np
 from jaxtyping import Complex, Float, Inexact, Num
 from scipy import fft as _fft
-from scipy import signal as _signal
 
 from solprop.exceptions import GridError
 
@@ -343,9 +342,12 @@ def analytic_signal(
     >>> bool(np.allclose(envelope, np.exp(2j * np.pi * 2 * t)))
     True
     """
+    # scipy.signal takes half a second to import: only this function needs it.
+    from scipy.signal import hilbert  # noqa: PLC0415
+
     values = np.asarray(x)
     _check_time_dtype(values, "field")
-    return _signal.hilbert(values, axis=-1)
+    return hilbert(values, axis=-1)
 
 
 def power_amplitude(
