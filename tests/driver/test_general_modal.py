@@ -51,6 +51,7 @@ from solprop.backends import select
 from solprop.backends.batch import LockstepRunner
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.constants import ROOM_TEMPERATURE, C
+from solprop.coupling import CouplingModel, CouplingReport
 from solprop.driver import Simulation, prop_gnlse, prop_waveguide
 from solprop.driver import batch as batch_module
 from solprop.driver.batch import (
@@ -64,10 +65,8 @@ from solprop.driver.run import run_problem
 from solprop.driver.scan import Scan, run_scan
 from solprop.driver.simulation import (
     _GAS_KEYWORD_DEFAULTS,
-    IncidentLaunch,
     _core_index,
     _in_channel,
-    _incident_launch,
     _refuse_gas_keywords,
     _shot_noise,
 )
@@ -491,19 +490,60 @@ def test_a_declared_field_the_channels_do_not_span_names_its_remainder(
     assert np.all(launched.residual[~empty] >= 0.0)
 
 
+INCIDENT_GUIDE = {"radius": 4e-6, "indices": (1.45, 1.44), "n_r": 24, "knots": 9}
+"""A weakly guiding strand for the incident launch: a 4 um core at a 0.01 step.
+
+The vector coupling model admits a solid guide only below its contrast screen,
+``Delta = (1.45**2 - 1.44**2) / (2 * 1.45**2) = 6.9e-3`` against ``model_error / 8``
+(SEP 31 section 4.3); the 1.45-in-air strand of the other tests is refused.
+"""
+
+INCIDENT_BUDGET = 0.2
+INCIDENT_MODEL = CouplingModel("vector_paraxial", model_error=INCIDENT_BUDGET)
+"""The budget the incident launches are coupled under: the 3 um beam's angular
+content, the closure and the contrast together take about a quarter of it."""
+
+INCIDENT_FILTER = pytest.mark.filterwarnings(
+    "ignore::solprop.exceptions.GeneralModalBasisWarning"
+)
+"""Silence the active-band basis warning of the incident strand's nine knots.
+
+The interpolated basis departs 1.8e-4 from orthonormal near the band's long edge,
+just above ``gram_atol``, where the launched spectrum puts nothing; the gate, weighted
+by the launch, passes. The warning itself is asserted elsewhere in this module.
+"""
+
+
 @pytest.fixture(scope="module")
-def circular_pair_guide(grid):
+def incident_guide(grid):
+    """One HE11 channel of the weakly guiding strand."""
+    return general_guide(grid=grid, **INCIDENT_GUIDE)
+
+
+@pytest.fixture(scope="module")
+def incident_pair(grid):
+    """The two parities of that channel, declared degenerate."""
+    return general_guide(
+        descriptors=(("HE", 1, 1, "even"), ("HE", 1, 1, "odd")),
+        blocks=((0, 1),),
+        grid=grid,
+        **INCIDENT_GUIDE,
+    )
+
+
+@pytest.fixture(scope="module")
+def incident_circular(grid):
     """A declared circular basis of the same parity pair.
 
-    The one fixture here whose `linear.modal_metric` is genuinely **dense**, so
-    the one on which a launch rescaled on the unweighted `sum |a|^2` and one
-    rescaled on `a.H W a` are different launches.
+    The one fixture here whose `linear.modal_metric` is genuinely **dense**, so the
+    launched energy is ``a.H W a`` and not the unweighted ``sum |a|^2``.
     """
     return general_guide(
         descriptors=(("HE", 1, 1, "even"), ("HE", 1, 1, "odd")),
         blocks=((0, 1),),
         circular=(0, 1),
         grid=grid,
+        **INCIDENT_GUIDE,
     )
 
 
@@ -519,7 +559,7 @@ def incident_beam(waist, jones=(1.0,)):
 
 
 def launched(guide, grid, incident, **overrides):
-    """Return a general modal simulation launching an incident beam."""
+    """Return a general modal simulation coupling an incident beam."""
     return Simulation.from_waveguide(
         (),
         GENERAL_Z_END,
@@ -527,45 +567,51 @@ def launched(guide, grid, incident, **overrides):
         grid=grid,
         lambda0=PULSE["lambda0"],
         incident=incident,
+        coupling=overrides.pop("coupling", INCIDENT_MODEL),
         **(RUN | overrides),
     )
 
 
-def account(simulation) -> IncidentLaunch:
-    """Return the incident-energy account a simulation recorded."""
+def account(simulation) -> CouplingReport:
+    """Return the coupling report a simulation recorded."""
     report = simulation.configuration["launch"]
-    assert isinstance(report, IncidentLaunch)
+    assert isinstance(report, CouplingReport)
     return report
 
 
+@INCIDENT_FILTER
 @pytest.mark.parametrize("kind", ["identity", "dense"])
 def test_an_incident_launch_keeps_what_the_channels_capture_under_the_runs_metric(
-    pair_guide, circular_pair_guide, grid, kind
+    incident_pair, incident_circular, grid, kind
 ):
-    """`incident=` launches the captured amplitudes, and its account says so.
+    """`incident=` launches the recovered amplitudes, and its report says so.
 
-    The incident energy is the pulse's over the whole beam; the captured energy
-    is the launched state's physical energy under the run's own declared metric,
-    which on the dense circular basis is not the unweighted sum. Nothing is
-    rescaled, so the launched energy is the captured one and falls short of
-    ``energy=`` by what the channels miss. An x-polarised beam enters the even
+    The incident energy is the beam's over its whole plane in the paraxial measure;
+    the launched energy is the state's physical energy under the run's own declared
+    metric, which on the dense circular basis is not the unweighted sum. Nothing is
+    rescaled, so the launched energy falls short of ``energy=`` by what the
+    channels miss. The vector model names no uncaptured energy: F and the incident
+    measure are not one positive metric. An x-polarised beam enters the even
     parity channel alone, and splits equally between the two circular ones.
     """
-    guide = pair_guide if kind == "identity" else circular_pair_guide
-    simulation = launched(guide, grid, incident_beam(1.3e-6))
+    guide = incident_pair if kind == "identity" else incident_circular
+    simulation = launched(guide, grid, incident_beam(3e-6))
     report = account(simulation)
-    # One rescaling of the beam, summed over bins: a few rounding units.
-    assert report.incident_energy == pytest.approx(PULSE["energy"], rel=1e-13)
-    assert 0.5 * report.incident_energy < report.captured_energy
-    assert report.captured_energy < report.incident_energy
-    assert_allclose(report.uncaptured, report.incident - report.captured, rtol=0.0)
+    # The beam's closed-form normalisation, then its radial plane's Parseval sum.
+    assert report.incident_energy == pytest.approx(PULSE["energy"], rel=1e-10)
+    assert 0.5 * report.incident_energy < report.launched_energy
+    assert report.launched_energy < report.incident_energy
+    assert report.captured is None and report.uncaptured is None
+    assert report.budget <= INCIDENT_BUDGET
+    coupling = cast("Mapping[str, object]", simulation.configuration["coupling"])
+    assert coupling["model"] == "vector_paraxial"
     problem = simulation.translate()
     metric = metric_at(problem.linear.modal_metric, 0.0)
     assert (metric is None) == (kind == "identity")
     assert_allclose(
         float(physical_energy(grid, problem.initial.field0[0], metric=metric)),
-        report.captured_energy,
-        # The statistic whitens by an eigendecomposition per bin and the account
+        report.launched_energy,
+        # The statistic whitens by an eigendecomposition per bin and the report
         # forms the quadratic form directly: rounding over the 65-bin reduction.
         rtol=1e-12,
         atol=0.0,
@@ -574,80 +620,87 @@ def test_an_incident_launch_keeps_what_the_channels_capture_under_the_runs_metri
     live = np.abs(state[0]) > 0.0
     if kind == "identity":
         # The even channel's E_y and the odd channel's E_x vary as sin(2 theta),
-        # so their overlap with a uniformly polarised beam cancels on the
+        # so their pairing with a uniformly polarised beam cancels on the
         # azimuthal rule to rounding of the node sum.
         assert np.max(np.abs(state[1])) < 1e-12 * np.max(np.abs(state[0]))
     else:
         assert_allclose(np.abs(state[1][live]), np.abs(state[0][live]), rtol=1e-6)
 
 
+@INCIDENT_FILTER
 def test_an_incident_launch_shares_a_coherent_beam_between_two_channels(
-    pair_guide, grid
+    incident_pair, grid
 ):
     """A beam polarised between the parity channels fills both, coherently.
 
     The Jones vector ``(1, 0.5j)`` puts half the even channel's amplitude in the
     odd one, a quarter period behind (conjugated into the internal convention).
-    The two channels are a rotation of each other, so the total captured is the
-    x-polarised beam's: what is projected is the field, and the account is the
-    quadratic form of its amplitudes, not a sum of separately projected
-    intensities.
+    The two channels are a rotation of each other, so the total launched is the
+    x-polarised beam's: what is recovered is the field, not a sum of separately
+    projected intensities.
     """
-    tilted = launched(pair_guide, grid, incident_beam(1.3e-6, (1.0, 0.5j)))
-    straight = launched(pair_guide, grid, incident_beam(1.3e-6, (1.0, 0.0)))
+    tilted = launched(incident_pair, grid, incident_beam(3e-6, (1.0, 0.5j)))
+    straight = launched(incident_pair, grid, incident_beam(3e-6, (1.0, 0.0)))
     state = tilted._field0[:, 0]
     live = np.abs(state[0]) > 0.0
     assert_allclose(state[1][live] / state[0][live], -0.5j, rtol=1e-6)
     assert_allclose(
-        account(tilted).captured_energy,
-        account(straight).captured_energy,
+        account(tilted).launched_energy,
+        account(straight).launched_energy,
         rtol=1e-6,
     )
 
 
-def test_a_beam_the_channels_cannot_see_is_a_valid_zero_launch(guide, grid):
+@INCIDENT_FILTER
+def test_a_beam_the_channels_cannot_see_is_a_valid_zero_launch(incident_guide, grid):
     """Zero capture by symmetry launches nothing and runs; no division by zero.
 
-    A y-polarised beam against the x-polarised even channel: their overlap is the
-    channel's E_y, which varies as sin(2 theta) and cancels on the azimuthal
+    A y-polarised beam against the x-polarised even channel: their pairing is the
+    channel's E_y and H_x, which vary as sin(2 theta) and cancel on the azimuthal
     rule. The bound is the square of the node sum's rounding, ``(n_nodes eps)**2``
     of the incident energy, since an energy is quadratic in the amplitude.
     """
-    simulation = launched(guide, grid, incident_beam(1.3e-6, (0.0, 1.0)))
+    simulation = launched(incident_guide, grid, incident_beam(3e-6, (0.0, 1.0)))
     report = account(simulation)
     assert simulation.general is not None
     nodes = int(simulation.general.tables.electric.shape[1])
     bound = (nodes * np.finfo(float).eps) ** 2
-    assert 0.0 <= report.captured_energy < bound * report.incident_energy
-    assert report.uncaptured_energy == pytest.approx(report.incident_energy, rel=1e-13)
+    assert 0.0 <= report.launched_energy < bound * report.incident_energy
     output = cast("MemoryOutput", simulation.run(progress="none"))
     assert all(np.all(np.isfinite(kept(plane.field))) for plane in output.planes())
-    assert "captured share" in str(report)
+    assert "launched share" in str(report)
 
 
-def test_the_incident_energy_does_not_depend_on_the_guides_aperture(guide, grid):
+@INCIDENT_FILTER
+def test_the_incident_energy_does_not_depend_on_the_guides_aperture(
+    incident_guide, grid
+):
     """The beam is normalised over its own plane, not over a guide's nodes.
 
     The same beam into two strands of different radius carries the same incident
-    account, bin for bin and to the bit, because no node of either guide enters
-    it; what each captures differs.
+    energy, bin for bin and to the bit, because no node of either guide enters it;
+    what each launches differs.
     """
-    wider = general_guide(grid=grid, radius=2.5e-6)
-    beam = incident_beam(1.3e-6)
-    narrow_account = account(launched(guide, grid, beam))
+    wider = general_guide(grid=grid, radius=5e-6, indices=(1.45, 1.44), n_r=24, knots=9)
+    beam = incident_beam(3e-6)
+    narrow_account = account(launched(incident_guide, grid, beam))
     wide_account = account(launched(wider, grid, beam))
     np.testing.assert_array_equal(narrow_account.incident, wide_account.incident)
     np.testing.assert_array_equal(
         narrow_account.reference_index, wide_account.reference_index
     )
-    assert narrow_account.captured_energy != wide_account.captured_energy
+    assert narrow_account.launched_energy != wide_account.launched_energy
 
 
-def test_the_incident_launch_refuses_what_it_does_not_carry(pair_guide, grid):
-    """Two launches at once, pulse keywords beside a beam, and beams it cannot place."""
-    beam = incident_beam(1.3e-6)
+@INCIDENT_FILTER
+def test_the_incident_launch_refuses_what_it_does_not_carry(
+    incident_pair, pair_guide, grid
+):
+    """Two launches at once, pulse keywords beside a beam, beams it cannot place,
+    a missing or stray model, and a strongly guiding core the model does not admit."""
+    beam = incident_beam(3e-6)
     with pytest.raises(DriverError, match="two ways to say what is launched"):
-        launched(pair_guide, grid, beam, channel=0)
+        launched(incident_pair, grid, beam, channel=0)
     for keyword, value in (
         ("fwhm", 20e-15),
         ("width", 10e-15),
@@ -658,22 +711,19 @@ def test_the_incident_launch_refuses_what_it_does_not_carry(pair_guide, grid):
         ("pulseshape", "sech"),
     ):
         with pytest.raises(DriverError, match=f"carries its own temporal.*{keyword}"):
-            launched(pair_guide, grid, beam, **{keyword: value})
+            launched(incident_pair, grid, beam, **{keyword: value})
     temporal = beam.temporal
     with pytest.raises(DriverError, match="PlanarPulse"):
-        launched(pair_guide, grid, PlanarPulse(temporal, 1e-6, waist_x=1e-6))
+        launched(incident_pair, grid, PlanarPulse(temporal, 1e-6, waist_x=1e-6))
     with pytest.raises(DriverError, match="propz=0"):
-        launched(pair_guide, grid, SpatialPulse(temporal, 1.3e-6, propz=-1e-4))
-    # And a record the map itself refuses reaches the caller as this entry point's
-    # own error: the launch promises `DriverError` and the map raises `ModeError`.
-    tables = projected_tables(pair_guide, grid)
-    bare = dataclasses.replace(tables)
-    object.__setattr__(bare, "coordinate_dual", None)
-    index = np.where(grid.active_mask & (grid.omega > 0), 1.45, 0.0)
-    with pytest.raises(DriverError, match="carry no coordinate_dual"):
-        _incident_launch(beam, grid, bare, index)
-    with pytest.raises(DriverError, match="finite and non-negative"):
-        _incident_launch(beam, grid, tables, -index)
+        launched(incident_pair, grid, SpatialPulse(temporal, 3e-6, propz=-1e-4))
+    with pytest.raises(DriverError, match="coupled under a declared model"):
+        launched(incident_pair, grid, beam, coupling=None)
+    with pytest.raises(DriverError, match="coupled under a declared model"):
+        build(incident_pair, grid, coupling=INCIDENT_MODEL)
+    # The 1.45-in-air strand fails the weak-guidance screen by name.
+    with pytest.raises(DriverError, match="contrast"):
+        launched(pair_guide, grid, beam)
     # And without a provider it is one of the general-guide keywords the
     # gas-filled route refuses by name, beside `channel=` and `kerr_form=`.
     with pytest.raises(DriverError, match="incident= belongs to the general modal"):
@@ -687,7 +737,7 @@ def test_the_incident_launch_refuses_what_it_does_not_carry(pair_guide, grid):
             **PULSE,
         )
     # A guide whose first region is not on the axis has no core to enter through.
-    provider = pair_guide.field_provider
+    provider = incident_pair.field_provider
     core, cladding = provider.regions
     shifted = (dataclasses.replace(core, inner_radius=1e-7), cladding)
     with pytest.raises(DriverError, match="does not start there"):
@@ -742,63 +792,69 @@ def test_a_complex_permittivity_never_reaches_the_forward_field_closure(guide):
         ModalGuide.from_provider(lossy, sampling.omega, nodes=sampling.nodes)
 
 
+@INCIDENT_FILTER
 @pytest.mark.medium
-def test_a_poorly_captured_beam_launches_only_what_the_guide_takes(guide, grid):
+def test_a_poorly_captured_beam_launches_only_what_the_guide_takes(
+    incident_guide, grid
+):
     """A beam much wider than the core enters with the little the guide captures.
 
-    A 20 um beam on a 1.5 um strand: the channel captures about one per cent of
-    it. The run's own entrance plane, through `prop_waveguide`, carries the
-    captured energy and not ``energy=``: nothing restores what missed. The
-    account is in the file's configuration as well as the simulation's.
+    A 40 um beam on the 4 um strand: the channel takes a few per cent of it. The
+    run's own entrance plane, through `prop_waveguide`, carries the launched energy
+    and not ``energy=``: nothing restores what missed. The report is in the file's
+    configuration as well as the simulation's.
     """
-    beam = incident_beam(20e-6)
+    beam = incident_beam(40e-6)
     output = cast(
         "MemoryOutput",
         prop_waveguide(
             (),
             GENERAL_Z_END,
-            provider=guide,
+            provider=incident_guide,
             grid=grid,
             lambda0=PULSE["lambda0"],
             incident=beam,
+            coupling=INCIDENT_MODEL,
             progress="none",
             **RUN,
         ),
     )
-    report = account(launched(guide, grid, beam))
-    assert report.captured_energy < 0.02 * report.incident_energy
-    assert report.incident_energy == pytest.approx(PULSE["energy"], rel=1e-13)
+    report = account(launched(incident_guide, grid, beam))
+    assert report.launched_energy < 0.05 * report.incident_energy
+    assert report.incident_energy == pytest.approx(PULSE["energy"], rel=1e-10)
     entrance = kept(output.planes()[0].field)
     # Identity metric: the energy statistic is the sum of |a|^2, formed in the
-    # same order as the account's up to the frequency-sum association.
+    # same order as the report's up to the frequency-sum association.
     assert_allclose(
         float(physical_energy(grid, entrance)),
-        report.captured_energy,
+        report.launched_energy,
         rtol=1e-12,
         atol=0.0,
     )
     assert output.metadata is not None
     recorded = output.metadata.configuration["launch"]
-    assert isinstance(recorded, IncidentLaunch)
-    assert recorded.captured_energy == report.captured_energy
+    assert isinstance(recorded, CouplingReport)
+    assert recorded.launched_energy == report.launched_energy
 
 
+@INCIDENT_FILTER
 @pytest.mark.medium
 @pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
-def test_the_incident_launch_is_the_same_on_every_cpu_receiver(guide, grid, backend):
+def test_the_incident_launch_is_the_same_on_every_cpu_receiver(
+    incident_guide, grid, backend
+):
     """The launch is built before any backend: every CPU backend starts from it.
 
-    Ten half-micrometre steps on each receiver: the stored entrance
-    plane is the launched state, a lossless copy, so it agrees bit for bit with the
-    one the simulation built, and its energy is the captured energy.
+    Ten half-micrometre steps on each receiver: the stored entrance plane is the
+    launched state, a lossless copy, so it agrees bit for bit with the one the
+    simulation built, and its energy is the launched energy.
     """
     if backend == "native":
         pytest.importorskip("solprop_native")
-    beam = incident_beam(2e-6)
-    # Inside the default collar's explicit stability limit, 7e-7 m.
+    beam = incident_beam(3e-6)
     step = 5e-7
     simulation = launched(
-        guide,
+        incident_guide,
         grid,
         beam,
         backend=backend,
@@ -809,11 +865,11 @@ def test_the_incident_launch_is_the_same_on_every_cpu_receiver(guide, grid, back
     )
     output = cast("MemoryOutput", simulation.run(progress="none"))
     entrance = kept(output.planes()[0].field)
-    reference = launched(guide, grid, beam)._field0
+    reference = launched(incident_guide, grid, beam)._field0
     np.testing.assert_array_equal(entrance, reference)
     assert_allclose(
         float(physical_energy(grid, entrance)),
-        account(simulation).captured_energy,
+        account(simulation).launched_energy,
         rtol=1e-12,
         atol=0.0,
     )

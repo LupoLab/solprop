@@ -43,7 +43,6 @@ from jaxtyping import Complex, Float
 from scipy.special import j0, jn_zeros
 
 import solprop.driver.tdse as tdse_runtime
-from solprop import fourier
 from solprop._display import Displayed, engineering, line, summarise
 from solprop.adiabatic import AdiabaticAccuracy
 from solprop.backends.multistep import CallLedger
@@ -59,10 +58,14 @@ from solprop.boundaries import absorber as collar
 from solprop.constants import C
 from solprop.coupling import (
     CouplingLaunch,
+    CouplingModel,
+    FieldPlane,
     InputPort,
     PlaneBasis,
+    PlaneGeometry,
     PlaneReference,
     basis_identity,
+    couple,
     modal_basis_identity,
     space_record,
 )
@@ -87,14 +90,13 @@ from solprop.driver.run import (
 )
 from solprop.exceptions import (
     AdiabaticTaperWarning,
+    CouplingError,
     DriverError,
     GasFlowWarning,
     GrazingIncidenceWarning,
     MaterialRangeWarning,
     MemoryBudgetError,
     MemoryBudgetWarning,
-    ModeError,
-    PulseError,
     SampledPeakWarning,
     SolpropWarning,
     TDSEArchiveError,
@@ -245,7 +247,6 @@ from solprop.stepper.schedule import FixedSchedule
 from solprop.stepper.tableau import DOPRI5
 from solprop.translate.coupled import (
     CF4_GROWTH_LIMIT,
-    metric_at,
     taper_identity,
     wall_identity,
 )
@@ -266,10 +267,6 @@ from solprop.translate.general import (
 from solprop.translate.linop import power_weight_at
 from solprop.translate.masks import DEFAULT_ABSORBER_SCHEME, AbsorberScheme
 from solprop.translate.modal import DEFAULT_NODE_BUDGET
-from solprop.translate.modal_tables import (
-    ModalTransformTables,
-    project_transverse_field,
-)
 from solprop.translate.plasma_integration import (
     integration_record,
 )
@@ -297,7 +294,6 @@ __all__ = [
     "PLASMA_STATISTICS",
     "WAVEGUIDE_ATOL",
     "WAVEGUIDE_RTOL",
-    "IncidentLaunch",
     "NoiseModel",
     "Simulation",
     "SimulationRunner",
@@ -309,161 +305,6 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True, eq=False)
-class IncidentLaunch(Displayed):
-    r"""The energy account of an incident beam launched into a general modal guide.
-
-    Recorded as ``configuration["launch"]`` by
-    ``Simulation.from_waveguide(provider=..., incident=...)`` (SEP 31, phase 1).
-    The **incident** energy is the beam's over its whole plane, in the paraxial
-    measure :math:`M_0 = n_{\rm ref}\varepsilon_0 c\,dA/2` of the guide's core
-    medium at the entrance; the **captured** energy is the launched state's physical
-    energy under the run's own declared flux metric, the number
-    :func:`solprop.stats.physical_energy` gives at the entrance. The launch keeps the
-    captured amplitudes as projected: nothing is rescaled to the requested energy.
-
-    **The uncaptured energy is their difference, and it is a physical loss only in
-    a common positive metric** (SEP 31 section 4.3): where the guide's own flux
-    metric and the incident measure agree, as for a weakly guiding provider, the
-    least-squares remainder is orthogonal to the channels and the difference is
-    the light the guide does not take. Elsewhere it also carries the two
-    measures' disagreement, and it is reported unclipped: a negative value is an
-    apparent gain of the model, never a negative loss. The electric-field residual
-    :attr:`solprop.translate.modal_tables.ProjectedLaunch.residual` is a
-    reconstruction error on the guide's nodes, not radiated power, and is not
-    this account.
-
-    Attributes
-    ----------
-    reference_index : numpy.ndarray
-        Real phase index of the core medium at each frequency, float64, shape
-        ``(n_omega,)``; zero on bins that carry no flux.
-    incident : numpy.ndarray
-        The energy each bin carries through the whole incident plane, float64,
-        shape ``(n_omega,)``, J.
-    captured : numpy.ndarray
-        The energy each bin carries in the launched channels, float64, shape
-        ``(n_omega,)``, J.
-
-    Raises
-    ------
-    DriverError
-        If the arrays disagree in shape or are not finite.
-    """
-
-    reference_index: Float[np.ndarray, " n_omega"]
-    incident: Float[np.ndarray, " n_omega"]
-    captured: Float[np.ndarray, " n_omega"]
-
-    def __post_init__(self) -> None:
-        """Check that the three arrays describe one launch.
-
-        Raises
-        ------
-        DriverError
-            Naming what disagrees.
-        """
-        shapes = {
-            np.shape(value)
-            for value in (self.reference_index, self.incident, self.captured)
-        }
-        if len(shapes) != 1:
-            msg = (
-                "an incident launch's index, incident and captured energies share "
-                f"one frequency axis; got shapes {sorted(shapes)}"
-            )
-            raise DriverError(msg)
-        for name, value in (
-            ("reference_index", self.reference_index),
-            ("incident", self.incident),
-            ("captured", self.captured),
-        ):
-            if not np.all(np.isfinite(value)):
-                msg = f"an incident launch's {name} must be finite"
-                raise DriverError(msg)
-
-    @property
-    def uncaptured(self) -> Float[np.ndarray, " n_omega"]:
-        """Return the incident energy each bin does not carry into the channels.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``incident - captured``, shape ``(n_omega,)``, J, not clipped.
-        """
-        return self.incident - self.captured
-
-    @property
-    def incident_energy(self) -> float:
-        """Return the beam's whole incident energy.
-
-        Returns
-        -------
-        float
-            Energy, J.
-        """
-        return float(np.sum(self.incident))
-
-    @property
-    def captured_energy(self) -> float:
-        """Return the energy the launch carries into the guide.
-
-        Returns
-        -------
-        float
-            Energy, J.
-        """
-        return float(np.sum(self.captured))
-
-    @property
-    def uncaptured_energy(self) -> float:
-        """Return the incident energy the launch does not carry, not clipped.
-
-        Returns
-        -------
-        float
-            Energy, J.
-        """
-        return float(np.sum(self.uncaptured))
-
-    def __repr__(self) -> str:
-        """Return a one-line description, never an array.
-
-        Returns
-        -------
-        str
-            For example ``IncidentLaunch(1 uJ incident, 302 nJ captured)``.
-        """
-        return line(
-            "IncidentLaunch",
-            [
-                ("", f"{engineering(self.incident_energy, 'J')} incident"),
-                ("", f"{engineering(self.captured_energy, 'J')} captured"),
-            ],
-        )
-
-    def _describe(self) -> tuple[str, list[tuple[str, object]]]:
-        """Return the title and rows of the printed block.
-
-        Returns
-        -------
-        tuple
-            The title and ``(key, value)`` rows.
-        """
-        incident = self.incident_energy
-        share = (
-            "undefined (nothing incident)"
-            if incident == 0.0
-            else f"{self.captured_energy / incident:.4f} of the incident energy"
-        )
-        return "IncidentLaunch: an incident beam's energy in a guide", [
-            ("incident", engineering(incident, "J")),
-            ("captured", engineering(self.captured_energy, "J")),
-            ("uncaptured", engineering(self.uncaptured_energy, "J")),
-            ("captured share", share),
-        ]
 
 
 LOOSE_ADAMS_RTOL = 5e-2
@@ -1846,9 +1687,10 @@ class Simulation(Displayed):
         The port is the receiving side of a transfer between simulations: its route,
         temporal lattice and basis with their identities, the entrance plane and the
         frame accumulated there, the native metric at the entrance, the reference
-        index of a spatial medium and, for a general guide that does not move, its
-        E/H reference at the nodes. A launch computed for it
-        (:func:`solprop.coupling.port.same_basis`) is accepted by :meth:`with_input`,
+        index of its entrance medium, the coupling models it admits and what they
+        need: an ordinary mode set's scalar profiles, or a general guide's E/H
+        reference at its nodes and its regions' contrast. A launch computed for it
+        (:func:`solprop.coupling.couple.couple`) is accepted by :meth:`with_input`,
         and a launch computed for any other port is refused.
 
         Parameters
@@ -1860,7 +1702,7 @@ class Simulation(Displayed):
         Returns
         -------
         solprop.coupling.InputPort
-            The port, admitting the ``same_basis`` model.
+            The port and the models it admits.
 
         Raises
         ------
@@ -1908,6 +1750,8 @@ class Simulation(Displayed):
             medium=self.medium,
             tables=None if self.general is None else self.general.tables,
             z=z,
+            modes=tuple(self.modes) if route == "modal" else (),
+            guide=self.guide if isinstance(self.guide, ModalGuide) else None,
         )
 
     def with_input(
@@ -4064,6 +3908,7 @@ class Simulation(Displayed):
         provider: ModalGuide | None = None,
         channel: int | str | None = None,
         incident: SpatialPulse | None = None,
+        coupling: CouplingModel | None = None,
         kerr_form: KerrForm = "real",
         observable_rtol: float | None = None,
         observable_atol: float | None = None,
@@ -4181,23 +4026,31 @@ class Simulation(Displayed):
             `provider`.
         incident : solprop.pulses.SpatialPulse or None, optional
             An **incident beam** to launch instead of a named channel: the beam
-            and its temporal pulse, whose energy or peak power is the physical one
-            crossing the entrance plane in the guide's core medium, over the
-            **whole** beam (SEP 31, phase 1). The beam is normalised over its own
-            plane, sampled at the guide's quadrature nodes and projected onto every
-            channel it overlaps through the record's coordinate dual
-            (:func:`solprop.translate.modal_tables.project_transverse_field`); the
-            projected amplitudes are launched as they are. **Light the channels do
-            not capture is lost, not restored**: a beam much wider than the core
+            and its temporal pulse, whose energy or peak power is met over the
+            **whole** beam in the paraxial measure of the guide's core medium
+            (:meth:`solprop.pulses.SpatialPulse.incident`). The beam is coupled into
+            the channels by :func:`solprop.coupling.couple.couple` under `coupling`
+            (SEP 31): it is sampled on a radial plane that resolves it, evaluated at
+            the guide's nodes, and its coordinates are recovered with the flux
+            pairing and the forward closure ``H_t = Y0 z x E_t``. The recovered
+            amplitudes are launched as they are. **Light the channels do not
+            capture is lost, not restored**: a beam much wider than the core
             launches a small share of its energy, and a beam the channels cannot see
-            launches nothing, which is a valid zero launch. The account -- incident,
-            captured and uncaptured energy, per frequency and in total -- is
-            recorded as ``configuration["launch"]``, an
-            :class:`IncidentLaunch`. The beam is launched at its waist
+            launches nothing, which is a valid zero launch. The coupling's
+            :class:`~solprop.coupling.couple.CouplingReport` -- incident and launched
+            energy per frequency and in total, and its admission budget -- is
+            recorded as ``configuration["launch"]``, and the launch's provenance as
+            ``configuration["coupling"]``. The beam is launched at its waist
             (``propz=0``) and centred on the guide's axis. The pulse keywords
             (`fwhm`, `width`, `energy`, `peak_power`, `phases`, `pulses` and
             `pulseshape`) are refused beside it, because the beam carries its own
-            pulse. Requires `provider`, and is refused beside `channel`.
+            pulse. Requires `provider` and `coupling`, and is refused beside
+            `channel`.
+        coupling : solprop.coupling.models.CouplingModel or None, optional
+            The model an `incident` beam is coupled under:
+            ``CouplingModel("vector_paraxial", model_error=...)``, whose budget the
+            guide's contrast, closure and angular content must fit (SEP 31, section
+            4.3); a strongly guiding core is refused. Requires `incident`.
         kerr_form : {'real', 'analytic'}, optional
             Which instantaneous cubic a general modal run's material regions respond
             with. ``"real"``, the default, is the real-field cubic
@@ -4434,6 +4287,7 @@ class Simulation(Displayed):
                 vacuum_end=vacuum_end,
                 channel=channel,
                 incident=incident,
+                coupling=coupling,
                 kerr_form=kerr_form,
                 observable_rtol=observable_rtol,
                 observable_atol=observable_atol,
@@ -4484,6 +4338,7 @@ class Simulation(Displayed):
             ("memory_budget", memory_budget),
             ("channel", channel),
             ("incident", incident),
+            ("coupling", coupling),
             ("kerr_form", None if kerr_form == "real" else kerr_form),
             ("observable_rtol", observable_rtol),
             ("observable_atol", observable_atol),
@@ -4563,6 +4418,7 @@ class Simulation(Displayed):
         *,
         channel: int | str | None,
         incident: SpatialPulse | None,
+        coupling: CouplingModel | None,
         kerr_form: KerrForm,
         observable_rtol: float | None,
         observable_atol: float | None,
@@ -4613,8 +4469,11 @@ class Simulation(Displayed):
         channel : int or str or None
             Which channel the pulse enters; ``None`` takes the first.
         incident : solprop.pulses.SpatialPulse or None
-            An incident beam to project onto the channels instead, as
+            An incident beam to couple into the channels instead, as
             :meth:`from_waveguide` documents it.
+        coupling : solprop.coupling.models.CouplingModel or None
+            The model it is coupled under; required beside `incident` and refused
+            without it.
         kerr_form : {'real', 'analytic'}
             Which instantaneous cubic the regions respond with, as
             :meth:`from_waveguide` documents it.
@@ -4750,19 +4609,20 @@ class Simulation(Displayed):
             # `DriverError` is what its `Raises` names. The message is the bridge's
             # own, unchanged, and the cause is kept.
             raise DriverError(str(error)) from error
-        launch: IncidentLaunch | None = None
-        if isinstance(pulse, SpatialPulse):
-            field0, launch = _incident_launch(
-                pulse,
-                working,
-                route.tables,
-                _core_index(provider.regions, working),
-                # The metric the run's own statistics are weighted by, at the
-                # entrance, so that the captured energy is the launched state's
-                # physical energy on a declared basis as on the identity. An
-                # identity route's `metric_at` is `None`, the unweighted path.
-                metric_at(route.metric_tables, 0.0),
+        beam = pulse if isinstance(pulse, SpatialPulse) else None
+        if (beam is None) != (coupling is None):
+            msg = (
+                "an incident beam is coupled under a declared model: give incident= "
+                "with coupling=CouplingModel('vector_paraxial', model_error=...), or "
+                "neither"
             )
+            raise DriverError(msg)
+        if beam is not None:
+            # Checked before the port is built: a guide whose first region is off the
+            # axis has no core for a beam to enter through.
+            _core_index(provider.regions, working)
+            # The launch is the coupling's, installed through `with_input` below.
+            field0 = np.zeros((len(channels), 1, working.n_omega), dtype=np.complex128)
         else:
             field0 = _in_channel(built, provider, channel)
         settings = SimulationSettings(
@@ -4781,7 +4641,7 @@ class Simulation(Displayed):
             stats=_general_stats() if stats is None else stats,
             backend=backend,
         )
-        return cls(
+        simulation = cls(
             working,
             channels,
             [],
@@ -4794,13 +4654,15 @@ class Simulation(Displayed):
                     "length": length,
                     "provider": dict(provider.identity),
                 },
-                "pulse": pulse,
-                **({} if launch is None else {"launch": launch}),
+                **({} if beam is not None else {"pulse": pulse}),
             },
             general=route,
             guide=provider,
             materials=materials,
         )
+        if beam is None:
+            return simulation
+        return _incident_launch(simulation, beam, cast("CouplingModel", coupling))
 
     @classmethod
     def _from_hollow(  # noqa: PLR0913 - the interface's keyword surface
@@ -8982,89 +8844,111 @@ def _core_index(
     return index
 
 
-def _incident_launch(
-    pulse: SpatialPulse,
-    grid: TimeGrid,
-    tables: ModalTransformTables,
-    index: Float[np.ndarray, " n_omega"],
-    metric: Complex[np.ndarray, "n_modes_metric_out n_modes_metric_in n_omega_metric"]
-    | None = None,
-) -> tuple[Complex[np.ndarray, "n_modes n_pol n_omega"], IncidentLaunch]:
-    """Launch an incident beam into a guide's channels and account for its energy.
+BEAM_EXTENT = 60.0
+"""Field exponent at the edge of an incident beam's radial plane.
 
-    The beam is normalised over its **own** whole plane in the paraxial measure of
-    the core medium (:meth:`solprop.pulses.SpatialPulse.incident`), so light
-    outside the guide's quadrature counts as incident; the correctly scaled field is
-    sampled at the guide's nodes and projected onto its channels by
-    :func:`solprop.translate.modal_tables.project_transverse_field`. The projected
-    amplitudes are the launch: **nothing is rescaled to the requested energy**, so a
-    badly captured beam launches the little the channels take, and a beam they
-    cannot see at all is a valid zero launch. The captured energy is
-    ``a.H W a`` under the run's own declared metric, which is what
-    :func:`solprop.stats.physical_energy` measures at the entrance. Captured and
-    uncaptured are physical shares only in a common positive metric (SEP 31
-    section 4.3); see :class:`IncidentLaunch`.
+The plane extends to where a super-Gaussian of order N has fallen to
+``exp(-BEAM_EXTENT)`` in field, ``r = waist * BEAM_EXTENT**(1/(2N))``, times the
+margin :data:`BEAM_MARGIN`; its intensity there is below 1e-52 of the peak.
+"""
+
+BEAM_MARGIN = 1.5
+"""Factor on the incident beam's plane radius beyond its decay radius."""
+
+BEAM_NODES = 256
+"""Radial nodes of an incident beam's plane.
+
+With the plane radius above, the largest transverse wavenumber is about
+``pi * 256 / (1.5 * 60**(1/2N) * waist)``, 69/w for a Gaussian, where its spectrum
+is below exp(-1000): the beam is resolved to rounding.
+"""
+
+
+def _beam_grid(pulse: SpatialPulse) -> RadialGrid:
+    """Return the radial plane an incident beam is sampled on before coupling.
 
     Parameters
     ----------
     pulse : solprop.pulses.SpatialPulse
-        The incident beam and its temporal pulse.
-    grid : solprop.grid.TimeGrid
-        The run's grid.
-    tables : solprop.translate.modal_tables.ModalTransformTables
-        The guide's reference, carrying the nodes and the coordinate dual.
-    index : numpy.ndarray
-        Real phase index of the core at each frequency, shape ``(n_omega,)``.
-    metric : numpy.ndarray or None, optional
-        The run's declared basis metric ``W(omega)`` at the entrance, shape
-        ``(n_modes, n_modes, n_omega)``, as
-        :func:`solprop.translate.coupled.metric_at` evaluates it; ``None``, the
-        default, is the identity.
+        The beam.
 
     Returns
     -------
-    tuple
-        The launched state, shape ``(n_modes, 1, n_omega)``, in the square root of
-        watts, and its :class:`IncidentLaunch` account.
+    solprop.grid.RadialGrid
+        A grid that resolves the beam and holds it to rounding.
+    """
+    radius = BEAM_MARGIN * pulse.waist * BEAM_EXTENT ** (1.0 / (2.0 * pulse.order))
+    return RadialGrid(radius, BEAM_NODES)
+
+
+def _incident_launch(
+    simulation: "Simulation",  # noqa: UP037 - defined above, referenced while it loads
+    pulse: SpatialPulse,
+    model: CouplingModel,
+) -> "Simulation":  # noqa: UP037 - as above
+    """Couple an incident beam into a general modal simulation and install it.
+
+    The beam becomes a radial :class:`~solprop.coupling.plane.FieldPlane` in the
+    guide's core index (:meth:`~solprop.coupling.plane.FieldPlane.from_pulse`, its
+    request met over its whole plane in the paraxial measure), and
+    :func:`~solprop.coupling.couple.couple` recovers its coordinates in the guide's
+    channels under `model`. **Nothing is rescaled to the requested energy**: a
+    badly captured beam launches the little the channels take, and a beam they
+    cannot see is a valid zero launch. The launch is installed through
+    :meth:`Simulation.with_input`, which records its provenance as
+    ``configuration["coupling"]``; the coupling's report is recorded as
+    ``configuration["launch"]`` and the beam as ``configuration["pulse"]``.
+
+    Parameters
+    ----------
+    simulation : Simulation
+        The general modal simulation, built with a zero input.
+    pulse : solprop.pulses.SpatialPulse
+        The incident beam and its temporal pulse.
+    model : solprop.coupling.models.CouplingModel
+        The coupling model.
+
+    Returns
+    -------
+    Simulation
+        The simulation launching the coupled amplitudes, sharing the translation.
 
     Raises
     ------
     DriverError
-        If the beam cannot be normalised or the record cannot project it.
+        If the beam cannot be built or the coupling refuses it.
     """
-    nodes, components = tables.electric.shape[1], tables.electric.shape[2]
-    try:
-        beam = pulse.incident(grid, tables.node_xy[0], index=index)
-    except PulseError as error:
-        raise DriverError(str(error)) from error
-    sampled = np.zeros((nodes, components, grid.n_omega), dtype=np.complex128)
-    # The dual's longitudinal columns are zero, so a transverse beam needs no E_z.
-    sampled[:, :2] = beam.field
-    try:
-        projected = project_transverse_field(tables, sampled)
-    except ModeError as error:
-        raise DriverError(str(error)) from error
-    amplitudes = projected.amplitudes
-    flux = (
-        np.sum(np.abs(amplitudes) ** 2, axis=0)
-        if metric is None
-        else np.real(np.einsum("mw,mnw,nw->w", np.conj(amplitudes), metric, amplitudes))
+    port = simulation.input_port()
+    index = (
+        np.zeros(simulation.grid.n_omega)
+        if port.reference_index is None
+        else (np.asarray(port.reference_index))
     )
-    weights = fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
-    report = IncidentLaunch(
-        index, beam.energy, np.asarray(weights * flux, dtype=np.float64)
-    )
-    state = np.zeros((amplitudes.shape[0], 1, grid.n_omega), dtype=np.complex128)
-    state[:, 0, :] = amplitudes
+    try:
+        plane = FieldPlane.from_pulse(
+            pulse,
+            simulation.grid,
+            PlaneGeometry(port.geometry.z),
+            space=_beam_grid(pulse),
+            index=index,
+        )
+        result = couple(plane, port, model=model)
+    except CouplingError as error:
+        raise DriverError(str(error)) from error
+    report = result.report
     logger.info(
-        "incident beam launched into %d channel(s): %.4g J incident, %.4g J "
-        "captured, %.4g J not captured",
-        state.shape[0],
+        "incident beam coupled into %d channel(s) under %s: %.4g J incident, "
+        "%.4g J launched",
+        port.shape[0],
+        model.kind,
         report.incident_energy,
-        report.captured_energy,
-        report.uncaptured_energy,
+        report.launched_energy,
     )
-    return state, report
+    return simulation.with_input(
+        result.launch,
+        noise=simulation.noise,
+        configuration={"pulse": pulse, "launch": report},
+    )
 
 
 def _in_lowest_mode(

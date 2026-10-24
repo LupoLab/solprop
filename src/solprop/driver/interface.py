@@ -27,6 +27,7 @@ import numpy as np
 from jaxtyping import Float
 
 from solprop.boundaries import Absorber
+from solprop.coupling.models import CouplingModel
 from solprop.driver.simulation import (
     DEFAULT_ATOL,
     DEFAULT_RTOL,
@@ -1164,6 +1165,7 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
     provider: ModalGuide | None = None,
     channel: int | str | None = None,
     incident: SpatialPulse | None = None,
+    coupling: CouplingModel | None = None,
     kerr_form: KerrForm = "real",
     observable_rtol: float | None = None,
     observable_atol: float | None = None,
@@ -1257,12 +1259,16 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         Which channel the pulse enters, by index or display label; ``None`` takes
         the first. Requires `provider`.
     incident : solprop.pulses.SpatialPulse or None, optional
-        An incident beam carrying its own pulse, whose energy is the physical
-        energy over the whole beam at the entrance; the channels launch the share
-        they capture and the rest is lost, recorded in the run's configuration
-        (see :meth:`~solprop.driver.simulation.Simulation.from_waveguide`).
-        Requires `provider`, and is refused beside `channel` and the pulse
+        An incident beam carrying its own pulse, whose energy is met over the whole
+        beam at the entrance; it is coupled into the channels under `coupling`,
+        they launch the share they capture and the rest is lost, with the coupling
+        report recorded in the run's configuration (see
+        :meth:`~solprop.driver.simulation.Simulation.from_waveguide`). Requires
+        `provider` and `coupling`, and is refused beside `channel` and the pulse
         keywords.
+    coupling : solprop.coupling.models.CouplingModel or None, optional
+        The model and budget an `incident` beam is coupled under, a
+        ``vector_paraxial`` model. Requires `incident`.
     kerr_form : {'real', 'analytic'}, optional
         Which instantaneous cubic a general modal run's regions respond with: the
         real-field cubic of the field route, the default, or the analytic-signal
@@ -1477,6 +1483,7 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         provider=provider,
         channel=channel,
         incident=incident,
+        coupling=coupling,
         kerr_form=kerr_form,
         observable_rtol=observable_rtol,
         observable_atol=observable_atol,

@@ -21,6 +21,7 @@ from numpy.typing import ArrayLike
 from benchmarks.records import SuiteError
 from solprop.boundaries import absorber
 from solprop.constants import C
+from solprop.coupling import CouplingModel
 from solprop.driver import Simulation
 from solprop.grid import FieldGrid
 from solprop.modes import (
@@ -224,7 +225,7 @@ def grin(*, nonlinear: bool) -> Simulation:
         )
         period = 2 * np.pi / float(np.mean(-np.diff(beta)))
         # The incident beam's energy is over its whole plane; the channels launch
-        # the share they capture.
+        # the share they capture, coupled under the vector paraxial model.
         beam = SpatialPulse(
             GaussianPulse(
                 wavelength=wavelength,
@@ -239,6 +240,7 @@ def grin(*, nonlinear: bool) -> Simulation:
             provider=guide,
             grid=grid,
             incident=beam,
+            coupling=CouplingModel("vector_paraxial", model_error=0.2),
             lambda0=wavelength,
             noise="input",
             seed=41,
