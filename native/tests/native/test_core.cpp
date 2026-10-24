@@ -2217,6 +2217,54 @@ TEST(GeneralState, BandWindowSkipsOnlyExactZeros) {
   }
 }
 
+TEST(PlasmaBandScan, FilteringPreservesShortRowsBlockTailsAndDynamicRange) {
+  const std::vector<double> taps{1.1, -0.1, 0.0625, -0.025, 0.0125};
+  const int half = static_cast<int>(taps.size()) - 1;
+  using TeamPolicy = Kokkos::TeamPolicy<native::ExecutionSpace>;
+  const TeamPolicy probe(native::ExecutionSpace{}, 1, 1);
+  const int widest = probe.team_size_max(EmptyTeamBody{}, Kokkos::ParallelForTag());
+  for (const int samples : {5, 17, 255, 257, 519}) {
+    SCOPED_TRACE(samples);
+    std::vector<double> row(static_cast<std::size_t>(samples));
+    for (int sample = 0; sample < samples; ++sample)
+      row[static_cast<std::size_t>(sample)] = sample % 3 == 0   ? 1e100
+                                              : sample % 3 == 1 ? -1e100
+                                                                : 1e-100;
+    for (const int team_size : {1, 2, 4}) {
+      if (team_size > widest)
+        continue;
+      const auto scan = windowed_band_scan(row, taps, 0.125, team_size);
+      const auto reflected = [&](const int index) -> long double {
+        if (index < 0)
+          return 2.0L * row.front() - row[static_cast<std::size_t>(-index)];
+        if (index >= samples)
+          return 2.0L * row.back() -
+                 row[static_cast<std::size_t>(2 * (samples - 1) - index)];
+        return row[static_cast<std::size_t>(index)];
+      };
+      for (int sample = 0; sample < samples; ++sample) {
+        long double expected = taps[0] * reflected(sample);
+        long double magnitude = std::abs(expected);
+        for (int tap = 1; tap <= half; ++tap) {
+          const auto before = reflected(sample - tap);
+          const auto after = reflected(sample + tap);
+          expected += taps[static_cast<std::size_t>(tap)] * (before + after);
+          magnitude += std::abs(taps[static_cast<std::size_t>(tap)]) *
+                       (std::abs(before) + std::abs(after));
+        }
+        // Centre + ordered tap pairs + reflections, in both computations. This
+        // also covers platforms whose long double has no extra mantissa bits.
+        const double bound = (8.0 * half + 16.0) * kEpsilon *
+                             std::max(1.0, static_cast<double>(magnitude));
+        ASSERT_GT(bound, 0.0);
+        const auto actual = scan.filtered[static_cast<std::size_t>(sample)];
+        ASSERT_TRUE(std::isfinite(actual));
+        EXPECT_NEAR(actual, static_cast<double>(expected), bound);
+      }
+    }
+  }
+}
+
 TEST(State, RepeatedTrialsOverwriteFullCropAndStageZeroAccumulators) {
   auto problem = base_problem(native::FieldFamily::envelope);
   problem.nonlinear = true;

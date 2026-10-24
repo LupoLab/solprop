@@ -1820,7 +1820,20 @@ public:
   }
   void held_response(std::size_t stage, std::size_t first_node, std::size_t node_count,
                      const TransverseChunk* chunk = nullptr);
-  void held_transform();
+  void held_transform(bool coarse_only = false);
+  void finish_quadrature();
+  bool deferred_quadrature_eligible() const noexcept {
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+    return false;
+#else
+    // The validated seven-stage FSAL tableau identifies the ordinary DOPRI5
+    // route without another seam field. Other consumers retain eager spectra.
+    return problem_.first_same_as_last && problem_.n_stages == 7 &&
+           !problem_.low_storage && !problem_.separable_geometry() && !general_ &&
+           !flow_ && !dispersive_ && !problem_.envelope_plasma && !held_radial() &&
+           !problem_.projection_coarse_matrix.empty();
+#endif
+  }
   void held_radial_projection(std::size_t first_node, std::size_t node_count);
   void envelope_cycle(std::size_t channel, std::size_t node_count);
   void envelope_population(std::size_t channel, std::size_t stage,
@@ -1904,6 +1917,12 @@ public:
   bool has_recycled_{};
   std::size_t rk_source_evaluations_{};
   bool pending_fsal_{};
+  // Only the final trial source supplies the accepted quadrature score. Its
+  // coarse time buffers survive until scoring, or until a new source replaces
+  // them. The stored accepted score and peak are independent of these flags.
+  bool defer_quadrature_{};
+  bool project_coarse_{true};
+  bool coarse_pending_{};
   // Set by a trial for a stage whose finish may run in the next stage's entry kernel;
   // `finish_pending_` names the stage's finish still to run there.
   bool defer_finish_{};
@@ -3755,6 +3774,7 @@ void GeneralWorkspace::prepare_trial(const double dz, const TrialScalars& scalar
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");
   require_trial_scalars(scalars);
+  coarse_pending_ = false;
   upload_trial(scalars);
   if (flow_)
     flow_->set_trial(scalars.flow_section, scalars.flow_weights);
@@ -3769,23 +3789,30 @@ void GeneralWorkspace::prepare_trial(const double dz, const TrialScalars& scalar
   // 6.7) unless a coupled flow carries the stage back first, or the stage is the last.
   finish_pending_ = false;
   const bool deferrable = !flow_ && !problem_.separable_geometry();
+  defer_quadrature_ = deferred_quadrature_eligible();
   for (std::size_t stage = first; stage < problem_.n_stages; ++stage) {
-    if (problem_.raman)
-      prepare_raman_stage(
-          stage, scalars.raman_rates.data() + stage * problem_.n_raman_terms,
-          problem_.n_raman_components > 1
-              ? scalars.raman_densities.data() + stage * problem_.n_raman_components
-              : nullptr);
-    defer_finish_ = deferrable && stage + 1 < problem_.n_stages;
     try {
+      if (problem_.raman)
+        prepare_raman_stage(
+            stage, scalars.raman_rates.data() + stage * problem_.n_raman_terms,
+            problem_.n_raman_components > 1
+                ? scalars.raman_densities.data() + stage * problem_.n_raman_components
+                : nullptr);
+      defer_finish_ = deferrable && stage + 1 < problem_.n_stages;
+      project_coarse_ = !defer_quadrature_ || stage + 1 == problem_.n_stages;
       evaluate_stage(stage, dz);
     } catch (...) {
       defer_finish_ = false;
       finish_pending_ = false;
+      defer_quadrature_ = false;
+      project_coarse_ = true;
+      coarse_pending_ = false;
       throw;
     }
   }
   defer_finish_ = false;
+  defer_quadrature_ = false;
+  project_coarse_ = true;
   if (finish_pending_)
     throw std::logic_error("a deferred stage finish was never run");
   stages_ready_ = true;
@@ -7019,6 +7046,8 @@ void GeneralWorkspace::evaluate_stage(const std::size_t stage, const double dz) 
 }
 
 void GeneralWorkspace::evaluate_stage_source(const std::size_t stage, const double dz) {
+  if (!defer_quadrature_)
+    coarse_pending_ = false;
   if (problem_.separable_geometry()) {
     evaluate_separable_stage(stage, dz);
     return;
@@ -7109,13 +7138,13 @@ bool GeneralWorkspace::modal_core(const std::size_t stage) {
     if (problem_.family == FieldFamily::envelope) {
       KokkosFFT::execute(*forward_complex_plan_, projected_complex_,
                          projected_spectrum_, KokkosFFT::Normalization::none);
-      if (forward_coarse_complex_plan_)
+      if (forward_coarse_complex_plan_ && !defer_quadrature_)
         KokkosFFT::execute(*forward_coarse_complex_plan_, projected_coarse_complex_,
                            projected_coarse_spectrum_, KokkosFFT::Normalization::none);
     } else {
       KokkosFFT::execute(*forward_real_plan_, projected_real_, projected_spectrum_,
                          KokkosFFT::Normalization::none);
-      if (forward_coarse_real_plan_)
+      if (forward_coarse_real_plan_ && !defer_quadrature_)
         KokkosFFT::execute(*forward_coarse_real_plan_, projected_coarse_real_,
                            projected_coarse_spectrum_, KokkosFFT::Normalization::none);
     }
@@ -7136,6 +7165,8 @@ bool GeneralWorkspace::modal_core(const std::size_t stage) {
     envelope_transform();
   if (held_plasma() && !held_radial())
     held_transform();
+  if (defer_quadrature_ && project_coarse_)
+    coarse_pending_ = true;
   return true;
 }
 
@@ -9205,12 +9236,13 @@ void GeneralWorkspace::held_response(const std::size_t stage,
   }
 }
 
-void GeneralWorkspace::held_transform() {
+void GeneralWorkspace::held_transform(const bool coarse_only) {
   for (std::size_t index = 0; index < 2; ++index) {
     auto& stream = held_streams_[index];
-    KokkosFFT::execute(*stream.forward, stream.projected, stream.spectrum,
-                       KokkosFFT::Normalization::none);
-    if (stream.coarse_forward)
+    if (!coarse_only)
+      KokkosFFT::execute(*stream.forward, stream.projected, stream.spectrum,
+                         KokkosFFT::Normalization::none);
+    if (stream.coarse_forward && (coarse_only || !defer_quadrature_))
       KokkosFFT::execute(*stream.coarse_forward, stream.coarse, stream.coarse_spectrum,
                          KokkosFFT::Normalization::none);
   }
@@ -9223,6 +9255,7 @@ void GeneralWorkspace::held_transform() {
   const auto inverse = held_inverse_;
   const auto active = active_mask_;
   const auto crop = crop_index_;
+  const bool include_coarse = !coarse.empty() && (coarse_only || !defer_quadrature_);
   cartesian_for(
       "solprop_native.held.spectral_assembly", execution_space_, projected.extent(0),
       problem_.n_omega, KOKKOS_LAMBDA(const std::size_t row, const std::size_t omega) {
@@ -9230,14 +9263,16 @@ void GeneralWorkspace::held_transform() {
         if (active(omega)) {
           const double value = inverse(omega);
           const Complex factor(0.0, -value);
-          projected(row, bin) +=
-              factor * product(row, bin) + value * value * edge(row, bin);
-          if (!coarse.empty())
+          if (!coarse_only)
+            projected(row, bin) +=
+                factor * product(row, bin) + value * value * edge(row, bin);
+          if (include_coarse)
             coarse(row, bin) += factor * coarse_product(row, bin) +
                                 value * value * coarse_edge(row, bin);
         } else {
-          projected(row, bin) = Complex{};
-          if (!coarse.empty())
+          if (!coarse_only)
+            projected(row, bin) = Complex{};
+          if (include_coarse)
             coarse(row, bin) = Complex{};
         }
       });
@@ -9368,7 +9403,7 @@ void GeneralWorkspace::project(const std::size_t first_node,
     const Interleaved fine(reinterpret_cast<double*>(projected_target.data()),
                            problem_.n_modes, 2 * problem_.n_to);
     engine_gemm(transform_space_for(node_count), scaled_projection_, nodes, fine, 0.0);
-    if (!problem_.projection_coarse_matrix.empty()) {
+    if (project_coarse_ && !problem_.projection_coarse_matrix.empty()) {
       const Interleaved coarse(reinterpret_cast<double*>(coarse_target.data()),
                                problem_.n_modes, 2 * problem_.n_to);
       engine_gemm(transform_space_for(node_count), scaled_projection_coarse_, nodes,
@@ -9379,7 +9414,7 @@ void GeneralWorkspace::project(const std::size_t first_node,
   }
   if (whole_transform && use_blas_for_projection()) {
     Kokkos::Profiling::pushRegion("solprop_native.transform.projection.kokkosblas");
-    if (problem_.family == FieldFamily::envelope &&
+    if (problem_.family == FieldFamily::envelope && project_coarse_ &&
         !scaled_projection_stacked_complex_.empty()) {
       selected_gemm(transform_space_for(node_count), scaled_projection_stacked_complex_,
                     node_source, stacked_target, Complex{}, true);
@@ -9397,7 +9432,7 @@ void GeneralWorkspace::project(const std::size_t first_node,
     } else if (problem_.family == FieldFamily::envelope) {
       selected_gemm(transform_space_for(node_count), scaled_projection_complex_,
                     node_source, projected_target, Complex{}, true);
-    } else if (!scaled_projection_stacked_.empty()) {
+    } else if (project_coarse_ && !scaled_projection_stacked_.empty()) {
       selected_gemm(transform_space_for(node_count), scaled_projection_stacked_,
                     real_source, real_stacked_target, 0.0, true);
       const auto& stacked = real_stacked_target;
@@ -9425,7 +9460,7 @@ void GeneralWorkspace::project(const std::size_t first_node,
     const auto first_row = first_node * problem_.n_pol_transform;
     const bool tail = node_count != problem_.node_chunk;
     const bool last_chunk = first_node + node_count == problem_.n_nodes;
-    const bool stacked = !problem_.projection_coarse_matrix.empty();
+    const bool stacked = project_coarse_ && !problem_.projection_coarse_matrix.empty();
     if (problem_.family == FieldFamily::envelope) {
       const auto polarisation = Kokkos::subview(
           node_source, std::make_pair(std::size_t{0}, rows), Kokkos::ALL());
@@ -9457,7 +9492,16 @@ void GeneralWorkspace::project(const std::size_t first_node,
               });
         }
       } else {
-        const auto packed = tail ? tail_projection_complex_ : chunk_projection_complex_;
+        // The first half of the existing stacked scratch is a contiguous fine
+        // matrix. Alias it when this trial stage does not need the coarse rows.
+        const auto scratch =
+            tail ? tail_projection_stacked_complex_ : chunk_projection_stacked_complex_;
+        const ComplexView2 packed =
+            scratch.empty()
+                ? (tail ? tail_projection_complex_ : chunk_projection_complex_)
+                : ComplexView2(Kokkos::subview(
+                      scratch, std::pair{std::size_t{0}, problem_.n_modes},
+                      Kokkos::ALL()));
         const auto source = scaled_projection_complex_;
         Kokkos::parallel_for(
             "solprop_native.transform.pack_projection_complex",
@@ -9498,7 +9542,14 @@ void GeneralWorkspace::project(const std::size_t first_node,
               });
         }
       } else {
-        const auto packed = tail ? tail_projection_ : chunk_projection_;
+        const auto scratch =
+            tail ? tail_projection_stacked_ : chunk_projection_stacked_;
+        const RealView2 packed =
+            scratch.empty()
+                ? (tail ? tail_projection_ : chunk_projection_)
+                : RealView2(Kokkos::subview(scratch,
+                                            std::pair{std::size_t{0}, problem_.n_modes},
+                                            Kokkos::ALL()));
         const auto source = scaled_projection_;
         Kokkos::parallel_for(
             "solprop_native.transform.pack_projection",
@@ -9526,7 +9577,7 @@ void GeneralWorkspace::project(const std::size_t first_node,
   const auto n_pol_transform = problem_.n_pol_transform;
   const auto n_to = problem_.n_to;
   const bool envelope = problem_.family == FieldFamily::envelope;
-  const bool coarse = !projection_coarse.empty();
+  const bool coarse = project_coarse_ && !projection_coarse.empty();
   Kokkos::parallel_for(
       "solprop_native.transform.projection.custom",
       Range2(transform_space_for(node_count), {0, 0}, {problem_.n_columns(), n_to}),
@@ -11056,12 +11107,27 @@ void GeneralWorkspace::finish(const double dz) {
   execution_space_.fence("solprop_native accepted-step boundary");
 }
 
+void GeneralWorkspace::finish_quadrature() {
+  if (!coarse_pending_)
+    return;
+  if (problem_.family == FieldFamily::envelope)
+    KokkosFFT::execute(*forward_coarse_complex_plan_, projected_coarse_complex_,
+                       projected_coarse_spectrum_, KokkosFFT::Normalization::none);
+  else
+    KokkosFFT::execute(*forward_coarse_real_plan_, projected_coarse_real_,
+                       projected_coarse_spectrum_, KokkosFFT::Normalization::none);
+  if (held_plasma())
+    held_transform(true);
+  coarse_pending_ = false;
+}
+
 void GeneralWorkspace::score_quadrature() {
   quadrature_error_ = Kokkos::Experimental::quiet_NaN_v<double>;
   quadrature_stale_ = false;
   if (quadrature_partials_.empty() ||
       (!problem_.nonlinear && !problem_.plasma && !dispersive_))
     return;
+  finish_quadrature();
   // SEP 6's dispersive products join the embedded rule's spectrum once, when scored.
   if (dispersive_)
     dispersive_->finish_coarse();
@@ -11208,6 +11274,7 @@ void GeneralWorkspace::promote_fsal() {
 void GeneralWorkspace::clear_fsal() {
   has_recycled_ = false;
   pending_fsal_ = false;
+  coarse_pending_ = false;
   if (!stash_current_.empty())
     Kokkos::deep_copy(execution_space_, stash_current_, 0.0);
   stash_is_current_ = false;
@@ -11388,6 +11455,8 @@ std::vector<Complex> GeneralWorkspace::projected_to_host(const bool coarse) {
     throw std::logic_error("this quadrature has no embedded rule");
   if (coarse && dispersive_)
     dispersive_->finish_coarse();
+  if (coarse)
+    finish_quadrature();
   execution_space_.fence("solprop_native projected_to_host");
   const auto host = Kokkos::create_mirror_view_and_copy(
       Kokkos::HostSpace{}, coarse ? projected_coarse_spectrum_ : projected_spectrum_);
@@ -11938,6 +12007,7 @@ void GeneralWorkspace::close() noexcept {
   table_ready_ = false;
   has_recycled_ = false;
   pending_fsal_ = false;
+  coarse_pending_ = false;
   stash_is_current_ = false;
   raman_kernel_ready_ = false;
 }

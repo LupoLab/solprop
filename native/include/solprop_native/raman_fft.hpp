@@ -13,6 +13,7 @@
 #include <cstddef>
 #include <memory>
 #include <stdexcept>
+#include <string_view>
 #include <type_traits>
 
 namespace solprop_native {
@@ -44,17 +45,22 @@ public:
   RamanFftPlan(const Execution& execution, const Input& input, const Output& output,
                const KokkosFFT::Direction direction, const int axis)
       : execution_(execution) {
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+    const bool contiguous =
+        (axis == -1 || axis == 1) && input.stride(1) == 1 && output.stride(1) == 1;
+#if defined(SOLPROP_NATIVE_RAMAN_ACCELERATE)
     constexpr bool forward =
         std::is_same_v<typename Input::non_const_value_type, double>;
     const auto samples = forward ? input.extent(1) : output.extent(1);
-    const bool contiguous =
-        (axis == -1 || axis == 1) && input.stride(1) == 1 && output.stride(1) == 1;
-    // At one thread the short Raman rows favour measured FFTW; vDSP retains
-    // the large-field and parallel workloads for which it was selected.
-    const bool short_serial =
-        contiguous && execution.concurrency() == 1 && samples <= 16384;
-#if defined(SOLPROP_NATIVE_RAMAN_ACCELERATE)
-    if (!short_serial && (axis == -1 || axis == 1) && input.stride(1) == 1 &&
+    // NEON FFTW wins the long rows, but short threaded plans can still be slower
+    // than vDSP. Preserve the previous policy for libraries without NEON codelets;
+    // a local build may still resolve such an FFTW even on an Arm CPU.
+    const bool neon =
+        std::string_view(fftw_version).find("-neon") != std::string_view::npos;
+    const bool prefer_fftw =
+        (execution.concurrency() == 1 && samples <= 16384) ||
+        (neon && (execution.concurrency() == 1 || samples > 16384));
+    if (!prefer_fftw && (axis == -1 || axis == 1) && input.stride(1) == 1 &&
         output.stride(1) == 1 && samples >= 8 && std::has_single_bit(samples)) {
       const auto frequencies = forward ? output.extent(1) : input.extent(1);
       if (input.extent(0) != output.extent(0) || frequencies != samples / 2 + 1)
@@ -73,11 +79,11 @@ public:
       return;
     }
 #endif
-#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
-    if (short_serial)
+    // Every FFTW fallback must honour the planner effort, including the long
+    // doubled rows used when the Accelerate provider is disabled. The shared
+    // helper retains serial-only measured planning unless explicitly overridden.
+    if (contiguous)
       seed_row_fft_wisdom(execution, input, output, direction);
-#else
-    (void)short_serial;
 #endif
     fallback_ = std::make_unique<Fallback>(execution, input, output, direction, axis);
   }

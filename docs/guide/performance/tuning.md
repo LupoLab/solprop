@@ -34,7 +34,7 @@ The backend decides which pools exist at all (see [Choosing a backend](backends.
 |---|---|---|
 | `numpy_ref` | NumPy's BLAS only | the reference; single-threaded apart from matrix products |
 | `numba_cpu` | Numba kernels, FFTW, BLAS (and FFTW for the transverse transforms of free-space runs) | sizes each pool from the problem |
-| native CPU (`native`) | OpenMP kernels, FFTW (modal and spatial transforms), the Raman convolution transforms (Accelerate's vDSP on macOS, Kokkos-FFT over FFTW elsewhere), a vendor BLAS | uses every logical CPU unless told otherwise |
+| native CPU (`native`) | OpenMP kernels, FFTW (modal and spatial transforms), the Raman convolution transforms (Kokkos-FFT over FFTW, with selected macOS shapes on Accelerate's vDSP), a vendor BLAS | uses every logical CPU unless told otherwise |
 | native GPU (`native`, CUDA or HIP build) | the device | CPU pools are irrelevant; one device per process |
 
 `backend="auto"` chooses the native backend when `solprop-native` is installed and
@@ -240,6 +240,15 @@ Free-space transforms are planned at `SOLPROP_FFTW_PLAN`'s effort
 short runs and tests. Answers at different thread counts may differ by rounding; solprop
 holds them to its rounding bounds, not to identical bits
 ([SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
+Contiguous modal and Raman FFTW plans default to measured planning at one thread and
+estimate planning at wider widths; the explicit effort overrides both, including
+long Raman rows and partial chunks. Measured planning can add substantial construction
+time even when the warmed propagation is faster. Use `SOLPROP_FFTW_PLAN=estimate`
+when construction dominates a short run. On macOS with NEON FFTW, serial and long
+Raman rows use Kokkos-FFT, while parallel power-of-two rows of at most 16,384 samples
+retain vDSP. The [build guide](building-native.md) describes the coherent dependency
+recipe and the fallback for a library without NEON codelets.
+
 `OMP_NUM_THREADS` and `KOKKOS_NUM_THREADS` do **not** size the Kokkos pool — the backend
 initialises Kokkos with an explicit thread count, which takes precedence; set
 `SOLPROP_NATIVE_THREADS` instead. (Kokkos prints a warning at start-up if

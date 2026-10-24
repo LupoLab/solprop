@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import math
 import os
 import subprocess
 import sys
@@ -465,6 +466,82 @@ def test_every_stage_of_a_trial_matches_the_reference(
         assert scale > 0.0, stage
         assert float(np.max(np.abs(got - want))) <= (stage + 1) * bound * scale, stage
         assert_regression_guard(got, want, f"{kind} {integration} stage {stage}")
+
+
+@pytest.mark.parametrize("kind", ["multimode", "analytic", "mixture"])
+@pytest.mark.parametrize("chunk", [1, 4])
+def test_quadrature_keeps_accepted_scores_through_rejection_and_reset(
+    kind: str, chunk: int
+) -> None:
+    """Score held field currents once, preserving accepted observations on rejection.
+
+    The norm difference divided by the fine norm takes at most eight source
+    rounding budgets when both projection norms are comparable. Accumulate the
+    existing seven-stage, two-step plasma budget before either backend runs.
+    """
+    grid, original = modal(kind)
+    problem = dataclasses.replace(
+        original,
+        transform=dataclasses.replace(original.transform, node_chunk=chunk),
+        stepper=dataclasses.replace(original.stepper, integrator=None),
+    )
+    bound = march_bound(problem, grid, STEPS)
+    score_bound = 8 * bound
+    assert bound > 0.0
+    specification = StatsSpec(names=("quadrature_error", "electron_density"))
+    reference = NumpyRefBackend(problem, grid=grid)
+    backend = NativeBackend(problem, grid=grid)
+    state = backend._native_state  # pyright: ignore[reportPrivateUsage] - score lifetime
+    dz = float(problem.stepper.save_planes[-1]) / STEPS
+    try:
+        for engine in (reference, backend):
+            engine.set_initial(problem.initial.field0, None)
+            engine.propagate_to(dz)
+        accepted = backend.observe().require_field().copy()
+        score = state.quadrature_error
+        assert math.isfinite(score)
+        assert state.quadrature_peak() == score  # One accepted step since the reset.
+        assert math.isnan(state.quadrature_peak())
+        expected = reference.stats(specification)["quadrature_error"]
+        np.testing.assert_allclose(score, expected, rtol=0.0, atol=score_bound)
+
+        # Leave an unaccepted trial in scratch, then observe the accepted field and
+        # plasma statistics before the next trial replaces that scratch again.
+        backend._trial_step(dz, 0.5 * dz)  # pyright: ignore[reportPrivateUsage] - rejected trial
+        observed = backend.stats(specification)
+        assert state.quadrature_error == score  # Stored accepted value, no arithmetic.
+        assert math.isnan(state.quadrature_peak())
+        np.testing.assert_array_equal(backend.observe().require_field(), accepted)
+        np.testing.assert_allclose(
+            observed["quadrature_error"], expected, rtol=0.0, atol=score_bound
+        )
+        for engine in (reference, backend):
+            engine.propagate_to(2 * dz)
+        want = reference.observe().require_field()
+        got = backend.observe().require_field()
+        assert np.isfinite(got).all()
+        np.testing.assert_allclose(
+            got, want, rtol=0.0, atol=bound * float(np.max(np.abs(want)))
+        )
+        np.testing.assert_allclose(
+            state.quadrature_error,
+            reference.stats(specification)["quadrature_error"],
+            rtol=0.0,
+            atol=score_bound,
+        )
+        backend.set_initial(problem.initial.field0, None)
+        assert math.isnan(state.quadrature_error)
+        assert math.isnan(state.quadrature_peak())
+        backend.propagate_to(dz)
+        np.testing.assert_allclose(
+            backend.observe().require_field(),
+            accepted,
+            rtol=0.0,
+            atol=bound * float(np.max(np.abs(accepted))),
+        )
+    finally:
+        backend.close()
+        reference.close()
 
 
 @pytest.mark.gpu

@@ -1310,12 +1310,26 @@ at every width; explicit `measure` and experimental `patient` enable timed plann
 at any width. Estimate can still consume matching wisdom already present in the
 process; the backend does not clear shared FFTW wisdom. Planning is destructive and
 precedes state initialization.
-Short serial Raman transforms (at most 16384 doubled-axis samples) likewise use
-measured FFTW; larger or parallel macOS Raman transforms retain Accelerate.
+Contiguous Raman transforms use the same planning policy, including long doubled
+rows and partial chunks. On macOS, NEON FFTW handles serial and long Raman rows;
+short parallel power-of-two rows (at most 16384 samples) retain Accelerate. Selection
+uses the linked FFTW's codelet family and the plan's dimensions and thread width at
+construction. A local FFTW without NEON retains the previous short-serial FFTW rule.
 The full-chunk Raman provider and task counts, planning seconds, and plan heap growth remain
 in execution metadata. General-modal tail views add no field buffers. These choices preserve
 explicit transform scaling and the device paths. See the multimode CPU measurements
 in [benchmarks.md](benchmarks.md#multimode-cpu-step-costs).
+
+For ordinary CPU DOPRI5 modal trials with an embedded transverse rule, only the
+final source projects the coarse rule. Earlier stages use fine-only products,
+including the fine rows of existing stacked projection scratch. The final coarse
+time buffers remain live until accepted-step scoring performs their FFTs and, for
+held field-plasma streams, their spectral assembly. Private readiness flags are
+invalidated by a new trial, a standalone source evaluation, reset and closure;
+accepted diagnostic values and peaks have separate storage and survive rejection.
+The validated seven-stage FSAL method data determine eligibility. Adams, low-storage,
+general-modal, dispersive and envelope-plasma paths keep their existing scheduling.
+No seam fields, persistent field buffers or arithmetic protections change.
 
 Scalar and declared tensor Raman are native too. Persistent doubled-grid batched
 r2c/c2r plans transform one or three real histories per node and a separate
