@@ -24,6 +24,7 @@ from scipy.special import j0, j1, jn_zeros
 from solprop import fourier
 from solprop.constants import EPS0, C
 from solprop.coupling import (
+    STEP_INDEX_BEAM_ENVELOPE,
     STEP_INDEX_ENVELOPE,
     BasisChange,
     CouplingModel,
@@ -786,6 +787,81 @@ def test_a_weakly_guiding_fibre_pair_is_admitted_within_its_envelope():
         )
 
 
+def test_a_beam_into_a_weakly_guiding_fibre_is_admitted_within_its_envelope():
+    """A Gaussian beam into a step-index fibre: the LP01 overlap and its envelope.
+
+    A fibre of contrast 0.005 and V 2.2 at 1064 nm, the beam sampled in the core
+    index: the envelope item is the beam-into-fibre allowance at the fibre's
+    contrast, the screen passes at a 0.1 budget and is replaced by the envelope
+    where it does not, and a contrast or a V beyond the envelope's range is refused
+    by name.
+    """
+    wavelength = 1064e-9
+
+    def radius_for(v, contrast):
+        return v / (2 * math.pi / wavelength * math.sqrt(1.45**2 * 2 * contrast))
+
+    def beam_into(port, waist):
+        return FieldPlane.from_analytic(
+            port.grid,
+            PlaneGeometry(0.0),
+            radial_beam(port.grid, waist),
+            space=RadialGrid(40 * waist, 256),
+            index=np.asarray(port.reference_index),
+        )
+
+    radius = radius_for(2.2, 0.005)
+    target = step_index(radius, 0.005).input_port()
+    plane = beam_into(target, 1.2 * radius)
+    report = couple(
+        plane, target, model=CouplingModel("scalar_paraxial", model_error=0.1)
+    ).report
+    names = {item.name: item for item in report.items}
+    assert names["contrast"].value == pytest.approx(0.005, rel=1e-9)
+    assert names["contrast"].passed
+    # The contrast-scaled allowance, plus the incident share of the blue bins
+    # where the fibre's V exceeds 2.4 (2.4e-5 of this 30 fs pulse).
+    v = target.grid.omega * radius * math.sqrt(1.45**2 * 2 * 0.005) / C
+    beyond = (report.incident > 0) & (v > 2.4)
+    share = float(np.sum(report.incident[beyond]) / report.incident_energy)
+    assert share > 1e-6
+    assert names["envelope"].value == pytest.approx(
+        STEP_INDEX_BEAM_ENVELOPE.allowance({"contrast": 0.005}) + share, rel=1e-9
+    )
+    assert names["envelope"].note.startswith(STEP_INDEX_BEAM_ENVELOPE.identity)
+    assert report.efficiency is not None and 0.95 < report.efficiency < 1.0
+    profiles = target.profiles
+    assert profiles is not None
+    occupied = np.asarray(target.reference_index) > 0
+    replaced = _contrast_items(
+        profiles,
+        plane,
+        np.asarray(target.reference_index),
+        occupied,
+        0.02,
+        {"modes": 1.0, "v_target": 2.2},
+    )
+    assert f"replaced by {STEP_INDEX_BEAM_ENVELOPE.identity}" in replaced[0].note
+    assert replaced[1].value == pytest.approx(5e-3, rel=1e-9)
+    strong = step_index(radius_for(2.2, 0.02), 0.02).input_port()
+    with pytest.raises(
+        CouplingError,
+        match=r"contrast = 0\.02\d* lies outside the envelope step-index-beam",
+    ):
+        couple(
+            beam_into(strong, radius_for(2.2, 0.02)),
+            strong,
+            model=CouplingModel("scalar_paraxial", model_error=0.5),
+        )
+    thick = step_index(radius_for(2.6, 0.005), 0.005).input_port()
+    with pytest.raises(CouplingError, match=r"v_target = 2\.(6|59)\d* lies outside"):
+        couple(
+            beam_into(thick, radius_for(2.6, 0.005)),
+            thick,
+            model=CouplingModel("scalar_paraxial", model_error=0.5),
+        )
+
+
 # --------------------------------------------------------------------- refusals
 
 
@@ -820,8 +896,8 @@ def test_couple_refuses_by_name(port):
 
 def test_couple_refuses_unqualified_pairs_by_name(port):
     """A port without profiles, a plane without them, beyond the envelope, a fibre
-    target for a beam, mixed families, a general plane, another orientation or
-    lattice."""
+    target for a beam beyond its envelope, mixed families, a general plane, another
+    orientation or lattice."""
     grid = port.grid
     beam = FieldPlane.from_analytic(
         grid,
@@ -852,7 +928,8 @@ def test_couple_refuses_unqualified_pairs_by_name(port):
     assert hybrid.input_port().models == ("same_basis",)
     fibre = step_index(2.4e-6, 0.005, wavelength=800e-9, grid=GRID).input_port()
     assert fibre.lattice == port.lattice
-    with pytest.raises(CouplingError, match="no recorded envelope"):
+    # V = 2.7 at 800 nm: beyond the beam-into-fibre envelope's range.
+    with pytest.raises(CouplingError, match="v_target"):
         couple(beam, fibre, model=SCALAR)
     with pytest.raises(CouplingError, match="not qualified for a capillary plane"):
         couple(modal_plane(capillary(modes=2), [1.0, 0.0]), fibre, model=SCALAR)

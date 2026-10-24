@@ -105,7 +105,14 @@ The first public release. It contains:
   field (bound 6e-3 at its range's top, delta = 1e-2, scaled by the pair's delta) rather
   than against the scalar profile itself; bins outside an envelope's range, including a
   fibre's V across the band, are counted in full; the modal overlap quadrature enters
-  the budget as `2 delta + delta^2`.
+  the budget as `2 delta + delta^2`. `scalar_paraxial` also admits a radial or
+  Cartesian beam into a weakly guiding step-index fibre (LP01, V 1.5 to 2.4, contrast
+  to 0.01) within `STEP_INDEX_BEAM_ENVELOPE`, the scalar overlap against the beam's
+  full-vector flux coupling into the exact HE11 pair maximised over every field in the
+  admitted cone (bound 1e-2 at contrast 0.01, scaled by the fibre's contrast).
+  `same_basis`'s flux recovery of a general modal plane allows the plane's own metric
+  defect as well as the port's when it checks that the field lies in the port's span,
+  and reports both.
 - **Media and responses.**
   - Gases, gas mixtures, glasses and metals from the [optmat](https://github.com/LupoLab/optmat)
     material library.

@@ -206,7 +206,7 @@ in a common positive metric. The models are:
 | model | what it admits | what it computes |
 |---|---|---|
 | `same_basis` | an identical basis, a declared basis change, a general modal plane into its own guide | the coordinates exactly; no budget |
-| `scalar_paraxial` | a radial or Cartesian beam (Gaussian, analytic or sampled) into a capillary; a capillary's exit into another capillary of any radius and mode set; one weakly guiding step-index fibre into another | the fit $\mathbf a = G^{-1}S^\dagger M\mathbf f$ in $M_0 = Y_0\,dA/2$, $Y_0 = n_{\rm ref}\varepsilon_0c$, then $b = \sqrt{\operatorname{Re}n_{\rm eff}}\,a$ |
+| `scalar_paraxial` | a radial or Cartesian beam (Gaussian, analytic or sampled) into a capillary or a weakly guiding step-index fibre; a capillary's exit into another capillary of any radius and mode set; one weakly guiding step-index fibre into another | the fit $\mathbf a = G^{-1}S^\dagger M\mathbf f$ in $M_0 = Y_0\,dA/2$, $Y_0 = n_{\rm ref}\varepsilon_0c$, then $b = \sqrt{\operatorname{Re}n_{\rm eff}}\,a$ |
 | `vector_paraxial` | a beam, or an ordinary guide's exit, into a general modal guide that carries its E/H at fixed nodes | $\mathbf a = F^{-1}\mathbf B$ with the incident E and the forward closure $\mathbf H_t = Y_0\hat z\times\mathbf E_t$ |
 
 Every other pair is refused by name. The reference index $n_{\rm ref}$ is the port's:
@@ -270,6 +270,20 @@ scalar model omits, measured by the test suite against independent physics:
   $HE_{11}$ fields: $3.0\times10^{-4}$ over contrasts to 0.01, V from 1.5 to 2.4 and
   radius ratios 0.7--1.43. V is checked at the profile wavelength and at every occupied
   bin, since it grows with frequency.
+- *A beam into a step-index fibre.* The scalar LP01 overlap against the beam's
+  full-vector coupling into the exact $HE_{11}$ pair: the flux pairing
+  $\frac14\int(\mathbf E\times\mathbf h^* + \mathbf e^*\times\mathbf H)\cdot\hat z\,dA$
+  with the beam's $\mathbf H$ and $E_z$ from its own plane-wave spectrum in the core
+  index. The bound is not sampled over beams but maximised over every incident field
+  inside the widest admitted cone (both captures are rank-two quadratic forms, so the
+  largest eigenvalue of their difference bounds them all): $0.467\Delta$ at V 1.5,
+  falling to $0.284\Delta$ at V 2.4, independent of the core index and the wavelength.
+  Gaussian beams of waist 0.5a--2.6a, displaced to 0.5a and tilted to half the
+  acceptance angle reach $3.3\times10^{-3}$ at $\Delta = 0.01$ and V 1.5, a centred
+  beam of waist 0.8a. The bound is $10^{-2}$ at contrast 0.01, scaled by the fibre's
+  contrast (it is first order in $\Delta$): about $5\times10^{-3}$ for a 0.005 step.
+  It holds for any beam shape, alignment and polarisation, for V from 1.5 to 2.4 (LP01
+  alone); the angular item counts what lies outside the cone.
 
 A pair outside its envelope's range is refused, not extrapolated; bins of a covered pair
 whose $\delta$ or V leave the range carry an unbounded discrepancy, so their share of
@@ -393,6 +407,10 @@ the same direct overlap. The pair is admitted within the recorded envelope's ran
 the contrast screen applies too, and the envelope stands in for it at a budget whose
 eighth is below the contrast. Small cores are not very paraxial: the LP01 field of a
 2 µm core spreads over a tenth of a radian, so such a pair needs a budget of about 0.1.
+A beam enters a fibre the same way, as a radial or Cartesian plane sampled in the
+core index (a plane in another medium is a change of medium, which the source-metric
+item refuses: a bulk entrance face is a separate planar interface), within its own
+envelope above.
 
 ```python
 from solprop.modes import StepIndexMode
@@ -424,6 +442,19 @@ spliced = couple(
     model=CouplingModel("scalar_paraxial", model_error=0.1),
 )
 print(spliced.report.efficiency)
+
+fibre_port = target_fibre.input_port()
+fibre_beam = FieldPlane.from_pulse(
+    SpatialPulse(GaussianPulse(wavelength=1064e-9, fwhm=100e-15, energy=1e-12), 3e-6),
+    fibre_port.grid,
+    PlaneGeometry(0.0),
+    space=RadialGrid(100e-6, 256),
+    index=np.asarray(fibre_port.reference_index),
+)
+launched = couple(
+    fibre_beam, fibre_port, model=CouplingModel("scalar_paraxial", model_error=0.1)
+)
+print(launched.report.efficiency)  # about 0.992: a 3 um waist nearly matches LP01
 ```
 
 ### A beam into a general modal guide

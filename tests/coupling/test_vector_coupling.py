@@ -48,10 +48,11 @@ SAME = CouplingModel("same_basis")
 WAVELENGTH, FWHM, ENERGY = 835e-9, 20e-15, 1e-12
 
 
-def strand(grid, descriptors=PARITIES[:1], blocks=(), n_r=24):
+def strand(grid, descriptors=PARITIES[:1], blocks=(), n_r=24, circular=None):
     """Return a guide of a 4 um core at a 0.01 index step, nine knots.
 
-    The step is below the vector model's contrast screen.
+    The step is below the vector model's contrast screen. ``circular`` declares
+    the circular partners of a degenerate pair as the basis.
     """
     return general_guide(
         descriptors=descriptors,
@@ -61,6 +62,7 @@ def strand(grid, descriptors=PARITIES[:1], blocks=(), n_r=24):
         n_r=n_r,
         knots=9,
         indices=(1.45, 1.44),
+        circular=circular,
     )
 
 
@@ -274,9 +276,12 @@ def test_a_general_plane_is_recovered_in_another_basis_at_common_nodes(grid, pai
     The pair is launched in its even channel and run two steps; its exit plane,
     read with its simulation, carries E and H at the strand's nodes. Recovered in
     the even channel alone (another basis at the same nodes) it keeps its energy to
-    rounding: the odd channel it leaves out is empty. The odd channel alone does not
-    span it; a plane read without its simulation has no E/H; a port without them,
-    or at other nodes, cannot pair it.
+    rounding: the odd channel it leaves out is empty. Recovered in the same pair's
+    dense circular basis it keeps its energy to the plane's own metric defect: the
+    pair's identity metric departs from its flux at the band's long edge, and the
+    span check allows that defect as well as the port's. The odd channel alone does
+    not span it; a plane read without its simulation has no E/H; a port without
+    them, or at other nodes, cannot pair it.
     """
     output = pair.run(progress="none")
     plane = field_plane(output, source=pair)
@@ -286,6 +291,20 @@ def test_a_general_plane_is_recovered_in_another_basis_at_common_nodes(grid, pai
     result = couple(plane, even, model=SAME)
     assert result.report.launched_energy == pytest.approx(
         result.report.incident_energy, rel=1e-10
+    )
+    circular = simulation(strand(grid, PARITIES, ((0, 1),), circular=(0, 1)), grid)
+    circular_port = circular.input_port()
+    assert circular_port.metric.kind == "dense"
+    recovered = couple(plane, circular_port, model=SAME).report
+    items = {item.name: item for item in recovered.items}
+    source_defect = items["source metric"].value
+    assert source_defect is not None
+    # Measured 1.1e-6: the pair's identity metric against its flux, weighted by
+    # the plane's spectrum; the dense circular metric is the port's own F.
+    assert 1e-8 < source_defect < 1e-5
+    assert items["target metric"].value == pytest.approx(0.0, abs=1e-12)
+    assert abs(recovered.launched_energy / recovered.incident_energy - 1.0) <= (
+        source_defect + 1e-10
     )
     odd_guide = strand(grid, PARITIES[1:])
     with pytest.raises(CouplingError, match="not in the port's span"):

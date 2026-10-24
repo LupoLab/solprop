@@ -17,11 +17,16 @@ from an independent reference and held to its bound:
   and the code, not the model;
 - the step-index envelope: the weak-guidance LP01 overlap the scalar model uses
   against the full-vector flux overlap of the exact bound HE11 fields
-  (:meth:`~solprop.modes.StepIndexMode.electromagnetic_field`).
+  (:meth:`~solprop.modes.StepIndexMode.electromagnetic_field`);
+- the beam-into-fibre envelope: an incident field's scalar LP01 overlap against its
+  full-vector flux coupling into the exact HE11 pair, the field's H from its own
+  plane-wave spectrum, maximised over every field inside the widest admitted cone
+  and sampled by Gaussian beams.
 
 The numerical error of each reference is estimated by refining its quadrature.
 """
 
+import itertools
 import math
 from typing import cast
 
@@ -33,6 +38,7 @@ from solprop import fourier
 from solprop.constants import EPS0, C
 from solprop.coupling import (
     CAPILLARY_ENVELOPE,
+    STEP_INDEX_BEAM_ENVELOPE,
     STEP_INDEX_ENVELOPE,
     CouplingModel,
     FieldPlane,
@@ -44,7 +50,7 @@ from solprop.coupling import (
 from solprop.coupling.models import radial_rule
 from solprop.driver import Simulation
 from solprop.exceptions import CouplingError
-from solprop.grid import EnvelopeGrid, FreeGrid
+from solprop.grid import EnvelopeGrid, FreeGrid, RadialGrid
 from solprop.modes import MarcatiliMode, StepIndexMode
 from solprop.spatial import SpatialMedium
 
@@ -515,3 +521,326 @@ def test_the_step_index_envelope_bounds_lp01_against_the_vector_he11_overlap():
         worst = max(worst, abs(scalar - vector))
     assert numerical <= STEP_INDEX_ENVELOPE.numerical
     assert worst + numerical <= STEP_INDEX_ENVELOPE.bound
+
+
+# ------------------------------------------------- the beam-into-fibre oracle
+
+BEAM_CORE = 1.45
+BEAM_WAVELENGTH = 1064e-9
+WIDEST_CONE = math.acos(1.0 - 1.0 / 8.0)
+"""The cone of a budget approaching one: every admitted cone lies inside it."""
+
+
+def gauss_panels(edges, panel, nodes=16):
+    """Return Gauss--Legendre nodes and weights on panels at most `panel` long."""
+    x, w = np.polynomial.legendre.leggauss(nodes)
+    points, weights = [], []
+    for low, high in itertools.pairwise(edges):
+        bounds = np.linspace(low, high, max(1, math.ceil((high - low) / panel)) + 1)
+        for left, right in itertools.pairwise(bounds):
+            half = 0.5 * (right - left)
+            points.append(left + half * (x + 1))
+            weights.append(half * w)
+    return np.concatenate(points), np.concatenate(weights)
+
+
+class BeamFibreReference:
+    r"""The full-vector coupling of incident fields into a fibre's exact HE11 pair.
+
+    A field in the core index is its transverse plane-wave spectrum
+    :math:`\hat E_t(\mathbf k) = \int E_t e^{i\mathbf k\cdot\mathbf r}dA` inside the
+    widest admitted cone; each plane wave's :math:`E_z = -\mathbf k_t\cdot
+    \hat E_t/k_z` and :math:`\mathbf H = \mathbf k\times\mathbf E/(\omega\mu_0)`
+    (the convention of ``electromagnetic_field``, :math:`e^{i\omega t - i\mathbf
+    k\cdot\mathbf r}`), so :math:`\hat H_t = Y(\mathbf k)\hat E_t`. A mode's
+    amplitude is the flux pairing :math:`\frac14\int(\mathbf E\times\mathbf h^* +
+    \mathbf e^*\times\mathbf H)\cdot\hat z\,dA`, taken by Parseval in the Fourier
+    plane. The HE11 fields are split exactly into azimuthal orders 0 and 2 and
+    transformed by Gauss--Legendre Hankel sums broken at the core radius; the
+    LP01 profile the model uses is transformed the same way (the model itself uses
+    its closed form). The k plane is a Gauss--Legendre (radius) by uniform (angle)
+    rule.
+    """
+
+    def __init__(self, contrast, v, refine=1):
+        cladding = BEAM_CORE * math.sqrt(1 - 2 * contrast)
+        self.k0 = 2 * math.pi / BEAM_WAVELENGTH
+        self.omega = self.k0 * C
+        radius = v / (self.k0 * math.sqrt(BEAM_CORE**2 - cladding**2))
+        self.radius = radius
+        modes = {
+            parity: StepIndexMode(
+                radius,
+                core=BEAM_CORE,
+                cladding=cladding,
+                profile_wavelength=BEAM_WAVELENGTH,
+                parity=parity,
+            )
+            for parity in ("even", "odd")
+        }
+        grid = EnvelopeGrid.from_limits(
+            1e-3,
+            BEAM_WAVELENGTH,
+            (0.95 * BEAM_WAVELENGTH, 1.05 * BEAM_WAVELENGTH),
+            200e-15,
+        )
+        lp01 = ScalarModeBasis.from_modes([modes["even"]], grid)
+        kappa_star = BEAM_CORE * self.k0 * math.sin(WIDEST_CONE)
+        outer = modes["even"].dimlimits()[2][0]
+        panel = min(radius / 2, 2 * math.pi / kappa_star) / refine
+        self.r, self.r_weights = gauss_panels([0.0, radius, outer], panel)
+        self.kappa, kappa_weights = gauss_panels(
+            [0.0, kappa_star], kappa_star / (24 * refine)
+        )
+        n_psi = 64 * refine
+        psi = 2 * np.pi * (np.arange(n_psi) + 0.5) / n_psi
+        self.n_psi = n_psi
+        kappa = np.repeat(self.kappa, n_psi)
+        angle = np.tile(psi, self.kappa.size)
+        self.angle = angle
+        self.weights = (
+            np.repeat(kappa_weights * self.kappa, n_psi) / n_psi / (2 * np.pi)
+        )
+        self.kx, self.ky = kappa * np.cos(angle), kappa * np.sin(angle)
+        kz = np.sqrt((BEAM_CORE * self.k0) ** 2 - kappa**2)
+        scale = EPS0 * C**2 / (self.omega * kz)  # 1/(omega mu0 kz)
+        kx, ky = self.kx, self.ky
+        self.admittance = np.empty((kappa.size, 2, 2))
+        self.admittance[:, 0, 0] = -kx * ky * scale
+        self.admittance[:, 0, 1] = -(ky**2 + kz**2) * scale
+        self.admittance[:, 1, 0] = (kz**2 + kx**2) * scale
+        self.admittance[:, 1, 1] = kx * ky * scale
+        self._bessel = {}
+        self.decomposition = 0.0
+        self.coupling = {name: self._coupling(mode) for name, mode in modes.items()}
+        self.lp01 = (
+            2 * np.pi * np.repeat(self._hankel(lp01.values(self.r)[0], 0), n_psi)
+        )
+
+    def _hankel(self, values, order):
+        if order not in self._bessel:
+            self._bessel[order] = jv(order, np.outer(self.kappa, self.r)) * (
+                self.r * self.r_weights
+            )
+        return self._bessel[order] @ values
+
+    def _coupling(self, mode):
+        """Return c(k) with a(f) = sum_k w_k c(k) . E_t(k), shape (n_k, 2)."""
+        r = self.r
+        samples = {}
+        for phi in (0.0, math.pi / 4, math.pi / 2, 0.37):
+            xy = np.column_stack((r * math.cos(phi), r * math.sin(phi)))
+            samples[phi] = mode.electromagnetic_field(xy, self.omega)
+        # An HE11 field is exactly f0(r) + f2(r) cos 2phi in one Cartesian
+        # component and g2(r) sin 2phi in the other (cos and sin swap with parity).
+        even = mode.parity == "even"
+        cosine = {("e", 0): even, ("e", 1): not even, ("h", 0): not even}
+        cosine["h", 1] = even
+        spectra = {}
+        for (field, component), is_cosine in cosine.items():
+            index = 0 if field == "e" else 1
+            at = {phi: values[index][:, component] for phi, values in samples.items()}
+            if is_cosine:
+                zeroth = 0.5 * (at[0.0] + at[math.pi / 2])
+                second = 0.5 * (at[0.0] - at[math.pi / 2])
+                trig, angular = math.cos(2 * 0.37), np.cos(2 * self.angle)
+            else:
+                zeroth = np.zeros_like(at[0.0])
+                second = at[math.pi / 4]
+                trig, angular = math.sin(2 * 0.37), np.sin(2 * self.angle)
+            # The split is exact: check it at a fourth angle.
+            residual = np.max(np.abs(zeroth + second * trig - at[0.37]))
+            peak = np.max(np.abs(samples[0.0][index]))
+            self.decomposition = max(self.decomposition, float(residual / peak))
+            # f(r) cos(n phi) transforms to 2 pi i^n cos(n psi) H_n[f].
+            spectra[field, component] = (
+                2
+                * np.pi
+                * (
+                    np.repeat(self._hankel(zeroth, 0), self.n_psi)
+                    - np.repeat(self._hankel(second, 2), self.n_psi) * angular
+                )
+            )
+        first = np.stack((np.conj(spectra["h", 1]), -np.conj(spectra["h", 0])), axis=1)
+        dual = np.stack((-np.conj(spectra["e", 1]), np.conj(spectra["e", 0])), axis=1)
+        return 0.25 * (first + np.einsum("kji,kj->ki", self.admittance, dual))
+
+    def worst_field(self):
+        """Return the largest |captured discrepancy| / incident over all fields.
+
+        In the M0 inner product the scalar capture is sum |<v_p, f>|^2 over the
+        x and y LP01 channels and the vector capture sum |<q_m, f>|^2 over the
+        HE11 pair; the largest modulus of their difference's eigenvalues on the
+        span of the four vectors bounds every field in the cone.
+        """
+        root = np.sqrt(self.weights)
+        zero = np.zeros_like(self.lp01)
+        scalar = [
+            np.concatenate((self.lp01 * root, zero)),
+            np.concatenate((zero, self.lp01 * root)),
+        ]
+        factor = math.sqrt(2 / (BEAM_CORE * EPS0 * C))
+        vector = [
+            (factor * np.conj(self.coupling[name]) * root[:, None]).T.ravel()
+            for name in ("even", "odd")
+        ]
+        basis, _ = np.linalg.qr(np.column_stack(scalar + vector))
+        s = basis.conj().T @ np.column_stack(scalar)
+        q = basis.conj().T @ np.column_stack(vector)
+        difference = s @ s.conj().T - q @ q.conj().T
+        return float(np.max(np.abs(np.linalg.eigvalsh(difference))))
+
+    def gaussian(self, waist, shift=(0.0, 0.0), tilt=(0.0, 0.0)):
+        """Return an x-polarised Gaussian's transverse spectrum, shape (n_k, 2)."""
+        qx, qy = (BEAM_CORE * self.k0 * angle for angle in tilt)
+        dx, dy = self.kx - qx, self.ky - qy
+        spectrum = (
+            math.pi
+            * waist**2
+            * np.exp(-(dx**2 + dy**2) * waist**2 / 4)
+            * np.exp(1j * (dx * shift[0] + dy * shift[1]))
+        )
+        return np.stack((spectrum, np.zeros_like(spectrum)), axis=1)
+
+    def captured(self, field):
+        """Return the scalar and vector captures per channel over M0 incident."""
+        half_admittance = 0.5 * BEAM_CORE * EPS0 * C
+        w = self.weights
+        incident = half_admittance * np.sum(w * np.sum(np.abs(field) ** 2, axis=1))
+        scalar = [
+            half_admittance * abs(np.sum(w * self.lp01 * field[:, p])) ** 2
+            for p in (0, 1)
+        ]
+        vector = [
+            abs(np.sum(w[:, None] * self.coupling[name] * field)) ** 2
+            for name in ("even", "odd")
+        ]
+        return np.array(scalar) / incident, np.array(vector) / incident
+
+
+@pytest.mark.medium
+def test_the_beam_fibre_envelope_bounds_every_field_in_the_cone():
+    """The scalar LP01 capture against the vector HE11 pair, maximised over fields.
+
+    The largest discrepancy over every field inside the widest admitted cone is
+    0.467 Delta at V 1.5 and falls with V (0.284 Delta at 2.4); it is linear in
+    Delta from 5e-4 to 1e-2 and does not depend on the core index or the
+    wavelength (the overlaps depend on V and Delta alone). The recorded bound is
+    at least twice it at every contrast, through the allowance's linear scaling;
+    the reference's numerical error is estimated by refining every rule.
+    """
+    top = STEP_INDEX_BEAM_ENVELOPE.ranges["contrast"][1]
+    worst = {v: BeamFibreReference(top, v) for v in (1.5, 1.8, 2.1, 2.4)}
+    largest = {v: reference.worst_field() for v, reference in worst.items()}
+    for reference in worst.values():
+        # The azimuthal split of the exact fields is exact to rounding.
+        assert reference.decomposition < 1e-12
+    assert largest[1.5] == pytest.approx(4.67e-3, rel=0.01)
+    assert largest[2.4] == pytest.approx(2.84e-3, rel=0.01)
+    assert max(largest, key=largest.__getitem__) == 1.5
+    refined = BeamFibreReference(top, 1.5, refine=2).worst_field()
+    numerical = abs(refined - largest[1.5])
+    assert numerical <= STEP_INDEX_BEAM_ENVELOPE.numerical
+    assert 2 * largest[1.5] + numerical <= STEP_INDEX_BEAM_ENVELOPE.bound
+    for contrast in (5e-4, 1e-3, 5e-3):
+        low = BeamFibreReference(contrast, 1.5).worst_field()
+        assert low / contrast == pytest.approx(largest[1.5] / top, rel=0.01)
+        assert 2 * low <= STEP_INDEX_BEAM_ENVELOPE.allowance({"contrast": contrast})
+
+
+@pytest.mark.parametrize("v", [1.5, 2.4])
+def test_gaussian_beams_lie_within_the_beam_fibre_envelope(v):
+    """Gaussian beams of every waist, offset and tilt stay inside the field bound.
+
+    Waists 0.5a to 2.6a, displaced to 0.5a and tilted to half the acceptance
+    angle sqrt(2 Delta) along x and along y, x-polarised, at contrast 0.01: each
+    beam's discrepancy (summed over both polarisation channels) is below the
+    largest over all fields, and the worst reaches 3.3e-3 at V 1.5 (a centred
+    beam at 0.8a, whose waist mismatch projects onto the vector correction).
+    """
+    contrast = STEP_INDEX_BEAM_ENVELOPE.ranges["contrast"][1]
+    reference = BeamFibreReference(contrast, v)
+    bound = reference.worst_field()
+    radius = reference.radius
+    acceptance = math.sqrt(2 * contrast)
+    worst = 0.0
+    for waist in (0.5, 0.8, 1.1, 1.4, 1.8, 2.2, 2.6):
+        for shift, tilt in (
+            ((0.0, 0.0), (0.0, 0.0)),
+            ((0.25, 0.0), (0.0, 0.0)),
+            ((0.5, 0.0), (0.0, 0.0)),
+            ((0.0, 0.5), (0.0, 0.0)),
+            ((0.0, 0.0), (0.25, 0.0)),
+            ((0.0, 0.0), (0.5, 0.0)),
+            ((0.0, 0.0), (0.0, 0.5)),
+            ((0.5, 0.0), (0.0, 0.5)),
+        ):
+            field = reference.gaussian(
+                waist * radius,
+                (shift[0] * radius, shift[1] * radius),
+                (tilt[0] * acceptance, tilt[1] * acceptance),
+            )
+            scalar, vector = reference.captured(field)
+            discrepancy = float(np.sum(np.abs(scalar - vector)))
+            # Per channel the bound is the same eigenvalue problem's: rounding.
+            assert discrepancy <= bound + 1e-12
+            worst = max(worst, discrepancy)
+    if v == 1.5:
+        assert worst == pytest.approx(3.3e-3, rel=0.02)
+
+
+def test_the_beam_fibre_reference_takes_the_overlap_couple_computes():
+    """The reference's scalar capture is the share ``couple`` reports for a beam.
+
+    A centred Gaussian (waist a) into a fibre of contrast 0.001 and V 2 at
+    1064 nm, sampled on a radial plane in the core index: ``couple``'s captured
+    share at the profile bin equals the reference's scalar capture of the same
+    beam, which lies wholly inside the cone.
+    """
+    contrast, v = 1e-3, 2.0
+    reference = BeamFibreReference(contrast, v)
+    radius = reference.radius
+    scalar, _ = reference.captured(reference.gaussian(radius))
+    cladding = BEAM_CORE * math.sqrt(1 - 2 * contrast)
+    fibre = StepIndexMode(
+        radius, core=BEAM_CORE, cladding=cladding, profile_wavelength=BEAM_WAVELENGTH
+    )
+    simulation = Simulation.from_gnlse(
+        None,
+        1e-3,
+        fibre=fibre,
+        n2=2.6e-20,
+        fwhm=100e-15,
+        energy=1e-12,
+        n_save=2,
+        lambda0=BEAM_WAVELENGTH,
+        wavelength_limits=(900e-9, 1300e-9),
+        trange=400e-15,
+    )
+    port = simulation.input_port()
+    grid = port.grid
+    width = 100e-15 / (2 * math.sqrt(math.log(2)))
+
+    def field(r, omega):
+        spectral = np.exp(-(((omega - grid.omega0) * width) ** 2) / 2)
+        return np.exp(-((r / radius) ** 2))[:, None] * spectral[None, :]
+
+    plane = FieldPlane.from_analytic(
+        grid,
+        PlaneGeometry(0.0),
+        field,
+        space=RadialGrid(30 * radius, 256),
+        index=np.asarray(port.reference_index),
+    )
+    report = couple(
+        plane, port, model=CouplingModel("scalar_paraxial", model_error=0.1)
+    ).report
+    k_bin = int(np.argmin(np.abs(grid.omega - grid.omega0)))
+    captured = report.captured
+    assert captured is not None
+    # Two quadratures of one overlap: the plane's radial spectral sum with the
+    # closed-form LP01 transform, and the reference's k-plane rule.
+    assert captured[k_bin] / report.incident[k_bin] == pytest.approx(
+        scalar[0], rel=1e-8
+    )
+    assert scalar[1] == 0.0

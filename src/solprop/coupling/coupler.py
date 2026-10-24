@@ -48,7 +48,8 @@ breaks at both core radii.
   apparent gain within the model's own defects is reported as a model defect, never
   rescaled or clipped, and a larger one refuses;
 - ``envelope``: the recorded pair envelope's allowance (scaled by the pair's leaky
-  parameter for a capillary), plus the incident share of any bins outside its range;
+  parameter for a capillary, by the fibre's contrast for a beam into a step-index
+  fibre), plus the incident share of any bins outside its range;
 - ``numerical``: quadrature, representation and domain errors, an amplitude error
   :math:`\delta` entered as :math:`2\delta + \delta^2`.
 
@@ -73,6 +74,7 @@ from solprop.adiabatic import AdiabaticAdmission
 from solprop.constants import EPS0, C
 from solprop.coupling.envelopes import (
     CAPILLARY_ENVELOPE,
+    STEP_INDEX_BEAM_ENVELOPE,
     STEP_INDEX_ENVELOPE,
     PairEnvelope,
 )
@@ -427,9 +429,10 @@ def couple(
         :class:`~solprop.coupling.models.BasisChange`; or, for a general modal
         plane carrying E/H at the port's own nodes, :math:`a = F^{-1}B`.
     ``scalar_paraxial``
-        A radial or Cartesian plane into a capillary port, a capillary plane into
-        another capillary (any radii and mode sets), or a weakly guiding
-        step-index fibre's plane into another's, within the recorded envelopes.
+        A radial or Cartesian plane into a capillary port or a weakly guiding
+        step-index fibre's, a capillary plane into another capillary (any radii and
+        mode sets), or a weakly guiding step-index fibre's plane into another's,
+        within the recorded envelopes.
     ``vector_paraxial``
         A radial or Cartesian plane, or an ordinary modal plane with its profiles,
         into a general modal guide that carries E/H at fixed nodes, with the
@@ -742,6 +745,7 @@ def _same_basis(
         the port's span.
     """
     incident = plane.spectral_energy()
+    recovery: tuple[AdmissionItem, ...] = ()
     if model.basis_change is not None:
         samples = _declared_change(plane, port, model)
         note = "declared basis change"
@@ -756,7 +760,7 @@ def _same_basis(
         samples = np.array(plane.samples)
         note = "identical basis: exact copy"
     elif plane.kind == "general_modal" and port.route == "general_modal":
-        samples = _flux_recovery(plane, port)
+        samples, recovery = _flux_recovery(plane, port)
         note = "F^-1 B recovery at common nodes"
     else:
         msg = (
@@ -777,7 +781,7 @@ def _same_basis(
         incident=incident,
         launched=launched,
         captured=launched,
-        items=(AdmissionItem("numerical", None, None, False, "map", note),),
+        items=(AdmissionItem("numerical", None, None, False, "map", note), *recovery),
     )
 
 
@@ -838,15 +842,22 @@ def _declared_change(
 
 def _flux_recovery(
     plane: FieldPlane, port: InputPort
-) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
+) -> tuple[Complex[np.ndarray, "n_modes n_pol n_omega"], tuple[AdmissionItem, ...]]:
     r"""Recover a general modal plane's coordinates in the port's basis by F.
 
     :math:`a = F^{-1}B` with
     :math:`B_m = \frac14\int(\mathbf E\times\mathbf h_m^* +
     \mathbf e_m^*\times\mathbf H)\cdot\hat z\,dA` on the common nodes, using the
-    plane's own E and H. The field must lie in the port's span: its recovered
-    energy agrees with the plane's to the port's own metric defect, or it is
-    refused.
+    plane's own E and H. The field must lie in the port's span, which is checked
+    against its flux :math:`P = \frac12\operatorname{Re}\int(\mathbf E\times
+    \mathbf H^*)\cdot\hat z\,dA` on the same nodes. A field in the span has
+    :math:`P = a^\dagger Fa` exactly, so its recovered energy :math:`a^\dagger Q_Ba`
+    is within the port's metric defect :math:`d_B` (the whitened extremes of F
+    against :math:`Q_B`) of P, and the plane's own energy :math:`c^\dagger Q_Ac` is
+    within its measured defect :math:`|c^\dagger Q_Ac - P|` of P. The recovered and
+    the plane's energies must therefore agree to the sum of the two defects, or the
+    field is refused as outside the span. Both defects are reported (not counted:
+    ``same_basis`` has no budget).
 
     Parameters
     ----------
@@ -857,8 +868,9 @@ def _flux_recovery(
 
     Returns
     -------
-    numpy.ndarray
-        The target samples, shape ``port.shape``.
+    tuple
+        The target samples, shape ``port.shape``, and the ``target metric`` and
+        ``source metric`` items.
 
     Raises
     ------
@@ -898,16 +910,44 @@ def _flux_recovery(
     for k in occupied:
         low, high = _whitened_extremes(flux[k], q_matrices[k])
         defect = max(defect, abs(low - 1.0), abs(high - 1.0))
-    tolerance = defect + 1e-10
+    # The field's own flux on the common nodes, per bin (J): 1/2 Re (E x H*).z.
+    cross = (
+        nodal.electric[:, 0] * nodal.magnetic[:, 1].conj()
+        - nodal.electric[:, 1] * nodal.magnetic[:, 0].conj()
+    )
+    field_flux = (
+        _bin_weights(port) * 0.5 * np.real(np.einsum("q,qw->w", weights, cross))
+    )
+    total = max(float(np.sum(original)), 1e-300)
+    source_defect = float(np.sum(np.abs(original - field_flux)[occupied])) / total
+    allowed = defect * float(np.sum(recovered)) + (source_defect + 1e-10) * total
     mismatch = abs(float(np.sum(recovered)) - float(np.sum(original)))
-    if mismatch > tolerance * max(float(np.sum(original)), 1e-300):
+    if mismatch > allowed:
         msg = (
             f"the recovered energy differs from the plane's by "
-            f"{mismatch / float(np.sum(original)):.3e}, beyond the port's metric "
-            f"defect {defect:.3e}: the field is not in the port's span"
+            f"{mismatch / total:.3e}, beyond the port's metric defect {defect:.3e} "
+            f"and the plane's {source_defect:.3e}: the field is not in the port's span"
         )
         raise CouplingError(msg)
-    return samples
+    items = (
+        AdmissionItem(
+            "target metric",
+            defect,
+            None,
+            False,
+            "map",
+            "whitened extremes of the port's F against its native Q",
+        ),
+        AdmissionItem(
+            "source metric",
+            source_defect,
+            None,
+            False,
+            "field",
+            "the plane's native energy against its flux on the common nodes",
+        ),
+    )
+    return samples, items
 
 
 def _flux_matrix(
@@ -1106,12 +1146,6 @@ def _scalar_paraxial(
     n_modes, n_pol, n_omega = port.shape
     jones, mode_of = _channels(profiles, n_pol)
     if plane.kind in ("radial", "cartesian"):
-        if profiles.family != "capillary":
-            msg = (
-                "scalar_paraxial is qualified for a beam into a capillary; a beam into "
-                f"a {profiles.family} fibre has no recorded envelope"
-            )
-            raise CouplingError(msg)
         fit, native, envelope_parameters = _spatial_fit(
             plane, profiles, jones, mode_of, index, epsilon
         )
@@ -1166,11 +1200,18 @@ def _scalar_paraxial(
     items.append(_source_metric_item(incident, native, epsilon))
     if profiles.family == "capillary":
         envelope_parameters.update(_leaky_parameters(profiles, plane, incident))
-    else:
-        # A step-index target takes only a step-index modal plane with its profiles.
+    elif plane.kind == "modal":
+        # A step-index modal source is a step-index fibre with its profiles.
         envelope_parameters["uncovered"] = _uncovered_v_share(
-            cast("ScalarModeBasis", plane.profiles),
-            profiles,
+            {"v_source": cast("ScalarModeBasis", plane.profiles), "v_target": profiles},
+            STEP_INDEX_ENVELOPE,
+            plane.grid.omega,
+            incident,
+        )
+    else:
+        envelope_parameters["uncovered"] = _uncovered_v_share(
+            {"v_target": profiles},
+            STEP_INDEX_BEAM_ENVELOPE,
             plane.grid.omega,
             incident,
         )
@@ -1227,7 +1268,7 @@ def _spatial_fit(
     index: Float[np.ndarray, " n_omega"],
     epsilon: float,
 ) -> tuple[_Fit, Float[np.ndarray, " n_omega"], dict[str, float]]:
-    """Return the scalar fit of a spatial plane onto capillary profiles.
+    """Return the scalar fit of a spatial plane onto a port's scalar profiles.
 
     Parameters
     ----------
@@ -1317,7 +1358,10 @@ def _spatial_fit(
     fit.gain_form = (
         index[:, None, None] ** 2 * cross / (root.T[:, :, None] * root.T[:, None, :])
     )
-    parameters = {"modes": float(profiles.n_modes), "radius_ratio": 1.0}
+    if profiles.family == "capillary":
+        parameters = {"modes": float(profiles.n_modes), "radius_ratio": 1.0}
+    else:
+        parameters = _beam_step_index_parameters(profiles)
     return fit, native, parameters
 
 
@@ -1557,6 +1601,26 @@ def _step_index_parameters(
     }
 
 
+def _beam_step_index_parameters(profiles: ScalarModeBasis) -> dict[str, float]:
+    """Return a beam-into-fibre pair's envelope parameters at the profile wavelength.
+
+    Parameters
+    ----------
+    profiles : solprop.coupling.models.ScalarModeBasis
+        The target fibre's LP set.
+
+    Returns
+    -------
+    dict
+        ``v_target``: the fibre's V from its LP01 U and W; ``modes``: the number of
+        distinct LP0m profiles (two polarisations of one profile count once).
+    """
+    return {
+        "v_target": float(math.hypot(profiles.u[0], profiles.w[0])),
+        "modes": float(np.unique(profiles.u).size),
+    }
+
+
 def _target_metric(
     profiles: ScalarModeBasis,
     mode_of: np.ndarray,
@@ -1731,23 +1795,26 @@ def _leaky_parameters(
 
 
 def _uncovered_v_share(
-    source: ScalarModeBasis,
-    target: ScalarModeBasis,
+    fibres: Mapping[str, ScalarModeBasis],
+    envelope: PairEnvelope,
     omega: Float[np.ndarray, " n_omega"],
     incident: Float[np.ndarray, " n_omega"],
 ) -> float:
-    r"""Return the incident share of bins where either fibre's V leaves the range.
+    r"""Return the incident share of bins where a fibre's V leaves the range.
 
     The profiles are frozen at the profile wavelength, which the envelope's range
     must contain, but the vector physics it bounds depends on the actual
     :math:`V(\omega) = (\omega a/c)\sqrt{n_{\rm core}^2 - n_{\rm clad}^2}` at
-    each bin. A bin where either fibre's V is outside the range is not bounded by
+    each bin. A bin where any fibre's V is outside the range is not bounded by
     the envelope, so its share of the incident energy is counted in full.
 
     Parameters
     ----------
-    source, target : solprop.coupling.models.ScalarModeBasis
-        The two LP sets, with their core and cladding indices.
+    fibres : collections.abc.Mapping
+        Each fibre's LP set, with its core and cladding indices, by the name of
+        its V range in `envelope` (``v_source``, ``v_target``).
+    envelope : solprop.coupling.envelopes.PairEnvelope
+        The pair's envelope.
     omega : numpy.ndarray
         Absolute angular frequency of each bin, rad/s.
     incident : numpy.ndarray
@@ -1759,12 +1826,12 @@ def _uncovered_v_share(
         Dimensionless.
     """
     beyond = np.zeros(omega.shape, bool)
-    for name, basis in (("v_source", source), ("v_target", target)):
+    for name, basis in fibres.items():
         core = cast("np.ndarray", basis.core_index)
         cladding = cast("np.ndarray", basis.cladding_index)
         aperture = np.sqrt(np.maximum(core**2 - cladding**2, 0.0))
         v = omega * basis.radius * aperture / C
-        low, high = STEP_INDEX_ENVELOPE.ranges[name]
+        low, high = envelope.ranges[name]
         beyond |= (incident > 0.0) & ((v < low) | (v > high))
     return _weighted(beyond.astype(float), incident)
 
@@ -1781,15 +1848,18 @@ def _contrast_items(
 
     A capillary wall is not a weakly guiding dielectric, so the screen does not
     apply there; a step-index pair is screened by
-    :math:`\Delta \le \epsilon_m/8` over both fibres' regions, unless its
-    recorded envelope covers it. Either family needs its envelope to cover the pair.
+    :math:`\Delta \le \epsilon_m/8` over both fibres' regions (the target's alone
+    for an incident beam), unless its recorded envelope covers it. Every pair needs
+    its envelope to cover it: the capillary one, the fibre-pair one, or for a beam
+    into a fibre :data:`~solprop.coupling.envelopes.STEP_INDEX_BEAM_ENVELOPE`.
 
     Parameters
     ----------
     profiles : solprop.coupling.models.ScalarModeBasis
         The target profiles.
     plane : solprop.coupling.plane.FieldPlane
-        The source plane; for a step-index target, a modal plane with its profiles.
+        The source plane; for a step-index target, a spatial plane or a modal plane
+        with its profiles.
     index : numpy.ndarray
         Reference index per bin.
     occupied : numpy.ndarray
@@ -1809,9 +1879,11 @@ def _contrast_items(
     CouplingError
         If no recorded envelope covers the pair.
     """
-    envelope: PairEnvelope = (
-        CAPILLARY_ENVELOPE if profiles.family == "capillary" else STEP_INDEX_ENVELOPE
-    )
+    envelope: PairEnvelope = CAPILLARY_ENVELOPE
+    if profiles.family == "step_index":
+        envelope = (
+            STEP_INDEX_ENVELOPE if plane.kind == "modal" else STEP_INDEX_BEAM_ENVELOPE
+        )
     if profiles.family == "capillary":
         screen = AdmissionItem(
             "contrast",
@@ -1823,8 +1895,14 @@ def _contrast_items(
         )
     else:
         contrast = 0.0
-        # A step-index pair: the source is a modal plane with its own profiles.
-        for one in (profiles, cast("ScalarModeBasis", plane.profiles)):
+        # A step-index modal source is a fibre with its own profiles; a beam's
+        # medium is measured by the source-metric item instead.
+        fibres = (
+            (profiles, cast("ScalarModeBasis", plane.profiles))
+            if plane.kind == "modal"
+            else (profiles,)
+        )
+        for one in fibres:
             for values in (one.core_index, one.cladding_index):
                 values = cast("np.ndarray", values)
                 ratio = np.abs(values[occupied] ** 2 - index[occupied] ** 2) / (

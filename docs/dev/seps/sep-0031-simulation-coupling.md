@@ -1942,6 +1942,8 @@ plain defects among them are fixed above or were superseded):
     Final, against an independent mode-matching calculation for `StepIndexProvider`.
 11. *(Phase 3 Q2, Q3)* The cone rule for small-core direct overlaps and a
     Gaussian → LP01 envelope: maintainer decision; the cone rule is conservative there.
+    *Resolved 2026-10-24* (maintainer decisions, B1): the cone rule stays as it is, and
+    a beam into a weakly guiding fibre is admitted within a recorded envelope.
 12. *(Phase 3 Q4)* The general guide's target angular item at every occupied bin: yes if
     its cost stays within a coupling's; measure first.
 13. *(Phase 3 Q5)* `Outcouple` stays a separate synthesis step (it changes the
@@ -2145,6 +2147,76 @@ LP01 0.933, LP02 0.0625. The figures changed only in their last digits.
   `src/solprop/coupling/elements.py`, `tests/coupling/test_transport.py`
   (`test_a_same_grid_field_in_the_outer_band_is_refused_by_its_own_tolerance`), the
   coupling chapter and the changelog's phase 4 line.
+- **B1 — a beam into a weakly guiding step-index fibre is admitted within a recorded
+  envelope** (Phase 5 open question 11, from Phase 3 questions 2 and 3; resolved; Phase 3
+  deviation 2's beam refusal is lifted). The cone rule $1-\cos\theta_* = \epsilon_m/8$
+  is kept unchanged. `STEP_INDEX_BEAM_ENVELOPE`
+  (`step-index-beam-lp01-vs-vector-he11-2026-10`) compares the scalar LP01 capture
+  `couple` computes with the full-vector coupling of the same field into the exact
+  unit-power HE11 even and odd modes (`StepIndexMode.electromagnetic_field`): the flux
+  pairing $\frac14\int(\mathbf E\times\mathbf h^*+\mathbf e^*\times\mathbf H)\cdot\hat
+  z\,dA$, the field's $E_z$ and $\mathbf H$ from its own plane-wave spectrum in the core
+  index ($\hat{\mathbf H}_t = Y(\mathbf k)\hat{\mathbf E}_t$, not the closure), on an
+  independent quadrature: the Fourier plane inside the widest admitted cone
+  ($1-\cos\theta = 1/8$; every budget's cone lies inside it), the HE11 fields split
+  exactly into azimuthal orders 0 and 2 and Hankel-transformed by Gauss–Legendre sums
+  broken at the core. Both captures are rank-two quadratic forms of the incident field
+  in $M_0$, so the largest eigenvalue modulus of their difference bounds the captured
+  energy discrepancy over incident energy for **every** field in the cone, whatever its
+  shape, alignment and polarisation; Gaussian beams sample it. *Measured* (core 1.45,
+  1064 nm): $0.467\Delta$ at V 1.5, $0.413\Delta$ at 1.6, $0.356\Delta$ at 1.75,
+  $0.288\Delta$ at 2.2, $0.284\Delta$ at 2.4, for $\Delta$ from $5\times10^{-4}$ to
+  $10^{-2}$ (the ratio moves by 0.3 % over that range), unchanged to $10^{-14}$ for core
+  indices 1.33–2.0 and wavelengths 0.8–1.55 µm (the overlaps depend on V and $\Delta$
+  alone); largest $4.67\times10^{-3}$ at $\Delta = 0.01$, V 1.5. It is dominated by the
+  first-order departure of the HE11 transverse field from LP01 (a field orthogonal to
+  LP01 but overlapping that departure is the worst case), not by the plane-wave H: the
+  impedance terms enter at second order. Gaussian beams — waists 0.5a–2.6a, displaced to
+  0.5a and tilted to half the acceptance angle $\sqrt{2\Delta}$ along x and along y,
+  x-polarised — reach $3.3\times10^{-3}$ (a centred 0.8a beam, whose waist mismatch
+  projects onto that departure), and every one lies below the field bound. Smaller
+  cones only lower it ($4.07\times10^{-3}$ at $\epsilon_m = 0.05$). *Numerical:*
+  doubling every rule changes the maximum by $2\times10^{-13}$; recorded $10^{-12}$.
+  *Bound and scaling:* the discrepancy is first order in $\Delta$ (unlike the
+  fibre-pair envelope's second-order $3\times10^{-4}$), so the bound scales with the
+  contrast as the capillary one does with $\delta$ (`scaled_by="contrast"`): $10^{-2}$
+  at contrast 0.01, twice the largest per unit contrast ($0.934\Delta$) rounded up, so
+  the allowance is $\Delta$ itself, about $5\times10^{-3}$ for a 0.005 step; a
+  constant bound would overstate a 0.001 fibre's tenfold. *Range:* contrast to 0.01, V
+  1.5–2.4 at the profile wavelength (the field bound grows below 1.5), LP01 only (V
+  below 2.405 guides no other profile). V is checked at every occupied bin as for the
+  fibre pair, and bins outside add their incident share to the item; a contrast or V
+  outside is refused by name. The envelope bounds the transverse-field physics only:
+  the facet reflection off the core–cladding step, which the forward pairing omits, is
+  second order, $((n_{\rm core}-n_{\rm clad})/2n)^2 \le (\Delta/2)^2 = 2.5\times10^{-5}$
+  of the energy at the range's top, inside the bound's margin; the obliquity of the
+  beam's axial flux against $M_0$ is the angular item's allocation, and a beam in
+  another medium is refused by the source-metric item. As for the fibre pair, the
+  profile is the run's frozen one, so the bound is measured at the profile wavelength.
+  Delivered: `src/solprop/coupling/envelopes.py` (`STEP_INDEX_BEAM_ENVELOPE`),
+  `src/solprop/coupling/coupler.py` (beam → step-index admission: the contrast screen
+  over the fibre alone, the beam envelope's V range per bin),
+  `tests/coupling/test_envelopes.py` (the field-bound oracle, medium; the Gaussian
+  sweep; the link to `couple`'s captured share, 1e-8), `tests/coupling/test_couple.py`
+  (admission, the screen's replacement, refusal by contrast and by V),
+  `tests/coupling/test_workflows.py` (a Gaussian into a 1 mm fibre, ten steps on the
+  receiving backend), the coupling chapter and the changelog's phase 5 line.
+- **S — the flux recovery's span check allows the source plane's metric defect**
+  (a defect found in review). `same_basis` recovering a general modal plane into
+  another basis at the same nodes refused a pair-basis plane (identity metric, true
+  flux about $1+10^{-6}$ of it) entering the same guide's dense circular basis: its
+  tolerance held only the port's metric defect ($9\times10^{-16}$ there) against a
+  $10^{-6}$ mismatch. For a field in the port's span, $P = a^\dagger F_Ba$ exactly,
+  where $P = \frac12\operatorname{Re}\int(\mathbf E\times\mathbf H^*)\cdot\hat z\,dA$ is
+  the field's own flux on the common nodes; so the recovered energy $a^\dagger Q_Ba$ is
+  within $d_B$ (the whitened extremes of $F_B$ against $Q_B$) of P, and the plane's
+  energy $c^\dagger Q_Ac$ is within its measured defect $|c^\dagger Q_Ac - P|$ of P.
+  The check now allows $d_B E_{\rm rec} + \sum_k|E_{A,k} - P_k| + 10^{-10}E_A$ and
+  reports both as uncounted `target metric` and `source metric` items (`same_basis` has
+  no budget). Measured on the test strand: source defect $1.09\times10^{-6}$, mismatch
+  $9.98\times10^{-7}$. Delivered: `src/solprop/coupling/coupler.py` (`_flux_recovery`),
+  `tests/coupling/test_vector_coupling.py` (the medium recovery test now also enters
+  the circular basis).
 
 ## Part III — History
 

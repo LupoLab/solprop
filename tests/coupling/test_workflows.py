@@ -33,6 +33,7 @@ from solprop import fourier
 from solprop.backends.registry import available
 from solprop.constants import C
 from solprop.coupling import (
+    STEP_INDEX_BEAM_ENVELOPE,
     Alignment,
     Aperture,
     CouplingModel,
@@ -481,6 +482,73 @@ def test_a_solid_fibre_into_another_fibre():
         report.launched_energy, rel=LAUNCH_ROUNDING
     )
     assert report.launched_energy < report.incident_energy
+
+
+def test_a_gaussian_beam_into_a_solid_fibre():
+    """(c') A Gaussian beam into a weakly guiding step-index fibre, then ten steps.
+
+    Contrast 0.005 and V 2.2 at 1064 nm (core 2.57 um), the beam built in the core
+    index at a 2.6 um waist. The captured share is the Gaussian--LP01 overlap
+    squared, here by an independent quadrature, and the beam-into-fibre envelope
+    is counted at its contrast-scaled allowance (plus the blue bins where V
+    leaves its range).
+    """
+    radius = 2.57e-6
+    aperture = 1.45 * math.sqrt(1 - 0.99)
+    mode = StepIndexMode(
+        radius, core=1.45, cladding=1.45 * math.sqrt(0.99), profile_wavelength=1064e-9
+    )
+    target = Simulation.from_gnlse(
+        None,
+        1e-3,
+        fibre=mode,
+        n2=2.6e-20,
+        lambda0=1064e-9,
+        wavelength_limits=(900e-9, 1300e-9),
+        trange=400e-15,
+        fwhm=100e-15,
+        energy=1e-9,
+        n_save=2,
+        backend=RECEIVER,
+    )
+    port = target.input_port()
+    waist = 2.6e-6
+    beam = SpatialPulse(
+        GaussianPulse(wavelength=1064e-9, fwhm=100e-15, energy=1e-9), waist
+    )
+    incident = FieldPlane.from_pulse(
+        beam,
+        port.grid,
+        PlaneGeometry(0.0),
+        space=RadialGrid(40 * radius, 256),
+        index=np.asarray(port.reference_index),
+    )
+    coupled = couple(
+        incident, port, model=CouplingModel("scalar_paraxial", model_error=0.1)
+    )
+    received = target.with_input(coupled.launch).run(progress="none")
+    report = coupled.report
+    assert_coupled(report, received)
+    profile = lp01(radius, aperture, 1064e-9)
+    rule = {"points": [radius], "limit": 400, "epsabs": 0, "epsrel": 1e-13}
+    overlap = quad(
+        lambda r: profile(r) * np.exp(-((r / waist) ** 2)) * r, 0, 40e-6, **rule
+    )[0]
+    norm = quad(lambda r: profile(r) ** 2 * r, 0, 40e-6, **rule)[0]
+    expected = overlap**2 / (norm * waist**2 / 4)
+    captured = report.captured_energy
+    assert captured is not None
+    # Two quadratures of one integral, the model's through the radial plane's
+    # spectral representation of the sampled beam (its numerical item).
+    assert captured / report.incident_energy == pytest.approx(expected, rel=1e-6)
+    envelope = next(item for item in report.items if item.name == "envelope")
+    assert envelope.value is not None
+    # The contrast-scaled allowance; the blue bins beyond V 2.4 carry ~1e-20 of
+    # this narrow pulse.
+    assert envelope.value == pytest.approx(
+        STEP_INDEX_BEAM_ENVELOPE.allowance({"contrast": 0.005}), rel=1e-9
+    )
+    assert envelope.note.startswith(STEP_INDEX_BEAM_ENVELOPE.identity)
 
 
 # -------------------------------------------- (d) a Gaussian, (e) an analytic field
