@@ -21,7 +21,10 @@ from an independent reference and held to its bound:
 - the beam-into-fibre envelope: an incident field's scalar LP01 overlap against its
   full-vector flux coupling into the exact HE11 pair, the field's H from its own
   plane-wave spectrum, maximised over every field inside the widest admitted cone
-  and sampled by Gaussian beams.
+  and sampled by Gaussian beams;
+- the vector model's step-index facet envelope: the flux pairing with the incident
+  field against an independent full-vector mode-matching solution of the entrance
+  facet (``facet_mode_matching``), maximised over every field inside that cone.
 
 The numerical error of each reference is estimated by refining its quadrature.
 """
@@ -63,6 +66,7 @@ from solprop.exceptions import CouplingError
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, RadialGrid
 from solprop.modes import MarcatiliMode, StepIndexMode
 from solprop.modes.guide import ModalGuide
+from solprop.modes.stepindex import _cutoff
 from solprop.spatial import SpatialMedium
 
 RADIUS = 75e-6
@@ -734,9 +738,10 @@ def test_the_beam_fibre_envelope_bounds_every_field_in_the_cone():
     """The scalar LP01 capture against the vector HE11 pair, maximised over fields.
 
     The largest discrepancy over every field inside the widest admitted cone is
-    0.467 Delta at V 1.5 and falls with V (0.284 Delta at 2.4); it is linear in
-    Delta from 5e-4 to 1e-2 and does not depend on the core index or the
-    wavelength (the overlaps depend on V and Delta alone). The recorded bound is
+    0.467 Delta at V 1.5 and falls with V (0.284 Delta at 2.4, where the cone's
+    edge truncating the HE11 spectrum makes it conservative); at V 1.5 it is
+    linear in Delta from 5e-4 to 1e-2 (the overlaps depend on V and Delta
+    alone, so not on the core index or the wavelength). The recorded bound is
     at least twice it at every contrast, through the allowance's linear scaling;
     the reference's numerical error is estimated by refining every rule.
     """
@@ -1029,67 +1034,112 @@ def test_the_facet_correction_is_the_local_fresnel_estimate(contrast, v):
     assert rigorous == pytest.approx(estimate, rel=0.05)
 
 
-FACET_CASES = [
-    # (V, beam, orders, which): HE11 over the V range, then higher channels.
-    *(
-        (v, beam, (1, -1), 0)
-        for v in (1.5, 2.4, 4.0, 8.0)
-        for beam in (Beam(1.0), Beam(2.0), Beam(1.5, (0.5, 0.0), 0.3))
-    ),
-    (4.0, Beam(2.0), (1, -1), 2),
-    (4.0, Beam(2.0, (0.0, 0.0), 0.3), (2, -2), 0),
-    (4.0, Beam(2.0, (0.0, 0.5)), (0,), 0),
-    (4.0, Beam(2.0, (0.0, 0.0), 0.3), (0,), 1),
-]
-"""The envelope's sampled cases: V, beam, azimuthal orders and guided index.
+def guided_count(order, v, contrast):
+    """Return the guided modes of one azimuthal order from the exact cutoffs.
 
-HE11 at both ends of the V range and between, centred, wide and displaced and
-tilted; then at V = 4 the HE12 (third mode of order one, the largest higher-mode
-discrepancy found), HE21 (order two), TE01 (a y-displaced x-polarised beam is the
-one that excites it) and TM01."""
-
-
-def worst_facet(contrast, **discretisation):
-    """Return the largest |facet| share over the cases at a contrast, and its case."""
-    worst, where = 0.0, None
-    for v, beam, orders, which in FACET_CASES:
-        radius, indices = facet_fibre(contrast, v)
-        shares = mode_shares(
-            beam, radius, indices, FACET_OMEGA, orders, which, **discretisation
+    The package's exact vector cutoffs (TE0m and TM0m for order 0, HE and EH
+    otherwise) at the facet fibre's squared index ratio 1 - 2 contrast: the
+    count the reference's own eigenproblem must find.
+    """
+    ratio = 1.0 - 2.0 * contrast
+    kinds = ("TE", "TM") if order == 0 else ("HE", "EH")
+    return sum(
+        sum(
+            1
+            for _ in itertools.takewhile(
+                lambda m, kind=kind: _cutoff(kind, order, m, ratio) < v,
+                itertools.count(1),
+            )
         )
-        if abs(shares.facet) > worst:
-            worst, where = abs(shares.facet), (v, beam, orders, which)
-    return worst, where
+        for kind in kinds
+    )
+
+
+def facet_worst_field(contrast, v, order, outer=30.0, count=300):
+    """Return one order's largest omitted facet share over every field in the cone.
+
+    A 30a cylinder and 300 TE and 300 TM fields resolve the guided modes of the
+    recorded sweep away from the narrow bands just above the LP0m-like cutoffs
+    (an 8a cylinder misses HE12 at V = 3.93); the reference's guided count is
+    held to the exact cutoffs' first.
+    """
+    radius, indices = facet_fibre(contrast, v)
+    facet = StepIndexFacet(order, radius, indices, FACET_OMEGA, outer * radius, count)
+    assert facet.guided().size == guided_count(order, v, contrast)
+    return facet.worst_field(math.sin(WIDEST_CONE))
+
+
+def fresnel_ceiling(contrast):
+    """Return the omitted share of a field wholly in the cladding at normal incidence.
+
+    A mode carried entirely by the cladding meets a planar step from the core
+    index: the model's pairing over-launches it by 1/(1 - R) and the exact
+    transmission gives 1 - R, R the normal-incidence Fresnel reflectance, so the
+    omitted share is R(2 - R)/(1 - R), about Delta^2/2. Modes approaching cutoff
+    approach it.
+    """
+    ratio = math.sqrt(1.0 - 2.0 * contrast)
+    reflectance = ((1.0 - ratio) / (1.0 + ratio)) ** 2
+    return reflectance * (2.0 - reflectance) / (1.0 - reflectance)
+
+
+FACET_LARGEST = 1.371e-3
+"""The largest omitted facet share of the recorded sweep at contrast 0.05: every
+field in the cone, order one (HE11, EH11 and HE12 guided) at V = 3.905."""
 
 
 @pytest.mark.medium
 def test_the_vector_step_index_envelope_bounds_the_omitted_facet():
-    """The vector model against the full facet solution, over the envelope's range.
+    """The vector model against the full facet solution, over every field in the cone.
 
-    At the top contrast, 0.05, the largest omitted share is 6.9e-4 (HE11 at
-    V = 1.5, a wide beam: the most power in the cladding, where the index steps);
-    the bound is twice it. Halving the contrast quarters it: the discrepancy is
-    second order in the step, so the allowance scales with the squared contrast.
-    Refining the basis and widening the cylinder estimates the numerical error.
+    The facet term is the exact guided share minus the model's with the same
+    incident H. Summed over one azimuthal order's guided modes it is a Hermitian
+    form of the incident field, so its largest eigenvalue modulus inside the
+    widest admitted cone bounds every incident field, of any shape and
+    polarisation (orders do not mix). At contrast 0.05 the recorded sweep over V
+    1.5 to 8, with points just above every cutoff, is largest at V = 3.905
+    (1.371e-3, HE12 just resolved above its cutoff) and is 7.4e-4 at V = 1.5
+    (HE11 alone); a guided mode wholly in the cladding approaches the
+    normal-incidence Fresnel ceiling, 1.39e-3, which no resolved case exceeds.
+    The bound is twice that ceiling, numerical error included. Widening the
+    cylinder estimates the numerical error, and halving the contrast quarters the
+    term: the allowance scales with the squared contrast.
     """
     envelope = VECTOR_STEP_INDEX_ENVELOPE
     top = envelope.ranges["contrast"][1]
-    worst, where = worst_facet(top)
-    assert where is not None
-    assert worst == pytest.approx(6.9e-4, rel=0.05)
-    v, beam, orders, which = where
-    radius, indices = facet_fibre(top, v)
-    fine = mode_shares(
-        beam, radius, indices, FACET_OMEGA, orders, which, outer=12.0, count=200
+    ceiling = fresnel_ceiling(top)
+    worst = facet_worst_field(top, 3.905, 1)
+    assert worst == pytest.approx(FACET_LARGEST, rel=0.01)
+    assert worst <= ceiling
+    single = facet_worst_field(top, 1.5, 1)
+    assert single == pytest.approx(7.38e-4, rel=0.01)
+    wider = facet_worst_field(top, 3.905, 1, outer=45.0, count=450)
+    assert abs(wider - worst) <= envelope.numerical
+    assert wider <= ceiling
+    assert 2 * ceiling + envelope.numerical <= envelope.bound
+    half = facet_worst_field(0.5 * top, 3.905, 1)
+    assert half / worst == pytest.approx(0.25, rel=0.1)
+    assert envelope.allowance({"contrast_squared": (0.5 * top) ** 2}) >= 2 * half
+
+
+@pytest.mark.medium
+def test_a_wide_beam_near_cutoff_lies_within_the_facet_envelope():
+    """A centred beam much wider than the core, just above HE12's cutoff.
+
+    An x-polarised Gaussian of waist 10a at V = 3.92 and contrast 0.05, in a 30a
+    cylinder: summed over the three guided modes of orders 1 and -1, the model
+    over-launches by 1.11e-3 (most of the beam lies in the cladding, where
+    the index steps), below the largest over every field and half the bound.
+    """
+    top = VECTOR_STEP_INDEX_ENVELOPE.ranges["contrast"][1]
+    radius, indices = facet_fibre(top, 3.92)
+    shares = mode_shares(
+        Beam(10.0), radius, indices, FACET_OMEGA, which=None, outer=30.0, count=300
     )
-    assert abs(abs(fine.facet) - worst) <= envelope.numerical
-    assert 2 * worst + envelope.numerical <= envelope.bound
-    radius, indices = facet_fibre(0.5 * top, v)
-    half = mode_shares(beam, radius, indices, FACET_OMEGA, orders, which)
-    assert abs(half.facet) <= 0.3 * worst
-    assert envelope.allowance({"contrast_squared": (0.5 * top) ** 2}) >= 2 * abs(
-        half.facet
-    )
+    assert shares.facet < 0.0
+    assert abs(shares.facet) == pytest.approx(1.11e-3, rel=0.02)
+    assert abs(shares.facet) <= FACET_LARGEST
+    assert 2 * abs(shares.facet) <= VECTOR_STEP_INDEX_ENVELOPE.bound
 
 
 def facet_port(contrast, v_centre):

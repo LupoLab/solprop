@@ -2166,10 +2166,14 @@ LP01 0.933, LP02 0.0625. The figures changed only in their last digits.
   energy discrepancy over incident energy for **every** field in the cone, whatever its
   shape, alignment and polarisation; Gaussian beams sample it. *Measured* (core 1.45,
   1064 nm): $0.467\Delta$ at V 1.5, $0.413\Delta$ at 1.6, $0.356\Delta$ at 1.75,
-  $0.288\Delta$ at 2.2, $0.284\Delta$ at 2.4, for $\Delta$ from $5\times10^{-4}$ to
-  $10^{-2}$ (the ratio moves by 0.3 % over that range), unchanged to $10^{-14}$ for core
+  $0.288\Delta$ at 2.2, $0.284\Delta$ at 2.4. At V 1.5 the ratio moves by 0.3 % for
+  $\Delta$ from $5\times10^{-4}$ to $10^{-2}$ and is unchanged to $10^{-14}$ for core
   indices 1.33–2.0 and wavelengths 0.8–1.55 µm (the overlaps depend on V and $\Delta$
-  alone); largest $4.67\times10^{-3}$ at $\Delta = 0.01$, V 1.5. It is dominated by the
+  alone); those two checks were run at V 1.5 only. Largest $4.67\times10^{-3}$ at
+  $\Delta = 0.01$, V 1.5. Towards V 2.4 the in-cone figure is conservative: the cone's
+  edge truncates the widening HE11 spectrum, and most of the gap between $0.284\Delta$
+  and the $0.205\Delta$ found in review by a real-space evaluation without a cone is
+  that truncation, not the vector correction. It is dominated by the
   first-order departure of the HE11 transverse field from LP01 (a field orthogonal to
   LP01 but overlapping that departure is the worst case), not by the plane-wave H: the
   impedance terms enter at second order. Gaussian beams — waists 0.5a–2.6a, displaced to
@@ -2178,8 +2182,9 @@ LP01 0.933, LP02 0.0625. The figures changed only in their last digits.
   projects onto that departure), and every one lies below the field bound. Smaller
   cones only lower it ($4.07\times10^{-3}$ at $\epsilon_m = 0.05$). *Numerical:*
   doubling every rule changes the maximum by $2\times10^{-13}$; recorded $10^{-12}$.
-  *Bound and scaling:* the discrepancy is first order in $\Delta$ (unlike the
-  fibre-pair envelope's second-order $3\times10^{-4}$), so the bound scales with the
+  *Bound and scaling:* the discrepancy is first order in $\Delta$ (the fibre-pair
+  envelope's $3\times10^{-4}$ is a constant bound whose order in $\Delta$ was not
+  measured), so the bound scales with the
   contrast as the capillary one does with $\delta$ (`scaled_by="contrast"`): $10^{-2}$
   at contrast 0.01, twice the largest per unit contrast ($0.934\Delta$) rounded up, so
   the allowance is $\Delta$ itself, about $5\times10^{-3}$ for a 0.005 step; a
@@ -2189,8 +2194,9 @@ LP01 0.933, LP02 0.0625. The figures changed only in their last digits.
   fibre pair, and bins outside add their incident share to the item; a contrast or V
   outside is refused by name. The envelope bounds the transverse-field physics only:
   the facet reflection off the core–cladding step, which the forward pairing omits, is
-  second order, $((n_{\rm core}-n_{\rm clad})/2n)^2 \le (\Delta/2)^2 = 2.5\times10^{-5}$
-  of the energy at the range's top, inside the bound's margin; the obliquity of the
+  second order: over every field in the widest cone the A1 mode-matching oracle gives
+  at most $0.28\Delta^2 = 2.8\times10^{-5}$ of the energy at the range's top (V 1.5,
+  falling to $0.14\Delta^2$ at V 2.4), inside the bound's margin; the obliquity of the
   beam's axial flux against $M_0$ is the angular item's allocation, and a beam in
   another medium is refused by the source-metric item. As for the fibre pair, the
   profile is the run's frozen one, so the bound is measured at the profile wavelength.
@@ -2237,7 +2243,8 @@ LP01 0.933, LP02 0.0625. The figures changed only in their last digits.
   $Y = P(AP)^{-1/2}$, and continuity gives the transmitted field
   $2(Y_0 + Y_f)^{-1}Y_0\mathbf u_i$ exactly; its guided amplitude is its flux pairing
   with the unit-power mode. Each azimuthal order is solved separately in a perfectly
-  conducting cylinder of 8 (12 for the refinement) core radii, on the cylinder's own
+  conducting cylinder of 30 core radii with 300 TE and 300 TM fields (45a and 60a, at
+  the same fields per radius, for the refinement), on the cylinder's own
   orthonormal TE/TM Bessel fields, with Galerkin matrices on Gauss–Legendre panels
   broken at the core. The model's amplitude differs from the exact one by
   $-\tfrac14\langle\mathbf u_i, D(Y_0 + Y_f)^{-1}D\mathbf e_m\rangle$,
@@ -2255,17 +2262,44 @@ LP01 0.933, LP02 0.0625. The figures changed only in their last digits.
   weak guidance the facet term equals the local Fresnel estimate
   $-(n_{\rm cl}-n_{\rm co})^2Y_{\rm vac}/(8n_{\rm co})$ times the beam's cladding
   overlap to 2–4 % (contrast 0.003–0.01; 10 % at 0.03), the size of the next order.
-- A1 — *Measurements.* The facet term (the exact share minus the model's with the same
-  incident H) over x-polarised Gaussian beams of waist 0.5a–2a, displaced to 0.5a,
-  tilted to 0.3 NA, contrast 0.001–0.05 and V 1.5–8 for HE11; at V 3–8 for every
-  guided channel (HE12, EH11, HE21, HE31, HE41, TE01, TM01, ...), contrast 0.01 and
-  0.05. It is
-  negative (the model over-launches) and proportional to the squared contrast to
-  within 7 % across the range: HE11 $0.26$–$0.28\Delta^2$ at V = 1.5 falling to $0.02\Delta^2$
-  at V = 6–8; higher channels at most $0.19\Delta^2$ (HE12 at V = 4, near cutoff;
-  $0.05\Delta^2$ at V = 8).
-  Largest: $6.9\times10^{-4}$ at contrast 0.05, V = 1.5, a 2a waist. Refining the
-  basis (100 → 200 fields) and the cylinder (8a → 12a) changes it by $1.1\times10^{-5}$.
+- A1 — *Measurements.* *Corrected after review:* the first record sampled
+  x-polarised Gaussian beams of waist 1a–2a (with an 8a cylinder) and recorded
+  $6.9\times10^{-4}$; it missed guided modes just above cutoff and beams much wider
+  than the core, and understated the term by about a factor of two. It is now measured
+  as B1 is. The facet term (the exact share minus the model's with the same incident
+  H) of each guided mode is the difference of two rank-one quadratic forms of the
+  incident field; summed over an azimuthal order's guided modes, in $M_0$, restricted
+  to the cylinder fields whose transverse wavenumber lies inside the widest admitted
+  cone ($1-\cos\theta = 1/8$, $\sin\theta = 0.484$), its largest eigenvalue modulus
+  bounds the summed facet share of **every** incident field in the cone, whatever its
+  shape and polarisation; orders do not mix, so the largest over orders bounds every
+  field. Swept at contrast 0.05 over 63 V points in 1.5–8: a coarse grid and points
+  0.01, 0.03, 0.1 and 0.3 above each of the 14 distinct exact cutoffs, with each
+  order's guided count held to the package's exact vector cutoffs. It rises towards
+  every cutoff, where a newborn mode's power moves into the cladding: largest
+  $1.371\times10^{-3} = 0.548\Delta^2$ at V 3.905 (order one: HE11, EH11 and HE12,
+  0.07 above HE12's cutoff), $1.367\times10^{-3}$ at V 7.06 (above HE13's),
+  $1.24\times10^{-3}$ 0.003 above TE01/TM01's, $1.17\times10^{-3}$ above HE21's, and
+  $7.4\times10^{-4}$ at V 1.5 (HE11 alone), falling to $5\times10^{-4}$ between
+  cutoffs at V 5–8. A mode carried wholly by the cladding meets a planar step from the
+  core index, where the model's pairing gives $1/(1-R)$ and the exact transmission
+  $1-R$; the omitted share then approaches the normal-incidence Fresnel ceiling
+  $R(2-R)/(1-R) = 1.388\times10^{-3}$ ($\approx\Delta^2/2$; R the core–cladding
+  reflectance), and no resolved case exceeds it (the largest is 0.99 of it). It is
+  second order in the index step: at V 3.905, $0.50\Delta^2$, $0.50\Delta^2$,
+  $0.52\Delta^2$ and $0.55\Delta^2$ at contrasts 0.0025, 0.01, 0.025 and 0.05.
+  Wide beams sample it: a centred x-polarised Gaussian of waist 10a at V 3.92,
+  summed over the three guided modes of orders ±1, loses $1.11\times10^{-3}$
+  (waists 8a and 12a at V 3.905 and 3.93 give $0.79$–$1.22\times10^{-3}$).
+  *Convergence:* widening the cylinder from 30a to 45a and 60a at fixed fields per
+  radius changes the resolved values by at most $1.2\times10^{-5}$ (0.003 above
+  TE01/TM01's cutoff; $5\times10^{-6}$ at V 3.905). Within 0.04–0.07 above the HE12
+  and HE13 cutoffs no cylinder up to 60a holds the newborn mode (its field spreads as
+  $K_0(Wr/a)$ with W vanishing), and the oracle finds one guided mode too few there;
+  those points (V 3.84–3.90, 7.03–7.05) are excluded from the measured maximum and
+  are bounded by the ceiling instead. 0.0013 below HE32's cutoff (V 7.0456) the
+  reference finds a spurious bound order-3 mode ($b = 1.8\times10^{-4}$) that
+  disappears when its fields per radius are doubled: its eigenvalues' 1/N error.
   Against `couple` itself (Cartesian planes, one beam per bin, the guide tabulated at
   17 knots with a 48 × 48 node rule): at contrasts 0.003–0.01 the launched share
   equals the reference's own evaluation of the model to $\le 1.6\times10^{-5}$
@@ -2280,14 +2314,20 @@ LP01 0.933, LP02 0.0625. The figures changed only in their last digits.
   item alone (0.045 at V = 5.4, 0.098 at V = 2.4) needs a large `model_error`.
 - A1 — *Recorded.* Range contrast 0–0.05 (`contrast_squared` 0–2.5e-3), V 1.5–8,
   any bound channel of the provider, a beam in the core's index; bound
-  $1.4\times10^{-3}$ (twice the largest, numerical included), numerical
-  $2\times10^{-5}$; the allowance scales with the incident-weighted squared contrast
-  over $0.05^2$ (`scaled_by="contrast_squared"`, the existing linear `allowance`
-  applied to the square): $5.6\times10^{-5}$ at contrast 0.01. Scaling is justified by
-  the measured $\Delta^2$ law and the identity above; a linear scaling would overstate
-  a 0.01 guide fivefold. The envelope bounds only the facet's reflection and backward
-  fields; the incident H closure stays the angular item's and the guide's tabulation
-  the numerical items'.
+  $3.0\times10^{-3}$, twice the Fresnel ceiling ($2.78\times10^{-3}$) plus the
+  numerical error, rounded up, and so 2.2 times the largest resolved value; numerical
+  $2\times10^{-5}$. Taking the ceiling rather than the measured maximum covers the
+  unresolved bands just above the HE1m cutoffs, where the value keeps rising towards
+  it, without refusing them. The allowance scales with the incident-weighted squared
+  contrast over $0.05^2$ (`scaled_by="contrast_squared"`, the existing linear
+  `allowance` applied to the square), $1.2\Delta^2$: $1.2\times10^{-4}$ at contrast
+  0.01. Scaling is justified by the measured $\Delta^2$ law, whose coefficient is
+  largest at the range's top, and the identity above; a linear scaling would overstate
+  a 0.01 guide fivefold. The bound is on the energy launched into all guided modes
+  together, not on each channel's share (a channel's own discrepancy is not separately
+  bounded). The envelope bounds only the facet's reflection and backward fields; the
+  incident H closure stays the angular item's and the guide's tabulation the numerical
+  items'. Nothing that was admitted is now refused: the range is unchanged.
 - A1 — *Admission now.* `vector_paraxial` into a step-index guide counts the envelope
   item (allowance plus the incident share of bins whose V or contrast leave the range);
   weighted V or contrast outside the range is refused by name ("not qualified for this
@@ -2305,14 +2345,18 @@ LP01 0.933, LP02 0.0625. The figures changed only in their last digits.
   omission is second order in the local step and the screen caps that step, so
   refusing would remove a working, screened path for no measured defect; a
   graded-index reference (the same solver with a layered core) is the follow-up.
-- A1 — *Limitations.* x-polarised Gaussian beams only (no supplied incident H, no
-  measured beams); constant indices (the envelope depends on V and contrast, which
-  the port evaluates per bin from the regions' laws); a reference whose fields
+- A1 — *Limitations.* The field bound covers any incident shape and polarisation
+  inside the widest cone (no supplied incident H or measured beam is needed); what lies
+  outside the cone is the angular item's. Constant indices (the envelope depends on V
+  and contrast, which the port evaluates per bin from the regions' laws). The bound
+  rests on the Fresnel ceiling in the bands just above the HE12 and HE13 cutoffs that
+  no practical cylinder resolves: the resolved values approach the ceiling from below
+  there, but that it is never exceeded is argued, not proved. The reference's fields
   converge only as 1/N, so its absolute shares carry ~1e-5 and only the facet
-  difference is resolved finely; the test sweep samples corners, the full sweep was
-  run once and is recorded here. The `couple` comparison at V = 1.5 bins shows a
-  ~2e-5 implementation difference attributed to the guide's tabulation, not to the
-  facet.
+  difference is resolved finely; the test recomputes the worst point, V 1.5, a
+  refinement, a half contrast and one wide beam, and the full sweep was run once and
+  is recorded here. The `couple` comparison at V = 1.5 bins shows a ~2e-5
+  implementation difference attributed to the guide's tabulation, not to the facet.
 
 ## Part III — History
 

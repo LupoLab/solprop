@@ -314,6 +314,35 @@ class StepIndexFacet:
         )
         return complex(exact), complex(model_exact_h), complex(model), powers
 
+    def worst_field(self, sine: float) -> float:
+        r"""Return the largest |omitted facet share| over every field in a cone.
+
+        Each guided mode's exact amplitude is a linear form of the incident
+        coefficients, :math:`\tfrac14(\mathbf v_m^\dagger + \mathbf u_m^\dagger
+        Y_f)T` with :math:`T = 2(Y_0 + Y_f)^{-1}Y_0`, and the model's with the
+        same incident H is :math:`\tfrac14(\mathbf v_m^\dagger + \mathbf
+        u_m^\dagger Y_0)`. Summed over the order's guided modes, the difference of
+        the two rank-one capture forms, over the incident measure M0
+        (:math:`\tfrac12 n_{\rm in}Y_{\rm vac}|\mathbf c|^2` in the orthonormal
+        basis), restricted to the basis fields whose transverse wavenumber lies
+        inside the cone ``sine`` (of the polar angle in the input medium), is a
+        Hermitian form: its largest eigenvalue modulus bounds the summed facet
+        share of every incident field of this order in the cone, whatever its
+        shape or polarisation. Orders do not mix, so the largest over orders
+        bounds every field.
+        """
+        transfer = 2 * np.linalg.solve(self.y_input + self.y_fibre, self.y_input)
+        live = self.basis.k < sine * self.k0 * self.indices[0]
+        measure = 0.5 * self.indices[0] * Y_VACUUM
+        form = np.zeros((int(np.sum(live)),) * 2, dtype=complex)
+        for index in self.guided():
+            u, v = self.unit_mode(int(index))
+            exact = (0.25 * (v.conj() + u.conj() @ self.y_fibre) @ transfer)[live]
+            model = (0.25 * (v.conj() + u.conj() @ self.y_input))[live]
+            form += np.outer(exact.conj(), exact) - np.outer(model.conj(), model)
+        values = np.linalg.eigvalsh(0.5 * (form + form.conj().T) / measure)
+        return float(np.max(np.abs(values))) if values.size else 0.0
+
 
 @dataclass(frozen=True)
 class Beam:
@@ -351,7 +380,7 @@ def mode_shares(  # noqa: PLR0913 - the fibre, the beam and the discretisation
     indices: tuple[float, float, float],
     omega: float,
     orders: tuple[int, ...] = (1, -1),
-    which: int = 0,
+    which: int | None = 0,
     *,
     outer: float = 8.0,
     count: int = 100,
@@ -359,8 +388,9 @@ def mode_shares(  # noqa: PLR0913 - the fibre, the beam and the discretisation
     """Return one guided family's shares of a beam, summed over the given orders.
 
     ``which`` picks the guided mode of each order by descending effective index
-    (0 is HE11 in orders 1 and -1); the ``n`` and ``-n`` orders together are the
-    two parities of one mode. ``outer`` is R/a.
+    (0 is HE11 in orders 1 and -1), or None for every guided mode of the orders;
+    the ``n`` and ``-n`` orders together are the two parities of one mode.
+    ``outer`` is R/a.
     """
     n_in, n_co, n_cl = indices
     radii, weights, theta = ring_rule((0.0, radius, outer * radius), radius / 4)
@@ -379,8 +409,10 @@ def mode_shares(  # noqa: PLR0913 - the fibre, the beam and the discretisation
         coefficients = facet.basis.project(
             radii, weights, theta, ex * np.cos(t), -ex * np.sin(t)
         )
-        amplitudes = facet.amplitudes(coefficients, int(facet.guided()[which]))[:3]
-        totals += np.abs(np.asarray(amplitudes)) ** 2 / incident
+        guided = facet.guided()
+        for index in guided if which is None else guided[which : which + 1]:
+            amplitudes = facet.amplitudes(coefficients, int(index))[:3]
+            totals += np.abs(np.asarray(amplitudes)) ** 2 / incident
     return FacetShares(*(float(one) for one in totals))
 
 

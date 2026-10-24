@@ -277,7 +277,9 @@ approximate models omit, measured by the test suite against independent physics:
   index. The bound is not sampled over beams but maximised over every incident field
   inside the widest admitted cone (both captures are rank-two quadratic forms, so the
   largest eigenvalue of their difference bounds them all): $0.467\Delta$ at V 1.5,
-  falling to $0.284\Delta$ at V 2.4, independent of the core index and the wavelength.
+  falling to $0.284\Delta$ at V 2.4 (conservative there, where the cone's edge truncates
+  the widening $HE_{11}$ spectrum); at V 1.5 it is linear in $\Delta$ and independent of
+  the core index and the wavelength.
   Gaussian beams of waist 0.5a--2.6a, displaced to 0.5a and tilted to half the
   acceptance angle reach $3.3\times10^{-3}$ at $\Delta = 0.01$ and V 1.5, a centred
   beam of waist 0.8a. The bound is $10^{-2}$ at contrast 0.01, scaled by the fibre's
@@ -295,14 +297,21 @@ approximate models omit, measured by the test suite against independent physics:
   $D = Y_f - Y_0$ the difference of the fibre's and the medium's admittance operators,
   so the omission is second order in the index step; at weak guidance it is the local
   Fresnel estimate $-(n_{\rm cl} - n_{\rm co})^2/(8n_{\rm co})$ times the beam's
-  cladding overlap with the mode, which the solution matches to a few per cent. Over
-  Gaussian beams of waist $a$ to $2a$, displaced to $0.5a$ and tilted to 0.3 NA, into
-  $HE_{11}$ at V from 1.5 to 8 and the higher channels at V = 4, the largest omitted
-  share at contrast 0.05 is $6.9\times10^{-4}$ ($HE_{11}$ at V = 1.5); the bound is
-  $1.4\times10^{-3}$, scaled by the squared weighted contrast over $0.05^2$: about
-  $5.6\times10^{-5}$ at contrast 0.01. The beam is in the core's index: a beam in air
-  meets a bulk step first (a separate planar interface), and the model refuses it
-  through its source metric. The incident beam's own $\mathbf H$ closure is the
+  cladding overlap with the mode, which the solution matches to a few per cent. Summed
+  over an azimuthal order's guided modes the omission is a quadratic form of the
+  incident field, so, as for the beam into a fibre, the bound is maximised over every
+  field inside the widest admitted cone, of any shape and polarisation. At contrast
+  0.05 it rises towards every cutoff, where a newborn mode's power moves into the
+  cladding: the largest resolved value is $1.37\times10^{-3}$ (V = 3.905, just above
+  the $HE_{12}$ cutoff), against $7.4\times10^{-4}$ at V = 1.5. A mode wholly in the
+  cladding approaches the normal-incidence Fresnel ceiling $R(2-R)/(1-R) \approx
+  \Delta^2/2 = 1.39\times10^{-3}$, R the core--cladding reflectance; the bound is
+  twice that, $3.0\times10^{-3}$, which also covers the narrow bands just above the
+  $HE_{1m}$ cutoffs that the reference cannot resolve. It bounds the energy launched
+  into all guided modes together and is scaled by the squared weighted contrast over
+  $0.05^2$: about $1.2\times10^{-4}$ at contrast 0.01. The beam is in the core's
+  index: a beam in air meets a bulk step first (a separate planar interface), and the
+  model refuses it through its source metric. The incident beam's own $\mathbf H$ closure is the
   angular item's, not the envelope's. A graded-index guide has no recorded envelope;
   its item has no value and is not counted.
 

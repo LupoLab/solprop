@@ -115,9 +115,11 @@ The first public release. It contains:
   and reports both.
   the budget as `2 delta + delta^2`.
   `VECTOR_STEP_INDEX_ENVELOPE` bounds `vector_paraxial` into a step-index guide
-  against an independent full-vector mode-matching solution of the entrance facet
-  (bound 1.4e-3 at contrast 0.05, V 1.5 to 8, scaled by the squared contrast); its
-  item is counted and a guide outside its range is refused by name. A step-index
+  against an independent full-vector mode-matching solution of the entrance facet,
+  maximised over every incident field in the admitted cone (bound 3.0e-3 at contrast
+  0.05, twice the Fresnel ceiling a mode near cutoff approaches, V 1.5 to 8, scaled by
+  the squared contrast); its item is counted and a guide outside its range is refused
+  by name. A step-index
   port carries `InputPort.normalised_frequency`; a graded-index guide keeps an
   uncounted item without a value.
 - **Media and responses.**
