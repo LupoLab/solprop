@@ -22,7 +22,7 @@
  "luna_commit": "de9db7c9a3b6e37fc71bb657540abab177242883",
  "luna_describe": "de9db7c LinearOps: frozen_transverse kwarg for the free-space const linop",
  "luna_path": "an exported clone of the Luna repository at the recorded commit",
- "note": "A regression witness for the solver, not truth and not a continuum. Generated at 294.0 K rather than Luna's 293.15 K, and with the shot noise off, so that the comparison measures the solver. Luna turns the Raman response on by itself for hydrogen and the plasma on for a real field, so neither is passed. Hydrogen's susceptibility, its hyperpolarisability, the cladding index, Luna's Raman response and Luna's own molecular ADK rate are emitted in luna_ctc_media.json because the package defaults differ from them by design. Regenerate with tests/data/generate_luna_ctc.py. The thread counts and the FFTW pool are read inside the Julia program rather than assumed.",
+ "note": "A noise-free regression witness for the solver, not truth; it forms no continuum, since nothing seeds the Stokes band. Generated at 294.0 K rather than Luna's 293.15 K, and with the shot noise off, so that the comparison measures the solver. Luna turns the Raman response on by itself for hydrogen and the plasma on for a real field, so neither is passed. Hydrogen's susceptibility, its hyperpolarisability, the cladding index, Luna's Raman response and Luna's own molecular ADK rate are emitted in luna_ctc_media.json because the package defaults differ from them by design. Regenerate with tests/data/generate_luna_ctc.py. The thread counts and the FFTW pool are read inside the Julia program rather than assumed.",
  "reduced": {
   "lambda_max": 2e-06,
   "lambda_min": 2.5e-07,

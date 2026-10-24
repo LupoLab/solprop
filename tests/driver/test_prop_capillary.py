@@ -3025,9 +3025,12 @@ def test_the_quadrature_ladder_converges_and_the_alarm_falls_with_it(request):
 # The reduced case of `tests/data/generate_luna_ctc.py` against the Luna result stored
 # beside it: hydrogen at 40 bar in a 16 um capillary, 400 fs and 10 uJ at 515 nm, the
 # fundamental mode alone on a 2 ps, 250 nm-2 um field grid over 0.1 m, with the Raman
-# response and the molecular plasma. It tests the speed and accuracy of CtC-type
-# propagation, not a continuum: over this length, noise-free and with the launch clear
-# of the window, neither code forms one. Everything that propagates here is slow.
+# response and the molecular plasma. The comparison with Luna is noise-free, and
+# noise-free, with the launch clear of the window, neither code forms a continuum over
+# this length: nothing seeds the Stokes band. Seeded with shot noise, solprop's run
+# forms the Raman cascade and bridges the octave
+# (`test_the_seeded_reduced_ctc_case_forms_the_raman_cascade`). Everything that
+# propagates here is slow.
 #
 # What the comparison controls for, so that what is left is the solver:
 #
@@ -3183,8 +3186,68 @@ def ctc_reduced(test_backend_name):
     return ctc_run(CTC_REDUCED, "REDUCED", backend=test_backend_name)
 
 
-CTC_PARITY_SEED = 21
-"""The shot-noise seed of the reduced CtC backend comparison."""
+CTC_SEED = 21
+"""The shot-noise seed of the seeded reduced CtC runs."""
+
+# Either side of the 515 nm pump: an octave about it is 364-1030 nm, so a run that fills
+# both shoulders has bridged it.
+CTC_BLUE = (330e-9, 430e-9)
+CTC_RED = (900e-9, 1300e-9)
+
+
+def spectral_span(grid, spectrum, floor=1e-4):
+    """Return the shortest and longest wavelength, m, a spectrum clears a floor at."""
+    positive = grid.omega > 0.0
+    wavelength = np.where(
+        positive, 2.0 * math.pi * C / np.where(positive, grid.omega, 1.0), np.inf
+    )
+    total = np.sum(np.abs(spectrum) ** 2, axis=tuple(range(spectrum.ndim - 1)))
+    kept = positive & (total > floor * np.max(total[positive]))
+    return float(np.min(wavelength[kept])), float(np.max(wavelength[kept]))
+
+
+def band_share(grid, spectrum, limits):
+    """Return the fraction of a spectrum's energy between two wavelengths."""
+    mask = band_mask(grid, limits)
+    return float(
+        np.sum(np.abs(spectrum[..., mask]) ** 2) / np.sum(np.abs(spectrum) ** 2)
+    )
+
+
+def vibrational_rung(order):
+    """Return the 12 % band about hydrogen's `order`-th vibrational Stokes line, m."""
+    centre = C / (C / CTC_WITNESS["lambda0"] - order * 124.57e12)
+    return (0.94 * centre, 1.06 * centre)
+
+
+@pytest.mark.slow
+def test_the_seeded_reduced_ctc_case_forms_the_raman_cascade():
+    """With shot noise as its seed, the reduced case forms the cascade over 0.1 m.
+
+    Noise-free it does not: nothing seeds the Stokes band but rounding, which grows to
+    5 % of the energy by the exit. Input shot noise is the physical seed. Measured on
+    `numba_cpu` at the exit for seeds 21, 22 and 23: the Stokes band (560 nm-2 um)
+    holds 0.48, 0.44 and 0.44 of the energy; the first three vibrational rungs
+    0.26/0.11/0.10, 0.21/0.16/0.058 and 0.24/0.10/0.086; the 330-430 nm shoulder
+    0.026, 0.041 and 0.040; the 900-1300 nm one 0.042, 0.046 and 0.038; and at a
+    ten-thousandth of its peak the exit spectrum spans 349-1614, 311-1610 and
+    355-1606 nm, bridging the 364-1030 nm octave about the pump. The bounds
+    hold for every seed measured rather than fitting this one, so the test asks that
+    the cascade forms, not that one realisation repeats. solprop's own physics only:
+    Luna's noise is its own realisation, so the comparison with Luna stays
+    noise-free.
+    """
+    grid = ctc_grid(CTC_REDUCED)
+    run = ctc_run(CTC_REDUCED, "REDUCED", seed=CTC_SEED)
+    exit_spectrum = run.fields("fft")[-1, :, 0, :]
+    assert band_share(grid, exit_spectrum, (560e-9, 2e-6)) > 0.3
+    for order in (1, 2, 3):
+        assert band_share(grid, exit_spectrum, vibrational_rung(order)) > 0.01
+    for shoulder in (CTC_BLUE, CTC_RED):
+        assert band_share(grid, exit_spectrum, shoulder) > 0.01
+    low, high = spectral_span(grid, exit_spectrum)
+    assert low < 364e-9
+    assert high > 1030e-9
 
 
 @pytest.mark.slow
@@ -3201,8 +3264,8 @@ def test_the_reduced_ctc_native_field_matches_fresh_numba(test_backend_name):
     """
     if test_backend_name != "native":
         pytest.skip("run with SOLPROP_TEST_BACKEND=native for the backend comparison")
-    native = ctc_run(CTC_REDUCED, "REDUCED", backend="native", seed=CTC_PARITY_SEED)
-    numba = ctc_run(CTC_REDUCED, "REDUCED", backend="numba_cpu", seed=CTC_PARITY_SEED)
+    native = ctc_run(CTC_REDUCED, "REDUCED", backend="native", seed=CTC_SEED)
+    numba = ctc_run(CTC_REDUCED, "REDUCED", backend="numba_cpu", seed=CTC_SEED)
     assert int(np.sum(native["step_history/accepted"])) == int(
         np.sum(numba["step_history/accepted"])
     )
@@ -3386,9 +3449,10 @@ def test_the_reduced_ctc_metrics_are_bounded_at_milestone_m4(
     plane: the fundamental's in-band spectral energy density differs by **0.0383**
     (relative L2), its content is **1 + 6.1e-6** of Luna's, and the exit energy is
     **1 + 6.9e-6** of the launch here against **1 + 7.4e-7** in Luna. None of these
-    is a continuum: the case does not form one (``generate_luna_ctc.py``), and it was
-    retired as a target with the 1 ps window, whose clipped launch seeded the cascade
-    these bounds once described (0.154, 1.044, and a Stokes ladder).
+    is a continuum: noise-free, the case forms none, and with shot noise the two codes'
+    cascades grow from different realisations. The 1 ps window's clipped launch seeded
+    a cascade in both codes alike, which is what these bounds once described (0.154,
+    1.044, and a Stokes ladder); the seeded cascade is now solprop's own check.
     """
     del test_backend_name
     ctc_reduced = ctc_run(

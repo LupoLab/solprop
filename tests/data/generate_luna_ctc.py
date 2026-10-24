@@ -20,10 +20,12 @@ never modifies the checkout, and it runs in Julia's default environment (or the 
 ``JULIA_PROJECT`` names) rather than against the checkout's own project, so no manifest
 there is touched. ``LUNA_DIR`` names the checkout whose commit is recorded.
 
-The stored result is a regression witness for the solver, not truth, and not a
-supercontinuum: the reduced case tests the speed and accuracy of CtC-type propagation
--- hydrogen's Raman response on the doubled grid, the molecular plasma, a field grid --
-over a short length. Four things about it matter:
+The stored result is a regression witness for the solver, not truth: the reduced case
+tests the speed and accuracy of CtC-type propagation -- hydrogen's Raman response on the
+doubled grid, the molecular plasma, a field grid -- over a short length. It is
+noise-free, so it forms no continuum (below); seeded with shot noise, solprop's own run
+of the case forms the Raman cascade, which a test checks without Luna. Four things about
+the witness matter:
 
 * **One case.** 16 um radius, hydrogen at 40 bar, the fundamental HE_11 mode alone,
   400 fs and 10 uJ at 515 nm on a 2 ps, 250 nm-2 um field grid over 0.1 m with no loss.
@@ -85,10 +87,11 @@ ENERGY = 10e-6
 # The reduced case, chosen by measurement and not by taste:
 #
 # * **0.1 m.** Long enough for many steps of the Raman and plasma sources at a cost of
-#   about a minute in each code, and short enough for the suite. It does not form a
-#   continuum: noise-free and with the pump clear of the window edges, neither code
-#   broadens the exit spectrum beyond about 485-544 nm at a ten-thousandth of its peak
-#   over this length. No test asserts a continuum.
+#   about a minute in each code, and short enough for the suite. Noise-free and with
+#   the pump clear of the window edges, neither code broadens the exit spectrum beyond
+#   about 485-544 nm at a ten-thousandth of its peak over this length: nothing seeds the
+#   Stokes band. With shot noise as the seed, solprop's run forms the cascade and spans
+#   about 310-1610 nm; that is checked without Luna, whose noise is its own.
 # * **One mode.** The case measures CtC-type propagation, not intermodal coupling; the
 #   multimode routes are covered by the RDW witnesses and the full-shape benchmark.
 # * **A narrower band**, 250 nm-2 um rather than the full shape's 170 nm-4 um. The floor
@@ -99,10 +102,11 @@ ENERGY = 10e-6
 #   has 3.6e-3 of its peak intensity, and its temporal collar starts at +-500 fs, where
 #   it has 1.3e-2. Clipping the launched pump seeds stimulated Raman scattering, which
 #   this noise-free case amplifies to saturation, so a 1 ps run measured each code's
-#   boundary rather than the physics: about a tenth of the energy ended in Stokes light
-#   that a wider window does not produce, and the continuum the case was once described
-#   as forming came from that seed. With 2 ps the collar starts at +-1 ps, where the
-#   pump is at 3e-8 of its peak, and the exit field agrees with a 4 ps run to 1e-5.
+#   boundary rather than the physics: about a tenth of the energy ended in Stokes
+#   light that a wider noise-free window does not produce, and the continuum the case
+#   was once described as forming grew from that seed. With 2 ps the collar starts at
+#   +-1 ps, where the pump is at 3e-8 of its peak, and the exit field agrees with a
+#   4 ps run to 1e-5.
 #   Both windows are far shorter than hydrogen's rotational coherence, so neither
 #   resolves it and the truncation of the response is the same in both.
 REDUCED = {
@@ -369,7 +373,8 @@ def main() -> int:
             for path in (WITNESS, MEDIA)
         },
         "note": (
-            "A regression witness for the solver, not truth and not a continuum. "
+            "A noise-free regression witness for the solver, not truth; it forms no "
+            "continuum, since nothing seeds the Stokes band. "
             "Generated at 294.0 K rather than Luna's 293.15 K, and with the shot "
             "noise off, so that the comparison measures the solver. Luna turns the "
             "Raman response on by itself for hydrogen and the plasma on for a real "

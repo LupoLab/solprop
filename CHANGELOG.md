@@ -157,9 +157,10 @@ The first public release. It contains:
     bounds.
   - The hydrogen comb-to-continuum (CtC) test and benchmark cases: the reduced case is
     the fundamental mode alone on a 2 ps window, because a 1 ps window clipped the
-    launched 400 fs pump at the temporal collar and seeded the Raman cascade the case
-    once appeared to form; the full case runs 0.3 m, where the continuum forms on its
-    4 ps grid.
+    launched 400 fs pump at the temporal collar, and in noise-free runs that clipped
+    edge seeded the Raman cascade. Seeded with shot noise instead, the reduced case
+    forms the cascade over its 0.1 m, which a test now checks; noise-free, the full case
+    runs 0.3 m, where the continuum forms on its 4 ps grid.
   - A short start-up: a run on the native backend imports neither Numba nor
     `scipy.signal`, plotting imports `matplotlib.pyplot` only when it draws, and an
     optmat rate builds only the model it uses (optmat 0.9.1, which reads only the data a
