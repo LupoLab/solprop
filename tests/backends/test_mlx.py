@@ -36,6 +36,7 @@ from solprop.backends.mlx_gpu.arithmetic import (
     gemm_probe,
     on_gpu,
     population,
+    prefix_scan,
 )
 from solprop.backends.mlx_gpu.backend import MlxBackend
 from solprop.backends.mlx_gpu.passes import DeviceRateTable
@@ -45,7 +46,7 @@ from solprop.backends.registry import available, select, select_batch
 from solprop.driver import Simulation
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.stepper import LowStorageRungeKutta
-from solprop.translate.precision import SINGLE
+from solprop.translate.precision import SINGLE, prefix_sum
 from vector_raman_cases import vector_problem
 
 U32 = UNIT_ROUNDOFF_32
@@ -259,6 +260,16 @@ def test_the_population_kernel_keeps_small_and_saturated_exposures():
         assert (
             np.max(np.abs(np.array(survival) / ((1 - initial) * np.exp(-wide)) - 1))
             <= 8 * U32
+        )
+
+
+@gpu_only
+def test_the_scan_kernel_is_the_oracles_order_exactly():
+    rng = np.random.default_rng(5)
+    for n in (1, 2, 4095, 4096, 65537):
+        values = rng.random((3, n)).astype(np.float32)
+        assert np.array_equal(
+            np.array(prefix_scan(mx.array(values))), prefix_sum(values)
         )
 
 

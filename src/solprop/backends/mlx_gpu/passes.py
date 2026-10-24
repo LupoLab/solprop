@@ -17,7 +17,12 @@ from dataclasses import dataclass
 import mlx.core as mx
 import numpy as np
 
-from solprop.backends.mlx_gpu.arithmetic import population
+from solprop.backends.mlx_gpu.arithmetic import (
+    on_gpu,
+    population,
+    prefix_scan,
+    rate_kernel,
+)
 from solprop.fourier import GridKind
 from solprop.nonlinear.ionisation import RunningIntegral
 from solprop.translate.ionisation import RateTable
@@ -426,7 +431,8 @@ def running_integral(
             )
     increments = (filtered[..., :-1] + filtered[..., 1:]) * float(np.float32(0.5 * dt))
     zero = mx.zeros((*values.shape[:-1], 1), dtype=mx.float32)
-    result = mx.concatenate([zero, _prefix(increments)], axis=-1)
+    scanned = prefix_scan(increments) if on_gpu() else _prefix(increments)
+    result = mx.concatenate([zero, scanned], axis=-1)
     if evaluate:
         # A scan's levels would otherwise stay live behind the rest of the stage's
         # graph, about log2(n) arrays of the node chunk each.
@@ -561,6 +567,25 @@ class DeviceRateTable:
         mlx.core.array
             The rate, s^-1.
         """
+        if on_gpu():
+            constants = np.array(
+                [
+                    self.log_field_min,
+                    1.0 / self.d_log_field,
+                    self.field_min,
+                    self.field_max,
+                    self.rate_max,
+                ],
+                dtype=np.float32,
+            )
+            return rate_kernel(
+                magnitude,
+                self.coefficients.reshape(-1),
+                self.constant_tail,
+                self.inverse_edges,
+                self.inverse_tail,
+                mx.array(constants),
+            )
         n = self.coefficients.shape[1]
         safe = mx.maximum(magnitude, float(np.float32(self.field_min)))
         index = mx.clip(

@@ -38,6 +38,8 @@ __all__ = [
     "gemm_probe",
     "on_gpu",
     "population",
+    "prefix_scan",
+    "rate_kernel",
 ]
 
 GEMM_PROBE_BOUND = 2.0**-17
@@ -394,6 +396,181 @@ def population(exposure: mx.array, preionisation: float) -> tuple[mx.array, mx.a
         output_dtypes=[mx.float32, mx.float32],
     )
     return fraction.reshape(exposure.shape), survival.reshape(exposure.shape)
+
+
+_SCAN = """
+    // One threadgroup per row: the doubling scan of the single-precision oracle
+    // (solprop.translate.precision.prefix_sum), level by level, in place, every level
+    // the same additions in the same order, so the result is the oracle's exactly.
+    uint row = threadgroup_position_in_grid.x;
+    uint tid = thread_position_in_threadgroup.x;
+    uint width = threads_per_threadgroup.x;
+    device float* a = out + row * N;
+    device float* b = scratch + row * N;
+    for (uint i = tid; i < N; i += width) { a[i] = values[row * N + i]; }
+    threadgroup_barrier(metal::mem_flags::mem_device);
+    for (uint shift = 1; shift < N; shift *= 2) {
+        for (uint i = tid; i < N; i += width) {
+            b[i] = i >= shift ? a[i] + a[i - shift] : a[i];
+        }
+        threadgroup_barrier(metal::mem_flags::mem_device);
+        device float* swap = a; a = b; b = swap;
+    }
+    if (a != out + row * N) {
+        for (uint i = tid; i < N; i += width) { out[row * N + i] = a[i]; }
+    }
+"""
+
+
+@cache
+def _scan_kernel() -> object:
+    """Return the compiled doubling-scan kernel.
+
+    Returns
+    -------
+    object
+        The ``mlx.core.fast.metal_kernel`` callable.
+    """
+    return mx.fast.metal_kernel(
+        name="solprop_doubling_scan",
+        input_names=["values"],
+        output_names=["out", "scratch"],
+        source=_SCAN,
+        compile_options={"math_mode": "safe"},
+    )
+
+
+def prefix_scan(values: mx.array) -> mx.array:
+    """Return the oracle's doubling scan along the last axis, in one launch.
+
+    Parameters
+    ----------
+    values : mlx.core.array
+        Float32 increments.
+
+    Returns
+    -------
+    mlx.core.array
+        The running sums, the oracle's to the bit.
+    """
+    n = values.shape[-1]
+    rows = values.size // n
+    out, _ = _scan_kernel()(  # pyright: ignore[reportCallIssue]
+        inputs=[values.reshape(rows, n)],
+        template=[("N", n)],
+        grid=(rows * 256, 1, 1),
+        threadgroup=(256, 1, 1),
+        output_shapes=[(rows, n), (rows, n)],
+        output_dtypes=[mx.float32, mx.float32],
+    )
+    return out.reshape(values.shape)
+
+
+_RATE = """
+    uint i = thread_position_in_grid.x;
+    if (i >= N) { return; }
+    float e = magnitude[i];
+    float log_min = constants[0];
+    float inverse_width = constants[1];
+    float field_min = constants[2];
+    float field_max = constants[3];
+    if (e < field_min) { rate[i] = 0.0f; return; }
+    if (e > field_max) { rate[i] = constants[4]; return; }
+    int k = int((metal::precise::log(e) - log_min) * inverse_width);
+    k = metal::clamp(k, 0, INTERVALS - 1);
+    // E / E_k as an exact two-product, so the local coordinate carries binary32's
+    // rounding relative to itself.
+    float p = e * inverse_edges[k];
+    float error = metal::fma(e, inverse_edges[k], -p) + e * inverse_tail[k];
+    float x = (p - 1.0f) + error;
+    float u = 1.0f + x;
+    float local = u == 1.0f ? x : metal::precise::log(u) * x / (u - 1.0f);
+    float c0 = coefficients[k];
+    float c1 = coefficients[INTERVALS + k];
+    float c2 = coefficients[2 * INTERVALS + k];
+    float c3 = coefficients[3 * INTERVALS + k];
+    float remainder = ((c0 * local + c1) * local + c2) * local;
+    float head = c3 + remainder;
+    float shifted = head - c3;
+    float tail = (c3 - (head - shifted)) + (remainder - shifted) + constant_tail[k];
+    rate[i] = metal::precise::exp(head) * (1.0f + tail);
+"""
+
+
+@cache
+def _rate_kernel() -> object:
+    """Return the compiled rate-table kernel.
+
+    Returns
+    -------
+    object
+        The ``mlx.core.fast.metal_kernel`` callable.
+    """
+    return mx.fast.metal_kernel(
+        name="solprop_rate_table",
+        input_names=[
+            "magnitude",
+            "coefficients",
+            "constant_tail",
+            "inverse_edges",
+            "inverse_tail",
+            "constants",
+        ],
+        output_names=["rate"],
+        source=_RATE,
+        compile_options={"math_mode": "safe"},
+    )
+
+
+def rate_kernel(
+    magnitude: mx.array,
+    coefficients: mx.array,
+    constant_tail: mx.array,
+    inverse_edges: mx.array,
+    inverse_tail: mx.array,
+    constants: mx.array,
+) -> mx.array:
+    """Evaluate a rate table's spline at field magnitudes in one launch.
+
+    Parameters
+    ----------
+    magnitude : mlx.core.array
+        ``|E|``, float32.
+    coefficients : mlx.core.array
+        The spline's ``(4, n_intervals)`` coefficients flattened row by row, the
+        constant term's head last.
+    constant_tail : mlx.core.array
+        The constant term's tail.
+    inverse_edges : mlx.core.array
+        ``1 / E_k``'s head.
+    inverse_tail : mlx.core.array
+        ``1 / E_k``'s tail.
+    constants : mlx.core.array
+        ``ln E_0``, ``1 / d ln E``, ``E_min``, ``E_max``, ``W_max``, float32.
+
+    Returns
+    -------
+    mlx.core.array
+        The rate, float32, of `magnitude`'s shape.
+    """
+    flat = magnitude.reshape(-1)
+    n = flat.size
+    (rate,) = _rate_kernel()(  # pyright: ignore[reportCallIssue]
+        inputs=[
+            flat,
+            coefficients,
+            constant_tail,
+            inverse_edges,
+            inverse_tail,
+            constants,
+        ],
+        template=[("N", n), ("INTERVALS", constant_tail.size)],
+        grid=(n, 1, 1),
+        threadgroup=(min(256, n), 1, 1),
+        output_shapes=[(n,)],
+        output_dtypes=[mx.float32],
+    )
+    return rate.reshape(magnitude.shape)
 
 
 def gemm_probe(shapes: list[tuple[int, int, int]]) -> float:
