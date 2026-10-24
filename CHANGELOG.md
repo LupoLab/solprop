@@ -79,6 +79,17 @@ The first public release. It contains:
   set's scalar profiles (`ScalarModeBasis`), and `Outcouple` synthesises a guide's exit
   field on a spatial grid under a declared interface model. Ports state the models they
   admit. The phase-2 `same_basis` function is removed in favour of `couple`.
+- **Transport between planes**
+  ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0031-simulation-coupling.html),
+  phase 4). `coupling.transport` carries a radial or Cartesian `FieldPlane` through an
+  ordered sequence of linear elements -- `FreeSpace` (exact angular-spectrum
+  propagation, with an explicit `"angular"` or `"fresnel"` output plane), `ThinLens`,
+  `Aperture`, `TransmissionMask`, `Alignment`, `PolarisationTransform`, `Mirror`,
+  `PlanarInterface` and `SpectralTransfer` (any `optics` transfer function or `Chain`)
+  -- and returns the plane with its reference, geometry, medium, metric and provenance
+  updated and a sequential ledger in joules. Thin screens carry their angular-flux
+  certificate; undersampled phases, wrapped rays and evanescent content are refused
+  unless their removal is declared. Refusals raise `CouplingError`.
 - **Media and responses.**
   - Gases, gas mixtures, glasses and metals from the [optmat](https://github.com/LupoLab/optmat)
     material library.

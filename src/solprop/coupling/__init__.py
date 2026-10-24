@@ -12,7 +12,9 @@ reference; an :class:`~solprop.coupling.port.InputPort` describes what a receivi
 simulation accepts at its entrance, and :func:`~solprop.coupling.coupler.couple`
 launches a plane into it under a declared
 :class:`~solprop.coupling.models.CouplingModel`;
-:class:`~solprop.coupling.outcouple.Outcouple` synthesises a guide's exit field.
+:class:`~solprop.coupling.outcouple.Outcouple` synthesises a guide's exit field,
+and :func:`~solprop.coupling.transport.transport` carries a spatial plane through
+an ordered sequence of linear elements.
 Extraction from a saved run is :func:`solprop.processing.planes.field_plane`;
 installing a launch is :meth:`solprop.driver.simulation.Simulation.with_input`.
 The manual page is ``docs/guide/workflows/coupling.md``.
@@ -35,6 +37,18 @@ from solprop.coupling.models import (
     ScalarModeBasis,
 )
 from solprop.coupling.outcouple import Outcouple, OutcoupleResult
+from solprop.coupling.elements import (
+    Alignment,
+    Aperture,
+    FreeSpace,
+    Mirror,
+    PlanarInterface,
+    PolarisationTransform,
+    SpectralCalibration,
+    SpectralTransfer,
+    ThinLens,
+    TransmissionMask,
+)
 from solprop.coupling.plane import (
     PLANE_KINDS,
     AnalyticRecord,
@@ -62,11 +76,7 @@ from solprop.coupling.port import (
     InputPort,
 )
 from solprop.coupling.remap import DEFAULT_TOLERANCE, RegridReport, regrid
-
-# The transport core (solprop.coupling.transport and solprop.coupling.elements:
-# transport, FreeSpace, ThinLens, Aperture, TransmissionMask, PlanarInterface,
-# PolarisationTransform, Mirror, SpectralTransfer) is exported here when it lands,
-# beside the names below. Outcouple lives in solprop.coupling.outcouple.
+from solprop.coupling.transport import TransportReport, transport
 
 __all__ = [
     "CAPILLARY_ENVELOPE",
@@ -76,7 +86,9 @@ __all__ = [
     "PLANE_KINDS",
     "STEP_INDEX_ENVELOPE",
     "AdmissionItem",
+    "Alignment",
     "AnalyticRecord",
+    "Aperture",
     "BasisChange",
     "Calibration",
     "CouplingLaunch",
@@ -85,20 +97,29 @@ __all__ = [
     "CouplingResult",
     "Exterior",
     "FieldPlane",
+    "FreeSpace",
     "InputPort",
     "MetricKind",
+    "Mirror",
     "NodalField",
     "Outcouple",
     "OutcoupleResult",
     "PairEnvelope",
+    "PlanarInterface",
     "PlaneBasis",
     "PlaneGeometry",
     "PlaneKind",
     "PlaneMetric",
     "PlaneProvenance",
     "PlaneReference",
+    "PolarisationTransform",
     "RegridReport",
     "ScalarModeBasis",
+    "SpectralCalibration",
+    "SpectralTransfer",
+    "ThinLens",
+    "TransmissionMask",
+    "TransportReport",
     "basis_identity",
     "couple",
     "lattice_identity",
@@ -106,4 +127,5 @@ __all__ = [
     "reference_at",
     "regrid",
     "space_record",
+    "transport",
 ]

@@ -47,7 +47,7 @@ In scripts and library code, import from the home modules listed below.
 |---|---|
 | {mod}`solprop.output` | the in-memory and HDF5 output handlers, the run's metadata record, `open_file` and resuming a run, live snapshots (`SnapshotController`, `read_snapshot`, `restore_snapshot`; [the output page](../guide/results/output.md)), and the raw TDSE response archive (`TDSEArchive`, `open_tdse_archive`; [the TDSE response](../guide/media/tdse.md#the-raw-response-archive)) |
 | {mod}`solprop.processing` | post-processing of a saved run: fields, spectra, pulse metrics, coherence, compression, the physical fields of a general modal run, and `field_plane`, a saved plane read back for coupling |
-| {mod}`solprop.coupling` | coupling simulations through a field plane: `FieldPlane` (from a run, a `SpatialPulse`, an analytic field or arrays), `regrid`, `InputPort`, `couple` under a `CouplingModel` with its `CouplingReport`, the scalar profiles `ScalarModeBasis`, the recorded pair envelopes, and `Outcouple` ([coupling simulations](../guide/workflows/coupling.md)) |
+| {mod}`solprop.coupling` | coupling simulations through a field plane: `FieldPlane` (from a run, a `SpatialPulse`, an analytic field or arrays), `regrid`, `InputPort`, `couple` under a `CouplingModel` with its `CouplingReport`, the scalar profiles `ScalarModeBasis`, the recorded pair envelopes and `Outcouple`; `transport` through the linear elements `FreeSpace`, `ThinLens`, `Aperture`, `TransmissionMask`, `Alignment`, `PolarisationTransform`, `Mirror`, `PlanarInterface` and `SpectralTransfer` ([coupling simulations](../guide/workflows/coupling.md); [the transport report](transport.md)) |
 | {mod}`solprop.stats` | the statistics recorded at the saved planes, and `StatsSpec` to choose them |
 | {mod}`solprop.plotting` | the standard figures: propagation maps, slices, spectrograms, statistics |
 | {mod}`solprop.optics` | linear optics applied to a pulse outside a propagation: materials, chirped mirrors, grating and prism pairs |
@@ -74,6 +74,7 @@ design behind both is in the [developer documentation](../dev/index.md).
 species
 tabulated
 scans
+transport
 ```
 
 ## Complete generated reference

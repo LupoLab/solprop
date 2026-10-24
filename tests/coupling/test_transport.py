@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 from scipy.integrate import quad
 from scipy.special import j0, j1
+from tests.coupling.conftest import apply_sequence
 
 from solprop import fourier
 from solprop.constants import C
@@ -22,8 +23,7 @@ from solprop.coupling.elements import (
     SpatialState,
     ThinLens,
 )
-from solprop.coupling.transport import transport
-from solprop.exceptions import GridError, MaterialError
+from solprop.exceptions import CouplingError
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, RadialGrid
 from solprop.optics import Chain, TaylorPhase
 from solprop.pulses import GaussianPulse, SpatialPulse
@@ -99,7 +99,7 @@ def test_gaussian_waist_curvature_and_gouy_phase(
     assert abs(result.report.approximation_error) <= 64 * np.finfo(float).eps * (
         result.report.energy_in
     )
-    assert result.report.diagnostics["sampling_adequate"] == 1.0
+    assert result.report.diagnostics["wrap_share"] <= 1e-6
 
 
 def test_direct_fresnel_matches_the_angular_spectrum_and_quadrature(
@@ -129,7 +129,9 @@ def test_direct_fresnel_matches_the_angular_spectrum_and_quadrature(
     radius, edge = 100e-6, 5e-6
     source = RadialGrid(0.5e-3, 512)
     flat = beam(source, 0.3e-3, order=10)
-    clipped = Aperture(radius, model_error=0.05, edge=edge, kind="rcos").apply(flat)
+    clipped = Aperture(
+        radius, model_error=0.05, edge=edge, kind="rcos", weighting="quadrature"
+    ).apply(flat)
     distance = radius**2 * k / (2 * math.pi)
     observed = RadialGrid(0.25e-3, 64)
     # The 5 um edge leaves 2e-6 of the field near the source grid's Nyquist rate,
@@ -217,7 +219,7 @@ def test_aperture_far_field_is_the_airy_pattern(
     source = RadialGrid(0.5e-3, 512)
     flat = beam(source, 0.3e-3, order=10)
     output = RadialGrid(8e-3, 256)
-    result = transport(
+    result = apply_sequence(
         flat,
         [
             Aperture(radius, model_error=0.05, edge=2e-6, kind="rcos"),
@@ -254,7 +256,7 @@ def test_thin_lens_focus_matches_the_fourier_plane_waist(
     state = beam(space, waist)
     k = _wavenumber(grid, centre)
     expected = 2 * focal / (k * waist)  # lambda f / (pi w0)
-    focused = transport(
+    focused = apply_sequence(
         state, [ThinLens(focal, model_error=1e-3), FreeSpace(focal, air)]
     )
     spot = _second_moment_radius(space, _radial_field(space, focused.state, centre))
@@ -262,7 +264,7 @@ def test_thin_lens_focus_matches_the_fourier_plane_waist(
     # is the angular spectrum's O(theta^2) = 2.5e-5 correction.
     assert spot == pytest.approx(expected, rel=5e-5)
     zoom = RadialGrid(0.3e-3, 128)
-    zoomed = transport(
+    zoomed = apply_sequence(
         state, [ThinLens(focal, model_error=1e-3), FreeSpace(focal, air, output=zoom)]
     )
     zoom_spot = _second_moment_radius(zoom, _radial_field(zoom, zoomed.state, centre))
@@ -282,8 +284,8 @@ def test_radial_and_cartesian_agree_for_a_symmetric_beam(
     radial = RadialGrid(1.5e-3, 128)
     cartesian = FreeGrid(1.5e-3, n_samples, 1.5e-3, n_samples)
     elements = [ThinLens(0.3, model_error=1e-3), FreeSpace(0.1, air)]
-    first = transport(beam(radial, 0.3e-3), elements)
-    second = transport(beam(cartesian, 0.3e-3), elements)
+    first = apply_sequence(beam(radial, 0.3e-3), elements)
+    second = apply_sequence(beam(cartesian, 0.3e-3), elements)
     # Both representations are spectrally converged at these sizes (the 32-sample
     # grid still departs by 3e-5).
     assert _on_axis(second.state, centre) == pytest.approx(
@@ -298,7 +300,7 @@ def test_cartesian_displacement_and_tilt_follow_the_synthesis_map(
     space = FreeGrid(1.5e-3, 64, 1.5e-3, 64)
     state = beam(space, 0.3e-3)
     shift, angle, distance = (0.1e-3, -0.05e-3), (2e-3, 0.0), 0.1
-    result = transport(
+    result = apply_sequence(
         state,
         [
             Alignment(displacement=shift, tilt=angle, model_error=1e-3),
@@ -328,14 +330,16 @@ def test_element_order_matters_and_a_chain_commutes_only_internally(
     space = RadialGrid(1.5e-3, 128)
     state = beam(space, 0.3e-3)
     aperture = Aperture(0.25e-3, model_error=0.05, edge=20e-6, kind="rcos")
-    gap = FreeSpace(0.2, air)
-    first = transport(state, [aperture, gap])
-    second = transport(state, [gap, aperture])
+    # The aperture's diffraction reaches the window over 0.2 m; its removal is
+    # declared, which keeps both orders on the same small grid.
+    gap = FreeSpace(0.2, air, beyond_window="remove")
+    first = apply_sequence(state, [aperture, gap])
+    second = apply_sequence(state, [gap, aperture])
     assert not np.allclose(first.state.spectrum, second.state.spectrum, rtol=1e-3)
     gdd = TaylorPhase((0.0, 0.0, 200e-30), 800e-9)
     tod = TaylorPhase((0.0, 0.0, 0.0, 3000e-45), 800e-9)
-    forward = transport(state, [Chain((gdd, tod)), gap])
-    backward = transport(state, [Chain((tod, gdd)), gap])
+    forward = apply_sequence(state, [Chain((gdd, tod)), gap])
+    backward = apply_sequence(state, [Chain((tod, gdd)), gap])
     np.testing.assert_allclose(
         forward.state.spectrum,
         backward.state.spectrum,
@@ -355,7 +359,7 @@ def test_sequential_ledger_adds_losses_in_joules(beam: BeamFactory, air: Spatial
     # certificate counts the field at the window's edge as domain error.
     space = RadialGrid(3e-3, 256)
     state = beam(space, 0.3e-3)
-    result = transport(
+    result = apply_sequence(
         state,
         [
             Aperture(0.3e-3, model_error=0.05, edge=20e-6, kind="rcos"),
@@ -446,7 +450,7 @@ def test_evanescent_content_is_refused_or_removed_explicitly(
     grid: EnvelopeGrid, air: SpatialMedium
 ):
     state = _narrow_state(grid, air)
-    with pytest.raises(GridError, match="nonpropagating"):
+    with pytest.raises(CouplingError, match="nonpropagating"):
         FreeSpace(1e-6, air).apply(state)
     limited = FreeSpace(1e-6, air, band_limit=0.5).apply(state)
     report = limited.report
@@ -461,19 +465,25 @@ def test_output_plane_refusals(beam: BeamFactory, air: SpatialMedium):
     space = RadialGrid(0.5e-3, 64)
     state = beam(space, 0.1e-3)
     wide = RadialGrid(5e-3, 64)
-    # The beam spreads past the source window: the angular output cannot see it.
-    with pytest.raises(GridError, match="edge"):
+    # The beam spreads past the source window: the angular output cannot see it,
+    # and the refusal points to the Fresnel route.
+    with pytest.raises(CouplingError, match='output_method="fresnel"'):
         FreeSpace(1.0, air, output=wide).apply(state)
     # A short Fresnel distance undersamples the kernel on the source nodes.
-    with pytest.raises(GridError, match="Fresnel kernel"):
+    # A beam filling the window's outer band cannot be read off it by the angular
+    # sum even without any spreading; the refusal points to the Fresnel route.
+    filling = beam(space, 0.4e-3)
+    with pytest.raises(CouplingError, match=r'edge.*output_method="fresnel"'):
+        FreeSpace(1e-6, air, output=wide).apply(filling)
+    with pytest.raises(CouplingError, match="Fresnel kernel"):
         FreeSpace(1e-3, air, output=wide, output_method="fresnel").apply(state)
-    with pytest.raises(GridError, match="positive distance"):
+    with pytest.raises(CouplingError, match="positive distance"):
         FreeSpace(-1.0, air, output=wide, output_method="fresnel").apply(state)
-    with pytest.raises(GridError, match="same kind"):
+    with pytest.raises(CouplingError, match="same kind"):
         FreeSpace(0.1, air, output=FreeGrid(1e-3, 8, 1e-3, 8)).apply(state)
-    with pytest.raises(MaterialError, match="PlanarInterface"):
+    with pytest.raises(CouplingError, match="PlanarInterface"):
         FreeSpace(0.1, SpatialMedium(1.5)).apply(state)
-    with pytest.raises(GridError, match="band_limit"):
+    with pytest.raises(CouplingError, match="band_limit"):
         FreeSpace(0.1, air, band_limit=2.0).apply(state)
 
 
@@ -482,15 +492,17 @@ def test_an_empty_sequence_and_a_zero_field_are_exact(
 ):
     space = RadialGrid(1e-3, 32)
     zero = SpatialState(grid, space, np.zeros((32, 1, grid.n_omega), complex), air)
-    identity = transport(zero, [])
+    identity = apply_sequence(zero, [])
     assert identity.report.energy_in == identity.report.energy_out == 0.0
-    result = transport(zero, [ThinLens(0.5, model_error=1e-3), FreeSpace(0.1, air)])
+    result = apply_sequence(
+        zero, [ThinLens(0.5, model_error=1e-3), FreeSpace(0.1, air)]
+    )
     assert not np.any(result.state.spectrum)
     certificate = result.report.elements[0].certificate
     assert certificate is not None
     assert certificate.exact_zero
-    with pytest.raises(GridError, match="neither an element"):
-        transport(zero, [object()])
+    with pytest.raises(CouplingError, match="neither an element"):
+        apply_sequence(zero, [object()])
 
 
 def test_cartesian_output_planes_agree_with_radial(
@@ -502,8 +514,8 @@ def test_cartesian_output_planes_agree_with_radial(
     cartesian = beam(FreeGrid(1.5e-3, 64, 1.5e-3, 64), 0.3e-3)
     zoom_r = RadialGrid(0.9e-3, 96)
     zoom_c = FreeGrid(0.9e-3, 48, 0.9e-3, 48)
-    angular_r = transport(radial, [lens, FreeSpace(0.1, air, output=zoom_r)])
-    angular_c = transport(cartesian, [lens, FreeSpace(0.1, air, output=zoom_c)])
+    angular_r = apply_sequence(radial, [lens, FreeSpace(0.1, air, output=zoom_r)])
+    angular_c = apply_sequence(cartesian, [lens, FreeSpace(0.1, air, output=zoom_c)])
     # Both are converged trigonometric/Fourier-Bessel interpolants of converged
     # propagations; the on-axis values agree to their transforms' accuracy.
     assert _on_axis(angular_c.state, centre) == pytest.approx(
@@ -513,10 +525,10 @@ def test_cartesian_output_planes_agree_with_radial(
     far_c = FreeGrid(2.5e-3, 48, 2.5e-3, 48)
     # A finer Cartesian source keeps the wider kernel's chirp below its Nyquist rate.
     cartesian = beam(FreeGrid(1.5e-3, 96, 1.5e-3, 96), 0.3e-3)
-    fresnel_r = transport(
+    fresnel_r = apply_sequence(
         radial, [lens, FreeSpace(1.0, air, output=far_r, output_method="fresnel")]
     )
-    fresnel_c = transport(
+    fresnel_c = apply_sequence(
         cartesian, [lens, FreeSpace(1.0, air, output=far_c, output_method="fresnel")]
     )
     # The radial and Cartesian node rules integrate the same smooth integrand;
@@ -529,7 +541,9 @@ def test_cartesian_output_planes_agree_with_radial(
     )
     # The exact propagation on a window wide enough to hold the beam agrees with
     # both to the paraxial bound the report states.
-    exact = transport(beam(RadialGrid(3e-3, 256), 0.3e-3), [lens, FreeSpace(1.0, air)])
+    exact = apply_sequence(
+        beam(RadialGrid(3e-3, 256), 0.3e-3), [lens, FreeSpace(1.0, air)]
+    )
     bound = fresnel_r.report.elements[1].diagnostics["fresnel_phase_bound"]
     assert _on_axis(fresnel_r.state, centre) == pytest.approx(
         _on_axis(exact.state, centre), rel=max(bound, 1e-6)
@@ -544,11 +558,18 @@ def test_windows_without_a_collar_use_their_outer_tenth(
         FreeGrid(0.6e-3, 32, 0.6e-3, 32, window_factor=0.0),
     ):
         state = beam(space, 0.15e-3)
-        report = FreeSpace(0.5, air).apply(state).report
-        # Half a metre spreads the 150 um beam well past this window.
+        # Half a metre spreads the 150 um beam well past this window: the wrap is
+        # refused unless its removal is declared, and then it is reported.
+        with pytest.raises(CouplingError, match="beyond_window='remove'"):
+            FreeSpace(0.5, air).apply(state)
+        report = FreeSpace(0.5, air, beyond_window="remove").apply(state).report
         assert report.diagnostics["edge_share"] > 1e-3
-        assert report.diagnostics["sampling_adequate"] == 0.0
         assert report.diagnostics["wrap_share"] > 0
+        assert report.removed == report.diagnostics["window_removed"] > 0
+        assert report.numerical_error == 0.0
+        assert abs(report.approximation_error) <= 64 * np.finfo(float).eps * (
+            report.energy_in
+        )
 
 
 def test_an_absorbing_gap_reports_its_loss(beam: BeamFactory):
