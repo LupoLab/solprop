@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import dataclasses
 import math
 from typing import cast
@@ -25,6 +26,20 @@ from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.problem import assemble
 
 from solprop_native import NativeBackend, build_info
+
+
+def _accelerated(samples: int, threads: int) -> bool:
+    """Check the actual FFTW codelet family used by the host provider policy."""
+    info = build_info()
+    if info.raman_fft_option != "ACCELERATE":
+        return False
+    library = ctypes.CDLL(info.fft_library)
+    version = ctypes.string_at(
+        ctypes.addressof(ctypes.c_char.in_dll(library, "fftw_version"))
+    )
+    if b"-neon" in version:
+        return threads > 1 and samples <= 16384
+    return threads > 1 or samples > 16384
 
 
 def _bound(samples: int) -> float:
@@ -107,15 +122,9 @@ def test_raman_partial_chunk_matches_reference_and_repeats(
                         tail = sizing[
                             f"raman_tail_fft.raman.{(7 % chunk) * 2 * grid.n_to}"
                         ]["threads"]
-                accelerated = info.raman_fft_option == "ACCELERATE" and (
-                    full > 1 or 2 * grid.n_to > 16384
-                )
-                tail_accelerated = info.raman_fft_option == "ACCELERATE" and (
-                    tail > 1 or 2 * grid.n_to > 16384
-                )
-                kernel_accelerated = info.raman_fft_option == "ACCELERATE" and (
-                    kernel > 1 or 2 * grid.n_to > 16384
-                )
+                accelerated = _accelerated(2 * grid.n_to, full)
+                tail_accelerated = _accelerated(2 * grid.n_to, tail)
+                kernel_accelerated = _accelerated(2 * grid.n_to, kernel)
                 assert metadata["raman_fft_provider"] == (
                     "Accelerate_vDSP" if accelerated else "KokkosFFT"
                 )
@@ -128,6 +137,22 @@ def test_raman_partial_chunk_matches_reference_and_repeats(
                 }
                 ledger = backend.memory_ledger()
                 assert ledger["node_raman_drive"] == chunk * 2 * grid.n_to * 8
+                # Planning another full/tail shape must leave the first state's
+                # live plans usable, even when both consume shared FFTW wisdom.
+                for peer_chunk in (1, 4):
+                    peer_problem = dataclasses.replace(
+                        problem,
+                        transform=dataclasses.replace(
+                            problem.transform, node_chunk=peer_chunk
+                        ),
+                    )
+                    peer = NativeBackend(peer_problem, grid=grid)
+                    try:
+                        peer.set_initial(problem.initial.field0, None)
+                        peer.propagate_to(grid.length / 8)
+                        assert np.isfinite(peer.observe().require_field()).all()
+                    finally:
+                        peer.close()
                 # A repeat of the same prescribed march: rounding only, within the
                 # equivalence bound below (solprop SEP 25).
                 backend.set_initial(problem.initial.field0, None)

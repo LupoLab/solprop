@@ -1319,8 +1319,8 @@ nb::dict build_record() {
 #else
   result["fft_planner"] = std::string("Kokkos-FFT persistent Plan / ") +
                           SOLPROP_NATIVE_HOST_FFT_PLANNER +
-                          "; general modal defaults: serial measure, threaded "
-                          "estimate; short serial Raman: measure; "
+                          "; contiguous modal/Raman defaults: serial measure, "
+                          "threaded estimate; "
                           "SOLPROP_FFTW_PLAN overrides";
 #endif
   result["layout"] = "LayoutRight";
