@@ -564,6 +564,7 @@ def environment_identity(provenance: Record) -> Record:
             "python_executable",
             "extension_hash",
             "build_info",
+            "julia_build",
         )
     }
     if result["build_info"] is not None:

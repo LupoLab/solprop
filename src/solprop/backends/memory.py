@@ -128,7 +128,7 @@ __all__ = [
     "z_table_slots",
 ]
 
-ESTIMATED_BACKENDS = ("numpy_ref", "numba_cpu", "native")
+ESTIMATED_BACKENDS = ("numpy_ref", "numba_cpu", "native", "julia")
 """The backends :func:`estimate_memory` has formulas for."""
 
 MEMORY_GROUPS = (
@@ -327,7 +327,26 @@ def estimate_memory(problem: KernelProblem, backend: str) -> MemoryEstimate:
     True
     """
     name = _estimated(backend)
-    groups = dict.fromkeys(MEMORY_GROUPS, 0)
+    groups: dict[str, int] = dict.fromkeys(MEMORY_GROUPS, 0)
+    if name == "julia":
+        from solprop.backends.julia._backend import (  # noqa: PLC0415 - optional backend
+            _refuse,
+        )
+        from solprop.backends.julia._memory import (  # noqa: PLC0415 - optional backend
+            owned_bytes,
+        )
+
+        _refuse(problem)
+        groups["base"] = owned_bytes(problem)
+        return MemoryEstimate(
+            name,
+            groups,
+            not_counted=(
+                "Julia runtime, compilation and FFTW plan internals",
+                "translated host tables and transient bridge/statistics arrays",
+                "shared-driver statistics rows and on-axis cache",
+            ),
+        )
     base = _reference_base(problem)
     if name in {"numba_cpu", "native"} and problem.responses.plasma_channels:
         base = {

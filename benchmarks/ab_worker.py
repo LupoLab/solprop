@@ -11,7 +11,7 @@ import time
 import traceback
 from pathlib import Path
 
-from benchmarks.records import Record, read_record
+from benchmarks.records import Record, metadata_value, read_record
 from benchmarks.worker import (
     Diagnostics,
     emit,
@@ -51,28 +51,43 @@ def measure_configuration(
     )
     construction = time.perf_counter() - started
     try:
+        prepare_started = time.perf_counter()
         output = prepare(simulation, problem, engine, configuration)
+        first_prepare = time.perf_counter() - prepare_started
         first = measure(engine, problem, configuration, output)
         output.close()
         repetitions = []
+        reset_preparations = []
         for _ in range(repeats):
+            prepare_started = time.perf_counter()
             output = prepare(simulation, problem, engine, configuration)
+            reset_preparations.append(time.perf_counter() - prepare_started)
             repetitions.append(measure(engine, problem, configuration, output))
             if len(repetitions) < repeats:
                 output.close()
+        observation_started = time.perf_counter()
         if not configuration["track"].startswith("adaptive-"):
             # Fixed tracks observe only after timing, as in a standard sample.
             save_plane(engine, problem, output)
+        final_observation = time.perf_counter() - observation_started
+        export_started = time.perf_counter()
         result = retained_fields(output)
         output.close()
         if fields is not None:
             fields.parent.mkdir(parents=True, exist_ok=True)
             np.save(fields, result, allow_pickle=False)
+        field_export = time.perf_counter() - export_started
         return {
             "construction_seconds": construction,
+            "first_prepare_seconds": first_prepare,
             "first_window_seconds": first["seconds"],
+            "reset_prepare_seconds": reset_preparations,
             "repetitions": repetitions,
+            "final_observation_seconds": final_observation,
+            "field_export_seconds": field_export,
             "finite": bool(np.all(np.isfinite(result))),
+            "backend_metadata": metadata_value(engine.metadata()),
+            "owned_bytes": sum(engine.memory_ledger().values()),
         }
     finally:
         engine.close()

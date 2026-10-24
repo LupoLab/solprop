@@ -54,7 +54,9 @@ def selectors(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--all", action="store_true")
     parser.add_argument("--mode", choices=("quick", "standard"), default="quick")
     parser.add_argument(
-        "--backend", choices=("numpy_ref", "numba_cpu", "native"), default="native"
+        "--backend",
+        choices=("numpy_ref", "numba_cpu", "native", "julia"),
+        default="native",
     )
     parser.add_argument("--threads")
     parser.add_argument("--track", action="append", choices=TRACKS, default=[])
@@ -67,7 +69,9 @@ def diagnostic_options(parser: argparse.ArgumentParser) -> None:
     """Declare the separate thread/binding diagnostic's short workload and limits."""
     parser.add_argument("--case", default="smoke", choices=tuple(CASES))
     parser.add_argument(
-        "--backend", choices=("numpy_ref", "numba_cpu", "native"), default="native"
+        "--backend",
+        choices=("numpy_ref", "numba_cpu", "native", "julia"),
+        default="native",
     )
     parser.add_argument("--threads", default="1,production")
     parser.add_argument("--machine-profile", type=Path)

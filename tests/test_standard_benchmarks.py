@@ -46,6 +46,20 @@ def profile():
     return system.Profile("test-machine", 1, 2, (0, 1), "topology")
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX nonblocking pipe witness")
+def test_large_protocol_event_on_nonblocking_pipe():
+    """Keep a large receipt complete when an embedded runtime changes pipe mode."""
+    script = (
+        "import os; from benchmarks.worker import emit; "
+        "os.set_blocking(1, False); emit('payload', value='x' * 262144); "
+        "assert not os.get_blocking(1)"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=True
+    )
+    assert json.loads(result.stdout) == {"event": "payload", "value": "x" * 262144}
+
+
 def samples(arm, *, count=5, seconds=1.0):
     return [
         {
@@ -190,11 +204,13 @@ def test_child_environment_overrides_incoming_pools_before_import():
         "OMP_PROC_BIND": "close",
         "OMP_PLACES": "cores",
         "OPENBLAS_NUM_THREADS": "72",
+        "SOLPROP_JULIA_RAMAN_FFT_THREADS": "72",
         "SOLPROP_FFTW_PLAN": "estimate",
     }
     result = system.thread_environment(1, "budget", incoming)
     assert result["OPENBLAS_NUM_THREADS"] == "1"
     assert result["SOLPROP_FFTW_THREADS"] == "1"
+    assert result["SOLPROP_JULIA_RAMAN_FFT_THREADS"] == "1"
     assert result["SOLPROP_FFTW_PLAN"] == "estimate"
     assert result["OMP_PROC_BIND"] == "false"
     assert "OMP_PLACES" not in result
@@ -204,6 +220,7 @@ def test_child_environment_overrides_incoming_pools_before_import():
 @pytest.mark.parametrize("policy", ["budget", "blas1", "all-pools-N", "as-installed"])
 def test_child_environment_handles_native_pool_overrides(policy):
     pools = (
+        "SOLPROP_JULIA_RAMAN_FFT_THREADS",
         "SOLPROP_NATIVE_KERNEL_THREADS",
         "SOLPROP_NATIVE_FFT_THREADS",
         "SOLPROP_NATIVE_RAMAN_FFT_THREADS",

@@ -1,0 +1,12 @@
+[
+  {
+    "name": "native",
+    "backend": "native"
+  },
+  {
+    "name": "julia",
+    "backend": "julia",
+    "fft": "fftw",
+    "blas_threads": 1
+  }
+]

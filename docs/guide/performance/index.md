@@ -18,6 +18,7 @@ measurement rules and indicative results, and
 backends
 native
 building-native
+julia
 resources
 progress
 tuning

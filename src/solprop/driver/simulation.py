@@ -783,12 +783,13 @@ def _stepper_record(settings: StepperSettings) -> StepperRecord:
     )
 
 
-LOW_STORAGE_BACKENDS = ("native", "numba_cpu", "numpy_ref")
+LOW_STORAGE_BACKENDS = ("native", "numba_cpu", "numpy_ref", "julia")
 """The backends that execute :class:`~solprop.stepper.low_storage.LowStorageRungeKutta`.
 
 ``numpy_ref`` from SEP 24's phase 1, ``numba_cpu`` from phase 2 and solprop-native from
-phase 3, on every route the translation admits the march on; ``backend="auto"``
-resolves as for every other integrator (:func:`solprop.backends.registry.resolve_name`:
+phase 3, on every route the translation admits the march on. The experimental
+Julia backend admits Cartesian scalar cases only. ``backend="auto"`` resolves as for
+every other integrator (:func:`solprop.backends.registry.resolve_name`:
 the native backend when it is installed, otherwise ``numba_cpu``).
 """
 
@@ -857,10 +858,10 @@ def _admit_integrator(integrator: Multistep, backend: str) -> None:
     DriverError
         Naming the conflict and the Runge-Kutta march every backend executes.
     """
-    if backend not in ("auto", "numpy_ref", "numba_cpu", "native"):
+    if backend not in ("auto", "numpy_ref", "numba_cpu", "native", "julia"):
         msg = (
-            f"the {integrator.name} integrator is implemented on numpy_ref, numba_cpu "
-            f"and native only, and backend {backend!r} would step the problem with its "
+            f"the {integrator.name} integrator is implemented on numpy_ref, numba_cpu, "
+            f"native and julia; backend {backend!r} would step the problem with its "
             "Runge-Kutta march; pass one of those or 'auto', or "
             "integrator=RungeKutta()"
         )

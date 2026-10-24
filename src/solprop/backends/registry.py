@@ -83,6 +83,7 @@ BACKENDS: Mapping[str, BackendEntry] = {
     # than raising an ImportError from inside the backend.
     "numba_cpu": BackendEntry(requires=("numba", "pyfftw"), extras=()),
     "native": BackendEntry(requires=("solprop_native",), extras=()),
+    "julia": BackendEntry(requires=("juliacall",), extras=("julia",)),
 }
 """The backends this package knows, by name."""
 
@@ -394,7 +395,7 @@ def select(
     --------
     >>> from solprop.backends.registry import BACKENDS
     >>> sorted(BACKENDS)
-    ['native', 'numba_cpu', 'numpy_ref']
+    ['julia', 'native', 'numba_cpu', 'numpy_ref']
     """
     name = resolve_name(name)
     if _BENCHMARK_GATED.get() and name != "numpy_ref":
@@ -564,6 +565,10 @@ def _construct(
         from solprop.backends.numba_cpu import NumbaCpuBackend  # noqa: PLC0415
 
         return NumbaCpuBackend(problem, grid=grid, modes=modes, profiles=profiles)
+    if name == "julia":
+        from solprop.backends.julia import JuliaBackend  # noqa: PLC0415
+
+        return JuliaBackend(problem, grid=grid, modes=modes, profiles=profiles)
     if name == "native":
         from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
             NativeBackend,
