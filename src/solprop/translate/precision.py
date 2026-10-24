@@ -36,7 +36,9 @@ from typing import Literal, get_args
 
 import numpy as np
 
+from solprop import fourier
 from solprop.exceptions import TranslationError
+from solprop.fourier import GridKind
 
 __all__ = [
     "DOUBLE",
@@ -50,6 +52,7 @@ __all__ = [
     "admit_precision",
     "block_exponent",
     "combine",
+    "launch_peak",
     "narrow",
     "pairwise_sum",
     "precision_named",
@@ -431,6 +434,38 @@ def narrow(values: np.ndarray) -> Narrowed:
     result = np.ascontiguousarray(scaled, dtype=dtype)
     result.setflags(write=False)
     return Narrowed(result, exponent)
+
+
+def launch_peak(field0: np.ndarray, kind: GridKind) -> float:
+    """Return the peak temporal amplitude of a launch, in the state's own units.
+
+    The quantity the state scale is chosen from (SEP 33 section 4.3, rule 2): every
+    column of the canonical state transformed to time on its own grid, without
+    padding, in binary64.
+
+    Parameters
+    ----------
+    field0 : numpy.ndarray
+        The launch, complex, in the canonical layout ``(..., n_omega)``.
+    kind : {'field', 'envelope'}
+        The spectral layout.
+
+    Returns
+    -------
+    float
+        The largest temporal magnitude, non-negative.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.translate.precision import launch_peak
+    >>> launch_peak(np.full((1, 1, 1, 4), 2.0 + 0.0j), "envelope")
+    2.0
+    """
+    values = np.asarray(field0, dtype=np.complex128)
+    if values.size == 0:
+        return 0.0
+    return float(np.max(np.abs(fourier.inverse(values, kind=kind)), initial=0.0))
 
 
 def state_scale(peak: float) -> float:

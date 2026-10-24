@@ -253,6 +253,9 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             tuple[np.ndarray, np.ndarray, np.ndarray | None, np.ndarray | None] | None
         ) = None
         self._kind: GridKind = problem.grid_kind
+        # The tables a source evaluation reads, as the problem holds them; the
+        # single-precision path narrows them on upload (SEP 33).
+        self._tables = SourceTables.of(problem)
         self._carrier = _harmonic_carrier(problem)
         self._embedded = _embedded_projection(problem)
         self._general = _general_maps(problem)
@@ -322,6 +325,105 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 self._propagator_mode,
                 "replayed" if problem.stepper.schedule is not None else "adaptive",
             )
+
+    def _propagator(
+        self, exponent: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
+    ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+        """Return the stage propagator ``exp(dPhi)`` of a binary64 exponent.
+
+        The single-precision path rounds the binary64 exponential once (SEP 33
+        section 4.2); here it is the exponential itself.
+
+        Parameters
+        ----------
+        exponent : numpy.ndarray
+            ``dPhi`` or its negative, complex128.
+
+        Returns
+        -------
+        numpy.ndarray
+            ``exp(exponent)``.
+        """
+        return np.exp(exponent)
+
+    def _envelope_sources(
+        self, field_t: Complex[np.ndarray, "n_nodes n_pol n_to"], bundle: StageScalars
+    ) -> tuple[
+        Complex[np.ndarray, "n_nodes n_pol n_to"],
+        Complex[np.ndarray, "n_nodes n_pol n_to"],
+    ]:
+        """Return the envelope-grid plasma's windowed drive and loss at some nodes.
+
+        Parameters
+        ----------
+        field_t : numpy.ndarray
+            The field at the nodes, V/m.
+        bundle : solprop.translate.stage.StageScalars
+            The stage's host scalars.
+
+        Returns
+        -------
+        tuple of numpy.ndarray
+            :func:`solprop.backends.numpy_ref.envelope_plasma.envelope_sources`.
+        """
+        envelope = self._problem.responses.envelope_plasma
+        assert envelope is not None
+        return envelope_sources(
+            field_t,
+            envelope,
+            bundle,
+            self._problem.grids.dt_fine,
+            self._tables.t_window,
+        )
+
+    def _error_norm(
+        self,
+        error: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        state: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        advanced: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+    ) -> float:
+        """Return the controller's scaled norm of a trial step's embedded difference.
+
+        Parameters
+        ----------
+        error : numpy.ndarray
+            The embedded difference carried to the end of the step.
+        state : numpy.ndarray
+            The state at the anchor.
+        advanced : numpy.ndarray
+            The trial state at the end of the step.
+
+        Returns
+        -------
+        float
+            :func:`solprop.backends.numpy_ref.passes.error_norm` of the three.
+        """
+        return passes.error_norm(
+            error,
+            state,
+            advanced,
+            self._problem.grids.norm_mask,
+            self._problem.stepper.controller,
+        )
+
+    def _rounded(
+        self, values: Inexact[np.ndarray, "*shape"]
+    ) -> Inexact[np.ndarray, "*shape"]:
+        """Return a binary64 array a pass multiplies by, in the run's precision.
+
+        The identity here; the single-precision path rounds it once (SEP 33).
+
+        Parameters
+        ----------
+        values : numpy.ndarray
+            A binary64 coefficient array evaluated on the host.
+
+        Returns
+        -------
+        numpy.ndarray
+            `values`.
+        """
+        return values
 
     def stats(self, spec: StatsSpec) -> dict[str, np.ndarray]:
         """Collect the requested statistics at the current position.
@@ -1178,7 +1280,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             bundle, propagator = held[2], held[3]
         else:
             bundle = self._stage_scalars(anchor, position)
-            propagator = np.exp(self._delta_phi(bundle))
+            propagator = self._propagator(self._delta_phi(bundle))
         self._adams_held = None
         noise = self._noise_at(bundle)
         field_in = lab if noise is None else lab + noise
@@ -1292,7 +1394,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             ``exp(Phi(position) - Phi(anchor))``.
         """
         bundle = self._stage_scalars(anchor, position)
-        propagator = np.exp(self._delta_phi(bundle))
+        propagator = self._propagator(self._delta_phi(bundle))
         if self._adams is not None:
             self._adams_held = (anchor, position, bundle, propagator)
         return propagator
@@ -1373,10 +1475,10 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 self._channels(state, forward),
                 self._channels(combination, forward),
                 dz,
-                np.exp(exponent),
+                self._propagator(exponent),
                 self._noise_at(bundle),
             )
-            back = np.exp(-exponent)
+            back = self._propagator(-exponent)
             self._rk_source_evaluations += 1
             drive = self._nonlinear(lab, bundle, back)
             residual = self._residual(lab, step.flow_section, bundle)
@@ -1390,7 +1492,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             error = passes.accumulate(error, stage, float(tableau.error_weights[index]))
         # Kept for the continuous extension of an accepted step (SEP 14 phase 3).
         self._last_stages = stages
-        propagator = np.exp(exponents(1.0, step))
+        propagator = self._propagator(exponents(1.0, step))
         whole = actions(1.0)[0]
         advanced = passes.accept_step(
             self._channels(state, whole),
@@ -1401,12 +1503,8 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         # The embedded difference is carried to the end of the step by the same
         # exponential as the solution, so the norm scales the local error of the
         # propagated state rather than of the interaction variable.
-        norm = passes.error_norm(
-            propagator * (dz * self._channels(error, whole)),
-            state,
-            advanced,
-            self._problem.grids.norm_mask,
-            self._problem.stepper.controller,
+        norm = self._error_norm(
+            propagator * (dz * self._channels(error, whole)), state, advanced
         )
         return norm, advanced
 
@@ -1708,7 +1806,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             self._alarm = math.nan
             return
         grids = self._problem.grids
-        weight = self._prefactor(self._last_bundle) * grids.omega_window
+        weight = self._prefactor(self._last_bundle) * self._tables.omega_window
         fine = weight * passes.to_frequency(
             self._last_projected, grids.crop_index, kind=self._kind
         )
@@ -1818,7 +1916,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             return passes.stage_output(
                 np.zeros_like(lab[0]),
                 np.zeros_like(lab[0]),
-                grids.omega_window,
+                self._tables.omega_window,
                 inverse_propagator,
                 self._absorber_term(alone),
             )
@@ -1844,16 +1942,16 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 assert self._last_envelope is not None
                 drive, loss, _, _ = self._last_envelope
                 factors = responses.envelope_plasma.factors
-                spectrum += factors.drude * passes.to_frequency(
+                spectrum += self._rounded(factors.drude) * passes.to_frequency(
                     drive, grids.crop_index, kind=self._kind
                 )
-                spectrum += factors.loss * passes.to_frequency(
+                spectrum += self._rounded(factors.loss) * passes.to_frequency(
                     loss, grids.crop_index, kind=self._kind
                 )
         return passes.stage_output(
             spectrum,
             self._prefactor(bundle),
-            grids.omega_window,
+            self._tables.omega_window,
             inverse_propagator,
             self._absorber_term(modal_t),
         )
@@ -2014,7 +2112,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         sources = passes.nonlinear_sources(
             field_t,
             responses,
-            grids.t_window_fine,
+            self._tables.t_window,
             kind=self._kind,
             density=bundle.density,
             preionisation=bundle.preionisation,
@@ -2027,7 +2125,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             return sources
         return passes.NonlinearSources(
             sources.polarisation
-            + grids.t_window_fine
+            + self._tables.t_window
             * responses.plasma_integral.integrate(sources.current, grids.dt_fine),
             None,
         )
@@ -2063,9 +2161,8 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         numpy.ndarray
             Cropped raw-DFT polarisation-equivalent source at the nodes.
         """
-        grids = self._problem.grids
         return self._held_streams(
-            grids.t_window_fine * current, grids.t_window_fine_derivative * current
+            self._tables.t_window * current, self._tables.t_window_derivative * current
         )
 
     def _radial_plasma_spectrum(
@@ -2097,7 +2194,10 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 (first + transform.node_chunk) * transform.n_pol,
             )
             field = passes.synthesise(
-                modal_t, transform.synthesis[rows], bundle.taper_scale, transform.n_pol
+                modal_t,
+                self._tables.synthesis[rows],
+                bundle.taper_scale,
+                transform.n_pol,
             )
             sources = self._column_sources(field, bundle, raman)
             assert sources.current is not None
@@ -2107,7 +2207,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             nodal += self._held_current(sources.current)
             spectrum += passes.project(
                 nodal,
-                transform.projection[:, rows],
+                self._tables.projection[:, rows],
                 bundle.taper_scale,
                 transform.n_pol,
             )
@@ -2166,18 +2266,12 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 if sources.current is not None:
                     scratch[rows] += self._held_current(sources.current)
                 if responses.envelope_plasma is not None:
-                    drive, loss = envelope_sources(
-                        field_t,
-                        responses.envelope_plasma,
-                        bundle,
-                        grids.dt_fine,
-                        grids.t_window_fine,
-                    )
+                    drive, loss = self._envelope_sources(field_t, bundle)
                     factors = responses.envelope_plasma.factors
-                    scratch[rows] += factors.drude * passes.to_frequency(
+                    scratch[rows] += self._rounded(factors.drude) * passes.to_frequency(
                         drive, grids.crop_index, kind=self._kind
                     )
-                    scratch[rows] += factors.loss * passes.to_frequency(
+                    scratch[rows] += self._rounded(factors.loss) * passes.to_frequency(
                         loss, grids.crop_index, kind=self._kind
                     )
             view = scratch.reshape(shape)
@@ -2187,18 +2281,20 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             for first in range(0, transform.n_nodes, transform.node_chunk):
                 rows = slice(first, first + transform.node_chunk)
                 _, prefactor = separable_values(data, rows)
-                result[0, rows] = prefactor * grids.omega_window * scratch[rows]
+                result[0, rows] = (
+                    self._rounded(prefactor) * self._tables.omega_window * scratch[rows]
+                )
         if self._in_stage_absorber:
             # The rate is additive to the normalised material term. Reusing the
             # transverse scratch avoids a second retained physical spectral volume.
             np.fft.ifft2(lab[0].reshape(shape), axes=(0, 1), out=scratch.reshape(shape))
-            temporal = responses.temporal_absorber_fine
+            temporal = self._tables.temporal_rate
             for first in range(0, transform.n_nodes, transform.node_chunk):
                 rows = slice(first, first + transform.node_chunk)
                 field_t = passes.to_time(
                     scratch[rows], grids.crop_index, grids.n_to, kind=self._kind
                 )
-                rate = geometry.absorber_rate[rows, None, None]
+                rate = self._rounded(geometry.absorber_rate[rows, None, None])
                 if temporal is not None and responses.absorber_scheme == "nonlinear":
                     rate = rate + temporal
                 scratch[rows] = passes.to_frequency(
@@ -2352,7 +2448,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             ``"split_step"`` scheme is active and the rate is applied to the state
             after the step instead.
         """
-        rate = self._problem.responses.temporal_absorber_fine
+        rate = self._tables.temporal_rate
         if not self._in_stage_absorber:
             return None
         grids = self._problem.grids
@@ -2438,12 +2534,12 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         for first in range(0, transform.n_nodes, transform.node_chunk):
             rows = slice(first * n_pol, (first + transform.node_chunk) * n_pol)
             field_t = passes.synthesise(
-                modal_t, transform.synthesis[rows], taper, n_pol
+                modal_t, self._tables.synthesis[rows], taper, n_pol
             )
             sources = self._column_sources(field_t, bundle, raman)
             polarisation_t = sources.polarisation
             projected = projected + passes.project(
-                polarisation_t, transform.projection[:, rows], taper, n_pol
+                polarisation_t, self._tables.projection[:, rows], taper, n_pol
             )
             if coarse is not None and self._embedded is not None:
                 coarse = coarse + passes.project(
@@ -2452,27 +2548,25 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             if sources.current is not None and plasma_projected is not None:
                 gated, edge, coarse_gated, coarse_edge = plasma_projected
                 for target, reduced, window in (
-                    (gated, coarse_gated, grids.t_window_fine),
-                    (edge, coarse_edge, grids.t_window_fine_derivative),
+                    (gated, coarse_gated, self._tables.t_window),
+                    (edge, coarse_edge, self._tables.t_window_derivative),
                 ):
                     current = window * sources.current
                     target[...] += passes.project(
-                        current, transform.projection[:, rows], taper, n_pol
+                        current, self._tables.projection[:, rows], taper, n_pol
                     )
                     if reduced is not None and self._embedded is not None:
                         reduced[...] += passes.project(
                             current, self._embedded[:, rows], taper, n_pol
                         )
             if envelope is not None and envelope_projected is not None:
-                drive, loss = envelope_sources(
-                    field_t, envelope, bundle, grids.dt_fine, grids.t_window_fine
-                )
+                drive, loss = self._envelope_sources(field_t, bundle)
                 full_drive, full_loss, coarse_drive, coarse_loss = envelope_projected
                 full_drive += passes.project(
-                    drive, transform.projection[:, rows], taper, n_pol
+                    drive, self._tables.projection[:, rows], taper, n_pol
                 )
                 full_loss += passes.project(
-                    loss, transform.projection[:, rows], taper, n_pol
+                    loss, self._tables.projection[:, rows], taper, n_pol
                 )
                 if (
                     self._embedded is not None
@@ -2603,6 +2697,61 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             return cache[fraction]
 
         return exponent
+
+
+@dataclass(frozen=True)
+class SourceTables:
+    """The problem's tables a source evaluation multiplies by.
+
+    Read through this record rather than off the problem so that the single-precision
+    path can hold them narrowed (SEP 33 section 4.2) while the passes stay the same.
+
+    Attributes
+    ----------
+    synthesis : numpy.ndarray
+        ``transform.synthesis``.
+    projection : numpy.ndarray
+        ``transform.projection``.
+    t_window : numpy.ndarray
+        ``grids.t_window_fine``.
+    t_window_derivative : numpy.ndarray
+        ``grids.t_window_fine_derivative``.
+    omega_window : numpy.ndarray
+        ``grids.omega_window``.
+    temporal_rate : numpy.ndarray or None
+        ``responses.temporal_absorber_fine``.
+    """
+
+    synthesis: Float[np.ndarray, "n_rows n_modes_s"]
+    projection: Float[np.ndarray, "n_modes n_columns"]
+    t_window: Float[np.ndarray, " n_to"]
+    t_window_derivative: Float[np.ndarray, " n_to"]
+    omega_window: Float[np.ndarray, " n_omega"]
+    temporal_rate: Float[np.ndarray, " n_to"] | None
+
+    @classmethod
+    def of(cls, problem: KernelProblem) -> "SourceTables":  # noqa: UP037 - the runtime type hook resolves this while the class body runs
+        """Return the problem's own tables.
+
+        Parameters
+        ----------
+        problem : solprop.translate.problem.KernelProblem
+            The problem.
+
+        Returns
+        -------
+        SourceTables
+            References to its arrays, uncopied.
+        """
+        grids = problem.grids
+        return cls(
+            problem.transform.synthesis,
+            problem.transform.projection,
+            grids.t_window_fine,
+            grids.t_window_fine_derivative,
+            grids.omega_window,
+            problem.responses.temporal_absorber_fine,
+        )
 
 
 def _refuse_adams(problem: KernelProblem) -> None:

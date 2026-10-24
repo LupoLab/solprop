@@ -553,6 +553,18 @@ def _construct(
         # reason to import every backend or initialize a native runtime.
         from solprop.backends.numpy_ref import NumpyRefBackend  # noqa: PLC0415
 
+        if problem.precision.single:
+            from solprop.backends.numpy_ref.single import (  # noqa: PLC0415
+                NumpySingleBackend,
+            )
+
+            return NumpySingleBackend(
+                problem,
+                grid=grid,
+                modes=modes,
+                profiles=profiles,
+                tdse_binding=tdse_binding,
+            )
         return NumpyRefBackend(
             problem,
             grid=grid,
