@@ -15,12 +15,15 @@ of the incident-launch tests; a propagation is two steps.
 
 import dataclasses
 import math
+from typing import cast
 
 import numpy as np
 import pytest
 
 from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
+from solprop.constants import C
 from solprop.coupling import (
+    VECTOR_STEP_INDEX_ENVELOPE,
     CouplingModel,
     FieldPlane,
     PlaneBasis,
@@ -297,3 +300,110 @@ def test_a_general_plane_is_recovered_in_another_basis_at_common_nodes(grid, pai
     coarse = strand(grid, n_r=20)
     with pytest.raises(CouplingError, match="common quadrature"):
         couple(plane, simulation(coarse, grid).input_port(), model=SAME)
+
+
+def envelope_item(report):
+    """Return a report's envelope item."""
+    return next(item for item in report.items if item.name == "envelope")
+
+
+def test_a_step_index_guide_counts_its_recorded_facet_envelope(grid, pair_port):
+    """A StepIndexProvider port carries V; the facet envelope's allowance is counted.
+
+    The strand is V = 5.1 at 835 nm with a 0.0069 contrast, inside the recorded
+    range; the item is the bound scaled by the weighted squared contrast, plus the
+    incident share of any bins whose V leaves the range.
+    """
+    frequency = np.asarray(pair_port.normalised_frequency)
+    centre = int(np.argmin(np.abs(grid.omega - grid.omega0)))
+    # V = (omega/c) a sqrt(1.45^2 - 1.44^2) for the 4 um strand.
+    expected = grid.omega[centre] / C * 4e-6 * math.sqrt(1.45**2 - 1.44**2)
+    assert frequency[centre] == pytest.approx(expected, rel=1e-12)
+    report = couple(step_index_plane(grid, (1.0,)), pair_port, model=VECTOR).report
+    item = envelope_item(report)
+    assert item.counted
+    assert item.note.startswith(VECTOR_STEP_INDEX_ENVELOPE.identity)
+    incident = report.incident / np.sum(report.incident)
+    contrast = np.asarray(pair_port.contrast)
+    low, high = VECTOR_STEP_INDEX_ENVELOPE.ranges["v"]
+    beyond = float(np.sum(incident[(frequency < low) | (frequency > high)]))
+    allowance = VECTOR_STEP_INDEX_ENVELOPE.allowance(
+        {"contrast_squared": float(np.sum(contrast**2 * incident))}
+    )
+    assert item.value == pytest.approx(allowance + beyond, rel=1e-12)
+    assert report.budget <= BUDGET
+
+
+def test_bins_beyond_the_facet_envelope_add_their_incident_share(grid, pair_port):
+    """Bins whose V leaves the range are counted in full, and the item says so."""
+    frequency = np.asarray(pair_port.normalised_frequency)
+    centre = int(np.argmin(np.abs(grid.omega - grid.omega0)))
+    # Move the centre bin alone to V = 8.2, just beyond the range.
+    stretched = frequency.copy()
+    stretched[centre] = 8.2
+    port = dataclasses.replace(pair_port, normalised_frequency=stretched)
+    model = CouplingModel("vector_paraxial", model_error=0.9)
+    report = couple(step_index_plane(grid, (1.0,)), port, model=model).report
+    share = report.incident[centre] / np.sum(report.incident)
+    item = envelope_item(report)
+    assert "incident share outside its range" in item.note
+    within = envelope_item(
+        couple(step_index_plane(grid, (1.0,)), pair_port, model=VECTOR).report
+    )
+    assert cast("float", item.value) == pytest.approx(
+        cast("float", within.value) + share, rel=1e-6
+    )
+
+
+@pytest.mark.parametrize(
+    ("change", "named"),
+    [({"frequency": 2.0}, "v = "), ({"contrast": 8.0}, "contrast = ")],
+)
+def test_a_step_index_guide_outside_the_facet_envelope_is_refused(
+    grid, pair_port, change, named
+):
+    """A guide whose weighted V or contrast leaves the range is refused by name."""
+    port = dataclasses.replace(
+        pair_port,
+        normalised_frequency=np.asarray(pair_port.normalised_frequency)
+        * change.get("frequency", 1.0),
+        contrast=np.asarray(pair_port.contrast) * change.get("contrast", 1.0),
+    )
+    model = CouplingModel("vector_paraxial", model_error=0.9)
+    with pytest.raises(
+        CouplingError, match=VECTOR_STEP_INDEX_ENVELOPE.identity
+    ) as error:
+        couple(step_index_plane(grid, (1.0,)), port, model=model)
+    assert named in str(error.value)
+    assert "not qualified for this step-index guide" in str(error.value)
+
+
+def test_a_guide_without_a_recorded_envelope_keeps_an_uncounted_item(grid, pair_port):
+    """A general guide that is not step-index (a graded index) carries no V; its
+    envelope item has no value and says why, as before the envelope was recorded."""
+    port = dataclasses.replace(pair_port, normalised_frequency=None)
+    report = couple(step_index_plane(grid, (1.0,)), port, model=VECTOR).report
+    item = envelope_item(report)
+    assert item.value is None
+    assert not item.counted
+    assert "only a step-index guide has one" in item.note
+
+
+def test_a_beam_in_another_medium_than_the_core_is_refused(grid, pair_port):
+    """The facet envelope covers a beam in the core's index only.
+
+    A beam in air meeting a 1.45 core reflects 3 per cent at the bulk step alone
+    (the facet reference puts the model 6 per cent high there), which is a separate
+    planar interface (SEP 31, section 4.3). The model measures the beam in the
+    core's admittance, so the source metric item, the beam's own measure against
+    that, refuses it.
+    """
+    plane = FieldPlane.from_pulse(
+        beam(6e-6),
+        grid,
+        PlaneGeometry(0.0),
+        space=RadialGrid(60e-6, 128),
+        index=np.where(np.asarray(pair_port.reference_index) > 0, 1.0, 0.0),
+    )
+    with pytest.raises(CouplingError, match="source metric"):
+        couple(plane, pair_port, model=VECTOR)

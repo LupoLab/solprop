@@ -48,7 +48,10 @@ breaks at both core radii.
   apparent gain within the model's own defects is reported as a model defect, never
   rescaled or clipped, and a larger one refuses;
 - ``envelope``: the recorded pair envelope's allowance (scaled by the pair's leaky
-  parameter for a capillary), plus the incident share of any bins outside its range;
+  parameter for a capillary, by the squared contrast for the vector model into a
+  step-index guide), plus the incident share of any bins outside its range; a
+  general guide without a recorded envelope (a graded index) reports it without a
+  value, uncounted;
 - ``numerical``: quadrature, representation and domain errors, an amplitude error
   :math:`\delta` entered as :math:`2\delta + \delta^2`.
 
@@ -74,6 +77,7 @@ from solprop.constants import EPS0, C
 from solprop.coupling.envelopes import (
     CAPILLARY_ENVELOPE,
     STEP_INDEX_ENVELOPE,
+    VECTOR_STEP_INDEX_ENVELOPE,
     PairEnvelope,
 )
 from solprop.coupling.models import CouplingModel, ScalarModeBasis, radial_rule
@@ -1984,6 +1988,7 @@ def _vector_paraxial(
         np.zeros(0) if port.contrast is None else np.asarray(port.contrast)[occupied]
     )
     probes = _probe_bins(occupied, source.norm)
+    incident = _bin_weights(port) * source.norm
     items = [
         *source.items,
         AdmissionItem(
@@ -2004,15 +2009,7 @@ def _vector_paraxial(
         ),
         _closure_item(electric, magnetic, weights, admittance, probes, epsilon),
         _target_angular_vector(electric, weights, port, index, probes, epsilon),
-        AdmissionItem(
-            "envelope",
-            None,
-            None,
-            False,
-            "model",
-            "no recorded pair envelope: omitted facet reflection is bounded only "
-            "by the contrast screen and the closure",
-        ),
+        _vector_envelope_item(port, incident),
     ]
     items.append(_gain_item(gain, items, "field"))
     return samples, _report(
@@ -2020,7 +2017,7 @@ def _vector_paraxial(
         port,
         model,
         index=index,
-        incident=_bin_weights(port) * source.norm,
+        incident=incident,
         launched=port.metric.spectral_energy(samples, port.grid),
         captured=None,
         captured_reason=(
@@ -2029,6 +2026,88 @@ def _vector_paraxial(
             "remainder is a physical loss (section 4.3)"
         ),
         items=tuple(items),
+    )
+
+
+def _vector_envelope_item(
+    port: InputPort, incident: Float[np.ndarray, " n_omega"]
+) -> AdmissionItem:
+    r"""Return the vector model's recorded facet envelope item, or refuse the guide.
+
+    Only a :class:`~solprop.modes.guide.StepIndexProvider` guide has a recorded
+    envelope (:data:`~solprop.coupling.envelopes.VECTOR_STEP_INDEX_ENVELOPE`); its
+    port carries the guide's normalised frequency. Its parameters are the contrast,
+    V and squared contrast weighted by the incident energy, as the other per-bin
+    items are: the allowance is linear in the squared contrast, so the weighted
+    mean bounds the whole field over the bins inside the range. Bins whose contrast
+    or V leave the range are not bounded, and their incident share is counted in
+    full. Any other general guide (a graded index) keeps an uncounted item without
+    a value: its omitted facet reflection is bounded only by the contrast screen
+    and the closure.
+
+    Parameters
+    ----------
+    port : solprop.coupling.port.InputPort
+        The general modal port.
+    incident : numpy.ndarray
+        Incident energy per bin, J.
+
+    Returns
+    -------
+    AdmissionItem
+        ``envelope``.
+
+    Raises
+    ------
+    CouplingError
+        If the weighted parameters lie outside the envelope's range.
+    """
+    if port.normalised_frequency is None:
+        return AdmissionItem(
+            "envelope",
+            None,
+            None,
+            False,
+            "model",
+            "no recorded pair envelope for this provider (only a step-index guide "
+            "has one): omitted facet reflection is bounded only by the contrast "
+            "screen and the closure",
+        )
+    envelope = VECTOR_STEP_INDEX_ENVELOPE
+    frequency = np.asarray(port.normalised_frequency)
+    # A step-index port carries its contrast beside its frequency.
+    contrast = np.asarray(port.contrast)
+    parameters = {
+        "contrast": _weighted(contrast, incident),
+        "v": _weighted(frequency, incident),
+        "contrast_squared": _weighted(contrast**2, incident),
+    }
+    if float(np.sum(incident)) > 0.0:
+        outside = envelope.covers(parameters)
+        if outside is not None:
+            msg = (
+                f"vector_paraxial is not qualified for this step-index guide: {outside}"
+            )
+            raise CouplingError(msg)
+    low, high = envelope.ranges["v"]
+    beyond = (
+        (contrast > envelope.ranges["contrast"][1])
+        | (frequency < low)
+        | (frequency > high)
+    )
+    uncovered = _weighted(beyond.astype(float), incident)
+    return AdmissionItem(
+        "envelope",
+        envelope.allowance(parameters) + uncovered,
+        None,
+        True,
+        "model",
+        envelope.identity
+        + (
+            f", plus the {uncovered:.1e} incident share outside its range"
+            if uncovered > 0.0
+            else ""
+        ),
     )
 
 

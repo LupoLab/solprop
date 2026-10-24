@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-r"""Recorded benchmark envelopes of the scalar coupling model's provider pairs.
+r"""Recorded benchmark envelopes of the approximate coupling models' provider pairs.
 
 SEP 31 section 4.3 admits a provider pair to an approximate coupling model only with
 an independent benchmark envelope for what the model omits, recorded with its
@@ -21,32 +21,43 @@ recorded bounds; the manual page ``docs/guide/workflows/coupling.md`` describes 
   overlap of their exact bound HE11 fields
   (:meth:`solprop.modes.stepindex.StepIndexMode.electromagnetic_field`). It replaces the
   contrast screen within its range.
+- :data:`VECTOR_STEP_INDEX_ENVELOPE`: the vector model's flux recovery into a
+  :class:`~solprop.modes.guide.StepIndexProvider` guide against an independent
+  full-vector mode-matching solution of the planar entrance facet, the reflection
+  and backward fields the model omits. Its bound scales with the square of the
+  guide's contrast.
 """
 
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
-__all__ = ["CAPILLARY_ENVELOPE", "STEP_INDEX_ENVELOPE", "PairEnvelope"]
+__all__ = [
+    "CAPILLARY_ENVELOPE",
+    "STEP_INDEX_ENVELOPE",
+    "VECTOR_STEP_INDEX_ENVELOPE",
+    "PairEnvelope",
+]
 
 
 @dataclass(frozen=True)
 class PairEnvelope:
-    """A recorded benchmark envelope of one provider pair under the scalar model.
+    """A recorded benchmark envelope of one provider pair under an approximate model.
 
     Attributes
     ----------
     identity : str
         The envelope's name, recorded in a coupling report.
-    family : {'capillary', 'step_index'}
-        The profile family of both members of the pair.
+    family : {'capillary', 'step_index', 'step_index_vector'}
+        The profile family of both members of the pair, or for the vector model
+        the target guide's provider.
     ranges : collections.abc.Mapping
         Each range parameter's closed interval ``(low, high)``; a pair outside any
         one is not covered.
     bound : float
-        The largest measured difference of captured energy share, scalar model
-        against the independent reference, over the range, dimensionless, numerical
-        error included: an energy discrepancy relative to the incident energy.
+        The largest measured difference of captured energy share, model against
+        the independent reference, over the range, dimensionless, numerical error
+        included: an energy discrepancy relative to the incident energy.
     numerical : float
         The independently estimated numerical error of the measurement, included
         in `bound`.
@@ -169,3 +180,40 @@ STEP_INDEX_ENVELOPE = PairEnvelope(
 ``|n^2 - n_ref^2|/(2 n_ref^2)`` of either fibre, ``v_*`` each fibre's normalised
 frequency at its profile wavelength, ``radius_ratio`` source over target core radius,
 ``modes`` the larger LP0m count (LP01 only)."""
+
+
+VECTOR_STEP_INDEX_ENVELOPE = PairEnvelope(
+    identity="step-index-vector-facet-mode-matching-2026-10",
+    family="step_index_vector",
+    ranges={
+        "contrast": (0.0, 0.05),
+        "v": (1.5, 8.0),
+        "contrast_squared": (0.0, 2.5e-3),
+    },
+    bound=1.4e-3,
+    numerical=2e-5,
+    reference=(
+        "independent full-vector mode matching of the planar entrance facet "
+        "(incident and reflected fields in the core-index input medium, the "
+        "fibre's forward guided and radiation fields, tangential E and H "
+        "continuous), solved per azimuthal order in a conducting cylinder of 8 "
+        "core radii on its own TE/TM Bessel basis, against the model's flux "
+        "pairing with the same incident H: x-polarised Gaussian beams of waist "
+        "1a to 2a, displaced to 0.5a and tilted to 0.3 NA, into HE11 at V 1.5 to "
+        "8 and HE12, HE21, TE01 and TM01 at V 4; contrast 0.05 (the range's top), "
+        "input medium of the core's index. Largest omitted share 6.9e-4 (HE11, "
+        "V 1.5, a 2a waist); bound twice that; refining the basis and widening "
+        "the cylinder changes it by 1.1e-5. It is second order in the index step "
+        "(halving the contrast quarters it, and at weak guidance it is the local "
+        "Fresnel estimate to a few per cent), so the allowance is scaled by the "
+        "squared contrast over 0.05**2"
+    ),
+    scaled_by="contrast_squared",
+)
+"""The vector model's step-index facet envelope; ``contrast`` is the guide's
+``|n^2 - n_ref^2|/(2 n_ref^2)``, ``v`` its normalised frequency at the entrance and
+``contrast_squared`` the square of the contrast, each weighted by the incident energy
+over the occupied bins. It bounds the reflection and backward fields at the facet,
+not the incident beam's H closure (the angular item) or the guide's tabulation; it
+covers a beam in the core's index only, since a bulk index change is a separate
+planar interface (SEP 31, section 4.3)."""

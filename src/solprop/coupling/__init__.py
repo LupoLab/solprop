@@ -41,6 +41,7 @@ from solprop.coupling.elements import (
 from solprop.coupling.envelopes import (
     CAPILLARY_ENVELOPE,
     STEP_INDEX_ENVELOPE,
+    VECTOR_STEP_INDEX_ENVELOPE,
     PairEnvelope,
 )
 from solprop.coupling.models import (
@@ -85,6 +86,7 @@ __all__ = [
     "METRIC_TOLERANCE",
     "PLANE_KINDS",
     "STEP_INDEX_ENVELOPE",
+    "VECTOR_STEP_INDEX_ENVELOPE",
     "AdmissionItem",
     "Alignment",
     "AnalyticRecord",
