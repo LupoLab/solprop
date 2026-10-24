@@ -12,7 +12,7 @@
 | **Type** | Feature |
 | **Created** | 2026-09-27 |
 | **Resolution** | — |
-| **Requires** | [SEP 3](archive/sep-0003-optmat-materials.md): material adapters and resolved material identities; [SEP 34](sep-0034-medium-flux.md): shared medium flux and radial adiabatic transport |
+| **Requires** | [SEP 3](archive/sep-0003-optmat-materials.md): material adapters and resolved material identities; [SEP 34](archive/sep-0034-medium-flux.md): shared medium flux and radial adiabatic transport |
 | **Supersedes** | — |
 | **Superseded-by** | — |
 | **Implementation** | — |
@@ -592,7 +592,7 @@ Pointwise broadband flux need not be nonnegative; do not clip it into a
 rate drive. Rates use §4.1's positive proxy. Specify zero-frequency/endpoints
 and refuse launch energy on nonpropagating support.
 
-[SEP 34](sep-0034-medium-flux.md) owns the shared implementation for isotropic
+[SEP 34](archive/sep-0034-medium-flux.md) owns the shared implementation for isotropic
 media, including launches, noise, observations, endpoint rules, certified radial
 forward transport and backend qualification. Use its constants consistently with
 the scalar source prefactor.
@@ -1181,7 +1181,7 @@ No implementation phases have started.
   Solid rates, kinetics and their qualification remain this proposal's scope.
 
 - 2026-10-23: Reassigned the shared medium-flux prerequisite to
-  [SEP 34](sep-0034-medium-flux.md) following SEP 31's review and split.
+  [SEP 34](archive/sep-0034-medium-flux.md) following SEP 31's review and split.
   SEP 31 retains field exchange and coupling; the shared flux proposal
   includes admitted radial adiabatic transport and complex local flux.
 - 2026-10-23: Aligned the shared-flux description with SEP 34's review response:

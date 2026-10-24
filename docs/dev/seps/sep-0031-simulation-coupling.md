@@ -12,7 +12,7 @@
 | **Type** | Feature |
 | **Created** | 2026-10-22 |
 | **Resolution** | Accepted 2026-10-23 by John Travers after the S1–S4 responses recorded in Part III. SEP 34's public activation precedes this proposal's incident-launch change. |
-| **Requires** | [SEP 22](archive/sep-0022-memory-lean-spatial-execution.md): plane storage and input replacement; [SEP 23](archive/sep-0023-far-field-aperture-spectra.md): aperture definitions; [SEP 25](archive/sep-0025-rounding-level-reproducibility.md): numerical qualification; [SEP 34](sep-0034-medium-flux.md): shared medium flux and radial adiabatic transport |
+| **Requires** | [SEP 22](archive/sep-0022-memory-lean-spatial-execution.md): plane storage and input replacement; [SEP 23](archive/sep-0023-far-field-aperture-spectra.md): aperture definitions; [SEP 25](archive/sep-0025-rounding-level-reproducibility.md): numerical qualification; [SEP 34](archive/sep-0034-medium-flux.md): shared medium flux and radial adiabatic transport |
 | **Supersedes** | — |
 | **Superseded-by** | — |
 | **Implementation** | John Travers with Opus 5.5 (AI); on `feature/sep-0031-simulation-coupling` |
@@ -28,7 +28,7 @@ the next simulation. These four blocks cover coupling between hollow or solid
 guides, incident Gaussian and arbitrary fields, nonlinear beam preparation before
 a capillary, outcoupling to an observation plane, and compression between stages.
 The incident field retains its absolute scale: light that is not captured is not
-restored by normalisation. The separate [SEP 34](sep-0034-medium-flux.md) supplies
+restored by normalisation. The separate [SEP 34](archive/sep-0034-medium-flux.md) supplies
 the shared medium-flux contract; coupling evaluates that measure on the host at
 each reference plane. Qualification separates physical attenuation,
 uncaptured forward power, representation error and model limitations, and compares
@@ -122,7 +122,7 @@ semantics, optics/compressor models, spatial transforms and same-problem input
 replacement. They do not qualify the cross-route compositions proposed here.
 This assessment is a source/test audit, not a new test-suite result.
 
-[SEP 34](sep-0034-medium-flux.md) owns spatial launch/noise/statistics consistency
+[SEP 34](archive/sep-0034-medium-flux.md) owns spatial launch/noise/statistics consistency
 and the adiabatic correction for the existing radial gas-gradient route. This SEP
 and [SEP 5](sep-0005-solid-ionisation.md) consume its common measure; neither adds
 another normalisation policy. [SEP 8](sep-0008-quadratic-crystal-optics.md) retains
@@ -172,7 +172,7 @@ together and leaves the physical field unchanged.
 
 #### 4.2 Shared plane measure
 
-[SEP 34](sep-0034-medium-flux.md) derives and implements the scalar axial-admittance
+[SEP 34](archive/sep-0034-medium-flux.md) derives and implements the scalar axial-admittance
 measure, its analytic-signal endpoints, physical launch/noise scaling, statistics
 and radial adiabatic transport. For a plane in an isotropic medium it supplies
 
@@ -2662,7 +2662,7 @@ the record of what was reviewed; its completion does not imply acceptance of thi
 revision. John selected the detuned tutorial and complex-admittance treatment
 while the revision was being prepared.
 
-- **R1 — Accepted.** [SEP 34](sep-0034-medium-flux.md) now owns spatial energy,
+- **R1 — Accepted.** [SEP 34](archive/sep-0034-medium-flux.md) now owns spatial energy,
   launch, noise, statistics, adiabatic radial transport and their CPU-backend
   qualification. SEP 31 consumes that contract. SEP 34's implementation may be
   developed in private backend slices, but the public switch is atomic across
@@ -2746,7 +2746,7 @@ required implementation evidence.
 ### AI re-review of the revision — 2026-10-23
 
 **Assessment.** The revision resolves R1–R10. The split into
-[SEP 34](sep-0034-medium-flux.md) is clean, and §4.3's three named coupling models
+[SEP 34](archive/sep-0034-medium-flux.md) is clean, and §4.3's three named coupling models
 with an explicit `model_error` budget are concrete enough to approve. §4.6's
 thin-screen bound is correct: $0\le U_0-U_Y\le d(E)$ holds because $Y_z/Y_0=\cos\theta$
 on propagating columns, and the bound on the loss difference follows from the two

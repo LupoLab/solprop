@@ -59,7 +59,7 @@ contract:
 | `initial` | the initial state, the noise realisation and the per-member batch parameters |
 | `stepper` | the tableau, the controller, the step caps, the save planes and any fixed schedule |
 | `stats_spec` | which statistics to collect |
-| `flux` | a spatial run's plane measure: the axial admittance of the medium at any plane, from which every spatial statistic is weighted ([SEP 34](seps/sep-0034-medium-flux.md), version 35) |
+| `flux` | a spatial run's plane measure: the axial admittance of the medium at any plane, from which every spatial statistic is weighted ([SEP 34](seps/archive/sep-0034-medium-flux.md), version 35) |
 
 Every array is `float64`, `complex128`, `bool` or `intp` (and `int32` at three named index
 leaves of the general modal route); C-contiguous; read-only; and in

@@ -38,7 +38,6 @@ Proposals that are active, in draft, accepted, in progress or deferred.
 | [31](sep-0031-simulation-coupling.md) | Coupling simulations and transporting ultrafast fields | In progress | Feature |
 | [32](sep-0032-raman-maxwell-bloch.md) | Raman Maxwell–Bloch dynamics | Draft | Feature |
 | [33](sep-0033-single-precision-mlx.md) | Single-precision propagation, and an MLX backend for Apple GPUs | Draft | Feature |
-| [34](sep-0034-medium-flux.md) | Medium flux for free-space propagation | Accepted | Change |
 
 SEP 13, the standalone numerical prerequisite for SEP 12, SEP 14, which carried it to
 the compiled backends, and SEP 16, which unified the multistep family and made it the
@@ -71,6 +70,7 @@ Proposals that are final, rejected, withdrawn or superseded; the
 | [28](archive/sep-0028-free-space-evaluation.md) | Free-space evaluation at the memory bound | Final | Change |
 | [29](archive/sep-0029-compiled-backend-distribution.md) | The native backend in solprop, distributed as binaries | Final | Change |
 | [30](archive/sep-0030-standard-benchmark-suite.md) | Standard benchmark suite | Final | Process |
+| [34](archive/sep-0034-medium-flux.md) | Medium flux for free-space propagation | Final | Change |
 
 ```{toctree}
 :hidden:
@@ -91,7 +91,6 @@ sep-0021-absorbing-boundaries
 sep-0031-simulation-coupling
 sep-0032-raman-maxwell-bloch
 sep-0033-single-precision-mlx
-sep-0034-medium-flux
 template
 archive/index
 ```

@@ -209,7 +209,7 @@ mode per active bin, fixed modulus and random phase. Its field-grid modulus is
 `sqrt(hbar omega/domega) sqrt(2 pi)/dt`. The internal draw is divided by the entrance
 square root. It is not a circular-Gaussian draw.
 
-**Spatial geometry** ([SEP 34](seps/sep-0034-medium-flux.md)). Radial, Cartesian and
+**Spatial geometry** ([SEP 34](seps/archive/sep-0034-medium-flux.md)). Radial, Cartesian and
 line states retain physical V/m or V m units and have no modal power-weight row. They are
 measured with the scalar axial admittance of the medium at the plane,
 `Y_c = eps0 c² k_z/omega` per transverse column and bin, zero on nonpropagating,

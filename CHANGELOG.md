@@ -27,7 +27,7 @@ The first public release. It contains:
   diffraction operator. Planar guides can be resolved across their width. Absorbing
   spatial boundaries are included, and far-field and aperture statistics.
 - **Physical flux in free space**
-  ([SEP 34](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0034-medium-flux.html)).
+  ([SEP 34](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0034-medium-flux.html)).
   Spatial launches, shot noise, energies, fluences, intensities and statistics measure
   the axial Poynting flux of the medium at the plane (`SpatialFlux`), so a requested
   energy is the physical energy there; local flux uses the complex admittance and is

@@ -5,7 +5,7 @@ Each is the axial Poynting flux of the scalar forward field in the medium at the
 measured plane, so a launch energy is what an energy meter in that medium would read.
 The page also derives how a radial run carries the field through a gas whose pressure
 varies along z, and gives the certificate that decides whether such a path is admitted.
-The design is [SEP 34](../../dev/seps/sep-0034-medium-flux.md). The operator, the units
+The design is [SEP 34](../../dev/seps/archive/sep-0034-medium-flux.md). The operator, the units
 and the transverse grids are described on [the free-space model](model.md) page.
 
 ## What energy means
@@ -422,3 +422,6 @@ wave numbers.
 3. R. Diamant and M. Fernández-Guasti, "Reflection coefficient due to a discontinuity in
    the nth order derivative of the refractive index," *J. Opt.* **16**, 015707 (2014),
    [doi:10.1088/2040-8978/16/1/015707](https://doi.org/10.1088/2040-8978/16/1/015707).
+
+The medium flux, the radial amplitude correction and its certificate were proposed and
+carried out by [SEP 34](../../dev/seps/archive/sep-0034-medium-flux.md).
