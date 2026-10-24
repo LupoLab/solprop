@@ -32,7 +32,7 @@ from solprop.backends.numpy_ref.single import (
     stable_population,
 )
 from solprop.backends.protocol import Backend
-from solprop.backends.registry import select, select_batch
+from solprop.backends.registry import available, select, select_batch
 from solprop.constants import EPS0
 from solprop.driver import Simulation, prop_gnlse
 from solprop.driver.simulation import SimulationSettings
@@ -172,6 +172,16 @@ def test_single_precision_takes_its_defaults_and_refuses_what_it_does_not_run():
         dataclasses.replace(
             settings, controller=dataclasses.replace(settings.controller, rtol=1e-8)
         )
+
+
+@pytest.mark.parametrize("name", ["numba_cpu", "native"])
+def test_the_compiled_backends_refuse_a_single_precision_problem(name):
+    """The refusal is the backend's own too, not only the settings' (SEP 33 5.2)."""
+    if name not in available():
+        pytest.skip(f"{name} is not installed")
+    problem = gnlse("single").translate()
+    with pytest.raises(BackendError, match="binary64 only"):
+        select(name, problem)
 
 
 def test_a_noise_model_is_refused_under_single_precision():
