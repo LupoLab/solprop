@@ -32,7 +32,12 @@ from solprop.backends.numpy_ref.single import (
     stable_population,
 )
 from solprop.backends.protocol import Backend
-from solprop.backends.registry import available, select, select_batch
+from solprop.backends.registry import (
+    available,
+    metal_available,
+    select,
+    select_batch,
+)
 from solprop.constants import EPS0
 from solprop.driver import Simulation, prop_gnlse
 from solprop.driver.simulation import SimulationSettings
@@ -159,13 +164,21 @@ def test_single_precision_takes_its_defaults_and_refuses_what_it_does_not_run():
     assert isinstance(settings.integrator, RungeKutta)
     assert settings.controller.rtol == 1e-6
     assert simulation.translate().precision.single
-    with pytest.raises(DriverError, match="backend='auto'"):
-        Simulation.from_gnlse(
+
+    def automatic() -> Simulation:
+        return Simulation.from_gnlse(
             0.11, 0.05, [0.0, 0.0, -1e-26], lambda0=835e-9, trange=1e-12,
             wavelength_limits=(500e-9, 2e-6), width=50e-15, peak_power=1.0,
-            pulseshape="sech",
-            precision="single",
+            pulseshape="sech", precision="single",
         )  # fmt: skip
+
+    # "auto" is the GPU backend where MLX and a Metal device are present, and refused
+    # otherwise: never a binary64 backend, never the oracle (Q8).
+    if metal_available():
+        assert automatic().settings.backend == "mlx"
+    else:
+        with pytest.raises(DriverError, match="backend='auto'"):
+            automatic()
     for backend in ("numba_cpu", "native"):
         with pytest.raises(DriverError, match="binary64 only"):
             dataclasses.replace(settings, backend=backend)
