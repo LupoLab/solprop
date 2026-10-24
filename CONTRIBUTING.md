@@ -60,9 +60,10 @@ A change that touches `native/` runs `poe check-all` and follows the native rule
    `architecture.md` and `conventions.md`.
 3. Keep the diff to the task. Add tests with the code, document new functionality in the
    manual as well as in docstrings, and add a line to `CHANGELOG.md` under `Unreleased`.
-4. Run fast checks and directly affected tests while you work, and `uv run poe check`
-   before opening the pull request; CI runs the slow and coverage lanes. A change to the
-   documentation alone, including a new or edited SEP, needs only the
+4. Run fast checks and directly affected tests while you work. The full gate
+   (`uv run poe check`) and the slow and coverage lanes run in CI on the pull request, so
+   you need not run them locally first. A change to the documentation alone, including a
+   new or edited SEP, needs only the
    [documentation checks](docs/dev/testing.md#documentation-only-changes).
 5. Open a pull request describing what changed, why, and how it was verified. Say plainly
    what you assumed, skipped or could not make pass. CI runs on every pull request: the
