@@ -1208,6 +1208,193 @@ CouplingModel("scalar_paraxial", ...))`, adds the analytic and sampled inputs,
 `propz` transport and the §4.3 admission, and should fold `IncidentLaunch` into
 the report rather than keep both.
 
+### Phase 2 report — plane exchange
+
+**Delivered (2026-10-24, `feature/sep-0031-simulation-coupling`).**
+
+- `src/solprop/coupling/` (P): `plane.py` (`FieldPlane` and its records), `port.py`
+  (`InputPort`, `CouplingLaunch`, `same_basis`), `remap.py` (`regrid`,
+  `RegridReport`) and `__init__.py`. NumPy and P modules only. The `__init__` holds a
+  comment where the transport core's names are exported.
+- `src/solprop/processing/planes.py` (X): `field_plane(output, plane=-1, *, z=None,
+  source=None)`, re-exported from `solprop.processing`.
+- `src/solprop/translate/coupling.py` (T): `frame_record` (the persisted frame integral),
+  `port_metric` and `input_port` (fills an `InputPort` from a `KernelProblem`).
+- `driver.Simulation.input_port(z=None)` and `with_input(launch)`; `metadata_for` writes
+  the plane-reference record.
+- Output schema 24: `RunMetadata.reference`. Kernel schema unchanged at 35: no protected
+  contract field changed.
+- `CouplingError` in `solprop.exceptions`; `coupling` in the package's submodules.
+- Docs: architecture §3 (the X → T edges and how coupling crosses the layers) and §4,
+  structure figure 1 (the new modules, with `coupling/transport` and `coupling/elements`
+  dashed as planned), provenance and output pages, the API index, a draft
+  `docs/guide/workflows/coupling.md` in the workflows index, a note in
+  interior-launch, and the changelog.
+
+**The `FieldPlane` contract** (frozen, `eq=False`; arrays owned, `writeable=False`):
+
+| field | type and meaning |
+|---|---|
+| `kind` | `'modal' \| 'general_modal' \| 'radial' \| 'cartesian' \| 'planar'` (`planar` is defined but not yet produced) |
+| `samples` | complex128 `(n_modes, n_pol, n_omega)`: the optics-convention raw DFT of each column referenced to the window centre, exactly as an output stores it |
+| `grid` | the `TimeGrid` (layout, time samples, absolute ω lattice, carrier `grid.omega0`) |
+| `units` | `'sqrt(W)'` (modal, general modal), `'V m'` (radial Hankel), `'V/m'` (Cartesian DFT) |
+| `basis` | `PlaneBasis(kind, identity, labels, space)`: `identity` is a SHA-256 digest; `space` is the `RadialGrid`/`FreeGrid` of a spatial plane |
+| `reference` | `PlaneReference(phase, delay, calibrated)`: absolute spectrum = samples × exp(i(φ + ωτ)), ω absolute; τ is the absolute time of the record's t = 0 |
+| `geometry` | `PlaneGeometry(z, side, origin, normal, x_axis)`, right-handed (`y_axis = normal × x_axis`) |
+| `metric` | `PlaneMetric(kind, matrix, admittance, weights, scale, flux, reason)`; kinds `identity`, `dense` (Q = conj(W), `(n, n, n_omega)`), `admittance` (`c k_z/ω` per column, Parseval weights, `eps0 c/2`, optional `SpatialFlux`), `unknown` (with a reason) |
+| `exterior` | `'zero' \| 'unknown'` |
+| `medium` | the `SpatialMedium` of a spatial plane when at hand, else None |
+| `certificate` | read-only mapping: the raw `flux_plan["admission"]` dict with its `scope` |
+| `nodal` | `NodalField(nodes, weights, electric, magnetic)`, `(n_nodes, 3, n_omega)` optics spectra, for a general modal plane read with `source=` |
+| `provenance` | `PlaneProvenance(source, plane, z, lineage, history)` |
+
+Methods: `omega`, `absolute()`, `spectral_energy()`, `energy()`, `node_spectra()` (a
+spatial plane's E at its nodes), `from_pulse(pulse, grid, geometry, *, space, medium,
+reference=None)` (reuses `SpatialPulse.build`) and `from_samples(samples, grid, geometry,
+*, exterior, space=, medium= | basis=, metric=, reference=)`. Helpers:
+`reference_at(record, z)`, `basis_identity(route, record)`, `space_record(space)`,
+`lattice_identity(grid)` and `modal_basis_identity(modes, grid, z)`.
+
+**The `InputPort` contract** (P value type, frozen): `route`, `grid`, `basis`
+(identity, labels, space), `shape` `(n_modes, n_pol, n_omega)`, `geometry` (the
+entrance z and side), `frame` (the receiving run's own frame accumulated from its path
+origin to the entrance, without any inherited origin), `metric` (Q at the entrance:
+identity for ordinary true-power coefficients, conj(W) for a declared general basis, the
+axial admittance of the spatial plane measure), `reference_index` (real phase index
+per bin, spatial media only so far), `nodes`, `node_weights`, `electric` and `magnetic`
+(optics-convention `(n_nodes, 3, n_modes, n_omega)` per √W, filled for a general guide
+that does not move), and `models` (`('same_basis',)`). `identity` digests the route,
+lattice, basis, shape, z and side. `accepts(other)` names the first disagreement among
+route, lattice, basis, shape, side, entrance (relative 1e-12), orientation and metric
+(relative 1e-10). A `CouplingLaunch(port, samples, origin, model, provenance)` is bound
+to its port; `internal()` gives the internal-convention array and `record()` the
+`configuration["coupling"]` entry (`model`, `port`, `origin`, `source`).
+
+**Plane-reference record (output schema 24).** `RunMetadata.reference` =
+`{carrier, origin, parent, frame, basis}`. `frame` holds `frequency_origin` (the frame's
+reference frequency on an envelope grid, zero on a field grid) and the exact Chebyshev
+antiderivatives of the contract's frame tables `linear.beta0` and `linear.beta1`
+(`phase`, `delay`, each `breakpoints` and `coefficients`). Then φ = φ₀ + Φ₀ − ω_o T and
+τ = τ₀ + T. This uses the terms the route removes: `frame_quantities` and the spatial
+`frame_quantities` return β₀ = 0 where the frame keeps it, so a field grid and an
+envelope with THG carry only the linear term, measured from ω = 0 on a field grid and
+from ω_ref on an envelope (`linear.py` `Frame`, `dispersion_operator`). `basis` is the
+route and the basis identity at each planned plane (launch plane first).
+`origin`/`parent` come from `configuration["coupling"]`.
+
+**Deviations and why.**
+
+1. *Extraction is `processing.field_plane`, not `FieldPlane.from_output`* (§5.1).
+   P must not import X; extraction reads an `Output` and reuses
+   `processing.modal`'s checked identities.
+2. *The reference tables are outside the hash.* They are derived from the hashed problem.
+   A resume on another build could evaluate them to a different last bit, and SEP 25
+   forbids a bitwise resume key. The inherited origin, which carries information, is in
+   `configuration["coupling"]`, inside the hash.
+3. *An ordinary mode set's basis identity is its value at the plane*, recorded per planned
+   plane: each mode's class, label, effective area and real n_eff on the active band at
+   that z, quantised to 12 digits, plus the lattice. The full `ModeRecord` would make the
+   exit of a 1 mm capillary a different basis from the entrance of a 2 mm one: a
+   constant-pressure path records its span. A natural-step plane (not planned) has no
+   recorded identity, so it gets an "unrecorded" digest that no port matches.
+4. *`from_pulse` takes `space=`* beside the temporal `grid`, because the beam builder
+   needs both.
+5. *`same_basis` is a public function.* It is the minimal internal path the brief
+   allows, needed by the guide page. Phase 3's `couple(..., CouplingModel("same_basis"))`
+   should dispatch to it.
+6. *Remap alias guard.* The direct sum is evaluated only on target bins within the source
+   lattice's own span. Beyond it, the sum of samples spaced Δt repeats with period
+   2π/Δt and returned aliased light. The first test of a cropped band found this:
+   the energy rose from 1.0 to 1.48 μJ. Loss shares are of a **record norm**
+   (column weights; vacuum-equivalent on a spatial plane, energy on an identity metric).
+   The report's energies are physical.
+7. *Planar planes are refused by name*: a `PlanarGrid` carries its slab modes and has no
+   plain record to rebuild from.
+8. *For a launch, `noise="keep"` means no noise*: the launch carries its source's
+   realised field. Another floor is added only when a realisation is given.
+9. *Runtime literal checks.* Membership checks on `Literal` fields were dropped. The test
+   session's beartype rejects such values first, so the checks would be unreachable
+   under coverage. Static typing covers them.
+10. *Certificate.* On this branch, `flux_from_record` does not rebuild `AdiabaticAdmission`,
+    so the plane carries the raw `flux_plan["admission"]` dict, read-only, with its scope.
+11. *A general-modal plane reads E/H through the `electric_field` capability name*,
+    since `field_plane` is not on the general-modal accessor whitelist.
+
+**Verification run** (targeted, `uv run --no-sync pytest -n auto`; none fail):
+
+- `tests/coupling/` (`test_plane.py`, `test_port.py`, `test_remap.py`): 48 passed.
+- `tests/processing/test_planes.py`: 10 passed.
+- `tests/driver/test_coupling_relaunch.py`: 13 passed, including the 8 medium-tier
+  source/receiver pairs over `numpy_ref`, `numba_cpu` and native CPU.
+- Schema-literal and record modules: 547 passed. Driver, output, processing and
+  backend modules that read the schema or use `with_input`: 627 passed and 302 passed.
+- `tests/test_structure_figures.py`: 278 passed; `tests/test_guide_snippets.py`
+  (compiled): 19 passed. The coupling page's snippets run by hand in 3.7 s.
+- Doctests of the changed modules: 62 passed.
+- ruff, ruff format, basedpyright (0 errors), numpydoc and codespell are clean on the
+  changed files.
+
+Evidence:
+
+- Remap against an independent double sum (no FFT) on equal, longer, finer, field and
+  carrier-shifted targets, from envelope and field sources: within 64(N+N′)ε of the peak.
+  Against the same pulse built on the target: 1e-12. Energy agrees to 1e-10. The copy
+  path on an identical lattice is bitwise. A 40-sample delay moves the peak 40 samples
+  later, and the absolute spectrum is invariant. A phase change is an exact phase. Two
+  separated bands keep the gap at the tails' level (< 1e-12), and a sign-changing
+  spectral zero follows the direct sum.
+- Relaunch: 1 mm + 1 mm of an argon capillary (2 modes, field grid) against 2 mm. At
+  rtol 1e-8 the uninterrupted run is 1.3e-10 from a 1e-11 reference and the relaunched
+  one 1.4e-10. At rtol 1e-6 they are 1.3e-8 and 1.5e-8, so both follow the tolerance.
+  The two references agree to 1e-12. Interior relaunch into the same run and a linear
+  radial two-stage run (1e-10) also pass.
+- A spatial plane's `energy()` equals the run's own `energy` statistic to 1e-12 (radial,
+  Cartesian, uniform and gradient argon). A gradient plane carries its certificate.
+
+`uv run poe docs` builds clean with warnings as errors.
+Not run: the full gate, slow and coverage lanes (end of SEP, per AGENTS.md), and GPU.
+
+**Limitations.** Only the identity model exists: a different basis, lattice or medium is
+refused, not coupled. Ordinary-modal ports carry no profiles or reference index yet. The
+remap's loss shares on a spatial plane are vacuum-weighted. Natural-step modal planes
+cannot be relaunched by `same_basis`. Saved fields are taken as stored, and a
+modified-noise run's auxiliary `noise_phase` is not reconstructed (§4.7). Planar planes
+are refused.
+
+**Open questions.**
+
+1. Should the modal basis identity be a tolerance comparison of n_eff and A_eff, rather
+   than a 12-digit digest? A value within a few ulp of a rounding boundary can split
+   two identical guides. This is improbable but possible on gradient guides.
+2. Should regrid's band loss be reported in physical energy, using the per-bin
+   admittance, as well as in the record norm?
+3. Should a modified-noise run's plane be refused, or reconstructed from its documented
+   saved-field meaning (§4.7)? It is currently taken as stored.
+4. Should `field_plane` join the general-modal accessor whitelist, so the capability gate
+   names it?
+5. `same_basis` refuses light outside the port's active band on an identical lattice.
+   Should it crop with a report instead, as `regrid(crop_band=True)` does?
+6. Should the architecture record `processing.mixtures`' existing import of
+   `translate.flux` as a deliberate edge (now documented in §3), or move the plane-measure
+   rebuild behind a D-layer accessor?
+
+**Handoff to phases 3 and 4.**
+
+- Phase 3 should add `couple(plane, port, model=CouplingModel(...))` with `same_basis`
+  as its identity branch, and fold `IncidentLaunch` into `CouplingResult.report`. The
+  ports need extending: ordinary capillary scalar profiles and the core-gas
+  `reference_index`, weak-guidance step-index, and general modal E/H for moving guides
+  (`translate.coupling.input_port` is the one place to fill them). `from_analytic` is
+  still to be written. `CouplingLaunch` and `with_input`'s binding check are reusable as
+  they stand.
+- Phase 4 should keep `FieldPlane` immutable and return new planes. It should append
+  to `provenance.history`, update `PlaneReference.calibrated` where an optical model
+  drops an affine term, and re-resolve a spatial metric through `PlaneMetric.flux`.
+  Mirrors and rotations should change `PlaneGeometry.normal`/`x_axis` together with the
+  polarisation. The names belong at the marked comment in `coupling/__init__.py`, and
+  the dashed boxes in `docs/dev/figures/build.py` turn solid when the files land.
+
 ## Part III — History
 
 - 2026-10-22: Drafted after auditing existing launch, projection, spatial flux,
@@ -1242,6 +1429,7 @@ the report rather than keep both.
 - 2026-10-23: In progress. Implementation started on a branch cut from SEP 34's
   implementation branch; it reaches main through its own pull request after
   SEP 34 has merged.
+- 2026-10-24: Phase 2, plane exchange, implemented; report in Part II.
 
 ### AI review — 2026-10-23
 
