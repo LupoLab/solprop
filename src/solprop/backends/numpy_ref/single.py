@@ -4,19 +4,20 @@
 
 """The single-precision path of the reference backend: SEP 33's oracle.
 
-:class:`NumpySingleBackend` is :class:`~solprop.backends.numpy_ref.NumpyRefBackend`
-with the propagated state, the stage values, every transform and the responses held in
-IEEE binary32, under the contract of ``docs/dev/seps/sep-0033-single-precision-mlx.md``
-section 4.2. It is the target the ``mlx`` backend is compared against, so it keeps the
-reference's one-function-per-pass shape and states every order it sums in.
+:class:`NumpySingleBackend` is
+:class:`~solprop.backends.numpy_ref.backend.NumpyRefBackend` with the propagated state,
+the stage values, every transform and the responses held in IEEE binary32, under the
+contract of ``docs/dev/seps/sep-0033-single-precision-mlx.md`` section 4.2. It is the
+target the ``mlx`` backend is compared against, so it keeps the reference's
+one-function-per-pass shape and states every order it sums in.
 
 What is binary32 and what is not:
 
 * **The state** is held as ``a / s``, ``s`` the launch's exact power-of-two scale
-  (:func:`solprop.translate.precision.state_scale`). :meth:`observe` and the statistics
+  (:func:`solprop.translate.precision.state_scale`). ``observe`` and the statistics
   read ``s`` times the state, widened to binary64, which is exact.
 * **The tables** a source evaluation multiplies by are narrowed once at construction
-  (:meth:`_upload`). Each has its block exponent
+  (``_upload``). Each has its block exponent
   (:func:`solprop.translate.precision.block_exponent`); where narrowing the table
   directly keeps every entry the block-exponent form keeps (the table's largest
   magnitude at least one, or no entry below binary32's smallest normal), the exponent is
@@ -81,7 +82,12 @@ from solprop.translate.tdse import TDSEBinding
 
 __all__ = [
     "NumpySingleBackend",
+    "analytic_single",
+    "kerr_single",
+    "plasma_current_single",
+    "raman_single",
     "running_integral",
+    "single_sources",
     "stable_population",
 ]
 
@@ -337,7 +343,7 @@ class NumpySingleBackend(NumpyRefBackend):
         Returns
         -------
         dict
-            As :meth:`NumpyRefBackend.stats`.
+            As :meth:`solprop.backends.numpy_ref.backend.NumpyRefBackend.stats`.
         """
         held = self._require_state()
         self._state = self._observed_field(held)

@@ -392,7 +392,7 @@ def single_precision_rows(
 
     SEP 33 section 6.1: the element sizes follow the precision. Every buffer the
     single-precision path holds in binary32 is half the reference's; the rows of
-    :data:`_BINARY64_ROWS` stay as they are; the narrowed copies of the source tables
+    ``_BINARY64_ROWS`` stay as they are; the narrowed copies of the source tables
     and the binary64 state the statistics widen are added.
 
     Parameters

@@ -1043,6 +1043,123 @@ the drift constant `c` of the constant-operator tests (§7.2) and the step count
 development records (SEP 30's rule); the verdicts, the constants and the limits are
 recorded here and on the manual page.
 
+### Phase 1 — report (2026-10-24)
+
+**Delivered.**
+
+- `solprop.translate.precision`: the `Precision` record (`DOUBLE`, `SINGLE`), the shared
+  admission `admit_precision` with its private study route `study_admission`, the floor
+  `SINGLE_RTOL_FLOOR`, and the range and reduction helpers (`block_exponent`, `narrow`,
+  `launch_peak`, `state_scale`, `Coefficient`/`combine`, `pairwise_sum`, `prefix_sum`,
+  `scaled_square_sum`).
+- `KernelProblem.precision` (kernel schema 36) with the route refusals in `validate`;
+  `SimulationSettings.precision`, the integrator resolved by precision, the `auto`
+  refusal; `precision=` and the floor default on `prop_gnlse`, `prop_capillary` and
+  `prop_waveguide`; the precision in every hashed configuration (output schema 25).
+  `numba_cpu` and `native` (schema 36) refuse single precision by name.
+- `numpy_ref`'s single-precision path, `backends/numpy_ref/single.py`
+  (`NumpySingleBackend`), reached through hooks of the reference that leave its binary64
+  arithmetic unchanged (`SourceTables`, `_propagator`, `_rounded`, `_error_norm`,
+  `_envelope_sources`, `StepDriver._norm_controller`); dtype-following buffers in
+  `passes.to_time`, the radial plasma spectrum and the host Adams store; the memory rows
+  (`single_precision_rows`).
+- `tests/bounds.py` parameterised by the roundoff (`UNIT_ROUNDOFF_32`, `EPS_32`);
+  `tests/translate/test_precision.py` and `tests/backends/test_single_precision.py`
+  (class R on every route and response family, class P scaling and reload, the review's
+  counterexamples, refusals, guards, failure on every march, memory).
+- ADR-052; architecture.md §1, conventions.md §6, kernel-contract.md, backends.md (§2,
+  §9, §11), testing.md §3; the manual page *Single precision*; the changelog.
+
+**How the contract is implemented on the oracle** (implementation choices within §4.2,
+recorded here as the target `mlx` is compared against):
+
+- *Block exponents.* Every narrowed table has its exponent computed and recorded
+  (`block_exponents`). Where narrowing the table directly keeps every entry the
+  block-exponent form keeps — its largest magnitude at least one, or no entry below
+  binary32's smallest normal number — the exponent is applied at upload, exactly;
+  otherwise the table is refused unless its pass carries the exponent, as the Raman
+  kernel's does. The same rule governs every host-evaluated array rounded per stage.
+- *Host evaluation.* Every z-dependent array a pass multiplies by — the propagator, the
+  prefactor, a z-table value, the spatial collar's rate, the Adams flow and its
+  moments — is evaluated in binary64 and rounded once, as is the ionisation rate's table
+  lookup (whose binary32 logarithm would add `|ln E| u` to its argument), and the
+  envelope-grid plasma's sources (moments, populations, currents). The oracle's
+  statistics are binary64 functions of the exactly widened binary32 state.
+- *Homogeneity.* Kerr and Raman take `s²` in their combined coefficient; the plasma is
+  evaluated at the physical field `s E` (exact) and its current divided by `s` (exact),
+  which is §4.3's table of factors.
+- *Orders.* Running integrals use the doubling scan `prefix_sum` (each prefix of depth at
+  most `ceil(log2 n)`); norms are scaled sums of squares reduced by `pairwise_sum`.
+
+**Survival study** (cases and criteria above; references all passed their `1e-9` check;
+the harness's metrics are relative errors at the last plane):
+
+| case | single `1e-6`: field | largest other | single `1e-5`: field | verdict |
+|---|---|---|---|---|
+| `spm` | 7.9e-6 | 9.6e-5 bands | 9.3e-5 | survives |
+| `soliton` | 2.7e-5 | 6.5e-6 peak | 2.4e-5 | survives |
+| `rdw` | 2.6e-6 | 4.9e-5 bands | 1.7e-5 | survives |
+| `ctc` | 2.6e-3 | 3.4e-4 peak | 1.3e-3 | survives with a limit: 0.05 m (field 4.3e-5 there; 0.025 m 6.6e-6) |
+| `argon` | 1.8e-4 | 2.1e-4 bands | 5.2e-4 | survives |
+| ENVELOPE_PART2
+| `nitrogen` | 1.1e-6 | 2.7e-5 bands | 3.1e-6 | survives |
+| `radial_kerr` | 8.5e-6 | 1.3e-4 bands | 1.3e-4 | survives |
+| `radial_filament` | 2.3e-6 | 1.2e-5 peak | 1.3e-5 | survives |
+| `cartesian_diffraction` | 2.4e-7 | 2.4e-7 bands | 2.4e-7 | survives |
+| `cartesian_kerr` | 2.7e-6 | 2.0e-5 bands | 7.4e-5 | survives |
+
+- *The CtC limit is the physics.* A binary64 run whose launch carries an additive seed of
+  `2^-24` of its peak spectral amplitude in every active bin departs from the reference
+  by 5.1e-2 at 0.1 m and 2.3e-3 at 0.05 m (the soliton: 5.8e-7): noise-free stimulated
+  Raman scattering amplifies any rounding-sized Stokes seed, and binary32's rounding is
+  one. A multiplicative perturbation of the same size, which seeds no empty bin, moves
+  the result by 3.4e-7 only.
+- *The floor* stays at `1e-6` (Q1): the floor rule does not hold (`spm`'s field error
+  falls by 92 % from `1e-5` to `1e-6`).
+- *Adams* (Q2) is **not admitted** by the rule: on `argon` at `1e-5` its field error is
+  1.5e-3 (outside the envelope, three times Runge–Kutta's), and on `rdw` at `1e-6` its
+  energy error is 1.6e-7 against Runge–Kutta's 6.9e-8. The binary64 Adams runs at the
+  same tolerances have the same errors (argon at `1e-5`: field 1.5e-3; rdw at `1e-6`:
+  field 2.7e-6 against 2.6e-6 in binary32): the failure is Adams's truncation error at
+  those tolerances, not single precision. The rule as fixed compares with Runge–Kutta in
+  binary32, so the default stays `RungeKutta()` and `Multistep` stays refused; whether a
+  rule comparing Adams in binary32 with Adams in binary64 should decide phase 4 is the
+  maintainer's (open).
+- *The propagator drift* (`harness/drift.py`; constant operator, no source, uniform
+  steps): on a He capillary's field-grid operator the error is 4.5e-7, 2.9e-6, 3.1e-5
+  and 3.1e-4 after 10, 100, 1000 and 10 000 steps, `c` = 0.49–0.53 for `M >= 100`
+  (0.76 at 10, where the launch's rounding dominates); on the GNLSE operator `c` falls
+  from 0.32 to 0.085, rounding of the state averaging out. The field envelope 10⁻³ is
+  reached at `M ≈ 3.2e4` steps at `c = 0.53`; the manual page states it. The
+  binary32-exponent variant gives the same errors to 2 % for `M >= 100` (2.5 against
+  0.76 at 10): in these frames the occupied bins' `|dPhi|` per step is small, so the
+  review's witness (`|dPhi| ~ 10^3`) does not arise on these routes; the
+  binary64-accurate propagator costs nothing on the oracle and is kept.
+
+**Findings for later phases.**
+
+- *The inverse propagator's range.* In binary32 `exp(-dPhi)` overflows when a step's
+  damping exceeds about 88 nepers (709 in binary64). No study case reached it; an
+  adaptive run would reject such a step as non-finite and shrink it, a replayed one stops
+  with `ConvergenceError`. `mlx` (phase 2) records whether a strong collar on a long step
+  reaches it.
+- *Envelope plasma on the oracle is slow*: the per-sample decomposition and adaptive
+  quadrature run in Python, which made the 0.4 m envelope case's `1e-10` reference take
+  hours; ENVELOPE_NOTE
+- *Adams snapshots under single precision* (`HostHistory.load_rows`) still restore a
+  binary64 store; phase 4 revisits the layout, as §5.3 says.
+
+**Deviations.** None from Part I. The study ran on reduced windows as §7.3 says; the two
+CtC lengths and the perturbation witness were added to state the CtC limit, and are not
+new criteria.
+
+**Verification.** The new test modules pass (39 tests); the reference's existing tests
+pass unchanged (746 in the `numpy_ref`, memory, batch, held-plasma and registry modules;
+4302 in `tests/translate`, `tests/output`, `tests/processing` and `tests/driver` after the
+expected record pins: schema-21 projections leave out the precision as they leave out
+SEP 34's measure); native's backend tests pass with schema 36. CI runs the full gate on
+the SEP's pull request.
+
 ## Part III — History
 
 - 2026-10-23: Drafted, after an indicative synthetic MLX measurement on an Apple-silicon laptop.

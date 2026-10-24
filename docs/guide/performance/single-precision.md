@@ -79,8 +79,43 @@ $10^{-38}$ and $3\times10^{38}$. solprop keeps both from limiting a run:
 
 ## The survival record
 
-```{include} single-precision-record.md
-```
+Each case below was run in single precision at `rtol = 1e-6` and `1e-5` and compared, at
+the end of its window, with a binary64 run on the same grid at `rtol = 1e-10`, against
+accuracy envelopes fixed before any comparison: the field to $10^{-3}$, the spectral
+energy in each of 32 bands above −40 dB to 1 %, the total energy to $10^{-4}$, the peak
+power or intensity, the final ionised fraction and the beam width to $10^{-3}$, all
+relative. The table gives the largest of those relative errors at `rtol = 1e-6`, the
+field's error, and binary64's own field error at the same tolerance for comparison.
+
+| case | single: field error | largest other metric | binary64 at `1e-6`: field | verdict |
+|---|---|---|---|---|
+| self-phase modulation, 10π, no dispersion (GNLSE) | 7.9e-6 | 9.6e-5 (bands) | 1.9e-6 | survives |
+| fundamental soliton, ten periods (GNLSE) | 2.7e-5 | 6.5e-6 (peak) | 1.1e-6 | survives |
+| dispersive-wave emission, He capillary gradient, two modes, 1.5 m | 2.6e-6 | 4.9e-5 (bands) | 1.3e-6 | survives |
+| comb-to-continuum, H₂ capillary at 40 bar, 0.1 m, noise-free | 2.6e-3 | 3.4e-4 (peak) | 3.0e-7 | survives over 0.05 m |
+| plasma blue shift, Ar capillary, field grid, 0.4 m | 1.8e-4 | 2.1e-4 (bands) | 1.6e-4 | survives |
+| ENVELOPE_ROW
+| molecular Raman, N₂ capillary at 2 bar, 0.3 m | 1.1e-6 | 2.7e-5 (bands) | 1.6e-7 | survives |
+| radial Kerr beam, 0.3 m | 8.5e-6 | 1.3e-4 (bands) | 8.6e-6 | survives |
+| radial filament in argon with plasma, 3 cm | 2.3e-6 | 1.2e-5 (peak) | 2.2e-6 | survives |
+| Cartesian Gaussian diffraction, 64 × 64 | 2.4e-7 | 2.4e-7 (bands) | 0 | survives |
+| Cartesian Kerr beam, 64 × 64 | 2.7e-6 | 2.0e-5 (bands) | 4.2e-6 | survives |
+
+At `rtol = 1e-5` every case but the comb-to-continuum stays inside its envelopes too.
+
+- **The comb-to-continuum limit.** Noise-free stimulated Raman scattering grows from
+  whatever seed the Stokes band holds; rounding seeds it at the level of the unit
+  roundoff times the field. In binary64, adding a seed of $2^{-24}$ of the launch's peak
+  spectral amplitude moves the result at 0.1 m by 5 %: the sensitivity is the
+  physics, and binary32's own rounding is such a seed. Over 0.05 m the run is inside
+  every envelope.
+- **The tolerance floor** stays at `1e-6`: tightening from `1e-5` to `1e-6` still buys
+  accuracy (by 92 % in the self-phase-modulation case's field).
+- **The propagator's step limit.** With no nonlinear source the rounding of
+  $e^{\Delta\Phi}$ accumulates as $c\,M\,u$ after $M$ steps, with $c \approx 0.5$
+  measured on a capillary operator over $10^2$–$10^4$ steps (0.1–0.3 on a GNLSE one).
+  The field envelope of $10^{-3}$ is reached after about $3\times10^4$ steps; a run
+  that needs more takes binary64.
 
 ## Known limitations
 

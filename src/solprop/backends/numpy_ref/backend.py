@@ -121,7 +121,7 @@ from solprop.translate.tdse_source import (
     steady_current_certificate,
 )
 
-__all__ = ["QUADRATURE_ALARM", "BlockResidual", "NumpyRefBackend"]
+__all__ = ["QUADRATURE_ALARM", "BlockResidual", "NumpyRefBackend", "SourceTables"]
 
 logger = logging.getLogger(__name__)
 
