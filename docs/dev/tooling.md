@@ -177,7 +177,12 @@ build works offline and survives a flaky mirror; refresh the copies occasionally
 ## CI
 
 `.github/workflows/ci.yml` runs on every push to `main` and every pull request, with
-`SOLPROP_FFTW_PLAN=estimate`:
+`SOLPROP_FFTW_PLAN=estimate`. Its first job, **changes**, compares the commit with its
+base: when only `docs/` and Markdown files changed, static, docs and **docs-tests** run
+(the test modules that open a documentation file: the SEP structure, the guide's
+snippets, the accuracy page, the catalogues, the kernel contract and the figures), and
+the test lanes below are skipped. Any other change, or a push whose base is unknown, runs
+every job except docs-tests:
 
 - **static** (Linux): `uv lock --check`, ruff (lint and format check), `poe types`,
   `poe docstrings`, `poe spell`, `poe reuse`.
@@ -200,8 +205,9 @@ build works offline and survives a flaky mirror; refresh the copies occasionally
   installed, then the default lane with `SOLPROP_TEST_BACKEND=native`.
 
 `.github/workflows/wheels.yml` builds the native release wheels (Linux x86-64 and
-aarch64, macOS arm64, Windows x64) on pull requests that touch `native/`, on release tags
-and by hand, tests each installed wheel, and publishes on a release tag once enabled
+aarch64, macOS arm64, Windows x64) on pull requests that change the wheel recipe
+(`native/ci/`, `native/pyproject.toml`, the CMake files, the workflow), weekly, on release
+tags and by hand, tests each installed wheel, and publishes on a release tag once enabled
 ([Releasing and the native wheels](releasing.md)).
 
 `numba_cpu` needs no job of its own: without solprop-native installed, `backend="auto"`
