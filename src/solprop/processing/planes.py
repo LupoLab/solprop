@@ -7,7 +7,7 @@
 :func:`field_plane` turns a stored plane into a
 :class:`solprop.coupling.plane.FieldPlane`: its native coefficients exactly as stored,
 the reference rebuilt from the run's schema-24 plane-reference record, the medium's
-metric at the plane's own position, the scoped path certificate and the provenance.
+metric at the plane's own position, the path certificate and the provenance.
 It is the extraction half of plane exchange; the manual page is
 ``docs/guide/workflows/coupling.md``.
 
@@ -24,6 +24,7 @@ from typing import cast
 import numpy as np
 
 from solprop import fourier
+from solprop.adiabatic import AdiabaticAdmission
 from solprop.constants import EPS0, C
 from solprop.coupling import (
     FieldPlane,
@@ -233,7 +234,7 @@ def _spatial_metric(
     space: RadialGrid | FreeGrid,
     z: float,
     source: object | None,
-) -> tuple[PlaneMetric, SpatialMedium | None, Mapping[str, object] | None]:
+) -> tuple[PlaneMetric, SpatialMedium | None, AdiabaticAdmission | None]:
     """Return a spatial plane's admittance metric, medium and path certificate.
 
     Parameters
@@ -253,7 +254,7 @@ def _spatial_metric(
     -------
     tuple
         The metric (with a resolved measure when the medium is at hand), the
-        medium or None, and the path certificate or None.
+        medium or None, and the path certificate the record rebuilds, or None.
 
     Raises
     ------
@@ -264,11 +265,8 @@ def _spatial_metric(
     if "flux_plan" not in spatial:
         msg = "this spatial output carries no plane measure (output schema 23)"
         raise ProcessingError(msg)
-    plan_record = cast("Mapping[str, object]", spatial["flux_plan"])
-    admittance = axial_admittance(
-        flux_from_record(plan_record).at(z), grid.omega, slice(None)
-    )
-    certificate = plan_record.get("admission")
+    plan = flux_from_record(cast("Mapping[str, object]", spatial["flux_plan"]))
+    admittance = axial_admittance(plan.at(z), grid.omega, slice(None))
     medium = None
     flux = None
     if source is not None:
@@ -289,11 +287,7 @@ def _spatial_metric(
         scale=0.5 * EPS0 * C,
         flux=flux,
     )
-    return (
-        metric,
-        medium,
-        None if certificate is None else cast("Mapping[str, object]", certificate),
-    )
+    return metric, medium, plan.admission
 
 
 def _modal_profiles(
@@ -439,8 +433,9 @@ def field_plane(
     plane's stored position; the metric is the run's own at that position -- the
     axial admittance of a spatial plane (SEP 34), the identity for ordinary
     true-power coefficients, a general basis's Gram; the path certificate is the
-    spatial record's, with its scope. Radial, Cartesian, ordinary modal and general
-    modal runs are read; a hybrid planar run is refused by name.
+    :class:`~solprop.adiabatic.AdiabaticAdmission` the spatial record rebuilds.
+    Radial, Cartesian, ordinary modal and general modal runs are read; a hybrid
+    planar run is refused by name.
 
     Parameters
     ----------

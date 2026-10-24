@@ -39,13 +39,15 @@ from solprop.coupling import (
 )
 from solprop.coupling.coupler import _contrast_items, _gain_item
 from solprop.coupling.models import cone_angle, radial_rule
-from solprop.driver import Simulation
+from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import CouplingError
-from solprop.grid import FreeGrid, RadialGrid
+from solprop.grid import FieldGrid, FreeGrid, RadialGrid
 from solprop.modes import MarcatiliMode, Mode, StepIndexMode
 from solprop.processing import field_plane
+from solprop.profiles import PressureGradient
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
+from solprop.stepper import PIController
 
 RADIUS = 75e-6
 PRESSURE = 3.0
@@ -903,3 +905,40 @@ def test_the_report_prints_and_carries_its_terms(port):
     angle = cone_angle(0.05)
     assert 1 - math.cos(angle) == pytest.approx(0.05 / 8, rel=1e-14)
     assert EPS0 > 0
+
+
+def test_a_source_path_certificate_is_carried_beside_the_coupling(port):
+    """A gradient run's rebuilt certificate reaches the report, separately."""
+    grid = FieldGrid.from_limits(2e-3, 800e-9, (600e-9, 1.2e-6), 400e-15)
+    gradient = Simulation.from_radial(
+        grid,
+        RadialGrid(6e-4, 32),
+        SpatialMedium("Ar", PressureGradient.two_point(2e-3, 1.0, 2.0)),
+        [],
+        SpatialPulse(GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 6e-5),
+        settings=SimulationSettings(
+            controller=PIController(rtol=1e-8, atol=1e-14),
+            save_planes=[2e-3],
+            dz_max=2e-4,
+            dz_init=2e-4,
+            backend="numpy_ref",
+        ),
+    )
+    flux = gradient.translate().flux
+    assert flux is not None and flux.admission is not None
+    plane = dataclasses.replace(
+        FieldPlane.from_analytic(
+            port.grid,
+            PlaneGeometry(0.0),
+            radial_beam(port.grid, 0.5 * RADIUS),
+            space=RadialGrid(400e-6, 128),
+            medium=MEDIUM,
+        ),
+        certificate=flux.admission,
+    )
+    report = couple(plane, port, model=SCALAR).report
+    assert report.certificate is flux.admission
+    assert "path certificate" in str(report)
+    plain = couple(dataclasses.replace(plane, certificate=None), port, model=SCALAR)
+    assert plain.report.certificate is None
+    assert "path certificate" not in str(plain.report)

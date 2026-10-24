@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from solprop.adiabatic import AdiabaticAdmission
 from solprop.coupling import reference_at
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import ProcessingError
@@ -174,15 +175,32 @@ def test_a_spatial_plane_carries_its_medium_s_measure(space, tmp_path):
         field_plane(memory, 1, source=other)
 
 
-def test_a_gradient_plane_carries_its_scoped_path_certificate():
+def test_a_gradient_plane_carries_its_rebuilt_path_certificate(tmp_path):
     simulation = spatial(
         RadialGrid(6e-4, 32), PressureGradient.two_point(2e-3, 1.0, 2.0)
     )
-    plane = field_plane(simulation.run(progress="none"))
-    assert plane.certificate is not None
-    assert plane.certificate["scope"] == "linear-background forward field"
-    with pytest.raises(TypeError):
-        plane.certificate["scope"] = "anything"  # pyright: ignore[reportIndexIssue]
+    admitted = simulation.translate().flux
+    assert admitted is not None and admitted.admission is not None
+    expected = admitted.admission
+    path = tmp_path / "gradient.h5"
+    memory = simulation.run(progress="none")
+    simulation.run(path, progress="none")
+    for output in (memory, open_file(path)):
+        plane = field_plane(output)
+        certificate = plane.certificate
+        assert isinstance(certificate, AdiabaticAdmission)
+        # The record rebuilds the run's own certificate: its numbers are copied
+        # through the file, so they are exact; the path's identity comes back as
+        # the text it was recorded as.
+        assert certificate.z_span == expected.z_span
+        assert certificate.variation == expected.variation
+        assert certificate.field_error == expected.field_error
+        assert certificate.reflection == expected.reflection
+        assert certificate.accuracy == expected.accuracy
+        assert np.array_equal(certificate.support, expected.support)
+        assert certificate.identity == {"recorded": repr(dict(expected.identity))}
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            certificate.variation = 0.0  # pyright: ignore[reportAttributeAccessIssue]
 
 
 @pytest.fixture(scope="module")

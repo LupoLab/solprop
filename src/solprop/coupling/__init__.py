@@ -26,17 +26,6 @@ from solprop.coupling.coupler import (
     CouplingResult,
     couple,
 )
-from solprop.coupling.envelopes import (
-    CAPILLARY_ENVELOPE,
-    STEP_INDEX_ENVELOPE,
-    PairEnvelope,
-)
-from solprop.coupling.models import (
-    BasisChange,
-    CouplingModel,
-    ScalarModeBasis,
-)
-from solprop.coupling.outcouple import Outcouple, OutcoupleResult
 from solprop.coupling.elements import (
     Alignment,
     Aperture,
@@ -49,6 +38,17 @@ from solprop.coupling.elements import (
     ThinLens,
     TransmissionMask,
 )
+from solprop.coupling.envelopes import (
+    CAPILLARY_ENVELOPE,
+    STEP_INDEX_ENVELOPE,
+    PairEnvelope,
+)
+from solprop.coupling.models import (
+    BasisChange,
+    CouplingModel,
+    ScalarModeBasis,
+)
+from solprop.coupling.outcouple import Outcouple, OutcoupleResult
 from solprop.coupling.plane import (
     PLANE_KINDS,
     AnalyticRecord,

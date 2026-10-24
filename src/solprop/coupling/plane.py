@@ -46,13 +46,13 @@ import json
 import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from types import MappingProxyType
 from typing import Literal, cast
 
 import numpy as np
 from jaxtyping import Complex, Float
 
 from solprop import fourier
+from solprop.adiabatic import AdiabaticAdmission
 from solprop.constants import EPS0, C
 from solprop.coupling.models import ScalarModeBasis
 from solprop.exceptions import CouplingError, PulseError
@@ -1098,9 +1098,11 @@ class FieldPlane:
         outside their window and grid; a cropped measurement may not be.
     medium : solprop.spatial.SpatialMedium or None, optional
         The bulk medium at a spatial plane, when it is at hand.
-    certificate : collections.abc.Mapping or None, optional
-        The scoped path certificate of the producing run (SEP 34, section 4.5),
-        read-only; it bounds the linear background path, not the whole run.
+    certificate : solprop.adiabatic.AdiabaticAdmission or None, optional
+        The path certificate of the producing run through a varying medium (SEP 34,
+        section 4.5), as its record rebuilds it, the path's identity kept as the
+        recorded text. Its scope is the linear background's forward field: it
+        bounds the background path, not the nonlinear run or an omitted reflection.
     nodal : NodalField or None, optional
         Physical E (and H) at transverse nodes, for a general modal plane read with
         its source simulation.
@@ -1131,7 +1133,7 @@ class FieldPlane:
     metric: PlaneMetric
     exterior: Exterior = "zero"
     medium: SpatialMedium | None = None
-    certificate: Mapping[str, object] | None = None
+    certificate: AdiabaticAdmission | None = None
     nodal: NodalField | None = None
     provenance: PlaneProvenance = field(default_factory=PlaneProvenance)
     profiles: ScalarModeBasis | None = None
@@ -1157,10 +1159,6 @@ class FieldPlane:
             msg = "scalar profiles describe the columns of an ordinary modal plane"
             raise CouplingError(msg)
         object.__setattr__(self, "samples", samples)
-        if self.certificate is not None:
-            object.__setattr__(
-                self, "certificate", MappingProxyType(dict(self.certificate))
-            )
 
     def __repr__(self) -> str:
         """Return a one-line description without arrays.

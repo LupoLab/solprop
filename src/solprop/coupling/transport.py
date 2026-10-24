@@ -29,11 +29,12 @@ writing a new element; :func:`transport` is the one public way to run a sequence
 """
 
 import dataclasses
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
 
+from solprop.adiabatic import AdiabaticAdmission
 from solprop.constants import C
 from solprop.coupling.elements import (
     Element,
@@ -90,10 +91,9 @@ class TransportReport:
         The plane's reference before and after.
     frame : str
         Where each free-space frame term came from; empty without a gap.
-    source_certificate : collections.abc.Mapping or None
-        The source plane's scoped path certificate (SEP 34 §4.5), carried as its
-        own item: it bounds the producing run's linear background path, not this
-        transport.
+    source_certificate : solprop.adiabatic.AdiabaticAdmission or None
+        The source plane's path certificate (SEP 34 §4.5), carried as its own item:
+        it bounds the producing run's linear background path, not this transport.
     """
 
     elements: tuple[ElementReport, ...]
@@ -106,7 +106,7 @@ class TransportReport:
     reference_in: PlaneReference | None = None
     reference_out: PlaneReference | None = None
     frame: str = ""
-    source_certificate: Mapping[str, object] | None = None
+    source_certificate: AdiabaticAdmission | None = None
 
     @property
     def ledger_residual(self) -> float:

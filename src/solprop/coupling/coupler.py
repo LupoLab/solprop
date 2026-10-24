@@ -65,6 +65,7 @@ from scipy.special import j0
 
 from solprop import fourier
 from solprop._display import Displayed, engineering, line
+from solprop.adiabatic import AdiabaticAdmission
 from solprop.constants import EPS0, C
 from solprop.coupling.envelopes import (
     CAPILLARY_ENVELOPE,
@@ -201,9 +202,10 @@ class CouplingReport(Displayed):
     exterior : str
         What the source plane says beyond its record: ``'zero'`` or ``'unknown'``
         (unobserved tails are unknown, not lost).
-    certificate : collections.abc.Mapping or None
-        The source plane's SEP 34 path certificate, with its scope, carried
-        separately: it bounds the linear background path, not the coupling.
+    certificate : solprop.adiabatic.AdiabaticAdmission or None
+        The source plane's SEP 34 path certificate, carried separately: its scope
+        is the linear background's forward field, so it bounds the source's
+        background path, not the coupling.
     source : collections.abc.Mapping
         The source plane's provenance.
     port : str
@@ -219,7 +221,7 @@ class CouplingReport(Displayed):
     captured_reason: str
     items: tuple[AdmissionItem, ...]
     exterior: str
-    certificate: Mapping[str, object] | None
+    certificate: AdiabaticAdmission | None
     source: Mapping[str, object]
     port: str
 
@@ -238,10 +240,6 @@ class CouplingReport(Displayed):
             object.__setattr__(self, name, array)
         object.__setattr__(self, "items", tuple(self.items))
         object.__setattr__(self, "source", MappingProxyType(dict(self.source)))
-        if self.certificate is not None:
-            object.__setattr__(
-                self, "certificate", MappingProxyType(dict(self.certificate))
-            )
 
     @property
     def uncaptured(self) -> Float[np.ndarray, " n_omega"] | None:
@@ -381,6 +379,15 @@ class CouplingReport(Displayed):
             value = "n/a" if item.value is None else f"{item.value:.3e}"
             rows.append((item.name, f"{value} ({item.scope}) {item.note}".rstrip()))
         rows.append(("exterior", self.exterior))
+        if self.certificate is not None:
+            certificate = self.certificate
+            rows.append(
+                (
+                    "path certificate",
+                    f"field error {certificate.field_error:.3e}, reflection "
+                    f"{certificate.reflection:.3e} (source's linear background path)",
+                )
+            )
         return "CouplingReport: a field coupled into an input port", rows
 
 
