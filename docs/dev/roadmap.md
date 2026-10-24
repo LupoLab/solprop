@@ -911,6 +911,22 @@ a general offset time-axis API, independently asymmetric absorber ramps, and ada
 recentering or grid expansion, with consistent history, response memory, noise and
 output-coordinate transport. Those require a separate design and remain outside SEP 21.
 
+**A phase-space filter for the temporal boundary.** Soffer and Stucchio's
+time-dependent filter (J. Comput. Phys. 225, 1218, 2007) deletes only the windowed
+Fourier content a free flow would carry out of the window, so it adds no stiff term
+to the equation. Its free-buffer assumption, its interval cap for broadband fields and
+its restart of multistep history are untested here.
+[SEP 21](seps/sep-0021-absorbing-boundaries.md) §4.9 analyses it; a prototype on the
+Runge–Kutta path, against the wide-window reference, was removed from that SEP's
+campaign and would be measured first.
+
+**A directional collar occupancy.** Classifying the content of each temporal collar as
+outgoing, incoming or unresolved from its windowed spectrum and group delay could help
+separate wrap-around and reflection from ordinary outgoing radiation, though incoming
+content can also be genuine returning physics. Removed from
+[SEP 21](seps/sep-0021-absorbing-boundaries.md); worth evaluating offline on saved
+planes against its wide-window cases before adding a diagnostic.
+
 **A self-focusing collapse estimate.** The critical power is provided
 ({func}`~solprop.spatial.critical_power`), but not the Marburger estimate of the collapse
 distance, which the radial tutorial computes by hand.
