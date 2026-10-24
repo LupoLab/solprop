@@ -274,7 +274,7 @@ def test_the_printed_block_prints_every_schema_seven_field_with_its_value(writte
         assert value in block, (line, value)
     # The long `model_id` itself is on the record, and not in the printed row.
     assert str(at(modal, "tables", "model_id")) not in block
-    assert "schema 24" in block
+    assert "schema 25" in block
     # Twelve rows for thirteen fields: the basis row carries `n_components` too.
     printed = {key for key, _ in stored._describe()[1]}
     assert len(printed & MODAL_ROWS) == len(MODAL_ROWS)

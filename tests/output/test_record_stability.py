@@ -120,7 +120,16 @@ def split(kind: str):
             if key not in ("flux_model", "flux_plan")
         }
     )
-    historical = dataclasses.replace(metadata, schema_version=21, spatial=spatial)
+    # SEP 33 records every run's precision in its configuration (output schema 25);
+    # the schema-21 projection leaves it out too.
+    configuration = {
+        key: value
+        for key, value in metadata.configuration.items()
+        if key != "precision"
+    }
+    historical = dataclasses.replace(
+        metadata, schema_version=21, spatial=spatial, configuration=configuration
+    )
     return record_skeleton(without_optmat_release(historical.hashed()))
 
 

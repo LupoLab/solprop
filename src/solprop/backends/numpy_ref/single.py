@@ -245,27 +245,20 @@ class NumpySingleBackend(NumpyRefBackend):
             directly would lose and a block exponent would keep.
         """
         source = np.asarray(values)
-        exponent = block_exponent(source)
-        self.block_exponents[name] = exponent
-        magnitude = np.abs(source)
-        largest = float(np.max(magnitude, initial=0.0))
-        if largest >= _HUGE:
-            msg = f"the {name} table reaches {largest:.3e}, beyond binary32's range"
-            raise BackendError(msg)
-        if exponent < 0 and bool(np.any((magnitude > 0.0) & (magnitude < _TINY))):
-            msg = (
-                f"the {name} table holds entries below binary32's smallest normal "
-                f"number beside a largest of {largest:.3e}: its pass must carry its "
-                "block exponent, and none does (SEP 33 section 4.3)"
-            )
-            raise BackendError(msg)
+        self.block_exponents[name] = block_exponent(source)
+        _check_range(source, f"the {name} table")
         dtype = self._complex if np.iscomplexobj(source) else self._real
         narrowed = np.ascontiguousarray(source, dtype=dtype)
         narrowed.setflags(write=False)
         return narrowed
 
     def _cast(self, values: Inexact[np.ndarray, "*shape"]) -> np.ndarray:
-        """Round a host-evaluated binary64 array once, refusing a lost value.
+        """Round a host-evaluated binary64 array once, keeping its range.
+
+        The rule of :meth:`_upload`: narrowing directly keeps every entry the
+        block-exponent form keeps when the largest magnitude is at least one, and when
+        no entry falls below binary32's smallest normal number; an entry flushed then
+        lies below ``2**-126`` of the largest, inside SEP 33's underflow budget.
 
         Parameters
         ----------
@@ -280,21 +273,13 @@ class NumpySingleBackend(NumpyRefBackend):
         Raises
         ------
         BackendError
-            If an entry overflows binary32 or a nonzero entry falls below its smallest
-            normal number.
+            If the array overflows binary32, or its largest magnitude is below one and
+            an entry would fall below binary32's smallest normal number.
         """
         source = np.asarray(values)
+        _check_range(source, "a host-evaluated array")
         dtype = self._complex if np.iscomplexobj(source) else self._real
-        narrowed = source.astype(dtype)
-        magnitude = np.abs(narrowed)
-        if not bool(np.all(np.isfinite(magnitude))) or bool(
-            np.any((magnitude < _TINY) & (np.abs(source) > 0.0))
-        ):
-            raise BackendError(
-                "a host-evaluated array leaves binary32's normal range; the pass "
-                "applying it must carry a block exponent (SEP 33 section 4.3)"
-            )
-        return narrowed
+        return source.astype(dtype)
 
     # The state and what crosses to the host.
 
@@ -703,6 +688,36 @@ class NumpySingleBackend(NumpyRefBackend):
             old_low, old_high = self.intermediate_ranges[name]
             low, high = min(low, old_low), max(high, old_high)
         self.intermediate_ranges[name] = (low, high)
+
+
+def _check_range(source: np.ndarray, what: str) -> None:
+    """Refuse narrowing an array that would lose range a block exponent keeps.
+
+    Parameters
+    ----------
+    source : numpy.ndarray
+        The binary64 array.
+    what : str
+        What it is, for the message.
+
+    Raises
+    ------
+    BackendError
+        If its largest magnitude overflows binary32, or is below one beside an entry
+        below binary32's smallest normal number.
+    """
+    magnitude = np.abs(source)
+    largest = float(np.max(magnitude, initial=0.0))
+    if not math.isfinite(largest) or largest >= _HUGE:
+        msg = f"{what} reaches {largest:.3e}, beyond binary32's range"
+        raise BackendError(msg)
+    if largest < 1.0 and bool(np.any((magnitude > 0.0) & (magnitude < _TINY))):
+        msg = (
+            f"{what} holds entries below binary32's smallest normal number beside a "
+            f"largest of {largest:.3e}: its pass must carry its block exponent, and "
+            "none does (SEP 33 section 4.3)"
+        )
+        raise BackendError(msg)
 
 
 def _require_dtype(values: np.ndarray, dtype: np.dtype, what: str) -> None:
