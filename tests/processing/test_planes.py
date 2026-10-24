@@ -11,14 +11,15 @@ import pytest
 from numpy.testing import assert_allclose
 
 from solprop.adiabatic import AdiabaticAdmission
-from solprop.coupling import reference_at
+from solprop.coupling import basis_identity, reference_at
 from solprop.driver import Simulation, SimulationSettings
-from solprop.exceptions import ProcessingError
+from solprop.exceptions import CouplingError, ProcessingError
 from solprop.fourier import spectrum_to_internal, spectrum_to_optics
 from solprop.grid import FieldGrid, FreeGrid, RadialGrid
 from solprop.modes import (
     GradedIndexProvider,
     IndexMaterial,
+    MarcatiliMode,
     MaterialKerr,
     ModalGuide,
     PowerLawPermittivity,
@@ -32,6 +33,7 @@ from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import analytic_field
 from solprop.stepper import PIController
+from solprop.translate.coupling import input_port
 
 EPS = np.finfo(float).eps
 
@@ -298,3 +300,128 @@ def test_the_launch_plane_is_the_launched_spectrum_in_the_optics_convention(
     assert_allclose(
         plane.samples, expected, rtol=0, atol=1e-12 * np.max(np.abs(expected))
     )
+
+
+def rewritten(output, **changes):
+    """Return a memory copy of an output whose run record has the given changes."""
+    copy = MemoryOutput()
+    copy.open(dataclasses.replace(output.metadata, **changes))
+    for saved in output.planes():
+        copy.save(saved)
+    return copy
+
+
+def test_an_output_without_a_saved_plane_is_refused(capillary_run):
+    _, output = capillary_run
+    empty = MemoryOutput()
+    empty.open(output.metadata)
+    with pytest.raises(ProcessingError, match="no saved plane"):
+        field_plane(empty)
+
+
+def test_a_source_that_is_not_the_writing_simulation_is_refused(capillary_run):
+    _, output = capillary_run
+    with pytest.raises(ProcessingError, match="object has no metadata"):
+        field_plane(output, source=object())
+    with pytest.raises(ProcessingError, match="not the simulation"):
+        field_plane(output, source=capillary(length=3e-3))
+
+
+def test_a_mode_family_with_angular_structure_has_no_scalar_profiles():
+    modes = [
+        MarcatiliMode(100e-6, "Ar", 1.0),
+        MarcatiliMode(100e-6, "Ar", 1.0, kind="TE", n=0),
+    ]
+    simulation = capillary(length=1e-3, n_save=2, modes=modes)
+    plane = field_plane(simulation.run(progress="none"), source=simulation)
+    # The TE01 mode is not a scalar HE1m profile: the plane carries none, and the
+    # scalar model is not offered for it.
+    assert plane.kind == "modal" and plane.profiles is None
+
+
+def test_a_parent_record_without_its_plane_gives_no_lineage(capillary_run):
+    _, output = capillary_run
+    reference = {**output.metadata.reference, "parent": {"model": "same_basis"}}
+    plane = field_plane(rewritten(output, reference=reference))
+    assert plane.provenance.lineage == ()
+
+
+def test_a_modal_plane_saved_off_the_planned_positions_has_an_unrecorded_basis(
+    capillary_run,
+):
+    simulation, output = capillary_run
+    reference = dict(output.metadata.reference)
+    bases = reference["basis"]
+    # Every planned position moved a tenth of a millimetre: no saved plane is one.
+    reference["basis"] = {**bases, "z": [one + 1e-4 for one in bases["z"]]}
+    plane = field_plane(rewritten(output, reference=reference))
+    assert plane.basis.identity == basis_identity("modal", {"unrecorded at": 2e-3})
+    assert plane.basis.identity != simulation.input_port().basis.identity
+
+
+@pytest.fixture(scope="module")
+def radial_run():
+    return spatial(RadialGrid(6e-4, 32)).run(progress="none")
+
+
+def test_a_spatial_record_without_a_known_grid_or_measure_is_refused(radial_run):
+    metadata = radial_run.metadata
+    configuration = dict(metadata.configuration)
+    del configuration["spatial_grid"]
+    with pytest.raises(ProcessingError, match="no transverse grid"):
+        field_plane(rewritten(radial_run, configuration=configuration))
+    configuration["spatial_grid"] = {"__class__": "solprop.modes.PlanarGrid"}
+    with pytest.raises(ProcessingError, match="not exchanged"):
+        field_plane(rewritten(radial_run, configuration=configuration))
+    spatial_record = dict(metadata.spatial)
+    del spatial_record["flux_plan"]
+    with pytest.raises(ProcessingError, match="no plane measure"):
+        field_plane(rewritten(radial_run, spatial=spatial_record))
+
+
+def test_a_general_plane_without_its_source_has_an_unknown_dense_metric(general_run):
+    _, output = general_run
+    modal = dict(output.metadata.modal)
+    modal["metric"] = {**modal["metric"], "kind": "dense"}
+    plane = field_plane(rewritten(output, modal=modal))
+    assert plane.metric.kind == "unknown" and "source=" in plane.metric.reason
+    with pytest.raises(CouplingError, match="unknown"):
+        plane.energy()
+
+
+def test_a_general_source_with_other_tables_is_refused(general_run):
+    simulation, output = general_run
+    modal = dict(output.metadata.modal)
+    modal["tables"] = {**modal["tables"], "gauge_id": "another gauge"}
+    with pytest.raises(ProcessingError, match="not the reference"):
+        field_plane(rewritten(output, modal=modal), source=simulation)
+
+
+def test_a_general_port_admits_the_vector_model_only_with_a_fixed_reference_and_guide(
+    general_run,
+):
+    simulation, _ = general_run
+    problem, grid, tables = (
+        simulation.translate(),
+        simulation.grid,
+        simulation.general.tables,
+    )
+    port = simulation.input_port()
+    assert port.models == ("same_basis", "vector_paraxial")
+    common = {"route": "general_modal", "basis": port.basis, "frame": None}
+    bare = input_port(problem, grid, tables=tables, **common)
+    # Without its guide the port carries the E/H reference but no contrast, so it
+    # admits only the identity model.
+    assert bare.models == ("same_basis",)
+    assert bare.electric is not None and bare.contrast is None
+    # Tables whose synthesis varies along z (two degrees, as a tapered guide's):
+    # there is no one reference to sample, and the identity model alone is offered.
+    assert tables.synthesis is not None and tables.projection is not None
+    moving = dataclasses.replace(
+        tables,
+        synthesis=np.concatenate([tables.synthesis] * 2, axis=1),
+        projection=np.concatenate([tables.projection] * 2, axis=1),
+    )
+    tapered = input_port(problem, grid, tables=moving, guide=simulation.guide, **common)
+    assert tapered.models == ("same_basis",)
+    assert tapered.electric is None and tapered.nodes is None

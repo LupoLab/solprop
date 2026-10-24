@@ -18,6 +18,7 @@ from solprop.coupling import (
     PlaneGeometry,
     PlaneMetric,
     PlaneReference,
+    ScalarModeBasis,
     basis_identity,
     couple,
 )
@@ -175,3 +176,28 @@ def test_ports_and_launches_refuse_malformed_parts():
         CouplingLaunch(
             port, np.zeros((2, 1, grid.n_omega), complex), PlaneReference(), "x", {}
         )
+
+
+def test_a_port_s_profiles_describe_its_columns():
+    grid = grid_of()
+    profiles = ScalarModeBasis(
+        "capillary",
+        ("HE11", "HE12"),
+        75e-6,
+        np.array([2.405, 5.520]),
+        np.zeros(2),
+        np.array([[1.0, 0.0], [1.0, 0.0]]),
+        np.ones((2, grid.n_omega)),
+    )
+    # Two profiles for a port of one column.
+    with pytest.raises(CouplingError, match="one per mode"):
+        port_of(profiles=profiles)
+
+
+def test_a_launch_of_unknown_metric_cannot_be_checked_for_its_medium():
+    port = port_of()
+    unknown = dataclasses.replace(
+        port, metric=PlaneMetric("unknown", reason="the Gram was not at hand")
+    )
+    refusal = port.accepts(unknown)
+    assert refusal is not None and "the Gram was not at hand" in refusal

@@ -10,17 +10,20 @@ from numpy.testing import assert_allclose
 
 from solprop.coupling import (
     FieldPlane,
+    NodalField,
     PlaneBasis,
     PlaneGeometry,
     PlaneMetric,
     PlaneProvenance,
     PlaneReference,
+    ScalarModeBasis,
     basis_identity,
     lattice_identity,
     modal_basis_identity,
     reference_at,
     space_record,
 )
+from solprop.coupling.plane import _frozen
 from solprop.exceptions import CouplingError
 from solprop.fourier import spectrum_to_optics
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
@@ -290,3 +293,55 @@ def test_a_basis_identity_is_a_digest():
         PlaneBasis("modal", "short")
     with pytest.raises(CouplingError, match="transverse grid"):
         PlaneBasis("radial", basis_identity("radial", {}))
+
+
+def test_a_nodal_field_owns_finite_copies_of_matching_shapes():
+    n_omega = 4
+    nodes, weights = np.zeros((2, 2)), np.ones(2)
+    electric = np.ones((2, 3, n_omega), complex)
+    nodal = NodalField(nodes, weights, electric)
+    assert nodal.magnetic is None and not nodal.electric.flags.writeable
+    with pytest.raises(CouplingError, match="nodes must be finite"):
+        NodalField(np.full((2, 2), np.nan), weights, electric)
+    # A magnetic field of another shape is refused at the boundary; under the test
+    # session's runtime annotation checks it never reaches it, so the helper is
+    # asked directly.
+    with pytest.raises(CouplingError, match="magnetic has shape"):
+        _frozen(electric[..., :-1], np.complex128, "magnetic", electric.shape)
+
+
+def test_a_metric_of_another_plane_s_shape_measures_nothing():
+    plane = modal_plane()
+    n_omega = plane.grid.n_omega
+    dense = PlaneMetric("dense", matrix=np.ones((2, 2, n_omega), complex))
+    with pytest.raises(CouplingError, match="metric shape"):
+        dense.spectral_energy(plane.samples, plane.grid)
+    admittance = PlaneMetric(
+        "admittance",
+        admittance=np.ones((2, n_omega), complex),
+        weights=np.ones(2),
+        scale=1.0,
+    )
+    with pytest.raises(CouplingError, match="admittance shape"):
+        admittance.spectral_energy(plane.samples, plane.grid)
+
+
+def test_scalar_profiles_describe_the_columns_of_a_modal_plane():
+    plane = modal_plane()
+    profiles = ScalarModeBasis(
+        "capillary",
+        ("HE11", "HE12"),
+        75e-6,
+        np.array([2.405, 5.520]),
+        np.zeros(2),
+        np.array([[1.0, 0.0], [1.0, 0.0]]),
+        np.ones((2, plane.grid.n_omega)),
+    )
+    # Two profiles for a plane of one column.
+    with pytest.raises(CouplingError, match="scalar profiles"):
+        modal_plane(profiles=profiles)
+
+
+def test_a_modal_plane_has_no_node_samples():
+    with pytest.raises(CouplingError, match="no node samples"):
+        modal_plane().node_spectra()

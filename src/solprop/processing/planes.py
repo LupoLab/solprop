@@ -277,9 +277,9 @@ def _spatial_metric(
         if record.configuration_hash() != metadata.configuration_hash():
             msg = "source= is not the simulation that wrote this output"
             raise ProcessingError(msg)
-        medium = cast("SpatialMedium | None", _source_part(source, "medium"))
-        if medium is not None:
-            flux = SpatialFlux.resolve(grid, space, medium, z=z)
+        # The simulation that wrote a spatial run always holds its bulk medium.
+        medium = cast("SpatialMedium", _source_part(source, "medium"))
+        flux = SpatialFlux.resolve(grid, space, medium, z=z)
     metric = PlaneMetric(
         "admittance",
         admittance=admittance,

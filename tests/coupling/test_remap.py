@@ -294,3 +294,21 @@ def test_a_spatial_metric_follows_the_plane_to_its_new_lattice():
     )
     unknown, report = regrid(bare, target)
     assert unknown.metric.kind == "unknown" and report.energy_out is None
+
+
+def test_a_zero_plane_moves_to_zero_with_nothing_lost():
+    source = envelope()
+    basis = PlaneBasis("modal", basis_identity("modal", {"modes": ["test"]}))
+    plane = FieldPlane.from_samples(
+        np.zeros((1, 1, source.n_omega), complex),
+        source,
+        PlaneGeometry(0.0),
+        exterior="zero",
+        basis=basis,
+    )
+    moved, report = regrid(plane, envelope(trange=2e-12, limits=(500e-9, 1.5e-6)))
+    # An empty record has no norm to share: no loss is reported, and the sum of
+    # zeros is exactly zero.
+    assert report.method == "direct" and report.record_norm == 0.0
+    assert report.band_loss == 0.0 and report.window_loss == 0.0
+    assert not np.any(moved.samples)

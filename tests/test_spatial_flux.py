@@ -323,6 +323,28 @@ def test_an_incident_beam_refuses_what_it_cannot_sample() -> None:
         SpatialPulse(temporal, 2e-4).incident(grid, origin, index=np.zeros_like(index))
 
 
+def test_an_incident_beam_refuses_a_temporal_pulse_it_cannot_carry() -> None:
+    """A temporal pulse of two columns, and one whose sampled beam overflows."""
+    grid = _envelope()
+    index = np.where(grid.active_mask & (grid.omega > 0), 1.45, 0.0)
+    origin = np.zeros((1, 2))
+
+    class TwoColumns:
+        def build(self, grid):
+            return np.zeros((2, 1, grid.n_omega), complex)
+
+    with pytest.raises(PulseError, match="scalar single-column"):
+        SpatialPulse(TwoColumns(), 2e-4).incident(grid, origin, index=index)  # pyright: ignore[reportArgumentType] - a duck-typed temporal pulse
+    # The request itself is finite, but its field in V/m squares past the largest
+    # double.
+    huge = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e290)
+    with (
+        pytest.warns(RuntimeWarning, match="overflow"),
+        pytest.raises(PulseError, match="incident beam is nonfinite"),
+    ):
+        SpatialPulse(huge, 2e-4).incident(grid, origin, index=index)
+
+
 def test_flux_refusals() -> None:
     """Widths refuse a signed profile; a side needs a jump; the index is required."""
     grid = _envelope()
