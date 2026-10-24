@@ -41,6 +41,8 @@ __all__ = [
 ]
 
 POOL_VARIABLES = (
+    "SOLPROP_JULIA_THREADS",
+    "SOLPROP_JULIA_RAMAN_FFT_THREADS",
     "SOLPROP_NATIVE_THREADS",
     "SOLPROP_NATIVE_KERNEL_THREADS",
     "SOLPROP_NATIVE_FFT_THREADS",
@@ -173,6 +175,7 @@ def thread_environment(
             environment.pop(key, None)
     for key in (
         "SOLPROP_NATIVE_THREADS",
+        "SOLPROP_JULIA_THREADS",
         "SOLPROP_NUMBA_THREADS",
         "NUMBA_NUM_THREADS",
         "OMP_NUM_THREADS",
@@ -187,6 +190,7 @@ def thread_environment(
         environment[key] = str(1 if policy == "blas1" else width)
     if width == 1 or policy == "all-pools-N":
         for key in (
+            "SOLPROP_JULIA_RAMAN_FFT_THREADS",
             "SOLPROP_NATIVE_KERNEL_THREADS",
             "SOLPROP_NATIVE_FFT_THREADS",
             "SOLPROP_NATIVE_RAMAN_FFT_THREADS",

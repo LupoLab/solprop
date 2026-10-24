@@ -52,7 +52,9 @@ def ab_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--set", action="append", choices=SETS, default=[])
     parser.add_argument("--all", action="store_true")
     parser.add_argument(
-        "--backend", choices=("numpy_ref", "numba_cpu", "native"), default="native"
+        "--backend",
+        choices=("numpy_ref", "numba_cpu", "native", "julia"),
+        default="native",
     )
     parser.add_argument("--threads")
     parser.add_argument("--track", action="append", choices=TRACKS, default=[])

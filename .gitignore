@@ -47,5 +47,10 @@ docs/auto_examples/searchindex
 # Local agent state, and the benchmark suite's runs and baselines
 .claude/
 .benchmarks/
+.julia-runtime/
+.julia-depot/
 *.profraw
 *.profdata
+
+# Local FFT provider experiments (selected through FFTW.set_provider!).
+julia/LocalPreferences.toml

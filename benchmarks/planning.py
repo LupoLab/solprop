@@ -117,6 +117,7 @@ def matrix(cases: tuple[Case, ...], profile: Profile, selection: Selection) -> R
         "numpy_ref",
         "numba_cpu",
         "native",
+        "julia",
     ):
         raise SuiteError("unknown mode or backend")
     if any(track not in TRACKS for track in selection.tracks):

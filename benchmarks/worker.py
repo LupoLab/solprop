@@ -10,6 +10,7 @@ import dataclasses
 import importlib
 import importlib.metadata
 import logging
+import os
 import re
 import statistics
 import sys
@@ -168,12 +169,47 @@ def reset_differences(witness: ResetWitness, output: MemoryOutput) -> Record:
 
 def emit(kind: str, **values: object) -> None:
     """Flush a protocol event; the parent timestamps its receipt."""
-    print(canonical({"event": kind, **values}), flush=True)
+    # Julia's libuv can mark inherited pipes nonblocking. A receipt can exceed
+    # pipe capacity; Python's text stream cannot retry that partial write. This
+    # process-boundary operation restores the descriptor's original mode after
+    # the parent has drained the complete event.
+    descriptor = None
+    blocking = True
+    try:
+        descriptor = sys.stdout.fileno()
+        blocking = os.get_blocking(descriptor)
+    except OSError, ValueError:
+        pass  # In-memory output capture has no operating-system descriptor.
+    if descriptor is not None and not blocking:
+        os.set_blocking(descriptor, True)
+    try:
+        print(canonical({"event": kind, **values}), flush=True)
+    finally:
+        if descriptor is not None and not blocking:
+            os.set_blocking(descriptor, False)
 
 
 def runtime(backend: str, *, inventory: bool = False, coverage: bool = False) -> Record:
     """Import in the required order and identify the actual loaded packages."""
     info: Record = {}
+    if backend == "julia":
+        import solprop.backends.julia._runtime as julia_runtime  # noqa: PLC0415
+
+        root = Path(julia_runtime.__file__).resolve().parents[4]
+        info["julia_build"] = {
+            "sources": {
+                str(path.relative_to(root)): file_hash(path)
+                for path in sorted((root / "julia" / "src").glob("*.jl"))
+            },
+            "adapter_sources": {
+                str(path.relative_to(root)): file_hash(path)
+                for path in sorted(
+                    (root / "src" / "solprop" / "backends" / "julia").glob("*.py")
+                )
+            },
+            "manifest": file_hash(root / "julia" / "Manifest.toml"),
+            "project": file_hash(root / "julia" / "Project.toml"),
+        }
     if backend == "native":
         # solprop_native must be imported before pyFFTW.
         import solprop_native  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
@@ -207,6 +243,7 @@ def runtime(backend: str, *, inventory: bool = False, coverage: bool = False) ->
         "numba",
         "pyfftw",
         "solprop-native",
+        "juliacall",
     ):
         try:
             packages[name] = importlib.metadata.version(name)
