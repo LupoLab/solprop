@@ -180,15 +180,21 @@ def record_property(record_property):
     return record
 
 
+LIFTED_THREADS = 4
+"""The budget of a test that compares thread counts: the most any of them asks for."""
+
+
 @pytest.fixture
 def thread_budget_lifted(monkeypatch):
     """Lift the lanes' one-thread budget for a test that compares thread counts.
 
     The lanes set ``SOLPROP_THREADS=1`` per xdist worker (ADR-052); a test that asks for
-    several threads on purpose takes this fixture, and its pools are then held only by
-    the CPUs and the quota.
+    several threads on purpose takes this fixture, and its budget is then
+    :data:`LIFTED_THREADS` (or the CPUs, where fewer), not the whole machine, so a pool
+    it leaves to its automatic size does not open a thread per core beside the other
+    workers.
     """
-    monkeypatch.delenv("SOLPROP_THREADS", raising=False)
+    monkeypatch.setenv("SOLPROP_THREADS", str(LIFTED_THREADS))
 
 
 # ------------------------------------------------------- the convergence records

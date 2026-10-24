@@ -27,6 +27,15 @@ if importlib.util.find_spec("solprop_native") is not None:
 
 # The doctest collection imports every module under tests/, and the arguments it
 # was given are not names: only a subprocess run saves the statistics.
+
+
+def _runtime_threads() -> np.ndarray:
+    """Return the Kokkos pool this probe ran with, for the caller to check."""
+    return np.array(
+        importlib.import_module("solprop_native").build_info().runtime_threads
+    )
+
+
 if __name__ == "__main__":
     from backends.test_native_far_field import native_stats, thread_case
 
@@ -36,5 +45,6 @@ if __name__ == "__main__":
     values, _ = native_stats(problem, grid, field, names)
     np.savez(
         sys.argv[1],
+        runtime_threads=_runtime_threads(),
         **{f"case{index}": values[name] for index, name in enumerate(names)},
     )

@@ -105,8 +105,10 @@ worker's thread budget, ADR-052, which every pool of both backends stays within)
 `MKL_NUM_THREADS` and `OMP_NUM_THREADS` to one keeps eighteen workers from each opening a
 thread pool over the same cores. `NUMBA_NUM_THREADS` is not pinned: it is numba's
 ceiling, not its default. A test that compares thread counts lifts the budget for itself
-(the `thread_budget_lifted` fixture) and asks for several threads; a native probe that
-needs more threads than the runner has CPUs sets `SOLPROP_OVERSUBSCRIBE=1`. Serial and parallel runs select the same tests; inspect
+to four threads (the `thread_budget_lifted` fixture) and asks for several; a native
+thread probe runs with `SOLPROP_THREADS` blank and `SOLPROP_OVERSUBSCRIBE=1`, so it gets
+the count it asks for on any runner, and saves the Kokkos pool it ran with for its
+caller to check (`tests/backends/matched.py::native_thread_fields`). Serial and parallel runs select the same tests; inspect
 the current `--durations` output before choosing another independent group to split. The
 lane stays
 reproducible: `pytest-randomly` picks one seed in the controller and the workers share it,
