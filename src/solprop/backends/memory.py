@@ -110,6 +110,7 @@ __all__ = [
     "ESTIMATED_BACKENDS",
     "LOCAL_FLUX_STATISTICS",
     "MEMORY_GROUPS",
+    "MLX_GRAPH_BUDGET",
     "RESIDENT_CHANNELS",
     "MemoryEstimate",
     "adams_memory",
@@ -124,8 +125,10 @@ __all__ = [
     "low_storage_flows",
     "low_storage_memory",
     "low_storage_stage_register",
+    "mlx_bounded",
     "mlx_graph_bytes",
     "mlx_rows",
+    "mlx_stage_bytes",
     "reference_base_memory",
     "single_precision_rows",
     "z_table_slots",
@@ -459,11 +462,14 @@ def mlx_rows(problem: KernelProblem, rows: dict[str, int]) -> dict[str, int]:
     """Return the ``mlx`` backend's device rows beside the oracle's host rows.
 
     SEP 33 section 6.3: the device copies of the narrowed tables, the operator's and
-    the prefactor's terms as double-float pairs, and the live graph: the backend
-    evaluates each stage as it is formed and each running integral as it is scanned, so
-    at most one stage's working rows (:data:`_PER_STAGE_ROWS`, twice, for the graph's
+    the prefactor's terms as double-float pairs, and the live graph. Where a step's
+    graph would exceed :data:`MLX_GRAPH_BUDGET` the backend evaluates each stage as it
+    is formed and each running integral as it is scanned, so at most one stage's
+    working rows (:data:`_PER_STAGE_ROWS`, twice, for the graph's
     temporaries), a scan's ``2 ceil(log2 n_to) + 4`` arrays over the node chunk, and the
-    stages and their propagators are live at once. Measured against MLX's own peak in
+    stages and their propagators are live at once; below it, a whole step's seven
+    stages of rows are, the scans' levels released as they go. Measured against MLX's
+    own peak in
     ``tests/backends/test_mlx.py``.
 
     Parameters
@@ -485,17 +491,82 @@ def mlx_rows(problem: KernelProblem, rows: dict[str, int]) -> dict[str, int]:
     linear = problem.linear
     phi_terms = 1 if linear.phi_expansion is None else linear.phi_expansion.n_terms
     per_stage = sum(size for name, size in rows.items() if name in _PER_STAGE_ROWS)
-    scan = 0
-    if problem.flags.has_plasma:
-        chunk = min(transform.node_chunk, transform.n_nodes) * problem.shape[2]
-        levels = 2 * math.ceil(math.log2(grids.n_to)) + 4
-        scan = levels * chunk * transform.n_pol * grids.n_to * 4
+    scan = _mlx_scan_bytes(problem)
     stages = problem.stepper.tableau.n_stages
+    stage = 2 * per_stage + scan
+    whole = stages * (2 * per_stage + scan // 2)
+    graph = stage if mlx_bounded(stages, stage) else whole
     return {
         "mlx_tables": 4 * tables,
         "mlx_terms": 16 * state * (phi_terms + 1),
-        "mlx_step_graph": 2 * per_stage + scan + (2 * stages + 6) * 8 * state,
+        "mlx_step_graph": graph + (2 * stages + 6) * 8 * state,
     }
+
+
+MLX_GRAPH_BUDGET = 1 << 30
+"""Bytes a step's lazy graph may hold before ``mlx`` evaluates stages as it forms them.
+
+Below it the whole step is one graph, evaluated with its norm; above it each stage and
+each running integral is evaluated as it is formed, which bounds the live graph to one
+stage (SEP 33 section 6.3).
+"""
+
+
+def mlx_bounded(stages: int, stage: int) -> bool:
+    """Return whether ``mlx`` evaluates each stage as it is formed.
+
+    Parameters
+    ----------
+    stages : int
+        The tableau's stage count.
+    stage : int
+        One stage's live-graph bytes.
+
+    Returns
+    -------
+    bool
+        True when a whole step's graph would exceed :data:`MLX_GRAPH_BUDGET`.
+    """
+    return stages * stage > MLX_GRAPH_BUDGET
+
+
+def mlx_stage_bytes(problem: KernelProblem) -> int:
+    """Return one stage's live-graph bytes on the ``mlx`` backend.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        A single-precision problem on the fibre route.
+
+    Returns
+    -------
+    int
+        Twice the per-stage working rows, with a scan's levels.
+    """
+    rows = single_precision_rows(problem, _reference_base(problem))
+    per_stage = sum(size for name, size in rows.items() if name in _PER_STAGE_ROWS)
+    return 2 * per_stage + _mlx_scan_bytes(problem)
+
+
+def _mlx_scan_bytes(problem: KernelProblem) -> int:
+    """Return the bytes of one running integral's evaluation on ``mlx``.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The problem.
+
+    Returns
+    -------
+    int
+        ``2 ceil(log2 n_to) + 4`` arrays over the node chunk, or 0 without plasma.
+    """
+    if not problem.flags.has_plasma:
+        return 0
+    transform, grids = problem.transform, problem.grids
+    chunk = min(transform.node_chunk, transform.n_nodes) * problem.shape[2]
+    levels = 2 * math.ceil(math.log2(grids.n_to)) + 4
+    return levels * chunk * transform.n_pol * grids.n_to * 4
 
 
 def mlx_graph_bytes(problem: KernelProblem) -> int:

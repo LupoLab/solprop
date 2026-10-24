@@ -30,20 +30,20 @@ import mlx.core as mx
 import numpy as np
 from jaxtyping import Complex
 
-from solprop.backends.memory import mlx_graph_bytes
+from solprop.backends.memory import mlx_bounded, mlx_graph_bytes, mlx_stage_bytes
 from solprop.backends.mlx_gpu import passes as device
 from solprop.backends.mlx_gpu.arithmetic import DoubleFloatTerms, gemm_probe, on_gpu
 from solprop.backends.numpy_ref.passes import _kerr as compiled_kerr
 from solprop.backends.numpy_ref.passes import _raman_thg as raman_thg
 from solprop.backends.numpy_ref.single import NumpySingleBackend
 from solprop.constants import EPS0
-from solprop.exceptions import BackendError, ConvergenceError
+from solprop.exceptions import BackendError
 from solprop.grid import TimeGrid
 from solprop.modes.protocol import Mode
 from solprop.profiles import ZProfile
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
-from solprop.translate.precision import block_exponent, combine
+from solprop.translate.precision import combine
 from solprop.translate.problem import KernelProblem
 from solprop.translate.responses import ResponseStage
 from solprop.translate.stage import StageScalars
@@ -214,7 +214,9 @@ class MlxBackend(NumpySingleBackend):
         self._unit = mx.ones((1,), dtype=mx.complex64)
         # Whether each stage is evaluated as it is formed, bounding the live graph to
         # one stage; a batch evaluates its members' steps together instead.
-        self.evaluate_stages = True
+        self.evaluate_stages = mlx_bounded(
+            problem.stepper.tableau.n_stages, mlx_stage_bytes(problem)
+        )
         n_to = grids.n_to
         n_pol = transform.n_pol
         chunk = min(transform.node_chunk, transform.n_nodes) * n_pol
@@ -249,7 +251,7 @@ class MlxBackend(NumpySingleBackend):
         self._state = cast(Any, mx.array(np.asarray(self._require_state())))
 
     def _observed_field(
-        self, state: Any  # noqa: ANN401 - a device array, or a host one in stats
+        self, state: Any
     ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
         """Copy the state to the host and widen it: ``s`` times it, exactly.
 
@@ -316,12 +318,8 @@ class MlxBackend(NumpySingleBackend):
             else:
                 time = mx.fft.ifft(finished, axis=-1) * change
                 finished = finished + mx.fft.fft(time, axis=-1) * self._active
-        if not bool(mx.all(mx.isfinite(finished)).item()):
-            msg = (
-                f"mlx: the state is not finite after a step of {dz:.4g} m from z = "
-                f"{self._z:.6g} m: the field has diverged or left binary32's range"
-            )
-            raise ConvergenceError(msg)
+        # Finiteness was read with the trial's norm (one synchronisation per step):
+        # a non-finite trial state scores an infinite norm, which every march refuses.
         return finished
 
     # The trial step.
@@ -658,6 +656,7 @@ class MlxBackend(NumpySingleBackend):
                     tuple(initials),
                     self._problem.grids.dt_fine,
                     responses.plasma_integral,
+                    evaluate=self.evaluate_stages,
                 ) * float(2.0**-k)
             elif stage not in _SOURCE_STAGES:
                 msg = f"mlx does not run the {stage.name} stage"
@@ -685,24 +684,27 @@ class MlxBackend(NumpySingleBackend):
         """
         index = self._norm_index
         residual = mx.take(error, index, axis=-1)
-        before = mx.take(state, index, axis=-1)
-        after = mx.take(advanced, index, axis=-1)
-        peaks = mx.stack(
-            [mx.max(mx.abs(residual)), mx.max(mx.abs(before)), mx.max(mx.abs(after))]
-        )
-        values = np.array(peaks, dtype=np.float64)
-        if not np.all(np.isfinite(values)):
-            return math.inf
-        totals = []
-        for array, peak in zip((residual, before, after), values, strict=True):
-            exponent = block_exponent(float(peak))
-            scaled = array * float(2.0**-exponent)
+        reductions = []
+        for array in (
+            residual,
+            mx.take(state, index, axis=-1),
+            mx.take(advanced, index, axis=-1),
+        ):
+            peak = mx.max(mx.abs(array))
+            # The power of two at or below the peak, so the squares cannot overflow
+            # (SEP 33 section 4.3, rule 6); the host restores it in binary64.
+            power = mx.where(peak > 0, mx.floor(mx.log2(peak)), 0.0)
+            scaled = array * mx.power(2.0, -power)
             re, im = mx.real(scaled), mx.imag(scaled)
-            totals.append((mx.sum(re * re + im * im), 2 * exponent))
-        sums = np.array(mx.stack([total for total, _ in totals]), dtype=np.float64)
+            reductions += [power, mx.sum(re * re + im * im)]
+        # One synchronisation per trial: the three sums, their powers and whether the
+        # whole trial state is finite, which spares the finish a check of its own.
+        reductions.append(mx.all(mx.isfinite(advanced)).astype(mx.float32))
+        values = np.array(mx.stack(reductions), dtype=np.float64)
+        if not np.all(np.isfinite(values)) or values[-1] != 1.0:
+            return math.inf
         squares = [
-            math.ldexp(float(value), e)
-            for value, (_, e) in zip(sums, totals, strict=True)
+            math.ldexp(values[2 * k + 1], 2 * int(values[2 * k])) for k in range(3)
         ]
         scale = self._controller.scale(math.sqrt(squares[1]), math.sqrt(squares[2]))
         if isinstance(scale, np.ndarray):

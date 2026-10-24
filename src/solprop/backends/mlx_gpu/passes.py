@@ -381,7 +381,9 @@ def _prefix(values: mx.array) -> mx.array:
     return scan
 
 
-def running_integral(values: mx.array, dt: float, rule: RunningIntegral) -> mx.array:
+def running_integral(
+    values: mx.array, dt: float, rule: RunningIntegral, *, evaluate: bool = False
+) -> mx.array:
     """Return a running integral, the oracle's ``running_integral``.
 
     Parameters
@@ -392,6 +394,8 @@ def running_integral(values: mx.array, dt: float, rule: RunningIntegral) -> mx.a
         The sample spacing, s.
     rule : solprop.nonlinear.ionisation.RunningIntegral
         The problem's rule.
+    evaluate : bool, optional
+        Whether to evaluate the integral at once, releasing the scan's levels.
 
     Returns
     -------
@@ -416,9 +420,10 @@ def running_integral(values: mx.array, dt: float, rule: RunningIntegral) -> mx.a
     increments = (filtered[..., :-1] + filtered[..., 1:]) * float(np.float32(0.5 * dt))
     zero = mx.zeros((*values.shape[:-1], 1), dtype=mx.float32)
     result = mx.concatenate([zero, _prefix(increments)], axis=-1)
-    # Evaluated here: a scan's levels would otherwise stay live behind the rest of the
-    # stage's graph, about log2(n) arrays of the node chunk each.
-    mx.eval(result)
+    if evaluate:
+        # A scan's levels would otherwise stay live behind the rest of the stage's
+        # graph, about log2(n) arrays of the node chunk each.
+        mx.eval(result)
     return result
 
 
@@ -575,13 +580,15 @@ class DeviceRateTable:
         return mx.where(magnitude >= self.field_min, rate, 0.0)
 
 
-def plasma_current(
+def plasma_current(  # noqa: PLR0913 - one array per channel input
     field: mx.array,
     tables: tuple[DeviceRateTable, ...],
     constants: tuple[tuple[float, float], ...],
     initials: tuple[float, ...],
     dt: float,
     rule: RunningIntegral,
+    *,
+    evaluate: bool = False,
 ) -> mx.array:
     """Return the field-grid plasma's ungated current, the oracle's.
 
@@ -599,6 +606,8 @@ def plasma_current(
         The sample spacing, s.
     rule : solprop.nonlinear.ionisation.RunningIntegral
         The running-integral rule.
+    evaluate : bool, optional
+        Whether each running integral is evaluated as it is scanned.
 
     Returns
     -------
@@ -615,13 +624,13 @@ def plasma_current(
         tables, constants, initials, strict=True
     ):
         rate = table(magnitude)
-        exposure = running_integral(rate, dt, rule)
+        exposure = running_integral(rate, dt, rule, evaluate=evaluate)
         if rule.policy != "trapezoid":
             exposure = mx.maximum(exposure, 0.0)
         fraction, survival = population(exposure, initial)
         weight = weight + float(np.float32(drude)) * fraction
         work = work + float(np.float32(potential)) * (rate * survival)
-    free = running_integral(weight[..., None, :] * field, dt, rule)
+    free = running_integral(weight[..., None, :] * field, dt, rule, evaluate=evaluate)
     squared = magnitude * magnitude
     guard = mx.where(
         (work > 0) & (squared > 0), work / mx.where(squared > 0, squared, 1.0), 0.0
