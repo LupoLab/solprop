@@ -37,9 +37,11 @@ from solprop.constants import EPS0
 from solprop.driver import Simulation, prop_gnlse
 from solprop.driver.simulation import SimulationSettings
 from solprop.exceptions import BackendError, ConvergenceError, DriverError
-from solprop.grid import EnvelopeGrid, FreeGrid, RadialGrid
+from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, RadialGrid
 from solprop.nonlinear.ionisation import RunningIntegral
-from solprop.nonlinear.responses import KerrResponse
+from solprop.nonlinear.optmat_rates import OptmatRate
+from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
+from solprop.physdata import gamma3
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import LowStorageRungeKutta, PIController, RungeKutta
@@ -381,6 +383,41 @@ def test_the_spatial_routes_agree_with_binary64_within_their_bounds(route):
     transverse = 32 if route == "radial" else 2 * 4
     depth = math.ceil(math.log2(grid.n_t)) + transverse
     bound = 10 * (2 * U32 + 7 * 16 * EPS_32 * depth)
+    assert_within(fields["single"], fields["double"], bound)
+
+
+def test_a_radial_plasma_beam_agrees_with_binary64_within_its_bound():
+    """The radial route's own plasma spectrum (held current on nodes), ten steps."""
+    length = 1e-3
+    grid = FieldGrid.from_limits(length, 800e-9, (350e-9, 2e-6), 150e-15)
+    medium = SpatialMedium("Ar", 1.0)
+    pulse = SpatialPulse(
+        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=2e-4), 100e-6
+    )
+    responses = [
+        KerrResponse(gamma3("Ar", wavelength=800e-9), thg=False),
+        PlasmaResponse("Ar", OptmatRate("Ar", 800e-9)),
+    ]
+    fields = {}
+    for precision in ("double", "single"):
+        settings = SimulationSettings(
+            controller=PIController(rtol=1e-6, atol=0.0),
+            save_planes=[length],
+            dz_max=length,
+            dz_init=length / 10,
+            schedule=FixedSchedule.uniform(0.0, length, length / 10),
+            backend="numpy_ref",
+            integrator=RungeKutta(),
+            ionisation_field_range=(1e7, 1e11),
+            precision=precision,  # pyright: ignore[reportArgumentType]
+        )
+        fields[precision] = finish(
+            Simulation.from_radial(
+                grid, RadialGrid(1e-3, 32), medium, responses, pulse, settings=settings
+            )
+        )
+    depth = math.ceil(math.log2(grid.n_t)) + 32
+    bound = 10 * (2 * U32 + 7 * (16 * EPS_32 * depth + 4 * higham_gamma(depth, U32)))
     assert_within(fields["single"], fields["double"], bound)
 
 

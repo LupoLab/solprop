@@ -2186,7 +2186,10 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         """
         problem = self._problem
         transform, grids = problem.transform, problem.grids
-        spectrum = np.zeros(problem.shape[1:], dtype=np.complex128)
+        # The field's own precision: complex128, or complex64 under SEP 33.
+        spectrum = np.zeros(
+            problem.shape[1:], dtype=np.result_type(modal_t, np.complex64)
+        )
         raman = self._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
         for first in range(0, transform.n_nodes, transform.node_chunk):
             rows = slice(
