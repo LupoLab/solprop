@@ -1300,7 +1300,7 @@ route and the basis identity at each planned plane (launch plane first).
    recorded identity, so it gets an "unrecorded" digest that no port matches.
 4. *`from_pulse` takes `space=`* beside the temporal `grid`, because the beam builder
    needs both.
-5. *`same_basis` is a public function.* It is the minimal internal path the brief
+5. *`same_basis` is a public function.* It is the minimal internal path the phase plan
    allows, needed by the guide page. Phase 3's `couple(..., CouplingModel("same_basis"))`
    should dispatch to it.
 6. *Remap alias guard.* The direct sum is evaluated only on target bins within the source
@@ -1501,7 +1501,7 @@ items the SEP caps at $\epsilon_m/8$ are capped individually.
 2. *Weak-guidance step-index is coupled on the ordinary (GNLSE) route*, through the
    waveguide its mode-averaged fibre wraps, and only fibre → fibre: no envelope covers a
    beam into a fibre or a capillary ↔ fibre pair, so those are refused.
-3. *The vector model has no recorded pair envelope.* The brief lists envelopes for the
+3. *The vector model has no recorded pair envelope.* The maintainer-agreed scope lists envelopes for the
    capillary and the solid scalar pair only; `vector_paraxial` reports an `envelope`
    item with value `None` and the reason, and relies on the contrast screen, the closure
    and the other items (open question 1).
@@ -1594,7 +1594,7 @@ move (a sampled path) carry no E/H, so they admit only `same_basis`.
    angular spread is a tenth of a radian; is the §4.6 cone rule, designed for thin
    screens, the intended angular bound for a direct modal overlap?
 3. Should a beam into a weakly guiding fibre (Gaussian → LP01) be admitted with its own
-   envelope? The brief admits one solid pair only.
+   envelope? The agreed scope admits one solid pair only.
 4. Should the target-subspace angular item of a general guide be evaluated at every
    occupied bin rather than five?
 5. Should `Outcouple` become a transport `Element` once the transport core takes
