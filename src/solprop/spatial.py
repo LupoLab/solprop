@@ -1687,7 +1687,13 @@ def aperture_profile(
     edge: float,
     kind: ApertureProfile,
 ) -> Float[np.ndarray, "*shape"]:
-    r"""Return an aperture's amplitude transmission at distances from its centre.
+    r"""Return an aperture's profile ``W`` at distances from its centre.
+
+    How ``W`` enters depends on the aperture set's weighting (SEP 23 section 4.6):
+    under ``"amplitude"`` weighting (the default) it is the field transmission, and
+    ``aperture_spectrum`` weighs the collected power by ``W**2``; under
+    ``"quadrature"`` weighting it weighs the power itself, once. The on-axis
+    amplitude behind the aperture applies ``W`` once under both weightings.
 
     With ``r`` the half-width and ``t = (rho - r)/w``, the four profiles of SEP 23
     section 4.4 are: ``hard``, one for ``rho <= r`` and zero beyond; ``tanh``,
@@ -1716,8 +1722,7 @@ def aperture_profile(
     Returns
     -------
     numpy.ndarray
-        The dimensionless transmission ``W(rho)`` in ``[0, 1]``, the shape of
-        `radius`.
+        The dimensionless profile ``W(rho)`` in ``[0, 1]``, the shape of `radius`.
 
     Raises
     ------
