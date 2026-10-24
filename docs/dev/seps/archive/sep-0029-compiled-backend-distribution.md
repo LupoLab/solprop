@@ -6,17 +6,17 @@
 | **Title** | The native backend in solprop, distributed as binaries |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-10-20); Opus 5.5 (2026-10-22, revision) |
-| **Status** | In progress |
+| **Status** | Final |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); GPT-6 (AI) |
 | **Type** | Change |
 | **Created** | 2026-10-20 |
-| **Resolution** | Accepted 2026-10-22 by John Travers, after phase 0, the revision of Part I, its AI re-review (R15–R18) and the responses in Part III. Phase 1 (one repository) is next; Q7 is settled in phase 3. |
-| **Requires** | [SEP 28](archive/sep-0028-free-space-evaluation.md) (the measurements that prompted this); [SEP 25](archive/sep-0025-rounding-level-reproducibility.md) (rounding-level agreement between backends and builds) |
+| **Resolution** | Accepted 2026-10-22 by John Travers, after phase 0, the revision of Part I, its AI re-review (R15–R18) and the responses in Part III. Phase 1 (one repository) is next; Q7 is settled in phase 3. Final 2026-10-24 by John Travers after phase 3, before the first release, with phase 4 (the release and its evidence) moved to the roadmap (Part II, "Closing"). |
+| **Requires** | [SEP 28](sep-0028-free-space-evaluation.md) (the measurements that prompted this); [SEP 25](sep-0025-rounding-level-reproducibility.md) (rounding-level agreement between backends and builds) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | John Travers with Opus 5.5 (AI); phase 1 on `feature/sep-0029-one-repository`, phase 2 on `feature/sep-0029-parity` |
-| **Manual pages** | — |
+| **Implementation** | John Travers with Opus 5.5 (AI); phase 1 on `feature/sep-0029-one-repository`, phase 2 on `feature/sep-0029-parity`, phase 3 on `feature/sep-0029-wheels` and then on `main` of the public repository |
+| **Manual pages** | [Installation](../../../introduction/installation.md); [The native backend](../../../guide/performance/native.md); [Building the native backend](../../../guide/performance/building-native.md); [Releasing and the native wheels](../../releasing.md) |
 
 ## Part I — Proposal
 
@@ -97,12 +97,12 @@ package that installs anywhere.
 
 ### 3. Context
 
-- The backend seam and registry ([backends](../backends.md),
-  [architecture](../architecture.md) §3): `numpy_ref` (the oracle), `numba_cpu` and the
+- The backend seam and registry ([backends](../../backends.md),
+  [architecture](../../architecture.md) §3): `numpy_ref` (the oracle), `numba_cpu` and the
   native backend behind one kernel contract; `backend="auto"` picks the native backend
   when installed, else `numba_cpu` (ADR-029).
 - The native build profiles LOCAL, DISTRIBUTION and REFERENCE
-  ([ADR-034](../decisions.md), amended 2026-10-21): DISTRIBUTION compiles for
+  ([ADR-034](../../decisions.md), amended 2026-10-21): DISTRIBUTION compiles for
   x86-64-v2, Neoverse N1 or Apple M1 and links a BLAS that shares the extension's
   threads (Accelerate on macOS; on Linux OpenBLAS built with OpenMP on the extension's
   own runtime). The package fits a host OpenBLAS's threads to the Kokkos pool at import.
@@ -111,7 +111,7 @@ package that installs anywhere.
   Linux aarch64 builds and passes; a single OpenMP runtime for Kokkos, FFTW and BLAS is
   the measured best design on Linux and Windows; the x86-64-v2 floor costs at most 2–4 %
   on the core cases and 23–24 % on the general modal route at one thread on a Xeon.
-- The standard benchmark suite ([SEP 30](archive/sep-0030-standard-benchmark-suite.md))
+- The standard benchmark suite ([SEP 30](sep-0030-standard-benchmark-suite.md))
   measures the core cases on both backends with matched thread budgets.
 - solprop and solprop-kokkos are two repositories and two distributions today, coupled
   by the kernel schema version, which each build checks at import.
@@ -415,11 +415,15 @@ A later SEP decides the future of `numba_cpu` on that evidence (§6.3).
   as the fallback.*
 - **Q2.** Fat wheel or two wheels for the x86-64 baselines (§6.2)? *Resolved on
   2026-10-21: one v2 wheel build, with v3 as a source-build option; see Part II.*
+  *Revised in phase 3 (2026-10-23): one x86-64-v3 build, with v2 as a source-build
+  option, and `backend="auto"` falling back to `numba_cpu` below it; see Part II,
+  phase 3.*
 - **Q3.** One package or two, and one repository (§6.4)? *Resolved on 2026-10-22: one
   repository, two distributions (`solprop`, `solprop-native`).*
 - **Q4.** Is x86-64-v2 the right conservative baseline, or is v1 (no SSE4.2) needed for
   any population worth supporting? *Resolved on 2026-10-21: v2, with v3 available
   as a source-build option; see Part II.*
+  *Revised in phase 3: x86-64-v3 (above).*
 - **Q5.** Should the `numba_cpu` stopgap of §10 be done now, independently of this SEP?
   *Done: Linux `numba_cpu` sets a passive wait policy and keeps its CPU grant
   (2026-10-20).*
@@ -430,15 +434,18 @@ A later SEP decides the future of `numba_cpu` on that evidence (§6.3).
   wheels, with no source distribution, to the index, so that the extra fails to resolve
   where no wheel matches. Document source builds from the repository or a release
   archive. Test the policy against the actual release artefacts. Confirmed when the
-  release recipe is set up.*
+  release recipe is set up.* *Confirmed in phase 3 (2026-10-24): the release workflow
+  publishes no `solprop-native` source distribution, and against the built wheelhouse
+  `solprop[native]` fails to resolve on platforms without a wheel (Windows on Arm, musl
+  Linux, Intel macOS, macOS before 14) while plain `solprop` installs; see Part II.*
 
 ### 13. References
 
 1. ADR-034, "A distribution Kokkos build: a CPU baseline and the platform's BLAS",
-   amended 2026-10-21 ([decisions](../decisions.md)).
+   amended 2026-10-21 ([decisions](../../decisions.md)).
 2. SEP 28 phase reports and the benchmark ledger entries "SEP 28 phase 0" and "SEP 28
-   phases 1 and 2" ([benchmarks](../benchmarks.md)).
-3. [SEP 30](archive/sep-0030-standard-benchmark-suite.md), the standard benchmark suite.
+   phases 1 and 2" ([benchmarks](../../benchmarks.md)).
+3. [SEP 30](sep-0030-standard-benchmark-suite.md), the standard benchmark suite.
 4. OpenMP Architecture Review Board, *OpenMP Application Programming Interface*,
    version 5.2 (2021), sections on `OMP_WAIT_POLICY`, `OMP_PROC_BIND` and `OMP_PLACES`.
 
@@ -774,7 +781,7 @@ This subsection consolidates phase 0 for the checkpoint of §11: the Windows x64
 Linux aarch64 builds, the same-machine timings against `numba_cpu`, and the
 performance work they prompted. The subsections above record the x86-64 floor and the
 Zen 5 follow-ups in detail. The other measurements are in the
-[benchmark ledger](../benchmarks.md) and the [CPU performance record](../cpu-performance.md).
+[benchmark ledger](../../benchmarks.md) and the [CPU performance record](../../cpu-performance.md).
 
 **Windows x64.** Two wheels were built and repaired with delvewheel. Both use Clang with
 the GNU driver on the MSVC ABI, the MSVC STL and CRT, and release `/MD`. One uses the
@@ -872,13 +879,13 @@ Still open before phase 2:
 - the comparison of the actual release wheel with `numba_cpu` (R9).
 
 Standard-suite baselines of Kokkos against `numba_cpu` on the merged code are recorded in
-the [benchmark ledger](../benchmarks.md). The remaining performance items are in the
-[roadmap](../roadmap.md).
+the [benchmark ledger](../../benchmarks.md). The remaining performance items are in the
+[roadmap](../../roadmap.md).
 
 ### Baselines and release-recipe tests — 2026-10-22
 
 **Native against `numba_cpu` on the standard suite.** The standard benchmark suite's core
-cases ([SEP 30](archive/sep-0030-standard-benchmark-suite.md)), standard mode, matched
+cases ([SEP 30](sep-0030-standard-benchmark-suite.md)), standard mode, matched
 thread budgets, on five machines, after the consolidation above. Each entry is
 `numba_cpu`'s median warm-window time divided by the native backend's, so above 1 the
 native backend is faster. "Full" is the production width; MS and RK are the adaptive
@@ -965,7 +972,7 @@ steps, source evaluations) in every row, and every adaptive accuracy check passe
   jobs `native-quality` and `native-suite` replace the cross-repository jobs; the CUDA
   workflow moved to the root.
 - **Documentation.** The native package's build instructions moved into the manual
-  ([Building the native backend](../../guide/performance/building-native.md)), with the
+  ([Building the native backend](../../../guide/performance/building-native.md)), with the
   CUDA and HIP builds; the installation pages, the native and tuning pages, the
   contributor guides, the developer pages and the decisions describe one repository and
   two distributions. The native changelog was folded into the root changelog. SEPs,
@@ -1090,6 +1097,127 @@ the private ledger):
   after the release.
 - On Linux a kept native save costs about 4.5 ms against `numba_cpu`'s 1.6 ms on the
   benchmark case, unexplained; the run totals are level.
+
+### Phase 3: open source and wheels — 2026-10-24
+
+**Branches.** The wheel recipes on `feature/sep-0029-wheels`; after the history reset,
+the fixes found by the public CI directly on `main`.
+
+**What was done.**
+- **Open source.** The repository's history was reset to one commit, and the repository
+  was published as `LupoLab/solprop` under GPL-3.0-or-later (documentation
+  CC-BY-4.0), with the native package inside it from the first public commit. The default
+  branch is protected by a ruleset; Dependabot (pinned actions and the lock), secret
+  scanning, private vulnerability reporting, Read the Docs and Codecov are set up.
+- **Continuous integration.** One workflow of parallel jobs: lint and types, the
+  documentation, the default lane on macOS, Linux and Windows, the slow lane, the
+  lowest supported dependencies, coverage (100 % of statements and branches, with the
+  native package built), the native gate (`native-quality`) and the default lane on the
+  native backend (`native-suite`). GitHub's 16 GB runners needed swap and three test
+  workers for the native and coverage jobs, and tests that had read the runner's free
+  memory now fix it. Linux CPU builds of the native package now require GCC 14 or newer:
+  GCC 13's code for the strict floating-point helpers cost native performance.
+- **Wheels** (`.github/workflows/wheels.yml`; recipe and table in
+  [Releasing and the native wheels](../../releasing.md)). cibuildwheel builds CPython 3.14
+  wheels:
+  - Linux x86-64 and aarch64 in `manylinux_2_28` with GCC 14, FFTW 3.3.11 and an OpenMP
+    OpenBLAS with run-time kernel selection, repaired by `auditwheel`;
+  - macOS arm64 with Homebrew's Clang, its own LLVM `libomp` and FFTW, Accelerate as
+    the BLAS, deployment target 14.0, repaired by `delocate`;
+  - Windows x64 with Clang on the MSVC ABI, FFTW and OpenBLAS built static on LLVM's
+    `libomp`, repaired by `delvewheel`.
+
+  Each wheel carries the licence texts of what it bundles. A test job per platform
+  installs the repaired wheel beside the locked dependencies and runs the smoke test
+  (versions, profile, bundled-library locations, licences), the build record, the
+  coexistence script (both import orders in fresh processes, every package's thread pool
+  started, interleaved native and `numba_cpu` runs) and the default lane on the native
+  backend. The `cpu-floor` job runs the Linux x86-64 wheel under Intel's Software
+  Development Emulator. The publishing jobs use trusted publishing, one GitHub
+  environment per distribution (`pypi`, `pypi-native`), and refuse to publish a
+  `solprop-native` source distribution (Q7).
+- **The x86-64-v3 baseline, with a fallback** (revising Q2 and Q4). The x86-64 wheels are
+  built for x86-64-v3; x86-64-v2 remains a source-build option. v3 removes v2's cost
+  (2–4 % on the core cases, 7–24 % on the general modal route) and excludes processors
+  without AVX2: Intel before Haswell (2013) and AMD before Excavator (2015). The package
+  checks the processor on every wheel platform before any native code runs (Linux from
+  `/proc/cpuinfo`, Windows through `IsProcessorFeaturePresent`), and raises
+  `CpuBaselineError` naming the missing features. Under `backend="auto"`, and only for
+  that refusal, solprop selects `numba_cpu` instead and warns once, naming the missing
+  features and asking for an issue on the repository; `backend="native"` still raises.
+  This amends §5, where any failure raised.
+- **macOS and pyFFTW** (§7, coexistence). pyFFTW's macOS wheel carries its own `libomp`.
+  With the guard bypassed, importing the native package after pyFFTW crashed in Kokkos's
+  OpenMP initialisation, and initialising pyFFTW's runtime after the native package
+  aborted on a duplicate runtime. The guard is kept, and the import-order rule is
+  documented as a macOS limitation; solprop's own imports load the native package first.
+- **Windows OpenBLAS.** Built by Clang for Windows, OpenBLAS's run-time kernel selection
+  (`DYNAMIC_ARCH`) was not reliable at one thread: its AVX-512 kernels gave wrong complex
+  results (the coupled TE/TM flow off by 5e-4 against rounding-level bounds), and its
+  Haswell and Zen kernels, or any kernel family forced at run time, faulted in the radial
+  route's real GEMM. The Windows wheel links OpenBLAS built for one fixed target, Haswell,
+  the wheel's baseline, which phase 0 had qualified.
+
+**Deviations.**
+1. The x86-64 baseline is v3, not v2 (above), with the `auto` fallback.
+2. The macOS deployment target is 14.0, that of NumPy's and SciPy's Accelerate wheels,
+   rather than the 11.0 the recipe first reached.
+3. The Windows OpenBLAS has no run-time kernel selection (above).
+4. Phase 4 and the per-platform performance qualification were not done before this SEP
+   was closed ("Closing", below).
+5. §7's coverage clause is met on GitHub's runners, which carry compilers and run current
+   operating systems, not on clean machines at the declared minimum systems; the wheels'
+   test jobs run the default lane on the native backend, and the slow lane on the native
+   backend runs in CI from a source build, not from the wheels; and no lane yet fails on
+   unexpected native skips (R13). These go to the roadmap.
+
+**Verification.**
+- CI on `main` green in every job, after the fixes the first public runs found: the
+  type check of native-only test imports, thread counts on small runners, tests that read
+  the runner's memory, the oldest-dependency job's test tools, the native gate's
+  compiler, and the Windows and macOS wheel recipes (PowerShell 7 for the Windows
+  dependencies; Accelerate's BLAS naming declared, so the macOS configure needs no
+  Fortran compiler).
+- Wheels: the wheels workflow at the merge of SEP 34 (2026-10-24) built all four wheels
+  and passed each platform's test job: Linux x86-64 and aarch64, macOS arm64 and Windows
+  x86-64, the last with the fixed-Haswell OpenBLAS.
+- CPU floor: under Intel SDE 10.13.1 the Linux x86-64 wheel ran its smoke test on an
+  emulated Haswell; on an emulated Nehalem and Sandy Bridge its import was refused by
+  the processor check, naming the missing features, before any unsupported
+  instruction ran, and automatic selection fell back to `numba_cpu` with its warning.
+  SDE emulates CPUID but not `/proc/cpuinfo`, which the check reads on Linux, so the
+  job bind-mounts each older chip's flags over that file.
+- Windows, outside CI: the fixed-Haswell wheel ran the default lane on the native backend
+  on a 16-core Zen 5 Windows VM (16,337 passed); its two failures were two Numba cache
+  tests exceeding the VM's path-length limit.
+- Installation (§7, Q7), from the release workflow's wheelhouse (the solprop wheel and
+  the four native wheels): `pip` and `uv` into fresh environments on macOS, with the
+  extra (the native wheel installed, `auto` resolves to `native`) and without it (no
+  native package, `auto` resolves to `numba_cpu`, no warning). Resolved for other
+  platforms: the extra resolves on Linux x86-64 and aarch64 (`manylinux_2_28`), Windows
+  x64 and macOS 14 on arm64, and fails to resolve, naming the missing wheel, on Windows
+  on Arm, musl Linux, Intel macOS and macOS 13; plain `solprop` resolves on all of them.
+
+### Closing — 2026-10-24
+
+The maintainer set this SEP Final after phase 3 and before the first release. Phases 1–3
+are merged and reported; the native backend runs everything `numba_cpu` runs (§6.6),
+and `numba_cpu` is unchanged (§6.3). Moved to the [roadmap](../../roadmap.md):
+- **The first release** of both distributions (phase 4), with the release checklist of
+  [Releasing and the native wheels](../../releasing.md) and an archive DOI;
+- **the per-platform performance qualification** of §7 (the standard suite's core
+  cases, native against `numba_cpu`, at one thread and the production width, on each
+  wheel family), after the release;
+- **qualification on clean machines** at the declared minimum systems, the slow lane
+  from the wheels, and failing on unexpected native skips;
+- **evidence from use** (coverage, default performance, coexistence), for the later
+  decision on `numba_cpu` (§6.3);
+- of phase 2's open questions, the z table on GPU builds and the cost of a kept native
+  save on Linux; the third, GCC and the strict helpers, is settled: the cost was GCC 13's
+  code for the strict helpers, which GCC 14 and 16 do not share, and Linux CPU builds now
+  require GCC 14;
+- **macOS and pyFFTW**: removing the import-order rule needs a native macOS build
+  without OpenMP, or a pyFFTW wheel that does not initialise its own `libomp`.
 
 ## Part III — History
 

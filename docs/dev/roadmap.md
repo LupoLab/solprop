@@ -32,18 +32,6 @@ being implemented.
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
 
-- [SEP 29 — The native backend in solprop, distributed as binaries](seps/sep-0029-compiled-backend-distribution.md):
-  the native backend moves into solprop's repository as a second distribution
-  (`solprop-native`, module `solprop_native`, the `solprop[native]` extra) before the
-  repository is open-sourced, and is published as CPU wheels for Linux (x86-64-v3,
-  aarch64), macOS arm64 and Windows x64, with safe loading and release recipes. A parity
-  phase gives the native backend the two capabilities only `numba_cpu` has: general z
-  tables and Adams history export. It also gives native versions of the Numba-compiled
-  helpers every backend uses. `numba_cpu` stays unchanged, and its future is a later
-  decision on evidence from the wheels. Accepted 2026-10-22 after phase 0. In progress:
-  phases 1 (one repository) and 2 (native parity) done; phase 3 (open source and
-  wheels) next.
-
 - [SEP 31 — Coupling simulations and transporting ultrafast fields](seps/sep-0031-simulation-coupling.md):
   reference-plane fields, coherent spatial synthesis/projection, ordered linear
   transport and validated relaunch using SEP 34's shared medium flux; temporal
@@ -531,7 +519,7 @@ any of the first ten items.
   and projection), after the compiler-target comparison.
 - **Selective run-time kernel dispatch**: AVX-512 variants of a hot kernel in the
   x86-64-v3 wheel behind a CPU-feature selector
-  ([SEP 29](seps/sep-0029-compiled-backend-distribution.md), §6.2).
+  ([SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md), §6.2).
 - **Batched vector transcendentals for the plasma response**, which need the dependent
   plasma recurrence split into a batched rate pass.
 
@@ -727,6 +715,11 @@ the interpolation coordinate a parameter and expand the dispersion in it, as the
 expansion already does for a fill's density, so the GPU builds could run it without the
 table.
 
+**The cost of a kept native save on Linux.** On the snapshot benchmark case a kept
+native Adams save costs about 4.5 ms against `numba_cpu`'s 1.6 ms on Linux, unexplained;
+the run totals are level
+([SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md), phase 2).
+
 **The hybrid planar route on GPUs.** native CPU executes the planar kind resolved in y; the
 CUDA and HIP builds compile the same kernels but have never run them. Device
 qualification follows the other routes' parity bounds ([backends](backends.md)).
@@ -754,15 +747,38 @@ is to include one.
 qualified by hand on data-centre NVIDIA and AMD Instinct GPUs; a scheduled device lane
 would catch regressions in the `gpu`-marked tests between qualifications.
 
-**Published native wheels.** `solprop-native` is built from source, from `native/`
-([dependencies](dependencies.md)). Its CMake configure needs a git checkout — it records
-its own commit through `git rev-parse` and fails without one — and by default fetches
-Kokkos, Kokkos Kernels and (for the Linux distribution build) OpenBLAS from GitHub, so it
-cannot build from a source distribution or offline. Published wheels (the distribution
-CPU build of ADR-034 and [SEP 29](seps/sep-0029-compiled-backend-distribution.md); GPU
-builds stay source-only, ADR-048) need the commit to come from the package version
-instead, a manylinux container, a macOS deployment target, and FFTW, OpenBLAS and the
-OpenMP runtime bundled (`auditwheel`, `delocate`, `delvewheel`).
+**Native source builds without a checkout.** The published wheels are built from the
+repository, but `solprop-native` cannot be built from a source archive or offline: its
+CMake configure records its own commit through `git rev-parse` and fails without one, and
+by default it fetches Kokkos, Kokkos Kernels and (for the Linux distribution build)
+OpenBLAS from GitHub ([dependencies](dependencies.md)). A release archive that builds
+needs the commit to come from the package version and the sources to be vendored or
+fetchable by checksum.
+
+**Wheel qualification beyond CI**
+([SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md), §7). The wheels' test
+jobs run on GitHub's runners, which carry compilers and current operating systems. Still
+to do: installs on clean machines at the declared minimum systems (macOS 14, the
+`manylinux_2_28` generation, Windows 10); the slow lane on the native backend from the
+wheels, not only from a source build; and a lane that fails on unexpected native skips.
+
+**Per-platform performance of the wheels**
+([SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md), §7). The standard
+suite's core cases, adaptive Multistep and Runge–Kutta, native against `numba_cpu` with
+matched budgets, at one thread and the production width, on each wheel family, recorded
+in the benchmark ledger with any serious loss per case. To run once the first release is
+out.
+
+**macOS: pyFFTW imported before the native package.** pyFFTW's macOS wheel carries and
+initialises its own `libomp`, and the native package refuses to import after it (the
+rule is documented in [Building the native backend](../guide/performance/building-native.md)).
+Lifting the rule needs a macOS native build without OpenMP (Kokkos Threads and threaded
+FFTW, measured first) or a pyFFTW wheel that does not initialise its own runtime.
+
+**The future of `numba_cpu`.** With the native wheels published, a later SEP decides
+whether `numba_cpu` stays, on evidence from use: how often `auto` falls back, coverage
+across the installed platforms, default performance and coexistence reports
+([SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md), §6.3).
 
 **Raman convolution length.** The Raman convolution is always built on a doubled grid of
 `2 n_to` samples, including for short-lived responses such as silica's.
@@ -962,6 +978,12 @@ planes, apertures and polarisation optics; its partial coverage is noted below.
   extensions to these in-run statistics remain open.
 
 ## Release preparation
+
+**The first release.** Publish `solprop` and `solprop-native` at one version from a tag,
+following the checklist in [Releasing and the native wheels](releasing.md): the wheels
+workflow with publishing enabled, the archive DOI, and a fresh install of
+`solprop[native]` on each wheel platform. The native wheels and their recipe were
+qualified by [SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md).
 
 **A resume-compatibility policy before the first public release.** The output schema
 records every field of a recorded dataclass, at its default too

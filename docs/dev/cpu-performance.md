@@ -5,7 +5,7 @@ adopted, what was measured and rejected, and what remains open. The aim is that 
 repeats an experiment without knowing its result. Each entry gives the result in one or
 two lines and, where they are summarised, links to its measurements in
 [benchmarks](benchmarks.md#indicative-results) or to
-[SEP 29](seps/sep-0029-compiled-backend-distribution.md). The open items are in the
+[SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md). The open items are in the
 [roadmap](roadmap.md), under "Performance and backends".
 
 Timings follow the [benchmark rules](benchmarks.md#rules). They are short, bounded
@@ -22,7 +22,7 @@ time divided by the native backend's: above 1, the native backend is faster.
   coupled-wall and modal capillary cases 10 to 75 times slower on a 32-core AVX-512
   x86-64 server, and similarly on Windows and aarch64. With one runtime the backend is 2
   to 7 times faster than `numba_cpu` on those cases at full width, and level with it at
-  one thread ([SEP 29](seps/sep-0029-compiled-backend-distribution.md)).
+  one thread ([SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md)).
   - At start-up the backend fits a host OpenBLAS to its own pool, unless the user sets
     `OPENBLAS_NUM_THREADS`, `GOTO_NUM_THREADS` or `OMP_NUM_THREADS`.
     - A pthreads OpenBLAS is held to one thread. This covers a local build against a

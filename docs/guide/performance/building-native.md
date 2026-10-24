@@ -521,3 +521,6 @@ their licence texts by `SOLPROP_NATIVE_BUNDLED_LICENCES`; FFTW (GPL-2.0-or-later
 compatible with the package's GPL-3.0-or-later. The published wheels' recipe is in the
 developer notes ([Releasing and the native wheels](../../dev/releasing.md)). CUDA and
 HIP builds link the vendors' libraries and are built from source only.
+
+The build profiles, CPU baselines and wheel recipes on this page were proposed and
+qualified by [SEP 29](../../dev/seps/archive/sep-0029-compiled-backend-distribution.md).
