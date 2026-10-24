@@ -732,8 +732,8 @@ see [benchmarks.md](benchmarks.md#indicative-results).
 
 Rejected by measurement: the OpenMP and TBB threading layers, a blocked temporal plasma
 scan (42× slower on a single node), an eight-node time-outer traversal, `expm1`, a
-reciprocal rate lookup, and every smaller kernel width on a 36-core server. The two rejected
-traversals are kept as prototypes under `tests/prototypes/`, not in the package.
+reciprocal rate lookup, and every smaller kernel width on a 36-core server. Neither
+rejected traversal is kept, in the package or among its tests.
 `OMP_WAIT_POLICY=PASSIVE` buys 14–39 % on a 36-core server's CtC cases at 18 and 36
 threads. For pyFFTW's own OpenMP runtime it is the default on Linux
 (`backends/numba_cpu/openmp.py`). pyFFTW's Linux wheels thread FFTW through a private

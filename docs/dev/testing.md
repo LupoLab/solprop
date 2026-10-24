@@ -131,7 +131,7 @@ carry a claim that used to need four thousand.
 Medium tests are parametrised over every installed compatible backend and stay medium. The
 base checkout has `numpy_ref` and `numba_cpu`; an installed `solprop-native` adds `native`
 conditionally. The slow ladders run on the backend selected by `SOLPROP_TEST_BACKEND`,
-defaulting to `numba_cpu`; the backend-versus-reference parity test of §1, with the
+defaulting to what `backend="auto"` selects (`native` where installed, else `numba_cpu`); the backend-versus-reference parity test of §1, with the
 equivalence tolerance of §3, stands in for duplicate copies already known to agree.
 
 Spatial tests select their backends through the explicit spatial fixtures of

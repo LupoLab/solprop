@@ -22,12 +22,13 @@ to express it.
 
 import dataclasses
 import math
-import os
 import warnings
 from collections.abc import Callable, Sequence
 
 import numpy as np
 import pytest
+
+from selected_backend import selected_backend
 
 try:
     # Load Kokkos before pyFFTW's wheel-private OpenMP runtime on macOS. The backend
@@ -151,7 +152,7 @@ def spatial_equivalence_backend_class(request):
 @pytest.fixture(scope="session")
 def selected_backend_name():
     """Return the backend selected for direct ladders by ``SOLPROP_TEST_BACKEND``."""
-    name = os.environ.get("SOLPROP_TEST_BACKEND", "numba_cpu")
+    name = selected_backend()
     if name not in BACKENDS:
         usable = ", ".join(sorted(BACKENDS))
         pytest.fail(f"SOLPROP_TEST_BACKEND={name!r} is unavailable; use {usable}")

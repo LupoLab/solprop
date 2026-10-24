@@ -190,10 +190,9 @@ max-args = 6                      # forces a config dataclass past this
 [tool.ruff.lint.per-file-ignores]
 "tests/**"          = ["D", "ANN", "PLR2004", "ARG"]   # dummies implement protocols with unused args
 "benchmarks/**"     = ["D", "ANN", "T20"]
-# Independent oracles and rejected prototypes that tests compare against: research code,
-# held to the benchmark rules rather than the package's.
+# Independent oracles that tests compare against: research code, held to the benchmark
+# rules rather than the package's.
 "tests/oracles/**"   = ["D", "ANN", "T20", "PLR2004", "ARG"]
-"tests/prototypes/**" = ["D", "ANN", "T20", "PLR2004", "ARG"]
 "docs/conf.py"      = ["D", "ANN"]
 "docs/introduction/tutorials/**" = ["D", "ANN", "T20", "E402"]  # the same gallery cell conventions
 "docs/tutorials/**" = ["D", "ANN", "T20", "E402"]   # gallery scripts: cells and prints
@@ -203,9 +202,7 @@ max-args = 6                      # forces a config dataclass past this
 # -------------------------------------------------------------------------- type check
 [tool.basedpyright]               # basedpyright also reads [tool.pyright]
 include = ["src", "tests", "benchmarks"]
-exclude = ["tests/oracles", "tests/prototypes"]
-# The rejected plasma prototypes some kernel tests compare against import each other by name.
-extraPaths = ["tests/prototypes"]
+exclude = ["tests/oracles"]
 typeCheckingMode = "standard"     # "strict" once the baseline is clean
 pythonVersion = "3.14"
 failOnWarnings = true
@@ -335,6 +332,22 @@ help = "Coverage pass 2: everything else, compiled; 100 % of the CPU source requ
 [tool.poe.tasks.cov]
 sequence = ["cov-kernels", "cov-rest"]
 help = "Coverage lane: the kernel bodies interpreted, then the rest compiled (CPU source)."
+
+# CI runs the coverage lane as parallel jobs: cov-kernels, and cov-part once per shard
+# (SOLPROP_TEST_SHARD=i/n, tests/shards.py), each leaving its own data file, which
+# cov-report combines from coverage-data/ and holds to the 100 %.
+[tool.poe.tasks.cov-part]
+cmd = "pytest --cov --cov-config=coverage-cpu.ini --cov-report= --cov-fail-under=0 -m 'not slow and not gpu and not benchmark' -n auto --dist loadgroup"
+env = { PYTHONUTF8 = "1", SOLPROP_THREADS = "1", SOLPROP_NATIVE_THREADS = "1", VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
+help = "Coverage pass 2 for one shard (SOLPROP_TEST_SHARD), without the 100 % check."
+
+[tool.poe.tasks.cov-report]
+sequence = [
+    { cmd = "coverage combine --rcfile=coverage-cpu.ini coverage-data" },
+    { cmd = "coverage xml --rcfile=coverage-cpu.ini --fail-under=0" },
+    { cmd = "coverage report --rcfile=coverage-cpu.ini" },
+]
+help = "Combine the coverage parts in coverage-data/, write coverage.xml, require 100 %."
 
 # The structure figures and the geometry figures are drawn on demand, not by the docs
 # build: the SVGs are committed and `structure.md` and `spatial-decompositions.md` only

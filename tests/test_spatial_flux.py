@@ -10,6 +10,7 @@ from typing import cast
 import numpy as np
 import pytest
 
+from runtime_types import unchecked
 from solprop import fourier
 from solprop.constants import EPS0, HBAR, C
 from solprop.exceptions import GridError, MaterialError, PulseError, TranslationError
@@ -412,7 +413,7 @@ def test_a_plane_refuses_a_side_outside_its_vocabulary() -> None:
     """
     unknown = cast("FluxSide", "middle")
     with pytest.raises(MaterialError, match="side must be 'before', 'after' or None"):
-        plane_sample.__wrapped__(SpatialMedium(), 0.0, unknown)  # type: ignore[attr-defined]
+        unchecked(plane_sample)(SpatialMedium(), 0.0, unknown)
 
 
 def test_the_plane_measure_refuses_a_missing_plan_or_position() -> None:

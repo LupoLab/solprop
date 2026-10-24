@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 from jaxtyping import TypeCheckError
 
+from runtime_types import requires_typecheck
 from solprop.exceptions import GridError, ModeError, OutputError, ProcessingError
 from solprop.grid import EnvelopeGrid, FieldGrid, TimeGrid
 from solprop.output import MemoryOutput
@@ -288,6 +289,7 @@ def test_example_helpers_build_a_runnable_synthetic_run():
     assert example_output(n_modes=2)["field"].shape[1] == 2
 
 
+@requires_typecheck
 def test_grid_from_record_is_shape_checked():
     with pytest.raises(TypeCheckError):
         axes.spectral_axis(np.array([1, 2]), "f")

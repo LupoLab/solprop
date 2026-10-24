@@ -1208,3 +1208,37 @@ Withdrawn (development-process record, not a design decision).
   `SOLPROP_THREADS` to its share; `Pool` already shares its budget among its workers.
   Virtual machines (cloud instances included) and Slurm jobs set no quota by default;
   their limit is the mask.
+
+## ADR-053 — Runtime type checks in one CI lane; the CI lanes sharded
+
+- **Status:** accepted
+- **Context:** the jaxtyping and beartype import hook (ADR-018) wraps every annotated
+  function in the test session: each call binds its arguments and matches every array's
+  shape. The reference backend's inner loops call small annotated functions millions of
+  times. One medium test took 257 s with the hook and 22 s without; the whole default
+  lane took 15 min with it and 7 min without on 18 workers, with 2.3 times less CPU.
+  Every CI lane ran the default lane with the hook, on two or three xdist workers, so a
+  pull request waited two to two and a half hours for its longest jobs. The coverage
+  lane was cancelled at 99 % after two and a half hours.
+- **Decision:**
+  - `SOLPROP_TEST_TYPECHECK=0` leaves the hook out of a session (`tests/runtime_types.py`).
+    The default stays on, so a developer's `poe test` checks as before.
+  - In CI, the coverage lane runs with the hook, so every annotated call that the default
+    lane makes is still checked once per run, on Linux, beside the measure of 100 %. The
+    macOS, Windows, lowest-dependency and slow lanes run without it.
+  - A test that asserts what the hook raises skips without it (`requires_typecheck`).
+  - A test that reaches past the hook uses `unchecked()`.
+  - Each long lane runs as parallel jobs, the shards of whole modules that
+    `SOLPROP_TEST_SHARD=i/n` selects (`tests/shards.py`). They are balanced by measured
+    seconds per module.
+  - The coverage shards' data files are combined in one job, which requires 100 %.
+- **Why:** the checks find annotation and shape errors in solprop's own Python code.
+  Those errors do not depend on the platform or on the dependency floor, and one lane
+  that runs every test sees every call. Repeating the checks on four platforms bought
+  nothing and cost most of CI's time. Shards trade more, shorter jobs for wall time,
+  which costs nothing on public runners up to the account's concurrency.
+- **Consequences:** a shape error reached only by a platform-specific path, or only by a
+  slow test, is no longer checked in CI. Run `poe test` locally, which still checks, to
+  find one. The shard weights (`tests/data/shard_weights.json`) need refreshing when the
+  suite's balance shifts: `tests/shards.py` rewrites them from the JUnit reports that
+  each shard uploads. A stale table costs time, never coverage.

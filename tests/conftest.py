@@ -14,19 +14,27 @@ worker installs its own hook (``docs/dev/testing.md`` section 2).
 
 import importlib
 import importlib.util
+import os
 import sys
 
 import pytest
 from hypothesis import settings
 from jaxtyping import install_import_hook
 
+from runtime_types import TYPECHECKED
+
 # Kept as a module attribute so the hook lives for the whole session.
 # beartype is configured with the PEP 484 numeric tower, so an ``int`` is accepted
 # where a ``float`` is annotated and a ``float`` where a ``complex`` is, as static
-# checkers assume.
-JAXTYPING_HOOK = install_import_hook(
-    "solprop",
-    "beartype.beartype(conf=beartype.BeartypeConf(is_pep484_tower=True))",
+# checkers assume. `SOLPROP_TEST_TYPECHECK=0` leaves the hook out (runtime_types.py,
+# ADR-053): CI's coverage lane checks, its other lanes do not.
+JAXTYPING_HOOK = (
+    install_import_hook(
+        "solprop",
+        "beartype.beartype(conf=beartype.BeartypeConf(is_pep484_tower=True))",
+    )
+    if TYPECHECKED
+    else None
 )
 
 # Hypothesis's per-example deadline is a wall-clock limit, which a parallel lane on a
@@ -42,6 +50,7 @@ if importlib.util.find_spec("solprop_native") is not None:
     importlib.import_module("solprop_native")
 
 import convergence_records  # noqa: E402 - `tests/` reaches sys.path with this file
+import shards  # noqa: E402 - test helper beside conftest
 import solprop  # noqa: E402, F401 - imported after the hook so the package is checked too
 from distribution import remember_nodeid  # noqa: E402 - test helper beside conftest
 
@@ -128,6 +137,33 @@ def _shared_fixtures(item):
         for name, definitions in info.name2fixturedefs.items()
         if definitions and definitions[-1].scope in SHARED_SCOPES
     ]
+
+
+# ------------------------------------------------------------------------ the shards
+#
+# CI splits a lane across several jobs: `SOLPROP_TEST_SHARD=i/n` keeps the modules of
+# shard i of n and deselects the rest. Whole modules move, so a module fixture is built
+# in one job only. The modules are dealt longest first to the shard with the least work
+# so far, by the seconds in tests/data/shard_weights.json (`tests/shards.py` writes it
+# from JUnit reports); a module missing from it counts as the median module. Every
+# worker of every shard deals the same collection the same way, which is what lets
+# xdist's workers agree on it.
+SHARD_VARIABLE = "SOLPROP_TEST_SHARD"
+
+
+@pytest.hookimpl(trylast=True, specname="pytest_collection_modifyitems")
+def pytest_collection_modifyitems_shards(config, items):
+    """Deselect the modules another shard runs, when ``SOLPROP_TEST_SHARD`` is set."""
+    value = os.environ.get(SHARD_VARIABLE, "").strip()
+    if not value:
+        return
+    index, count = shards.parse(value)
+    keep = shards.deal(items, count)[index]
+    kept = [item for item in items if shards.module_of(item.nodeid) in keep]
+    dropped = [item for item in items if shards.module_of(item.nodeid) not in keep]
+    if dropped:
+        config.hook.pytest_deselected(items=dropped)
+    items[:] = kept
 
 
 def pytest_collection_finish(session):

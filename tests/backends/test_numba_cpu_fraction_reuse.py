@@ -15,7 +15,7 @@ from numba import config, get_num_threads, set_num_threads
 
 from backends.matched import assert_columns_agree
 from bounds import scan_bound
-from plasma_prototypes import inputs, reference_arguments
+from plasma_column_inputs import inputs, reference_arguments
 from solprop.backends.numba_cpu.kernels import ColumnSpec, make_response_column
 
 

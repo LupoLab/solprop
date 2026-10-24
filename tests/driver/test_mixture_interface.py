@@ -4,7 +4,6 @@
 
 """Qualify the labelled material vocabulary at the public driver boundary."""
 
-import os
 from contextlib import nullcontext
 from dataclasses import replace
 
@@ -14,6 +13,7 @@ import pytest
 from bounds import step_evaluations
 from former_raman import FORMER_N2
 from mixture_cases import AnalyticRate, mixture_case
+from selected_backend import selected_backend
 from solprop.constants import K_B
 from solprop.driver import Simulation, prop_capillary
 from solprop.driver.mixtures import is_air
@@ -152,7 +152,7 @@ def test_analytic_plasma_with_temporal_collar_matches_the_reference(material_gri
     # h alpha / 2 stays below 0.0877: on this collar, steps under 7.0e-7 m.
     steps = COLLAR_STEPS
     outputs = []
-    for backend in ("numpy_ref", os.environ.get("SOLPROP_TEST_BACKEND", "numba_cpu")):
+    for backend in ("numpy_ref", selected_backend()):
         simulation = construct(
             material,
             grid,
@@ -398,7 +398,7 @@ def test_envelope_mixture_temporal_collar_matches_reference(material_grid):
     grid = EnvelopeGrid.from_limits(original.length, 800e-9, (400e-9, 2e-6), 80e-15)
     steps = COLLAR_STEPS
     fields = []
-    for backend in ("numpy_ref", os.environ.get("SOLPROP_TEST_BACKEND", "numba_cpu")):
+    for backend in ("numpy_ref", selected_backend()):
         simulation = construct(
             material,
             grid,
