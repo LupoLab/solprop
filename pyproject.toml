@@ -38,7 +38,7 @@ dependencies = [
     "pyfftw>=0.15.1",
     # Every built-in material model (SEP 3): gases with their equation of state and
     # transport, solids, Raman responses and ionisation rates.
-    "optmat[gas]>=0.8.0",
+    "optmat[gas]>=0.9.0",
     # The BLAS pool is one of the four the numba_cpu backend owns (backends.md 3.4:
     # a factor of nine on one step from the pool configuration alone), and no BLAS
     # exposes a runtime thread count except through the library walk this does.

@@ -222,7 +222,7 @@ def test_tdse_output_defaults_and_their_explicit_overrides():
 # included, which another platform's libm and FFT move. Its structure is still hashed
 # exactly; its numbers are stored beside this test (recorded from the state the
 # former digest certified) and compared within a bound (tests/record_numbers.py).
-_UNCHANGED = "aad63c25bc485771c6e6cf1cceb7868f877a5de6a7fd5dc07c741b68cdb50683"
+_UNCHANGED = "91adfdb4ac0f6bfdfd9946026092c3f08b7565bdc033fb929b0f2da07813c523"
 
 
 def test_without_tdse_a_representative_call_is_unchanged():
