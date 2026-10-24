@@ -127,6 +127,12 @@ cone samples times bins; the content varies smoothly with frequency, so the two
 band edges, the peak bin and two between them bound it.
 """
 
+_PHASE_BLOCK = 1 << 22
+"""Entries of the cone by node phase matrix formed at once (64 MiB of complex).
+
+A fine node table and a wide cone make the whole matrix several GiB.
+"""
+
 _SCALE = 0.5 * EPS0 * C
 """``eps0 c / 2``: joules per weighted ``|E|^2`` sum of a field in V/m."""
 
@@ -2872,11 +2878,20 @@ def _target_angular_vector(
         kx = np.outer(kappa_r, np.cos(angles)).ravel()
         ky = np.outer(kappa_r, np.sin(angles)).ravel()
         cone_w = np.repeat(area_k, 16) / (2.0 * np.pi) ** 2
-        phase = np.exp(-1j * (np.outer(kx, nodes[:, 0]) + np.outer(ky, nodes[:, 1])))
         transverse = electric[:, :2, :, k]
         gram = np.einsum("q,qcm,qcn->mn", weights, transverse.conj(), transverse)
-        spectra = np.einsum("kq,q,qcm->kcm", phase, weights, transverse)
-        cone = np.einsum("k,kcm,kcn->mn", cone_w, spectra.conj(), spectra)
+        weighted = weights[:, None, None] * transverse
+        cone = np.zeros_like(gram)
+        # Cone points in blocks: the cone x node phase matrix is never whole.
+        step = max(1, _PHASE_BLOCK // nodes.shape[0])
+        for start in range(0, kx.size, step):
+            block = slice(start, start + step)
+            phase = np.exp(
+                -1j
+                * (np.outer(kx[block], nodes[:, 0]) + np.outer(ky[block], nodes[:, 1]))
+            )
+            spectra = np.einsum("kq,qcm->kcm", phase, weighted)
+            cone += np.einsum("k,kcm,kcn->mn", cone_w[block], spectra.conj(), spectra)
         tail = gram - cone
         defect = (epsilon / 8.0) * gram + (1.0 - epsilon / 8.0) * tail
         worst = max(worst, _whitened_extremes(defect, gram)[1])
