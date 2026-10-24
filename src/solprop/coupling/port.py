@@ -15,7 +15,7 @@ with NumPy alone never imports the translation layer.
 A :class:`CouplingLaunch` is bound to one port: it carries the port, the target
 coefficients and the reference origin the launched run inherits, and
 :meth:`solprop.driver.simulation.Simulation.with_input` refuses it for any other port,
-whatever the array shapes. :func:`solprop.coupling.couple.couple` computes one.
+whatever the array shapes. :func:`solprop.coupling.coupler.couple` computes one.
 """
 
 import hashlib

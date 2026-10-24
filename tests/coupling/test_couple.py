@@ -37,7 +37,7 @@ from solprop.coupling import (
     basis_identity,
     couple,
 )
-from solprop.coupling.couple import _contrast_items, _gain_item
+from solprop.coupling.coupler import _contrast_items, _gain_item
 from solprop.coupling.models import cone_angle, radial_rule
 from solprop.driver import Simulation
 from solprop.exceptions import CouplingError

@@ -599,7 +599,7 @@ MODULES = {
         Module("tools.py"),
         Module(
             "coupling/",
-            ("plane", "port", "remap", "models", "couple", "outcouple", "envelopes"),
+            ("plane", "port", "remap", "models", "coupler", "outcouple", "envelopes"),
         ),
         Module(
             "physdata/",

@@ -16,7 +16,7 @@ applied once.
 The guide's field per true-power coefficient is
 :math:`\sqrt{2/(\varepsilon_0c\operatorname{Re}n_{\rm eff})}\,v_m` (``docs/dev/
 conventions.md`` section 4). It is written into the grid's columns through each
-profile's closed-form transform (:func:`~solprop.coupling.couple.target_columns`),
+profile's closed-form transform (:func:`~solprop.coupling.coupler.target_columns`),
 so a profile's kink at the core radius is not sampled; what the grid's spectral
 window cannot hold is reported, not renormalised.
 """
@@ -29,7 +29,7 @@ from jaxtyping import Float
 
 from solprop import fourier
 from solprop.constants import EPS0, C
-from solprop.coupling.couple import target_columns
+from solprop.coupling.coupler import target_columns
 from solprop.coupling.plane import FieldPlane, PlaneBasis, PlaneMetric
 from solprop.coupling.port import METRIC_TOLERANCE
 from solprop.exceptions import CouplingError

@@ -121,10 +121,10 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="470.75" y="238.5" font-size="15" class="bold ink-p">optics.py</text>
 <rect x="565.0" y="216.5" width="86.0" height="66.0" rx="7" ry="7" class="fill-p" />
 <text x="575.0" y="238.5" font-size="15" class="bold ink-p">tools.py</text>
-<rect x="661.0" y="216.5" width="218.00000000000003" height="66.0" rx="7" ry="7" class="fill-p" />
+<rect x="661.0" y="216.5" width="224.60000000000002" height="66.0" rx="7" ry="7" class="fill-p" />
 <text x="671.0" y="238.5" font-size="15" class="bold ink-p">coupling/</text>
 <text x="671.0" y="254.0" font-size="12" class="dim">plane · port · remap · models</text>
-<text x="671.0" y="269.5" font-size="12" class="dim">couple · outcouple · envelopes</text>
+<text x="671.0" y="269.5" font-size="12" class="dim">coupler · outcouple · envelopes</text>
 <rect x="307.0" y="292.5" width="218.00000000000003" height="128.0" rx="7" ry="7" class="fill-p" />
 <text x="317.0" y="314.5" font-size="15" class="bold ink-p">physdata/</text>
 <text x="317.0" y="330.0" font-size="12" class="dim">sellmeier · equation_of_state</text>

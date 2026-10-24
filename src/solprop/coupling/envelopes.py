@@ -13,13 +13,13 @@ recorded bounds; the manual page ``docs/guide/workflows/coupling.md`` describes 
 
 - :data:`CAPILLARY_ENVELOPE`: the scalar J0 overlap the model uses against the overlap
   of the capillary's own vector Marcatili mode fields
-  (:meth:`solprop.modes.MarcatiliMode.field` and its normalisation) on an
+  (:meth:`solprop.modes.capillary.MarcatiliMode.field` and its normalisation) on an
   independent two-dimensional quadrature, for centred, displaced and tilted
   Gaussian beams and for a change of capillary radius.
 - :data:`STEP_INDEX_ENVELOPE`: the weak-guidance LP01 overlap of two step-index
   fibres of one material pair and different radii against the full-vector flux
   overlap of their exact bound HE11 fields
-  (:meth:`solprop.modes.StepIndexMode.electromagnetic_field`). It replaces the
+  (:meth:`solprop.modes.stepindex.StepIndexMode.electromagnetic_field`). It replaces the
   contrast screen within its range.
 """
 

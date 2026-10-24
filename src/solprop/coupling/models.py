@@ -582,7 +582,7 @@ class ScalarModeBasis:
         -------
         float
             The core radius for a capillary; for an LP set, where the slowest
-            cladding tail has decayed by :data:`_EXTERIOR_DECAY` e-foldings.
+            cladding tail has decayed by 39 e-foldings, ``log(1e17)``.
         """
         if self.family == "capillary":
             return self.radius

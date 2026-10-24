@@ -9,7 +9,7 @@ A physics-layer package: NumPy, SciPy and other physics modules only. A
 native representation, with its references, geometry, medium, metric and provenance;
 :func:`~solprop.coupling.remap.regrid` moves it onto another temporal lattice or
 reference; an :class:`~solprop.coupling.port.InputPort` describes what a receiving
-simulation accepts at its entrance, and :func:`~solprop.coupling.couple.couple`
+simulation accepts at its entrance, and :func:`~solprop.coupling.coupler.couple`
 launches a plane into it under a declared
 :class:`~solprop.coupling.models.CouplingModel`;
 :class:`~solprop.coupling.outcouple.Outcouple` synthesises a guide's exit field.
@@ -18,7 +18,7 @@ installing a launch is :meth:`solprop.driver.simulation.Simulation.with_input`.
 The manual page is ``docs/guide/workflows/coupling.md``.
 """
 
-from solprop.coupling.couple import (
+from solprop.coupling.coupler import (
     AdmissionItem,
     CouplingReport,
     CouplingResult,

@@ -88,6 +88,7 @@ __all__ = [
     "AdmissionItem",
     "CouplingReport",
     "CouplingResult",
+    "ItemScope",
     "couple",
     "target_columns",
 ]

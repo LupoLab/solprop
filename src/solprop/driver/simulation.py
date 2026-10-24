@@ -1690,7 +1690,7 @@ class Simulation(Displayed):
         index of its entrance medium, the coupling models it admits and what they
         need: an ordinary mode set's scalar profiles, or a general guide's E/H
         reference at its nodes and its regions' contrast. A launch computed for it
-        (:func:`solprop.coupling.couple.couple`) is accepted by :meth:`with_input`,
+        (:func:`solprop.coupling.coupler.couple`) is accepted by :meth:`with_input`,
         and a launch computed for any other port is refused.
 
         Parameters
@@ -4029,7 +4029,7 @@ class Simulation(Displayed):
             and its temporal pulse, whose energy or peak power is met over the
             **whole** beam in the paraxial measure of the guide's core medium
             (:meth:`solprop.pulses.SpatialPulse.incident`). The beam is coupled into
-            the channels by :func:`solprop.coupling.couple.couple` under `coupling`
+            the channels by :func:`solprop.coupling.coupler.couple` under `coupling`
             (SEP 31): it is sampled on a radial plane that resolves it, evaluated at
             the guide's nodes, and its coordinates are recovered with the flux
             pairing and the forward closure ``H_t = Y0 z x E_t``. The recovered
@@ -4037,7 +4037,7 @@ class Simulation(Displayed):
             capture is lost, not restored**: a beam much wider than the core
             launches a small share of its energy, and a beam the channels cannot see
             launches nothing, which is a valid zero launch. The coupling's
-            :class:`~solprop.coupling.couple.CouplingReport` -- incident and launched
+            :class:`~solprop.coupling.coupler.CouplingReport` -- incident and launched
             energy per frequency and in total, and its admission budget -- is
             recorded as ``configuration["launch"]``, and the launch's provenance as
             ``configuration["coupling"]``. The beam is launched at its waist
@@ -8844,18 +8844,18 @@ def _core_index(
     return index
 
 
-BEAM_EXTENT = 60.0
+_BEAM_EXTENT = 60.0
 """Field exponent at the edge of an incident beam's radial plane.
 
 The plane extends to where a super-Gaussian of order N has fallen to
-``exp(-BEAM_EXTENT)`` in field, ``r = waist * BEAM_EXTENT**(1/(2N))``, times the
-margin :data:`BEAM_MARGIN`; its intensity there is below 1e-52 of the peak.
+``exp(-_BEAM_EXTENT)`` in field, ``r = waist * _BEAM_EXTENT**(1/(2N))``, times the
+margin :data:`_BEAM_MARGIN`; its intensity there is below 1e-52 of the peak.
 """
 
-BEAM_MARGIN = 1.5
+_BEAM_MARGIN = 1.5
 """Factor on the incident beam's plane radius beyond its decay radius."""
 
-BEAM_NODES = 256
+_BEAM_NODES = 256
 """Radial nodes of an incident beam's plane.
 
 With the plane radius above, the largest transverse wavenumber is about
@@ -8877,8 +8877,8 @@ def _beam_grid(pulse: SpatialPulse) -> RadialGrid:
     solprop.grid.RadialGrid
         A grid that resolves the beam and holds it to rounding.
     """
-    radius = BEAM_MARGIN * pulse.waist * BEAM_EXTENT ** (1.0 / (2.0 * pulse.order))
-    return RadialGrid(radius, BEAM_NODES)
+    radius = _BEAM_MARGIN * pulse.waist * _BEAM_EXTENT ** (1.0 / (2.0 * pulse.order))
+    return RadialGrid(radius, _BEAM_NODES)
 
 
 def _incident_launch(
@@ -8891,7 +8891,7 @@ def _incident_launch(
     The beam becomes a radial :class:`~solprop.coupling.plane.FieldPlane` in the
     guide's core index (:meth:`~solprop.coupling.plane.FieldPlane.from_pulse`, its
     request met over its whole plane in the paraxial measure), and
-    :func:`~solprop.coupling.couple.couple` recovers its coordinates in the guide's
+    :func:`~solprop.coupling.coupler.couple` recovers its coordinates in the guide's
     channels under `model`. **Nothing is rescaled to the requested energy**: a
     badly captured beam launches the little the channels take, and a beam they
     cannot see is a valid zero launch. The launch is installed through
