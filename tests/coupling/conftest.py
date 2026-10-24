@@ -8,14 +8,12 @@ A 30 fs pulse at 800 nm on a narrow envelope grid keeps every transport cheap wh
 leaving a band of several dozen frequencies for the per-bin ledger.
 """
 
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable
 
 import numpy as np
 import pytest
 
 from solprop.coupling.elements import SpatialState
-from solprop.coupling.transport import TransportReport, _sequence
 from solprop.grid import EnvelopeGrid, FreeGrid, RadialGrid
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
@@ -24,20 +22,6 @@ WAVELENGTH = 800e-9
 ENERGY = 1e-6
 
 BeamFactory = Callable[..., SpatialState]
-
-
-@dataclass(frozen=True)
-class Applied:
-    """The state after a sequence and its ledger, for the element-level tests."""
-
-    state: SpatialState
-    report: TransportReport
-
-
-def apply_sequence(state: SpatialState, elements: Sequence[object]) -> Applied:
-    """Run a sequence on a plain state: the core that transport() wraps."""
-    final, report = _sequence(state, elements)
-    return Applied(final, report)
 
 
 @pytest.fixture(scope="module")

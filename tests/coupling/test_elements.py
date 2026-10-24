@@ -9,7 +9,7 @@ from collections.abc import Callable
 
 import numpy as np
 import pytest
-from tests.coupling.conftest import apply_sequence
+from tests.coupling.sequence_cases import apply_sequence
 
 from solprop.constants import C
 from solprop.coupling.elements import (

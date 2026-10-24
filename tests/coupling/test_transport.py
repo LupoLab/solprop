@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 from scipy.integrate import quad
 from scipy.special import j0, j1
-from tests.coupling.conftest import apply_sequence
+from tests.coupling.sequence_cases import apply_sequence
 
 from solprop import fourier
 from solprop.constants import C
