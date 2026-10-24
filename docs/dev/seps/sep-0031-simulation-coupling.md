@@ -1956,6 +1956,164 @@ plain defects among them are fixed above or were superseded):
 **Handoff.** Final needs the tutorial's merge, the end-of-SEP full gate, slow and
 coverage lanes, and the maintainer's decisions on questions 10, 11 and 17.
 
+### Phase 5 tutorial report — nonlinear beam preparation and coupling into a capillary
+
+**Delivered.** `docs/tutorials/free_space/plot_08_radial_capillary_coupling.py`
+(focused tutorial, runs on every docs build), linked from
+`docs/guide/workflows/coupling.md` (the Gaussian-into-capillary section),
+`docs/guide/waveguides/capillaries.md` ("When to use it") and
+`docs/guide/free-space/index.md`.
+
+**Specification as run (§8.1).** Scalar, linearly polarised Gaussian on an envelope
+grid; uniform argon at 3 bar and 293.15 K, the reference temperature of optmat's argon
+polarisability (`species("Ar").susceptibility.reference_state`, recorded in the
+output); 800 nm, 30 fs intensity FWHM; 20 mm gap; linear-focus 1/e² radius 37.5 µm at
+the entrance; capillary radius 75 µm (w/a = 0.5), 5 mm long, eight HE1m modes. Kerr
+only (`KerrResponse(gamma3("Ar"), thg=False)` in the gap; `kerr=True, thg=False,
+plasma=False, raman=False` in the capillary). The beam is one `SpatialPulse` with
+`propz=-20 mm`, built in the argon, for both runs.
+
+**Strength from the material functions.** n0 − 1 = 7.7206e-4, n2 = 3χ3/(4ε0cn0²) =
+3.0931e-23 m²/W, z_R = 5.527 mm; B_lin = 0.3 rad gives P0 = 0.3793 GW and
+**U = 12.114 µJ**, P0/Pcr = 0.1238 (Pcr = 3.064 GW from `critical_power`).
+
+**Results through `couple`** (`scalar_paraxial`, `model_error=0.05`; s_m = launched
+energy of mode m in its native metric over `report.incident_energy`):
+
+| | s11 | s12 | s13 | launched/incident | budget used |
+|---|---|---|---|---|---|
+| linear | 0.906180 | 0.092289 | 9.36e-4 | 0.99953 | 0.018 |
+| Kerr | 0.882348 | 0.115623 | 1.68e-3 | 0.99971 | 0.020 |
+| change | **−2.3832e-2** | **+2.3334e-2** | +7.4e-4 | +1.8e-4 | |
+
+Peak on-axis intensity: linear 1.717e13, Kerr 1.956e13 W/cm². Wavefront change at the
+800 nm bin (Kerr minus linear, masked below 1 % of the linear amplitude): +0.097 rad
+on axis, +0.082 rad at r = w0, falling across the beam (the Kerr lens still
+converging at the entrance). Capillary outputs (5 mm): linear HE11 11.060 µJ, HE12
+0.987 µJ; Kerr-prepared HE11 10.790 µJ, HE12 1.252 µJ. In both cases HE12 hands energy
+to HE11 along the capillary well beyond its wall loss: the capillary's own Kerr
+intermodal coupling, identical physics in both cases.
+
+**Agreement with an earlier scalar probe.** The probe's s11 = 0.90620 /
+0.88237 and s12 = 0.09228 / 0.11562 differ from the `couple` shares by ≤ 2e-5. The
+difference is the metric, not the field: the same planes give, for the linear run,
+0.906180 (launched / M0 incident), 0.906188 (captured share in the common metric,
+×n_ref/Re n_eff ≈ 1 + 8e-6) and 0.906191 (launched / the plane's axial-flux energy,
+which differs from the M0 incident by the beam's obliquity, 1.2e-5). The changes
+Δs11, Δs12 agree with the probe to 1e-5 of themselves.
+
+**Independent confirmation.** A separate script evaluated each entrance field off the
+nodes by the inverse Hankel series E(r) = Σ_j (w_j/2π) Ẽ(k_j) J0(k_j r) (it reproduces
+`node_spectra()` to 1.6e-15), projected it on J0(u_m r/a)/(√π a|J1(u_m)|) with a
+600-node Gauss–Legendre rule over the core, and normalised by the plane quadrature of
+|E|² weighted by n_ref. Its common-metric shares agree with `couple`'s captured shares
+to all eight printed digits (linear 0.90618793 / 0.09229346, Kerr 0.88235581 /
+0.11562827).
+
+**Refinement study** (scratch script, one variation at a time from the tutorial's
+settings: radius 1 mm, n_r 256, window 300 fs, band 500 nm–1.4 µm (256 bins,
+dt = 1.76 fs), rtol 1e-7, dz_max 1 mm in the study (0.25 mm in the gallery), eight
+modes). δΔ is the change of the claimed difference relative to the baseline.
+
+| variation | bins | lin s11 | lin s12 | Kerr s11 | Kerr s12 | δΔs11 | δΔs12 |
+|---|---|---|---|---|---|---|---|
+| baseline | 256 | 0.906180 | 0.092289 | 0.882348 | 0.115623 | 0 | 0 |
+| radius 0.8 mm | 256 | = | = | = | = | +8.4e-12 | −5.9e-12 |
+| radius 1.5 mm | 256 | = | = | = | = | −1.1e-11 | +8.1e-12 |
+| n_r 192 | 256 | = | = | = | = | +6.7e-16 | −3.2e-16 |
+| n_r 512 | 256 | = | = | = | = | 0 | 0 |
+| window 200 fs | 128 | = | = | = | = | +2.2e-16 | +9.0e-16 |
+| window 500 fs | 512 | = | = | = | = | −6.7e-16 | +2.8e-17 |
+| band 400 nm–2 µm | 512 | = | = | = | = | +1.0e-15 | −2.1e-15 |
+| dt halved | 256 | = | = | = | = | +1.1e-16 | −1.4e-17 |
+| modes 4 | 256 | = | = | = | = | 0 | 0 |
+| modes 6 | 256 | = | = | = | = | 0 | 0 |
+| rtol 1e-6 | 256 | = | = | = | = | −2.7e-8 | +1.5e-8 |
+| rtol 1e-9 | 256 | = | = | = | = | +4.6e-9 | −3.5e-9 |
+| dz_max 0.25 mm | 256 | = | = | = | = | +1.7e-9 | −1.2e-9 |
+| dz_max 0.1 mm | 256 | = | = | = | = | +4.6e-9 | −3.5e-9 |
+| rtol 1e-9 + dz_max 0.1 mm | 256 | = | = | = | = | +4.6e-9 | −3.5e-9 |
+| model_error 0.1 | 256 | = | = | = | = | 0 | 0 |
+
+"=" is equal to the baseline at the six printed digits. Per-run uncertainty is the
+root-sum-square over the five groups (domain, radial nodes, temporal, modes,
+stepping) of each group's largest change; the linear run's is 1.6e-15, the Kerr run's
+2.7e-8 (s11) and 1.5e-8 (s12). **Combined uncertainty: 2.7e-8 for Δs11 (1.1e-6 of
+the change) and 1.5e-8 for Δs12 (6.2e-7 of it)**, each far below the §7 criterion of
+one tenth; summing the two runs linearly instead changes nothing at that precision.
+The step size, not rtol, is what limits the gap run here: with dz_max = 1 mm the
+controller is capped and rtol alone does not refine it, so dz_max was varied too.
+The modal span cannot move s11 or s12 (orthogonal profiles; the nested-set property
+the phase 3 tests hold to 1e-12), and the recorded capillary envelope caps the span at
+eight modes (`modes=16` is refused by name). Capture changes with the span (0.99945
+with four modes against 0.99954 with eight, linear), as it should.
+
+The 5 mm capillary outputs moved by ≤ 2e-6 µJ in HE11 and HE12 between eight and six
+modes and between rtol at its default and 1e-8.
+
+**Checks.** No collapse: P0/Pcr = 0.124 and the on-axis intensity rises smoothly by
+14 %. Collar: the fluence in the outer tenth of the radial domain is 1.5e-30
+(linear) and 3.5e-27 (Kerr) of the total. Aliasing: the coupling's numerical item
+(content in the outer fifth of the transverse spectral window) is 7.9e-31 and
+9.0e-28; the window and node refinements above confirm it.
+
+**Omitted ionisation (offline).** optmat's recommended argon rate at 800 nm
+(`OptmatRate("Ar", 800e-9)`, record `rate/default/Ar@800nm`, validated, sources
+NIST ASD 2026, Tong 2002, Tong 2005) integrated over the real field of a 30 fs
+Gaussian at the Kerr run's peak on-axis intensity, **1.96e13 W/cm², gives an ionised
+fraction of 1.1e-7** (3.7e-8 at the linear 1.72e13 W/cm²). The electron density,
+about 8e18 m⁻³, lowers the index by 2.2e-9 against a Kerr increase of 6.1e-6:
+Kerr-only is defensible and the strength was not reduced.
+
+**Beat length and the capillary.** Carrier formula 22.50 mm (0.222 periods in 5 mm).
+From `MarcatiliMode` HE11/HE12 at 3 bar: L_beat 27.70, 22.50 and 18.95 mm at 650, 800
+and 950 nm; 5 mm power loss HE11 2.2e-3 / 3.3e-3 / 4.6e-3 and HE12 1.1e-2 / 1.7e-2 /
+2.4e-2.
+
+**Meter reading.** The tutorial states that the energy is that through the launch
+plane in the argon and points to `guide/free-space/flux.md` ("What energy means") and
+the coupling chapter's `PlanarInterface` for converting a reading taken before a cell
+window. No new manual text was needed: the flux page already says to multiply by the
+window's transmission.
+
+**Runtime.** 5.0 s in the Sphinx build (sphinx-gallery's own timing), 4.7–6.4 s
+standalone, on the development Mac (gap runs about 0.3 s each, capillary runs about
+0.1 s each). The whole `poe docs` build took 26 s with the other galleries cached.
+
+**Docs build.** `uv run --no-sync poe docs` renders the tutorial; the build ends with
+one warning, which is not from this work: `solprop/coupling/__init__.py`'s module
+docstring references `solprop.coupling.transport.transport`, which Sphinx cannot
+resolve (`py:func reference target not found`). It looks like the same
+function-shadows-module problem phase 3 solved by naming its module `coupler.py`.
+
+**Deviations and notes.**
+
+1. The gallery's s_m are launched shares over the M0 incident energy, the
+   definition the phase 3 tests use; the captured (common-metric) shares are larger
+   by n_ref/Re n_eff (8e-6 for HE11) and are not printed.
+2. The free-space gallery's `README.rst` still lists the older tutorials only; it
+   was outside this task's file list.
+3. The wavefront panel uses the 800 nm bin, masked below 1 % of the linear field's
+   amplitude at that bin.
+
+### Worked example `plot_04_graded_index_multimode.py` — not re-run
+
+The example still calls `prop_waveguide(..., transverse=beam)` and builds its launch
+shares with `project_transverse_field`. Its committed output recorded **50 min 36 s**
+(`docs/auto_examples/waveguides/plot_04_graded_index_multimode.rst`), above the
+30-minute limit for this task, so the source was left unchanged (an edited source
+without regenerated output fails the normal docs build). The same guide is admitted
+on the current path: `benchmarks/guides.py`'s `grin(nonlinear=True)` (100 µm core,
+Δ = 0.0095, 12 µm beam) builds with `incident=SpatialPulse(GaussianPulse(1064 nm,
+300 fs, 159.7 nJ), 12e-6)` and `coupling=CouplingModel("vector_paraxial",
+model_error=0.2)` in 10.5 s: budget 3.08e-2 of 0.2 (contrast 9.5e-3, angular 2.5e-2,
+closure 4.6e-3, passivity 1.1e-3), launched share 0.99998 of the incident 159.7 nJ.
+The update is that substitution, the launch-share cell read from
+`configuration["launch"]`, and the prose that says the launch is renormalised to the
+declared energy (it now carries what the channels capture). It then needs one
+`poe docs-examples plot_04_graded_index_multimode` run of about 50 minutes on an idle
+machine.
+
 ## Part III — History
 
 - 2026-10-22: Drafted after auditing existing launch, projection, spatial flux,
