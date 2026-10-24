@@ -15,6 +15,7 @@ __all__ = [
     "ApertureEdgeWarning",
     "BackendError",
     "ConvergenceError",
+    "CouplingError",
     "DiluteScalingWarning",
     "DriverError",
     "ExponentBudgetWarning",
@@ -176,6 +177,10 @@ class ProcessingError(SolpropError, ValueError):
 
 class ConvergenceError(SolpropError, RuntimeError):
     """A numerical procedure did not converge within its budget."""
+
+
+class CouplingError(SolpropError, ValueError):
+    """A field plane, a remap or a launch between simulations is refused (SEP 31)."""
 
 
 class ResponseBudgetError(ConvergenceError):

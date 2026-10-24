@@ -90,7 +90,7 @@ RK4IP, [SEP 25](sep-0025-rounding-level-reproducibility.md) numerical
 comparison, and [SEP 28](sep-0028-free-space-evaluation.md) the spatial
 workloads. The [kernel contract](../../kernel-contract.md), `build_info()` and
 `memory_ledger()` already supply the main interfaces. The suite does not depend on
-accepting [SEP 29](../sep-0029-compiled-backend-distribution.md); its optional Numba
+accepting [SEP 29](sep-0029-compiled-backend-distribution.md); its optional Numba
 adapter can follow the default Kokkos adapter without changing simulation code.
 
 ### 4. Theory

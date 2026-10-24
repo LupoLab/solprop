@@ -9,7 +9,11 @@ gas, chirped mirrors, grating pairs and prism pairs (the last two with explicit 
 tuning coordinates), the compressors that search each of them, and the optimisation of
 the carrier-envelope phase. Everything here is applied to a saved plane after the run,
 so no propagation is repeated; read this page to see a simulated pulse as it would
-arrive at an experiment, or to design the compressor that gets it there.
+arrive at an experiment, or to design the compressor that gets it there. To send the
+compressed pulse on into another simulation -- through focusing optics into a second
+capillary, say -- apply the same elements to a field plane with
+{py:class}`~solprop.coupling.elements.SpectralTransfer`
+([coupling simulations](coupling.md#transporting-a-plane-between-planes)).
 
 ## One concept: a transfer function
 

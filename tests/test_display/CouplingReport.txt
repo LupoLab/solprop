@@ -1,0 +1,10 @@
+CouplingReport: a field coupled into an input port
+  model:          scalar_paraxial
+  incident:       1 uJ
+  launched:       330 nJ
+  launched share: 0.3300 of the incident energy
+  uncaptured:     670 nJ
+  budget:         6.300e-03 of model_error 0.05
+  angular:        6.300e-03 (field) cone + tail
+  contrast:       n/a (model) not applied
+  exterior:       zero

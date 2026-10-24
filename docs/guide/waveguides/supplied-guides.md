@@ -117,9 +117,9 @@ wants. The real form needs `n_to >= 2 n_t`, which is `FieldGrid`'s default
 ([general modal propagation](general-modal.md)).
 
 It takes a **graded-index** guide as readily as a step-index one, and launches
-either into a named channel with `channel=` or as a declared transverse field with
-`transverse=`, which it projects onto the channels and whose uncaptured share it
-reports. It runs on a **field** grid on `numpy_ref`, `numba_cpu` and the native
+either into a named channel with `channel=` or as an incident beam with
+`incident=` coupled under `coupling=`, of which the channels launch the share they
+capture, the rest lost rather than restored. It runs on a **field** grid on `numpy_ref`, `numba_cpu` and the native
 backend, CPU and GPU builds alike, for a constant guide and for a moving one or a
 declared coupled flow (a split block or a coherent wall); a CF4 wall runs on `numpy_ref`
 alone. `backend="auto"` selects `native` where it is installed.

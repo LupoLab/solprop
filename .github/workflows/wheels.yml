@@ -168,13 +168,23 @@ jobs:
           mkdir sde && tar -xJf sde.tar.xz -C sde --strip-components=1
       - name: Runs on x86-64-v3 (Haswell)
         run: sde/sde64 -hsw -chip_check_zcnt 1 -- .venv/bin/python -I native/ci/smoke.py
+      # SDE emulates CPUID but not the kernel's /proc/cpuinfo, which the processor check
+      # reads on Linux, so each older chip's flags (as Linux reports them) are bind-mounted
+      # over it for the steps below.
+      - name: Write the older chips' /proc/cpuinfo
+        run: |
+          nhm="fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ht syscall nx rdtscp lm constant_tsc pni ssse3 cx16 sse4_1 sse4_2 popcnt lahf_lm"
+          printf 'processor\t: 0\nflags\t\t: %s\n' "$nhm" > cpuinfo-nhm
+          printf 'processor\t: 0\nflags\t\t: %s\n' "$nhm pclmulqdq aes xsave avx" > cpuinfo-snb
       - name: Refused below x86-64-v3 (Nehalem, Sandy Bridge)
         run: |
           for chip in nhm snb; do
+            sudo mount --bind "cpuinfo-$chip" /proc/cpuinfo
             set +e
             sde/sde64 -$chip -chip_check_zcnt 1 -- .venv/bin/python -I -c "import solprop_native" > refusal.log 2>&1
             status=$?
             set -e
+            sudo umount /proc/cpuinfo
             cat refusal.log
             # The refusal is this package's processor check, a Python exception (exit
             # status 1) naming the missing features; an instruction the emulated
@@ -185,6 +195,7 @@ jobs:
           done
       - name: Automatic selection falls back to numba_cpu below x86-64-v3
         run: |
+          sudo mount --bind cpuinfo-snb /proc/cpuinfo
           sde/sde64 -snb -chip_check_zcnt 1 -- .venv/bin/python -I -c "
           import warnings
           from solprop.backends import resolve_name

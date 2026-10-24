@@ -18,7 +18,7 @@ operator, the quadrature, the compiled responses — are in [algorithms.md](algo
 already converted from the optics-convention user inputs; the output layer converts
 observations back. Backends never conjugate.
 
-**Current kernel schema: 35; saved-output schema: 23.** These versions are independent.
+**Current kernel schema: 35; saved-output schema: 24.** These versions are independent.
 Internal modal amplitudes are vacuum normalised; the launch and observation boundaries
 carry the true-power conversion, and every backend reads the modal power weight (§3) in its
 statistics alone. Radial columns are Hankel
@@ -52,7 +52,7 @@ hard-mask zeros, and explicitly exact zeros and no-ops.
 | `stepper` | frozen dataclass | section 7 (`translate.problem.StepperSettings`) |
 | `tdse` | `TDSEDescriptor` or `None` | immutable atomic specification, resolved response lattice and scientific identity; section 5 |
 | `current_numerator` | `(n_modes,n_pol,n_omega) float64` or `None` | independent current coefficient numerator, `-crop_scale/(2 epsilon_0 c)` on active bins; divided by the stage real effective index |
-| `flux` | `FluxPlan` or `None` | a spatial run's plane measure ([SEP 34](seps/sep-0034-medium-flux.md), `translate.spatial.FluxPlan`): `base`, the separable coefficients with the entrance material square, whose principal root gives the dimensionless axial admittance `c k_z/omega` of every column and bin (zero on nonpropagating, inactive and nonpositive-frequency bins); `material`, the z table of the complex material square `(omega n/c)²` for a varying radial medium, `None` for a uniform one; and `admission`, the varying path's adiabatic certificate. `at(z)` gives a plane's coefficients. Every spatial statistic weights its columns by the real admittance at its plane (energy, spectra, absorbed powers) or synthesises the closure `G` with the complex one (fluence, intensities, on-axis spectrum). Required with spatial geometry and `None` otherwise; its active mask equals `grids.active_mask`. Added in version 35 |
+| `flux` | `FluxPlan` or `None` | a spatial run's plane measure ([SEP 34](seps/archive/sep-0034-medium-flux.md), `translate.spatial.FluxPlan`): `base`, the separable coefficients with the entrance material square, whose principal root gives the dimensionless axial admittance `c k_z/omega` of every column and bin (zero on nonpropagating, inactive and nonpositive-frequency bins); `material`, the z table of the complex material square `(omega n/c)²` for a varying radial medium, `None` for a uniform one; and `admission`, the varying path's adiabatic certificate. `at(z)` gives a plane's coefficients. Every spatial statistic weights its columns by the real admittance at its plane (energy, spectra, absorbed powers) or synthesises the closure `G` with the complex one (fluence, intensities, on-axis spectrum). Required with spatial geometry and `None` otherwise; its active mask equals `grids.active_mask`. Added in version 35 |
 `KernelProblem` also carries one **property**, which is not a field and so not a row
 above: `device_ready` is true when Φ (§3) and the prefactor (§5) are each a weighted sum
 of a fixed set of arrays, and false when either took the z table.
@@ -401,7 +401,7 @@ for a constant fill and for the GNLSE unit-index override. Statistics evaluate
 weights only through `translate.linop.power_weight_at(problem, z)`. Radial Φ in a varying
 gas carries the spatial counterpart, `-1/2 ln[Y_z(ω,k_r,z)/Y_z(ω,k_r,0)]` with
 `Y_z ∝ Re k_z/ω`, evaluated from endpoint admittances in both the table and the
-parameter-expansion representations ([SEP 34](seps/sep-0034-medium-flux.md) §4.4); it
+parameter-expansion representations ([SEP 34](seps/archive/sep-0034-medium-flux.md) §4.4); it
 is exactly zero in a uniform medium, and a radial statistic reads the admittance at its
 plane through `flux.at(z)`.
 

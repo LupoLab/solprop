@@ -62,7 +62,7 @@ supply a beam width. Scalar and vector profiles, taper motion, material regions,
 modal coherence and saved-field amplitude conventions are in scope.
 
 Existing radial, Cartesian, line and hybrid planar statistics remain supported;
-their common flux measure follows [SEP 34](sep-0034-medium-flux.md)'s
+their common flux measure follows [SEP 34](archive/sep-0034-medium-flux.md)'s
 medium-flux correction. Adding further time-resolved spatial measurements
 is outside this SEP. SEP 31 also owns transported observation-plane fields;
 the measurements here describe fields inside the propagation route.
@@ -975,6 +975,6 @@ No implementation has started.
   measurement scope; schema changes require no old-file compatibility layer.
 
 - 2026-10-23: Reassigned the shared medium-flux prerequisite to
-  [SEP 34](sep-0034-medium-flux.md) following SEP 31's review and split.
+  [SEP 34](archive/sep-0034-medium-flux.md) following SEP 31's review and split.
   SEP 31 retains field exchange and coupling; the shared flux proposal
   includes admitted radial adiabatic transport and complex local flux.

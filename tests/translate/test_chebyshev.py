@@ -4,6 +4,7 @@
 
 import logging
 import math
+import sys
 
 import numpy as np
 import pytest
@@ -931,3 +932,25 @@ def test_a_degree_one_series_is_one_product_and_one_sum(compiled):
         out = np.empty(2, dtype=coefficients.dtype)
         columns(0.5, coefficients, out)
         np.testing.assert_array_equal(out, coefficients[0] + 0.5 * coefficients[1])
+
+
+@pytest.mark.parametrize("shape", [(), (18,), (3, 2)])
+@pytest.mark.parametrize("complex_valued", [False, True])
+def test_clenshaw_before_numba_loads_gives_the_compiled_values(
+    shape, complex_valued, monkeypatch
+):
+    # Until numba is imported, clenshaw evaluates with NumPy's chebval (a run on the
+    # native backend never imports numba); the values must be the compiled ones.
+    pytest.importorskip("numba")
+    rng = np.random.default_rng(7)
+    coefficients = rng.standard_normal((33, *shape))
+    if complex_valued:
+        coefficients = coefficients + 1j * rng.standard_normal(coefficients.shape)
+    points = rng.uniform(-1.0, 1.0, 16)
+    compiled = [chebyshev.clenshaw(x, coefficients) for x in points]
+    monkeypatch.delitem(sys.modules, "numba")
+    uncompiled = [chebyshev.clenshaw(x, coefficients) for x in points]
+    for one, other in zip(compiled, uncompiled, strict=True):
+        assert one.shape == other.shape == shape
+        assert one.dtype == other.dtype
+        np.testing.assert_array_equal(one, other)

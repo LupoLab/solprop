@@ -39,7 +39,10 @@ wall, couples every pair.
 
 * **More than one mode carries energy that matters.** A launch that is not a perfect
   `HE_11`, strong self-focusing or ionisation that fills the higher modes, a mode
-  converter: the wall's exchange between modes is then part of the physics.
+  converter: the wall's exchange between modes is then part of the physics. How a
+  beam focused through gas is coupled into the modes is in
+  [coupling simulations](../workflows/coupling.md) and the
+  [capillary coupling tutorial](../../auto_tutorials/free_space/plot_08_radial_capillary_coupling.rst).
 * **The bore tapers and the wall's loss matters**: a multimode taper converts between
   its modes whether or not a wall is declared — the **taper coupling** is on by default
   ([below](#the-taper-coupling-without-a-wall)) — and the wall adds the coherent loss of

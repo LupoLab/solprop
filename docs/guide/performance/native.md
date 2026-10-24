@@ -41,7 +41,7 @@ The native backend runs:
   positions in its own kernels ([z tables](../numerics/linear-tables.md)).
 
 Everything `numba_cpu` runs, the native CPU build runs too
-([SEP 29](../../dev/seps/sep-0029-compiled-backend-distribution.md), §6.6). The GPU
+([SEP 29](../../dev/seps/archive/sep-0029-compiled-backend-distribution.md), §6.6). The GPU
 builds do not run the z table: they refuse it before anything is allocated, giving the
 table's size, since it would be held resident on the device; run such a problem on a
 CPU build, or with `backend="numba_cpu"` in a process that has the GPU build installed.
@@ -193,3 +193,7 @@ large run, for a scan of many runs and on a cluster.
   vendor BLAS (`blas_backend` `none`) or a generic architecture (neither
   `native_arch_enabled` nor a `cpu_baseline`) each cost a large factor. Then see
   [Performance tuning](tuning.md).
+
+The native backend's place in this repository, its parity with `numba_cpu` and its
+precompiled wheels were proposed and carried out by
+[SEP 29](../../dev/seps/archive/sep-0029-compiled-backend-distribution.md).

@@ -149,3 +149,6 @@ and builds for GPUs on Linux. The `Queue` and `Slurm` scan executors need a POSI
 on Windows; `Local` and `Pool` run there. On Windows a scan's readers take its lock one
 at a time, where POSIX lets them read together, so concurrent reads of one scan file
 wait for each other.
+
+The precompiled native wheels and the `solprop[native]` extra were proposed and qualified by
+[SEP 29](../dev/seps/archive/sep-0029-compiled-backend-distribution.md).

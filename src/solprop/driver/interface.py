@@ -24,9 +24,10 @@ from pathlib import Path
 from typing import Literal
 
 import numpy as np
-from jaxtyping import Float, Inexact
+from jaxtyping import Float
 
 from solprop.boundaries import Absorber
+from solprop.coupling.models import CouplingModel
 from solprop.driver.simulation import (
     DEFAULT_ATOL,
     DEFAULT_RTOL,
@@ -1163,9 +1164,8 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
     *,
     provider: ModalGuide | None = None,
     channel: int | str | None = None,
-    transverse: Inexact[np.ndarray, "n_nodes n_components n_omega"]
-    | Inexact[np.ndarray, "n_nodes n_components"]
-    | None = None,
+    incident: SpatialPulse | None = None,
+    coupling: CouplingModel | None = None,
     kerr_form: KerrForm = "real",
     observable_rtol: float | None = None,
     observable_atol: float | None = None,
@@ -1258,12 +1258,17 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
     channel : int or str or None, optional
         Which channel the pulse enters, by index or display label; ``None`` takes
         the first. Requires `provider`.
-    transverse : numpy.ndarray or None, optional
-        A declared transverse field at the guide's own nodes, real or complex,
-        projected onto every
-        channel it overlaps instead of entering one by name (see
+    incident : solprop.pulses.SpatialPulse or None, optional
+        An incident beam carrying its own pulse, whose energy is met over the whole
+        beam at the entrance; it is coupled into the channels under `coupling`,
+        they launch the share they capture and the rest is lost, with the coupling
+        report recorded in the run's configuration (see
         :meth:`~solprop.driver.simulation.Simulation.from_waveguide`). Requires
-        `provider`, and is refused beside `channel`.
+        `provider` and `coupling`, and is refused beside `channel` and the pulse
+        keywords.
+    coupling : solprop.coupling.models.CouplingModel or None, optional
+        The model and budget an `incident` beam is coupled under, a
+        ``vector_paraxial`` model. Requires `incident`.
     kerr_form : {'real', 'analytic'}, optional
         Which instantaneous cubic a general modal run's regions respond with: the
         real-field cubic of the field route, the default, or the analytic-signal
@@ -1477,7 +1482,8 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         pressure,
         provider=provider,
         channel=channel,
-        transverse=transverse,
+        incident=incident,
+        coupling=coupling,
         kerr_form=kerr_form,
         observable_rtol=observable_rtol,
         observable_atol=observable_atol,

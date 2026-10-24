@@ -38,6 +38,7 @@ _SUBMODULES: Final = (
     "backends",
     "boundaries",
     "constants",
+    "coupling",
     "driver",
     "exceptions",
     "fourier",

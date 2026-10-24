@@ -21,6 +21,7 @@ import inspect
 import itertools
 import logging
 import math
+import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Final
@@ -155,7 +156,9 @@ def clenshaw(
     """Evaluate one interval's Chebyshev series at one point, as NumPy's ``chebval``.
 
     The same values bit for bit, compiled: a degree-64 series of 18 values costs under a
-    microsecond against NumPy's 36 µs.
+    microsecond against NumPy's 36 µs. Until numba is loaded NumPy evaluates instead:
+    a run on the native backend needs numba for nothing else, and importing it costs
+    more than a set-up's thousand NumPy evaluations.
 
     Parameters
     ----------
@@ -177,6 +180,8 @@ def clenshaw(
     >>> float(clenshaw(0.5, np.array([1.0, 2.0, 3.0])))
     0.5
     """
+    if "numba" not in sys.modules:
+        return np.asarray(chebyshev_basis.chebval(float(x), coefficients))
     flat = np.ascontiguousarray(coefficients).reshape(coefficients.shape[0], -1)
     value = np.empty(flat.shape[1], dtype=coefficients.dtype)
     _clenshaw()(float(x), flat, value)

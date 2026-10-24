@@ -32,39 +32,6 @@ being implemented.
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
 
-- [SEP 29 — The native backend in solprop, distributed as binaries](seps/sep-0029-compiled-backend-distribution.md):
-  the native backend moves into solprop's repository as a second distribution
-  (`solprop-native`, module `solprop_native`, the `solprop[native]` extra) before the
-  repository is open-sourced, and is published as CPU wheels for Linux (x86-64-v3,
-  aarch64), macOS arm64 and Windows x64, with safe loading and release recipes. A parity
-  phase gives the native backend the two capabilities only `numba_cpu` has: general z
-  tables and Adams history export. It also gives native versions of the Numba-compiled
-  helpers every backend uses. `numba_cpu` stays unchanged, and its future is a later
-  decision on evidence from the wheels. Accepted 2026-10-22 after phase 0. In progress:
-  phases 1 (one repository) and 2 (native parity) done; phase 3 (open source and
-  wheels) next.
-
-- [SEP 31 — Coupling simulations and transporting ultrafast fields](seps/sep-0031-simulation-coupling.md):
-  reference-plane fields, coherent spatial synthesis/projection, ordered linear
-  transport and validated relaunch using SEP 34's shared medium flux; temporal
-  grid conversion; forward guide coupling; and a focused radial Kerr-to-capillary
-  tutorial. Clean breaking changes replace inconsistent energy semantics, with
-  no legacy normalisation or old-file migration. General junction scattering,
-  high-NA vector propagation and resolved prism/grating layouts remain open below.
-  Its accepted design specifies concrete overlap/thin-screen models and a detuned
-  37.5 μm tutorial; the incident-energy defect is its first implementation phase,
-  after SEP 34's full public activation. Qualified provider-pair envelopes may
-  replace conservative weak-guidance screens within the total model budget.
-
-- [SEP 34 — Medium flux for free-space propagation](seps/sep-0034-medium-flux.md):
-  physical launch energy, complex-admittance local flux, consistent total-energy
-  and noise weights, and a forward amplitude correction for radial real-index
-  paths, admitted by a total-variation certificate with default 10⁻⁴ budgets.
-  Declared weak steps can qualify; varying absorption is deferred. Public
-  launch/noise/statistics changes activate together after NumPy, Numba CPU,
-  native CPU and bounded CUDA/HIP qualification. It is implemented before SEP 31
-  and supplies the shared foundation for SEPs 5 and 31. General reflected-wave
-  and vector free-space transport remain outside its scope.
 
 ## Draft enhancement proposals
 
@@ -320,21 +287,62 @@ multi-pass cells by composing repeated bulk propagation with focusing mirrors,
 dispersive optical elements and the chosen cell geometry. A cell-level workflow would
 need to carry the spatial and temporal field from pass to pass, account for mirror
 dispersion and loss, and expose the evolution of the beam, spectrum and compressible
-pulse duration. [SEP 31](seps/sep-0031-simulation-coupling.md) proposes field
+pulse duration. [SEP 31](seps/archive/sep-0031-simulation-coupling.md) added field
 handoffs, focusing, reflection and spectral optics on top of the existing free-space
-routes. Cell geometry, assembly and validation against independent propagation or
-experimental data remain open.
+routes ([coupling simulations](../guide/workflows/coupling.md)). Cell geometry, assembly
+and validation against independent propagation or experimental data remain open.
 
 **Coupling beyond the forward model.**
-[SEP 31](seps/sep-0031-simulation-coupling.md) covers forward overlaps, scalar
-homogeneous gaps and spectral compressors. A general junction calculation with
+[SEP 31](seps/archive/sep-0031-simulation-coupling.md) delivered forward overlaps,
+scalar homogeneous gaps and spectral compressors. A general junction calculation with
 reflected, radiated and evanescent fields, high-NA vector free-space transport,
 gradient transport outside SEP 34's certificate, varying absorption, resolved
 prism/grating angular dispersion and spatial chirp, and feedback between stages
 remain separate extensions.
-[SEP 34](seps/sep-0034-medium-flux.md) covers the existing radial route's
+[SEP 34](seps/archive/sep-0034-medium-flux.md) covers the existing radial route's
 certified forward amplitude correction, including admitted weak steps; it does
 not add general gradient scattering or a complex-index path certificate.
+
+**A graded-index facet envelope for the vector coupling model.** `vector_paraxial` into a
+step-index guide counts a recorded envelope for the facet reflection and backward fields
+it omits (`VECTOR_STEP_INDEX_ENVELOPE`, against an independent full-vector mode-matching
+solution of the facet). A graded-index guide has no such envelope: it is admitted with an
+uncounted envelope item, its facet omission bounded only by the weak-guidance contrast
+screen and the H closure. A graded-index reference — the same mode-matching solver with
+a layered core — would give it a recorded bound
+([SEP 31](seps/archive/sep-0031-simulation-coupling.md), decision A1; [coupling simulations](../guide/workflows/coupling.md)).
+
+**The coupling envelopes beyond their measured range.** Each recorded pair envelope holds
+only where it was measured ([SEP 31](seps/archive/sep-0031-simulation-coupling.md), Part II, "Closing"):
+- the capillary envelope stops at the leaky parameter $\delta = 10^{-2}$, so a narrow
+  capillary in the infrared is refused; extending it needs a re-measured bound, and is
+  worth doing only when such a pair is needed;
+- the beam-into-fibre envelope covers LP01 alone (V 1.5–2.4, contrast up to 0.01); near
+  V 2.4 its in-cone figure is dominated by the cone's truncation of the widening HE11
+  spectrum rather than by the vector correction, and could be sharpened;
+- the vector facet envelope rests on the analytic Fresnel ceiling in the narrow bands
+  just above the HE12 and HE13 cutoffs, which no practical reference cylinder resolves;
+- the fibre-pair `STEP_INDEX_ENVELOPE` is a constant bound whose order in the index
+  contrast was not measured; re-measuring it would let it scale as the others do;
+- every envelope is measured at the profile wavelength against the run's frozen
+  profile, so a fibre whose profile moves strongly across the band is represented only
+  as the run represents it.
+
+**The general guide's angular item at every occupied bin.** `couple` into a general
+modal guide evaluates the target's angular admission at no more than five bins of the
+band. Evaluating it at every occupied bin closes the gap, if its cost stays within a
+coupling's; the cost is to be measured first ([SEP 31](seps/archive/sep-0031-simulation-coupling.md), phase 3).
+
+**Other exit interfaces for `Outcouple`.** `Outcouple` synthesises a guide's exit field
+under the matched interface only. A declared planar-interface model at the exit (the
+end face of a fibre into air, for example) would make the facet's reflection and
+refraction explicit, as `PlanarInterface` does between two media in transport
+([SEP 31](seps/archive/sep-0031-simulation-coupling.md), phase 3).
+
+**Vector coupling into a moving general guide.** The input port of a general guide whose
+geometry moves along z (a sampled path) carries no E/H reference at the entrance, so it
+admits only `same_basis`; `vector_paraxial` needs the entrance section's fields from the
+path ([SEP 31](seps/archive/sep-0031-simulation-coupling.md), phase 3).
 
 **Elliptical hollow capillary modes.** Extend hollow-capillary modelling to elliptical
 bores specified by their two semi-axes, with mode profiles, dispersion, wall loss and
@@ -530,7 +538,7 @@ any of the first ten items.
   and projection), after the compiler-target comparison.
 - **Selective run-time kernel dispatch**: AVX-512 variants of a hot kernel in the
   x86-64-v3 wheel behind a CPU-feature selector
-  ([SEP 29](seps/sep-0029-compiled-backend-distribution.md), §6.2).
+  ([SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md), §6.2).
 - **Batched vector transcendentals for the plasma response**, which need the dependent
   plasma recurrence split into a batched rate pass.
 
@@ -726,13 +734,26 @@ the interpolation coordinate a parameter and expand the dispersion in it, as the
 expansion already does for a fill's density, so the GPU builds could run it without the
 table.
 
+**A compiled closure synthesis for `numba_cpu`.** The local spatial statistics (fluence,
+intensities, the on-axis spectrum) need the closure `G` formed with the complex
+admittance; `numba_cpu` forms that volume with NumPy FFTs on the host, where native forms
+it in its own kernels ([SEP 34](seps/archive/sep-0034-medium-flux.md), phase 2, Q2).
+A compiled pass would remove the host round trip.
+
+**The cost of a kept native save on Linux.** On the snapshot benchmark case a kept
+native Adams save costs about 4.5 ms against `numba_cpu`'s 1.6 ms on Linux, unexplained;
+the run totals are level
+([SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md), phase 2).
+
 **The hybrid planar route on GPUs.** native CPU executes the planar kind resolved in y; the
-CUDA and HIP builds compile the same kernels but have never run them. Device
+CUDA and HIP builds have run it only in one short Kerr case of
+[SEP 34](seps/archive/sep-0034-medium-flux.md)'s device qualification. Its full device
 qualification follows the other routes' parity bounds ([backends](backends.md)).
 
 **The far-field pass on GPUs.** The CUDA and HIP builds compile the native backend's
-far-field pass ([SEP 23](seps/archive/sep-0023-far-field-aperture-spectra.md)) but have never
-run it: its band partials live in global memory, with a team barrier per column. Device
+far-field pass ([SEP 23](seps/archive/sep-0023-far-field-aperture-spectra.md)) but have
+run it only on the short Cartesian and line cases of
+[SEP 34](seps/archive/sep-0034-medium-flux.md)'s device qualification: its band partials live in global memory, with a team barrier per column. Device
 qualification measures it against the CPU parity bounds of
 `tests/backends/test_native_far_field.py`, and its optimisation holds a thread's slot
 accumulators in registers and runs a large aperture set in groups (SEP 23 §6).
@@ -753,15 +774,38 @@ is to include one.
 qualified by hand on data-centre NVIDIA and AMD Instinct GPUs; a scheduled device lane
 would catch regressions in the `gpu`-marked tests between qualifications.
 
-**Published native wheels.** `solprop-native` is built from source, from `native/`
-([dependencies](dependencies.md)). Its CMake configure needs a git checkout — it records
-its own commit through `git rev-parse` and fails without one — and by default fetches
-Kokkos, Kokkos Kernels and (for the Linux distribution build) OpenBLAS from GitHub, so it
-cannot build from a source distribution or offline. Published wheels (the distribution
-CPU build of ADR-034 and [SEP 29](seps/sep-0029-compiled-backend-distribution.md); GPU
-builds stay source-only, ADR-048) need the commit to come from the package version
-instead, a manylinux container, a macOS deployment target, and FFTW, OpenBLAS and the
-OpenMP runtime bundled (`auditwheel`, `delocate`, `delvewheel`).
+**Native source builds without a checkout.** The published wheels are built from the
+repository, but `solprop-native` cannot be built from a source archive or offline: its
+CMake configure records its own commit through `git rev-parse` and fails without one, and
+by default it fetches Kokkos, Kokkos Kernels and (for the Linux distribution build)
+OpenBLAS from GitHub ([dependencies](dependencies.md)). A release archive that builds
+needs the commit to come from the package version and the sources to be vendored or
+fetchable by checksum.
+
+**Wheel qualification beyond CI**
+([SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md), §7). The wheels' test
+jobs run on GitHub's runners, which carry compilers and current operating systems. Still
+to do: installs on clean machines at the declared minimum systems (macOS 14, the
+`manylinux_2_28` generation, Windows 10); the slow lane on the native backend from the
+wheels, not only from a source build; and a lane that fails on unexpected native skips.
+
+**Per-platform performance of the wheels**
+([SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md), §7). The standard
+suite's core cases, adaptive Multistep and Runge–Kutta, native against `numba_cpu` with
+matched budgets, at one thread and the production width, on each wheel family, recorded
+in the benchmark ledger with any serious loss per case. To run once the first release is
+out.
+
+**macOS: pyFFTW imported before the native package.** pyFFTW's macOS wheel carries and
+initialises its own `libomp`, and the native package refuses to import after it (the
+rule is documented in [Building the native backend](../guide/performance/building-native.md)).
+Lifting the rule needs a macOS native build without OpenMP (Kokkos Threads and threaded
+FFTW, measured first) or a pyFFTW wheel that does not initialise its own runtime.
+
+**The future of `numba_cpu`.** With the native wheels published, a later SEP decides
+whether `numba_cpu` stays, on evidence from use: how often `auto` falls back, coverage
+across the installed platforms, default performance and coexistence reports
+([SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md), §6.3).
 
 **Raman convolution length.** The Raman convolution is always built on a doubled grid of
 `2 n_to` samples, including for short-lived responses such as silica's.
@@ -919,7 +963,7 @@ distance, which the radial tutorial computes by hand.
 row of a mode set, so a Jones vector spread over the two members of a degenerate pair
 needs a hand-built input; a vector capillary run through the keyword interfaces is also
 not yet validated end to end ([polarisation](../guide/setup/polarisation.md)).
-[SEP 31](seps/sep-0031-simulation-coupling.md) proposes explicit incident-field
+[SEP 31](seps/archive/sep-0031-simulation-coupling.md) added explicit incident-field
 polarisation and coherent projection across target channels. The keyword-interface
 convenience and its complete vector-capillary qualification remain open.
 
@@ -928,21 +972,44 @@ paired gradient pressures is expressed as an integer index with the profile buil
 builder ([scans](../guide/workflows/scans.md)). Structured axis values would need explicit
 serialisation and provenance in the scan file.
 
-**Further offline elements.** [SEP 31](seps/sep-0031-simulation-coupling.md)
-proposes focusing, apertures and ordered field transport beside the existing
-material, mirror, grating and prism transfer functions
-([compression](../guide/workflows/compression.md)). Its aperture model shares
-`spatial.aperture_profile` and qualifies agreement with in-run aperture statistics
-where their plane, flux and paraxial assumptions agree
+**Further offline elements.** [SEP 31](seps/archive/sep-0031-simulation-coupling.md)
+added focusing, apertures and ordered field transport (`coupling.transport`) beside the
+existing material, mirror, grating and prism transfer functions
+([compression](../guide/workflows/compression.md)). Its aperture shares
+`spatial.aperture_profile` and its weighting with the in-run aperture statistics, so the
+two agree where their plane, flux and paraxial assumptions do
 ([SEP 23](seps/archive/sep-0023-far-field-aperture-spectra.md)).
 Offline propagation through a z-varying waveguide mode as an element remains open.
+
+**Field planes in the output schema.** Two changes wait for the next output-schema
+change: `field_plane` on the general modal route's accessor whitelist (the whitelist
+feeds the recorded schema), and the plane's frame recorded in `FieldPlane`, so that
+`transport` no longer needs a `frame=` argument for a plane written in a frame other
+than its medium's ([SEP 31](seps/archive/sep-0031-simulation-coupling.md), phases 2 and 4).
+
+**Regrid's band loss in physical energy.** `regrid` reports the share of a plane lost
+outside the new temporal band in the record's norm. Reporting it in physical energy as
+well, through the per-bin admittance the transport core already evaluates, would give the
+loss in joules beside the share ([SEP 31](seps/archive/sep-0031-simulation-coupling.md), phase 2).
+
+**A public per-bin spatial energy spectrum.** The transport elements use a private
+`_energy_spectrum` (`coupling/elements.py`); a public `spatial.spatial_energy_spectrum` per frequency bin would
+replace it. In the same change, `spatial.aperture_profile`'s docstring should say that its
+result is a field transmission under the default `"amplitude"` weighting and a power
+weight under `"quadrature"` ([SEP 31](seps/archive/sep-0031-simulation-coupling.md), phase 4).
+
+**Field planes from modified-noise runs.** `processing.field_plane` refuses every plane of
+a run with `noise="modified"`, whose saved field leaves the one-photon background to the
+auxiliary `noise_phase`. Reconstructing that phase into the plane, following the
+documented saved-field meaning, would lift the refusal
+([SEP 31](seps/archive/sep-0031-simulation-coupling.md), decision A2; [coupling simulations](../guide/workflows/coupling.md)).
 
 **Far-field detection beyond SEP 23.** The far-field statistics
 ([statistics](../guide/results/statistics.md), *Far-field apertures and angular regions*)
 leave the following in-run extensions for later, each as new names or fields that
 leave the six statistics' shapes unchanged
 ([SEP 23](seps/archive/sep-0023-far-field-aperture-spectra.md)).
-[SEP 31](seps/sep-0031-simulation-coupling.md) adds coherent offline observation
+[SEP 31](seps/archive/sep-0031-simulation-coupling.md) added coherent offline observation
 planes, apertures and polarisation optics; its partial coverage is noted below.
 
 - *Polarisation-resolved detection*: an analyser Jones vector on `ApertureSet`, or
@@ -957,10 +1024,16 @@ planes, apertures and polarisation optics; its partial coverage is noted below.
   two-dimensional slit (a line grid's aperture already is one).
 - *Radial and planar-hybrid geometry*: refused today, having no Cartesian transverse
   wavevector; a centred aperture on a radial grid would weight the Hankel
-  spectrum's rings. SEP 31 covers radial offline transport and apertures;
+  spectrum's rings. SEP 31 added radial offline transport and apertures;
   extensions to these in-run statistics remain open.
 
 ## Release preparation
+
+**The first release.** Publish `solprop` and `solprop-native` at one version from a tag,
+following the checklist in [Releasing and the native wheels](releasing.md): the wheels
+workflow with publishing enabled, the archive DOI, and a fresh install of
+`solprop[native]` on each wheel platform. The native wheels and their recipe were
+qualified by [SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md).
 
 **A resume-compatibility policy before the first public release.** The output schema
 records every field of a recorded dataclass, at its default too
@@ -1004,7 +1077,7 @@ built on them already refuse spatial runs by name.
 
 **Free-space flux beyond the scalar forward model.** Spatial energy, intensity and
 fluence are the scalar axial flux of the medium at the plane
-([SEP 34](seps/sep-0034-medium-flux.md)), and a radial gas gradient is admitted only
+([SEP 34](seps/archive/sep-0034-medium-flux.md)), and a radial gas gradient is admitted only
 within its real-index adiabatic certificate. Gradient scattering outside that
 certificate, a radial path with varying (or any) loss, which needs a complex-index
 bound, varying media on the Cartesian and line grids, and the full vector TE/TM flux at
@@ -1071,3 +1144,8 @@ backend is built. The pool sizes should be clamped to `numba.config.NUMBA_NUM_TH
 Likewise the field retention of [SEP 22](seps/archive/sep-0022-memory-lean-spatial-execution.md)
 (`fields=`, `field_planes=`) is set on `SimulationSettings` or through
 `run_scan`, not as a keyword of the `prop_*` functions. Offer both there together.
+
+**Two slow coupling-envelope tests in the medium tier.** Two of the recorded-envelope
+oracles in `tests/coupling/test_envelopes.py` take about 30–50 s each in the medium tier.
+If CI time becomes a constraint, they can move to the slow tier, with a cheaper check of
+the same envelope left in the medium tier ([SEP 31](seps/archive/sep-0031-simulation-coupling.md)).
