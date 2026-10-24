@@ -155,6 +155,11 @@ The first public release. It contains:
     ([SEP 29](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0029-compiled-backend-distribution.html)).
   - Each backend is tested against the reference implementation within derived error
     bounds.
+  - A short start-up: a run on the native backend imports neither Numba nor
+    `scipy.signal`, plotting imports `matplotlib.pyplot` only when it draws, and an
+    optmat rate builds only the model it uses (optmat 0.9.0, which reads only the data a
+    model needs). A five-centimetre capillary run with ionisation is under way in about
+    3 s on an Apple M5 Max, from 5.5 s.
 - **The native backend.**
   - `NativeBackend` runs one trial step per native call, with states, views and FFT
     plans resident in the execution space; `NativeBatchBackend` runs fixed-schedule
