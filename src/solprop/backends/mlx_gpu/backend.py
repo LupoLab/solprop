@@ -103,10 +103,6 @@ def refuse_unsupported(problem: KernelProblem) -> None:
             "the Adams integrator, which single precision does not admit",
         ),
         (
-            isinstance(stepper.integrator, LowStorageRungeKutta),
-            "the low-storage march (not yet on mlx); use RungeKutta()",
-        ),
-        (
             stepper.interpolate_planes,
             "interpolated save planes (not yet on mlx); land on the planes instead",
         ),
@@ -198,6 +194,7 @@ class MlxBackend(NumpySingleBackend):
             for channel in responses.plasma_channels
         )
         self._raman_upload: tuple[object, mx.array] | None = None
+        self._unit = mx.ones((1,), dtype=mx.complex64)
         n_to = grids.n_to
         n_pol = transform.n_pol
         chunk = min(transform.node_chunk, transform.n_nodes) * n_pol
@@ -306,8 +303,10 @@ class MlxBackend(NumpySingleBackend):
 
     # The trial step.
 
-    def _trial_step(self, z: float, dz: float) -> tuple[float, mx.array]:  # pyright: ignore[reportIncompatibleMethodOverride]
-        """Take one interaction-picture DOPRI5 step on the device and score it.
+    def _trial_graph(
+        self, z: float, dz: float
+    ) -> tuple[mx.array, mx.array, mx.array]:
+        """Build one interaction-picture DOPRI5 step on the device, unevaluated.
 
         The oracle's step (:meth:`NumpyRefBackend._trial_step`) with device arrays:
         every stage is evaluated, no stage is reused across steps.
@@ -321,8 +320,10 @@ class MlxBackend(NumpySingleBackend):
 
         Returns
         -------
-        tuple
-            The scaled error norm and the device state at the end of the step.
+        tuple of mlx.core.array
+            The state at the anchor, the embedded difference carried to the end of the
+            step and the trial state, as lazy device arrays: MLX evaluates them when
+            the norm is read, so a batch builds every member's step first.
         """
         state = cast(mx.array, self._require_state())
         self._hoist(z)
@@ -349,9 +350,26 @@ class MlxBackend(NumpySingleBackend):
             error = error + float(tableau.error_weights[index]) * stage
         propagator, _ = self._propagators(step)
         advanced = propagator * (state + dz * solution)
-        norm = self._device_norm(propagator * (dz * error), state, advanced)
         self._last_stages = stages
-        return norm, advanced
+        return state, propagator * (dz * error), advanced
+
+    def _trial_step(self, z: float, dz: float) -> tuple[float, mx.array]:  # pyright: ignore[reportIncompatibleMethodOverride]
+        """Take one interaction-picture DOPRI5 step on the device and score it.
+
+        Parameters
+        ----------
+        z : float
+            Position at the start of the step, m.
+        dz : float
+            Length of the trial step, m.
+
+        Returns
+        -------
+        tuple
+            The scaled error norm and the device state at the end of the step.
+        """
+        state, error, advanced = self._trial_graph(z, dz)
+        return self._device_norm(error, state, advanced), advanced
 
     def _propagators(self, bundle: StageScalars) -> tuple[mx.array, mx.array]:
         """Return ``exp(dPhi)`` and ``exp(-dPhi)`` of a stage, double-float accurate.
@@ -683,6 +701,66 @@ class MlxBackend(NumpySingleBackend):
         finally:
             self._last_projected, self._last_coarse, self._last_plasma = held  # pyright: ignore[reportAttributeAccessIssue]
 
+    # The low-storage march's hooks and engine.
+
+    def _adams_lab_source(  # pyright: ignore[reportIncompatibleMethodOverride]
+        self, lab: mx.array, position: float, *, purpose: str = "predictor"
+    ) -> mx.array:
+        """Evaluate the source at a lab-frame field on the device, untransported.
+
+        Parameters
+        ----------
+        lab : mlx.core.array
+            The lab-frame field.
+        position : float
+            Where it is evaluated, m.
+        purpose : str, optional
+            Unused; TDSE responses are refused.
+
+        Returns
+        -------
+        mlx.core.array
+            The source in the lab frame.
+        """
+        del purpose
+        bundle = self._stage_scalars(position, position)
+        return self._device_nonlinear(lab, bundle, self._unit)
+
+    def _adams_propagator(  # pyright: ignore[reportIncompatibleMethodOverride]
+        self, anchor: float, position: float
+    ) -> mx.array:
+        """Return ``exp(Phi(position) - Phi(anchor))`` on the device.
+
+        Parameters
+        ----------
+        anchor : float
+            Where the flow starts, m.
+        position : float
+            Where it ends, m.
+
+        Returns
+        -------
+        mlx.core.array
+            The double-float accurate propagator, complex64.
+        """
+        return self._propagators(self._stage_scalars(anchor, position))[0]
+
+    def _low_storage_engine(self, method: LowStorageRungeKutta) -> object:
+        """Return the device engine of the low-storage march.
+
+        Parameters
+        ----------
+        method : solprop.stepper.low_storage.LowStorageRungeKutta
+            The method.
+
+        Returns
+        -------
+        MlxLowStorage
+            The engine.
+        """
+        del method
+        return MlxLowStorage(self)
+
     def metadata(self) -> dict[str, object]:
         """Return the backend's metadata with MLX's version, device and GEMM probe.
 
@@ -696,3 +774,104 @@ class MlxBackend(NumpySingleBackend):
             "mlx_device": str(mx.default_device()),
             "mlx_gemm_probe": self.gemm_error,
         }
+
+
+class MlxLowStorage:
+    """The low-storage RK4IP engine on the device (SEP 24 section 6.5).
+
+    The host engine's four register passes (:class:`~solprop.backends.low_storage.
+    HostLowStorage`) with device arrays; the half-step flows are formed every step by
+    the double-float kernel, which agrees with the host's tabulated flows to rounding.
+
+    Parameters
+    ----------
+    backend : MlxBackend
+        The backend whose state is the register ``A``.
+    """
+
+    atomic = False
+
+    def __init__(self, backend: MlxBackend) -> None:
+        """Hold the backend."""
+        self._backend = backend
+        self.stiffness = math.nan
+
+    def reset(self) -> None:
+        """Forget the last step's indicator."""
+        self.stiffness = math.nan
+
+    def close(self) -> None:
+        """Hold nothing between steps."""
+
+    def held(self) -> dict[str, int]:
+        """Return the bytes held between steps: none, the registers are transients.
+
+        Returns
+        -------
+        dict
+            Zero rows, as the host engine names them.
+        """
+        return {"register_accumulator": 0, "register_stage": 0, "propagators": 0}
+
+    def _norm(self, values: mx.array) -> float:
+        """Return the norm of values over the norm mask.
+
+        Parameters
+        ----------
+        values : mlx.core.array
+            A state-shaped array.
+
+        Returns
+        -------
+        float
+            The norm, binary64 on the host.
+        """
+        # Read at use: the march is built inside the backend's own construction.
+        picked = mx.take(values, self._backend._norm_index, axis=-1)
+        re, im = mx.real(picked), mx.imag(picked)
+        return math.sqrt(float(cast(float, mx.sum(re * re + im * im).item())))
+
+    def step(self, z: float, dz: float) -> float:
+        """Take one step, leaving the raw accepted state in the backend.
+
+        Parameters
+        ----------
+        z : float
+            Where the step starts, m.
+        dz : float
+            The step, m, positive.
+
+        Returns
+        -------
+        float
+            The accepted state's squared norm over the norm mask.
+        """
+        backend = self._backend
+        midpoint, end = z + 0.5 * dz, z + dz
+        backend._hoist(z)
+        backend._stage_bundles(z, [z, midpoint])
+        backend._stage_bundles(midpoint, [midpoint, end])
+        backend._stage_bundles(end, [end])
+        state = cast(mx.array, backend._state)
+        source = backend._adams_lab_source(state, z)
+        first = backend._adams_propagator(z, midpoint)
+        state = first * state
+        slope = first * source
+        accumulator = state + (dz / 6.0) * slope
+        stage = state + (0.5 * dz) * slope
+        source = backend._adams_lab_source(stage, midpoint)
+        lower = self._norm(source - slope)
+        accumulator = accumulator + (dz / 3.0) * source
+        stage = state + (0.5 * dz) * source
+        previous = source
+        source = backend._adams_lab_source(stage, midpoint)
+        upper = self._norm(source - previous)
+        accumulator = accumulator + (dz / 3.0) * source
+        second = backend._adams_propagator(midpoint, end)
+        stage = second * (state + dz * source)
+        source = backend._adams_lab_source(stage, end)
+        state = second * accumulator + (dz / 6.0) * source
+        backend._state = cast(Any, state)
+        self.stiffness = 2.0 * upper / lower if lower > 0.0 else math.nan
+        norm = self._norm(state)
+        return norm * norm

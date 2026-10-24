@@ -507,6 +507,15 @@ def select_batch(owners: Sequence[Backend]) -> BatchBackend:
         )
 
         return NumpyBatchBackend(cast(Sequence[NumpyRefBackend], owners))
+    if name == "mlx":
+        from solprop.backends.mlx_gpu.backend import (  # noqa: PLC0415 - lazy backend
+            MlxBackend,
+        )
+        from solprop.backends.mlx_gpu.batch import (  # noqa: PLC0415 - lazy backend
+            MlxBatchRunner,
+        )
+
+        return MlxBatchRunner(cast(Sequence[MlxBackend], owners))
     if name == "numba_cpu":
         from solprop.backends.numba_cpu.backend import (  # noqa: PLC0415 - lazy backend
             NumbaCpuBackend,
