@@ -1988,6 +1988,54 @@ parts) are cited through it.
 
 ## Part II — Implementation record
 
+### Phase 0a — decisions and interim findings (in progress)
+
+Recorded as they are made; the phase 0a report (§8 of SEP 0) follows at the end of the
+phase. The campaign harness and its raw results are kept with the project's
+development records (§11).
+
+**D1 — smooth transform sizes (John Travers, 2026-10-24).** Phase 0a measures the cost
+per sample of 2-3-5-smooth transform sizes against powers of two on `numba_cpu` and the
+native CPU build. Phase 2 then makes `fft_size="smooth"` the default together with Q4's
+collar outside the requested window: with smooth sizes the realised window is close to
+the request, so a collar inside it would leave only 90 % of the requested window flat.
+Tests that compare against Luna's stored runs pin `fft_size="pow2"`, since Luna's grids
+are powers of two.
+
+**D2 — the CtC cases (John Travers, 2026-10-24).** The reduced CtC case of §4.3 and §7
+ran a 400 fs pump on a 1 ps request, realised as ±569 fs with its temporal collar from
+±500 fs, where the pump still had 1.3 % of its peak intensity. Clipping the launched
+pump seeded stimulated Raman scattering in noise-free runs of both solprop and Luna, so
+the continuum and the cross-code differences recorded for that case were the boundary's.
+On the same 2 ps grid, a launch clipped to the old collar alone brings the cascade back
+(Stokes 0.112 of the energy against 8e-11). The reduced case is now the fundamental
+alone on a 2 ps window over 0.1 m, and the full case runs 0.3 m on its 4 ps grid; the
+full case's Luna comparison is retired. §4.3's row for the reduced case describes the
+former case. The 1 ps launch is kept in the campaign as a guard-monitor counterexample:
+the pump fills the guards from the start. Seeded with shot noise, the 0.1 m reduced case
+forms the Raman cascade (Stokes 0.44–0.48 of the energy over three seeds); noise-free,
+it grows only from rounding.
+
+**Interim findings.**
+
+- *Floor law.* Translation admits exactly ⌈n_min⌉ replayed steps and refuses fewer for
+  every method in both multistep formulations; with the refusal bypassed, runs at
+  0.8 n_min diverge or fail and the error departs from its converged trend within about
+  5 % of n_min, so the scalar peak-rate bound is tight on ADR-025's witness.
+- *Wrap.* Pure advection through one realised window returns the launch to 1.3e-13 with
+  end-plane guard occupancy near 1e-28, so endpoints cannot detect a crossing (§4.12).
+- *Flux.* The continuity current of §4.12 balances a region's energy at second order in
+  plane spacing, with drift, spreading of either sign of β₂, or both.
+- *References.* Wide-window references converge at first order in the window factor. The
+  term is Kerr-generated content at the band's low-frequency edge, where the spectral
+  collar and mask are sampled on bins that move with the bin spacing: widening the band
+  from 1.6 to 3.2 µm cuts the edge energy from 2.5e-3 to 1.4e-6 and the term about
+  threefold. It sets a floor of order 1e-5 on the canonical and RDW comparisons, so
+  references are extrapolated in 1/M and absorber effects are compared with and without
+  temporal absorption at the same window.
+- *Step counts.* On the reduced CtC case solprop accepts 3163 steps to Luna's 205 at the
+  witness tolerance; phase 0a explains the difference.
+
 ## Part III — History
 
 - 2026-10-16: Drafted. The same day, John Travers resolved Q1–Q10 with the drafting agent,
