@@ -528,7 +528,9 @@ class ScalarModeBasis:
             array.setflags(write=False)
             object.__setattr__(self, name, array)
         index = np.array(self.effective_index, dtype=np.float64, copy=True)
-        if index.ndim != 2 or index.shape[0] != n_modes:
+        # The test session's shape checker refuses a wrong shape before this guard,
+        # which is the only one outside it.
+        if index.ndim != 2 or index.shape[0] != n_modes:  # pragma: no cover - see above
             msg = "a scalar basis's effective index has shape (n_modes, n_omega)"
             raise CouplingError(msg)
         index.setflags(write=False)

@@ -884,13 +884,18 @@ def _flux_recovery(
     electric, magnetic = port.electric, port.magnetic
     flux = _flux_matrix(electric, magnetic, weights)
     pairing = _pairing(nodal.electric, nodal.magnetic, electric, magnetic, weights)
-    coordinates = np.linalg.solve(flux, pairing.T[..., None])[..., 0].T
+    original = plane.spectral_energy()
+    occupied = np.flatnonzero(_occupied(original))
+    # Only the occupied bins are solved: off the guide's support its stored E/H
+    # are explicit zeros, F is singular there and the plane carries nothing.
+    coordinates = np.zeros(pairing.shape, dtype=np.complex128)
+    for k in occupied:
+        coordinates[:, k] = np.linalg.solve(flux[k], pairing[:, k])
     samples = coordinates[:, None, :]
     recovered = port.metric.spectral_energy(samples, port.grid)
-    original = plane.spectral_energy()
     q_matrices = _metric_matrices(port.metric, port.shape[0], port.grid.n_omega)
     defect = 0.0
-    for k in np.flatnonzero(_occupied(original)):
+    for k in occupied:
         low, high = _whitened_extremes(flux[k], q_matrices[k])
         defect = max(defect, abs(low - 1.0), abs(high - 1.0))
     tolerance = defect + 1e-10
@@ -1161,9 +1166,13 @@ def _scalar_paraxial(
     items.append(_source_metric_item(incident, native, epsilon))
     if profiles.family == "capillary":
         envelope_parameters.update(_leaky_parameters(profiles, plane, incident))
-    elif plane.profiles is not None:
+    else:
+        # A step-index target takes only a step-index modal plane with its profiles.
         envelope_parameters["uncovered"] = _uncovered_v_share(
-            plane.profiles, profiles, plane.grid.omega, incident
+            cast("ScalarModeBasis", plane.profiles),
+            profiles,
+            plane.grid.omega,
+            incident,
         )
     items.extend(
         _contrast_items(profiles, plane, index, occupied, epsilon, envelope_parameters)
@@ -1780,7 +1789,7 @@ def _contrast_items(
     profiles : solprop.coupling.models.ScalarModeBasis
         The target profiles.
     plane : solprop.coupling.plane.FieldPlane
-        The source plane.
+        The source plane; for a step-index target, a modal plane with its profiles.
     index : numpy.ndarray
         Reference index per bin.
     occupied : numpy.ndarray
@@ -1814,10 +1823,8 @@ def _contrast_items(
         )
     else:
         contrast = 0.0
-        sets = [profiles]
-        if plane.profiles is not None:
-            sets.append(plane.profiles)
-        for one in sets:
+        # A step-index pair: the source is a modal plane with its own profiles.
+        for one in (profiles, cast("ScalarModeBasis", plane.profiles)):
             for values in (one.core_index, one.cladding_index):
                 values = cast("np.ndarray", values)
                 ratio = np.abs(values[occupied] ** 2 - index[occupied] ** 2) / (

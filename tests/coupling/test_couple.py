@@ -38,7 +38,7 @@ from solprop.coupling import (
     basis_identity,
     couple,
 )
-from solprop.coupling.coupler import _contrast_items, _gain_item
+from solprop.coupling.coupler import _contrast_items, _gain_item, _whitened_extremes
 from solprop.coupling.models import cone_angle, radial_rule
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import CouplingError
@@ -523,6 +523,116 @@ def test_a_declared_basis_change_relabels_without_changing_energy(port):
     with pytest.raises(CouplingError, match="another pair of bases"):
         couple(plane, target, model=other)
     del grid
+
+
+def test_a_declared_change_per_bin_relabels_and_one_of_another_shape_is_refused(
+    port,
+):
+    """A frequency-dependent gauge is applied bin by bin; a mismatched one refuses.
+
+    A gauge ``exp(i phi(omega))`` on each mode is a relabelling at every bin, so the
+    launch is the plane's times it and the energy is unchanged; the exact report
+    names no budget. A change of the wrong size, a change into the wrong number of
+    bins, and a change from a spatial plane, whose metric is not modal, are refused.
+    """
+    grid = port.grid
+    source = capillary(modes=2)
+    plane = modal_plane(source, [1.0, 0.5])
+    target_identity = basis_identity("modal", {"gauged": True})
+    target = dataclasses.replace(
+        source.input_port(), basis=PlaneBasis("modal", target_identity)
+    )
+    phase = np.exp(1j * np.linspace(-1.0, 1.0, grid.n_omega))
+    gauge = np.zeros((2, 2, grid.n_omega), dtype=complex)
+    gauge[0, 0], gauge[1, 1] = phase, phase.conj()
+
+    def declared(matrix, source_identity=plane.basis.identity):
+        return CouplingModel(
+            "same_basis",
+            basis_change=BasisChange(matrix, source_identity, target_identity),
+        )
+
+    result = couple(plane, target, model=declared(gauge))
+    np.testing.assert_allclose(
+        result.launch.samples[:, 0, :],
+        np.einsum("tsw,sw->tw", gauge, plane.samples[:, 0, :]),
+        rtol=1e-14,
+    )
+    assert result.report.launched_energy == pytest.approx(
+        result.report.incident_energy, rel=1e-13
+    )
+    text = str(result.report)
+    assert "same_basis" in text and "budget" not in text
+    with pytest.raises(CouplingError, match="maps 3 columns to 3"):
+        couple(plane, target, model=declared(np.eye(3, dtype=complex)))
+    with pytest.raises(CouplingError, match=rf"has 5 bins, not {grid.n_omega}"):
+        couple(plane, target, model=declared(gauge[:, :, :5]))
+    beam = FieldPlane.from_analytic(
+        grid,
+        PlaneGeometry(0.0),
+        radial_beam(grid, 0.5 * RADIUS),
+        space=RadialGrid(300e-6, 64),
+        medium=MEDIUM,
+    )
+    columns = np.zeros((4, 64), dtype=complex)
+    columns[:, :4] = np.eye(4)
+    relabel = CouplingModel(
+        "same_basis",
+        basis_change=BasisChange(columns, beam.basis.identity, port.basis.identity),
+    )
+    with pytest.raises(CouplingError, match="identity or dense, got admittance"):
+        couple(beam, port, model=relabel)
+
+
+def test_an_exact_copy_and_a_report_refuse_inconsistent_shapes(port):
+    """A plane of the port's basis but not its shape is no copy; a report's per-bin
+    arrays are finite."""
+    grid = port.grid
+    short = FieldPlane.from_samples(
+        np.zeros((3, 1, grid.n_omega), dtype=complex),
+        grid,
+        PlaneGeometry(0.0),
+        exterior="zero",
+        basis=port.basis,
+    )
+    with pytest.raises(CouplingError, match=r"shape \(3, 1, \d+\) is not the port's"):
+        couple(short, port, model=SAME)
+    beam = FieldPlane.from_analytic(
+        grid,
+        PlaneGeometry(0.0),
+        radial_beam(grid, 0.5 * RADIUS),
+        space=RadialGrid(300e-6, 128),
+        medium=MEDIUM,
+    )
+    report = couple(beam, port, model=SCALAR).report
+    spoiled = np.array(report.incident)
+    spoiled[0] = np.nan
+    with pytest.raises(CouplingError, match="incident is finite, one value per bin"):
+        dataclasses.replace(report, incident=spoiled)
+
+
+def test_a_spatial_plane_without_an_admittance_is_refused(port):
+    """The scalar fit weighs a spatial plane's columns by its admittance."""
+    beam = FieldPlane.from_analytic(
+        port.grid,
+        PlaneGeometry(0.0),
+        radial_beam(port.grid, 0.5 * RADIUS),
+        space=RadialGrid(300e-6, 64),
+        medium=MEDIUM,
+    )
+    unweighted = dataclasses.replace(beam, metric=PlaneMetric("identity"))
+    with pytest.raises(CouplingError, match="an admittance, got identity"):
+        couple(unweighted, port, model=SCALAR)
+
+
+def test_whitening_refuses_a_metric_that_is_not_positive_definite():
+    """The extremes are the generalised eigenvalues, and an indefinite metric has no
+    whitening."""
+    form = np.diag([2.0, 0.5]).astype(complex)
+    metric = np.diag([1.0, 2.0]).astype(complex)
+    assert _whitened_extremes(form, metric) == pytest.approx((0.25, 2.0), rel=1e-14)
+    with pytest.raises(CouplingError, match="not positive definite"):
+        _whitened_extremes(form, np.diag([1.0, -1.0]).astype(complex))
 
 
 # ----------------------------------------------------------- guides and planes
