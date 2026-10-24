@@ -1188,7 +1188,8 @@ the SEP's pull request.
 - The protected operations as custom kernels in `"safe"` mode (propagator and term
   combination in double-float, populations, the doubling scan, the rate table) and the
   GEMM probe; `memory.mlx_rows`, `MLX_GRAPH_BUDGET` and the device ledger rows.
-- `tests/backends/test_mlx.py` (26 tests); the macOS CI job installs the extra and
+- `tests/backends/test_mlx.py` (29 tests, the kernels', the FFT characterisation's and
+  the special values' among them); the macOS CI job installs the extra and
   prints whether the runner exposes Metal; backends guide, dependencies, the manual
   page's backend column, backends.md §4a, the changelog.
 
@@ -1200,8 +1201,11 @@ the SEP's pull request.
 - The FFT is about three times less accurate than NumPy's float32 transform (forward
   3.4e-7 against 1.1e-7 at 2^12) and its round trip shrinks by 1.2–2.4e-7, a coherent
   bias. Only the split-step collar puts the state through a round trip; it is applied as
-  a correction, which removed a 5.6e-6 drift over 16 steps. Characterising every length
-  against `fft_bound` and a construction probe at the run's lengths (§6.3) remain to do.
+  a correction, which removed a 5.6e-6 drift over 16 steps. Characterised against
+  `fft_bound` at binary32 for real and complex transforms of 1024 to 2^18 samples and
+  the smooth lengths 3072 and 17920: the worst forward or round-trip error is 8.5e-7,
+  over a thousand times inside the bound; `fft_probe` repeats the measurement at each
+  run's own lengths when the backend is built.
 - Matrix products default to TF32 (7.3e-4 relative), as §6.3 says; the probe separates
   them.
 - Float32 subnormals are flushed on the GPU (accepted, §4.3 rule 7).
@@ -1239,10 +1243,8 @@ propagator on the host (a bug in `DoubleFloatTerms.upload`, found by these timin
 fixed); the A/B ratios above are after the fix.
 
 **Not yet done in this phase** (carried into the PR's remaining work, before Final):
-the FFT characterisation and construction probe (§6.3); the hosted macOS runner's Metal
-result (Q7), which the first CI run on the pull request records; the benchmark on a
-quiet machine (§7.4); the adversarial compensation and special-value tests of §6.3's
-table beyond the population and finiteness tests.
+the hosted macOS runner's Metal result (Q7), which the first CI run on the pull request
+records; the benchmark on a quiet machine (§7.4).
 
 **Deviations.** None from Part I.
 

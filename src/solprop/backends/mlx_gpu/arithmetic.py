@@ -35,6 +35,7 @@ from solprop.exceptions import BackendError
 __all__ = [
     "GEMM_PROBE_BOUND",
     "DoubleFloatTerms",
+    "fft_probe",
     "gemm_probe",
     "on_gpu",
     "population",
@@ -571,6 +572,82 @@ def rate_kernel(
         output_dtypes=[mx.float32],
     )
     return rate.reshape(magnitude.shape)
+
+
+def fft_bound_32(samples: int) -> float:
+    """Return the established transform bound at binary32, ``512 eps32 ceil(log2 n)``.
+
+    The ladder's per-transform envelope (``tests/bounds.py``, ``fft_bound``) evaluated
+    at binary32's machine epsilon (SEP 33 7.1).
+
+    Parameters
+    ----------
+    samples : int
+        The transform length.
+
+    Returns
+    -------
+    float
+        The bound, relative and normwise.
+    """
+    return 512 * 2.0**-23 * math.ceil(math.log2(max(samples, 2)))
+
+
+def fft_probe(lengths: list[tuple[str, int]]) -> float:
+    """Measure the device's transforms at a run's own kinds and lengths (SEP 33 6.3).
+
+    A Gaussian random signal of each length is transformed forward and back on the
+    device and compared with binary64: the forward transform normwise, and the round
+    trip, whose scale bias MLX's GPU transform carries, against the identity.
+
+    Parameters
+    ----------
+    lengths : list of tuple
+        ``(kind, n)``, ``kind`` ``"field"`` (real transforms) or ``"envelope"``.
+
+    Returns
+    -------
+    float
+        The largest relative error found.
+
+    Raises
+    ------
+    BackendError
+        If a transform exceeds its bound at binary32.
+    """
+    rng = np.random.default_rng(33)
+    worst = 0.0
+    for kind, n in lengths:
+        if kind == "field":
+            x = rng.standard_normal((2, n)).astype(np.float32)
+            forward = np.array(mx.fft.rfft(mx.array(x), axis=-1), dtype=np.complex128)
+            exact = np.fft.rfft(x.astype(np.float64), axis=-1)
+            back = np.array(
+                mx.fft.irfft(mx.fft.rfft(mx.array(x), axis=-1), n=n, axis=-1),
+                dtype=np.float64,
+            )
+        else:
+            x = (rng.standard_normal((2, n)) + 1j * rng.standard_normal((2, n))).astype(
+                np.complex64
+            )
+            forward = np.array(mx.fft.fft(mx.array(x), axis=-1), dtype=np.complex128)
+            exact = np.fft.fft(x.astype(np.complex128), axis=-1)
+            back = np.array(
+                mx.fft.ifft(mx.fft.fft(mx.array(x), axis=-1), axis=-1),
+                dtype=np.complex128,
+            )
+        errors = (
+            float(np.linalg.norm(forward - exact) / np.linalg.norm(exact)),
+            float(np.linalg.norm(back - x) / np.linalg.norm(x)),
+        )
+        worst = max(worst, *errors)
+        if max(errors) > fft_bound_32(n):
+            msg = (
+                f"MLX's {kind} transform of {n} samples errs by {max(errors):.2e}, "
+                f"beyond its binary32 bound {fft_bound_32(n):.1e}"
+            )
+            raise BackendError(msg)
+    return worst
 
 
 def gemm_probe(shapes: list[tuple[int, int, int]]) -> float:

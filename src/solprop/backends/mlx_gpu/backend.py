@@ -32,7 +32,12 @@ from jaxtyping import Complex
 
 from solprop.backends.memory import mlx_bounded, mlx_graph_bytes, mlx_stage_bytes
 from solprop.backends.mlx_gpu import passes as device
-from solprop.backends.mlx_gpu.arithmetic import DoubleFloatTerms, gemm_probe, on_gpu
+from solprop.backends.mlx_gpu.arithmetic import (
+    DoubleFloatTerms,
+    fft_probe,
+    gemm_probe,
+    on_gpu,
+)
 from solprop.backends.numpy_ref.passes import _kerr as compiled_kerr
 from solprop.backends.numpy_ref.passes import _raman_thg as raman_thg
 from solprop.backends.numpy_ref.single import NumpySingleBackend
@@ -226,6 +231,11 @@ class MlxBackend(NumpySingleBackend):
         shapes = [(chunk, transform.n_modes, problem.shape[2] * n_to)]
         shapes.append((transform.n_modes, chunk, problem.shape[2] * n_to))
         self.gemm_error = gemm_probe(shapes) if on_gpu() else 0.0
+        kind = problem.grid_kind
+        lengths = [(kind, n_to), (kind, grids.n_t)]
+        if problem.responses.raman_terms:
+            lengths.append(("field", 2 * n_to))
+        self.fft_error = fft_probe(lengths)
         # MLX keeps freed buffers for reuse; its cache is held to one stage's graph,
         # the admission estimate's own row (SEP 33 section 6.3).
         mx.set_cache_limit(mlx_graph_bytes(problem))
@@ -819,6 +829,7 @@ class MlxBackend(NumpySingleBackend):
             "mlx_version": getattr(mx, "__version__", "unknown"),
             "mlx_device": str(mx.default_device()),
             "mlx_gemm_probe": self.gemm_error,
+            "mlx_fft_probe": self.fft_error,
         }
 
 

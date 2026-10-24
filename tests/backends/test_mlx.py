@@ -29,10 +29,11 @@ pytest.importorskip("mlx.core")
 import mlx.core as mx
 
 from backends.test_single_precision import capillary, gnlse
-from bounds import EPS_32, UNIT_ROUNDOFF_32, assert_within, higham_gamma
+from bounds import EPS_32, UNIT_ROUNDOFF_32, assert_within, fft_bound, higham_gamma
 from solprop.backends.memory import estimate_memory
 from solprop.backends.mlx_gpu.arithmetic import (
     DoubleFloatTerms,
+    fft_probe,
     gemm_probe,
     on_gpu,
     population,
@@ -280,6 +281,23 @@ def test_the_scan_kernel_is_the_oracles_order_exactly():
         assert np.array_equal(
             np.array(prefix_scan(mx.array(values))), prefix_sum(values)
         )
+
+
+@pytest.mark.parametrize("kind", ["field", "envelope"])
+def test_every_transform_length_is_within_its_binary32_bound(kind):
+    """The characterisation of SEP 33 6.3: powers of two and the smooth lengths."""
+    for n in (1024, 4096, 1 << 14, 1 << 16, 3 * 1024, 5 * 7 * 512):
+        assert fft_probe([(kind, n)]) <= fft_bound(n, EPS_32)
+
+
+@gpu_only
+def test_the_population_kernel_keeps_ieee_special_values():
+    exposure = np.array([0.0, np.inf, np.nan], dtype=np.float32)
+    fraction, survival = population(mx.array(exposure), 0.25)
+    fraction, survival = np.array(fraction), np.array(survival)
+    assert fraction[0] == np.float32(0.25) and survival[0] == np.float32(0.75)
+    assert fraction[1] == 1.0 and survival[1] == 0.0
+    assert np.isnan(fraction[2]) and np.isnan(survival[2])
 
 
 @gpu_only
