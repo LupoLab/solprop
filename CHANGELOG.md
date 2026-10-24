@@ -42,24 +42,43 @@ The first public release. It contains:
   schema 23 (`flux_model`, `flux_plan`).
 - **Incident beams into general modal guides**
   ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0031-simulation-coupling.html),
-  phase 1). `from_waveguide(provider=..., incident=SpatialPulse(...))` and
-  `prop_waveguide` launch the share of an incident beam that the guide's channels
-  capture. The beam's energy is the physical energy over its whole plane in the core
-  medium, and the light that misses is lost rather than restored. `IncidentLaunch`
-  records the incident, captured and uncaptured energy per frequency in
+  phases 1 and 3). `from_waveguide(provider=..., incident=SpatialPulse(...),
+  coupling=CouplingModel("vector_paraxial", model_error=...))` and `prop_waveguide`
+  launch the share of an incident beam that the guide's channels capture. The beam's
+  energy is met over its whole plane in the core medium, and the light that misses is
+  lost rather than restored. The coupling's `CouplingReport` is recorded in
   `configuration["launch"]`, and `SpatialPulse.incident` samples a beam normalised over
   its own plane. The node-sampled `transverse=` profile, its rescaling to `energy=`, the
-  3 % uncaptured warning and `LAUNCH_UNCAPTURED_WARNING` are removed.
+  3 % uncaptured warning, `LAUNCH_UNCAPTURED_WARNING` and `IncidentLaunch` are removed;
+  a strongly guiding core is refused by the vector model's contrast screen.
 - **Plane exchange between simulations**
   ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0031-simulation-coupling.html),
   phase 2). `solprop.coupling` holds `FieldPlane`, a coherent field at one plane with
   its reference, geometry, metric, basis identity and provenance; `regrid`, the direct
   finite-time Fourier remap between temporal grids with its loss report and no
-  renormalisation; and `InputPort` with the `same_basis` relaunch.
-  `processing.field_plane` reads a saved plane back, `Simulation.input_port()`
-  describes a simulation's entrance and `with_input` takes a launch bound to it,
-  recording `configuration["coupling"]` and drawing no new noise. Output schema 24
-  records each run's plane-reference record (`RunMetadata.reference`).
+  renormalisation; and `InputPort`. `processing.field_plane` reads a saved plane back,
+  `Simulation.input_port()` describes a simulation's entrance and `with_input` takes a
+  launch bound to it, recording `configuration["coupling"]` and drawing no new noise.
+  Output schema 24 records each run's plane-reference record (`RunMetadata.reference`).
+- **Coupling models**
+  ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0031-simulation-coupling.html),
+  phase 3). `couple(plane, port, model=CouplingModel(kind, model_error=...))` is the one
+  path from a field plane to a launch bound to a port, returning the launch and an
+  immutable `CouplingReport`. `same_basis` copies an identical basis, applies a declared
+  energy-preserving `BasisChange` or recovers a general modal plane by the flux pairing;
+  `scalar_paraxial` fits Gaussian, analytic or sampled beams into a capillary's HE1m
+  modes, one capillary's exit into another of any radius, and one weakly guiding
+  step-index fibre into another, in the common paraxial measure; `vector_paraxial`
+  couples into a general modal guide with the forward H closure. Each is admitted
+  against its energy budget: angular tails, the weak-guidance contrast screen or a
+  recorded pair envelope (`CAPILLARY_ENVELOPE`, `STEP_INDEX_ENVELOPE`), metric defects,
+  the H closure, a passive-map certificate and numerical errors; uncaptured energy is
+  reported only where a common positive metric exists. `FieldPlane.from_analytic`
+  samples an analytic field with its support and domain checks, `FieldPlane.from_pulse`
+  takes a reference `index=`, `field_plane(run, source=...)` carries an ordinary mode
+  set's scalar profiles (`ScalarModeBasis`), and `Outcouple` synthesises a guide's exit
+  field on a spatial grid under a declared interface model. Ports state the models they
+  admit. The phase-2 `same_basis` function is removed in favour of `couple`.
 - **Media and responses.**
   - Gases, gas mixtures, glasses and metals from the [optmat](https://github.com/LupoLab/optmat)
     material library.

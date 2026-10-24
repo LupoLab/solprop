@@ -248,15 +248,17 @@ radius. A larger core or contrast, or a grid that reaches less far into the infr
 admits more.
 
 **A launch declared as an incident beam.** `incident=` takes a
-{class}`~solprop.pulses.SpatialPulse`, whose energy is the physical energy over the whole
-beam at the entrance, in the core medium. The beam is normalised over its own plane,
-sampled at the guide's nodes and projected onto every channel through the Poynting
-pairing; the channels launch what they capture, and the rest is lost at the entrance
-rather than restored. The account, incident, captured and uncaptured energy per
-frequency, is recorded in the run's configuration
-({class}`~solprop.driver.simulation.IncidentLaunch`).
+{class}`~solprop.pulses.SpatialPulse`, whose energy is met over the whole beam at the
+entrance, in the core medium, and `coupling=` the model it is coupled under
+([coupling simulations](../workflows/coupling.md)). The beam's coordinates in every
+channel are recovered through the Poynting pairing; the channels launch what they
+capture, and the rest is lost at the entrance rather than restored. The coupling's
+report -- incident and launched energy per frequency and its admission budget -- is
+recorded in the run's configuration
+({class}`~solprop.coupling.coupler.CouplingReport`).
 
 ```python
+from solprop.coupling import CouplingModel
 from solprop.pulses import GaussianPulse, SpatialPulse
 
 beam = SpatialPulse(  # an x-polarised Gaussian, 12 um waist, at its waist
@@ -268,6 +270,7 @@ grin_run = prop_waveguide(
     provider=grin_guide,
     grid=grin_grid,
     incident=beam,
+    coupling=CouplingModel("vector_paraxial", model_error=0.2),
     lambda0=1.03e-6,
     n_save=3,
     dz_max=1e-4,
@@ -275,13 +278,13 @@ grin_run = prop_waveguide(
     progress="none",
 )
 launch = grin_run.metadata.configuration["launch"]
-print(f"captured {launch.captured_energy / launch.incident_energy:.3f} of the beam")
+print(f"launched {launch.efficiency:.3f} of the beam within {launch.budget:.3f}")
 ```
 
-The captured share is a physical loss in a common positive metric, which a weakly
-guiding fibre like this one approaches ([general modal propagation](general-modal.md)).
-The projected amplitudes are launched unscaled, so the run's `physical_energy` at the
-entrance is the captured energy, not `energy=`.
+The graded-index core's contrast, 0.005, is below the budget's eighth, as the vector
+model requires ([general modal propagation](general-modal.md)). The recovered amplitudes
+are launched unscaled, so the run's `physical_energy` at the entrance is the launched
+energy, not `energy=`.
 
 The [graded-index worked example](../../auto_examples/waveguides/plot_04_graded_index_multimode.rst)
 runs a 100 µm core at full power over ten centimetres: self-imaging, geometric

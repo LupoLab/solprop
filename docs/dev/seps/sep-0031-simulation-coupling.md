@@ -1395,6 +1395,219 @@ are refused.
   polarisation. The names belong at the marked comment in `coupling/__init__.py`, and
   the dashed boxes in `docs/dev/figures/build.py` turn solid when the files land.
 
+### Phase 3 report — coupling
+
+**Delivered (2026-10-24, `feature/sep-0031-simulation-coupling`).**
+
+- `src/solprop/coupling/models.py` (P): `CouplingModel(kind, model_error=, basis_change=)`,
+  `BasisChange`, `cone_angle`, `radial_rule` and `ScalarModeBasis` — the scalar profiles
+  of an ordinary mode set: capillary HE1m as $J_0(u_mr/a)$ inside the core and zero
+  outside, and a step-index fibre's HE1m as weak-guidance LP0m ($J_0(Ur/a)$,
+  $J_0(U)K_0(Wr/a)/K_0(W)$, from the pole-free form of
+  $UJ_1(U)/J_0(U) = WK_1(W)/K_0(W)$), frozen at the mode's declared profile wavelength as
+  the run's profile is; closed-form normalisations and closed-form order-zero Hankel
+  transforms (the Lommel integral inside, the $K_0J_0$ antiderivative outside, each
+  checked against direct quadrature to 1e-15 relative), the exact whole-plane Gram and
+  the Gram of the angular content inside a cone. A mode-averaged GNLSE fibre is
+  unwrapped to the waveguide its dispersion forwards to.
+- `src/solprop/coupling/coupler.py` (P): `couple(plane, port, *, model)` →
+  `CouplingResult(launch, report)`; `CouplingReport` (Displayed) and `AdmissionItem`;
+  `target_columns`; `PASSIVITY_ROUNDING`.
+- `src/solprop/coupling/envelopes.py` (P): `PairEnvelope`, `CAPILLARY_ENVELOPE`,
+  `STEP_INDEX_ENVELOPE`; their oracles are `tests/coupling/test_envelopes.py`.
+- `src/solprop/coupling/outcouple.py` (P): `Outcouple(space, interface="matched",
+  medium=|index=)` and `OutcoupleResult(plane, modal, synthesised, window)`.
+- `coupling/plane.py`: `FieldPlane.from_analytic(grid, geometry, field, *, space,
+  medium=|index=, support=, exterior=, reference=)` with `AnalyticRecord(support,
+  domain_change, resolution_change)`; `FieldPlane.profiles` and `.analytic`;
+  `from_pulse(..., index=)`; `from_samples(..., profiles=)`; `PlaneMetric.paraxial`.
+- `coupling/port.py`: `InputPort.profiles` and `.contrast`; the public `same_basis` is
+  removed (folded into `couple`); `check_same_medium` and `occupied_outside` are public
+  helpers of the module.
+- `translate/coupling.py`: `input_port(..., modes=, guide=)` fills the scalar profiles,
+  the core's `reference_index` (the core gas of a capillary from
+  `MarcatiliMode.core_index_minus_one`, a fibre's core), the step-index contrast, and for
+  a general guide its contrast (`guide_contrast`) and admitted models.
+- `processing/planes.py`: `field_plane(run, source=simulation)` attaches an ordinary
+  modal plane's profiles, checked by configuration hash.
+- Driver: `from_waveguide`/`prop_waveguide(..., incident=, coupling=)`;
+  `_incident_launch` builds a radial plane of the beam in the core index and calls
+  `couple`, installing the launch by `with_input` (so `configuration["coupling"]` is
+  recorded) with the report as `configuration["launch"]`. `IncidentLaunch` is removed.
+- Docs: the coupling chapter (models, budget and report, a Gaussian into a capillary, a
+  radius change by direct overlap and through `Outcouple`, a solid-fibre overlap, the
+  vector entry); general-modal, solid-fibres, supplied-guides and interior-launch pages;
+  architecture §3 and §4 and the structure figure; the API index; the changelog.
+  `benchmarks/guides.py` declares its model.
+
+**Admission (§4.3) as implemented.** Each item is a relative energy discrepancy with a
+scope (`field`, `map`, `model`); the counted items must sum to `model_error`, and the
+items the SEP caps at $\epsilon_m/8$ are capped individually.
+
+- *Angular.* $1-\cos\theta_* = \epsilon_m/8$, $\kappa_* = n_{\rm ref}(\omega/c)
+  \sin\theta_*$. Source: a spatial plane's column energies (cone vs tail by $|\kappa|$),
+  a modal plane's coefficients against its profiles' tail Gram; energy-weighted over
+  bins. Target: the largest generalised eigenvalue of
+  $(\epsilon_m/8)K + (1-\epsilon_m/8)T$ against the channel Gram $K$, maximised over
+  occupied bins (scalar: closed-form transforms; general guide: node Fourier transform
+  of the channels' $\mathbf e_t$ on a polar rule inside the cone, at up to five bins).
+- *Contrast.* Scalar step-index pairs: $\Delta$ over both fibres' core and cladding
+  against the target core; general guides: every region's law and a radial law sampled
+  at 33 radii. Not applied to a capillary (item present, value `None`). A step-index pair
+  whose $\Delta > \epsilon_m/8$ is admitted if `STEP_INDEX_ENVELOPE` covers it (the
+  item notes the replacement); the envelope's bound is always counted.
+- *Metric defects.* Target: $G = \operatorname{diag}(n_{\rm ref}/\operatorname{Re}n_{\rm
+  eff})$ (times the Jones Gram) against $Q = I$; vector: the whitened extremes of $F$
+  at the port's nodes against the run's declared $Q$. Source: $\sum|M_0 - Q_A|/\sum Q_A$
+  over bins.
+- *Closure.* $\delta^2 = \lambda_{\max}$ of the Gram of $\mathbf h_t - Y_0\hat z\times
+  \mathbf e_t$ against that of $Y_0\hat z\times\mathbf e_t$, energy $2\delta+\delta^2$.
+- *Passivity.* Largest whitened squared singular value of the map, $C Q_A^{-1}C^\dagger$
+  against $Q_B$, over occupied bins and propagating columns; excess $\le 10^{-10}$ is
+  rounding, up to the model's own metric, angular and closure items a reported model
+  defect, beyond it a refusal. Never rescaled or clipped.
+- *Numerical.* A spatial source's content in the outer fifth of its spectral window, an
+  analytic plane's domain and resolution checks, the modal overlap quadrature (rule
+  against its halving, plus each Gram against the exact one).
+- *Report.* Incident energy in $M_0$ over the whole plane; launched energy in the native
+  $Q$; captured $\mathbf a^\dagger G\mathbf a$ and uncaptured (unclipped) only for
+  `scalar_paraxial`; the source's SEP 34 certificate carried separately; a zero field
+  is a zero launch with `efficiency` `None`.
+
+**Envelopes.**
+
+- Capillary (`capillary-he1m-scalar-vs-marcatili-2026-10`): the scalar shares from
+  sampled Cartesian planes against `MarcatiliMode.field` with its `normalisation` on an
+  independent polar Gauss–Legendre rule; waists 0.3a–1.0a, displacement to 0.2a, tilt to
+  1 mrad, 75 µm argon capillary at 800 nm with eight HE1m modes, and radius ratios
+  0.5–2. Largest difference 1.8e-14 of the incident energy (the reference quadrature's
+  rounding: the Marcatili HE1m field *is* the scalar profile); recorded bound 1e-12,
+  numerical 1e-13; range HE1m count 1–8, radius ratio 0.5–2.
+- Step index (`step-index-lp01-vs-vector-he11-2026-10`): LP01 overlap squared against
+  $|F_{AB}|^2$ of the exact unit-power HE11 even fields
+  (`StepIndexMode.electromagnetic_field`); core 1.45, contrast 0.001–0.01, V 1.5–2.4,
+  radius ratio 0.7–1.43 at 1064 nm (constant indices: the overlaps depend on V alone).
+  Largest difference 2.92e-4, at contrast 0.01, V 2.4 and ratio 0.7; the reference's
+  refinement changes it by 7e-16. Recorded bound 3.0e-4, numerical 1e-12; LP01 only.
+
+**Deviations and why.**
+
+1. *The least-squares Gram is the exact one.* The fit uses the profiles' exact Gram
+   (orthonormal, times the Jones Gram), not their transforms' Gram truncated to a plane's
+   window: for a field the plane resolves the overlaps are exact by Parseval whatever of
+   a profile lies beyond the window, so the coefficients are exact and the
+   orthogonal-residual identity holds in the continuum. With the truncated Gram the
+   capillary shares were biased by up to 7e-5 at 128² nodes.
+2. *Weak-guidance step-index is coupled on the ordinary (GNLSE) route*, through the
+   waveguide its mode-averaged fibre wraps, and only fibre → fibre: no envelope covers a
+   beam into a fibre or a capillary ↔ fibre pair, so those are refused.
+3. *The vector model has no recorded pair envelope.* The brief lists envelopes for the
+   capillary and the solid scalar pair only; `vector_paraxial` reports an `envelope`
+   item with value `None` and the reason, and relies on the contrast screen, the closure
+   and the other items (open question 1).
+4. *The vector passivity certificate covers the coordinates the field occupies*
+   (scope `field`): a spatial plane's high-$\kappa$ columns are aliased on a guide's node
+   rule and would show a spurious gain (0.38 on the test strand) through columns the
+   field does not occupy.
+5. *The driver's incident path builds the simulation twice.* It constructs the run with a
+   zero input, takes its `input_port()`, couples, and installs the launch by
+   `with_input` (sharing the translation); `configuration["pulse"]` and `["launch"]` are
+   caller keys of that derived run, and `["coupling"]` is recorded.
+6. *`from_pulse(index=)` keeps phase 1's measure.* With a reference index and no
+   `SpatialMedium` (a guide's core), the beam is `SpatialPulse.incident` sampled on the
+   grid, normalised in $M_0$; with a medium it is `build`, normalised in the axial flux.
+   The difference is the beam's obliquity, reported as the source-metric item.
+7. *Incident test guides changed.* The 1.45-in-air strand fails the contrast screen
+   ($\Delta = 0.26$); the phase-1 incident tests now use a 4 µm core at a 0.01 step under
+   `model_error=0.2`.
+8. *Runtime `Literal` membership checks are not repeated* (`CouplingModel.kind`,
+   `Outcouple.interface`), as in phase 2: the test session's runtime type checks reject
+   them first, so the checks would be unreachable under coverage.
+9. *`Outcouple` returns a `FieldPlane`, not a transport `Element`.* The transport core
+   works on `SpatialState`, which the parallel transport branch is wiring to
+   `FieldPlane`; `Outcouple` lives in its own module and is not exported from the
+   transport section of `coupling/__init__.py`.
+10. *The module is `coupler.py`, not `couple.py`.* The package exports the function
+    `couple`, which would shadow a submodule of the same name: the API reference could
+    not document both, and `solprop.coupling.couple` would mean two things.
+11. *No schema change.* Neither the kernel schema (35) nor the output schema (24) moved;
+    the report enters the configuration record as a dataclass.
+
+**Verification run** (targeted, `uv run --no-sync pytest -n auto`; none fail except the
+three pre-existing structure-figure tests named below):
+
+- `tests/coupling/test_couple.py` (22), `test_envelopes.py` (10, medium included),
+  `test_port.py`, `test_plane.py`, `test_remap.py`, `tests/processing/test_planes.py`,
+  `tests/driver/test_coupling_relaunch.py` (medium included), `tests/driver/
+  test_general_modal.py` (incident tests on all three CPU receivers),
+  `tests/test_display.py`, `tests/test_pulses.py`, `tests/test_benchmark_guides.py`:
+  all pass (869 + 9 in the last combined runs); doctests of the coupling modules pass.
+- Evidence: §4.4 Gaussian formulas (waist, displacement, tilt, curvature) against a
+  direct 2-D sum to 1e-10 and against two sampled planes' spectral overlap to 1e-9;
+  Gaussian–Bessel shares against a 400-node Gauss–Legendre integral to 1e-11 for
+  $w/a$ = 0.3, 0.5, 0.7, 1.0 (0.906 and 0.092 at 0.5); nested sets of 2, 4, 6 modes share
+  their common shares to 1e-12, and doubling the window or the nodes moves them by
+  1e-12; a 4a beam launches < 15 % with the uncaptured energy exactly incident minus
+  captured; crossed polarisation and zero fields are exact zero launches; a rotated
+  degenerate pair splits evenly with the same total to 1e-12; coherent two-mode sources
+  add as fields and a gauge flip launches identically to 1e-13; a declared unitary basis
+  change preserves energy to 1e-13 and a 1 % stretch is refused; a capillary's exit into
+  a wider one by direct overlap and through `Outcouple` (radial 512 nodes, Cartesian
+  128²) agree to 10× the synthesis window's representation error (measured 1.3e-8 and
+  8e-7 relative); the synthesised plane carries the modal energy to 7e-8 (the matched
+  exit's obliquity); a step-index pair's captured share is the LP01 overlap squared to
+  1e-12.
+- ruff, ruff format, basedpyright (0 errors), numpydoc and codespell are clean on the
+  changed files. The coupling page's snippets run by hand in 5.5 s, the solid-fibres
+  page's in 3.4 s (a 12 µm beam into the 25 µm graded-index guide launches 0.964 within
+  a 0.032 budget).
+- *Failing, pre-existing:* `tests/test_structure_figures.py` —
+  `test_every_planned_module_is_still_unwritten[coupling/transport.py]` and
+  `[coupling/elements.py]`, and `test_the_layers_figure_draws_the_whole_package`: the
+  merged transport core's modules are still drawn as planned. This branch added its own
+  four modules to the figure and redrew it; the transport branch owns turning its boxes
+  solid.
+
+Not run: the full gate, slow and coverage lanes (end of SEP), GPU. The guide snippets
+were compiled only in the default lane and run by hand.
+
+**Sources checked.** The LP0m eigenvalue equation and field (Gloge, *Appl. Opt.* **10**,
+2252 (1971), eq. 15 with l = 0; Snyder and Love, *Optical Waveguide Theory*, §14-3) were
+re-derived and checked numerically (U = 1.528 at V = 2); the Lommel and $K_0J_0$
+integrals were derived and checked against quadrature; the capillary normalisation
+against `MarcatiliMode.normalisation`. Not checked: Gloge's equation numbering against the
+printed paper.
+
+**Limitations.** The vector model's omitted facet reflection is bounded only through the
+contrast screen and the closure. The general guide's angular item samples at most five
+bins. The scalar profiles of a step-index fibre are its frozen-wavelength profile, as the
+run's are; a fibre whose profile moves strongly across the band is represented as the run
+represents it. `Outcouple` offers only the matched interface. Ports of general guides that
+move (a sampled path) carry no E/H, so they admit only `same_basis`.
+
+**Open questions.**
+
+1. Should `vector_paraxial` require a recorded provider envelope (for example
+   `StepIndexProvider` against an independent mode-matching calculation), as §4.3's
+   "each provider/model pair" reads, or is the contrast screen with the closure enough?
+2. Small-core weakly guiding fibres need budgets of about 0.1 because the LP01 field's
+   angular spread is a tenth of a radian; is the §4.6 cone rule, designed for thin
+   screens, the intended angular bound for a direct modal overlap?
+3. Should a beam into a weakly guiding fibre (Gaussian → LP01) be admitted with its own
+   envelope? The brief admits one solid pair only.
+4. Should the target-subspace angular item of a general guide be evaluated at every
+   occupied bin rather than five?
+5. Should `Outcouple` become a transport `Element` once the transport core takes
+   `FieldPlane`, and should it offer a declared planar-interface model itself?
+
+**Handoff to phases 4 and 5.** Merge with the transport branch: `coupling/__init__.py`
+exports both sets; the structure figure's coupling box lists both sets of modules
+(regenerate `layers.svg` after the merge); the coupling chapter's transport section and
+this page's coupling sections are independent. Phase 5's tutorial can use
+`field_plane` → `couple(..., scalar_paraxial)` for the
+radial entrance field into the capillary; its $s_{11}$, $s_{12}$ come from the launch and
+the report as the tests compute them.
+
 ## Part III — History
 
 - 2026-10-22: Drafted after auditing existing launch, projection, spatial flux,

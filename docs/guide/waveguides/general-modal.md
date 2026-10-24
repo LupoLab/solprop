@@ -116,75 +116,61 @@ The launched energy is the pulse's, to the last bit.
 **`incident=` launches an incident beam instead.** Where `channel=` names one channel,
 `incident=` takes a {class}`~solprop.pulses.SpatialPulse` — a Gaussian or super-Gaussian
 beam carrying its own temporal pulse — and launches what the guide's channels capture of
-it ([SEP 31](../../dev/seps/sep-0031-simulation-coupling.md), phase 1):
+it, coupled under a declared model
+([SEP 31](../../dev/seps/sep-0031-simulation-coupling.md);
+[coupling simulations](../workflows/coupling.md)):
 
 ```text
-beam = SpatialPulse(GaussianPulse(wavelength=835e-9, fwhm=20e-15, energy=1e-9), 2e-6)
-simulation = Simulation.from_waveguide((), length, provider=guide, lambda0=835e-9,
-                                       grid=grid, incident=beam)
-simulation.configuration["launch"]   # incident, captured and uncaptured energy
+beam = SpatialPulse(GaussianPulse(wavelength=835e-9, fwhm=20e-15, energy=1e-9), 3e-6)
+simulation = Simulation.from_waveguide(
+    (), length, provider=guide, lambda0=835e-9, grid=grid, incident=beam,
+    coupling=CouplingModel("vector_paraxial", model_error=0.2),
+)
+simulation.configuration["launch"]   # the CouplingReport: incident, launched, budget
 ```
 
-The beam's `energy=` (or `peak_power=`) is the **physical energy crossing the entrance
-plane in the guide's core medium, over the whole beam**: what an energy meter in that
-medium would read. It is fixed in the paraxial measure $M_0 = Y_0\,\mathrm dA/2$ with
-$Y_0 = n_{\rm ref}(\omega)\varepsilon_0 c$, $n_{\rm ref}$ the real index of the core at
-each frequency, integrated over the beam's own plane in closed form
+The beam's `energy=` (or `peak_power=`) is met **over the whole beam** in the paraxial
+measure $M_0 = Y_0\,\mathrm dA/2$ of the guide's core medium, $Y_0 = n_{\rm ref}(\omega)
+\varepsilon_0 c$ with $n_{\rm ref}$ the real index of the core at each frequency,
+integrated over the beam's own plane in closed form
 ({meth}`~solprop.pulses.SpatialPulse.incident`) — never over the guide's quadrature
-nodes, which cover only the guide. The correctly scaled field is then sampled at the
-nodes and projected onto every channel it overlaps.
+nodes, which cover only the guide. The beam becomes a radial
+{py:class}`~solprop.coupling.plane.FieldPlane` that resolves it
+({py:meth}`~solprop.coupling.plane.FieldPlane.from_pulse` with the core's index), and
+{py:func}`~solprop.coupling.coupler.couple` recovers its coordinates in the channels.
 
-The map is the record's **coordinate dual**, $\mathbf a = W^{-1}\mathbf B$ with
-$B_m = \int(\mathbf E\times\mathbf h_m^* + \mathbf e_m^*\times\mathbf H)_z\,\mathrm dA/4$:
-the same Hermitian Poynting pairing the flux metric is built from, so synthesising a
-declared amplitude vector and projecting it back returns that vector exactly. It is *not*
-$Q$, the record's other map ([modal projection](modal-projection.md#the-synthesis-and-projection-maps)), which contracts
-a *polarisation* for a **source** term and carries the separate $-i\omega$; the two are
-different operations and give different numbers. The same map is public as
-{py:func}`~solprop.translate.modal_tables.project_transverse_field`, for a field you
-sample yourself.
+The map is the flux pairing, $\mathbf a = F^{-1}\mathbf B$ with
+$B_m = \int(\mathbf E\times\mathbf h_m^* + \mathbf e_m^*\times\mathbf H)_z\,\mathrm dA/4$
+and $F$ the same pairing of the channels with each other, on the guide's nodes. The
+beam's $\mathbf E$ is its field at the nodes; its $\mathbf H$ is the explicit forward
+closure $\mathbf H_t = Y_0\hat{\mathbf z}\times\mathbf E_t$ of a paraxial beam in the
+core. That closure is not exact for a guided field -- a channel's own $\mathbf h_t$ is
+$n_{\rm eff}\varepsilon_0c\,\hat{\mathbf z}\times\mathbf e_t$ to leading order, with
+corrections where the index changes -- so the model admits a guide only where it is
+small: the coupling's admission budget (`model_error`) bounds the closure's error
+against the provider's own $\mathbf H$, the weak-guidance contrast of the guide's
+regions, the angular content of the beam and of the channels, and the metric defect of
+$F$ against the run's declared metric. A strongly guiding core, such as a silica strand
+in air, fails the contrast screen and is refused by name. It is *not* $Q$, the record's
+other map ([modal projection](modal-projection.md#the-synthesis-and-projection-maps)),
+which contracts a *polarisation* for a **source** term. For a field you sample yourself,
+{py:func}`~solprop.translate.modal_tables.project_transverse_field` applies the
+coordinate dual of the channels' own span, whose E-only closure is exact for a forward
+superposition of the channels.
 
-Only $\mathbf E$ is declared, so the $\mathbf H$ half of $B_m$ is closed by the
-**forward-field assumption**: for any superposition of these channels travelling forward
-the two halves are equal, so $B_m = 2\int(\mathbf E\times\mathbf h_m^*)_z\,\mathrm dA/4$.
-Measured on the step-index parity pair, a field synthesised from known amplitudes returns
-through this map to $1.4\times10^{-15}$ of them — rounding, not the basis's Gram defect —
-so the closure is exact for this package's providers. It is exact for a **lossless**
-basis: the argument is that the Poynting cross matrix of such a basis is Hermitian, so
-the $\mathbf E$ and $\mathbf H$ halves of $B_m$ contribute equally. A complex
-{py:class}`~solprop.modes.material.PermittivityLaw` would break that symmetry, and no
-such basis can reach this map: both providers here refuse a complex permittivity when
-they solve, by name. An optmat index is never
-complex here: {py:class}`~solprop.modes.material.IndexMaterial` and the step-index
-modes hold it as its recorded transparent approximation, warning once per run where
-the absorption it drops exceeds its bound
-([materials](../media/material-selection.md#materials-from-optmat)). A region's
-`SilicaTensorResponse()` is optmat's tensor silica bundle by default, which agrees with
-Lin and Agrawal's own parameters to $4\times10^{-16}$. A future lossy provider
-would have to re-derive the closure rather than inherit it. Whether an incident beam
-has the guide's magnetic field is a separate question: the closure is exact on the
-channels' own span, and the beam's part outside that span is not captured.
-
-**The launch is the captured amplitudes, unscaled.** Light the channels do not capture
+**The launch is the recovered amplitudes, unscaled.** Light the channels do not capture
 is lost at the entrance, not restored: a beam much wider than the core launches a small
 share of its energy, and a beam the channels cannot see at all — a y-polarised beam
 against a single x-polarised channel — launches nothing, which is a valid zero launch.
-The account is recorded as `configuration["launch"]`, an
-{class}`~solprop.driver.simulation.IncidentLaunch`, and reaches the file's configuration:
-the **incident** energy per frequency bin, the **captured** energy (the launched state's
-physical energy under the run's own declared metric, which is what the run's
-`physical_energy` statistic reads at the entrance), and their difference, the
-**uncaptured** energy, with totals. The captured energy is logged at INFO. No warning is
-raised for a poor capture: it is physics, not a defect.
-
-Read the uncaptured energy with its model in mind. It is a physical loss only where the
-incident measure and the guide's own flux metric are a common positive metric
-(SEP 31 §4.3) — a weakly guiding guide, whose channels see an admittance close to
-$n_{\rm ref}\varepsilon_0 c$ wherever they carry power. On a strongly guiding strand the
-difference also carries the two measures' disagreement, and it is reported unclipped: a
-negative value would be an apparent gain of the model, never a negative loss. The
-projection's own `residual_share` is an electric-field reconstruction error in the
-guide's quadrature norm, not radiated power, and is not this account.
+The coupling's {class}`~solprop.coupling.coupler.CouplingReport` is recorded as
+`configuration["launch"]` and reaches the file's configuration: the **incident** energy
+per frequency bin, the **launched** energy (the state's physical energy under the run's
+own declared metric, which is what the run's `physical_energy` statistic reads at the
+entrance), the admission items and the budget; the launch's provenance is
+`configuration["coupling"]`. The vector model names no uncaptured energy: $F$ and the
+incident measure are not one positive metric, so their difference is not a physical
+loss, and the report says so rather than inventing one. No warning is raised for a poor
+capture: it is physics, not a defect.
 
 The beam is launched at its waist (`propz=0`; otherwise it is refused, because carrying a
 beam to the entrance is transport, which this launch does not model) and centred on the
@@ -369,7 +355,7 @@ it.
 | the guide: a provider, its material regions and their responses, solved on its own node rule at knots spanning the run's **active** band | `ModalGuide.from_provider(provider, omega, nodes=...)` | [running one](#running-one), [the three objects](modal-projection.md#the-three-objects) |
 | each region's response: the instantaneous cubic by `chi3=`, or by `n2=` with the wavelength `at=` it was measured at, and the silica tensor Raman model beside it; or a gas fill, whose law the run's electronic policy sets | `MaterialRegion(..., (MaterialKerr(...), SilicaTensorResponse(...)))`, `MaterialRegion(..., (GasKerr(mixture),))` | [the response at a node](modal-projection.md#the-response-at-a-node) |
 | the cubic's form | `kerr_form="real"` (the default, third harmonic included) or `"analytic"` | [the response at a node](modal-projection.md#the-response-at-a-node) |
-| the launch | `channel=` (an index or a label) or `incident=` (a `SpatialPulse`, of which the captured share enters) | [running one](#running-one) |
+| the launch | `channel=` (an index or a label) or `incident=` (a `SpatialPulse` coupled under `coupling=`, of which the captured share enters) | [running one](#running-one) |
 | a unitary change of basis — of an exactly degenerate block, which stays diagonal, or of a split one, which becomes a coupled flow | `basis=` and `degenerate_blocks=` on `from_provider` | [declaring a circular basis](modal-bases.md#declaring-a-circular-basis), [a split block](modal-bases.md#a-declared-basis-of-a-block-that-is-only-nearly-degenerate) |
 | the statistics | `physical_energy` and `analytic_flux` (the defaults), `spectral_flux` by name | [noise, statistics and what comes back](#noise-statistics-and-what-comes-back) |
 
@@ -496,7 +482,7 @@ Not implemented, and refused rather than approximated:
   for — over the table's frequency interpolation, the transverse rule and the step — is
   not implemented, and accepting a number nothing enforces would be a silent claim about
   accuracy;
-* a **backward or evanescent** declared launch. `incident=` (above) projects the
+* a **backward or evanescent** declared launch. `incident=` (above) recovers the
   incident field through the flux pairing with the forward-field closure, and nothing in the
   arithmetic can see that a declared field was not forward-propagating; such a launch is
   built by hand and passed to
