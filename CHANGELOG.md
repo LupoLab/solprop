@@ -11,6 +11,44 @@ The first public release. It contains:
 
 ### Added
 
+- **Experimental Julia CPU backend.** Explicit `backend="julia"` in prepared source
+  checkouts runs constant scalar field-grid resolved and mode-averaged capillaries with Kerr/THG,
+  IP-DOPRI5, both temporal absorbers and normal output, using schema 34 unchanged.
+  PythonCall/JuliaCall bridges to a private Julia 1.13.2 environment. GPU support and
+  production packaging are deferred; see the Julia backend manual and benchmark ledger.
+  Cartesian Kerr beams add planned transverse FFTs, chunked temporal transforms,
+  compact separable operators, independent spatial absorption and default host
+  spatial statistics, with the existing frontend and schema unchanged.
+  FFT planning effort is selectable; Cartesian stages reuse equal-distance flow.
+  Line free-space field/envelope propagation uses the same FFT path with the
+  existing per-unit-width normalization.
+  CPU tuning adds constant-step propagator reuse, contiguous SIMD loops, operation-sized
+  task launches and shape-dependent temporal/Raman FFT caps, with serial BLAS for
+  mode averaging. Optional Accelerate and MKL providers
+  and alternating short-window benchmarks cover macOS arm64 and Linux x86_64.
+  Mode averaging shares the numerical core and the existing effective-area contract,
+  with default modal statistics. Mode-averaged envelopes add GNLSE Kerr, scalar
+  Raman and self-steepening through the existing translated coefficients.
+  Radial Kerr beams in constant media use the translated Hankel maps, independent
+  spatial absorption and default spatial statistics through the same schema.
+  The SEP 30 core extension adds single-channel field plasma, longitudinal stage
+  expansions, constant scalar Raman, resident exponential Adams with transported
+  compensation, and Cartesian envelopes with the existing low-storage RK4IP scheme.
+  Cartesian and line fields also evaluate the scalar plasma current in physical-space
+  chunks and report accepted-field populations. Parallel large copies and inverse
+  FFT normalization, an exact real-root branch and omission of exactly absent
+  absorber transforms improve the retained strided Cartesian implementation.
+  Modal and radial sources also omit transforms for exactly absent additive losses.
+  The standard benchmark CLI admits Julia explicitly and records Julia source and
+  package identities. Julia computes accepted-field plasma populations and integration
+  diagnostics in one observation pass, with shared host reductions and other statistics;
+  GPU execution and the remaining physics remain deferred.
+  CPU plasma filtering exposes independent samples to SIMD and skips only exact
+  zero support, preserving reflected endpoints and the protected running integral.
+  Columns with exactly zero rates and no initial electrons also omit the current
+  integration, clearing reused outputs without introducing a small-rate cutoff.
+  Adams prepares only the stage bundles it consumes; duplicate DOPRI offsets share
+  the existing pure bundle evaluation without changing the schema.
 - **Propagation equations.** The unidirectional pulse propagation equation (UPPE) and
   the generalised nonlinear Schrödinger equation (GNLSE), for the real electric field or
   a complex envelope, in waveguides and in free space.

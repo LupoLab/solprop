@@ -8,6 +8,40 @@ backend to choose for a run is the user guide's
 [Choosing a backend](../guide/performance/backends.md). Decisions: ADR-002, ADR-003,
 ADR-013, ADR-020, ADR-023.
 
+The source-only [Julia prototype](../guide/performance/julia.md) is an explicitly
+selected fourth backend. Its Python adapter subclasses `StepDriver` at schema 34;
+`julia/src/SolpropJulia.jl` owns state, candidates, stage buffers, plans and the complete
+DOPRI5 trial. It consumes the scalar field-grid modal subset, including
+mode averaging through the translated one-node effective-area map and prefactor.
+Mode-averaged envelopes use complex temporal transforms and the existing GNLSE
+Kerr, scalar Raman and self-steepening coefficients with those same drivers.
+Single-channel field plasma and constant scalar Raman use `julia/src/responses.jl`.
+Longitudinal expansions retain their fixed arrays in Julia and receive the existing
+Python stage weights. `julia/src/adams.jl` keeps exponential Adams histories and
+transported compensation resident behind the shared `AdamsMarch`; its protected
+phi recurrences and factored defects follow SEP 16.
+Radial beams in constant media use the same real matrix pipeline with the
+translated Hankel maps; the shared radial-loss matrix contributes independently
+of the material source, and shared spatial routines collect default statistics.
+Cartesian Kerr/plasma fields instead use planned transverse FFTs and chunked temporal
+transforms in `julia/src/free.jl`. Compact separable coefficient vectors determine
+the longitudinal root, clamped prefactor and one reusable stage propagator pair;
+protected square subtraction retains the seam's grazing branch. Both spatial and
+temporal absorption follow the existing contract. No dense Cartesian operator
+or stage-propagator cache is materialised. Cartesian envelopes use complex temporal
+FFTs, and `julia/src/rk4.jl` implements the existing low-storage RK4IP scheme behind
+`LowStorageMarch`. Field-plasma currents combine in physical-space chunks before
+the transverse forward FFT. Exactly absent additive absorbers omit their transforms;
+parallel copies and inverse scaling retain the strided storage and protected root.
+At observations Julia synthesizes the accepted field once for
+plasma populations and integration diagnostics; shared host routines normalize
+those reductions and compute the other default statistics. AcceleratedKernels
+schedules native Julia arrays; FFTW and BLAS own transforms and
+contractions. A contiguous CPU Kerr traversal shares scalar arithmetic with the generic
+loop. Observations copy to host arrays; shared host statistics remain outside the
+threaded kernel. This isolated experiment has an explicit exception to the accepted-SEP
+requirement; production integration and GPU execution require further review and tests.
+
 ## 1. The seam
 
 Public simulation settings default to `backend="auto"`. `resolve_name` probes the

@@ -25,6 +25,12 @@ resonant dispersive-wave emission into the vacuum and deep ultraviolet, supercon
 generation, multimode and graded-index beam dynamics, filamentation, photoionisation and
 plasma, and Raman frequency combs.
 
+Source checkouts also include an opt-in [Julia CPU experiment](julia/README.md) for
+scalar modal and free-space cases, including the SEP 30 core plasma, Raman, gradient
+and integrator subset. It preserves frontend signatures and schema 34;
+GPU execution and production distribution remain future work. This branch is a
+**draft experiment, not for merge**; see its [status, results and TODOs](julia/STATUS.md).
+
 ![Vacuum-ultraviolet dispersive-wave emission in a helium-filled capillary](docs/_static/readme-vuv-rdw.png)
 
 *A 7.5 fs pulse at 800 nm self-compresses in a helium-filled capillary with a pressure

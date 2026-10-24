@@ -8,6 +8,17 @@ solver), [backends.md](backends.md) (execution), [kernel-contract.md](kernel-con
 next). What this page describes in prose, [structure.md](structure.md) draws: six figures
 of the layers, the data flow, the contract, one stage, the backends and the output side.
 
+An opt-in source-checkout experiment lives in `julia/`, parallel to `native/`, with a
+thin adapter in `src/solprop/backends/julia/`. It implements the existing schema-34 seam
+for scalar resolved/mode-averaged field capillaries, radial field beams and Cartesian
+Kerr fields/envelopes, Cartesian/line field plasma and mode-averaged GNLSE envelopes;
+see the [Julia backend](../guide/performance/julia.md). The
+SEP 30 core subset includes field plasma, constant scalar Raman, longitudinal
+expansions, resident exponential Adams and Cartesian RK4IP. Its DOPRI stage buffers
+and Adams scratch are explicit prototype exceptions to the lean-memory target below.
+The explicit integrator allow-lists admit Julia; frontend signatures and automatic
+backend selection remain intact.
+
 ## 1. What solprop is
 
 solprop models ultrafast nonlinear pulse propagation: the unidirectional pulse propagation

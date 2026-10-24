@@ -15,6 +15,9 @@ build:
   jobs:
     # solprop's version comes from the repository's tags (hatch-vcs).
     post_checkout:
+      # This experimental branch is published for collaboration without CI.
+      # Remove this cancellation before proposing production integration.
+      - exit 183
       - git fetch --unshallow --tags || true
     create_environment:
       - asdf plugin add uv
