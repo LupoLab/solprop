@@ -1,5 +1,0 @@
-IncidentLaunch: an incident beam's energy in a guide
-  incident:       1 uJ
-  captured:       330 nJ
-  uncaptured:     670 nJ
-  captured share: 0.3300 of the incident energy

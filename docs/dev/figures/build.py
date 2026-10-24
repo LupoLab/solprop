@@ -597,7 +597,10 @@ MODULES = {
         Module("polarisation.py"),
         Module("optics.py"),
         Module("tools.py"),
-        Module("coupling/", ("plane", "port", "remap")),
+        Module(
+            "coupling/",
+            ("plane", "port", "remap", "models", "couple", "outcouple", "envelopes"),
+        ),
         Module(
             "physdata/",
             (

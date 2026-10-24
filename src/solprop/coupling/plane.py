@@ -44,7 +44,7 @@ import dataclasses
 import hashlib
 import json
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Literal, cast
@@ -53,7 +53,9 @@ import numpy as np
 from jaxtyping import Complex, Float
 
 from solprop import fourier
-from solprop.exceptions import CouplingError
+from solprop.constants import EPS0, C
+from solprop.coupling.models import ScalarModeBasis
+from solprop.exceptions import CouplingError, PulseError
 from solprop.grid import FreeGrid, RadialGrid, TimeGrid
 from solprop.modes.protocol import Mode
 from solprop.modes.slab import PlanarGrid
@@ -61,6 +63,8 @@ from solprop.spatial import FluxSide, SpatialFlux, SpatialMedium
 
 __all__ = [
     "PLANE_KINDS",
+    "AnalyticField",
+    "AnalyticRecord",
     "Calibration",
     "Exterior",
     "FieldPlane",
@@ -770,6 +774,60 @@ class PlaneMetric:
             flux=flux,
         )
 
+    @classmethod
+    def paraxial(
+        cls,
+        space: RadialGrid | FreeGrid,
+        index: Float[np.ndarray, " n_omega"],
+        grid: TimeGrid,
+    ) -> "PlaneMetric":  # noqa: UP037 - beartype evaluates the class body
+        r"""Return the axial admittance metric of a lossless medium given by its index.
+
+        Each column's admittance is :math:`ck_z/\omega = \sqrt{n^2 -
+        (c\kappa/\omega)^2}`, zero where the column does not propagate and on bins
+        where the index is zero: the definition SEP 34's flux uses, for a medium
+        known only by its real phase index.
+
+        Parameters
+        ----------
+        space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
+            The transverse grid.
+        index : numpy.ndarray
+            Real phase index at each bin, shape ``(n_omega,)``, non-negative.
+        grid : solprop.grid.TimeGrid
+            The temporal grid.
+
+        Returns
+        -------
+        PlaneMetric
+            The ``admittance`` metric, with ``eps0 c / 2``; no `flux`.
+
+        Raises
+        ------
+        CouplingError
+            If the index has the wrong shape or is negative or nonfinite.
+        """
+        values = np.asarray(index, dtype=np.float64)
+        if values.shape != (grid.n_omega,) or not np.all(
+            np.isfinite(values) & (values >= 0.0)
+        ):
+            msg = "a reference index is finite and non-negative, one value per bin"
+            raise CouplingError(msg)
+        kappa_sq = _kappa_squared(space)
+        live = (grid.omega > 0) & (values > 0)
+        ratio = np.zeros(grid.n_omega)
+        ratio[live] = C / grid.omega[live]
+        square = values[None, :] ** 2 - kappa_sq[:, None] * ratio[None, :] ** 2
+        admittance = np.where(
+            live[None, :] & (square > 0), np.sqrt(np.abs(square)), 0.0
+        )
+        return cls(
+            "admittance",
+            admittance=admittance.astype(np.complex128),
+            weights=space.spectral_weights,
+            scale=0.5 * EPS0 * C,
+        )
+
     def spectral_energy(
         self, samples: Complex[np.ndarray, "n_modes n_pol n_omega"], grid: TimeGrid
     ) -> Float[np.ndarray, " n_omega"]:
@@ -968,6 +1026,45 @@ class PlaneProvenance:
         }
 
 
+AnalyticField = Callable[..., np.ndarray]
+"""An analytic field: ``field(r, omega)`` or ``field(x, y, omega)``, see
+:meth:`FieldPlane.from_analytic`."""
+
+
+@dataclass(frozen=True)
+class AnalyticRecord:
+    """What a plane sampled from an analytic field declares and was checked for.
+
+    Attributes
+    ----------
+    support : float or None
+        The declared radius beyond which the field is zero, m; None for an
+        unbounded field.
+    domain_change : float
+        Relative change of the plane's energy when its window is doubled at the
+        same node spacing: the share of the beam the window misses, to leading
+        order.
+    resolution_change : float
+        Relative change of the plane's energy when the node spacing is halved in the
+        same window: the sampling error of the energy.
+    """
+
+    support: float | None
+    domain_change: float
+    resolution_change: float
+
+    @property
+    def error(self) -> float:
+        """Return the larger of the two checks, the energy's numerical error bound.
+
+        Returns
+        -------
+        float
+            ``max(domain_change, resolution_change)``, dimensionless.
+        """
+        return max(self.domain_change, self.resolution_change)
+
+
 @dataclass(frozen=True, eq=False)
 class FieldPlane:
     """A coherent field at one physical plane, in its native representation.
@@ -1009,6 +1106,13 @@ class FieldPlane:
         its source simulation.
     provenance : PlaneProvenance, optional
         Source identity, plane index, lineage and preparation history.
+    profiles : solprop.coupling.models.ScalarModeBasis or None, optional
+        The scalar transverse profiles of an ordinary modal plane's columns, for a
+        plane read with its source simulation; what a coupling model or
+        :class:`~solprop.coupling.outcouple.Outcouple` synthesises the field from.
+    analytic : AnalyticRecord or None, optional
+        The declared support and the domain and resolution checks of a plane
+        sampled from an analytic field (:meth:`from_analytic`).
 
     Raises
     ------
@@ -1030,6 +1134,8 @@ class FieldPlane:
     certificate: Mapping[str, object] | None = None
     nodal: NodalField | None = None
     provenance: PlaneProvenance = field(default_factory=PlaneProvenance)
+    profiles: ScalarModeBasis | None = None
+    analytic: AnalyticRecord | None = None
 
     def __post_init__(self) -> None:
         """Own read-only samples and check them against the grid and the basis."""
@@ -1044,6 +1150,11 @@ class FieldPlane:
             msg = (
                 f"a {self.kind} plane needs a {self.kind} basis, got {self.basis.kind}"
             )
+            raise CouplingError(msg)
+        if self.profiles is not None and (
+            self.kind != "modal" or self.profiles.n_modes != samples.shape[0]
+        ):
+            msg = "scalar profiles describe the columns of an ordinary modal plane"
             raise CouplingError(msg)
         object.__setattr__(self, "samples", samples)
         if self.certificate is not None:
@@ -1143,35 +1254,51 @@ class FieldPlane:
         )
 
     @classmethod
-    def from_pulse(
+    def from_pulse(  # noqa: PLR0913 - the beam, its grids and the plane's medium
         cls,
         pulse: object,
         grid: TimeGrid,
         geometry: PlaneGeometry,
         *,
         space: RadialGrid | FreeGrid,
-        medium: SpatialMedium,
+        medium: SpatialMedium | None = None,
+        index: Float[np.ndarray, " n_omega"] | None = None,
         reference: PlaneReference | None = None,
     ) -> "FieldPlane":  # noqa: UP037 - beartype evaluates the class body
-        """Build a spatial plane from the package's beam builder.
+        r"""Build a spatial plane from the package's beam builder.
 
-        The beam is :meth:`solprop.pulses.SpatialPulse.build` on the grid, with its
-        requested energy or peak power the physical axial flux through the plane in
-        the medium there (SEP 34); no second Gaussian is written. Its exterior is
-        zero: the closed-form beam is resolved on the grid's whole window.
+        No second Gaussian is written: the beam is the
+        :class:`~solprop.pulses.SpatialPulse`'s own, in one of its two measures.
+
+        - With `medium`, it is :meth:`solprop.pulses.SpatialPulse.build` on the grid,
+          its requested energy or peak power the physical axial flux through the
+          plane in that medium (SEP 34).
+        - With `index` -- the real phase index of a medium for which no
+          :class:`~solprop.spatial.SpatialMedium` exists, such as a guide's core --
+          it is :meth:`solprop.pulses.SpatialPulse.incident` sampled at the grid's
+          nodes: the request is met over the beam's whole plane in the paraxial
+          measure :math:`M_0 = n\varepsilon_0c\,dA/2`, in closed form, and the
+          plane's metric is the axial admittance :math:`\sqrt{n^2 - (c\kappa/
+          \omega)^2}` of that index. The two measures differ by the beam's
+          obliquity, which a coupling model reports as its source-measure defect.
+
+        The exterior is zero: the closed-form beam is resolved on the grid's window.
 
         Parameters
         ----------
         pulse : solprop.pulses.SpatialPulse
-            The beam.
+            The beam, launched at its waist with `index`.
         grid : solprop.grid.TimeGrid
             Temporal grid.
         geometry : PlaneGeometry
             The plane; its ``z`` and ``side`` select the medium's sample.
         space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
             Transverse grid.
-        medium : solprop.spatial.SpatialMedium
+        medium : solprop.spatial.SpatialMedium or None, optional
             The medium at the plane.
+        index : numpy.ndarray or None, optional
+            Real phase index at each bin, shape ``(n_omega,)``, instead of `medium`;
+            zero on bins that carry no flux.
         reference : PlaneReference or None, optional
             The reference of the built spectrum; default zero phase and delay.
 
@@ -1183,32 +1310,218 @@ class FieldPlane:
         Raises
         ------
         CouplingError
-            If `pulse` has no spatial ``build``.
+            If `pulse` is not a spatial beam, or not exactly one of `medium` and
+            `index` is given, or the beam builder refuses it.
         """
         build = getattr(pulse, "build", None)
-        if build is None or not callable(build):
+        incident = getattr(pulse, "incident", None)
+        if not (callable(build) and callable(incident)):
             msg = "from_pulse takes a SpatialPulse"
             raise CouplingError(msg)
-        spectrum = cast(
-            "np.ndarray",
-            build(grid, space, medium=medium, z=geometry.z, side=geometry.side),
+        if (medium is None) == (index is None):
+            msg = "from_pulse measures the beam in a medium= or an index=, one of them"
+            raise CouplingError(msg)
+        basis = PlaneBasis.of_space(space)
+        provenance = PlaneProvenance("pulse", history=(repr(pulse),))
+        reference = PlaneReference() if reference is None else reference
+        units = "V m" if basis.kind == "radial" else "V/m"
+        if medium is not None:
+            spectrum = cast(
+                "np.ndarray",
+                build(grid, space, medium=medium, z=geometry.z, side=geometry.side),
+            )
+            flux = SpatialFlux.resolve(
+                grid, space, medium, z=geometry.z, side=geometry.side
+            )
+            return cls(
+                basis.kind,
+                fourier.spectrum_to_optics(spectrum, kind=grid.kind),
+                grid,
+                units,
+                basis,
+                reference,
+                geometry,
+                PlaneMetric.from_flux(flux),
+                "zero",
+                medium,
+                provenance=provenance,
+            )
+        values = np.asarray(index, dtype=np.float64)
+        xy = _node_positions(space)
+        try:
+            sampled = incident(grid, xy, index=values)
+        except PulseError as error:
+            raise CouplingError(str(error)) from error
+        nodal = np.asarray(getattr(sampled, "field"), dtype=np.complex128)  # noqa: B009 - the pulse is duck-typed in this P module
+        if len(getattr(pulse, "jones", (1.0,))) == 1:
+            nodal = nodal[:, :1]
+        columns = fourier.spectrum_to_optics(
+            _transverse(nodal, space, inverse=False), kind=grid.kind
         )
-        flux = SpatialFlux.resolve(
-            grid, space, medium, z=geometry.z, side=geometry.side
+        return cls(
+            basis.kind,
+            columns,
+            grid,
+            units,
+            basis,
+            reference,
+            geometry,
+            PlaneMetric.paraxial(space, values, grid),
+            "zero",
+            provenance=provenance,
         )
+
+    @classmethod
+    def from_analytic(  # noqa: PLR0913 - the field, its grids and its declarations
+        cls,
+        grid: TimeGrid,
+        geometry: PlaneGeometry,
+        field: "AnalyticField",  # noqa: UP037 - defined below this class
+        *,
+        space: RadialGrid | FreeGrid,
+        medium: SpatialMedium | None = None,
+        index: Float[np.ndarray, " n_omega"] | None = None,
+        support: float | None = None,
+        exterior: Exterior = "zero",
+        reference: PlaneReference | None = None,
+    ) -> "FieldPlane":  # noqa: UP037 - beartype evaluates the class body
+        r"""Sample a physical analytic field on a transverse grid (SEP 31, section 5.1).
+
+        `field` is called with the grid's node positions and the absolute angular
+        frequency of every positive bin, and returns the optics-convention Fourier
+        transform :math:`\tilde E(\mathbf r,\omega) = \int E(\mathbf r,t)
+        e^{+i\omega t}\,dt` of the real electric field, in V s/m, with t measured
+        from the plane's reference time (the window centre, plus `reference`):
+
+        - on a radial grid ``field(r, omega)`` with ``r`` of shape ``(n_nodes,)``;
+        - on a Cartesian grid ``field(x, y, omega)`` with ``x`` and ``y`` of shape
+          ``(n_nodes,)``;
+
+        each returning shape ``(n_nodes, n_pol, n_bins)`` (``n_pol`` 1 for x, 2 for
+        x and y) or ``(n_nodes, n_bins)`` for an x-polarised field. A raw DFT bin of
+        a localised record is :math:`q\tilde E/\Delta t`, with :math:`q = 1` on a
+        field grid and 2 on an envelope grid, whose envelope is the analytic signal.
+
+        **Support and exterior.** `support` declares the field zero beyond a radius
+        (m), where it is not evaluated; without it the field is unbounded and only a
+        convergence check bounds what the window misses. The plane records
+        (:class:`AnalyticRecord`) the relative change of its energy when the window
+        is doubled at the same spacing (the domain check) and when the spacing is
+        halved in the same window (the resolution check), so a coupling counts both
+        as numerical error rather than assuming a crop is the whole beam. `exterior`
+        is what the record says beyond the window: ``'zero'`` for a field whose
+        tails the domain check bounds, ``'unknown'`` where they are not known.
+
+        Parameters
+        ----------
+        grid : solprop.grid.TimeGrid
+            Temporal grid.
+        geometry : PlaneGeometry
+            The plane.
+        field : callable
+            The analytic field, as above.
+        space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
+            Transverse grid.
+        medium : solprop.spatial.SpatialMedium or None, optional
+            The medium at the plane.
+        index : numpy.ndarray or None, optional
+            Real phase index at each bin instead of `medium`, shape ``(n_omega,)``.
+        support : float or None, optional
+            Radius beyond which the field is declared zero, m; inside the window.
+        exterior : {'zero', 'unknown'}, optional
+            What the record says beyond its window.
+        reference : PlaneReference or None, optional
+            Reference of the spectrum; default zero phase and delay.
+
+        Returns
+        -------
+        FieldPlane
+            A radial or Cartesian plane with its admittance metric and its
+            :class:`AnalyticRecord`.
+
+        Raises
+        ------
+        CouplingError
+            If not exactly one of `medium` and `index` is given, the support lies
+            outside the window, or the field returns the wrong shape or nonfinite
+            values.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> from solprop.coupling import FieldPlane, PlaneGeometry
+        >>> from solprop.grid import EnvelopeGrid, RadialGrid
+        >>> grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (700e-9, 900e-9), 300e-15)
+        >>> def beam(r, omega):
+        ...     spectral = np.exp(-(((omega - grid.omega0) * 20e-15) ** 2))
+        ...     return np.exp(-((r / 50e-6) ** 2))[:, None] * spectral[None, :]
+        >>> index = np.where(grid.omega > 0, 1.0, 0.0)
+        >>> plane = FieldPlane.from_analytic(
+        ...     grid, PlaneGeometry(0.0), beam, space=RadialGrid(300e-6, 128),
+        ...     index=index,
+        ... )
+        >>> plane.analytic.domain_change < 1e-12
+        True
+        """
+        if (medium is None) == (index is None):
+            msg = "from_analytic measures the field in a medium= or an index=, one"
+            raise CouplingError(msg)
+        extent = _extent(space)
+        if support is not None and not (
+            math.isfinite(support) and 0 < support <= extent
+        ):
+            msg = (
+                f"the declared support {support!r} m lies outside the window "
+                f"({extent:.6g} m): widen the grid"
+            )
+            raise CouplingError(msg)
+        values = None if index is None else np.asarray(index, dtype=np.float64)
+        columns = _analytic_columns(field, grid, space, support)
+        metric = (
+            PlaneMetric.from_flux(
+                SpatialFlux.resolve(
+                    grid, space, medium, z=geometry.z, side=geometry.side
+                )
+            )
+            if medium is not None
+            else PlaneMetric.paraxial(space, cast("np.ndarray", values), grid)
+        )
+        energy = float(np.sum(metric.spectral_energy(columns, grid)))
+        checks = []
+        for wider in (_enlarged(space), _refined(space)):
+            wide_metric = (
+                PlaneMetric.from_flux(
+                    SpatialFlux.resolve(
+                        grid, wider, medium, z=geometry.z, side=geometry.side
+                    )
+                )
+                if medium is not None
+                else PlaneMetric.paraxial(wider, cast("np.ndarray", values), grid)
+            )
+            wide = float(
+                np.sum(
+                    wide_metric.spectral_energy(
+                        _analytic_columns(field, grid, wider, support), grid
+                    )
+                )
+            )
+            checks.append(
+                0.0 if wide == energy else abs(wide - energy) / max(wide, energy)
+            )
         basis = PlaneBasis.of_space(space)
         return cls(
             basis.kind,
-            fourier.spectrum_to_optics(spectrum, kind=grid.kind),
+            columns,
             grid,
             "V m" if basis.kind == "radial" else "V/m",
             basis,
             PlaneReference() if reference is None else reference,
             geometry,
-            PlaneMetric.from_flux(flux),
-            "zero",
+            metric,
+            exterior,
             medium,
-            provenance=PlaneProvenance("pulse", history=(repr(pulse),)),
+            provenance=PlaneProvenance("analytic", history=(repr(field),)),
+            analytic=AnalyticRecord(support, checks[0], checks[1]),
         )
 
     @classmethod
@@ -1224,6 +1537,7 @@ class FieldPlane:
         basis: PlaneBasis | None = None,
         metric: PlaneMetric | None = None,
         reference: PlaneReference | None = None,
+        profiles: ScalarModeBasis | None = None,
     ) -> "FieldPlane":  # noqa: UP037 - beartype evaluates the class body
         """Bind physical arrays to explicit axes, units, domain, medium and reference.
 
@@ -1257,6 +1571,8 @@ class FieldPlane:
             Metric of a modal basis; default the identity.
         reference : PlaneReference or None, optional
             Reference of the spectrum; default zero phase and delay.
+        profiles : solprop.coupling.models.ScalarModeBasis or None, optional
+            The scalar profiles of an ordinary modal basis's columns.
 
         Returns
         -------
@@ -1321,6 +1637,7 @@ class FieldPlane:
             PlaneMetric("identity") if metric is None else metric,
             exterior,
             provenance=provenance,
+            profiles=profiles,
         )
 
 
@@ -1357,3 +1674,176 @@ def _transverse(
         else np.fft.fft2(shaped, axes=(0, 1))
     )
     return result.reshape(values.shape)
+
+
+def _kappa_squared(space: RadialGrid | FreeGrid) -> Float[np.ndarray, " n_columns"]:
+    """Return each transverse column's squared wavenumber, m^-2.
+
+    Parameters
+    ----------
+    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
+        The grid.
+
+    Returns
+    -------
+    numpy.ndarray
+        Shape ``(n_columns,)``.
+    """
+    if isinstance(space, RadialGrid):
+        return np.asarray(space.k_r, dtype=np.float64) ** 2
+    return np.asarray(space.kperp_sq, dtype=np.float64)
+
+
+def _node_positions(space: RadialGrid | FreeGrid) -> Float[np.ndarray, "n_nodes 2"]:
+    """Return a grid's nodes as ``(x, y)`` pairs; radial nodes lie on the x axis.
+
+    Parameters
+    ----------
+    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
+        The grid.
+
+    Returns
+    -------
+    numpy.ndarray
+        Positions in m, shape ``(n_nodes, 2)``, in the grid's node order.
+    """
+    if isinstance(space, RadialGrid):
+        return np.column_stack((space.r, np.zeros_like(space.r)))
+    x = np.tile(space.x, space.n_y)
+    y = np.repeat(space.y, space.n_x)
+    return np.column_stack((x, y))
+
+
+def _extent(space: RadialGrid | FreeGrid) -> float:
+    """Return the radius of the largest centred disc inside a grid's window, m.
+
+    Parameters
+    ----------
+    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
+        The grid.
+
+    Returns
+    -------
+    float
+        The radial window, or the smaller Cartesian half-width.
+    """
+    if isinstance(space, RadialGrid):
+        return float(space.hankel.radius)
+    return float(min(np.max(np.abs(space.x)), np.max(np.abs(space.y))))
+
+
+def _enlarged(space: RadialGrid | FreeGrid) -> RadialGrid | FreeGrid:
+    """Return the grid with its window doubled at the same node spacing.
+
+    Parameters
+    ----------
+    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
+        The grid.
+
+    Returns
+    -------
+    solprop.grid.RadialGrid or solprop.grid.FreeGrid
+        The doubled grid.
+    """
+    if isinstance(space, RadialGrid):
+        return RadialGrid(2.0 * space.radius, 2 * space.n_r, space.window_factor)
+    return FreeGrid(
+        2.0 * space.radius_x,
+        2 * space.n_x,
+        2.0 * space.radius_y,
+        2 * space.n_y,
+        space.window_factor,
+    )
+
+
+def _refined(space: RadialGrid | FreeGrid) -> RadialGrid | FreeGrid:
+    """Return the grid with its node spacing halved in the same window.
+
+    Parameters
+    ----------
+    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
+        The grid.
+
+    Returns
+    -------
+    solprop.grid.RadialGrid or solprop.grid.FreeGrid
+        The refined grid.
+    """
+    if isinstance(space, RadialGrid):
+        return RadialGrid(space.radius, 2 * space.n_r, space.window_factor)
+    return FreeGrid(
+        space.radius_x,
+        2 * space.n_x,
+        space.radius_y,
+        2 * space.n_y,
+        space.window_factor,
+    )
+
+
+def _analytic_columns(
+    field: AnalyticField,
+    grid: TimeGrid,
+    space: RadialGrid | FreeGrid,
+    support: float | None,
+) -> Complex[np.ndarray, "n_columns n_pol n_omega"]:
+    """Sample an analytic field at a grid's nodes and return its plane columns.
+
+    Parameters
+    ----------
+    field : callable
+        The analytic field (:meth:`FieldPlane.from_analytic`).
+    grid : solprop.grid.TimeGrid
+        Temporal grid.
+    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
+        Transverse grid.
+    support : float or None
+        Declared support radius, m.
+
+    Returns
+    -------
+    numpy.ndarray
+        Optics-convention raw column spectra referenced to the window centre,
+        shape ``(n_columns, n_pol, n_omega)``.
+
+    Raises
+    ------
+    CouplingError
+        If the field returns the wrong shape or nonfinite values.
+    """
+    xy = _node_positions(space)
+    radius = np.hypot(xy[:, 0], xy[:, 1])
+    inside = np.ones(radius.size, dtype=bool) if support is None else radius <= support
+    live = grid.omega > 0
+    omega = grid.omega[live]
+    if isinstance(space, RadialGrid):
+        raw = field(radius[inside], omega)
+    else:
+        raw = field(xy[inside, 0], xy[inside, 1], omega)
+    values = np.asarray(raw, dtype=np.complex128)
+    if values.ndim == 2:
+        values = values[:, None, :]
+    if (
+        values.ndim != 3
+        or values.shape[0] != int(np.count_nonzero(inside))
+        or values.shape[1] not in (1, 2)
+        or values.shape[2] != omega.size
+    ):
+        msg = (
+            "an analytic field returns (n_nodes, n_pol, n_bins) or (n_nodes, n_bins) "
+            f"with n_pol 1 or 2; got {values.shape}"
+        )
+        raise CouplingError(msg)
+    if not np.all(np.isfinite(values)):
+        msg = "the analytic field returned nonfinite values"
+        raise CouplingError(msg)
+    # A raw DFT bin of a localised record is q E~/dt: q = 2 on an envelope grid,
+    # whose envelope is the analytic signal (twice the positive-frequency part).
+    factor = (2.0 if grid.kind == "envelope" else 1.0) / grid.dt
+    nodal = np.zeros((radius.size, values.shape[1], grid.n_omega), dtype=np.complex128)
+    nodal[np.ix_(inside, np.arange(values.shape[1]), np.flatnonzero(live))] = (
+        factor * values
+    )
+    internal = fourier.spectrum_to_internal(nodal, kind=grid.kind)
+    return fourier.spectrum_to_optics(
+        _transverse(internal, space, inverse=False), kind=grid.kind
+    )

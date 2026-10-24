@@ -15,11 +15,7 @@ with NumPy alone never imports the translation layer.
 A :class:`CouplingLaunch` is bound to one port: it carries the port, the target
 coefficients and the reference origin the launched run inherits, and
 :meth:`solprop.driver.simulation.Simulation.with_input` refuses it for any other port,
-whatever the array shapes.
-
-:func:`same_basis` is the identity model of section 4.3: a plane whose basis,
-lattice, orientation and metric are the port's is copied as it stands, and its
-reference becomes the launched run's origin. Phase 3 adds the general ``couple``.
+whatever the array shapes. :func:`solprop.coupling.couple.couple` computes one.
 """
 
 import hashlib
@@ -34,8 +30,8 @@ import numpy as np
 from jaxtyping import Complex, Float
 
 from solprop import fourier
+from solprop.coupling.models import ScalarModeBasis
 from solprop.coupling.plane import (
-    FieldPlane,
     PlaneBasis,
     PlaneGeometry,
     PlaneKind,
@@ -51,7 +47,8 @@ __all__ = [
     "METRIC_TOLERANCE",
     "CouplingLaunch",
     "InputPort",
-    "same_basis",
+    "check_same_medium",
+    "occupied_outside",
 ]
 
 ENTRANCE_TOLERANCE = 1e-12
@@ -70,7 +67,7 @@ few parts in a million for a gas. Anything between is a different medium.
 """
 
 
-def _occupied_outside(
+def occupied_outside(
     samples: Complex[np.ndarray, "n_modes n_pol n_omega"], grid: TimeGrid
 ) -> float:
     """Return the share of a record's squared samples outside a grid's active band.
@@ -94,7 +91,7 @@ def _occupied_outside(
 
 @dataclass(frozen=True, eq=False)
 class InputPort:
-    """What a simulation can receive at its entrance, already sampled.
+    r"""What a simulation can receive at its entrance, already sampled.
 
     Attributes
     ----------
@@ -130,7 +127,17 @@ class InputPort:
     magnetic : numpy.ndarray or None, optional
         Its magnetic field in A/(m sqrt(W)), the same shape.
     models : tuple of str, optional
-        The coupling models the port admits. Phase 2 admits ``'same_basis'``.
+        The coupling models of :class:`~solprop.coupling.models.CouplingModel` the
+        port admits; ``same_basis`` always.
+    profiles : solprop.coupling.models.ScalarModeBasis or None, optional
+        The scalar transverse profiles of an ordinary mode set's columns: a
+        capillary's HE1m modes or a weakly guiding step-index fibre's LP0m modes.
+    contrast : numpy.ndarray or None, optional
+        The weak-guidance screen
+        :math:`\Delta = \max|n^2 - n_{\rm ref}^2|/(2n_{\rm ref}^2)` over the
+        guide's dielectric regions at each bin, shape ``(n_omega,)``, zero off the
+        active band; None where the screen does not apply (a capillary wall, a
+        spatial medium).
 
     Raises
     ------
@@ -151,6 +158,8 @@ class InputPort:
     electric: Complex[np.ndarray, "n_nodes 3 n_modes n_omega"] | None = None
     magnetic: Complex[np.ndarray, "n_nodes 3 n_modes n_omega"] | None = None
     models: tuple[str, ...] = ("same_basis",)
+    profiles: ScalarModeBasis | None = None
+    contrast: Float[np.ndarray, " n_omega"] | None = None
 
     def __post_init__(self) -> None:
         """Check the shape, the basis and the reference index."""
@@ -170,11 +179,15 @@ class InputPort:
                 raise CouplingError(msg)
             index.setflags(write=False)
             object.__setattr__(self, "reference_index", index)
+        if self.profiles is not None and self.profiles.n_modes != shape[0]:
+            msg = "a port's scalar profiles describe its columns, one per mode"
+            raise CouplingError(msg)
         for name, dtype in (
             ("nodes", np.float64),
             ("node_weights", np.float64),
             ("electric", np.complex128),
             ("magnetic", np.complex128),
+            ("contrast", np.float64),
         ):
             value = getattr(self, name)
             if value is not None:
@@ -247,7 +260,7 @@ class InputPort:
         if not self.geometry.oriented_as(other.geometry):
             return "the launch's entrance plane is oriented differently"
         try:
-            _check_same_medium(other.metric, self.metric)
+            check_same_medium(other.metric, self.metric)
         except CouplingError as refused:
             return f"the launch's metric is not this simulation's: {refused}"
         return None
@@ -342,84 +355,10 @@ class CouplingLaunch:
         }
 
 
-def same_basis(plane: FieldPlane, port: InputPort) -> CouplingLaunch:
-    """Launch a plane into a port of the same basis, unchanged.
-
-    The identity model of SEP 31 section 4.3: exact coordinate recovery in a
-    checked common reference, which here is the identical basis on the identical
-    lattice, at an identically oriented plane, in the same medium. The coefficients
-    are copied as they stand and the plane's reference becomes the launched run's
-    origin, so the launched run continues the source's absolute time and carrier
-    phase without moving the pulse in its window. Anything else is a different
-    calculation, refused by name: a different lattice needs
-    :func:`~solprop.coupling.remap.regrid` first, a different basis or medium a coupling
-    model or an interface.
-
-    Parameters
-    ----------
-    plane : FieldPlane
-        The source plane.
-    port : InputPort
-        The receiving port.
-
-    Returns
-    -------
-    CouplingLaunch
-        The launch, bound to `port`.
-
-    Raises
-    ------
-    CouplingError
-        If the port does not admit the model; if the route, basis, lattice, shape,
-        orientation or medium differ; or if the plane carries light outside the
-        port's active band.
-    """
-    if "same_basis" not in port.models:
-        msg = f"this port admits {port.models}, not same_basis"
-        raise CouplingError(msg)
-    if plane.kind != port.route or plane.basis.identity != port.basis.identity:
-        msg = (
-            f"a {plane.kind} plane of basis {plane.basis.identity[:12]} is not the "
-            f"{port.route} port's basis {port.basis.identity[:12]}: a different basis "
-            "is a coupling, not a relaunch"
-        )
-        raise CouplingError(msg)
-    if lattice_identity(plane.grid) != port.lattice or not np.array_equal(
-        plane.grid.omega, port.grid.omega
-    ):
-        msg = "the plane's temporal lattice is not the port's: regrid it first"
-        raise CouplingError(msg)
-    if plane.samples.shape != port.shape:
-        msg = f"the plane's shape {plane.samples.shape} is not the port's {port.shape}"
-        raise CouplingError(msg)
-    if not plane.geometry.oriented_as(port.geometry):
-        msg = "the plane and the entrance are oriented differently"
-        raise CouplingError(msg)
-    _check_same_medium(plane.metric, port.metric)
-    outside = _occupied_outside(plane.samples, port.grid)
-    floor = (plane.grid.n_omega * float(np.finfo(float).eps)) ** 2
-    if outside > floor:
-        msg = (
-            f"{outside:.3e} of the plane lies outside the port's active band, which "
-            "the receiving run would remove: regrid with crop_band=True to remove "
-            "it explicitly"
-        )
-        raise CouplingError(msg)
-    provenance = {
-        "plane": plane.provenance.record(),
-        "reference": plane.reference.record(),
-    }
-    return CouplingLaunch(
-        port,
-        plane.samples,
-        plane.reference.minus(port.frame),
-        "same_basis",
-        provenance,
-    )
-
-
-def _check_same_medium(source: PlaneMetric, target: PlaneMetric) -> None:
+def check_same_medium(source: PlaneMetric, target: PlaneMetric) -> None:
     """Refuse a relaunch across a change of medium or metric.
+
+    Used by :meth:`InputPort.accepts` and by the ``same_basis`` model.
 
     Parameters
     ----------

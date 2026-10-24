@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 
 from solprop.backends.registry import available
-from solprop.coupling import same_basis
+from solprop.coupling import CouplingModel, couple
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import CouplingError, DriverError
 from solprop.grid import FieldGrid, RadialGrid
@@ -33,6 +33,11 @@ Measured on these 2 mm argon capillary cases: the uninterrupted run is 1.3e-10 f
 the reference and the relaunched one 1.4e-10, against 1.3e-8 and 1.5e-8 at rtol
 1e-6, so both follow the tolerance. The envelope leaves a factor of about seven.
 """
+
+
+def same_basis(plane, port):
+    """Return the identity model's launch of a plane into a port."""
+    return couple(plane, port, model=CouplingModel("same_basis")).launch
 
 
 def capillary(

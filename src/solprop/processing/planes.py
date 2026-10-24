@@ -33,12 +33,14 @@ from solprop.coupling import (
     PlaneKind,
     PlaneMetric,
     PlaneProvenance,
+    ScalarModeBasis,
     basis_identity,
     reference_at,
 )
-from solprop.exceptions import OutputError, ProcessingError
+from solprop.exceptions import CouplingError, OutputError, ProcessingError
 from solprop.grid import FreeGrid, LineGrid, RadialGrid, TimeGrid
 from solprop.modes.guide import ModalGuide
+from solprop.modes.protocol import Mode
 from solprop.output.schema import Output, RunMetadata
 from solprop.processing.axes import _plane_field, grid_of
 from solprop.processing.modal import _checked_tables, _plane_rule, _spectra
@@ -294,6 +296,47 @@ def _spatial_metric(
     )
 
 
+def _modal_profiles(
+    metadata: RunMetadata, grid: TimeGrid, position: float, source: object
+) -> ScalarModeBasis | None:
+    """Return an ordinary modal plane's scalar profiles from its source simulation.
+
+    Parameters
+    ----------
+    metadata : solprop.output.schema.RunMetadata
+        The output's record.
+    grid : solprop.grid.TimeGrid
+        Its temporal grid.
+    position : float
+        The plane's position, m.
+    source : Simulation
+        The simulation that wrote the output.
+
+    Returns
+    -------
+    solprop.coupling.ScalarModeBasis or None
+        The profiles; None for a mode family with angular structure, which has
+        none.
+
+    Raises
+    ------
+    ProcessingError
+        If `source` is not the run that wrote the output.
+    """
+    record = cast(
+        "RunMetadata",
+        cast("Callable[[], object]", _source_part(source, "metadata"))(),
+    )
+    if record.configuration_hash() != metadata.configuration_hash():
+        msg = "source= is not the simulation that wrote this output"
+        raise ProcessingError(msg)
+    modes = cast("Sequence[Mode]", _source_part(source, "modes"))
+    try:
+        return ScalarModeBasis.from_modes(modes, grid, position)
+    except CouplingError:
+        return None
+
+
 def _general_parts(
     output: Output,
     metadata: RunMetadata,
@@ -411,8 +454,10 @@ def field_plane(
     source : solprop.driver.Simulation or None, optional
         The simulation that wrote the output, for what the file deliberately does
         not embed: a general guide's E/H reference and a dense Gram, checked against
-        the file's identities, or a spatial run's medium, checked by configuration
-        hash. Not needed otherwise.
+        the file's identities; a spatial run's medium, or an ordinary mode set's
+        scalar profiles (:class:`~solprop.coupling.models.ScalarModeBasis`, for a
+        capillary's HE1m or a step-index fibre's HE1m modes), checked by
+        configuration hash. Not needed otherwise.
 
     Returns
     -------
@@ -496,9 +541,12 @@ def field_plane(
     )
     basis = PlaneBasis(kind, identity, labels)
     nodal = None
+    profiles = None
     metric = PlaneMetric("identity")
     if kind == "general_modal":
         metric, nodal = _general_parts(output, metadata, index, position, source)
+    elif source is not None:
+        profiles = _modal_profiles(metadata, grid, position, source)
     return FieldPlane(
         kind,
         samples,
@@ -511,4 +559,5 @@ def field_plane(
         "zero",
         nodal=nodal,
         provenance=provenance,
+        profiles=profiles,
     )

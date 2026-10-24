@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Input ports, bound launches and the same-basis model (SEP 31)."""
+"""Input ports, bound launches and the same-basis model of ``couple`` (SEP 31)."""
 
 import dataclasses
 
@@ -11,6 +11,7 @@ import pytest
 
 from solprop.coupling import (
     CouplingLaunch,
+    CouplingModel,
     FieldPlane,
     InputPort,
     PlaneBasis,
@@ -18,7 +19,7 @@ from solprop.coupling import (
     PlaneMetric,
     PlaneReference,
     basis_identity,
-    same_basis,
+    couple,
 )
 from solprop.exceptions import CouplingError
 from solprop.fourier import spectrum_to_internal, spectrum_to_optics
@@ -49,6 +50,11 @@ def plane_of(grid=None, reference=None, metric=None):
         reference=PlaneReference(0.4, 3e-11) if reference is None else reference,
         metric=metric,
     )
+
+
+def same_basis(plane, port):
+    """Return the identity model's launch of a plane into a port."""
+    return couple(plane, port, model=CouplingModel("same_basis")).launch
 
 
 def port_of(grid=None, **changes):
