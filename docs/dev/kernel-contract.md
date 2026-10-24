@@ -18,7 +18,7 @@ operator, the quadrature, the compiled responses — are in [algorithms.md](algo
 already converted from the optics-convention user inputs; the output layer converts
 observations back. Backends never conjugate.
 
-**Current kernel schema: 35; saved-output schema: 23.** These versions are independent.
+**Current kernel schema: 35; saved-output schema: 24.** These versions are independent.
 Internal modal amplitudes are vacuum normalised; the launch and observation boundaries
 carry the true-power conversion, and every backend reads the modal power weight (§3) in its
 statistics alone. Radial columns are Hankel

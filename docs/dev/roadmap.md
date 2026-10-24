@@ -32,17 +32,6 @@ being implemented.
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
 
-- [SEP 31 — Coupling simulations and transporting ultrafast fields](seps/sep-0031-simulation-coupling.md):
-  reference-plane fields, coherent spatial synthesis/projection, ordered linear
-  transport and validated relaunch using SEP 34's shared medium flux; temporal
-  grid conversion; forward guide coupling; and a focused radial Kerr-to-capillary
-  tutorial. Clean breaking changes replace inconsistent energy semantics, with
-  no legacy normalisation or old-file migration. General junction scattering,
-  high-NA vector propagation and resolved prism/grating layouts remain open below.
-  Its accepted design specifies concrete overlap/thin-screen models and a detuned
-  37.5 μm tutorial; the incident-energy defect is its first implementation phase,
-  after SEP 34's full public activation. Qualified provider-pair envelopes may
-  replace conservative weak-guidance screens within the total model budget.
 
 ## Draft enhancement proposals
 
@@ -298,14 +287,14 @@ multi-pass cells by composing repeated bulk propagation with focusing mirrors,
 dispersive optical elements and the chosen cell geometry. A cell-level workflow would
 need to carry the spatial and temporal field from pass to pass, account for mirror
 dispersion and loss, and expose the evolution of the beam, spectrum and compressible
-pulse duration. [SEP 31](seps/sep-0031-simulation-coupling.md) proposes field
+pulse duration. [SEP 31](seps/archive/sep-0031-simulation-coupling.md) added field
 handoffs, focusing, reflection and spectral optics on top of the existing free-space
-routes. Cell geometry, assembly and validation against independent propagation or
-experimental data remain open.
+routes ([coupling simulations](../guide/workflows/coupling.md)). Cell geometry, assembly
+and validation against independent propagation or experimental data remain open.
 
 **Coupling beyond the forward model.**
-[SEP 31](seps/sep-0031-simulation-coupling.md) covers forward overlaps, scalar
-homogeneous gaps and spectral compressors. A general junction calculation with
+[SEP 31](seps/archive/sep-0031-simulation-coupling.md) delivered forward overlaps,
+scalar homogeneous gaps and spectral compressors. A general junction calculation with
 reflected, radiated and evanescent fields, high-NA vector free-space transport,
 gradient transport outside SEP 34's certificate, varying absorption, resolved
 prism/grating angular dispersion and spatial chirp, and feedback between stages
@@ -313,6 +302,47 @@ remain separate extensions.
 [SEP 34](seps/archive/sep-0034-medium-flux.md) covers the existing radial route's
 certified forward amplitude correction, including admitted weak steps; it does
 not add general gradient scattering or a complex-index path certificate.
+
+**A graded-index facet envelope for the vector coupling model.** `vector_paraxial` into a
+step-index guide counts a recorded envelope for the facet reflection and backward fields
+it omits (`VECTOR_STEP_INDEX_ENVELOPE`, against an independent full-vector mode-matching
+solution of the facet). A graded-index guide has no such envelope: it is admitted with an
+uncounted envelope item, its facet omission bounded only by the weak-guidance contrast
+screen and the H closure. A graded-index reference — the same mode-matching solver with
+a layered core — would give it a recorded bound
+([SEP 31](seps/archive/sep-0031-simulation-coupling.md), decision A1; [coupling simulations](../guide/workflows/coupling.md)).
+
+**The coupling envelopes beyond their measured range.** Each recorded pair envelope holds
+only where it was measured ([SEP 31](seps/archive/sep-0031-simulation-coupling.md), Part II, "Closing"):
+- the capillary envelope stops at the leaky parameter $\delta = 10^{-2}$, so a narrow
+  capillary in the infrared is refused; extending it needs a re-measured bound, and is
+  worth doing only when such a pair is needed;
+- the beam-into-fibre envelope covers LP01 alone (V 1.5–2.4, contrast up to 0.01); near
+  V 2.4 its in-cone figure is dominated by the cone's truncation of the widening HE11
+  spectrum rather than by the vector correction, and could be sharpened;
+- the vector facet envelope rests on the analytic Fresnel ceiling in the narrow bands
+  just above the HE12 and HE13 cutoffs, which no practical reference cylinder resolves;
+- the fibre-pair `STEP_INDEX_ENVELOPE` is a constant bound whose order in the index
+  contrast was not measured; re-measuring it would let it scale as the others do;
+- every envelope is measured at the profile wavelength against the run's frozen
+  profile, so a fibre whose profile moves strongly across the band is represented only
+  as the run represents it.
+
+**The general guide's angular item at every occupied bin.** `couple` into a general
+modal guide evaluates the target's angular admission at no more than five bins of the
+band. Evaluating it at every occupied bin closes the gap, if its cost stays within a
+coupling's; the cost is to be measured first ([SEP 31](seps/archive/sep-0031-simulation-coupling.md), phase 3).
+
+**Other exit interfaces for `Outcouple`.** `Outcouple` synthesises a guide's exit field
+under the matched interface only. A declared planar-interface model at the exit (the
+end face of a fibre into air, for example) would make the facet's reflection and
+refraction explicit, as `PlanarInterface` does between two media in transport
+([SEP 31](seps/archive/sep-0031-simulation-coupling.md), phase 3).
+
+**Vector coupling into a moving general guide.** The input port of a general guide whose
+geometry moves along z (a sampled path) carries no E/H reference at the entrance, so it
+admits only `same_basis`; `vector_paraxial` needs the entrance section's fields from the
+path ([SEP 31](seps/archive/sep-0031-simulation-coupling.md), phase 3).
 
 **Elliptical hollow capillary modes.** Extend hollow-capillary modelling to elliptical
 bores specified by their two semi-axes, with mode profiles, dispersion, wall loss and
@@ -933,7 +963,7 @@ distance, which the radial tutorial computes by hand.
 row of a mode set, so a Jones vector spread over the two members of a degenerate pair
 needs a hand-built input; a vector capillary run through the keyword interfaces is also
 not yet validated end to end ([polarisation](../guide/setup/polarisation.md)).
-[SEP 31](seps/sep-0031-simulation-coupling.md) proposes explicit incident-field
+[SEP 31](seps/archive/sep-0031-simulation-coupling.md) added explicit incident-field
 polarisation and coherent projection across target channels. The keyword-interface
 convenience and its complete vector-capillary qualification remain open.
 
@@ -942,21 +972,44 @@ paired gradient pressures is expressed as an integer index with the profile buil
 builder ([scans](../guide/workflows/scans.md)). Structured axis values would need explicit
 serialisation and provenance in the scan file.
 
-**Further offline elements.** [SEP 31](seps/sep-0031-simulation-coupling.md)
-proposes focusing, apertures and ordered field transport beside the existing
-material, mirror, grating and prism transfer functions
-([compression](../guide/workflows/compression.md)). Its aperture model shares
-`spatial.aperture_profile` and qualifies agreement with in-run aperture statistics
-where their plane, flux and paraxial assumptions agree
+**Further offline elements.** [SEP 31](seps/archive/sep-0031-simulation-coupling.md)
+added focusing, apertures and ordered field transport (`coupling.transport`) beside the
+existing material, mirror, grating and prism transfer functions
+([compression](../guide/workflows/compression.md)). Its aperture shares
+`spatial.aperture_profile` and its weighting with the in-run aperture statistics, so the
+two agree where their plane, flux and paraxial assumptions do
 ([SEP 23](seps/archive/sep-0023-far-field-aperture-spectra.md)).
 Offline propagation through a z-varying waveguide mode as an element remains open.
+
+**Field planes in the output schema.** Two changes wait for the next output-schema
+change: `field_plane` on the general modal route's accessor whitelist (the whitelist
+feeds the recorded schema), and the plane's frame recorded in `FieldPlane`, so that
+`transport` no longer needs a `frame=` argument for a plane written in a frame other
+than its medium's ([SEP 31](seps/archive/sep-0031-simulation-coupling.md), phases 2 and 4).
+
+**Regrid's band loss in physical energy.** `regrid` reports the share of a plane lost
+outside the new temporal band in the record's norm. Reporting it in physical energy as
+well, through the per-bin admittance the transport core already evaluates, would give the
+loss in joules beside the share ([SEP 31](seps/archive/sep-0031-simulation-coupling.md), phase 2).
+
+**A public per-bin spatial energy spectrum.** The transport elements use a private
+`_energy_spectrum` (`coupling/elements.py`); a public `spatial.spatial_energy_spectrum` per frequency bin would
+replace it. In the same change, `spatial.aperture_profile`'s docstring should say that its
+result is a field transmission under the default `"amplitude"` weighting and a power
+weight under `"quadrature"` ([SEP 31](seps/archive/sep-0031-simulation-coupling.md), phase 4).
+
+**Field planes from modified-noise runs.** `processing.field_plane` refuses every plane of
+a run with `noise="modified"`, whose saved field leaves the one-photon background to the
+auxiliary `noise_phase`. Reconstructing that phase into the plane, following the
+documented saved-field meaning, would lift the refusal
+([SEP 31](seps/archive/sep-0031-simulation-coupling.md), decision A2; [coupling simulations](../guide/workflows/coupling.md)).
 
 **Far-field detection beyond SEP 23.** The far-field statistics
 ([statistics](../guide/results/statistics.md), *Far-field apertures and angular regions*)
 leave the following in-run extensions for later, each as new names or fields that
 leave the six statistics' shapes unchanged
 ([SEP 23](seps/archive/sep-0023-far-field-aperture-spectra.md)).
-[SEP 31](seps/sep-0031-simulation-coupling.md) adds coherent offline observation
+[SEP 31](seps/archive/sep-0031-simulation-coupling.md) added coherent offline observation
 planes, apertures and polarisation optics; its partial coverage is noted below.
 
 - *Polarisation-resolved detection*: an analyser Jones vector on `ApertureSet`, or
@@ -971,7 +1024,7 @@ planes, apertures and polarisation optics; its partial coverage is noted below.
   two-dimensional slit (a line grid's aperture already is one).
 - *Radial and planar-hybrid geometry*: refused today, having no Cartesian transverse
   wavevector; a centred aperture on a radial grid would weight the Hankel
-  spectrum's rings. SEP 31 covers radial offline transport and apertures;
+  spectrum's rings. SEP 31 added radial offline transport and apertures;
   extensions to these in-run statistics remain open.
 
 ## Release preparation
@@ -1091,3 +1144,8 @@ backend is built. The pool sizes should be clamped to `numba.config.NUMBA_NUM_TH
 Likewise the field retention of [SEP 22](seps/archive/sep-0022-memory-lean-spatial-execution.md)
 (`fields=`, `field_planes=`) is set on `SimulationSettings` or through
 `run_scan`, not as a keyword of the `prop_*` functions. Offer both there together.
+
+**Two slow coupling-envelope tests in the medium tier.** Two of the recorded-envelope
+oracles in `tests/coupling/test_envelopes.py` take about 30–50 s each in the medium tier.
+If CI time becomes a constraint, they can move to the slow tier, with a cheaper check of
+the same envelope left in the medium tier ([SEP 31](seps/archive/sep-0031-simulation-coupling.md)).

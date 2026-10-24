@@ -305,8 +305,12 @@ it with `open_tdse_archive` ([the TDSE response](../media/tdse.md#the-raw-respon
 
 ## The schema version
 
-Every file records its `schema_version`; this release writes schema 22
-(`solprop.output.SCHEMA_VERSION`). A file of an earlier schema is still read, with the
+Every file records its `schema_version`; this release writes schema 24
+(`solprop.output.SCHEMA_VERSION`). Schema 24 adds the plane-reference record
+(`RunMetadata.reference`, [provenance](provenance.md#the-metadata-schema)), from which a
+saved plane is read back as a coherent field plane
+([coupling simulations](../workflows/coupling.md)); planes of an earlier file are not
+exchanged. A file of an earlier schema is still read, with the
 layout of its own version, and verifies against the digest it was stamped with. The
 schema version is inside the resume key ([the resume key](resuming.md#the-resume-key)),
 so a run is only continued in a file of the current schema: for an older file the

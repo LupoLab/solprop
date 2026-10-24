@@ -35,7 +35,6 @@ Proposals that are active, in draft, accepted, in progress or deferred.
 | [11](sep-0011-finite-density-gas-index.md) | Finite-density gas index and mixture optics | Draft | Change |
 | [17](sep-0017-gas-two-photon-ionisation.md) | Broadband two-photon continuum response beside strong-field ionisation | Accepted | Feature |
 | [21](sep-0021-absorbing-boundaries.md) | Temporal boundaries: wider windows, absorption and the escaped field | Draft | Change |
-| [31](sep-0031-simulation-coupling.md) | Coupling simulations and transporting ultrafast fields | Accepted | Feature |
 | [32](sep-0032-raman-maxwell-bloch.md) | Raman Maxwell–Bloch dynamics | Draft | Feature |
 | [33](sep-0033-single-precision-mlx.md) | Single-precision propagation, and an MLX backend for Apple GPUs | Draft | Feature |
 
@@ -70,6 +69,7 @@ Proposals that are final, rejected, withdrawn or superseded; the
 | [28](archive/sep-0028-free-space-evaluation.md) | Free-space evaluation at the memory bound | Final | Change |
 | [29](archive/sep-0029-compiled-backend-distribution.md) | The native backend in solprop, distributed as binaries | Final | Change |
 | [30](archive/sep-0030-standard-benchmark-suite.md) | Standard benchmark suite | Final | Process |
+| [31](archive/sep-0031-simulation-coupling.md) | Coupling simulations and transporting ultrafast fields | Final | Feature |
 | [34](archive/sep-0034-medium-flux.md) | Medium flux for free-space propagation | Final | Change |
 
 ```{toctree}
@@ -88,7 +88,6 @@ sep-0010-low-rank-raman
 sep-0011-finite-density-gas-index
 sep-0017-gas-two-photon-ionisation
 sep-0021-absorbing-boundaries
-sep-0031-simulation-coupling
 sep-0032-raman-maxwell-bloch
 sep-0033-single-precision-mlx
 template

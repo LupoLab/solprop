@@ -10,6 +10,7 @@ their assumptions; the [examples](../../examples/index.md) show them in context.
 
 design-tools
 compression
+coupling
 scans
 interactive
 luna

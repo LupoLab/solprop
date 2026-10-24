@@ -7,7 +7,9 @@ coordinates, or a line grid for a field uniform in one direction. Read the
 is unfamiliar. The [radial filament lesson](../../introduction/lessons/plot_03_filament.rst)
 and [Cartesian crossing beams](../../introduction/lessons/plot_04_crossing_beams.rst)
 introduce the main workflows. The [focused examples](../../auto_tutorials/free_space/index.rst)
-extend them to focusing, diffraction and analysis.
+extend them to focusing, diffraction and analysis. The
+[capillary coupling tutorial](../../auto_tutorials/free_space/plot_08_radial_capillary_coupling.rst)
+prepares a beam in a gas gap and couples its entrance field into a capillary.
 
 ```{toctree}
 :maxdepth: 1

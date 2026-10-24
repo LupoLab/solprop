@@ -39,6 +39,13 @@ a new `Simulation` with the parent grid, modes, profiles and frame, the replacem
 responses, this `spectrum` and `initial_z=z_start`; include the parent hash and plane
 index in its `configuration` provenance and write a new output file.
 
+The same continuation can be made through plane exchange, which checks the basis and
+records the provenance for you: `couple(field_plane(parent_output, plane_index),
+simulation.input_port(z_start), model=CouplingModel("same_basis")).launch` is a launch
+that `simulation.with_input` accepts, at `z_start`, with the parent named in
+`configuration["coupling"]`
+([coupling simulations](../workflows/coupling.md#relaunching-into-the-same-basis)).
+
 For a TDSE response, `SimulationSettings.tdse_execution` explicitly selects the
 atomic runtime resources beside `backend="numpy_ref"` and a `Multistep` integrator.
 The declared response sampling refines the existing fine lattice once, retaining

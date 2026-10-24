@@ -6,7 +6,9 @@ figures of {mod}`solprop.plotting`, exactly as for any other run ([analysing a
 run](../../auto_tutorials/basics/plot_03_analysing_a_run.rst), [output](output.md)). This
 chapter covers what is different about a capillary with a coherent wall and about the
 general modal route: which quantities a basis defines, what the record holds, and how the
-physical fields are rebuilt.
+physical fields are rebuilt. A saved plane read as a field plane, with its reference,
+metric and provenance, for transport or for launching another run, is
+{py:func}`~solprop.processing.planes.field_plane` ([coupling simulations](../workflows/coupling.md)).
 
 ## A capillary with a coherent wall
 

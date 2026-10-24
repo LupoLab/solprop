@@ -40,6 +40,88 @@ The first public release. It contains:
   `SimulationSettings.adiabatic_accuracy`). `poynting_spectrum` is removed:
   `beam_spectrum` is the axial-flux spectrum. Kernel schema 35 (`flux`) and output
   schema 23 (`flux_model`, `flux_plan`).
+- **Incident beams into general modal guides**
+  ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0031-simulation-coupling.html),
+  phases 1 and 3). `from_waveguide(provider=..., incident=SpatialPulse(...),
+  coupling=CouplingModel("vector_paraxial", model_error=...))` and `prop_waveguide`
+  launch the share of an incident beam that the guide's channels capture. The beam's
+  energy is met over its whole plane in the core medium, and the light that misses is
+  lost rather than restored. The coupling's `CouplingReport` is recorded in
+  `configuration["launch"]`, and `SpatialPulse.incident` samples a beam normalised over
+  its own plane. The node-sampled `transverse=` profile, its rescaling to `energy=`, the
+  3 % uncaptured warning, `LAUNCH_UNCAPTURED_WARNING` and `IncidentLaunch` are removed;
+  a strongly guiding core is refused by the vector model's contrast screen.
+- **Plane exchange between simulations**
+  ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0031-simulation-coupling.html),
+  phase 2). `solprop.coupling` holds `FieldPlane`, a coherent field at one plane with
+  its reference, geometry, metric, basis identity and provenance; `regrid`, the direct
+  finite-time Fourier remap between temporal grids with its loss report and no
+  renormalisation; and `InputPort`. `processing.field_plane` reads a saved plane back
+  (refusing a modified-noise run's, whose auxiliary noise phase it does not reconstruct),
+  `Simulation.input_port()` describes a simulation's entrance and `with_input` takes a
+  launch bound to it, recording `configuration["coupling"]` and drawing no new noise.
+  Output schema 24 records each run's plane-reference record (`RunMetadata.reference`).
+- **Coupling models**
+  ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0031-simulation-coupling.html),
+  phase 3). `couple(plane, port, model=CouplingModel(kind, model_error=...))` is the one
+  path from a field plane to a launch bound to a port, returning the launch and an
+  immutable `CouplingReport`. `same_basis` copies an identical basis, applies a declared
+  energy-preserving `BasisChange` or recovers a general modal plane by the flux pairing;
+  `scalar_paraxial` fits Gaussian, analytic or sampled beams into a capillary's HE1m
+  modes, one capillary's exit into another of any radius, and one weakly guiding
+  step-index fibre into another, in the common paraxial measure; `vector_paraxial`
+  couples into a general modal guide with the forward H closure. Each is admitted
+  against its energy budget: angular tails, the weak-guidance contrast screen or a
+  recorded pair envelope (`CAPILLARY_ENVELOPE`, `STEP_INDEX_ENVELOPE`), metric defects,
+  the H closure, a passive-map certificate and numerical errors; uncaptured energy is
+  reported only where a common positive metric exists. `FieldPlane.from_analytic`
+  samples an analytic field with its support and domain checks, `FieldPlane.from_pulse`
+  takes a reference `index=`, `field_plane(run, source=...)` carries an ordinary mode
+  set's scalar profiles (`ScalarModeBasis`), and `Outcouple` synthesises a guide's exit
+  field on a spatial grid under a declared interface model. Ports state the models they
+  admit. The phase-2 `same_basis` function is removed in favour of `couple`.
+- **Transport between planes**
+  ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0031-simulation-coupling.html),
+  phase 4). `coupling.transport` carries a radial or Cartesian `FieldPlane` through an
+  ordered sequence of linear elements -- `FreeSpace` (exact angular-spectrum
+  propagation, with an explicit `"angular"` or `"fresnel"` output plane), `ThinLens`,
+  `Aperture`, `TransmissionMask`, `Alignment`, `PolarisationTransform`, `Mirror`,
+  `PlanarInterface` and `SpectralTransfer` (any `optics` transfer function or `Chain`)
+  -- and returns the plane with its reference, geometry, medium, metric and provenance
+  updated and a sequential ledger in joules. Thin screens carry their angular-flux
+  certificate; undersampled phases, wrapped rays and evanescent content are refused
+  unless their removal is declared, and a same-grid field filling the window's outer
+  band is refused beyond `FreeSpace(edge_tolerance=...)` (default 1e-4). Refusals raise `CouplingError`.
+- **Coupled workflows**
+  ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0031-simulation-coupling.html),
+  phase 5). The eight compositions of the coupling chapter -- capillary into capillary,
+  a nonlinear gas gap into a capillary, fibre into fibre, Gaussian, analytic and
+  Cartesian beams into a guide, a guide's far field, and SPM, compression and relay
+  optics into a second capillary -- run as short integrated tests that assert their
+  energy ledgers, with sources and receivers on different CPU backends. A plane's path
+  certificate (`FieldPlane.certificate`, `CouplingReport.certificate`,
+  `TransportReport.source_certificate`) is the rebuilt `AdiabaticAdmission`, not its raw
+  record. `CAPILLARY_ENVELOPE` now bounds the scalar model against Marcatili's leaky core
+  field (bound 6e-3 at its range's top, delta = 1e-2, scaled by the pair's delta) rather
+  than against the scalar profile itself; bins outside an envelope's range, including a
+  fibre's V across the band, are counted in full; the modal overlap quadrature enters
+  the budget as `2 delta + delta^2`. `scalar_paraxial` also admits a radial or
+  Cartesian beam into a weakly guiding step-index fibre (LP01, V 1.5 to 2.4, contrast
+  to 0.01) within `STEP_INDEX_BEAM_ENVELOPE`, the scalar overlap against the beam's
+  full-vector flux coupling into the exact HE11 pair maximised over every field in the
+  admitted cone (bound 1e-2 at contrast 0.01, scaled by the fibre's contrast).
+  `same_basis`'s flux recovery of a general modal plane allows the plane's own metric
+  defect as well as the port's when it checks that the field lies in the port's span,
+  and reports both.
+  the budget as `2 delta + delta^2`.
+  `VECTOR_STEP_INDEX_ENVELOPE` bounds `vector_paraxial` into a step-index guide
+  against an independent full-vector mode-matching solution of the entrance facet,
+  maximised over every incident field in the admitted cone (bound 3.0e-3 at contrast
+  0.05, twice the Fresnel ceiling a mode near cutoff approaches, V 1.5 to 8, scaled by
+  the squared contrast); its item is counted and a guide outside its range is refused
+  by name. A step-index
+  port carries `InputPort.normalised_frequency`; a graded-index guide keeps an
+  uncounted item without a value.
 - **Media and responses.**
   - Gases, gas mixtures, glasses and metals from the [optmat](https://github.com/LupoLab/optmat)
     material library.

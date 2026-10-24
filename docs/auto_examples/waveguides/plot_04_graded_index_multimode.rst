@@ -48,8 +48,9 @@ reduced to an effective area or a table of overlap integrals.
 The fibre is a 100 um core (50 um radius), parabolic, index contrast
 :math:`\Delta = 0.0095` (a numerical aperture of 0.2), on dispersive fused silica.
 The pump is a 300 fs pulse at 1064 nm with 500 kW peak power -- well below the
-critical power for self-focusing, about 4 MW -- in a centred Gaussian beam of 12 um
-waist, declared as a **transverse field** and projected onto the fibre's channels.
+critical power for self-focusing, about 4 MW -- carried by a centred Gaussian beam of
+12 um waist, declared as an **incident beam** and coupled into the fibre's channels
+under the vector paraxial model (:doc:`/guide/workflows/coupling`).
 
 **What to look for.** The on-axis intensity oscillates at the self-imaging period
 from the entrance; the spectrum grows sidebands near the GPI frequencies predicted
@@ -60,20 +61,20 @@ channel is redistributed by the nonlinearity.
 radially symmetric modes, so the guide is the weak-guidance ``LP_0m`` family (the
 provider's scalar approximation, whose contrast limit this fibre is inside); four
 of them, because the guide must be solved over the run's whole *active* band, which
-reaches 3.6 um, and a fifth ``LP_0m`` channel is not bound there. The projection
-reports the
-fraction of the requested transverse profile
-outside those four channels. Propagation then uses only the captured profile,
-renormalised to the declared pulse energy; the uncaptured spatial content is
-not propagated. This is a truncated model, not a mode-count convergence study. The
-quadrature
+reaches 3.6 um, and a fifth ``LP_0m`` channel is not bound there. The beam's
+peak power and energy are those of the whole incident beam; the run launches only
+the share of it the four channels capture -- light they miss would be lost at the
+entrance, not restored -- and the coupling report gives both energies. A 12 um beam
+is close to the fibre's fundamental mode (about 9 um), so the four ``LP_0m``
+channels take all but a few parts in :math:`10^5` of it. This is a truncated
+model, not a mode-count convergence study. The quadrature
 uses two angular nodes, exact for fields with no azimuthal dependence. Raman
 scattering is left out, to keep the run to minutes: a silica core would declare
 :class:`~solprop.nonlinear.raman.SilicaTensorResponse` beside its Kerr term. The
 self-imaging period is set by the finite-element solve of the parabolic core, whose
 propagation constants converge at second order in the element count.
 
-.. GENERATED FROM PYTHON SOURCE LINES 63-72
+.. GENERATED FROM PYTHON SOURCE LINES 64-73
 
 The fibre
 ---------
@@ -85,21 +86,20 @@ a small permittivity law of our own -- anything with ``permittivity``,
 (:class:`~solprop.modes.material.PermittivityLaw`). The core declares its Kerr
 response by :math:`n_2`, at the wavelength it was measured.
 
-.. GENERATED FROM PYTHON SOURCE LINES 72-154
+.. GENERATED FROM PYTHON SOURCE LINES 73-154
 
 .. code-block:: Python
 
 
     import time
-    import warnings
     from dataclasses import dataclass
 
     import matplotlib.pyplot as plt
     import numpy as np
 
     from solprop.constants import C
+    from solprop.coupling import CouplingModel
     from solprop.driver import prop_waveguide
-    from solprop.exceptions import GeneralModalBasisWarning
     from solprop.grid import FieldGrid
     from solprop.modes import (
         GradedIndexProvider,
@@ -112,8 +112,8 @@ response by :math:`n_2`, at the wavelength it was measured.
     from solprop.plotting import prop_2d
     from solprop.processing import get_spectral_density
     from solprop.processing.modal import physical_energy, reconstructed_flux
+    from solprop.pulses import GaussianPulse, SpatialPulse
     from solprop.translate.general import general_modal_route
-    from solprop.translate.modal_tables import project_transverse_field
 
     RADIUS = 50e-6
     """Core radius, m."""
@@ -128,13 +128,13 @@ response by :math:`n_2`, at the wavelength it was measured.
     """Fibre length, m."""
 
     WAIST = 12e-6
-    """1/e field radius of the launched Gaussian beam, m."""
+    """1/e field (1/e^2 intensity) radius of the incident Gaussian beam, m."""
 
     PEAK_POWER = 5e5
-    """Launched peak power, W."""
+    """Peak power of the whole incident beam, W."""
 
     FWHM = 300e-15
-    """Launched duration, s."""
+    """Incident duration, s."""
 
     started = time.perf_counter()
     silica = IndexMaterial(fused_silica(model="malitson_1965/sellmeier"))
@@ -198,8 +198,8 @@ guide is solved at 97 frequencies across the **active** band -- from half the
 grid's lowest declared frequency, 3.6 um, to its highest -- on a node rule of two
 Gauss points per radial element and two angular nodes. The route gates the
 interpolated basis's departure from orthonormality where the launched pulse is,
-and warns (it is silenced here, and quoted) that at the very longest active
-wavelengths, 3.5 um, where this run puts no light, it is 3e-4.
+and would warn if it exceeded its budget anywhere else in the active band; this
+guide's sampling passes without a warning.
 
 .. GENERATED FROM PYTHON SOURCE LINES 162-174
 
@@ -242,16 +242,11 @@ The channels and the self-imaging period. For an ideal infinite parabola the
 the pattern repeats every ``z_p = pi a / sqrt(2 Delta)``. The solved spacings of
 the finite, dispersive fibre are close to that and not equal to it.
 
-.. GENERATED FROM PYTHON SOURCE LINES 179-207
+.. GENERATED FROM PYTHON SOURCE LINES 179-202
 
 .. code-block:: Python
 
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", GeneralModalBasisWarning)
-        route = general_modal_route(
-            guide, grid, z_max=LENGTH, omega_reference=float(grid.omega0)
-        )
     centre = int(np.argmin(np.abs(grid.omega - grid.omega0)))
     neff = np.array(
         [
@@ -289,89 +284,63 @@ the finite, dispersive fibre are close to that and not equal to it.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 208-215
-
-The launch
-----------
-A Gaussian beam at the guide's nodes, the same at every frequency. The route
-projects it through the flux pairing onto the four channels and reports the
-share of it they do not capture: the higher ``LP_0m`` groups a 12 um beam also
-excites, which this guide does not carry. The energy is not reduced by it -- the
-run launches the declared energy into what the channels capture.
-
-.. GENERATED FROM PYTHON SOURCE LINES 215-232
-
-.. code-block:: Python
-
-
-    radius = np.hypot(nodes.xy[:, 0], nodes.xy[:, 1])
-    beam = np.zeros((nodes.xy.shape[0], 3))
-    beam[:, 0] = np.exp(-((radius / WAIST) ** 2))
-    projection = project_transverse_field(
-        route.tables, np.repeat(beam[:, :, None], grid.n_omega, axis=2)
-    )
-    shares = np.abs(projection.amplitudes[:, centre]) ** 2
-    shares /= shares.sum()
-    print(
-        "launched shares:",
-        ", ".join(
-            f"{name} {share:.3f}" for name, share in zip(labels, shares, strict=True)
-        ),
-    )
-    print(f"share of the beam the four channels miss: {projection.residual_share:.3f}")
-
-
-
-
-
-.. rst-class:: sphx-glr-script-out
-
- .. code-block:: none
-
-    launched shares: LP0,1 0.933, LP0,2 0.062, LP0,3 0.004, LP0,4 0.000
-    share of the beam the four channels miss: 0.346
-
-
-
-
-.. GENERATED FROM PYTHON SOURCE LINES 233-241
+.. GENERATED FROM PYTHON SOURCE LINES 203-225
 
 The run
 -------
-``prop_waveguide(..., provider=guide, transverse=beam)``. Shot noise is added to
-the input (``noise="input"``, one photon per bin and channel, with a fixed seed),
-because GPI grows from noise at frequencies the pump does not contain. ``dz_max``
-is a tenth of the self-imaging period: the source oscillates at that period, and
-the adaptive stepper would otherwise try steps that straddle it. The default
-cubic is the real one, so the third harmonic is carried too.
+``prop_waveguide(..., provider=guide, incident=beam, coupling=...)``. The beam is
+a :class:`~solprop.pulses.SpatialPulse`: a Gaussian of the 12 um waist, centred
+on the axis and polarised along x, carrying the 300 fs pulse; its energy is the
+whole beam's, over its own plane. The run couples it into the four channels under
+the vector paraxial model -- the flux pairing of the beam's field, with the forward
+paraxial closure for its magnetic field, against the channels' own E/H at the
+nodes -- whose admission budget, ``model_error``, bounds that closure's error,
+the guide's contrast and the angular content of the beam and channels. The
+recovered amplitudes are launched unscaled: the launched energy is the share of
+the incident energy the channels capture, and anything they miss is lost at the
+entrance. ``model_error=0.1`` admits this guide: the weak-guidance contrast,
+0.0095, must stay below an eighth of the budget, and the counted terms (printed
+below) sum to about 0.02.
 
-.. GENERATED FROM PYTHON SOURCE LINES 241-269
+Shot noise is added to the input (``noise="input"``, one photon per bin and
+channel, with a fixed seed), because GPI grows from noise at frequencies the pump
+does not contain. ``dz_max`` is a tenth of the self-imaging period: the source
+oscillates at that period, and the adaptive stepper would otherwise try steps that
+straddle it. The default cubic is the real one, so the third harmonic is carried
+too.
+
+.. GENERATED FROM PYTHON SOURCE LINES 225-258
 
 .. code-block:: Python
 
 
-    energy = PEAK_POWER * FWHM * np.sqrt(np.pi / (4.0 * np.log(2.0)))
+    beam = SpatialPulse(
+        GaussianPulse(
+            wavelength=WAVELENGTH,
+            fwhm=FWHM,
+            energy=PEAK_POWER * FWHM * np.sqrt(np.pi / (4.0 * np.log(2.0))),
+        ),
+        WAIST,
+    )
+    coupling = CouplingModel("vector_paraxial", model_error=0.1)
 
 
     def propagate(length, n_save):
-        """Propagate the declared beam through `length` of the fibre."""
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", GeneralModalBasisWarning)
-            return prop_waveguide(
-                (),
-                length,
-                provider=guide,
-                grid=grid,
-                transverse=beam,
-                lambda0=WAVELENGTH,
-                fwhm=FWHM,
-                energy=energy,
-                noise="input",
-                seed=41,
-                dz_max=z_p / 10.0,
-                n_save=n_save,
-                progress="none",
-            )
+        """Propagate the incident beam through `length` of the fibre."""
+        return prop_waveguide(
+            (),
+            length,
+            provider=guide,
+            grid=grid,
+            incident=beam,
+            coupling=coupling,
+            lambda0=WAVELENGTH,
+            noise="input",
+            seed=41,
+            dz_max=z_p / 10.0,
+            n_save=n_save,
+            progress="none",
+        )
 
 
     run = propagate(LENGTH, 201)
@@ -396,7 +365,80 @@ cubic is the real one, so the third harmonic is carried too.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 270-282
+.. GENERATED FROM PYTHON SOURCE LINES 259-269
+
+The launch account
+------------------
+The run records the coupling's report as ``configuration["launch"]``: the
+incident energy over the beam's whole plane, the energy the channels launch, the
+captured energy where the model defines one, and the admission budget against
+``model_error``. The vector model names no captured or uncaptured energy -- the
+flux pairing and the incident measure are not one positive metric -- so its
+launched share is the measure of what the four channels take: here all but a
+few parts in :math:`10^5`, mostly in ``LP_01``. The launched energy is what the
+run's ``physical_energy`` reads at the entrance.
+
+.. GENERATED FROM PYTHON SOURCE LINES 269-293
+
+.. code-block:: Python
+
+
+    launch = run.metadata.configuration["launch"]
+    print(launch)
+    captured = launch.captured_energy
+    print(
+        f"incident {launch.incident_energy * 1e9:.2f} nJ, "
+        f"launched {launch.launched_energy * 1e9:.2f} nJ "
+        f"({launch.efficiency:.5f} of the incident energy), captured "
+        + (
+            f"{captured * 1e9:.2f} nJ"
+            if captured is not None
+            else f"not defined ({launch.captured_reason})"
+        )
+    )
+    print(f"admission budget {launch.budget:.3e} of model_error {launch.model_error:g}")
+    entrance = np.sum(np.abs(np.asarray(run["field"])[0, :, 0, :]) ** 2, axis=-1)
+    print(
+        "launched shares:",
+        ", ".join(
+            f"{name} {share:.3f}"
+            for name, share in zip(labels, entrance / entrance.sum(), strict=True)
+        ),
+    )
+
+
+
+
+
+.. rst-class:: sphx-glr-script-out
+
+ .. code-block:: none
+
+    CouplingReport: a field coupled into an input port
+      model:          vector_paraxial
+      incident:       159.7 nJ
+      launched:       159.7 nJ
+      launched share: 1.0000 of the incident energy
+      uncaptured:     not defined
+      budget:         1.832e-02 of model_error 0.1
+      angular:        1.250e-02 (field) incident field: cone-rule allocation (1 - cos the...
+      numerical:      0.000e+00 (field) source domain/resolution 0.0e+00, field beyond th...
+      source metric:  9.473e-05 (field) common measure M0 against the plane's native metric
+      target metric:  2.517e-08 (map) F at the port's nodes against the native Q
+      contrast:       9.500e-03 (model) weak-guidance screen Delta over the guide's regions
+      closure:        4.617e-03 (map) H_t = Y0 z x E_t against provider H, field error 2....
+      angular:        0.000e+00 (map) retained target subspace: cone-rule allocation (1 -...
+      envelope:       n/a (model) no recorded pair envelope: omitted facet reflection is ...
+      passivity:      1.107e-03 (field) apparent gain within the model's defects, reporte...
+      exterior:       zero
+    incident 159.67 nJ, launched 159.67 nJ (0.99998 of the incident energy), captured not defined (vector_paraxial recovers coordinates with the flux pairing F; F and the incident measure M0 are not one positive metric, so no orthogonal remainder is a physical loss (section 4.3))
+    admission budget 1.832e-02 of model_error 0.1
+    launched shares: LP0,1 0.933, LP0,2 0.062, LP0,3 0.004, LP0,4 0.000
+
+
+
+
+.. GENERATED FROM PYTHON SOURCE LINES 294-306
 
 Self-imaging
 ------------
@@ -411,17 +453,16 @@ which is why the guide and its tables are passed beside the output. The dashed
 lines mark the period the channels' spacings predict. The launch is mostly
 ``LP_01`` with a few per cent of ``LP_02``, so what oscillates is their beat.
 
-.. GENERATED FROM PYTHON SOURCE LINES 282-312
+.. GENERATED FROM PYTHON SOURCE LINES 306-335
 
 .. code-block:: Python
 
 
     imaging = propagate(4.0 * z_p, 81)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", GeneralModalBasisWarning)
-        imaging_route = general_modal_route(
-            guide, grid, z_max=4.0 * z_p, omega_reference=float(grid.omega0)
-        )
+    imaging_route = general_modal_route(
+        guide, grid, z_max=4.0 * z_p, omega_reference=float(grid.omega0)
+    )
+    radius = np.hypot(nodes.xy[:, 0], nodes.xy[:, 1])
     axis_nodes = radius <= np.min(radius) * 1.0001
     z_imaging = np.asarray(imaging["z"])
     on_axis = np.array(
@@ -457,7 +498,7 @@ lines mark the period the channels' spacings predict. The launch is mostly
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 313-320
+.. GENERATED FROM PYTHON SOURCE LINES 336-343
 
 The spectrum
 ------------
@@ -467,7 +508,7 @@ narrow one near 785 nm from about 4 cm, and a broader one near 1.45 um from abou
 5.5 cm. The pulse spreads in time as it goes, because self-phase modulation in
 normal dispersion broadens it.
 
-.. GENERATED FROM PYTHON SOURCE LINES 320-333
+.. GENERATED FROM PYTHON SOURCE LINES 343-356
 
 .. code-block:: Python
 
@@ -496,7 +537,7 @@ normal dispersion broadens it.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 334-344
+.. GENERATED FROM PYTHON SOURCE LINES 357-367
 
 The spectral energy density summed over the channels, at the entrance and every
 2.5 cm, on a logarithmic scale, with the first GPI sideband pair predicted from
@@ -509,7 +550,7 @@ band is *not* at the predicted Stokes position (1.58 um), nor at the
 energy-conserving partner of the anti-Stokes band (1.64 um); the leading-order
 formula does not explain it, and this page leaves it as an open observation.
 
-.. GENERATED FROM PYTHON SOURCE LINES 344-385
+.. GENERATED FROM PYTHON SOURCE LINES 367-408
 
 .. code-block:: Python
 
@@ -573,7 +614,7 @@ formula does not explain it, and this page leaves it as an open observation.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 386-394
+.. GENERATED FROM PYTHON SOURCE LINES 409-417
 
 The channels
 ------------
@@ -584,7 +625,7 @@ orthonormal in true power, so a channel's energy is the frequency sum of its own
 small, fast ripple is the Kerr exchange between the channels at the beat period;
 the slow drift is what the nonlinearity moves over centimetres.
 
-.. GENERATED FROM PYTHON SOURCE LINES 394-417
+.. GENERATED FROM PYTHON SOURCE LINES 417-440
 
 .. code-block:: Python
 
@@ -625,20 +666,20 @@ the slow drift is what the nonlinearity moves over centimetres.
  .. code-block:: none
 
     physical energy: 159.67 nJ in, 159.68 nJ out
-    entrance: LP0,1 9.33e-01, LP0,2 6.24e-02, LP0,3 4.12e-03, LP0,4 2.74e-04
-    exit    : LP0,1 9.28e-01, LP0,2 6.94e-02, LP0,3 2.45e-03, LP0,4 1.10e-04
+    entrance: LP0,1 9.33e-01, LP0,2 6.25e-02, LP0,3 4.13e-03, LP0,4 2.75e-04
+    exit    : LP0,1 9.28e-01, LP0,2 6.95e-02, LP0,3 2.46e-03, LP0,4 1.10e-04
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 418-422
+.. GENERATED FROM PYTHON SOURCE LINES 441-445
 
 Which channel carries which band: the exit spectrum of each channel. The pump
 stays mostly in ``LP_01``; the bands the parametric process built are shared
 between the channels, because the process that made them is the beat between
 the channels.
 
-.. GENERATED FROM PYTHON SOURCE LINES 422-437
+.. GENERATED FROM PYTHON SOURCE LINES 445-460
 
 .. code-block:: Python
 
@@ -669,13 +710,13 @@ the channels.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 438-441
+.. GENERATED FROM PYTHON SOURCE LINES 461-464
 
 Runtime and reproducibility
 ---------------------------
 A ten-centimetre and a 4.5 mm run of four channels on the general modal route.
 
-.. GENERATED FROM PYTHON SOURCE LINES 441-448
+.. GENERATED FROM PYTHON SOURCE LINES 464-471
 
 .. code-block:: Python
 
@@ -694,12 +735,12 @@ A ten-centimetre and a 4.5 mm run of four channels on the general modal route.
 
  .. code-block:: none
 
-    3036 s; backend native, 1 threads
+    623 s; backend native, 18 threads
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 449-455
+.. GENERATED FROM PYTHON SOURCE LINES 472-478
 
 Related reading
 ---------------
@@ -711,7 +752,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (50 minutes 36.299 seconds)
+   **Total running time of the script:** (10 minutes 22.839 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_04_graded_index_multimode.py:

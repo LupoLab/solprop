@@ -234,6 +234,44 @@ admitted only when every propagating column meets the adiabatic certificate:
 `delta* = expm1(Lambda tanh Lambda)` within `AdiabaticAccuracy` (default 1e-4 each;
 `solprop.adiabatic`).
 
+**Field planes and coupling** ([SEP 31](seps/archive/sep-0031-simulation-coupling.md)). A
+`FieldPlane` holds a stored spectrum exactly as the output does: the optics-convention
+raw DFT of each column, referenced to the window centre, in √W (ordinary and general
+modal coordinates), V m (the Hankel spectrum of a radial field) or V/m (the DFT of a
+Cartesian one).
+
+- *Plane reference.* The absolute spectrum is
+  `E_abs(omega) = E_stored(omega) exp[i(phi + omega tau)]` with `omega` the absolute
+  angular frequency of the bin, `tau` the absolute time of the record's `t = 0` and
+  `phi` a carrier phase. A run's reference is the integral of the affine term its
+  linear operator removed, `phi + omega tau = integral_0^z R dz`,
+  `R = beta0 + beta1 (omega - omega_o)`, with `omega_o` the frame's reference
+  frequency on an envelope grid and zero on a field grid (where `beta0` is kept in
+  the operator and contributes nothing here). Output schema 24 stores the exact
+  Chebyshev antiderivatives of the frame tables, so the pair is rebuilt from the
+  file; a launched run inherits its source plane's pair as its origin.
+- *Affine phase and delay.* An operation that removes a known affine term adds it to
+  `(phi, tau)`, so `E_abs` is unchanged and a pulse is never translated out of its
+  window: a free-space gap removes `R L` of its medium (or `beta1(omega0) L` without
+  a frame), and `regrid(delay=, phase=)` moves the record against the reference. A
+  spectral element that drops its own constant phase or group delay (a grating or
+  prism pair, measured mirror data) clears that term's entry in
+  `PlaneReference.calibrated`, and `absolute()` then refuses rather than invent it.
+- *Spectral-density scaling.* A raw DFT bin of a localised record is
+  `q E(omega)/dt`, with `E(omega)` the optics-convention transform in V s/m (times
+  the transverse unit) and `q = 1` on a field grid, 2 on an envelope grid, whose
+  envelope is the analytic signal. Moving a record between lattices keeps the
+  continuous transform, not the bin values: target bin `m` receives
+  `(dt/(dt' q'_m)) exp(i dphi) sum_j a_j exp(i omega'_m (t_j + Delta))`
+  (`coupling.regrid`), with `q'` the target's factor (2 on a field grid's interior
+  bins), so equal-bin copying is exact only on an identical lattice.
+- *Energy.* Each representation keeps its native metric: the identity for
+  true-power coordinates, `conj(W)` for a declared general basis, the axial admittance
+  `Y_z` above for a spatial plane. The scalar coupling model fits in the common
+  paraxial measure `M0 = n_ref eps0 c dA/2`, `n_ref` the receiving port's core index;
+  the captured and uncaptured energies are reported in it, and the launch in the
+  target's native metric. Nothing is rescaled to a requested energy.
+
 ## 5. Modes and polarisation
 
 - `n_eff(ω, z)` complex with `Im n_eff > 0` for loss; `n_eff − 1` computed directly for gases.

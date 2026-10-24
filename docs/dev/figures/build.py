@@ -598,6 +598,20 @@ MODULES = {
         Module("optics.py"),
         Module("tools.py"),
         Module(
+            "coupling/",
+            (
+                "plane",
+                "port",
+                "remap",
+                "models",
+                "coupler",
+                "outcouple",
+                "envelopes",
+                "transport",
+                "elements",
+            ),
+        ),
+        Module(
             "physdata/",
             (
                 "sellmeier",
@@ -669,6 +683,7 @@ MODULES = {
                 "planar",
                 "spatial",
                 "flux",
+                "coupling",
                 "responses",
                 "ionisation",
                 "plasma_integration",
@@ -792,6 +807,7 @@ MODULES = {
                 "compression",
                 "mixtures",
                 "modal",
+                "planes",
                 "scans",
             ),
         ),

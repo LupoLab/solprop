@@ -32,7 +32,7 @@ paths. Qualify NumPy, Numba CPU, native CPU and bounded CUDA/HIP cases before
 activating the changed public semantics together.
 This is a clean breaking change with no legacy normalisation or old-file
 migration. It is the shared prerequisite for coupling in
-[SEP 31](../sep-0031-simulation-coupling.md) and solid carriers in
+[SEP 31](sep-0031-simulation-coupling.md) and solid carriers in
 [SEP 5](../sep-0005-solid-ionisation.md), not an implementation of either feature.
 
 ### 2. Motivation and scope
@@ -95,7 +95,7 @@ diagonal operator, but omits the changing-admittance amplitude term.
 This is a code/design audit, not a qualification result.
 
 [SEP 5](../sep-0005-solid-ionisation.md) originally sketched scalar flux.
-[SEP 31](../sep-0031-simulation-coupling.md)'s review separated this prerequisite
+[SEP 31](sep-0031-simulation-coupling.md)'s review separated this prerequisite
 from coupling and explicitly chose physical launch energy and preservation of
 radial gradients. [SEP 8](../sep-0008-quadratic-crystal-optics.md)'s anisotropic
 vector E/H metric remains distinct; [SEP 9](../sep-0009-propagation-statistics.md)

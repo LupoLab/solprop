@@ -1676,6 +1676,7 @@ that execution space.
 | Adams snapshots and a resume that continues the history (`MarchSnapshot`) | yes | yes | yes: the resident engine copies its rows (`store`, and `states`, `rates`, `applied` where kept) to the host at a kept save and back on a resume | compiles; not qualified |
 | field-free observation (`observe(field=False)`), the runner, a transverse collar's rate and a set evanescent rate on the separable element | yes | yes | yes (field-free observation needs no native change; the rate is one view in `SpatialCoefficients`) | compiles; not qualified |
 | materials from optmat: gas Raman leaves of many rows on gradients, rate tables, optmat walls, the silica bundles | yes | yes | yes | not qualified |
+| coupling between runs (`field_plane`, `regrid`, `couple`, `Outcouple`, `transport`, `with_input`; SEP 31) | host-side: any source and receiving backend | host-side | host-side | receiving runs not qualified |
 
 **Materials from optmat** ([SEP 3](seps/archive/sep-0003-optmat-materials.md), a run under
 `MaterialSelection`) reach the backends as the arrays any other run carries: index and
@@ -1692,6 +1693,14 @@ count: `native` holds a leaf's `n_terms × 2 n_to` rows and its per-stage decay 
 views sized from the problem. A fill whose populations follow independent density
 paths takes the z table, which every CPU backend runs (on `native` the CPU build only);
 a shared pressure path does not. Device builds are not qualified on these runs.
+
+**Coupling between runs** ([SEP 31](seps/archive/sep-0031-simulation-coupling.md)) never crosses
+the seam: a field plane is read from a run's stored output and its record, coupled and
+transported in NumPy and SciPy on the host, and installed in the receiving run as its
+initial state through `with_input`. A source and a receiver may therefore run on
+different backends; the integrated compositions (`tests/coupling/test_workflows.py`)
+pair `numpy_ref` and `numba_cpu` sources with native CPU receivers, and the relaunch
+tests cover every pair of the three CPU backends. Device receivers are not qualified.
 
 `numpy_ref` is the oracle: every other backend is qualified against it, and it is the one
 to run when two backends disagree. `numba_cpu` is always installed. The native backend's device builds

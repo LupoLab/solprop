@@ -113,7 +113,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 23
+SCHEMA_VERSION = 24
 """Version of the record layout; incremented whenever a stored field changes meaning.
 
 Version 9 adds the SEP 13 stepping method. Independent version-10 branches added
@@ -170,6 +170,14 @@ axial Poynting flux of the medium at the plane: the spatial record names the
 ``flux_model`` and carries the run's plane-measure coefficients (``flux_plan``), from
 which a saved plane's admittance at its own position is rebuilt. Earlier spatial
 records used the vacuum measure and are refused by the processing that needs one.
+Version 24 (SEP 31) carries the plane-reference record (``RunMetadata.reference``):
+the antiderivatives of the frame quantities the run's linear operator removed, the
+frequency origin of its linear term, the carrier, and the reference origin of its
+path, which a run launched from another run's plane inherits with that parent's
+identity (``configuration["coupling"]``). Any saved plane's absolute phase and time
+reference is rebuilt from it alone. The tables are derived numbers, outside the hash;
+the inherited origin is in the configuration, inside it. Planes of an earlier file
+cannot be exchanged.
 """
 
 INLINE_ARRAY_LIMIT = 2**20
@@ -2541,6 +2549,21 @@ class RunMetadata(Displayed):
         family, the counts, the nodes and the physical weights. Output schema 17 and
         in its resume key (SEP 19). ``None`` for the mode-averaged and spatial routes,
         and for any record older than schema 17, where it means "not recorded".
+    reference : collections.abc.Mapping or None
+        The plane-reference record of output schema 24 (SEP 31): ``carrier``, the
+        grid's reference frequency in rad/s; ``origin``, the reference of the run's
+        path origin (phase, delay, calibrated), inherited from a parent plane for a
+        run launched from one; ``parent``, that parent's provenance or ``None``;
+        ``frame``, the frame integral of
+        :func:`solprop.translate.coupling.frame_record`, or ``None`` for an operator
+        supplied without frame tables; and ``basis``, the route and the basis
+        identity (:func:`solprop.coupling.plane.basis_identity`) at each planned plane
+        ``z``, the launch plane first. :func:`solprop.coupling.plane.reference_at`
+        rebuilds any saved plane's reference from it. Derived numbers, so outside
+        the hash; the inherited origin enters it through
+        ``configuration["coupling"]``.
+        Written to JSON from schema 24 only; ``None`` for any record read back from
+        an older file.
 
     Examples
     --------
@@ -2582,6 +2605,7 @@ class RunMetadata(Displayed):
     initial_z: float = 0.0
     tdse: Mapping[str, object] | None = None
     quadrature: Mapping[str, object] | None = None
+    reference: Mapping[str, object] | None = None
     # The two development branches both used schema 10. Preserve presence, not a
     # cached digest: changing a loaded scientific value must still change its hash.
     _stored_launch_fields: tuple[str, ...] | None = dataclasses.field(
@@ -2651,10 +2675,12 @@ class RunMetadata(Displayed):
         object.__setattr__(self, "modes", tuple(self.modes))
         object.__setattr__(self, "configuration", dict(self.configuration))
         object.__setattr__(self, "versions", dict(self.versions))
-        if self.spatial is not None:
-            object.__setattr__(self, "spatial", dict(self.spatial))
-        if self.modal is not None:
-            object.__setattr__(self, "modal", dict(self.modal))
+        # The plane-reference record is outside the hash, so a record of an earlier
+        # schema may hold one; it is written to JSON from schema 24 only.
+        for name in ("spatial", "modal", "reference"):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, dict(value))
         if not np.isfinite(self.initial_z) or self.initial_z < 0:
             raise OutputError("initial_z must be finite and nonnegative")
         if self.tdse is not None:
@@ -2955,6 +2981,10 @@ class RunMetadata(Displayed):
         if self.schema_version >= 8:
             # The whole manifest, measurements included, beside its hashed part.
             document["materials"] = serialise(self.materials.to_dict())
+        if self.schema_version >= 24:
+            # Derived from the hashed problem, so stored beside the key, not in it: a
+            # resume on another build may evaluate the frame to a different last bit.
+            document["reference"] = serialise(self.reference)
         document["spectral_convention"] = self.spectral_convention
         document["field_layout"] = self.field_layout
         document["backend"] = serialise(self.backend)
@@ -3023,6 +3053,7 @@ class RunMetadata(Displayed):
                 initial_z=document.get("initial_z", 0.0),
                 tdse=document.get("tdse"),
                 quadrature=document.get("quadrature"),
+                reference=document.get("reference"),
                 _stored_launch_fields=tuple(
                     key for key in ("initial_z", "tdse") if key in document
                 ),
