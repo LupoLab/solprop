@@ -211,14 +211,14 @@ these items, every one a relative energy discrepancy:
 
 | item | what it bounds | limit |
 |---|---|---|
-| `angular` | $[(1 - \cos\theta_*)U_{\rm cone} + U_{\rm tail}]/U$ of the incident field, and of the worst unit field in the retained target subspace | the total |
+| `angular` | $[(1 - \cos\theta_*)U_{\rm cone} + U_{\rm tail}]/U$ of the incident field, and of the worst unit field in the retained target subspace; the cone term is the cone rule's allocation, about $\epsilon_m/8$ of the cone share, not a measured defect | the total |
 | `contrast` | the weak-guidance screen $\Delta = \max|n^2 - n_{\rm ref}^2|/(2n_{\rm ref}^2)$ of a solid guide; not applied to a capillary wall; a recorded pair envelope may replace it | $\epsilon_m/8$ |
 | `target metric` | $G$ (or $F$) against the target's native $Q$, whitened | $\epsilon_m/8$ |
 | `source metric` | the common measure $M_0$ against the source's native metric | $\epsilon_m/8$ |
 | `closure` | $2\delta + \delta^2$ of the H-closure's field error $\delta$ (vector model) | $\epsilon_m/8$ |
 | `passivity` | the whitened certificate $C^\dagger Q_BC \preceq Q_A$: an apparent gain within the model's own defects is reported here, never rescaled or clipped; a larger one refuses | the total |
-| `envelope` | the recorded provider-pair envelope's bound | the total |
-| `numerical` | the source's content at its spectral edge, an analytic field's domain and resolution checks, the overlap quadrature | the total |
+| `envelope` | the recorded provider-pair envelope's allowance, plus the incident share of any bins outside its range | the total |
+| `numerical` | the source's content at its spectral edge, an analytic field's domain and resolution checks, the overlap quadrature (an amplitude error $\delta$ counted as $2\delta + \delta^2$) | the total |
 
 The counted items must sum to at most $\epsilon_m$. The
 {py:class}`~solprop.coupling.coupler.CouplingReport` carries the incident energy over the
@@ -227,13 +227,26 @@ and uncaptured energy where a common positive metric exists (`None`, with the re
 for the vector model), every item with its scope -- this field, the whole map, or the
 model -- the source plane's exterior, and the source's SEP 34 path certificate,
 separately and with its scope. A zero field is a valid zero launch whose `efficiency` is
-`None`. The recorded envelopes ({py:mod}`solprop.coupling.envelopes`) are measured by the
-test suite against independent references: the capillary's against the overlap of its
-own vector Marcatili fields (a difference of 1.8e-14 of the incident energy over waists
-0.3a--1.0a, displacements to 0.2a, tilts to 1 mrad and radius ratios 0.5--2), the
-step-index pair's against the full-vector flux overlap of the exact $HE_{11}$ fields
-(3.0e-4 over contrasts to 0.01, V from 1.5 to 2.4 and radius ratios 0.7--1.43). A pair
-outside its envelope's range is refused, not extrapolated.
+`None`. The recorded envelopes ({py:mod}`solprop.coupling.envelopes`) bound what the
+scalar model omits, measured by the test suite against independent physics:
+
+- *Capillary.* The scalar profile $J_0(u_mr/a)$ against Marcatili's leaky core field
+  $J_0(u_m(1 - i\delta)r/a)$, $\delta = |\nu_n|c/(\omega a)$ with $\nu_n$ the wall
+  term (Marcatili and Schmeltzer 1964). Over waists 0.3a--1.0a, displacements to 0.2a,
+  tilts to $0.59/ka$, 1--8 modes and radius ratios 0.5--2 the captured shares differ by
+  at most $2.9\times10^{-3}$ at $\delta = 10^{-2}$, the range's top (an 18.8 µm silica
+  capillary at 800 nm); the bound is twice that, $6\times10^{-3}$. The difference
+  falls at least linearly with $\delta$, so the reported allowance is the bound scaled
+  by the pair's energy-weighted $\delta$: about $1.5\times10^{-3}$ for a 75 µm
+  capillary at 800 nm.
+- *Step index.* The LP01 overlap against the full-vector flux overlap of the exact
+  $HE_{11}$ fields: $3.0\times10^{-4}$ over contrasts to 0.01, V from 1.5 to 2.4 and
+  radius ratios 0.7--1.43. V is checked at the profile wavelength and at every occupied
+  bin, since it grows with frequency.
+
+A pair outside its envelope's range is refused, not extrapolated; bins of a covered pair
+whose $\delta$ or V leave the range carry an unbounded discrepancy, so their share of
+the incident energy is added to the item in full.
 
 ### A Gaussian beam into a capillary
 
@@ -346,10 +359,6 @@ through `couple` and records the report as `configuration["launch"]`
 ([general modal propagation](../waveguides/general-modal.md)). A strongly guiding core
 fails the contrast screen and is refused; the closure is qualified against the
 provider's own H.
-
-run keeps its ionisation tables and their ranges, as every derived run does. A different
-basis, lattice or medium is a coupling or an interface, not a relaunch, and is refused by
-name.
 
 ## Transporting a plane between planes
 
@@ -495,3 +504,67 @@ launched microjoule less $10^{-6}$ of it. That is the lens's own axial-flux defe
 converging plane waves cross the plane obliquely, carrying $\cos\theta$ of their local
 measure, and the report books it as the lens's approximation error, inside its
 certificate (ratio $2.5\times10^{-4}$ against the budget of $10^{-3}$).
+
+## Composing simulations
+
+The blocks above compose into the calculations
+[SEP 31](../../dev/seps/sep-0031-simulation-coupling.md) set out to support. Each is an
+ordinary chain of runs and planes; nothing schedules them, and each run keeps its own
+step control. The test suite runs every one of them as a short integrated case
+(`tests/coupling/test_workflows.py`), asserting its energy ledger.
+
+| calculation | composition |
+|---|---|
+| a capillary's output into another capillary | `field_plane(run, source=simulation)`, then `couple` into the second port by direct overlap, or `Outcouple` → `transport([FreeSpace(...)])` → `couple` across a gap |
+| a nonlinear beam into a capillary | a radial (or Cartesian) gas gap with the ordinary Kerr, plasma and harmonic responses; its last plane read with `field_plane`, coupled with `scalar_paraxial` into a capillary on the same lattice |
+| a solid-core fibre into another fibre | the exit plane of a step-index run coupled into another step-index run, within the recorded envelope ([a solid fibre overlap](#a-solid-fibre-overlap)) |
+| a Gaussian beam into a guide | `FieldPlane.from_pulse` of a `SpatialPulse`, or `from_waveguide(incident=...)` for a general modal guide |
+| an arbitrary analytic field into a guide | `FieldPlane.from_analytic`, a callable of the nodes and the absolute frequency; nonseparable fields (a waist that changes with frequency) are fine |
+| an arbitrary Cartesian beam into a guide | a Cartesian plane, aligned with `Alignment` (displacement and tilt) or sampled directly; a radial plane refuses anything that would break its symmetry |
+| a capillary's output at a distant plane | `Outcouple` onto a spatial grid in the exit medium, then `FreeSpace(L, medium, output=..., output_method="fresnel")` to any observation plane, the far field included |
+| SPM, a compressor and another capillary | the first capillary's exit, `Outcouple`, `SpectralTransfer` of an optics element or `Chain`, lenses, apertures and free space, then `couple` into the second capillary |
+
+Three things to keep in mind when chaining:
+
+- **Lattices.** `couple` needs the plane on the port's temporal lattice. Build the
+  receiving run on the source's grid (`grid=` of the constructors), or move the plane
+  with `regrid` first. A gap whose output carries a harmonic needs a receiving band that
+  holds it: the active band is checked, and light outside it is refused unless cropped
+  explicitly.
+- **Planes in the receiver's coordinates.** A transported plane moves along its normal,
+  so its origin is where the optics put it. Pass `geometry=port.geometry` to `transport`
+  to declare the last plane in the receiving run's own coordinates; its axes must be the
+  ones the field arrives with, or the coupling is refused as oriented differently.
+- **Budgets.** Every approximate step has its own budget: a coupling's `model_error`, a
+  thin screen's `model_error`, a free-space gap's `sampling_tolerance` (or
+  `beyond_window="remove"`, which books the removed angular band). They are reported
+  separately and never multiplied into one efficiency.
+
+For example, a capillary's output relayed 1:1 by two lenses, compressed on the way, into
+an identical capillary:
+
+```python
+from solprop.coupling import Aperture, SpectralTransfer
+from solprop.optics import TaylorPhase
+
+argon = SpatialMedium("Ar", 1.0)
+receiving = Simulation.from_capillary(
+    100e-6, 1e-3, "Ar", 1.0, lambda0=800e-9, wavelength_limits=(400e-9, 1.6e-6),
+    trange=200e-15, fwhm=20e-15, energy=20e-6, modes=2, n_save=3, noise=None,
+)
+port = receiving.input_port()
+exit_field = Outcouple(RadialGrid(1.2e-3, 512), medium=argon).apply(
+    field_plane(run, source=simulation)
+)
+gap = FreeSpace(0.05, argon, beyond_window="remove")
+relayed, ledger = transport(
+    exit_field.plane,
+    [SpectralTransfer(TaylorPhase((0.0, 0.0, -20e-30), 800e-9)), gap,
+     ThinLens(0.05, model_error=0.05), gap,
+     Aperture(600e-6, model_error=0.05, edge=20e-6, kind="tanh"), gap,
+     ThinLens(0.05, model_error=0.05), gap],
+    frame=simulation.frame, geometry=port.geometry,
+)
+second = couple(relayed, port, model=CouplingModel("scalar_paraxial", model_error=0.05))
+print(ledger.specified_loss, ledger.removed, second.report.efficiency)
+```

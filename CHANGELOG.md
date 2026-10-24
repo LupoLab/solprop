@@ -90,6 +90,20 @@ The first public release. It contains:
   updated and a sequential ledger in joules. Thin screens carry their angular-flux
   certificate; undersampled phases, wrapped rays and evanescent content are refused
   unless their removal is declared. Refusals raise `CouplingError`.
+- **Coupled workflows**
+  ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0031-simulation-coupling.html),
+  phase 5). The eight compositions of the coupling chapter -- capillary into capillary,
+  a nonlinear gas gap into a capillary, fibre into fibre, Gaussian, analytic and
+  Cartesian beams into a guide, a guide's far field, and SPM, compression and relay
+  optics into a second capillary -- run as short integrated tests that assert their
+  energy ledgers, with sources and receivers on different CPU backends. A plane's path
+  certificate (`FieldPlane.certificate`, `CouplingReport.certificate`,
+  `TransportReport.source_certificate`) is the rebuilt `AdiabaticAdmission`, not its raw
+  record. `CAPILLARY_ENVELOPE` now bounds the scalar model against Marcatili's leaky core
+  field (bound 6e-3 at its range's top, delta = 1e-2, scaled by the pair's delta) rather
+  than against the scalar profile itself; bins outside an envelope's range, including a
+  fibre's V across the band, are counted in full; the modal overlap quadrature enters
+  the budget as `2 delta + delta^2`.
 - **Media and responses.**
   - Gases, gas mixtures, glasses and metals from the [optmat](https://github.com/LupoLab/optmat)
     material library.

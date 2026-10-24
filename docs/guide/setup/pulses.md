@@ -267,6 +267,11 @@ z=..., side=...)`, names that medium and plane; there is no vacuum default. A me
 index $n_0$ therefore carries a field $\sqrt{n_0}$ lower than vacuum for the same energy
 ([energy and flux in a medium](../free-space/flux.md)).
 
+A beam launched into a guide's modes, or the output field of another run used as an
+input, is a coupling rather than a pulse: the beam keeps its energy over its whole
+incident plane and the modes receive only what they capture
+([coupling simulations](../workflows/coupling.md)).
+
 ## Where the quantum floor sits
 
 Building a pulse says nothing about the noise it sits on. The shot-noise background is a

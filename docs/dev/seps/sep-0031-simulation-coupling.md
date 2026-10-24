@@ -1482,7 +1482,11 @@ items the SEP caps at $\epsilon_m/8$ are capped individually.
   1 mrad, 75 µm argon capillary at 800 nm with eight HE1m modes, and radius ratios
   0.5–2. Largest difference 1.8e-14 of the incident energy (the reference quadrature's
   rounding: the Marcatili HE1m field *is* the scalar profile); recorded bound 1e-12,
-  numerical 1e-13; range HE1m count 1–8, radius ratio 0.5–2.
+  numerical 1e-13; range HE1m count 1–8, radius ratio 0.5–2. *Corrected in phase 5:*
+  because the reference is the scalar profile itself, this comparison bounds the
+  quadrature and the implementation, not the omitted physics; it is now labelled a
+  consistency check, and the envelope is re-measured against Marcatili's leaky core
+  field (phase 5 report, item 1).
 - Step index (`step-index-lp01-vs-vector-he11-2026-10`): LP01 overlap squared against
   $|F_{AB}|^2$ of the exact unit-power HE11 even fields
   (`StepIndexMode.electromagnetic_field`); core 1.45, contrast 0.001–0.01, V 1.5–2.4,
@@ -1786,6 +1790,171 @@ constant or coefficient was transcribed.
   certificate separately.
 - Phase 5 composes the eight §2 cases from these elements; a compressor result enters as
   `SpectralTransfer(callable, calibration=SpectralCalibration(...))`.
+
+### Phase 5 report — integrated qualification
+
+**Delivered (2026-10-24, `feature/sep-0031-simulation-coupling`).** The focused
+tutorial and the graded-index worked example were delivered separately, on their own
+sub-branch; this report covers the rest of phase 5.
+
+1. **The capillary envelope, corrected** (an independent physics review found it).
+   `CAPILLARY_ENVELOPE` compared the scalar J0 overlap with `MarcatiliMode.field`, which
+   for HE1m is the same J0, so its 1e-12 bound measured the quadrature, not the omitted
+   physics §4.3 asks for. Those two tests are now named as consistency checks of the
+   closed-form transforms against quadrature. The envelope
+   (`capillary-he1m-scalar-vs-leaky-marcatili-2026-10`) now compares the scalar profile
+   with Marcatili's leaky core field $J_0(u_m(1 - i\delta)r/a)$,
+   $\delta = |\nu_n|c/(\omega a)$, $\nu_n = (\varepsilon+1)/(2\sqrt{\varepsilon-1})$
+   (Marcatili and Schmeltzer 1964, doi:10.1002/j.1538-7305.1964.tb04108.x), on an
+   independent polar rule at the range's top $\delta = 10^{-2}$: Gaussian beams (waist
+   0.3a–1.0a, displacement to 0.2a, tilt to $0.59/ka$, 1, 2, 4 and 8 modes) and
+   coherent three-mode exits into eight modes at radius ratios 0.5–2. The discrepancy is
+   the larger of the summed per-mode share changes and the least-squares captured share
+   change: largest $2.9\times10^{-3}$ (equal radii, from the leaky modes'
+   nonorthogonality), beams $1.8\times10^{-3}$; bound $6\times10^{-3}$ (safety factor
+   two), numerical $10^{-10}$ (refining the rule changes it by $10^{-14}$). Halving
+   $\delta$ halves the beam cases (first order, from tilt and displacement) and
+   quarters the radius cases, so the allowance is the bound scaled linearly by the
+   pair's energy-weighted $\delta$ (`PairEnvelope.scaled_by`, `allowance`): about
+   $1.5\times10^{-3}$ for a 75 µm silica capillary at 800 nm (the reviewer's direct
+   probe: $8.5\times10^{-5}$ at 75 µm, $3.4\times10^{-4}$ at 37.5 µm, both inside).
+   `ScalarModeBasis.wall_term` carries $|\nu_n|$ from `MarcatiliMode.sampled_terms`;
+   `ScalarModeBasis.leaky(omega)` gives $\delta$ per bin. A pair whose weighted
+   $\delta$ exceeds $10^{-2}$ is refused (a 12 µm capillary at 800 nm is, at
+   $1.57\times10^{-2}$); bins beyond the range in a covered pair add their incident
+   share to the item in full.
+2. **Other review items.** The modal overlap quadrature, an amplitude error, now
+   enters the budget as $2\delta+\delta^2$ (§4.7). A step-index pair's V is checked at
+   every occupied bin as well as at the profile wavelength; bins where either fibre's V
+   leaves the envelope's range add their incident share to the envelope item. The
+   angular items' text says that their cone term is the cone rule's allocation, not a
+   measured defect. A new test pins the launch phase of a displaced, tilted beam against
+   an independent quadrature of the complex overlaps (they agree to 2e-14 rad): no
+   share can catch a sign error, and on every `FreeGrid` the origin phase is
+   $e^{\mp i\pi m}$ for either sign, so `target_columns`' origin-phase sign is not
+   observable on the grids the package builds.
+3. **The certificate.** `processing.field_plane` takes the plane's path certificate
+   from `flux_from_record(...).admission`, the rebuilt `AdiabaticAdmission` (path
+   identity as `{"recorded": text}`), instead of the raw `flux_plan["admission"]` dict;
+   `FieldPlane.certificate`, `CouplingReport.certificate` and
+   `TransportReport.source_certificate` carry it, and the report prints its field error
+   and reflection. Its scope (the linear background's forward field) is the record
+   type's, stated in the docstrings. Phase 2 deviation 10 is resolved.
+4. **The eight compositions** (`tests/coupling/test_workflows.py`, medium tier, 9 tests,
+   10.6 s wall under four workers, the slowest 3.7 s). Each asserts incident = captured +
+   uncaptured, uncaptured ≥ 0 per bin, a launch within the reported target-metric defect
+   of the captured energy (never rescaled), the receiving run's entrance energy equal to
+   the launch to rounding, the budget within `model_error`, and for transports a passive,
+   closed ledger.
+   - (a) A 75 µm, 3-mode capillary exit into a 100 µm, 6-mode one: direct overlap
+     captures 0.99962, `Outcouple` → 2 mm argon → `couple` 0.99853; the launched run
+     inherits the plane's reference. Source `numpy_ref`, receiver native CPU.
+   - (b) 5 mm of 3 bar argon on a radial envelope grid (`numba_cpu`), 10 µJ at
+     w/a = 0.5, into a capillary on native CPU: the fundamental share is 0.8715 linear
+     and 0.8805 with Kerr.
+   - Mandatory: 2 mm of 1 bar argon on a radial **field** grid with Kerr (THG on) and
+     field plasma, 40 µJ, 30 µm: plasma absorbs 1.6e-3 (Kerr alone 1e-8). The harmonic
+     band 230–300 nm carries 82 nJ; its incident energy matches the plane's band energy
+     to 5e-6, the capillary captures 0.998 of it, the entrance stores the launch in that
+     band to rounding, the entrance reference equals the source plane's, and the band's
+     energy-weighted arrival time agrees to 1.1 as. Receiver native CPU.
+   - (c) Step-index 2.18 µm into 2.57 µm (contrast 0.005, 1064 nm): captured share equal
+     to an independent `quad` of the LP01 overlap squared to 1e-8 (0.99731); source
+     `numba_cpu`, receiver native CPU.
+   - (d) A Gaussian at w/a = 0.5: shares 0.906 and 0.092.
+   - (e) An analytic field whose waist scales as 1/ω: per-bin captured share equal to a
+     four-mode Gaussian–Bessel quadrature at that bin's waist to 1e-10.
+   - (f) A Cartesian beam displaced 15 µm and tilted 2 mrad by `Alignment`: 0.792
+     against 0.9994 centred; the same beam built directly agrees within 2e-3 (the tilt's
+     index differs per bin); `Alignment` on a radial plane is refused.
+   - (g) `Outcouple` then `FreeSpace(..., output_method="fresnel")` at 0.1, 0.2, 0.4 m on
+     scaled grids: the scaled intensity patterns converge (the second mismatch below 0.6
+     of the first); the Fresnel route books 2.1e-4 as approximation error.
+   - (h) 20 mm of 3 bar argon at 100 µJ (bandwidth ×6.9) → `Outcouple` →
+     `SpectralTransfer(Chain(TaylorPhase(-50 fs²)))` → a 4f relay (two 20 mm lenses, a
+     300 µm tanh aperture in the Fourier plane, declared `beyond_window="remove"`) →
+     an identical capillary on native CPU: efficiency 0.998, the compressor's ledger
+     entry zero, its reference calibrated, the aperture's loss booked as specified
+     loss, and the launched fundamental's peak power raised ×2.05.
+5. **Documentation.** The coupling chapter: a "Composing simulations" section with all
+   eight compositions, the chaining rules (lattices, `geometry=port.geometry`, separate
+   budgets) and a runnable relay example; the corrected envelope text; the allocation
+   and $2\delta+\delta^2$ notes; a stray duplicated paragraph removed. Conventions §4
+   (plane reference, affine phase and delay, spectral-density scaling, metrics);
+   accuracy §12 (how coupling uncertainties are kept apart); backends §9 (a coupling row
+   and paragraph); the Luna page (Luna's single-overlap `GaussBeamPulse` against the
+   per-bin coherent projection; nothing restored in either); cross-links from pulses,
+   beams, reading output, polarisation and compression (general-modal already linked);
+   the changelog. The kernel and output contract pages already record schemas 35 and 24.
+   The package docstring's reference to `transport` now resolves.
+
+**Deviations.** The tutorial is not part of this delivery (parallel sub-branch). The
+capillary envelope's allowance scales with $\delta$, a new `PairEnvelope.scaled_by`
+field, rather than holding one number over the range; the alternative, a constant
+$6\times10^{-3}$, would overstate a 250 µm capillary's discrepancy tenfold. The
+integrated compositions are medium tier by purpose (functional checks of short runs);
+together they add about 18 s of CPU time to that tier.
+
+**Verification run** (targeted, `uv run --no-sync pytest -n auto`; nothing fails):
+`tests/coupling/` (all modules, including the new workflow, leaky-envelope, phase and
+uncovered-band tests), `tests/processing/test_planes.py`,
+`tests/driver/test_coupling_relaunch.py`, `tests/driver/test_general_modal.py`,
+`tests/test_display.py`, `tests/test_benchmark_guides.py`,
+`tests/test_structure_figures.py`, `tests/test_seps.py`, `tests/test_guide_snippets.py`
+(compiled); the coupling page's snippets run by hand (4.4 s). ruff, ruff format,
+basedpyright (0 errors), numpydoc and codespell on the changed files; `poe docs`. Not
+run: the full gate, slow and coverage lanes, GPU.
+
+**Sources checked.** Marcatili and Schmeltzer's leaky-mode core wavenumber
+$k_ta = u_m(1 - i\nu_n/(ka))$ and $\nu_n$ for HE modes were taken as the package's own
+`MarcatiliMode` uses them (`_cladding_term_and_derivative`) and as the reviewer stated them; the printed
+paper's equation numbering was not checked. Luna's `GaussBeamPulse` launch
+(`Interface.makeinputs`) was read to state the Luna difference accurately.
+
+**Limitations.** The leaky-field envelope is a first measure of the omitted physics:
+it does not include the field in the wall, the polarisation dependence of $\nu_n$
+across EH/TE/TM families (not admitted to the scalar model anyway), or a lossy wall's
+complex $\nu_n$ beyond its modulus. The step-index envelope still covers LP01 only.
+
+**Open questions** (earlier phases' questions that remain, with recommendations; the
+plain defects among them are fixed above or were superseded):
+
+1. *(Phase 1 Q1, Q2)* Superseded: `couple` then `with_input` is the one path, and
+   `CouplingReport` replaced `IncidentLaunch` with its items. Close.
+2. *(Phase 1 Q3)* A graded core's on-axis index as $n_{\rm ref}$: keep it (it is the
+   port's declared reference, and the vector model's metric item measures the rest).
+3. *(Phase 1 Q4)* The graded-index worked example: handled on the tutorial sub-branch.
+4. *(Phase 2 Q1)* Basis identity by digest: keep the digest; revisit only if a gradient
+   guide splits on a rounding boundary in practice.
+5. *(Phase 2 Q2)* Regrid band loss in physical energy: add it beside the record-norm
+   share when the transport core's per-bin admittance is reused; not a defect.
+6. *(Phase 2 Q3)* A modified-noise run's plane: refuse it by name until its auxiliary
+   phase is reconstructed (recommended; currently taken as stored).
+7. *(Phase 2 Q4)* `field_plane` on the general-modal accessor whitelist: yes, but the
+   whitelist feeds the schema-7 records, so it belongs with the next output-schema
+   change.
+8. *(Phase 2 Q5)* `same_basis` outside the band: keep refusing; `regrid(crop_band=True)`
+   is the explicit crop.
+9. *(Phase 2 Q6)* `processing` → `translate.flux`: record it as a deliberate edge (both
+   `processing.mixtures` and `processing.planes` rebuild the plane measure there).
+10. *(Phase 3 Q1)* A recorded provider envelope for `vector_paraxial`: recommended before
+    Final, against an independent mode-matching calculation for `StepIndexProvider`.
+11. *(Phase 3 Q2, Q3)* The cone rule for small-core direct overlaps and a
+    Gaussian → LP01 envelope: maintainer decision; the cone rule is conservative there.
+12. *(Phase 3 Q4)* The general guide's target angular item at every occupied bin: yes if
+    its cost stays within a coupling's; measure first.
+13. *(Phase 3 Q5)* `Outcouple` stays a separate synthesis step (it changes the
+    representation), not an `Element`.
+14. *(Phase 4 Q1, Q3)* `spatial_energy_spectrum` and the `aperture_profile` docstring:
+    when `spatial.py` is next open.
+15. *(Phase 4 Q2)* Record the frame in `FieldPlane`: yes, with the next output-schema
+    change, so `transport` needs no `frame=`.
+16. *(Phase 4 Q4)* Refuse the same-grid edge share with its own tolerance: recommended.
+17. *(New)* Should a capillary's envelope range be extended past $\delta = 10^{-2}$
+    (narrow capillaries in the infrared), with a re-measured bound?
+
+**Handoff.** Final needs the tutorial's merge, the end-of-SEP full gate, slow and
+coverage lanes, and the maintainer's decisions on questions 10, 11 and 17.
 
 ## Part III — History
 

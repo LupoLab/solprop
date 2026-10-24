@@ -75,6 +75,10 @@ interest.
 ```
 
 
+A coupling between runs keeps the polarisation as a Jones state in each plane's own
+oriented frame; mirrors and Jones elements change the frame and the field together
+([coupling simulations](../workflows/coupling.md#transporting-a-plane-between-planes)).
+
 ## Two equivalent representations
 
 The state has shape `(n_modes, n_pol, n_omega)` before assembly adds its batch axis.
