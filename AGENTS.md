@@ -70,7 +70,7 @@ roadmap entries change; and `uv run poe docs` when Sphinx content or links chang
 
 **Other changes.** Run the fast checks and directly affected test modules during
 development, and the full gate before opening a pull request; CI runs the slow and
-coverage lanes. Do not start another full run merely because a slice, task or SEP is
+coverage lanes. A SEP's implementation is the exception: CI runs its full gate (below). Do not start another full run merely because a slice, task or SEP is
 ready to commit, merge or become `Final`.
 
 The full gate, `uv run poe check`, runs in this order:
@@ -107,8 +107,9 @@ distribution wheel as `native-suite`.
 **Slices of a phased SEP.** Develop first and test towards the end. Each slice runs the
 fast checks only: `ruff check --fix`, `ruff format`, `ruff check`, `basedpyright` and the
 test modules that directly exercise the code it changed (`uv run pytest -n auto
-<files>`). At the end of the SEP, run the full gate, slow lanes and coverage lane once,
-or take them from CI. After a failure, rerun the failing modules, not the whole lane.
+<files>`). Do not run the full gate, the slow lanes or the coverage lane locally: CI runs
+them on the SEP's single pull request, opened once the SEP is set `Final`. After a CI
+failure, rerun the failing modules locally, fix, and push; never the whole lane.
 
 **Qualification scope.** A change is qualified on `numpy_ref`, `numba_cpu` and, when it
 is installed, the native **CPU** build; GPU builds are exercised separately with
@@ -180,9 +181,11 @@ The long form is [SEP 0](docs/dev/seps/sep-0000-process.md); the index is
   `docs/dev/seps/archive/` with `git mv`); or `Deferred`, `Rejected`, `Withdrawn`,
   `Superseded`. `tests/test_seps.py` checks that the header, index, folder and roadmap
   agree.
-- **Implementing one.** In the SEP's phases, each on its own `feature/sep-NNNN-…` branch:
-  `numpy_ref` first with its tests and manual page, then `numba_cpu`, then native CPU in
-  `native/`, on the same branch and in the same pull request. A backend without the feature refuses it by name, never falls back
+- **Implementing one.** All of a SEP's phases go on one `feature/sep-NNNN-…` branch and
+  reach `main` in one pull request, opened when the last commit sets `Final`; there are
+  no per-phase pull requests. The branch may start on top of an open pull request's
+  branch when pull requests are stacked behind CI. Within each phase: `numpy_ref` first
+  with its tests and manual page, then `numba_cpu`, then native CPU in `native/`. A backend without the feature refuses it by name, never falls back
   silently; `Final` needs parity across all three, or an exception written into the
   accepted SEP.
 - **Reporting.** Each phase appends its report to Part II of the SEP: delivered paths,
@@ -421,7 +424,7 @@ The long form is [`testing.md`](docs/dev/testing.md).
   checkout**, which stays on a clean `main`. Create
   the branch and the worktree yourself, without asking, named for the topic: `fix/…`,
   `feature/…`, `docs/…`, `chore/…` (`docs/sep-NNNN-…` for a SEP draft,
-  `feature/sep-NNNN-…` for a SEP's phase), for example
+  `feature/sep-NNNN-…` for a SEP's implementation), for example
   `git worktree add -b fix/scan-lock ../solprop-scan-lock main`. Give the worktree its
   own environment (`uv sync` there).
 - Clean, logical commits with descriptive but not verbose messages; several small
