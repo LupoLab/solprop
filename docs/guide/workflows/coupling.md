@@ -86,7 +86,12 @@ reference's arrays, so its physical fields (`plane.nodal`) and a dense basis Gra
 read with the simulation that ran it, `field_plane(run, source=simulation)`; the
 identities are checked first, as {py:mod}`solprop.processing.modal` checks them. A
 spatial plane's measure is rebuilt from the file's plane measure; with `source=` it
-also carries the medium. A hybrid planar run's planes are refused by name.
+also carries the medium. A hybrid planar run's planes are refused by name, and so are
+the planes of a run with the modified noise model (`noise="modified"`): its saved field
+leaves the one-photon background to an auxiliary noise phase, which is not reconstructed
+into a plane, so the stored samples alone would drop it in the next stage. A source run
+meant for coupling uses `noise="input"`, whose background travels in the saved field,
+or `noise=None`.
 
 ## Moving a plane between grids
 
@@ -486,8 +491,14 @@ window wraps back, which is the same as sampling the propagator's phase below it
 Nyquist rate, and is refused beyond `sampling_tolerance`. `beyond_window="remove"`
 declares the removal of that angular band instead, and the removed energy is reported.
 Significant nonpropagating content is refused too, or removed explicitly with
-`band_limit=`. An output plane of another radius or sampling is the caller's explicit
-choice of method; nothing switches between them automatically:
+`band_limit=`. The ray test does not see a field that has already spread into the
+window's outer band (the declared collar, or the outer tenth of each half-width), where
+the representation wraps or reflects it; a propagated field whose share there exceeds
+`edge_tolerance` (default $10^{-4}$) is refused too, and the refusal suggests a larger
+window, `beyond_window="remove"` when the removal is not yet declared, or a Fresnel
+output plane. The share is reported as `edge_share` either way. An output plane of
+another radius or sampling is the caller's explicit choice of method; nothing switches
+between them automatically:
 
 - `output_method="angular"` sums the propagated spectrum at the output nodes. It is
   exact and nonparaxial but lives inside the source window: a field that reaches the

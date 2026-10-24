@@ -435,7 +435,8 @@ def field_plane(
     true-power coefficients, a general basis's Gram; the path certificate is the
     :class:`~solprop.adiabatic.AdiabaticAdmission` the spatial record rebuilds.
     Radial, Cartesian, ordinary modal and general modal runs are read; a hybrid
-    planar run is refused by name.
+    planar run is refused by name, and so is a run with the modified noise model,
+    whose auxiliary noise phase is not reconstructed into the plane.
 
     Parameters
     ----------
@@ -463,8 +464,8 @@ def field_plane(
     ------
     ProcessingError
         If the output predates schema 24 or holds no record, both `plane` and `z`
-        are given, the selection names no stored plane, the run is planar, or
-        `source` is not the run that wrote it.
+        are given, the selection names no stored plane, the run is planar or used
+        the modified noise model, or `source` is not the run that wrote it.
 
     Examples
     --------
@@ -488,6 +489,18 @@ def field_plane(
             f"this output was written at schema {metadata.schema_version} and carries "
             "no plane-reference record (output schema 24, SEP 31): its planes "
             "cannot be exchanged"
+        )
+        raise ProcessingError(msg)
+    if metadata.noise is not None and metadata.noise.model == "modified":
+        # A modified-noise run injects its one-photon background as a source term
+        # and saves the field without it; the auxiliary ``noise_phase`` is what lets
+        # processing restore the background. Exchanging the stored samples alone
+        # would silently drop it in the next stage (SEP 31 section 4.7).
+        msg = (
+            "this run used the modified noise model, whose saved field leaves the "
+            "one-photon background to the auxiliary noise_phase; that phase is not "
+            "reconstructed into a plane, so its planes are not exchanged: rerun with "
+            "noise='input' or noise=None to couple the output"
         )
         raise ProcessingError(msg)
     if z is not None and plane != -1:

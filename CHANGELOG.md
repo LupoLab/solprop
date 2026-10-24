@@ -56,7 +56,8 @@ The first public release. It contains:
   phase 2). `solprop.coupling` holds `FieldPlane`, a coherent field at one plane with
   its reference, geometry, metric, basis identity and provenance; `regrid`, the direct
   finite-time Fourier remap between temporal grids with its loss report and no
-  renormalisation; and `InputPort`. `processing.field_plane` reads a saved plane back,
+  renormalisation; and `InputPort`. `processing.field_plane` reads a saved plane back
+  (refusing a modified-noise run's, whose auxiliary noise phase it does not reconstruct),
   `Simulation.input_port()` describes a simulation's entrance and `with_input` takes a
   launch bound to it, recording `configuration["coupling"]` and drawing no new noise.
   Output schema 24 records each run's plane-reference record (`RunMetadata.reference`).
@@ -89,7 +90,8 @@ The first public release. It contains:
   -- and returns the plane with its reference, geometry, medium, metric and provenance
   updated and a sequential ledger in joules. Thin screens carry their angular-flux
   certificate; undersampled phases, wrapped rays and evanescent content are refused
-  unless their removal is declared. Refusals raise `CouplingError`.
+  unless their removal is declared, and a same-grid field filling the window's outer
+  band is refused beyond `FreeSpace(edge_tolerance=...)` (default 1e-4). Refusals raise `CouplingError`.
 - **Coupled workflows**
   ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0031-simulation-coupling.html),
   phase 5). The eight compositions of the coupling chapter -- capillary into capillary,

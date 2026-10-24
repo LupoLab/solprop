@@ -311,6 +311,19 @@ def rewritten(output, **changes):
     return copy
 
 
+def test_a_modified_noise_run_is_refused_by_name_and_an_input_noise_run_read():
+    output = capillary(length=5e-4, n_save=2, noise="modified").run(progress="none")
+    with pytest.raises(ProcessingError, match=r"modified noise model.*noise_phase"):
+        field_plane(output)
+    # The same planes under the input model carry their background in the saved
+    # field itself, so they are exchanged as stored.
+    assert output.metadata is not None
+    assert output.metadata.noise is not None
+    noise = dataclasses.replace(output.metadata.noise, model="input")
+    plane = field_plane(rewritten(output, noise=noise))
+    assert plane.geometry.z == pytest.approx(5e-4, rel=0, abs=1e-15)
+
+
 def test_an_output_without_a_saved_plane_is_refused(capillary_run):
     _, output = capillary_run
     empty = MemoryOutput()

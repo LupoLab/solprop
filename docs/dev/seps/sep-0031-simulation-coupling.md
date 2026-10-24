@@ -1929,7 +1929,8 @@ plain defects among them are fixed above or were superseded):
 5. *(Phase 2 Q2)* Regrid band loss in physical energy: add it beside the record-norm
    share when the transport core's per-bin admittance is reused; not a defect.
 6. *(Phase 2 Q3)* A modified-noise run's plane: refuse it by name until its auxiliary
-   phase is reconstructed (recommended; currently taken as stored).
+   phase is reconstructed (recommended; currently taken as stored). **Resolved
+   2026-10-24**: refused (A2 below).
 7. *(Phase 2 Q4)* `field_plane` on the general-modal accessor whitelist: yes, but the
    whitelist feeds the schema-7 records, so it belongs with the next output-schema
    change.
@@ -1950,6 +1951,7 @@ plain defects among them are fixed above or were superseded):
 15. *(Phase 4 Q2)* Record the frame in `FieldPlane`: yes, with the next output-schema
     change, so `transport` needs no `frame=`.
 16. *(Phase 4 Q4)* Refuse the same-grid edge share with its own tolerance: recommended.
+    **Resolved 2026-10-24**: refused beyond `edge_tolerance` (A3 below).
 17. *(New)* Should a capillary's envelope range be extended past $\delta = 10^{-2}$
     (narrow capillaries in the infrared), with a re-measured bound?
 
@@ -2107,6 +2109,42 @@ Its output was regenerated with `poe docs-examples plot_04_graded_index_multimod
 (10 min 23 s): incident 159.67 nJ, launched 0.99998 of it, budget 1.832e-2 of 0.1
 (angular 1.25e-2, contrast 9.5e-3, closure 4.6e-3, passivity 1.1e-3); entrance shares
 LP01 0.933, LP02 0.0625. The figures changed only in their last digits.
+
+### Maintainer decisions — 2026-10-24
+
+- **A2 — modified-noise planes are refused** (Phase 5 open question 6, from Phase 2
+  question 3; resolved). `processing.field_plane` raises `ProcessingError` for a run whose
+  `RunMetadata.noise.model` is `"modified"`, saying that the saved field leaves the
+  one-photon background to the auxiliary `noise_phase`, which is not reconstructed into a
+  plane, and suggesting `noise="input"` or `noise=None` for a source run. The check comes
+  before the plane is selected, so every plane of such a run is refused; an input-noise
+  run is read as stored, its background being in the saved field. Reconstruction
+  according to the documented saved-field meaning (§4.7) stays possible later and would
+  lift the refusal. Delivered: `src/solprop/processing/planes.py`,
+  `tests/processing/test_planes.py`
+  (`test_a_modified_noise_run_is_refused_by_name_and_an_input_noise_run_read`, a 0.5 mm
+  capillary run), the coupling chapter and the changelog's phase 2 line.
+- **A3 — the same-grid edge share refuses with its own tolerance** (Phase 5 open
+  question 16, from Phase 4 question 4; resolved). `FreeSpace(edge_tolerance=1e-4)` is
+  new; on the same-grid route (no `output`) a propagated field whose reference-measure
+  share in the window's outer band (the declared collar, or the outer tenth of each
+  half-width) exceeds it raises `CouplingError`, suggesting a larger window,
+  `beyond_window="remove"` when the removal is not yet declared, or a Fresnel output
+  plane. `edge_share` stays in the diagnostics; the angular-output route keeps its
+  existing refusal at `sampling_tolerance`. The default was set from the shares the
+  existing tests produce: the eight workflow compositions reach at most 6.3e-7 (the
+  capillary exit into a wider capillary) and 3.6e-6 (the SPM, compressor and 4f relay
+  composition, with its declared removal), and the well-resolved transport tests at most
+  5.4e-6 (the sequential ledger); 1e-4 leaves a factor of about 20 above those and is met
+  by a Gaussian beam on a collarless radial window of about 2.4 times its 1/e² radius.
+  Three tests built deliberately near the edge now pass an explicit tolerance or assert
+  the refusal: the sub-wavelength evanescent beam (1.4e-3 in the outer band before
+  propagation), the aperture-then-gap order test (1.9e-3 after the declared removal), and
+  the collarless-window test (1.6e-2 and 0.12 after removal, which now asserts the
+  refusal and then admits it with `edge_tolerance=1.0`). Delivered:
+  `src/solprop/coupling/elements.py`, `tests/coupling/test_transport.py`
+  (`test_a_same_grid_field_in_the_outer_band_is_refused_by_its_own_tolerance`), the
+  coupling chapter and the changelog's phase 4 line.
 
 ## Part III — History
 

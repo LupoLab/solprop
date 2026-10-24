@@ -2445,7 +2445,11 @@ class FreeSpace:
     the window would wrap (or reflect), which is the same condition as sampling the
     propagator's phase :math:`k_zL` below its Nyquist rate in :math:`\kappa`. Content
     beyond ``sampling_tolerance`` is refused, unless ``beyond_window='remove'``
-    declares its removal, which is then reported as removed energy. With `output`,
+    declares its removal, which is then reported as removed energy. A propagated
+    field whose share in the window's outer band (the declared collar, or the outer
+    tenth of each half-width) exceeds ``edge_tolerance`` is refused too: it is
+    already meeting the periodic or reflecting edge, which the ray test does not
+    see. With `output`,
     a plane of another radius or sampling is evaluated by chunked direct summation;
     the method is always the caller's explicit choice:
 
@@ -2494,6 +2498,12 @@ class FreeSpace:
         Largest admitted reference-measure share of content whose rays leave the
         window (same-grid and angular routes), of field at the source edge
         (angular output) and of aliased content (Fresnel output). Default 1e-6.
+    edge_tolerance : float
+        Largest admitted reference-measure share of the propagated field in the
+        window's outer band on the same-grid route. Default 1e-4: on a radial
+        window without a collar a Gaussian beam meets it when the window's radius
+        is about 2.4 times its 1/e^2 radius, and the well-resolved transports of
+        the coupling chapter stay at or below a few 1e-6.
     beyond_window : {'refuse', 'remove'}
         What to do with content whose rays leave the window over the distance:
         refuse it (the default), or remove it explicitly as an angular band,
@@ -2516,6 +2526,7 @@ class FreeSpace:
     frame_phase: float = 0.0
     evanescent_tolerance: float | None = None
     sampling_tolerance: float = 1e-6
+    edge_tolerance: float = 1e-4
     beyond_window: Literal["refuse", "remove"] = "refuse"
 
     def _validate(self, state: SpatialState) -> None:
@@ -2603,6 +2614,7 @@ class FreeSpace:
         CouplingError
             If the element is invalid, the medium is not the plane's, the field
             holds significant evanescent content, its rays wrap beyond the window,
+            the propagated field fills the window's outer band on the same grid,
             the angular output leaves the source window, or the Fresnel kernel is
             undersampled.
         """
@@ -2619,7 +2631,9 @@ class FreeSpace:
         removed += window_removed
         notes: tuple[str, ...] = ()
         result = propagated
-        if self.output is not None:
+        if self.output is None:
+            self._check_edge(diagnostics["edge_share"])
+        else:
             edge = _edge_share(propagated)
             if edge > self.sampling_tolerance:
                 msg = (
@@ -2652,6 +2666,38 @@ class FreeSpace:
             ),
         )
         return ElementResult(result, report)
+
+    def _check_edge(self, edge: float) -> None:
+        """Refuse a same-grid result that fills the window's outer band.
+
+        Parameters
+        ----------
+        edge : float
+            Reference-measure share of the propagated field in the outer band.
+
+        Raises
+        ------
+        CouplingError
+            If `edge` exceeds ``edge_tolerance``.
+        """
+        if edge <= self.edge_tolerance:
+            return
+        # The wrap test follows rays per column; a field that has spread into the
+        # outer band is already meeting the periodic (Cartesian) or reflecting
+        # (radial) edge whatever its rays do next, so it is refused on its own.
+        msg = (
+            f"the propagated field puts {edge:.3e} of itself in the window's outer "
+            f"band (edge_tolerance {self.edge_tolerance:.1e}), where the "
+            "representation wraps or reflects it: enlarge the window"
+            + (
+                ", or declare the removal of content leaving it with "
+                "beyond_window='remove'"
+                if self.beyond_window == "refuse"
+                else ""
+            )
+            + ', or evaluate a larger output plane with output_method="fresnel"'
+        )
+        raise CouplingError(msg)
 
     def _limited(
         self, state: SpatialState, flux: SpatialFlux, measured: _Measured

@@ -331,8 +331,9 @@ def test_element_order_matters_and_a_chain_commutes_only_internally(
     state = beam(space, 0.3e-3)
     aperture = Aperture(0.25e-3, model_error=0.05, edge=20e-6, kind="rcos")
     # The aperture's diffraction reaches the window over 0.2 m; its removal is
-    # declared, which keeps both orders on the same small grid.
-    gap = FreeSpace(0.2, air, beyond_window="remove")
+    # declared, and the 1.9e-3 left in the outer band admitted, which keeps both
+    # orders on the same small grid.
+    gap = FreeSpace(0.2, air, beyond_window="remove", edge_tolerance=1e-2)
     first = apply_sequence(state, [aperture, gap])
     second = apply_sequence(state, [gap, aperture])
     assert not np.allclose(first.state.spectrum, second.state.spectrum, rtol=1e-3)
@@ -452,13 +453,35 @@ def test_evanescent_content_is_refused_or_removed_explicitly(
     state = _narrow_state(grid, air)
     with pytest.raises(CouplingError, match="nonpropagating"):
         FreeSpace(1e-6, air).apply(state)
-    limited = FreeSpace(1e-6, air, band_limit=0.5).apply(state)
+    # The sub-wavelength beam rings across this 64-node window, 1.4e-3 of it in the
+    # outer band before any propagation; only the band removal is under test.
+    limited = FreeSpace(1e-6, air, band_limit=0.5, edge_tolerance=1e-2).apply(state)
     report = limited.report
     assert report.removed > 0
     assert abs(report.approximation_error) <= 1e-12 * report.energy_in
     assert report.energy_out == pytest.approx(
         report.energy_in - report.removed, rel=1e-12
     )
+
+
+def test_a_same_grid_field_in_the_outer_band_is_refused_by_its_own_tolerance(
+    beam: BeamFactory, air: SpatialMedium
+):
+    space = RadialGrid(0.5e-3, 64)
+    # A 0.4 mm beam on a 0.5 mm window fills its collar before it moves: no ray
+    # leaves over a micrometre, so only the edge share can see it.
+    filling = beam(space, 0.4e-3)
+    with pytest.raises(CouplingError, match="outer band") as refusal:
+        FreeSpace(1e-6, air).apply(filling)
+    message = str(refusal.value)
+    assert "enlarge the window" in message
+    assert "beyond_window='remove'" in message
+    report = FreeSpace(1e-6, air, edge_tolerance=1.0).apply(filling).report
+    assert report.diagnostics["edge_share"] > 1e-4
+    assert report.diagnostics["wrap_share"] <= 1e-6
+    # A beam well inside the window passes the default.
+    inside = FreeSpace(1e-2, air).apply(beam(space, 0.1e-3)).report
+    assert inside.diagnostics["edge_share"] <= 1e-4
 
 
 def test_output_plane_refusals(beam: BeamFactory, air: SpatialMedium):
@@ -562,7 +585,16 @@ def test_windows_without_a_collar_use_their_outer_tenth(
         # refused unless its removal is declared, and then it is reported.
         with pytest.raises(CouplingError, match="beyond_window='remove'"):
             FreeSpace(0.5, air).apply(state)
-        report = FreeSpace(0.5, air, beyond_window="remove").apply(state).report
+        # What stays still fills the outer tenth, which is refused by its own
+        # tolerance, and the refusal no longer offers the removal already made.
+        removing = FreeSpace(0.5, air, beyond_window="remove")
+        with pytest.raises(
+            CouplingError, match=r"outer band.*window, or ev"
+        ) as refusal:
+            removing.apply(state)
+        assert "beyond_window" not in str(refusal.value)
+        admitted = FreeSpace(0.5, air, beyond_window="remove", edge_tolerance=1.0)
+        report = admitted.apply(state).report
         assert report.diagnostics["edge_share"] > 1e-3
         assert report.diagnostics["wrap_share"] > 0
         assert report.removed == report.diagnostics["window_removed"] > 0
