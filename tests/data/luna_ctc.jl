@@ -84,15 +84,11 @@ function case(tag, radius, flength, pressure, modes, λlims, trange, n_save, pat
     emit(tag * "_DENSITY", fill(ρ, length(z)))
     emit(tag * "_Z", z)
 
-    # Luna's own Raman response, on the fine grid of this run and at its density. Only
-    # the reduced case emits it: it is n_to samples long and the comparison that needs
-    # it runs on the reduced case alone.
-    if tag == "REDUCED"
-        response = Raman.raman_response(grid.to, GAS; temp = TEMPERATURE)
-        ht = zeros(length(grid.to))
-        response(ht, ρ)
-        emit(tag * "_RAMAN", ht)
-    end
+    # Luna's own Raman response, on the fine grid of this run and at its density.
+    response = Raman.raman_response(grid.to, GAS; temp = TEMPERATURE)
+    ht = zeros(length(grid.to))
+    response(ht, ρ)
+    emit(tag * "_RAMAN", ht)
 
     started = time()
     prop_capillary(radius, flength, GAS, pressure;
@@ -109,5 +105,3 @@ end
 case("REDUCED", REDUCED_RADIUS, REDUCED_LENGTH, REDUCED_PRESSURE, REDUCED_MODES,
      (REDUCED_LAMBDA_MIN, REDUCED_LAMBDA_MAX), REDUCED_TRANGE, REDUCED_N_SAVE,
      REDUCED_PATH)
-case("FULL", FULL_RADIUS, FULL_LENGTH, FULL_PRESSURE, FULL_MODES,
-     (FULL_LAMBDA_MIN, FULL_LAMBDA_MAX), FULL_TRANGE, FULL_N_SAVE, FULL_PATH)

@@ -2152,34 +2152,28 @@ def luna_launch_energy(case, tag, *, ctc=False):
     return witness["energy"] * float(np.sum(weight * spectrum) / np.sum(spectrum))
 
 
-@pytest.mark.parametrize("name", ["luna_rdw_full.h5", "luna_ctc_full.h5"])
-def test_trimmed_luna_witness_uses_its_stored_plane_positions(name):
-    """The two archived fields use endpoint indices, not the first two z values."""
+def test_trimmed_luna_witness_uses_its_stored_plane_positions():
+    """The archived field uses endpoint indices, not the first two z values."""
+    name = "luna_rdw_full.h5"
     converted = stored_field(name)
     with h5py.File(Path(__file__).parents[1] / "data" / name, "r") as file:
         original = np.asarray(cast("h5py.Dataset", file[LUNA_FIELD])[()])
         positions = np.asarray(cast("h5py.Dataset", file["z"])[()])[[0, -1]]
-    ctc = "ctc" in name
-    case = CTC_FULL if ctc else FULL
-    grid = ctc_grid(case) if ctc else witness_grid(case)
-    pressure = (
-        case["pressure"]
-        if ctc
-        else PressureGradient.two_point(
-            case["length"], case["p_in"], case["p_out"], floor=0.0
-        )
+    grid = witness_grid(FULL)
+    pressure = PressureGradient.two_point(
+        FULL["length"], FULL["p_in"], FULL["p_out"], floor=0.0
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
         mode = MarcatiliMode(
-            case["radius"],
-            "H2" if ctc else "He",
+            FULL["radius"],
+            "He",
             pressure,
-            temperature=(CTC_WITNESS if ctc else WITNESS)["temperature_k"],
-            susceptibility=luna_hydrogen() if ctc else luna_helium(),
+            temperature=WITNESS["temperature_k"],
+            susceptibility=luna_helium(),
             model="full",
-            cladding=luna_cladding("FULL", grid, CTC_MEDIA if ctc else MEDIA),
-            loss=not ctc,
+            cladding=luna_cladding("FULL", grid, MEDIA),
+            loss=True,
         )
         for plane, z in enumerate(positions):
             weight = np.ones(grid.n_omega)
@@ -2315,10 +2309,9 @@ M4_WITNESS_METRICS = Study(
     name="m4_witness_metrics",
     title="Milestone M4 against its Luna witness, metric by metric",
     case={
-        "witness": "tests/data/luna_ctc_reduced.h5 and luna_ctc_full.h5",
+        "witness": "tests/data/luna_ctc_reduced.h5",
         "media": "the package fit unchanged; Luna's cladding table",
-        "reduced case": "2 modes, a 1 ps window",
-        "full case": "6 modes, 0.2 m",
+        "reduced case": "1 mode, a 2 ps window, 0.1 m",
     },
     axis={"name": "metric", "unit": "1", "label": "metric"},
     columns=WITNESS_COLUMNS,
@@ -3027,17 +3020,18 @@ def test_the_quadrature_ladder_converges_and_the_alarm_falls_with_it(request):
     )
 
 
-# ============================================ milestone M4, the CtC supercontinuum
+# ======================================== milestone M4, CtC-type propagation
 #
 # The reduced case of `tests/data/generate_luna_ctc.py` against the Luna result stored
-# beside it: hydrogen at 40 bar in a 16 um capillary, 400 fs and 10 uJ at 515 nm, six
-# HE_1m modes at full size and two here, Raman and plasma on a field grid. Everything
-# that propagates here is slow.
+# beside it: hydrogen at 40 bar in a 16 um capillary, 400 fs and 10 uJ at 515 nm, the
+# fundamental mode alone on a 2 ps, 250 nm-2 um field grid over 0.1 m, with the Raman
+# response and the molecular plasma. It tests the speed and accuracy of CtC-type
+# propagation, not a continuum: over this length, noise-free and with the launch clear
+# of the window, neither code forms one. Everything that propagates here is slow.
 #
 # What the comparison controls for, so that what is left is the solver:
 #
-# * the grid -- asserted below, bitwise for the full case and to one unit in the last
-#   place for the reduced one;
+# * the grid -- asserted below, to one unit in the last place;
 # * the hydrogen susceptibility -- unlike helium, Luna's hydrogen entry is referenced to
 #   the state its fit is quoted at (it divides the Peck expansion by the 1 atm density,
 #   where the helium entry divides Ermolov by the 1 bar one), and the
@@ -3052,31 +3046,23 @@ def test_the_quadrature_ladder_converges_and_the_alarm_falls_with_it(request):
 #   (`witness_inputs`: the witness is frozen, docs/dev/testing.md);
 # * the launch -- `ctc_run` asks for the *true* energy of Luna's pulse, 1.0049222310
 #   times the nominal energy Luna asked for, because a requested energy is a true one
-#   in solprop (ADR-030, docs/dev/decisions.md) while Luna's is its vacuum amplitude's.
-#   Without that the run would be pumped 0.492 % below the archive, which on a cascade
-#   is worth several per cent on a Stokes rung;
-# * the input state -- the two codes' plane-zero spectra agree to 2.0e-6 in total
+#   in solprop (ADR-030, docs/dev/decisions.md) while Luna's is its vacuum amplitude's;
+# * the input state -- the two codes' plane-zero spectra agree to 1.8e-13 in total
 #   energy, asserted below, so the pulse, the mode and the normalisation are not what
 #   any later difference is.
 #
-# What is left, with one co-moving frame for the mode set, is a case where the two
-# codes agree on the fundamental's content to 2.8 % and on the second mode's to 14 %,
-# and differ in the detail of the Raman cascade and by an order of magnitude in the
-# plasma. Everything below the fundamental and the second mode is
-# recorded and not asserted, because the modes above them walk far enough to meet each
-# code's own absorber and their exit content is that, not the physics.
+# What is left, under the witness's vibrational amplitude, is a case where the two
+# codes agree on the fundamental's spectrum to 3.8 %, on its content and the exit
+# energy to 1e-5, and on the plasma to 1e-6. Until 2026-10-24 the case ran on a 1 ps
+# window with two modes; its launch reached the temporal collar, both codes' Raman
+# cascades grew from that clipped edge, and the continuum and the disagreements
+# recorded for it were the boundary's, not the solvers'.
 
 CTC_WITNESS = json.loads((Path(__file__).parents[1] / "data/luna_ctc.json").read_text())
 CTC_MEDIA = json.loads(
     (Path(__file__).parents[1] / "data/luna_ctc_media.json").read_text()
 )
 CTC_REDUCED = CTC_WITNESS["reduced"]
-CTC_FULL = CTC_WITNESS["full"]
-
-# The two shoulders the case is run for, either side of the 515 nm pump. An octave about
-# the pump is 364-1030 nm, so a run that fills both of these has bridged it.
-CTC_BLUE = (330e-9, 430e-9)
-CTC_RED = (900e-9, 1300e-9)
 
 
 def ctc_grid(case):
@@ -3178,26 +3164,6 @@ def ctc_field_range(case):
     return simulation.settings.ionisation_field_range
 
 
-def spectral_span(grid, spectrum, floor=1e-4):
-    """Return the shortest and longest wavelength, m, a spectrum clears a floor at."""
-    positive = grid.omega > 0.0
-    wavelength = np.where(
-        positive, 2.0 * math.pi * C / np.where(positive, grid.omega, 1.0), np.inf
-    )
-    total = np.sum(np.abs(spectrum) ** 2, axis=tuple(range(spectrum.ndim - 1)))
-    kept = positive & (total > floor * np.max(total[positive]))
-    return float(np.min(wavelength[kept])), float(np.max(wavelength[kept]))
-
-
-def stokes_ratio(grid, ours, theirs, order):
-    """Return ours over theirs in a 12 % band about a vibrational Stokes order."""
-    centre = C / (C / CTC_WITNESS["lambda0"] - order * 124.57e12)
-    mask = band_mask(grid, (0.94 * centre, 1.06 * centre))
-    return float(
-        np.sum(np.abs(ours[:, mask]) ** 2) / np.sum(np.abs(theirs[:, mask]) ** 2)
-    )
-
-
 @pytest.fixture(scope="module")
 def ctc_reduced(test_backend_name):
     """The reduced CtC case at Luna's tolerance: the run every metric is measured on."""
@@ -3219,6 +3185,15 @@ def test_the_reduced_ctc_native_field_matches_fresh_numba(
 
 
 @pytest.fixture(scope="module")
+def luna_ctc_density():
+    """Return the peak electron density Luna's reduced run reached, m^-3."""
+    with h5py.File(Path(__file__).parents[1] / "data" / "luna_ctc_reduced.h5") as file:
+        return float(
+            np.max(np.asarray(cast("h5py.Dataset", file["stats/electrondensity"])[()]))
+        )
+
+
+@pytest.fixture(scope="module")
 def luna_ctc_reduced():
     """Luna's stored spectra for the reduced CtC case, every plane."""
     return stored_field("luna_ctc_reduced.h5")
@@ -3230,26 +3205,22 @@ def test_the_ctc_witness_names_the_luna_it_came_from():
     assert CTC_WITNESS["julia_version"].startswith("julia version")
     assert CTC_WITNESS["temperature_k"] == 294.0
     assert CTC_WITNESS["shotnoise"] is False
-    # The one departure from the script the target came from, recorded rather than
-    # silent: length is the only parameter of this case that changes nothing else about
-    # it, and 1.5 m costs the better part of a day in each code.
-    assert CTC_FULL["length"] == 0.2
+    # One mode on a 2 ps window: five times the 400 fs pulse, so the launch is clear of
+    # the temporal collar (a 1 ps window clipped it and seeded the Raman cascade).
+    assert CTC_REDUCED["modes"] == 1
+    assert CTC_REDUCED["trange"] == 2e-12
 
 
-def test_the_ctc_grids_are_the_ones_luna_realised():
-    """Bitwise for the full case, one unit in the last place for the reduced one.
+def test_the_ctc_grid_is_the_one_luna_realised():
+    """To one unit in the last place.
 
     The two codes reach the same fine sample spacing by different associations --
     solprop as ``2 pi / (ffac * 2 pi c / lambda_min)`` and Luna as
     ``1 / (ffac * c / lambda_min)`` -- and the round trip through the reciprocal is
-    exact at 90, 100 and 170 nm, so both RDW cases and the full CtC case agree bit for
-    bit, and inexact at the reduced case's 250 nm, where it costs 2.2e-16 in the bin
-    spacing and 3.4e-16 across the axis. Nothing is interpolated either way: the two
-    axes have the same length and the same bins to that rounding.
+    inexact at the case's 250 nm, where it costs about 2e-16 in the bin spacing and
+    3e-16 across the axis. Nothing is interpolated: the two axes have the same length
+    and the same bins to that rounding.
     """
-    full = ctc_grid(CTC_FULL)
-    np.testing.assert_array_equal(full.omega, np.asarray(CTC_MEDIA["FULL_OMEGA"]))
-    np.testing.assert_array_equal(full.t, np.asarray(CTC_MEDIA["FULL_T"]))
     reduced = ctc_grid(CTC_REDUCED)
     np.testing.assert_allclose(
         reduced.omega, np.asarray(CTC_MEDIA["REDUCED_OMEGA"]), rtol=1e-15, atol=0.0
@@ -3259,8 +3230,7 @@ def test_the_ctc_grids_are_the_ones_luna_realised():
     )
 
 
-@pytest.mark.parametrize("tag", ["REDUCED", "FULL"])
-def test_lunas_hydrogen_is_the_peck_fit_unchanged(tag):
+def test_lunas_hydrogen_is_the_peck_fit_unchanged():
     """Luna's helium normalisation is not repeated for hydrogen: no table is needed.
 
     ``sellmeier_gas(:H2)`` divides the Peck expansion by the **1 atm** density, which is
@@ -3269,10 +3239,10 @@ def test_lunas_hydrogen_is_the_peck_fit_unchanged(tag):
     the numbers :func:`luna_hydrogen` supplies, so the only difference left is each
     code's equation of state at the reference state.
     """
-    grid = ctc_grid(CTC_REDUCED if tag == "REDUCED" else CTC_FULL)
+    grid = ctc_grid(CTC_REDUCED)
     band = grid.active_mask
     ours = luna_hydrogen().susceptibility(grid.omega[band])
-    theirs = np.asarray(CTC_MEDIA[f"{tag}_GAMMA"])[band]
+    theirs = np.asarray(CTC_MEDIA["REDUCED_GAMMA"])[band]
     ratio = ours / theirs
     # Measured -1.112e-6 everywhere and flat in frequency (spread 2.4e-12): optmat's
     # hydrogen equation of state against Luna's CoolProp at 1 atm and 0 C, the same
@@ -3283,55 +3253,33 @@ def test_lunas_hydrogen_is_the_peck_fit_unchanged(tag):
 
 
 @pytest.mark.slow
-def test_the_reduced_ctc_case_bridges_the_octave(ctc_reduced):
-    """The physics the case is run for, on the run every metric below is measured on.
+def test_the_reduced_ctc_case_ionises(ctc_reduced, luna_ctc_density):
+    """The molecular ADK rate runs, and makes the plasma Luna makes.
 
-    Measured on this machine: 73.2 s against Luna's 76.4 s over 971 accepted steps. At
-    a ten-thousandth of its peak the exit spectrum spans 286.8-1471.3 nm here and
-    283.5-1517.0 nm in Luna; an octave about the 515 nm pump is 364-1030 nm, so both
-    bridge it with room to spare. The edges themselves are a floor crossing and move
-    with the floor, so only the octave is asserted.
+    Measured: peak electron density 1.7097e12 m^-3 here and in Luna, to 1.1e-6. The
+    witness runs the ADK oracle of ``tests/rate_oracles.py`` on the former potential,
+    which matches Luna's own sampled hydrogen rate to 3.4e-6
+    (`test_the_witness_rate_is_lunas_sampled_hydrogen_rate`), and with the launch clear
+    of the window edges the peak field stays at the input's 9.06e9 V/m in both codes.
+    On the 1 ps window both made two to three orders of magnitude more, and disagreed by
+    a factor of a thousand, from launched field compressing in each code's temporal
+    collar.
+
+    The rate table is not clipped: the run reaches 9.06e9 V/m against the 2.71e11 upper
+    limit `default_field_range` derives from the input's own 9.04e9 peak, a thirtyfold
+    margin.
     """
-    grid = ctc_grid(CTC_REDUCED)
-    low, high = spectral_span(grid, ctc_reduced.fields("fft")[-1, :, 0, :])
-    assert low < 364e-9
-    assert high > 1030e-9
-
-
-@pytest.mark.slow
-def test_the_reduced_ctc_case_ionises(ctc_reduced):
-    """The molecular ADK rate runs, and makes a plasma of the order this fixture allows.
-
-    Measured under the bounded temporal profile: peak electron density 4.13e18 m^-3
-    against Luna's 2.994e21; under a capped-logarithm temporal rate it reads between
-    3.280e20 and 4.6e20.
-    The gap is not the rate -- the witness runs the ADK oracle of
-    ``tests/rate_oracles.py`` on the former potential, which matches Luna's own sampled
-    hydrogen rate to 3.4e-6 (`test_the_witness_rate_is_lunas_sampled_hydrogen_rate`) --
-    it is the collar. A twentieth of this fixture's input field sits in the temporal
-    collar, and the plasma both codes make is made largely by that field as it
-    compresses there: Luna's window and the capped logarithm are almost transparent over
-    the inner collar and let it run on, the bounded profile absorbs it, and the on-axis
-    peak reads 1.484e10 V/m here against 1.873e10 under the capped logarithm and Luna's
-    2.092e10 -- ADK's exponential does the rest. What is asserted here is that the
-    molecular ADK is wired all the way through and ionises the fill, not that it agrees
-    with Luna to a factor.
-
-    The rate table is not clipped: the run reaches 1.484e10 V/m against the 2.712e11
-    upper limit `default_field_range` derives from the input's own 9.039e9 peak, so the
-    field grows by 1.64x where the M2 case grows by 1.84x and the factor of thirty
-    still has an eighteenfold margin.
-    """
-    density = np.asarray(ctc_reduced["stats/electron_density"])
-    assert 1e18 < float(np.max(density)) < 1e22
+    density = float(np.max(np.asarray(ctc_reduced["stats/electron_density"])))
+    assert density > 0.0
+    assert abs(density / luna_ctc_density - 1.0) < 1e-3
     intensity = float(np.max(np.asarray(ctc_reduced["stats/peak_intensity"])))
     peak_field = math.sqrt(2.0 * intensity / (EPS0 * C))
     span = ctc_field_range(CTC_REDUCED)
     assert span is not None
     low, high = span
     assert low < peak_field < high
-    # Eighteenfold margin, so the growth would have to be an order of magnitude larger
-    # than it is before the table's silent clip could reach this case.
+    # A thirtyfold margin, so the field would have to grow by an order of magnitude
+    # more than it does before the table's silent clip could reach this case.
     assert high / peak_field > 5.0
 
 
@@ -3348,7 +3296,7 @@ def test_the_reduced_ctc_quadrature_is_resolved(ctc_reduced):
 @pytest.mark.slow
 def test_the_two_codes_start_from_the_same_state(ctc_reduced, luna_ctc_reduced):
     # Plane zero, before anything has propagated: the pulse, the mode projection, the
-    # grid and the energy normalisation, in one number. Measured 2.0e-6, which bounds
+    # grid and the energy normalisation, in one number. Measured 1.8e-13, which bounds
     # what any later difference can be blamed on.
     ours = np.sum(np.abs(ctc_reduced.fields("fft")[0, :, 0, :]) ** 2)
     theirs = np.sum(np.abs(luna_ctc_reduced[0]) ** 2)
@@ -3384,12 +3332,12 @@ def test_the_two_codes_start_from_the_same_state(ctc_reduced, luna_ctc_reduced):
     # The run asks for the true energy of Luna's launch, w_bar = 1.0049222310 times
     # the nominal one, so the two codes are pumped alike and the two plane-zero states
     # compare directly, with no predicted conversion between them (the nominal energy
-    # would put the raw ratio 0.4900125 % out). The measurement is 2.014e-6 against the
-    # bound of 1e-5. Most of that is Luna's own pulse normalisation, measured on the
-    # archive: its energy functional is an extended Simpson rule, and its stored plane
-    # zero carries 1 + 1.570e-6 of the nominal energy it asked for. Building the launch
-    # from the case and the mode rather than from that plane is what keeps this a
-    # measurement at all.
+    # would put the raw ratio 0.4900125 % out). The measurement is 1.8e-13 against the
+    # bound of 1e-5. On the former 1 ps window it was 2.014e-6, most of it in Luna's
+    # own pulse normalisation (an extended Simpson rule, whose stored plane zero then
+    # carried 1 + 1.570e-6 of the nominal energy); the 2 ps window no longer shows it.
+    # Building the launch from the case and the mode rather than from Luna's plane is
+    # what keeps this a measurement at all.
     assert abs(float(ours / theirs) - 1.0) < 1e-5
 
 
@@ -3397,106 +3345,51 @@ def test_the_two_codes_start_from_the_same_state(ctc_reduced, luna_ctc_reduced):
 def test_the_reduced_ctc_metrics_are_bounded_at_milestone_m4(
     luna_ctc_reduced, request, test_backend_name
 ):
-    """Retain the archived M4 bounds under their explicitly matched Raman model.
+    """Bound the solver against Luna under an explicitly matched Raman model.
 
     solprop's scalar vibrational Raman amplitude is twice the witness's (Luna's
     prefactor has ``4 mu Omega`` where the induced-dipole Hamiltonian gives
-    ``2 mu Omega``). The default CtC run has spectral distance 0.8842 rather than
-    0.1544; it is exercised by the separate octave, ionisation and quadrature checks.
-    Here only, restore the witness's weaker vibration before propagation so that these
-    old solver-regression bounds keep their original meaning.
+    ``2 mu Omega``). Here only, the witness's weaker vibration is restored before
+    propagation, so that these bounds compare the two solvers on the same physics; the
+    default run (spectral distance 0.409, content 0.983) is exercised by the ionisation,
+    quadrature and backend checks.
 
-    The M4 bounds are set at the foot of this test, measured on `numba_cpu`. Measured
-    at Luna's tolerance, solprop against Luna, at the exit plane, under the bounded
-    temporal profile:
-
-    * the fundamental's in-band spectral energy density, relative L2: **0.154**
-    * the fundamental's total in-band content, ours over theirs: **1.044**
-    * the second mode: **0.134** of the fundamental's energy here against **0.238** in
-      Luna, so ours is **0.589** of Luna's in absolute content
-    * the 330-430 nm shoulder, ours over theirs: **0.967**
-    * the 900-1300 nm shoulder, ours over theirs: **1.046**
-    * the vibrational Stokes ladder, ours over theirs, summed over both modes:
-      **0.846** at 655 nm, **1.52** at 900 nm, **1.21** at 1439 nm
-    * total spectral energy surviving to the exit: **0.772** of the input here,
-      **0.807** in Luna -- neither code is lossy, and both lose to the windows what
-      leaves the band
-
-    Under a capped-logarithm temporal rate instead, with one co-moving frame for the
-    mode set, these read 0.520, 1.028, 0.264 against 0.238 (14 %), 0.658, 0.120, a
-    ladder of 1.09, 0.598 and 0.560, and 0.847 surviving. The profile moves every one
-    of them, the fundamental's shape towards Luna by a factor of three and the second
-    mode's content away by half: a twentieth of this fixture's input field sits in the
-    temporal collar, so what its exit holds is the collar's as much as the physics'.
-
-    With each mode in its own frame these read 0.643, 0.924, 0.515 against 0.238, and
-    a Stokes ladder of 1.02, 0.358 and 0.040 that collapsed monotonically; one
-    co-moving frame for the set moves every one of them towards Luna and flattens the
-    ladder, so the cascade difference was in part the missing walk-off.
-    What is asserted below is only that each metric is finite and of the order recorded,
-    so that this test fails on a change of kind rather than on a change of degree.
+    Measured at Luna's tolerance on `numpy_ref`, solprop against Luna, at the exit
+    plane: the fundamental's in-band spectral energy density differs by **0.0383**
+    (relative L2), its content is **1 + 6.1e-6** of Luna's, and the exit energy is
+    **1 + 6.9e-6** of the launch here against **1 + 7.4e-7** in Luna. None of these
+    is a continuum: the case does not form one (``generate_luna_ctc.py``), and it was
+    retired as a target with the 1 ps window, whose clipped launch seeded the cascade
+    these bounds once described (0.154, 1.044, and a Stokes ladder).
     """
+    del test_backend_name
     ctc_reduced = ctc_run(
         CTC_REDUCED, "REDUCED", backend="numpy_ref", luna_vibration=True
     )
     grid = ctc_grid(CTC_REDUCED)
-    ours = ctc_reduced.fields("fft")[-1, :, 0, :]
+    fields = ctc_reduced.fields("fft")
+    ours = fields[-1, :, 0, :]
     theirs = luna_ctc_reduced[-1]
     fundamental = in_band_distance(ours[0], theirs[0], grid.inband_mask)
-    content = np.sum(np.abs(ours[0]) ** 2) / np.sum(np.abs(theirs[0]) ** 2)
-    assert 0.0 < fundamental < 10.0
-    assert 0.1 < content < 10.0
-    for limits in (CTC_BLUE, CTC_RED):
-        mask = band_mask(grid, limits)
-        ours_band = np.sum(np.abs(ours[:, mask]) ** 2)
-        theirs_band = np.sum(np.abs(theirs[:, mask]) ** 2)
-        assert 1e-3 < ours_band / theirs_band < 1e3
-    # The ladder, recorded and not shaped: with a frame per mode it collapsed
-    # monotonically and that looked like the finding, which is exactly why nothing
-    # here asserts its shape.
-    ladder = [stokes_ratio(grid, ours, theirs, order) for order in (1, 2, 3)]
-    assert all(1e-2 < rung < 1e2 for rung in ladder)
-    # The second mode is the one the comparison is judged on beside the fundamental. It
-    # walks 0.108 ps over this case's 0.1 m against a 1.14 ps window, and its exit
-    # content halves between the two temporal collar shapes: on this
-    # fixture it is the collar's as much as the physics'.
-    second = np.sum(np.abs(ours[1]) ** 2) / np.sum(np.abs(theirs[1]) ** 2)
-    assert 0.3 < second < 2.0
+    content = float(np.sum(np.abs(ours[0]) ** 2) / np.sum(np.abs(theirs[0]) ** 2))
+    surviving = float(
+        np.sum(np.abs(ours) ** 2) / np.sum(np.abs(fields[0, :, 0, :]) ** 2)
+    )
+    luna_surviving = float(
+        np.sum(np.abs(theirs) ** 2) / np.sum(np.abs(luna_ctc_reduced[0]) ** 2)
+    )
 
     # ---------------------------------------------------- milestone M4's bounds
     #
-    # Measured on `numba_cpu`, the default. **The two CPU backends give the same
-    # numbers to four figures**, so these bound the physics and not the execution.
-    #
-    # The margin is +-10 % of each measurement, two-sided. Two-sided because a
-    # metric that collapsed would mean the witness had been regenerated with
-    # different physics rather than that the solver had improved; ten per cent
-    # because these are deterministic runs against a fixed witness, so the only
-    # thing that can move them is a change in solprop -- and ten per cent is far
-    # inside the 14 % at which the second mode agrees with Luna at all, so a
-    # tightening here can never be mistaken for agreement with Luna.
-    # The bounds are for the bounded temporal profile; under the capped logarithm
-    # the first three read 0.5199, 1.0276 and 1.1397.
-    #
-    # The launch is the true energy of Luna's pulse (`luna_launch_energy`). The
-    # nominal energy would launch 1/w_bar of it, w_bar = 1.0049222310 at z = 0 --
-    # 0.492 % less -- and a cascade is nonlinear in its pump, so that half a per cent
-    # moves every metric below by up to several per cent on a Stokes rung. This fill
-    # is constant, so the change of variables has no logarithmic term, where the
-    # reduced M2 case's gradient does. Each measurement is quoted against the value
-    # of the vacuum-amplitude formulation, which it matches to 2e-4 -- the evidence
-    # that the pump is the whole of the difference -- and beside the nominal launch's:
-    # 0.1543846267 against 0.1544086501 (-1.6e-4); nominal launch 0.1592145439.
-    assert 0.139 < fundamental < 0.170
-    # 1.0440103396 against 1.0440265004 (-1.5e-5); nominal launch 1.0397201366.
-    assert 0.940 < content < 1.148
-    # 0.5888359427 against 0.5889080941 (-1.2e-4); nominal launch 0.5883980470.
-    assert 0.530 < second < 0.648
-    # 0.8457832, 1.5234816 and 1.2113483 against 0.8457513, 1.5235388 and 1.2113413
-    # -- 4.5e-5, 3.8e-5 and 5.8e-6 of each; nominal launch 0.8503518, 1.4723958 and
-    # 1.2180934.
-    for rung, measured in zip(ladder, (0.8458, 1.5235, 1.2113), strict=True):
-        assert 0.9 * measured < rung < 1.1 * measured
+    # The shape is bounded at +-10 % of its measurement, two-sided: these are
+    # deterministic runs against a fixed witness, so only a change in solprop can move
+    # it, and a collapse would mean the witness had been regenerated with different
+    # physics rather than that the solver had improved. The two energies sit within
+    # 1e-5 of Luna's; their bounds are 1e-4, which a step sequence that differs across
+    # platforms at the controller's 1e-6 cannot reach.
+    assert 0.0345 < fundamental < 0.0422
+    assert abs(content - 1.0) < 1e-4
+    assert abs(surviving / luna_surviving - 1.0) < 1e-4
     record(
         M4_WITNESS_METRICS,
         request=request,
@@ -3504,168 +3397,14 @@ def test_the_reduced_ctc_metrics_are_bounded_at_milestone_m4(
         rows=metric_rows(
             "reduced case",
             [
-                ("fundamental, shape", fundamental, 0.139, 0.170),
-                ("fundamental, content", content, 0.940, 1.148),
-                ("second mode, content", second, 0.530, 0.648),
-                *(
-                    (f"Stokes rung {order}", rung, 0.9 * quoted, 1.1 * quoted)
-                    for order, rung, quoted in zip(
-                        (1, 2, 3), ladder, (0.8458, 1.5235, 1.2113), strict=True
-                    )
+                ("fundamental, shape", fundamental, 0.0345, 0.0422),
+                ("fundamental, content", content, 1.0 - 1e-4, 1.0 + 1e-4),
+                (
+                    "exit energy, ours over Luna's",
+                    surviving / luna_surviving,
+                    1.0 - 1e-4,
+                    1.0 + 1e-4,
                 ),
-            ],
-        ),
-    )
-
-
-# ------------------------------------------------------------------ the full case
-#
-# Luna's published example verbatim, at 1.5 m on four modes. No lane runs it: the
-# default run, the slow lane and the coverage lane all exclude `benchmark`. Run it by
-# hand with
-# `uv run pytest tests/driver/test_prop_capillary.py -m benchmark`.
-
-
-def ctc_memory_ledger(case):
-    """Return the reference backend's buffer sizes for a CtC case, in bytes."""
-    grid = ctc_grid(case)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", MaterialRangeWarning)
-        simulation = Simulation.from_capillary(
-            case["radius"],
-            case["length"],
-            luna_hydrogen_fill(case["pressure"], CTC_WITNESS["temperature_k"]),
-            grid=grid,
-            lambda0=CTC_WITNESS["lambda0"],
-            fwhm=CTC_WITNESS["tau_fwhm"],
-            energy=CTC_WITNESS["energy"],
-            modes=case["modes"],
-            loss=False,
-            raman=True,
-            plasma=luna_hydrogen_rate(),
-            # The witness was made by Luna's cumulative trapezoid (SEP 18).
-            plasma_integration="trapezoid",
-            temperature=CTC_WITNESS["temperature_k"],
-            n_save=2,
-        )
-        problem = simulation.translate()
-        backend = NumpyRefBackend(
-            problem,
-            grid=simulation.grid,
-            modes=simulation.modes,
-            profiles=simulation.profiles,
-        )
-        return backend.memory_ledger()
-
-
-@pytest.mark.benchmark
-def test_the_full_ctc_case_against_its_witness(request, tmp_path):
-    """Milestone M4 at full size on `numpy_ref`, against the witness beside it.
-
-    Measured on one workstation at Luna's tolerance, with one co-moving frame for the
-    mode set and the kernel contract at version 3: **8598 s against Luna's 4533 s**,
-    so the reference backend is 1.90x slower than Luna on the case it was written to
-    make readable rather than fast. That is the number the `numba_cpu` backend has to
-    beat. The reference backend holds **147.3 MB** across
-    its named buffers, the largest being the two Raman node buffers at 22.0 MB each
-    (they live on the doubled fine grid) and the tabulated propagators at 18.9 MB;
-    `docs/dev/architecture.md` section 8 budgets ~20 MB of solver registers and ~45 MB
-    of node buffers for this case, and the measured split is 34.6 MB and 99.1 MB, so
-    the node side is over that estimate and the ledger below is the measurement.
-
-    **The full case agrees with Luna far better than the reduced one does**, which is
-    the result that matters for M4 and the reason the reduced case's numbers are not a
-    preview of it:
-
-    * the fundamental's in-band spectral energy density, relative L2: **0.0857**,
-      against 0.520 on the reduced case
-    * the fundamental's total in-band content, ours over theirs: **0.9930**
-    * every one of the six modes agrees in content to better than 14 %: as a fraction
-      of the fundamental's energy, ours against theirs, **0.4116/0.4002**,
-      **4.107e-3/4.008e-3**, **1.621e-4/1.809e-4**, **3.664e-5/3.705e-5** and
-      **1.249e-6/1.438e-6** for modes two to six -- ratios 1.029, 1.025, 0.896, 0.989
-      and 0.868, where milestone M2 with a frame per mode disagreed by 1e2 to 7e4
-    * the exit spectrum spans **337.1-849.8 nm** here and 336.9-849.8 nm in Luna, at a
-      ten-thousandth of the peak
-    * the vibrational Stokes ladder, ours over theirs: **1.029**, **0.786**, **0.744**;
-      the 330-430 nm shoulder **0.942** and the 900-1300 nm shoulder **0.821**
-
-    Two things do **not** agree, and both are the same single number seen twice. The
-    peak on-axis field is **1.689e10 V/m** here against Luna's 2.246e10, a 33 %
-    difference in a single-sample extremum of a self-compressed pulse where the
-    spectra, which are integrals, agree to a few per cent. Through ADK's exponential
-    that is a factor of 338 in the rate, and the peak electron density is **4.55e19**
-    against Luna's 3.62e22 -- a factor of 795, of which the field accounts for 338 and
-    the rest is that the two codes read the density in different places (solprop at the
-    node of largest ionised fraction, Luna re-synthesised on axis). It is not the
-    rate: the witness runs Luna's rate, the ADK oracle of ``tests/rate_oracles.py``,
-    within 3.4e-6 of Luna's own samples
-    (`test_the_witness_rate_is_lunas_sampled_hydrogen_rate`).
-
-    The quadrature is resolved at six modes: the alarm never exceeds **2.24e-11** at
-    `default_radial_order(6) = 48`, which answers the open question about the default's
-    slope above four modes on the first set that exercises it. The rate table is not
-    clipped either -- 1.689e10 V/m against a 2.711e11 upper limit.
-
-    Only the fundamental and the second mode are asserted; the rest is recorded.
-    """
-    ledger = ctc_memory_ledger(CTC_FULL)
-    assert sum(ledger.values()) < 250e6
-    # The full-case rows of m4_witness_metrics are historical and were *not*
-    # regenerated with the reduced ones: this is the only writer that produces them
-    # and it is too long to run routinely. They were measured with the nominal launch
-    # energy rather than the true energy of Luna's pulse -- 1.0049222332 times the
-    # nominal one here -- so they will move when they are next measured, and by
-    # several per cent on a Stokes rung, as the reduced case's did.
-    # Match the archive's halved scalar vibrational Raman amplitude only in this
-    # regression, as in reduced M4. Luna is a historical witness, not an absolute
-    # correctness oracle. Independent oscillator/conservation tests retain the corrected
-    # response.
-    output = ctc_run(
-        CTC_FULL, "FULL", planes=2, backend="numpy_ref", luna_vibration=True
-    )
-    # Preserve the expensive result even if a historical comparison bound fails.
-    assert isinstance(output, MemoryOutput)
-    output.to_file(tmp_path / "full-ctc-power.h5")
-    grid = ctc_grid(CTC_FULL)
-    theirs = stored_field("luna_ctc_full.h5")[-1]
-    ours = output.fields("fft")[-1, :, 0, :]
-    fundamental = in_band_distance(ours[0], theirs[0], grid.inband_mask)
-    content = np.sum(np.abs(ours[0]) ** 2) / np.sum(np.abs(theirs[0]) ** 2)
-    # Two-sided round the measurement: a distance that collapsed would mean the witness
-    # had been regenerated with different physics, not that the solver had improved.
-    assert 0.04 < fundamental < 0.2
-    assert 0.97 < content < 1.03
-    # The second mode, the other one the comparison is judged on.
-    second = np.sum(np.abs(ours[1]) ** 2) / np.sum(np.abs(theirs[1]) ** 2)
-    assert 0.9 < second < 1.15
-    low, high = spectral_span(grid, ours)
-    assert low < 364e-9
-    assert high > 849e-9
-    # Modes three to six are recorded in the docstring, not bounded: they carry from
-    # 4e-3 to 1e-6 of the fundamental and walk 0.6 to 2.8 ps over this fibre, so their
-    # exit content is partly each code's own temporal collar.
-    higher = [
-        np.sum(np.abs(ours[mode]) ** 2) / np.sum(np.abs(theirs[mode]) ** 2)
-        for mode in range(2, ours.shape[0])
-    ]
-    assert all(0.1 < ratio < 10.0 for ratio in higher)
-    record(
-        M4_WITNESS_METRICS,
-        request=request,
-        backend="numpy_ref",
-        rows=metric_rows(
-            "full case",
-            [
-                ("fundamental, shape", fundamental, 0.04, 0.2),
-                ("fundamental, content", float(content), 0.97, 1.03),
-                ("second mode, content", float(second), 0.9, 1.15),
-                *(
-                    (f"mode {mode}, content", float(ratio), 0.1, 10.0)
-                    for mode, ratio in enumerate(higher, start=3)
-                ),
-                ("span at 1e-4, low edge", 1e9 * low, 0.0, 364.0),
-                ("span at 1e-4, high edge", 1e9 * high, 849.0, 1e4),
             ],
         ),
     )

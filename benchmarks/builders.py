@@ -100,17 +100,21 @@ def _resolved_capillary(name: str) -> Simulation:
         )
     if name in ("ctc", "ctc_reduced"):
         full = name == "ctc"
+        # The full shape runs 0.3 m, where solprop's own physics forms the continuum on
+        # this 4 ps grid; the reduced case is the fundamental alone over 0.1 m on a 2 ps
+        # grid, five times the pulse, which tests CtC-type propagation without forming
+        # one. A 1 ps reduced window clipped the launch and seeded the Raman cascade.
         return Simulation.from_capillary(
             16e-6,
-            0.2 if full else 0.1,
+            0.3 if full else 0.1,
             "H2",
             40.0,
             lambda0=515e-9,
             wavelength_limits=(170e-9, 4e-6) if full else (250e-9, 2e-6),
-            trange=4e-12 if full else 1e-12,
+            trange=4e-12 if full else 2e-12,
             fwhm=400e-15,
             energy=10e-6,
-            modes=6 if full else 2,
+            modes=6 if full else 1,
             raman=True,
             temperature=294.0,
             rtol=1e-6,

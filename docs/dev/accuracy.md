@@ -218,7 +218,7 @@ propagation compares the two codes.
 | Vincetti production form against converged JCMwave FEM rows (30 µm core, 180 nm walls, six tubes; t/r = 0.017, outside the fits' range) | index RMSE 7.5e-6 over 79 vacuum rows, 2.9 % of the decrement median away from resonance; 4.5e-6 and 0.7 % at 10 bar argon; the vacuum-to-argon change to 7.2e-8; window loss 0.5–1.6× the FEM's; fitted area 2.5 % / 1.2 % median; first-band β₂ 20–70 % less negative than the FEM's | `tests/modes/test_vincetti_fem.py` (bounds with 15 % margin) |
 | Marcatili effective indices | 3e-10 in `n − 1` and 1.3e-11 in the loss, every mode of the M2 set | `tests/modes/test_luna_modes.py` |
 | `N`, `A_eff`, the Bessel zeros and `E_xy` | solprop's to rounding, bar Luna's older ε₀ (1.33e-10) | `tests/modes/test_luna_modes.py` |
-| the M2 and CtC grids | bitwise equal at 90, 100 and 170 nm; one ulp at the reduced CtC case's 250 nm | `tests/driver/test_prop_capillary.py` |
+| the M2 and CtC grids | bitwise equal at 90 and 100 nm; one ulp at the reduced CtC case's 250 nm | `tests/driver/test_prop_capillary.py` |
 
 A propagation comparison is read with the deliberate departures from Luna in mind —
 optmat's default ionisation rate, the rate absorber in place of Luna's per-step window
@@ -470,15 +470,13 @@ which that target does not bound.
 - **Accepted-step counts.** Luna's are not reproducible across machines (4856 against 4851
   on one case); solprop's were identical on both when measured, an observation rather
   than a requirement ([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)).
-  solprop takes 27 % more steps than Luna on the CtC case and 58 % fewer on the M2 case at the same nominal tolerance, because the
-  two norms mean different things.
-- **The CtC peak on-axis field**, 0.71 of Luna's on the reduced case; a single-sample
-  extremum, to be recomputed on one definition before it is read as physics.
+  solprop takes 58 % fewer steps than Luna on the M2 case at the same nominal tolerance,
+  because the two norms mean different things. On the reduced CtC case (one mode, 2 ps)
+  it takes 3163 accepted steps to Luna's 205; that gap is recorded and not yet explained.
 - **The spatial witnesses** (§10) are diagnostics, not bounds: full Cartesian agreement
   is close, the modal-prefactor difference explains most of the elliptical-envelope and
   circular-plasma differences, and radial on-axis and elliptical-field residuals remain.
-- **Not yet measured at all**: a Luna comparison above six modes; the mode-2 energy
-  against a converged Luna on the CtC case, which has no converged witness.
+- **Not yet measured at all**: a Luna comparison above six modes.
 
 ## 9. Regenerating the numbers
 

@@ -186,11 +186,11 @@ _CORE = (
     ),
     Case(
         "ctc",
-        1,
+        2,
         ("core", "modal-capillary"),
         "capillary",
         (*ADAPTIVE, FIXED),
-        0.2,
+        0.3,
         0.00017,
         0.00034,
         0.000017,
@@ -253,7 +253,7 @@ _MODAL = (
     ),
     Case(
         "ctc_reduced",
-        1,
+        2,
         ("modal-capillary",),
         "capillary",
         (*ADAPTIVE, FIXED),
@@ -261,7 +261,7 @@ _MODAL = (
         0.0,
         ENTRANCE_SCHEDULES["ctc_reduced"][-1],
         0.00012,
-        (2, 4096, 8192),
+        (1, 8192, 16384),
         "benchmarks/cases.py:ctc_reduced",
     ),
     Case(

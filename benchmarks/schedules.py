@@ -9,6 +9,11 @@ rtol=1e-6, with atol=1e-10 for modal/GNLSE and zero for spatial cases, and
 no intervening observation landings. These edges
 select bounded workloads; they are not an accuracy claim or a timing result.
 Reduced CtC retains its already specified uniform fixed diagnostic instead.
+
+Reduced CtC's revision 2 (one mode on a 2 ps window, 2026-10-24) keeps revision 1's
+edges. They bound the adaptive interval only, and a pilot at the current revision no
+longer reproduces them even on the old grid, so re-freezing them would change the
+workload without a protocol to justify the new one.
 """
 
 __all__ = ["ENTRANCE_SCHEDULES"]

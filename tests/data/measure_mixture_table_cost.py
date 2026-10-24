@@ -36,13 +36,20 @@ def main():
         raise RuntimeError(f"load {load} exceeds quiet threshold {threshold}")
     if OUTPUT.exists():
         raise FileExistsError(OUTPUT)
-    source = json.loads(Path(__file__).with_name("luna_ctc.json").read_text())
-    case = source["full"]
+    # The full CtC shape as it was when this cost was measured (its stored Luna
+    # comparison has since been retired).
+    case = {
+        "radius": 16e-6,
+        "length": 0.2,
+        "pressure": 40.0,
+        "modes": 6,
+        "lambda_min": 170e-9,
+        "lambda_max": 4e-6,
+        "trange": 4e-12,
+        "n_save": 201,
+    }
     grid = FieldGrid.from_limits(
-        case["length"],
-        source["lambda0"],
-        (case["lambda_min"], case["lambda_max"]),
-        case["trange"],
+        case["length"], 515e-9, (case["lambda_min"], case["lambda_max"]), case["trange"]
     )
     fill = Mixture.air(6.0, temperature=300.0)
     components = tuple(

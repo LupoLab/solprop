@@ -63,6 +63,10 @@ class AccuracyEnvelope:
 # SEP 30 Part II records the independent reference/refinement pilot and its
 # review. The ceilings use source-campaign target levels with headroom, not a fit
 # to the fastest candidate. Hashes prevent a changed window inheriting this review.
+# CtC revision 2 (0.3 m) and reduced CtC revision 2 (one mode, 2 ps) were requalified
+# on 2026-10-24 against fresh tight references: field errors 5.8e-8 and 2.4e-7
+# (Multistep, RK) for CtC and 3.0e-7 and 4.6e-8 for reduced CtC, with the references'
+# own coarse-to-tight difference 4e-11, so the reviewed ceilings carry over.
 CORE_ENVELOPES = (
     AccuracyEnvelope(
         "rdw",
@@ -78,8 +82,8 @@ CORE_ENVELOPES = (
         1,
         1e-5,
         (
-            "b9bb84f300848a0fb3a7132c92039697f977f6c1ebf9eb08f98f98a8c1c547de",
-            "e43c31b1ed8784d9d85e210336a7484752aa29782da5439928c1ddfb3f5eb21e",
+            "77921ed867f8cb363a481ddeb796cd727e618cbfa4f701b5bac5d2b57f4caacf",
+            "de1a99b0ec449fde92ddbcf312ebec7d0d2edddd305b5ec7bb9d69304001c62e",
         ),
     ),
     AccuracyEnvelope(
@@ -110,8 +114,8 @@ MODAL_ENVELOPES = (
         1,
         1e-4,
         (
-            "565159afbdb832475b42b84e381998dffd57e12acfa55f7185acb775e2466909",
-            "29e3e85513c29fd5ecebec59d1933c836c0d00524cf2339aad9f2b42b8ffe664",
+            "7368f97cd67d64e1a9872011b5eeb35e74be67d0c4a1a10a74ad6ad61df5d79c",
+            "c45322f255a93e83c0ebf518227d8fe6ab091bfd0c0052d817c481fad19103da",
         ),
     ),
     AccuracyEnvelope(
