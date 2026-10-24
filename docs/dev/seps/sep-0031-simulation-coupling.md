@@ -2096,23 +2096,17 @@ function-shadows-module problem phase 3 solved by naming its module `coupler.py`
 3. The wavefront panel uses the 800 nm bin, masked below 1 % of the linear field's
    amplitude at that bin.
 
-### Worked example `plot_04_graded_index_multimode.py` — not re-run
+### Worked example `plot_04_graded_index_multimode.py` — re-run
 
-The example still calls `prop_waveguide(..., transverse=beam)` and builds its launch
-shares with `project_transverse_field`. Its committed output recorded **50 min 36 s**
-(`docs/auto_examples/waveguides/plot_04_graded_index_multimode.rst`), above the
-30-minute limit for this task, so the source was left unchanged (an edited source
-without regenerated output fails the normal docs build). The same guide is admitted
-on the current path: `benchmarks/guides.py`'s `grin(nonlinear=True)` (100 µm core,
-Δ = 0.0095, 12 µm beam) builds with `incident=SpatialPulse(GaussianPulse(1064 nm,
-300 fs, 159.7 nJ), 12e-6)` and `coupling=CouplingModel("vector_paraxial",
-model_error=0.2)` in 10.5 s: budget 3.08e-2 of 0.2 (contrast 9.5e-3, angular 2.5e-2,
-closure 4.6e-3, passivity 1.1e-3), launched share 0.99998 of the incident 159.7 nJ.
-The update is that substitution, the launch-share cell read from
-`configuration["launch"]`, and the prose that says the launch is renormalised to the
-declared energy (it now carries what the channels capture). It then needs one
-`poe docs-examples plot_04_graded_index_multimode` run of about 50 minutes on an idle
-machine.
+The example now calls `prop_waveguide(..., incident=beam, coupling=CouplingModel(
+"vector_paraxial", model_error=0.1))` instead of `transverse=`, reads its launch account
+from `configuration["launch"]`, and says that the launched energy is the captured share
+of the incident beam's (no longer renormalised to the declared energy). The
+`project_transverse_field` preview and the `GeneralModalBasisWarning` filters are gone.
+Its output was regenerated with `poe docs-examples plot_04_graded_index_multimode`
+(10 min 23 s): incident 159.67 nJ, launched 0.99998 of it, budget 1.832e-2 of 0.1
+(angular 1.25e-2, contrast 9.5e-3, closure 4.6e-3, passivity 1.1e-3); entrance shares
+LP01 0.933, LP02 0.0625. The figures changed only in their last digits.
 
 ## Part III — History
 
