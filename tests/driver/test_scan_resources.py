@@ -88,6 +88,28 @@ def test_the_controllers_thread_budget_limits_the_cpus_shared_out(monkeypatch, l
     assert pool._cpus() == (0, 1, 2)
 
 
+@pytest.mark.parametrize(("budget", "expected"), [(None, (4, 5, 6, 7)), ("2", (4, 5))])
+def test_a_slurm_instance_keeps_its_cpus_under_a_smaller_budget(
+    monkeypatch, budget, expected
+):
+    """The second of two instances on eight CPUs: its slice first, then the budget.
+
+    Cutting the mask to the budget before the offset left this instance no CPUs.
+    """
+    monkeypatch.setattr(
+        pool.os, "sched_getaffinity", lambda pid: set(range(8)), raising=False
+    )
+    monkeypatch.setattr(_process, "cgroup_cpus", lambda: None)
+    monkeypatch.setenv("SLURM_CPUS_PER_TASK", "8")
+    monkeypatch.setenv("SOLPROP_SCAN_CPU_OFFSET", "4")
+    monkeypatch.setenv("SOLPROP_SCAN_CPU_COUNT", "4")
+    if budget is None:
+        monkeypatch.delenv("SOLPROP_THREADS", raising=False)
+    else:
+        monkeypatch.setenv("SOLPROP_THREADS", budget)
+    assert pool._cpus() == expected
+
+
 def test_an_invalid_thread_budget_is_a_driver_error(monkeypatch):
     monkeypatch.setenv("SOLPROP_THREADS", "none")
     with pytest.raises(DriverError, match="SOLPROP_THREADS"):

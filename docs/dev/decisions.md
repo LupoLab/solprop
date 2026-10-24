@@ -1179,14 +1179,16 @@ Withdrawn (development-process record, not a design decision).
 - **Decision:** a process has one thread budget, the smallest of its affinity mask (read
   at import, before an OpenMP runtime can bind the main thread), the tightest CPU quota
   on its own control-group path (versions 1 and 2, rounded **down**, at least one) and
-  `SOLPROP_THREADS`; the native backend also takes `SOLPROP_NATIVE_THREADS`, and
-  `numba_cpu`'s kernels `NUMBA_NUM_THREADS`, Numba's own ceiling. Every pool's automatic
-  size stays within it, and so does every explicit count (`threads=`, the per-pool
-  variables), clamped rather than refused. `SOLPROP_OVERSUBSCRIBE=1` lets an explicit
+  `SOLPROP_THREADS`, read alike by both backends; `numba_cpu`'s kernels are also held to
+  `NUMBA_NUM_THREADS`, Numba's own ceiling. Every pool's automatic size stays within it,
+  and so does every explicit count (`threads=`, the per-pool variables,
+  `SOLPROP_NATIVE_THREADS` for the Kokkos pool), clamped rather than refused. `SOLPROP_OVERSUBSCRIBE=1` lets an explicit
   count exceed the CPUs and the quota, never `SOLPROP_THREADS`. The pools take turns, so
   each may use the whole budget. The budget and the limit that set it are recorded with
-  the pools in a run's metadata. The executors set `SOLPROP_THREADS` per worker, and
-  the test lanes set it to one per xdist worker.
+  the pools in a run's metadata, with the same meaning on every backend. The executors
+  set `SOLPROP_THREADS` per worker (a Slurm instance's controller keeps its whole CPU
+  share, and its own instance slice is taken before its budget), and the test lanes set
+  it to one per xdist worker.
 - **Why:** a quota limits CPU time, not CPUs: a team that exceeds it is throttled for the
   rest of each period, and one that synchronises at every step stalls whole, so 1.5 CPUs
   is one thread (Go and Java round up for throughput workloads that tolerate it). A
@@ -1195,7 +1197,8 @@ Withdrawn (development-process record, not a design decision).
   threads than a CI runner has CPUs; production never does.
 - **Consequences:** the native backend cannot import solprop and sizes Kokkos at import,
   so it carries a copy of the reader (`solprop_native._budget`); `tests/test_process.py`
-  runs both copies on the same control groups and environment. A test that compares
+  runs both copies on the same control groups and environment. A process reads its own
+  quota once. A test that compares
   thread counts lifts its budget explicitly. `SLURM_CPUS_PER_TASK` stays a `Pool`
   setting rather than part of the budget, since Slurm narrows the mask itself where it
   binds tasks.

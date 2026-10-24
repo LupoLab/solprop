@@ -300,7 +300,10 @@ def test_the_native_copy_reads_control_groups_alike(
 def test_the_native_copy_sets_the_same_budget(
     monkeypatch, native_budget, quota, variable, oversubscribe
 ):
-    """Without a native-only count, both backends start from the same budget."""
+    """Both backends read the same budget, and clamp an explicit count alike.
+
+    So ``thread_budget`` means the same in every backend's metadata.
+    """
     monkeypatch.setattr(_process, "allowed_cpus", lambda: tuple(range(8)))
     monkeypatch.setattr(_process, "cgroup_cpus", lambda: quota)
     monkeypatch.setattr(native_budget, "cgroup_cpus", lambda: quota)
@@ -314,7 +317,10 @@ def test_the_native_copy_sets_the_same_budget(
         else:
             monkeypatch.setenv(name, value)
     ours, theirs = _process.thread_budget(), native_budget.thread_budget(8)
-    assert (theirs.threads, theirs.source) == (ours.threads, ours.source)
+    fields = ("threads", "source", "oversubscribe", "requested")
+    assert [getattr(theirs, f) for f in fields] == [getattr(ours, f) for f in fields]
+    for count in (1, 4, 16):
+        assert theirs.explicit(count) == ours.explicit(count)
 
 
 @pytest.mark.parametrize("value", ["0", "-1", "1.5", "many"])
@@ -329,24 +335,25 @@ def test_the_native_copy_refuses_the_same_counts(monkeypatch, native_budget, val
 
 @pytest.mark.parametrize(
     ("native", "oversubscribe", "expected"),
-    [
-        ("4", None, (4, "affinity")),
-        ("2", None, (2, "SOLPROP_NATIVE_THREADS")),
-        ("16", "1", (16, "SOLPROP_NATIVE_THREADS")),
-    ],
+    [(None, None, 4), ("8", None, 4), ("2", None, 2), ("16", "1", 16)],
 )
 def test_the_native_count_narrows_unless_oversubscribing(
     monkeypatch, native_budget, native, oversubscribe, expected
 ):
+    """The Kokkos pool is the native count within the budget, which stays the CPUs."""
     monkeypatch.setattr(native_budget, "cgroup_cpus", lambda: None)
     monkeypatch.delenv("SOLPROP_THREADS", raising=False)
-    monkeypatch.setenv("SOLPROP_NATIVE_THREADS", native)
-    if oversubscribe is None:
-        monkeypatch.delenv("SOLPROP_OVERSUBSCRIBE", raising=False)
-    else:
-        monkeypatch.setenv("SOLPROP_OVERSUBSCRIBE", oversubscribe)
+    for name, value in (
+        ("SOLPROP_NATIVE_THREADS", native),
+        ("SOLPROP_OVERSUBSCRIBE", oversubscribe),
+    ):
+        if value is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, value)
     budget = native_budget.thread_budget(4)
-    assert (budget.threads, budget.source) == expected
+    assert (budget.threads, budget.source) == (4, "affinity")
+    assert native_budget.native_threads(budget) == expected
 
 
 def test_oversubscribing_never_passes_solprop_threads(monkeypatch, native_budget):
@@ -356,12 +363,31 @@ def test_oversubscribing_never_passes_solprop_threads(monkeypatch, native_budget
     monkeypatch.setenv("SOLPROP_NATIVE_THREADS", "16")
     budget = native_budget.thread_budget(4)
     assert (budget.threads, budget.source) == (3, "SOLPROP_THREADS")
+    assert native_budget.native_threads(budget) == 3
     assert (
         _process.ThreadBudget(4, "affinity", oversubscribe=True, requested=3).explicit(
             16
         )
         == 3
     )
+
+
+@pytest.mark.parametrize("module", ["solprop", "native"])
+def test_the_processs_own_quota_is_read_once(monkeypatch, native_budget, module):
+    reader = _process if module == "solprop" else native_budget
+    reads = []
+
+    def read(root):
+        reads.append(root)
+        return 2
+
+    monkeypatch.setattr(reader, "_read_cgroup_cpus", read)
+    reader._own_cgroup_cpus.cache_clear()
+    try:
+        assert reader.cgroup_cpus() == reader.cgroup_cpus() == 2
+        assert reads == [Path("/")]
+    finally:
+        reader._own_cgroup_cpus.cache_clear()
 
 
 @pytest.mark.parametrize("value", ["yes", "2"])

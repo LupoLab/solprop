@@ -20,6 +20,7 @@ started and puts it back after.
 """
 
 import contextlib
+import functools
 import os
 import sys
 from collections.abc import Iterator
@@ -206,7 +207,7 @@ def _quota(directory: Path) -> int | None:
     return None
 
 
-def cgroup_cpus(root: Path = Path("/")) -> int | None:
+def cgroup_cpus(root: Path | None = None) -> int | None:
     """Return the tightest CPU quota on this process's control-group path.
 
     A quota limits CPU *time*, not which CPUs: a team of threads that exceeds it is
@@ -215,10 +216,14 @@ def cgroup_cpus(root: Path = Path("/")) -> int | None:
     thread. Every group from the process's own up to the hierarchy's root is read,
     for control-group versions 1 and 2, because a parent's quota binds its children.
 
+    This process's own quota (``root`` unset) is read once and kept: every backend
+    build and every scan admission asks, and a running process's groups do not
+    change under it.
+
     Parameters
     ----------
     root : pathlib.Path, optional
-        The filesystem root, for tests.
+        A filesystem root to read under instead, for tests; never kept.
 
     Returns
     -------
@@ -231,6 +236,34 @@ def cgroup_cpus(root: Path = Path("/")) -> int | None:
     >>> from solprop._process import cgroup_cpus
     >>> cgroup_cpus() is None or cgroup_cpus() >= 1
     True
+    """
+    return _own_cgroup_cpus() if root is None else _read_cgroup_cpus(root)
+
+
+@functools.cache
+def _own_cgroup_cpus() -> int | None:
+    """Return this process's CPU quota, read once.
+
+    Returns
+    -------
+    int or None
+        As :func:`cgroup_cpus`.
+    """
+    return _read_cgroup_cpus(Path("/"))
+
+
+def _read_cgroup_cpus(root: Path) -> int | None:
+    """Read the tightest CPU quota on this process's path under a filesystem root.
+
+    Parameters
+    ----------
+    root : pathlib.Path
+        The filesystem root.
+
+    Returns
+    -------
+    int or None
+        As :func:`cgroup_cpus`.
     """
     try:
         lines = (root / "proc/self/cgroup").read_text(encoding="utf-8").splitlines()

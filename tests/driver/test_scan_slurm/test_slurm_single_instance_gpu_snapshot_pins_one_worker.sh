@@ -16,7 +16,6 @@ for (( instance=0; instance<1; instance++ )); do
     export SOLPROP_SCAN_CPU_OFFSET=$(( instance * 8 ))
     export SOLPROP_SCAN_CPU_COUNT=8
     export NUMBA_NUM_THREADS=2
-    export SOLPROP_THREADS=2
     export OMP_NUM_THREADS=2
     export OPENBLAS_NUM_THREADS=2
     export MKL_NUM_THREADS=2

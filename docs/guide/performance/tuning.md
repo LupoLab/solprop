@@ -188,7 +188,7 @@ imported:
 
 | variable | pool | default |
 |---|---|---|
-| `SOLPROP_NATIVE_THREADS` | the process-wide cap; Kokkos' OpenMP pool is created with the smaller of this and the thread budget (above `SOLPROP_THREADS`' budget never; above the CPUs only with `SOLPROP_OVERSUBSCRIBE=1`) | the thread budget |
+| `SOLPROP_NATIVE_THREADS` | the size of Kokkos' OpenMP pool, an explicit count within the thread budget (above the CPUs only with `SOLPROP_OVERSUBSCRIBE=1`, above `SOLPROP_THREADS` never) | the thread budget |
 | `SOLPROP_NATIVE_KERNEL_THREADS` | response, stage and reduction kernels | sized per operation, up to the cap |
 | `SOLPROP_NATIVE_FFT_THREADS` | FFTW threads for the modal and spatial transforms | sized per plan, up to the cap |
 | `SOLPROP_NATIVE_RAMAN_FFT_THREADS` | threads for the Raman convolution transforms of complete node chunks | sized per plan, up to the cap |

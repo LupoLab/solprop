@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import functools
 import os
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,6 +24,14 @@ class ThreadBudget:
 
     threads: int
     source: str
+    oversubscribe: bool = False
+    requested: int | None = None
+
+    def explicit(self, count: int) -> int:
+        """Clamp a count asked for: to the budget, or only to ``SOLPROP_THREADS``."""
+        if not self.oversubscribe:
+            return min(count, self.threads)
+        return count if self.requested is None else min(count, self.requested)
 
 
 def _quota(directory: Path) -> int | None:
@@ -44,12 +51,23 @@ def _quota(directory: Path) -> int | None:
     return None
 
 
-def cgroup_cpus(root: Path = Path("/")) -> int | None:
+def cgroup_cpus(root: Path | None = None) -> int | None:
     """Return the tightest CPU quota on this process's control-group path, or ``None``.
 
     Versions 1 and 2, every group from the process's own up to the mount; a quota is
-    rounded down, because a team that exceeds it is throttled whole.
+    rounded down, because a team that exceeds it is throttled whole. This process's
+    own (``root`` unset) is read once.
     """
+    return _own_cgroup_cpus() if root is None else _read_cgroup_cpus(root)
+
+
+@functools.cache
+def _own_cgroup_cpus() -> int | None:
+    return _read_cgroup_cpus(Path("/"))
+
+
+def _read_cgroup_cpus(root: Path) -> int | None:
+    """Read the tightest CPU quota under a filesystem root."""
     try:
         lines = (root / "proc/self/cgroup").read_text(encoding="utf-8").splitlines()
     except OSError:
@@ -101,13 +119,12 @@ def oversubscribing() -> bool:
 
 
 def thread_budget(cpus: int) -> ThreadBudget:
-    """Return the budget: the smallest of the CPUs, the quota and the two variables.
+    """Return the budget: the smallest of the CPUs, the quota and ``SOLPROP_THREADS``.
 
-    ``cpus`` is the process's affinity mask as counted before Kokkos started.
-    ``SOLPROP_THREADS`` is solprop's budget for every CPU backend and
-    ``SOLPROP_NATIVE_THREADS`` this backend's own count; both only narrow it, except
-    that under ``SOLPROP_OVERSUBSCRIBE=1`` the native count may exceed the CPUs and the
-    quota (a thread-count invariance test on a small runner), never ``SOLPROP_THREADS``.
+    ``cpus`` is the process's affinity mask as counted before Kokkos started. The same
+    budget as solprop's (and so the same ``thread_budget`` in every backend's
+    metadata); ``SOLPROP_NATIVE_THREADS`` is an explicit count within it
+    (:func:`native_threads`).
     """
     limits = [(max(1, cpus), "affinity")]
     quota = cgroup_cpus()
@@ -116,27 +133,21 @@ def thread_budget(cpus: int) -> ThreadBudget:
     requested = thread_count("SOLPROP_THREADS")
     if requested is not None:
         limits.append((requested, "SOLPROP_THREADS"))
-    native = thread_count("SOLPROP_NATIVE_THREADS")
-    oversubscribe = oversubscribing()
-    if native is not None and oversubscribe:
-        limits = [(native, "SOLPROP_NATIVE_THREADS")]
-        if requested is not None:
-            limits.append((requested, "SOLPROP_THREADS"))
-    elif native is not None:
-        limits.append((native, "SOLPROP_NATIVE_THREADS"))
     threads, source = min(limits, key=lambda limit: limit[0])
-    return ThreadBudget(threads=threads, source=source)
+    return ThreadBudget(
+        threads=threads,
+        source=source,
+        oversubscribe=oversubscribing(),
+        requested=requested,
+    )
 
 
-@functools.cache
-def process_budget() -> ThreadBudget:
-    """Return this process's budget, read once: first when the package is imported.
+def native_threads(budget: ThreadBudget) -> int:
+    """Return the Kokkos pool: ``SOLPROP_NATIVE_THREADS`` within the budget, else it.
 
-    That first read comes before the native core starts an OpenMP runtime, which with
-    ``OMP_PROC_BIND`` set would bind the main thread, and so its mask, to one CPU.
+    The native count only narrows the budget, unless ``SOLPROP_OVERSUBSCRIBE=1`` lets
+    it exceed the CPUs and the quota (a thread-count invariance test on a small
+    runner); never ``SOLPROP_THREADS``.
     """
-    if sys.platform == "linux":
-        cpus = len(os.sched_getaffinity(0))
-    else:
-        cpus = os.process_cpu_count() or 1
-    return thread_budget(cpus)
+    native = thread_count("SOLPROP_NATIVE_THREADS")
+    return budget.threads if native is None else budget.explicit(native)

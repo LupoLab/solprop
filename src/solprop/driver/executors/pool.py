@@ -207,8 +207,7 @@ def _cpus() -> tuple[int, ...]:
         budget = thread_budget()
     except ValueError as error:
         raise DriverError(str(error)) from error
-    # The controller's budget (ADR-052) is shared out among its workers.
-    available = allowed_cpus()[: budget.threads]
+    available = allowed_cpus()
     allocated = os.environ.get("SLURM_CPUS_PER_TASK")
     if allocated and allocated.isdecimal():
         available = available[: int(allocated)]
@@ -218,7 +217,9 @@ def _cpus() -> tuple[int, ...]:
         raise DriverError(
             "scan instance CPU offsets/counts must be non-negative/positive"
         )
-    return available[offset : offset + count]
+    # The instance's own CPUs first, then the controller's budget (ADR-052) over them:
+    # cut first, a budget smaller than the allocation would empty a later instance.
+    return available[offset : offset + count][: budget.threads]
 
 
 @dataclass(frozen=True)

@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ._budget import process_budget
+from ._budget import native_threads, thread_budget
 from ._cpu import check_cpu_baseline
 
 if platform.system() == "Darwin" and "pyfftw" in sys.modules:
@@ -43,10 +43,11 @@ PROCESS_CPUS: tuple[int, ...] = (
     tuple(sorted(os.sched_getaffinity(0))) if sys.platform == "linux" else ()
 )
 
-# Every pool stays within the process's thread budget (ADR-052): its CPUs, its control
-# groups' quota, SOLPROP_THREADS and SOLPROP_NATIVE_THREADS, whichever is smallest;
-# read here, before the core can start OpenMP and bind the main thread.
-_REQUESTED_THREADS = process_budget().threads
+# The process's thread budget (solprop ADR-052): the smallest of those CPUs, its
+# control groups' quota and SOLPROP_THREADS, as solprop reads it. The Kokkos pool is
+# SOLPROP_NATIVE_THREADS within it, or all of it.
+THREAD_BUDGET = thread_budget(len(PROCESS_CPUS) or os.process_cpu_count() or 1)
+_REQUESTED_THREADS = native_threads(THREAD_BUDGET)
 
 from . import _core  # noqa: E402  (only after the processor check)
 
@@ -124,12 +125,13 @@ _core.initialize_runtime(
 # Fit a host OpenBLAS to the Kokkos pool unless its thread count is set explicitly. A
 # pthreads OpenBLAS runs its own pool beside Kokkos's and oversubscribes the cores (2 to
 # 75 times slower on the modal and wall cases), so it is held to one thread; an OpenMP
-# OpenBLAS shares the runtime and is capped at the Kokkos thread count.
+# OpenBLAS shares the runtime and is capped at the Kokkos thread count, and at the
+# budget where SOLPROP_OVERSUBSCRIBE took Kokkos past it.
 if not any(
     os.environ.get(name, "").strip()
     for name in ("OPENBLAS_NUM_THREADS", "GOTO_NUM_THREADS", "OMP_NUM_THREADS")
 ):
-    _core.fit_blas_threads(_REQUESTED_THREADS)
+    _core.fit_blas_threads(min(_REQUESTED_THREADS, THREAD_BUDGET.threads))
 
 DRIVER_SURFACE: tuple[str, ...] = (
     "_adams_adopt",

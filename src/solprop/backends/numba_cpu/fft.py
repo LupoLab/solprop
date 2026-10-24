@@ -258,7 +258,7 @@ class ThreadPools:
         The process's thread budget, which every pool stays within (ADR-052); zero
         where it was not read.
     thread_budget_source : str
-        The limit that set it (:class:`solprop._process.ThreadBudget`).
+        The limit that set it (``solprop._process.ThreadBudget``).
     """
 
     regime: str
@@ -295,7 +295,7 @@ def _thread_budget() -> ThreadBudget:
 
     ``os.cpu_count`` reports the machine; a process is held below it by its affinity
     mask, its control groups' CPU quota and ``SOLPROP_THREADS``
-    (:func:`solprop._process.thread_budget`, ADR-052), and a pool sized from the
+    (``solprop._process.thread_budget``, ADR-052), and a pool sized from the
     machine inside a half-core container spends its life being descheduled.
 
     Returns
@@ -306,7 +306,8 @@ def _thread_budget() -> ThreadBudget:
     Raises
     ------
     BackendError
-        If ``SOLPROP_THREADS`` is set to something that is not a positive thread count.
+        If ``SOLPROP_THREADS`` is set to something that is not a positive thread count,
+        or ``SOLPROP_OVERSUBSCRIBE`` to anything but ``0`` or ``1``.
     """
     try:
         return thread_budget()
@@ -339,7 +340,7 @@ def choose_pools(  # noqa: PLR0913 - pool sizes, cutoff and explicit overrides
     threads : int, optional
         Override for the kernels' pool. ``None`` takes the regime's choice. Either way
         the pool is clamped to the process's thread budget
-        (:meth:`solprop._process.ThreadBudget.explicit`) and to Numba's own
+        (``solprop._process.ThreadBudget.explicit``) and to Numba's own
         ``NUMBA_NUM_THREADS``.
     fftw_threads : int, optional
         Override for FFTW's pool.

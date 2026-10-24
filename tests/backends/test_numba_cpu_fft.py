@@ -23,6 +23,10 @@ from solprop import _process
 from solprop.backends.numba_cpu import fft
 from solprop.exceptions import BackendError
 
+# These tests size pools against the machine (or a monkeypatched one), not the lanes'
+# one-thread budget.
+pytestmark = pytest.mark.usefixtures("thread_budget_lifted")
+
 N_TO = 64
 N_T = 32
 N_COLUMNS = 3

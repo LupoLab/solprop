@@ -115,6 +115,8 @@ Path("""
         "2",
     ]
     assert first["NUMBA_NUM_THREADS"] == second["NUMBA_NUM_THREADS"] == "1"
+    # The controller keeps its share; only its Pool workers get the one-thread budget.
+    assert "export SOLPROP_THREADS" not in policy.render()
 
 
 def test_slurm_submission_uses_argument_vector(tmp_path, monkeypatch):
