@@ -727,6 +727,10 @@ def test_the_pass_refuses_what_it_cannot_form():
     with pytest.raises(BackendError, match="Cartesian or line"):
         FarFieldPass(radial, parallel=False)
     assert far_field_partials(radial) == (0, 0)
+    # The pass reads the operator's root as the plane's; any other measure refuses.
+    foreign = dataclasses.replace(problem, flux=None)
+    with pytest.raises(BackendError, match="own separable plane measure"):
+        FarFieldPass(foreign, parallel=False)
 
 
 def test_numba_cpu_folds_the_axis_statistics_into_the_pass():
