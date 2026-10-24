@@ -47,7 +47,7 @@ from solprop._display import Displayed, engineering, line, summarise
 from solprop.adiabatic import AdiabaticAccuracy
 from solprop.backends.multistep import CallLedger
 from solprop.backends.protocol import Backend
-from solprop.backends.registry import resolve_name, select
+from solprop.backends.registry import metal_available, resolve_name, select
 from solprop.boundaries import (
     Absorber,
     TransverseCollar,
@@ -838,8 +838,8 @@ def _precision(name: PrecisionName) -> Precision:
 def _single_backend(backend: str) -> str:
     """Resolve ``"auto"`` for a single-precision run (SEP 33, Q8).
 
-    ``"auto"`` resolves to a GPU backend that computes in binary32 when one is
-    installed, and otherwise is refused: it never resolves to a binary64 backend, and
+    ``"auto"`` resolves to ``"mlx"`` when MLX and a Metal device are present, and
+    otherwise is refused: it never resolves to a binary64 backend, and
     never to ``numpy_ref``, the oracle, which is not a production backend. An explicit
     name passes through to :func:`~solprop.translate.precision.admit_precision`.
 
@@ -860,11 +860,13 @@ def _single_backend(backend: str) -> str:
     """
     if backend != "auto":
         return backend
+    if metal_available():
+        return "mlx"
     msg = (
-        "precision='single' with backend='auto' resolves to a GPU backend that "
-        "computes in binary32, and none is installed; pass backend='numpy_ref' for "
-        "the single-precision reference (the oracle, not a production backend) or "
-        "use precision='double'"
+        "precision='single' with backend='auto' resolves to the mlx backend, which "
+        "needs the mlx extra (pip install solprop[mlx]) on an Apple-silicon Mac with a "
+        "Metal GPU; pass backend='numpy_ref' for the single-precision reference (the "
+        "oracle, not a production backend) or use precision='double'"
     )
     raise DriverError(msg)
 

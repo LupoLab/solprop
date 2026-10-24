@@ -58,7 +58,9 @@ Source = "https://github.com/LupoLab/solprop"
 # The native backend is the `native` extra, pinned to solprop's own version by
 # hatch_build.py: `pip install solprop[native]`. Its distribution, solprop-native, is
 # built from native/ in this repository. Until it is published, the TDSE provider
-# Pyroraptor is installed separately (docs/guide/media/tdse.md).
+# Pyroraptor is installed separately (docs/guide/media/tdse.md). The `mlx` extra, also
+# written by hatch_build.py, installs MLX for the Apple-GPU backend on macOS on Apple
+# silicon (SEP 33): `pip install solprop[mlx]`.
 
 [dependency-groups]
 dev = [

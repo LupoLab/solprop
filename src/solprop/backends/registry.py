@@ -41,6 +41,7 @@ from solprop.modes.protocol import Mode
 from solprop.profiles import ZProfile
 from solprop.spatial import FAR_FIELD_STATISTICS
 from solprop.translate.plasma_source import _BENCHMARK_GATED
+from solprop.translate.precision import SINGLE_PRECISION_BACKENDS
 from solprop.translate.problem import KernelProblem
 from solprop.translate.tdse import TDSEBinding
 
@@ -83,8 +84,13 @@ BACKENDS: Mapping[str, BackendEntry] = {
     # than raising an ImportError from inside the backend.
     "numba_cpu": BackendEntry(requires=("numba", "pyfftw"), extras=()),
     "native": BackendEntry(requires=("solprop_native",), extras=()),
+    # Apple-silicon GPUs through MLX, single precision only (SEP 33).
+    "mlx": BackendEntry(requires=("mlx",), extras=("mlx",)),
 }
 """The backends this package knows, by name."""
+
+SINGLE_ONLY: frozenset[str] = frozenset({"mlx"})
+"""The backends that compute in binary32 only (SEP 33): Apple GPUs have no binary64."""
 
 FAR_FIELD_BACKENDS: tuple[str, ...] = ("numpy_ref", "numba_cpu", "native")
 """The backends that form the far-field statistics of SEP 23.
@@ -122,7 +128,8 @@ def statistics_refusal(name: str, names: Sequence[str]) -> str | None:
     True
     """
     asked = [one for one in names if one in FAR_FIELD_STATISTICS]
-    if not asked or name in ("numpy_ref", "numba_cpu"):
+    # Single precision refuses the far-field statistics in validation (SEP 33).
+    if not asked or name in ("numpy_ref", "numba_cpu", "mlx"):
         return None
     formed = _plugin_far_field(name)
     if formed is None:
@@ -163,13 +170,20 @@ def _plugin_far_field(name: str) -> frozenset[str] | None:
     return frozenset(cast(Collection[str], declared))
 
 
-def available() -> tuple[str, ...]:
-    """Return the names of the backends that can be constructed here and now.
+def available(precision: str = "double") -> tuple[str, ...]:
+    """Return the names of the backends that can run a precision here and now.
 
     Detection is by :func:`importlib.util.find_spec`, so nothing is imported and nothing
     is cached: a backend whose optional dependency is installed while the process runs
     becomes available without a restart, and initializing a native runtime is never a
     side effect of asking.
+
+    Parameters
+    ----------
+    precision : {'double', 'single'}, optional
+        The arithmetic asked for (SEP 33). ``"double"``, the default, lists the binary64
+        backends, which leaves out ``mlx``; ``"single"`` lists those that admit single
+        precision (:data:`solprop.translate.precision.SINGLE_PRECISION_BACKENDS`).
 
     Returns
     -------
@@ -182,7 +196,30 @@ def available() -> tuple[str, ...]:
     >>> "numpy_ref" in available()
     True
     """
-    return tuple(name for name, entry in BACKENDS.items() if _satisfied(entry))
+    if precision == "single":
+        names = SINGLE_PRECISION_BACKENDS
+    else:
+        names = tuple(name for name in BACKENDS if name not in SINGLE_ONLY)
+    return tuple(name for name in names if _satisfied(BACKENDS[name]))
+
+
+def metal_available() -> bool:
+    """Return whether the ``mlx`` backend can run on a Metal GPU here (SEP 33, Q8).
+
+    Imports MLX only when it is installed: asking on another platform imports nothing.
+
+    Returns
+    -------
+    bool
+        True when MLX is installed and reports a Metal device.
+    """
+    if not _satisfied(BACKENDS["mlx"]):
+        return False
+    import mlx.core as mx  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+
+    import solprop.backends.mlx_gpu  # noqa: F401, PLC0415 - sets MLX_ENABLE_TF32 first
+
+    return bool(mx.metal.is_available())
 
 
 def resolve_name(name: str = "auto") -> str:
@@ -587,4 +624,8 @@ def _construct(
             Backend,
             NativeBackend(problem, grid=grid, modes=modes, profiles=profiles),
         )
+    if name == "mlx":
+        from solprop.backends.mlx_gpu.backend import MlxBackend  # noqa: PLC0415
+
+        return MlxBackend(problem, grid=grid, modes=modes, profiles=profiles)
     raise AssertionError(f"unhandled backend registry entry {name!r}")

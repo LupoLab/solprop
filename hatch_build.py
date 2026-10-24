@@ -16,7 +16,7 @@ from hatchling.metadata.plugin.interface import MetadataHookInterface
 
 
 class NativeExtraHook(MetadataHookInterface):
-    """Add ``native = ["solprop-native==<version>"]`` to the optional dependencies."""
+    """Add the ``native`` and ``mlx`` extras to the optional dependencies."""
 
     PLUGIN_NAME = "custom"
 
@@ -30,3 +30,8 @@ class NativeExtraHook(MetadataHookInterface):
         """
         extras = metadata.setdefault("optional-dependencies", {})
         extras["native"] = [f"solprop-native=={metadata['version']}"]
+        # The Apple-GPU backend (SEP 33), on macOS on Apple silicon only; the pin is
+        # raised only with the GPU lane and the arithmetic probes run (Q9).
+        extras["mlx"] = [
+            'mlx>=0.32.4,<0.33; sys_platform == "darwin" and platform_machine == "arm64"'
+        ]

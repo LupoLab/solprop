@@ -73,11 +73,12 @@ roundoff, buys steps without accuracy. An explicit tolerance below the floor is 
 and the floor is every interface's default under single precision.
 """
 
-SINGLE_PRECISION_BACKENDS: tuple[str, ...] = ("numpy_ref",)
+SINGLE_PRECISION_BACKENDS: tuple[str, ...] = ("numpy_ref", "mlx")
 """The backends that admit ``precision="single"``.
 
-``numpy_ref`` is the single-precision oracle (SEP 33 phase 1). ``numba_cpu`` and
-``native`` refuse it by name until a later proposal adds their own modes.
+``numpy_ref`` is the single-precision oracle (SEP 33 phase 1) and ``mlx`` the Apple-GPU
+backend (phase 2). ``numba_cpu`` and ``native`` refuse it by name until a later
+proposal adds their own modes.
 """
 
 
