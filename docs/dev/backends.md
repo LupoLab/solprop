@@ -9,7 +9,7 @@ backend to choose for a run is the user guide's
 ADR-013, ADR-020, ADR-023.
 
 The source-only [Julia prototype](../guide/performance/julia.md) is an explicitly
-selected fourth backend. Its Python adapter subclasses `StepDriver` at schema 34;
+selected fourth backend. Its Python adapter subclasses `StepDriver` at schema 35;
 `julia/src/SolpropJulia.jl` owns state, candidates, stage buffers, plans and the complete
 DOPRI5 trial. It consumes the scalar field-grid modal subset, including
 mode averaging through the translated one-node effective-area map and prefactor.

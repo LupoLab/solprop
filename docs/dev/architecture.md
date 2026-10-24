@@ -9,7 +9,7 @@ next). What this page describes in prose, [structure.md](structure.md) draws: si
 of the layers, the data flow, the contract, one stage, the backends and the output side.
 
 An opt-in source-checkout experiment lives in `julia/`, parallel to `native/`, with a
-thin adapter in `src/solprop/backends/julia/`. It implements the existing schema-34 seam
+thin adapter in `src/solprop/backends/julia/`. It implements the existing schema-35 seam
 for scalar resolved/mode-averaged field capillaries, radial field beams and Cartesian
 Kerr fields/envelopes, Cartesian/line field plasma and mode-averaged GNLSE envelopes;
 see the [Julia backend](../guide/performance/julia.md). The
@@ -109,7 +109,7 @@ records the absolute launch, the TDSE identity, the outcome and any terminal che
 beside the step limits and the dense and step-plane policies. The full-band sensitivity to
 the window and the atomic cut error are unresolved
 ([TDSE accuracy and limitations](../guide/media/tdse.md#accuracy-and-limitations)). The
-current versions are kernel schema 34 and saved-output schema 22
+current versions are kernel schema 35 and saved-output schema 23
 ([kernel contract](kernel-contract.md)).
 
 **haCC helium** ([SEP 20](seps/archive/sep-0020-hacc-helium-tdse.md)). The same route carries a second atomic model, the

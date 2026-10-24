@@ -6,9 +6,11 @@ This branch demonstrates that Julia can own solprop's numerical backend while th
 Python frontend, translation, shared controller and output system remain in use.
 It is useful for trying cases, reproducing short timings and continuing development.
 It is not ready for production integration or a claim of complete backend parity.
-The experiment started from `1df3e4117d7f`, with kernel schema 34. Porting to the
-separate SEP 34 medium-flux implementation is future work; do not assume a clean
-merge would establish numerical compatibility.
+The experiment started from `1df3e4117d7f`, with kernel schema 34. The native CPU
+optimisation branch at `75d4fe1` is now merged, including its schema-35 medium-flux
+dependency. The adapter passes the new flux plan to shared spatial statistics;
+Julia numerical kernels remain unchanged. Qualification of additional medium-flux
+capabilities beyond the existing constant-medium spatial cases remains future work.
 
 Start with the [installation and runnable example](README.md#prepare-a-checkout),
 then the [small Julia/native comparison](README.md#start-a-small-julianative-comparison).
@@ -44,13 +46,13 @@ Physical source lines, including comments and blank lines, counted on 2026-10-24
 
 | Implementation | Numerical code and bindings | Python adapter | Total |
 |---|---:|---:|---:|
-| Julia prototype | 1,395 | 1,320 | **2,715** |
-| Native backend | 24,155 | 4,487 | **28,642** |
+| Julia prototype | 1,395 | 1,322 | **2,717** |
+| Native backend | 24,537 | 4,523 | **29,060** |
 
-The prototype is approximately **10.5 times smaller by this measure** (90.5% fewer
+The prototype is approximately **10.7 times smaller by this measure** (90.7% fewer
 lines). Julia's numerical column is the six `julia/src/*.jl` files. Native's is all
 `.cpp`/`.hpp` under `native/src/` and `native/include/`, except `benchmark_gemm.cpp`
-and `coverage_labels.cpp`, plus the 320-line `_core.pyi` binding declaration. Python
+and `coverage_labels.cpp`, plus the `_core.pyi` binding declaration. Python
 columns count `src/solprop/backends/julia/*.py` and
 `native/src/solprop_native/*.py`, respectively. Tests, documentation, build files,
 benchmarks and external dependencies are excluded from both totals.
@@ -62,10 +64,42 @@ reuse solprop's Python frontend and shared driver, and both rely on numerical
 libraries. A future matched-capability comparison and readability review would be
 more informative than treating this ratio as a language productivity benchmark.
 
-## Performance so far
+## Updated Mac comparison after native CPU optimisation
+
+The native comparison now includes `75d4fe1`, its NEON FFTW build and the shared
+schema-35 frontend. Julia numerical kernels are unchanged. The default native LOCAL
+compiler policies are retained; library paths and per-operation thread counts were
+verified. Six warmed ten-step samples per cell, from three alternating rounds,
+give the following propagation medians in seconds:
+
+| Case | Native, 1 | Julia, 1 | Native, 18 | Julia, 18 |
+|---|---:|---:|---:|---:|
+| RDW | 0.114971 | 0.162999 | 0.062194 | 0.070273 |
+| CtC | 3.781297 | 5.625456 | 2.334840 | 2.201848 |
+| Radial filament, 256 nodes | 0.617973 | 0.824063 | 0.299448 | 0.928311 |
+| Averaged helium RDW | 0.009504 | 0.017540 | 0.009555 | 0.017701 |
+| Resolved argon blueshift | 0.054960 | 0.052243 | 0.020362 | 0.019921 |
+| Hydrogen Raman, 6 ps | 0.610981 | 1.105845 | 0.181659 | 0.446256 |
+| GNLSE soliton | 0.004863 | 0.006598 | 0.004938 | 0.006619 |
+| Averaged argon blueshift | 0.004750 | 0.005199 | 0.004775 | 0.005247 |
+| Cartesian 192² × 300 | 8.021165 | 16.110929 | 1.160111 | 2.001772 |
+| Cartesian 384² × 600 | 78.224075 | 78.842053 | 10.860181 | 12.629519 |
+
+Native has taken the serial CtC and H₂ wins, and wins most of the measured cases.
+Julia retains the parallel CtC and modest resolved-argon leads. Serial 384² is
+effectively tied. Native's lower parallel 384² median has a wide paired range,
+including one round where Julia was slightly faster, so its advantage is unresolved
+at fine resolution. Host contention interrupted one large-case round; it was
+excluded and restarted. Residual host activity remains disclosed in the
+[updated ledger](../docs/dev/benchmarks.md#julianative-comparison-after-native-cpu-optimisation),
+along with provider/thread settings, spreads, the helper-library audit and separate
+setup/observation costs. No fresh Xeon comparison is claimed here.
+
+## Historical performance before native CPU optimisation
+
 
 Julia is competitive on several realistic CPU cases, but it is not universally
-faster than native. The final Mac round used an Apple M5 Max with 18 physical cores
+faster than native. The earlier Mac round used an Apple M5 Max with 18 physical cores
 and 128 GiB, **native's default Mac build settings**, and Julia with Accelerate
 BLAS and FFTW. These are median seconds for ten prescribed steps, six warm samples
 per cell from three alternating rounds. Setup, compilation and final observations
@@ -112,7 +146,8 @@ FFT storage and export temporaries. Memory reduction remains worthwhile.
 Development included focused NumPy-reference source/step/short-run comparisons,
 rejection/reset and observation-ownership checks, tighter adaptive references,
 interop checks and standalone Julia checks. The final combined plasma/absorber
-slice passed 57 focused checks on Linux. The ledger records earlier stages and
+slice passed 57 focused checks on Linux. The schema-35 compatibility update passed
+29 focused checks on macOS, including spatial statistics against NumPy. The ledger records earlier stages and
 failed or rejected experiments; these counts are not a full-suite certificate.
 
 **The full Python/native gates, slow lanes and coverage qualification were not run
@@ -135,9 +170,9 @@ other branches are unchanged.
 
 ## Next work
 
-- [ ] **Independent review and schema port.** Agree an accepted SEP, review the
+- [ ] **Independent review and integration.** Agree an accepted SEP, review the
   protected arithmetic/normalization/ownership contracts, reconcile with current
-  main and the SEP 34 medium-flux work, and simplify/format the compact Julia code
+  main, qualify further SEP 34 medium-flux cases, and simplify/format the compact Julia code
   for maintainability before any merge proposal.
 - [ ] **Reproducible qualification.** Exercise the documented fresh-clone setup on
   macOS/Linux; expand NumPy-oracle, adaptive-convergence, state-lifetime and

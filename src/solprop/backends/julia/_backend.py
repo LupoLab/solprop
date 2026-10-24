@@ -113,7 +113,7 @@ def _refuse(problem: KernelProblem) -> None:
         problem.stepper,
     )
     reasons = {
-        "kernel schema (requires 34)": problem.schema_version != 34,
+        "kernel schema (requires 35)": problem.schema_version != 35,
         "envelope plasma": problem.grid_kind == "envelope" and problem.flags.has_plasma,
         "resolved modal or radial envelopes": problem.grid_kind == "envelope"
         and transform.kind not in {"free", "mode_averaged"},
@@ -411,7 +411,7 @@ class JuliaBackend(StepDriver[object]):
     Parameters
     ----------
     problem : solprop.translate.problem.KernelProblem
-        Supported modal or spatial schema-34 problem, in SI units and complex128.
+        Supported modal or spatial schema-35 problem, in SI units and complex128.
     grid : solprop.grid.TimeGrid, optional
         Temporal grid, needed for statistics.
     modes : collections.abc.Sequence, optional
@@ -719,7 +719,9 @@ class JuliaBackend(StepDriver[object]):
                 self._problem.transform,
                 state,
                 z=self._z,
+                flux=self._problem.flux,
                 profiles=self._profiles,
+                operator=self._problem.linear.separable,
             )
             if _SPECIES_STATS.intersection(spec.names):
                 values.update(self._populations(spec, state))
@@ -842,7 +844,7 @@ class JuliaBackend(StepDriver[object]):
             "plan_flag": self._plan_flag,
             "wisdom_loaded": False,
             "statistics_execution": "julia_populations_shared_host_other",
-            "schema_version": 34,
+            "schema_version": 35,
             "experimental": True,
         }
 

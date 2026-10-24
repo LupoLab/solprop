@@ -1986,3 +1986,124 @@ for Intel's four-thread Raman tail). Mac responses were mixed, including opposit
 RDW and argon directions. No shared dimension threshold or pool policy is changed;
 explicit overrides and global caps retain their existing semantics. A 36-core
 sizing confirmation is unnecessary because no sizing change is retained.
+
+
+## Julia/native comparison after native CPU optimisation
+
+On 2026-10-24 the Julia experiment merged the native CPU optimisation commit
+`75d4fe1`. Native sources in this comparison match that exact revision. The Python
+frontend and both backends use schema 35; Julia's adapter now passes the flux plan
+and separable operator to shared spatial statistics. Julia's numerical kernels
+remain those of the preceding experiment, with only the schema identifier changed.
+The newly translated spatial cases are compared with each other, not with old
+schema-34 field witnesses.
+
+Hardware is the Apple M5 Max, 18 physical cores and 128 GiB, with Python 3.14.5.
+Native is a fresh default LOCAL/Release build using Homebrew Clang 23.1.3,
+native architecture selection, IPO, automatic Accelerate BLAS and a coherent
+FFTW 3.3.11 NEON/OpenMP dependency build. The retained native Raman selector
+chooses Kokkos-FFT for CtC and H₂ at both budgets. Serial contiguous plans use
+native's measured-planning default; parallel plans retain their default policy.
+Julia 1.13.2 uses its existing FFTW artifact, ESTIMATE plans and serial Accelerate
+BLAS. Its modal/Raman FFT widths are one/four at budgets one/18; large Cartesian
+temporal and transverse FFT widths equal the budget. No numerical optimisation
+was added to either backend for this comparison.
+
+The lightweight worker runs ten prescribed steps: 61 sources for DOPRI5 and 40
+for Cartesian RK4IP. Three alternating rounds with two warmed repetitions give
+six samples per cell. Each worker constructs a case once and resets its initial
+state outside each timer. Translation, planning, first-window compilation and
+final observation/export are recorded separately. The following medians are
+seconds of propagation, not complete-run estimates.
+
+| Case | Native, 1 | Julia, 1 | Native, 18 | Julia, 18 |
+|---|---:|---:|---:|---:|
+| RDW | 0.114971 | 0.162999 | 0.062194 | 0.070273 |
+| CtC | 3.781297 | 5.625456 | 2.334840 | 2.201848 |
+| Radial filament, 256 nodes | 0.617973 | 0.824063 | 0.299448 | 0.928311 |
+| Averaged helium RDW | 0.009504 | 0.017540 | 0.009555 | 0.017701 |
+| Resolved argon blueshift | 0.054960 | 0.052243 | 0.020362 | 0.019921 |
+| Hydrogen Raman, 6 ps | 0.610981 | 1.105845 | 0.181659 | 0.446256 |
+| GNLSE soliton | 0.004863 | 0.006598 | 0.004938 | 0.006619 |
+| Averaged argon blueshift | 0.004750 | 0.005199 | 0.004775 | 0.005247 |
+| Cartesian 192² × 300 | 8.021165 | 16.110929 | 1.160111 | 2.001772 |
+| Cartesian 384² × 600 | 78.224075 | 78.842053 | 10.860181 | 12.629519 |
+
+The ratios below are medians of the three paired round ratios; brackets show
+their range. A value above one favours native. These need not equal the ratio of
+the pooled medians in the first table.
+
+| Case | 1-thread Julia/native ratio [round range] | 18-thread Julia/native ratio [round range] |
+|---|---:|---:|
+| RDW | 1.407 [1.367, 1.453] | 1.157 [1.111, 1.199] |
+| CtC | 1.473 [1.462, 1.488] | 0.935 [0.926, 0.982] |
+| Radial filament, 256 nodes | 1.343 [1.336, 1.358] | 3.108 [2.956, 3.345] |
+| Averaged helium RDW | 1.824 [1.816, 1.891] | 1.872 [1.831, 1.873] |
+| Resolved argon blueshift | 0.941 [0.934, 0.974] | 0.978 [0.910, 0.992] |
+| Hydrogen Raman, 6 ps | 1.805 [1.779, 1.852] | 2.452 [2.352, 2.498] |
+| GNLSE soliton | 1.349 [1.324, 1.377] | 1.344 [1.315, 1.362] |
+| Averaged argon blueshift | 1.093 [1.087, 1.105] | 1.108 [1.022, 1.111] |
+| Cartesian 192² × 300 | 2.007 [1.885, 2.120] | 1.704 [1.583, 1.741] |
+| Cartesian 384² × 600 | 1.018 [0.997, 1.020] | 1.158 [0.993, 1.498] |
+
+Native now clearly wins serial CtC and both H₂ budgets, and retains the radial,
+averaged-helium, GNLSE and smaller Cartesian advantages. RDW at 18 threads now
+favours native. Julia retains a modest resolved-argon lead and a roughly 6% lead
+on parallel CtC by the pooled medians. The averaged-argon window also favours
+native, although its absolute cost is only a few milliseconds.
+
+Serial 384² is effectively tied: the paired ratio spans 0.997–1.020. Its parallel
+native median is lower, but a paired range of 0.993–1.498 does not establish a
+stable size of advantage. Native/Julia raw ranges are 76.688–79.684 / 78.281–81.832
+seconds serially and 10.274–13.254 / 12.337–15.662 at budget 18. The corresponding
+192² ranges are 7.810–8.559 / 16.003–16.592 and 1.137–1.242 / 1.858–2.029.
+The equal-weight geometric means of paired medians over all ten cases are 1.385
+and 1.461. These describe this cross-backend screen; they are not an adoption
+certificate or a language-wide performance claim.
+
+The Mac was not exclusively allocated. An unrelated many-worker job appeared
+during the second large-case round. The owned timing processes were stopped,
+that interrupted round was excluded, and the two remaining rounds were restarted
+after the many-worker job finished. Residual desktop activity, a separate serial
+job and antivirus activity were observed later. All valid planned samples are
+retained, including the wide parallel 384² spread; no extra rounds were selected
+to obtain a preferred ranking. Earlier-session timings remain historical context,
+not a controlled before/after comparison with this host state.
+
+All 120 retained rows are finite and have matching accepted/rejected/source
+counts. The maximum relative L2 field difference is 1.642e-15 for the core set
+and 6.467e-16 for Cartesian. Twenty-nine focused NumPy-reference checks passed,
+covering sources, one/eight steps, default statistics, reset/rejection, plasma,
+Raman and Cartesian envelope RK4IP. These checks retain their existing rounding
+budgets. The numerical source hashes did not change during timing. Full gates,
+slow/coverage lanes, GPU qualification and a new Xeon campaign were not run.
+
+For context, serial CtC construction is 2.025/0.606 seconds (native/Julia), its
+first window 3.789/6.587 and final observation 0.041/0.136. Serial H₂ construction
+is 0.754/0.180, first window 0.616/1.735 and observation 0.0012/0.0061. Serial
+384² construction is 3.640/3.968, first window 78.390/79.556 and observation
+0.420/0.557. These are medians in the recorded case order, so previously compiled
+Julia methods can be reused within a worker. They are not independent cold-start
+measurements. Owned 384² buffers remain about 7.567 GB native and 11.762 GB Julia,
+excluding runtime, shared frontend data and export temporaries.
+
+A post-timing loader audit confirmed that Julia's FFTW entry point still resolves
+to its private artifact, and native's double-precision FFTs use the intended NEON
+library. It also found an unused pyFFTW long-double dependency loading another
+Homebrew OpenMP runtime. The local helper build was corrected to omit the unused
+precision and its threading hooks; the resulting process loads one OpenMP runtime.
+The main table remains the original timing campaign, not a relabelled clean-build
+rerun. The helper audit and follow-up checks are recorded separately below.
+
+The helper-only follow-up uses one round and two warm repetitions, retaining the
+same ten-step schedules. All eight rows are finite with 61 sources and no
+rejections, and the maximum relative field difference is 4.033e-16.
+It preserves the CtC/H₂ ranking directions. Its serial native times are about 10%
+above the main campaign, so it is not evidence that the helper cleanup is
+performance-neutral: host state, case order and planning also differ. No full
+campaign after that cleanup is claimed. Seconds in this short follow-up:
+
+| Case | Native, 1 | Julia, 1 | Native, 18 | Julia, 18 |
+|---|---:|---:|---:|---:|
+| CtC | 4.171264 | 5.636489 | 2.328144 | 2.269178 |
+| H₂ Raman | 0.669313 | 1.113521 | 0.182036 | 0.437726 |

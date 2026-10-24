@@ -13,7 +13,9 @@ The first public release. It contains:
 
 - **Experimental Julia CPU backend.** Explicit `backend="julia"` in prepared source
   checkouts runs constant scalar field-grid resolved and mode-averaged capillaries with Kerr/THG,
-  IP-DOPRI5, both temporal absorbers and normal output, using schema 34 unchanged.
+  IP-DOPRI5, both temporal absorbers and normal output, using the existing schema.
+  The experiment now consumes schema 35 and its shared spatial flux statistics
+  after merging the native CPU optimisations, with unchanged Julia numerical kernels.
   PythonCall/JuliaCall bridges to a private Julia 1.13.2 environment. GPU support and
   production packaging are deferred; see the Julia backend manual and benchmark ledger.
   Cartesian Kerr beams add planned transverse FFTs, chunked temporal transforms,

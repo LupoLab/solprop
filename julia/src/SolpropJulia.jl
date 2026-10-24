@@ -8,7 +8,7 @@ using FFTW
 using PythonCall
 import AcceleratedKernels as AK
 
-const SCHEMA_VERSION = 34
+const SCHEMA_VERSION = 35
 
 mutable struct Engine{C,W}
     config::C

@@ -2,9 +2,11 @@
 
 **Experiment — draft for collaboration, not for merge. No CI qualification.**
 Start with the [status, measured results and next-work list](STATUS.md). This branch
-targets schema 34; it does not include the separate SEP 34 medium-flux changes.
+now targets schema 35 after merging the native CPU optimisation branch and its
+SEP 34 medium-flux dependency. Spatial statistics use the shared flux implementation;
+the Julia numerical kernels are unchanged.
 
-This source-only CPU prototype implements solprop schema 34 behind
+This source-only CPU prototype implements solprop schema 35 behind
 `backend="julia"`. It is an isolated experiment, authorised before a production SEP.
 It preserves automatic backend selection and Python frontend signatures. The
 [manual](../docs/guide/performance/julia.md) describes the supported cases and example.
@@ -67,6 +69,10 @@ current interpreter's native build and the default Julia BLAS provider with FFTW
 Julia BLAS is explicitly serial, while native keeps the harness's budget policy.
 These are controlled configurations, not an assertion that every library uses the
 same actual worker count. Inspect `samples.json` and each worker's provenance.
+For the optimised Apple Silicon native comparison, follow the
+[NEON FFTW build instructions](../docs/guide/performance/building-native.md) and
+verify the loaded FFTW/OpenMP paths. A native build using the older Homebrew FFTW
+library does not include the codelet improvement measured in the updated ledger.
 `differences.json` compares retained final fields; it is not a pass/fail accuracy
 certificate. No Numba arm is included in this starter comparison.
 

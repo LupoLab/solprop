@@ -10,8 +10,10 @@ The branch is shared as a **draft experiment, not for merge**, without CI
 qualification. The [checkout README](../../../julia/README.md) provides a runnable
 example and a small Julia/native A/B recipe; the
 [handoff status](../../../julia/STATUS.md) summarizes measured results, limitations
-and the next work. This implementation remains on schema 34 and needs an explicit
-port before use with the separate SEP 34 medium-flux work.
+and the next work. This implementation now uses schema 35 after merging the native
+CPU optimisation branch. Spatial statistics consume the translated flux plan through
+the shared host implementation; the Julia numerical kernels are unchanged. The
+existing constant-medium spatial subset is retained.
 
 ## Installation and example
 
@@ -185,7 +187,7 @@ The source prototype also executes the additional numerical leaves used by the
   rather than allocating DOPRI stage volumes. The frozen 384×384 core beam uses this
   route. This does not add envelope plasma or Raman.
 
-All coefficients, response tables, normalisations and profiles come from schema 34.
+All coefficients, response tables, normalisations and profiles come from schema 35.
 There are no new physical models or frontend parameters. See the
 [Adams method](../numerics/adams.md) and the existing integrator contracts for their
 error control and accepted-step boundary conventions.
@@ -270,7 +272,7 @@ its copies in `(omega, modes)` order, with time/frequency contiguous. The engine
 the existing translated normalisations and response coefficients; it introduces no
 new material model. The [Fourier and amplitude conventions](../../dev/conventions.md),
 [IP-DOPRI5 scheme](../../dev/stepper.md), and
-[kernel contract](../../dev/kernel-contract.md) apply unchanged, at schema 34.
+[kernel contract](../../dev/kernel-contract.md) apply unchanged, at schema 35.
 
 ## Threads, memory and limitations
 
