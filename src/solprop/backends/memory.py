@@ -125,6 +125,7 @@ __all__ = [
     "low_storage_memory",
     "low_storage_stage_register",
     "reference_base_memory",
+    "single_precision_rows",
     "z_table_slots",
 ]
 
@@ -329,6 +330,8 @@ def estimate_memory(problem: KernelProblem, backend: str) -> MemoryEstimate:
     name = _estimated(backend)
     groups = dict.fromkeys(MEMORY_GROUPS, 0)
     base = _reference_base(problem)
+    if problem.precision.single:
+        base = single_precision_rows(problem, base)
     if name in {"numba_cpu", "native"} and problem.responses.plasma_channels:
         base = {
             key: value
@@ -364,6 +367,60 @@ def estimate_memory(problem: KernelProblem, backend: str) -> MemoryEstimate:
         not_counted=_NOT_COUNTED[name],
         resident=groups["general_reference"],
     )
+
+
+# The reference's rows that stay binary64 on the single-precision path: the exponents
+# a step tabulates, the host evaluations (rates, envelope moments, statistics) and the
+# scalars (SEP 33 section 6.1).
+_BINARY64_ROWS = frozenset(
+    {
+        "propagators",
+        "statistics_power_weight",
+        "node_ionisation_rate",
+        "plasma_channel_scalars",
+        "envelope_source_streams",
+        "envelope_histories",
+        "envelope_current_scratch",
+    }
+)
+
+
+def single_precision_rows(
+    problem: KernelProblem, rows: dict[str, int]
+) -> dict[str, int]:
+    """Return the reference's base rows for a single-precision problem.
+
+    SEP 33 section 6.1: the element sizes follow the precision. Every buffer the
+    single-precision path holds in binary32 is half the reference's; the rows of
+    :data:`_BINARY64_ROWS` stay as they are; the narrowed copies of the source tables
+    and the binary64 state the statistics widen are added.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        A single-precision problem.
+    rows : dict
+        The reference's rows, bytes.
+
+    Returns
+    -------
+    dict
+        The rows, bytes, with ``single_tables`` and ``single_widened_state`` added.
+    """
+    single = {
+        name: size if name in _BINARY64_ROWS else size // 2
+        for name, size in rows.items()
+    }
+    transform, grids = problem.transform, problem.grids
+    tables = transform.synthesis.size + transform.projection.size
+    if not np.array_equal(transform.projection, transform.projection_coarse):
+        tables += transform.projection_coarse.size
+    tables += 2 * grids.n_to + grids.omega_window.size
+    if problem.responses.temporal_absorber_fine is not None:
+        tables += grids.n_to
+    single["single_tables"] = 4 * tables
+    single["single_widened_state"] = 16 * math.prod(problem.shape)
+    return single
 
 
 def estimate_guide_memory(

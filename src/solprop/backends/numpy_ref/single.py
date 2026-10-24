@@ -53,7 +53,7 @@ from solprop.backends.numpy_ref import passes
 from solprop.backends.numpy_ref.backend import NumpyRefBackend, SourceTables
 from solprop.backends.numpy_ref.envelope_plasma import envelope_sources
 from solprop.constants import EPS0
-from solprop.exceptions import BackendError
+from solprop.exceptions import BackendError, ConvergenceError
 from solprop.fourier import GridKind
 from solprop.grid import TimeGrid
 from solprop.modes.protocol import Mode
@@ -191,6 +191,9 @@ class NumpySingleBackend(NumpyRefBackend):
         # The largest and smallest nonzero magnitude of each pass's intermediates, kept
         # only when the study asks for them (SEP 33 section 7.2).
         self.intermediate_ranges: dict[str, tuple[float, float]] | None = None
+        # The study's variant that evaluates the propagator from a binary32 exponent,
+        # for the record of SEP 33 section 7.2 only.
+        self.binary32_exponent = False
 
     @property
     def scale(self) -> float:
@@ -360,6 +363,8 @@ class NumpySingleBackend(NumpyRefBackend):
             The complex64 propagator.
         """
         with np.errstate(over="ignore"):
+            if self.binary32_exponent:
+                return np.exp(exponent.astype(self._complex))
             return np.exp(exponent).astype(self._complex)
 
     def _rounded(self, values: Inexact[np.ndarray, "*shape"]) -> np.ndarray:
@@ -457,7 +462,44 @@ class NumpySingleBackend(NumpyRefBackend):
             The finished complex64 state; a split-step collar's factor is formed in
             binary64 and the product rounded once.
         """
-        return np.asarray(super()._finish(state, dz)).astype(self._complex)
+        finished = np.asarray(super()._finish(state, dz)).astype(self._complex)
+        if not bool(np.all(np.isfinite(finished))):
+            msg = (
+                f"numpy_ref: the single-precision state is not finite after a step of "
+                f"{dz:.4g} m from z = {self._z:.6g} m: the field has diverged or left "
+                "binary32's range"
+            )
+            raise ConvergenceError(msg)
+        return finished
+
+    def _trial_step(
+        self, z: float, dz: float
+    ) -> tuple[float, Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]]:
+        """Take the reference's trial step, then check that it stayed in binary32.
+
+        Parameters
+        ----------
+        z : float
+            Position at the start of the step, m.
+        dz : float
+            Length of the trial step, m.
+
+        Returns
+        -------
+        tuple
+            The scaled error norm and the state at the end of the step.
+
+        Raises
+        ------
+        BackendError
+            If the state or a stage value is not complex64: a binary64 array slipped
+            into a pass, which would compute silently in binary64 (SEP 33 6.2).
+        """
+        norm, advanced = super()._trial_step(z, dz)
+        _require_dtype(advanced, self._complex, "the trial state")
+        for index, stage in enumerate(self._last_stages):
+            _require_dtype(stage, self._complex, f"stage {index + 1}")
+        return norm, advanced
 
     # The source evaluation.
 
@@ -622,6 +664,31 @@ class NumpySingleBackend(NumpyRefBackend):
             old_low, old_high = self.intermediate_ranges[name]
             low, high = min(low, old_low), max(high, old_high)
         self.intermediate_ranges[name] = (low, high)
+
+
+def _require_dtype(values: np.ndarray, dtype: np.dtype, what: str) -> None:
+    """Refuse an array of the wrong precision, by name.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The array.
+    dtype : numpy.dtype
+        The precision it must have.
+    what : str
+        What it is, for the message.
+
+    Raises
+    ------
+    BackendError
+        If the dtype differs.
+    """
+    if values.dtype != dtype:
+        msg = (
+            f"the single-precision path computed {what} as {values.dtype}, not "
+            f"{dtype}: a binary64 array reached a binary32 pass"
+        )
+        raise BackendError(msg)
 
 
 def single_sources(  # noqa: PLR0913 - the fused pass takes what the responses need
