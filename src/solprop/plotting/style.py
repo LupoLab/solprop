@@ -18,7 +18,6 @@ carry.
 import math
 from typing import Any, Literal
 
-import matplotlib.pyplot as plt
 import numpy as np
 from jaxtyping import Float
 from matplotlib.axes import Axes
@@ -106,6 +105,8 @@ def cmap_white(
     >>> [float(channel) for channel in cmap_white()(0.0)]
     [1.0, 1.0, 1.0, 1.0]
     """
+    import matplotlib.pyplot as plt  # noqa: PLC0415 - pyplot loads on first plot
+
     sampled = plt.get_cmap(name)(np.linspace(0.0, 1.0, stops))
     sampled[0] = (1.0, 1.0, 1.0, 1.0)
     return LinearSegmentedColormap.from_list(f"{name}_white", sampled, N=levels)
@@ -150,6 +151,8 @@ def cmap_colours(
         msg = f"at least one colour is needed, got {count}"
         raise ProcessingError(msg)
     positions = np.linspace(low, high, count)
+    import matplotlib.pyplot as plt  # noqa: PLC0415 - pyplot loads on first plot
+
     return [tuple(colour) for colour in plt.get_cmap(name)(positions)]
 
 
@@ -201,6 +204,8 @@ def subplot_grid(
     rows = math.ceil(count / columns)
     if portrait:
         rows, columns = columns, rows
+    import matplotlib.pyplot as plt  # noqa: PLC0415 - pyplot loads on first plot
+
     figure, grid = plt.subplots(
         rows, columns, figsize=(columns * width, rows * height), squeeze=False
     )
