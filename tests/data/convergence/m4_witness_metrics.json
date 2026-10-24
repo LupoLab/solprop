@@ -1,0 +1,104 @@
+{
+ "axis": {
+  "label": "metric",
+  "name": "metric",
+  "unit": "1"
+ },
+ "case": {
+  "media": "the package fit unchanged; Luna's cladding table",
+  "reduced case": "1 mode, a 2 ps window, 0.1 m",
+  "witness": "tests/data/luna_ctc_reduced.h5"
+ },
+ "columns": [
+  {
+   "atol": 0.0,
+   "bound": null,
+   "name": "value",
+   "rtol": 0.02,
+   "unit": "1 for a ratio or a relative L2 distance, fs for an arrival",
+   "why": "a fiftieth: an adaptive run's step sequence is not bitwise across platforms, and what that costs the answer is the controller's 1e-6, four orders inside this, while every band below is wider still"
+  },
+  {
+   "atol": 0.0,
+   "bound": null,
+   "name": "low",
+   "rtol": 0.0,
+   "unit": "as the value",
+   "why": "the lower end of the band the test asserts, compared exactly so that a bound widened to fit a measurement is itself a failure"
+  },
+  {
+   "atol": 0.0,
+   "bound": null,
+   "name": "high",
+   "rtol": 0.0,
+   "unit": "as the value",
+   "why": "the upper end of the same band, compared exactly for the same reason"
+  }
+ ],
+ "luna": null,
+ "rows": [
+  {
+   "axis": "exit energy, ours over Luna's",
+   "high": 1.0001,
+   "low": 0.9999,
+   "series": "reduced case",
+   "value": 1.0000061488826115,
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_reduced_ctc_metrics_are_bounded_at_milestone_m4"
+  },
+  {
+   "axis": "fundamental, content",
+   "high": 1.0001,
+   "low": 0.9999,
+   "series": "reduced case",
+   "value": 1.0000061488827905,
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_reduced_ctc_metrics_are_bounded_at_milestone_m4"
+  },
+  {
+   "axis": "fundamental, shape",
+   "high": 0.0422,
+   "low": 0.0345,
+   "series": "reduced case",
+   "value": 0.03833276438933937,
+   "write": 0,
+   "written_by": "tests/driver/test_prop_capillary.py::test_the_reduced_ctc_metrics_are_bounded_at_milestone_m4"
+  }
+ ],
+ "schema": 1,
+ "study": "m4_witness_metrics",
+ "title": "Milestone M4 against its Luna witness, metric by metric",
+ "writes": [
+  {
+   "backend": "numpy_ref",
+   "blas": null,
+   "branch": "feature/sep-0021-temporal-boundaries",
+   "commit": "72f98885472268b8c9b0b9404765b4bd73c1798f",
+   "fftw_planner": null,
+   "machine_id": "darwin-arm64",
+   "os": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+   "packages": {
+    "numba": "0.67.0",
+    "numpy": "2.5.2",
+    "scipy": "1.18.1"
+   },
+   "python": "3.14.5",
+   "threads": {
+    "MKL_NUM_THREADS": null,
+    "NUMBA_NUM_THREADS": null,
+    "OMP_DYNAMIC": null,
+    "OMP_NUM_THREADS": null,
+    "OMP_PLACES": null,
+    "OMP_PROC_BIND": null,
+    "OMP_WAIT_POLICY": null,
+    "OPENBLAS_NUM_THREADS": null,
+    "SOLPROP_BLAS_THREADS": null,
+    "SOLPROP_FFTW_THREADS": null,
+    "SOLPROP_NATIVE_THREADS": null,
+    "SOLPROP_NUMBA_THREADS": null,
+    "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
+    "VECLIB_MAXIMUM_THREADS": null
+   }
+  }
+ ]
+}
