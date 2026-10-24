@@ -1395,6 +1395,177 @@ are refused.
   polarisation. The names belong at the marked comment in `coupling/__init__.py`, and
   the dashed boxes in `docs/dev/figures/build.py` turn solid when the files land.
 
+### Phase 4 report — transport core
+
+**Delivered (2026-10-24, `sep31/transport-integration`, on top of phase 2).** The
+transport core of §4.6–§4.7 on `FieldPlane`: homogeneous propagation with finite and
+far observation planes, bounded thin screens, explicit reflection and Jones frames, the
+normal-incidence interface and the existing spectral optics. `Outcouple` (guide-exit
+synthesis) belongs to phase 3 and is not part of this delivery.
+
+- `src/solprop/coupling/elements.py` (P; NumPy and SciPy only):
+  - `SpatialState`, the plain internal record every element acts on: a `TimeGrid`, a
+    `RadialGrid` or `FreeGrid`, the internal-convention spectrum
+    `(n_modes, n_pol ∈ {1, 2}, n_omega)` in the layout of `SpatialPulse.build`, a
+    homogeneous `SpatialMedium` and a right-handed 3×3 local frame. It stays public in
+    `solprop.coupling.elements` with the `Element` protocol, as the interface a new
+    element is written against; it is not exported from `solprop.coupling`.
+  - Elements (frozen; `apply(state) -> ElementResult(state, report)`): `FreeSpace`
+    (`distance, medium, output, output_method, band_limit, frame_delay, frame_phase,
+    evanescent_tolerance, sampling_tolerance, beyond_window`), `ThinLens`, `Aperture`
+    (with `weighting`), `TransmissionMask`, `Alignment`, `PolarisationTransform`,
+    `Mirror`, `PlanarInterface` and `SpectralTransfer`.
+  - Records: `ElementReport`, `ScreenCertificate`, `SpectralCalibration`.
+- `src/solprop/coupling/transport.py` (P): `transport(plane, elements, *,
+  geometry=None, frame=None) -> (FieldPlane, TransportReport)` and `TransportReport`
+  (the sequential ledger with `ledger_residual`, `reference_in`/`reference_out`,
+  `frame` and `source_certificate`). The plain-state sequence is the private
+  `_sequence`; the element-level tests use it through a conftest helper.
+- `src/solprop/coupling/__init__.py`: exports `transport`, `TransportReport`, the nine
+  elements and `SpectralCalibration`; nothing else changed there.
+- `tests/coupling/`: `test_elements.py`, `test_transport.py` (element level, on
+  `SpatialState`) and `test_transport_plane.py` (the `FieldPlane` path, including the
+  run round trip); 46 tests.
+- Docs: a self-contained "Transporting a plane between planes" section at the end of
+  `docs/guide/workflows/coupling.md`; the API index row; architecture §4; structure
+  figure 1 with `coupling/transport` and `coupling/elements` solid; the changelog.
+
+**The adapter.** No accessor was added to `plane.py`; the private helpers in
+`transport.py` are `_state` (plane → state), `_reference`, `_geometry` and
+`_frame_term`.
+
+- *In.* Radial and Cartesian planes only. A modal or general modal plane is refused
+  with a message naming `Outcouple`; a planar plane is refused by name. The plane must
+  carry its medium (`field_plane(..., source=simulation)` or a constructor); the
+  samples are converted with `fourier.spectrum_to_internal`, and the frame rows are
+  `x_axis`, `y_axis`, `normal`. A plane whose exterior is `unknown` is refused when the
+  sequence contains a `FreeSpace` (propagation depends on the whole field); local
+  screens and spectral maps carry it.
+- *Out.* `spectrum_to_optics` of the final state; `PlaneBasis.of_space` of the output
+  grid; `PlaneMetric.from_flux(SpatialFlux.resolve(grid, space, medium, z, side))` in
+  the output medium and grid; the exterior and the source certificate carried; one
+  `provenance.history` entry per element (`transport[i]: <element>`, with
+  `(reconstruction)` where flagged) and one for the frame source.
+- *Reference.* Each gap removes `exp[-i(φ_f + ωτ_f)]` from the whole field and the
+  reference gains `(φ_f, τ_f)`, so `absolute()` is unchanged by the removal. With
+  `frame=` (a `solprop.linear.Frame`, normally `simulation.frame`) a gap without its
+  own `frame_delay` removes `R L`, `R = β₀ + β₁(ω − ω_o)` of the gap's medium at the
+  frame's reference frequency, with `β₀` only on an envelope grid that subtracts it
+  and `ω_o` zero on a field grid: phase `(β₀ − ω_oβ₁)L`, delay `β₁L`, the law of
+  `reference_at`. Without a frame only `β₁(ω₀)L` is removed and the report and history
+  say so. Calibration flags: a `SpectralCalibration` with `removes_phase` (or
+  `removes_delay`) True or None clears that term; False keeps it; a gap keeps the
+  input's flags, since the removed term is known exactly.
+- *Geometry.* Without `geometry=`, the plane moves by each gap's distance along its
+  current normal (turned by a mirror's `outgoing`), `z` advances by the distances, a
+  gap clears `side`, and the axes are the final frame's. A declared `geometry` is used
+  as given after its normal and x axis are checked against the transported ones.
+
+**Deviations and decisions, with reasons.**
+
+1. **Errors.** Every refusal in `elements.py` and `transport.py` raises
+   `CouplingError`, including grid-shaped ones (undersampled screens, a mirror image
+   off the grid, wrong sample shapes): each is a refusal to admit a field or an element
+   into a transport, not a defect of a grid object, so no borrowed class remained the
+   right one.
+2. **Frame source.** A `FieldPlane` records its reference, not the rate of its frame,
+   so "the delay taken from the plane's reference frame" is the explicit `frame=`
+   argument; its default reproduces the previous `β₁(ω₀)L`. The round trip below shows
+   that `frame=simulation.frame` makes transport and continued propagation agree in
+   stored samples and reference alike.
+3. **Output methods** stay an explicit choice, `"angular"` or `"fresnel"`; nothing
+   selects one. Both the out-of-window angular refusal and the wrap refusal of an
+   angular output suggest `output_method="fresnel"`.
+4. **Sampling and wrap now refuse.** A column at angle θ moves its rays by `L tan θ`;
+   content whose rays pass the window half-width wraps (periodic) or reflects (radial),
+   which is the same condition as sampling the propagator phase `k_zL` below its
+   Nyquist rate in κ. Its reference-measure share above `sampling_tolerance`
+   (default 1e-6) is refused on the same-grid and angular routes. `beyond_window=
+   "remove"` declares the removal of those (column, bin) pairs as an angular band; it
+   is booked as `removed` with `window_removed` in the diagnostics. The edge share stays
+   a diagnostic on the same-grid route (field near a reflecting edge is not yet an
+   error), and refuses on the angular-output route as before. `sampling_adequate` is
+   gone.
+5. **Aperture weighting — clarification.** `aperture_profile`'s `W` means what SEP 23's
+   `ApertureSet.weighting` makes it mean (`translate/spatial.py`, `exponent = 1 if
+   weighting == "quadrature" else 2`): `"amplitude"` (default) is a field transmission,
+   power `W²`; `"quadrature"` is a power weight, field `√W`. `Aperture` takes
+   `weighting` with that meaning, so a transported aperture and an in-run aperture
+   statistic agree. §4.6's "intensity-defined aperture … explicit conversion from its
+   intensity weight" is the `"quadrature"` case; the default follows the in-run
+   statistics instead. The draft's unconditional `√W` is replaced.
+6. **Doc drift, not fixed (`spatial.py` frozen).** `aperture_profile`'s docstring calls
+   its result an "amplitude transmission" without saying that SEP 23's quadrature
+   weighting uses it as a power weight.
+7. The numerical-core decisions of the draft stand: per-bin energy repeats
+   `spatial_energy`'s weighted sum (`_energy_spectrum`, checked against it to 1e-13);
+   the reference measure `U₀` weighs by `Re n ε₀c`; the certificate's numerical term
+   is `2δ + δ²` of the synthesis round trip plus the edge shares; tilt uses `k sin θ`;
+   the mirror frame is `(p̂, ŝ, k̂)` with `p̂ = ŝ × k̂` (perfect conductor `r_p = +1,
+   r_s = −1`); `PlanarInterface` is lossless at normal incidence with obliquity booked
+   as approximation error; `SpectralTransfer` recognises phase-only models by type,
+   refuses an efficiency on a lossy model, books zero bins as removed and flags
+   negative lengths and inverse mirror phases as reconstructions.
+
+**Verification actually run.** Targeted lanes only:
+`uv run --no-sync pytest -n auto tests/coupling tests/test_structure_figures.py
+tests/test_seps.py` (631 passed, 2 skipped), the doctests of the two modules, targeted
+coverage of `coupling/elements.py` and `coupling/transport.py` (100 % of statements and
+branches), `ruff check --fix`, `ruff format`, `ruff check`, `basedpyright` (0 errors),
+`numpydoc lint`, `codespell`, `git diff --check` and `poe docs`.
+
+| Check | Result (measured) |
+|---|---|
+| Round trip: `field_plane` at 1 mm of a linear radial argon run (25 µm waist, envelope grid, 64 radial nodes) → `transport([FreeSpace(1 mm)], frame=simulation.frame)` vs the run's 2 mm plane | stored samples agree to 5.6e-13 relative, reference phase and delay to 1e-12, energy to 1e-12; on-axis amplitude changes by 9 % over the gap; asserted at 1e-11 |
+| The same without `frame=` | stored samples differ by the carrier phase (3.4e-2), absolute spectra agree to 1.0e-12 |
+| The same on a field grid (by hand, not in the suite: 2.5 s) | 4.8e-13 with or without the frame (no `β₀` on a field grid) |
+| Gaussian at L = 0.5, 1, 2 z_R: on-axis amplitude, Gouy phase, second-moment waist, curvature | within 3e-6 of the paraxial formulas (asserted 2e-5); wrap share ≤ 1e-6 |
+| Fresnel vs angular output; vs `scipy.integrate.quad` of the Fresnel integral; Fresnel → Fraunhofer orders; Airy pattern; lens focus vs `λf/πw₀`; radial vs Cartesian | unchanged from the core (5.4e-5; rtol 2e-3; ratios 1.998 and 1.9995; 5.7e-3 of the peak; 1.3e-5; ≤ 1e-8) |
+| Aperture `tanh` edge, both weightings | node samples are `W·E` or `√W·E` to 1e-8 of the field inside the radius; amplitude transmits less than quadrature by more than 1 % |
+| Plane record | delays and phases accumulate (declared and default terms), a `TaylorPhase` keeps the reference calibrated, a `GratingPair` clears both terms and `absolute()` then refuses; a fixed `Frame` gives `(β₀ − ω₀β₁)L` and `β₁L`; a back-propagation restores the reference and is flagged in the history; a 90° fold turns the normal to +x and x to −z, moves the origin along the new normal and keeps the frame right-handed; a declared geometry is checked; an interface sets the medium and books 4 % reflection |
+| Refusals | modal (naming Outcouple), planar, medium missing, unknown exterior before a gap, wrapped rays (with the `beyond_window="remove"` alternative reported), angular output at the source edge (suggesting `"fresnel"`), unknown weighting, every element refusal as `CouplingError` |
+
+Not run: the full gate, the slow lanes, the whole-package coverage lane and backend
+parity (nothing here crosses the backend seam). Sources: the Fresnel and Fraunhofer
+integrals and the Gaussian-beam formulas are checked by the tests above; no new
+constant or coefficient was transcribed.
+
+**Limitations.**
+
+- `fresnel_phase_bound` is conservative, often by orders of magnitude for a Gaussian.
+- The wrap test is a ray criterion per column; it does not see a field that is
+  already at the window edge (the edge share reports that on the same-grid route).
+- The sampled phase-step check of a general mask cannot see a step beyond π; the lens
+  and the tilt use their analytic gradients.
+- The Fresnel route attenuates a lossy medium through `e^{ikL}` only.
+- Cartesian Fresnel output is a dense per-bin separable sum, not benchmarked.
+- A radial two-component state holds uniform polarisation only.
+- The frame rate of a plane is not part of `FieldPlane`; without `frame=`, a plane
+  written in a frame other than its medium's `β₁(ω₀)` gets a different (still exact)
+  reference split.
+
+**Open questions.**
+
+1. Should `spatial.py` gain a public per-bin `spatial_energy_spectrum`, replacing
+   `_energy_spectrum`?
+2. Should a `FieldPlane` record its frame (or the run's frame record) so that
+   `transport` needs no `frame=` argument?
+3. Should `aperture_profile`'s docstring (item 6) be corrected when `spatial.py` is
+   next open?
+4. Should the same-grid edge share also refuse, with its own tolerance?
+
+**Handoff.**
+
+- Phase 3 places `Outcouple` in front of a sequence and adds it to the elements table
+  in the manual's transport section and to `coupling/__init__.py`. The introduction of
+  `docs/guide/workflows/coupling.md` still says transport follows later; it should be
+  updated at merge with phase 3's own changes to that paragraph.
+- `couple` takes the transported plane as it is: its metric is resolved, its reference
+  and calibration flags are current, and `report.source_certificate` carries SEP 34's
+  certificate separately.
+- Phase 5 composes the eight §2 cases from these elements; a compressor result enters as
+  `SpectralTransfer(callable, calibration=SpectralCalibration(...))`.
+
 ## Part III — History
 
 - 2026-10-22: Drafted after auditing existing launch, projection, spatial flux,
