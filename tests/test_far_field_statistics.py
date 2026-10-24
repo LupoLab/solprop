@@ -23,6 +23,7 @@ from bounds import EPS, assert_within, gamma
 from solprop.constants import EPS0, C
 from solprop.exceptions import ApertureEdgeWarning, OutputError
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
+from solprop.modes import PlanarGrid, SlabMode
 from solprop.output.schema import SavedPlane
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import (
@@ -928,7 +929,7 @@ def test_a_spec_refuses_a_missing_or_malformed_table():
     assert not StatsSpec().same_tables(spec)
 
 
-def test_collect_refuses_the_operator_statistics_and_radial_grids(grid):
+def test_collect_refuses_the_operator_statistics_and_non_cartesian_grids(grid):
     space = FreeGrid(3e-4, 8, 3e-4, 8, window_factor=0.1)
     field = gaussian(grid, space, 60e-6)
     for name in ("absorbed_power",):
@@ -941,6 +942,14 @@ def test_collect_refuses_the_operator_statistics_and_radial_grids(grid):
             grid,
             plane(np.zeros((16, 1, grid.n_omega), complex)),
             flux=SpatialFlux.resolve(grid, radial, SpatialMedium()),
+        )
+    slab = PlanarGrid([SlabMode(63.5e-6, "Ar", 1.0)], 3e-4, 8)
+    with pytest.raises(OutputError, match="not a planar one"):
+        collect(
+            StatsSpec(names=("beam_spectrum",)),
+            grid,
+            plane(np.zeros((slab.n_columns, 1, grid.n_omega), complex)),
+            flux=SpatialFlux.resolve(grid, slab, SpatialMedium("Ar", pressure=1.0)),
         )
     with pytest.raises(OutputError, match="requires spatial geometry"):
         collect(StatsSpec(names=("beam_spectrum",)), grid, plane(field))

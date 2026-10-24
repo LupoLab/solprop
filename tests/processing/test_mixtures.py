@@ -180,6 +180,7 @@ def test_node_fluence_integrates_to_saved_energy(case, outputs):
         # its real admittance in the fill: the signed fluence integrates to the
         # axial-flux energy (SEP 34 section 4.2).
         space = simulation.spatial_grid
+        assert space is not None
         transverse = space.k_r**2 if isinstance(space, RadialGrid) else space.kperp_sq
         spectral = (
             spectral * admittance(simulation.medium, grid, transverse)[None, :, None, :]
@@ -280,6 +281,24 @@ def test_unrecorded_material_positions_are_refused(case, factor):
         SavedPlane(z=factor * simulation.grid.length, field=problem.initial.field0[0])
     )
     with pytest.raises(ProcessingError, match="saved planes"):
+        processing.node_fluence(output)
+
+
+@pytest.mark.parametrize("case", ["radial"], indirect=True)
+def test_a_spatial_record_without_its_plane_measure_is_refused(case):
+    """A schema-22 spatial record predates the medium flux measure (SEP 34)."""
+    simulation, problem = case
+    metadata = simulation.metadata()
+    assert metadata.spatial is not None
+    spatial = {
+        key: value
+        for key, value in metadata.spatial.items()
+        if key not in {"flux_model", "flux_plan"}
+    }
+    output = MemoryOutput()
+    output.open(replace(metadata, schema_version=22, spatial=spatial))
+    output.save(SavedPlane(z=simulation.grid.length, field=problem.initial.field0[0]))
+    with pytest.raises(ProcessingError, match="predates the medium axial-flux"):
         processing.node_fluence(output)
 
 

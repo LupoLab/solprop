@@ -331,6 +331,29 @@ def test_the_budgets_must_be_finite_and_positive(value):
         AdiabaticAccuracy(reflected_energy=value)
 
 
+@pytest.mark.parametrize(
+    ("omega", "kperp_sq", "z_span", "match"),
+    [
+        ([OMEGA], [0.0], (1e-3, 0.0), "finite z0 < z1"),
+        ([OMEGA], [0.0], (0.0, math.inf), "finite z0 < z1"),
+        ([-OMEGA], [0.0], (0.0, 1e-3), "finite positive frequencies"),
+        ([math.nan], [0.0], (0.0, 1e-3), "finite positive frequencies"),
+        ([OMEGA], [-1.0], (0.0, 1e-3), "finite and >= 0"),
+        ([OMEGA], [math.inf], (0.0, 1e-3), "finite and >= 0"),
+    ],
+)
+def test_the_wave_certificate_refuses_an_invalid_input(omega, kperp_sq, z_span, match):
+    with pytest.raises(MaterialError, match=match):
+        certify_wave_path(
+            np.array(omega),
+            np.ones(1, dtype=complex),
+            np.ones((1, 1), dtype=complex),
+            [Linear(0.0, 1e-3, 1e-3)],
+            np.array(kperp_sq),
+            z_span,
+        )
+
+
 def test_the_bounds_are_stable_for_tiny_variation():
     # tanh and expm1 keep full relative accuracy where 1 - cosh would not.
     assert reflection_bound(1e-12) == pytest.approx(1e-24, rel=4 * EPS)

@@ -81,10 +81,14 @@ elseif(NOT SOLPROP_NATIVE_ENABLE_HIP AND
        NOT CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|IntelLLVM|Clang|AMDClang)$")
   message(FATAL_ERROR "Linux CPU builds require GNU C++, IntelLLVM, or Clang/AOCC.")
 elseif(SOLPROP_NATIVE_ENABLE_CUDA AND
-       CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11.5)
-  # Kokkos 5.2.1 supports GCC >= 10.4; CUDA's host toolchain is qualified
-  # separately from the Linux CPU reference compiler below.
-  message(FATAL_ERROR "CUDA builds require GCC 11.5 or newer as the host compiler.")
+       CMAKE_CXX_COMPILER_VERSION VERSION_LESS 14)
+  # The CPU reference compiler below, for the host pass of nvcc_wrapper too: GCC 13
+  # also refuses the device build under -Werror (a false maybe-uninitialized report).
+  # GCC 14 needs CUDA 12.8 or newer, checked where nvcc is found.
+  message(FATAL_ERROR
+    "CUDA builds require GCC 14 or newer as the host compiler; found "
+    "${CMAKE_CXX_COMPILER_VERSION}. On Ubuntu 24.04 install g++-14 and build with "
+    "CXX=g++-14 NVCC_WRAPPER_DEFAULT_COMPILER=g++-14.")
 elseif(NOT SOLPROP_NATIVE_ENABLE_CUDA AND
        CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND
        CMAKE_CXX_COMPILER_VERSION VERSION_LESS 14)
@@ -523,6 +527,21 @@ if(SOLPROP_NATIVE_ENABLE_CUDA)
                HINTS "${CUDA_ROOT}/bin" "$ENV{CUDA_ROOT}/bin"
                      /opt/cuda/bin /usr/local/cuda/bin
                REQUIRED)
+  # CUDA 12.8 is the first toolkit whose host-compiler table admits GCC 14 (12.6 stops
+  # at GCC 13.2); the qualified reference is CUDA 13 with GCC 14.
+  execute_process(COMMAND "${SOLPROP_NATIVE_NVCC}" --version
+                  OUTPUT_VARIABLE _solprop_nvcc_version RESULT_VARIABLE _solprop_nvcc_result)
+  string(REGEX MATCH "release ([0-9]+\\.[0-9]+)" _solprop_nvcc_match
+         "${_solprop_nvcc_version}")
+  if(NOT _solprop_nvcc_result EQUAL 0 OR NOT _solprop_nvcc_match)
+    message(FATAL_ERROR "Could not read the CUDA toolkit version from ${SOLPROP_NATIVE_NVCC}.")
+  endif()
+  set(SOLPROP_NATIVE_CUDA_TOOLKIT_VERSION "${CMAKE_MATCH_1}")
+  if(SOLPROP_NATIVE_CUDA_TOOLKIT_VERSION VERSION_LESS 12.8)
+    message(FATAL_ERROR
+      "CUDA builds require CUDA 12.8 or newer (the first to support GCC 14 as the host "
+      "compiler); found ${SOLPROP_NATIVE_CUDA_TOOLKIT_VERSION} at ${SOLPROP_NATIVE_NVCC}.")
+  endif()
   if(NOT CUDA_ROOT)
     get_filename_component(SOLPROP_NATIVE_CUDA_BIN "${SOLPROP_NATIVE_NVCC}" DIRECTORY)
     get_filename_component(SOLPROP_NATIVE_CUDA_ROOT "${SOLPROP_NATIVE_CUDA_BIN}" DIRECTORY)

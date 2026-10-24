@@ -28,8 +28,14 @@ from solprop.modes import PlanarGrid, SlabMode
 from solprop.nonlinear.responses import KerrResponse
 from solprop.output.schema import serialise
 from solprop.profiles import Linear
-from solprop.pulses import GaussianPulse, SpatialPulse
-from solprop.spatial import EVANESCENT_RATE, SpatialDispersion, SpatialMedium
+from solprop.pulses import GaussianPulse
+from solprop.spatial import (
+    EVANESCENT_RATE,
+    SpatialDispersion,
+    SpatialFlux,
+    SpatialMedium,
+    spatial_energy,
+)
 from solprop.stepper import FixedSchedule, Multistep, PIController, RungeKutta
 from solprop.translate.chebyshev import build
 from solprop.translate.linop import LinearOperator, phi_rate
@@ -38,6 +44,26 @@ from solprop.translate.radial import radial_operators, radial_rate_bounds
 from solprop.translate.spatial import rate_bounds, separable_values
 
 WAVELENGTH = 800e-9
+
+
+def evanescent_beam(grid, space, medium):
+    """A 1 um Gaussian beam of 1 pJ as an array, occupying evanescent columns.
+
+    ``SpatialPulse`` refuses a beam with more than rounding-level content in columns
+    that do not propagate (SEP 34 section 4.3); these tests need that content, so the
+    beam is built here and scaled to 1 pJ of the propagating flux.
+    """
+    profile = np.exp(-((space.r / 1e-6) ** 2))
+    if isinstance(space, RadialGrid):
+        columns = space.hankel.forward(profile)
+    else:
+        columns = np.fft.fft2(profile.reshape(space.n_y, space.n_x)).ravel()
+    temporal = GaussianPulse(wavelength=WAVELENGTH, fwhm=100e-15, energy=1.0).build(
+        grid
+    )
+    field = columns[:, None, None] * temporal
+    flux = SpatialFlux.resolve(grid, space, medium)
+    return field * np.sqrt(1e-12 / spatial_energy(field, flux))
 
 
 def line(
@@ -52,9 +78,7 @@ def line(
     grid = EnvelopeGrid.from_limits(length, WAVELENGTH, (700e-9, 950e-9), 400e-15)
     # A 0.2 um spacing: the grid's largest k_x, 1.6e7 rad/m, is past k0 = 7.9e6.
     space = LineGrid(2e-6, 22, window_factor=0.1)
-    pulse = SpatialPulse(
-        GaussianPulse(wavelength=WAVELENGTH, fwhm=100e-15, energy=1e-12), 1e-6
-    )
+    pulse = evanescent_beam(grid, space, SpatialMedium() if medium is None else medium)
     planes = [length]
     return Simulation.from_free(
         grid,
@@ -332,9 +356,7 @@ def radial(
     grid = EnvelopeGrid.from_limits(length, WAVELENGTH, (700e-9, 950e-9), 400e-15)
     # Sixteen columns over 4 um: the largest k_r, about 1.2e7 rad/m, is past k0.
     space = RadialGrid(4e-6, 16)
-    pulse = SpatialPulse(
-        GaussianPulse(wavelength=WAVELENGTH, fwhm=100e-15, energy=1e-12), 1e-6
-    )
+    pulse = evanescent_beam(grid, space, SpatialMedium())
     planes = [length]
     return Simulation.from_radial(
         grid,

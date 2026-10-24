@@ -13,12 +13,12 @@ propagation see the same ``k_z``.
 """
 
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import cast
 
 import numpy as np
 
-from solprop.adiabatic import AdiabaticAdmission
+from solprop.adiabatic import AdiabaticAccuracy, AdiabaticAdmission
 from solprop.exceptions import MaterialError, TranslationError
 from solprop.grid import FreeGrid, RadialGrid, TimeGrid
 from solprop.linear import Frame
@@ -219,6 +219,8 @@ def flux_record(plan: FluxPlan | None) -> dict[str, object]:
             "variation": admission.variation,
             "field_error": admission.field_error,
             "reflection": admission.reflection,
+            "worst_kperp_sq": admission.worst_kperp_sq,
+            "worst_omega": admission.worst_omega,
             "exact": admission.exact,
             "jumps": admission.jumps,
             "interpolation_envelope": admission.interpolation_envelope,
@@ -254,7 +256,20 @@ def flux_from_record(record: Mapping[str, object]) -> FluxPlan:
     """
 
     def array(name: str, dtype: type) -> np.ndarray:
-        """Return one stored coefficient array."""
+        """Return one stored coefficient array.
+
+        Parameters
+        ----------
+        name : str
+            The record's key.
+        dtype : type
+            The array's dtype.
+
+        Returns
+        -------
+        numpy.ndarray
+            The array.
+        """
         return _stored(record[name], dtype)
 
     zeros = np.zeros(array("k_squared", complex).size)
@@ -285,7 +300,83 @@ def flux_from_record(record: Mapping[str, object]) -> FluxPlan:
         _stored(table["degrees"], np.intp),
         _stored(table["hard_kinks"], float),
     )
-    return FluxPlan(base, material)
+    certificate = record.get("admission")
+    return FluxPlan(
+        base,
+        material,
+        None
+        if certificate is None
+        else _admission(cast("Mapping[str, object]", certificate)),
+    )
+
+
+def _admission(record: Mapping[str, object]) -> AdiabaticAdmission:
+    """Rebuild a varying path's certificate from its output record.
+
+    The path's structural identity is kept as the text it was recorded as.
+
+    Parameters
+    ----------
+    record : collections.abc.Mapping
+        The ``admission`` entry of a ``flux_plan`` record.
+
+    Returns
+    -------
+    solprop.adiabatic.AdiabaticAdmission
+        The certificate the run was admitted under.
+    """
+
+    def number(name: str) -> float:
+        """Return one stored scalar.
+
+        Parameters
+        ----------
+        name : str
+            The record's key.
+
+        Returns
+        -------
+        float
+            The value.
+        """
+        return float(cast("float", record[name]))
+
+    def optional(name: str) -> float | None:
+        """Return one stored scalar that may be absent.
+
+        Parameters
+        ----------
+        name : str
+            The record's key.
+
+        Returns
+        -------
+        float or None
+            The value, or None where it was not recorded.
+        """
+        value = record.get(name)
+        return None if value is None else float(cast("float", value))
+
+    span = cast("Sequence[float]", record["z_span"])
+    return AdiabaticAdmission(
+        identity={"recorded": record["identity"]},
+        z_span=(float(span[0]), float(span[1])),
+        accuracy=AdiabaticAccuracy(
+            field_error=number("field_error_budget"),
+            reflected_energy=number("reflected_energy_budget"),
+        ),
+        variation=number("variation"),
+        reflection=number("reflection"),
+        field_error=number("field_error"),
+        worst_kperp_sq=optional("worst_kperp_sq"),
+        worst_omega=optional("worst_omega"),
+        omega=_stored(record["omega"], float),
+        spectral_variation=_stored(record["spectral_variation"], float),
+        support=_stored(record["support"], bool),
+        jumps=_stored(record["jumps"], float),
+        exact=bool(record["exact"]),
+        interpolation_envelope=number("interpolation_envelope"),
+    )
 
 
 def _stored(value: object, dtype: type) -> np.ndarray:

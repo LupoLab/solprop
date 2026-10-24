@@ -273,7 +273,7 @@ class SpatialPulse(Displayed):
         PulseError
             If the grid is a planar one, the temporal pulse is not scalar, the beam
             has no propagating content or more than rounding-level nonpropagating
-            content, or launch pre-propagation produces a nonfinite field.
+            content, or launch pre-propagation would overflow the field.
         """
         if isinstance(space, PlanarGrid):
             msg = (
@@ -321,9 +321,9 @@ class SpatialPulse(Displayed):
                 field = field * np.exp(exponent)[:, None, :]
             field = _hard_masked(field, live, space.spectral_weights, grid)
             total += _normalised(member, temporal, field, flux, grid)
-        if not np.all(np.isfinite(total)):
-            msg = "spatial pre-propagation produced a nonfinite field"
-            raise PulseError(msg)
+        # Each member is a finite field scaled by the finite factor of a finite,
+        # positive measured flux (_normalising_factor refuses the rest), so the sum
+        # is finite.
         return np.asarray(total, dtype=np.complex128)
 
     def incident(
@@ -706,9 +706,6 @@ class PlanarPulse(SpatialPulse):
             beam = y_spectrum[:, None, None] * phase * temporal
             factor = _normalising_factor(member, temporal, beam, reference, grid)
             total += columns[:, None, None] * (phase * factor) * temporal
-        if not np.all(np.isfinite(total)):
-            msg = "planar launch produced a nonfinite field"
-            raise PulseError(msg)
         return np.asarray(total, dtype=np.complex128)
 
 

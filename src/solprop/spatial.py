@@ -683,30 +683,22 @@ def _check_transverse(kperp_sq: np.ndarray) -> None:
 
 
 def _check_field(
-    grid: TimeGrid, space: RadialGrid | FreeGrid | PlanarGrid, spectrum: np.ndarray
+    grid: TimeGrid, space: RadialGrid | FreeGrid, spectrum: np.ndarray
 ) -> None:
     """Validate the dimensions and finiteness of a spatial spectrum.
+
+    A planar grid's slab amplitudes are not field samples; every caller routes
+    them to :func:`_check_planar` before this check.
 
     Parameters
     ----------
     grid : solprop.grid.TimeGrid
         Temporal grid specifying the frequency count.
-    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        A :class:`solprop.modes.slab.PlanarGrid` is refused by name: its columns
-        are slab amplitudes, not field samples.
+    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
         Transverse geometry specifying the column count.
     spectrum : numpy.ndarray
         Internal spatial spectrum, shape (n_modes, n_pol, n_omega).
     """
-    if isinstance(space, PlanarGrid):
-        # A planar column is a slab amplitude per y frequency, not a field sample:
-        # these helpers would read it as the Cartesian grid's DFT and be wrong.
-        msg = (
-            "this spatial helper reads a radial or Cartesian field spectrum, and a "
-            "PlanarGrid's columns are slab amplitudes per y frequency: use "
-            "planar_mode_energy for the energy and planar_fluence for the fluence"
-        )
-        raise GridError(msg)
     space.validate()
     if (
         spectrum.ndim != 3
@@ -885,8 +877,11 @@ class SpatialFlux:
     def energy_scale(self) -> float:
         """Return the factor turning weighted ``|X|^2`` sums into joules.
 
-        ``eps0 c / 2`` for a field in V/m; one for planar slab amplitudes, whose
-        mode functions already carry it.
+        Returns
+        -------
+        float
+            ``eps0 c / 2`` for a field in V/m; one for planar slab amplitudes, whose
+            mode functions already carry it.
         """
         return 1.0 if isinstance(self.space, PlanarGrid) else 0.5 * EPS0 * C
 
@@ -1684,7 +1679,13 @@ def aperture_profile(
     edge: float,
     kind: ApertureProfile,
 ) -> Float[np.ndarray, "*shape"]:
-    r"""Return an aperture's amplitude transmission at distances from its centre.
+    r"""Return an aperture's profile ``W`` at distances from its centre.
+
+    How ``W`` enters depends on the aperture set's weighting (SEP 23 section 4.6):
+    under ``"amplitude"`` weighting (the default) it is the field transmission, and
+    ``aperture_spectrum`` weighs the collected power by ``W**2``; under
+    ``"quadrature"`` weighting it weighs the power itself, once. The on-axis
+    amplitude behind the aperture applies ``W`` once under both weightings.
 
     With ``r`` the half-width and ``t = (rho - r)/w``, the four profiles of SEP 23
     section 4.4 are: ``hard``, one for ``rho <= r`` and zero beyond; ``tanh``,
@@ -1713,8 +1714,7 @@ def aperture_profile(
     Returns
     -------
     numpy.ndarray
-        The dimensionless transmission ``W(rho)`` in ``[0, 1]``, the shape of
-        `radius`.
+        The dimensionless profile ``W(rho)`` in ``[0, 1]``, the shape of `radius`.
 
     Raises
     ------

@@ -778,8 +778,8 @@ not revalidated to additional precision by this draft.
   into it (the certificate and witness, the radial amplitude term, the compiled
   backends, the test migration and the documentation). The maintainer asked for
   targeted tests per slice, one full gate at the end and no backwards compatibility.
-  The CUDA/HIP qualification of §6.2 is not done: it needs the maintainer's spending
-  go, so the public switch has not reached main.
+  The CUDA/HIP qualification of §6.2 followed with the maintainer's go (its own
+  report below).
 - **Delivered:**
   - `solprop.spatial.SpatialFlux` (`resolve(grid, space, medium, z=, side=)`), the
     field-first accessors of §5 and §5.1, `spatial_power` (power through the plane in
@@ -835,11 +835,52 @@ not revalidated to additional precision by this draft.
   statistics about 1.8× on native and 2× on numba (the closure synthesis).
 - **Limitations:** the scalar forward model's scope (§2, §4.5); nonconstant absorbing
   paths refused; numba forms the local closure volume with NumPy FFTs on the host.
-- **Open questions:** Q1 — the bounded CUDA/HIP campaign (§6.2, US$20 cap), owner the
-  maintainer's spending go. Q2 — a compiled closure synthesis for numba's local
-  statistics, owner the implementer, not required for activation.
+- **Open questions:** Q1 — closed by the device qualification report below. Q2 — a
+  compiled closure synthesis for numba's local statistics, owner the implementer, not
+  required for activation.
 - **Handoff:** SEP 31's `FieldPlane` consumes `SpatialFlux`; SEP 5 uses the same
   measure.
+
+### Device qualification report — CUDA and HIP
+
+- **Scope:** §6.2's bounded device campaign, 2026-10-23, Opus 5.5 (AI), on
+  `feature/sep-0034-medium-flux`, with the maintainer's go (an NVIDIA H100 or smaller at
+  most US$7, an AMD device, SEP cap US$20), both rented. One AMD MI325X (gfx942,
+  ROCm 7.14, AMD Clang 23, rocFFT and rocBLAS) and one NVIDIA H100 NVL (sm_90,
+  CUDA 13.0.88, GCC 14.2, cuFFT and cuBLAS). Inputs and references were prepared on
+  CPU first.
+- **Cases** (20 invocations per device, none longer than 8 steps): five zero-step
+  measurements of prepared states and seven fixed schedules, each compared with
+  numpy_ref references computed on CPU. Together they cover real weights and the
+  complex closure, the far-field pairings and absorbed power, widths, the radial
+  material table, gradient endpoints, a declared jump, Kerr source prefactors, a
+  field-grid launch with input noise, a Cartesian and a line far field with a
+  transverse collar, and the planar metric with Kerr. The other invocations are the
+  native package's own suite on the device build and the native cases of
+  `tests/backends/test_flux_parity.py` and `test_flux_paths.py`.
+- **Bound:** at most 1e-10 relative deviation per statistic, declared before the
+  runs; native CPU meets it to 2.1e-15.
+- **Results:**
+
+  | device | 86 statistics, worst relative deviation | flux parity at the CPU rounding budgets | native suite | device memory high-water |
+  |---|---|---|---|---|
+  | MI325X | 9.8e-14 | 8 passed | 354 passed, 23 skipped, 1 failed* | 3.0 GB |
+  | H100 NVL | 9.8e-14 | 8 passed | 355 passed, 23 skipped | 1.3 GB |
+
+  \* The version-equality check failed on a tree patched in place; the clean CUDA
+  build passes it.
+- **Defects found and fixed** (all present on main before this SEP): nvcc rejected a
+  typename-free dependent return type (`chebyshev.hpp`); HIP Clang's `-Werror`
+  refused unused host-only helpers (`general.cpp`); GCC 13 as nvcc's host reported a
+  false maybe-uninitialized (`z_table.hpp`). The CUDA build now requires GCC 14 as the
+  host compiler and CUDA 12.8 or newer, the first toolkit admitting GCC 14; on the NVIDIA device,
+  GCC 13 and a CUDA 12.6 `nvcc` are refused and GCC 14 with CUDA 13 configures.
+- **Spend:** US$2.94 of the US$20 cap (NVIDIA US$2.26 of 7, including a first build on
+  CUDA 12.8 with GCC 13 that the defects stopped; AMD US$0.68). Every rental
+  was destroyed by its own id. The campaign records are in the private development
+  archive.
+- **Not covered:** timing (§6.2 asks for actual timings only of the qualification
+  calls, recorded there), older CUDA architectures, and multi-device runs.
 
 ## Part III — History
 

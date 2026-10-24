@@ -25,7 +25,7 @@ the arithmetic is double precision throughout, and no build enables fast-math.
 | build tool | Ninja is recommended; scikit-build-core uses it when available |
 | C++20 compiler, macOS | Clang 14 or newer; Homebrew LLVM is recommended and selected by default |
 | C++20 compiler, Linux CPU | GCC 14 or newer, IntelLLVM (`icpx`) 2022 or newer, or Clang 14 or newer / AMD AOCC |
-| C++20 compiler, CUDA | GCC 11.5 or newer as the host compiler, with the CUDA toolkit's `nvcc` |
+| C++20 compiler, CUDA | GCC 14 or newer as the host compiler, with `nvcc` from CUDA 12.8 or newer (qualified on CUDA 13) |
 | C++20 compiler, HIP | ROCm's Clang (`hipcc` or `amdclang++`) |
 | OpenMP (CPU builds) | the compiler's runtime; on macOS Homebrew's `libomp` |
 | FFT (CPU builds) | FFTW 3 with its threaded libraries, in double and single precision (or MKL's FFTW interface) |
@@ -401,8 +401,12 @@ is CPU-only.
 
 ### CUDA
 
-Requirements: the CUDA toolkit with cuFFT and cuBLAS, and GCC 11.5 or newer as the C++
-compiler. Kokkos compiles the device code through its `nvcc_wrapper`, which uses
+Requirements: CUDA 12.8 or newer with cuFFT and cuBLAS, and GCC 14 or newer as the C++
+compiler. GCC 14 is the floor of every Linux build; CUDA 12.8 is the first toolkit that
+accepts it as the host compiler (12.6 stops at GCC 13.2), and CMake refuses either below
+its floor. The device build is qualified on CUDA 13 with GCC 14; CUDA 13 needs an NVIDIA
+driver of the 580 series or newer and no longer targets Maxwell, Pascal or Volta, so a
+V100 builds with CUDA 12.8 or 12.9. Kokkos compiles the device code through its `nvcc_wrapper`, which uses
 `NVCC_WRAPPER_DEFAULT_COMPILER` as the host compiler. CMake finds `nvcc` from
 `CUDA_ROOT` or `CUDAToolkit_ROOT` when given, otherwise on `PATH` or under
 `/usr/local/cuda` or `/opt/cuda`.
@@ -415,7 +419,7 @@ compiler. Kokkos compiles the device code through its `nvcc_wrapper`, which uses
 git clone https://github.com/LupoLab/solprop
 cd solprop
 export CUDA_ROOT=/usr/local/cuda
-export CXX=g++-13 NVCC_WRAPPER_DEFAULT_COMPILER=g++-13
+export CXX=g++-14 NVCC_WRAPPER_DEFAULT_COMPILER=g++-14
 export CMAKE_ARGS="-DSOLPROP_NATIVE_ENABLE_CUDA=ON -DSOLPROP_NATIVE_ENABLE_OPENMP=OFF \
   -DSOLPROP_NATIVE_CUDA_ARCH=AMPERE80"
 uv pip install --python /path/to/env/bin/python . ./native

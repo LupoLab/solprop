@@ -493,7 +493,8 @@ def test_a_lossless_planar_run_does_no_more_work_than_the_constant_cubic():
         output = MemoryOutput()
         planar_simulation(response, steps=10, materials=materials).run(output)
         changes.append(relative_change(output, "energy"))
-    assert_flux_conserved(*changes, 1e-12)
+    dispersive, constant = changes
+    assert_flux_conserved(dispersive, constant, 1e-12)
 
 
 # -------------------------------------------------------------- general modal

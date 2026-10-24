@@ -14,8 +14,9 @@ import pytest
 
 from rate_oracles import adk_oracle
 from solprop.boundaries import absorber
+from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import MaterialRangeWarning, TranslationError
-from solprop.grid import EnvelopeGrid, FieldGrid
+from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.modes import MarcatiliMode, transverse_quadrature
 from solprop.modes.quadrature import mode_matrix
 from solprop.noise import modified_noise
@@ -24,7 +25,8 @@ from solprop.nonlinear.raman import response_for
 from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
 from solprop.physdata import Gas
 from solprop.profiles import Constant, FromCallable, PressureGradient
-from solprop.pulses import GaussianPulse, SechPulse
+from solprop.pulses import GaussianPulse, SechPulse, SpatialPulse
+from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import DOPRI5, FixedSchedule, PIController, default_dz_min
 from solprop.translate.chebyshev import PiecewiseChebyshev, build
@@ -1288,3 +1290,48 @@ def test_modal_power_weight_refuses_an_inconsistent_row(soliton, failure):
         message = "power_weight_constant must match"
     with pytest.raises(TranslationError, match=message):
         dataclasses.replace(soliton, linear=changed).validate()
+
+
+@pytest.fixture(scope="module")
+def radial_problem():
+    """A short radial run in uniform argon, translated with its plane measure."""
+    grid = EnvelopeGrid.from_limits(1e-3, WAVELENGTH, (600e-9, 1.2e-6), 150e-15)
+    pulse = SpatialPulse(
+        GaussianPulse(wavelength=WAVELENGTH, fwhm=30e-15, energy=1e-9), 60e-6
+    )
+    simulation = Simulation.from_radial(
+        grid,
+        RadialGrid(6e-4, 16),
+        SpatialMedium("Ar", pressure=1.0),
+        [],
+        pulse,
+        settings=SimulationSettings(
+            controller=PIController(rtol=1e-6, atol=1e-12),
+            save_planes=[1e-3],
+            dz_max=2.5e-4,
+            dz_init=2.5e-4,
+            backend="numpy_ref",
+        ),
+    )
+    return simulation.translate()
+
+
+def test_validate_pairs_the_plane_measure_with_spatial_geometry(
+    soliton, radial_problem
+):
+    """A spatial problem needs its plane measure on its band, and others carry none."""
+    flux = radial_problem.flux
+    assert flux is not None
+    radial_problem.validate()
+    with pytest.raises(TranslationError, match="requires its plane measure"):
+        dataclasses.replace(radial_problem, flux=None).validate()
+    with pytest.raises(TranslationError, match="requires its plane measure"):
+        dataclasses.replace(soliton, flux=flux).validate()
+    narrowed = np.array(flux.base.active, copy=True)
+    narrowed[np.flatnonzero(narrowed)[0]] = False
+    narrowed.setflags(write=False)
+    stale = dataclasses.replace(
+        flux, base=dataclasses.replace(flux.base, active=narrowed)
+    )
+    with pytest.raises(TranslationError, match="active mask must match"):
+        dataclasses.replace(radial_problem, flux=stale).validate()
