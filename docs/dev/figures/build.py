@@ -597,7 +597,7 @@ MODULES = {
         Module("polarisation.py"),
         Module("optics.py"),
         Module("tools.py"),
-        Module("coupling/", ("plane", "port", "remap")),
+        Module("coupling/", ("plane", "port", "remap", "transport", "elements")),
         Module(
             "physdata/",
             (
@@ -808,7 +808,6 @@ MODULES = {
 """Every module of the package, in its layer's band. All of these exist."""
 
 PLANNED = {
-    "P": (Module("coupling/", ("transport", "elements")),),
     "X": (Module("processing/", ("windows",)),),
 }
 """Modules `architecture.md` section 4 names that are not written yet.

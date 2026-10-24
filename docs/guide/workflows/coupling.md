@@ -156,3 +156,148 @@ its source, and a realisation is added only when one is given explicitly. The re
 run keeps its ionisation tables and their ranges, as every derived run does. A different
 basis, lattice or medium is a coupling or an interface, not a relaunch, and is refused by
 name.
+
+## Transporting a plane between planes
+
+{py:func}`~solprop.coupling.transport.transport` carries a radial or Cartesian field
+plane through an ordered sequence of linear optical elements and returns the plane at
+the last element's output together with a
+{py:class}`~solprop.coupling.transport.TransportReport`. A modal plane holds guide
+coefficients, not a field on a transverse grid, and is refused: its exit field is
+synthesised first by `Outcouple`. The plane needs its medium, so a saved plane is read
+with `field_plane(run, source=simulation)`.
+
+| element | what it does |
+|---|---|
+| {py:class}`~solprop.coupling.elements.FreeSpace` | homogeneous propagation $e^{ik_zL}$ with the exact $k_z=\sqrt{(\omega n/c)^2-\kappa^2}$, on the plane's own grid or onto another output plane |
+| {py:class}`~solprop.coupling.elements.ThinLens` | the paraxial phase screen $e^{-ik(\omega)r^2/2f(\omega)}$, with a constant or chromatic focal length |
+| {py:class}`~solprop.coupling.elements.Aperture` | the edge profile $W$ of {py:func}`~solprop.spatial.aperture_profile`, with the weighting of the in-run aperture statistics |
+| {py:class}`~solprop.coupling.elements.TransmissionMask` | a complex field transmission $T(x, y, \omega)$, as a function or as samples |
+| {py:class}`~solprop.coupling.elements.Alignment` | a lateral displacement and a tilt of a Cartesian field |
+| {py:class}`~solprop.coupling.elements.PolarisationTransform` | a uniform Jones matrix in the plane's local axes |
+| {py:class}`~solprop.coupling.elements.Mirror` | spectral p/s reflection and the change of frame |
+| {py:class}`~solprop.coupling.elements.PlanarInterface` | the normal-incidence Fresnel interface between two lossless media |
+| {py:class}`~solprop.coupling.elements.SpectralTransfer` | any {py:mod}`solprop.optics` transfer function, or a compressor's response, acting on every sample |
+
+**Order.** The elements are applied exactly in the order given. An
+{py:class}`~solprop.optics.Chain` or any other known transfer function may stand in the
+sequence directly: it is one frequency-only block, its factors commute among
+themselves, and it is never moved past focusing, clipping, propagation or a Jones map.
+Every element reports its input and output energies in joules (the axial Poynting flux
+of the medium, [medium flux](../free-space/flux.md)), the per-frequency spectra of both,
+the declared loss, any intentional removal and the signed approximation error that
+closes its ledger. The report of the sequence chains them: each element's input energy
+is the previous one's output, losses add in joules, and broadband efficiencies are never
+multiplied. A source plane's path certificate is carried as its own item,
+`report.source_certificate`, because it bounds the producing run, not the transport.
+
+**The plane's record follows the field.** Each `FreeSpace` removes a frame term from the
+whole field so that the pulse stays in its window, and adds it to the plane's
+reference, so `plane.absolute()` stays exact over any distance. Pass the source
+simulation's frame, `transport(plane, elements, frame=simulation.frame)`, and a gap
+removes the same affine term $R L$ the run would have removed: the transported plane
+then has the same stored spectrum and reference as continuing the run. Without a frame a
+gap removes only the group delay $\beta_1(\omega_0)L$ of its medium, and the report says
+so. A spectral element that drops its own constant phase or group delay (a grating or
+prism pair, a chirped mirror's data) leaves that term of the reference uncalibrated. An
+interface changes the plane's medium, a mirror turns its axes, and the power metric is
+resolved again in the output medium and grid. Every operation is appended to
+`plane.provenance.history`. `geometry=` declares the output plane in the receiving
+system's coordinates; its axes must be the ones the field arrives with.
+
+**Free space and its output plane.** Without `output=`, the field stays on its grid,
+propagated exactly in its periodic (Cartesian) or reflecting (radial) representation.
+A column at angle θ moves its rays by $L\tan\theta$; content whose rays would leave the
+window wraps back, which is the same as sampling the propagator's phase below its
+Nyquist rate, and is refused beyond `sampling_tolerance`. `beyond_window="remove"`
+declares the removal of that angular band instead, and the removed energy is reported.
+Significant nonpropagating content is refused too, or removed explicitly with
+`band_limit=`. An output plane of another radius or sampling is the caller's explicit
+choice of method; nothing switches between them automatically:
+
+- `output_method="angular"` sums the propagated spectrum at the output nodes. It is
+  exact and nonparaxial but lives inside the source window: a field that reaches the
+  source window's edge is refused, and the refusal suggests the Fresnel route.
+- `output_method="fresnel"` evaluates the paraxial Fresnel integral of the source
+  samples at the output nodes. It reaches any observation window, including the far
+  field; it reports its paraxial phase bound $k(\rho_{\max}+r_{\rm occ})^4/8L^3$ and
+  refuses a kernel that would alias on the source nodes.
+
+Both build their kernels in blocks; no transverse-by-transverse-by-frequency array is
+formed.
+
+**The thin-screen certificate.** A lens, an aperture, a mask and a tilt are local
+electric-field screens at each frequency. A screen is exact in the local reference
+measure $U_0$, which weighs every plane wave by $\operatorname{Re} n\,\varepsilon_0 c$;
+the physical axial energy $U_Y$ weighs it by a further $\cos\theta$. With the required
+`model_error` $\epsilon_m$ and the cone $1-\cos\theta_*=\epsilon_m/8$, the defect
+$d(E)=(1-\cos\theta_*)U_{0,\rm cone}+U_{0,\rm tail}$ bounds $U_0-U_Y$ for the input
+and for the output field, and the screen is admitted only when
+$[d(E_{\rm in})+d(E_{\rm out})]/U_Y(E_{\rm in})$, plus the transform's round-trip and
+edge error, is at most $\epsilon_m$ (SEP 31 §4.6). The certificate,
+`report.elements[i].certificate`, applies to that one field. A screen whose phase changes
+by π or more between neighbouring nodes where the field is, or one with gain, is
+refused. An aperture's `weighting` has the meaning it has for the in-run aperture
+statistics: `"amplitude"` (the default) applies $W$ to the field, so the power goes as
+$W^2$; `"quadrature"` takes $W$ as a power weight and applies $\sqrt W$. The
+intensity-defined aperture of SEP 31 is the `"quadrature"` case; a hard aperture is the
+same either way.
+
+**Mirrors and Jones frames.** A mirror takes its incoming and outgoing propagation
+directions and an s axis perpendicular to both (at normal incidence the s axis
+resolves the degeneracy). Each beam has the right-handed frame
+$(\hat p, \hat s, \hat k)$ with $\hat p = \hat s\times\hat k$; the field leaves as
+$(r_pE_p, r_sE_s)$ with no conjugation, and the outgoing plane's axes keep the p/s
+components of the incoming ones, so the reflection appears as a mirror image of the
+transverse pattern along p. In this convention a perfect conductor has $r_p=+1$,
+$r_s=-1$ at any incidence; coefficients calibrated in another convention are converted
+first. Two reflections restore the field and its frame.
+
+**The Fresnel interface.** {py:class}`~solprop.coupling.elements.PlanarInterface`
+applies $t_E=2n_1/(n_1+n_2)$ per frequency, with power transmission
+$T=(n_2/n_1)|t_E|^2$ and the reflected $R=|r_E|^2$ reported as loss; $R+T=1$. It is
+the normal-incidence model: oblique columns' departure from $T$ is reported as
+approximation error. The output plane is in the second medium, so applying the same
+factor twice -- in an element and again in a launch -- is refused.
+
+**Spectral optics.** {py:class}`~solprop.coupling.elements.SpectralTransfer` adapts
+`Material`, `ChirpedMirror`, `GratingPair`, `PrismPair`, `TaylorPhase` and a `Chain` of
+them, keeping each factor's affine-phase record (`report.calibration`). Losses are kept
+per frequency; bins a transfer function sets exactly to zero are reported as removed. A
+phase-only model asked for a lossy prediction needs an explicit `efficiency=`, and an
+efficiency on a lossy model is refused because it would count the loss twice. A
+negative material length or an inverse mirror phase is flagged as a reconstruction,
+not a passive element. A callable that is not a known optics element states its
+calibration with
+{py:class}`~solprop.coupling.elements.SpectralCalibration`.
+
+**Example: a Gaussian focused by a lens.**
+
+```python
+from solprop.coupling import FieldPlane, FreeSpace, PlaneGeometry, ThinLens, transport
+from solprop.grid import EnvelopeGrid, RadialGrid
+from solprop.pulses import GaussianPulse, SpatialPulse
+from solprop.spatial import SpatialMedium
+
+grid = EnvelopeGrid.from_limits(0.1, 800e-9, (750e-9, 850e-9), 200e-15)
+air = SpatialMedium()
+beam = SpatialPulse(GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6), 1e-3)
+plane = FieldPlane.from_pulse(
+    beam, grid, PlaneGeometry(0.0), space=RadialGrid(4e-3, 256), medium=air
+)
+small = RadialGrid(0.5e-3, 128)   # the focal plane, sampled finely
+focus, report = transport(
+    plane,
+    [ThinLens(0.5, model_error=1e-3),
+     FreeSpace(0.5, air, output=small, output_method="fresnel")],
+)
+print(focus.geometry.z, focus.energy(), report.elements[0].certificate.ratio)
+```
+
+The second-moment radius at the focus is the Fourier-plane waist
+$\lambda f/\pi w_0 \approx 127$ µm to about $10^{-6}$ here (the tests hold the lens
+and the free-space output to their analytic references); the focal plane carries the
+launched microjoule less $10^{-6}$ of it. That is the lens's own axial-flux defect: the
+converging plane waves cross the plane obliquely, carrying $\cos\theta$ of their local
+measure, and the report books it as the lens's approximation error, inside its
+certificate (ratio $2.5\times10^{-4}$ against the budget of $10^{-3}$).

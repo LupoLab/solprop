@@ -60,6 +60,17 @@ The first public release. It contains:
   describes a simulation's entrance and `with_input` takes a launch bound to it,
   recording `configuration["coupling"]` and drawing no new noise. Output schema 24
   records each run's plane-reference record (`RunMetadata.reference`).
+- **Transport between planes**
+  ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0031-simulation-coupling.html),
+  phase 4). `coupling.transport` carries a radial or Cartesian `FieldPlane` through an
+  ordered sequence of linear elements -- `FreeSpace` (exact angular-spectrum
+  propagation, with an explicit `"angular"` or `"fresnel"` output plane), `ThinLens`,
+  `Aperture`, `TransmissionMask`, `Alignment`, `PolarisationTransform`, `Mirror`,
+  `PlanarInterface` and `SpectralTransfer` (any `optics` transfer function or `Chain`)
+  -- and returns the plane with its reference, geometry, medium, metric and provenance
+  updated and a sequential ledger in joules. Thin screens carry their angular-flux
+  certificate; undersampled phases, wrapped rays and evanescent content are refused
+  unless their removal is declared. Refusals raise `CouplingError`.
 - **Media and responses.**
   - Gases, gas mixtures, glasses and metals from the [optmat](https://github.com/LupoLab/optmat)
     material library.
