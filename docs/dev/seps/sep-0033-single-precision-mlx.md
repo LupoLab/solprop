@@ -1146,7 +1146,7 @@ the harness's metrics are relative errors at the last plane):
   reaches it.
 - *Envelope plasma on the oracle is slow*: the per-sample decomposition and adaptive
   quadrature run in Python: one binary32 run of the envelope case takes 52–80 min over
-  0.1 m on an idle Xeon core and hours over 0.4 m. Its binary64 references (`1e-10`,
+  0.1 m on an idle workstation core and hours over 0.4 m. Its binary64 references (`1e-10`,
   `1e-9`, `1e-6`) were therefore computed on `native`, whose envelope plasma is the same
   discretisation and quadrature, qualified against `numpy_ref` to rounding — orders of
   magnitude inside these envelopes; the reference check passed (6.4e-9). The candidates
