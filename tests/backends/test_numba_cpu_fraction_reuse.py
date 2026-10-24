@@ -90,7 +90,9 @@ def test_fraction_reuse_keeps_the_column_drive_and_stash(
     )
 
 
-def test_fraction_reuse_always_evaluates_first_sample_and_is_thread_invariant():
+def test_fraction_reuse_always_evaluates_first_sample_and_is_thread_invariant(
+    thread_budget_lifted,
+):
     spec = ColumnSpec("field_real", True, True, True, False, 1, True, True)
     args = column_arguments("field_real", 1, 1e-20, 64)
     args[0][:] = 0.0

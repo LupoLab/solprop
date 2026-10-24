@@ -133,7 +133,9 @@ def test_tiled_column_agrees_with_the_ordered_column(
     )
 
 
-def test_tiled_column_agrees_across_worker_counts(budgets, record_property):
+def test_tiled_column_agrees_across_worker_counts(
+    thread_budget_lifted, budgets, record_property
+):
     """Every worker count, twice, against the serial column, inside its budget."""
     field, table, scalars, window = inputs(256, 21, 0.2)
     spec = ColumnSpec("field_real", True, True, True, False, 1, True, True)

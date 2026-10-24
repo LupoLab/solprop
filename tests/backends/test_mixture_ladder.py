@@ -47,7 +47,7 @@ def run(backend_type, problem, grid, *, threads=1, stop=None):
 
 @pytest.mark.parametrize("steps", [1, 8, None])
 def test_mixture_propagation_ladder_and_every_species_statistic(
-    steps, equivalence_backend_class
+    thread_budget_lifted, steps, equivalence_backend_class
 ):
     _, grid, _, _, problem = mixture_case()
     stop = grid.length
@@ -158,7 +158,7 @@ def ladder_bound(grid, steps):
     return 64 * grid.n_to * 2 * 7 * steps * np.finfo(float).eps
 
 
-def test_mixture_run_is_repeatable_and_thread_invariant():
+def test_mixture_run_is_repeatable_and_thread_invariant(thread_budget_lifted):
     """A repeat and a four-thread run of eight fixed steps, within the ladder's budget.
 
     On one schedule the three runs are one computation, its sums ordered by the
@@ -181,7 +181,7 @@ def test_mixture_run_is_repeatable_and_thread_invariant():
             )
 
 
-def test_periodic_species_stash_matches_fresh_scans_and_threads():
+def test_periodic_species_stash_matches_fresh_scans_and_threads(thread_budget_lifted):
     """The stash against a fresh scan of the same state, and one thread against four.
 
     The stash and the fresh scan are one statistics evaluation twice, held to the

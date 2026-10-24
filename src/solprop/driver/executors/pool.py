@@ -19,7 +19,7 @@ from multiprocessing.process import BaseProcess
 from pathlib import Path
 from typing import cast
 
-from solprop._process import allowed_cpus
+from solprop._process import allowed_cpus, thread_budget
 from solprop.exceptions import DriverError
 
 __all__ = ["MemoryBudget", "Pool", "peak_rss"]
@@ -203,15 +203,15 @@ def _cpus() -> tuple[int, ...]:
     tuple of int
         CPUs available within the allocation.
     """
-    available = allowed_cpus()
+    try:
+        budget = thread_budget()
+    except ValueError as error:
+        raise DriverError(str(error)) from error
+    # The controller's budget (ADR-052) is shared out among its workers.
+    available = allowed_cpus()[: budget.threads]
     allocated = os.environ.get("SLURM_CPUS_PER_TASK")
     if allocated and allocated.isdecimal():
         available = available[: int(allocated)]
-    quota = Path("/sys/fs/cgroup/cpu.max")
-    if quota.exists():
-        value, period = quota.read_text(encoding="utf-8").split()
-        if value != "max":
-            available = available[: max(1, int(value) // int(period))]
     offset = int(os.environ.get("SOLPROP_SCAN_CPU_OFFSET", "0"))
     count = int(os.environ.get("SOLPROP_SCAN_CPU_COUNT", str(len(available))))
     if offset < 0 or count < 1:

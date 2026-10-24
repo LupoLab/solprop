@@ -665,8 +665,9 @@ import/export is explicit (`fft.py`), never at import time, and `fft.wisdom_dige
 which wisdom a run's plans came from. Transforms run in place, because the buffers are
 owned anyway and it helps cache residency (§6).
 FFTW threads default to 1 for transforms below a measured size and to the outer extent above
-it; numba's pool and FFTW's pool are set separately and both capped by the cgroup CPU quota
-when present (read `/sys/fs/cgroup/cpu.max`, not `os.cpu_count()`).
+it; numba's pool and FFTW's pool are set separately and both held within the process's
+thread budget (ADR-052: the affinity mask, the cgroup CPU quota on the process's own path
+rounded down, and `SOLPROP_THREADS`; never `os.cpu_count()`).
 
 ### 3.4 Threading regimes
 

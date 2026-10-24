@@ -1162,3 +1162,40 @@ Withdrawn (development-process record, not a design decision).
   change that moves an identity bumps the version it moves and adds no compatibility
   layer; before the first public release a resume-compatibility policy is decided
   (roadmap, *Release preparation*).
+
+## ADR-052 — One thread budget per process, which every pool stays within
+
+- **Status:** accepted
+- **Context:** each piece sized its threads its own way. `numba_cpu` read the affinity
+  mask and the root control group's `cpu.max`, rounded to nearest, but not
+  `NUMBA_NUM_THREADS`, so a large problem failed at construction when that was below the
+  CPUs (a 64-CPU Slurm allocation with `NUMBA_NUM_THREADS=8`). Its `SOLPROP_*_THREADS`
+  variables forced a pool's size rather than capping it, so the scan executors held a
+  worker to its share only by forcing every pool, small problems included. The native
+  backend took `os.cpu_count()`, the machine rather than the allocation, and honoured
+  any `SOLPROP_NATIVE_THREADS`. `Pool` had a third reader. Under `poe test`, 370 of
+  1175 sampled pool-building tests started an 18-thread kernel pool beside 17 other
+  workers.
+- **Decision:** a process has one thread budget, the smallest of its affinity mask (read
+  at import, before an OpenMP runtime can bind the main thread), the tightest CPU quota
+  on its own control-group path (versions 1 and 2, rounded **down**, at least one) and
+  `SOLPROP_THREADS`; the native backend also takes `SOLPROP_NATIVE_THREADS`, and
+  `numba_cpu`'s kernels `NUMBA_NUM_THREADS`, Numba's own ceiling. Every pool's automatic
+  size stays within it, and so does every explicit count (`threads=`, the per-pool
+  variables), clamped rather than refused. `SOLPROP_OVERSUBSCRIBE=1` lets an explicit
+  count exceed the CPUs and the quota, never `SOLPROP_THREADS`. The pools take turns, so
+  each may use the whole budget. The budget and the limit that set it are recorded with
+  the pools in a run's metadata. The executors set `SOLPROP_THREADS` per worker, and
+  the test lanes set it to one per xdist worker.
+- **Why:** a quota limits CPU time, not CPUs: a team that exceeds it is throttled for the
+  rest of each period, and one that synchronises at every step stalls whole, so 1.5 CPUs
+  is one thread (Go and Java round up for throughput workloads that tolerate it). A
+  limit that only narrows cannot oversubscribe a machine from a shell profile. The
+  oversubscription opt-in exists because thread-count invariance tests need more
+  threads than a CI runner has CPUs; production never does.
+- **Consequences:** the native backend cannot import solprop and sizes Kokkos at import,
+  so it carries a copy of the reader (`solprop_native._budget`); `tests/test_process.py`
+  runs both copies on the same control groups and environment. A test that compares
+  thread counts lifts its budget explicitly. `SLURM_CPUS_PER_TASK` stays a `Pool`
+  setting rather than part of the budget, since Slurm narrows the mask itself where it
+  binds tasks.

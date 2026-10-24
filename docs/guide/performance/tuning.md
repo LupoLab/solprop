@@ -83,18 +83,30 @@ or above 262 144 elements ($n_\text{rows} \times n_{to}$), one below. The BLAS p
 set through [threadpoolctl](https://github.com/joblib/threadpoolctl); Apple's
 Accelerate exposes no thread control at all, and is recorded as `uncontrolled`.
 
-"Every CPU available" means the smallest of the machine's logical CPU count, the
-process's CPU affinity (for example under `taskset` or a batch scheduler), a Linux
-cgroup CPU quota (containers) and `SOLPROP_THREADS`. `SOLPROP_THREADS` is the process's
-thread budget on every CPU backend: each pool is still sized by the rules above, but
-never beyond it, and an explicit count is clamped to it too. Set it to each process's
-share when several processes share CPUs without being pinned apart.
+"Every CPU available" means the process's **thread budget**, the smallest of:
+
+- its CPU affinity mask, the CPUs it may run on (narrowed by `taskset`, `numactl` or a
+  batch scheduler's allocation);
+- the tightest Linux control-group CPU quota on its path (containers), rounded **down**:
+  a quota limits CPU time, and a team of threads that exceeds it is throttled whole, so
+  a quota of 1.5 CPUs runs one thread;
+- `SOLPROP_THREADS`, if set.
+
+Both CPU backends size every pool within this budget, and clamp an explicit count
+(`threads=` or a variable below) to it rather than refusing it; the pools take turns, so
+each may use all of it. Set `SOLPROP_THREADS` to each process's share when several
+processes share CPUs without being pinned apart. `SOLPROP_OVERSUBSCRIBE=1` lets an
+explicit count exceed the CPUs and the quota (never `SOLPROP_THREADS`), for a test that
+compares thread counts on a small machine; a run has no reason to set it. The budget and
+the limit that set it are recorded in the run's metadata (`thread_budget`,
+`thread_budget_source`).
 
 Each pool can be fixed from the environment:
 
 | variable | pool | default |
 |---|---|---|
-| `SOLPROP_THREADS` | the cap on every pool below (and on the native backend's) | every available CPU |
+| `SOLPROP_THREADS` | the process's thread budget, which every pool below (and the native backend's) stays within | the affinity mask and quota alone |
+| `SOLPROP_OVERSUBSCRIBE` | `1` lets an explicit count exceed the CPUs and the quota | `0` |
 | `SOLPROP_NUMBA_THREADS` | Numba kernel threads | all available CPUs above the size threshold, else 1 |
 | `SOLPROP_NUMBA_REGIME` | `small` (serial node loop) or `large` (parallel node loop) | chosen from the size threshold |
 | `SOLPROP_FFTW_THREADS` | FFTW threads for the temporal and Raman transforms | every available CPU from 1 048 576 elements, up to 4 from 65 536, else 1 |
@@ -120,7 +132,7 @@ benchmarks; unset, nothing is timed and nothing is added to a pass. On the nativ
 stages are profiling regions (`solprop_native.free.*`) that any Kokkos Tools timer
 reports.
 
-Every explicit count is clamped to the CPUs available. `NUMBA_NUM_THREADS`, Numba's own
+Every explicit count is clamped to the thread budget. `NUMBA_NUM_THREADS`, Numba's own
 variable, sets the size of the pool Numba creates at import, and the kernel pool, chosen
 or explicit, is clamped to it as well; the FFTW and BLAS pools are not, since they are
 not Numba's. `NUMBA_THREADING_LAYER` chooses Numba's threading layer (`omp`, `tbb` or
@@ -176,7 +188,7 @@ imported:
 
 | variable | pool | default |
 |---|---|---|
-| `SOLPROP_NATIVE_THREADS` | the process-wide cap; Kokkos' OpenMP pool is created with this many threads, or with `SOLPROP_THREADS` if that is smaller | `SOLPROP_THREADS`, else the CPUs in the process's affinity mask |
+| `SOLPROP_NATIVE_THREADS` | the process-wide cap; Kokkos' OpenMP pool is created with the smaller of this and the thread budget (above `SOLPROP_THREADS`' budget never; above the CPUs only with `SOLPROP_OVERSUBSCRIBE=1`) | the thread budget |
 | `SOLPROP_NATIVE_KERNEL_THREADS` | response, stage and reduction kernels | sized per operation, up to the cap |
 | `SOLPROP_NATIVE_FFT_THREADS` | FFTW threads for the modal and spatial transforms | sized per plan, up to the cap |
 | `SOLPROP_NATIVE_RAMAN_FFT_THREADS` | threads for the Raman convolution transforms of complete node chunks | sized per plan, up to the cap |
@@ -256,9 +268,9 @@ initialises Kokkos with an explicit thread count, which takes precedence; set
 `SOLPROP_NATIVE_THREADS` instead. (Kokkos prints a warning at start-up if
 `OMP_NUM_THREADS` asks for fewer threads than it was given.)
 
-**The default cap is every CPU the process may run on**: the logical CPUs in its
-affinity mask, which `taskset` or a batch scheduler's allocation narrows. Automatic
-sizing avoids assigning all of those threads to small operations. On a shared machine or when several solprop
+**The default cap is the thread budget** (above): the CPUs in the process's affinity
+mask, a container's quota and `SOLPROP_THREADS`. Automatic sizing avoids assigning all
+of those threads to small operations. On a shared machine or when several solprop
 processes run side by side, set `SOLPROP_THREADS` (which holds `numba_cpu` too) or
 `SOLPROP_NATIVE_THREADS` to each process's CPU budget. The operation policy stays within
 that budget.

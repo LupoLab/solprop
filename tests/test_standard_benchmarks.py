@@ -190,10 +190,14 @@ def test_child_environment_overrides_incoming_pools_before_import():
         "OMP_PROC_BIND": "close",
         "OMP_PLACES": "cores",
         "OPENBLAS_NUM_THREADS": "72",
+        "SOLPROP_THREADS": "72",
+        "SOLPROP_OVERSUBSCRIBE": "1",
         "SOLPROP_FFTW_PLAN": "estimate",
     }
     result = system.thread_environment(1, "budget", incoming)
     assert result["OPENBLAS_NUM_THREADS"] == "1"
+    assert result["SOLPROP_THREADS"] == "1"
+    assert "SOLPROP_OVERSUBSCRIBE" not in result
     assert result["SOLPROP_FFTW_THREADS"] == "1"
     assert result["SOLPROP_FFTW_PLAN"] == "estimate"
     assert result["OMP_PROC_BIND"] == "false"

@@ -1093,9 +1093,9 @@ avoid it.
 **Scan queues and platform probes.** A live but wedged queue owner on the same host holds
 its point indefinitely, because the lease age is not consulted while its process is alive.
 An interrupted `Local` or `Pool` scan skips its `running` points for `stale_age` seconds on
-restart. Container CPU and memory limits are read from the root cgroup rather than the
-process's own cgroup path, so a shared node under a cgroup manager without Slurm variables
-is mis-sized, and a failing platform probe raises outside the `SolpropError` hierarchy. The
+restart. Container memory limits are read from the root cgroup rather than the process's
+own cgroup path (CPU quotas follow the path, ADR-052), so a shared node under a cgroup
+manager without Slurm variables is mis-sized for memory, and a failing platform probe raises outside the `SolpropError` hierarchy. The
 scan file grows on every resume, because HDF5 does not reclaim the groups it recreates.
 [SEP 4](seps/sep-0004-execution-autotuning.md) partly covers the platform probes:
 it requires effective allocation detection shared with scans, including nested

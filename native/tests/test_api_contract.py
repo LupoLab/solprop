@@ -236,7 +236,12 @@ def test_a_host_openblas_is_fitted_to_the_native_pool(explicit: str | None) -> N
         for key, value in os.environ.items()
         if key not in ("OPENBLAS_NUM_THREADS", "GOTO_NUM_THREADS", "OMP_NUM_THREADS")
     }
-    environment.update(OMP_PROC_BIND="false", SOLPROP_NATIVE_THREADS="2")
+    environment.update(
+        OMP_PROC_BIND="false",
+        SOLPROP_NATIVE_THREADS="2",
+        SOLPROP_OVERSUBSCRIBE="1",
+        SOLPROP_THREADS="",
+    )
     if explicit is not None:
         environment["OPENBLAS_NUM_THREADS"] = explicit
     completed = subprocess.run(
@@ -342,6 +347,8 @@ def test_independent_pools_respect_the_process_limit(limit: int) -> None:
             **os.environ,
             "OMP_PROC_BIND": "false",
             "SOLPROP_NATIVE_THREADS": str(limit),
+            "SOLPROP_OVERSUBSCRIBE": "1",
+            "SOLPROP_THREADS": "",
             "SOLPROP_NATIVE_KERNEL_THREADS": "3",
             "SOLPROP_NATIVE_FFT_THREADS": "1",
             "SOLPROP_NATIVE_RAMAN_FFT_THREADS": "2",
@@ -372,7 +379,8 @@ def test_solprop_threads_caps_the_process_pool(
     environment = {
         key: value
         for key, value in os.environ.items()
-        if key not in {"SOLPROP_NATIVE_THREADS", "SOLPROP_THREADS"}
+        if key
+        not in {"SOLPROP_NATIVE_THREADS", "SOLPROP_THREADS", "SOLPROP_OVERSUBSCRIBE"}
     }
     environment.update(OMP_PROC_BIND="false", SOLPROP_THREADS=solprop_limit)
     if native_limit is not None:
@@ -388,7 +396,14 @@ def test_solprop_threads_caps_the_process_pool(
     assert json.loads(completed.stdout)["runtime_threads"] == expected
 
 
-def test_default_process_pool_follows_the_affinity_mask() -> None:
+@pytest.mark.parametrize(
+    ("native_limit", "oversubscribe", "expected"),
+    [(None, None, 2), ("4", None, 2), ("4", "1", 4)],
+)
+def test_the_process_pool_follows_the_affinity_mask(
+    native_limit: str | None, oversubscribe: str | None, expected: int
+) -> None:
+    """The mask holds the default and an explicit count, unless oversubscribing."""
     if sys.platform != "linux":
         pytest.skip("the affinity mask is read on Linux")
     if native.build_info().device_backend != "none":
@@ -398,9 +413,14 @@ def test_default_process_pool_follows_the_affinity_mask() -> None:
     environment = {
         key: value
         for key, value in os.environ.items()
-        if key not in {"SOLPROP_NATIVE_THREADS", "SOLPROP_THREADS"}
+        if key
+        not in {"SOLPROP_NATIVE_THREADS", "SOLPROP_THREADS", "SOLPROP_OVERSUBSCRIBE"}
     }
     environment["OMP_PROC_BIND"] = "false"
+    if native_limit is not None:
+        environment["SOLPROP_NATIVE_THREADS"] = native_limit
+    if oversubscribe is not None:
+        environment["SOLPROP_OVERSUBSCRIBE"] = oversubscribe
     granted = sorted(os.sched_getaffinity(0))[:2]
     script = (
         f"import os, runpy; os.sched_setaffinity(0, {granted!r}); "
@@ -414,7 +434,7 @@ def test_default_process_pool_follows_the_affinity_mask() -> None:
         env=environment,
     )
     assert completed.returncode == 0, completed.stderr
-    assert json.loads(completed.stdout)["runtime_threads"] == 2
+    assert json.loads(completed.stdout)["runtime_threads"] == expected
 
 
 def test_initial_array_contract(
@@ -624,6 +644,8 @@ def _thread_probe(
             **os.environ,
             "OMP_PROC_BIND": "false",
             "SOLPROP_NATIVE_THREADS": str(threads),
+            "SOLPROP_OVERSUBSCRIBE": "1",
+            "SOLPROP_THREADS": "",
             **{name: str(threads) for name in POOL_VARIABLES},
             **(extra or {}),
         },
@@ -692,6 +714,8 @@ def test_forced_fft_widths_agree_across_threads_to_rounding(
                 **os.environ,
                 "OMP_PROC_BIND": "false",
                 "SOLPROP_NATIVE_THREADS": str(count),
+                "SOLPROP_OVERSUBSCRIBE": "1",
+                "SOLPROP_THREADS": "",
                 **{name: str(count) for name in POOL_VARIABLES},
             },
         )
@@ -834,7 +858,12 @@ def test_automatic_and_single_thread_windows_match_numpy(tmp_path: Path) -> None
             for key, value in os.environ.items()
             if key not in (*POOL_VARIABLES, "SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES")
         }
-        environment.update(SOLPROP_NATIVE_THREADS=str(cap), OMP_PROC_BIND="false")
+        environment.update(
+            SOLPROP_NATIVE_THREADS=str(cap),
+            OMP_PROC_BIND="false",
+            SOLPROP_OVERSUBSCRIBE="1",
+            SOLPROP_THREADS="",
+        )
         completed = subprocess.run(
             [
                 sys.executable,

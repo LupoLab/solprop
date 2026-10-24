@@ -99,13 +99,14 @@ including literal `@` characters in parameter IDs. Convergence-record writes
 remain serial-only; normal grouped runs do not regenerate witnesses. The benchmark
 suite under `benchmarks/` is outside `testpaths` and is never collected.
 
-A lane's remaining scheduling floor is its longest group. Pinning
+A lane's remaining scheduling floor is its longest group. Pinning `SOLPROP_THREADS` (each
+worker's thread budget, ADR-052, which every pool of both backends stays within),
 `SOLPROP_NATIVE_THREADS`, `VECLIB_MAXIMUM_THREADS`, `OPENBLAS_NUM_THREADS`,
 `MKL_NUM_THREADS` and `OMP_NUM_THREADS` to one keeps eighteen workers from each opening a
-thread pool over the same cores; the native backend's pool follows only
-`SOLPROP_NATIVE_THREADS`. `NUMBA_NUM_THREADS` is not pinned: it is numba's ceiling, not
-its default, and a test that compares thread counts asks `numba_cpu` for several threads
-(a ceiling of one refuses them). Serial and parallel runs select the same tests; inspect
+thread pool over the same cores. `NUMBA_NUM_THREADS` is not pinned: it is numba's
+ceiling, not its default. A test that compares thread counts lifts the budget for itself
+(the `thread_budget_lifted` fixture) and asks for several threads; a native probe that
+needs more threads than the runner has CPUs sets `SOLPROP_OVERSUBSCRIBE=1`. Serial and parallel runs select the same tests; inspect
 the current `--durations` output before choosing another independent group to split. The
 lane stays
 reproducible: `pytest-randomly` picks one seed in the controller and the workers share it,

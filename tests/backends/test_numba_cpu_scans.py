@@ -79,7 +79,9 @@ def test_blocked_scan_matches_serial_with_derived_absolute_budget(
     )
 
 
-def test_blocked_scan_agrees_across_workers_and_reuse(record_property):
+def test_blocked_scan_agrees_across_workers_and_reuse(
+    thread_budget_lifted, record_property
+):
     """Every worker count, twice, against the first run, inside the scan's budget.
 
     Each run is the blocked scan of depth ``D`` on the same increments, so each is

@@ -93,7 +93,9 @@ def test_complete_blocked_column_respects_derived_envelope_and_fixed_cap(
     record_property("blocked_plasma", {**summary, **result})
 
 
-def test_blocked_complete_column_agrees_across_worker_counts(budgets, record_property):
+def test_blocked_complete_column_agrees_across_worker_counts(
+    thread_budget_lifted, budgets, record_property
+):
     """Every worker count, twice, against the serial column, inside its budget.
 
     A worker count changes the partition of the scans and so the order of their

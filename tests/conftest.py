@@ -180,6 +180,17 @@ def record_property(record_property):
     return record
 
 
+@pytest.fixture
+def thread_budget_lifted(monkeypatch):
+    """Lift the lanes' one-thread budget for a test that compares thread counts.
+
+    The lanes set ``SOLPROP_THREADS=1`` per xdist worker (ADR-052); a test that asks for
+    several threads on purpose takes this fixture, and its pools are then held only by
+    the CPUs and the quota.
+    """
+    monkeypatch.delenv("SOLPROP_THREADS", raising=False)
+
+
 # ------------------------------------------------------- the convergence records
 #
 # A write run must never be silent: `SOLPROP_WRITE_RECORDS=1` changes files that are

@@ -406,7 +406,9 @@ CAPILLARY_BOUND = 200 * 16 * EPS
 """The capillary rung's budget for the 200 steps to 0.1 m, 16 eps a step."""
 
 
-def test_one_thread_and_all_of_them_agree(capillary_problem, substitute, field_grid):
+def test_one_thread_and_all_of_them_agree(
+    thread_budget_lifted, capillary_problem, substitute, field_grid
+):
     """What the two-stage reductions are for: the same steps at any thread count.
 
     Every reduction writes one partial per column and the driver sums them on the
@@ -421,7 +423,7 @@ def test_one_thread_and_all_of_them_agree(capillary_problem, substitute, field_g
 
 
 def test_one_thread_and_all_of_them_agree_on_the_statistics_rows(
-    capillary_problem, substitute, field_grid
+    thread_budget_lifted, capillary_problem, substitute, field_grid
 ):
     """The channel's numbers are reductions too, so they carry the same promise.
 
@@ -553,8 +555,14 @@ def _reuse_capture(backend, launch, spec, stash):
 @pytest.mark.parametrize("regime,threads", [("small", 1), ("large", 4)])
 @pytest.mark.parametrize("stash", [False, True])
 @pytest.mark.parametrize("propagator", ["recompute", "tabulate"])
+@pytest.mark.usefixtures("thread_budget_lifted")
 def test_fraction_reuse_preserves_propagation_statistics_and_owned_buffers(
-    ionising_capillary, field_grid, regime, threads, stash, propagator
+    ionising_capillary,
+    field_grid,
+    regime,
+    threads,
+    stash,
+    propagator,
 ):
     """The selected column agrees with the original, including the accepted stash.
 
@@ -603,7 +611,7 @@ def test_fraction_reuse_preserves_propagation_statistics_and_owned_buffers(
             # The backend caps the request at the CPUs this process may run (a
             # three-core runner gives three).
             assert backend.metadata()["numba_threads"] == min(
-                threads, fft._available_threads()
+                threads, fft._thread_budget().threads
             )
             assert backend._spec.parallel is (regime == "large")
             if original:
@@ -946,7 +954,9 @@ def test_the_ledger_names_every_buffer_and_stays_inside_the_budget(
     assert ledger["projected_spectrum"] > 0
 
 
-def test_the_metadata_records_what_the_run_actually_did(soliton_problem, soliton_grid):
+def test_the_metadata_records_what_the_run_actually_did(
+    thread_budget_lifted, soliton_problem, soliton_grid
+):
     """The pools were measured to be worth a factor of nine, so a run records them."""
     problem = soliton_problem(soliton_grid, 1, save_planes=[0.01])
     backend = NumbaCpuBackend(
@@ -1181,7 +1191,7 @@ def test_the_plasma_statistics_work_on_the_analytic_family(
 
 
 def test_a_thread_count_from_the_environment_is_read_and_checked(
-    soliton_problem, soliton_grid, monkeypatch
+    thread_budget_lifted, soliton_problem, soliton_grid, monkeypatch
 ):
     """The registry constructs with the seam's arguments alone, so a run sets a pool
     through the environment; a value that is not a count says so rather than being

@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from ._budget import process_budget
 from ._cpu import check_cpu_baseline
 
 if platform.system() == "Darwin" and "pyfftw" in sys.modules:
@@ -41,6 +42,11 @@ check_cpu_baseline(Path(__file__).parent)
 PROCESS_CPUS: tuple[int, ...] = (
     tuple(sorted(os.sched_getaffinity(0))) if sys.platform == "linux" else ()
 )
+
+# Every pool stays within the process's thread budget (ADR-052): its CPUs, its control
+# groups' quota, SOLPROP_THREADS and SOLPROP_NATIVE_THREADS, whichever is smallest;
+# read here, before the core can start OpenMP and bind the main thread.
+_REQUESTED_THREADS = process_budget().threads
 
 from . import _core  # noqa: E402  (only after the processor check)
 
@@ -72,35 +78,6 @@ __all__ = [
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 __version__ = version("solprop-native")
-
-
-def _thread_request() -> int:
-    """Read the process cap, the smaller of two variables where both are set.
-
-    ``SOLPROP_NATIVE_THREADS`` is this backend's own; ``SOLPROP_THREADS`` is solprop's
-    cap for every CPU backend. Unset, the pool takes every CPU the process may run on:
-    its affinity mask (``taskset``, a batch scheduler's allocation), not the machine.
-    """
-    counts: list[int] = []
-    for name in ("SOLPROP_NATIVE_THREADS", "SOLPROP_THREADS"):
-        value = os.environ.get(name)
-        if value is None or not value.strip():
-            continue
-        try:
-            threads = int(value)
-        except ValueError as error:
-            raise ValueError(
-                f"{name} must be a thread count, and is {value!r}"
-            ) from error
-        if threads < 1:
-            raise ValueError(f"{name} must be positive, and is {value!r}")
-        counts.append(threads)
-    if counts:
-        return min(counts)
-    return max(1, len(PROCESS_CPUS) or os.process_cpu_count() or 1)
-
-
-_REQUESTED_THREADS = _thread_request()
 
 
 def _pool_request(name: str, what: str = "thread count") -> int:

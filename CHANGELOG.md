@@ -153,15 +153,15 @@ The first public release. It contains:
     `numba_cpu` and warns once, naming the missing features; `backend="native"` raises
     there
     ([SEP 29](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0029-compiled-backend-distribution.html)).
-  - The `numba_cpu` kernel pool is clamped to Numba's own `NUMBA_NUM_THREADS` as well as
-    to the CPUs available, so a large problem no longer fails at backend construction
-    when that variable is set below the CPUs granted (on a Slurm node, for example).
-  - `SOLPROP_THREADS` caps every thread pool of either CPU backend (the `numba_cpu`
-    kernel, FFTW and BLAS pools, and the native backend's process pool, beside
-    `SOLPROP_NATIVE_THREADS`) while the pools keep their size-based defaults beneath it.
-    The `Pool` and Slurm scan executors set it for each worker in place of forcing every
-    pool to the worker's thread count. Unset, the native pool takes the CPUs in the
-    process's affinity mask rather than every CPU on the machine.
+  - One thread budget per process (ADR-052): the smallest of its CPU affinity mask, the
+    tightest control-group CPU quota on its path (versions 1 and 2, rounded down) and
+    `SOLPROP_THREADS`. Every pool of both CPU backends is sized within it, explicit
+    counts included; `numba_cpu`'s kernels are also held to `NUMBA_NUM_THREADS`, so a
+    large problem no longer fails at construction when that is below the CPUs, and the
+    native backend no longer takes every CPU of the machine. `SOLPROP_OVERSUBSCRIBE=1`
+    lets an explicit count exceed the CPUs for thread-count tests. The budget and its
+    source are recorded in run metadata; the `Pool` and Slurm scan executors set
+    `SOLPROP_THREADS` per worker instead of forcing every pool to the worker's count.
   - Each backend is tested against the reference implementation within derived error
     bounds.
   - A short start-up: a run on the native backend imports neither Numba nor

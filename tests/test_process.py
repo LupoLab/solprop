@@ -4,9 +4,17 @@
 
 """The process's CPU grant survives an OpenMP runtime's binding of the main thread."""
 
+import importlib.util
+import sys
+from pathlib import Path
+
 import pytest
 
 from solprop import _process
+
+NATIVE_BUDGET = (
+    Path(__file__).parents[1] / "native" / "src" / "solprop_native" / "_budget.py"
+)
 
 
 @pytest.fixture
@@ -169,3 +177,197 @@ def test_an_uncollapsed_thread_is_left_alone(monkeypatch, granted):
         raising=False,
     )
     assert not _process.release()
+
+
+def _cgroup(root, line, groups):
+    """Write ``/proc/self/cgroup`` and each group's control files under ``root``."""
+    (root / "proc/self").mkdir(parents=True)
+    (root / "proc/self/cgroup").write_text(line + "\n")
+    for directory, files in groups.items():
+        group = root / "sys/fs/cgroup" / directory
+        group.mkdir(parents=True, exist_ok=True)
+        for name, text in files.items():
+            (group / name).write_text(text)
+    return root
+
+
+# (``/proc/self/cgroup``, {group: {file: text}}, whole CPUs) for both readers.
+CGROUP_CASES = [
+    # Version 2: a parent's quota binds its child, and 1.5 CPUs is one thread.
+    (
+        "0::/a/b",
+        {"a": {"cpu.max": "150000 100000"}, "a/b": {"cpu.max": "max 100000"}},
+        1,
+    ),
+    ("0::/a/b", {"a/b": {"cpu.max": "400000 100000"}}, 4),
+    ("0::/a", {"a": {"cpu.max": "max 100000"}}, None),
+    # A container without its own namespace: the host path is absent below the
+    # mount, and the mount's own group carries the quota.
+    ("0::/docker/abc", {".": {"cpu.max": "250000 100000"}}, 2),
+    # Version 1, with the controller's mount named for both controllers.
+    (
+        "4:cpu,cpuacct:/slice\n3:memory:/slice",
+        {
+            "cpu,cpuacct/slice": {
+                "cpu.cfs_quota_us": "300000",
+                "cpu.cfs_period_us": "100000",
+            }
+        },
+        3,
+    ),
+    (
+        "4:cpu,cpuacct:/slice",
+        {
+            "cpu,cpuacct/slice": {
+                "cpu.cfs_quota_us": "-1",
+                "cpu.cfs_period_us": "100000",
+            }
+        },
+        None,
+    ),
+    # A quota below one CPU still runs one thread.
+    ("0::/", {".": {"cpu.max": "50000 100000"}}, 1),
+    ("0::/", {".": {"cpu.max": "garbled"}}, None),
+]
+
+
+@pytest.mark.parametrize(("line", "groups", "expected"), CGROUP_CASES)
+def test_the_cgroup_quota_is_the_tightest_on_the_path_rounded_down(
+    tmp_path, line, groups, expected
+):
+    assert _process.cgroup_cpus(_cgroup(tmp_path, line, groups)) == expected
+
+
+def test_no_control_groups_means_no_quota(tmp_path):
+    assert _process.cgroup_cpus(tmp_path) is None
+
+
+@pytest.mark.parametrize(
+    ("cpus", "quota", "variable", "expected"),
+    [
+        (8, None, None, _process.ThreadBudget(8, "affinity")),
+        (8, 3, None, _process.ThreadBudget(3, "cgroup quota")),
+        (8, 3, "2", _process.ThreadBudget(2, "SOLPROP_THREADS")),
+        (8, None, "64", _process.ThreadBudget(8, "affinity")),
+        (4, 4, "4", _process.ThreadBudget(4, "affinity")),
+    ],
+)
+def test_the_budget_is_the_tightest_limit(monkeypatch, cpus, quota, variable, expected):
+    monkeypatch.setattr(_process, "allowed_cpus", lambda: tuple(range(cpus)))
+    monkeypatch.setattr(_process, "cgroup_cpus", lambda: quota)
+    if variable is None:
+        monkeypatch.delenv("SOLPROP_THREADS", raising=False)
+    else:
+        monkeypatch.setenv("SOLPROP_THREADS", variable)
+    budget = _process.thread_budget()
+    assert (budget.threads, budget.source) == (expected.threads, expected.source)
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "1.5", "many"])
+def test_an_invalid_solprop_threads_is_refused(monkeypatch, value):
+    monkeypatch.setenv("SOLPROP_THREADS", value)
+    with pytest.raises(ValueError, match="SOLPROP_THREADS"):
+        _process.thread_budget()
+
+
+def test_a_blank_solprop_threads_is_unset(monkeypatch):
+    monkeypatch.setenv("SOLPROP_THREADS", " ")
+    assert _process.thread_count("SOLPROP_THREADS") is None
+
+
+@pytest.fixture
+def native_budget(monkeypatch):
+    """The native package's copy of the reader, loaded without starting its core."""
+    spec = importlib.util.spec_from_file_location("_native_budget", NATIVE_BUDGET)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, "_native_budget", module)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize(("line", "groups", "expected"), CGROUP_CASES)
+def test_the_native_copy_reads_control_groups_alike(
+    tmp_path, native_budget, line, groups, expected
+):
+    root = _cgroup(tmp_path, line, groups)
+    assert native_budget.cgroup_cpus(root) == _process.cgroup_cpus(root) == expected
+
+
+@pytest.mark.parametrize("quota", [None, 3])
+@pytest.mark.parametrize("variable", [None, "2", "64"])
+@pytest.mark.parametrize("oversubscribe", [None, "0", "1"])
+def test_the_native_copy_sets_the_same_budget(
+    monkeypatch, native_budget, quota, variable, oversubscribe
+):
+    """Without a native-only count, both backends start from the same budget."""
+    monkeypatch.setattr(_process, "allowed_cpus", lambda: tuple(range(8)))
+    monkeypatch.setattr(_process, "cgroup_cpus", lambda: quota)
+    monkeypatch.setattr(native_budget, "cgroup_cpus", lambda: quota)
+    monkeypatch.delenv("SOLPROP_NATIVE_THREADS", raising=False)
+    for name, value in (
+        ("SOLPROP_THREADS", variable),
+        ("SOLPROP_OVERSUBSCRIBE", oversubscribe),
+    ):
+        if value is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, value)
+    ours, theirs = _process.thread_budget(), native_budget.thread_budget(8)
+    assert (theirs.threads, theirs.source) == (ours.threads, ours.source)
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "1.5", "many"])
+def test_the_native_copy_refuses_the_same_counts(monkeypatch, native_budget, value):
+    monkeypatch.setenv("SOLPROP_THREADS", value)
+    with pytest.raises(ValueError, match="SOLPROP_THREADS") as ours:
+        _process.thread_count("SOLPROP_THREADS")
+    with pytest.raises(ValueError, match="SOLPROP_THREADS") as theirs:
+        native_budget.thread_count("SOLPROP_THREADS")
+    assert str(ours.value) == str(theirs.value)
+
+
+@pytest.mark.parametrize(
+    ("native", "oversubscribe", "expected"),
+    [
+        ("4", None, (4, "affinity")),
+        ("2", None, (2, "SOLPROP_NATIVE_THREADS")),
+        ("16", "1", (16, "SOLPROP_NATIVE_THREADS")),
+    ],
+)
+def test_the_native_count_narrows_unless_oversubscribing(
+    monkeypatch, native_budget, native, oversubscribe, expected
+):
+    monkeypatch.setattr(native_budget, "cgroup_cpus", lambda: None)
+    monkeypatch.delenv("SOLPROP_THREADS", raising=False)
+    monkeypatch.setenv("SOLPROP_NATIVE_THREADS", native)
+    if oversubscribe is None:
+        monkeypatch.delenv("SOLPROP_OVERSUBSCRIBE", raising=False)
+    else:
+        monkeypatch.setenv("SOLPROP_OVERSUBSCRIBE", oversubscribe)
+    budget = native_budget.thread_budget(4)
+    assert (budget.threads, budget.source) == expected
+
+
+def test_oversubscribing_never_passes_solprop_threads(monkeypatch, native_budget):
+    monkeypatch.setattr(native_budget, "cgroup_cpus", lambda: None)
+    monkeypatch.setenv("SOLPROP_OVERSUBSCRIBE", "1")
+    monkeypatch.setenv("SOLPROP_THREADS", "3")
+    monkeypatch.setenv("SOLPROP_NATIVE_THREADS", "16")
+    budget = native_budget.thread_budget(4)
+    assert (budget.threads, budget.source) == (3, "SOLPROP_THREADS")
+    assert (
+        _process.ThreadBudget(4, "affinity", oversubscribe=True, requested=3).explicit(
+            16
+        )
+        == 3
+    )
+
+
+@pytest.mark.parametrize("value", ["yes", "2"])
+def test_oversubscribe_is_zero_or_one(monkeypatch, native_budget, value):
+    monkeypatch.setenv("SOLPROP_OVERSUBSCRIBE", value)
+    with pytest.raises(ValueError, match="SOLPROP_OVERSUBSCRIBE"):
+        _process.oversubscribing()
+    with pytest.raises(ValueError, match="SOLPROP_OVERSUBSCRIBE"):
+        native_budget.oversubscribing()
