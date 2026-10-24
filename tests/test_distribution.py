@@ -262,6 +262,8 @@ def test_loadgroup_reuses_module_fixtures_and_spreads_independent_cases(tmp_path
             "PYTEST_XDIST_WORKER_COUNT",
             "PYTEST_XDIST_TESTRUNUID",
             "PYTEST_ADDOPTS",
+            # CI's shard of the outer session, not of this synthetic suite.
+            "SOLPROP_TEST_SHARD",
         }
     }
     environment["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
