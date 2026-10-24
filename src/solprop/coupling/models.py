@@ -47,6 +47,7 @@ from jaxtyping import Complex, Float
 from scipy.optimize import brentq
 from scipy.special import j0, j1, jn_zeros, k0, k0e, k1, k1e
 
+from solprop.constants import C
 from solprop.exceptions import CouplingError
 from solprop.grid import TimeGrid
 from solprop.modes.capillary import MarcatiliMode
@@ -484,6 +485,12 @@ class ScalarModeBasis:
     cladding_index : numpy.ndarray or None, optional
         Real cladding index at each bin of a step-index basis, shape
         ``(n_omega,)``.
+    wall_term : numpy.ndarray or None, optional
+        :math:`|\nu_n|` of a capillary's HE modes at each bin, shape
+        ``(n_omega,)``: the Marcatili wall term
+        :math:`\nu_n = (\varepsilon + 1)/(2\sqrt{\varepsilon - 1})` of the wall
+        permittivity :math:`\varepsilon`; zero off the active positive band. It
+        sets the leaky field's departure from the scalar profile (:meth:`leaky`).
     identity : str, optional
         A short description of the source modes, for reports.
 
@@ -502,6 +509,7 @@ class ScalarModeBasis:
     effective_index: Float[np.ndarray, "n_modes n_omega"]
     core_index: Float[np.ndarray, " n_omega"] | None = None
     cladding_index: Float[np.ndarray, " n_omega"] | None = None
+    wall_term: Float[np.ndarray, " n_omega"] | None = None
     identity: str = ""
     _norms: Float[np.ndarray, " n_modes"] = field(init=False, repr=False)
 
@@ -525,7 +533,7 @@ class ScalarModeBasis:
             raise CouplingError(msg)
         index.setflags(write=False)
         object.__setattr__(self, "effective_index", index)
-        for name in ("core_index", "cladding_index"):
+        for name in ("core_index", "cladding_index", "wall_term"):
             value = getattr(self, name)
             if value is not None:
                 array = np.array(value, dtype=np.float64, copy=True)
@@ -546,6 +554,37 @@ class ScalarModeBasis:
             f"ScalarModeBasis({self.family}, {', '.join(self.labels)}, "
             f"a={self.radius:.6g} m)"
         )
+
+    def leaky(
+        self, omega: Float[np.ndarray, " n_omega"]
+    ) -> Float[np.ndarray, " n_omega"] | None:
+        r"""Return a capillary's leaky-field parameter at each bin.
+
+        Marcatili's leaky HE1m core field is :math:`J_0(u_m(1 - i\delta)r/a)` with
+        :math:`\delta = \nu_n c/(\omega a)`, where the scalar profile has
+        :math:`\delta = 0` (Marcatili and Schmeltzer 1964,
+        doi:10.1002/j.1538-7305.1964.tb04108.x). Its energy-weighted mean over a
+        coupling's occupied bins is the range parameter of
+        :data:`~solprop.coupling.envelopes.CAPILLARY_ENVELOPE`.
+
+        Parameters
+        ----------
+        omega : numpy.ndarray
+            Absolute angular frequency of each bin, rad/s, shape ``(n_omega,)``.
+
+        Returns
+        -------
+        numpy.ndarray or None
+            :math:`|\nu_n|c/(\omega a)`, dimensionless, shape ``(n_omega,)``, zero
+            off the active positive band; None for a basis without a wall term (a
+            step-index one).
+        """
+        if self.wall_term is None:
+            return None
+        live = (self.wall_term > 0.0) & (omega > 0.0)
+        values = np.zeros(omega.shape)
+        values[live] = self.wall_term[live] * C / (omega[live] * self.radius)
+        return values
 
     @property
     def n_modes(self) -> int:
@@ -803,6 +842,8 @@ class ScalarModeBasis:
         core[live] = 1.0 + np.real(
             np.asarray(modes[0].core_index_minus_one(grid.omega[live], z))
         )
+        wall = np.zeros(grid.n_omega)
+        wall[live] = np.abs(modes[0].sampled_terms(grid.omega[live]).cladding_term)
         radius = radii.pop()
         return cls(
             "capillary",
@@ -813,6 +854,7 @@ class ScalarModeBasis:
             jones,
             index,
             core,
+            wall_term=wall,
             identity=f"capillary HE1m x{len(modes)}, a={radius:.6g} m",
         )
 

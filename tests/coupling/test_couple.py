@@ -24,6 +24,7 @@ from scipy.special import j0, j1, jn_zeros
 from solprop import fourier
 from solprop.constants import EPS0, C
 from solprop.coupling import (
+    STEP_INDEX_ENVELOPE,
     BasisChange,
     CouplingModel,
     FieldPlane,
@@ -942,3 +943,84 @@ def test_a_source_path_certificate_is_carried_beside_the_coupling(port):
     plain = couple(dataclasses.replace(plane, certificate=None), port, model=SCALAR)
     assert plain.report.certificate is None
     assert "path certificate" not in str(plain.report)
+
+
+def test_a_displaced_tilted_beam_launches_with_the_overlap_s_phase(port):
+    """The launch's phase is that of the overlap, pinning the transform's sign.
+
+    Every share is invariant under conjugating the field, and on every FreeGrid the
+    origin phase is exp(-i pi m) for either sign, so neither catches a sign error;
+    the phase of a coefficient does. A beam displaced by a distance that is not a
+    multiple of the spacing and tilted has complex overlaps
+    ``int J0(u_m r/a) E dA`` (optics convention), here by an independent polar
+    Gauss--Legendre rule; the optics-convention launch b_m = sqrt(n_eff) a_m has
+    the same phase, mode by mode.
+    """
+    grid = port.grid
+    shift, tilt = 0.13 * RADIUS, 1.5e-3
+    beam = cartesian_beam(grid, 0.5 * RADIUS, shift=shift, tilt=tilt)
+    plane = FieldPlane.from_analytic(
+        grid,
+        PlaneGeometry(0.0),
+        beam,
+        space=FreeGrid(4 * RADIUS, 128, 4 * RADIUS, 128),
+        medium=MEDIUM,
+    )
+    k_bin = int(np.argmin(np.abs(grid.omega - grid.omega0)))
+    launched = couple(plane, port, model=SCALAR).launch.samples[:, 0, k_bin]
+    nodes, weights = np.polynomial.legendre.leggauss(300)
+    radii = 0.5 * RADIUS * (nodes + 1)
+    n_theta = 128
+    theta = 2 * np.pi * (np.arange(n_theta) + 0.5) / n_theta
+    r = np.repeat(radii, n_theta)
+    t = np.tile(theta, radii.size)
+    area = np.repeat(0.5 * RADIUS * weights * radii, n_theta) * 2 * np.pi / n_theta
+    field = beam(r * np.cos(t), r * np.sin(t), grid.omega[k_bin : k_bin + 1])[:, 0, 0]
+    overlaps = np.array(
+        [np.sum(area * j0(u * r / RADIUS) * field) for u in jn_zeros(0, 4)]
+    )
+    assert np.all(np.abs(np.angle(overlaps)) > 0.05)  # genuinely complex
+    # Matched computations of one integral by two rules: measured 2e-14 rad.
+    np.testing.assert_allclose(np.angle(launched / overlaps), 0.0, atol=1e-9)
+
+
+def test_band_bins_outside_an_envelope_s_range_are_counted_in_full():
+    """V across the band, and a capillary's leaky parameter, beyond the envelope.
+
+    The step-index profiles are frozen at 1064 nm, but V grows with frequency: the
+    bins where either fibre's V leaves the envelope's range are not bounded by it,
+    so their incident share is added to the envelope item. A capillary bin whose
+    leaky parameter exceeds the range is counted the same way.
+    """
+    wavelength = 1064e-9
+    aperture = math.sqrt(1.45**2 * 2 * 0.005)
+    target_radius = 2.35 / (2 * math.pi / wavelength * aperture)
+    source = step_index(0.95 * target_radius, 0.005)
+    target = step_index(target_radius, 0.005).input_port()
+    plane = modal_plane(source, [1.0])
+    # A budget that holds the uncovered share (about a quarter of the energy).
+    report = couple(
+        plane, target, model=CouplingModel("scalar_paraxial", model_error=0.5)
+    ).report
+    grid = target.grid
+    v = grid.omega * target_radius * aperture / C
+    beyond = (report.incident > 0) & (v > 2.4)
+    share = float(np.sum(report.incident[beyond]) / report.incident_energy)
+    assert share > 1e-3  # the blue side of the band: V above 2.4
+    item = next(item for item in report.items if item.name == "envelope")
+    # The same weighted sum in another order (the indices are constant here).
+    assert item.value == pytest.approx(STEP_INDEX_ENVELOPE.bound + share, rel=1e-9)
+    assert "outside its range" in item.note
+    narrow = capillary(radius=21e-6, modes=1).input_port()
+    wide = FieldPlane.from_analytic(
+        narrow.grid,
+        PlaneGeometry(0.0),
+        radial_beam(narrow.grid, 12e-6),
+        space=RadialGrid(150e-6, 128),
+        medium=MEDIUM,
+    )
+    leaky_report = couple(
+        wide, narrow, model=CouplingModel("scalar_paraxial", model_error=0.2)
+    ).report
+    leaky_item = next(item for item in leaky_report.items if item.name == "envelope")
+    assert "outside its range" in leaky_item.note

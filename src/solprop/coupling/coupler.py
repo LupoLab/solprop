@@ -33,7 +33,9 @@ breaks at both core radii.
 - ``angular``: :math:`[d(E_{\rm in}) + d_{\rm target}]/U` with
   :math:`1 - \cos\theta_* = \epsilon_m/8` and
   :math:`d = (1 - \cos\theta_*)U_{\rm cone} + U_{\rm tail}` (section 4.6), for the
-  incident field and for the retained target subspace;
+  incident field and for the retained target subspace. The cone term is the cone
+  rule's **allocation**, about :math:`\epsilon_m/8` of the cone share, not a
+  measured defect; only the tail beyond :math:`\theta_*` is measured;
 - ``contrast``: the weak-guidance screen
   :math:`\Delta \le \epsilon_m/8` of a solid provider, or the recorded pair
   envelope that replaces it; not applied to a capillary wall;
@@ -45,11 +47,13 @@ breaks at both core radii.
 - ``passivity``: the whitened certificate :math:`C^\dagger Q_BC \preceq Q_A`; an
   apparent gain within the model's own defects is reported as a model defect, never
   rescaled or clipped, and a larger one refuses;
-- ``envelope``: the recorded pair envelope's bound;
-- ``numerical``: quadrature, representation and domain errors.
+- ``envelope``: the recorded pair envelope's allowance (scaled by the pair's leaky
+  parameter for a capillary), plus the incident share of any bins outside its range;
+- ``numerical``: quadrature, representation and domain errors, an amplitude error
+  :math:`\delta` entered as :math:`2\delta + \delta^2`.
 
 The counted items must sum to at most :math:`\epsilon_m`. A source plane's SEP 34 path
-certificate is carried separately in the report, with its scope. A zero field is a
+certificate is carried separately in the report. A zero field is a
 valid zero launch with an undefined efficiency.
 """
 
@@ -1155,6 +1159,12 @@ def _scalar_paraxial(
         )
     )
     items.append(_source_metric_item(incident, native, epsilon))
+    if profiles.family == "capillary":
+        envelope_parameters.update(_leaky_parameters(profiles, plane, incident))
+    elif plane.profiles is not None:
+        envelope_parameters["uncovered"] = _uncovered_v_share(
+            plane.profiles, profiles, plane.grid.omega, incident
+        )
     items.extend(
         _contrast_items(profiles, plane, index, occupied, epsilon, envelope_parameters)
     )
@@ -1423,9 +1433,16 @@ def _modal_fit(  # noqa: PLR0913 - the plane, both profile sets and the measure
             epsilon=epsilon,
         )
     )
+    # The quadrature error bounds overlap (field-amplitude) entries; as an energy
+    # discrepancy it enters as 2 delta + delta^2 (section 4.7).
     fit.items.append(
         AdmissionItem(
-            "numerical", error, None, True, "map", "profile overlap quadrature"
+            "numerical",
+            2.0 * error + error**2,
+            None,
+            True,
+            "map",
+            f"profile overlap quadrature, amplitude error {error:.1e}",
         )
     )
     # Native source metric is the identity, so C Q_A^-1 C^H = G^-1 R R^H G^-1.
@@ -1625,7 +1642,8 @@ def _target_angular_scalar(
         None,
         True,
         "map",
-        "retained target subspace: (1 - cos theta*) cone + tail",
+        "retained target subspace: cone-rule allocation (1 - cos theta*) = "
+        "model_error/8 of the cone, not a measured defect, plus the tail",
     )
 
 
@@ -1660,6 +1678,86 @@ def _source_metric_item(
         "field",
         "common measure M0 against the plane's native metric",
     )
+
+
+def _leaky_parameters(
+    profiles: ScalarModeBasis,
+    plane: FieldPlane,
+    incident: Float[np.ndarray, " n_omega"],
+) -> dict[str, float]:
+    r"""Return a capillary pair's leaky-field parameter and its uncovered share.
+
+    At each bin the larger :math:`\delta = |\nu_n|c/(\omega a)` of the target and a
+    capillary source. ``leaky`` is its mean weighted by the incident energy, as the
+    other per-bin items are: the envelope's allowance is linear in
+    :math:`\delta`, so the weighted mean bounds the whole field's discrepancy over
+    the bins inside the range. ``uncovered`` is the incident energy share of the
+    bins beyond the range, which the envelope does not bound and the item counts
+    in full.
+
+    Parameters
+    ----------
+    profiles : solprop.coupling.models.ScalarModeBasis
+        The target's capillary profiles.
+    plane : solprop.coupling.plane.FieldPlane
+        The source plane.
+    incident : numpy.ndarray
+        Incident energy per bin, J.
+
+    Returns
+    -------
+    dict
+        ``leaky`` and ``uncovered``, dimensionless.
+    """
+    omega = plane.grid.omega
+    delta = cast("np.ndarray", profiles.leaky(omega))
+    source = None if plane.profiles is None else plane.profiles.leaky(omega)
+    if source is not None:
+        delta = np.maximum(delta, source)
+    beyond = delta > CAPILLARY_ENVELOPE.ranges["leaky"][1]
+    return {
+        "leaky": _weighted(delta, incident),
+        "uncovered": _weighted(beyond.astype(float), incident),
+    }
+
+
+def _uncovered_v_share(
+    source: ScalarModeBasis,
+    target: ScalarModeBasis,
+    omega: Float[np.ndarray, " n_omega"],
+    incident: Float[np.ndarray, " n_omega"],
+) -> float:
+    r"""Return the incident share of bins where either fibre's V leaves the range.
+
+    The profiles are frozen at the profile wavelength, which the envelope's range
+    must contain, but the vector physics it bounds depends on the actual
+    :math:`V(\omega) = (\omega a/c)\sqrt{n_{\rm core}^2 - n_{\rm clad}^2}` at
+    each bin. A bin where either fibre's V is outside the range is not bounded by
+    the envelope, so its share of the incident energy is counted in full.
+
+    Parameters
+    ----------
+    source, target : solprop.coupling.models.ScalarModeBasis
+        The two LP sets, with their core and cladding indices.
+    omega : numpy.ndarray
+        Absolute angular frequency of each bin, rad/s.
+    incident : numpy.ndarray
+        Incident energy per bin, J.
+
+    Returns
+    -------
+    float
+        Dimensionless.
+    """
+    beyond = np.zeros(omega.shape, bool)
+    for name, basis in (("v_source", source), ("v_target", target)):
+        core = cast("np.ndarray", basis.core_index)
+        cladding = cast("np.ndarray", basis.cladding_index)
+        aperture = np.sqrt(np.maximum(core**2 - cladding**2, 0.0))
+        v = omega * basis.radius * aperture / C
+        low, high = STEP_INDEX_ENVELOPE.ranges[name]
+        beyond |= (incident > 0.0) & ((v < low) | (v > high))
+    return _weighted(beyond.astype(float), incident)
 
 
 def _contrast_items(
@@ -1737,6 +1835,7 @@ def _contrast_items(
             "weak-guidance screen Delta"
             + ("" if within else f" > model_error/8, replaced by {envelope.identity}"),
         )
+    uncovered = parameters.get("uncovered", 0.0)
     outside = envelope.covers(parameters)
     if outside is not None:
         msg = (
@@ -1748,11 +1847,16 @@ def _contrast_items(
         screen,
         AdmissionItem(
             "envelope",
-            envelope.bound,
+            envelope.allowance(parameters) + uncovered,
             None,
             True,
             "model",
-            envelope.identity,
+            envelope.identity
+            + (
+                f", plus the {uncovered:.1e} incident share outside its range"
+                if uncovered > 0.0
+                else ""
+            ),
         ),
     ]
 
@@ -2130,7 +2234,8 @@ def _spatial_angular(
         None,
         True,
         "field",
-        "incident field: (1 - cos theta*) cone + tail",
+        "incident field: cone-rule allocation (1 - cos theta*) = model_error/8 "
+        "of the cone, not a measured defect, plus the tail",
     )
 
 
@@ -2363,7 +2468,8 @@ def _modal_angular(  # noqa: PLR0913 - the source set, its field and the measure
         None,
         True,
         "field",
-        "incident field: (1 - cos theta*) cone + tail",
+        "incident field: cone-rule allocation (1 - cos theta*) = model_error/8 "
+        "of the cone, not a measured defect, plus the tail",
     )
 
 
@@ -2617,5 +2723,6 @@ def _target_angular_vector(
         None,
         True,
         "map",
-        "retained target subspace: (1 - cos theta*) cone + tail",
+        "retained target subspace: cone-rule allocation (1 - cos theta*) = "
+        "model_error/8 of the cone, not a measured defect, plus the tail",
     )

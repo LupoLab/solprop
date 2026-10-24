@@ -13,7 +13,7 @@ simulation accepts at its entrance, and :func:`~solprop.coupling.coupler.couple`
 launches a plane into it under a declared
 :class:`~solprop.coupling.models.CouplingModel`;
 :class:`~solprop.coupling.outcouple.Outcouple` synthesises a guide's exit field,
-and :func:`~solprop.coupling.transport.transport` carries a spatial plane through
+and :func:`~solprop.coupling.transport` carries a spatial plane through
 an ordered sequence of linear elements.
 Extraction from a saved run is :func:`solprop.processing.planes.field_plane`;
 installing a launch is :meth:`solprop.driver.simulation.Simulation.with_input`.
