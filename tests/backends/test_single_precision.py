@@ -35,9 +35,14 @@ from solprop.backends.protocol import Backend
 from solprop.backends.registry import select, select_batch
 from solprop.constants import EPS0
 from solprop.driver import Simulation, prop_gnlse
+from solprop.driver.simulation import SimulationSettings
 from solprop.exceptions import BackendError, ConvergenceError, DriverError
+from solprop.grid import EnvelopeGrid, FreeGrid, RadialGrid
 from solprop.nonlinear.ionisation import RunningIntegral
-from solprop.stepper import LowStorageRungeKutta, RungeKutta
+from solprop.nonlinear.responses import KerrResponse
+from solprop.pulses import GaussianPulse, SpatialPulse
+from solprop.spatial import SpatialMedium
+from solprop.stepper import LowStorageRungeKutta, PIController, RungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.precision import combine
@@ -312,6 +317,52 @@ def test_a_batch_member_is_its_solo_run():
     bound = 10 * (2 * U32 + 7 * 16 * EPS_32 * 10)
     for field in batch:
         assert_within(field, solo, bound)
+
+
+@pytest.mark.parametrize("route", ["radial", "cartesian"])
+def test_the_spatial_routes_agree_with_binary64_within_their_bounds(route):
+    """Ten steps of a self-focusing Kerr beam; a transverse transform per stage.
+
+    The radial route's Hankel GEMM over ``n_r`` nodes and the Cartesian route's
+    two-dimensional transform add their depth to the temporal transform's.
+    """
+    length = 0.1
+    grid = EnvelopeGrid.from_limits(
+        length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
+    )
+    space = RadialGrid(2e-3, 32) if route == "radial" else FreeGrid(2e-3, 16, 2e-3, 16)
+    pulse = SpatialPulse(
+        GaussianPulse(wavelength=800e-9, fwhm=50e-15, energy=3e-4), 300e-6
+    )
+    fields = {}
+    for precision in ("double", "single"):
+        settings = SimulationSettings(
+            controller=PIController(rtol=1e-6, atol=0.0),
+            save_planes=[length],
+            dz_max=length,
+            dz_init=length / 10,
+            schedule=FixedSchedule.uniform(0.0, length, length / 10),
+            backend="numpy_ref",
+            integrator=RungeKutta(),
+            precision=precision,  # pyright: ignore[reportArgumentType]
+        )
+        constructor = (
+            Simulation.from_radial if route == "radial" else Simulation.from_free
+        )
+        fields[precision] = finish(
+            constructor(
+                grid,
+                space,
+                SpatialMedium(),
+                [KerrResponse(1e-25, thg=False)],
+                pulse,
+                settings=settings,
+            )
+        )
+    transverse = 32 if route == "radial" else 2 * 4
+    depth = math.ceil(math.log2(grid.n_t)) + transverse
+    bound = 10 * (2 * U32 + 7 * 16 * EPS_32 * depth)
+    assert_within(fields["single"], fields["double"], bound)
 
 
 # Targeted tests: the review's counterexamples.

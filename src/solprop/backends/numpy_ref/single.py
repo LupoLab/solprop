@@ -60,6 +60,7 @@ from solprop.modes.protocol import Mode
 from solprop.nonlinear.ionisation import RunningIntegral
 from solprop.profiles import ZProfile
 from solprop.stats import StatsSpec
+from solprop.stepper.controller import PIController
 from solprop.translate.precision import (
     block_exponent,
     combine,
@@ -184,6 +185,10 @@ class NumpySingleBackend(NumpyRefBackend):
                 self._upload("held_edge", -1.0 / q**2),
             )
         self._raman_exponent = 0
+        # The lab-frame source's unit propagator, in the state's precision.
+        self._lab_frame = np.broadcast_to(
+            np.ones((), dtype=self._complex), problem.shape
+        )
         controller = problem.stepper.controller
         self._controller = dataclasses.replace(
             controller, atol=controller.atol / self._scale
@@ -194,6 +199,17 @@ class NumpySingleBackend(NumpyRefBackend):
         # The study's variant that evaluates the propagator from a binary32 exponent,
         # for the record of SEP 33 section 7.2 only.
         self.binary32_exponent = False
+
+    @property
+    def _norm_controller(self) -> PIController:
+        """Return the controller with its absolute tolerance divided by ``s``.
+
+        Returns
+        -------
+        solprop.stepper.controller.PIController
+            The scaled controller.
+        """
+        return self._controller
 
     @property
     def scale(self) -> float:
@@ -471,6 +487,29 @@ class NumpySingleBackend(NumpyRefBackend):
             )
             raise ConvergenceError(msg)
         return finished
+
+    def _adams_adopt(
+        self, advanced: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"], dz: float
+    ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+        """Adopt an Adams step's state, refusing one that left binary32.
+
+        The Adams integrator runs under single precision only inside the survival
+        study (SEP 33, Q2).
+
+        Parameters
+        ----------
+        advanced : numpy.ndarray
+            The accepted state.
+        dz : float
+            The step's length, m.
+
+        Returns
+        -------
+        numpy.ndarray
+            The finished state.
+        """
+        _require_dtype(np.asarray(advanced), self._complex, "the Adams state")
+        return super()._adams_adopt(advanced, dz)
 
     def _trial_step(
         self, z: float, dz: float

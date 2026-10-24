@@ -2025,7 +2025,11 @@ class HostHistory:
         if self._store is None or self._store.shape[1:] != value.shape:
             # Zeroed, not empty: the rows a short history has not reached go into a
             # resume snapshot as they are, and a file has to be reproducible.
-            self._store = np.zeros((self.n_slots, *value.shape), dtype=np.complex128)
+            # In the state's precision: complex64 on SEP 33's single-precision path.
+            self._store = np.zeros(
+                (self.n_slots, *value.shape),
+                dtype=np.result_type(value, np.complex64),
+            )
             if self.compensated:
                 self._states = np.zeros_like(self._store)
                 self._rates = np.zeros_like(self._store)
@@ -2317,6 +2321,11 @@ class HostHistory:
         else:
             moments = kernels.moments(exponent, width)
             flow = kernels.flow(exponent)
+        if state.dtype == np.complex64:
+            # SEP 33: the flow and its moments are evaluated in binary64, like every
+            # propagator, and rounded once to the state's binary32.
+            moments = np.asarray(moments).astype(np.complex64)
+            flow = np.asarray(flow).astype(np.complex64)
         lab = kernels.predict(
             state,
             flow,
@@ -2616,7 +2625,7 @@ def _divisor(backend: StepDriver, state: _State) -> np.ndarray:
         The scale of every bin, shape ``(n_omega,)``.
     """
     mask = backend._problem.grids.norm_mask
-    controller = backend._problem.stepper.controller
+    controller = backend._norm_controller
     magnitude = float(np.linalg.norm(state[..., mask]))
     scale = controller.scale(magnitude, magnitude)
     return (

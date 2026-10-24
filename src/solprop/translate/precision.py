@@ -58,7 +58,6 @@ __all__ = [
     "precision_named",
     "prefix_sum",
     "scaled_square_sum",
-    "single_rtol",
     "state_scale",
     "study_admission",
 ]
@@ -216,33 +215,6 @@ def precision_named(name: PrecisionName | Precision) -> Precision:
         return SINGLE
     msg = f"precision must be 'double' or 'single', got {name!r}"
     raise TranslationError(msg)
-
-
-def single_rtol(rtol: float | None, default: float) -> float:
-    """Return the relative tolerance a run takes, given its precision's floor.
-
-    Parameters
-    ----------
-    rtol : float or None
-        The caller's tolerance, or ``None`` for the interface's default.
-    default : float
-        The interface's binary64 default.
-
-    Returns
-    -------
-    float
-        `rtol` when given, otherwise `default` -- the caller of this function passes
-        :data:`SINGLE_RTOL_FLOOR` as `default` under single precision. An explicit
-        value is never raised silently; :func:`admit_precision` refuses one below the
-        floor.
-
-    Examples
-    --------
-    >>> from solprop.translate.precision import SINGLE_RTOL_FLOOR, single_rtol
-    >>> single_rtol(None, SINGLE_RTOL_FLOOR), single_rtol(1e-5, SINGLE_RTOL_FLOOR)
-    (1e-06, 1e-05)
-    """
-    return default if rtol is None else rtol
 
 
 _STUDY: ContextVar[bool] = ContextVar("solprop_precision_study", default=False)
