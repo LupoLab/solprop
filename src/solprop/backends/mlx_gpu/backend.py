@@ -175,6 +175,9 @@ class MlxBackend(NumpySingleBackend):
         grids, transform = problem.grids, problem.transform
         tables = self._tables
         self._crop = mx.array(grids.crop_index.astype(np.int32))
+        crop = grids.crop_index
+        contiguous = bool(np.array_equal(crop, np.arange(crop.size)))
+        self._pad_crop = None if contiguous else self._crop
         self._norm_index = mx.array(np.flatnonzero(grids.norm_mask).astype(np.int32))
         self._active = mx.array(grids.active_mask.astype(np.float32))
         self._synthesis = mx.array(tables.synthesis)
@@ -480,7 +483,7 @@ class MlxBackend(NumpySingleBackend):
             problem.transform,
         )
         kind = self._kind
-        modal_t = device.to_time(lab[0], self._crop, grids.n_to, kind=kind)
+        modal_t = device.to_time(lab[0], self._pad_crop, grids.n_to, kind=kind)
         absorber = self._device_absorber(modal_t)
         if len(responses.response_order) == 1:
             if absorber is None:

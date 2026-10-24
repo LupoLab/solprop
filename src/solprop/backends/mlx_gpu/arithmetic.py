@@ -221,9 +221,8 @@ class DoubleFloatTerms:
             re_hi, re_lo = _split(flat.real)
             im_hi, im_lo = _split(flat.imag)
             parts = tuple(mx.array(part) for part in (re_hi, re_lo, im_hi, im_lo))
-        else:
-            parts = ()
-        return cls(shape, int(values.shape[0]), parts, values)
+            return cls(shape, int(values.shape[0]), parts)
+        return cls(shape, int(values.shape[0]), (), values)
 
     @property
     def nbytes(self) -> int:

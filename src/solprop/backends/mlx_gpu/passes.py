@@ -65,7 +65,7 @@ def _scatter(values: mx.array, index: mx.array, width: int) -> mx.array:
 
 
 def to_time(
-    spectrum: mx.array, crop: mx.array, n_to: int, *, kind: GridKind
+    spectrum: mx.array, crop: mx.array | None, n_to: int, *, kind: GridKind
 ) -> mx.array:
     """Pad onto the fine grid and transform every modal column to time.
 
@@ -73,8 +73,9 @@ def to_time(
     ----------
     spectrum : mlx.core.array
         ``(n_modes, n_pol, n_omega)`` complex64.
-    crop : mlx.core.array
-        Where each coarse bin sits in the fine spectrum.
+    crop : mlx.core.array or None
+        Where each coarse bin sits in the fine spectrum; ``None`` when the coarse bins
+        are the fine spectrum's first ones, which is padded rather than scattered.
     n_to : int
         Fine time samples.
     kind : {'field', 'envelope'}
@@ -87,7 +88,13 @@ def to_time(
     """
     n_modes, n_pol = spectrum.shape[:2]
     width = n_to // 2 + 1 if kind == "field" else n_to
-    fine = _scatter(spectrum.reshape(n_modes * n_pol, -1), crop, width)
+    rows = spectrum.reshape(n_modes * n_pol, -1)
+    n = rows.shape[-1]
+    if crop is None:
+        # The coarse bins are the fine spectrum's first ones: one pad, no scatter.
+        fine = mx.pad(rows, [(0, 0), (0, width - n)])
+    else:
+        fine = _scatter(rows, crop, width)
     if kind == "field":
         time = mx.fft.irfft(fine, n=n_to, axis=-1)
     else:
