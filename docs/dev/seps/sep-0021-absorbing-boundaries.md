@@ -5,7 +5,7 @@
 | **SEP** | 21 |
 | **Title** | Temporal boundaries: wider windows, absorption and the escaped field |
 | **Author** | John Travers |
-| **Drafting agent** | Opus 5.5 (2026-10-16); GPT-6 (review revisions, 2026-10-16; window-strategy revision, 2026-10-20) |
+| **Drafting agent** | Opus 5.5 (2026-10-16); GPT-6 (review revisions, 2026-10-16; window-strategy revision, 2026-10-20); Opus 5.5 (refresh against the integrated tree, 2026-10-24) |
 | **Status** | Draft |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); GPT-6 (AI); Fable 5.1 (AI); Opus 5.5 (AI) |
@@ -81,8 +81,10 @@ project's standing preference is a robust default over conditional speed-ups.
 
 **The absorber is silent.** Nothing reports how much energy the temporal collar removed,
 or how much of the field sat inside it. `warn_walkoff` is an a-priori estimate from a
-span the caller supplies. The spatial routes already measure their collar's fluence
-fraction at field-bearing saved planes (`spatial_collar_fraction`); SEP 22 deliberately
+span the caller supplies. The spatial routes already measure their collar's
+electric-field-norm share at field-bearing saved planes (`collar_field_fraction`,
+renamed and redefined by [SEP 34](sep-0034-medium-flux.md), which keeps it distinct
+from physical flux); SEP 22 deliberately
 skips that diagnostic at statistics-only planes. Neither that diagnostic nor sparse
 output is a boundary-safety monitor. The temporal collar has no equivalent. A run
 whose physics happens inside the absorber is answered differently
@@ -127,7 +129,6 @@ whether that policy makes a robust default is a campaign result, not an assumpti
 - an optional escaped-field record: the spectrum and energy of what left the window,
   estimated from crossings through a surface in the flat region before the collar,
   subject to the qualification of §4.7;
-- a phase-space filter, measured as an exploratory candidate on the Runge–Kutta path;
 - the keyword switches the roadmap asks for (`absorber=False`, `absorber_scheme=`);
 - the wide-window reference and the campaign that uses it.
 
@@ -149,8 +150,9 @@ whether that policy makes a robust default is a campaign result, not an assumpti
   the grid during propagation, remeshing, and automatic restart on a larger grid.
   Fixed launch placement and prescribed frames are in scope (§4.11); a general
   offset-grid API and independently asymmetric absorber ramps remain follow-up work.
-- Production perfectly matched layers, transparent boundary conditions and phase-space
-  filters (§10); the phase-space filter prototype remains in scope.
+- Perfectly matched layers, transparent boundary conditions and phase-space filters
+  (§10). The phase-space filter prototype and the directional occupancy diagnostic
+  were removed from this SEP on 2026-10-24 and kept as roadmap items (Q13, Q14).
 - Implicit or IMEX treatment for the Runge–Kutta stepper. Its floor is about 38 steps
   (§4.3; about 45 for the low-storage RK4 march of
   [SEP 24](archive/sep-0024-low-storage-interaction-picture-runge-kutta.md), which must refuse
@@ -178,12 +180,17 @@ whether that policy makes a robust default is a campaign result, not an assumpti
 - `stable_step`, `warn_walkoff`, and the translation refusal of a replayed schedule or
   step floor past the limit;
 - for the multistep stepper, the stability-capped order choice of the exponential
-  formulation (SEP 16 phase 6). The per-step collar refuses interpolated planes.
+  formulation (SEP 16 phase 6). The per-step collar refuses interpolated planes;
+- on the keyword interfaces, `prop_capillary` takes `absorber=` and
+  `absorber_scheme=`, `prop_waveguide` takes `absorber=` only, and the other `prop_*`
+  functions take neither. No interface accepts `absorber=False`; `None` means the
+  default collar.
 
 The grids build the temporal collar in `solprop.grid._temporal_collar`. Its flat region
 is $\pm\min(T_{\mathrm{req}}/2,\,(1-2f)T/2)$, with $T$ the realised window and $f$ =
-`collar_fraction` = 0.05. Each edge is therefore at least 5 % of the window, and is
-otherwise whatever slack the transform size leaves.
+`collar_fraction` = 0.05, which must lie strictly between 0 and 0.5. Each edge is
+therefore at least 5 % of the window, and is otherwise whatever slack the transform
+size leaves.
 
 **Prior studies this builds on:**
 
@@ -203,50 +210,42 @@ otherwise whatever slack the transform size leaves.
 - *An absorber switch on the keyword interfaces.* The `absorber=False` and
   `absorber_scheme=` keywords are in scope. Whether spatial runs should default to an
   absorber is not.
-- *The split-step collar on the general modal route, Kokkos against the reference.* The
-  split scheme's out-of-band disagreement has to be resolved before phase 0 compares
+- *The split-step collar on the general modal route, native against the reference.* The
+  split scheme's out-of-band disagreement is unresolved, so phase 0a does not compare
   that scheme on a general modal guide. The item is linked and kept.
 
 #### 3.1 Implemented contracts and sequencing
 
 The campaign starts from the delivered contracts below, not the earlier drafting
-costs or proposed interfaces. This cross-check is dated 2026-10-20: SEP 22 and SEP 24
-are Final on the integration branch; SEP 23's three CPU implementations are delivered,
-with closing qualification still pending. SEP 27's accepted implementation is nearing
-completion; SEP 28 is Accepted and has not begun implementation. A campaign records
-the exact solprop and backend revisions it actually uses.
+costs or proposed interfaces. This cross-check was first made on 2026-10-20 and
+refreshed on 2026-10-24 against the integrated tree (kernel schema 35, output
+schema 23): SEPs 22–30 are Final, SEP 34 is merged with one test phase open, and
+SEP 31's implementation is awaiting merge. A campaign records the exact solprop
+revision, including its in-repository native backend, that it actually uses.
 
 | SEP | Contract this proposal must preserve | Consequence for SEP 21 |
 |---|---|---|
 | [22](archive/sep-0022-memory-lean-spatial-execution.md) | All-zero temporal rates compile no temporal pass under either scheme; `collar_length` separates in-stage strength from the spectral ceiling; statistics-only observations avoid field transfers and may skip spatial collar diagnostics. | Use the real zero-pass baseline. Keep spatial strengths fixed when disabling temporal absorption. Monitor independently of output, with backend reductions rather than mandatory whole-field downloads (§4.12, Q16). |
-| [23](archive/sep-0023-far-field-aperture-spectra.md) | `absorbed_power` has four J/m channels: spectral, transverse, evanescent, material. The transverse channel is the k⊥ rate; temporal and real-space spatial collars are excluded. | Preserve the four-channel meaning and order. Add temporal diagnostics separately; compare rate definitions and qualified integrals, not an unresolved endpoint trapezoid (§4.6, §7). |
+| [23](archive/sep-0023-far-field-aperture-spectra.md) | `absorbed_power` has four J/m channels: spectral, transverse, evanescent, material. The transverse channel is the k⊥ rate; temporal and real-space spatial collars are excluded. SEP 34 now weights every channel by the medium's axial admittance. | Preserve the four-channel meaning, order and flux weighting. Add temporal diagnostics separately; compare rate definitions and qualified integrals, not an unresolved endpoint trapezoid (§4.6, §7). |
 | 24 ([implemented stepper](../../guide/numerics/choosing-a-stepper.md)) | `LowStorageRungeKutta` replays a fixed schedule, has no dense output or embedded error estimate, and is calibrated by observable convergence. Its in-place register ownership and held checkpoint state are deliberate. | Include it in the campaign with independently calibrated schedules. Checks use sufficiently close committed endpoints; extra check steps require a newly calibrated schedule. Do not restore full-volume storage merely to monitor the boundary. |
 | [27](archive/sep-0027-held-plasma-current.md) | Field-grid rate plasma uses the held-current source, including two gated products and a sampled-gate certificate. The source gate remains when temporal field absorption is off. | Plasma candidates and references must all use this source. Converge the gate products and response preparation separately from the field absorber (§4.8); old gated-polarisation results do not settle the boundary choice. |
-| [28](archive/sep-0028-free-space-evaluation.md) | CPU source evaluation, temporal tiles, projections and register folds change while the source physics and canonical state layout stay fixed. | Its baseline must include SEP 27's streams and lifetimes. SEP 21 must measure monitor overhead on that execution path and repeat affected free-space cost comparisons before recommending a default. |
+| [28](archive/sep-0028-free-space-evaluation.md) | No seam change. Free-space chunks zero out-of-crop bins per chunk and alias the node field and polarisation onto the chunk's rows; CPU crossings are tiled; free-space, line and planar grids take a 1 GiB default node budget. | Guard reductions and accumulators must not assume a full-volume node field or reuse an aliased stage row without proving it holds the committed endpoint (§4.12). Measure monitor overhead on this execution path. |
+| [29](archive/sep-0029-compiled-backend-distribution.md) | The native backend lives in this repository as `solprop-native`, checked against the kernel schema and its contract tuples at import; native builds need GCC 14 or newer. | Native work lands in the same pull request as the Python backends, following the native contributor rules, and refuses unimplemented quantities by name. |
+| [30](archive/sep-0030-standard-benchmark-suite.md) | `benchmarks/` holds only the standard suite; campaign harnesses and raw results are kept with the project's development records. | Phase 0's harness follows that rule; cases that remain useful after the campaign, such as the wide-window references, become suite cases in phase 2 (§11). |
+| [31](sep-0031-simulation-coupling.md) | Remapping reports the share of a record's energy outside the temporal collar's flat region (`one_low`/`one_high`), and pulse measures average where the collar is exactly one; persisted frame records rebuild absolute phase and delay; a relaunched run is a new run with an inherited origin. SEP 31 leaves wider windows and escaped-field models to this SEP. | Geometry changes keep the meaning of the collar's flat-region fields or update those consumers; a window without temporal absorption still needs a defined edge band, for which the guard band is the candidate. Reuse the frame records to align fields in §4.8 and §4.11. Accumulators start at zero in a relaunched run unless Q22 decides otherwise. |
+| [34](sep-0034-medium-flux.md) | Spatial routes have a physical admittance metric, `SpatialFlux`, with endpoint weights and a radial endpoint term in the linear exponent. A collar need not commute with the admittance, so its quadratic-form change is measured, never inferred from a field-norm decrement. | The spatial metric $M$ of §4.6 is SEP 34's; the radial endpoint term is part of the ledger's $E^\dagger M'E$. SEP 34's passivity rule answers part of Q15 on those routes. Its uniform-loss test that keeps the collar's field fraction negligible must keep passing. |
 
-**Execution order.** SEP 27's acceptance and execution agreement explicitly places
-SEP 28 after the physics change and its measured baseline. Finish and integrate that
-source first; inventory its retained inputs, both current-product transforms and
-projection streams in SEP 28's phase 0. Use the same source and gates on both sides
-of SEP 28's performance comparison. Any adjustment to SEP 28's accepted inventory
-belongs in its implementation record, with approval if it changes the accepted scope.
-
-SEP 21 need not wait to develop analytic witnesses, guard prototypes, window/frame
-derivations or plasma-free comparisons. Its plasma campaign must use the integrated,
-qualified SEP 27 source, and its final CPU free-space cost recommendation must be
-checked after SEP 28 on the affected routes and grid sizes. Earlier measurements are
-labelled with their baseline and repeated where source cost or storage changes;
-modal results are not invalidated merely because a free-space path was optimised.
-R6/R7 state this qualification explicitly rather than applying a presumed speed-up.
-
-For production work, the recommended order is SEP 27, then SEP 28's shared source
-and buffer changes, then SEP 21's native monitor/accumulator integration on those
-paths. Independent SEP 21 work can proceed alongside them. Earlier integration of
-a shared endpoint hook requires an agreed ownership contract and requalification
-after the other changes; competing edits to stage buffers are not independent work.
-Use the next free kernel/output schemas at integration, not version numbers reserved
-by an older draft. This is an integration constraint, not a requirement to finish the
-escaped-field reconstruction before choosing a useful window or alarm.
+**Execution order.** SEP 27 and SEP 28 are integrated, so the ordering this section
+recorded on 2026-10-20 is satisfied: the plasma campaign uses the qualified held-current
+source and the free-space costs are measured after SEP 28's changes, with no
+remeasurement caveat for earlier baselines. Work that edits the driver's accepted-step
+surface, the keyword interfaces or the output schema rebases onto SEP 31 once it is
+merged. Use the next free kernel and output schemas at landing, not numbers reserved
+by an older draft: SEP 31's frame follow-up and [SEP 33](sep-0033-single-precision-mlx.md)
+may take numbers first. If SEP 33 lands before phase 2, every new accumulator and
+reduction states its accumulation precision and is covered in binary32. This is an
+integration constraint, not a requirement to finish the escaped-field reconstruction
+before choosing a useful window or alarm.
 
 ### 4. Theory
 
@@ -364,12 +363,14 @@ $$
 
 The first form says the floor depends only on the absorber's dimensionless strength and
 the method. The second says what it costs: protecting a walk-off of $\Delta\tau_p$ through
-an edge of width $w$. With today's $A N = 252$ and the intervals of
-`benchmarks/sep13/stability.py`:
+an edge of width $w$. With today's $A N = 252$ and the package's intervals
+(`boundaries.STABILITY_RADIUS` for IP-DOPRI5, `LOW_STORAGE_REAL_INTERVAL` for the
+low-storage march, and `PEC_REAL_INTERVAL` in `solprop.stepper.multistep`, which its
+test derives from the recurrence's spectral limit), rounded:
 
 | method | $r$ | $n_{\min}$ |
 |---|---:|---:|
-| IP-DOPRI5 | 3.31 | 38 |
+| IP-DOPRI5 | 3.3 | 38 |
 | RK4 (SEP 24's implemented low-storage march) | 2.785 | 45 |
 | PEC2/3 | 0.55 | 229 |
 | PEC3/4 | 0.30 | 420 |
@@ -649,8 +650,9 @@ endpoint weights respected. This is an energy-density proxy, not the temporal Po
 trace, which differs for a broadband dispersive index. Define zero occupancy for a
 zero field. General modal and spatial routes must use their documented metric and
 state the diagnostic's meaning; a sum of squared internal modal amplitudes is not a
-universal physical energy. Spatial vacuum-admittance statistics retain their existing
-limitation (conventions §4).
+universal physical energy. On spatial routes the metric is
+[SEP 34](sep-0034-medium-flux.md)'s axial admittance, with its endpoint weights; the
+spatial collar's `collar_field_fraction` is a field-norm share, not this proxy.
 
 **The energy ledger uses the actual evolution operator.** Write the route's energy as
 $U=E^\dagger M(z)E$, with $M$ including quadrature, DFT, real-field and power weights.
@@ -667,7 +669,11 @@ $U_t(z)=\int_0^zR_t(s)\,ds$; spectral removal uses the spectral-collar contribut
 in exactly the same identity. The familiar $\int\alpha|E(t)|^2dt$ follows for an
 unprojected scalar envelope with a constant power weight. For a frequency-dependent
 metric, $M$ and $C$ need not commute: unweighted contractivity does not prove
-$R_t\ge0$. Do not clip a signed contribution to force a positive ledger. Phase 0
+$R_t\ge0$. SEP 34 §4.2 states the same rule for a spatial screen or collar against
+the nonlocal admittance: measure the quadratic-form change, never call a field-norm
+decrement physical absorption. On radial gradients its endpoint term in the linear
+exponent belongs to $E^\dagger M'E$. Do not clip a signed contribution to force a
+positive ledger. Phase 0
 checks passivity in the actual metrics and reports any failure before recommending a
 default. Changing the collar operator to enforce another metric needs a recorded
 maintainer decision (Q15), not an unnoticed normalisation change.
@@ -683,7 +689,8 @@ all other contributions are proved zero or explicitly included.
 
 SEP 23's existing `absorbed_power` is an instantaneous four-channel rate, not a
 temporal escape counter. Preserve its spectral, transverse (k⊥), evanescent and
-material channels; material gain can make the last one negative. On its supported
+material channels, now weighted by SEP 34's admittance; material gain can make the
+last one negative. On its supported
 routes, a spectral integral uses the same actual summed `spectral_rate` and metric.
 SEP 22's custom spectral rate is not separately attributable to the soft collar
 (Q16). Temporal removal and any real-space spatial removal require separately named
@@ -703,7 +710,12 @@ stage as if it were the corrected endpoint. In the current shared driver,
 it on replay; the quadrature alarm deliberately consumes trial buffers. The new
 accumulators therefore need a hook after state and position commitment, or explicit
 accepted endpoint data, consistently on adaptive RK, both multistep formulations and
-replay, including the low-storage march after its finish/commit block. Rejections
+replay, including the low-storage march after its finish/commit block. The driver
+already has one such point: the call to `StepDriver._take_step_stats`, made after
+the state is finished and the position advanced in both step loops, the multistep
+march, the low-storage replay and the batch driver. Its docstring records the
+asymmetry of `_on_accepted_step`. The accumulators attach there, or at an
+equivalent committed-endpoint call beside it. Rejections
 contribute nothing. An in-place stage register is not retained endpoint data; any
 extra buffer must respect the march's ownership contract and appear in its ledger.
 Any change to that protected hook surface bumps the kernel schema. Extra transforms
@@ -718,16 +730,11 @@ short excursion occurred between samples. Resume restores accumulators and their
 endpoint, so splitting a run or changing output cadence does not lose or double-count
 removal. These are requirements for phase 2, not capabilities of the current alarm hook.
 
-Two optional diagnostics help interpret failures:
+An optional diagnostic helps interpret failures. A directional occupancy, which
+classifies collar content as outgoing or incoming by windowed Fourier analysis [5],
+was also proposed; it was removed from this SEP on 2026-10-24 and kept on the
+roadmap (Q14).
 
-- **Directional occupancy.** A windowed Fourier analysis in each collar classifies
-  outgoing, incoming and unresolved cells from $\beta_1(\omega)-\beta_1^{\mathrm f}$,
-  accounting for frequency resolution, mode dependence and dispersive spread [5].
-  Use a specified frame normalisation so classified occupancies sum to the measured
-  proxy. Incoming content can be reflection, wrap-around or genuine returning physics;
-  this diagnostic alone does not distinguish them. A nonlinear walker can violate the
-  free-flow classification without triggering a reliable automatic flag. Phase 0
-  measures its usefulness before it becomes part of phase 2.
 - **Surface crossing.** The commutator of §4.7 produces a complex amplitude source,
   not by itself a positive directional energy flux. In a constant-metric, lossless
   quadratic-dispersion limit its quadratic-form balance gives the usual current.
@@ -973,9 +980,9 @@ feature is selecting outgoing content in phase space.
 - As a discrete operation at fixed z it would restart the multistep history. Whether
   that is needed when the source is negligible in the buffer is untested.
 
-It is therefore measured in phase 0 as an exploratory candidate on the Runge–Kutta path,
-which keeps no history, and its classification is used as a diagnostic (§4.6). It is not
-a candidate default.
+It is not a candidate default. The exploratory prototype on the Runge–Kutta path and
+the classification diagnostic this section once motivated were removed from this SEP
+on 2026-10-24 (Q13, Q14) and remain roadmap items; the analysis is kept for them.
 
 #### 4.10 Retaining the field: cost and accuracy without temporal absorption
 
@@ -1169,7 +1176,8 @@ $\beta_2=0$ case. Boundary flux and its z-quadrature can be tested against this
 identity. General dispersion, changing metrics, losses and nonlocal sources require
 the operator balance of §4.6. Signed net flux does not count unique outward escape:
 recrossings, coherent contributions and already wrapped content prevent that
-interpretation without further assumptions. Directional analysis (§4.6) and the
+interpretation without further assumptions. Directional analysis (a roadmap item,
+Q14) and the
 surface record (§4.7) are optional refinements, not requirements for the basic alarm.
 
 **Policy and qualification.** The candidate default has an early warning threshold
@@ -1242,8 +1250,7 @@ What is refused:
   support; explicit check planes may be used where qualified (§4.12).
 
 Basic diagnostics are intended to be on by default, subject to phase 0 measuring
-their endpoint transforms and reductions. Directional analysis and the escaped record
-are separate opt-ins. Unsupported route/stepper/plane combinations fail by name.
+their endpoint transforms and reductions. The escaped record is a separate opt-in. Unsupported route/stepper/plane combinations fail by name.
 Guard checks are available with or without temporal absorption and are separate from
 the removal ledger. The sketch does not fix a scalar threshold for every route:
 R7 specifies absolute/relative normalisation, bands, noise handling, guard margins
@@ -1337,7 +1344,7 @@ must be inventoried together before implementation.
 - Persist the complex accumulators, last quadrature endpoint, surface/metric identity
   and errors for resume. Dense observations require a separately qualified partial-step
   accumulator; initially require step planes for these records.
-- Kernel and output schema bumps; device-resident work on Kokkos. List all accumulators
+- Kernel and output schema bumps; device-resident work in the native backend. List all accumulators
   and work buffers in `memory_ledger()`, including per-batch-member storage.
 
 **Implicit collar (phase 4, only if phase 1 passes).**
@@ -1350,7 +1357,7 @@ must be inventoried together before implementation.
 - **The backends:**
   - `numpy_ref` first, as the oracle;
   - `numba_cpu` with the solve in compiled passes;
-  - Kokkos, where CG is a few batched FFT pairs and reductions per corrector, on device
+  - the native backend, where CG is a few batched FFT pairs and reductions per corrector, on device
     as on host.
 
 **Cost:**
@@ -1359,7 +1366,7 @@ must be inventoried together before implementation.
 |---|---|
 | retained wider window | roughly linear response/storage growth and $n_t\log n_t$ transforms, offset against actual calls saved; measure realised coarse/fine sizes and total wall time |
 | guard monitor | temporal synthesis when not reusable, reductions, dense-state evaluation or extra check-plane steps, and any device synchronisation |
-| diagnostics | endpoint transforms plus metric reductions per accepted step; plane/periodic occupancy; optional directional transforms |
+| diagnostics | endpoint transforms plus metric reductions per accepted step; plane/periodic occupancy |
 | record | state and quadrature buffers per edge; commutator transforms or the split complement, measured per route |
 | implicit solve | transforms in predictor and corrector; Krylov iterations depend on condition number and residual target; no required extra physical-source call |
 | wider collar | grows $n_t$ when there is no slack: at most a factor of two on a power-of-two grid, less on 2-3-5-smooth sizes |
@@ -1483,7 +1490,7 @@ Tolerances:
   separately. The alarm threshold alone does not establish the observable budget.
 
 **Parity.** Every new kernel quantity agrees across `numpy_ref`, `numba_cpu` and the
-Kokkos CPU build within the summation-bound tolerances of [testing.md](../testing.md).
+native CPU build within the summation-bound tolerances of [testing.md](../testing.md).
 
 **Benchmarks.** Calls, steps, order histograms and the distribution of
 $h\alpha_{\max}/(2r)$ over accepted steps, realised grid sizes, wall time, transforms,
@@ -1554,7 +1561,7 @@ does not reconstruct it.
 | Transparent boundary conditions [2] | The constructions considered here need an exterior dispersion model beyond a real-axis table and an explicit boundary treatment replacing the periodic discretisation (§4.4). Approximating their nonlocality in z introduces another error budget. |
 | Optimised absorbing-potential shapes [1] | They minimise reflection, often with unbounded peaks (Manolopoulos's double pole, [1, eqs 216–220]); that worsens the floor. At fixed width and prescribed steady-drift attenuation, changing a bounded complement profile can lower the peak by at most two (§4.3); this is not a universal bound on reflection or total error. The plateau profile tests that bound. |
 | A real part in the collar, after Jolicard–Humbert and Hussain–Roberts [1, eq. 175] | A phase modulation ahead of the damping that speeds slow walkers, improving absorption at low $\Omega$. It adds imaginary-axis eigenvalues, so does not escape the floor, and it alters physics adjacent to the window. Not pursued; phase 0's reflection measurement says whether slow walkers need it. |
-| Phase-space filter [5] as the default | Not a term in the equation, so not stiff, and its error bound depends on the buffer and free-flow assumptions, with a required interval cap (§4.9). But it assumes a linear buffer, leaves slow content ambiguous, and as a discrete operation would restart the multistep history. Measured on the RK path in phase 0, and used as a diagnostic (§4.6). |
+| Phase-space filter [5] as the default | Not a term in the equation, so not stiff, and its error bound depends on the buffer and free-flow assumptions, with a required interval cap (§4.9). But it assumes a linear buffer, leaves slow content ambiguous, and as a discrete operation would restart the multistep history. Not prototyped here; a roadmap item since 2026-10-24 (Q13). |
 | A Strang split | SEP 14's unchanged-history implementation lost order with a nonlinear source; repairing multistep history and the projected subflow is outside this study. |
 | IMEX Runge–Kutta (ARK) [8] | Removes RK's floor, which is about 38 steps and rarely binds. ARK4(3)6L is order four with six stages (DOPRI5 has seven stages and six new evaluations with FSAL), can suffer stiff order reduction despite the implicit component's stage order two, and needs a solve per stage [8, pp. 25, 28]. |
 | Multirate inner sub-stepping of the collar | Studied in SEP 15's campaign; it addressed the limit but did not make the fastest candidate, and the source is frozen across inner steps. |
@@ -1567,13 +1574,21 @@ does not reconstruct it.
 
 ### 11. Phases
 
-**Phase 0: the campaign (no package change).**
+**Phase 0: the campaign (no package change).** Two parts, each with its own report
+in Part II. Phase 0a gates phases 1 and 2; phase 0b gates phase 3 only, and may run
+after phase 2 has started.
 
-- Scripts in `benchmarks/sep21/`, run on `numpy_ref` and `numba_cpu`.
-- Apply §3.1's sequencing: analytic and plasma-free studies can start independently;
-  plasma comparisons use qualified SEP 27 on both sides, and affected CPU free-space
-  cost conclusions are remeasured after SEP 28. Record revisions, source equation,
-  gates and backend capabilities; an older baseline is not the final recommendation.
+- The harness and raw results are kept with the project's development records, as
+  SEP 30 requires; cases that stay useful, such as the wide-window references and the
+  retained-window comparison, become suite cases in phase 2. Runs use `numpy_ref` and
+  `numba_cpu`, are timed on an otherwise idle machine, and record the solprop
+  revision, source equation, gates and backend capabilities.
+- SEP 27's held-current source is integrated and qualified, and SEP 28's free-space
+  changes are in, so plasma and free-space cost comparisons use the current tree on
+  both sides (§3.1).
+
+**Phase 0a: windows, monitors and collar geometry.**
+
 - The wide-window references of §4.8 for each case of §7.
 - A production comparison at matched observable errors (§4.10): the present window
   with no temporal absorption, wider windows, and the in-stage and per-step collars.
@@ -1586,56 +1601,65 @@ does not reconstruct it.
   do not infer accuracy from `rtol` or assume its deferred adaptive pair exists.
   Use measured backend memory ledgers, including checkpoint and monitor storage.
 - Fixed asymmetric placement and prescribed midpoint/fastest-light frames (§4.11),
-  with coordinate/phase alignment and source-history costs measured. Distinguish
-  settings already expressible from prototypes needing an implementation decision.
-- Guard-monitor prototypes (§4.12) on accepted endpoints and sufficiently frequent
+  with coordinate/phase alignment (reusing SEP 31's frame records) and source-history
+  costs measured. Distinguish settings already expressible from prototypes needing an
+  implementation decision.
+- Guard-monitor prototypes (§4.12) on committed endpoints and sufficiently frequent
   interior checks, including deliberate crossings between endpoints, spreading with
   zero central drift, nonlinear walkers, weak bands and noise. Measure the relation
   between thresholds and wide-reference observable errors, missed violations, false
   alarms and the extra transforms/steps required. Sparse saved planes are insufficient.
 - The floor law: steps, order histograms and $h\alpha_{\max}/(2r)$ distributions.
 - A geometry sweep with the existing in-stage scheme: collar fraction 5, 10 and 20 %;
-  strength at constant protected walk-off and at today's $AN$; the complement and
-  plateau profiles.
-- At the best geometry, the in-stage scheme against the split.
+  strength at constant protected walk-off and at today's $AN$, counting one edge and
+  both (Q17); the complement and plateau profiles.
+- The reflection of slow walkers against the criterion of §4.2, over $\Omega w$ and
+  $AN$ (§4.8); R1 depends on it.
+- At the best geometry, the in-stage scheme against the split, except on a general
+  modal guide while the split scheme's native disagreement there is open (§3).
 - An attribution of the split's in-window error: linear/nonlinear splitting, hard
   projection and the fine/coarse collar discretisation difference.
+- The transfer of the geometry results to one radial case (R4).
+- Passivity of the temporal collar in each route's actual metric (§4.6, Q15).
+- **Exit:** a report with recommendations R1–R4, R6 and R7 below.
+
+**Phase 0b: the escaped-field records.**
+
 - The flux and removal records emulated from both narrow absorbed runs and the
   wide references, with enough accepted-endpoint data to converge their quadrature.
   References alone cannot measure absorber feedback. Measure commutator tails for
   each dispersion, projection and spectral collar, and test the initial-field and
   variable-flow terms (Q12).
-- The reflection of slow walkers against the criterion of §4.2.
-- The phase-space filter prototyped on the Runge–Kutta path (Q13), beside the per-step
-  collar, against the wide window.
-- The directional occupancy (§4.6) evaluated offline on the saved planes (Q14).
-- **Exit:** a report with recommendations on:
-  - **R1:** geometry and strength defaults;
-  - **R2:** whether the floor still binds a case that matters after R1 and the R6/R7
-    retained-window comparison. Phase 1 requires a case where temporal absorption
-    remains necessary or competitive within stated memory/runtime limits, and where
-    removing its cap could improve measured total cost. A cap on an avoidable collar
-    alone does not qualify;
-  - **R3:** diagnostic thresholds;
-  - **R4:** whether the spatial collars transfer.
-  - **R5:** a qualified definition, error budget, supported-route matrix and measured
-    memory/transform cost for the escaped record and energy diagnostics; explicitly
-    decide any physical-metric passivity problem (Q15). R5 is a gate before phase 3.
-  - **R6:** the measured accuracy/runtime/memory tradeoff for each production boundary
-    strategy, with and without placement/frame changes, and a recommendation on
-    retaining the current default, admitting a monitored opt-in, or adopting a
-    monitored default without temporal absorption. State counterexamples and resource
-    limits; no single speed-up or unrun estimate settles the default.
-  - **R7:** guard geometry, metric, absolute/relative thresholds, noise/band policy,
-    sampling coverage, supported routes/plane modes, warning/error behaviour and
-    checkpoint contract. Qualify tested accuracy budgets and report failures openly.
-    R7 gates a production monitor independently of the escaped-field reconstruction;
-    if it fails, R6 cannot recommend the monitored default. Any adopted default or
-    new frame/placement setting requires a recorded maintainer decision before phase 2.
+- **Exit:** a report with recommendation R5.
+
+The recommendations:
+
+- **R1:** geometry and strength defaults;
+- **R2:** whether the floor still binds a case that matters after R1 and the R6/R7
+  retained-window comparison. Phase 1 requires a case where temporal absorption
+  remains necessary or competitive within stated memory/runtime limits, and where
+  removing its cap could improve measured total cost. A cap on an avoidable collar
+  alone does not qualify;
+- **R3:** diagnostic thresholds, and the energy diagnostics' route metrics, measured
+  passivity decision (Q15), committed-endpoint contract and quadrature error budget;
+- **R4:** whether the spatial collars transfer.
+- **R5:** a qualified definition, error budget, supported-route matrix and measured
+  memory/transform cost for the escaped record. R5 is a gate before phase 3.
+- **R6:** the measured accuracy/runtime/memory tradeoff for each production boundary
+  strategy, with and without placement/frame changes, and a recommendation on
+  retaining the current default, admitting a monitored opt-in, or adopting a
+  monitored default without temporal absorption. State counterexamples and resource
+  limits; no single speed-up or unrun estimate settles the default.
+- **R7:** guard geometry, metric, absolute/relative thresholds, noise/band policy,
+  sampling coverage, supported routes/plane modes, warning/error behaviour and
+  checkpoint contract. Qualify tested accuracy budgets and report failures openly.
+  R7 gates a production monitor independently of the escaped-field reconstruction;
+  if it fails, R6 cannot recommend the monitored default. Any adopted default or
+  new frame/placement setting requires a recorded maintainer decision before phase 2.
 
 **Phase 1: the implicit-collar study (prototypes only, after R2/R6/R7).**
 
-- NumPy prototypes in the benchmarks, for both multistep formulations, with the collar
+- NumPy prototypes in the campaign harness, for both multistep formulations, with the collar
   implicit in predictor and corrector:
   - the storage rule, the collar part of the stored history at the corrected state,
     and the hard step cap at $2r_{\rm AM}/\alpha_{\max}$ (§4.5);
@@ -1661,21 +1685,27 @@ does not reconstruct it.
 
 **Phase 2: qualified boundary strategies, diagnostics and keywords.**
 
+- The keyword switches of §5 on every `prop_*` interface: `absorber=False` and
+  `absorber_scheme=`, with conflicting settings refused by name.
 - As decided on R1/R3 and R6/R7. Implement the retained-window mode, guards and
   warning/error behaviour if qualified, plus the selected fixed-placement/frame
   support and manual guidance. Adoption of a new default is an explicit decision.
-- Absorbed-energy diagnostics require R5's metric, endpoint and quadrature contract;
+- Absorbed-energy diagnostics require R3's metric, endpoint and quadrature contract;
   the basic guard monitor requires R7 and its shared metric definitions, not a
   successful escaped-field reconstruction. These parts may land separately. Any
   proposed physical-operator change returns to the maintainer under Q15.
-- On all three backends in order: `numpy_ref`, `numba_cpu`, then Kokkos CPU in
-  solprop-kokkos.
+- On all three backends in order: `numpy_ref`, `numba_cpu`, then the native CPU
+  build, in the same pull request.
 - The manual pages and the tutorial.
 - The re-run of affected examples.
+- The lasting campaign cases promoted to the SEP 30 suite.
+- Geometry changes keep the meaning of the temporal collar's flat-region fields that
+  SEP 31's remapping and pulse measures read, or update those consumers in the same
+  pull request.
 - Output and, where guard data or scheduling changes the seam or the endpoint hook
   changes its protected surface, kernel schema bumps.
 
-**Phase 3: the escaped field.** Requires R5 and phase 2's endpoint/ledger contract;
+**Phase 3: the escaped field.** Requires phase 0b's R5 and phase 2's endpoint/ledger contract;
 implementation may overlap only after that shared contract is fixed.
 
 - The qualified flux record (or the removal fallback, on Q11/R5) on all three
@@ -1689,7 +1719,7 @@ implementation may overlap only after that shared contract is fixed.
   (§4.5); a kernel schema bump.
 - The Adams manual section rewritten.
 
-**Closing.** The full gate, the slow and coverage lanes, and the Kokkos-selected slow lane,
+**Closing.** The full gate, the slow and coverage lanes, and the native-selected slow lane,
 once. Device qualification follows later, under the standing policy.
 
 ### 12. Open questions
@@ -1740,7 +1770,8 @@ once. Device qualification follows later, under the standing policy.
 5. **Q5: where the absorbed energy is accumulated.** Resolved 2026-10-16 (John Travers):
    per accepted step, reported at the saved planes (§4.6, §6). Review found that the
    existing `quadrature_error` hook has different state timing on adaptive and replay
-   paths, so a consistent committed-endpoint hook/data contract is required.
+   paths, so a consistent committed-endpoint hook/data contract is required. The
+   driver's per-step statistics call is already such a point on every march (§4.6).
 6. **Q6: the escaped record under the in-stage multistep collar.** Resolved 2026-10-16
    (John Travers): accepted-step accumulation, with trapezoidal quadrature as the initial candidate.
    Review qualification: forward local linear propagation, endpoint storage and an
@@ -1784,18 +1815,20 @@ once. Device qualification follows later, under the standing policy.
 12. **Q12: the flux buffer.** How wide must the gap between the surfaces and the collar
     be to reduce the commutator's tails below the error budget, including the hard band
     projection and spectral collar as well as tabulated/modal dispersion? There may be
-    no affordable gap. Measured in phase 0 and resolved by R5.
-13. **Q13: a phase-space filter prototype.** Resolved 2026-10-16 (John Travers): phase 0
-    measures Soffer and Stucchio's filter on the Runge–Kutta path, against the per-step
-    collar and the wide window (§4.9), as exploratory benchmark work that adds nothing to
-    the package unless a later proposal takes it up.
-14. **Q14: the directional occupancy.** Resolved 2026-10-16 (John Travers): evaluated
-    offline in phase 0, and included in phase 2 only if it separates wrapped content and
-    nonlinear walkers from ordinary outgoing radiation on the phase 0 cases.
+    no affordable gap. Measured in phase 0b and resolved by R5.
+13. **Q13: a phase-space filter prototype.** Resolved 2026-10-16 (John Travers) as an
+    exploratory phase 0 measurement on the Runge–Kutta path. Revised 2026-10-24 (John
+    Travers): removed from this SEP to keep the campaign to what can change a default.
+    §4.9 keeps the analysis, and a roadmap item keeps the prototype.
+14. **Q14: the directional occupancy.** Resolved 2026-10-16 (John Travers) as an
+    offline phase 0 evaluation. Revised 2026-10-24 (John Travers): removed from this SEP
+    with Q13 and kept as a roadmap item.
 
-15. **Q15: record and energy qualification (AI review).** Deferred to phase 0/R5:
-    specify each route's metric, measure collar passivity in it, choose the committed
-    endpoint contract, and qualify surface reconstruction and diagnostic quadrature.
+15. **Q15: record and energy qualification (AI review).** Deferred to phase 0a/R3
+    (specify each route's metric, measure collar passivity in it, choose the committed
+    endpoint contract and qualify diagnostic quadrature) and phase 0b/R5 (qualify the
+    surface reconstruction). On spatial routes the metric is SEP 34's admittance, and
+    SEP 34 §4.2 already requires the quadratic-form change to be measured.
     Any change to the physical collar operator or narrowing of production scope needs
     a maintainer decision before implementation. This review does not select a new
     physics default or claim that the proposed flux record has already passed.
@@ -1869,13 +1902,16 @@ once. Device qualification follows later, under the standing policy.
     Establish where dense checks avoid extra source calls and where check planes
     are required. Declare the tested scope and any missed accuracy-budget violations;
     neither endpoint occupancy nor an energy fraction alone certifies containment.
-21. **Q21: integration and benchmark baseline (2026-10-20).** §3.1 records the
-    established SEP 27 → SEP 28 order and recommends placing SEP 21's shared native
-    hook work after those source/buffer changes. Independent campaign work can begin
-    earlier. R6/R7 must identify the qualified source, stepper, backend and monitoring
-    costs; affected pre-SEP-28 free-space results need remeasurement. This reconciles
-    the draft with SEPs 22–24 and the pending work without reopening their accepted
-    physics or selecting a new boundary default.
+21. **Q21: integration and benchmark baseline (2026-10-20).** Satisfied 2026-10-24:
+    SEP 27 and SEP 28 are integrated, so the campaign measures the qualified source and
+    the optimised free-space path directly, and no earlier baseline needs remeasuring
+    (§3.1). Native work lands with the Python backends in the same repository.
+22. **Q22: accumulators across a relaunch (2026-10-24).** SEP 31 relaunches a saved
+    plane as a new run with an inherited origin, and its transport report keeps a
+    sequential energy ledger. Should a child run's temporal removal and guard history
+    start at zero, or should the chain ledger carry the parent's? Proposed: start at
+    zero, record the parent's totals as a chain-ledger item, and decide in phase 2
+    alongside R3's output contract.
 
 ### 13. References
 
@@ -2011,3 +2047,19 @@ parts) are cited through it.
   and reusable-runner resets. Plasma comparisons preserve the held-current source
   gate and qualify its products independently of the absorber. No numerical campaign
   was run, no default was changed and no frozen Part I of another SEP was edited.
+- 2026-10-24: Refreshed by Opus 5.5 (drafting agent) at John Travers's request against
+  the integrated tree (kernel schema 35, output schema 23), before review and
+  acceptance. §3.1 records SEPs 22–30 as Final and adds SEPs 29, 30, 31 and 34; the
+  execution order and Q21 are satisfied. §4.6 takes SEP 34's admittance metric and
+  collar passivity rule on spatial routes and names the driver's existing
+  committed-endpoint statistics call for the accumulators. Stale references were
+  corrected: the stability intervals now live in the package, `collar_field_fraction`
+  replaced `spatial_collar_fraction`, the native backend is in this repository, and
+  the keyword interfaces' present absorber arguments are stated. At John Travers's
+  request phase 0 is split into 0a (windows, monitors, geometry, reflection; R1–R4,
+  R6, R7) and 0b (escaped-field records; R5); the energy diagnostics' metric and
+  endpoint contract moved from R5 to R3 so phase 2 does not wait for 0b; the campaign
+  harness follows SEP 30's rule on development records; and the phase-space filter
+  prototype and directional occupancy were removed to the roadmap (Q13, Q14). Q22
+  added for accumulators across a SEP 31 relaunch. No campaign was run and no default
+  was changed.
