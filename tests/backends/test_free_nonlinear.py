@@ -18,6 +18,7 @@ from solprop.constants import EPS0, C
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid
 from solprop.nonlinear.responses import KerrResponse
 from solprop.pulses import GaussianPulse
+from solprop.translate.spatial import FluxPlan
 from spatial_records import record_metric
 
 
@@ -209,6 +210,8 @@ def test_cartesian_linear_flow_resolves_both_sides_and_exact_cutoff(
         problem,
         linear=dataclasses.replace(problem.linear, separable=data),
         responses=dataclasses.replace(problem.responses, separable=data),
+        # A uniform Cartesian medium's plane measure is its own operator (SEP 34).
+        flux=FluxPlan(data),
     )
     root = np.sqrt(complex(residual))
     expected = initial.copy()
