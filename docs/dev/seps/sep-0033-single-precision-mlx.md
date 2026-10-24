@@ -1101,7 +1101,7 @@ the harness's metrics are relative errors at the last plane):
 | `rdw` | 2.6e-6 | 4.9e-5 bands | 1.7e-5 | survives |
 | `ctc` | 2.6e-3 | 3.4e-4 peak | 1.3e-3 | survives with a limit: 0.05 m (field 4.3e-5 there; 0.025 m 6.6e-6) |
 | `argon` | 1.8e-4 | 2.1e-4 bands | 5.2e-4 | survives |
-| ENVELOPE_PART2
+| `argon_envelope`, over 0.1 m | 2.7e-6 | 4.2e-5 bands | 1.9e-5 | survives; the 0.4 m runs are pending |
 | `nitrogen` | 1.1e-6 | 2.7e-5 bands | 3.1e-6 | survives |
 | `radial_kerr` | 8.5e-6 | 1.3e-4 bands | 1.3e-4 | survives |
 | `radial_filament` | 2.3e-6 | 1.2e-5 peak | 1.3e-5 | survives |
@@ -1110,7 +1110,8 @@ the harness's metrics are relative errors at the last plane):
 
 - *The CtC limit is the physics.* A binary64 run whose launch carries an additive seed of
   `2^-24` of its peak spectral amplitude in every active bin departs from the reference
-  by 5.1e-2 at 0.1 m and 2.3e-3 at 0.05 m (the soliton: 5.8e-7): noise-free stimulated
+  by 5.1e-2 at 0.1 m and 2.3e-3 at 0.05 m (soliton 5.8e-7, rdw 9.9e-7, argon 4.6e-6):
+  noise-free stimulated
   Raman scattering amplifies any rounding-sized Stokes seed, and binary32's rounding is
   one. A multiplicative perturbation of the same size, which seeds no empty bin, moves
   the result by 3.4e-7 only.
@@ -1144,14 +1145,22 @@ the harness's metrics are relative errors at the last plane):
   with `ConvergenceError`. `mlx` (phase 2) records whether a strong collar on a long step
   reaches it.
 - *Envelope plasma on the oracle is slow*: the per-sample decomposition and adaptive
-  quadrature run in Python, which made the 0.4 m envelope case's `1e-10` reference take
-  hours; ENVELOPE_NOTE
+  quadrature run in Python: one binary32 run of the envelope case takes 52–80 min over
+  0.1 m on an idle Xeon core and hours over 0.4 m. Its binary64 references (`1e-10`,
+  `1e-9`, `1e-6`) were therefore computed on `native`, whose envelope plasma is the same
+  discretisation and quadrature, qualified against `numpy_ref` to rounding — orders of
+  magnitude inside these envelopes; the reference check passed (6.4e-9). The candidates
+  ran on `numpy_ref`, the only single-precision path. The case ran over 0.1 m for its
+  verdict; the 0.4 m candidates are recorded when they finish. Phase 4's device
+  formulation is the remedy.
 - *Adams snapshots under single precision* (`HostHistory.load_rows`) still restore a
   binary64 store; phase 4 revisits the layout, as §5.3 says.
 
 **Deviations.** None from Part I. The study ran on reduced windows as §7.3 says; the two
 CtC lengths and the perturbation witness were added to state the CtC limit, and are not
-new criteria.
+new criteria. The envelope case's binary64 references ran on `native` and its verdict
+on 0.1 m, for run time (above). Two-component (tensor) Raman is implemented but has no test
+or study case yet; phase 2 adds its class R test.
 
 **Verification.** The new test modules pass (39 tests); the reference's existing tests
 pass unchanged (746 in the `numpy_ref`, memory, batch, held-plasma and registry modules;
