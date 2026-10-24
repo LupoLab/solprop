@@ -124,12 +124,14 @@ __all__ = [
     "low_storage_flows",
     "low_storage_memory",
     "low_storage_stage_register",
+    "mlx_graph_bytes",
+    "mlx_rows",
     "reference_base_memory",
     "single_precision_rows",
     "z_table_slots",
 ]
 
-ESTIMATED_BACKENDS = ("numpy_ref", "numba_cpu", "native")
+ESTIMATED_BACKENDS = ("numpy_ref", "numba_cpu", "native", "mlx")
 """The backends :func:`estimate_memory` has formulas for."""
 
 MEMORY_GROUPS = (
@@ -216,6 +218,11 @@ _NOT_COUNTED = {
         "a noise field loaded after construction (one state's bytes)",
         "the translated problem's own tables other than the general reference",
         "the Adams general path's history (PECE and the comparison variants)",
+    ),
+    "mlx": (
+        "MLX's compiled kernels and its allocator's cache beyond one step's graph",
+        "a noise field loaded after construction (refused under single precision)",
+        "the translated problem's own tables other than the general reference",
     ),
 }
 
@@ -332,6 +339,8 @@ def estimate_memory(problem: KernelProblem, backend: str) -> MemoryEstimate:
     base = _reference_base(problem)
     if problem.precision.single:
         base = single_precision_rows(problem, base)
+    if name == "mlx":
+        base |= mlx_rows(problem, base)
     if name in {"numba_cpu", "native"} and problem.responses.plasma_channels:
         base = {
             key: value
@@ -421,6 +430,89 @@ def single_precision_rows(
     single["single_tables"] = 4 * tables
     single["single_widened_state"] = 16 * math.prod(problem.shape)
     return single
+
+
+# The single-precision rows a step's lazy graph holds once per stage on the device.
+_PER_STAGE_ROWS = frozenset(
+    {
+        "fine_spectrum",
+        "modal_time",
+        "projected",
+        "projected_coarse",
+        "node_field",
+        "node_polarisation",
+        "node_ionisation_rate",
+        "node_fraction",
+        "node_free_current",
+        "node_raman_drive",
+        "node_raman_spectrum",
+        "node_raman_convolved",
+        "held_current_streams",
+        "held_current_projected",
+        "held_current_embedded",
+        "held_current_spectra",
+    }
+)
+
+
+def mlx_rows(problem: KernelProblem, rows: dict[str, int]) -> dict[str, int]:
+    """Return the ``mlx`` backend's device rows beside the oracle's host rows.
+
+    SEP 33 section 6.3: the device copies of the narrowed tables, the operator's and
+    the prefactor's terms as double-float pairs, and the live graph: the backend
+    evaluates each stage as it is formed and each running integral as it is scanned, so
+    at most one stage's working rows (:data:`_PER_STAGE_ROWS`, twice, for the graph's
+    temporaries), a scan's ``2 ceil(log2 n_to) + 4`` arrays over the node chunk, and the
+    stages and their propagators are live at once. Measured against MLX's own peak in
+    ``tests/backends/test_mlx.py``.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        A single-precision problem on the fibre route.
+    rows : dict
+        Its single-precision reference rows.
+
+    Returns
+    -------
+    dict
+        ``mlx_tables``, ``mlx_terms`` and ``mlx_step_graph``, bytes.
+    """
+    transform, grids = problem.transform, problem.grids
+    tables = transform.synthesis.size + 2 * transform.projection.size
+    tables += 3 * grids.n_to + 3 * grids.omega_window.size
+    state = math.prod(problem.shape)
+    linear = problem.linear
+    phi_terms = 1 if linear.phi_expansion is None else linear.phi_expansion.n_terms
+    per_stage = sum(size for name, size in rows.items() if name in _PER_STAGE_ROWS)
+    scan = 0
+    if problem.flags.has_plasma:
+        chunk = min(transform.node_chunk, transform.n_nodes) * problem.shape[2]
+        levels = 2 * math.ceil(math.log2(grids.n_to)) + 4
+        scan = levels * chunk * transform.n_pol * grids.n_to * 4
+    stages = problem.stepper.tableau.n_stages
+    return {
+        "mlx_tables": 4 * tables,
+        "mlx_terms": 16 * state * (phi_terms + 1),
+        "mlx_step_graph": 2 * per_stage + scan + (2 * stages + 6) * 8 * state,
+    }
+
+
+def mlx_graph_bytes(problem: KernelProblem) -> int:
+    """Return the ``mlx`` backend's live-graph row for a problem, bytes.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        A single-precision problem on the fibre route.
+
+    Returns
+    -------
+    int
+        ``mlx_step_graph`` of :func:`mlx_rows`.
+    """
+    rows = single_precision_rows(problem, _reference_base(problem))
+    return mlx_rows(problem, rows)["mlx_step_graph"]
 
 
 def estimate_guide_memory(

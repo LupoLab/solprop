@@ -370,11 +370,13 @@ def _prefix(values: mx.array) -> mx.array:
     """
     scan = values
     n = values.shape[-1]
+    widths = [(0, 0)] * (values.ndim - 1)
     shift = 1
     while shift < n:
-        scan = mx.concatenate(
-            [scan[..., :shift], scan[..., shift:] + scan[..., :-shift]], axis=-1
-        )
+        # One addition of the level's shifted copy: adding zero to the first `shift`
+        # entries is exact, so this is the oracle's in-place update exactly, and each
+        # level is one array that the next can release.
+        scan = scan + mx.pad(scan[..., :-shift], [*widths, (shift, 0)])
         shift *= 2
     return scan
 
@@ -413,7 +415,11 @@ def running_integral(values: mx.array, dt: float, rule: RunningIntegral) -> mx.a
             )
     increments = (filtered[..., :-1] + filtered[..., 1:]) * float(np.float32(0.5 * dt))
     zero = mx.zeros((*values.shape[:-1], 1), dtype=mx.float32)
-    return mx.concatenate([zero, _prefix(increments)], axis=-1)
+    result = mx.concatenate([zero, _prefix(increments)], axis=-1)
+    # Evaluated here: a scan's levels would otherwise stay live behind the rest of the
+    # stage's graph, about log2(n) arrays of the node chunk each.
+    mx.eval(result)
+    return result
 
 
 def _split(a: mx.array) -> tuple[mx.array, mx.array]:

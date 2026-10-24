@@ -29,6 +29,7 @@ import mlx.core as mx
 import numpy as np
 from jaxtyping import Complex
 
+from solprop.backends.memory import mlx_graph_bytes
 from solprop.backends.mlx_gpu import passes as device
 from solprop.backends.mlx_gpu.arithmetic import DoubleFloatTerms, gemm_probe, on_gpu
 from solprop.backends.numpy_ref.passes import NonlinearSources
@@ -195,12 +196,18 @@ class MlxBackend(NumpySingleBackend):
         )
         self._raman_upload: tuple[object, mx.array] | None = None
         self._unit = mx.ones((1,), dtype=mx.complex64)
+        # Whether each stage is evaluated as it is formed, bounding the live graph to
+        # one stage; a batch evaluates its members' steps together instead.
+        self.evaluate_stages = True
         n_to = grids.n_to
         n_pol = transform.n_pol
         chunk = min(transform.node_chunk, transform.n_nodes) * n_pol
         shapes = [(chunk, transform.n_modes, problem.shape[2] * n_to)]
         shapes.append((transform.n_modes, chunk, problem.shape[2] * n_to))
         self.gemm_error = gemm_probe(shapes) if on_gpu() else 0.0
+        # MLX keeps freed buffers for reuse; its cache is held to one stage's graph,
+        # the admission estimate's own row (SEP 33 section 6.3).
+        mx.set_cache_limit(mlx_graph_bytes(problem))
 
     # The state on the device.
 
@@ -303,9 +310,7 @@ class MlxBackend(NumpySingleBackend):
 
     # The trial step.
 
-    def _trial_graph(
-        self, z: float, dz: float
-    ) -> tuple[mx.array, mx.array, mx.array]:
+    def _trial_graph(self, z: float, dz: float) -> tuple[mx.array, mx.array, mx.array]:
         """Build one interaction-picture DOPRI5 step on the device, unevaluated.
 
         The oracle's step (:meth:`NumpyRefBackend._trial_step`) with device arrays:
@@ -345,6 +350,11 @@ class MlxBackend(NumpySingleBackend):
             forward, back = self._propagators(bundle)
             lab = forward * (state + dz * combination)
             stage = self._device_nonlinear(lab, bundle, back)
+            # Evaluated at each stage boundary: the graph of one stage -- its node
+            # chunks and the scans' levels -- is then the most that is ever live
+            # (SEP 33 section 6.3), where a whole step's graph would hold seven.
+            if self.evaluate_stages:
+                mx.eval(stage)
             stages.append(stage)
             solution = solution + float(tableau.solution_weights[index]) * stage
             error = error + float(tableau.error_weights[index]) * stage
@@ -760,6 +770,21 @@ class MlxBackend(NumpySingleBackend):
         """
         del method
         return MlxLowStorage(self)
+
+    def memory_ledger(self) -> dict[str, int]:
+        """Return the reference's ledger with MLX's device memory beside it.
+
+        Returns
+        -------
+        dict
+            The oracle's rows, ``mlx_device_active`` and ``mlx_device_peak`` (MLX's
+            own counters, measured) and ``mlx_device_cache``.
+        """
+        return super().memory_ledger() | {
+            "mlx_device_active": int(mx.get_active_memory()),
+            "mlx_device_peak": int(mx.get_peak_memory()),
+            "mlx_device_cache": int(mx.get_cache_memory()),
+        }
 
     def metadata(self) -> dict[str, object]:
         """Return the backend's metadata with MLX's version, device and GEMM probe.
