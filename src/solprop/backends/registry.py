@@ -431,7 +431,7 @@ def select(
     --------
     >>> from solprop.backends.registry import BACKENDS
     >>> sorted(BACKENDS)
-    ['native', 'numba_cpu', 'numpy_ref']
+    ['mlx', 'native', 'numba_cpu', 'numpy_ref']
     """
     name = resolve_name(name)
     if _BENCHMARK_GATED.get() and name != "numpy_ref":
