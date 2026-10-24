@@ -78,9 +78,10 @@ def _thread_request() -> int:
     """Read the process cap, the smaller of two variables where both are set.
 
     ``SOLPROP_NATIVE_THREADS`` is this backend's own; ``SOLPROP_THREADS`` is solprop's
-    cap for every CPU backend. Unset, the pool takes every logical CPU.
+    cap for every CPU backend. Unset, the pool takes every CPU the process may run on:
+    its affinity mask (``taskset``, a batch scheduler's allocation), not the machine.
     """
-    counts = []
+    counts: list[int] = []
     for name in ("SOLPROP_NATIVE_THREADS", "SOLPROP_THREADS"):
         value = os.environ.get(name)
         if value is None or not value.strip():
@@ -94,7 +95,9 @@ def _thread_request() -> int:
         if threads < 1:
             raise ValueError(f"{name} must be positive, and is {value!r}")
         counts.append(threads)
-    return min(counts) if counts else max(1, os.cpu_count() or 1)
+    if counts:
+        return min(counts)
+    return max(1, len(PROCESS_CPUS) or os.process_cpu_count() or 1)
 
 
 _REQUESTED_THREADS = _thread_request()

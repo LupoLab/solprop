@@ -388,6 +388,35 @@ def test_solprop_threads_caps_the_process_pool(
     assert json.loads(completed.stdout)["runtime_threads"] == expected
 
 
+def test_default_process_pool_follows_the_affinity_mask() -> None:
+    if sys.platform != "linux":
+        pytest.skip("the affinity mask is read on Linux")
+    if native.build_info().device_backend != "none":
+        pytest.skip("CPU pool policy; GPU execution keeps its device policy")
+    if len(os.sched_getaffinity(0)) < 3:
+        pytest.skip("needs at least three CPUs to narrow the mask")
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in {"SOLPROP_NATIVE_THREADS", "SOLPROP_THREADS"}
+    }
+    environment["OMP_PROC_BIND"] = "false"
+    granted = sorted(os.sched_getaffinity(0))[:2]
+    script = (
+        f"import os, runpy; os.sched_setaffinity(0, {granted!r}); "
+        "runpy.run_module('solprop_native', run_name='__main__')"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=environment,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout)["runtime_threads"] == 2
+
+
 def test_initial_array_contract(
     phase_a_case: PhaseACase, writable_initial: ComplexArray
 ) -> None:

@@ -160,7 +160,8 @@ The first public release. It contains:
     kernel, FFTW and BLAS pools, and the native backend's process pool, beside
     `SOLPROP_NATIVE_THREADS`) while the pools keep their size-based defaults beneath it.
     The `Pool` and Slurm scan executors set it for each worker in place of forcing every
-    pool to the worker's thread count.
+    pool to the worker's thread count. Unset, the native pool takes the CPUs in the
+    process's affinity mask rather than every CPU on the machine.
   - Each backend is tested against the reference implementation within derived error
     bounds.
   - A short start-up: a run on the native backend imports neither Numba nor

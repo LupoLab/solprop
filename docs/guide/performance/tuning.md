@@ -34,7 +34,7 @@ The backend decides which pools exist at all (see [Choosing a backend](backends.
 |---|---|---|
 | `numpy_ref` | NumPy's BLAS only | the reference; single-threaded apart from matrix products |
 | `numba_cpu` | Numba kernels, FFTW, BLAS (and FFTW for the transverse transforms of free-space runs) | sizes each pool from the problem |
-| native CPU (`native`) | OpenMP kernels, FFTW (modal and spatial transforms), the Raman convolution transforms (Kokkos-FFT over FFTW, with selected macOS shapes on Accelerate's vDSP), a vendor BLAS | uses every logical CPU unless told otherwise |
+| native CPU (`native`) | OpenMP kernels, FFTW (modal and spatial transforms), the Raman convolution transforms (Kokkos-FFT over FFTW, with selected macOS shapes on Accelerate's vDSP), a vendor BLAS | uses every CPU in the process's affinity mask unless told otherwise |
 | native GPU (`native`, CUDA or HIP build) | the device | CPU pools are irrelevant; one device per process |
 
 `backend="auto"` chooses the native backend when `solprop-native` is installed and
@@ -176,7 +176,7 @@ imported:
 
 | variable | pool | default |
 |---|---|---|
-| `SOLPROP_NATIVE_THREADS` | the process-wide cap; Kokkos' OpenMP pool is created with this many threads, or with `SOLPROP_THREADS` if that is smaller | `SOLPROP_THREADS`, else the number of logical CPUs |
+| `SOLPROP_NATIVE_THREADS` | the process-wide cap; Kokkos' OpenMP pool is created with this many threads, or with `SOLPROP_THREADS` if that is smaller | `SOLPROP_THREADS`, else the CPUs in the process's affinity mask |
 | `SOLPROP_NATIVE_KERNEL_THREADS` | response, stage and reduction kernels | sized per operation, up to the cap |
 | `SOLPROP_NATIVE_FFT_THREADS` | FFTW threads for the modal and spatial transforms | sized per plan, up to the cap |
 | `SOLPROP_NATIVE_RAMAN_FFT_THREADS` | threads for the Raman convolution transforms of complete node chunks | sized per plan, up to the cap |
@@ -256,8 +256,9 @@ initialises Kokkos with an explicit thread count, which takes precedence; set
 `SOLPROP_NATIVE_THREADS` instead. (Kokkos prints a warning at start-up if
 `OMP_NUM_THREADS` asks for fewer threads than it was given.)
 
-**The default cap is every logical CPU.** Automatic sizing avoids assigning all of
-those threads to small operations. On a shared machine or when several solprop
+**The default cap is every CPU the process may run on**: the logical CPUs in its
+affinity mask, which `taskset` or a batch scheduler's allocation narrows. Automatic
+sizing avoids assigning all of those threads to small operations. On a shared machine or when several solprop
 processes run side by side, set `SOLPROP_THREADS` (which holds `numba_cpu` too) or
 `SOLPROP_NATIVE_THREADS` to each process's CPU budget. The operation policy stays within
 that budget.
