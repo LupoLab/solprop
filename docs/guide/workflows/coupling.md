@@ -284,7 +284,10 @@ entered = capillary.with_input(coupled.launch)
 At $w/a = 0.5$ the fundamental takes about 0.906 of the incident energy and the next
 radial mode 0.092. The launch carries what the modes capture: nothing is rescaled to
 the requested energy. A displaced, tilted or curved beam is a Cartesian plane
-(`space=FreeGrid(...)`); a radial plane cannot carry them.
+(`space=FreeGrid(...)`); a radial plane cannot carry them. The
+[capillary coupling tutorial](../../auto_tutorials/free_space/plot_08_radial_capillary_coupling.rst)
+couples the entrance field of a beam focused through 20 mm of argon, with and without
+the Kerr effect, and follows both launches through a capillary.
 
 ### A change of capillary radius
 
