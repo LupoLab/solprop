@@ -21,15 +21,21 @@ env:
   SOLPROP_FFTW_PLAN: estimate
 
 jobs:
-  # Whether anything beyond the documentation changed. A change confined to docs/ and
-  # Markdown files runs the static checks, the documentation build and the tests that
-  # read the documentation (docs-tests), not the test lanes; anything else, or a push
-  # whose base is unknown, runs everything.
+  # Which lanes to run. A change confined to docs/ and Markdown files runs the static
+  # checks, the documentation build and the tests that read the documentation
+  # (docs-tests), not the test lanes; anything else, or a push whose base is unknown,
+  # runs everything. A push to main that merges a pull request runs nothing when the
+  # pushed tree is the pull request head's tree and CI passed on that head: the pull
+  # request was up to date with main, so its run already tested exactly this tree.
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
     outputs:
-      code: ${{ steps.diff.outputs.code }}
+      lanes: ${{ steps.diff.outputs.lanes }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -37,18 +43,34 @@ jobs:
       - id: diff
         env:
           BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          EVENT: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
         run: |
-          code=true
+          lanes=full
           if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
             git diff --name-only "$BASE" HEAD > changed.txt
             cat changed.txt
-            if ! grep -qvE '^docs/|\.md$' changed.txt; then code=false; fi
+            if ! grep -qvE '^docs/|\.md$' changed.txt; then lanes=docs; fi
           fi
-          echo "code=$code" | tee -a "$GITHUB_OUTPUT"
+          if [ "$EVENT" = push ]; then
+            tree=$(git rev-parse "HEAD^{tree}")
+            for head in $(gh api "repos/$REPO/commits/$GITHUB_SHA/pulls" --jq '.[].head.sha'); do
+              git fetch -q --depth=1 origin "$head" || continue
+              [ "$(git rev-parse "$head^{tree}")" = "$tree" ] || continue
+              passed=$(gh api "repos/$REPO/actions/runs?head_sha=$head&status=success" \
+                --jq '[.workflow_runs[] | select(.path == ".github/workflows/ci.yml")] | length')
+              if [ "$passed" -gt 0 ]; then
+                echo "CI passed on pull request head $head, which has this tree"
+                lanes=none
+              fi
+            done
+          fi
+          echo "lanes=$lanes" | tee -a "$GITHUB_OUTPUT"
 
   docs-tests:
     needs: changes
-    if: needs.changes.outputs.code == 'false'
+    if: needs.changes.outputs.lanes == 'docs'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -71,6 +93,8 @@ jobs:
   # lane. The default lane runs with coverage on Linux (the coverage job) and plainly on
   # macOS, so each platform runs it once.
   static:
+    needs: changes
+    if: needs.changes.outputs.lanes != 'none'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -91,6 +115,8 @@ jobs:
       - run: uv run poe reuse
 
   docs:
+    needs: changes
+    if: needs.changes.outputs.lanes != 'none'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -106,7 +132,7 @@ jobs:
 
   test:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.lanes == 'full'
     name: test (macos-latest)
     runs-on: macos-latest
     timeout-minutes: 120
@@ -123,7 +149,7 @@ jobs:
 
   slow:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.lanes == 'full'
     name: slow (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
@@ -152,7 +178,7 @@ jobs:
   # of the 100 %), and its report (coverage.xml) for the badge.
   coverage:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.lanes == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 150
     env:
@@ -195,7 +221,7 @@ jobs:
   # platform-independent and run in the static and docs jobs.
   windows:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.lanes == 'full'
     runs-on: windows-latest
     timeout-minutes: 180
     env:
@@ -215,7 +241,7 @@ jobs:
   # of its direct dependencies that the floors allow, and the test tools at their latest.
   oldest:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.lanes == 'full'
     name: tests (lowest dependencies)
     runs-on: ubuntu-latest
     timeout-minutes: 150
@@ -243,7 +269,7 @@ jobs:
   # test.
   native-quality:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.lanes == 'full'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -274,7 +300,7 @@ jobs:
   # numpy_ref is checked by the parity tests in every job.
   native-suite:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.lanes == 'full'
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     env:
