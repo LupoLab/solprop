@@ -95,7 +95,11 @@ Accelerate exposes no thread control at all, and is recorded as `uncontrolled`.
 Both CPU backends size every pool within this budget, and clamp an explicit count
 (`threads=` or a variable below) to it rather than refusing it; the pools take turns, so
 each may use all of it. Set `SOLPROP_THREADS` to each process's share when several
-processes share CPUs without being pinned apart. `SOLPROP_OVERSUBSCRIBE=1` lets an
+processes share CPUs without being pinned apart. That includes several solprop
+processes in one CPU-limited container (a Kubernetes CPU limit, Docker `--cpus`): the
+quota is the container's, and each process would otherwise take all of it. A cloud
+virtual machine or a Slurm job has no quota by default (`cat /sys/fs/cgroup/cpu.max`
+prints `max`); there the CPUs it may run on are the limit. `SOLPROP_OVERSUBSCRIBE=1` lets an
 explicit count exceed the CPUs and the quota (never `SOLPROP_THREADS`), for a test that
 compares thread counts on a small machine; a run has no reason to set it. The budget and
 the limit that set it are recorded in the run's metadata (`thread_budget`,

@@ -1198,7 +1198,13 @@ Withdrawn (development-process record, not a design decision).
 - **Consequences:** the native backend cannot import solprop and sizes Kokkos at import,
   so it carries a copy of the reader (`solprop_native._budget`); `tests/test_process.py`
   runs both copies on the same control groups and environment. A process reads its own
-  quota once. A test that compares
-  thread counts lifts its budget explicitly. `SLURM_CPUS_PER_TASK` stays a `Pool`
-  setting rather than part of the budget, since Slurm narrows the mask itself where it
-  binds tasks.
+  quota once. A test that compares thread counts lifts its budget explicitly.
+  `SLURM_CPUS_PER_TASK` stays a `Pool` setting rather than part of the budget, since
+  Slurm narrows the mask itself where it binds tasks. A quota is shared by every
+  process in its control group, and no process can tell how many siblings it has: two
+  solprop processes in one CPU-limited container (Kubernetes CPU limits, Docker
+  `--cpus`), whether independent runs or scan instances sliced by
+  `SOLPROP_SCAN_CPU_OFFSET`/`COUNT`, each take the whole quota. Each should set
+  `SOLPROP_THREADS` to its share; `Pool` already shares its budget among its workers.
+  Virtual machines (cloud instances included) and Slurm jobs set no quota by default;
+  their limit is the mask.
