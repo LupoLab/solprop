@@ -181,8 +181,11 @@ build works offline and survives a flaky mirror; refresh the copies occasionally
 base: when only `docs/` and Markdown files changed, static, docs and **docs-tests** run
 (the test modules that open a documentation file: the SEP structure, the guide's
 snippets, the accuracy page, the catalogues, the kernel contract and the figures), and
-the test lanes below are skipped. Any other change, or a push whose base is unknown, runs
-every job except docs-tests:
+the test lanes below are skipped. A push to `main` that merges a pull request runs no
+further jobs when its tree is the pull request head's tree and CI passed on that head:
+the pull request was up to date with `main`, so its run tested exactly what was merged.
+A pull request that was behind `main` merges to a new tree, which runs in full. Any other
+change, or a push whose base is unknown, runs every job except docs-tests:
 
 - **static** (Linux): `uv lock --check`, ruff (lint and format check), `poe types`,
   `poe docstrings`, `poe spell`, `poe reuse`.
