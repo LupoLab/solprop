@@ -29,9 +29,13 @@ Luna's scope and its most valuable design choices, and is designed around the fo
 - a clean, fast-loading Python package that plays well with NumPy, SciPy, matplotlib and h5py.
 
 **Priorities, in order:** accuracy and reliability; then as much CPU performance as can be
-had; then GPU performance (ADR-020). Double precision throughout: realistic modelling always
+had; then GPU performance (ADR-020). Double precision by default: realistic modelling always
 carries noise, so the stepper's job is efficiency at sufficient accuracy, not extended
-precision.
+precision. Single precision is an explicit per-run choice, `precision="single"`, under
+SEP 33's contract (ADR-052): the state, stages, transforms and responses in binary32,
+the controller, host scalars and propagator exponents in binary64, every narrowed table
+with its own power-of-two exponent and the state at an exact scale. `numpy_ref`'s
+single-precision path is its oracle; `numba_cpu` and `native` compute in binary64 only.
 
 ## 2. The model
 

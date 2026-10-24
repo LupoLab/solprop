@@ -361,6 +361,25 @@ that kernel matches the line's Lorentzian to 1e-5; the soliton self-frequency sh
 Gordon's rate to 2.4 % at T₀ = 800 fs; and the photon number of a lossless GNLSE run with
 the shock term and Raman on is conserved exactly while the energy falls by 7.2e-6.
 
+**Single precision** ([SEP 33](seps/sep-0033-single-precision-mlx.md), ADR-052). A
+problem whose `precision` is single is executed by `NumpySingleBackend`
+(`backends/numpy_ref/single.py`), which the registry constructs for `numpy_ref`: the
+reference's passes and step loop in binary32, through hooks of the reference that leave
+its binary64 arithmetic unchanged (`SourceTables`, `_propagator`, `_rounded`,
+`_error_norm`, `_envelope_sources`). It narrows the source tables once at construction,
+each with its block exponent (applied at upload where that is exact, refused otherwise
+unless the pass carries it, as the Raman kernel's does); holds the state at the launch's
+power-of-two scale `s`; forms every propagator, prefactor and z-table value in binary64
+and rounds it once; evaluates Kerr, Raman (scalar, tensor, mixtures) and the field-grid
+plasma in binary32 with each term's homogeneity factor in one host coefficient, the
+stable population forms and blocked running integrals
+(`translate.precision.prefix_sum`); reduces the controller's norms as scaled sums of
+squares against `atol / s`; and checks after every trial that the state and stages stayed
+complex64 and after every step that the state is finite. The ionisation rate's table
+lookup, the envelope-grid plasma's cycle moments and the statistics are evaluated in
+binary64 from the binary32 field, which is what the oracle defines. `numba_cpu` and
+`native` refuse a single-precision problem by name.
+
 **Selection.** `backends/registry.py`: `available()` detects with
 `importlib.util.find_spec` and never caches; `select(name, problem, *, grid, modes,
 profiles)` builds one. The three keyword arguments are what `stats()` needs and the kernel
@@ -1691,6 +1710,7 @@ that execution space.
 | field-free observation (`observe(field=False)`), the runner, a transverse collar's rate and a set evanescent rate on the separable element | yes | yes | yes (field-free observation needs no native change; the rate is one view in `SpatialCoefficients`) | compiles; not qualified |
 | materials from optmat: gas Raman leaves of many rows on gradients, rate tables, optmat walls, the silica bundles | yes | yes | yes | not qualified |
 | coupling between runs (`field_plane`, `regrid`, `couple`, `Outcouple`, `transport`, `with_input`; SEP 31) | host-side: any source and receiving backend | host-side | host-side | receiving runs not qualified |
+| single precision (`precision="single"`, SEP 33): fibre, radial and Cartesian routes, Kerr, Raman, field and envelope plasma, both absorber schemes, Runge–Kutta and the low-storage march, fixed-schedule batches | the oracle | refused | refused | refused |
 
 **Materials from optmat** ([SEP 3](seps/archive/sep-0003-optmat-materials.md), a run under
 `MaterialSelection`) reach the backends as the arrays any other run carries: index and
@@ -1740,6 +1760,10 @@ Which backend and build to choose for a run is the user guide's
 ## 11. Current limits
 
 - `"cf4"` coupled-flow sections run only on `numpy_ref`.
+- Single precision runs only on `numpy_ref`, its oracle, until SEP 33's `mlx` backend; it
+  refuses the general modal route, the hybrid planar kind, coupled flows, TDSE responses,
+  the dispersive electronic response, the far-field statistics, noise models, the Adams
+  integrator and an adaptive `rtol` below `1e-6`.
 - The dispersive electronic response runs on `numpy_ref`, `numba_cpu` and `native` on
   every route; on a device it is qualified on one AMD Instinct generation (HIP) and one
   NVIDIA Hopper device (CUDA); a polynomial mixture costs one group per distinct leg

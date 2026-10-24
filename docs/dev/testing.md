@@ -209,7 +209,14 @@ margin, never fitted to the discrepancy they then accept. The ladder of
 [accuracy.md](accuracy.md) section 7 is the pattern (`16 ε` for one step, `128 ε` for
 eight), and `tests/bounds.py` provides `gamma`, `higham_gamma`, `fft_bound`, `scan_bound`,
 `prefix_bound`, `stencil_bound`, `step_budget` and `propagation_growth`. `u = 2⁻⁵³` and
-`ε = 2u` are not interchangeable. A case whose dynamics amplify strongly is compared
+`ε = 2u` are not interchangeable. **Binary32** ([SEP 33](seps/sep-0033-single-precision-mlx.md)):
+every formula takes its roundoff as a parameter (`UNIT_ROUNDOFF_32 = 2⁻²⁴`,
+`EPS_32 = 2⁻²³`) and is re-evaluated there, not scaled from its binary64 value, since
+`γ_k`'s denominator matters and each refuses `k u ≥ 1`. A binary32 bound includes one
+rounding per narrowed table entry and the conditioning of signed sums; where it exceeds a
+tenth of the case's accuracy envelope it is uninformative, and the comparison runs over a
+shorter window instead. Backend agreement within a binary32 rounding bound is never a
+survival verdict: that is SEP 33's class T study against binary64 references. A case whose dynamics amplify strongly is compared
 over a short window. Backend equivalence uses peak-normalised or normwise deviation
 against nontrivial reference fields, so a zeros-returning backend cannot pass:
 `assert_within` checks finiteness, refuses an identically zero reference and reports
