@@ -6,16 +6,16 @@
 | **Title** | Single-precision propagation, and an MLX backend for Apple GPUs |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-10-23); Opus 5.5 (2026-10-23, revision after review) |
-| **Status** | Draft |
+| **Status** | In progress |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); GPT-6 (AI) |
 | **Type** | Feature |
 | **Created** | 2026-10-23 |
-| **Resolution** | — |
+| **Resolution** | Accepted 2026-10-24 by John Travers after his human review, the GPT-6 AI review and the revision answering it, recorded in Part III. |
 | **Requires** | [SEP 25](archive/sep-0025-rounding-level-reproducibility.md) (the floating-point policy and the bound classes this extends to binary32) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | — |
+| **Implementation** | John Travers with Opus 5.5 (AI); all phases on `feature/sep-0033-single-precision`, one pull request opened when the SEP is set Final |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -874,8 +874,9 @@ they inform its advice and are not merge gates.
 
 ### 11. Phases
 
-Each phase merges on its own with a green gate, its local GPU lane where `mlx` is
-touched, and its report in Part II.
+All phases are made on one branch and reach `main` in one pull request, opened when the
+SEP is set Final; continuous integration runs its full gate. Each phase is qualified on
+its own, with its local GPU lane where `mlx` is touched, and reports in Part II.
 
 **Phase 1 — The precision setting, the oracle path and the survival study.**
 - The setting, the `Precision` record, `KernelProblem.precision`, the admission function
@@ -1007,6 +1008,11 @@ phase 2–4 measurements settle within those decisions.
 - 2026-10-23: Revised after the reviews (Opus 5.5): the maintainer's decisions on
   R3, R6, R8 and R11 and the response to every point are below; Part I rewrites
   §4.3 and §7 and adds §4.4, §5.1–5.3, the arithmetic policy of §6.3 and Q12–Q14.
+- 2026-10-24: Accepted by John Travers and set In progress. §11 now follows the
+  project's rule of one branch and one pull request per SEP, opened at Final, in place
+  of a merge per phase. ADR-052 is written (§9). Single precision on `numba_cpu` and
+  `native` is out of scope (§2), so Final needs agreement with the oracle on every
+  backend that admits single precision, not parity across all three backends.
 
 ### AI review — 2026-10-23 — GPT-6
 

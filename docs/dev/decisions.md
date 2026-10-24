@@ -1162,3 +1162,29 @@ Withdrawn (development-process record, not a design decision).
   change that moves an identity bumps the version it moves and adds no compatibility
   layer; before the first public release a resume-compatibility policy is decided
   (roadmap, *Release preparation*).
+
+## ADR-052 — Single precision as an opt-in arithmetic, validated against its oracle
+
+- **Status:** accepted; amends [architecture.md §1](architecture.md) ("Double precision
+  throughout") and records an exception to ADR-020 for the `mlx` route
+  ([SEP 33](seps/sep-0033-single-precision-mlx.md))
+- **Context:** Apple-silicon GPUs have several times the CPU's single-precision
+  throughput and no binary64 arithmetic, and Kokkos has no Metal backend. Whether a
+  problem survives binary32 depends on the problem, so it has to be measured, against
+  criteria fixed before the measurement.
+- **Decision:** binary64 stays the default and the only arithmetic of `numba_cpu` and
+  `native`. Binary32 is an explicit per-run choice, `precision="single"`, under SEP 33's
+  contract: the state, stages, transforms and responses in binary32; the controller,
+  scalars and schedules in binary64 on the host; the linear propagator formed to
+  binary64 accuracy and then rounded; every narrowed buffer with its own power-of-two
+  exponent and the state at an exact scale. `numpy_ref`'s single-precision path is the
+  oracle. The `mlx` backend is validated against that oracle, not against a compiled
+  CPU backend in the same precision, because none computes in binary32 and Apple GPUs
+  cannot compute in binary64.
+- **Why:** an oracle in the same precision separates rounding from method error, and
+  gives a later single or mixed mode of `native` or `numba_cpu` a target. ADR-020's
+  first clause stands: no validated binary64 result moves.
+- **Consequences:** the precision is a field of every run's hashed configuration. Routes
+  and responses that have not been qualified in binary32, and noise models, are refused
+  under single precision by name. The survival record and the tolerance floor are
+  published with the user guide.

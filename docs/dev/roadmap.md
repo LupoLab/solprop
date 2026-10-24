@@ -31,6 +31,16 @@ being implemented.
   identifies a new material contract. Ne/Xe, mixtures, mode-averaged and multimode
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
+- [SEP 33 — Single-precision propagation, and an MLX backend for Apple GPUs](seps/sep-0033-single-precision-mlx.md):
+  in progress. A run-level `precision="single"` setting under a binary32 contract
+  (block exponents per narrowed buffer, an exact power-of-two state scale, a
+  binary64-accurate propagator), with `numpy_ref` as its oracle and a survival study
+  judged against criteria fixed before measurement (phase 1); then an `mlx` backend for
+  Apple-silicon GPUs on capillary fibre runs (phase 2), radial and Cartesian free space
+  (phase 3), and envelope-grid plasma and the Adams admission (phase 4). The general
+  modal route, the planar kind, coupled flows, TDSE responses and noise models are
+  refused under single precision; those, and single-precision and mixed modes of
+  `native` and `numba_cpu`, remain open.
 
 
 ## Draft enhancement proposals
@@ -99,18 +109,6 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
   data and integration questions must be settled before acceptance; shared-level
   ladders, vector saturation and repeated-window histories remain future work.
-- [SEP 33 — Single-precision propagation, and an MLX backend for Apple GPUs](seps/sep-0033-single-precision-mlx.md):
-  a run-level `precision="single"` setting with a binary32 contract, `numpy_ref` as its
-  oracle and a published record of which problems survive single precision, and an
-  `mlx` backend for Apple-silicon GPUs on capillary fibre runs, radial and Cartesian
-  free space, with fixed-schedule batches through the existing interface and
-  envelope-grid plasma on the GPU in a later phase. Every narrowed buffer carries its
-  own power-of-two exponent and the state an exact scale, so binary32's range holds,
-  and the linear propagator is formed to binary64 accuracy; survival is judged against
-  criteria fixed before measurement. The general modal
-  route, the planar kind, coupled flows, TDSE responses and noise models are refused
-  under single precision; those, and single-precision and mixed modes of `native` and
-  `numba_cpu`, remain open below.
 
 The informal items below record work not fully covered by these proposals. When adding
 or revising a SEP, remove an informal item only if the proposal covers it in full;
