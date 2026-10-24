@@ -44,16 +44,6 @@ being implemented.
   after SEP 34's full public activation. Qualified provider-pair envelopes may
   replace conservative weak-guidance screens within the total model budget.
 
-- [SEP 34 — Medium flux for free-space propagation](seps/sep-0034-medium-flux.md):
-  physical launch energy, complex-admittance local flux, consistent total-energy
-  and noise weights, and a forward amplitude correction for radial real-index
-  paths, admitted by a total-variation certificate with default 10⁻⁴ budgets.
-  Declared weak steps can qualify; varying absorption is deferred. Public
-  launch/noise/statistics changes activate together after NumPy, Numba CPU,
-  native CPU and bounded CUDA/HIP qualification. It is implemented before SEP 31
-  and supplies the shared foundation for SEPs 5 and 31. General reflected-wave
-  and vector free-space transport remain outside its scope.
-
 ## Draft enhancement proposals
 
 SEPs under discussion; their scope may change and implementation has not been accepted.
@@ -320,7 +310,7 @@ reflected, radiated and evanescent fields, high-NA vector free-space transport,
 gradient transport outside SEP 34's certificate, varying absorption, resolved
 prism/grating angular dispersion and spatial chirp, and feedback between stages
 remain separate extensions.
-[SEP 34](seps/sep-0034-medium-flux.md) covers the existing radial route's
+[SEP 34](seps/archive/sep-0034-medium-flux.md) covers the existing radial route's
 certified forward amplitude correction, including admitted weak steps; it does
 not add general gradient scattering or a complex-index path certificate.
 
@@ -714,18 +704,26 @@ the interpolation coordinate a parameter and expand the dispersion in it, as the
 expansion already does for a fill's density, so the GPU builds could run it without the
 table.
 
+**A compiled closure synthesis for `numba_cpu`.** The local spatial statistics (fluence,
+intensities, the on-axis spectrum) need the closure `G` formed with the complex
+admittance; `numba_cpu` forms that volume with NumPy FFTs on the host, where native forms
+it in its own kernels ([SEP 34](seps/archive/sep-0034-medium-flux.md), phase 2, Q2).
+A compiled pass would remove the host round trip.
+
 **The cost of a kept native save on Linux.** On the snapshot benchmark case a kept
 native Adams save costs about 4.5 ms against `numba_cpu`'s 1.6 ms on Linux, unexplained;
 the run totals are level
 ([SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md), phase 2).
 
 **The hybrid planar route on GPUs.** native CPU executes the planar kind resolved in y; the
-CUDA and HIP builds compile the same kernels but have never run them. Device
+CUDA and HIP builds have run it only in one short Kerr case of
+[SEP 34](seps/archive/sep-0034-medium-flux.md)'s device qualification. Its full device
 qualification follows the other routes' parity bounds ([backends](backends.md)).
 
 **The far-field pass on GPUs.** The CUDA and HIP builds compile the native backend's
-far-field pass ([SEP 23](seps/archive/sep-0023-far-field-aperture-spectra.md)) but have never
-run it: its band partials live in global memory, with a team barrier per column. Device
+far-field pass ([SEP 23](seps/archive/sep-0023-far-field-aperture-spectra.md)) but have
+run it only on the short Cartesian and line cases of
+[SEP 34](seps/archive/sep-0034-medium-flux.md)'s device qualification: its band partials live in global memory, with a team barrier per column. Device
 qualification measures it against the CPU parity bounds of
 `tests/backends/test_native_far_field.py`, and its optimisation holds a thread's slot
 accumulators in registers and runs a large aperture set in groups (SEP 23 §6).
@@ -1026,7 +1024,7 @@ built on them already refuse spatial runs by name.
 
 **Free-space flux beyond the scalar forward model.** Spatial energy, intensity and
 fluence are the scalar axial flux of the medium at the plane
-([SEP 34](seps/sep-0034-medium-flux.md)), and a radial gas gradient is admitted only
+([SEP 34](seps/archive/sep-0034-medium-flux.md)), and a radial gas gradient is admitted only
 within its real-index adiabatic certificate. Gradient scattering outside that
 certificate, a radial path with varying (or any) loss, which needs a complex-index
 bound, varying media on the Cartesian and line grids, and the full vector TE/TM flux at

@@ -512,7 +512,7 @@ output["stats/aperture_spectrum"]   # (n_z, 4, n_omega) in J/(rad/s)
 The [far-field statistics tutorial](../../auto_tutorials/free_space/plot_07_far_field_statistics.rst)
 runs all five on a free-space run. The design is
 [SEP 23](../../dev/seps/archive/sep-0023-far-field-aperture-spectra.md), and the
-medium measure is [SEP 34](../../dev/seps/sep-0034-medium-flux.md).
+medium measure is [SEP 34](../../dev/seps/archive/sep-0034-medium-flux.md).
 
 ## What `collect` guarantees
 

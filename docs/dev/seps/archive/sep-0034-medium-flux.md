@@ -6,17 +6,17 @@
 | **Title** | Medium flux for free-space propagation |
 | **Author** | John Travers |
 | **Drafting agent** | GPT-6 (draft and 2026-10-23 review response) |
-| **Status** | Accepted |
+| **Status** | Final |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); Opus 5.5 (AI) |
 | **Type** | Change |
 | **Created** | 2026-10-23 |
-| **Resolution** | Accepted 2026-10-23 by John Travers after the A1–A7 responses and maintainer decisions recorded in Part III. Implement before SEP 31's public launch changes. |
-| **Requires** | [SEP 22](archive/sep-0022-memory-lean-spatial-execution.md): spatial execution and memory; [SEP 25](archive/sep-0025-rounding-level-reproducibility.md): qualification; [SEP 28](archive/sep-0028-free-space-evaluation.md): bounded spatial evaluation |
+| **Resolution** | Accepted 2026-10-23 by John Travers after the A1–A7 responses and maintainer decisions recorded in Part III. Implement before SEP 31's public launch changes. Final 2026-10-24 by John Travers after phase 3, with the remaining extensions moved to the roadmap (Part II, "Closing"). |
+| **Requires** | [SEP 22](sep-0022-memory-lean-spatial-execution.md): spatial execution and memory; [SEP 25](sep-0025-rounding-level-reproducibility.md): qualification; [SEP 28](sep-0028-free-space-evaluation.md): bounded spatial evaluation |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | — |
-| **Manual pages** | — |
+| **Implementation** | John Travers with Opus 5.5 (AI); phases 1 and 2 on `feature/sep-0034-medium-flux`, phase 3 on `feature/sep-0034-phase-3` |
+| **Manual pages** | [Energy and flux in a medium](../../../guide/free-space/flux.md) |
 
 ## Part I — Proposal
 
@@ -32,8 +32,8 @@ paths. Qualify NumPy, Numba CPU, native CPU and bounded CUDA/HIP cases before
 activating the changed public semantics together.
 This is a clean breaking change with no legacy normalisation or old-file
 migration. It is the shared prerequisite for coupling in
-[SEP 31](sep-0031-simulation-coupling.md) and solid carriers in
-[SEP 5](sep-0005-solid-ionisation.md), not an implementation of either feature.
+[SEP 31](../sep-0031-simulation-coupling.md) and solid carriers in
+[SEP 5](../sep-0005-solid-ionisation.md), not an implementation of either feature.
 
 ### 2. Motivation and scope
 
@@ -71,7 +71,7 @@ reflected Maxwell field. No general scattering solver is introduced.
 
 ### 3. Context
 
-The [free-space model](../../guide/free-space/model.md) states the present vacuum
+The [free-space model](../../../guide/free-space/model.md) states the present vacuum
 normalisation and documents the exact longitudinal root and radial pressure
 profiles. The implementation paths to change together are:
 
@@ -94,11 +94,11 @@ $\mu_0\varepsilon_0c^2$ product. The radial gradient already has a cumulative
 diagonal operator, but omits the changing-admittance amplitude term.
 This is a code/design audit, not a qualification result.
 
-[SEP 5](sep-0005-solid-ionisation.md) originally sketched scalar flux.
-[SEP 31](sep-0031-simulation-coupling.md)'s review separated this prerequisite
+[SEP 5](../sep-0005-solid-ionisation.md) originally sketched scalar flux.
+[SEP 31](../sep-0031-simulation-coupling.md)'s review separated this prerequisite
 from coupling and explicitly chose physical launch energy and preservation of
-radial gradients. [SEP 8](sep-0008-quadratic-crystal-optics.md)'s anisotropic
-vector E/H metric remains distinct; [SEP 9](sep-0009-propagation-statistics.md)
+radial gradients. [SEP 8](../sep-0008-quadratic-crystal-optics.md)'s anisotropic
+vector E/H metric remains distinct; [SEP 9](../sep-0009-propagation-statistics.md)
 consumes the shared spatial definition without moving its modal measurement
 catalogue here. SEP 31 depends on this proposal, not conversely.
 
@@ -106,7 +106,7 @@ catalogue here. SEP 31 depends on this proposal, not conversely.
 
 #### 4.1 What energy means
 
-Use SI and the [optics convention](../conventions.md),
+Use SI and the [optics convention](../../conventions.md),
 $\exp[i(kz-\omega t)]$. For analytic physical fields define
 
 $$
@@ -262,7 +262,7 @@ variable; changing to a globally flux-normalised variable would also require
 changing every nonlinear drive and source, with no benefit here.
 
 In the internal FFT convention of
-[conventions §2](../conventions.md), the plane wave has phase
+[conventions §2](../../conventions.md), the plane wave has phase
 $\exp[i(\omega t-\beta z)]$. In that convention and the existing moving frame,
 the accumulated linear operator is
 
@@ -582,7 +582,7 @@ No dependency is added.
 
 ### 7. Verification and validation
 
-Use the repository's [accuracy](../accuracy.md) and [testing](../testing.md)
+Use the repository's [accuracy](../../accuracy.md) and [testing](../../testing.md)
 rules. Separate rounding error of a fixed discrete map from quadrature, material
 interpolation, propagation and physical-model error. Qualify three refinement
 levels when asserting convergence; physical energy conservation within WKB is
@@ -882,6 +882,68 @@ not revalidated to additional precision by this draft.
 - **Not covered:** timing (§6.2 asks for actual timings only of the qualification
   calls, recorded there), older CUDA architectures, and multi-device runs.
 
+### Phase 3 report — qualification and completion
+
+- **Scope:** phase 3 (§11), 2026-10-24, Opus 5.5 (AI), on `feature/sep-0034-phase-3`
+  after phases 1 and 2 were merged. CPU only; no device spend.
+- **Delivered:** `tests/backends/test_flux_gradients.py`, four integrated cases run on
+  numpy_ref, numba_cpu and native CPU (§7, "Gradient linear flow", "Nonlinear work",
+  "Absorption"):
+  - **Plane exchange.** A beam carried up a 0.5→3 bar argon ramp and back down the
+    reversed ramp returns each column's launched amplitude to within
+    2(10⁻⁹ · max|ln(Y_z(L)/Y_z(0))| + γ₂₅₆), while one leg alone changes it by more than
+    a hundred times that: the endpoint terms of the two legs cancel.
+  - **Kerr through a gradient.** A 0.3 mJ beam with about 0.2 rad of on-axis nonlinear
+    phase keeps its physical energy through the 0.5→3 bar ramp to 10⁻⁸, the
+    controller's tolerance; a constant `Linear` path matches the uniform medium to γ₆₄.
+  - **Plasma through a gradient.** Argon losses at 1, 2 and 3 bar are 1.9, 3.2 and
+    4.3 %, concave in density. The 1→3 bar ramp loses 3.21 %, between the chord of the
+    endpoint losses (3.10 %) and the loss at the mean pressure (3.23 %), as a loss
+    driven by the physical E at the local density must.
+  - **Uniform loss.** In a medium of index 1.5 + 2·10⁻⁵ i, the energy at each plane
+    equals that of each column attenuated by exp(−Im k_z z), to 10⁻⁹, with about a
+    quarter absorbed; the collar's field-norm fraction stays below 10⁻¹², so material
+    loss and the numerical absorber are accounted for apart.
+- **Already covered by phases 1 and 2:** a weak declared step admitted and a large-TV
+  (glass) step refused (`tests/test_adiabatic.py`, `tests/backends/test_flux_paths.py`);
+  resume through a gradient (`tests/backends/test_radial_media.py`). The galleries of §8
+  are tutorials, which every documentation build runs; the phase 2 pull request's
+  build ran them all. The capability pages (`docs/introduction/capabilities.md`, the
+  backends page) were rechecked and need no change.
+- **Deviations:** the plasma case checks the ordering that local-density driving
+  implies rather than a work balance. The field's loss exceeds the ionisation energy
+  (Ip times the electrons freed) by about 27 %. The excess is the kinetic energy the
+  field gives the freed electrons, of the order of the ponderomotive energy (about
+  6 eV at the peak, against argon's 15.8 eV), which no statistic reports.
+- **Decisions:** none.
+- **Verification:** the twelve cases above pass on the three CPU backends. No
+  convergence is claimed. The plasma ordering holds at 16 fixed steps, and 32 steps
+  move the ramp's loss by 6·10⁻⁴ of itself; at 8 steps it is 5 % off. The full gate,
+  coverage, slow lanes and the wheels on four platforms ran once in CI on the phase 2
+  pull request and passed; this pull request runs the test lanes again.
+- **Open questions:** none new. Phase 2's Q2 moves to the roadmap (Closing).
+
+### Closing — 2026-10-24
+
+Phases 1–3 are merged and reported. Every free-space launch, noise draw and statistic
+measures the medium's axial flux on numpy_ref, numba_cpu and native CPU, with parity
+tests, and the CUDA and HIP builds were qualified before activation. The manual
+documents it on [energy and flux in a medium](../../../guide/free-space/flux.md).
+Moved to the [roadmap](../../roadmap.md):
+
+- **A compiled closure synthesis for numba_cpu's local statistics** (phase 2, Q2):
+  numba forms the closure volume G with NumPy FFTs on the host.
+- **Free-space flux beyond the scalar forward model** (§2, §4.5): gradient scattering
+  outside the certificate, a complex-index certificate for varying absorption, varying
+  media on the Cartesian and line grids, and the vector E/H flux at high numerical
+  aperture.
+- **The hybrid planar route and the far-field pass on GPUs:** this SEP's device
+  campaign ran one short planar Kerr case and Cartesian and line far fields on each
+  device; the routes' full qualification against their CPU parity bounds remains.
+
+Handoff: SEP 31's `FieldPlane` consumes `SpatialFlux`; SEPs 5, 8 and 9 use the same
+measure.
+
 ## Part III — History
 
 - 2026-10-23: Drafted from SEP 31 review R1, R2 and R5 and the maintainer's
@@ -907,6 +969,8 @@ not revalidated to additional precision by this draft.
   explicit request to commit and merge both SEPs 31 and 34. Part I is frozen.
   This proposal is implemented first. Qualification and the separate spending
   go remain phase requirements; the implementation record remains empty.
+- 2026-10-24: Phases 1 and 2 merged with the device qualification; phase 3 report
+  and Closing added. Final and archived.
 
 ### AI review — 2026-10-23
 
