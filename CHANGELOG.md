@@ -153,6 +153,9 @@ The first public release. It contains:
     `numba_cpu` and warns once, naming the missing features; `backend="native"` raises
     there
     ([SEP 29](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0029-compiled-backend-distribution.html)).
+  - The `numba_cpu` kernel pool is clamped to Numba's own `NUMBA_NUM_THREADS` as well as
+    to the CPUs available, so a large problem no longer fails at backend construction
+    when that variable is set below the CPUs granted (on a Slurm node, for example).
   - Each backend is tested against the reference implementation within derived error
     bounds.
   - A short start-up: a run on the native backend imports neither Numba nor

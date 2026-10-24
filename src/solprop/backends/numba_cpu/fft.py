@@ -33,6 +33,7 @@ from typing import Any, Literal
 import numpy as np
 import threadpoolctl
 from numba import get_num_threads, set_num_threads
+from numba.core import config as numba_config
 
 from solprop._process import allowed_cpus, unbound
 from solprop.backends.numba_cpu import openmp
@@ -326,7 +327,9 @@ def choose_pools(  # noqa: PLR0913 - pool sizes, cutoff and explicit overrides
     transform_elements : int
         ``n_columns * n_to`` of the batched modal transform, which decides FFTW's.
     threads : int, optional
-        Override for the kernels' pool. ``None`` takes the regime's choice.
+        Override for the kernels' pool. ``None`` takes the regime's choice. Either way
+        the pool is clamped to the CPUs available and to Numba's own
+        ``NUMBA_NUM_THREADS``.
     fftw_threads : int, optional
         Override for FFTW's pool.
     blas_threads : int, optional
@@ -380,8 +383,14 @@ def choose_pools(  # noqa: PLR0913 - pool sizes, cutoff and explicit overrides
         msg = f"regime_elements must be a positive element count, got {cutoff}"
         raise BackendError(msg)
     cap = _available_threads()
+    # Numba's pool is fixed at import by NUMBA_NUM_THREADS and set_num_threads refuses
+    # more, so the kernels are held to it as well; FFTW and the BLAS have no such limit.
+    kernel_cap = min(cap, numba_config.NUMBA_NUM_THREADS)  # pyright: ignore[reportAttributeAccessIssue] - set at import
     large = elements > cutoff if regime is None else regime == "large"
-    kernels = min(cap, threads) if threads is not None else (cap if large else 1)
+    if threads is not None:
+        kernels = min(kernel_cap, threads)
+    else:
+        kernels = kernel_cap if large else 1
     # The regime decides the *kernels'* pool, because that is what it is about: whether
     # the node loop is a prange. The transforms and the GEMMs are governed by their own
     # measured thresholds and not by the regime, since a transform of 393 216 elements

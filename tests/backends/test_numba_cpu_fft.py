@@ -16,6 +16,7 @@ import os
 import numpy as np
 import pytest
 from numba import get_num_threads
+from numba.core import config as numba_config
 from scipy.signal import hilbert
 
 from solprop.backends.numba_cpu import fft
@@ -124,12 +125,31 @@ def test_the_overrides_win_and_are_capped_by_the_machine():
     assert huge.numba <= (os.cpu_count() or 1)
 
 
+def test_the_kernel_pool_is_capped_by_numbas_own_pool(monkeypatch):
+    """``NUMBA_NUM_THREADS`` below the CPUs caps the kernels, and only the kernels.
+
+    A Slurm node granting 64 CPUs to a worker that exported ``NUMBA_NUM_THREADS=8``
+    asked Numba for 64 threads in the large regime, and ``set_num_threads`` refused.
+    """
+    monkeypatch.setattr(fft, "_available_threads", lambda: 64)
+    monkeypatch.setattr(numba_config, "NUMBA_NUM_THREADS", 8)
+    big = 10 * fft.REGIME_ELEMENTS
+    large = fft.choose_pools(big, big, fft.FFTW_WIDE_ELEMENTS, spatial=True)
+    assert (large.regime, large.numba, large.fftw) == ("large", 8, 64)
+    explicit = fft.choose_pools(
+        1000, 1000, 1000, threads=32, fftw_threads=32, blas_threads=32
+    )
+    assert (explicit.numba, explicit.fftw, explicit.blas) == (8, 32, 32)
+    assert fft.choose_pools(1000, 1000, 1000, threads=4).numba == 4
+
+
 @pytest.mark.parametrize(
     "offset, expected", [(-1, "small"), (0, "small"), (1, "large")]
 )
 def test_the_modal_cutoff_changes_only_the_kernel_regime(offset, expected, monkeypatch):
     """The cutoff changes node dispatch without changing either library pool."""
     monkeypatch.setattr(fft, "_available_threads", lambda: 18)
+    monkeypatch.setattr(numba_config, "NUMBA_NUM_THREADS", 18)
     size = fft.MODAL_REGIME_ELEMENTS + offset
     previous = fft.choose_pools(size, 33 * 8192, 2 * 8192)
     candidate = fft.choose_pools(

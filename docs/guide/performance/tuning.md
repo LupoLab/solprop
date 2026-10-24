@@ -117,12 +117,10 @@ stages are profiling regions (`solprop_native.free.*`) that any Kokkos Tools tim
 reports.
 
 Every explicit count is clamped to the CPUs available. `NUMBA_NUM_THREADS`, Numba's own
-variable, sets the size of the pool Numba creates at import, and a kernel pool larger
-than that is an error rather than being clamped: if you lower `NUMBA_NUM_THREADS` below
-the number of CPUs, set `SOLPROP_NUMBA_THREADS` to at most the same value, or a problem
-in the large regime fails when its backend is built. `NUMBA_THREADING_LAYER` chooses
-Numba's threading layer (`omp`, `tbb` or `workqueue`) and is normally best left
-alone.
+variable, sets the size of the pool Numba creates at import, and the kernel pool, chosen
+or explicit, is clamped to it as well; the FFTW and BLAS pools are not, since they are
+not Numba's. `NUMBA_THREADING_LAYER` chooses Numba's threading layer (`omp`, `tbb` or
+`workqueue`) and is normally best left alone.
 
 **FFTW's idle threads on Linux.** pyFFTW's Linux wheels thread FFTW through their own
 copy of GNU OpenMP. If that runtime's idle threads spin, they take the cores the Numba
