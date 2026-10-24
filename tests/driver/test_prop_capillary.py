@@ -3076,8 +3076,20 @@ def ctc_grid(case):
     )
 
 
-def ctc_run(case, tag, *, planes=None, backend=TEST_BACKEND, luna_vibration=False):
-    """Run CtC with corrected vibration, or explicitly select the old witness model."""
+def ctc_run(
+    case,
+    tag,
+    *,
+    planes=None,
+    backend=TEST_BACKEND,
+    luna_vibration=False,
+    seed=None,
+):
+    """Run CtC with corrected vibration, or explicitly select the old witness model.
+
+    A `seed` launches the case with input shot noise of that seed; without one the run
+    is noise-free, as the witness is.
+    """
     if luna_vibration and backend != "numpy_ref":
         raise ValueError("the historical CtC witness requires the NumPy gated hook")
     grid = ctc_grid(case)
@@ -3111,7 +3123,8 @@ def ctc_run(case, tag, *, planes=None, backend=TEST_BACKEND, luna_vibration=Fals
             rtol=LUNA_TOLERANCES["rtol"],
             atol=LUNA_TOLERANCES["atol"],
             backend=backend,
-            **witness_inputs(grid, case["modes"]),
+            **witness_inputs(grid, case["modes"])
+            | ({} if seed is None else {"noise": "input", "seed": seed}),
         )
         if luna_vibration:
             # Test-only matching of the archived witness's physical model, not
@@ -3170,15 +3183,30 @@ def ctc_reduced(test_backend_name):
     return ctc_run(CTC_REDUCED, "REDUCED", backend=test_backend_name)
 
 
+CTC_PARITY_SEED = 21
+"""The shot-noise seed of the reduced CtC backend comparison."""
+
+
 @pytest.mark.slow
-def test_the_reduced_ctc_native_field_matches_fresh_numba(
-    ctc_reduced, test_backend_name
-):
-    """Kokkos against a fresh ``numba_cpu`` run of the reduced CtC case."""
+def test_the_reduced_ctc_native_field_matches_fresh_numba(test_backend_name):
+    """The native backend against a fresh ``numba_cpu`` run, seeded by shot noise.
+
+    Hydrogen's Raman gain amplifies whatever seeds the Stokes band. Noise-free, that is
+    each backend's own rounding: the two agree to 1.7e-15 at the first plane and only
+    to 6e-6 at the exit, where 5 % of the energy is Stokes light grown from it. Input
+    shot noise of a fixed seed is the same physical seed on both, about 1e9 times
+    the rounding in amplitude, so the comparison at the exit measures the backends
+    again: 5.2e-11 at this seed (1.4e-10 at the next), at identical accepted steps
+    (4937), with 48 % of the energy in the Stokes band.
+    """
     if test_backend_name != "native":
         pytest.skip("run with SOLPROP_TEST_BACKEND=native for the backend comparison")
-    numba = ctc_run(CTC_REDUCED, "REDUCED", backend="numba_cpu")
-    actual = ctc_reduced.fields("fft")[-1]
+    native = ctc_run(CTC_REDUCED, "REDUCED", backend="native", seed=CTC_PARITY_SEED)
+    numba = ctc_run(CTC_REDUCED, "REDUCED", backend="numba_cpu", seed=CTC_PARITY_SEED)
+    assert int(np.sum(native["step_history/accepted"])) == int(
+        np.sum(numba["step_history/accepted"])
+    )
+    actual = native.fields("fft")[-1]
     expected = numba.fields("fft")[-1]
     relative_l2 = np.linalg.norm(actual - expected) / np.linalg.norm(expected)
     assert relative_l2 < 1e-9

@@ -408,9 +408,9 @@ relative-L2 bounds of `1e-10` and `1e-9`.
 | the analytic field family | 1e-13 | 4.6e-16 | `tests/backends/test_numba_cpu.py` |
 | the reduced M2 case | 1e-10 | 3.5e-14, at identical step counts | `tests/driver/test_prop_capillary.py` |
 | the reduced M2 case, native CPU | 1e-10 | 3.5e-14, at identical step counts | `tests/driver/test_prop_capillary.py` |
-| the reduced CtC field, native CPU against fresh Numba | 1e-9 | below the bound at identical 1,235 accepted steps | `tests/driver/test_prop_capillary.py` |
+| the reduced CtC field with seeded shot noise, native CPU against fresh Numba | 1e-9 | 5.2e-11 at identical 4,937 accepted steps | `tests/driver/test_prop_capillary.py` |
 | the reduced M2 case, native CUDA | 1e-10 | 5.5534e-13, at identical step counts | `tests/backends/test_native_gpu.py` (the `gpu` lane) |
-| the reduced CtC field, native CUDA against fresh Numba | 1e-9 | below the bound at identical 1,235 accepted steps | `tests/backends/test_native_gpu.py` (the `gpu` lane) |
+| the reduced CtC field, native CUDA against fresh Numba | 1e-9 | below the bound at identical 1,235 accepted steps on the former 1 ps two-mode case; not yet re-measured on the 2 ps one-mode case | `tests/backends/test_native_gpu.py` (the `gpu` lane) |
 | native Raman kernel/convolution | operation-count and FFT-depth bounds fixed before execution | native host reference, all three drive forms and tail chunks pass | the native tests under `native/tests/native/` |
 | the plasma scan's running sums | `4 n_to ε` across scalar/vector libm paths | 2.79e-16 scaled at 256 samples on an x86-64 host; same-path repetition within the same bound | `tests/backends/test_numba_cpu_kernels.py` |
 | two runs, one thread against many, on one fixed schedule | the step's rounding budget from its reduction lengths | within it | `tests/backends/test_numba_cpu.py` |
