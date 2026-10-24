@@ -69,11 +69,12 @@ roadmap entries change; and `uv run poe docs` when Sphinx content or links chang
 (`docs/dev/testing.md`, "Documentation-only changes").
 
 **Other changes.** Run the fast checks and directly affected test modules during
-development, and the full gate before opening a pull request; CI runs the slow and
-coverage lanes. Do not start another full run merely because a slice, task or SEP is
-ready to commit, merge or become `Final`.
+development. The full gate runs in CI on the pull request, with the slow and coverage
+lanes: do not run it locally before opening the pull request, and do not start a local
+full run because a slice, task or SEP is ready to commit, merge or become `Final`. Fix
+what CI reports by rerunning the failing modules, not the whole gate.
 
-The full gate, `uv run poe check`, runs in this order:
+The full gate, `uv run poe check`, runs in this order (CI runs the same steps):
 
 1. `ruff check --fix .` — lint first: autofix rewrites code.
 2. `ruff format .` — format second, so fixes are formatted.
@@ -99,16 +100,16 @@ default lane at the lowest dependency versions; and the default lane with the na
 CPU backend (`docs/dev/tooling.md`, "CI"). Between them the jobs run exactly
 `poe check`'s steps: change both in the same commit.
 
-**Changes touching `native/`** also run `uv run poe check-native` (or `uv run poe
-check-all` for both gates) and follow [`native/AGENTS.md`](native/AGENTS.md). CI runs the
-native gate as the `native-quality` job and solprop's default lane on the native CPU
+**Changes touching `native/`** follow [`native/AGENTS.md`](native/AGENTS.md). Their full
+gate, `uv run poe check-native` (`uv run poe check-all` for both gates), also runs in CI:
+the native gate as the `native-quality` job and solprop's default lane on the native CPU
 distribution wheel as `native-suite`.
 
 **Slices of a phased SEP.** Develop first and test towards the end. Each slice runs the
 fast checks only: `ruff check --fix`, `ruff format`, `ruff check`, `basedpyright` and the
 test modules that directly exercise the code it changed (`uv run pytest -n auto
-<files>`). At the end of the SEP, run the full gate, slow lanes and coverage lane once,
-or take them from CI. After a failure, rerun the failing modules, not the whole lane.
+<files>`). The full gate, slow lanes and coverage lane run in CI on the SEP's pull
+request. After a failure, rerun the failing modules, not the whole lane.
 
 **Qualification scope.** A change is qualified on `numpy_ref`, `numba_cpu` and, when it
 is installed, the native **CPU** build; GPU builds are exercised separately with
