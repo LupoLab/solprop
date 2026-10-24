@@ -49,7 +49,7 @@ from solprop.translate.responses import ResponseStage
 from solprop.translate.stage import StageScalars
 from solprop.translate.tdse import TDSEBinding
 
-__all__ = ["DeviceSources", "MlxBackend", "refuse_unsupported"]
+__all__ = ["DeviceSources", "MlxBackend", "MlxLowStorage", "refuse_unsupported"]
 
 _SOURCE_STAGES = frozenset(
     {
@@ -138,7 +138,7 @@ class MlxBackend(NumpySingleBackend):
     problem : solprop.translate.problem.KernelProblem
         A validated single-precision problem on the fibre route.
     grid : solprop.grid.TimeGrid, optional
-        The grid, needed only by :meth:`stats`.
+        The grid, needed only by ``stats``.
     modes : collections.abc.Sequence, optional
         The propagated modes, needed only by the ``zdw`` statistic.
     profiles : collections.abc.Mapping, optional
@@ -825,9 +825,10 @@ class MlxBackend(NumpySingleBackend):
 class MlxLowStorage:
     """The low-storage RK4IP engine on the device (SEP 24 section 6.5).
 
-    The host engine's four register passes (:class:`~solprop.backends.low_storage.
-    HostLowStorage`) with device arrays; the half-step flows are formed every step by
-    the double-float kernel, which agrees with the host's tabulated flows to rounding.
+    The host engine's four register passes
+    (:class:`~solprop.backends.low_storage.HostLowStorage`) with device arrays; the
+    half-step flows are formed every step by the double-float kernel, which agrees with
+    the host's tabulated flows to rounding.
 
     Parameters
     ----------

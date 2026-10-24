@@ -218,6 +218,15 @@ def test_tensor_raman_on_two_components_agrees_with_the_oracle(family):
     assert_within(fields[0], fields[1], step_bound(8, 4, depth))
 
 
+def test_the_propagator_drift_stays_linear_on_the_device():
+    """A constant operator, no source: within ``M u`` after ``M`` steps (c <= 1)."""
+    linear = {"gamma": 0.0, "raman": False, "length": 0.5}
+    for steps in (10, 100, 1000):
+        exact = finish(gnlse("double", steps=steps, **linear))
+        actual = finish(on("mlx", gnlse("single", steps=steps, **linear)))
+        assert_within(actual, exact, steps * U32, what=f"{steps} steps")
+
+
 # The protected operations.
 
 

@@ -1568,6 +1568,43 @@ its tidy and sanitizer role only. The native adapter's contract tuples `MODAL_TA
 and `COUPLED_FLOW_FIELDS` name the general leaves' members its adapter reads, so a rename
 is refused by `check_build`.
 
+## 4a. `mlx`: single precision on Apple GPUs
+
+[SEP 33](seps/sep-0033-single-precision-mlx.md)'s `solprop.backends.mlx_gpu`, the extra
+`mlx` (macOS on Apple silicon), registered as `"mlx"` and listed by
+`registry.available("single")` only: it refuses `precision="double"`. `MlxBackend`
+subclasses the single-precision oracle (`NumpySingleBackend`) and keeps its host side
+-- admission, narrowed tables and exponents, the state scale, stage bundles, landing,
+statistics from the widened state -- while the state and every per-step pass live on the
+device (`mlx_gpu/passes.py`, the oracle's passes in MLX). Phase 2 admits the fibre route
+with Runge–Kutta, the low-storage march (`MlxLowStorage`) and lockstep batches
+(`MlxBatchRunner`, which builds every member's step before one evaluation); radial and
+Cartesian free space, the envelope-grid plasma, a z table, Adams and interpolated planes
+are refused by name.
+
+**The protected operations** (SEP 33 §6.3), each a custom Metal kernel in `"safe"`
+math mode with its test in `tests/backends/test_mlx.py`, or established by a probe:
+
+| operation | mechanism | measured |
+|---|---|---|
+| stage propagators and term combinations | `DoubleFloatTerms`: binary64 terms as float32 pairs, combined and range-reduced in double-float, `exp(hi)(1 + lo)` | at most 5 u, independent of the phase; drift `c <= 0.85` |
+| populations | Kahan's `expm1` from the precise `exp` and `log` | 4 u; MLX's own GPU `expm1` errs by up to 1e-4 |
+| running integrals | the oracle's doubling scan in one threadgroup per row | the oracle's sums to the bit |
+| ionisation rate | the spline with an exact `fma` ratio, Kahan's `log1p`, a double-float constant term | 5 u at worst, median 0.7 u |
+| matrix products | `MLX_ENABLE_TF32=0` at import; `gemm_probe` at construction, bound `2**-17` | 2e-7 float32 against 7e-4 TF32 |
+
+**Measured MLX behaviour that shaped the backend.** The GPU FFT is about three times
+less accurate than NumPy's float32 transform and its round trip shrinks by 1–2e-7, a
+coherent bias; the split-step collar is therefore applied as the correction
+`a + F(F^-1(a)(f - 1))`, which only the collar's bins see. Graph lifetimes: below
+`memory.MLX_GRAPH_BUDGET` (1 GiB) a whole step is one graph, read with its norm in one
+synchronisation (the three scaled sums and the trial state's finiteness); above it
+each stage and each running integral is evaluated as it is formed.
+`estimate_memory("mlx")` counts the device tables, the double-float terms and the
+graph the backend keeps, and bounds MLX's measured peak. On MLX's CPU device, which CI
+uses where no Metal GPU is present, the kernels are replaced by MLX operations (the
+propagator by NumPy in binary64) and their tests skip.
+
 ## 5. JAX: evaluated, not adopted
 
 A JAX backend was measured against `numba_cpu` at the step level on the RDW and CtC
@@ -1710,7 +1747,7 @@ that execution space.
 | field-free observation (`observe(field=False)`), the runner, a transverse collar's rate and a set evanescent rate on the separable element | yes | yes | yes (field-free observation needs no native change; the rate is one view in `SpatialCoefficients`) | compiles; not qualified |
 | materials from optmat: gas Raman leaves of many rows on gradients, rate tables, optmat walls, the silica bundles | yes | yes | yes | not qualified |
 | coupling between runs (`field_plane`, `regrid`, `couple`, `Outcouple`, `transport`, `with_input`; SEP 31) | host-side: any source and receiving backend | host-side | host-side | receiving runs not qualified |
-| single precision (`precision="single"`, SEP 33): fibre, radial and Cartesian routes, Kerr, Raman, field and envelope plasma, both absorber schemes, Runge–Kutta and the low-storage march, fixed-schedule batches | the oracle | refused | refused | refused |
+| single precision (`precision="single"`, SEP 33): fibre, radial and Cartesian routes, Kerr, Raman, field and envelope plasma, both absorber schemes, Runge–Kutta and the low-storage march, fixed-schedule batches | the oracle | refused | refused | refused; `mlx` runs the fibre route (below) |
 
 **Materials from optmat** ([SEP 3](seps/archive/sep-0003-optmat-materials.md), a run under
 `MaterialSelection`) reach the backends as the arrays any other run carries: index and
@@ -1760,7 +1797,7 @@ Which backend and build to choose for a run is the user guide's
 ## 11. Current limits
 
 - `"cf4"` coupled-flow sections run only on `numpy_ref`.
-- Single precision runs only on `numpy_ref`, its oracle, until SEP 33's `mlx` backend; it
+- Single precision runs on `numpy_ref`, its oracle, and on `mlx` (the fibre route); it
   refuses the general modal route, the hybrid planar kind, coupled flows, TDSE responses,
   the dispersive electronic response, the far-field statistics, noise models, the Adams
   integrator and an adaptive `rtol` below `1e-6`.

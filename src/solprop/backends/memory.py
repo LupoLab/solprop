@@ -465,7 +465,7 @@ def mlx_rows(problem: KernelProblem, rows: dict[str, int]) -> dict[str, int]:
     the prefactor's terms as double-float pairs, and the live graph. Where a step's
     graph would exceed :data:`MLX_GRAPH_BUDGET` the backend evaluates each stage as it
     is formed and each running integral as it is scanned, so at most one stage's
-    working rows (:data:`_PER_STAGE_ROWS`, twice, for the graph's
+    working rows (``_PER_STAGE_ROWS``, twice, for the graph's
     temporaries), a scan's ``2 ceil(log2 n_to) + 4`` arrays over the node chunk, and the
     stages and their propagators are live at once; below it, a whole step's seven
     stages of rows are, the scans' levels released as they go. Measured against MLX's

@@ -167,14 +167,18 @@ The first public release. It contains:
   responses in binary32, with the controller and the propagator's exponent in binary64,
   every narrowed table at its own power-of-two exponent and the state at an exact scale.
   `numpy_ref` runs it as the single-precision reference (oracle) on the fibre, radial and
-  Cartesian routes; `numba_cpu` and `native` refuse it, and so does `backend="auto"`
-  until a GPU backend that computes in binary32 is installed. Its default `rtol` is the
+  Cartesian routes; `numba_cpu` and `native` refuse it. Its default `rtol` is the
   floor `1e-6`, below which an explicit tolerance is refused, and its default integrator
   `RungeKutta()`; noise models and the Adams integrator are refused. A
   [survival record](https://solprop.readthedocs.io/en/latest/guide/performance/single-precision.html)
   states which problems keep their accuracy. Every run records its precision in its
   configuration, so a resume in the other precision is refused (kernel schema 36,
   output schema 25).
+  - The `mlx` backend (`pip install solprop[mlx]`, macOS on Apple silicon) runs
+    single-precision capillary and fibre runs on the Apple GPU through MLX, validated
+    against the reference backend's single-precision path; `backend="auto"` chooses it
+    under `precision="single"`. Its propagators are formed in double-float arithmetic
+    in a custom Metal kernel, and its matrix products are checked not to be TF32.
 - **The native backend.**
   - Native CPU optimisation: a coherent NEON FFTW build for Apple silicon, long-row
     Raman planning with a compact FFTW/vDSP selection rule, and deferred embedded

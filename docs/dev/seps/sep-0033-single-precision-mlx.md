@@ -1169,6 +1169,83 @@ expected record pins: schema-21 projections leave out the precision as they leav
 SEP 34's measure); native's backend tests pass with schema 36. CI runs the full gate on
 the SEP's pull request.
 
+### Phase 2 — report (2026-10-25)
+
+**Delivered.**
+
+- `solprop.backends.mlx_gpu` (`arithmetic.py`, `passes.py`, `backend.py`, `batch.py`),
+  registered as `"mlx"`; the `mlx` extra (`mlx>=0.32.4,<0.33`, macOS arm64) written by
+  `hatch_build.py`; `registry.available(precision=)` lists binary64 backends by
+  default and `mlx` under `"single"`; `backend="auto"` under single precision resolves
+  to `mlx` where MLX and Metal are present (Q8); `registry.metal_available`.
+- `MlxBackend` on the fibre route: mode-averaged and multimode, field and envelope
+  grids, Kerr and the harmonic, scalar and tensor Raman, mixtures, the field-grid plasma
+  with the held current, loss, both absorber schemes, the polarisation taper,
+  device-ready gradients; Runge–Kutta, the low-storage march (`MlxLowStorage`), lockstep
+  batches (`MlxBatchRunner`), statistics and `observe` through the oracle's host side.
+  Refused by name: radial and Cartesian free space (phase 3), the envelope-grid plasma
+  (phase 4), a z table, Adams, interpolated planes.
+- The protected operations as custom kernels in `"safe"` mode (propagator and term
+  combination in double-float, populations, the doubling scan, the rate table) and the
+  GEMM probe; `memory.mlx_rows`, `MLX_GRAPH_BUDGET` and the device ledger rows.
+- `tests/backends/test_mlx.py` (26 tests); the macOS CI job installs the extra and
+  prints whether the runner exposes Metal; backends guide, dependencies, the manual
+  page's backend column, backends.md §4a, the changelog.
+
+**Findings about MLX 0.32.4 on an Apple-silicon GPU** (each with its test):
+
+- `expm1` errs by up to 1.0e-4 relative at small arguments (1,700 ulp); `exp`, `log`,
+  `log1p`, `sin` and `cos` are within 3 ulp. The populations use Kahan's `expm1` in a
+  kernel (4 u).
+- The FFT is about three times less accurate than NumPy's float32 transform (forward
+  3.4e-7 against 1.1e-7 at 2^12) and its round trip shrinks by 1.2–2.4e-7, a coherent
+  bias. Only the split-step collar puts the state through a round trip; it is applied as
+  a correction, which removed a 5.6e-6 drift over 16 steps. Characterising every length
+  against `fft_bound` and a construction probe at the run's lengths (§6.3) remain to do.
+- Matrix products default to TF32 (7.3e-4 relative), as §6.3 says; the probe separates
+  them.
+- Float32 subnormals are flushed on the GPU (accepted, §4.3 rule 7).
+- The propagator kernel errs by at most 5 u (median 0.5 u), not the one rounding of the
+  oracle: binary32 `exp`, `cos` and `sin` of reduced arguments. It does not grow with
+  the phase. The device's drift constant is `c <= 0.85` (oracle 0.17–0.32);
+  double-float `sincos` is the refinement if a record needs it.
+
+**Agreement with the oracle** (class R, same schedule; bounds as the oracle tests'):
+soliton with Raman 2.0e-7 (10 steps) and 4.1e-7 with the kernel; envelope capillary
+8.7e-7; argon capillary 2.8e-6 and nitrogen 3.0e-6 (16 steps), whose free current
+integrates an oscillating field to a small net value, a one-ulp difference in the
+population moving it by 7e-4 — the conditioning §7.1's signed-sum bounds carry; four
+modes 1.0e-5 over 256 steps; tensor Raman on two components; low-storage 2.0e-7; batch
+members equal to their solo runs bitwise; a resume across the oracle and `mlx` within
+its bound.
+
+**Indicative timings** (one Apple-silicon laptop under heavy load, same-process A/B
+against `native` in binary64, four alternating rounds, fixed 20-step schedules, median
+time per step; not a benchmark, which §7.4 assigns to a quiet machine):
+
+| case | `native` / `mlx` time |
+|---|---|
+| GNLSE, one line, 2^14 samples | 1.5 |
+| GNLSE, one line, 2^16 | 2.7 |
+| GNLSE, one line, 2^18 | 5.4 |
+| Ar capillary with plasma, one mode, 300 fs (n_to 4096, 33 nodes) | 0.34 |
+| the same, four modes | 0.51 |
+| the same, eight modes on 1 ps (n_to 16384, 65 nodes) | 1.21 |
+
+Small runs are bound by the GPU's per-operation latency (a 33 × 4096 stage costs about
+0.8 ms in some sixty launches); the kernels for the scan and the rate table halved the
+plasma's share. Fusing more passes is phase 4's (§11). A first cut evaluated every
+propagator on the host (a bug in `DoubleFloatTerms.upload`, found by these timings and
+fixed); the A/B ratios above are after the fix.
+
+**Not yet done in this phase** (carried into the PR's remaining work, before Final):
+the FFT characterisation and construction probe (§6.3); the hosted macOS runner's Metal
+result (Q7), which the first CI run on the pull request records; the benchmark on a
+quiet machine (§7.4); the adversarial compensation and special-value tests of §6.3's
+table beyond the population and finiteness tests.
+
+**Deviations.** None from Part I.
+
 ## Part III — History
 
 - 2026-10-23: Drafted, after an indicative synthetic MLX measurement on an Apple-silicon laptop.

@@ -8,10 +8,11 @@ processors without fast binary64 arithmetic compute in; whether a given problem 
 its accuracy in binary32 is a property of the problem, so this page records which do.
 
 ```{note}
-Today single precision runs on `numpy_ref`, the reference implementation, which exists
-to define the arithmetic and to measure it, not to be fast: a single-precision run on it
-takes about as long as a double-precision one. A GPU backend that computes in binary32
-is the next phase of SEP 33. `numba_cpu` and `native` compute in binary64 only.
+Single precision runs on the `mlx` backend, on the GPU of an Apple-silicon Mac
+([choosing a backend](backends.md#the-apple-gpu-backend)), for capillary and fibre runs;
+radial and Cartesian free space follow. `numpy_ref` runs every route below as the
+reference implementation, which defines the arithmetic and measures it but is not fast.
+`numba_cpu` and `native` compute in binary64 only.
 ```
 
 ## Asking for it
@@ -38,26 +39,27 @@ interfaces. Under single precision:
 - **The integrator.** The default is `RungeKutta()` (DOPRI5) and the low-storage march is
   admitted; the Adams integrator, `Multistep()`, is refused until its single-precision
   accuracy is established.
-- **The backend.** `backend="numpy_ref"` must be named. `backend="auto"` never resolves to
-  a binary64 backend for a single-precision run, nor to the reference implementation;
-  with no GPU backend installed it is refused.
+- **The backend.** `backend="auto"` resolves to `"mlx"` when MLX and a Metal GPU are
+  present, and is refused otherwise; it never resolves to a binary64 backend, nor to the
+  reference implementation, which is named explicitly, `backend="numpy_ref"`.
 - **Outputs** are unchanged: saved fields, statistics and processing are binary64, and
   files are the same size. The precision is part of the run's configuration, so a run is
   never resumed in the other precision.
 
 ## What it covers
 
-| | single precision |
-|---|---|
-| capillaries, solid-core and GNLSE fibres, mode-averaged and multimode, field and envelope grids | yes |
-| Kerr, the envelope grid's third-harmonic term, scalar and tensor Raman, gas Raman mixtures, the silica bundle | yes |
-| field-grid and envelope-grid plasma | yes |
-| radial and Cartesian free space, including a line | yes |
-| gradients, tapers, loss, both temporal absorber schemes, the polarisation taper | yes |
-| Runge–Kutta, the low-storage march, fixed-schedule batches | yes |
-| the Adams integrator | refused, pending its accuracy record |
-| noise models | refused (a known limitation, below) |
-| the general modal route, the hybrid planar kind, coupled flows, TDSE responses, the dispersive electronic response, the far-field statistics | refused |
+| | `numpy_ref` | `mlx` |
+|---|---|---|
+| capillaries, solid-core and GNLSE fibres, mode-averaged and multimode, field and envelope grids | yes | yes |
+| Kerr, the envelope grid's third-harmonic term, scalar and tensor Raman, gas Raman mixtures, the silica bundle | yes | yes |
+| field-grid plasma | yes | yes |
+| envelope-grid plasma | yes | refused, a later phase |
+| radial and Cartesian free space, including a line | yes | refused, the next phase |
+| gradients, tapers, loss, both temporal absorber schemes, the polarisation taper | yes | yes, where the operator is device-ready (not a z table) |
+| Runge–Kutta, the low-storage march, fixed-schedule batches | yes | yes |
+| the Adams integrator | refused, pending its accuracy record | refused |
+| noise models | refused (a known limitation, below) | refused |
+| the general modal route, the hybrid planar kind, coupled flows, TDSE responses, the dispersive electronic response, the far-field statistics | refused | refused |
 
 ## How the arithmetic is kept accurate
 
@@ -128,4 +130,10 @@ At `rtol = 1e-5` every case but the comb-to-continuum stays inside its envelopes
   Raman scattering; such runs reach their accuracy over a shorter length, as the record
   states.
 - **Performance.** On the reference implementation a single-precision run costs about as
-  much as a double-precision one.
+  much as a double-precision one. On `mlx` the gain over `native` grows with the
+  problem: on one Apple-silicon laptop, in the same process, a GNLSE step on a single
+  line took 0.65, 0.36 and 0.19 times `native`'s time at 2¹⁴, 2¹⁶ and 2¹⁸ samples,
+  and an eight-mode capillary with ionisation on a 1 ps window 0.83 times. Small
+  capillary runs (one to four modes on a 300 fs window) are slower on the GPU, 2–3
+  times `native`'s time, bound by the GPU's per-operation latency. These are indicative
+  figures from a loaded machine, not benchmarks.
