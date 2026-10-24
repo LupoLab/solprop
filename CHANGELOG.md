@@ -64,6 +64,20 @@ The first public release. It contains:
 - **Free space.** Radial, Cartesian and line grids with the exact (non-paraxial)
   diffraction operator. Planar guides can be resolved across their width. Absorbing
   spatial boundaries are included, and far-field and aperture statistics.
+- **Physical flux in free space**
+  ([SEP 34](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0034-medium-flux.html)).
+  Spatial launches, shot noise, energies, fluences, intensities and statistics measure
+  the axial Poynting flux of the medium at the plane (`SpatialFlux`), so a requested
+  energy is the physical energy there; local flux uses the complex admittance and is
+  signed, and `peak_field` names the physical-field diagnostic. Accessors take
+  `(field, flux)`; `SpatialPulse.build` and `spatial_noise` take the medium and plane.
+  `critical_power` takes the carrier `index=` and returns the physical power, `n0` times
+  the vacuum-measure value. A radial gas gradient carries the forward amplitude term
+  `-ln(Y_z(z)/Y_z(0))/2` and is admitted under a real-index adiabatic certificate
+  (`AdiabaticAccuracy`, default 1e-4 on field error and reflected energy;
+  `SimulationSettings.adiabatic_accuracy`). `poynting_spectrum` is removed:
+  `beam_spectrum` is the axial-flux spectrum. Kernel schema 35 (`flux`) and output
+  schema 23 (`flux_model`, `flux_plan`).
 - **Media and responses.**
   - Gases, gas mixtures, glasses and metals from the [optmat](https://github.com/LupoLab/optmat)
     material library.
@@ -89,13 +103,20 @@ The first public release. It contains:
     Kokkos-FFT, bound with nanobind, for multi-core CPUs (OpenMP) and for NVIDIA and AMD
     GPUs (CUDA, HIP). `pip install solprop[native]` installs a precompiled CPU wheel on
     macOS on Apple silicon, Linux on x86-64 and aarch64, and Windows on x86-64; other
-    platforms and GPUs build it from source. `backend="auto"` selects it when installed,
+    platforms and GPUs build it from source. A CUDA build needs GCC 14 or newer as the
+    host compiler and CUDA 12.8 or newer (qualified on CUDA 13). `backend="auto"` selects it when installed,
     except on a processor below the installed build's CPU baseline, where it uses
     `numba_cpu` and warns once, naming the missing features; `backend="native"` raises
     there.
   - Each backend is tested against the reference implementation within derived error
     bounds.
 - **The native backend.**
+  - Native CPU optimisation: a coherent NEON FFTW build for Apple silicon, long-row
+    Raman planning with a compact FFTW/vDSP selection rule, and deferred embedded
+    transverse diagnostics for ordinary DOPRI5 modal trials. Accelerate BLAS, kernel
+    schema 35, frontend signatures, protected arithmetic and state layouts are
+    unchanged. See the [CPU measurements](https://solprop.readthedocs.io/en/latest/dev/benchmarks.html#native-cpu-fft-and-diagnostic-scheduling)
+    for the lightweight validation scope and rejected traversal and sizing leads.
   - `NativeBackend` runs one trial step per native call, with states, views and FFT
     plans resident in the execution space; `NativeBatchBackend` runs fixed-schedule
     batches with fused accepted updates.

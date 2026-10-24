@@ -15,10 +15,15 @@ from hankel_oracles import complex_gaussian_bound, gamma, gaussian_axis_bound
 from solprop.constants import C
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.hankel import QDHT
-from solprop.spatial import SpatialMedium, beam_radius, fwhm_r
+from solprop.spatial import SpatialFlux, SpatialMedium, beam_radius, fwhm_r
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.problem import assemble
 from spatial_records import record_metric
+
+
+def _vacuum(grid, space):
+    """Return the vacuum measure of the plane at z = 0 (SEP 34)."""
+    return SpatialFlux.resolve(grid, space, SpatialMedium())
 
 
 @pytest.fixture(params=["field", "envelope"])
@@ -162,16 +167,16 @@ def test_gaussian_width_gouy_and_axis_intensity_include_nonparaxial_error(
         assert abs(np.angle(axis / amplitude)) <= phase_bound
         assert abs(abs(axis) ** 2 - abs(amplitude) ** 2) <= axis_intensity_bound
         assert_allclose(
-            beam_radius(grid, space, state), width, rtol=0, atol=radius_bound
+            beam_radius(state, _vacuum(grid, space)), width, rtol=0, atol=radius_bound
         )
         assert_allclose(
-            beam_radius(grid, space, state, method="1/e2"),
+            beam_radius(state, _vacuum(grid, space), method="1/e2"),
             width,
             rtol=0,
             atol=interpolation_bounds[0],
         )
         assert_allclose(
-            fwhm_r(grid, space, state),
+            fwhm_r(state, _vacuum(grid, space)),
             width * math.sqrt(2 * math.log(2)),
             rtol=0,
             atol=interpolation_bounds[1],
@@ -187,17 +192,20 @@ def test_gaussian_width_gouy_and_axis_intensity_include_nonparaxial_error(
             ),
             (
                 "second-moment radius (m)",
-                abs(beam_radius(grid, space, state) - width),
+                abs(beam_radius(state, _vacuum(grid, space)) - width),
                 radius_bound,
             ),
             (
                 "1/e² radius (m)",
-                abs(beam_radius(grid, space, state, method="1/e2") - width),
+                abs(beam_radius(state, _vacuum(grid, space), method="1/e2") - width),
                 interpolation_bounds[0],
             ),
             (
                 "FWHM diameter (m)",
-                abs(fwhm_r(grid, space, state) - width * math.sqrt(2 * math.log(2))),
+                abs(
+                    fwhm_r(state, _vacuum(grid, space))
+                    - width * math.sqrt(2 * math.log(2))
+                ),
                 interpolation_bounds[1],
             ),
         )

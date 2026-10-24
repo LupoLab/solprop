@@ -4,7 +4,9 @@
 
 """The Cartesian and planar collar diagnostic, accumulated by block of frequency.
 
-SEP 22 section 6.3: each node's fluence is a sum over frequency, so blocks accumulate
+The diagnostic is the collar's share of the beam's electric-field norm, a boundary
+check rather than a fraction of physical fluence (SEP 34 §5.1). SEP 22 section 6.3:
+each node's field norm is a sum over frequency, so blocks accumulate
 the whole-volume diagnostic exactly up to the order of the sums. The comparison is
 class R (``docs/dev/testing.md`` section 3): Higham's ``gamma_m`` of each sum of ``m``
 non-negative terms, and the transverse transform's own bound, fixed before measuring.
@@ -21,13 +23,13 @@ from driver.test_field_free_planes import cartesian
 from driver.test_prop_planar import GRID, pulse, settings, slab_modes
 from solprop import fourier
 from solprop.backends import spatial
-from solprop.backends.spatial import collar_block, spatial_collar_fraction
+from solprop.backends.spatial import collar_block, collar_field_fraction
 from solprop.driver import Simulation
 from solprop.modes.slab import PlanarGrid
 
 
 def whole_volume_fraction(problem, field) -> float:
-    """Return the diagnostic as it was computed before: the whole volume at once."""
+    """Return the field-norm diagnostic computed over the whole volume at once."""
     transform = problem.transform
     geometry = transform.geometry
     full = spatial._free_physical(transform, field, problem.grids.pad_scale)
@@ -57,7 +59,7 @@ def test_the_blockwise_fraction_is_the_whole_volume_one(monkeypatch, kind, bins)
     assert expected > 0
     if bins is not None:
         monkeypatch.setattr(spatial, "collar_block", lambda problem: bins)
-    measured = spatial_collar_fraction(problem, field)
+    measured = collar_field_fraction(problem, field)
     terms = field.size
     # Two sums of `terms` non-negative terms each (gamma_m apiece), their quotient,
     # and a physical field taken by a different grouping of the same transforms.
@@ -82,9 +84,9 @@ def test_the_block_is_bounded_by_the_node_chunk_and_so_is_the_transient():
         transform.node_chunk * n_pol * problem.grids.n_to, 3 * transform.n_nodes * n_pol
     )
     field = np.ascontiguousarray(problem.initial.field0[0])
-    spatial_collar_fraction(problem, field)  # warm any first-call allocation
+    collar_field_fraction(problem, field)  # warm any first-call allocation
     tracemalloc.start()
-    spatial_collar_fraction(problem, field)
+    collar_field_fraction(problem, field)
     _, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
     volume = 16 * transform.n_nodes * n_pol * n_omega

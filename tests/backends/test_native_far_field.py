@@ -149,8 +149,10 @@ def test_the_native_pass_matches_the_reference_and_numba_cpu(name):
             elementwise=True,
             what=one,
         )
-    # Every channel is live on this fixture, and every aperture collects.
-    assert np.all(values["absorbed_power"] > 0)
+    # Every channel but the evanescent one is live on this fixture (an evanescent
+    # column carries no axial flux, SEP 34), and every aperture collects.
+    assert np.all(values["absorbed_power"][[0, 1, 3]] > 0)
+    assert values["absorbed_power"][2] == 0.0
     assert np.all(np.max(values["aperture_spectrum"], axis=1) > 0)
 
 
@@ -191,7 +193,7 @@ def test_the_native_operator_slots_follow_gain_and_zero_frequency():
     values, field = native_stats(problem, grid, field, WITH_AXIS)
     expected = reference(WITH_AXIS, grid, problem, field, tables)
     assert values["absorbed_power"][3] < 0
-    assert values["poynting_spectrum"][0] == 0.0
+    assert values["beam_spectrum"][0] == 0.0
     assert np.all(values["aperture_spectrum"][:, 0] == 0.0)
     assert np.all(values["aperture_on_axis_spectrum"][:, 0] == 0.0)
     absolute = magnitudes(WITH_AXIS, grid, problem, field, tables)
@@ -209,7 +211,7 @@ def test_the_native_operator_slots_follow_gain_and_zero_frequency():
 def test_a_partial_native_request_packs_only_its_statistics():
     grid = time_grid("envelope")
     space = fine_space()
-    names = ("poynting_spectrum", "aperture_on_axis_spectrum")
+    names = ("beam_spectrum", "aperture_on_axis_spectrum")
     spec = spec_of(holes("supergauss", size=FINE), names, regions=np.empty((0, 4)))
     field = random_field(space, 1, grid)
     problem = problem_of(grid, space, field, spec)
@@ -347,11 +349,11 @@ def test_the_native_partials_are_held_and_estimated_to_the_byte():
         assert ledger["far_field_tables"] == 8 * (space.n_x + space.n_y)
         owner.set_initial(problem.initial.field0, None)
         owner.stats(problem.stats_spec)
-        # Three apertures' rows and four boxes; thirteen spectral rows (the beam, the
-        # flux, four regions, three collected, three through the holes, the axis)
-        # and the four absorbed powers.
+        # Three apertures' rows and four boxes; twelve spectral rows (the beam, four
+        # regions, three collected, three through the holes, the axis) and the four
+        # absorbed powers.
         tables = 3 * (6 + grid.n_omega) + 4 * 4
-        packed = 13 * grid.n_omega + 4
+        packed = 12 * grid.n_omega + 4
         ledger = owner.memory_ledger()
         assert ledger["far_field_tables"] == 8 * (
             space.n_x + space.n_y + tables + packed
@@ -376,11 +378,12 @@ def test_on_axis_intensity_takes_no_native_slot():
     problem = problem_of(grid, space, field, spec)
     n_slots, n_bands = far_field_partials(problem, axis_folded=AXIS_SPECTRUM_ONLY)
     assert n_slots == 1
-    assert far_field_partials(problem)[0] == 1 + 2 * 2
+    # The axis amplitude and its closure, 4 n_pol slots.
+    assert far_field_partials(problem)[0] == 1 + 4 * 2
     rows = far_field_memory(problem, "native")
     assert rows == {"far_field_partials": 8 * n_bands * grid.n_omega}
     assert far_field_memory(problem, "numba_cpu") == {
-        "statistics_partials": 8 * (n_bands + 1) * 5 * grid.n_omega
+        "statistics_partials": 8 * (n_bands + 1) * 9 * grid.n_omega
     }
     owner = select("native", problem, grid=grid)
     try:
@@ -444,7 +447,7 @@ def test_a_native_run_forms_the_statistics_at_planes_and_between_them():
     space = FreeGrid(3e-4, 16, 3e-4, 16, window_factor=0.1)
     launch = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6), 6e-5
-    ).build(grid, space)
+    ).build(grid, space, medium=SpatialMedium(1 + 1e-6j))
     names = (*FAR_FIELD_STATISTICS, "energy", "on_axis_spectrum", "on_axis_intensity")
     spec = dataclasses.replace(
         spec_of(holes("tanh"), names), periodic=("absorbed_power",), period=1

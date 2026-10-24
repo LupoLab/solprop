@@ -141,10 +141,12 @@ KOKKOS_INLINE_FUNCTION void clenshaw_block(const Complex* c, const std::size_t s
     }
     return;
   }
-  double c0_real[block_values];
-  double c0_imag[block_values];
-  double c1_real[block_values];
-  double c1_imag[block_values];
+  // Zeroed: GCC 13 cannot see that the loops below write every element they read
+  // (count <= block_values) and refuses the device build's host pass under -Werror.
+  double c0_real[block_values]{};
+  double c0_imag[block_values]{};
+  double c1_real[block_values]{};
+  double c1_imag[block_values]{};
   const double x2 = 2.0 * x;
   const Complex* second = c + (n_terms - 2) * stride;
   const Complex* last = c + (n_terms - 1) * stride;

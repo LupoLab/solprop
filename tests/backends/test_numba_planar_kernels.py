@@ -23,10 +23,21 @@ buffer leaves the other half's, and a hard mask stores zeros.
 import numpy as np
 import pytest
 
+from bounds import gamma
+from solprop import fourier
 from solprop.backends.bodies import PLAIN
 from solprop.backends.numba_cpu import kernels, planar
+from solprop.backends.numba_cpu.spatial import flux_measure
+from solprop.constants import EPS0, C
 from solprop.exceptions import BackendError
-from solprop.translate.spatial import SeparableOperator, separable_values
+from solprop.grid import EnvelopeGrid
+from solprop.modes import PlanarGrid, SlabMode
+from solprop.spatial import SpatialFlux, SpatialMedium
+from solprop.translate.spatial import (
+    SeparableOperator,
+    axial_admittance,
+    separable_values,
+)
 
 BOUND = 128 * np.finfo(float).eps
 """The pointwise chain's bound, relative to O(1) operands."""
@@ -215,3 +226,43 @@ def test_the_hard_mask_takes_the_rows_to_the_state():
     state = np.empty_like(rows)
     kernels.apply_hard_mask(rows, mask, state)
     np.testing.assert_array_equal(state, rows * mask)
+
+
+@pytest.mark.parametrize("parallel", [False, True])
+def test_the_flux_pass_reads_the_slab_admittance_with_its_wall_terms(parallel):
+    """The compiled plane measure is the host admittance, wall terms subtracted.
+
+    The closure is ``conj(Y) E`` per element, within the pointwise bound; the energy
+    is a sum of nonnegative terms, so the two orders of summation agree to
+    ``gamma(n)`` of it.
+    """
+    grid = EnvelopeGrid.from_limits(0.1, 800e-9, (650e-9, 1000e-9), 600e-15)
+    space = PlanarGrid([SlabMode(63.5e-6, "Ar", 1.0, order=p) for p in (1, 3)], 1e-3, 8)
+    flux = SpatialFlux.resolve(grid, space, SpatialMedium("Ar", pressure=1.0))
+    plane = flux.coefficients
+    assert isinstance(plane, SeparableOperator)
+    assert plane.kappa_sq is not None
+    rng = np.random.default_rng(5)
+    shape = (space.n_columns, 1, grid.n_omega)
+    field = rng.standard_normal(shape) + 1j * rng.standard_normal(shape)
+    weights = space.spectral_weights
+    energy, closure = flux_measure(
+        plane, grid, weights, field, closure=True, parallel=parallel
+    )
+    admittance = axial_admittance(plane, grid.omega, slice(None))
+    assert closure is not None
+    np.testing.assert_allclose(
+        closure,
+        np.conj(admittance)[:, None, :] * field,
+        rtol=BOUND,
+        atol=BOUND * float(np.max(np.abs(closure))),
+    )
+    terms = (
+        weights[:, None]
+        * fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
+        * np.real(admittance)
+        * np.abs(field[:, 0]) ** 2
+    )
+    assert np.all(terms >= 0)
+    expected = 0.5 * EPS0 * C * float(np.sum(terms))
+    assert energy == pytest.approx(expected, rel=BOUND + gamma(terms.size))

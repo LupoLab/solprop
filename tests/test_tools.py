@@ -228,8 +228,12 @@ def test_the_critical_power_is_the_package_townes_power_times_the_index():
         expected, rel=1e-13
     )
     chi3 = 4.0 * nonlinear * EPS0 * C * index**2 / 3.0
+    # Both are the physical power, n0 times the index-free field threshold.
     assert tools.self_focusing_power(PUMP, index, nonlinear) == pytest.approx(
-        index * critical_power(PUMP, chi3), rel=1e-9
+        critical_power(PUMP, chi3, index=index), rel=1e-9
+    )
+    assert critical_power(PUMP, chi3, index=index) == pytest.approx(
+        index * critical_power(PUMP, chi3, index=1.0), rel=1e-13
     )
 
 

@@ -21,6 +21,51 @@ env:
   SOLPROP_FFTW_PLAN: estimate
 
 jobs:
+  # Whether anything beyond the documentation changed. A change confined to docs/ and
+  # Markdown files runs the static checks, the documentation build and the tests that
+  # read the documentation (docs-tests), not the test lanes; anything else, or a push
+  # whose base is unknown, runs everything.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          code=true
+          if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            git diff --name-only "$BASE" HEAD > changed.txt
+            cat changed.txt
+            if ! grep -qvE '^docs/|\.md$' changed.txt; then code=false; fi
+          fi
+          echo "code=$code" | tee -a "$GITHUB_OUTPUT"
+
+  docs-tests:
+    needs: changes
+    if: needs.changes.outputs.code == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # hatch-vcs derives the version from tags
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+      - run: uv python install 3.14
+      - run: uv sync --locked
+      # The test modules that open a documentation file (the SEP structure, the guide's
+      # snippets, the accuracy page, the catalogues, the kernel contract, the figures).
+      - name: The tests that read the documentation
+        run: |
+          uv run pytest -n 4 $(grep -lE '"docs"|"docs/|"(CHANGELOG|README|AGENTS)\.md"|\.md"\)|/ "[a-z0-9-]+\.md"' tests/test_*.py tests/*/test_*.py)
+
   # The definition-of-done gate of AGENTS.md (`poe check`), split into jobs that run in
   # parallel: the static checks, the documentation, the default test lane and the slow
   # lane. The default lane runs with coverage on Linux (the coverage job) and plainly on
@@ -60,6 +105,8 @@ jobs:
       - run: uv run poe docs
 
   test:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     name: test (macos-latest)
     runs-on: macos-latest
     timeout-minutes: 120
@@ -75,6 +122,8 @@ jobs:
       - run: uv run poe test
 
   slow:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     name: slow (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
@@ -102,6 +151,8 @@ jobs:
   # Linux with the native package built from this tree (solprop's native paths are part
   # of the 100 %), and its report (coverage.xml) for the badge.
   coverage:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 150
     env:
@@ -143,6 +194,8 @@ jobs:
   # is not yet in CI). The lint, type, docstring, spelling, REUSE and docs steps are
   # platform-independent and run in the static and docs jobs.
   windows:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: windows-latest
     timeout-minutes: 180
     env:
@@ -161,6 +214,8 @@ jobs:
   # The floors in pyproject.toml are claims: test them. solprop with the lowest versions
   # of its direct dependencies that the floors allow, and the test tools at their latest.
   oldest:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     name: tests (lowest dependencies)
     runs-on: ubuntu-latest
     timeout-minutes: 150
@@ -187,6 +242,8 @@ jobs:
   # pytest on an editable build, and the distribution wheel's build and isolated smoke
   # test.
   native-quality:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -216,6 +273,8 @@ jobs:
   # Every other job runs without it, so backend="auto" selects numba_cpu there, and
   # numpy_ref is checked by the parity tests in every job.
   native-suite:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     env:

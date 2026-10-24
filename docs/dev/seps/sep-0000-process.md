@@ -223,17 +223,21 @@ name; its pull request cites the SEP, and its report goes into the SEP here.
 A SEP becomes `Final` when:
 
 - every phase is merged and reported;
-- the functionality runs on every backend (`numpy_ref`, `numba_cpu` and the Kokkos CPU
+- the functionality runs on every backend (`numpy_ref`, `numba_cpu` and the native CPU
   build), with parity tests — or the accepted SEP records a justified exception, which
   then has a roadmap item;
 - the manual documents it, and each manual page it produced ends with a link to the SEP;
 - the open questions left are moved to the roadmap or to issues, and named in the last
   report.
 
-In the pull request that sets `Final`: fill in **Manual pages**, move the file with
-`git mv` to `docs/dev/seps/archive/`, move its index row to the archived table and its
-toctree entry to the archive index, fix the relative links the move breaks, remove its
-roadmap link, and cite the SEP in the `CHANGELOG.md` line.
+The SEP's last implementation pull request sets `Final` in its last commit, so that
+merging it, which is the maintainers' approval, completes the SEP. A separate pull
+request sets `Final` only when the evidence for it can exist only after the merge (a run
+of the published artefacts, for example); being documentation alone, it runs only the
+documentation checks in CI. The commit that sets `Final` fills in **Manual pages**,
+moves the file with `git mv` to `docs/dev/seps/archive/`, moves its index row to the
+archived table and its toctree entry to the archive index, fixes the relative links the
+move breaks, removes its roadmap link, and cites the SEP in the `CHANGELOG.md` line.
 
 A Final SEP is a historical record. It is not updated to follow later changes to the code;
 the manual and the design pages describe current behaviour. Only errata and a
@@ -267,8 +271,8 @@ and compares options; it is not a line-by-line plan, which belongs to the implem
 ### Implementation rules
 
 - **Backends in order.** A feature is implemented first on `numpy_ref`, the oracle, with
-  its tests and its manual page; then on `numba_cpu`; then on the Kokkos CPU build in
-  `solprop-kokkos`. Device (GPU) qualification follows the standing policy of
+  its tests and its manual page; then on `numba_cpu`; then on the native CPU build in
+  `native/`. Device (GPU) qualification follows the standing policy of
   [backends.md](../backends.md), later and in one pass.
 - **Parity, eventually.** Until a backend implements the feature it refuses the problem by
   name, with an error saying which backend does support it; it never falls back silently.

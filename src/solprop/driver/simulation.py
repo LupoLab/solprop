@@ -44,6 +44,7 @@ from scipy.special import j0, jn_zeros
 
 import solprop.driver.tdse as tdse_runtime
 from solprop._display import Displayed, engineering, line, summarise
+from solprop.adiabatic import AdiabaticAccuracy
 from solprop.backends.multistep import CallLedger
 from solprop.backends.protocol import Backend
 from solprop.backends.registry import resolve_name, select
@@ -54,7 +55,7 @@ from solprop.boundaries import (
     warn_walkoff,
 )
 from solprop.boundaries import absorber as collar
-from solprop.constants import EPS0, C
+from solprop.constants import C
 from solprop.driver import tdse_consistency
 from solprop.driver.material_output import (
     material_manifest,
@@ -219,7 +220,7 @@ from solprop.pulses import (
     SechPulse,
     SpatialPulse,
 )
-from solprop.spatial import SpatialMedium, planar_intensity, spatial_intensity
+from solprop.spatial import SpatialFlux, SpatialMedium, peak_field
 from solprop.stats import (
     PLASMA_INTEGRATION_STATISTICS,
     StatsSpec,
@@ -244,6 +245,7 @@ from solprop.translate.envelope_plasma import (
     cycle_moments,
 )
 from solprop.translate.expansion import ParameterExpansion
+from solprop.translate.flux import flux_record
 from solprop.translate.general import (
     GeneralModalRoute,
     general_modal_route,
@@ -554,6 +556,10 @@ class SimulationSettings(Displayed):
         the default, carries none. It damps content reaching the grid's outer
         wavenumbers; it does not replace sizing the grid by the one-half rule.
         Refused on the radial and hybrid planar kinds and on modal runs.
+    adiabatic_accuracy : solprop.adiabatic.AdiabaticAccuracy or None
+        The forward-field and reflected-energy budgets a radial medium varying
+        along z must meet (SEP 34 section 4.5). ``None``, the default, is
+        ``AdiabaticAccuracy()``, both 1e-4; a path exceeding them is refused.
     tdse_execution : solprop.nonlinear.tdse.TDSEExecution or None
         Explicit atomic runtime resources for a TDSE response. Requires an explicit
         ``backend="numpy_ref"`` and a Multistep integrator. Execution resources are
@@ -613,6 +619,7 @@ class SimulationSettings(Displayed):
     field_planes: Sequence[int] = ()
     evanescent_rate: float | None = None
     transverse_absorber: TransverseCollar | None = None
+    adiabatic_accuracy: AdiabaticAccuracy | None = None
 
     def _planes_text(self) -> str:
         """Return the save planes summarised, for printing.
@@ -1031,6 +1038,8 @@ def metadata_for(  # noqa: PLR0913 - the record's parts, each a distinct object
             "inverse_scale": geometry.inverse_scale,
             "window": geometry.window,
             "absorber_rate": geometry.absorber_rate,
+            "flux_model": "scalar-axial-admittance",
+            "flux_plan": flux_record(problem.flux),
         }
     tdse_record = None if problem.tdse is None else dataclasses.asdict(problem.tdse)
     return RunMetadata(
@@ -1327,7 +1336,7 @@ class Simulation(Displayed):
                     grid, thg=any(bool(getattr(one, "thg", False)) for one in responses)
                 )
             self._field0 = initial.build(
-                grid, spatial_grid, medium=medium, frame=self.frame
+                grid, spatial_grid, medium=medium, z=initial_z, frame=self.frame
             )
         else:
             self._field0 = _built(initial, grid)
@@ -1550,6 +1559,7 @@ class Simulation(Displayed):
                     reuse=self._reuse,
                     evanescent_rate=settings.evanescent_rate,
                     transverse_absorber=settings.transverse_absorber,
+                    adiabatic_accuracy=settings.adiabatic_accuracy,
                 )
         return self._problem
 
@@ -1953,6 +1963,8 @@ class Simulation(Displayed):
                 configuration["evanescent_rate"] = self.settings.evanescent_rate
             if self.settings.transverse_absorber is not None:
                 configuration["transverse_absorber"] = self.settings.transverse_absorber
+            if self.settings.adiabatic_accuracy is not None:
+                configuration["adiabatic_accuracy"] = self.settings.adiabatic_accuracy
             if self.spatial_grid is not None:
                 configuration.update(
                     spatial_grid=self.spatial_grid, medium=self.medium, frame=self.frame
@@ -2948,8 +2960,7 @@ class Simulation(Displayed):
             None
             if noise is None
             else spatial_noise(
-                grid,
-                space,
+                SpatialFlux.resolve(grid, space, medium, z=simulation.initial_z),
                 np.random.default_rng(seed),
                 model=noise,
                 n_pol=field.shape[1],
@@ -8998,17 +9009,13 @@ def _spatial_input_peak(
     Returns
     -------
     tuple of float
-        The peak field amplitude in V/m, from the physical intensity's maximum, and
+        The peak physical field amplitude in V/m, and
         the circular share ``|S3|/S0`` of the pulse's Jones vector; a spectrum given
         as an array declares none and is taken as linear.
     """
     space = cast("RadialGrid | FreeGrid | PlanarGrid", simulation.spatial_grid)
-    intensity = (
-        planar_intensity(simulation.grid, space, simulation._field0)
-        if isinstance(space, PlanarGrid)
-        else spatial_intensity(simulation.grid, space, simulation._field0)
-    )
-    peak = math.sqrt(2.0 * float(np.max(intensity)) / (EPS0 * C))
+    # Ionisation is driven by the physical field, never by a signed axial flux.
+    peak = peak_field(simulation.grid, space, simulation._field0)
     jones = (
         np.asarray(initial.jones, dtype=np.complex128)
         if isinstance(initial, SpatialPulse)

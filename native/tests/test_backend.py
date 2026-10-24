@@ -131,7 +131,7 @@ def test_spatial_statistics_refuse_a_malformed_native_result(
     try:
         backend.set_initial(problem.initial.field0, None)
 
-        def malformed_statistics(_flags: int, _factor: float) -> list[float]:
+        def malformed_statistics(_flags: int, _factor: float, _z: float) -> list[float]:
             return [0.0, 0.0]
 
         malformed = SimpleNamespace(spatial_statistics=malformed_statistics)
@@ -216,7 +216,7 @@ def test_the_solprop_version_is_recorded_and_never_compared(
 
 
 @pytest.mark.parametrize(
-    "declared", [2, 18, 19, 20, 21, 22, 23, 24, 26, 27, 28, 29, 30, 31, 32]
+    "declared", [2, 18, 19, 20, 21, 22, 23, 24, 26, 27, 28, 29, 30, 31, 32, 34]
 )
 def test_schema_mismatch_names_both_versions(
     phase_a_case: PhaseACase, declared: int
@@ -224,7 +224,7 @@ def test_schema_mismatch_names_both_versions(
     # The two independently qualified schema-18 branches are not the combined seam.
     problem, _ = phase_a_case
     spoiled = dataclasses.replace(problem, schema_version=declared)
-    with pytest.raises(BackendError, match=rf"version 34.*version {declared}"):
+    with pytest.raises(BackendError, match=rf"version 35.*version {declared}"):
         check_build(spoiled)
 
 
@@ -679,7 +679,7 @@ def test_metadata_and_memory_ledger_are_self_consistent(
     n = problem.shape[-1]
     stages = problem.stepper.tableau.n_stages
     assert metadata["backend"] == "native"
-    assert metadata["schema_version"] == 34
+    assert metadata["schema_version"] == 35
     assert cast(float, metadata["planning_seconds"]) >= 0.0
     # A one-mode envelope at one node. A host build folds its one-element transforms
     # into the response column (solprop SEP 25), whatever the GEMM policy. A device
@@ -831,7 +831,7 @@ def test_packed_real_blas_radial_envelope_matches_the_reference_when_eligible() 
     space = RadialGrid(1e-3, 256)
     start = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6), 1e-4
-    ).build(grid, space)
+    ).build(grid, space, medium=SpatialMedium())
     problem = assemble(
         grid,
         None,

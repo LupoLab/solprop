@@ -308,7 +308,7 @@ def test_pairs_reject_unsupported_power_objectives_before_reading_fields(
         replace(
             metadata,
             simulation_kind="radial",
-            spatial={"geometry": "radial"},
+            spatial={"geometry": "radial", "flux_model": "scalar-axial-admittance"},
         )
     )
 

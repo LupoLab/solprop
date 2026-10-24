@@ -100,13 +100,19 @@ propagates.
 
 ## Far-field spectra
 
-The six far-field statistics of a Cartesian or line run
+The five far-field statistics of a Cartesian or line run
 ([far-field apertures](statistics.md#far-field-apertures-and-angular-regions)) are one
 pass over the stored spectrum $E_{c,q,k}$ of column $c$, polarisation $q$ and frequency
 bin $k$, with the geometry's Parseval weights $w_c$ (`spectral_weights`), its on-axis
 weights $\alpha_c$ (`on_axis`) and the spectral density
 $\operatorname{sd}(E)$ of {py:func}`~solprop.fourier.spectral_density`
-($2\delta t^2|E|^2/\pi$ on a field grid, $\delta t^2|E|^2/2\pi$ on an envelope grid).
+($2\delta t^2|E|^2/\pi$ on a field grid, $\delta t^2|E|^2/2\pi$ on an envelope grid), and
+$\operatorname{sd}(A,B)$ the same factor times $\operatorname{Re}(A\bar B)$. Each column
+and bin carries the dimensionless axial admittance of the medium at the plane,
+$\zeta_{c,k}=ck_z(c,k)/\omega_k$, with $k_z$ the principal root of the run's compensated
+square, the root the stages use, and $\eta=\operatorname{Re}\zeta$; both are zero on
+inactive and evanescent bins and at $\omega_k\le0$
+([energy and flux in a medium](../free-space/flux.md)).
 Column $c$ carries the stored axes $\mathbf k^{(s)}_c$ and the physical transverse
 wavevector $\boldsymbol\kappa_c=-\mathbf k^{(s)}_c$. Aperture $a$, of centre
 $\mathbf X_a$, half-width $r_a$ ($D/2$, or $D_q/2$ under quadrature weighting) and
@@ -124,21 +130,18 @@ $s_a|\mathbf k^{(s)}_c|\ge z_a$. Then
 
 $$
 \begin{aligned}
-S_a(\omega_k)&=\frac{\varepsilon_0c}{2}\sum_cw_cW_a^p\sum_q\operatorname{sd}(E_{c,q,k}),
+S_a(\omega_k)&=\frac{\varepsilon_0c}{2}\sum_cw_cW_a^p\eta_{c,k}\sum_q\operatorname{sd}(E_{c,q,k}),
 &p&=2\ \text{(amplitude)},\ 1\ \text{(quadrature)},\\
-S^{\rm ax}_a(\omega_k)&=\frac{\varepsilon_0c}{2}\sum_q\operatorname{sd}\Bigl(\sum_c\alpha_cW_aE_{c,q,k}\Bigr),\\
-S^R_j(\omega_k)&=\frac{\varepsilon_0c}{2}\sum_{\boldsymbol\kappa_c\in R_j}w_c\sum_q\operatorname{sd}(E_{c,q,k}),\\
-S^{\rm beam}(\omega_k)&=\frac{\varepsilon_0c}{2}\sum_cw_c\sum_q\operatorname{sd}(E_{c,q,k}),\\
-S^P(\omega_k)&=\frac{\varepsilon_0c}{2}\sum_cw_c\,\frac{c\operatorname{Re}k_z(c,k)}{\omega_k}\sum_q\operatorname{sd}(E_{c,q,k}),\\
-P_j&=\frac{\varepsilon_0c}{2}\sum_cw_c\sum_q\sum_k\nu_k\,r_j(c,k)\,|E_{c,q,k}|^2,
+S^{\rm ax}_a(\omega_k)&=\frac{\varepsilon_0c}{2}\sum_q\operatorname{sd}\Bigl(\sum_c\alpha_cW_aE_{c,q,k},\ \sum_c\alpha_cW_a\zeta_{c,k}E_{c,q,k}\Bigr),\\
+S^R_j(\omega_k)&=\frac{\varepsilon_0c}{2}\sum_{\boldsymbol\kappa_c\in R_j}w_c\eta_{c,k}\sum_q\operatorname{sd}(E_{c,q,k}),\\
+S^{\rm beam}(\omega_k)&=\frac{\varepsilon_0c}{2}\sum_cw_c\eta_{c,k}\sum_q\operatorname{sd}(E_{c,q,k}),\\
+P_j&=\frac{\varepsilon_0c}{2}\sum_cw_c\sum_q\sum_k\nu_k\,\eta_{c,k}\,r_j(c,k)\,|E_{c,q,k}|^2,
 \end{aligned}
 $$
 
 for `aperture_spectrum`, `aperture_on_axis_spectrum`, `region_spectrum` (a region
-$R_j$ is a half-open box of $\boldsymbol\kappa$), `beam_spectrum`, `poynting_spectrum`
-and `absorbed_power`. In $S^P$, $k_z$ is the principal root of the run's compensated
-square, the root the stages use, and the obliquity is zero on inactive and evanescent
-bins. In $P_j$, $\nu_k$ are the exact energy weights of
+$R_j$ is a half-open box of $\boldsymbol\kappa$), `beam_spectrum` and
+`absorbed_power`. In $P_j$, $\nu_k$ are the exact energy weights of
 {py:func}`~solprop.fourier.energy_weights` and the rates are the spectral absorber's
 $\alpha_{\rm abs}(\omega_k)$ on every bin, the transverse-wavevector rate (zero until the
 operator carries one), $2\min(|\operatorname{Im}k_z|,\alpha_{\rm ev})$ on active

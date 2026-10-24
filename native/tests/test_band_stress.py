@@ -164,7 +164,7 @@ def vector(steps: int) -> tuple[FieldGrid, KernelProblem]:
         grid,
         None,
         [PlasmaResponse("Ar", build_rate_table(QuadraticRate(), (1e3, 1e10)))],
-        pulse.build(grid, space),
+        pulse.build(grid, space, medium=SpatialMedium()),
         spatial_grid=space,
         medium=SpatialMedium(),
         controller=PIController(rtol=1e-8, atol=1e-14),

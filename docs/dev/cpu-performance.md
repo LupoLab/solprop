@@ -32,6 +32,11 @@ time divided by the native backend's: above 1, the native backend is faster.
       to every logical CPU.
 - **Accelerate on macOS.** It matched or beat both OpenBLAS variants and native GEMM,
   except at one thread on the TE/TM wall, where it is the fastest option.
+- **NEON FFTW on Apple silicon**, in both precisions, with the Arm cycle counter,
+  M1 distribution baseline and existing deployment target. FFTW and Kokkos share
+  one OpenMP runtime. This enables FFTW's explicit codelets; compiler vectorisation
+  alone does not select them. The [build recipe](../guide/performance/building-native.md)
+  keeps x86 SIMD and Linux Arm settings unchanged.
 - **x86-64-v3 distribution baseline.** An x86-64-v2 build's median cost against
   x86-64-v3 was within about 2 % on a 32-core AVX-512 server (six pairs, seven
   configurations) and 4 % on an 18-core-per-socket AVX-512 server, on the benchmark core.
@@ -105,9 +110,19 @@ time divided by the native backend's: above 1, the native backend is faster.
   0.09 s per 40 source evaluations
   ([measurements](benchmarks.md#multimode-cpu-step-costs)).
 - **General modal: plans for the active tail rows only.** 2–5 %.
-- **Short serial Raman rows (≤ 16384 samples) on measured FFTW instead of Accelerate.**
-  Faster in both directions at every size tested. Larger and parallel Raman transforms
-  stay on Accelerate.
+- **Raman provider selection with NEON FFTW.** Serial and long rows use Kokkos-FFT;
+  short parallel power-of-two rows (≤ 16384 samples) keep vDSP. A non-NEON local
+  FFTW retains the previous short-serial FFTW rule. Every contiguous FFTW fallback,
+  including full and tail batches, honours the requested planning effort. Serial
+  measured planning improves warmed execution but can substantially increase
+  construction time; `SOLPROP_FFTW_PLAN=estimate` remains available for short runs.
+- **Deferred ordinary DOPRI5 modal diagnostics.** Only the last trial stage projects
+  the embedded transverse rule, and accepted-step scoring transforms it. Fine-only
+  stages avoid stacked coarse GEMM work. Held field-plasma streams follow the same
+  schedule; other methods and routes retain their existing consumers. Accepted
+  values and peaks survive rejected trials, and existing scratch is reused without
+  a new field allocation. The [lightweight measurements](benchmarks.md#native-cpu-fft-and-diagnostic-scheduling)
+  record the affected windows and their limits.
 - **Resident Adams history: no dense-output volumes when planes are landed on**
   ([measurements](benchmarks.md#resident-adams-storage)). Storage
   went from 29 to 18 field volumes. The projected 384² Kerr-beam peak went from 62.7 to
@@ -121,6 +136,18 @@ time divided by the native backend's: above 1, the native backend is faster.
   did not explain the gap.
 - **A direct FFTW execution adapter instead of Kokkos-FFT's.** Matched probes showed no
   wrapper overhead.
+- **Complete vDSP removal.** Even with NEON codelets, short parallel FFTW plans
+  regress former vDSP shapes. Keep the compact construction-time rule above.
+- **Tap-first CPU band filtering.** It preserves tap order and passed the boundary,
+  support-window and high-dynamic-range checks. It improved the x86 windows but
+  repeatedly slowed the Apple-silicon argon window by 6–9%; an architecture-specific
+  fork was not justified. The original traversal remains, with stronger tests.
+- **An 8×32 Cartesian crossing tile and omitted unused register loads.** Three
+  alternating rounds on the 192² Kerr window reduced the initial apparent gain to
+  about 2%, below the complexity threshold. The 32×16 traversal remains.
+- **A forced one-thread Accelerate BLAS limit.** An initial RDW gain disappeared
+  over three alternating rounds on RDW, radial 256, two wall cases and general modal:
+  the geometric mean ratio was 1.000. Existing process-start settings remain.
 
 ## Open
 

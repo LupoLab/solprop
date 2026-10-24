@@ -40,7 +40,7 @@ keywords in Python spelling and every quantity in SI units (pressures stay in ba
 | `Ionisation.ionrate_fun!_PPTcached(gas, λ0)` | `OptmatRate(gas, λ0)`, optmat's recommended rate; `MaterialSelection(ionisation="ppt_ilkov")` for a literature PPT form |
 | pseudo-gases such as `:HeB`, `:HeJ`, `:ArB` | the gas with another of optmat's index models, `MaterialSelection(linear="borzsonyi_2008/sellmeier_He")` or `susceptibility=gamma("He", model=...)` |
 
-Three conventions change what the numbers mean:
+Four conventions change what the numbers mean:
 
 - **Spectra in files use the optics sign convention**, $\tilde E(\omega) = \int E(t)\,
   e^{+i\omega t}\,dt$; Luna's files store the FFT convention. `fields(convention="fft")`
@@ -54,6 +54,15 @@ Three conventions change what the numbers mean:
   $\bar w = \mathrm{Re}\,n_\text{eff}$ averaged over the pulse — 1.0000357 on the
   standard helium dispersive-wave case, a difference of 0.0036 %. See
   [power, energy and intensity](../results/power-and-intensity.md).
+- **Free-space energy and intensity are the axial Poynting flux in the medium.**
+  solprop's radial, Cartesian and line launches, noise and statistics measure the field
+  with the axial admittance of the medium at the plane, $n_0\varepsilon_0c|E|^2/2$ for a
+  paraxial beam; Luna's free-space normalisation and statistics use the vacuum factor
+  $\varepsilon_0c/2$. A Luna free-space launch of energy $E$ in a medium of index $n_0$
+  therefore has the field of a solprop launch of $n_0E$, and solprop reports $n_0$ times
+  Luna's energy and intensity for the same field; to start from the same field, scale the
+  energy by $n_0$. Local intensities are signed fluxes, and the field that drives
+  ionisation is reported separately. See [energy and flux in a medium](../free-space/flux.md).
 - **The unrotated `HE_1m` mode is polarised along x**; Luna's is polarised along y. The
   two are the two members of the degenerate pair, a quarter turn apart
   ($\phi_\text{solprop} = \pi/(2n) - \phi_\text{Luna}$ for a family of order $n$).
@@ -288,7 +297,9 @@ error.
   uses one constant $\gamma_3$ per gas
   ([a frequency-dependent electronic response](../media/dispersive-kerr.md)).
 - A cycle-averaged envelope plasma model.
-- True-power modal amplitudes, with analytic Poynting-flux statistics.
+- True-power modal amplitudes, with analytic Poynting-flux statistics, and physical
+  medium flux in free space, with forward amplitude transport through a certified radial
+  pressure gradient ([energy and flux in a medium](../free-space/flux.md)).
 - Grating and prism compressors.
 - Design tools with multi-soliton content, and the inverse design of a capillary's
   pressure and energy for a soliton order, count or largest eigenvalue.

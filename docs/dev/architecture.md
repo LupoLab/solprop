@@ -187,12 +187,12 @@ against `src/solprop` by `tests/test_structure_figures.py`.
 | Location under `src/solprop/` | Responsibility | Layer |
 |---|---|---|
 | `__init__.py`, `exceptions.py`, `constants.py` | Lazy public imports, package logging, exception hierarchy and SI constants | package / P |
-| `grid.py`, `fourier.py`, `hankel.py`, `spatial.py` | Temporal and spatial grids (radial, the Cartesian plane, and `LineGrid`, its x axis uniform in y per unit width), Fourier conventions, raw Hankel transforms and spatial media | P |
+| `grid.py`, `fourier.py`, `hankel.py`, `spatial.py`, `adiabatic.py` | Temporal and spatial grids (radial, the Cartesian plane, and `LineGrid`, its x axis uniform in y per unit width), Fourier conventions, raw Hankel transforms, spatial media, the axial-flux measure of a plane (`SpatialFlux`, SEP 34) and the adiabatic path certificate of a z-varying medium | P |
 | `profiles.py`, `gasflow.py`, `pulses.py`, `noise.py`, `polarisation.py`, `optics.py`, `tools.py` | Longitudinal paths, steady gas flow in a hollow fibre (the taper- and temperature-aware, choked, regime-checked fill, its flow report and calculators), temporal/spatial inputs, noise, polarisation algebra, linear optical elements as transfer functions, and the soliton and phase-matching design calculators | P |
 | `physdata/` | Species, mixtures, equations of state, transport properties (viscosity, sound speed, mean free path), optical material data, metals, nonlinear and Raman data | P |
 | `modes/` | Mode protocols and derived quantities; capillary, antiresonant, tabulated, step-index, rectangular and planar (slab, uniform in y, per unit width) modes, with `PlanarGrid` for the planar guide resolved in y; shared gas fill, quadrature and collections; full-vector modal records, material laws and regions, bound step-index and radial graded-index providers, and the guide that pairs a provider with a mode collection, and the connection of a basis that moves along z | P |
 | `linear.py`, `boundaries.py`, `nonlinear/` | Linear assembly, absorbing rates, response definitions, ionisation, Raman, normalisation and the GNLSE mapping | P |
-| `translate/` | Validated `KernelProblem`; parameter expansions and z tables; modal/radial/Cartesian transforms and the hybrid planar one (slab modes in x × FFT in y, `translate/planar.py`); dense tracked modal tables, the general modal route and the coupled-flow and metric records (`translate/general.py`, `translate/coupled.py`); response tables, masks and stage bundles | T |
+| `translate/` | Validated `KernelProblem`; parameter expansions and z tables; modal/radial/Cartesian transforms and the hybrid planar one (slab modes in x × FFT in y, `translate/planar.py`); dense tracked modal tables, the general modal route and the coupled-flow and metric records (`translate/general.py`, `translate/coupled.py`); the spatial plane measure (`translate/flux.py`, the `FluxPlan` of schema 35); response tables, masks and stage bundles | T |
 | `backends/` | Registry and protocols, shared step and batch drivers, scalar bodies, spatial and population statistics | B |
 | `backends/numpy_ref/`, `backends/numba_cpu/` | Reference and compiled CPU execution | B |
 | `stepper/`, `log.py`, `stats.py` | Tableaux, controllers, schedules, progress reporters and statistics specifications | D |
@@ -301,7 +301,12 @@ directly, never as `(1 + x) − 1`.
 
 `ZProfile` (`profiles.py`) represents a scalar function of z — gas density, core radius,
 pre-ionisation fraction — with its breakpoints (stage boundaries are hard kinks), analytic
-derivative where available, and evaluation on arrays. Pressure gradients use the steady-flow
+derivative where available, and evaluation on arrays. It also declares its jumps
+(a subset of the breakpoints) and encloses its variation over any interval as a
+`PathVariation`: pieces with one-sided limits, value bounds and a variation bound,
+exact on pieces certified monotone. An arbitrary callable must declare its turning
+points to have one; sampling is not an enclosure. The adiabatic certificate
+(`adiabatic.py`, SEP 34 §4.5) builds on it. Pressure gradients use the steady-flow
 profile `p(z) = sqrt(p₀² + (z/L)(p₁² − p₀²))`; fills must not start or end at exactly zero
 pressure (a vacuum-terminated fill caps every scheme at order ~3, [stepper.md](stepper.md)
 §10; the interface substitutes a small floor and logs it). A steady-flow fill of a
@@ -426,6 +431,7 @@ consistent), immutable, versioned. What it computes, once per problem:
 | initial state and noise realisation | `pulses.py`, `noise.py` | canonical layout |
 | stepper settings | `stepper/` | tableau, tolerances, controller parameters, schedule, save planes, caps |
 | statistics requests | `stats.py` | which statistics, which windows |
+| spatial plane measure | `spatial.py`, `adiabatic.py`, `translate/flux.py` | the `FluxPlan`: separable coefficients whose root gives each column's axial admittance, the material square's z table for a varying radial medium, and its adiabatic admission (SEP 34) |
 | batch parameters | `driver/batch.py` | per-member scalars or per-member table indices |
 
 Validation is not optional: a backend calls `problem.validate()` and refuses anything

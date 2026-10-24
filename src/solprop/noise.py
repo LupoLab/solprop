@@ -41,10 +41,10 @@ import numpy as np
 from jaxtyping import Complex, Float
 
 from solprop import fourier
-from solprop.constants import EPS0, HBAR, C
+from solprop.constants import HBAR
 from solprop.exceptions import NoiseError
 from solprop.grid import FreeGrid, RadialGrid, TimeGrid
-from solprop.modes.slab import PlanarGrid
+from solprop.spatial import SpatialFlux
 
 __all__ = [
     "NoiseModel",
@@ -105,24 +105,19 @@ class NoiseRealisation:
 
 
 def spatial_noise(
-    grid: TimeGrid,
-    space: RadialGrid | FreeGrid | PlanarGrid,
+    flux: SpatialFlux,
     rng: np.random.Generator,
     *,
     model: NoiseModel = "input",
     n_pol: int = 1,
 ) -> NoiseRealisation:
-    """Draw one photon per transverse column, polarisation and active frequency bin.
+    """Draw one photon per admitted transverse column, polarisation and bin.
 
     Parameters
     ----------
-    grid : solprop.grid.TimeGrid
-        Temporal grid with angular frequencies in rad/s.
-    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        Transverse grid; a :class:`solprop.modes.slab.PlanarGrid` is refused by
-        name. Radial spectral weights have units m^-2, while
-        Cartesian raw-DFT weights have units m^2, and m on a
-        :class:`solprop.grid.LineGrid`.
+    flux : solprop.spatial.SpatialFlux
+        The entrance plane's measure, on a radial or Cartesian grid; a
+        :class:`solprop.modes.slab.PlanarGrid` is refused by name.
     rng : numpy.random.Generator
         Explicit source of random phases.
     model : {'input', 'modified'}, optional
@@ -144,9 +139,13 @@ def spatial_noise(
 
     Notes
     -----
-    A column's energy is ``epsilon_0 c w_k / 2`` times the temporal spectral
-    energy functional. Dividing the existing modal draw by the square root of
-    that factor therefore retains exactly one photon per bin in both models.
+    A column's energy is ``eps0 c w_j / 2`` times the temporal spectral energy
+    functional weighted by the real admittance ``c Re(k_z)/omega`` of the medium at
+    the entrance (SEP 34 §4.3). Dividing the existing modal draw by the square root
+    of that weight therefore leaves exactly one photon in every admitted
+    (propagating, active, positive-frequency) degree of freedom, in both models. A
+    bin with no forward admittance is not a power port and carries no photon; the
+    random stream is drawn as before, so seeds keep their meaning.
 
     On a line uniform in y the same draw is one photon per column and bin **per
     metre of y**: the line's one ``k_y = 0`` column stands for a unit period in y,
@@ -156,6 +155,7 @@ def spatial_noise(
     if model not in ("input", "modified") or n_pol not in (1, 2):
         msg = "spatial noise requires input or modified model and n_pol of 1 or 2"
         raise NoiseError(msg)
+    space = flux.space
     if not isinstance(space, RadialGrid | FreeGrid):
         # A PlanarGrid's columns are slab amplitudes, whose photon measure this draw
         # does not declare, so planar noise is not supported yet.
@@ -166,9 +166,18 @@ def spatial_noise(
         )
         raise NoiseError(msg)
     space.validate()
-    draw = _draw(grid, rng, model, space.n_columns, n_pol)
-    scale = np.sqrt(0.5 * EPS0 * C * space.spectral_weights)
-    return NoiseRealisation(draw.spectrum / scale[:, None, None], draw.seed, model)
+    draw = _draw(flux.grid, rng, model, space.n_columns, n_pol)
+    spectrum = np.zeros_like(draw.spectrum)
+    for columns in flux.chunks():
+        weight = (
+            flux.energy_scale
+            * space.spectral_weights[columns, None]
+            * np.real(flux.admittance(columns))
+        )
+        scale = np.zeros_like(weight)
+        np.divide(1.0, np.sqrt(weight), out=scale, where=weight > 0)
+        spectrum[columns] = draw.spectrum[columns] * scale[:, None, :]
+    return NoiseRealisation(spectrum, draw.seed, model)
 
 
 def _seed_of(rng: np.random.Generator) -> int | None:

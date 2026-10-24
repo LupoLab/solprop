@@ -400,6 +400,16 @@ the shock term and Raman on is conserved exactly while the energy falls by 7.2e-
 profiles)` builds one. The three keyword arguments are what `stats()` needs and the kernel
 contract does not carry.
 
+**Spatial statistics measure the medium's flux** ([SEP 34](seps/sep-0034-medium-flux.md)).
+The shared spatial statistics, `backends.spatial.collect_spatial`, read the plane's
+coefficients through `problem.flux.at(z)` (kernel schema 35): energy and the far-field
+spectra weight each column and bin by the real admittance `c Re k_z/omega` of that root,
+and fluence, intensities and the on-axis spectrum synthesise the closure `G` from the
+complex admittance before forming `Re(E conj(G))/2`, signed and not clipped. The widths
+refuse a fluence negative beyond its rounding budget. The collar diagnostic,
+`backends.spatial.collar_field_fraction`, stays an electric-field-norm share and is named
+as one. A backend whose own statistics do not apply this measure refuses the schema.
+
 ## 3. `numba_cpu`: the compiled in-tree backend
 
 ### 3.1 Why numba, and what the measurements say
@@ -1194,14 +1204,21 @@ frequency innermost. The band count is
 (`backends.spatial.far_field_bands`): fixed by the shapes, **never by the thread count**,
 so the order of every sum is the same on any pool. Stage two (`far_field_sum`) adds the
 bands serially in ascending order, and the host finishes with `epsilon_0 c/2`, the
-spectral-density factor, the energy weights of `absorbed_power` and `|A|^2`.
+spectral-density factor, the energy weights of `absorbed_power` and each amplitude's
+pairing `Re(A conj(G))` with its magnetic closure.
 
-The slots (`backends.spatial.far_field_layout`) are the present ones of
-`[beam, poynting, absorbed x 4, regions..., per aperture (collected, Re and Im of the
-on-axis amplitude per polarisation), on-axis amplitude]`. The last is the `W = 1` slot:
+Every quantity is measured by the medium's axial flux (SEP 34): each squared modulus
+is weighted by the real admittance `c Re k_z / omega` of the operator's own root, and
+each amplitude is accumulated twice, as `sum alpha W E` and as its closure
+`sum alpha W conj(eta) E` (the internal spectrum takes the conjugate admittance). The
+admittance is formed per element, from the root the operator uses, never stored as a
+column-by-frequency table. The slots (`backends.spatial.far_field_layout`) are the
+present ones of `[beam, absorbed x 4, regions..., per aperture (collected, Re and Im of
+the on-axis amplitude per polarisation, then of its closure), on-axis amplitude and
+closure]`. The last is the `W = 1` slot:
 `on_axis_spectrum` is formed there, which holds SEP 23's identity between the two to
-rounding by construction, and `on_axis_intensity` reads the same amplitude
-(`collect_spatial(..., axis=)`), so neither forms the contraction again. The bodies are
+rounding by construction, and `on_axis_intensity` reads the same amplitude and closure
+(`collect_spatial(..., axis=(E, G))`), so neither forms the contraction again. The bodies are
 `define_bodies`' `mask_plane_radius` (protected: compiled strict and called, so a hard
 edge decides as the reference's `spatial.mask_plane_radius` does, to the bit),
 `aperture_weight` (the profile codes, the raised cosine's early-out, and the exact zeros
@@ -1252,6 +1269,28 @@ solprop's registry admits them by it and refuses them by name on an older build,
 is built (`registry.statistics_refusal`). The device path compiles but is not
 qualified: its partials live in global memory, not in registers
 ([benchmarks.md](benchmarks.md#far-field-statistics-pass)).
+
+**The plane measure on the compiled backends** (SEP 34, kernel schema 35). Both compiled
+backends measure every spatial field statistic by the medium's axial flux, as
+`collect_spatial` defines it, and read the admittance `c k_z / omega` from the root the
+operator uses, per element, with no column-by-frequency table. A Cartesian, line or
+planar run's plane measure is its own separable operator (the adapter refuses another);
+a radial run packs the entrance's material and transverse squares
+(`flux_k_squared`, `flux_kperp_sq` and their residuals) and, for a medium that varies
+along z, uploads the material square as a `"flux"` z table of `n_omega` values, which
+`spatial_statistics(flags, factor, z)` evaluates at the statistic's plane. On `native`
+energy weighs each column and bin by `Re eta`; the on-axis spectrum pairs the coherent
+axis amplitude with its closure; the on-axis intensity, peak intensity and fluence
+synthesise the closure `G` beside `E` -- on the radial kind through the dense synthesis
+of a closure time volume (`statistics_weighted_time`), on the separable kinds through a
+second transverse volume (`flux_closure_transverse`, one state's bytes, the estimate's
+`flux_closure_memory`) and the chunk's closure time rows -- and pack each node's signed
+fluence with its magnitude `dt sum |E| |G|`, whose largest value fixes the width
+refusal's normwise budget (`backends.spatial.fluence_budget`). The closure buffers are
+allocated at construction when the problem's own request has a local statistic and,
+outside any step, when a later request first needs one. `numba_cpu` forms the far-field
+pass's closure slots in its compiled pass and leaves the node closure to
+`collect_spatial`.
 
 ## 4. `native`: the compiled CPU and GPU backend, a second distribution
 
@@ -1305,12 +1344,26 @@ at every width; explicit `measure` and experimental `patient` enable timed plann
 at any width. Estimate can still consume matching wisdom already present in the
 process; the backend does not clear shared FFTW wisdom. Planning is destructive and
 precedes state initialization.
-Short serial Raman transforms (at most 16384 doubled-axis samples) likewise use
-measured FFTW; larger or parallel macOS Raman transforms retain Accelerate.
+Contiguous Raman transforms use the same planning policy, including long doubled
+rows and partial chunks. On macOS, NEON FFTW handles serial and long Raman rows;
+short parallel power-of-two rows (at most 16384 samples) retain Accelerate. Selection
+uses the linked FFTW's codelet family and the plan's dimensions and thread width at
+construction. A local FFTW without NEON retains the previous short-serial FFTW rule.
 The full-chunk Raman provider and task counts, planning seconds, and plan heap growth remain
 in execution metadata. General-modal tail views add no field buffers. These choices preserve
 explicit transform scaling and the device paths. See the multimode CPU measurements
 in [benchmarks.md](benchmarks.md#multimode-cpu-step-costs).
+
+For ordinary CPU DOPRI5 modal trials with an embedded transverse rule, only the
+final source projects the coarse rule. Earlier stages use fine-only products,
+including the fine rows of existing stacked projection scratch. The final coarse
+time buffers remain live until accepted-step scoring performs their FFTs and, for
+held field-plasma streams, their spectral assembly. Private readiness flags are
+invalidated by a new trial, a standalone source evaluation, reset and closure;
+accepted diagnostic values and peaks have separate storage and survive rejection.
+The validated seven-stage FSAL method data determine eligibility. Adams, low-storage,
+general-modal, dispersive and envelope-plasma paths keep their existing scheduling.
+No seam fields, persistent field buffers or arithmetic protections change.
 
 Scalar and declared tensor Raman are native too. Persistent doubled-grid batched
 r2c/c2r plans transform one or three real histories per node and a separate

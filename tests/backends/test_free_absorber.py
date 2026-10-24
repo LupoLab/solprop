@@ -14,7 +14,7 @@ from scipy.linalg import expm
 from backends.test_radial_absorber import LENGTH, problem_for, rk_bound
 from backends.test_radial_nonlinear import derivative
 from bounds import gamma
-from solprop.backends.spatial import spatial_collar_fraction
+from solprop.backends.spatial import collar_field_fraction
 from solprop.boundaries import TEMPORAL_ALPHA_LENGTH, Absorber
 from solprop.constants import C
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid
@@ -139,7 +139,7 @@ def test_cartesian_collar_diagnostic_reports_illuminated_window(
     expected = np.sum(field[space.window < 1] ** 2) / np.sum(field**2)
     bound = gamma(128 * (space.n_columns + grid.n_to))
     assert expected > problem.stepper.controller.rtol
-    measured = spatial_collar_fraction(problem, start)
+    measured = collar_field_fraction(problem, start)
     assert abs(measured - expected) < bound
     record_metric(
         request,

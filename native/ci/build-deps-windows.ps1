@@ -10,10 +10,14 @@
 # on LLVM's libomp, so that Kokkos, FFTW and OpenBLAS share one thread runtime in the
 # process. Static, because neither library's Windows DLL exports what the other side
 # needs under Clang. delvewheel later copies libomp.dll into the wheel under a mangled
-# name. FFTW keeps SSE2 and AVX codelets chosen at run time and OpenBLAS selects its
-# kernels at run time (DYNAMIC_ARCH) above a Nehalem (x86-64-v2) common path. Both keep
-# that x86-64-v2 common code below the wheel's x86-64-v3 baseline, as on Linux
-# (native/ci/build-fftw.sh): their speed comes from the run-time choice.
+# name. FFTW keeps SSE2 and AVX codelets chosen at run time (x86-64-v2 common code, as
+# on Linux: native/ci/build-fftw.sh). OpenBLAS is built for one fixed target, Haswell,
+# the wheel's x86-64-v3 baseline, with no run-time kernel selection: built by Clang for
+# Windows, its run-time selection (DYNAMIC_ARCH) gave wrong complex results with the
+# AVX-512 kernels at one thread (the coupled TE/TM flow off by 5e-4 against rounding)
+# and an access violation in the radial route's real GEMM with the Haswell and Zen
+# kernels, or whenever a kernel family was forced; the fixed Haswell build (SEP 29
+# phase 0's) passes. Newer Clang also does not compile some AVX-512 kernels at all.
 #
 # Needs LLVM (clang, clang++, libomp; preinstalled on GitHub's Windows images), the
 # Visual Studio build tools in the environment (vcvars64, or the MSVC developer
@@ -96,8 +100,8 @@ $flags = @('-S', "$work\OpenBLAS-$openblasVersion", '-B', $build, '-G', 'Ninja',
     '-DCMAKE_C_COMPILER=clang', '-DCMAKE_BUILD_TYPE=Release',
     '-DCMAKE_POLICY_VERSION_MINIMUM=3.5', '-DBUILD_SHARED_LIBS=OFF',
     '-DBUILD_STATIC_LIBS=ON', '-DNOFORTRAN=ON', '-DC_LAPACK=ON',
-    '-DBUILD_WITHOUT_LAPACK=OFF', '-DBUILD_TESTING=OFF', '-DTARGET=NEHALEM',
-    '-DDYNAMIC_ARCH=ON', '-DUSE_OPENMP=ON', '-DNUM_THREADS=512') + $openmp
+    '-DBUILD_WITHOUT_LAPACK=OFF', '-DBUILD_TESTING=OFF', '-DTARGET=HASWELL',
+    '-DDYNAMIC_ARCH=OFF', '-DUSE_OPENMP=ON', '-DNUM_THREADS=512') + $openmp
 cmake @flags; Invoke-Native 'OpenBLAS configure'
 cmake --build $build --parallel --target openblas_static; Invoke-Native 'OpenBLAS build'
 New-Item -ItemType Directory -Force "$Prefix\openblas\lib" | Out-Null

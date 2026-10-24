@@ -185,7 +185,9 @@ def test_a_route_that_cannot_land_the_kink_refuses_it_by_name():
             grid,
             None,
             responses,
-            SpatialPulse(pulse, 80e-6).build(grid, space),
+            SpatialPulse(pulse, 80e-6).build(
+                grid, space, medium=SpatialMedium(mixture)
+            ),
             controller=PIController(rtol=1e-7, atol=1e-14),
             save_planes=[8e-6],
             dz_max=4e-6,

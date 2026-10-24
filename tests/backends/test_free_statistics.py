@@ -17,7 +17,7 @@ from bounds import gamma
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid
 from solprop.output.schema import SavedPlane
 from solprop.pulses import GaussianPulse, SpatialPulse
-from solprop.spatial import spatial_fluence
+from solprop.spatial import SpatialFlux, SpatialMedium, spatial_fluence
 from solprop.stats import StatsSpec, collect, default_spec
 from spatial_records import record_metric
 
@@ -39,13 +39,16 @@ def test_free_packed_statistics_match_host_definitions(
         waist,
         jones=(1,) if n_pol == 1 else (1, 0.6j),
     )
-    initial = pulse.build(grid, space) * grid.active_mask
+    # make_problem's medium is the vacuum.
+    medium = SpatialMedium()
+    flux = SpatialFlux.resolve(grid, space, medium)
+    initial = pulse.build(grid, space, medium=medium) * grid.active_mask
     spec = default_spec("free")
-    reference = collect(spec, grid, SavedPlane(z=0.0, field=initial), space=space)
+    reference = collect(spec, grid, SavedPlane(z=0.0, field=initial), flux=flux)
     # FFTs plus positive space/time reductions bound the fluence perturbation.
     # All input-dependent conditioning is computed before backend construction.
     relative = gamma(256 * (space.n_columns + grid.n_to))
-    fluence = spatial_fluence(grid, space, initial)
+    fluence = spatial_fluence(initial, flux)
     maximum, mass = float(fluence.max()), float(fluence.sum())
     perturbation = relative * maximum
     mass_ratio = space.n_columns * perturbation / mass

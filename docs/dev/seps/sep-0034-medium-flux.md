@@ -771,6 +771,117 @@ not revalidated to additional precision by this draft.
 
 ## Part II — Implementation record
 
+### Phases 1 and 2 report — reference, admission and CPU activation
+
+- **Scope:** phases 1 and 2 (§11) on CPU, 2026-10-23, Opus 5.5 (AI), one branch
+  `feature/sep-0034-medium-flux`, developed in a worktree with parallel slices merged
+  into it (the certificate and witness, the radial amplitude term, the compiled
+  backends, the test migration and the documentation). The maintainer asked for
+  targeted tests per slice, one full gate at the end and no backwards compatibility.
+  The CUDA/HIP qualification of §6.2 followed with the maintainer's go (its own
+  report below).
+- **Delivered:**
+  - `solprop.spatial.SpatialFlux` (`resolve(grid, space, medium, z=, side=)`), the
+    field-first accessors of §5 and §5.1, `spatial_power` (power through the plane in
+    time) and `peak_field` (the named physical-E diagnostic that binds ionisation);
+    `critical_power(..., index=)`, physical (n0 × the former value).
+  - Launches (`SpatialPulse`, `PlanarPulse`) normalise physical energy or peak axial
+    power at the launch plane after pre-propagation, each `PulseSum` member separately;
+    the planar incident beam's admittance is averaged over k_x by Gauss–Hermite.
+    `spatial_noise(flux, ...)` draws one photon per admitted bin.
+  - `solprop.adiabatic`: `AdiabaticAccuracy`, the per-column TV certificate
+    (`certify_radial_path`, `certify_wave_path`), its admission record, and the
+    profile variation and declared-jump metadata (`ZProfile.variation`, `jumps`);
+    `SimulationSettings.adiabatic_accuracy`. The independent witness is
+    `tests/oracles/scalar_wave.py`.
+  - The radial endpoint term −½ ln(Y_z(z)/Y_z(0)) in Φ on the table, expansion and
+    reuse paths (`translate/linop.py::endpoint_phi`, `translate/radial.py`).
+  - Kernel schema 35: `KernelProblem.flux` (`translate.spatial.FluxPlan`), with the
+    material z table of a varying radial medium and its admission. numpy_ref,
+    numba_cpu and native CPU compute every §5.1 statistic from it;
+    `poynting_spectrum` is removed. Output schema 23 records `flux_model` and
+    `flux_plan`; processing rebuilds a saved plane's admittance at its position.
+  - The collar diagnostic is named a field-norm fraction (`collar_field_fraction`).
+  - Manual: `docs/guide/free-space/flux.md` and the pages and galleries of §8, the
+    design pages, the changelog.
+- **Deviations:**
+  - `SpatialPulse.build` takes `medium=, z=, side=` rather than `reference=`: the
+    flux record binds the same plane.
+  - A save plane exactly on a declared jump is refused at translation instead of
+    recording a side; a `SpatialFlux` there requires `side=`. In-run statistics at a
+    jump evaluate the "after" side, as Φ does.
+  - Species absorption on spatial runs keeps the vacuum weight: per column
+    2 Im k_z · Y_z = ε0c(ω/c)ρ Im γ/2 exactly, so the admittance cancels.
+  - A launch with more than rounding-level field norm in nonpropagating columns is
+    refused rather than masked; the inactive band and DC remain hard masks.
+- **Decisions:** none beyond Part I.
+- **Verification so far** (targeted; the full gate, slow and coverage lanes follow
+  once, below):
+  - Discrete identities: energy = area integral of fluence = time integral of
+    power to 1e-12; the complex cross term against an optics-convention E/H
+    reference to 1e-12 (and an independent review's three-wave check to 4e-14).
+  - Launch energy and peak power to rounding; one photon per admitted bin.
+  - Radial argon ramp and a declared 1→3 bar step: energy conserved to 1e-11 at
+    every plane on all three CPU backends; in-run equals the saved-plane measure to
+    rounding; the step's R* equals the Fresnel reflectance.
+  - Certificate against the witness (A1 table made explicit): the bounds hold, and
+    the step attains R* = tanh²Λ. Every existing radial gradient case is admitted
+    (Λ ≤ 4e-4).
+  - Three-backend parity of every statistic on radial lossy, radial gradient,
+    Cartesian, line and planar cases: worst 2.1e-15 against budgets of 6e-13 to
+    6e-12. Native gate (`poe check-native`) passed on the compiled slice.
+- **Cost:** a quick A/B on the Mac (contended; same-process medians, 64×64 Cartesian,
+  n_t 256): energy and spectra on native 0.7 → 1.4 ms, on numba 2.4 → 1.5 ms; local
+  statistics about 1.8× on native and 2× on numba (the closure synthesis).
+- **Limitations:** the scalar forward model's scope (§2, §4.5); nonconstant absorbing
+  paths refused; numba forms the local closure volume with NumPy FFTs on the host.
+- **Open questions:** Q1 — closed by the device qualification report below. Q2 — a
+  compiled closure synthesis for numba's local statistics, owner the implementer, not
+  required for activation.
+- **Handoff:** SEP 31's `FieldPlane` consumes `SpatialFlux`; SEP 5 uses the same
+  measure.
+
+### Device qualification report — CUDA and HIP
+
+- **Scope:** §6.2's bounded device campaign, 2026-10-23, Opus 5.5 (AI), on
+  `feature/sep-0034-medium-flux`, with the maintainer's go (an NVIDIA H100 or smaller at
+  most US$7, an AMD device, SEP cap US$20), both rented. One AMD MI325X (gfx942,
+  ROCm 7.14, AMD Clang 23, rocFFT and rocBLAS) and one NVIDIA H100 NVL (sm_90,
+  CUDA 13.0.88, GCC 14.2, cuFFT and cuBLAS). Inputs and references were prepared on
+  CPU first.
+- **Cases** (20 invocations per device, none longer than 8 steps): five zero-step
+  measurements of prepared states and seven fixed schedules, each compared with
+  numpy_ref references computed on CPU. Together they cover real weights and the
+  complex closure, the far-field pairings and absorbed power, widths, the radial
+  material table, gradient endpoints, a declared jump, Kerr source prefactors, a
+  field-grid launch with input noise, a Cartesian and a line far field with a
+  transverse collar, and the planar metric with Kerr. The other invocations are the
+  native package's own suite on the device build and the native cases of
+  `tests/backends/test_flux_parity.py` and `test_flux_paths.py`.
+- **Bound:** at most 1e-10 relative deviation per statistic, declared before the
+  runs; native CPU meets it to 2.1e-15.
+- **Results:**
+
+  | device | 86 statistics, worst relative deviation | flux parity at the CPU rounding budgets | native suite | device memory high-water |
+  |---|---|---|---|---|
+  | MI325X | 9.8e-14 | 8 passed | 354 passed, 23 skipped, 1 failed* | 3.0 GB |
+  | H100 NVL | 9.8e-14 | 8 passed | 355 passed, 23 skipped | 1.3 GB |
+
+  \* The version-equality check failed on a tree patched in place; the clean CUDA
+  build passes it.
+- **Defects found and fixed** (all present on main before this SEP): nvcc rejected a
+  typename-free dependent return type (`chebyshev.hpp`); HIP Clang's `-Werror`
+  refused unused host-only helpers (`general.cpp`); GCC 13 as nvcc's host reported a
+  false maybe-uninitialized (`z_table.hpp`). The CUDA build now requires GCC 14 as the
+  host compiler and CUDA 12.8 or newer, the first toolkit admitting GCC 14; on the NVIDIA device,
+  GCC 13 and a CUDA 12.6 `nvcc` are refused and GCC 14 with CUDA 13 configures.
+- **Spend:** US$2.94 of the US$20 cap (NVIDIA US$2.26 of 7, including a first build on
+  CUDA 12.8 with GCC 13 that the defects stopped; AMD US$0.68). Every rental
+  was destroyed by its own id. The campaign records are in the private development
+  archive.
+- **Not covered:** timing (§6.2 asks for actual timings only of the qualification
+  calls, recorded there), older CUDA architectures, and multi-device runs.
+
 ## Part III — History
 
 - 2026-10-23: Drafted from SEP 31 review R1, R2 and R5 and the maintainer's

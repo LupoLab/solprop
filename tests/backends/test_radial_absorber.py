@@ -19,7 +19,7 @@ from scipy.special import gammainc, j0
 from solprop.backends.memory import estimate_memory, ledger_groups
 from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
-from solprop.backends.spatial import spatial_collar_fraction
+from solprop.backends.spatial import collar_field_fraction
 from solprop.boundaries import TEMPORAL_ALPHA_LENGTH, Absorber
 from solprop.constants import C
 from solprop.exceptions import TranslationError
@@ -333,7 +333,7 @@ def test_spatial_collar_diagnostic_reports_the_measured_fraction(
     expected = float(np.sum(area[space.window < 1]) / np.sum(area))
     operations = 128 * space.n_r + 16 * grid.n_omega
     bound = operations * EPS / (1 - operations * EPS)
-    measured = spatial_collar_fraction(problem, field)
+    measured = collar_field_fraction(problem, field)
     assert_allclose(measured, expected, rtol=bound, atol=0)
     if illumination == "extended":
         assert expected > problem.stepper.controller.rtol

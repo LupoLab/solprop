@@ -42,6 +42,7 @@ from solprop.exceptions import BackendError
 from solprop.grid import EnvelopeGrid, FreeGrid
 from solprop.noise import spatial_noise
 from solprop.output.memory import MemoryOutput
+from solprop.spatial import SpatialFlux, SpatialMedium
 
 solprop_native = pytest.importorskip("solprop_native")
 NativeBackend = solprop_native.NativeBackend
@@ -173,7 +174,11 @@ def test_a_field_free_plane_is_held_natively_and_resumes_to_rounding():
     """
     grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
     space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0)
-    noise = spatial_noise(grid, space, np.random.default_rng(7), model="modified")
+    noise = spatial_noise(
+        SpatialFlux.resolve(grid, space, SpatialMedium()),
+        np.random.default_rng(7),
+        model="modified",
+    )
     problem, grid, _ = cartesian_march("tabulate", noise=noise)
     field = 16 * math.prod(problem.shape)
     end = float(problem.stepper.save_planes[-1])

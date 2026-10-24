@@ -38,6 +38,7 @@ from solprop.output.schema import (
     RunMetadata,
 )
 from solprop.pulses import GaussianPulse
+from solprop.spatial import SpatialFlux
 from solprop.stepper import FixedSchedule, RungeKutta
 
 LENGTH = 1e-3
@@ -379,7 +380,10 @@ def test_a_runner_carries_a_replaced_realisation_of_its_noise_model():
     grid, space = simulation.grid, simulation.spatial_grid
     assert space is not None
     field = simulation._field0
-    other = spatial_noise(grid, space, np.random.default_rng(11))
+    assert simulation.medium is not None
+    other = spatial_noise(
+        SpatialFlux.resolve(grid, space, simulation.medium), np.random.default_rng(11)
+    )
     fresh = stored(simulation.with_input(field, noise=other).run(progress="none"))
     with simulation.runner() as runner:
         reused = stored(runner.run(field, noise=other, progress="none"))

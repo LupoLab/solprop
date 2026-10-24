@@ -19,8 +19,9 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from solprop import fourier
 from solprop.boundaries import absorber
-from solprop.constants import EPS0, C
+from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings, prop_planar
 from solprop.driver.executors import Local
 from solprop.driver.scan import Scan, ScanPoint, run_scan
@@ -53,6 +54,7 @@ from solprop.processing.scans import (
 from solprop.profiles import Linear
 from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse
 from solprop.spatial import (
+    SpatialFlux,
     SpatialMedium,
     beam_radius,
     critical_power,
@@ -66,7 +68,7 @@ from solprop.spatial import (
     spatial_fluence,
     spatial_intensity,
 )
-from solprop.stats import default_spec
+from solprop.stats import analytic_field, default_spec
 from solprop.stepper import PIController
 from solprop.stepper.schedule import FixedSchedule
 
@@ -77,6 +79,15 @@ pytestmark = [
 LENGTH = 0.1
 HALF_GAP = 63.5e-6
 GRID = EnvelopeGrid.from_limits(LENGTH, 800e-9, (650e-9, 1000e-9), 600e-15)
+
+
+FILL = SpatialMedium("Ar", 1.0)
+"""The slab modes' own fill, which measures their plane (SEP 34)."""
+
+
+def measure(space, medium=FILL):
+    """Return the plane measure of a planar or free-space grid at the entrance."""
+    return SpatialFlux.resolve(GRID, space, medium)
 
 
 def slab_modes(orders=(1, 3, 5), **fill):
@@ -131,6 +142,54 @@ def test_prop_planar_runs_a_launch_and_records_the_slab_geometry(tmp_path):
         assert file.attrs["transverse_spectral_axis"] == "p,k_y (p fastest)"
 
 
+def launched_energy(space, energy=1e-3):
+    """Return the slab modes' share of the launch's physical energy, independently.
+
+    The launch gives the incident astigmatic Gaussian ``energy`` of axial flux in the
+    fill: each y column and bin weighted by the bulk admittance averaged over the
+    beam's k_x spectrum ``exp(-k_x^2 w_x^2 / 2)``. Mode p takes the coupled share
+    of the amplitude and is measured by its own admittance ``c Re(q)/omega``,
+    ``q = sqrt((omega n_eff/c)^2 - k_y^2)`` (SEP 34 section 4.3). The k_x average is
+    a 200-node Gauss-Hermite rule, converged far below rounding for an integrand
+    analytic out to the cutoff at k_x ~ k.
+    """
+    launch = pulse(energy)
+    omega = GRID.omega
+    live = GRID.active_mask & (omega > 0)
+    temporal = launch.temporal.build(GRID)[0, 0]
+    gamma = fourier.energy_weights(GRID.n_omega, GRID.dt, kind=GRID.kind)
+    profile = np.fft.fft(np.exp(-((space.y / launch.waist) ** 2)))
+    density = np.abs(profile[:, None]) ** 2 * (gamma * np.abs(temporal) ** 2)[None, :]
+    density = density[:, live]
+    k_y = space.k_y[:, None]
+    wave = omega[live][None, :] / C
+
+    def weight(square):
+        root = np.sqrt(square.astype(complex))
+        return np.where(np.real(square) > 0, np.real(root) / wave, 0.0)
+
+    index = FILL.index(omega[live])[None, :]
+    nodes, weights = np.polynomial.hermite.hermgauss(200)
+    incident = sum(
+        w
+        * weight(
+            (wave * index) ** 2 - k_y**2 - (math.sqrt(2) * x / launch.waist_x) ** 2
+        )
+        for x, w in zip(nodes, weights, strict=True)
+    ) / math.sqrt(math.pi)
+    reference = float(np.sum(density * incident))
+    shares = gaussian_coupling(space.modes, launch.waist_x)
+    modal = [
+        float(
+            np.sum(
+                density * weight((wave * mode.neff(omega[live])[None, :]) ** 2 - k_y**2)
+            )
+        )
+        for mode in space.modes
+    ]
+    return energy * float(np.sum(shares * np.asarray(modal))) / reference
+
+
 def check_the_record(output, space):
     """Check a planar run's record, units, energies and statistics."""
     metadata = output.metadata
@@ -146,14 +205,13 @@ def check_the_record(output, space):
     fields = output.fields("fft")
     assert fields.shape == (2, space.n_columns, 1, GRID.n_omega)
     energy = np.ravel(output["stats/energy"])
-    shares = gaussian_coupling(space.modes, 0.735 * HALF_GAP)
-    assert_allclose(energy[0], 1e-3 * float(np.sum(shares)), rtol=1e-12)
+    assert_allclose(energy[0], launched_energy(space), rtol=1e-12)
     # TE1 carries 98.8 % and loses 0.149 /m of field: the energy falls, a little.
     assert 0.95 * energy[0] < energy[-1] < energy[0]
-    per_mode = planar_mode_energy(GRID, space, fields[-1])
+    per_mode = planar_mode_energy(fields[-1], measure(space))
     assert_allclose(float(np.sum(per_mode)), energy[-1], rtol=1e-12)
     assert per_mode[0] > 100 * per_mode[1]
-    fluence = planar_fluence(GRID, space, fields[0])
+    fluence = planar_fluence(fields[0], measure(space))
     assert fluence.shape == (space.n_nodes,)
     # The peak fluence is on the mid-plane row, at the beam centre.
     assert int(np.argmax(fluence)) // space.x.size == space.n_y // 2
@@ -200,10 +258,14 @@ def test_a_planar_run_binds_an_optmat_rate_to_the_inputs_peak_field():
     assert isinstance(response, EnvelopePlasmaResponse)
     bound = response.rate
     assert isinstance(bound, OptmatRate)
-    intensity = planar_intensity(GRID, space, simulation._field0)
-    assert bound.reference_field == math.sqrt(
-        2.0 * float(np.max(intensity)) / (EPS0 * C)
-    )
+    # The rate is driven by the physical field, not the axial flux (SEP 34): the
+    # largest analytic |E| at any node and time, the slab modes synthesised in x
+    # over the inverse y transform of the stored (p, k_y) amplitudes.
+    field0 = simulation._field0
+    rows = np.fft.ifft(field0[:, 0].reshape(space.n_y, space.n_p, -1), axis=0)
+    physical = np.einsum("xp,ypw->yxw", space.synthesis, rows).reshape(-1, GRID.n_omega)
+    peak = float(np.max(np.abs(analytic_field(GRID, physical[:, None, :]))))
+    assert bound.reference_field == pytest.approx(peak, rel=1e-13)
     assert bound.ionisation_potential == float(
         bound.optmat_model.energy_per_event(bound.effective_reference_field)
     )
@@ -239,8 +301,9 @@ def test_a_planar_input_above_a_rates_maximum_field_warns(bind):
 
 def test_the_planar_intensity_integrates_to_the_fluence_and_the_energy():
     space = PlanarGrid(slab_modes(), 1e-3, 8)
-    field = pulse().build(GRID, space)
-    intensity = planar_intensity(GRID, space, field)
+    field = pulse().build(GRID, space, medium=FILL)
+    flux = measure(space)
+    intensity = planar_intensity(field, flux)
     assert intensity.shape == (space.x.size * space.n_y, GRID.n_t)
     # Only the summation's rounding separates them: the slab rule integrates every
     # product of the modes exactly, so Higham's gamma of the longest sum bounds both.
@@ -249,17 +312,17 @@ def test_the_planar_intensity_integrates_to_the_fluence_and_the_energy():
     assert 0 < bound < 1e-8
     assert_allclose(
         GRID.dt * np.sum(intensity, axis=-1),
-        planar_fluence(GRID, space, field),
+        planar_fluence(field, flux),
         rtol=bound,
         atol=0.0,
     )
     rows = intensity.reshape(space.n_y, space.x.size, GRID.n_t)
     energy = GRID.dt * space.dy * np.einsum("yxt,x->", rows, space.x_weights)
     assert_allclose(
-        energy, np.sum(planar_mode_energy(GRID, space, field)), rtol=bound, atol=0.0
+        energy, np.sum(planar_mode_energy(field, flux)), rtol=bound, atol=0.0
     )
     with pytest.raises(GridError, match="planar spectrum"):
-        planar_intensity(GRID, space, field[:-1])
+        planar_intensity(field[:-1], flux)
 
 
 def test_a_gas_path_and_a_mixture_are_refused_by_name():
@@ -297,9 +360,9 @@ def test_an_input_that_is_not_a_planar_launch_is_refused_by_name():
             settings=settings(),
         )
     with pytest.raises(PulseError, match="use PlanarPulse"):
-        SpatialPulse(temporal, 1e-4).build(GRID, space)
+        SpatialPulse(temporal, 1e-4).build(GRID, space, medium=FILL)
     with pytest.raises(PulseError, match="launches into a PlanarGrid"):
-        pulse().build(GRID, FreeGrid(1e-3, 4, 1e-3, 4))
+        pulse().build(GRID, FreeGrid(1e-3, 4, 1e-3, 4), medium=FILL)
 
 
 @pytest.mark.parametrize(
@@ -328,9 +391,12 @@ def test_a_planar_pulse_prints_its_two_waists():
 def test_the_critical_power_is_the_material_quantity_on_a_planar_grid():
     """Arnold 2009 quote a planar compressor against it; a line still refuses."""
     space = PlanarGrid(slab_modes((1,)), 1e-3, 8)
-    assert critical_power(800e-9, 1e-25, space=space) == critical_power(800e-9, 1e-25)
+    index = float(np.real(FILL.index(np.array([GRID.omega0]))[0]))
+    assert critical_power(800e-9, 1e-25, index=index, space=space) == critical_power(
+        800e-9, 1e-25, index=index
+    )
     with pytest.raises(GridError, match="does not apply to a LineGrid"):
-        critical_power(800e-9, 1e-25, space=LineGrid(1e-3, 8))
+        critical_power(800e-9, 1e-25, index=index, space=LineGrid(1e-3, 8))
 
 
 def test_a_medium_that_is_not_the_modes_fill_is_refused_by_name():
@@ -377,29 +443,40 @@ def test_a_medium_that_is_not_the_modes_fill_is_refused_by_name():
 
 
 @pytest.mark.parametrize(
-    "helper",
-    [
-        spatial_energy,
-        spatial_fluence,
-        spatial_intensity,
-        on_axis_intensity,
-        on_axis_spectrum,
-        beam_radius,
-        fwhm_r,
-    ],
+    "helper", [spatial_fluence, spatial_intensity, beam_radius, fwhm_r]
 )
 def test_the_field_helpers_refuse_a_planar_grid_by_name(helper):
     space = PlanarGrid(slab_modes((1,)), 1e-3, 8)
     spectrum = np.zeros((space.n_columns, 1, GRID.n_omega), complex)
-    with pytest.raises(GridError, match="planar_mode_energy"):
-        helper(GRID, space, spectrum)
+    with pytest.raises(GridError, match="planar_fluence or planar_intensity"):
+        helper(spectrum, measure(space))
+
+
+def test_the_integrated_and_axis_helpers_read_a_planar_plane():
+    # The energy and the axis statistics are defined on a planar plane too: the
+    # energy is the sum of the slab metric's per-mode energies (SEP 34 section 4.3).
+    space = PlanarGrid(slab_modes((1, 3)), 1e-3, 8)
+    field = pulse().build(GRID, space, medium=FILL)
+    flux = measure(space)
+    # Two orders of one sum of n positive terms: 2 gamma_n.
+    bound = 2 * space.n_columns * GRID.n_omega * np.finfo(float).eps
+    assert_allclose(
+        spatial_energy(field, flux),
+        np.sum(planar_mode_energy(field, flux)),
+        rtol=bound,
+        atol=0.0,
+    )
+    assert on_axis_intensity(field, flux) > 0
+    assert np.all(np.isfinite(on_axis_spectrum(field, flux)))
 
 
 def test_noise_is_refused_on_a_planar_grid():
     space = PlanarGrid(slab_modes((1,)), 1e-3, 8)
     with pytest.raises(NoiseError, match="PlanarGrid has no declared photon measure"):
-        spatial_noise(GRID, space, np.random.default_rng(49))
-    draw = spatial_noise(GRID, FreeGrid(1e-3, 2, 1e-3, 8), np.random.default_rng(49))
+        spatial_noise(measure(space), np.random.default_rng(49))
+    draw = spatial_noise(
+        measure(FreeGrid(1e-3, 2, 1e-3, 8), SpatialMedium()), np.random.default_rng(49)
+    )
     field0 = np.zeros((space.n_columns, 1, GRID.n_omega), complex)
     simulation = Simulation(
         GRID,
@@ -477,7 +554,7 @@ def test_a_planar_scan_records_its_field_units_and_refuses_modal_reductions(
 def test_the_planar_statistics_refuse_a_wrong_spectrum():
     space = PlanarGrid(slab_modes((1,)), 1e-3, 8)
     with pytest.raises(GridError, match="planar spectrum"):
-        planar_mode_energy(GRID, space, np.zeros((3, 1, GRID.n_omega), complex))
+        planar_mode_energy(np.zeros((3, 1, GRID.n_omega), complex), measure(space))
 
 
 @pytest.mark.medium
@@ -539,7 +616,7 @@ def test_a_planar_pulse_checks_the_temporal_pulse_result(shape, match):
         # inf times a zero Fourier coefficient is the NaN the check is for.
         warnings.simplefilter("ignore", RuntimeWarning)
         with pytest.raises(PulseError, match=match):
-            launch.build(GRID, space)
+            launch.build(GRID, space, medium=FILL)
 
 
 def test_a_beam_narrower_than_the_y_samples_is_unresolved():
@@ -551,7 +628,7 @@ def test_a_beam_narrower_than_the_y_samples_is_unresolved():
         waist_x=0.735 * HALF_GAP,
     )
     with pytest.raises(PulseError, match="unresolved"):
-        launch.build(GRID, space)
+        launch.build(GRID, space, medium=FILL)
 
 
 def test_an_explicit_frame_is_kept():

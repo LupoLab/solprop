@@ -15,7 +15,7 @@ from solprop.constants import C
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid
 from solprop.noise import spatial_noise
 from solprop.nonlinear.responses import KerrResponse
-from solprop.spatial import SpatialMedium
+from solprop.spatial import SpatialFlux, SpatialMedium
 from solprop.stepper import PIController
 from solprop.translate.problem import assemble
 from spatial_records import record_metric
@@ -35,7 +35,10 @@ def test_cartesian_modified_noise_enters_the_rotated_nonlinear_field(
     grid = constructor(length, 800e-9, (600e-9, 1.2e-6), 150e-15)
     space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0)
     noise = spatial_noise(
-        grid, space, np.random.default_rng(94), n_pol=n_pol, model="modified"
+        SpatialFlux.resolve(grid, space, SpatialMedium()),
+        np.random.default_rng(94),
+        n_pol=n_pol,
+        model="modified",
     )
     initial = np.zeros_like(noise.spectrum)
     problem = assemble(

@@ -86,7 +86,7 @@ def cartesian(integrator, *, collar: bool):
         grid,
         None,
         [KerrResponse(1e-22, thg=False)],
-        pulse.build(grid, space),
+        pulse.build(grid, space, medium=SpatialMedium()),
         spatial_grid=space,
         medium=SpatialMedium(),
         absorber=boundary,

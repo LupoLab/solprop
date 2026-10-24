@@ -25,7 +25,7 @@ the arithmetic is double precision throughout, and no build enables fast-math.
 | build tool | Ninja is recommended; scikit-build-core uses it when available |
 | C++20 compiler, macOS | Clang 14 or newer; Homebrew LLVM is recommended and selected by default |
 | C++20 compiler, Linux CPU | GCC 14 or newer, IntelLLVM (`icpx`) 2022 or newer, or Clang 14 or newer / AMD AOCC |
-| C++20 compiler, CUDA | GCC 11.5 or newer as the host compiler, with the CUDA toolkit's `nvcc` |
+| C++20 compiler, CUDA | GCC 14 or newer as the host compiler, with `nvcc` from CUDA 12.8 or newer (qualified on CUDA 13) |
 | C++20 compiler, HIP | ROCm's Clang (`hipcc` or `amdclang++`) |
 | OpenMP (CPU builds) | the compiler's runtime; on macOS Homebrew's `libomp` |
 | FFT (CPU builds) | FFTW 3 with its threaded libraries, in double and single precision (or MKL's FFTW interface) |
@@ -76,6 +76,53 @@ export DEVELOPER_DIR=/Library/Developer/CommandLineTools
 export SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk
 export CMAKE_ARGS="-DCMAKE_OSX_SYSROOT=$SDKROOT"
 ```
+
+For an Apple silicon performance build, the pinned dependency recipe enables FFTW
+3.3.11's NEON codelets in **both precisions**. Compiling scalar code with `-mcpu`
+does not enable those codelets. The recipe also retains the Arm cycle counter needed
+by measured planning, the Apple M1 distribution baseline and the macOS 14 deployment
+target. Its FFTW threading libraries and the native extension share one source-built
+LLVM OpenMP runtime; Accelerate remains the BLAS provider.
+
+From the repository root, use a fresh, owned dependency prefix:
+
+```sh
+native_deps="$PWD/native/build/neon-dependencies"
+MACOSX_DEPLOYMENT_TARGET=14.0 native/ci/build-deps.sh "$native_deps"
+export CMAKE_ARGS="-DFFTW_ROOT=$native_deps -DSOLPROP_NATIVE_LIBOMP_LIBRARY=$native_deps/lib/libomp.dylib -DSOLPROP_NATIVE_LIBOMP_INCLUDE_DIR=$native_deps/include -DSOLPROP_NATIVE_BUNDLED_LICENCES=$native_deps/licences"
+uv sync --extra native --reinstall-package solprop-native
+uv run --no-sync python -m solprop_native
+```
+
+Check the reported `fft_library` and `openmp_library` before benchmarking. The
+[pinned upstream configuration](https://github.com/FFTW/fftw3/blob/fftw-3.3.11/configure.ac)
+supports `--enable-neon` for double and single precision on AArch64. The installed
+libraries identify their codelet family in `fftw_version` and `fftwf_version`, which
+both end in `-neon` for this recipe. Keep these prefixes separate from a comparison's
+baseline libraries. A pyFFTW build used in the same process must also share this
+runtime. To build the existing pyFFTW dependency against that same owned prefix:
+
+```sh
+pyfftw_version=$(uv run --no-sync python -c 'from importlib.metadata import version; print(version("pyfftw"))')
+CC=/opt/homebrew/opt/llvm/bin/clang \
+CXX=/opt/homebrew/opt/llvm/bin/clang++ \
+PYFFTW_FFTW_PREFIX="$native_deps" \
+LDFLAGS="-L$native_deps/lib -Wl,-rpath,$native_deps/lib" \
+uv pip install --python .venv/bin/python --no-deps --no-binary pyfftw \
+  --reinstall --no-cache "pyfftw==$pyfftw_version"
+```
+
+The uncached source build prevents reuse of a wheel linked to another runtime.
+Keep the project's locked pyFFTW version when qualifying a comparison. See
+[OpenMP runtimes](#openmp-runtimes-and-pyfftw) below for import ordering and the
+limits of mixing independently bundled wheels.
+
+For a distributable wheel, `native/ci/build-wheel-macos.sh OUT_DIR DEPS_PREFIX`
+builds the distribution profile, repairs its library references with delocate, and
+includes the FFTW and OpenMP licences. Use a fresh dependency prefix when changing
+the recipe: that helper intentionally reuses an existing prefix. Validate the repaired
+wheel in a clean environment with `python -I -m solprop_native`, its linked libraries,
+the native tests and the import-order/coexistence checks before distributing it.
 
 **Linux**, on Debian or Ubuntu. Ubuntu 24.04's default compiler is GCC 13, which the build
 refuses; install GCC 14 from the distribution's archive:
@@ -148,6 +195,10 @@ object suitable for a run log:
 
 The library paths (`fft_library`, `blas_library`, `openmp_library`) are the files
 actually loaded, the reliable way to confirm which FFT and BLAS a process uses.
+`raman_fft_option` identifies the compiled Raman wrapper, which can select FFTW for
+individual plans even when its value is `ACCELERATE`. The backend's execution
+metadata records the selected full-chunk `raman_fft_provider` and full/tail task
+counts; selection also accounts for the actual tail width.
 `native_arch_enabled` reports the package's option only; architecture flags passed by
 hand through `CXXFLAGS` appear in `compiler_flags`.
 
@@ -310,7 +361,7 @@ The options are read by `native/CMakeLists.txt` and `native/cmake/HostLibraries.
 |---|---|---|
 | `SOLPROP_NATIVE_FFT_PROVIDER` | `FFTW` | `FFTW`, or `MKL_FFTW` (MKL's FFTW3 interface, Linux). Host builds only |
 | `SOLPROP_NATIVE_FFTW_THREADING` | `OPENMP` | `OPENMP` (`libfftw3_omp`) or `PTHREADS` (`libfftw3_threads`); IntelLLVM with FFTW requires `PTHREADS` |
-| `SOLPROP_NATIVE_RAMAN_FFT_PROVIDER` | `ACCELERATE` on macOS CPU builds, else `KOKKOSFFT` | the Raman convolution transforms through Accelerate's vDSP (contiguous power-of-two lengths; short serial transforms use FFTW) or through Kokkos-FFT. `ACCELERATE` is macOS CPU only |
+| `SOLPROP_NATIVE_RAMAN_FFT_PROVIDER` | `ACCELERATE` on macOS CPU builds, else `KOKKOSFFT` | construction-time Raman selection: with NEON FFTW, vDSP handles short parallel power-of-two rows (up to 16,384 samples); serial and longer rows use Kokkos-FFT. Without NEON, only short serial rows use Kokkos-FFT. `KOKKOSFFT` forces that provider; `ACCELERATE` is macOS CPU only |
 | `FFTW_ROOT` | the Homebrew prefix on macOS | a non-default FFTW installation |
 
 **Development and diagnostics**
@@ -401,8 +452,12 @@ is CPU-only.
 
 ### CUDA
 
-Requirements: the CUDA toolkit with cuFFT and cuBLAS, and GCC 11.5 or newer as the C++
-compiler. Kokkos compiles the device code through its `nvcc_wrapper`, which uses
+Requirements: CUDA 12.8 or newer with cuFFT and cuBLAS, and GCC 14 or newer as the C++
+compiler. GCC 14 is the floor of every Linux build; CUDA 12.8 is the first toolkit that
+accepts it as the host compiler (12.6 stops at GCC 13.2), and CMake refuses either below
+its floor. The device build is qualified on CUDA 13 with GCC 14; CUDA 13 needs an NVIDIA
+driver of the 580 series or newer and no longer targets Maxwell, Pascal or Volta, so a
+V100 builds with CUDA 12.8 or 12.9. Kokkos compiles the device code through its `nvcc_wrapper`, which uses
 `NVCC_WRAPPER_DEFAULT_COMPILER` as the host compiler. CMake finds `nvcc` from
 `CUDA_ROOT` or `CUDAToolkit_ROOT` when given, otherwise on `PATH` or under
 `/usr/local/cuda` or `/opt/cuda`.
@@ -415,7 +470,7 @@ compiler. Kokkos compiles the device code through its `nvcc_wrapper`, which uses
 git clone https://github.com/LupoLab/solprop
 cd solprop
 export CUDA_ROOT=/usr/local/cuda
-export CXX=g++-13 NVCC_WRAPPER_DEFAULT_COMPILER=g++-13
+export CXX=g++-14 NVCC_WRAPPER_DEFAULT_COMPILER=g++-14
 export CMAKE_ARGS="-DSOLPROP_NATIVE_ENABLE_CUDA=ON -DSOLPROP_NATIVE_ENABLE_OPENMP=OFF \
   -DSOLPROP_NATIVE_CUDA_ARCH=AMPERE80"
 uv pip install --python /path/to/env/bin/python . ./native
@@ -467,7 +522,8 @@ A process can safely load only one OpenMP runtime. Two different runtimes (LLVM'
 `libomp` and GNU's `libgomp`, or two copies of one) each start their own thread pools,
 oversubscribe the cores, and can crash when the second initialises. A CPU build
 therefore links every native part — Kokkos, FFTW's threaded library, an OpenMP BLAS —
-against one runtime: on macOS, Homebrew's `libomp`, which Homebrew's FFTW also uses.
+against one runtime: on macOS, either Homebrew's `libomp` with its FFTW, or the one
+runtime in the owned dependency prefix built above.
 
 solprop's `numba_cpu` backend uses [pyFFTW](https://github.com/pyFFTW/pyFFTW), whose
 published wheels bundle their own OpenMP runtimes, so running both backends in one
@@ -502,7 +558,8 @@ CC=gcc CXX=g++ PYFFTW_USE_PTHREADS=1 PYFFTW_FFTW_PREFIX=/usr \
 ```
 
 For an FFTW installed elsewhere, set `PYFFTW_FFTW_PREFIX` to its prefix; pyFFTW needs the
-single-precision FFTW libraries as well as the double-precision ones. With AOCL's FFTW,
+single-precision FFTW libraries as well as the double-precision ones. On macOS also
+change both library paths in `LDFLAGS` to that prefix's OpenMP library directory. With AOCL's FFTW,
 build pyFFTW with AOCC and without `PYFFTW_USE_PTHREADS`, so that it uses AOCL's OpenMP
 interface; do not combine a standard FFTW pthreads library with AOCL's FFTW core.
 

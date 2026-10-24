@@ -381,6 +381,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                     self._problem.transform,
                     one,
                     z=self._z,
+                    flux=self._problem.flux,
                     profiles=self._profiles,
                     tables=tables,
                     operator=self._problem.linear.separable,

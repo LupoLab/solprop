@@ -34,6 +34,7 @@ In scripts and library code, import from the home modules listed below.
 | {mod}`solprop.driver.tdse` | atomic preset resolution (`basis_from_preset`, the haCC `hacc_preset` and `hacc_basis`); its binding interfaces are for developers |
 | {mod}`solprop.driver.tdse_consistency` | the haCC weak-field consistency check (`check_consistency`, `ConsistencyResult`), its cache and the cubic evidence extraction ([the consistency check](../guide/media/tdse.md#the-weak-field-consistency-check)) |
 | {mod}`solprop.spatial` | bulk media and free-space (radial, Cartesian, line) propagation, with the spatial measures of a beam |
+| {mod}`solprop.adiabatic` | the real-index path certificate for a medium that varies along z: `AdiabaticAccuracy` and its admission record |
 | {mod}`solprop.linear` | the linear operator: dispersion, loss and the moving frame |
 | {mod}`solprop.physdata` | material data: gases and mixtures ([species data](species.md)), glasses and metals, refractive indices, nonlinear, Raman, ionisation and transport data |
 | {mod}`solprop.polarisation` | Jones optics and the description of transverse polarisation |

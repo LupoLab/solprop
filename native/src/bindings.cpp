@@ -141,8 +141,10 @@ native::TableKind table_kind(const std::string& name) {
     return native::TableKind::prefactor;
   if (name == "rate")
     return native::TableKind::rate;
+  if (name == "flux")
+    return native::TableKind::flux;
   throw std::invalid_argument("unknown z table '" + name +
-                              "'; expected 'phi', 'prefactor' or 'rate'");
+                              "'; expected 'phi', 'prefactor', 'rate' or 'flux'");
 }
 
 native::Problem problem_from(const nb::dict& values) {
@@ -242,6 +244,19 @@ native::Problem problem_from(const nb::dict& values) {
       result.spatial_on_axis =
           complex_vector(exact_array<ComplexInput>(values["spatial_on_axis"]));
     }
+    if (values.contains("flux_k_squared")) {
+      result.flux_k_squared =
+          complex_vector(exact_array<ComplexInput>(values["flux_k_squared"]));
+      result.flux_k_squared_low =
+          complex_vector(exact_array<ComplexInput>(values["flux_k_squared_low"]));
+      result.flux_kperp_sq =
+          real_vector(exact_array<RealInput>(values["flux_kperp_sq"]));
+      result.flux_kperp_sq_low =
+          real_vector(exact_array<RealInput>(values["flux_kperp_sq_low"]));
+      result.flux_table = nb::cast<bool>(values["flux_table"]);
+    }
+    if (values.contains("flux_closure"))
+      result.flux_closure = nb::cast<bool>(values["flux_closure"]);
     result.carrier = complex_vector(exact_array<ComplexInput>(values["carrier"]));
     if (values.contains("synthesis_matrix")) {
       result.synthesis_matrix =
@@ -776,11 +791,12 @@ public:
                                       channel_preionisation, power_weight);
   }
   std::vector<double> spatial_statistics(const std::uint64_t flags,
-                                         const double intensity_factor) {
+                                         const double intensity_factor,
+                                         const double z) {
     require_open();
     if (!general_state_)
       throw std::logic_error("spatial statistics require the general native state");
-    return general_state_->spatial_statistics(flags, intensity_factor);
+    return general_state_->spatial_statistics(flags, intensity_factor, z);
   }
   std::vector<double> aperture_statistics(const std::uint64_t flags,
                                           const std::vector<double>& apertures,
@@ -1177,7 +1193,7 @@ nb::dict build_record() {
   nb::dict result;
   result["backend_commit"] = SOLPROP_NATIVE_BACKEND_COMMIT;
   result["solprop_built_against"] = SOLPROP_NATIVE_SOLPROP_BUILT_AGAINST;
-  result["schema_version"] = 34;
+  result["schema_version"] = 35;
   result["kokkos_version"] = SOLPROP_NATIVE_KOKKOS_VERSION;
   result["kokkos_fft_version"] = SOLPROP_NATIVE_KOKKOSFFT_VERSION;
   result["kokkos_kernels_version"] = SOLPROP_NATIVE_KOKKOSKERNELS_VERSION;
@@ -1303,8 +1319,8 @@ nb::dict build_record() {
 #else
   result["fft_planner"] = std::string("Kokkos-FFT persistent Plan / ") +
                           SOLPROP_NATIVE_HOST_FFT_PLANNER +
-                          "; general modal defaults: serial measure, threaded "
-                          "estimate; short serial Raman: measure; "
+                          "; contiguous modal/Raman defaults: serial measure, "
+                          "threaded estimate; "
                           "SOLPROP_FFTW_PLAN overrides";
 #endif
   result["layout"] = "LayoutRight";
@@ -1931,16 +1947,16 @@ NB_MODULE(_core, module_) {
           "scale"_a.noconvert())
       .def(
           "spatial_statistics",
-          [](BoundState& self, const std::uint64_t flags,
-             const double intensity_factor) {
+          [](BoundState& self, const std::uint64_t flags, const double intensity_factor,
+             const double z) {
             std::vector<double> values;
             {
               const nb::gil_scoped_release release;
-              values = self.spatial_statistics(flags, intensity_factor);
+              values = self.spatial_statistics(flags, intensity_factor, z);
             }
             return real_output(std::move(values), 1);
           },
-          "flags"_a, "intensity_factor"_a)
+          "flags"_a, "intensity_factor"_a, "z"_a)
       .def(
           "aperture_statistics",
           [](BoundState& self, const std::uint64_t flags, const RealInput apertures,

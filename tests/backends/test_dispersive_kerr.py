@@ -292,7 +292,7 @@ def test_the_radial_route_executes_the_leaf():
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6), 1e-4
     )
-    start = pulse.build(grid, space) * grid.active_mask
+    start = pulse.build(grid, space, medium=SpatialMedium()) * grid.active_mask
 
     def problem(response):
         return assemble(

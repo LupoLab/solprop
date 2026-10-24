@@ -4,7 +4,8 @@
 
 """Describe bulk media and exact longitudinal propagation of spatial fields.
 
-Spatial fields are in V/m, with analytic intensity ``eps0*c*|E_a|**2/2``. On a
+Spatial fields are in V/m. Energy, fluence and intensity are the axial Poynting flux
+of the medium at the measured plane (:class:`SpatialFlux`, SEP 34). On a
 line uniform in y (:class:`solprop.grid.LineGrid`) every transverse integral is per
 metre of y: energy in J/m and power in W/m, while intensity and fluence stay local.
 Transverse wave numbers are angular frequencies in rad/m. The propagation sign
@@ -17,7 +18,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from fractions import Fraction
 from types import MappingProxyType
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 import numpy as np
 from jaxtyping import Complex, Float
@@ -36,6 +37,9 @@ from solprop.physdata.sellmeier import GasSusceptibility
 from solprop.physdata.species import fill_species
 from solprop.profiles import Constant, DensityPath, Sum, ZProfile, as_profile
 
+if TYPE_CHECKING:
+    from solprop.translate.spatial import SeparableOperator
+
 __all__ = [
     "ABSORBED_CHANNELS",
     "APERTURE_PROFILES",
@@ -46,7 +50,9 @@ __all__ = [
     "ApertureProfile",
     "ApertureTables",
     "AxialFactors",
+    "FluxSide",
     "SpatialDispersion",
+    "SpatialFlux",
     "SpatialMedium",
     "aperture_profile",
     "aperture_scale",
@@ -60,15 +66,19 @@ __all__ = [
     "mask_plane_radius",
     "on_axis_intensity",
     "on_axis_spectrum",
+    "peak_field",
     "physical_evanescent_rate",
     "planar_fluence",
     "planar_intensity",
     "planar_mode_energy",
+    "plane_sample",
+    "power_trace",
     "quadrature_half_width",
     "radial_fluence_widths",
     "spatial_energy",
     "spatial_fluence",
     "spatial_intensity",
+    "spatial_power",
 ]
 
 EVANESCENT_RATE = 200.0
@@ -673,30 +683,22 @@ def _check_transverse(kperp_sq: np.ndarray) -> None:
 
 
 def _check_field(
-    grid: TimeGrid, space: RadialGrid | FreeGrid | PlanarGrid, spectrum: np.ndarray
+    grid: TimeGrid, space: RadialGrid | FreeGrid, spectrum: np.ndarray
 ) -> None:
     """Validate the dimensions and finiteness of a spatial spectrum.
+
+    A planar grid's slab amplitudes are not field samples; every caller routes
+    them to :func:`_check_planar` before this check.
 
     Parameters
     ----------
     grid : solprop.grid.TimeGrid
         Temporal grid specifying the frequency count.
-    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        A :class:`solprop.modes.slab.PlanarGrid` is refused by name: its columns
-        are slab amplitudes, not field samples.
+    space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
         Transverse geometry specifying the column count.
     spectrum : numpy.ndarray
         Internal spatial spectrum, shape (n_modes, n_pol, n_omega).
     """
-    if isinstance(space, PlanarGrid):
-        # A planar column is a slab amplitude per y frequency, not a field sample:
-        # these helpers would read it as the Cartesian grid's DFT and be wrong.
-        msg = (
-            "this spatial helper reads a radial or Cartesian field spectrum, and a "
-            "PlanarGrid's columns are slab amplitudes per y frequency: use "
-            "planar_mode_energy for the energy and planar_fluence for the fluence"
-        )
-        raise GridError(msg)
     space.validate()
     if (
         spectrum.ndim != 3
@@ -728,111 +730,730 @@ def _analytic(grid: TimeGrid, spectrum: np.ndarray) -> np.ndarray:
     return fourier.analytic_signal(samples) if grid.kind == "field" else samples
 
 
-def spatial_energy(
-    grid: TimeGrid,
-    space: RadialGrid | FreeGrid | PlanarGrid,
-    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"],
-) -> float:
-    """Integrate the whole beam's energy in joules using spectral Parseval weights.
+FluxSide = Literal["before", "after"]
+"""The side of a declared index jump a flux plane is evaluated on (SEP 34 §4.4)."""
+
+_FLUX_CHUNK = 2**21
+"""Complex elements per column chunk of an integrated flux sum (32 MiB)."""
+
+
+def plane_sample(medium: SpatialMedium, z: float, side: FluxSide | None) -> float:
+    """Return where to evaluate the medium for a plane, checking its jump side.
+
+    A one-sided limit at a declared index jump is the material one rounding unit to
+    that side; away from a jump the plane's own position.
 
     Parameters
     ----------
+    medium : SpatialMedium
+        The bulk medium.
+    z : float
+        Finite position of the plane in m.
+    side : {'before', 'after'} or None
+        Side of a declared jump at ``z``: required there and refused elsewhere.
+
+    Returns
+    -------
+    float
+        The position at which to evaluate the medium, in m.
+
+    Raises
+    ------
+    MaterialError
+        If the position is not finite, or the side is missing, misplaced or invalid.
+    """
+    if not math.isfinite(z):
+        msg = "a flux plane needs a finite position"
+        raise MaterialError(msg)
+    if side not in (None, "before", "after"):
+        msg = "side must be 'before', 'after' or None"
+        raise MaterialError(msg)
+    jump = any(
+        np.any(np.asarray(path.jumps) == z) for path in medium.parameter_paths.values()
+    )
+    if jump and side is None:
+        msg = (
+            f"the medium jumps at z = {z!r} m: a flux plane there must say which "
+            "side it measures, side='before' or side='after'"
+        )
+        raise MaterialError(msg)
+    if side is not None and not jump:
+        msg = (
+            f"side={side!r} names a side of an index jump, and the medium has no "
+            f"declared jump at z = {z!r} m"
+        )
+        raise MaterialError(msg)
+    if side is None:
+        return z
+    return float(np.nextafter(z, -np.inf if side == "before" else np.inf))
+
+
+@dataclass(frozen=True, eq=False)
+class SpatialFlux:
+    r"""The axial-flux measure of one physical plane (SEP 34).
+
+    Binds the temporal and transverse representation, the medium and the plane's
+    position once. The scalar forward equation's axial admittance
+    :math:`\mathcal Y_c=\varepsilon_0c^2k_z/\omega` of the medium at that plane
+    measures the field: its real part :math:`Y_z` weighs integrated energy, and the
+    complex value reconstructs the local magnetic closure :math:`G=\mathcal Y_cE`
+    for signed local flux :math:`S_z=\tfrac12\operatorname{Re}(E_aG_a^*)`. Only
+    active propagating columns at positive frequency are forward power ports; every
+    other bin has zero admittance. Build one with :meth:`resolve`; a different plane
+    needs a new record (``docs/guide/free-space/flux.md``).
+
+    Attributes
+    ----------
     grid : solprop.grid.TimeGrid
-        Temporal grid, with time spacing in s.
+        Temporal grid of the field.
     space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        A :class:`solprop.modes.slab.PlanarGrid` is refused by name: its columns
-        are slab amplitudes, not field samples.
-        Hankel weights in m^-2 or Cartesian raw-DFT weights in m^2.
+        Transverse geometry of the field.
+    medium : SpatialMedium
+        The bulk medium; for a planar grid, its slab modes' own fill.
+    z : float
+        Position of the plane in m.
+    side : {'before', 'after'} or None
+        Side of a declared index jump at ``z``; None away from one.
+    coefficients : object
+        The plane's separable coefficients
+        (:class:`solprop.translate.spatial.SeparableOperator`), resolved once.
+    """
+
+    grid: TimeGrid
+    space: RadialGrid | FreeGrid | PlanarGrid
+    medium: SpatialMedium
+    z: float
+    side: FluxSide | None
+    coefficients: object
+
+    @classmethod
+    def resolve(
+        cls,
+        grid: TimeGrid,
+        space: RadialGrid | FreeGrid | PlanarGrid,
+        medium: SpatialMedium,
+        *,
+        z: float = 0.0,
+        side: FluxSide | None = None,
+        evanescent_rate: float = EVANESCENT_RATE,
+    ) -> "SpatialFlux":  # noqa: UP037 - beartype evaluates the class body
+        """Resolve the measure of the plane at ``z`` in ``medium``.
+
+        Parameters
+        ----------
+        grid : solprop.grid.TimeGrid
+            Temporal grid of the field.
+        space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
+            Transverse geometry of the field.
+        medium : SpatialMedium
+            The bulk medium at the plane; for a planar grid, the modes' own fill.
+        z : float, optional
+            Finite position of the plane in m. Default 0.
+        side : {'before', 'after'} or None, optional
+            The side of a declared index jump at ``z``. Required there, and refused
+            away from one.
+        evanescent_rate : float, optional
+            Evanescent attenuation cap of the run, in m^-1.
+
+        Returns
+        -------
+        SpatialFlux
+            The resolved, immutable measure.
+
+        Raises
+        ------
+        MaterialError
+            If the position is not finite, or a jump side is missing or misplaced.
+        """
+        from solprop.translate.flux import plane_coefficients  # noqa: PLC0415
+
+        sample = plane_sample(medium, z, side)
+        coefficients = plane_coefficients(
+            space, medium, grid, sample, evanescent_rate=evanescent_rate
+        )
+        return cls(grid, space, medium, z, side, coefficients)
+
+    @property
+    def energy_scale(self) -> float:
+        """Return the factor turning weighted ``|X|^2`` sums into joules.
+
+        Returns
+        -------
+        float
+            ``eps0 c / 2`` for a field in V/m; one for planar slab amplitudes, whose
+            mode functions already carry it.
+        """
+        return 1.0 if isinstance(self.space, PlanarGrid) else 0.5 * EPS0 * C
+
+    def admittance(
+        self, columns: slice = slice(None)
+    ) -> Complex[np.ndarray, "n_chunk n_omega"]:
+        """Return the dimensionless forward admittance ``c k_z / omega`` of columns.
+
+        Parameters
+        ----------
+        columns : slice, optional
+            Transverse columns; all by default.
+
+        Returns
+        -------
+        numpy.ndarray
+            ``Y_c / (eps0 c)`` in the optics convention (positive imaginary part for
+            loss), zero on nonpropagating, inactive and nonpositive-frequency bins,
+            shape ``(n_chunk, n_omega)``.
+        """
+        from solprop.translate.spatial import axial_admittance  # noqa: PLC0415
+
+        return axial_admittance(
+            cast("SeparableOperator", self.coefficients),
+            self.grid.omega,
+            columns,
+        )
+
+    def chunks(self) -> list[slice]:
+        """Return column slices bounding an integrated sum's working memory.
+
+        Returns
+        -------
+        list of slice
+            Consecutive slices covering every transverse column.
+        """
+        n_columns = self.space.spectral_weights.size
+        size = max(1, _FLUX_CHUNK // self.grid.n_omega)
+        return [
+            slice(start, min(start + size, n_columns))
+            for start in range(0, n_columns, size)
+        ]
+
+
+def _check_flux(
+    spectrum: np.ndarray, flux: SpatialFlux, *, planar: bool | None = None
+) -> None:
+    """Validate a spectrum against its flux record.
+
+    Parameters
+    ----------
     spectrum : numpy.ndarray
-        Internal radial spectrum in V m or Cartesian spectrum in V/m,
-        shape ``(n_modes, n_pol, n_omega)``.
+        Internal spectrum, shape ``(n_modes, n_pol, n_omega)``.
+    flux : SpatialFlux
+        The plane's measure.
+    planar : bool or None, optional
+        True requires a planar grid, False refuses one, None admits either.
+
+    Raises
+    ------
+    GridError
+        If the shape or finiteness is invalid or the grid kind is refused.
+    """
+    space = flux.space
+    if isinstance(space, PlanarGrid):
+        if planar is False:
+            msg = (
+                "this spatial helper reads a radial or Cartesian field spectrum, and a "
+                "PlanarGrid's columns are slab amplitudes per y frequency: use "
+                "planar_fluence or planar_intensity"
+            )
+            raise GridError(msg)
+        _check_planar(flux.grid, space, spectrum)
+        return
+    if planar:
+        msg = "this helper reads a PlanarGrid's slab amplitudes"
+        raise GridError(msg)
+    _check_field(flux.grid, space, spectrum)
+
+
+def _column_power(
+    spectrum: np.ndarray, flux: SpatialFlux
+) -> Float[np.ndarray, " n_modes"]:
+    """Return each column's weighted axial energy, summed over polarisation.
+
+    Parameters
+    ----------
+    spectrum : numpy.ndarray
+        Internal spectrum, shape ``(n_modes, n_pol, n_omega)``.
+    flux : SpatialFlux
+        The plane's measure.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``scale * v_j * sum_k e_k Re(Y_jk) sum_p |X_jpk|^2`` in J (J/m on a line),
+        one per column.
+    """
+    grid = flux.grid
+    weights = fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
+    power = np.empty(spectrum.shape[0])
+    for columns in flux.chunks():
+        real = np.real(flux.admittance(columns))
+        density = np.sum(np.abs(spectrum[columns]) ** 2, axis=1)
+        power[columns] = np.sum(weights * real * density, axis=-1)
+    return flux.energy_scale * flux.space.spectral_weights * power
+
+
+def spatial_energy(
+    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"], flux: SpatialFlux
+) -> float:
+    r"""Integrate the physical energy crossing the plane, in joules.
+
+    :math:`U=\frac{\Delta t}{2N_t}\sum_{j,p,k}v_j\gamma_kY_{z,jk}|\hat E_{jpk}|^2`
+    (SEP 34 §4.3): the axial Poynting flux of the medium at the plane, integrated
+    over the plane and time. Only the real admittance enters.
+
+    Parameters
+    ----------
+    spectrum : numpy.ndarray
+        Internal radial spectrum in V m, Cartesian spectrum in V/m or planar slab
+        amplitudes, shape ``(n_modes, n_pol, n_omega)``.
+    flux : SpatialFlux
+        The plane's measure (:meth:`SpatialFlux.resolve`).
 
     Returns
     -------
     float
         Energy in J, summed over the beam and polarisations; in J per metre of y
-        on a :class:`solprop.grid.LineGrid`, whose weights are in m.
+        on a :class:`solprop.grid.LineGrid`.
 
     Raises
     ------
     GridError
-        If the spectrum's shape or finiteness is invalid, or `space` is a planar
-        grid (use :func:`planar_mode_energy` or :func:`planar_fluence`).
+        If the spectrum's shape or finiteness is invalid.
     """
-    _check_field(grid, space, spectrum)
-    columns = fourier.energy_omega(spectrum, grid.dt, kind=grid.kind)
-    return float(0.5 * EPS0 * C * np.sum(space.spectral_weights[:, None] * columns))
+    _check_flux(spectrum, flux)
+    return float(np.sum(_column_power(spectrum, flux)))
 
 
-def spatial_intensity(
-    grid: TimeGrid,
-    space: RadialGrid | FreeGrid | PlanarGrid,
-    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"],
-) -> Float[np.ndarray, "n_nodes n_t"]:
-    """Reconstruct the physical intensity at every spatial and temporal sample.
+def planar_mode_energy(
+    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"], flux: SpatialFlux
+) -> Float[np.ndarray, " n_p"]:
+    r"""Integrate a planar beam's physical energy in each slab mode.
+
+    The explicit slab metric of SEP 34 §4.3:
+    :math:`U_p=\frac{\Delta t}{N_t}\frac{\Delta y}{N_y}\sum_{\ell,k}\gamma_kw_{p\ell k}
+    |\hat A_{p\ell k}|^2` with :math:`w=c\operatorname{Re}q/\omega` and
+    :math:`q=\sqrt{(\omega n_{{\rm eff},p}/c)^2-k_y^2}`. At ``k_y = 0`` the weight is
+    the mode's real effective index, not the bulk index.
 
     Parameters
     ----------
-    grid : solprop.grid.TimeGrid
-        Temporal grid in SI units.
-    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        A :class:`solprop.modes.slab.PlanarGrid` is refused by name: its columns
-        are slab amplitudes, not field samples.
-        Transverse geometry in m.
     spectrum : numpy.ndarray
-        Internal radial spectrum in V m or Cartesian spectrum in V/m,
-        shape ``(n_modes, n_pol, n_omega)``.
+        Internal ``(p, k_y)`` spectrum of slab amplitudes in sqrt(W/m), shape
+        ``(n_p*n_y, 1, n_omega)``, the channel fastest.
+    flux : SpatialFlux
+        The plane's measure on a :class:`solprop.modes.slab.PlanarGrid`.
 
     Returns
     -------
     numpy.ndarray
-        ``epsilon_0 c sum_pol |E_a|^2/2`` in W/m^2, shape ``(n_nodes, n_t)``.
+        Energy in J per mode, shape ``(n_p,)``, in the modes' order. Their sum is
+        :func:`spatial_energy`.
 
     Raises
     ------
     GridError
-        If the spectrum's shape or finiteness is invalid, or `space` is a planar
-        grid (use :func:`planar_mode_energy` or :func:`planar_fluence`).
+        If the spectrum is invalid or the grid is not planar.
     """
-    _check_field(grid, space, spectrum)
-    # A planar grid was refused above.
-    cartesian = cast("FreeGrid", space)
-    physical = (
-        np.moveaxis(space.hankel.inverse(np.moveaxis(spectrum, 0, -1)), -1, 0)
-        if isinstance(space, RadialGrid)
-        else np.fft.ifft2(
-            spectrum.reshape(cartesian.n_y, cartesian.n_x, *spectrum.shape[1:]),
-            axes=(0, 1),
-        ).reshape(spectrum.shape)
+    _check_flux(spectrum, flux, planar=True)
+    space = cast("PlanarGrid", flux.space)
+    return np.sum(_column_power(spectrum, flux).reshape(space.n_y, space.n_p), axis=0)
+
+
+def power_trace(
+    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    admittance: Complex[np.ndarray, "n_modes n_omega"],
+    weights: Float[np.ndarray, " n_modes"],
+    grid: TimeGrid,
+    scale: float,
+) -> Float[np.ndarray, " n_t"]:
+    r"""Return the axial power through a plane in time from column spectra.
+
+    Transverse Parseval turns the area integral of
+    :math:`\tfrac12\operatorname{Re}(E_aG_a^*)` into a weighted sum over spectral
+    columns of their temporal analytic signals, so no transverse synthesis is needed.
+
+    Parameters
+    ----------
+    spectrum : numpy.ndarray
+        Internal column spectra, shape ``(n_modes, n_pol, n_omega)``.
+    admittance : numpy.ndarray
+        Dimensionless optics-convention admittance ``c k_z / omega`` per column and
+        bin, shape ``(n_modes, n_omega)``.
+    weights : numpy.ndarray
+        Transverse Parseval weight of each column.
+    grid : solprop.grid.TimeGrid
+        Temporal grid.
+    scale : float
+        ``eps0 c / 2`` for fields in V/m, one for slab amplitudes.
+
+    Returns
+    -------
+    numpy.ndarray
+        Power in W (W/m on a line), shape ``(n_t,)``, signed and not clipped.
+    """
+    field = _analytic(grid, spectrum)
+    closure = _analytic(grid, np.conj(admittance)[:, None, :] * spectrum)
+    product = np.real(field * np.conj(closure))
+    return scale * np.einsum("j,jpt->t", weights, product)
+
+
+def spatial_power(
+    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"], flux: SpatialFlux
+) -> Float[np.ndarray, " n_t"]:
+    """Return the axial power crossing the plane at every time sample.
+
+    Parameters
+    ----------
+    spectrum : numpy.ndarray
+        Internal radial spectrum in V m, Cartesian spectrum in V/m or planar slab
+        amplitudes, shape ``(n_modes, n_pol, n_omega)``.
+    flux : SpatialFlux
+        The plane's measure.
+
+    Returns
+    -------
+    numpy.ndarray
+        Cycle-averaged power in W (W/m on a line), shape ``(n_t,)``. Its time
+        integral is :func:`spatial_energy`.
+
+    Raises
+    ------
+    GridError
+        If the spectrum's shape or finiteness is invalid.
+    """
+    _check_flux(spectrum, flux)
+    total = np.zeros(flux.grid.n_t)
+    for columns in flux.chunks():
+        total += power_trace(
+            spectrum[columns],
+            flux.admittance(columns),
+            flux.space.spectral_weights[columns],
+            flux.grid,
+            flux.energy_scale,
+        )
+    return total
+
+
+def _synthesise(
+    space: RadialGrid | FreeGrid | PlanarGrid, spectrum: np.ndarray
+) -> np.ndarray:
+    """Return a spectrum's physical field in V/m at the transverse nodes.
+
+    Parameters
+    ----------
+    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
+        Transverse geometry.
+    spectrum : numpy.ndarray
+        Internal spectrum, shape ``(n_modes, n_pol, n_omega)``.
+
+    Returns
+    -------
+    numpy.ndarray
+        Frequency-domain field at the nodes, shape ``(n_nodes, n_pol, n_omega)``;
+        planar nodes are flattened ``ix + n_x*iy``.
+    """
+    if isinstance(space, RadialGrid):
+        return np.moveaxis(space.hankel.inverse(np.moveaxis(spectrum, 0, -1)), -1, 0)
+    if isinstance(space, PlanarGrid):
+        rows = np.fft.ifft(spectrum[:, 0].reshape(space.n_y, space.n_p, -1), axis=0)
+        physical = np.einsum("xp,ypw->yxw", space.synthesis, rows)
+        return physical.reshape(-1, 1, spectrum.shape[-1])
+    return np.fft.ifft2(
+        spectrum.reshape(space.n_y, space.n_x, *spectrum.shape[1:]), axes=(0, 1)
+    ).reshape(spectrum.shape)
+
+
+def _closure(spectrum: np.ndarray, flux: SpatialFlux) -> np.ndarray:
+    """Return the internal spectrum of the magnetic closure ``G / (eps0 c)``.
+
+    In the internal transform convention the stored spectrum is the complex
+    conjugate of the optics one (``docs/dev/conventions.md`` §2), so the closure
+    applies the conjugate admittance.
+
+    Parameters
+    ----------
+    spectrum : numpy.ndarray
+        Internal spectrum, shape ``(n_modes, n_pol, n_omega)``.
+    flux : SpatialFlux
+        The plane's measure.
+
+    Returns
+    -------
+    numpy.ndarray
+        Spectrum of the same shape.
+    """
+    closure = np.empty_like(spectrum, dtype=np.complex128)
+    for columns in flux.chunks():
+        closure[columns] = (
+            np.conj(flux.admittance(columns))[:, None, :] * (spectrum[columns])
+        )
+    return closure
+
+
+def _local_pair(
+    spectrum: np.ndarray, flux: SpatialFlux
+) -> tuple[np.ndarray, np.ndarray]:
+    """Synthesise E and its closure at the nodes, in the frequency domain.
+
+    Parameters
+    ----------
+    spectrum : numpy.ndarray
+        Internal spectrum, shape ``(n_modes, n_pol, n_omega)``.
+    flux : SpatialFlux
+        The plane's measure.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        ``E`` in V/m and ``G / (eps0 c)`` in V/m, each ``(n_nodes, n_pol, n_omega)``.
+    """
+    return _synthesise(flux.space, spectrum), _synthesise(
+        flux.space, _closure(spectrum, flux)
     )
-    return 0.5 * EPS0 * C * np.sum(np.abs(_analytic(grid, physical)) ** 2, axis=1)
+
+
+def _signed_fluence(
+    spectrum: np.ndarray, flux: SpatialFlux
+) -> tuple[Float[np.ndarray, " n_nodes"], Float[np.ndarray, " n_nodes"]]:
+    """Return the signed fluence and its rounding budget at the nodes.
+
+    Parameters
+    ----------
+    spectrum : numpy.ndarray
+        Internal spectrum, shape ``(n_modes, n_pol, n_omega)``.
+    flux : SpatialFlux
+        The plane's measure.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        Fluence in J/m^2 at the nodes and a bound on its accumulated rounding,
+        the same at every node.
+    """
+    grid = flux.grid
+    weights = fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
+    field, closure = _local_pair(spectrum, flux)
+    scale = 0.5 * EPS0 * C
+    fluence = scale * np.sum(weights * np.real(field * np.conj(closure)), axis=(1, 2))
+    magnitude = scale * np.sum(weights * np.abs(field) * np.abs(closure), axis=(1, 2))
+    # The transverse syntheses sum every column, so each node's value carries
+    # rounding relative to the plane's largest product, not its own: where the
+    # beam has decayed, E and G are uncorrelated rounding residue. A few units per
+    # term of the plane's scale bound the error of every node.
+    budget = (
+        8
+        * (spectrum.shape[1] * grid.n_omega + spectrum.shape[0])
+        * np.finfo(float).eps
+        * np.max(magnitude, initial=0.0)
+    )
+    return fluence, np.full(fluence.shape, budget)
 
 
 def spatial_fluence(
-    grid: TimeGrid,
-    space: RadialGrid | FreeGrid | PlanarGrid,
-    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"], flux: SpatialFlux
 ) -> Float[np.ndarray, " n_nodes"]:
-    """Integrate physical intensity over time to obtain the spatial fluence.
+    r"""Return the signed time-integrated axial flux at the spatial nodes.
+
+    :math:`F=\tfrac12\int\operatorname{Re}(\mathbf E_a\cdot\mathbf G_a^*)\,dt`, with
+    the complex admittance applied before the transverse synthesis and temporal
+    Parseval for the time integral. Broadband or absorbing fields can give a
+    negative local value; it is not clipped.
 
     Parameters
     ----------
-    grid : solprop.grid.TimeGrid
-        Temporal grid, with spacing in s.
-    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        A :class:`solprop.modes.slab.PlanarGrid` is refused by name: its columns
-        are slab amplitudes, not field samples.
-        Transverse geometry in m.
     spectrum : numpy.ndarray
-        Internal radial spectrum in V m or Cartesian spectrum in V/m,
-        shape ``(n_modes, n_pol, n_omega)``.
+        Internal radial spectrum in V m, Cartesian spectrum in V/m or planar slab
+        amplitudes, shape ``(n_modes, n_pol, n_omega)``.
+    flux : SpatialFlux
+        The plane's measure.
 
     Returns
     -------
     numpy.ndarray
-        Time-integrated intensity in J/m^2 at the spatial nodes.
+        Fluence in J/m^2 at the spatial nodes (planar nodes flattened
+        ``ix + n_x*iy``).
+
+    Raises
+    ------
+    GridError
+        If the spectrum's shape or finiteness is invalid.
     """
-    return grid.dt * np.sum(spatial_intensity(grid, space, spectrum), axis=-1)
+    _check_flux(spectrum, flux, planar=False)
+    return _signed_fluence(spectrum, flux)[0]
+
+
+def spatial_intensity(
+    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"], flux: SpatialFlux
+) -> Float[np.ndarray, "n_nodes n_t"]:
+    r"""Return the signed local axial flux at every spatial node and time sample.
+
+    :math:`S_z=\tfrac12\operatorname{Re}(\mathbf E_a\cdot\mathbf G_a^*)` in W/m^2,
+    with ``G`` reconstructed from the complex admittance in space and time. It is
+    the axial Poynting flux of the declared scalar forward model, not
+    :math:`|E_a|^2`, and it is not clipped.
+
+    Parameters
+    ----------
+    spectrum : numpy.ndarray
+        Internal radial spectrum in V m, Cartesian spectrum in V/m or planar slab
+        amplitudes, shape ``(n_modes, n_pol, n_omega)``.
+    flux : SpatialFlux
+        The plane's measure.
+
+    Returns
+    -------
+    numpy.ndarray
+        Flux in W/m^2, shape ``(n_nodes, n_t)``.
+
+    Raises
+    ------
+    GridError
+        If the spectrum's shape or finiteness is invalid.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.grid import EnvelopeGrid, RadialGrid
+    >>> from solprop.spatial import SpatialFlux, SpatialMedium, spatial_intensity
+    >>> grid = EnvelopeGrid.from_limits(0.1, 800e-9, (650e-9, 1000e-9), 600e-15)
+    >>> space = RadialGrid(1e-3, 16)
+    >>> flux = SpatialFlux.resolve(grid, space, SpatialMedium("Ar", pressure=1.0))
+    >>> spectrum = np.zeros((16, 1, grid.n_omega), complex)
+    >>> spatial_intensity(spectrum, flux).shape == (16, grid.n_t)
+    True
+    """
+    _check_flux(spectrum, flux, planar=False)
+    return _local_intensity(spectrum, flux)
+
+
+def _local_intensity(spectrum: np.ndarray, flux: SpatialFlux) -> np.ndarray:
+    """Return the signed local axial flux at the nodes in time.
+
+    Parameters
+    ----------
+    spectrum : numpy.ndarray
+        Internal spectrum, shape ``(n_modes, n_pol, n_omega)``, already validated.
+    flux : SpatialFlux
+        The plane's measure.
+
+    Returns
+    -------
+    numpy.ndarray
+        Flux in W/m^2, shape ``(n_nodes, n_t)``.
+    """
+    field, closure = _local_pair(spectrum, flux)
+    grid = flux.grid
+    product = _analytic(grid, field) * np.conj(_analytic(grid, closure))
+    return 0.5 * EPS0 * C * np.sum(np.real(product), axis=1)
+
+
+def planar_fluence(
+    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"], flux: SpatialFlux
+) -> Float[np.ndarray, " n_nodes"]:
+    """Return a planar beam's signed time-integrated axial flux at its nodes.
+
+    The coherent synthesis of SEP 34 §4.3: ``E`` and ``G`` are both built from the
+    slab mode functions, ``G`` with each column's complex admittance
+    ``eps0 c**2 q / omega`` applied first, so the modes' local interference remains.
+
+    Parameters
+    ----------
+    spectrum : numpy.ndarray
+        Internal ``(p, k_y)`` spectrum of slab amplitudes in sqrt(W/m), shape
+        ``(n_p*n_y, 1, n_omega)``.
+    flux : SpatialFlux
+        The plane's measure on a :class:`solprop.modes.slab.PlanarGrid`.
+
+    Returns
+    -------
+    numpy.ndarray
+        Fluence in J/m^2 at the nodes ``(x[ix], y[iy])``, flattened
+        ``ix + n_x*iy``, shape ``(n_x*n_y,)``.
+
+    Raises
+    ------
+    GridError
+        If the spectrum is invalid or the grid is not planar.
+    """
+    _check_flux(spectrum, flux, planar=True)
+    return _signed_fluence(spectrum, flux)[0]
+
+
+def planar_intensity(
+    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"], flux: SpatialFlux
+) -> Float[np.ndarray, "n_nodes n_t"]:
+    """Return a planar beam's signed local axial flux at its nodes in time.
+
+    Parameters
+    ----------
+    spectrum : numpy.ndarray
+        Internal ``(p, k_y)`` spectrum of slab amplitudes in sqrt(W/m), shape
+        ``(n_p*n_y, 1, n_omega)``.
+    flux : SpatialFlux
+        The plane's measure on a :class:`solprop.modes.slab.PlanarGrid`.
+
+    Returns
+    -------
+    numpy.ndarray
+        Flux in W/m^2 at the nodes ``(x[ix], y[iy])``, flattened ``ix + n_x*iy``,
+        shape ``(n_x*n_y, n_t)``.
+
+    Raises
+    ------
+    GridError
+        If the spectrum is invalid or the grid is not planar.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.grid import EnvelopeGrid
+    >>> from solprop.modes import PlanarGrid, SlabMode
+    >>> from solprop.spatial import SpatialFlux, SpatialMedium, planar_intensity
+    >>> grid = EnvelopeGrid.from_limits(0.1, 800e-9, (650e-9, 1000e-9), 600e-15)
+    >>> space = PlanarGrid([SlabMode(63.5e-6)], 1e-3, 8)
+    >>> flux = SpatialFlux.resolve(grid, space, SpatialMedium(1.0))
+    >>> spectrum = np.zeros((space.n_columns, 1, grid.n_omega), complex)
+    >>> planar_intensity(spectrum, flux).shape == (space.x.size * 8, grid.n_t)
+    True
+    """
+    _check_flux(spectrum, flux, planar=True)
+    return _local_intensity(spectrum, flux)
+
+
+def peak_field(
+    grid: TimeGrid,
+    space: RadialGrid | FreeGrid | PlanarGrid,
+    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"],
+) -> float:
+    """Return the largest physical analytic field magnitude at any node and time.
+
+    A named electric-field diagnostic, ``max sqrt(sum_pol |E_a|^2)`` in V/m: the
+    physical field that drives ionisation rates, not an axial flux (SEP 34).
+
+    Parameters
+    ----------
+    grid : solprop.grid.TimeGrid
+        Temporal grid.
+    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
+        Transverse geometry.
+    spectrum : numpy.ndarray
+        Internal radial spectrum in V m, Cartesian spectrum in V/m or planar slab
+        amplitudes, shape ``(n_modes, n_pol, n_omega)``.
+
+    Returns
+    -------
+    float
+        Peak field amplitude in V/m.
+
+    Raises
+    ------
+    GridError
+        If the spectrum's shape or finiteness is invalid.
+    """
+    if isinstance(space, PlanarGrid):
+        _check_planar(grid, space, spectrum)
+    else:
+        _check_field(grid, space, spectrum)
+    analytic = _analytic(grid, _synthesise(space, spectrum))
+    return float(np.sqrt(np.max(np.sum(np.abs(analytic) ** 2, axis=1))))
 
 
 def _check_planar(
@@ -866,163 +1487,27 @@ def _check_planar(
     return np.fft.ifft(spectrum[:, 0].reshape(space.n_y, space.n_p, -1), axis=0)
 
 
-def planar_mode_energy(
-    grid: TimeGrid,
-    space: PlanarGrid,
-    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"],
-) -> Float[np.ndarray, " n_p"]:
-    """Integrate a planar beam's energy in each slab mode, over y and time.
+def _on_axis_pair(
+    spectrum: np.ndarray, flux: SpatialFlux
+) -> tuple[np.ndarray, np.ndarray]:
+    """Reconstruct E and its closure at the geometric axis.
 
     Parameters
     ----------
-    grid : solprop.grid.TimeGrid
-        Temporal grid, with time spacing in s.
-    space : solprop.modes.slab.PlanarGrid
-        The slab channels and the y axis.
-    spectrum : numpy.ndarray
-        Internal ``(p, k_y)`` spectrum of slab amplitudes in sqrt(W/m), shape
-        ``(n_p*n_y, 1, n_omega)``, the channel fastest.
-
-    Returns
-    -------
-    numpy.ndarray
-        Energy in J per mode, shape ``(n_p,)``, in the modes' order: the vacuum
-        measure ``eps0 c / 2 int |E|^2``, as every spatial energy is. Their sum is
-        the run's ``energy`` statistic.
-
-    Raises
-    ------
-    GridError
-        If the spectrum's shape or finiteness is invalid.
-    """
-    rows = _check_planar(grid, space, spectrum)
-    per_row = fourier.energy_omega(rows, grid.dt, kind=grid.kind)
-    return np.sum(per_row, axis=0) * space.dy
-
-
-def planar_fluence(
-    grid: TimeGrid,
-    space: PlanarGrid,
-    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"],
-) -> Float[np.ndarray, " n_nodes"]:
-    """Integrate a planar beam's intensity over time at its ``(x, y)`` nodes.
-
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        Temporal grid, with spacing in s.
-    space : solprop.modes.slab.PlanarGrid
-        The slab channels, their x rule and the y axis.
-    spectrum : numpy.ndarray
-        Internal ``(p, k_y)`` spectrum of slab amplitudes in sqrt(W/m), shape
-        ``(n_p*n_y, 1, n_omega)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        Fluence ``eps0 c / 2 int |E_a|^2 dt`` in J/m^2 at the nodes ``(x[ix],
-        y[iy])``, flattened ``ix + n_x*iy``, shape ``(n_x*n_y,)``.
-
-    Raises
-    ------
-    GridError
-        If the spectrum's shape or finiteness is invalid.
-    """
-    samples = _planar_samples(grid, space, spectrum)
-    return (0.5 * EPS0 * C * grid.dt * np.sum(np.abs(samples) ** 2, axis=-1)).ravel()
-
-
-def planar_intensity(
-    grid: TimeGrid,
-    space: PlanarGrid,
-    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"],
-) -> Float[np.ndarray, "n_nodes n_t"]:
-    """Reconstruct a planar beam's physical intensity at its ``(x, y)`` nodes.
-
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        Temporal grid in SI units.
-    space : solprop.modes.slab.PlanarGrid
-        The slab channels, their x rule and the y axis.
-    spectrum : numpy.ndarray
-        Internal ``(p, k_y)`` spectrum of slab amplitudes in sqrt(W/m), shape
-        ``(n_p*n_y, 1, n_omega)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        ``eps0 c |E_a|^2 / 2`` in W/m^2 at the nodes ``(x[ix], y[iy])``, flattened
-        ``ix + n_x*iy``, shape ``(n_x*n_y, n_t)``.
-
-    Raises
-    ------
-    GridError
-        If the spectrum's shape or finiteness is invalid.
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from solprop.grid import EnvelopeGrid
-    >>> from solprop.modes import PlanarGrid, SlabMode
-    >>> from solprop.spatial import planar_intensity
-    >>> grid = EnvelopeGrid.from_limits(0.1, 800e-9, (650e-9, 1000e-9), 600e-15)
-    >>> space = PlanarGrid([SlabMode(63.5e-6)], 1e-3, 8)
-    >>> spectrum = np.zeros((space.n_columns, 1, grid.n_omega), complex)
-    >>> planar_intensity(grid, space, spectrum).shape == (space.x.size * 8, grid.n_t)
-    True
-    """
-    samples = _planar_samples(grid, space, spectrum)
-    return (0.5 * EPS0 * C * np.abs(samples) ** 2).reshape(-1, samples.shape[-1])
-
-
-def _planar_samples(
-    grid: TimeGrid, space: PlanarGrid, spectrum: np.ndarray
-) -> np.ndarray:
-    """Return a planar state's analytic field in V/m at the ``(x, y)`` nodes.
-
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        Temporal grid in SI units.
-    space : solprop.modes.slab.PlanarGrid
-        The slab channels, their x rule and the y axis.
-    spectrum : numpy.ndarray
-        Internal ``(p, k_y)`` spectrum, shape ``(n_p*n_y, 1, n_omega)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        Complex analytic samples, shape ``(n_y, n_x, n_t)``.
-    """
-    rows = _check_planar(grid, space, spectrum)
-    physical = np.einsum("xp,ypw->yxw", space.synthesis, rows)
-    return _analytic(grid, physical)
-
-
-def _on_axis_field(
-    grid: TimeGrid, space: RadialGrid | FreeGrid | PlanarGrid, spectrum: np.ndarray
-) -> np.ndarray:
-    """Reconstruct the field at the geometric axis from transverse spectra.
-
-    Parameters
-    ----------
-    grid : solprop.grid.TimeGrid
-        Temporal frequency grid.
-    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        A :class:`solprop.modes.slab.PlanarGrid` is refused by name: its columns
-        are slab amplitudes, not field samples.
-        Transverse on-axis reconstruction weights.
     spectrum : numpy.ndarray
         Internal radial spectrum in V m or Cartesian spectrum in V/m,
-        shape (n_modes, n_pol, n_omega).
+        shape ``(n_modes, n_pol, n_omega)``.
+    flux : SpatialFlux
+        The plane's measure.
 
     Returns
     -------
-    numpy.ndarray
-        On-axis temporal spectrum in V/m, shape (n_pol, n_omega).
+    tuple of numpy.ndarray
+        On-axis temporal spectra of ``E`` and ``G / (eps0 c)`` in V/m, each
+        ``(n_pol, n_omega)``.
     """
-    _check_field(grid, space, spectrum)
+    _check_flux(spectrum, flux)
+    space = flux.space
     # J0(0)=1. The inverse Hankel measure is k dk, whereas Parseval's stored
     # spectral measure carries 2 pi, so reconstruction divides it out.
     weights = (
@@ -1030,55 +1515,55 @@ def _on_axis_field(
         if isinstance(space, RadialGrid)
         else space.on_axis
     )
-    return np.einsum("r,rpw->pw", weights, spectrum)
+    return np.einsum("r,rpw->pw", weights, spectrum), np.einsum(
+        "r,rpw->pw", weights, _closure(spectrum, flux)
+    )
 
 
 def on_axis_intensity(
-    grid: TimeGrid,
-    space: RadialGrid | FreeGrid | PlanarGrid,
-    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"], flux: SpatialFlux
 ) -> float:
-    """Return the largest intensity in time on the beam axis.
+    """Return the largest signed axial flux in time on the beam axis.
 
     Parameters
     ----------
-    grid : solprop.grid.TimeGrid
-        Temporal grid in SI units.
-    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        A :class:`solprop.modes.slab.PlanarGrid` is refused by name: its columns
-        are slab amplitudes, not field samples.
-        Transverse geometry and reconstruction weights.
     spectrum : numpy.ndarray
         Internal radial spectrum in V m or Cartesian spectrum in V/m,
         shape ``(n_modes, n_pol, n_omega)``.
+    flux : SpatialFlux
+        The plane's measure.
 
     Returns
     -------
     float
-        Peak on-axis analytic intensity in W/m^2, summed over polarisation.
+        Peak on-axis axial flux in W/m^2, summed over polarisation.
+
+    Raises
+    ------
+    GridError
+        If the spectrum is invalid.
     """
-    analytic = _analytic(grid, _on_axis_field(grid, space, spectrum))
-    return float(0.5 * EPS0 * C * np.max(np.sum(np.abs(analytic) ** 2, axis=0)))
+    field, closure = _on_axis_pair(spectrum, flux)
+    grid = flux.grid
+    product = np.real(_analytic(grid, field) * np.conj(_analytic(grid, closure)))
+    return float(0.5 * EPS0 * C * np.max(np.sum(product, axis=0)))
 
 
 def on_axis_spectrum(
-    grid: TimeGrid,
-    space: RadialGrid | FreeGrid | PlanarGrid,
-    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"], flux: SpatialFlux
 ) -> Float[np.ndarray, " n_omega"]:
     """Return the on-axis spectral fluence density summed over polarisation.
 
+    The same-frequency real pairing of the coherent on-axis ``E`` and ``G``, not a
+    squared coherent field sum: each transverse column carries its own admittance.
+
     Parameters
     ----------
-    grid : solprop.grid.TimeGrid
-        Temporal grid, with angular frequencies in rad/s.
-    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        A :class:`solprop.modes.slab.PlanarGrid` is refused by name: its columns
-        are slab amplitudes, not field samples.
-        Transverse geometry and reconstruction weights.
     spectrum : numpy.ndarray
         Internal radial spectrum in V m or Cartesian spectrum in V/m,
         shape ``(n_modes, n_pol, n_omega)``.
+    flux : SpatialFlux
+        The plane's measure.
 
     Returns
     -------
@@ -1086,10 +1571,18 @@ def on_axis_spectrum(
         Real spectral fluence in J s/m^2 per angular frequency bin, shape
         ``(n_omega,)``. Its sum times ``grid.d_omega`` is the on-axis fluence.
         It is a density, so changing Fourier convention leaves it unchanged.
+
+    Raises
+    ------
+    GridError
+        If the spectrum is invalid.
     """
-    axis = _on_axis_field(grid, space, spectrum)
-    density = fourier.spectral_density(axis, grid.dt, kind=grid.kind)
-    return 0.5 * EPS0 * C * np.sum(density, axis=0)
+    field, closure = _on_axis_pair(spectrum, flux)
+    grid = flux.grid
+    factor = fourier.spectral_density(
+        np.ones(grid.n_omega, complex), grid.dt, kind=grid.kind
+    )
+    return 0.5 * EPS0 * C * factor * np.sum(np.real(field * np.conj(closure)), axis=0)
 
 
 # ----------------------------------------------- far-field apertures (SEP 23)
@@ -1118,16 +1611,15 @@ FAR_FIELD_STATISTICS: tuple[str, ...] = (
     "aperture_on_axis_spectrum",
     "region_spectrum",
     "beam_spectrum",
-    "poynting_spectrum",
     "absorbed_power",
 )
-"""The six statistics :func:`aperture_statistics` forms, in catalogue order."""
+"""The five statistics :func:`aperture_statistics` forms, in catalogue order."""
 
-OPERATOR_STATISTICS: tuple[str, ...] = ("poynting_spectrum", "absorbed_power")
-"""The two far-field statistics that need the run's linear operator.
+OPERATOR_STATISTICS: tuple[str, ...] = ("absorbed_power",)
+"""The far-field statistic that needs the run's linear operator.
 
-A saved plane does not carry the operator, so they are backend statistics and
-:func:`solprop.stats.collect` refuses them by name.
+A saved plane does not carry the operator's absorption rates, so it is a backend
+statistic and :func:`solprop.stats.collect` refuses it by name.
 """
 
 ABSORBED_CHANNELS: tuple[str, ...] = (
@@ -1138,14 +1630,15 @@ ABSORBED_CHANNELS: tuple[str, ...] = (
 )
 """The channels of ``absorbed_power``, in the order of its four entries."""
 
-AxialFactors = Callable[[slice], tuple[np.ndarray, np.ndarray]]
-"""Per-chunk obliquity and absorption rates of the run's separable operator.
+AxialFactors = Callable[[slice], tuple[np.ndarray, np.ndarray | None]]
+"""Per-chunk admittance and absorption rates of the plane's medium (SEP 34).
 
-Called with a slice of transverse columns, it returns the dimensionless obliquity
-``c Re(k_z)/omega``, shape ``(n_chunk, n_omega)``, and the four power rates of
-:data:`ABSORBED_CHANNELS` in 1/m, shape ``(4, n_chunk, n_omega)``.
-:func:`solprop.translate.spatial.axial_factors` is the one implementation; a callable
-keeps the operator's representation, a translation-layer record, out of this module.
+Called with a slice of transverse columns, it returns the dimensionless complex
+admittance ``c k_z/omega``, shape ``(n_chunk, n_omega)``, zero on bins that are no
+forward power port, and the four power rates of :data:`ABSORBED_CHANNELS` in 1/m,
+shape ``(4, n_chunk, n_omega)``, or None where the run's operator is not available
+(a saved plane). :func:`solprop.translate.spatial.axial_factors` is the in-run
+implementation and :meth:`SpatialFlux.admittance` the saved-plane one.
 """
 
 _FAR_FIELD_BUDGET = 64 * 2**20
@@ -1186,7 +1679,13 @@ def aperture_profile(
     edge: float,
     kind: ApertureProfile,
 ) -> Float[np.ndarray, "*shape"]:
-    r"""Return an aperture's amplitude transmission at distances from its centre.
+    r"""Return an aperture's profile ``W`` at distances from its centre.
+
+    How ``W`` enters depends on the aperture set's weighting (SEP 23 section 4.6):
+    under ``"amplitude"`` weighting (the default) it is the field transmission, and
+    ``aperture_spectrum`` weighs the collected power by ``W**2``; under
+    ``"quadrature"`` weighting it weighs the power itself, once. The on-axis
+    amplitude behind the aperture applies ``W`` once under both weightings.
 
     With ``r`` the half-width and ``t = (rho - r)/w``, the four profiles of SEP 23
     section 4.4 are: ``hard``, one for ``rho <= r`` and zero beyond; ``tanh``,
@@ -1215,8 +1714,7 @@ def aperture_profile(
     Returns
     -------
     numpy.ndarray
-        The dimensionless transmission ``W(rho)`` in ``[0, 1]``, the shape of
-        `radius`.
+        The dimensionless profile ``W(rho)`` in ``[0, 1]``, the shape of `radius`.
 
     Raises
     ------
@@ -1611,21 +2109,24 @@ def aperture_statistics(
     field: Complex[np.ndarray, "n_modes n_pol n_omega"],
     tables: ApertureTables,
     *,
-    axial: AxialFactors | None = None,
+    axial: AxialFactors,
     chunk: int | None = None,
 ) -> dict[str, np.ndarray]:
     r"""Form the far-field statistics of one Cartesian or line spectrum (SEP 23).
 
-    The reference pass of equations (4), (5) and (7) to (11): the spectrum collected
-    through each aperture, :math:`S_a=\tfrac{\varepsilon_0c}{2}\sum_cw_cW_a^p\sum_q
-    \operatorname{sd}(E)`; the on-axis spectrum behind each aperture in a Fourier
-    plane, from :math:`A_{a,q}=\sum_c\alpha_cW_aE_{c,q}`; the spectrum in each box of
-    physical transverse wavevector; the beam spectrum; the axial-flux spectrum
-    weighted by the obliquity :math:`c\operatorname{Re}k_z/\omega`; and the power
+    The reference pass of SEP 23's equations, measured by the axial flux of the
+    medium (SEP 34): the spectrum collected through each aperture,
+    :math:`S_a=\tfrac{\varepsilon_0c}{2}\sum_cw_cW_a^p\eta_c\sum_q
+    \operatorname{sd}(E)` with the real admittance
+    :math:`\eta=c\operatorname{Re}k_z/\omega`; the on-axis spectrum behind each
+    aperture in a Fourier plane, the same-frequency pairing of the coherent
+    :math:`A_{a,q}=\sum_c\alpha_cW_aE_{c,q}` with its magnetic closure; the spectrum
+    in each box of physical transverse wavevector; the beam spectrum; and the power
     the spectral, transverse, evanescent and material channels of the linear
     operator remove, :math:`P_j=\tfrac{\varepsilon_0c}{2}\sum_cw_c\sum_{q,k}
-    \nu_kr_j|E|^2`. It walks the columns in chunks, forms the polarisation-summed
-    spectral density once per chunk and adds the chunk partials in ascending order.
+    \nu_k\eta r_j|E|^2`. It walks the columns in chunks, forms the
+    polarisation-summed spectral density once per chunk and adds the chunk partials
+    in ascending order.
 
     Parameters
     ----------
@@ -1639,9 +2140,9 @@ def aperture_statistics(
         ``(n_x*n_y, n_pol, n_omega)``.
     tables : ApertureTables
         The far-field tables of the request and the geometry.
-    axial : callable or None, optional
-        The operator's per-chunk obliquity and rates (:data:`AxialFactors`), needed
-        by ``poynting_spectrum`` and ``absorbed_power``.
+    axial : callable
+        The plane's per-chunk admittance and the operator's rates
+        (:data:`AxialFactors`); the rates are needed by ``absorbed_power``.
     chunk : int or None, optional
         Columns per chunk, at least 1; ``None`` bounds the chunk's temporaries at
         64 MiB.
@@ -1652,7 +2153,7 @@ def aperture_statistics(
         Each requested statistic: ``aperture_spectrum`` and ``region_spectrum`` in
         J/(rad/s), shapes ``(n_apertures, n_omega)`` and ``(n_regions, n_omega)``;
         ``aperture_on_axis_spectrum`` in J s/m^2, ``(n_apertures, n_omega)``;
-        ``beam_spectrum`` and ``poynting_spectrum`` in J/(rad/s), ``(n_omega,)``;
+        ``beam_spectrum`` in J/(rad/s), ``(n_omega,)``;
         ``absorbed_power`` in J/m, ``(4,)``, in the order of
         :data:`ABSORBED_CHANNELS`. On a line the spectra and powers are per metre
         of y, and the on-axis spectra stay local.
@@ -1662,9 +2163,9 @@ def aperture_statistics(
     OutputError
         If a name is not a far-field statistic, the field does not match the
         tables, a requested statistic needs a table the request does not carry, or
-        an operator statistic is asked for without the operator.
+        an operator statistic is asked for without the operator's rates.
     """
-    wanted = _far_field_request(names, grid, field, tables, axial)
+    wanted = _far_field_request(names, grid, field, tables)
     n_pol = field.shape[1]
     step = (
         max(1, _FAR_FIELD_BUDGET // (16 * (n_pol + 4) * grid.n_omega))
@@ -1686,9 +2187,8 @@ def _far_field_request(
     grid: TimeGrid,
     field: Complex[np.ndarray, "n_modes n_pol n_omega"],
     tables: ApertureTables,
-    axial: AxialFactors | None,
 ) -> set[str]:
-    """Check a far-field request against the field, its tables and the operator.
+    """Check a far-field request against the field and its tables.
 
     Parameters
     ----------
@@ -1700,8 +2200,6 @@ def _far_field_request(
         The spectrum, shape ``(n_x*n_y, n_pol, n_omega)``.
     tables : ApertureTables
         The far-field tables.
-    axial : callable or None
-        The operator's per-chunk factors.
 
     Returns
     -------
@@ -1738,13 +2236,6 @@ def _far_field_request(
     if "region_spectrum" in wanted and tables.n_regions == 0:
         msg = "region_spectrum needs spectral_regions, and the request carries none"
         raise OutputError(msg)
-    operated = wanted & set(OPERATOR_STATISTICS)
-    if operated and axial is None:
-        msg = (
-            f"{sorted(operated)} need the run's separable linear operator, which a "
-            "saved plane does not carry; a backend forms them during the run"
-        )
-        raise OutputError(msg)
     return wanted
 
 
@@ -1776,20 +2267,20 @@ class _FarFieldSums:
         self._grid = grid
         self._tables = tables
         self._beam = np.zeros(n_omega)
-        self._poynting = np.zeros(n_omega)
         self._absorbed = np.zeros(len(ABSORBED_CHANNELS))
         self._regions = np.zeros((tables.n_regions, n_omega))
         self._collected = np.zeros((tables.n_apertures, n_omega))
         self._amplitude = np.zeros(
             (tables.n_apertures, n_pol, n_omega), dtype=np.complex128
         )
+        self._closure = np.zeros_like(self._amplitude)
         self._energy_weights = fourier.energy_weights(n_omega, grid.dt, kind=grid.kind)
 
     def add(
         self,
         first: int,
         spectrum: Complex[np.ndarray, "n_chunk n_pol n_omega"],
-        axial: AxialFactors | None,
+        axial: AxialFactors,
     ) -> None:
         """Add one chunk of columns, starting at column `first`.
 
@@ -1799,14 +2290,21 @@ class _FarFieldSums:
             The chunk's first column.
         spectrum : numpy.ndarray
             The chunk of the spectrum, shape ``(n_chunk, n_pol, n_omega)``.
-        axial : callable or None
-            The operator's per-chunk factors.
+        axial : callable
+            The plane's per-chunk admittance and rates.
+
+        Raises
+        ------
+        OutputError
+            If ``absorbed_power`` is wanted and the rates are not available.
         """
         tables, grid, wanted = self._tables, self._grid, self._wanted
         stop = first + spectrum.shape[0]
         columns = np.arange(first, stop)
+        admittance, rates = axial(slice(first, stop))
+        real = np.real(admittance)
         density = np.sum(fourier.spectral_density(spectrum, grid.dt, kind=grid.kind), 1)
-        weighted = tables.weights[first:stop, None] * density
+        weighted = tables.weights[first:stop, None] * real * density
         k_x = tables.k_x[columns % tables.k_x.size]
         k_y = tables.k_y[columns // tables.k_x.size]
         if "beam_spectrum" in wanted:
@@ -1814,17 +2312,19 @@ class _FarFieldSums:
         if "region_spectrum" in wanted:
             self._add_regions(weighted, k_x, k_y)
         if wanted & _THROUGH_APERTURES:
-            self._add_apertures(first, spectrum, weighted, k_x, k_y)
-        if axial is not None and wanted & set(OPERATOR_STATISTICS):
-            obliquity, rates = axial(slice(first, stop))
-            if "poynting_spectrum" in wanted:
-                self._poynting += np.sum(weighted * obliquity, axis=0)
-            if "absorbed_power" in wanted:
-                squared = np.sum(np.abs(spectrum) ** 2, axis=1)
-                measured = (
-                    tables.weights[first:stop, None] * squared
-                ) * self._energy_weights
-                self._absorbed += np.sum(rates * measured[None], axis=(1, 2))
+            self._add_apertures(first, spectrum, admittance, weighted, k_x, k_y)
+        if "absorbed_power" in wanted:
+            if rates is None:
+                msg = (
+                    "absorbed_power needs the run's linear operator rates, which a "
+                    "saved plane does not carry; a backend forms it during the run"
+                )
+                raise OutputError(msg)
+            squared = np.sum(np.abs(spectrum) ** 2, axis=1)
+            measured = (
+                tables.weights[first:stop, None] * real * squared
+            ) * self._energy_weights
+            self._absorbed += np.sum(rates * measured[None], axis=(1, 2))
 
     def _add_regions(
         self,
@@ -1858,6 +2358,7 @@ class _FarFieldSums:
         self,
         first: int,
         spectrum: Complex[np.ndarray, "n_chunk n_pol n_omega"],
+        admittance: Complex[np.ndarray, "n_chunk n_omega"],
         weighted: Float[np.ndarray, "n_chunk n_omega"],
         k_x: Float[np.ndarray, " n_chunk"],
         k_y: Float[np.ndarray, " n_chunk"],
@@ -1870,6 +2371,8 @@ class _FarFieldSums:
             The chunk's first column.
         spectrum : numpy.ndarray
             The chunk of the spectrum.
+        admittance : numpy.ndarray
+            The chunk's complex admittance.
         weighted : numpy.ndarray
             ``w_c`` times the polarisation-summed spectral density.
         k_x, k_y : numpy.ndarray
@@ -1885,10 +2388,16 @@ class _FarFieldSums:
             if "aperture_on_axis_spectrum" in self._wanted:
                 # The weight enters the amplitude once under both weightings; the
                 # complex on-axis vector is multiplied as stored (section 4.6).
+                through = weight[:, None, :] * spectrum
                 self._amplitude[index] += np.einsum(
+                    "r,rpw->pw", tables.on_axis[first:stop], through
+                )
+                # The same aperture on the magnetic closure: the internal spectrum
+                # carries the conjugate admittance (SpatialFlux).
+                self._closure[index] += np.einsum(
                     "r,rpw->pw",
                     tables.on_axis[first:stop],
-                    weight[:, None, :] * spectrum,
+                    np.conj(admittance)[:, None, :] * through,
                 )
 
     def values(self) -> dict[str, np.ndarray]:
@@ -1901,15 +2410,17 @@ class _FarFieldSums:
         """
         conversion = 0.5 * EPS0 * C
         grid = self._grid
-        on_axis = np.sum(
-            fourier.spectral_density(self._amplitude, grid.dt, kind=grid.kind), axis=1
+        factor = fourier.spectral_density(
+            np.ones(grid.n_omega, complex), grid.dt, kind=grid.kind
+        )
+        on_axis = factor * np.sum(
+            np.real(self._amplitude * np.conj(self._closure)), axis=1
         )
         everything = {
             "aperture_spectrum": self._collected,
             "aperture_on_axis_spectrum": on_axis,
             "region_spectrum": self._regions,
             "beam_spectrum": self._beam,
-            "poynting_spectrum": self._poynting,
             "absorbed_power": self._absorbed,
         }
         return {
@@ -2206,57 +2717,62 @@ def _line_fluence_widths(
     return second, radius_e2, width
 
 
-def _beam_widths(
-    grid: TimeGrid, space: RadialGrid | FreeGrid | PlanarGrid, spectrum: np.ndarray
-) -> tuple[float, float, float]:
-    """Reduce the time-integrated transverse profile with its spatial measure.
+def _beam_widths(spectrum: np.ndarray, flux: SpatialFlux) -> tuple[float, float, float]:
+    """Reduce the signed fluence profile with its spatial measure.
 
     Parameters
     ----------
-    grid : solprop.grid.TimeGrid
-        Temporal grid and spectral energy measure.
-    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        A :class:`solprop.modes.slab.PlanarGrid` is refused by name: its columns
-        are slab amplitudes, not field samples.
-        Spatial samples and area measure.
     spectrum : numpy.ndarray
         Internal radial spectrum in V m or Cartesian spectrum in V/m,
-        shape (n_modes, n_pol, n_omega).
+        shape ``(n_modes, n_pol, n_omega)``.
+    flux : SpatialFlux
+        The plane's measure on a radial or Cartesian grid.
 
     Returns
     -------
     tuple of float
         Second-moment radius, central 1/e^2 radius and FWHM in m.
+
+    Raises
+    ------
+    GridError
+        If the fluence is negative anywhere beyond its rounding budget: a width
+        needs a nonnegative profile, and a signed axial flux is not clipped.
     """
-    fluence = spatial_fluence(grid, space, spectrum)
+    _check_flux(spectrum, flux, planar=False)
+    fluence, budget = _signed_fluence(spectrum, flux)
+    if np.any(fluence < -budget):
+        worst = int(np.argmin(fluence + budget))
+        msg = (
+            "a beam width needs a nonnegative fluence profile, and this field's "
+            f"signed axial flux is {fluence[worst]:.3e} J/m^2 at node {worst}, "
+            "beyond its rounding budget; the width is undefined for it"
+        )
+        raise GridError(msg)
+    fluence = np.maximum(fluence, 0.0)
+    space = flux.space
     if isinstance(space, FreeGrid):
         return cartesian_fluence_widths(space.x, space.y, fluence)
-    axis_fluence = float(np.sum(on_axis_spectrum(grid, space, spectrum)) * grid.d_omega)
-    # A planar grid was refused by spatial_fluence.
+    axis_fluence = float(np.sum(on_axis_spectrum(spectrum, flux)) * flux.grid.d_omega)
     radial = cast("RadialGrid", space)
     return radial_fluence_widths(radial.r, fluence, radial.radial_weights, axis_fluence)
 
 
 def beam_radius(
-    grid: TimeGrid,
-    space: RadialGrid | FreeGrid | PlanarGrid,
     spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    flux: SpatialFlux,
     *,
     method: Literal["second_moment", "1/e2"] = "second_moment",
 ) -> float:
-    """Measure a beam radius from its time-integrated fluence.
+    """Measure a beam radius from its time-integrated axial flux.
 
     Parameters
     ----------
-    grid : solprop.grid.TimeGrid
-        Temporal grid in SI units.
-    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        A :class:`solprop.modes.slab.PlanarGrid` is refused by name: its columns
-        are slab amplitudes, not field samples.
-        Transverse geometry in m, including its area integration weights.
     spectrum : numpy.ndarray
         Internal radial spectrum in V m or Cartesian spectrum in V/m,
         shape ``(n_modes, n_pol, n_omega)``.
+    flux : SpatialFlux
+        The plane's measure on a radial or Cartesian grid.
     method : {'second_moment', '1/e2'}, optional
         ``sqrt(2 integral r^2 F dA / integral F dA)`` or the first linearly
         interpolated crossing of the central fluence divided by e^2.
@@ -2271,33 +2787,28 @@ def beam_radius(
     Raises
     ------
     GridError
-        If the method or spectrum is invalid, or `space` is a planar grid.
+        If the method or spectrum is invalid, the grid is planar, or the fluence is
+        negative beyond its rounding budget.
     """
     if method not in ("second_moment", "1/e2"):
         msg = "beam radius method must be second_moment or 1/e2"
         raise GridError(msg)
-    values = _beam_widths(grid, space, spectrum)
+    values = _beam_widths(spectrum, flux)
     return values[0 if method == "second_moment" else 1]
 
 
 def fwhm_r(
-    grid: TimeGrid,
-    space: RadialGrid | FreeGrid | PlanarGrid,
-    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"], flux: SpatialFlux
 ) -> float:
     """Return the central fluence profile's full width at half maximum.
 
     Parameters
     ----------
-    grid : solprop.grid.TimeGrid
-        Temporal grid in SI units.
-    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
-        A :class:`solprop.modes.slab.PlanarGrid` is refused by name: its columns
-        are slab amplitudes, not field samples.
-        Transverse geometry in m.
     spectrum : numpy.ndarray
         Internal radial spectrum in V m or Cartesian spectrum in V/m,
         shape ``(n_modes, n_pol, n_omega)``.
+    flux : SpatialFlux
+        The plane's measure on a radial or Cartesian grid.
 
     Returns
     -------
@@ -2305,8 +2816,14 @@ def fwhm_r(
         Twice the interpolated half-maximum radius in m, or NaN for an empty
         profile, one whose axis fluence lies below half the peak (hollow) or one
         that never falls below it.
+
+    Raises
+    ------
+    GridError
+        If the spectrum is invalid, the grid is planar, or the fluence is negative
+        beyond its rounding budget.
     """
-    return _beam_widths(grid, space, spectrum)[2]
+    return _beam_widths(spectrum, flux)[2]
 
 
 def attenuation_extremes(
@@ -2469,14 +2986,17 @@ def critical_power(
     wavelength: float,
     chi3: float,
     *,
+    index: float,
     space: RadialGrid | FreeGrid | PlanarGrid | None = None,
 ) -> float:
-    r"""Return the Townes critical-power baseline in the spatial field convention.
+    r"""Return the physical Townes critical-power baseline.
 
     This is the scalar, monochromatic, paraxial Kerr lower threshold. It is a
     diagnostic reference for an exact-UPPE pulse, whose dispersion, bandwidth,
-    evanescent model and losses can change the focusing dynamics. Power uses
-    ``eps0*c*integral(|E_a|^2 dS)/2``, as every spatial energy statistic does.
+    evanescent model and losses can change the focusing dynamics; it is not a
+    broadband collapse prediction. Power is the axial Poynting flux
+    ``n0*eps0*c*integral(|E_a|^2 dS)/2`` of the paraxial beam in the medium, as
+    every spatial energy statistic measures it (SEP 34).
 
     Parameters
     ----------
@@ -2484,6 +3004,9 @@ def critical_power(
         Vacuum wavelength in m, finite and positive.
     chi3 : float
         Absolute positive Kerr susceptibility in m^2/V^2, including number density.
+    index : float
+        Real refractive index ``n0`` of the medium at the carrier, finite and
+        positive.
     space : RadialGrid, FreeGrid, PlanarGrid or None, optional
         The grid the power is to be compared on, when there is one. A
         :class:`solprop.grid.LineGrid` is refused: a beam uniform in y has one
@@ -2501,8 +3024,8 @@ def critical_power(
     Raises
     ------
     MaterialError
-        If the wavelength or susceptibility is nonpositive, nonfinite, or yields
-        a power outside the finite positive floating-point range.
+        If the wavelength, susceptibility or index is nonpositive or nonfinite, or
+        they yield a power outside the finite positive floating-point range.
     GridError
         If `space` is a :class:`solprop.grid.LineGrid`.
 
@@ -2511,12 +3034,11 @@ def critical_power(
     The fundamental scalar response gives ``g=3*k*chi3/(8*n**2)`` multiplying
     ``|A|^2*A``. Rescaling the paraxial equation gives
     ``Q''+Q'/r-Q+Q**3=0``. Its radial mass ``integral(Q**2 r dr)=1.86226``
-    yields ``Pcrit=1.86226*eps0*c*wavelength**2/(3*pi*chi3)``. This mass is
+    gives a threshold in ``integral(|E_a|^2 dS)`` in which the index cancels;
+    the paraxial power ``n0*eps0*c/2`` times it is
+    ``Pcrit=1.86226*n0*eps0*c*wavelength**2/(3*pi*chi3)``. This mass is
     rounded from the independent boundary-value calculation; the approximate
-    1.86225 printed in [1]_ is lower by 5.52049e-6. The refractive
-    index cancels because this package's spatial measure omits the material
-    factor n. The physical Poynting power in a nondispersive dielectric is n
-    times this convention's power.
+    1.86225 printed in [1]_ is lower by 5.52049e-6.
 
     A Gaussian's negative-Hamiltonian sufficient threshold has radial mass 2,
     above the Townes baseline. Twice this baseline exceeds that Gaussian
@@ -2524,7 +3046,7 @@ def critical_power(
 
     On a line uniform in y the (1+1)-D equation has no collapse and no critical
     power: its stationary beam is the stable soliton ``sech(x/x0)``, whose power
-    per metre of y is ``8*eps0*c/(3*k0**2*chi3*x0)`` for every width ``x0``
+    per metre of y is ``8*n0*eps0*c/(3*k0**2*chi3*x0)`` for every width ``x0``
     (``docs/guide/free-space/model.md``). The refusal says so rather than returning a
     number in W that a power in W/m cannot be compared with.
 
@@ -2536,10 +3058,9 @@ def critical_power(
     the guide. The plates bound x, so the whole beam does not collapse as it would
     in free space, but a multimode x basis can still focus in x, and the ratio is
     the one their stability criterion uses. With ``n2 = 3 chi3 / (4 eps0 c n0**2)``
-    their ``Pc`` is ``2 n0**3 / 1.86226`` times this value: the Gaussian mass 2
-    against the Townes mass, and the index factors of the two intensity
-    conventions, which are one to about 1e-3 in a gas. Convert when comparing with
-    their numbers.
+    their ``Pc`` is ``2 n0**2 / 1.86226`` times this value: the Gaussian mass 2
+    against the Townes mass, and the ``n0**2`` of that ``n2`` convention, one to
+    about 1e-3 in a gas. Convert when comparing with their numbers.
 
     References
     ----------
@@ -2556,13 +3077,15 @@ def critical_power(
             "of y depends on its width (docs/guide/free-space/model.md)"
         )
         raise GridError(msg)
-    if any(not math.isfinite(value) or value <= 0 for value in (wavelength, chi3)):
-        msg = "critical power requires finite positive wavelength and chi3"
+    if any(
+        not math.isfinite(value) or value <= 0 for value in (wavelength, chi3, index)
+    ):
+        msg = "critical power requires finite positive wavelength, chi3 and index"
         raise MaterialError(msg)
     # Evaluate products in logarithms so valid extreme inputs do not overflow
     # at an intermediate wavelength square before the chi3 division rescales it.
     logarithm = math.log(1.86226 * EPS0 * C / (3 * math.pi))
-    logarithm += 2 * math.log(wavelength) - math.log(chi3)
+    logarithm += 2 * math.log(wavelength) - math.log(chi3) + math.log(index)
     if (
         not math.log(np.nextafter(0.0, 1.0))
         <= logarithm

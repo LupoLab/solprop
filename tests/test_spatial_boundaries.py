@@ -16,7 +16,7 @@ from solprop.exceptions import DriverError, OutputError, PulseError, Translation
 from solprop.grid import EnvelopeGrid, RadialGrid
 from solprop.output.schema import SavedPlane
 from solprop.pulses import GaussianPulse, SpatialPulse
-from solprop.spatial import SpatialMedium
+from solprop.spatial import SpatialFlux, SpatialMedium
 from solprop.stats import StatsSpec, collect, default_spec
 from solprop.stepper import PIController
 from solprop.translate.problem import assemble
@@ -89,7 +89,9 @@ def test_spatial_pulse_checks_the_temporal_pulse_result(case, shape, match):
         else nullcontext()
     )
     with diagnostic, pytest.raises(PulseError, match=match):
-        dataclasses.replace(pulse, temporal=Temporal()).build(grid, space)
+        dataclasses.replace(pulse, temporal=Temporal()).build(
+            grid, space, medium=SpatialMedium()
+        )
 
 
 @pytest.mark.parametrize("which", ["space_only", "medium_only", "modes", "pulse_only"])
@@ -147,10 +149,15 @@ def test_spatial_statistics_refuse_modal_quantities_and_keep_density(case):
     assert default_spec("radial", with_profiles=True).names[-1] == "density"
     with pytest.raises(OutputError, match="modal zdw"):
         default_spec("radial", with_zdw=True)
-    field = pulse.build(grid, space)
+    field = pulse.build(grid, space, medium=SpatialMedium())
     plane = SavedPlane(z=0.0, field=field)
     with pytest.raises(OutputError, match="not a spatial"):
-        collect(StatsSpec(names=("peak_power",)), grid, plane, space=space)
+        collect(
+            StatsSpec(names=("peak_power",)),
+            grid,
+            plane,
+            flux=SpatialFlux.resolve(grid, space, SpatialMedium()),
+        )
 
 
 def test_spatial_response_compilation_requires_a_translated_prefactor(case):
@@ -197,7 +204,7 @@ def test_spatial_response_compilation_rejects_modal_averaging(case):
 
 def test_radial_assembly_rejects_wrong_column_count(case):
     grid, space, pulse, settings = case
-    initial = pulse.build(grid, space)[:-1]
+    initial = pulse.build(grid, space, medium=SpatialMedium())[:-1]
     with pytest.raises(DriverError, match="spatial input"):
         Simulation.from_radial(
             grid, space, SpatialMedium(), [], initial, settings=settings

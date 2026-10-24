@@ -14,7 +14,8 @@
 # x86-64 FFTW's SSE2 and AVX codelets are chosen at run time (AVX2 and AVX-512 codelets were not a
 # uniform gain when measured, so they are left out). On Arm the cycle counter is
 # enabled, so that measured planning (FFTW_MEASURE) works; without one FFTW plans by
-# estimate only.
+# estimate only. Apple silicon also enables FFTW's explicit NEON codelets in both
+# precisions; compiler auto-vectorisation does not enable these implementations.
 #
 # OpenMP: on Linux the compiler's own runtime (GCC's libgomp in the manylinux image);
 # on macOS the libomp of LIBOMP_PREFIX (native/ci/build-libomp.sh), the runtime the
@@ -49,7 +50,7 @@ case "$(uname -s)/$(uname -m)" in
     : "${MACOSX_DEPLOYMENT_TARGET:?set MACOSX_DEPLOYMENT_TARGET}"
     : "${LIBOMP_PREFIX:?set LIBOMP_PREFIX to the libomp built by build-libomp.sh}"
     cflags="-O3 -mcpu=apple-m1 -mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET"
-    simd=(--enable-armv8-cntvct-el0)
+    simd=(--enable-armv8-cntvct-el0 --enable-neon)
     # The extension's compiler, Homebrew's Clang (native/pyproject.toml), which takes
     # -fopenmp and links the libomp found first on the library path: this one.
     # Dead-stripping keeps libomp out of the libraries that do not use it.

@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from flux_oracles import admittance
 from solprop.backends.registry import available
 from solprop.constants import EPS0, HBAR, C
 from solprop.driver import Simulation, SimulationSettings, prop_radial
@@ -24,10 +25,16 @@ from solprop.output.hdf5 import HDF5Output, check_cache, open_file
 from solprop.output.schema import RunMetadata, SavedPlane
 from solprop.physdata.selection import MaterialManifest
 from solprop.pulses import GaussianPulse, SpatialPulse
-from solprop.spatial import SpatialMedium, spatial_energy
+from solprop.spatial import SpatialFlux, SpatialMedium, spatial_energy
 from solprop.stepper import PIController
 from solprop.translate.linop import delta_phi
 from spatial_records import record_metric
+
+
+def _vacuum(grid, space):
+    """Return the vacuum measure of the plane at z = 0 (SEP 34)."""
+    return SpatialFlux.resolve(grid, space, SpatialMedium())
+
 
 EPS = np.finfo(float).eps
 
@@ -65,7 +72,7 @@ def test_radial_interface_caches_and_saves_geometry(case, backend, request):
     # Preserve the compact pulse specification; serializing the built transverse
     # volume here would duplicate the input and make Cartesian metadata enormous.
     assert metadata.configuration["initial"] is pulse
-    assert metadata.schema_version == 22
+    assert metadata.schema_version == 23
     assert metadata.simulation_kind == "radial"
     assert metadata.spatial is not None
     assert metadata.spatial["stored_field_units"] == "V m"
@@ -81,8 +88,8 @@ def test_radial_interface_caches_and_saves_geometry(case, backend, request):
     # masked by the driver; compare with its saved entrance, not an unmasked pulse.
     bound = (16 * space.n_r + 8 * grid.n_omega) * EPS
     assert_allclose(
-        spatial_energy(grid, space, fields[-1]),
-        spatial_energy(grid, space, fields[0]),
+        spatial_energy(fields[-1], _vacuum(grid, space)),
+        spatial_energy(fields[0], _vacuum(grid, space)),
         rtol=bound,
         atol=0,
     )
@@ -91,8 +98,8 @@ def test_radial_interface_caches_and_saves_geometry(case, backend, request):
         "radial interface energy (relative)",
         grid.kind,
         abs(
-            spatial_energy(grid, space, fields[-1])
-            / spatial_energy(grid, space, fields[0])
+            spatial_energy(fields[-1], _vacuum(grid, space))
+            / spatial_energy(fields[0], _vacuum(grid, space))
             - 1
         ),
         bound,
@@ -108,17 +115,24 @@ def test_spatial_noise_has_one_photon_in_every_column_bin(case, model, n_pol, re
     # involve fewer than 32 rounded operations per bin; there is no long reduction.
     bound = 32 * EPS / (1 - 32 * EPS)
     draw = spatial_noise(
-        grid, space, np.random.default_rng(313), model=model, n_pol=n_pol
+        _vacuum(grid, space), np.random.default_rng(313), model=model, n_pol=n_pol
     )
+    # A bin's photon is measured in the entrance metric, its real admittance (the
+    # vacuum obliquity) times the column's area weight; a bin that is no forward
+    # power port carries none (SEP 34 section 4.3).
+    eta = admittance(grid, space.k_r**2)
     measured = (
         0.5
         * EPS0
         * C
         * space.spectral_weights[:, None, None]
+        * eta[:, None, :]
         * spectral_density(draw.spectrum, grid.dt, kind=grid.kind)
         * grid.d_omega
     )
-    wanted = np.broadcast_to(HBAR * grid.omega * grid.active_mask, measured.shape)
+    wanted = np.broadcast_to(
+        (HBAR * grid.omega * (eta > 0))[:, None, :], measured.shape
+    )
     assert_allclose(measured, wanted, rtol=bound, atol=0)
     errors = np.divide(
         np.abs(measured - wanted), wanted, out=np.zeros_like(wanted), where=wanted > 0
@@ -131,8 +145,7 @@ def test_spatial_noise_has_one_photon_in_every_column_bin(case, model, n_pol, re
         bound,
     )
     other = spatial_noise(
-        grid,
-        space,
+        _vacuum(grid, space),
         np.random.default_rng(313),
         model="modified" if model == "input" else "input",
         n_pol=n_pol,
@@ -265,4 +278,4 @@ def test_radial_input_rejects_ambiguous_noise_and_shape(case):
             settings=settings,
         )
     with pytest.raises(NoiseError, match="n_pol"):
-        spatial_noise(grid, space, np.random.default_rng(33), n_pol=3)
+        spatial_noise(_vacuum(grid, space), np.random.default_rng(33), n_pol=3)

@@ -10,6 +10,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
@@ -175,6 +176,42 @@ TEST(FftProvider, RowWisdomUsesSerialDefaultAndHonorsExplicitEffort) {
     EXPECT_EQ(static_cast<bool>(witness), measured);
   }
 }
+
+TEST(RamanFftProvider, LongFallbackRowsHonorPlannerEffort) {
+  using Wisdom = std::unique_ptr<char, decltype(&fftw_free)>;
+  const Wisdom supported(fftw_export_wisdom_to_string(), fftw_free);
+  if (!supported)
+    GTEST_SKIP() << "The linked FFT provider does not export FFTW wisdom";
+  using Plan =
+      std::unique_ptr<std::remove_pointer_t<fftw_plan>, decltype(&fftw_destroy_plan)>;
+  constexpr int rows = 1;
+  const int samples = 32768;
+  const int frequencies = samples / 2 + 1;
+  const RealRows input("raman_fft.wisdom_input", rows, samples);
+  const ComplexRows output("raman_fft.wisdom_output", rows, frequencies);
+  const char* requested = std::getenv("SOLPROP_FFTW_PLAN");
+  for (const int threads : {1, native::ExecutionSpace().concurrency()}) {
+    SCOPED_TRACE(threads);
+    const auto execution = native::execution_instance(threads);
+    fftw_forget_wisdom();
+    native::RamanFftPlan forward(execution, input, output,
+                                 KokkosFFT::Direction::forward, -1);
+    if (std::string_view(forward.provider()) != "KokkosFFT")
+      GTEST_SKIP() << "This library uses the vDSP provider for long Raman rows";
+    fftw_plan_with_nthreads(execution.concurrency());
+    // ESTIMATE alone cannot create MEASURE wisdom. This witnesses the Raman
+    // wrapper's seeding for a length beyond the former short-row cutoff.
+    const Plan witness(fftw_plan_many_dft_r2c(
+                           1, &samples, rows, input.data(), &samples, 1, samples,
+                           reinterpret_cast<fftw_complex*>(output.data()), &frequencies,
+                           1, frequencies, FFTW_WISDOM_ONLY | FFTW_MEASURE),
+                       fftw_destroy_plan);
+    const bool measured = requested == nullptr
+                              ? execution.concurrency() == 1
+                              : std::string_view(requested) != "estimate";
+    EXPECT_EQ(static_cast<bool>(witness), measured);
+  }
+}
 #endif
 
 TEST(FftProvider, PartialChunkPlanLeavesUnusedRowsUntouched) {
@@ -205,10 +242,15 @@ TEST(FftProvider, PartialChunkPlanLeavesUnusedRowsUntouched) {
 
 namespace {
 TEST(RamanFftProvider, PreservesRawNormalizationInputAndPartialRows) {
-  constexpr int rows = 7, tail = 3;
+  // Include the long full/tail geometries whose provider choice differs from
+  // the short serial rows. Padding remains an exact storage contract.
+  constexpr std::array shapes{std::array{15, 7, 3},      std::array{32, 7, 3},
+                              std::array{16384, 7, 3},   std::array{32768, 7, 3},
+                              std::array{65536, 21, 12}, std::array{131072, 3, 1}};
   for (const int threads : {1, native::ExecutionSpace().concurrency()}) {
-    for (const int length : {15, 32, 16384, 32768}) {
+    for (const auto& [length, rows, tail] : shapes) {
       SCOPED_TRACE(length);
+      SCOPED_TRACE(threads);
       const RealRows input("raman_fft.input", rows, length);
       const RealRows restored("raman_fft.restored", rows, length);
       const ComplexRows output("raman_fft.output", rows, length / 2 + 1);
@@ -242,7 +284,7 @@ TEST(RamanFftProvider, PreservesRawNormalizationInputAndPartialRows) {
         for (int sample = 0; sample < length; ++sample)
           EXPECT_NEAR(roundtrip(row, sample),
                       row < tail ? length * input_host(row, sample) : -5.0,
-                      fft_bound(length, length));
+                      row < tail ? fft_bound(length, length) : 0.0);
         for (int sample = 0; sample <= length / 2; ++sample) {
           const auto expected =
               row < tail
@@ -253,11 +295,14 @@ TEST(RamanFftProvider, PreservesRawNormalizationInputAndPartialRows) {
                             0)
                   : Complex(-7.0, 11.0);
           EXPECT_LE(Kokkos::abs(spectrum(row, sample) - expected),
-                    fft_bound(length, length));
+                    row < tail ? fft_bound(length, length) : 0.0);
         }
       }
 #if defined(SOLPROP_NATIVE_RAMAN_ACCELERATE)
-      const bool accelerated = length != 15 && (threads > 1 || length > 16384);
+      const bool neon =
+          std::string_view(fftw_version).find("-neon") != std::string_view::npos;
+      const bool accelerated = length != 15 && (neon ? threads > 1 && length <= 16384
+                                                     : threads > 1 || length > 16384);
       EXPECT_STREQ(forward.provider(), accelerated ? "Accelerate_vDSP" : "KokkosFFT");
       EXPECT_EQ(forward.tasks(execution.concurrency()),
                 accelerated ? std::min(tail, execution.concurrency())

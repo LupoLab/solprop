@@ -264,7 +264,7 @@ def test_an_elliptical_free_space_input_warns_where_the_keldysh_parameter_is_lar
         Simulation.from_free(grid, space, medium, plasma, circular, settings=settings)
     linear = SpatialPulse(temporal, 80e-6, jones=(1.0, 0.0))
     Simulation.from_free(grid, space, medium, plasma, linear, settings=settings)
-    array = linear.build(grid, space)
+    array = linear.build(grid, space, medium=medium)
     Simulation.from_free(grid, space, medium, plasma, array, settings=settings)
 
 
