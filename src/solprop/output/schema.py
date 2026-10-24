@@ -2557,8 +2557,8 @@ class RunMetadata(Displayed):
         ``frame``, the frame integral of
         :func:`solprop.translate.coupling.frame_record`, or ``None`` for an operator
         supplied without frame tables; and ``basis``, the route and the basis
-        identity (:func:`solprop.coupling.basis_identity`) at each planned plane
-        ``z``, the launch plane first. :func:`solprop.coupling.reference_at`
+        identity (:func:`solprop.coupling.plane.basis_identity`) at each planned plane
+        ``z``, the launch plane first. :func:`solprop.coupling.plane.reference_at`
         rebuilds any saved plane's reference from it. Derived numbers, so outside
         the hash; the inherited origin enters it through
         ``configuration["coupling"]``.

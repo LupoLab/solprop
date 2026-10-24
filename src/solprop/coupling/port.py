@@ -8,14 +8,14 @@ An :class:`InputPort` describes what a simulation can receive at its entrance,
 already sampled (SEP 31, section 5.1): the route, the temporal lattice and basis
 with their identities, the entrance plane and the frame accumulated there, the
 native metric Q, the reference index of the medium, and the coupling models it
-admits. :meth:`solprop.driver.Simulation.input_port` returns one; the translation
-layer fills it. It is a P-layer value type, so that a coupling computed with NumPy
-alone never imports the translation layer.
+admits. :meth:`solprop.driver.simulation.Simulation.input_port` returns one; the
+translation layer fills it. It is a P-layer value type, so that a coupling computed
+with NumPy alone never imports the translation layer.
 
 A :class:`CouplingLaunch` is bound to one port: it carries the port, the target
 coefficients and the reference origin the launched run inherits, and
-:meth:`solprop.driver.Simulation.with_input` refuses it for any other port, whatever
-the array shapes.
+:meth:`solprop.driver.simulation.Simulation.with_input` refuses it for any other port,
+whatever the array shapes.
 
 :func:`same_basis` is the identity model of section 4.3: a plane whose basis,
 lattice, orientation and metric are the port's is copied as it stands, and its
@@ -55,7 +55,7 @@ __all__ = [
 ]
 
 ENTRANCE_TOLERANCE = 1e-12
-"""Relative agreement of two entrance positions, of the larger of 1 m and |z|.
+"""Relative agreement of two entrance positions, of the larger of 1 m and abs(z).
 
 A launch names its entrance by position; within this, two positions are the same
 plane, as a plane the run reached by summing steps sits within a few ulp of it.
@@ -189,7 +189,7 @@ class InputPort:
         Returns
         -------
         str
-            :func:`~solprop.coupling.lattice_identity` of `grid`.
+            :func:`~solprop.coupling.plane.lattice_identity` of `grid`.
         """
         return lattice_identity(self.grid)
 
@@ -352,7 +352,7 @@ def same_basis(plane: FieldPlane, port: InputPort) -> CouplingLaunch:
     origin, so the launched run continues the source's absolute time and carrier
     phase without moving the pulse in its window. Anything else is a different
     calculation, refused by name: a different lattice needs
-    :func:`~solprop.coupling.regrid` first, a different basis or medium a coupling
+    :func:`~solprop.coupling.remap.regrid` first, a different basis or medium a coupling
     model or an interface.
 
     Parameters

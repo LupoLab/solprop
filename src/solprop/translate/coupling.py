@@ -8,7 +8,7 @@ Two products of the translation layer feed plane exchange. :func:`frame_record` 
 the persisted frame integral of a run: the antiderivatives of the frame quantities
 its linear operator removed, so that any saved plane's reference can be rebuilt
 without the run (output schema 24). :func:`input_port` fills the
-:class:`solprop.coupling.InputPort` of a translated problem's entrance: its native
+:class:`solprop.coupling.port.InputPort` of a translated problem's entrance: its native
 metric at that plane, the frame it has accumulated there, the entrance medium's
 index and, for a general guide that does not move, its E/H reference at the nodes.
 Both read the contract's own leaves, so a port and a saved plane of the same run see
@@ -52,7 +52,7 @@ def frame_record(
     :math:`\beta_0` zero where the frame keeps it. The record holds the exact
     Chebyshev antiderivatives :math:`\Phi_0 = \int_0^z\beta_0` and
     :math:`T = \int_0^z\beta_1` of the contract's own frame tables and the frequency
-    origin, which is all :func:`solprop.coupling.reference_at` needs.
+    origin, which is all :func:`solprop.coupling.plane.reference_at` needs.
 
     Parameters
     ----------

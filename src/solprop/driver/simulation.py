@@ -1292,7 +1292,7 @@ def _plane_bases(
 
     A spatial basis is its transverse grid and a general one its checked reference,
     the same at every plane; an ordinary mode set's basis is evaluated at each plane
-    (:func:`solprop.coupling.modal_basis_identity`), because a guide may vary.
+    (:func:`solprop.coupling.plane.modal_basis_identity`), because a guide may vary.
 
     Parameters
     ----------
@@ -1848,8 +1848,8 @@ class Simulation(Displayed):
         frame accumulated there, the native metric at the entrance, the reference
         index of a spatial medium and, for a general guide that does not move, its
         E/H reference at the nodes. A launch computed for it
-        (:func:`solprop.coupling.same_basis`) is accepted by :meth:`with_input`, and
-        a launch computed for any other port is refused.
+        (:func:`solprop.coupling.port.same_basis`) is accepted by :meth:`with_input`,
+        and a launch computed for any other port is refused.
 
         Parameters
         ----------
@@ -1935,7 +1935,7 @@ class Simulation(Displayed):
             Pulse or internal-convention spectrum on the existing grid. The built
             shape must match the original input, including modes and polarisation.
             Modal amplitudes are in sqrt(W); spatial units follow the spatial grid.
-            A :class:`~solprop.coupling.CouplingLaunch` (SEP 31) must be bound to
+            A :class:`~solprop.coupling.port.CouplingLaunch` (SEP 31) must be bound to
             this simulation's :meth:`input_port` -- its route, lattice, basis,
             entrance and metric -- or it is refused whatever its shape; its
             entrance sets the launch position, and its provenance and inherited

@@ -32,7 +32,9 @@ One colour per layer, used in every figure on this page and stated in the legend
 Read the bands top to bottom in the order imports flow, and the arrows in the other
 direction: each points from the layer that imports to the layer it imports. Solid boxes
 are modules that exist; dashed ones are named in [architecture.md §4](architecture.md)
-as candidates to be written only for an agreed use case. The numbered arrows on the right
+as candidates to be written only for an agreed use case, or, for `coupling/transport`
+and `coupling/elements`, as the transport core a later phase of
+[SEP 31](seps/sep-0031-simulation-coupling.md) writes. The numbered arrows on the right
 skip a band; one of them is the one import of P that
 [architecture.md §3](architecture.md) allows a backend: the grid, the modes and the
 profiles its statistics are handed at construction, types and constants and never a

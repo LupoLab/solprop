@@ -5,13 +5,14 @@
 """Couple simulations through a coherent field at a reference plane (SEP 31).
 
 A physics-layer package: NumPy, SciPy and other physics modules only. A
-:class:`FieldPlane` is one physical plane of a field in its native representation,
-with its references, geometry, medium, metric and provenance; :func:`regrid` moves
-it onto another temporal lattice or reference; an :class:`InputPort` describes what
-a receiving simulation accepts at its entrance, and :func:`same_basis` launches a
-plane into a port of the same basis. Extraction from a saved run is
-:func:`solprop.processing.field_plane`; installing a launch is
-:meth:`solprop.driver.Simulation.with_input`. The manual page is
+:class:`~solprop.coupling.plane.FieldPlane` is one physical plane of a field in its
+native representation, with its references, geometry, medium, metric and provenance;
+:func:`~solprop.coupling.remap.regrid` moves it onto another temporal lattice or
+reference; an :class:`~solprop.coupling.port.InputPort` describes what a receiving
+simulation accepts at its entrance, and :func:`~solprop.coupling.port.same_basis`
+launches a plane into a port of the same basis. Extraction from a saved run is
+:func:`solprop.processing.planes.field_plane`; installing a launch is
+:meth:`solprop.driver.simulation.Simulation.with_input`. The manual page is
 ``docs/guide/workflows/coupling.md``.
 """
 
@@ -20,6 +21,7 @@ from solprop.coupling.plane import (
     Calibration,
     Exterior,
     FieldPlane,
+    MetricKind,
     NodalField,
     PlaneBasis,
     PlaneGeometry,
@@ -57,6 +59,7 @@ __all__ = [
     "Exterior",
     "FieldPlane",
     "InputPort",
+    "MetricKind",
     "NodalField",
     "PlaneBasis",
     "PlaneGeometry",

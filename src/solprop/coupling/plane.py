@@ -36,8 +36,8 @@ angular frequency of each bin: τ is the absolute time of the record's ``t = 0``
 across its window.
 
 The plane is a P-layer value type: NumPy and other physics modules only. Extracting
-one from a run is :func:`solprop.processing.field_plane`, and a receiving simulation
-is described by :class:`solprop.coupling.InputPort`.
+one from a run is :func:`solprop.processing.planes.field_plane`, and a receiving
+simulation is described by :class:`solprop.coupling.port.InputPort`.
 """
 
 import dataclasses
@@ -64,6 +64,7 @@ __all__ = [
     "Calibration",
     "Exterior",
     "FieldPlane",
+    "MetricKind",
     "NodalField",
     "PlaneBasis",
     "PlaneGeometry",
@@ -971,7 +972,7 @@ class PlaneProvenance:
 class FieldPlane:
     """A coherent field at one physical plane, in its native representation.
 
-    Build one with :func:`solprop.processing.field_plane` from a saved run, with
+    Build one with :func:`solprop.processing.planes.field_plane` from a saved run, with
     :meth:`from_pulse` from the package's beam builder, or with :meth:`from_samples`
     from arrays; never by hand unless the parts are already validated.
 

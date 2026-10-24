@@ -50,6 +50,16 @@ The first public release. It contains:
   `configuration["launch"]`, and `SpatialPulse.incident` samples a beam normalised over
   its own plane. The node-sampled `transverse=` profile, its rescaling to `energy=`, the
   3 % uncaptured warning and `LAUNCH_UNCAPTURED_WARNING` are removed.
+- **Plane exchange between simulations**
+  ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0031-simulation-coupling.html),
+  phase 2). `solprop.coupling` holds `FieldPlane`, a coherent field at one plane with
+  its reference, geometry, metric, basis identity and provenance; `regrid`, the direct
+  finite-time Fourier remap between temporal grids with its loss report and no
+  renormalisation; and `InputPort` with the `same_basis` relaunch.
+  `processing.field_plane` reads a saved plane back, `Simulation.input_port()`
+  describes a simulation's entrance and `with_input` takes a launch bound to it,
+  recording `configuration["coupling"]` and drawing no new noise. Output schema 24
+  records each run's plane-reference record (`RunMetadata.reference`).
 - **Media and responses.**
   - Gases, gas mixtures, glasses and metals from the [optmat](https://github.com/LupoLab/optmat)
     material library.

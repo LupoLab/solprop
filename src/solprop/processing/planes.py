@@ -4,11 +4,12 @@
 
 """Read one saved plane of a run back as a coherent field plane (SEP 31).
 
-:func:`field_plane` turns a stored plane into a :class:`solprop.coupling.FieldPlane`:
-its native coefficients exactly as stored, the reference rebuilt from the run's
-schema-24 plane-reference record, the medium's metric at the plane's own position,
-the scoped path certificate and the provenance. It is the extraction half of plane
-exchange; the manual page is ``docs/guide/workflows/coupling.md``.
+:func:`field_plane` turns a stored plane into a
+:class:`solprop.coupling.plane.FieldPlane`: its native coefficients exactly as stored,
+the reference rebuilt from the run's schema-24 plane-reference record, the medium's
+metric at the plane's own position, the scoped path certificate and the provenance.
+It is the extraction half of plane exchange; the manual page is
+``docs/guide/workflows/coupling.md``.
 
 A file records what it can: the frame integral, the spatial plane measure and the
 identities of a general guide's reference, not the reference's arrays. A general
@@ -50,7 +51,7 @@ from solprop.translate.spatial import axial_admittance
 __all__ = ["PLANE_TOLERANCE", "field_plane"]
 
 PLANE_TOLERANCE = 1e-9
-"""Relative distance, of the larger of 1 m and |z|, within which a z names a plane.
+"""Relative distance, of the larger of 1 m and abs(z), within which a z names a plane.
 
 A requested position names a stored plane only if it is that plane to well within a
 step; a nearby physical plane that was not stored is refused, not substituted.
@@ -388,7 +389,7 @@ def field_plane(
     z: float | None = None,
     source: object | None = None,
 ) -> FieldPlane:
-    """Read one saved plane of a run as a :class:`~solprop.coupling.FieldPlane`.
+    """Read one saved plane of a run as a :class:`~solprop.coupling.plane.FieldPlane`.
 
     The samples are the stored optics-convention spectrum, unchanged. The reference
     is rebuilt from the run's plane-reference record (output schema 24) at the

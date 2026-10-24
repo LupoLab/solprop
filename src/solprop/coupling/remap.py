@@ -26,14 +26,15 @@ Fourier sum
           \sum_j a_j\,e^{i\omega'_m (t_j + \Delta)},
 
 with :math:`\Delta = \tau - \tau'` and :math:`\Delta\phi = \phi - \phi'` the change of
-reference (:class:`~solprop.coupling.PlaneReference`), so that the absolute spectrum is
-unchanged. The sum is evaluated only on target bins inside the source lattice's own
-span: beyond it the sum of samples spaced Δt repeats with period 2π/Δt and returns
-aliases of the record, not light. The direct sum is the reference implementation;
-it is evaluated in bounded chunks of target bins. The one acceleration is the
-identical lattice in an unchanged reference, where the map is the identity and the
-samples are copied; the tests check it against the direct sum. Complex spectral
-zeros need no special case: no phase is unwrapped and nothing is interpolated.
+reference (:class:`~solprop.coupling.plane.PlaneReference`), so that the absolute
+spectrum is unchanged. The sum is evaluated only on target bins inside the source
+lattice's own span: beyond it the sum of samples spaced Δt repeats with period 2π/Δt
+and returns aliases of the record, not light. The direct sum is the reference
+implementation; it is evaluated in bounded chunks of target bins. The one
+acceleration is the identical lattice in an unchanged reference, where the map is the
+identity and the samples are copied; the tests check it against the direct sum.
+Complex spectral zeros need no special case: no phase is unwrapped and nothing is
+interpolated.
 
 **What is lost is reported, and what cannot be represented is refused.** Light
 outside the target's active band, or outside its time window after the shift, is
@@ -89,7 +90,7 @@ class RegridReport:
     method : {'copy', 'direct'}
         Identity copy on an identical lattice and reference, or the direct sum.
     source_lattice, target_lattice : str
-        :func:`~solprop.coupling.lattice_identity` of the two grids.
+        :func:`~solprop.coupling.plane.lattice_identity` of the two grids.
     shift : float
         Record-time shift applied, ``old delay - new delay``, s.
     phase_shift : float
@@ -294,7 +295,7 @@ def regrid(  # noqa: PLR0913 - the target and each explicitly lossy permission
     Returns
     -------
     tuple
-        The converted :class:`~solprop.coupling.FieldPlane` and its
+        The converted :class:`~solprop.coupling.plane.FieldPlane` and its
         :class:`RegridReport`.
 
     Raises
