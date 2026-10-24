@@ -144,7 +144,10 @@ jobs:
         with:
           enable-cache: true
       - run: uv python install 3.14
-      - run: uv sync --locked
+      # The mlx backend's tests (SEP 33) run here, on MLX's CPU device when the hosted
+      # runner has no usable Metal GPU; the next step records which (Q7).
+      - run: uv sync --locked --extra mlx
+      - run: uv run python -c "import mlx.core as mx; print('Metal available:', mx.metal.is_available())"
       - run: uv run poe test
 
   slow:

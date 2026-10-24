@@ -23,6 +23,7 @@ by name.
 
 import math
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any, cast
 
 import mlx.core as mx
@@ -32,7 +33,6 @@ from jaxtyping import Complex
 from solprop.backends.memory import mlx_graph_bytes
 from solprop.backends.mlx_gpu import passes as device
 from solprop.backends.mlx_gpu.arithmetic import DoubleFloatTerms, gemm_probe, on_gpu
-from solprop.backends.numpy_ref.passes import NonlinearSources
 from solprop.backends.numpy_ref.passes import _kerr as compiled_kerr
 from solprop.backends.numpy_ref.passes import _raman_thg as raman_thg
 from solprop.backends.numpy_ref.single import NumpySingleBackend
@@ -49,7 +49,7 @@ from solprop.translate.responses import ResponseStage
 from solprop.translate.stage import StageScalars
 from solprop.translate.tdse import TDSEBinding
 
-__all__ = ["MlxBackend", "refuse_unsupported"]
+__all__ = ["DeviceSources", "MlxBackend", "refuse_unsupported"]
 
 _SOURCE_STAGES = frozenset(
     {
@@ -62,6 +62,22 @@ _SOURCE_STAGES = frozenset(
         ResponseStage.ACCUMULATE,
     }
 )
+
+
+@dataclass(frozen=True)
+class DeviceSources:
+    """A chunk's windowed polarisation and ungated current, device arrays.
+
+    Attributes
+    ----------
+    polarisation : mlx.core.array
+        The windowed polarisation, divided by ``s``.
+    current : mlx.core.array or None
+        The ungated plasma current, divided by ``s``, or ``None`` without plasma.
+    """
+
+    polarisation: mx.array
+    current: mx.array | None
 
 
 def refuse_unsupported(problem: KernelProblem) -> None:
@@ -233,7 +249,7 @@ class MlxBackend(NumpySingleBackend):
         self._state = cast(Any, mx.array(np.asarray(self._require_state())))
 
     def _observed_field(
-        self, state: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
+        self, state: Any  # noqa: ANN401 - a device array, or a host one in stats
     ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
         """Copy the state to the host and widen it: ``s`` times it, exactly.
 
@@ -482,7 +498,7 @@ class MlxBackend(NumpySingleBackend):
             rows = slice(first * n_pol, (first + transform.node_chunk) * n_pol)
             field = device.synthesise(modal_t, self._synthesis[rows], taper, n_pol)
             sources = self._device_sources(field, bundle, raman)
-            polarisation = cast(mx.array, sources.polarisation)
+            polarisation = sources.polarisation
             columns = self._projection[:, rows]
             part = device.project(polarisation, columns, taper, n_pol)
             projected = part if projected is None else projected + part
@@ -492,7 +508,7 @@ class MlxBackend(NumpySingleBackend):
                 )
                 coarse = reduced if coarse is None else coarse + reduced
             if sources.current is not None:
-                current = cast(mx.array, sources.current)
+                current = sources.current
                 g = device.project(self._t_window * current, columns, taper, n_pol)
                 e = device.project(
                     self._t_window_derivative * current, columns, taper, n_pol
@@ -565,7 +581,7 @@ class MlxBackend(NumpySingleBackend):
 
     def _device_sources(
         self, field: mx.array, bundle: StageScalars, raman: mx.array | None
-    ) -> NonlinearSources:
+    ) -> DeviceSources:
         """Evaluate the responses at a chunk of nodes, the oracle's ``single_sources``.
 
         Parameters
@@ -579,8 +595,8 @@ class MlxBackend(NumpySingleBackend):
 
         Returns
         -------
-        solprop.backends.numpy_ref.passes.NonlinearSources
-            The windowed polarisation and the ungated current, device arrays.
+        DeviceSources
+            The windowed polarisation and the ungated current.
 
         Raises
         ------
@@ -646,7 +662,7 @@ class MlxBackend(NumpySingleBackend):
             elif stage not in _SOURCE_STAGES:
                 msg = f"mlx does not run the {stage.name} stage"
                 raise BackendError(msg)
-        return NonlinearSources(total * self._t_window, current)  # pyright: ignore[reportArgumentType]
+        return DeviceSources(total * self._t_window, current)
 
     def _device_norm(
         self, error: mx.array, state: mx.array, advanced: mx.array
