@@ -163,6 +163,7 @@ build works offline and survives a flaky mirror; refresh the copies occasionally
 ## Environment variables the tools honour
 
 - `NUMBA_DISABLE_JIT=1` (the first coverage pass) and `NUMBA_NUM_THREADS`.
+- `SOLPROP_THREADS`, the thread cap on every CPU backend's pools.
 - The `numba_cpu` pools and plans: `SOLPROP_NUMBA_THREADS`, `SOLPROP_FFTW_THREADS`,
   `SOLPROP_BLAS_THREADS`, `SOLPROP_TRANSVERSE_FFTW_THREADS` (the transverse FFTW pool of a
   Cartesian run), `SOLPROP_NUMBA_REGIME` (the threading regime), `SOLPROP_FFTW_PLAN`

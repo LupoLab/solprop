@@ -286,12 +286,18 @@ def _available_threads() -> int:
 
     ``os.cpu_count`` reports the machine; a container is capped below it by its cgroup
     quota or its affinity mask, and a pool sized from the machine inside a half-core
-    container spends its life being descheduled.
+    container spends its life being descheduled. ``SOLPROP_THREADS`` caps it further,
+    for processes that share their CPUs without being pinned apart.
 
     Returns
     -------
     int
         The cap, at least one.
+
+    Raises
+    ------
+    BackendError
+        If ``SOLPROP_THREADS`` is set to something that is not a positive thread count.
     """
     # The process's grant, not the main thread's affinity, which an OpenMP runtime
     # started with OMP_PROC_BIND narrows to one CPU (solprop._process).
@@ -301,6 +307,17 @@ def _available_threads() -> int:
         parts = quota.read_text(encoding="utf-8").split()
         if len(parts) == 2 and parts[0] != "max":
             counts.append(max(1, round(int(parts[0]) / int(parts[1]))))
+    value = os.environ.get("SOLPROP_THREADS", "").strip()
+    if value:
+        try:
+            limit = int(value)
+        except ValueError as error:
+            msg = f"SOLPROP_THREADS must be a thread count, and is {value!r}"
+            raise BackendError(msg) from error
+        if limit < 1:
+            msg = f"SOLPROP_THREADS must be positive, and is {value!r}"
+            raise BackendError(msg)
+        counts.append(limit)
     return max(1, min(counts))
 
 
@@ -328,8 +345,8 @@ def choose_pools(  # noqa: PLR0913 - pool sizes, cutoff and explicit overrides
         ``n_columns * n_to`` of the batched modal transform, which decides FFTW's.
     threads : int, optional
         Override for the kernels' pool. ``None`` takes the regime's choice. Either way
-        the pool is clamped to the CPUs available and to Numba's own
-        ``NUMBA_NUM_THREADS``.
+        the pool is clamped to the CPUs available (and ``SOLPROP_THREADS``) and to
+        Numba's own ``NUMBA_NUM_THREADS``.
     fftw_threads : int, optional
         Override for FFTW's pool.
     blas_threads : int, optional

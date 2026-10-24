@@ -1131,13 +1131,6 @@ candidates:
 Each needs separate admission and qualification as a built-in material. O3 waits for
 absorbing gas indices and non-ideal density to be handled properly.
 
-**`NUMBA_NUM_THREADS` below the CPU count.** `numba_cpu` sizes its kernel pool from the
-CPUs available to the process, clamped to an explicit `SOLPROP_NUMBA_THREADS`, but not to
-the size of the pool Numba created at import. With `NUMBA_NUM_THREADS` set below the CPU
-count and `SOLPROP_NUMBA_THREADS` unset, a problem in the large regime fails when its
-backend is built. The pool sizes should be clamped to `numba.config.NUMBA_NUM_THREADS`
-(the scan executors set both variables and are not affected).
-
 **Memory keywords on the keyword interfaces.** `memory_budget=` is a keyword of
 `Simulation.run` and `Simulation.from_waveguide`; the `prop_*` functions read only
 `SOLPROP_MEMORY_BUDGET` ([choosing a backend](../guide/performance/resources.md#memory)).

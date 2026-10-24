@@ -75,18 +75,26 @@ __version__ = version("solprop-native")
 
 
 def _thread_request() -> int:
-    value = os.environ.get("SOLPROP_NATIVE_THREADS")
-    if value is None or not value.strip():
-        return max(1, os.cpu_count() or 1)
-    try:
-        threads = int(value)
-    except ValueError as error:
-        raise ValueError(
-            f"SOLPROP_NATIVE_THREADS must be a thread count, and is {value!r}"
-        ) from error
-    if threads < 1:
-        raise ValueError(f"SOLPROP_NATIVE_THREADS must be positive, and is {value!r}")
-    return threads
+    """Read the process cap, the smaller of two variables where both are set.
+
+    ``SOLPROP_NATIVE_THREADS`` is this backend's own; ``SOLPROP_THREADS`` is solprop's
+    cap for every CPU backend. Unset, the pool takes every logical CPU.
+    """
+    counts = []
+    for name in ("SOLPROP_NATIVE_THREADS", "SOLPROP_THREADS"):
+        value = os.environ.get(name)
+        if value is None or not value.strip():
+            continue
+        try:
+            threads = int(value)
+        except ValueError as error:
+            raise ValueError(
+                f"{name} must be a thread count, and is {value!r}"
+            ) from error
+        if threads < 1:
+            raise ValueError(f"{name} must be positive, and is {value!r}")
+        counts.append(threads)
+    return min(counts) if counts else max(1, os.cpu_count() or 1)
 
 
 _REQUESTED_THREADS = _thread_request()

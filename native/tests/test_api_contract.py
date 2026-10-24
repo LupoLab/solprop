@@ -269,6 +269,7 @@ def test_a_host_openblas_is_fitted_to_the_native_pool(explicit: str | None) -> N
     "name",
     [
         "SOLPROP_NATIVE_THREADS",
+        "SOLPROP_THREADS",
         "SOLPROP_NATIVE_KERNEL_THREADS",
         "SOLPROP_NATIVE_FFT_THREADS",
         "SOLPROP_NATIVE_RAMAN_FFT_THREADS",
@@ -357,6 +358,34 @@ def test_independent_pools_respect_the_process_limit(limit: int) -> None:
     assert record["fftw_threads"] == 1
     assert record["raman_fft_threads"] == min(2, limit)
     assert record["raman_tail_fft_threads"] == limit
+
+
+@pytest.mark.parametrize(
+    ("native_limit", "solprop_limit", "expected"),
+    [(None, "2", 2), ("4", "2", 2), ("2", "4", 2)],
+)
+def test_solprop_threads_caps_the_process_pool(
+    native_limit: str | None, solprop_limit: str, expected: int
+) -> None:
+    if native.build_info().device_backend != "none":
+        pytest.skip("CPU pool policy; GPU execution keeps its device policy")
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in {"SOLPROP_NATIVE_THREADS", "SOLPROP_THREADS"}
+    }
+    environment.update(OMP_PROC_BIND="false", SOLPROP_THREADS=solprop_limit)
+    if native_limit is not None:
+        environment["SOLPROP_NATIVE_THREADS"] = native_limit
+    completed = subprocess.run(
+        [sys.executable, "-m", "solprop_native"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=environment,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout)["runtime_threads"] == expected
 
 
 def test_initial_array_contract(

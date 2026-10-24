@@ -84,13 +84,17 @@ set through [threadpoolctl](https://github.com/joblib/threadpoolctl); Apple's
 Accelerate exposes no thread control at all, and is recorded as `uncontrolled`.
 
 "Every CPU available" means the smallest of the machine's logical CPU count, the
-process's CPU affinity (for example under `taskset` or a batch scheduler) and a Linux
-cgroup CPU quota (containers).
+process's CPU affinity (for example under `taskset` or a batch scheduler), a Linux
+cgroup CPU quota (containers) and `SOLPROP_THREADS`. `SOLPROP_THREADS` is the process's
+thread budget on every CPU backend: each pool is still sized by the rules above, but
+never beyond it, and an explicit count is clamped to it too. Set it to each process's
+share when several processes share CPUs without being pinned apart.
 
 Each pool can be fixed from the environment:
 
 | variable | pool | default |
 |---|---|---|
+| `SOLPROP_THREADS` | the cap on every pool below (and on the native backend's) | every available CPU |
 | `SOLPROP_NUMBA_THREADS` | Numba kernel threads | all available CPUs above the size threshold, else 1 |
 | `SOLPROP_NUMBA_REGIME` | `small` (serial node loop) or `large` (parallel node loop) | chosen from the size threshold |
 | `SOLPROP_FFTW_THREADS` | FFTW threads for the temporal and Raman transforms | every available CPU from 1 048 576 elements, up to 4 from 65 536, else 1 |
@@ -172,7 +176,7 @@ imported:
 
 | variable | pool | default |
 |---|---|---|
-| `SOLPROP_NATIVE_THREADS` | the process-wide cap; Kokkos' OpenMP pool is created with this many threads | the number of logical CPUs |
+| `SOLPROP_NATIVE_THREADS` | the process-wide cap; Kokkos' OpenMP pool is created with this many threads, or with `SOLPROP_THREADS` if that is smaller | `SOLPROP_THREADS`, else the number of logical CPUs |
 | `SOLPROP_NATIVE_KERNEL_THREADS` | response, stage and reduction kernels | sized per operation, up to the cap |
 | `SOLPROP_NATIVE_FFT_THREADS` | FFTW threads for the modal and spatial transforms | sized per plan, up to the cap |
 | `SOLPROP_NATIVE_RAMAN_FFT_THREADS` | threads for the Raman convolution transforms of complete node chunks | sized per plan, up to the cap |
@@ -254,8 +258,9 @@ initialises Kokkos with an explicit thread count, which takes precedence; set
 
 **The default cap is every logical CPU.** Automatic sizing avoids assigning all of
 those threads to small operations. On a shared machine or when several solprop
-processes run side by side, set `SOLPROP_NATIVE_THREADS` to each process's CPU budget.
-The operation policy stays within that budget.
+processes run side by side, set `SOLPROP_THREADS` (which holds `numba_cpu` too) or
+`SOLPROP_NATIVE_THREADS` to each process's CPU budget. The operation policy stays within
+that budget.
 
 ### OpenMP placement and waiting
 
@@ -332,11 +337,10 @@ single-threaded workers almost always beat one many-threaded run: each worker ke
 own caches and nothing waits for synchronisation. solprop's
 {class}`~solprop.driver.executors.pool.Pool` executor does this for you: every worker is a
 newly spawned Python process started with **all** of `NUMBA_NUM_THREADS`,
-`SOLPROP_NUMBA_THREADS`, `SOLPROP_FFTW_THREADS`, `SOLPROP_TRANSVERSE_FFTW_THREADS`,
-`SOLPROP_BLAS_THREADS`, `SOLPROP_NATIVE_THREADS`, `OMP_NUM_THREADS`,
-`OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS` and `VECLIB_MAXIMUM_THREADS` set to its
-`threads` (one by default) and `OMP_WAIT_POLICY=passive`, and on Linux each worker is
-pinned to its own CPUs. The number of workers is the number of CPUs available divided
+`SOLPROP_THREADS`, `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS` and
+`VECLIB_MAXIMUM_THREADS` set to its `threads` (one by default) and
+`OMP_WAIT_POLICY=passive`, so every pool of either backend is sized within that budget,
+and on Linux each worker is pinned to its own CPUs. The number of workers is the number of CPUs available divided
 by `threads`, reduced if a memory probe of the first point shows that fewer fit (four
 fifths of the memory, less the controller's own, divided by one worker's footprint).
 `run_scan` runs its points one after another in the calling process unless it is given
@@ -361,8 +365,7 @@ serial kernel regime selected, before Python starts:
 
 ```sh
 NUMBA_NUM_THREADS=1 NUMBA_THREADING_LAYER=workqueue SOLPROP_NUMBA_REGIME=small \
-SOLPROP_NUMBA_THREADS=1 SOLPROP_FFTW_THREADS=1 SOLPROP_BLAS_THREADS=1 \
-SOLPROP_NATIVE_THREADS=1 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+SOLPROP_THREADS=1 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
 VECLIB_MAXIMUM_THREADS=1 OMP_WAIT_POLICY=passive OMP_PROC_BIND=false \
     python point.py
 ```

@@ -239,11 +239,11 @@ class EchoWork:
 @pytest.mark.parametrize("fresh", [False, True])
 def test_pool_reuses_or_replaces_workers_as_requested(monkeypatch, fresh):
     monkeypatch.setattr(pool.Pool, "_admit", lambda *args: ((0,), 1))
-    monkeypatch.setenv("SOLPROP_NUMBA_THREADS", "3")
+    monkeypatch.setenv("SOLPROP_THREADS", "3")
     output = list(pool.Pool(fresh=fresh, pin=False).run([0, 1], EchoWork()))
     assert [point for point, pid in output] == [0, 1]
     assert (output[0][1] != output[1][1]) is fresh
-    assert os.environ["SOLPROP_NUMBA_THREADS"] == "3"
+    assert os.environ["SOLPROP_THREADS"] == "3"
 
 
 def test_pool_replaces_crashed_worker_and_keeps_pending_points(monkeypatch):

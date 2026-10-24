@@ -156,6 +156,11 @@ The first public release. It contains:
   - The `numba_cpu` kernel pool is clamped to Numba's own `NUMBA_NUM_THREADS` as well as
     to the CPUs available, so a large problem no longer fails at backend construction
     when that variable is set below the CPUs granted (on a Slurm node, for example).
+  - `SOLPROP_THREADS` caps every thread pool of either CPU backend (the `numba_cpu`
+    kernel, FFTW and BLAS pools, and the native backend's process pool, beside
+    `SOLPROP_NATIVE_THREADS`) while the pools keep their size-based defaults beneath it.
+    The `Pool` and Slurm scan executors set it for each worker in place of forcing every
+    pool to the worker's thread count.
   - Each backend is tested against the reference implementation within derived error
     bounds.
   - A short start-up: a run on the native backend imports neither Numba nor

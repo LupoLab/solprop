@@ -143,6 +143,32 @@ def test_the_kernel_pool_is_capped_by_numbas_own_pool(monkeypatch):
     assert fft.choose_pools(1000, 1000, 1000, threads=4).numba == 4
 
 
+def test_solprop_threads_caps_every_pool(monkeypatch, tmp_path):
+    """``SOLPROP_THREADS`` holds every pool, chosen or explicit, below the CPUs."""
+    monkeypatch.setattr(fft, "Path", lambda _: tmp_path / "no-cgroup-quota")
+    monkeypatch.setattr(fft, "allowed_cpus", lambda: tuple(range(64)))
+    monkeypatch.setattr(fft.os, "cpu_count", lambda: 64)
+    monkeypatch.setattr(numba_config, "NUMBA_NUM_THREADS", 64)
+    monkeypatch.setenv("SOLPROP_THREADS", "3")
+    assert fft._available_threads() == 3
+    big = 10 * fft.REGIME_ELEMENTS
+    chosen = fft.choose_pools(big, big, fft.FFTW_WIDE_ELEMENTS, spatial=True)
+    assert (chosen.numba, chosen.fftw) == (3, 3)
+    explicit = fft.choose_pools(
+        1000, 1000, 1000, threads=8, fftw_threads=8, blas_threads=8
+    )
+    assert (explicit.numba, explicit.fftw, explicit.blas) == (3, 3, 3)
+    monkeypatch.setenv("SOLPROP_THREADS", "128")
+    assert fft._available_threads() == 64
+
+
+@pytest.mark.parametrize("value", ["0", "-2", "many"])
+def test_solprop_threads_must_be_a_positive_count(monkeypatch, value):
+    monkeypatch.setenv("SOLPROP_THREADS", value)
+    with pytest.raises(BackendError, match="SOLPROP_THREADS"):
+        fft.choose_pools(1000, 1000, 1000)
+
+
 @pytest.mark.parametrize(
     "offset, expected", [(-1, "small"), (0, "small"), (1, "large")]
 )
