@@ -441,7 +441,8 @@ def transport(
     -------
     tuple
         The plane at the last element's output -- reference, geometry, medium,
-        metric and provenance updated -- and the :class:`TransportReport`.
+        metric and provenance updated -- and the
+        :class:`~solprop.coupling.transport.TransportReport`.
 
     Raises
     ------

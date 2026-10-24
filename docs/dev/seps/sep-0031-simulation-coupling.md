@@ -1427,7 +1427,8 @@ synthesis) belongs to phase 3 and is not part of this delivery.
   `SpatialState`) and `test_transport_plane.py` (the `FieldPlane` path, including the
   run round trip); 46 tests.
 - Docs: a self-contained "Transporting a plane between planes" section at the end of
-  `docs/guide/workflows/coupling.md`; the API index row; architecture §4; structure
+  `docs/guide/workflows/coupling.md`; the API index row and an API page,
+  `docs/api/transport.md`, for `TransportReport` (below); architecture §4; structure
   figure 1 with `coupling/transport` and `coupling/elements` solid; the changelog.
 
 **The adapter.** No accessor was added to `plane.py`; the private helpers in
@@ -1497,7 +1498,14 @@ synthesis) belongs to phase 3 and is not part of this delivery.
 6. **Doc drift, not fixed (`spatial.py` frozen).** `aperture_profile`'s docstring calls
    its result an "amplitude transmission" without saying that SEP 23's quadrature
    weighting uses it as a power weight.
-7. The numerical-core decisions of the draft stand: per-bin energy repeats
+7. **The function shadows its module.** §5.1 makes `transport` a member of
+   `solprop.coupling`, so `solprop.coupling.transport` names the function and the
+   generated reference documents the function on the module's page. As for
+   `solprop.physdata.species`, the module's `TransportReport` is documented on a
+   hand-written API page. The element module's two callable type aliases are private
+   (`_Transmission`, `_SpectralFunction`), so the reference does not list
+   undocumented targets.
+8. The numerical-core decisions of the draft stand: per-bin energy repeats
    `spatial_energy`'s weighted sum (`_energy_spectrum`, checked against it to 1e-13);
    the reference measure `U₀` weighs by `Re n ε₀c`; the certificate's numerical term
    is `2δ + δ²` of the synthesis round trip plus the edge shares; tilt uses `k sin θ`;

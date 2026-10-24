@@ -91,14 +91,14 @@ _FRAME_TOLERANCE = 1e-12
 
 _Positions = Float[np.ndarray, " n_nodes"]
 _Band = Float[np.ndarray, " n_band"]
-Transmission = Callable[[_Positions, _Positions, _Band], ArrayLike]
+_Transmission = Callable[[_Positions, _Positions, _Band], ArrayLike]
 """A field transmission ``T(x, y, omega)`` in the optics convention.
 
 Positions in m, shape ``(n_nodes,)``; positive in-band angular frequencies in rad/s,
 shape ``(n_band,)``. The result broadcasts to ``(n_nodes, n_band)``.
 """
 
-SpectralFunction = Callable[[Float[np.ndarray, " n_band"]], ArrayLike]
+_SpectralFunction = Callable[[Float[np.ndarray, " n_band"]], ArrayLike]
 """A function of positive angular frequency in rad/s, shape ``(n_band,)``."""
 
 
@@ -111,10 +111,10 @@ class SpatialState:
 
     The plain input of every element; :func:`solprop.coupling.transport` builds it
     from a :class:`~solprop.coupling.plane.FieldPlane` (the internal conjugate of
-    the plane's samples, its grid's frame axes as rows). The single component of a scalar state
-    (``n_pol = 1``) is polarised along the frame's x axis; two components are the
-    optics-convention ``(x, y)`` Jones components stored conjugated, as
-    :meth:`solprop.pulses.SpatialPulse.build` stores them.
+    the plane's samples, with the plane's axes as the frame's rows). The single
+    component of a scalar state (``n_pol = 1``) is polarised along the frame's x
+    axis; two components are the optics-convention ``(x, y)`` Jones components
+    stored conjugated, as :meth:`solprop.pulses.SpatialPulse.build` stores them.
 
     Attributes
     ----------
@@ -987,7 +987,7 @@ def _report(  # noqa: PLR0913 - the ledger's terms, each named at the call
 
 
 def _spectral_values(
-    values: float | complex | SpectralFunction,
+    values: float | complex | _SpectralFunction,
     omega: Float[np.ndarray, " n_band"],
     name: str,
 ) -> Complex[np.ndarray, " n_band"]:
@@ -1260,7 +1260,7 @@ def _screen_certificate(
 
 
 def _evaluate_transmission(
-    transmission: Transmission,
+    transmission: _Transmission,
     x: Float[np.ndarray, " n_nodes"],
     y: Float[np.ndarray, " n_nodes"],
     omega: Float[np.ndarray, " n_band"],
@@ -1301,7 +1301,7 @@ def _evaluate_transmission(
 
 
 def _symmetric_transmission(
-    transmission: Transmission,
+    transmission: _Transmission,
     space: RadialGrid,
     omega: Float[np.ndarray, " n_band"],
     element: str,
@@ -1378,7 +1378,7 @@ class ThinLens:
     0.5
     """
 
-    focal_length: float | SpectralFunction
+    focal_length: float | _SpectralFunction
     model_error: float
 
     def apply(self, state: SpatialState) -> ElementResult:
@@ -1538,7 +1538,7 @@ class TransmissionMask:
         Declare ``|T| = 1``: the local loss is then exactly zero. Default False.
     """
 
-    transmission: Transmission | ArrayLike
+    transmission: _Transmission | ArrayLike
     model_error: float
     phase_only: bool = False
 
@@ -1952,8 +1952,8 @@ class Mirror:
         sign does not change the map.
     """
 
-    reflectivity_p: complex | SpectralFunction
-    reflectivity_s: complex | SpectralFunction
+    reflectivity_p: complex | _SpectralFunction
+    reflectivity_s: complex | _SpectralFunction
     incident: Sequence[float] | np.ndarray
     outgoing: Sequence[float] | np.ndarray
     s_axis: Sequence[float] | np.ndarray
@@ -2321,7 +2321,7 @@ class SpectralTransfer:
     """
 
     transfer: TransferFunction
-    efficiency: float | SpectralFunction | None = None
+    efficiency: float | _SpectralFunction | None = None
     calibration: SpectralCalibration | tuple[SpectralCalibration, ...] | None = None
     predict_loss: bool = False
     reconstruction: bool = False

@@ -159,7 +159,7 @@ name.
 
 ## Transporting a plane between planes
 
-{py:func}`~solprop.coupling.transport.transport` carries a radial or Cartesian field
+{py:func}`~solprop.coupling.transport` carries a radial or Cartesian field
 plane through an ordered sequence of linear optical elements and returns the plane at
 the last element's output together with a
 {py:class}`~solprop.coupling.transport.TransportReport`. A modal plane holds guide
