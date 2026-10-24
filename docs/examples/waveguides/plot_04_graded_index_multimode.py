@@ -33,8 +33,9 @@ reduced to an effective area or a table of overlap integrals.
 The fibre is a 100 um core (50 um radius), parabolic, index contrast
 :math:`\Delta = 0.0095` (a numerical aperture of 0.2), on dispersive fused silica.
 The pump is a 300 fs pulse at 1064 nm with 500 kW peak power -- well below the
-critical power for self-focusing, about 4 MW -- in a centred Gaussian beam of 12 um
-waist, declared as a **transverse field** and projected onto the fibre's channels.
+critical power for self-focusing, about 4 MW -- carried by a centred Gaussian beam of
+12 um waist, declared as an **incident beam** and coupled into the fibre's channels
+under the vector paraxial model (:doc:`/guide/workflows/coupling`).
 
 **What to look for.** The on-axis intensity oscillates at the self-imaging period
 from the entrance; the spectrum grows sidebands near the GPI frequencies predicted
@@ -45,13 +46,13 @@ channel is redistributed by the nonlinearity.
 radially symmetric modes, so the guide is the weak-guidance ``LP_0m`` family (the
 provider's scalar approximation, whose contrast limit this fibre is inside); four
 of them, because the guide must be solved over the run's whole *active* band, which
-reaches 3.6 um, and a fifth ``LP_0m`` channel is not bound there. The projection
-reports the
-fraction of the requested transverse profile
-outside those four channels. Propagation then uses only the captured profile,
-renormalised to the declared pulse energy; the uncaptured spatial content is
-not propagated. This is a truncated model, not a mode-count convergence study. The
-quadrature
+reaches 3.6 um, and a fifth ``LP_0m`` channel is not bound there. The beam's
+peak power and energy are those of the whole incident beam; the run launches only
+the share of it the four channels capture -- light they miss would be lost at the
+entrance, not restored -- and the coupling report gives both energies. A 12 um beam
+is close to the fibre's fundamental mode (about 9 um), so the four ``LP_0m``
+channels take all but a few parts in :math:`10^5` of it. This is a truncated
+model, not a mode-count convergence study. The quadrature
 uses two angular nodes, exact for fields with no azimuthal dependence. Raman
 scattering is left out, to keep the run to minutes: a silica core would declare
 :class:`~solprop.nonlinear.raman.SilicaTensorResponse` beside its Kerr term. The
@@ -71,15 +72,14 @@ propagation constants converge at second order in the element count.
 # response by :math:`n_2`, at the wavelength it was measured.
 
 import time
-import warnings
 from dataclasses import dataclass
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 from solprop.constants import C
+from solprop.coupling import CouplingModel
 from solprop.driver import prop_waveguide
-from solprop.exceptions import GeneralModalBasisWarning
 from solprop.grid import FieldGrid
 from solprop.modes import (
     GradedIndexProvider,
@@ -92,8 +92,8 @@ from solprop.physdata import fused_silica
 from solprop.plotting import prop_2d
 from solprop.processing import get_spectral_density
 from solprop.processing.modal import physical_energy, reconstructed_flux
+from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.translate.general import general_modal_route
-from solprop.translate.modal_tables import project_transverse_field
 
 RADIUS = 50e-6
 """Core radius, m."""
@@ -108,13 +108,13 @@ LENGTH = 0.1
 """Fibre length, m."""
 
 WAIST = 12e-6
-"""1/e field radius of the launched Gaussian beam, m."""
+"""1/e field (1/e^2 intensity) radius of the incident Gaussian beam, m."""
 
 PEAK_POWER = 5e5
-"""Launched peak power, W."""
+"""Peak power of the whole incident beam, W."""
 
 FWHM = 300e-15
-"""Launched duration, s."""
+"""Incident duration, s."""
 
 started = time.perf_counter()
 silica = IndexMaterial(fused_silica(model="malitson_1965/sellmeier"))
@@ -157,8 +157,8 @@ print(provider)
 # grid's lowest declared frequency, 3.6 um, to its highest -- on a node rule of two
 # Gauss points per radial element and two angular nodes. The route gates the
 # interpolated basis's departure from orthonormality where the launched pulse is,
-# and warns (it is silenced here, and quoted) that at the very longest active
-# wavelengths, 3.5 um, where this run puts no light, it is 3e-4.
+# and would warn if it exceeded its budget anywhere else in the active band; this
+# guide's sampling passes without a warning.
 
 grid = FieldGrid.from_limits(LENGTH, WAVELENGTH, (450e-9, 1.8e-6), 1.2e-12)
 active = grid.omega[grid.active_mask]
@@ -177,11 +177,6 @@ print(f"{grid.n_omega} frequency bins, {nodes.xy.shape[0]} quadrature nodes")
 # the pattern repeats every ``z_p = pi a / sqrt(2 Delta)``. The solved spacings of
 # the finite, dispersive fibre are close to that and not equal to it.
 
-with warnings.catch_warnings():
-    warnings.simplefilter("ignore", GeneralModalBasisWarning)
-    route = general_modal_route(
-        guide, grid, z_max=LENGTH, omega_reference=float(grid.omega0)
-    )
 centre = int(np.argmin(np.abs(grid.omega - grid.omega0)))
 neff = np.array(
     [
@@ -205,66 +200,95 @@ print(
 )
 
 # %%
-# The launch
-# ----------
-# A Gaussian beam at the guide's nodes, the same at every frequency. The route
-# projects it through the flux pairing onto the four channels and reports the
-# share of it they do not capture: the higher ``LP_0m`` groups a 12 um beam also
-# excites, which this guide does not carry. The energy is not reduced by it -- the
-# run launches the declared energy into what the channels capture.
-
-radius = np.hypot(nodes.xy[:, 0], nodes.xy[:, 1])
-beam = np.zeros((nodes.xy.shape[0], 3))
-beam[:, 0] = np.exp(-((radius / WAIST) ** 2))
-projection = project_transverse_field(
-    route.tables, np.repeat(beam[:, :, None], grid.n_omega, axis=2)
-)
-shares = np.abs(projection.amplitudes[:, centre]) ** 2
-shares /= shares.sum()
-print(
-    "launched shares:",
-    ", ".join(
-        f"{name} {share:.3f}" for name, share in zip(labels, shares, strict=True)
-    ),
-)
-print(f"share of the beam the four channels miss: {projection.residual_share:.3f}")
-
-# %%
 # The run
 # -------
-# ``prop_waveguide(..., provider=guide, transverse=beam)``. Shot noise is added to
-# the input (``noise="input"``, one photon per bin and channel, with a fixed seed),
-# because GPI grows from noise at frequencies the pump does not contain. ``dz_max``
-# is a tenth of the self-imaging period: the source oscillates at that period, and
-# the adaptive stepper would otherwise try steps that straddle it. The default
-# cubic is the real one, so the third harmonic is carried too.
+# ``prop_waveguide(..., provider=guide, incident=beam, coupling=...)``. The beam is
+# a :class:`~solprop.pulses.SpatialPulse`: a Gaussian of the 12 um waist, centred
+# on the axis and polarised along x, carrying the 300 fs pulse; its energy is the
+# whole beam's, over its own plane. The run couples it into the four channels under
+# the vector paraxial model -- the flux pairing of the beam's field, with the forward
+# paraxial closure for its magnetic field, against the channels' own E/H at the
+# nodes -- whose admission budget, ``model_error``, bounds that closure's error,
+# the guide's contrast and the angular content of the beam and channels. The
+# recovered amplitudes are launched unscaled: the launched energy is the share of
+# the incident energy the channels capture, and anything they miss is lost at the
+# entrance. ``model_error=0.1`` admits this guide: the weak-guidance contrast,
+# 0.0095, must stay below an eighth of the budget, and the counted terms (printed
+# below) sum to about 0.02.
+#
+# Shot noise is added to the input (``noise="input"``, one photon per bin and
+# channel, with a fixed seed), because GPI grows from noise at frequencies the pump
+# does not contain. ``dz_max`` is a tenth of the self-imaging period: the source
+# oscillates at that period, and the adaptive stepper would otherwise try steps that
+# straddle it. The default cubic is the real one, so the third harmonic is carried
+# too.
 
-energy = PEAK_POWER * FWHM * np.sqrt(np.pi / (4.0 * np.log(2.0)))
+beam = SpatialPulse(
+    GaussianPulse(
+        wavelength=WAVELENGTH,
+        fwhm=FWHM,
+        energy=PEAK_POWER * FWHM * np.sqrt(np.pi / (4.0 * np.log(2.0))),
+    ),
+    WAIST,
+)
+coupling = CouplingModel("vector_paraxial", model_error=0.1)
 
 
 def propagate(length, n_save):
-    """Propagate the declared beam through `length` of the fibre."""
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", GeneralModalBasisWarning)
-        return prop_waveguide(
-            (),
-            length,
-            provider=guide,
-            grid=grid,
-            transverse=beam,
-            lambda0=WAVELENGTH,
-            fwhm=FWHM,
-            energy=energy,
-            noise="input",
-            seed=41,
-            dz_max=z_p / 10.0,
-            n_save=n_save,
-            progress="none",
-        )
+    """Propagate the incident beam through `length` of the fibre."""
+    return prop_waveguide(
+        (),
+        length,
+        provider=guide,
+        grid=grid,
+        incident=beam,
+        coupling=coupling,
+        lambda0=WAVELENGTH,
+        noise="input",
+        seed=41,
+        dz_max=z_p / 10.0,
+        n_save=n_save,
+        progress="none",
+    )
 
 
 run = propagate(LENGTH, 201)
 print(run)
+
+# %%
+# The launch account
+# ------------------
+# The run records the coupling's report as ``configuration["launch"]``: the
+# incident energy over the beam's whole plane, the energy the channels launch, the
+# captured energy where the model defines one, and the admission budget against
+# ``model_error``. The vector model names no captured or uncaptured energy -- the
+# flux pairing and the incident measure are not one positive metric -- so its
+# launched share is the measure of what the four channels take: here all but a
+# few parts in :math:`10^5`, mostly in ``LP_01``. The launched energy is what the
+# run's ``physical_energy`` reads at the entrance.
+
+launch = run.metadata.configuration["launch"]
+print(launch)
+captured = launch.captured_energy
+print(
+    f"incident {launch.incident_energy * 1e9:.2f} nJ, "
+    f"launched {launch.launched_energy * 1e9:.2f} nJ "
+    f"({launch.efficiency:.5f} of the incident energy), captured "
+    + (
+        f"{captured * 1e9:.2f} nJ"
+        if captured is not None
+        else f"not defined ({launch.captured_reason})"
+    )
+)
+print(f"admission budget {launch.budget:.3e} of model_error {launch.model_error:g}")
+entrance = np.sum(np.abs(np.asarray(run["field"])[0, :, 0, :]) ** 2, axis=-1)
+print(
+    "launched shares:",
+    ", ".join(
+        f"{name} {share:.3f}"
+        for name, share in zip(labels, entrance / entrance.sum(), strict=True)
+    ),
+)
 
 # %%
 # Self-imaging
@@ -281,11 +305,10 @@ print(run)
 # ``LP_01`` with a few per cent of ``LP_02``, so what oscillates is their beat.
 
 imaging = propagate(4.0 * z_p, 81)
-with warnings.catch_warnings():
-    warnings.simplefilter("ignore", GeneralModalBasisWarning)
-    imaging_route = general_modal_route(
-        guide, grid, z_max=4.0 * z_p, omega_reference=float(grid.omega0)
-    )
+imaging_route = general_modal_route(
+    guide, grid, z_max=4.0 * z_p, omega_reference=float(grid.omega0)
+)
+radius = np.hypot(nodes.xy[:, 0], nodes.xy[:, 1])
 axis_nodes = radius <= np.min(radius) * 1.0001
 z_imaging = np.asarray(imaging["z"])
 on_axis = np.array(

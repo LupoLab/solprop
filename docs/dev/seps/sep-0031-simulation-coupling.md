@@ -6,7 +6,7 @@
 | **Title** | Coupling simulations and transporting ultrafast fields |
 | **Author** | John Travers |
 | **Drafting agent** | GPT-6 (draft and 2026-10-23 review response) |
-| **Status** | Accepted |
+| **Status** | In progress |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); Opus 5.5 (AI) |
 | **Type** | Feature |
@@ -15,7 +15,7 @@
 | **Requires** | [SEP 22](archive/sep-0022-memory-lean-spatial-execution.md): plane storage and input replacement; [SEP 23](archive/sep-0023-far-field-aperture-spectra.md): aperture definitions; [SEP 25](archive/sep-0025-rounding-level-reproducibility.md): numerical qualification; [SEP 34](sep-0034-medium-flux.md): shared medium flux and radial adiabatic transport |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | — |
+| **Implementation** | John Travers with Opus 5.5 (AI); on `feature/sep-0031-simulation-coupling` |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -1097,6 +1097,1017 @@ No new material constant or experimental validation is claimed.
 
 ## Part II — Implementation record
 
+### Phase 1 report — incident-energy correction
+
+**Delivered (2026-10-24, `feature/sep-0031-simulation-coupling`).**
+
+- `pulses.SpatialPulse.incident(grid, xy, index=...)` returns an `IncidentField`:
+  the beam given its requested energy or peak power over its **whole** transverse
+  plane in the paraxial measure $M_0 = n_{\rm ref}\varepsilon_0c\,dA/2$, then
+  sampled at the given points, with the energy each bin carries through the plane.
+  It reuses `_Plane` and `_normalising_factor` (one "column" whose transverse
+  integral is the profile's closed form
+  $\int|u|^2dA=\pi w^2 2^{-1/N}\Gamma(1+1/N)$), as `PlanarPulse.build` does, and
+  shares the profile and Jones normalisation with `SpatialPulse.build`. No second
+  Gaussian is written.
+- `Simulation.from_waveguide(provider=..., incident=SpatialPulse(...))` and
+  `prop_waveguide(..., incident=...)` replace `transverse=`. The driver takes
+  $n_{\rm ref}(\omega)=\operatorname{Re}\sqrt{\varepsilon}$ of the guide's core
+  region (the region on the axis, whose law is z-independent, so it is the
+  entrance's), samples the beam at the entrance nodes, projects it with
+  `project_transverse_field` and launches the projected amplitudes **unscaled**.
+  A zero capture is a zero launch.
+- `driver.simulation.IncidentLaunch` records `reference_index`, `incident` and
+  `captured` per frequency bin (J), with `uncaptured` (not clipped) and totals,
+  as `configuration["launch"]`; it reaches the file's configuration and hash. The
+  captured energy is $\mathbf a^\dagger W\mathbf a$ under the run's declared
+  metric, the number `physical_energy` reads at the entrance. A derived run
+  (`with_input`) drops the record with the constructor's pulse.
+- Removed with no alias: `transverse=`, `_projected_launch`, the rescaling to
+  `energy=`, the 3 % `GeneralModalBasisWarning` and `LAUNCH_UNCAPTURED_WARNING`.
+  Channel launches and `with_input` arrays are unchanged.
+- The advanced benchmark's graded-index case (`benchmarks/guides.py`) launches
+  an incident 12 µm beam, so its launched energy is now the captured share.
+- Manual: [general modal propagation](../../guide/waveguides/general-modal.md),
+  [solid fibres](../../guide/waveguides/solid-fibres.md) (a runnable snippet),
+  [supplied guides](../../guide/waveguides/supplied-guides.md), a comment in the
+  graded-index tutorial, and the changelog.
+
+**Deviations and why.**
+
+1. *No analytic-callable input (item b).* A callable profile needs its own
+   public record of support, tail bound and quadrature. Phase 3's
+   `FieldPlane.from_analytic` is that record, and a phase-1 record would be a
+   public interface made only to be replaced. It is deferred to phase 3.
+2. *`propz` must be 0.* Carrying a beam from its waist to the entrance is
+   transport, and §5.1 changes the `propz` meaning in phase 3. The driver and
+   `SpatialPulse.incident` refuse a nonzero `propz` by name.
+3. *Keyword `incident=`, not `transverse=`.* The beam carries its own temporal
+   pulse, so the pulse keywords are refused beside it, as is `channel=`.
+4. *No warning remains.* A poor capture is physics. No numerical defect is
+   meaningful to warn about here: the projection's own failures are refusals.
+5. *Scalar Jones on a vector guide is x-polarised*, the package's capillary
+   default.
+
+**Verification run.** Targeted modules only, `uv run --no-sync pytest -n auto`:
+`tests/driver/test_general_modal.py`, `tests/translate/test_modal_transform_tables.py`,
+`tests/test_pulses.py`, `tests/test_spatial_flux.py` and `tests/test_display.py`,
+548 passed (medium tier included); `tests/test_benchmark_guides.py` 9 passed;
+`tests/test_guide_snippets.py` (compilation) 18 passed; doctests of `pulses.py`
+and `driver/simulation.py` pass. The solid-fibres page's snippets were executed
+by hand (3.3 s; a 12 µm beam into the 25 µm graded-index guide captures 0.964).
+ruff, ruff format, basedpyright (0 errors), numpydoc and codespell are clean on
+the changed files, and `poe docs` builds clean (warnings as errors, 2 min 45 s). Evidence, on the 1.5 µm step-index strand (index 1.45 in air):
+
+- `SpatialPulse.incident` agrees with `SpatialPulse.build` on a radial grid in
+  index 1.45 to 1.5e-7 of the peak field, the beam's obliquity, for Gaussian and
+  order-2 beams, energy and peak power, envelope and field grids.
+- Poor capture: a 20 µm beam captures 0.9 % (bound asserted: < 2 %); the run's
+  entrance-plane `physical_energy` equals the captured energy to 1e-12, not
+  `energy=`. A 1.3 µm beam captures 92 %.
+- Zero capture by symmetry: a y-polarised beam into the even HE11 channel captures
+  8e-36 of the incident energy (bound $(n_{\rm nodes}\epsilon)^2$) and runs.
+- Incident energy is bitwise the same for a 1.5 µm and a 2.5 µm strand; captured
+  differs.
+- Coherent shares: Jones $(1, 0.5i)$ gives $a_{\rm odd}/a_{\rm even}=-0.5i$
+  (internal convention) to 1e-6, with the captured total of the x-polarised beam;
+  on the dense circular basis an x-polarised beam splits equally.
+- Receivers: ten 0.5 µm steps on `numpy_ref`, `numba_cpu` and native CPU each store
+  an entrance plane bitwise equal to the launched state, whose energy is the
+  captured energy.
+
+Not run: the full gate, slow and coverage lanes (end of SEP), and GPU. The
+graded-index worked example (`docs/examples/waveguides/plot_04_graded_index_multimode.py`)
+still uses `transverse=`; it was **not** edited, because an edited worked example
+must be re-run by hand at full length and the normal build refuses a source that
+differs from its committed output.
+
+**Limitations.** The measure uses the core's index over the whole plane, so on a
+strongly guiding strand the uncaptured energy also carries the difference between
+$M_0$ and the guide's flux metric (the 1.45-in-air strand's best capture is 98 %
+for a 1 µm beam). The beam is centred, launched at its waist and transverse
+(no $E_z$). §4.3's admission screens, model budget and passivity certificate are
+not applied; they are phase 3's.
+
+**Open questions.**
+
+1. Should `with_input` accept a `SpatialPulse` on a general modal run, routed
+   through the same incident launch, or wait for phase 2's target-bound launch?
+2. Should `IncidentLaunch` carry the projection's electric-field residual as a
+   labelled numerical diagnostic, or stay energy-only as now?
+3. For a graded-index core, the on-axis law fixes $n_{\rm ref}$. Is that the
+   intended reference, or should it be the index averaged over the beam?
+4. The worked example `plot_04_graded_index_multimode` needs `incident=` and a
+   re-run by hand. Its launched energy will fall to the captured share unless its
+   requested energy is raised.
+
+**Handoff to phases 2 and 3.** `SpatialPulse.incident` is the normalisation
+`FieldPlane.from_pulse` should wrap, and `IncidentLaunch` is the precursor of
+`CouplingResult.report`. Phase 3 replaces `_incident_launch` with `couple(...,
+CouplingModel("scalar_paraxial", ...))`, adds the analytic and sampled inputs,
+`propz` transport and the §4.3 admission, and should fold `IncidentLaunch` into
+the report rather than keep both.
+
+### Phase 2 report — plane exchange
+
+**Delivered (2026-10-24, `feature/sep-0031-simulation-coupling`).**
+
+- `src/solprop/coupling/` (P): `plane.py` (`FieldPlane` and its records), `port.py`
+  (`InputPort`, `CouplingLaunch`, `same_basis`), `remap.py` (`regrid`,
+  `RegridReport`) and `__init__.py`. NumPy and P modules only. The `__init__` holds a
+  comment where the transport core's names are exported.
+- `src/solprop/processing/planes.py` (X): `field_plane(output, plane=-1, *, z=None,
+  source=None)`, re-exported from `solprop.processing`.
+- `src/solprop/translate/coupling.py` (T): `frame_record` (the persisted frame integral),
+  `port_metric` and `input_port` (fills an `InputPort` from a `KernelProblem`).
+- `driver.Simulation.input_port(z=None)` and `with_input(launch)`; `metadata_for` writes
+  the plane-reference record.
+- Output schema 24: `RunMetadata.reference`. Kernel schema unchanged at 35: no protected
+  contract field changed.
+- `CouplingError` in `solprop.exceptions`; `coupling` in the package's submodules.
+- Docs: architecture §3 (the X → T edges and how coupling crosses the layers) and §4,
+  structure figure 1 (the new modules, with `coupling/transport` and `coupling/elements`
+  dashed as planned), provenance and output pages, the API index, a draft
+  `docs/guide/workflows/coupling.md` in the workflows index, a note in
+  interior-launch, and the changelog.
+
+**The `FieldPlane` contract** (frozen, `eq=False`; arrays owned, `writeable=False`):
+
+| field | type and meaning |
+|---|---|
+| `kind` | `'modal' \| 'general_modal' \| 'radial' \| 'cartesian' \| 'planar'` (`planar` is defined but not yet produced) |
+| `samples` | complex128 `(n_modes, n_pol, n_omega)`: the optics-convention raw DFT of each column referenced to the window centre, exactly as an output stores it |
+| `grid` | the `TimeGrid` (layout, time samples, absolute ω lattice, carrier `grid.omega0`) |
+| `units` | `'sqrt(W)'` (modal, general modal), `'V m'` (radial Hankel), `'V/m'` (Cartesian DFT) |
+| `basis` | `PlaneBasis(kind, identity, labels, space)`: `identity` is a SHA-256 digest; `space` is the `RadialGrid`/`FreeGrid` of a spatial plane |
+| `reference` | `PlaneReference(phase, delay, calibrated)`: absolute spectrum = samples × exp(i(φ + ωτ)), ω absolute; τ is the absolute time of the record's t = 0 |
+| `geometry` | `PlaneGeometry(z, side, origin, normal, x_axis)`, right-handed (`y_axis = normal × x_axis`) |
+| `metric` | `PlaneMetric(kind, matrix, admittance, weights, scale, flux, reason)`; kinds `identity`, `dense` (Q = conj(W), `(n, n, n_omega)`), `admittance` (`c k_z/ω` per column, Parseval weights, `eps0 c/2`, optional `SpatialFlux`), `unknown` (with a reason) |
+| `exterior` | `'zero' \| 'unknown'` |
+| `medium` | the `SpatialMedium` of a spatial plane when at hand, else None |
+| `certificate` | read-only mapping: the raw `flux_plan["admission"]` dict with its `scope` |
+| `nodal` | `NodalField(nodes, weights, electric, magnetic)`, `(n_nodes, 3, n_omega)` optics spectra, for a general modal plane read with `source=` |
+| `provenance` | `PlaneProvenance(source, plane, z, lineage, history)` |
+
+Methods: `omega`, `absolute()`, `spectral_energy()`, `energy()`, `node_spectra()` (a
+spatial plane's E at its nodes), `from_pulse(pulse, grid, geometry, *, space, medium,
+reference=None)` (reuses `SpatialPulse.build`) and `from_samples(samples, grid, geometry,
+*, exterior, space=, medium= | basis=, metric=, reference=)`. Helpers:
+`reference_at(record, z)`, `basis_identity(route, record)`, `space_record(space)`,
+`lattice_identity(grid)` and `modal_basis_identity(modes, grid, z)`.
+
+**The `InputPort` contract** (P value type, frozen): `route`, `grid`, `basis`
+(identity, labels, space), `shape` `(n_modes, n_pol, n_omega)`, `geometry` (the
+entrance z and side), `frame` (the receiving run's own frame accumulated from its path
+origin to the entrance, without any inherited origin), `metric` (Q at the entrance:
+identity for ordinary true-power coefficients, conj(W) for a declared general basis, the
+axial admittance of the spatial plane measure), `reference_index` (real phase index
+per bin, spatial media only so far), `nodes`, `node_weights`, `electric` and `magnetic`
+(optics-convention `(n_nodes, 3, n_modes, n_omega)` per √W, filled for a general guide
+that does not move), and `models` (`('same_basis',)`). `identity` digests the route,
+lattice, basis, shape, z and side. `accepts(other)` names the first disagreement among
+route, lattice, basis, shape, side, entrance (relative 1e-12), orientation and metric
+(relative 1e-10). A `CouplingLaunch(port, samples, origin, model, provenance)` is bound
+to its port; `internal()` gives the internal-convention array and `record()` the
+`configuration["coupling"]` entry (`model`, `port`, `origin`, `source`).
+
+**Plane-reference record (output schema 24).** `RunMetadata.reference` =
+`{carrier, origin, parent, frame, basis}`. `frame` holds `frequency_origin` (the frame's
+reference frequency on an envelope grid, zero on a field grid) and the exact Chebyshev
+antiderivatives of the contract's frame tables `linear.beta0` and `linear.beta1`
+(`phase`, `delay`, each `breakpoints` and `coefficients`). Then φ = φ₀ + Φ₀ − ω_o T and
+τ = τ₀ + T. This uses the terms the route removes: `frame_quantities` and the spatial
+`frame_quantities` return β₀ = 0 where the frame keeps it, so a field grid and an
+envelope with THG carry only the linear term, measured from ω = 0 on a field grid and
+from ω_ref on an envelope (`linear.py` `Frame`, `dispersion_operator`). `basis` is the
+route and the basis identity at each planned plane (launch plane first).
+`origin`/`parent` come from `configuration["coupling"]`.
+
+**Deviations and why.**
+
+1. *Extraction is `processing.field_plane`, not `FieldPlane.from_output`* (§5.1).
+   P must not import X; extraction reads an `Output` and reuses
+   `processing.modal`'s checked identities.
+2. *The reference tables are outside the hash.* They are derived from the hashed problem.
+   A resume on another build could evaluate them to a different last bit, and SEP 25
+   forbids a bitwise resume key. The inherited origin, which carries information, is in
+   `configuration["coupling"]`, inside the hash.
+3. *An ordinary mode set's basis identity is its value at the plane*, recorded per planned
+   plane: each mode's class, label, effective area and real n_eff on the active band at
+   that z, quantised to 12 digits, plus the lattice. The full `ModeRecord` would make the
+   exit of a 1 mm capillary a different basis from the entrance of a 2 mm one: a
+   constant-pressure path records its span. A natural-step plane (not planned) has no
+   recorded identity, so it gets an "unrecorded" digest that no port matches.
+4. *`from_pulse` takes `space=`* beside the temporal `grid`, because the beam builder
+   needs both.
+5. *`same_basis` is a public function.* It is the minimal internal path the phase plan
+   allows, needed by the guide page. Phase 3's `couple(..., CouplingModel("same_basis"))`
+   should dispatch to it.
+6. *Remap alias guard.* The direct sum is evaluated only on target bins within the source
+   lattice's own span. Beyond it, the sum of samples spaced Δt repeats with period
+   2π/Δt and returned aliased light. The first test of a cropped band found this:
+   the energy rose from 1.0 to 1.48 μJ. Loss shares are of a **record norm**
+   (column weights; vacuum-equivalent on a spatial plane, energy on an identity metric).
+   The report's energies are physical.
+7. *Planar planes are refused by name*: a `PlanarGrid` carries its slab modes and has no
+   plain record to rebuild from.
+8. *For a launch, `noise="keep"` means no noise*: the launch carries its source's
+   realised field. Another floor is added only when a realisation is given.
+9. *Runtime literal checks.* Membership checks on `Literal` fields were dropped. The test
+   session's beartype rejects such values first, so the checks would be unreachable
+   under coverage. Static typing covers them.
+10. *Certificate.* On this branch, `flux_from_record` does not rebuild `AdiabaticAdmission`,
+    so the plane carries the raw `flux_plan["admission"]` dict, read-only, with its scope.
+11. *A general-modal plane reads E/H through the `electric_field` capability name*,
+    since `field_plane` is not on the general-modal accessor whitelist.
+
+**Verification run** (targeted, `uv run --no-sync pytest -n auto`; none fail):
+
+- `tests/coupling/` (`test_plane.py`, `test_port.py`, `test_remap.py`): 48 passed.
+- `tests/processing/test_planes.py`: 10 passed.
+- `tests/driver/test_coupling_relaunch.py`: 13 passed, including the 8 medium-tier
+  source/receiver pairs over `numpy_ref`, `numba_cpu` and native CPU.
+- Schema-literal and record modules: 547 passed. Driver, output, processing and
+  backend modules that read the schema or use `with_input`: 627 passed and 302 passed.
+- `tests/test_structure_figures.py`: 278 passed; `tests/test_guide_snippets.py`
+  (compiled): 19 passed. The coupling page's snippets run by hand in 3.7 s.
+- Doctests of the changed modules: 62 passed.
+- ruff, ruff format, basedpyright (0 errors), numpydoc and codespell are clean on the
+  changed files.
+
+Evidence:
+
+- Remap against an independent double sum (no FFT) on equal, longer, finer, field and
+  carrier-shifted targets, from envelope and field sources: within 64(N+N′)ε of the peak.
+  Against the same pulse built on the target: 1e-12. Energy agrees to 1e-10. The copy
+  path on an identical lattice is bitwise. A 40-sample delay moves the peak 40 samples
+  later, and the absolute spectrum is invariant. A phase change is an exact phase. Two
+  separated bands keep the gap at the tails' level (< 1e-12), and a sign-changing
+  spectral zero follows the direct sum.
+- Relaunch: 1 mm + 1 mm of an argon capillary (2 modes, field grid) against 2 mm. At
+  rtol 1e-8 the uninterrupted run is 1.3e-10 from a 1e-11 reference and the relaunched
+  one 1.4e-10. At rtol 1e-6 they are 1.3e-8 and 1.5e-8, so both follow the tolerance.
+  The two references agree to 1e-12. Interior relaunch into the same run and a linear
+  radial two-stage run (1e-10) also pass.
+- A spatial plane's `energy()` equals the run's own `energy` statistic to 1e-12 (radial,
+  Cartesian, uniform and gradient argon). A gradient plane carries its certificate.
+
+`uv run poe docs` builds clean with warnings as errors.
+Not run: the full gate, slow and coverage lanes (end of SEP, per AGENTS.md), and GPU.
+
+**Limitations.** Only the identity model exists: a different basis, lattice or medium is
+refused, not coupled. Ordinary-modal ports carry no profiles or reference index yet. The
+remap's loss shares on a spatial plane are vacuum-weighted. Natural-step modal planes
+cannot be relaunched by `same_basis`. Saved fields are taken as stored, and a
+modified-noise run's auxiliary `noise_phase` is not reconstructed (§4.7). Planar planes
+are refused.
+
+**Open questions.**
+
+1. Should the modal basis identity be a tolerance comparison of n_eff and A_eff, rather
+   than a 12-digit digest? A value within a few ulp of a rounding boundary can split
+   two identical guides. This is improbable but possible on gradient guides.
+2. Should regrid's band loss be reported in physical energy, using the per-bin
+   admittance, as well as in the record norm?
+3. Should a modified-noise run's plane be refused, or reconstructed from its documented
+   saved-field meaning (§4.7)? It is currently taken as stored.
+4. Should `field_plane` join the general-modal accessor whitelist, so the capability gate
+   names it?
+5. `same_basis` refuses light outside the port's active band on an identical lattice.
+   Should it crop with a report instead, as `regrid(crop_band=True)` does?
+6. Should the architecture record `processing.mixtures`' existing import of
+   `translate.flux` as a deliberate edge (now documented in §3), or move the plane-measure
+   rebuild behind a D-layer accessor?
+
+**Handoff to phases 3 and 4.**
+
+- Phase 3 should add `couple(plane, port, model=CouplingModel(...))` with `same_basis`
+  as its identity branch, and fold `IncidentLaunch` into `CouplingResult.report`. The
+  ports need extending: ordinary capillary scalar profiles and the core-gas
+  `reference_index`, weak-guidance step-index, and general modal E/H for moving guides
+  (`translate.coupling.input_port` is the one place to fill them). `from_analytic` is
+  still to be written. `CouplingLaunch` and `with_input`'s binding check are reusable as
+  they stand.
+- Phase 4 should keep `FieldPlane` immutable and return new planes. It should append
+  to `provenance.history`, update `PlaneReference.calibrated` where an optical model
+  drops an affine term, and re-resolve a spatial metric through `PlaneMetric.flux`.
+  Mirrors and rotations should change `PlaneGeometry.normal`/`x_axis` together with the
+  polarisation. The names belong at the marked comment in `coupling/__init__.py`, and
+  the dashed boxes in `docs/dev/figures/build.py` turn solid when the files land.
+
+### Phase 3 report — coupling
+
+**Delivered (2026-10-24, `feature/sep-0031-simulation-coupling`).**
+
+- `src/solprop/coupling/models.py` (P): `CouplingModel(kind, model_error=, basis_change=)`,
+  `BasisChange`, `cone_angle`, `radial_rule` and `ScalarModeBasis` — the scalar profiles
+  of an ordinary mode set: capillary HE1m as $J_0(u_mr/a)$ inside the core and zero
+  outside, and a step-index fibre's HE1m as weak-guidance LP0m ($J_0(Ur/a)$,
+  $J_0(U)K_0(Wr/a)/K_0(W)$, from the pole-free form of
+  $UJ_1(U)/J_0(U) = WK_1(W)/K_0(W)$), frozen at the mode's declared profile wavelength as
+  the run's profile is; closed-form normalisations and closed-form order-zero Hankel
+  transforms (the Lommel integral inside, the $K_0J_0$ antiderivative outside, each
+  checked against direct quadrature to 1e-15 relative), the exact whole-plane Gram and
+  the Gram of the angular content inside a cone. A mode-averaged GNLSE fibre is
+  unwrapped to the waveguide its dispersion forwards to.
+- `src/solprop/coupling/coupler.py` (P): `couple(plane, port, *, model)` →
+  `CouplingResult(launch, report)`; `CouplingReport` (Displayed) and `AdmissionItem`;
+  `target_columns`; `PASSIVITY_ROUNDING`.
+- `src/solprop/coupling/envelopes.py` (P): `PairEnvelope`, `CAPILLARY_ENVELOPE`,
+  `STEP_INDEX_ENVELOPE`; their oracles are `tests/coupling/test_envelopes.py`.
+- `src/solprop/coupling/outcouple.py` (P): `Outcouple(space, interface="matched",
+  medium=|index=)` and `OutcoupleResult(plane, modal, synthesised, window)`.
+- `coupling/plane.py`: `FieldPlane.from_analytic(grid, geometry, field, *, space,
+  medium=|index=, support=, exterior=, reference=)` with `AnalyticRecord(support,
+  domain_change, resolution_change)`; `FieldPlane.profiles` and `.analytic`;
+  `from_pulse(..., index=)`; `from_samples(..., profiles=)`; `PlaneMetric.paraxial`.
+- `coupling/port.py`: `InputPort.profiles` and `.contrast`; the public `same_basis` is
+  removed (folded into `couple`); `check_same_medium` and `occupied_outside` are public
+  helpers of the module.
+- `translate/coupling.py`: `input_port(..., modes=, guide=)` fills the scalar profiles,
+  the core's `reference_index` (the core gas of a capillary from
+  `MarcatiliMode.core_index_minus_one`, a fibre's core), the step-index contrast, and for
+  a general guide its contrast (`guide_contrast`) and admitted models.
+- `processing/planes.py`: `field_plane(run, source=simulation)` attaches an ordinary
+  modal plane's profiles, checked by configuration hash.
+- Driver: `from_waveguide`/`prop_waveguide(..., incident=, coupling=)`;
+  `_incident_launch` builds a radial plane of the beam in the core index and calls
+  `couple`, installing the launch by `with_input` (so `configuration["coupling"]` is
+  recorded) with the report as `configuration["launch"]`. `IncidentLaunch` is removed.
+- Docs: the coupling chapter (models, budget and report, a Gaussian into a capillary, a
+  radius change by direct overlap and through `Outcouple`, a solid-fibre overlap, the
+  vector entry); general-modal, solid-fibres, supplied-guides and interior-launch pages;
+  architecture §3 and §4 and the structure figure; the API index; the changelog.
+  `benchmarks/guides.py` declares its model.
+
+**Admission (§4.3) as implemented.** Each item is a relative energy discrepancy with a
+scope (`field`, `map`, `model`); the counted items must sum to `model_error`, and the
+items the SEP caps at $\epsilon_m/8$ are capped individually.
+
+- *Angular.* $1-\cos\theta_* = \epsilon_m/8$, $\kappa_* = n_{\rm ref}(\omega/c)
+  \sin\theta_*$. Source: a spatial plane's column energies (cone vs tail by $|\kappa|$),
+  a modal plane's coefficients against its profiles' tail Gram; energy-weighted over
+  bins. Target: the largest generalised eigenvalue of
+  $(\epsilon_m/8)K + (1-\epsilon_m/8)T$ against the channel Gram $K$, maximised over
+  occupied bins (scalar: closed-form transforms; general guide: node Fourier transform
+  of the channels' $\mathbf e_t$ on a polar rule inside the cone, at up to five bins).
+- *Contrast.* Scalar step-index pairs: $\Delta$ over both fibres' core and cladding
+  against the target core; general guides: every region's law and a radial law sampled
+  at 33 radii. Not applied to a capillary (item present, value `None`). A step-index pair
+  whose $\Delta > \epsilon_m/8$ is admitted if `STEP_INDEX_ENVELOPE` covers it (the
+  item notes the replacement); the envelope's bound is always counted.
+- *Metric defects.* Target: $G = \operatorname{diag}(n_{\rm ref}/\operatorname{Re}n_{\rm
+  eff})$ (times the Jones Gram) against $Q = I$; vector: the whitened extremes of $F$
+  at the port's nodes against the run's declared $Q$. Source: $\sum|M_0 - Q_A|/\sum Q_A$
+  over bins.
+- *Closure.* $\delta^2 = \lambda_{\max}$ of the Gram of $\mathbf h_t - Y_0\hat z\times
+  \mathbf e_t$ against that of $Y_0\hat z\times\mathbf e_t$, energy $2\delta+\delta^2$.
+- *Passivity.* Largest whitened squared singular value of the map, $C Q_A^{-1}C^\dagger$
+  against $Q_B$, over occupied bins and propagating columns; excess $\le 10^{-10}$ is
+  rounding, up to the model's own metric, angular and closure items a reported model
+  defect, beyond it a refusal. Never rescaled or clipped.
+- *Numerical.* A spatial source's content in the outer fifth of its spectral window, an
+  analytic plane's domain and resolution checks, the modal overlap quadrature (rule
+  against its halving, plus each Gram against the exact one).
+- *Report.* Incident energy in $M_0$ over the whole plane; launched energy in the native
+  $Q$; captured $\mathbf a^\dagger G\mathbf a$ and uncaptured (unclipped) only for
+  `scalar_paraxial`; the source's SEP 34 certificate carried separately; a zero field
+  is a zero launch with `efficiency` `None`.
+
+**Envelopes.**
+
+- Capillary (`capillary-he1m-scalar-vs-marcatili-2026-10`): the scalar shares from
+  sampled Cartesian planes against `MarcatiliMode.field` with its `normalisation` on an
+  independent polar Gauss–Legendre rule; waists 0.3a–1.0a, displacement to 0.2a, tilt to
+  1 mrad, 75 µm argon capillary at 800 nm with eight HE1m modes, and radius ratios
+  0.5–2. Largest difference 1.8e-14 of the incident energy (the reference quadrature's
+  rounding: the Marcatili HE1m field *is* the scalar profile); recorded bound 1e-12,
+  numerical 1e-13; range HE1m count 1–8, radius ratio 0.5–2. *Corrected in phase 5:*
+  because the reference is the scalar profile itself, this comparison bounds the
+  quadrature and the implementation, not the omitted physics; it is now labelled a
+  consistency check, and the envelope is re-measured against Marcatili's leaky core
+  field (phase 5 report, item 1).
+- Step index (`step-index-lp01-vs-vector-he11-2026-10`): LP01 overlap squared against
+  $|F_{AB}|^2$ of the exact unit-power HE11 even fields
+  (`StepIndexMode.electromagnetic_field`); core 1.45, contrast 0.001–0.01, V 1.5–2.4,
+  radius ratio 0.7–1.43 at 1064 nm (constant indices: the overlaps depend on V alone).
+  Largest difference 2.92e-4, at contrast 0.01, V 2.4 and ratio 0.7; the reference's
+  refinement changes it by 7e-16. Recorded bound 3.0e-4, numerical 1e-12; LP01 only.
+
+**Deviations and why.**
+
+1. *The least-squares Gram is the exact one.* The fit uses the profiles' exact Gram
+   (orthonormal, times the Jones Gram), not their transforms' Gram truncated to a plane's
+   window: for a field the plane resolves the overlaps are exact by Parseval whatever of
+   a profile lies beyond the window, so the coefficients are exact and the
+   orthogonal-residual identity holds in the continuum. With the truncated Gram the
+   capillary shares were biased by up to 7e-5 at 128² nodes.
+2. *Weak-guidance step-index is coupled on the ordinary (GNLSE) route*, through the
+   waveguide its mode-averaged fibre wraps, and only fibre → fibre: no envelope covers a
+   beam into a fibre or a capillary ↔ fibre pair, so those are refused.
+3. *The vector model has no recorded pair envelope.* The maintainer-agreed scope lists envelopes for the
+   capillary and the solid scalar pair only; `vector_paraxial` reports an `envelope`
+   item with value `None` and the reason, and relies on the contrast screen, the closure
+   and the other items (open question 1).
+4. *The vector passivity certificate covers the coordinates the field occupies*
+   (scope `field`): a spatial plane's high-$\kappa$ columns are aliased on a guide's node
+   rule and would show a spurious gain (0.38 on the test strand) through columns the
+   field does not occupy.
+5. *The driver's incident path builds the simulation twice.* It constructs the run with a
+   zero input, takes its `input_port()`, couples, and installs the launch by
+   `with_input` (sharing the translation); `configuration["pulse"]` and `["launch"]` are
+   caller keys of that derived run, and `["coupling"]` is recorded.
+6. *`from_pulse(index=)` keeps phase 1's measure.* With a reference index and no
+   `SpatialMedium` (a guide's core), the beam is `SpatialPulse.incident` sampled on the
+   grid, normalised in $M_0$; with a medium it is `build`, normalised in the axial flux.
+   The difference is the beam's obliquity, reported as the source-metric item.
+7. *Incident test guides changed.* The 1.45-in-air strand fails the contrast screen
+   ($\Delta = 0.26$); the phase-1 incident tests now use a 4 µm core at a 0.01 step under
+   `model_error=0.2`.
+8. *Runtime `Literal` membership checks are not repeated* (`CouplingModel.kind`,
+   `Outcouple.interface`), as in phase 2: the test session's runtime type checks reject
+   them first, so the checks would be unreachable under coverage.
+9. *`Outcouple` returns a `FieldPlane`, not a transport `Element`.* The transport core
+   works on `SpatialState`, which the parallel transport branch is wiring to
+   `FieldPlane`; `Outcouple` lives in its own module and is not exported from the
+   transport section of `coupling/__init__.py`.
+10. *The module is `coupler.py`, not `couple.py`.* The package exports the function
+    `couple`, which would shadow a submodule of the same name: the API reference could
+    not document both, and `solprop.coupling.couple` would mean two things.
+11. *No schema change.* Neither the kernel schema (35) nor the output schema (24) moved;
+    the report enters the configuration record as a dataclass.
+
+**Verification run** (targeted, `uv run --no-sync pytest -n auto`; none fail except the
+three pre-existing structure-figure tests named below):
+
+- `tests/coupling/test_couple.py` (22), `test_envelopes.py` (10, medium included),
+  `test_port.py`, `test_plane.py`, `test_remap.py`, `tests/processing/test_planes.py`,
+  `tests/driver/test_coupling_relaunch.py` (medium included), `tests/driver/
+  test_general_modal.py` (incident tests on all three CPU receivers),
+  `tests/test_display.py`, `tests/test_pulses.py`, `tests/test_benchmark_guides.py`:
+  all pass (869 + 9 in the last combined runs); doctests of the coupling modules pass.
+- Evidence: §4.4 Gaussian formulas (waist, displacement, tilt, curvature) against a
+  direct 2-D sum to 1e-10 and against two sampled planes' spectral overlap to 1e-9;
+  Gaussian–Bessel shares against a 400-node Gauss–Legendre integral to 1e-11 for
+  $w/a$ = 0.3, 0.5, 0.7, 1.0 (0.906 and 0.092 at 0.5); nested sets of 2, 4, 6 modes share
+  their common shares to 1e-12, and doubling the window or the nodes moves them by
+  1e-12; a 4a beam launches < 15 % with the uncaptured energy exactly incident minus
+  captured; crossed polarisation and zero fields are exact zero launches; a rotated
+  degenerate pair splits evenly with the same total to 1e-12; coherent two-mode sources
+  add as fields and a gauge flip launches identically to 1e-13; a declared unitary basis
+  change preserves energy to 1e-13 and a 1 % stretch is refused; a capillary's exit into
+  a wider one by direct overlap and through `Outcouple` (radial 512 nodes, Cartesian
+  128²) agree to 10× the synthesis window's representation error (measured 1.3e-8 and
+  8e-7 relative); the synthesised plane carries the modal energy to 7e-8 (the matched
+  exit's obliquity); a step-index pair's captured share is the LP01 overlap squared to
+  1e-12.
+- ruff, ruff format, basedpyright (0 errors), numpydoc and codespell are clean on the
+  changed files. The coupling page's snippets run by hand in 5.5 s, the solid-fibres
+  page's in 3.4 s (a 12 µm beam into the 25 µm graded-index guide launches 0.964 within
+  a 0.032 budget).
+- *Failing, pre-existing:* `tests/test_structure_figures.py` —
+  `test_every_planned_module_is_still_unwritten[coupling/transport.py]` and
+  `[coupling/elements.py]`, and `test_the_layers_figure_draws_the_whole_package`: the
+  merged transport core's modules are still drawn as planned. This branch added its own
+  four modules to the figure and redrew it; the transport branch owns turning its boxes
+  solid.
+
+Not run: the full gate, slow and coverage lanes (end of SEP), GPU. The guide snippets
+were compiled only in the default lane and run by hand.
+
+**Sources checked.** The LP0m eigenvalue equation and field (Gloge, *Appl. Opt.* **10**,
+2252 (1971), eq. 15 with l = 0; Snyder and Love, *Optical Waveguide Theory*, §14-3) were
+re-derived and checked numerically (U = 1.528 at V = 2); the Lommel and $K_0J_0$
+integrals were derived and checked against quadrature; the capillary normalisation
+against `MarcatiliMode.normalisation`. Not checked: Gloge's equation numbering against the
+printed paper.
+
+**Limitations.** The vector model's omitted facet reflection is bounded only through the
+contrast screen and the closure. The general guide's angular item samples at most five
+bins. The scalar profiles of a step-index fibre are its frozen-wavelength profile, as the
+run's are; a fibre whose profile moves strongly across the band is represented as the run
+represents it. `Outcouple` offers only the matched interface. Ports of general guides that
+move (a sampled path) carry no E/H, so they admit only `same_basis`.
+
+**Open questions.**
+
+1. Should `vector_paraxial` require a recorded provider envelope (for example
+   `StepIndexProvider` against an independent mode-matching calculation), as §4.3's
+   "each provider/model pair" reads, or is the contrast screen with the closure enough?
+2. Small-core weakly guiding fibres need budgets of about 0.1 because the LP01 field's
+   angular spread is a tenth of a radian; is the §4.6 cone rule, designed for thin
+   screens, the intended angular bound for a direct modal overlap?
+3. Should a beam into a weakly guiding fibre (Gaussian → LP01) be admitted with its own
+   envelope? The agreed scope admits one solid pair only.
+4. Should the target-subspace angular item of a general guide be evaluated at every
+   occupied bin rather than five?
+5. Should `Outcouple` become a transport `Element` once the transport core takes
+   `FieldPlane`, and should it offer a declared planar-interface model itself?
+
+**Handoff to phases 4 and 5.** Merge with the transport branch: `coupling/__init__.py`
+exports both sets; the structure figure's coupling box lists both sets of modules
+(regenerate `layers.svg` after the merge); the coupling chapter's transport section and
+this page's coupling sections are independent. Phase 5's tutorial can use
+`field_plane` → `couple(..., scalar_paraxial)` for the
+radial entrance field into the capillary; its $s_{11}$, $s_{12}$ come from the launch and
+the report as the tests compute them.
+
+### Phase 4 report — transport core
+
+**Delivered (2026-10-24, `sep31/transport-integration`, on top of phase 2).** The
+transport core of §4.6–§4.7 on `FieldPlane`: homogeneous propagation with finite and
+far observation planes, bounded thin screens, explicit reflection and Jones frames, the
+normal-incidence interface and the existing spectral optics. `Outcouple` (guide-exit
+synthesis) belongs to phase 3 and is not part of this delivery.
+
+- `src/solprop/coupling/elements.py` (P; NumPy and SciPy only):
+  - `SpatialState`, the plain internal record every element acts on: a `TimeGrid`, a
+    `RadialGrid` or `FreeGrid`, the internal-convention spectrum
+    `(n_modes, n_pol ∈ {1, 2}, n_omega)` in the layout of `SpatialPulse.build`, a
+    homogeneous `SpatialMedium` and a right-handed 3×3 local frame. It stays public in
+    `solprop.coupling.elements` with the `Element` protocol, as the interface a new
+    element is written against; it is not exported from `solprop.coupling`.
+  - Elements (frozen; `apply(state) -> ElementResult(state, report)`): `FreeSpace`
+    (`distance, medium, output, output_method, band_limit, frame_delay, frame_phase,
+    evanescent_tolerance, sampling_tolerance, beyond_window`), `ThinLens`, `Aperture`
+    (with `weighting`), `TransmissionMask`, `Alignment`, `PolarisationTransform`,
+    `Mirror`, `PlanarInterface` and `SpectralTransfer`.
+  - Records: `ElementReport`, `ScreenCertificate`, `SpectralCalibration`.
+- `src/solprop/coupling/transport.py` (P): `transport(plane, elements, *,
+  geometry=None, frame=None) -> (FieldPlane, TransportReport)` and `TransportReport`
+  (the sequential ledger with `ledger_residual`, `reference_in`/`reference_out`,
+  `frame` and `source_certificate`). The plain-state sequence is the private
+  `_sequence`; the element-level tests use it through a conftest helper.
+- `src/solprop/coupling/__init__.py`: exports `transport`, `TransportReport`, the nine
+  elements and `SpectralCalibration`; nothing else changed there.
+- `tests/coupling/`: `test_elements.py`, `test_transport.py` (element level, on
+  `SpatialState`) and `test_transport_plane.py` (the `FieldPlane` path, including the
+  run round trip); 46 tests.
+- Docs: a self-contained "Transporting a plane between planes" section at the end of
+  `docs/guide/workflows/coupling.md`; the API index row and an API page,
+  `docs/api/transport.md`, for `TransportReport` (below); architecture §4; structure
+  figure 1 with `coupling/transport` and `coupling/elements` solid; the changelog.
+
+**The adapter.** No accessor was added to `plane.py`; the private helpers in
+`transport.py` are `_state` (plane → state), `_reference`, `_geometry` and
+`_frame_term`.
+
+- *In.* Radial and Cartesian planes only. A modal or general modal plane is refused
+  with a message naming `Outcouple`; a planar plane is refused by name. The plane must
+  carry its medium (`field_plane(..., source=simulation)` or a constructor); the
+  samples are converted with `fourier.spectrum_to_internal`, and the frame rows are
+  `x_axis`, `y_axis`, `normal`. A plane whose exterior is `unknown` is refused when the
+  sequence contains a `FreeSpace` (propagation depends on the whole field); local
+  screens and spectral maps carry it.
+- *Out.* `spectrum_to_optics` of the final state; `PlaneBasis.of_space` of the output
+  grid; `PlaneMetric.from_flux(SpatialFlux.resolve(grid, space, medium, z, side))` in
+  the output medium and grid; the exterior and the source certificate carried; one
+  `provenance.history` entry per element (`transport[i]: <element>`, with
+  `(reconstruction)` where flagged) and one for the frame source.
+- *Reference.* Each gap removes `exp[-i(φ_f + ωτ_f)]` from the whole field and the
+  reference gains `(φ_f, τ_f)`, so `absolute()` is unchanged by the removal. With
+  `frame=` (a `solprop.linear.Frame`, normally `simulation.frame`) a gap without its
+  own `frame_delay` removes `R L`, `R = β₀ + β₁(ω − ω_o)` of the gap's medium at the
+  frame's reference frequency, with `β₀` only on an envelope grid that subtracts it
+  and `ω_o` zero on a field grid: phase `(β₀ − ω_oβ₁)L`, delay `β₁L`, the law of
+  `reference_at`. Without a frame only `β₁(ω₀)L` is removed and the report and history
+  say so. Calibration flags: a `SpectralCalibration` with `removes_phase` (or
+  `removes_delay`) True or None clears that term; False keeps it; a gap keeps the
+  input's flags, since the removed term is known exactly.
+- *Geometry.* Without `geometry=`, the plane moves by each gap's distance along its
+  current normal (turned by a mirror's `outgoing`), `z` advances by the distances, a
+  gap clears `side`, and the axes are the final frame's. A declared `geometry` is used
+  as given after its normal and x axis are checked against the transported ones.
+
+**Deviations and decisions, with reasons.**
+
+1. **Errors.** Every refusal in `elements.py` and `transport.py` raises
+   `CouplingError`, including grid-shaped ones (undersampled screens, a mirror image
+   off the grid, wrong sample shapes): each is a refusal to admit a field or an element
+   into a transport, not a defect of a grid object, so no borrowed class remained the
+   right one.
+2. **Frame source.** A `FieldPlane` records its reference, not the rate of its frame,
+   so "the delay taken from the plane's reference frame" is the explicit `frame=`
+   argument; its default reproduces the previous `β₁(ω₀)L`. The round trip below shows
+   that `frame=simulation.frame` makes transport and continued propagation agree in
+   stored samples and reference alike.
+3. **Output methods** stay an explicit choice, `"angular"` or `"fresnel"`; nothing
+   selects one. Both the out-of-window angular refusal and the wrap refusal of an
+   angular output suggest `output_method="fresnel"`.
+4. **Sampling and wrap now refuse.** A column at angle θ moves its rays by `L tan θ`;
+   content whose rays pass the window half-width wraps (periodic) or reflects (radial),
+   which is the same condition as sampling the propagator phase `k_zL` below its
+   Nyquist rate in κ. Its reference-measure share above `sampling_tolerance`
+   (default 1e-6) is refused on the same-grid and angular routes. `beyond_window=
+   "remove"` declares the removal of those (column, bin) pairs as an angular band; it
+   is booked as `removed` with `window_removed` in the diagnostics. The edge share stays
+   a diagnostic on the same-grid route (field near a reflecting edge is not yet an
+   error), and refuses on the angular-output route as before. `sampling_adequate` is
+   gone.
+5. **Aperture weighting — clarification.** `aperture_profile`'s `W` means what SEP 23's
+   `ApertureSet.weighting` makes it mean (`translate/spatial.py`, `exponent = 1 if
+   weighting == "quadrature" else 2`): `"amplitude"` (default) is a field transmission,
+   power `W²`; `"quadrature"` is a power weight, field `√W`. `Aperture` takes
+   `weighting` with that meaning, so a transported aperture and an in-run aperture
+   statistic agree. §4.6's "intensity-defined aperture … explicit conversion from its
+   intensity weight" is the `"quadrature"` case; the default follows the in-run
+   statistics instead. The draft's unconditional `√W` is replaced.
+6. **Doc drift, not fixed (`spatial.py` frozen).** `aperture_profile`'s docstring calls
+   its result an "amplitude transmission" without saying that SEP 23's quadrature
+   weighting uses it as a power weight.
+7. **The function shadows its module.** §5.1 makes `transport` a member of
+   `solprop.coupling`, so `solprop.coupling.transport` names the function and the
+   generated reference documents the function on the module's page. As for
+   `solprop.physdata.species`, the module's `TransportReport` is documented on a
+   hand-written API page. The element module's two callable type aliases are private
+   (`_Transmission`, `_SpectralFunction`), so the reference does not list
+   undocumented targets.
+8. The numerical-core decisions of the draft stand: per-bin energy repeats
+   `spatial_energy`'s weighted sum (`_energy_spectrum`, checked against it to 1e-13);
+   the reference measure `U₀` weighs by `Re n ε₀c`; the certificate's numerical term
+   is `2δ + δ²` of the synthesis round trip plus the edge shares; tilt uses `k sin θ`;
+   the mirror frame is `(p̂, ŝ, k̂)` with `p̂ = ŝ × k̂` (perfect conductor `r_p = +1,
+   r_s = −1`); `PlanarInterface` is lossless at normal incidence with obliquity booked
+   as approximation error; `SpectralTransfer` recognises phase-only models by type,
+   refuses an efficiency on a lossy model, books zero bins as removed and flags
+   negative lengths and inverse mirror phases as reconstructions.
+
+**Verification actually run.** Targeted lanes only:
+`uv run --no-sync pytest -n auto tests/coupling tests/test_structure_figures.py
+tests/test_seps.py` (631 passed, 2 skipped), the doctests of the two modules, targeted
+coverage of `coupling/elements.py` and `coupling/transport.py` (100 % of statements and
+branches), `ruff check --fix`, `ruff format`, `ruff check`, `basedpyright` (0 errors),
+`numpydoc lint`, `codespell`, `git diff --check` and `poe docs`.
+
+| Check | Result (measured) |
+|---|---|
+| Round trip: `field_plane` at 1 mm of a linear radial argon run (25 µm waist, envelope grid, 64 radial nodes) → `transport([FreeSpace(1 mm)], frame=simulation.frame)` vs the run's 2 mm plane | stored samples agree to 5.6e-13 relative, reference phase and delay to 1e-12, energy to 1e-12; on-axis amplitude changes by 9 % over the gap; asserted at 1e-11 |
+| The same without `frame=` | stored samples differ by the carrier phase (3.4e-2), absolute spectra agree to 1.0e-12 |
+| The same on a field grid (by hand, not in the suite: 2.5 s) | 4.8e-13 with or without the frame (no `β₀` on a field grid) |
+| Gaussian at L = 0.5, 1, 2 z_R: on-axis amplitude, Gouy phase, second-moment waist, curvature | within 3e-6 of the paraxial formulas (asserted 2e-5); wrap share ≤ 1e-6 |
+| Fresnel vs angular output; vs `scipy.integrate.quad` of the Fresnel integral; Fresnel → Fraunhofer orders; Airy pattern; lens focus vs `λf/πw₀`; radial vs Cartesian | unchanged from the core (5.4e-5; rtol 2e-3; ratios 1.998 and 1.9995; 5.7e-3 of the peak; 1.3e-5; ≤ 1e-8) |
+| Aperture `tanh` edge, both weightings | node samples are `W·E` or `√W·E` to 1e-8 of the field inside the radius; amplitude transmits less than quadrature by more than 1 % |
+| Plane record | delays and phases accumulate (declared and default terms), a `TaylorPhase` keeps the reference calibrated, a `GratingPair` clears both terms and `absolute()` then refuses; a fixed `Frame` gives `(β₀ − ω₀β₁)L` and `β₁L`; a back-propagation restores the reference and is flagged in the history; a 90° fold turns the normal to +x and x to −z, moves the origin along the new normal and keeps the frame right-handed; a declared geometry is checked; an interface sets the medium and books 4 % reflection |
+| Refusals | modal (naming Outcouple), planar, medium missing, unknown exterior before a gap, wrapped rays (with the `beyond_window="remove"` alternative reported), angular output at the source edge (suggesting `"fresnel"`), unknown weighting, every element refusal as `CouplingError` |
+
+Not run: the full gate, the slow lanes, the whole-package coverage lane and backend
+parity (nothing here crosses the backend seam). Sources: the Fresnel and Fraunhofer
+integrals and the Gaussian-beam formulas are checked by the tests above; no new
+constant or coefficient was transcribed.
+
+**Limitations.**
+
+- `fresnel_phase_bound` is conservative, often by orders of magnitude for a Gaussian.
+- The wrap test is a ray criterion per column; it does not see a field that is
+  already at the window edge (the edge share reports that on the same-grid route).
+- The sampled phase-step check of a general mask cannot see a step beyond π; the lens
+  and the tilt use their analytic gradients.
+- The Fresnel route attenuates a lossy medium through `e^{ikL}` only.
+- Cartesian Fresnel output is a dense per-bin separable sum, not benchmarked.
+- A radial two-component state holds uniform polarisation only.
+- The frame rate of a plane is not part of `FieldPlane`; without `frame=`, a plane
+  written in a frame other than its medium's `β₁(ω₀)` gets a different (still exact)
+  reference split.
+
+**Open questions.**
+
+1. Should `spatial.py` gain a public per-bin `spatial_energy_spectrum`, replacing
+   `_energy_spectrum`?
+2. Should a `FieldPlane` record its frame (or the run's frame record) so that
+   `transport` needs no `frame=` argument?
+3. Should `aperture_profile`'s docstring (item 6) be corrected when `spatial.py` is
+   next open?
+4. Should the same-grid edge share also refuse, with its own tolerance?
+
+**Handoff.**
+
+- Phase 3 places `Outcouple` in front of a sequence and adds it to the elements table
+  in the manual's transport section and to `coupling/__init__.py`. The introduction of
+  `docs/guide/workflows/coupling.md` still says transport follows later; it should be
+  updated at merge with phase 3's own changes to that paragraph.
+- `couple` takes the transported plane as it is: its metric is resolved, its reference
+  and calibration flags are current, and `report.source_certificate` carries SEP 34's
+  certificate separately.
+- Phase 5 composes the eight §2 cases from these elements; a compressor result enters as
+  `SpectralTransfer(callable, calibration=SpectralCalibration(...))`.
+
+### Phase 5 report — integrated qualification
+
+**Delivered (2026-10-24, `feature/sep-0031-simulation-coupling`).** The focused
+tutorial and the graded-index worked example were delivered separately, on their own
+sub-branch; this report covers the rest of phase 5.
+
+1. **The capillary envelope, corrected** (an independent physics review found it).
+   `CAPILLARY_ENVELOPE` compared the scalar J0 overlap with `MarcatiliMode.field`, which
+   for HE1m is the same J0, so its 1e-12 bound measured the quadrature, not the omitted
+   physics §4.3 asks for. Those two tests are now named as consistency checks of the
+   closed-form transforms against quadrature. The envelope
+   (`capillary-he1m-scalar-vs-leaky-marcatili-2026-10`) now compares the scalar profile
+   with Marcatili's leaky core field $J_0(u_m(1 - i\delta)r/a)$,
+   $\delta = |\nu_n|c/(\omega a)$, $\nu_n = (\varepsilon+1)/(2\sqrt{\varepsilon-1})$
+   (Marcatili and Schmeltzer 1964, doi:10.1002/j.1538-7305.1964.tb04108.x), on an
+   independent polar rule at the range's top $\delta = 10^{-2}$: Gaussian beams (waist
+   0.3a–1.0a, displacement to 0.2a, tilt to $0.59/ka$, 1, 2, 4 and 8 modes) and
+   coherent three-mode exits into eight modes at radius ratios 0.5–2. The discrepancy is
+   the larger of the summed per-mode share changes and the least-squares captured share
+   change: largest $2.9\times10^{-3}$ (equal radii, from the leaky modes'
+   nonorthogonality), beams $1.8\times10^{-3}$; bound $6\times10^{-3}$ (safety factor
+   two), numerical $10^{-10}$ (refining the rule changes it by $10^{-14}$). Halving
+   $\delta$ halves the beam cases (first order, from tilt and displacement) and
+   quarters the radius cases, so the allowance is the bound scaled linearly by the
+   pair's energy-weighted $\delta$ (`PairEnvelope.scaled_by`, `allowance`): about
+   $1.5\times10^{-3}$ for a 75 µm silica capillary at 800 nm (the reviewer's direct
+   probe: $8.5\times10^{-5}$ at 75 µm, $3.4\times10^{-4}$ at 37.5 µm, both inside).
+   `ScalarModeBasis.wall_term` carries $|\nu_n|$ from `MarcatiliMode.sampled_terms`;
+   `ScalarModeBasis.leaky(omega)` gives $\delta$ per bin. A pair whose weighted
+   $\delta$ exceeds $10^{-2}$ is refused (a 12 µm capillary at 800 nm is, at
+   $1.57\times10^{-2}$); bins beyond the range in a covered pair add their incident
+   share to the item in full.
+2. **Other review items.** The modal overlap quadrature, an amplitude error, now
+   enters the budget as $2\delta+\delta^2$ (§4.7). A step-index pair's V is checked at
+   every occupied bin as well as at the profile wavelength; bins where either fibre's V
+   leaves the envelope's range add their incident share to the envelope item. The
+   angular items' text says that their cone term is the cone rule's allocation, not a
+   measured defect. A new test pins the launch phase of a displaced, tilted beam against
+   an independent quadrature of the complex overlaps (they agree to 2e-14 rad): no
+   share can catch a sign error, and on every `FreeGrid` the origin phase is
+   $e^{\mp i\pi m}$ for either sign, so `target_columns`' origin-phase sign is not
+   observable on the grids the package builds.
+3. **The certificate.** `processing.field_plane` takes the plane's path certificate
+   from `flux_from_record(...).admission`, the rebuilt `AdiabaticAdmission` (path
+   identity as `{"recorded": text}`), instead of the raw `flux_plan["admission"]` dict;
+   `FieldPlane.certificate`, `CouplingReport.certificate` and
+   `TransportReport.source_certificate` carry it, and the report prints its field error
+   and reflection. Its scope (the linear background's forward field) is the record
+   type's, stated in the docstrings. Phase 2 deviation 10 is resolved.
+4. **The eight compositions** (`tests/coupling/test_workflows.py`, medium tier, 9 tests,
+   10.6 s wall under four workers, the slowest 3.7 s). Each asserts incident = captured +
+   uncaptured, uncaptured ≥ 0 per bin, a launch within the reported target-metric defect
+   of the captured energy (never rescaled), the receiving run's entrance energy equal to
+   the launch to rounding, the budget within `model_error`, and for transports a passive,
+   closed ledger.
+   - (a) A 75 µm, 3-mode capillary exit into a 100 µm, 6-mode one: direct overlap
+     captures 0.99962, `Outcouple` → 2 mm argon → `couple` 0.99853; the launched run
+     inherits the plane's reference. Source `numpy_ref`, receiver native CPU.
+   - (b) 5 mm of 3 bar argon on a radial envelope grid (`numba_cpu`), 10 µJ at
+     w/a = 0.5, into a capillary on native CPU: the fundamental share is 0.8715 linear
+     and 0.8805 with Kerr.
+   - Mandatory: 2 mm of 1 bar argon on a radial **field** grid with Kerr (THG on) and
+     field plasma, 40 µJ, 30 µm: plasma absorbs 1.6e-3 (Kerr alone 1e-8). The harmonic
+     band 230–300 nm carries 82 nJ; its incident energy matches the plane's band energy
+     to 5e-6, the capillary captures 0.998 of it, the entrance stores the launch in that
+     band to rounding, the entrance reference equals the source plane's, and the band's
+     energy-weighted arrival time agrees to 1.1 as. Receiver native CPU.
+   - (c) Step-index 2.18 µm into 2.57 µm (contrast 0.005, 1064 nm): captured share equal
+     to an independent `quad` of the LP01 overlap squared to 1e-8 (0.99731); source
+     `numba_cpu`, receiver native CPU.
+   - (d) A Gaussian at w/a = 0.5: shares 0.906 and 0.092.
+   - (e) An analytic field whose waist scales as 1/ω: per-bin captured share equal to a
+     four-mode Gaussian–Bessel quadrature at that bin's waist to 1e-10.
+   - (f) A Cartesian beam displaced 15 µm and tilted 2 mrad by `Alignment`: 0.792
+     against 0.9994 centred; the same beam built directly agrees within 2e-3 (the tilt's
+     index differs per bin); `Alignment` on a radial plane is refused.
+   - (g) `Outcouple` then `FreeSpace(..., output_method="fresnel")` at 0.1, 0.2, 0.4 m on
+     scaled grids: the scaled intensity patterns converge (the second mismatch below 0.6
+     of the first); the Fresnel route books 2.1e-4 as approximation error.
+   - (h) 20 mm of 3 bar argon at 100 µJ (bandwidth ×6.9) → `Outcouple` →
+     `SpectralTransfer(Chain(TaylorPhase(-50 fs²)))` → a 4f relay (two 20 mm lenses, a
+     300 µm tanh aperture in the Fourier plane, declared `beyond_window="remove"`) →
+     an identical capillary on native CPU: efficiency 0.998, the compressor's ledger
+     entry zero, its reference calibrated, the aperture's loss booked as specified
+     loss, and the launched fundamental's peak power raised ×2.05.
+5. **Documentation.** The coupling chapter: a "Composing simulations" section with all
+   eight compositions, the chaining rules (lattices, `geometry=port.geometry`, separate
+   budgets) and a runnable relay example; the corrected envelope text; the allocation
+   and $2\delta+\delta^2$ notes; a stray duplicated paragraph removed. Conventions §4
+   (plane reference, affine phase and delay, spectral-density scaling, metrics);
+   accuracy §12 (how coupling uncertainties are kept apart); backends §9 (a coupling row
+   and paragraph); the Luna page (Luna's single-overlap `GaussBeamPulse` against the
+   per-bin coherent projection; nothing restored in either); cross-links from pulses,
+   beams, reading output, polarisation and compression (general-modal already linked);
+   the changelog. The kernel and output contract pages already record schemas 35 and 24.
+   The package docstring's reference to `transport` now resolves.
+
+**Deviations.** The tutorial is not part of this delivery (parallel sub-branch). The
+capillary envelope's allowance scales with $\delta$, a new `PairEnvelope.scaled_by`
+field, rather than holding one number over the range; the alternative, a constant
+$6\times10^{-3}$, would overstate a 250 µm capillary's discrepancy tenfold. The
+integrated compositions are medium tier by purpose (functional checks of short runs);
+together they add about 18 s of CPU time to that tier.
+
+**Verification run** (targeted, `uv run --no-sync pytest -n auto`; nothing fails):
+`tests/coupling/` (all modules, including the new workflow, leaky-envelope, phase and
+uncovered-band tests), `tests/processing/test_planes.py`,
+`tests/driver/test_coupling_relaunch.py`, `tests/driver/test_general_modal.py`,
+`tests/test_display.py`, `tests/test_benchmark_guides.py`,
+`tests/test_structure_figures.py`, `tests/test_seps.py`, `tests/test_guide_snippets.py`
+(compiled); the coupling page's snippets run by hand (4.4 s). ruff, ruff format,
+basedpyright (0 errors), numpydoc and codespell on the changed files; `poe docs`. Not
+run: the full gate, slow and coverage lanes, GPU.
+
+**Sources checked.** Marcatili and Schmeltzer's leaky-mode core wavenumber
+$k_ta = u_m(1 - i\nu_n/(ka))$ and $\nu_n$ for HE modes were taken as the package's own
+`MarcatiliMode` uses them (`_cladding_term_and_derivative`) and as the reviewer stated them; the printed
+paper's equation numbering was not checked. Luna's `GaussBeamPulse` launch
+(`Interface.makeinputs`) was read to state the Luna difference accurately.
+
+**Limitations.** The leaky-field envelope is a first measure of the omitted physics:
+it does not include the field in the wall, the polarisation dependence of $\nu_n$
+across EH/TE/TM families (not admitted to the scalar model anyway), or a lossy wall's
+complex $\nu_n$ beyond its modulus. The step-index envelope still covers LP01 only.
+
+**Open questions** (earlier phases' questions that remain, with recommendations; the
+plain defects among them are fixed above or were superseded):
+
+1. *(Phase 1 Q1, Q2)* Superseded: `couple` then `with_input` is the one path, and
+   `CouplingReport` replaced `IncidentLaunch` with its items. Close.
+2. *(Phase 1 Q3)* A graded core's on-axis index as $n_{\rm ref}$: keep it (it is the
+   port's declared reference, and the vector model's metric item measures the rest).
+3. *(Phase 1 Q4)* The graded-index worked example: handled on the tutorial sub-branch.
+4. *(Phase 2 Q1)* Basis identity by digest: keep the digest; revisit only if a gradient
+   guide splits on a rounding boundary in practice.
+5. *(Phase 2 Q2)* Regrid band loss in physical energy: add it beside the record-norm
+   share when the transport core's per-bin admittance is reused; not a defect.
+6. *(Phase 2 Q3)* A modified-noise run's plane: refuse it by name until its auxiliary
+   phase is reconstructed (recommended; currently taken as stored).
+7. *(Phase 2 Q4)* `field_plane` on the general-modal accessor whitelist: yes, but the
+   whitelist feeds the schema-7 records, so it belongs with the next output-schema
+   change.
+8. *(Phase 2 Q5)* `same_basis` outside the band: keep refusing; `regrid(crop_band=True)`
+   is the explicit crop.
+9. *(Phase 2 Q6)* `processing` → `translate.flux`: record it as a deliberate edge (both
+   `processing.mixtures` and `processing.planes` rebuild the plane measure there).
+10. *(Phase 3 Q1)* A recorded provider envelope for `vector_paraxial`: recommended before
+    Final, against an independent mode-matching calculation for `StepIndexProvider`.
+11. *(Phase 3 Q2, Q3)* The cone rule for small-core direct overlaps and a
+    Gaussian → LP01 envelope: maintainer decision; the cone rule is conservative there.
+12. *(Phase 3 Q4)* The general guide's target angular item at every occupied bin: yes if
+    its cost stays within a coupling's; measure first.
+13. *(Phase 3 Q5)* `Outcouple` stays a separate synthesis step (it changes the
+    representation), not an `Element`.
+14. *(Phase 4 Q1, Q3)* `spatial_energy_spectrum` and the `aperture_profile` docstring:
+    when `spatial.py` is next open.
+15. *(Phase 4 Q2)* Record the frame in `FieldPlane`: yes, with the next output-schema
+    change, so `transport` needs no `frame=`.
+16. *(Phase 4 Q4)* Refuse the same-grid edge share with its own tolerance: recommended.
+17. *(New)* Should a capillary's envelope range be extended past $\delta = 10^{-2}$
+    (narrow capillaries in the infrared), with a re-measured bound?
+
+**Handoff.** Final needs the tutorial's merge, the end-of-SEP full gate, slow and
+coverage lanes, and the maintainer's decisions on questions 10, 11 and 17.
+
+### Phase 5 tutorial report — nonlinear beam preparation and coupling into a capillary
+
+**Delivered.** `docs/tutorials/free_space/plot_08_radial_capillary_coupling.py`
+(focused tutorial, runs on every docs build), linked from
+`docs/guide/workflows/coupling.md` (the Gaussian-into-capillary section),
+`docs/guide/waveguides/capillaries.md` ("When to use it") and
+`docs/guide/free-space/index.md`.
+
+**Specification as run (§8.1).** Scalar, linearly polarised Gaussian on an envelope
+grid; uniform argon at 3 bar and 293.15 K, the reference temperature of optmat's argon
+polarisability (`species("Ar").susceptibility.reference_state`, recorded in the
+output); 800 nm, 30 fs intensity FWHM; 20 mm gap; linear-focus 1/e² radius 37.5 µm at
+the entrance; capillary radius 75 µm (w/a = 0.5), 5 mm long, eight HE1m modes. Kerr
+only (`KerrResponse(gamma3("Ar"), thg=False)` in the gap; `kerr=True, thg=False,
+plasma=False, raman=False` in the capillary). The beam is one `SpatialPulse` with
+`propz=-20 mm`, built in the argon, for both runs.
+
+**Strength from the material functions.** n0 − 1 = 7.7206e-4, n2 = 3χ3/(4ε0cn0²) =
+3.0931e-23 m²/W, z_R = 5.527 mm; B_lin = 0.3 rad gives P0 = 0.3793 GW and
+**U = 12.114 µJ**, P0/Pcr = 0.1238 (Pcr = 3.064 GW from `critical_power`).
+
+**Results through `couple`** (`scalar_paraxial`, `model_error=0.05`; s_m = launched
+energy of mode m in its native metric over `report.incident_energy`):
+
+| | s11 | s12 | s13 | launched/incident | budget used |
+|---|---|---|---|---|---|
+| linear | 0.906180 | 0.092289 | 9.36e-4 | 0.99953 | 0.018 |
+| Kerr | 0.882348 | 0.115623 | 1.68e-3 | 0.99971 | 0.020 |
+| change | **−2.3832e-2** | **+2.3334e-2** | +7.4e-4 | +1.8e-4 | |
+
+Peak on-axis intensity: linear 1.717e13, Kerr 1.956e13 W/cm². Wavefront change at the
+800 nm bin (Kerr minus linear, masked below 1 % of the linear amplitude): +0.097 rad
+on axis, +0.082 rad at r = w0, falling across the beam (the Kerr lens still
+converging at the entrance). Capillary outputs (5 mm): linear HE11 11.060 µJ, HE12
+0.987 µJ; Kerr-prepared HE11 10.790 µJ, HE12 1.252 µJ. In both cases HE12 hands energy
+to HE11 along the capillary well beyond its wall loss: the capillary's own Kerr
+intermodal coupling, identical physics in both cases.
+
+**Agreement with an earlier scalar probe.** The probe's s11 = 0.90620 /
+0.88237 and s12 = 0.09228 / 0.11562 differ from the `couple` shares by ≤ 2e-5. The
+difference is the metric, not the field: the same planes give, for the linear run,
+0.906180 (launched / M0 incident), 0.906188 (captured share in the common metric,
+×n_ref/Re n_eff ≈ 1 + 8e-6) and 0.906191 (launched / the plane's axial-flux energy,
+which differs from the M0 incident by the beam's obliquity, 1.2e-5). The changes
+Δs11, Δs12 agree with the probe to 1e-5 of themselves.
+
+**Independent confirmation.** A separate script evaluated each entrance field off the
+nodes by the inverse Hankel series E(r) = Σ_j (w_j/2π) Ẽ(k_j) J0(k_j r) (it reproduces
+`node_spectra()` to 1.6e-15), projected it on J0(u_m r/a)/(√π a|J1(u_m)|) with a
+600-node Gauss–Legendre rule over the core, and normalised by the plane quadrature of
+|E|² weighted by n_ref. Its common-metric shares agree with `couple`'s captured shares
+to all eight printed digits (linear 0.90618793 / 0.09229346, Kerr 0.88235581 /
+0.11562827).
+
+**Refinement study** (scratch script, one variation at a time from the tutorial's
+settings: radius 1 mm, n_r 256, window 300 fs, band 500 nm–1.4 µm (256 bins,
+dt = 1.76 fs), rtol 1e-7, dz_max 1 mm in the study (0.25 mm in the gallery), eight
+modes). δΔ is the change of the claimed difference relative to the baseline.
+
+| variation | bins | lin s11 | lin s12 | Kerr s11 | Kerr s12 | δΔs11 | δΔs12 |
+|---|---|---|---|---|---|---|---|
+| baseline | 256 | 0.906180 | 0.092289 | 0.882348 | 0.115623 | 0 | 0 |
+| radius 0.8 mm | 256 | = | = | = | = | +8.4e-12 | −5.9e-12 |
+| radius 1.5 mm | 256 | = | = | = | = | −1.1e-11 | +8.1e-12 |
+| n_r 192 | 256 | = | = | = | = | +6.7e-16 | −3.2e-16 |
+| n_r 512 | 256 | = | = | = | = | 0 | 0 |
+| window 200 fs | 128 | = | = | = | = | +2.2e-16 | +9.0e-16 |
+| window 500 fs | 512 | = | = | = | = | −6.7e-16 | +2.8e-17 |
+| band 400 nm–2 µm | 512 | = | = | = | = | +1.0e-15 | −2.1e-15 |
+| dt halved | 256 | = | = | = | = | +1.1e-16 | −1.4e-17 |
+| modes 4 | 256 | = | = | = | = | 0 | 0 |
+| modes 6 | 256 | = | = | = | = | 0 | 0 |
+| rtol 1e-6 | 256 | = | = | = | = | −2.7e-8 | +1.5e-8 |
+| rtol 1e-9 | 256 | = | = | = | = | +4.6e-9 | −3.5e-9 |
+| dz_max 0.25 mm | 256 | = | = | = | = | +1.7e-9 | −1.2e-9 |
+| dz_max 0.1 mm | 256 | = | = | = | = | +4.6e-9 | −3.5e-9 |
+| rtol 1e-9 + dz_max 0.1 mm | 256 | = | = | = | = | +4.6e-9 | −3.5e-9 |
+| model_error 0.1 | 256 | = | = | = | = | 0 | 0 |
+
+"=" is equal to the baseline at the six printed digits. Per-run uncertainty is the
+root-sum-square over the five groups (domain, radial nodes, temporal, modes,
+stepping) of each group's largest change; the linear run's is 1.6e-15, the Kerr run's
+2.7e-8 (s11) and 1.5e-8 (s12). **Combined uncertainty: 2.7e-8 for Δs11 (1.1e-6 of
+the change) and 1.5e-8 for Δs12 (6.2e-7 of it)**, each far below the §7 criterion of
+one tenth; summing the two runs linearly instead changes nothing at that precision.
+The step size, not rtol, is what limits the gap run here: with dz_max = 1 mm the
+controller is capped and rtol alone does not refine it, so dz_max was varied too.
+The modal span cannot move s11 or s12 (orthogonal profiles; the nested-set property
+the phase 3 tests hold to 1e-12), and the recorded capillary envelope caps the span at
+eight modes (`modes=16` is refused by name). Capture changes with the span (0.99945
+with four modes against 0.99954 with eight, linear), as it should.
+
+The 5 mm capillary outputs moved by ≤ 2e-6 µJ in HE11 and HE12 between eight and six
+modes and between rtol at its default and 1e-8.
+
+**Checks.** No collapse: P0/Pcr = 0.124 and the on-axis intensity rises smoothly by
+14 %. Collar: the fluence in the outer tenth of the radial domain is 1.5e-30
+(linear) and 3.5e-27 (Kerr) of the total. Aliasing: the coupling's numerical item
+(content in the outer fifth of the transverse spectral window) is 7.9e-31 and
+9.0e-28; the window and node refinements above confirm it.
+
+**Omitted ionisation (offline).** optmat's recommended argon rate at 800 nm
+(`OptmatRate("Ar", 800e-9)`, record `rate/default/Ar@800nm`, validated, sources
+NIST ASD 2026, Tong 2002, Tong 2005) integrated over the real field of a 30 fs
+Gaussian at the Kerr run's peak on-axis intensity, **1.96e13 W/cm², gives an ionised
+fraction of 1.1e-7** (3.7e-8 at the linear 1.72e13 W/cm²). The electron density,
+about 8e18 m⁻³, lowers the index by 2.2e-9 against a Kerr increase of 6.1e-6:
+Kerr-only is defensible and the strength was not reduced.
+
+**Beat length and the capillary.** Carrier formula 22.50 mm (0.222 periods in 5 mm).
+From `MarcatiliMode` HE11/HE12 at 3 bar: L_beat 27.70, 22.50 and 18.95 mm at 650, 800
+and 950 nm; 5 mm power loss HE11 2.2e-3 / 3.3e-3 / 4.6e-3 and HE12 1.1e-2 / 1.7e-2 /
+2.4e-2.
+
+**Meter reading.** The tutorial states that the energy is that through the launch
+plane in the argon and points to `guide/free-space/flux.md` ("What energy means") and
+the coupling chapter's `PlanarInterface` for converting a reading taken before a cell
+window. No new manual text was needed: the flux page already says to multiply by the
+window's transmission.
+
+**Runtime.** 5.0 s in the Sphinx build (sphinx-gallery's own timing), 4.7–6.4 s
+standalone, on the development Mac (gap runs about 0.3 s each, capillary runs about
+0.1 s each). The whole `poe docs` build took 26 s with the other galleries cached.
+
+**Docs build.** `uv run --no-sync poe docs` renders the tutorial; the build ends with
+one warning, which is not from this work: `solprop/coupling/__init__.py`'s module
+docstring references `solprop.coupling.transport.transport`, which Sphinx cannot
+resolve (`py:func reference target not found`). It looks like the same
+function-shadows-module problem phase 3 solved by naming its module `coupler.py`.
+
+**Deviations and notes.**
+
+1. The gallery's s_m are launched shares over the M0 incident energy, the
+   definition the phase 3 tests use; the captured (common-metric) shares are larger
+   by n_ref/Re n_eff (8e-6 for HE11) and are not printed.
+2. The free-space gallery's `README.rst` still lists the older tutorials only; it
+   was outside this task's file list.
+3. The wavefront panel uses the 800 nm bin, masked below 1 % of the linear field's
+   amplitude at that bin.
+
+### Worked example `plot_04_graded_index_multimode.py` — re-run
+
+The example now calls `prop_waveguide(..., incident=beam, coupling=CouplingModel(
+"vector_paraxial", model_error=0.1))` instead of `transverse=`, reads its launch account
+from `configuration["launch"]`, and says that the launched energy is the captured share
+of the incident beam's (no longer renormalised to the declared energy). The
+`project_transverse_field` preview and the `GeneralModalBasisWarning` filters are gone.
+Its output was regenerated with `poe docs-examples plot_04_graded_index_multimode`
+(10 min 23 s): incident 159.67 nJ, launched 0.99998 of it, budget 1.832e-2 of 0.1
+(angular 1.25e-2, contrast 9.5e-3, closure 4.6e-3, passivity 1.1e-3); entrance shares
+LP01 0.933, LP02 0.0625. The figures changed only in their last digits.
+
 ## Part III — History
 
 - 2026-10-22: Drafted after auditing existing launch, projection, spatial flux,
@@ -1128,6 +2139,10 @@ No new material constant or experimental validation is claimed.
   explicit request to commit and merge both SEPs 31 and 34. Part I is frozen.
   SEP 34 is implemented first; this proposal's implementation record remains
   empty until its phases begin.
+- 2026-10-23: In progress. Implementation started on a branch cut from SEP 34's
+  implementation branch; it reaches main through its own pull request after
+  SEP 34 has merged.
+- 2026-10-24: Phase 2, plane exchange, implemented; report in Part II.
 
 ### AI review — 2026-10-23
 

@@ -15,6 +15,36 @@
    "name": "C"
   }
  ],
+ "CouplingModel": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.coupling.models",
+   "module_short": "solprop.coupling",
+   "name": "CouplingModel"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.coupling",
+   "module_short": "solprop.coupling",
+   "name": "CouplingModel"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "CouplingModel"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.coupling",
+   "module_short": "solprop.coupling",
+   "name": "CouplingModel"
+  }
+ ],
  "DELTA": [
   {
    "is_class": false,
@@ -84,69 +114,55 @@
    "name": "from_limits"
   }
  ],
- "GeneralModalBasisWarning": [
+ "GaussianPulse": [
   {
    "is_class": true,
    "is_explicit": false,
-   "module": "solprop.exceptions",
-   "module_short": "solprop.exceptions",
-   "name": "GeneralModalBasisWarning"
+   "module": "solprop.pulses",
+   "module_short": "solprop.pulses",
+   "name": "GaussianPulse"
   },
   {
    "is_class": true,
    "is_explicit": false,
    "module": "solprop",
    "module_short": "solprop",
-   "name": "GeneralModalBasisWarning"
+   "name": "GaussianPulse"
   },
   {
    "is_class": true,
    "is_explicit": false,
-   "module": "solprop.exceptions",
-   "module_short": "solprop.exceptions",
-   "name": "SolpropWarning"
+   "module": "solprop.pulses",
+   "module_short": "solprop.pulses",
+   "name": "ShapedPulse"
   },
   {
    "is_class": true,
    "is_explicit": false,
    "module": "solprop",
    "module_short": "solprop",
-   "name": "SolpropWarning"
+   "name": "ShapedPulse"
   },
   {
    "is_class": true,
    "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "UserWarning"
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed"
   },
   {
    "is_class": true,
    "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "Warning"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "Exception"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "BaseException"
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed"
   },
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "solprop.exceptions",
-   "module_short": "solprop.exceptions",
-   "name": "GeneralModalBasisWarning"
+   "module": "solprop.pulses",
+   "module_short": "solprop.pulses",
+   "name": "GaussianPulse"
   }
  ],
  "GradedIndexProvider": [
@@ -375,6 +391,43 @@
    "module": "__main__",
    "module_short": "__main__",
    "name": "ScaledPermittivity"
+  }
+ ],
+ "SpatialPulse": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.pulses",
+   "module_short": "solprop.pulses",
+   "name": "SpatialPulse"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "SpatialPulse"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.pulses",
+   "module_short": "solprop.pulses",
+   "name": "SpatialPulse"
   }
  ],
  "WAIST": [
@@ -904,9 +957,16 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "numpy",
-   "module_short": "numpy",
-   "name": "ndarray"
+   "module": "solprop.pulses",
+   "module_short": "solprop.pulses",
+   "name": "SpatialPulse"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "SpatialPulse"
   }
  ],
  "beta": [
@@ -927,6 +987,15 @@
    "name": "float"
   }
  ],
+ "captured": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "NoneType"
+  }
+ ],
  "centre": [
   {
    "is_class": false,
@@ -943,6 +1012,29 @@
    "module": "builtins",
    "module_short": "builtins",
    "name": "int"
+  }
+ ],
+ "coupling": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.coupling.models",
+   "module_short": "solprop.coupling",
+   "name": "CouplingModel"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.coupling",
+   "module_short": "solprop.coupling",
+   "name": "CouplingModel"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "CouplingModel"
   }
  ],
  "dataclass": [
@@ -979,13 +1071,22 @@
    "name": "ndarray"
   }
  ],
- "energy": [
+ "entrance": [
   {
    "is_class": false,
    "is_explicit": false,
    "module": "numpy",
    "module_short": "numpy",
-   "name": "float64"
+   "name": "ndarray"
+  }
+ ],
+ "entrance.sum": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
   }
  ],
  "field": [
@@ -1538,6 +1639,232 @@
    "name": "list"
   }
  ],
+ "launch": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.coupling.coupler",
+   "module_short": "solprop.coupling",
+   "name": "CouplingReport"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.coupling",
+   "module_short": "solprop.coupling",
+   "name": "CouplingReport"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "CouplingReport"
+  }
+ ],
+ "launch.budget": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.coupling.coupler",
+   "module_short": "solprop.coupling",
+   "name": "CouplingReport.budget"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.coupling",
+   "module_short": "solprop.coupling",
+   "name": "CouplingReport.budget"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "CouplingReport.budget"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.budget"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.budget"
+  }
+ ],
+ "launch.captured_energy": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.coupling.coupler",
+   "module_short": "solprop.coupling",
+   "name": "CouplingReport.captured_energy"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.coupling",
+   "module_short": "solprop.coupling",
+   "name": "CouplingReport.captured_energy"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "CouplingReport.captured_energy"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.captured_energy"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.captured_energy"
+  }
+ ],
+ "launch.captured_reason": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "str"
+  }
+ ],
+ "launch.efficiency": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.coupling.coupler",
+   "module_short": "solprop.coupling",
+   "name": "CouplingReport.efficiency"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.coupling",
+   "module_short": "solprop.coupling",
+   "name": "CouplingReport.efficiency"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "CouplingReport.efficiency"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.efficiency"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.efficiency"
+  }
+ ],
+ "launch.incident_energy": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.coupling.coupler",
+   "module_short": "solprop.coupling",
+   "name": "CouplingReport.incident_energy"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.coupling",
+   "module_short": "solprop.coupling",
+   "name": "CouplingReport.incident_energy"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "CouplingReport.incident_energy"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.incident_energy"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.incident_energy"
+  }
+ ],
+ "launch.launched_energy": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.coupling.coupler",
+   "module_short": "solprop.coupling",
+   "name": "CouplingReport.launched_energy"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.coupling",
+   "module_short": "solprop.coupling",
+   "name": "CouplingReport.launched_energy"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "CouplingReport.launched_energy"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.launched_energy"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.launched_energy"
+  }
+ ],
+ "launch.model_error": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
  "line": [
   {
    "is_class": false,
@@ -1718,22 +2045,6 @@
    "name": "diff"
   }
  ],
- "np.exp": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "numpy",
-   "module_short": "numpy",
-   "name": "ufunc"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "numpy",
-   "module_short": "numpy",
-   "name": "exp"
-  }
- ],
  "np.geomspace": [
   {
    "is_class": false,
@@ -1862,22 +2173,6 @@
    "name": "real"
   }
  ],
- "np.repeat": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "numpy",
-   "module_short": "numpy",
-   "name": "_ArrayFunctionDispatcher"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "numpy",
-   "module_short": "numpy",
-   "name": "repeat"
-  }
- ],
  "np.sqrt": [
   {
    "is_class": false,
@@ -1908,22 +2203,6 @@
    "module": "numpy",
    "module_short": "numpy",
    "name": "sum"
-  }
- ],
- "np.zeros": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "builtin_function_or_method"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "numpy",
-   "module_short": "numpy",
-   "name": "zeros"
   }
  ],
  "omega0": [
@@ -2019,63 +2298,6 @@
    "module": "builtins",
    "module_short": "builtins",
    "name": "str"
-  }
- ],
- "project_transverse_field": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "function"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.translate.modal_tables",
-   "module_short": "solprop.translate.modal_tables",
-   "name": "project_transverse_field"
-  }
- ],
- "projection": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.translate.modal_tables",
-   "module_short": "solprop.translate.modal_tables",
-   "name": "ProjectedLaunch"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.translate",
-   "module_short": "solprop.translate",
-   "name": "ProjectedLaunch"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop",
-   "module_short": "solprop",
-   "name": "ProjectedLaunch"
-  }
- ],
- "projection.amplitudes": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "numpy",
-   "module_short": "numpy",
-   "name": "ndarray"
-  }
- ],
- "projection.residual_share": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "float"
   }
  ],
  "prop_2d": [
@@ -2202,52 +2424,6 @@
    "module": "solprop.processing.modal",
    "module_short": "solprop.processing",
    "name": "reconstructed_flux"
-  }
- ],
- "route": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.translate.general",
-   "module_short": "solprop.translate.general",
-   "name": "GeneralModalRoute"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.translate",
-   "module_short": "solprop.translate",
-   "name": "GeneralModalRoute"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop",
-   "module_short": "solprop",
-   "name": "GeneralModalRoute"
-  }
- ],
- "route.tables": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.translate.modal_tables",
-   "module_short": "solprop.translate.modal_tables",
-   "name": "ModalTransformTables"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.translate",
-   "module_short": "solprop.translate",
-   "name": "ModalTransformTables"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop",
-   "module_short": "solprop",
-   "name": "ModalTransformTables"
   }
  ],
  "run": [
@@ -2403,6 +2579,71 @@
    "name": "ABC.metadata"
   }
  ],
+ "run.metadata.configuration": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.output.memory",
+   "module_short": "solprop.output",
+   "name": "MemoryOutput.metadata"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.output",
+   "module_short": "solprop.output",
+   "name": "MemoryOutput.metadata"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "MemoryOutput.metadata"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.output.schema",
+   "module_short": "solprop.output",
+   "name": "PlaneStore.metadata"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.output",
+   "module_short": "solprop.output",
+   "name": "PlaneStore.metadata"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "PlaneStore.metadata"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.metadata"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.metadata"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "abc",
+   "module_short": "abc",
+   "name": "ABC.metadata"
+  }
+ ],
  "settings": [
   {
    "is_class": false,
@@ -2413,24 +2654,6 @@
   }
  ],
  "settings.get": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "builtin_function_or_method"
-  }
- ],
- "shares": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "numpy",
-   "module_short": "numpy",
-   "name": "ndarray"
-  }
- ],
- "shares.sum": [
   {
    "is_class": false,
    "is_explicit": false,
@@ -2516,6 +2739,15 @@
    "name": "reconstructed_flux"
   }
  ],
+ "solprop.pulses.SpatialPulse": [
+  {
+   "is_class": false,
+   "is_explicit": true,
+   "module": "solprop.pulses",
+   "module_short": "solprop.pulses",
+   "name": "SpatialPulse"
+  }
+ ],
  "spacing": [
   {
    "is_class": false,
@@ -2566,38 +2798,6 @@
    "module": "time",
    "module_short": "time",
    "name": "perf_counter"
-  }
- ],
- "warnings.catch_warnings": [
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "_py_warnings",
-   "module_short": "_py_warnings",
-   "name": "catch_warnings"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "warnings",
-   "module_short": "warnings",
-   "name": "catch_warnings"
-  }
- ],
- "warnings.simplefilter": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "function"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "warnings",
-   "module_short": "warnings",
-   "name": "simplefilter"
   }
  ],
  "wavelength": [

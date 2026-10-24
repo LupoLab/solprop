@@ -16,6 +16,7 @@ import pytest
 
 from record_numbers import assert_record_numbers, record_skeleton, skeleton_hash
 from solprop import _display, tools
+from solprop.coupling import AdmissionItem, CouplingReport
 from solprop.driver import Simulation, SimulationSettings
 from solprop.driver.scan import Scan
 from solprop.exceptions import MaterialRangeWarning, ModeError, OutputError
@@ -218,6 +219,24 @@ def modal_records():
         # A declared transverse field projected onto this guide's one channel: the
         # channel's own profile, so the projection captures all of it.
         "ProjectedLaunch": project_transverse_field(printed_tables, printed_field),
+        # A coupling's account: synthetic per-bin energies, a third captured.
+        "CouplingReport": CouplingReport(
+            "scalar_paraxial",
+            0.05,
+            np.full(3, 1.00028),
+            np.array([2e-7, 6e-7, 2e-7]),
+            np.array([0.6e-7, 2e-7, 0.7e-7]),
+            np.array([0.6e-7, 2e-7, 0.7e-7]),
+            "",
+            (
+                AdmissionItem("angular", 6.3e-3, None, True, "field", "cone + tail"),
+                AdmissionItem("contrast", None, None, False, "model", "not applied"),
+            ),
+            "zero",
+            None,
+            {"source": "pulse"},
+            "0" * 64,
+        ),
         "ProviderChannelMode": grin_guide.mode_collection.modes[0],
         "ModalSampling": grin_guide.sampling,
         # A moving guide's path record: synthetic numbers of the shape a sampled path
@@ -506,6 +525,7 @@ NAMES = sorted(
         "ProviderChannelMode",
         "ModalTransformTables",
         "ProjectedLaunch",
+        "CouplingReport",
         "GeneralModalRoute",
         "ModalMetricTables",
         "CoupledFlowTables",
@@ -681,7 +701,7 @@ def test_the_run_record_names_its_power_convention(examples):
     # the spectral convention; a schema-5 record (which carries no material manifest)
     # reads back as the vacuum label.
     metadata = quiet(examples["Simulation"].metadata)
-    assert "optics spectra, poynting amplitudes, schema 23" in str(metadata)
+    assert "optics spectra, poynting amplitudes, schema 24" in str(metadata)
     older = replace(
         metadata, schema_version=5, quadrature=None, materials=MaterialManifest()
     )
@@ -898,6 +918,7 @@ def rounding(block: str) -> str:
         "ProviderChannelMode",
         "ModalTransformTables",
         "ProjectedLaunch",
+        "CouplingReport",
         "GeneralModalRoute",
         "ModalMetricTables",
         "CoupledFlowTables",

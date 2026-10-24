@@ -742,3 +742,46 @@ For a declared z-dependent unitary change of basis, dropping the connection term
 propagated state by at least a fifth of its own size in the test case, while keeping it
 reproduces the direct propagation to $10^{-10}$ of the state. That is a measurement for
 that comparison, not a general estimate for a changing basis.
+
+## 12. Coupling between simulations
+
+A coupling ([SEP 31](seps/sep-0031-simulation-coupling.md),
+[the manual's chapter](../guide/workflows/coupling.md)) joins two runs that each have
+their own accuracy envelope; the coupling adds its own, and the three are kept apart
+rather than folded into one number.
+
+- **The source and the receiver** are ordinary runs: their step-control and
+  discretisation envelopes are those of their routes (§1 to §11). A coupling takes the
+  source plane as stored and makes no claim about it. A source run through a gas
+  gradient carries SEP 34's adiabatic path certificate, which the coupling report and
+  the transport report carry separately (`report.certificate`,
+  `report.source_certificate`): it bounds the linear background path, not the coupling.
+- **The coupling model's error** is the `model_error` budget $\epsilon_m$ and the
+  admission items that must fit inside it: the angular cone rule (an *allocation*
+  $(1-\cos\theta_*)$ of the cone share, plus the measured tail), the metric defects
+  between the common measure and each native metric, the H-closure of the vector model,
+  the passive-map certificate and the recorded pair envelope. The envelopes are
+  measured against independent physics, not the model's own profiles: the capillary's
+  against Marcatili's leaky core field $J_0(u_m(1 - i\delta)r/a)$,
+  $\delta = |\nu_n|c/(\omega a)$ (largest share discrepancy $2.9\times10^{-3}$ at
+  $\delta = 10^{-2}$ over its range, bound $6\times10^{-3}$, scaled linearly by the
+  pair's energy-weighted $\delta$: about $1.5\times10^{-3}$ for a 75 µm silica
+  capillary at 800 nm); the step-index pair's against the exact vector $HE_{11}$ flux
+  overlap ($3.0\times10^{-4}$). Bins outside an envelope's range are counted in full.
+- **The coupling's numerical error** is its own item: the source plane's content at
+  its spectral edge, an analytic field's domain and resolution checks (the energy
+  change on doubling the window and halving the spacing), and the overlap quadrature
+  (its amplitude error $\delta$ entered as $2\delta + \delta^2$). Representation errors
+  of a synthesised exit (`Outcouple.window`) and a transport's thin-screen and
+  Fresnel bounds are reported by those operations.
+
+Refinement is separate for each: a quadrature is refined by halving its panels, a
+plane's domain and resolution independently, the captured subspace by nested mode sets
+(which share their common shares to $10^{-12}$ on the capillary tests), and the
+propagation by the receiving run's own tolerance. A launch is never renormalised, so an
+error in any one of them appears as an energy discrepancy in the report rather than
+being hidden by rescaling to the requested energy. The integrated compositions of SEP
+31 §2 (`tests/coupling/test_workflows.py`) assert the ledger of each: incident equals
+captured plus uncaptured, the launch differs from the captured energy only by the
+reported target-metric defect, and the receiving run's entrance carries exactly the
+launch.

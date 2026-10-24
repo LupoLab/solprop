@@ -215,6 +215,18 @@ one draw has the same shape for single-mode and multimode runs.
 **Pulses.** A measured pulse (`DataPulse`) keeps its own time origin; a continuous wave
 (`CWPulse`) is built in one pass on either grid and is seeded; envelopes are validated.
 
+**Launching a beam into a guide.** Luna's `GaussBeamPulse` takes one scalar overlap of
+the beam with each mode at the central wavelength and gives that mode the fraction
+$|c_m|^2$ of the pulse's energy, so the captured share is the same at every frequency.
+solprop projects the beam at **every** frequency bin, coherently and in the paraxial
+measure of the guide's core index, after giving the beam its requested energy over its
+whole incident plane: the modal shares follow the frequency dependence of the overlap,
+and the launch is the projected amplitudes as they are. The energy the modes do not
+capture is not restored by renormalising to the requested energy (nor is it in Luna),
+and the coupling report states the incident, captured and uncaptured energies. A field taken from another run is coupled at its own
+physical scale ([coupling simulations](coupling.md),
+[SEP 31](../../dev/seps/sep-0031-simulation-coupling.md)).
+
 ## More accurate numerics, the same physics
 
 These do not change the model, but they change results at the level of the numerical
@@ -301,6 +313,7 @@ error.
   medium flux in free space, with forward amplitude transport through a certified radial
   pressure gradient ([energy and flux in a medium](../free-space/flux.md)).
 - Grating and prism compressors.
+- Coupling one simulation's output field into another (a capillary, a fibre, a gas gap) through coherent field planes, with transport through free space, lenses, apertures, mirrors and spectral optics ([coupling simulations](coupling.md)).
 - Design tools with multi-soliton content, and the inverse design of a capillary's
   pressure and energy for a soliton order, count or largest eigenvalue.
 - Scans on process pools and Slurm clusters.

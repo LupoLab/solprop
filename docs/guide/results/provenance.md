@@ -72,13 +72,25 @@ A saved result needs the grid, field convention, material models, response choic
    * - ``versions``, ``git``, ``created``
      - Provenance: package versions, the commit and dirty flag of the running solprop
        checkout when there is one, and when the run started.
+   * - ``reference``
+     - The **plane-reference record** (output schema 24,
+       `SEP 31 <../../dev/seps/sep-0031-simulation-coupling.html>`_): the carrier, the
+       frame integral of the terms the linear operator removed (exact Chebyshev
+       antiderivatives of the frame's ``beta_0`` and ``beta_1`` tables, with the frequency
+       origin of the linear term), the reference origin of the run's path, the parent
+       plane of a run launched from one, and the basis identity at each planned plane.
+       :func:`~solprop.coupling.plane.reference_at` rebuilds any saved plane's phase and time
+       reference from it alone; :func:`~solprop.processing.planes.field_plane` reads it
+       (:doc:`coupling simulations <../workflows/coupling>`).
    * - ``schema_version``, ``spectral_convention``, ``field_layout``
-     - The version of this record layout (currently 17), the sign convention of the
+     - The version of this record layout (currently 24), the sign convention of the
        stored field (always ``"optics"``) and the axis order of the stored field.
 ```
 
-`backend`, `versions`, `git` and `created` are outside the [resume key](resuming.md); every
-other part is inside it, the material manifest's identities and policies included.
+`backend`, `versions`, `git`, `created` and `reference` are outside the
+[resume key](resuming.md): the plane-reference record is derived from the hashed
+problem, and a run launched from another plane carries its inherited origin and parent
+in `configuration["coupling"]`, which is inside it. Every other part is inside it, the material manifest's identities and policies included.
 `versions` names optmat's full version string beside solprop's, NumPy's, SciPy's,
 h5py's and Python's.
 

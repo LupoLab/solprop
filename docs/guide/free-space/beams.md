@@ -303,4 +303,6 @@ on the model page under
 
 ## Related calculations
 
-The [crossing-beam lesson](../../introduction/lessons/plot_04_crossing_beams.rst) shows how to launch a custom coherent array. The [radial filament lesson](../../introduction/lessons/plot_03_filament.rst) connects fluence, peak intensity and plasma. Refine the spatial grid and temporal bandwidth independently before interpreting either example quantitatively.
+A saved plane of a free-space run is a coherent field plane that can be transported
+through lenses, apertures and free space or coupled into a capillary or fibre
+([coupling simulations](../workflows/coupling.md)). The [crossing-beam lesson](../../introduction/lessons/plot_04_crossing_beams.rst) shows how to launch a custom coherent array. The [radial filament lesson](../../introduction/lessons/plot_03_filament.rst) connects fluence, peak intensity and plasma. Refine the spatial grid and temporal bandwidth independently before interpreting either example quantitatively.

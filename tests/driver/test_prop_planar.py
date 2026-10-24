@@ -246,6 +246,14 @@ def test_the_simulation_builds_the_fills_medium_and_frame():
     assert empty.medium.material == 1.0
 
 
+def test_a_planar_run_has_no_input_port():
+    """Slab columns per y frequency are not exchanged in this release (SEP 31)."""
+    space = PlanarGrid(slab_modes((1,)), 1e-3, 8)
+    simulation = Simulation.from_planar(GRID, space, [], pulse(), settings=settings())
+    with pytest.raises(DriverError, match="planar planes are not exchanged"):
+        simulation.input_port()
+
+
 def test_a_planar_run_binds_an_optmat_rate_to_the_inputs_peak_field():
     """SEP 3, Q14 on the planar route, as on the free-space routes."""
     space = PlanarGrid(slab_modes((1,)), 1e-3, 8)

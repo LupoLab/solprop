@@ -98,7 +98,7 @@ records the absolute launch, the TDSE identity, the outcome and any terminal che
 beside the step limits and the dense and step-plane policies. The full-band sensitivity to
 the window and the atomic cut error are unresolved
 ([TDSE accuracy and limitations](../guide/media/tdse.md#accuracy-and-limitations)). The
-current versions are kernel schema 34 and saved-output schema 22
+current versions are kernel schema 35 and saved-output schema 24
 ([kernel contract](kernel-contract.md)).
 
 **haCC helium** ([SEP 20](seps/archive/sep-0020-hacc-helium-tdse.md)). The same route carries a second atomic model, the
@@ -154,7 +154,22 @@ the table identity, the guide identity -- and not the reference's tens of megaby
 so the reference is rebuilt in **T** by `general_modal_route` and read in **X**, which
 checks it against the stored identity, path by path, before it synthesises anything.
 **X** takes the record type and the identity functions, never an execution map, never a
-`KernelProblem` and never a backend. No other module of **X** imports **T**.
+`KernelProblem` and never a backend. Two further modules read what a file records the
+same way. `processing.mixtures` and `processing.planes` rebuild a spatial plane's
+measure from the record with `translate.flux.flux_from_record` and
+`translate.spatial.axial_admittance` (SEP 34), and `processing.planes` reuses
+`processing.modal`'s checked tables and evaluates a general basis Gram with
+`translate.coupled.metric_at`. No other module of **X** imports **T**.
+
+**Coupling crosses the layers without breaking them** (SEP 31). The field plane, the
+input port, the remap and `couple` are **P**; the driver's `Simulation.input_port()`
+asks **T** (`translate.coupling`) to fill the port from the translated problem -- its
+metric, reference index, the scalar profiles of its modes (built in **P** from the
+modes, `coupling.models.ScalarModeBasis`) or a general guide's E/H and contrast -- and
+extraction is **X** (`processing.field_plane`, which builds the same profiles from a
+`source=` simulation's modes), because **P** must not import **X**. A coupling computed
+in **P** therefore never imports **T** or reads a file. The driver's incident-beam
+launch calls `couple` and installs its launch through `with_input`.
 
 Rules: imports flow P → T → B; B never builds a physics object — it does not know how to make
 a mode or a gas, and imports P only for the grid, mode and profile types its statistics are
@@ -178,16 +193,17 @@ against `src/solprop` by `tests/test_structure_figures.py`.
 | `__init__.py`, `exceptions.py`, `constants.py` | Lazy public imports, package logging, exception hierarchy and SI constants | package / P |
 | `grid.py`, `fourier.py`, `hankel.py`, `spatial.py`, `adiabatic.py` | Temporal and spatial grids (radial, the Cartesian plane, and `LineGrid`, its x axis uniform in y per unit width), Fourier conventions, raw Hankel transforms, spatial media, the axial-flux measure of a plane (`SpatialFlux`, SEP 34) and the adiabatic path certificate of a z-varying medium | P |
 | `profiles.py`, `gasflow.py`, `pulses.py`, `noise.py`, `polarisation.py`, `optics.py`, `tools.py` | Longitudinal paths, steady gas flow in a hollow fibre (the taper- and temperature-aware, choked, regime-checked fill, its flow report and calculators), temporal/spatial inputs, noise, polarisation algebra, linear optical elements as transfer functions, and the soliton and phase-matching design calculators | P |
+| `coupling/` | Coupling simulations through a coherent field at a reference plane (SEP 31): the field plane with its reference, geometry, metric, basis identity and provenance (`plane.py`), the input port of a receiving simulation and its bound launch (`port.py`), temporal remapping (`remap.py`), the coupling models, their scalar mode profiles and the recorded pair envelopes (`models.py`, `envelopes.py`), `couple` with its admission budget and report (`coupler.py`), and the synthesis of a guide's exit field (`outcouple.py`), and the transport core: the linear elements between planes (`elements.py`) and the ordered transport of a plane with its ledger (`transport.py`); NumPy, SciPy and other P modules only | P |
 | `physdata/` | Species, mixtures, equations of state, transport properties (viscosity, sound speed, mean free path), optical material data, metals, nonlinear and Raman data | P |
 | `modes/` | Mode protocols and derived quantities; capillary, antiresonant, tabulated, step-index, rectangular and planar (slab, uniform in y, per unit width) modes, with `PlanarGrid` for the planar guide resolved in y; shared gas fill, quadrature and collections; full-vector modal records, material laws and regions, bound step-index and radial graded-index providers, and the guide that pairs a provider with a mode collection, and the connection of a basis that moves along z | P |
 | `linear.py`, `boundaries.py`, `nonlinear/` | Linear assembly, absorbing rates, response definitions, ionisation, Raman, normalisation and the GNLSE mapping | P |
-| `translate/` | Validated `KernelProblem`; parameter expansions and z tables; modal/radial/Cartesian transforms and the hybrid planar one (slab modes in x × FFT in y, `translate/planar.py`); dense tracked modal tables, the general modal route and the coupled-flow and metric records (`translate/general.py`, `translate/coupled.py`); the spatial plane measure (`translate/flux.py`, the `FluxPlan` of schema 35); response tables, masks and stage bundles | T |
+| `translate/` | Validated `KernelProblem`; parameter expansions and z tables; modal/radial/Cartesian transforms and the hybrid planar one (slab modes in x × FFT in y, `translate/planar.py`); dense tracked modal tables, the general modal route and the coupled-flow and metric records (`translate/general.py`, `translate/coupled.py`); the spatial plane measure (`translate/flux.py`, the `FluxPlan` of schema 35); the persisted frame integral and the filled input port of a problem's entrance (`translate/coupling.py`); response tables, masks and stage bundles | T |
 | `backends/` | Registry and protocols, shared step and batch drivers, scalar bodies, spatial and population statistics | B |
 | `backends/numpy_ref/`, `backends/numba_cpu/` | Reference and compiled CPU execution | B |
 | `stepper/`, `log.py`, `stats.py` | Tableaux, controllers, schedules, progress reporters and statistics specifications | D |
 | `driver/`, `driver/executors/`, `scan.py` | Simulation and convenience interfaces, scan/batch orchestration, Local/Pool/Queue/Slurm execution and scan CLI | D |
 | `output/` | Memory and HDF5 outputs, provenance/resume, scan storage and artifacts | D |
-| `processing/`, `plotting/`, `sol.py` | Field, spectrum, time, coherence, compression, mixture and scan analysis; propagation/statistics plots and spectrograms; the interactive session namespace, the one module whose import has side effects | X |
+| `processing/`, `plotting/`, `sol.py` | Field, spectrum, time, coherence, compression, mixture and scan analysis; a saved plane read back as a field plane (`processing/planes.py`); propagation/statistics plots and spectrograms; the interactive session namespace, the one module whose import has side effects | X |
 
 `solprop-native` is the backend's second distribution, built from `native/` in this
 repository at solprop's own version and installed through the `native` extra. It depends

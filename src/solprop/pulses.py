@@ -59,6 +59,7 @@ __all__ = [
     "CustomPulse",
     "DataPulse",
     "GaussianPulse",
+    "IncidentField",
     "PlanarPulse",
     "Pulse",
     "PulseSum",
@@ -281,19 +282,13 @@ class SpatialPulse(Displayed):
             )
             raise PulseError(msg)
         flux = SpatialFlux.resolve(grid, space, medium, z=z, side=side)
-        limit = _GAUSS_EXPONENT_CLIP ** (1 / (2 * self.order))
-        radius = np.minimum(space.r, self.waist * limit) / self.waist
-        profile = np.exp(-(radius ** (2 * self.order)))
+        profile = self._profile(space.r)
         spectrum = (
             space.hankel.forward(profile)
             if isinstance(space, RadialGrid)
             else np.fft.fft2(profile.reshape(space.n_y, space.n_x)).ravel()
         )
-        jones = np.asarray(self.jones, dtype=np.complex128)
-        jones = jones / max(
-            float(np.max(np.abs(np.real(jones)))), float(np.max(np.abs(np.imag(jones))))
-        )
-        jones = jones / np.sqrt(np.sum(np.abs(jones) ** 2))
+        jones = _unit_jones(self.jones)
         live = np.concatenate(
             [flux.admittance(columns) != 0 for columns in flux.chunks()]
         )
@@ -330,6 +325,192 @@ class SpatialPulse(Displayed):
         # positive measured flux (_normalising_factor refuses the rest), so the sum
         # is finite.
         return np.asarray(total, dtype=np.complex128)
+
+    def incident(
+        self,
+        grid: TimeGrid,
+        xy: Float[np.ndarray, "n_nodes 2"],
+        *,
+        index: Float[np.ndarray, " n_omega"],
+    ) -> "IncidentField":  # noqa: UP037 - defined below this class
+        r"""Sample the beam, normalised over its whole incident plane, at given points.
+
+        The incident-field boundary of a guide launch (SEP 31, phase 1): the beam is
+        given its requested energy or peak power **over the whole transverse plane**
+        and only then sampled where a receiving guide wants it, so light that misses
+        the guide still counts as incident and is lost, not restored. The measure is
+        the paraxial local one, :math:`M_0 = Y_0\,dA/2` with
+        :math:`Y_0 = n_{\rm ref}(\omega)\varepsilon_0 c`: the axial Poynting flux
+        of a paraxial beam in a medium of phase index :math:`n_{\rm ref}`, which is
+        what an energy meter in that medium reads (SEP 34). The plane integral of the
+        super-Gaussian profile :math:`u = \exp(-(r/w)^{2N})` is exact,
+        :math:`\int|u|^2 dA = \pi w^2 2^{-1/N}\Gamma(1 + 1/N)`, so no transverse
+        window or quadrature enters the incident energy.
+
+        A one-component Jones vector is polarised along x; two components are the
+        x and y components. The beam is centred on the origin of `xy`.
+
+        Parameters
+        ----------
+        grid : solprop.grid.TimeGrid
+            Temporal grid.
+        xy : numpy.ndarray
+            Transverse sample positions in m, shape ``(n_nodes, 2)``.
+        index : numpy.ndarray
+            Real phase index of the launch medium at each of the grid's frequencies,
+            shape ``(n_omega,)``, positive on every bin that carries flux; a zero
+            bin carries none and is masked.
+
+        Returns
+        -------
+        IncidentField
+            The normalised field at the points and the energy each bin carries
+            through the whole plane.
+
+        Raises
+        ------
+        PulseError
+            If the beam is a :class:`PlanarPulse` or is launched away from its waist,
+            the index is not finite and non-negative on the grid, the temporal pulse
+            is not scalar, or the beam carries no forward flux.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> from solprop.grid import FieldGrid
+        >>> from solprop.pulses import GaussianPulse, SpatialPulse
+        >>> grid = FieldGrid.from_limits(1e-3, 800e-9, (700e-9, 900e-9), 200e-15)
+        >>> beam = SpatialPulse(
+        ...     GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6), 50e-6
+        ... )
+        >>> index = np.where(grid.omega > 0, 1.45, 0.0)
+        >>> sampled = beam.incident(grid, np.zeros((1, 2)), index=index)
+        >>> f"{np.sum(sampled.energy):.6e} J"  # the whole plane, wherever it is sampled
+        '1.000000e-06 J'
+        """
+        if isinstance(self, PlanarPulse):
+            msg = (
+                "a PlanarPulse launches into a PlanarGrid, projected onto its slab "
+                "modes; a guide's incident beam is a SpatialPulse"
+            )
+            raise PulseError(msg)
+        if self.propz != 0:
+            msg = (
+                f"this beam is launched {self.propz!r} m from its waist, and carrying "
+                "it to the launch plane is a transport step that sampling does not "
+                "model: launch at the waist (propz=0)"
+            )
+            raise PulseError(msg)
+        reference = np.asarray(index, dtype=np.float64)
+        if reference.shape != (grid.n_omega,) or not np.all(
+            np.isfinite(reference) & (reference >= 0.0)
+        ):
+            msg = (
+                f"the launch medium's index is finite and non-negative on each of the "
+                f"grid's {grid.n_omega} frequencies; got shape {reference.shape}"
+            )
+            raise PulseError(msg)
+        live = grid.active_mask & (grid.omega > 0) & (reference > 0.0)
+        order = self.order
+        area = (
+            math.pi * self.waist**2 * 2.0 ** (-1.0 / order) * math.gamma(1 + 1 / order)
+        )
+        # One "column", the whole plane: its transverse integral is the exact `area`.
+        plane = _Plane(
+            weights=np.ones(1),
+            admittance=np.where(live, reference, 0.0).astype(np.complex128)[None, :],
+            scale=0.5 * EPS0 * C * area,
+        )
+        jones = _unit_jones(self.jones)
+        if jones.size == 1:
+            jones = np.array([jones[0], 0.0], dtype=np.complex128)
+        spectrum = np.zeros(grid.n_omega, complex)
+        for member in _members(self.temporal):
+            temporal = member.build(grid)
+            if temporal.shape != (1, 1, grid.n_omega):
+                msg = "SpatialPulse requires a scalar single-column temporal pulse"
+                raise PulseError(msg)
+            # The request is the unmasked pulse's, as `build` takes it; only the
+            # bins that carry flux are measured and launched.
+            masked = temporal[0, 0] * live
+            beam = jones[None, :, None] * masked[None, None, :]
+            factor = _normalising_factor(member, temporal, beam, plane, grid)
+            spectrum += factor * masked
+        weights = fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
+        energy = (
+            plane.scale * weights * np.real(plane.admittance[0]) * np.abs(spectrum) ** 2
+        )
+        profile = self._profile(np.hypot(xy[:, 0], xy[:, 1]))
+        field = (
+            profile[:, None, None]
+            * fourier.to_internal(jones)[None, :, None]
+            * spectrum[None, None, :]
+        )
+        if not (np.all(np.isfinite(field)) and np.all(np.isfinite(energy))):
+            msg = "the incident beam is nonfinite: its temporal pulse overflowed"
+            raise PulseError(msg)
+        return IncidentField(field, np.asarray(energy, dtype=np.float64))
+
+    def _profile(self, radius: Float[np.ndarray, " n_r"]) -> Float[np.ndarray, " n_r"]:
+        """Return the unit-peak field profile at the given radii.
+
+        Parameters
+        ----------
+        radius : numpy.ndarray
+            Distances from the beam axis in m, shape ``(n_r,)``.
+
+        Returns
+        -------
+        numpy.ndarray
+            ``exp(-(r/waist)**(2 order))``, shape ``(n_r,)``.
+        """
+        limit = _GAUSS_EXPONENT_CLIP ** (1 / (2 * self.order))
+        scaled = np.minimum(radius, self.waist * limit) / self.waist
+        return np.exp(-(scaled ** (2 * self.order)))
+
+
+@dataclass(frozen=True, eq=False)
+class IncidentField:
+    """An incident beam, normalised over its whole plane, sampled at given points.
+
+    The result of :meth:`SpatialPulse.incident`.
+
+    Attributes
+    ----------
+    field : numpy.ndarray
+        The beam's x and y components at the points, complex128, shape
+        ``(n_nodes, 2, n_omega)``, in the internal convention: the electric
+        field in V/m per square root of watt times a stored spectrum in the square
+        root of watts, the units in which a guide's node profiles project to
+        channel amplitudes.
+    energy : numpy.ndarray
+        The energy each bin carries through the **whole** plane, float64, shape
+        ``(n_omega,)``, J; its sum is the beam's incident energy.
+    """
+
+    field: Complex[np.ndarray, "n_nodes n_pol n_omega"]
+    energy: Float[np.ndarray, " n_omega"]
+
+
+def _unit_jones(jones: Sequence[complex]) -> Complex[np.ndarray, " n_pol"]:
+    """Return a Jones vector scaled to unit squared magnitude.
+
+    Parameters
+    ----------
+    jones : sequence of complex
+        One or two finite components, not all zero.
+
+    Returns
+    -------
+    numpy.ndarray
+        The vector divided by its norm, complex128, shape ``(n_pol,)``.
+    """
+    vector = np.asarray(jones, dtype=np.complex128)
+    # Dividing by the largest part first keeps the norm from overflowing.
+    vector = vector / max(
+        float(np.max(np.abs(np.real(vector)))), float(np.max(np.abs(np.imag(vector))))
+    )
+    return vector / np.sqrt(np.sum(np.abs(vector) ** 2))
 
 
 @dataclass(frozen=True)
