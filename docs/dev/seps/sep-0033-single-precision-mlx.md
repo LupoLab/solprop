@@ -989,6 +989,60 @@ phase 2–4 measurements settle within those decisions.
 
 ## Part II — Implementation record
 
+### Phase 1 — survival criteria (recorded 2026-10-24, before the study's first comparison)
+
+The criteria are §7.3's, as the maintainer decided them on 2026-10-23 (Q12); this
+section fixes the cases and the way each metric is computed before any study comparison
+runs. Development checks of the oracle against binary64 at equal tolerance were made
+while the path was built; none of them is a study comparison, and none set a criterion.
+
+**Cases.** Every case runs on `numpy_ref` with `RungeKutta()` unless stated, its
+binary64 reference at `rtol = 1e-10` on the same grid, discretisation, plasma rule and
+quadrature, checked against a binary64 run at `rtol = 1e-9`; candidates in single
+precision at `rtol = 1e-6` (the floor) and `1e-5`, and a binary64 run at `1e-6` for
+context. Windows are reduced; the full-length comparison is the worked example.
+
+| id | route | definition | expected |
+|---|---|---|---|
+| `spm` | fibre, envelope | GNLSE, no dispersion, γ = 0.11 W⁻¹m⁻¹, 1 kW sech of 50 fs FWHM at 835 nm, length for a nonlinear phase of 10π (0.2856 m), 400 nm–3 µm, 1 ps | survives |
+| `soliton` | fibre, envelope | GNLSE N = 1 soliton, β₂ = −1.183×10⁻²⁶ s²/m, γ = 0.11, T₀ = 28.4 fs, ten soliton periods, no Raman or shock | survives |
+| `rdw` | fibre, field | SEP 30's `rdw` in two modes: 125 µm He capillary, 0.8 → 0 bar gradient, 1.5 m, 7.5 fs 275 µJ at 800 nm, 90 nm–4 µm, 400 fs | survives |
+| `ctc` | fibre, field | the reduced comb-to-continuum case as SEP 21 corrected it: 16 µm H₂ capillary at 40 bar, one mode, 0.1 m, 400 fs 10 µJ at 515 nm, Raman, 294 K, 250 nm–2 µm, 2 ps, noise-free | survives with a limit |
+| `argon` | fibre, field | SEP 30's `argon_blueshift`: 13 µm Ar capillary at 1.7 bar, one mode, 0.4 m, 30 fs 3 µJ at 800 nm, no loss, 300 nm–4 µm, 400 fs | to measure |
+| `argon_envelope` | fibre, envelope | `argon` on an envelope grid with envelope-grid plasma | to measure |
+| `nitrogen` | fibre, field | 50 µm N₂ capillary at 2 bar, one mode, 0.3 m, 30 fs 50 µJ at 800 nm, molecular Raman, 200 nm–3 µm, 1 ps | to measure |
+| `radial_kerr` | radial | 64 nodes in 2 mm, vacuum with χ⁽³⁾ = 10⁻²⁵ m²/V², 300 µJ 50 fs Gaussian beam of 300 µm at 800 nm, 0.3 m, envelope 600 nm–1.2 µm, 300 fs | to measure |
+| `radial_filament` | radial | SEP 30's `radial_filament_256`: 1 bar Ar, Kerr and optmat plasma, 3 critical powers, 100 µm waist, 30 fs at 800 nm, 3 cm, 256 nodes in 1 mm, field grid 350 nm–2 µm, 250 fs | to measure |
+| `cartesian_diffraction` | Cartesian | 64 × 64 in 2 mm × 2 mm, vacuum, 300 µm waist, 50 fs at 800 nm, 0.3 m, envelope 600 nm–1.2 µm, 300 fs | survives |
+| `cartesian_kerr` | Cartesian | `cartesian_diffraction` with χ⁽³⁾ = 10⁻²⁵ m²/V² and 300 µJ | survives |
+| `rdw` and `argon` under Adams | fibre | the two cases with `Multistep()` through the study's private admission (Q2) | to measure |
+| noise model | any | refused under single precision (§4.5) | refused |
+| below the floor | any | refused under single precision (Q1) | refused |
+
+**Metrics**, each against the reference at the last plane:
+
+| metric | computed as | envelope |
+|---|---|---|
+| field | `‖a − a_ref‖ / ‖a_ref‖` over the whole saved state, binary64 | 10⁻³ |
+| spectral bands | the active band cut into 32 equal frequency bands; a band's energy is `Σ |a|²` over its bins and every mode, polarisation and transverse column; bands above −40 dB of the largest compared, relative | 1 % |
+| total energy | the run's own `energy` statistic | 10⁻⁴ relative |
+| peak power or intensity | `peak_power` (fibre) or `peak_intensity` (spatial) | 10⁻³ relative |
+| ionised fraction | `electron_density` over the gas density at the last plane, where the reference's exceeds 10⁻⁶ | 10⁻³ relative |
+| beam width | `fwhm_r` (radial) or the flux-weighted second-moment width (Cartesian) | 10⁻³ relative |
+
+**Verdicts and rules** as §7.3: *survives* within every envelope at `rtol = 1e-6` and
+`1e-5`; *survives with a limit* within them only over a stated shorter length, lower
+energy or looser tolerance; *fails* otherwise. The floor rises to 10⁻⁵ if on every case
+no metric's error at 10⁻⁶ is smaller than at 10⁻⁵ by more than 25 %. Adams is admitted
+in phase 4 only if on both its cases its error at each tolerance is at most twice
+Runge–Kutta's in every metric and within every envelope. The propagator record states
+the drift constant `c` of the constant-operator tests (§7.2) and the step count at which
+`c M u₃₂` reaches the field envelope.
+
+**Where the record lives.** The harness and raw results are kept with the project's
+development records (SEP 30's rule); the verdicts, the constants and the limits are
+recorded here and on the manual page.
+
 ## Part III — History
 
 - 2026-10-23: Drafted, after an indicative synthetic MLX measurement on an Apple-silicon laptop.
