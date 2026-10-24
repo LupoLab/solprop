@@ -1278,7 +1278,7 @@ the spectral collar. Phase 2 supplies the corresponding convenience-interface pa
 representable-band mask, and rejects conflicting strength or scheme settings. On the
 spatial interfaces (`prop_radial`, `prop_free`, `prop_planar`) it does not touch the
 transverse collars, which keep their own settings; the docstrings say so, and a
-switch for those collars stays out of scope (§3). A spectral-only collar, its
+switch for those collars stays out of scope (§3; John Travers, 2026-10-24). A spectral-only collar, its
 temporal rates identically zero while the spectral rate stays, is built by
 `absorber(grid, …, temporal=False)` and compiles no temporal pass under either scheme;
 SEP 22's phase 1 supplied both, and this SEP keeps them (Q16). The proposed `walkoff`
@@ -2345,7 +2345,7 @@ follows.
   content outside that band, and R7 defines the band.
 - **AR10.** §5: `absorber=False` on the spatial interfaces disables the temporal and
   spectral collars only. The transverse collars keep their own settings, and a switch
-  for them stays out of scope. This is proposed for confirmation at acceptance.
+  for them stays out of scope. Confirmed by John Travers, 2026-10-24.
 - **AR11.** §4.6 now restricts the pre-commit asymmetry to the adaptive Runge–Kutta
   loop. It also says the accumulators need a new call at the statistics call sites,
   which is a protected-surface change with a kernel schema bump. §4.12 notes the
