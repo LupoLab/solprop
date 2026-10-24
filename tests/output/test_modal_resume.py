@@ -139,7 +139,7 @@ def written(guide, grid, tmp_path_factory):
 def test_the_record_carries_every_modal_identity(written, guide):
     """Labels, tables, metric, responses, guide, frame, band, noise and accessors."""
     stored = resume(written).metadata
-    assert stored.schema_version == SCHEMA_VERSION == 24
+    assert stored.schema_version == SCHEMA_VERSION == 25
     modal = stored.modal
     assert modal is not None
     assert set(modal) == {
@@ -493,7 +493,7 @@ def test_a_schema_six_file_cannot_resume_any_schema_seven_run(tmp_path):
         backend="numpy_ref",
     ).metadata()
     assert ordinary.modal is None
-    assert ordinary.schema_version == SCHEMA_VERSION == 24
+    assert ordinary.schema_version == SCHEMA_VERSION == 25
     with pytest.raises(OutputError, match=r"different run.*schema_version"):
         check_cache(path, ordinary)
     assert resume(path).metadata.configuration_hash() == SCHEMA_SIX_DIGEST
@@ -718,7 +718,7 @@ def test_a_scan_point_writes_its_spool_and_reads_the_identity_back(
     results = capture.results()
     assert float(results["reduced/spooled_flux"]) > 0.0
     stored = resume(capture.custom_path).metadata
-    assert stored.schema_version == SCHEMA_VERSION == 24
+    assert stored.schema_version == SCHEMA_VERSION == 25
     assert stored.modal is not None
     assert at(stored.modal, "basis") == "general_modal"
     assert [one.label for one in stored.modes] != [None]
