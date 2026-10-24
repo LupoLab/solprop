@@ -430,3 +430,231 @@ ledgers, the input field adds one `F`; Kokkos keeps another `F` of host state, a
 export passes through two more `F` at the Python boundary. Host Adams trials form about
 `4F` of temporary arrays. Capacities and transients do not all become resident at once,
 so their sum overstates the measured peak.
+
+## Native CPU FFT and diagnostic scheduling
+
+This campaign uses the frozen `benchmarks ab` harness and unchanged registry recipes,
+under an approved exception to standard-run and whole-suite performance reporting.
+These are **lightweight measurements**, not a standard-run adoption verdict. Every
+reported propagation window contains ten prescribed steps: `fixed-rk` for modal and
+radial cases, `fixed-rk4ip` for Cartesian Kerr. Construction, first-window cost and
+observations are recorded separately; no window is extrapolated to a full run.
+
+The baseline is `9521a88`; the retained implementation is `b3bdd0f`. Each arm has a
+separate source/environment/native wheel. On the Apple M5 Max (18 cores, 128 GiB,
+macOS 27.0.1), Homebrew Clang 23.1.3 uses Accelerate BLAS and one LLVM OpenMP runtime.
+The source-built FFTW 3.3.11 control and NEON library have identical M1 flags,
+deployment target 14.0 and cycle-counter support, with both precisions and coherent
+threading libraries. The two-socket Xeon Gold 6240 uses exclusive 72-logical-CPU
+allocations and one hardware thread per selected physical core. Its independent
+bundles are GCC 16.2/OpenBLAS 0.3.34/FFTW 3.3.11 with GNU OpenMP, and IntelLLVM
+2026.1.1/MKL 2026.1 (including MKL FFT) with Intel OpenMP. Timed arms run sequentially,
+without concurrent builds. Python is 3.14.5 on the Mac and 3.14.7 on the Xeon;
+NumPy is 2.5.2, Kokkos 5.2.1, Kokkos Kernels 5.2.0 and Kokkos-FFT 2.0.0.
+
+### NEON codelets and Raman plans
+
+A same-source control with matched compiler flags changes only FFTW's explicit NEON
+codelets. Its eight-case screen at budgets 1 and 18 has geometric mean ratio 0.933;
+this one-round/two-repetition screen isolates the library effect but is not a
+confirmation. Full and tail microchecks include H₂'s 65536×21/12 and CtC's 131072×3/1
+rows at serial and parallel widths, raw FFT normalization and exact padding zeros.
+ESTIMATE and MEASURE both retain short parallel shapes where vDSP is faster, so
+complete vDSP removal is rejected.
+
+With NEON in both arms, replacing the previous Raman choice with tuned Kokkos-FFT
+has the following three-round/five-repetition warmed-window ratios. The rest of the
+source is held fixed for this provider/planning comparison.
+
+| Case | 1 thread | 18 threads |
+|---|---:|---:|
+| CtC | 0.698 [0.694, 0.699] | 0.966 [0.961, 0.971] |
+| H₂ Raman | 0.480 [0.459, 0.485] | 0.788 [0.767, 0.795] |
+| GNLSE Raman shock | 0.828 [0.817, 0.830] | 0.839 [0.839, 0.846] |
+
+Measured planning has a real setup cost. In this ordered Raman comparison, median
+serial CtC construction changes from 3.00 to 22.83 s, while a warmed ten-step window
+changes from 6.00 to 4.18 s. H₂ construction changes from 1.09 to 1.81 s and its
+window from 1.28 to 0.62 s. Wisdom is process-local and previous constructions affect
+these costs; they are not universal constants. Explicit `SOLPROP_FFTW_PLAN=estimate`
+trades this measured setup for cheaper construction. Parallel default planning stays
+ESTIMATE. No full-propagation payback is inferred from these ten-step windows.
+
+### Retained Mac combination
+
+The fresh current-library baseline and retained NEON/provider/scheduling candidate
+use three alternating rounds and five repetitions at each budget. Ratios are the
+median of paired round medians, with the range across rounds in brackets.
+
+| Case | 1 thread | 18 threads |
+|---|---:|---:|
+| RDW | 0.888 [0.877, 0.901] | 0.831 [0.810, 0.835] |
+| CtC | 0.595 [0.577, 0.604] | 0.859 [0.858, 0.878] |
+| Radial 256 | 0.893 [0.853, 0.912] | 0.962 [0.934, 0.967] |
+| Resolved argon | 0.954 [0.950, 0.961] | 0.886 [0.879, 0.898] |
+| H₂ Raman | 0.472 [0.457, 0.474] | 0.718 [0.712, 0.718] |
+| Averaged helium RDW | 0.891 [0.880, 0.901] | 0.902 [0.891, 0.916] |
+| Averaged argon | 0.918 [0.909, 0.922] | 0.915 [0.905, 0.920] |
+| GNLSE soliton | 0.889 [0.882, 0.893] | 0.870 [0.867, 0.871] |
+
+The geometric mean is 0.792 at one thread and 0.865 at the production budget of 18
+(0.828 across both budgets). Using each fresh process's warmed median as one sample,
+the conservative aggregate `(candidate median + 2 MAD) / (baseline median − 2 MAD)`
+is 0.805 and 0.878 respectively. All denominators are positive. These spread checks
+support the retained change within the lightweight scope. All fixed windows retain
+ten accepted steps, no rejected steps and 61 source evaluations; field differences
+are at most 2.1e-16 in relative L2 norm. A one-round/two-repetition guard screen at budget 18 gives radial
+512 1.012, Cartesian plasma 128² 0.894, line 0.976, general modal 0.892, scalar wall
+0.936 and vector wall 0.990. The 1.2% radial variation does not exceed the A/A spread.
+
+The retained library also passes the Cartesian Kerr confirmation (three rounds,
+two repetitions, ten `fixed-rk4ip` steps). No Cartesian traversal change is included:
+
+| Case | 1 thread | 18 threads |
+|---|---:|---:|
+| Kerr 192² | 0.843 [0.832, 0.849] | 0.869 [0.718, 0.924] |
+| Kerr 384² | 0.837 [0.834, 0.860] | 0.880 [0.880, 0.895] |
+
+The geometric mean is 0.840 at one thread and 0.874 at 18 (0.857 combined);
+the corresponding conservative aggregates are 0.860 and 0.919. Fields differ by at most 1.4e-18 and work
+matches. The 192² parallel spread is wider, so its precise gain is less certain;
+all three paired rounds still favour the candidate. These results measure the
+library change with the original traversal.
+
+### Diagnostic scheduling
+
+The affected set is ordinary DOPRI5 modal CtC, RDW, resolved argon and H₂ Raman.
+The implementation defers coarse projections to the final source and their FFTs and
+held-current assembly to accepted scoring. General-modal, dispersive, low-storage,
+Adams and envelope-plasma scheduling remains eager. A serial full-source profile
+reduced RDW's forward real FFT calls from 427 to 274 per ten-step window; CtC's
+fell from 1464 to 1311. Persistent field-buffer ledgers are unchanged. FFT plan heap
+estimates can vary with planning and allocator state.
+
+These confirmations use three alternating rounds and five repetitions. Each ratio
+is the median of the per-round paired medians; brackets give the range over rounds.
+A ratio below one favours the candidate.
+
+| Case | M5 Max, 18 threads | GCC Xeon, 1 thread | GCC Xeon, 18 threads | Intel Xeon, 1 thread | Intel Xeon, 18 threads |
+|---|---:|---:|---:|---:|---:|
+| RDW | 0.803 [0.755, 0.845] | 0.930 [0.925, 0.946] | 0.823 [0.820, 0.843] | 0.900 [0.887, 0.916] | 0.822 [0.813, 0.828] |
+| CtC | 0.906 [0.888, 0.917] | 0.897 [0.894, 0.901] | 0.946 [0.945, 0.949] | 0.904 [0.893, 0.910] | 0.937 [0.933, 0.937] |
+| Resolved argon | — | 0.998 [0.984, 1.002] | 0.949 [0.941, 0.953] | 0.966 [0.963, 0.976] | 0.966 [0.956, 0.972] |
+| H₂ Raman | 0.933 [0.914, 0.967] | 1.007 [0.986, 1.082] | 0.982 [0.981, 0.988] | 0.985 [0.976, 1.044] | 0.973 [0.957, 0.977] |
+
+At one thread the GCC affected-set geometric mean is 0.957 and Intel's is 0.938;
+at 18 threads they are 0.923 and 0.922. The corresponding conservative aggregates
+from fresh-process medians are 0.972/0.931 for GCC and 0.951/0.929 for Intel, with
+positive denominators. Both production-budget gains exceed 5% and satisfy the
+conservative spread criterion. Mac's isolated 18-thread ratio is 0.879, with a
+conservative aggregate of 0.950. Across both budgets, GCC is 0.940 and Intel 0.930.
+The matched fixed windows retain ten accepted steps, no rejections and 61 source evaluations; their
+field differences are at rounding level (at most 1.9e-16 in these confirmations).
+The Mac's first 18-thread screen and one A/A round showed large host timing
+variation and remain inconclusive. The runner's busy-at-launch flag does not establish its cause; load averages also include prior
+owned work. A subsequent three-round A/A control gave RDW 1.010 [1.008, 1.054]
+and H₂ 1.015 [0.995, 1.040].
+Those controls do not justify interpreting a few-percent change as a gain.
+
+### Retained Xeon combination
+
+Each compiler bundle also compares the complete retained candidate with its frozen
+baseline. Raman cases use three alternating rounds/five repetitions at budgets 1
+and 18; other main cases and geometry guards use one round/two repetitions. The
+Raman confirmations are:
+
+| Case | GCC, 1 thread | GCC, 18 threads | Intel, 1 thread | Intel, 18 threads |
+|---|---:|---:|---:|---:|
+| CtC | 0.790 [0.789, 0.792] | 0.963 [0.953, 0.966] | 0.912 [0.908, 0.914] | 0.939 [0.934, 0.942] |
+| H₂ Raman | 0.824 [0.817, 0.841] | 1.003 [0.988, 1.030] | 0.977 [0.966, 0.986] | 0.976 [0.974, 0.977] |
+
+The geometric means at budgets 1/18 are 0.807/0.983 for GCC and 0.944/0.957 for
+Intel (combined 0.890 and 0.951). GCC's parallel Raman-only conservative aggregate
+is 1.004, so that subset does not establish a gain beyond spread; the confirmed
+shared scheduling gain is assessed over its complete affected set above. The
+serial GCC improvement includes measured FFTW planning; Intel uses MKL FFT, whose
+FFTW compatibility layer ignores planning flags. No benefit is inferred for
+unmeasured Linux Arm codelets.
+
+Main-case guard screens, followed by A/A controls for the small averaged and GNLSE
+windows, are reported separately from the confirmed affected-set gains:
+
+| Case | GCC, 1 thread | GCC, 18 threads | Intel, 1 thread | Intel, 18 threads |
+|---|---:|---:|---:|---:|
+| RDW | 0.928 | 0.834 | 0.929 | 0.827 |
+| Radial 256 | 1.002 | 0.962 | 1.012 | 0.991 |
+| Resolved argon | 1.000 | 0.947 | 0.988 | 0.965 |
+| Averaged helium RDW | 1.014 | 1.051 | 1.011 | 1.001 |
+| Averaged argon | 1.004 | 1.025 | 0.994 | 1.017 |
+| GNLSE soliton | 1.008 | 1.005 | 1.019 | 1.039 |
+
+The initial GCC averaged-helium 18-thread ratio of 1.051 and Intel GNLSE ratio of
+1.039 triggered separate three-round/five-repetition A/A and A/B controls:
+
+| Control case | A/A, 1 thread | A/B, 1 thread | A/A, 18 threads | A/B, 18 threads |
+|---|---:|---:|---:|---:|
+| GCC averaged helium | 0.997 [0.989, 0.998] | 1.014 [1.005, 1.016] | 1.016 [0.998, 1.128] | 1.012 [1.012, 1.014] |
+| GCC averaged argon | 0.987 [0.984, 0.994] | 1.014 [1.009, 1.031] | 1.001 [1.000, 1.001] | 1.010 [0.983, 1.017] |
+| GCC GNLSE | 0.991 [0.818, 0.997] | 1.005 [1.003, 1.016] | 0.999 [0.995, 0.999] | 1.010 [0.992, 1.017] |
+| Intel GNLSE | 0.981 [0.746, 0.993] | 1.005 [0.996, 1.008] | 1.018 [0.985, 1.061] | 0.999 [0.991, 1.018] |
+
+The initial 4–5% slowdowns do not repeat. GCC's small-window confirmation aggregate
+is 1.011, a roughly 1% cost that remains visible; this does not justify additional
+specialisation. Large A/A outliers make those controls inconclusive at fine
+resolution. No improvement is claimed for these unchanged small-window routes.
+
+At budget 18, GCC's six geometry guards span 0.977–1.018 (aggregate 1.000), and
+Intel's span 0.998–1.017 (aggregate 1.007). These cover radial 512, Cartesian plasma
+128², line, general modal and scalar/vector walls. Cartesian Kerr 192²/384² guards
+are 0.997/0.999 for GCC and 1.001/1.004 for Intel, with ten steps and matched work.
+They support the absence of a large regression; they do not establish percent-level
+improvements on routes whose implementation is unchanged.
+
+### Verification scope
+
+Focused checks cover raw FFT normalization, full/tail shapes, threaded execution,
+provider selection, planning overrides, coherent library coexistence, repeated
+construction/closure, source/step parity, held-plasma diagnostics after discarded
+trials, FSAL, reset, accepted values and peaks, and band-filter boundaries and high
+dynamic range. Native suites passed on both Xeon bundles: GCC has 137 C++ tests and
+378 Python tests passing; Intel has 133 and 376. Provider/platform/device skips
+remain explicit. Mac final focused Python checks have 118 passes plus 13 lifetime
+and import checks. Independent bounded smooth-law adaptive fixtures pass on both
+arms and all three builds against accuracy envelopes fixed from tighter NumPy
+references; these small fixtures do not certify full production trajectories.
+
+The macOS distribution helper was exercised with freshly built dependencies and
+wheel repair. A clean installation discovers both bundled FFTW precisions as NEON,
+one bundled OpenMP runtime and the required third-party licences, with the Apple M1
+baseline and macOS 14 target. No workflow edit is needed: the existing macOS wheel
+job calls this dependency recipe. Full gates, slow and coverage lanes are deferred
+to CI at the maintainer's request; GPU/device checks were unavailable on these CPU
+hosts. Focused formatting, lint, spelling and diff checks passed. Supplemental
+CPU/wall, observation, load and memory receipts are collected outside A/B timing;
+no additional speed claim is taken from those resource measurements.
+
+### Rejected leads
+
+| Lead | Bounded evidence | Decision |
+|---|---|---|
+| Remove vDSP completely | NEON FFTW still loses on short parallel rows, including 8192×1 and 16384×1, under both ESTIMATE and MEASURE | Keep vDSP for short parallel power-of-two rows; use FFTW for serial and long rows with NEON |
+| Tap-first band filter, preserving each sample's tap order | Mac serial RDW 0.973 [0.970, 0.982], argon 1.079 [1.061, 1.090]; GCC/Intel RDW/argon aggregates 0.911/0.900 across 1/18 threads | Reject the shared traversal and avoid an architecture-specific fork; retain the new boundary/dynamic-range tests |
+| Cartesian 8×32 tile plus unused-load elimination | 192² Kerr: serial 0.980 [0.939, 0.997], 18 threads 0.980 [0.959, 1.005], three rounds/two repetitions | Reject the approximately 2% gain; keep 32×16 and the existing loads |
+| Force one Accelerate BLAS thread | Five-case confirmation at budget 18: geometric mean 1.000, three rounds/five repetitions | Keep the existing provider-managed startup policy |
+
+The post-FFTW 192² serial profile assigns 4.62 s to the separable fold, 4.72 s to
+complex FFTs and 2.11 s to temporal pack/crop within a 12.16 s instrumented window.
+A separate non-IPO compiler diagnostic reports control-flow and call barriers in the
+crossing and final reduction loops; the measured production binaries retain IPO.
+The tile experiment changes locality without changing stored layouts or per-column
+summation order, but its complete-window gain does not meet the greater-than-5%
+threshold. Instrumented profiles are diagnostic evidence, not timings used for
+retaining a change.
+
+Independent startup-only pool screens at budget 18 varied kernel, ordinary FFT,
+Raman full, Raman tail and BLAS widths separately to 1 or 4. Both Xeon bundles
+showed aggregate slowdowns for every reduced-width screen (the smallest was 1.095
+for Intel's four-thread Raman tail). Mac responses were mixed, including opposite
+RDW and argon directions. No shared dimension threshold or pool policy is changed;
+explicit overrides and global caps retain their existing semantics. A 36-core
+sizing confirmation is unnecessary because no sizing change is retained.

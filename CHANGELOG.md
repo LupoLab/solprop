@@ -73,6 +73,12 @@ The first public release. It contains:
   - Each backend is tested against the reference implementation within derived error
     bounds.
 - **The native backend.**
+  - Native CPU optimisation: a coherent NEON FFTW build for Apple silicon, long-row
+    Raman planning with a compact FFTW/vDSP selection rule, and deferred embedded
+    transverse diagnostics for ordinary DOPRI5 modal trials. Accelerate BLAS, kernel
+    schema 35, frontend signatures, protected arithmetic and state layouts are
+    unchanged. See the [CPU measurements](https://solprop.readthedocs.io/en/latest/dev/benchmarks.html#native-cpu-fft-and-diagnostic-scheduling)
+    for the lightweight validation scope and rejected traversal and sizing leads.
   - `NativeBackend` runs one trial step per native call, with states, views and FFT
     plans resident in the execution space; `NativeBatchBackend` runs fixed-schedule
     batches with fused accepted updates.

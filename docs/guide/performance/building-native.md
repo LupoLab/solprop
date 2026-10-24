@@ -100,7 +100,22 @@ supports `--enable-neon` for double and single precision on AArch64. The install
 libraries identify their codelet family in `fftw_version` and `fftwf_version`, which
 both end in `-neon` for this recipe. Keep these prefixes separate from a comparison's
 baseline libraries. A pyFFTW build used in the same process must also share this
-runtime; see [OpenMP runtimes](#openmp-runtimes-and-pyfftw) below.
+runtime. To build the existing pyFFTW dependency against that same owned prefix:
+
+```sh
+pyfftw_version=$(uv run --no-sync python -c 'from importlib.metadata import version; print(version("pyfftw"))')
+CC=/opt/homebrew/opt/llvm/bin/clang \
+CXX=/opt/homebrew/opt/llvm/bin/clang++ \
+PYFFTW_FFTW_PREFIX="$native_deps" \
+LDFLAGS="-L$native_deps/lib -Wl,-rpath,$native_deps/lib" \
+uv pip install --python .venv/bin/python --no-deps --no-binary pyfftw \
+  --reinstall --no-cache "pyfftw==$pyfftw_version"
+```
+
+The uncached source build prevents reuse of a wheel linked to another runtime.
+Keep the project's locked pyFFTW version when qualifying a comparison. See
+[OpenMP runtimes](#openmp-runtimes-and-pyfftw) below for import ordering and the
+limits of mixing independently bundled wheels.
 
 For a distributable wheel, `native/ci/build-wheel-macos.sh OUT_DIR DEPS_PREFIX`
 builds the distribution profile, repairs its library references with delocate, and
@@ -180,6 +195,10 @@ object suitable for a run log:
 
 The library paths (`fft_library`, `blas_library`, `openmp_library`) are the files
 actually loaded, the reliable way to confirm which FFT and BLAS a process uses.
+`raman_fft_option` identifies the compiled Raman wrapper, which can select FFTW for
+individual plans even when its value is `ACCELERATE`. The backend's execution
+metadata records the selected full-chunk `raman_fft_provider` and full/tail task
+counts; selection also accounts for the actual tail width.
 `native_arch_enabled` reports the package's option only; architecture flags passed by
 hand through `CXXFLAGS` appear in `compiler_flags`.
 
