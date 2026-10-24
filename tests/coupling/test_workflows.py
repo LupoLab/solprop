@@ -141,7 +141,8 @@ def assert_coupled(report: CouplingReport, received=None) -> None:
 
 def assert_transported(report: TransportReport) -> None:
     """Assert a transport ledger: passive, closed and with nothing restored."""
-    assert report.energy_out <= report.energy_in
+    # A lossless element such as FreeSpace keeps the energy to rounding.
+    assert report.energy_out <= report.energy_in * (1 + 1e-12)
     # Each element books its change as loss, removal or signed approximation
     # error; the chain closes to the rounding of those sums.
     assert abs(report.ledger_residual) <= 1e-12 * report.energy_in
