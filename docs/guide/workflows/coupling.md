@@ -62,12 +62,22 @@ from solprop.driver import Simulation
 from solprop.processing import field_plane
 
 simulation = Simulation.from_capillary(
-    100e-6, 1e-3, "Ar", 1.0, lambda0=800e-9, wavelength_limits=(400e-9, 1.6e-6),
-    trange=200e-15, fwhm=20e-15, energy=20e-6, modes=2, n_save=3, noise=None,
+    100e-6,
+    1e-3,
+    "Ar",
+    1.0,
+    lambda0=800e-9,
+    wavelength_limits=(400e-9, 1.6e-6),
+    trange=200e-15,
+    fwhm=20e-15,
+    energy=20e-6,
+    modes=2,
+    n_save=3,
+    noise=None,
 )
 run = simulation.run(progress="none")
-plane = field_plane(run)              # the exit plane
-middle = field_plane(run, z=0.5e-3)   # a stored plane by position
+plane = field_plane(run)  # the exit plane
+middle = field_plane(run, z=0.5e-3)  # a stored plane by position
 print(plane, plane.reference.delay, plane.energy())
 ```
 
@@ -103,7 +113,7 @@ from solprop.grid import FieldGrid
 wider = FieldGrid.from_limits(1e-3, 800e-9, (300e-9, 2e-6), 400e-15)
 moved, report = regrid(plane, wider)
 print(report.method, report.band_loss, report.window_loss)
-print(moved.energy() / plane.energy())   # no renormalisation, and none needed here
+print(moved.energy() / plane.energy())  # no renormalisation, and none needed here
 ```
 
 What cannot be represented is refused, and what is removed is reported. Light outside
@@ -133,12 +143,24 @@ without moving the pulse in its window.
 from solprop.coupling import CouplingModel, couple
 
 second = Simulation.from_capillary(
-    100e-6, 1e-3, "Ar", 1.0, lambda0=800e-9, wavelength_limits=(400e-9, 1.6e-6),
-    trange=200e-15, fwhm=20e-15, energy=20e-6, modes=2, n_save=3, noise=None,
+    100e-6,
+    1e-3,
+    "Ar",
+    1.0,
+    lambda0=800e-9,
+    wavelength_limits=(400e-9, 1.6e-6),
+    trange=200e-15,
+    fwhm=20e-15,
+    energy=20e-6,
+    modes=2,
+    n_save=3,
+    noise=None,
 )
-relaunch = couple(field_plane(run), second.input_port(), model=CouplingModel("same_basis"))
+relaunch = couple(
+    field_plane(run), second.input_port(), model=CouplingModel("same_basis")
+)
 continued = second.with_input(relaunch.launch).run(progress="none")
-print(field_plane(continued).reference.delay)   # the whole 2 mm path's
+print(field_plane(continued).reference.delay)  # the whole 2 mm path's
 ```
 
 Two 1 mm capillaries relaunched this way reproduce one 2 mm capillary: the comparison
@@ -267,17 +289,34 @@ from solprop.spatial import SpatialMedium
 from solprop.coupling import FieldPlane, PlaneGeometry
 
 capillary = Simulation.from_capillary(
-    75e-6, 1e-3, "Ar", 1.0, lambda0=800e-9, wavelength_limits=(400e-9, 1.6e-6),
-    trange=200e-15, fwhm=20e-15, energy=20e-6, modes=4, n_save=3, noise=None,
+    75e-6,
+    1e-3,
+    "Ar",
+    1.0,
+    lambda0=800e-9,
+    wavelength_limits=(400e-9, 1.6e-6),
+    trange=200e-15,
+    fwhm=20e-15,
+    energy=20e-6,
+    modes=4,
+    n_save=3,
+    noise=None,
 )
 port = capillary.input_port()
-beam = SpatialPulse(GaussianPulse(wavelength=800e-9, fwhm=20e-15, energy=10e-6), 37.5e-6)
+beam = SpatialPulse(
+    GaussianPulse(wavelength=800e-9, fwhm=20e-15, energy=10e-6), 37.5e-6
+)
 incident = FieldPlane.from_pulse(
-    beam, port.grid, PlaneGeometry(0.0), space=RadialGrid(400e-6, 256),
+    beam,
+    port.grid,
+    PlaneGeometry(0.0),
+    space=RadialGrid(400e-6, 256),
     medium=SpatialMedium("Ar", 1.0),
 )
-coupled = couple(incident, port, model=CouplingModel("scalar_paraxial", model_error=0.05))
-print(coupled.report)                 # incident, launched, uncaptured, the budget
+coupled = couple(
+    incident, port, model=CouplingModel("scalar_paraxial", model_error=0.05)
+)
+print(coupled.report)  # incident, launched, uncaptured, the budget
 entered = capillary.with_input(coupled.launch)
 ```
 
@@ -296,13 +335,26 @@ the run's scalar profiles; its coefficients are coupled into another capillary's
 by direct overlap, without a transverse grid:
 
 ```python
-exit_plane = field_plane(run, source=simulation)        # 100 um, two modes
+exit_plane = field_plane(run, source=simulation)  # 100 um, two modes
 wider = Simulation.from_capillary(
-    120e-6, 1e-3, "Ar", 1.0, lambda0=800e-9, wavelength_limits=(400e-9, 1.6e-6),
-    trange=200e-15, fwhm=20e-15, energy=20e-6, modes=4, n_save=3, noise=None,
+    120e-6,
+    1e-3,
+    "Ar",
+    1.0,
+    lambda0=800e-9,
+    wavelength_limits=(400e-9, 1.6e-6),
+    trange=200e-15,
+    fwhm=20e-15,
+    energy=20e-6,
+    modes=4,
+    n_save=3,
+    noise=None,
 )
-into_wider = couple(exit_plane, wider.input_port(),
-                    model=CouplingModel("scalar_paraxial", model_error=0.05))
+into_wider = couple(
+    exit_plane,
+    wider.input_port(),
+    model=CouplingModel("scalar_paraxial", model_error=0.05),
+)
 print(into_wider.report.efficiency)
 ```
 
@@ -317,8 +369,11 @@ implied Fresnel factor.
 from solprop.coupling import Outcouple
 
 synthesised = Outcouple(RadialGrid(600e-6, 512)).apply(exit_plane)
-through = couple(synthesised.plane, wider.input_port(),
-                 model=CouplingModel("scalar_paraxial", model_error=0.05))
+through = couple(
+    synthesised.plane,
+    wider.input_port(),
+    model=CouplingModel("scalar_paraxial", model_error=0.05),
+)
 difference = np.abs(through.launch.samples - into_wider.launch.samples)
 print(np.max(difference) / np.max(np.abs(into_wider.launch.samples)))
 ```
@@ -337,19 +392,32 @@ eighth is below the contrast. Small cores are not very paraxial: the LP01 field 
 ```python
 from solprop.modes import StepIndexMode
 
+
 def fibre(radius):
-    mode = StepIndexMode(radius, core=1.45, cladding=1.45 * np.sqrt(0.99),
-                         profile_wavelength=1064e-9)
-    return Simulation.from_gnlse(
-        None, 1e-3, fibre=mode, n2=2.6e-20, lambda0=1064e-9,
-        wavelength_limits=(900e-9, 1300e-9), trange=400e-15, fwhm=100e-15,
-        energy=1e-12, n_save=2,
+    mode = StepIndexMode(
+        radius, core=1.45, cladding=1.45 * np.sqrt(0.99), profile_wavelength=1064e-9
     )
+    return Simulation.from_gnlse(
+        None,
+        1e-3,
+        fibre=mode,
+        n2=2.6e-20,
+        lambda0=1064e-9,
+        wavelength_limits=(900e-9, 1300e-9),
+        trange=400e-15,
+        fwhm=100e-15,
+        energy=1e-12,
+        n_save=2,
+    )
+
 
 source_fibre, target_fibre = fibre(2.18e-6), fibre(2.57e-6)
 fibre_run = source_fibre.run(progress="none")
-spliced = couple(field_plane(fibre_run, source=source_fibre), target_fibre.input_port(),
-                 model=CouplingModel("scalar_paraxial", model_error=0.1))
+spliced = couple(
+    field_plane(fibre_run, source=source_fibre),
+    target_fibre.input_port(),
+    model=CouplingModel("scalar_paraxial", model_error=0.1),
+)
 print(spliced.report.efficiency)
 ```
 
@@ -491,11 +559,13 @@ beam = SpatialPulse(GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6), 
 plane = FieldPlane.from_pulse(
     beam, grid, PlaneGeometry(0.0), space=RadialGrid(4e-3, 256), medium=air
 )
-small = RadialGrid(0.5e-3, 128)   # the focal plane, sampled finely
+small = RadialGrid(0.5e-3, 128)  # the focal plane, sampled finely
 focus, report = transport(
     plane,
-    [ThinLens(0.5, model_error=1e-3),
-     FreeSpace(0.5, air, output=small, output_method="fresnel")],
+    [
+        ThinLens(0.5, model_error=1e-3),
+        FreeSpace(0.5, air, output=small, output_method="fresnel"),
+    ],
 )
 print(focus.geometry.z, focus.energy(), report.elements[0].certificate.ratio)
 ```
@@ -552,8 +622,18 @@ from solprop.optics import TaylorPhase
 
 argon = SpatialMedium("Ar", 1.0)
 receiving = Simulation.from_capillary(
-    100e-6, 1e-3, "Ar", 1.0, lambda0=800e-9, wavelength_limits=(400e-9, 1.6e-6),
-    trange=200e-15, fwhm=20e-15, energy=20e-6, modes=2, n_save=3, noise=None,
+    100e-6,
+    1e-3,
+    "Ar",
+    1.0,
+    lambda0=800e-9,
+    wavelength_limits=(400e-9, 1.6e-6),
+    trange=200e-15,
+    fwhm=20e-15,
+    energy=20e-6,
+    modes=2,
+    n_save=3,
+    noise=None,
 )
 port = receiving.input_port()
 exit_field = Outcouple(RadialGrid(1.2e-3, 512), medium=argon).apply(
@@ -562,11 +642,18 @@ exit_field = Outcouple(RadialGrid(1.2e-3, 512), medium=argon).apply(
 gap = FreeSpace(0.05, argon, beyond_window="remove")
 relayed, ledger = transport(
     exit_field.plane,
-    [SpectralTransfer(TaylorPhase((0.0, 0.0, -20e-30), 800e-9)), gap,
-     ThinLens(0.05, model_error=0.05), gap,
-     Aperture(600e-6, model_error=0.05, edge=20e-6, kind="tanh"), gap,
-     ThinLens(0.05, model_error=0.05), gap],
-    frame=simulation.frame, geometry=port.geometry,
+    [
+        SpectralTransfer(TaylorPhase((0.0, 0.0, -20e-30), 800e-9)),
+        gap,
+        ThinLens(0.05, model_error=0.05),
+        gap,
+        Aperture(600e-6, model_error=0.05, edge=20e-6, kind="tanh"),
+        gap,
+        ThinLens(0.05, model_error=0.05),
+        gap,
+    ],
+    frame=simulation.frame,
+    geometry=port.geometry,
 )
 second = couple(relayed, port, model=CouplingModel("scalar_paraxial", model_error=0.05))
 print(ledger.specified_loss, ledger.removed, second.report.efficiency)
