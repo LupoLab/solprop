@@ -34,12 +34,22 @@ import numpy as np
 import pytest
 from scipy.special import jn_zeros, jv
 
+from facet_mode_matching import (
+    Y_VACUUM,
+    Beam,
+    StepIndexFacet,
+    hybrid_eigenvalue,
+    mode_shares,
+    ring_rule,
+)
+from modal_provider_cases import make_provider
 from solprop import fourier
-from solprop.constants import EPS0, C
+from solprop.constants import EPS0, MU0, C
 from solprop.coupling import (
     CAPILLARY_ENVELOPE,
     STEP_INDEX_BEAM_ENVELOPE,
     STEP_INDEX_ENVELOPE,
+    VECTOR_STEP_INDEX_ENVELOPE,
     CouplingModel,
     FieldPlane,
     PlaneBasis,
@@ -50,8 +60,9 @@ from solprop.coupling import (
 from solprop.coupling.models import radial_rule
 from solprop.driver import Simulation
 from solprop.exceptions import CouplingError
-from solprop.grid import EnvelopeGrid, FreeGrid, RadialGrid
+from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, RadialGrid
 from solprop.modes import MarcatiliMode, StepIndexMode
+from solprop.modes.guide import ModalGuide
 from solprop.spatial import SpatialMedium
 
 RADIUS = 75e-6
@@ -844,3 +855,349 @@ def test_the_beam_fibre_reference_takes_the_overlap_couple_computes():
         scalar[0], rel=1e-8
     )
     assert scalar[1] == 0.0
+
+
+FACET_WAVELENGTH = 1e-6
+FACET_OMEGA = 2 * math.pi * C / FACET_WAVELENGTH
+FACET_CORE = 1.45
+
+
+def facet_fibre(contrast, v):
+    """Return (radius, (input, core, cladding) indices) of a matched-input fibre."""
+    cladding = FACET_CORE * math.sqrt(1.0 - 2.0 * contrast)
+    k = FACET_OMEGA / C
+    radius = v / (k * math.sqrt(FACET_CORE**2 - cladding**2))
+    return radius, (FACET_CORE, FACET_CORE, cladding)
+
+
+def test_the_facet_reference_solves_the_exact_vector_eigenvalue():
+    """The reference's own HE11 converges to the exact vector eigenvalue equation.
+
+    Snyder and Love's equation, solved directly, and the package's step-index
+    solver agree to rounding; the reference reaches them as 1/N in its basis
+    size, as a smooth basis meeting a jump in E_r does, without using either.
+    """
+    radius, indices = facet_fibre(0.01, 2.0)
+    k = FACET_OMEGA / C
+    u = hybrid_eigenvalue(1, 2.0, indices[1], indices[2])
+    exact = math.sqrt(indices[1] ** 2 - (u / (k * radius)) ** 2)
+    package = StepIndexMode(
+        radius,
+        core=indices[1],
+        cladding=indices[2],
+        profile_wavelength=FACET_WAVELENGTH,
+    ).neff(np.array([FACET_OMEGA]))[0]
+    assert abs(float(np.real(package)) - exact) < 1e-12
+    errors = []
+    for count in (50, 100, 200):
+        facet = StepIndexFacet(1, radius, indices, FACET_OMEGA, 8 * radius, count)
+        assert facet.orthonormality < 1e-12
+        guided = facet.guided()
+        assert guided.size == 1
+        errors.append(abs(float(np.real(facet.beta[guided[0]])) / k - exact))
+    # First order in 1/N once asymptotic: the last doubling about halves it.
+    assert errors[0] > errors[1]
+    assert errors[2] < 0.6 * errors[1]
+    assert errors[1] < 2e-6
+
+
+def test_the_facet_reference_meets_fresnel_and_conserves_power():
+    """A uniform guide is a planar interface: every basis field meets Fresnel.
+
+    With the core and cladding of one index the guide's modes are the cylinder's
+    own fields, its admittance is diagonal, and each field's transmission is the
+    modal Fresnel coefficient 2 Y_0 / (Y_0 + Y_1) of its TE or TM admittance. On a
+    real step-index facet the incident power equals the reflected plus the
+    transmitted power to rounding.
+    """
+    radius = 2e-6
+    facet = StepIndexFacet(1, radius, (1.45, 1.5, 1.5), FACET_OMEGA, 8 * radius, 60)
+    k = FACET_OMEGA / C
+    basis = facet.basis
+    live = basis.k < 0.9 * k * 1.45
+    beta_in = np.sqrt((k * 1.45) ** 2 - basis.k[live] ** 2)
+    beta_out = np.sqrt((k * 1.5) ** 2 - basis.k[live] ** 2)
+    te = basis.is_te[live]
+    y_in = np.where(
+        te, beta_in / (FACET_OMEGA * MU0), FACET_OMEGA * EPS0 * 1.45**2 / beta_in
+    )
+    y_out = np.where(
+        te, beta_out / (FACET_OMEGA * MU0), FACET_OMEGA * EPS0 * 1.5**2 / beta_out
+    )
+    np.testing.assert_allclose(np.real(np.diag(facet.y_fibre))[live], y_out, rtol=1e-9)
+    for j in np.flatnonzero(live)[:: max(1, int(np.sum(live)) // 8)]:
+        unit = np.zeros(basis.k.size, dtype=complex)
+        unit[j] = 1.0
+        transmitted = 2 * np.linalg.solve(
+            facet.y_input + facet.y_fibre, facet.y_input @ unit
+        )
+        position = int(np.flatnonzero(np.flatnonzero(live) == j)[0])
+        expected = 2 * y_in[position] / (y_in[position] + y_out[position])
+        assert abs(transmitted[j] - expected) < 1e-9
+    radius, indices = facet_fibre(0.03, 2.0)
+    step = StepIndexFacet(1, radius, indices, FACET_OMEGA, 8 * radius, 60)
+    radii, weights, theta = ring_rule((0.0, radius, 8 * radius), radius / 4)
+    r, t = radii[:, None], theta[None, :]
+    ex = Beam(1.0, (0.3, 0.0), 0.2).field(
+        r * np.cos(t), r * np.sin(t), radius, k * 0.35
+    )
+    coefficients = step.basis.project(
+        radii, weights, theta, ex * np.cos(t), -ex * np.sin(t)
+    )
+    incident, reflected, transmitted_power = step.amplitudes(
+        coefficients, int(step.guided()[0])
+    )[3]
+    assert reflected > 0.0
+    assert abs(incident - reflected - transmitted_power) < 1e-10 * incident
+
+
+def test_the_facet_reference_guided_field_is_the_package_he11():
+    """The reference's HE11 has the radial profile of the package's exact field.
+
+    The order-one mode is circularly polarised, so its |e_t|^2 is the azimuthal
+    mean of the even HE11's from
+    :meth:`~solprop.modes.StepIndexMode.electromagnetic_field`. Both are unit
+    power; the reference's profile converges as 1/N (1e-2 at N = 100).
+    """
+    radius, indices = facet_fibre(0.01, 2.0)
+    facet = StepIndexFacet(1, radius, indices, FACET_OMEGA, 8 * radius, 100)
+    u, _ = facet.unit_mode(int(facet.guided()[0]))
+    probe = radius * np.array([0.1, 0.4, 0.7, 1.3, 1.8, 2.5])
+    er, ep, _ = facet.basis.fields(probe)
+    reference = np.abs(er @ u) ** 2 + np.abs(ep @ u) ** 2
+    mode = StepIndexMode(
+        radius,
+        core=indices[1],
+        cladding=indices[2],
+        profile_wavelength=FACET_WAVELENGTH,
+    )
+    theta = 2 * np.pi * (np.arange(64) + 0.5) / 64
+    xy = np.column_stack(
+        (
+            np.repeat(probe, 64) * np.tile(np.cos(theta), 6),
+            np.repeat(probe, 64) * np.tile(np.sin(theta), 6),
+        )
+    )
+    electric, _ = mode.electromagnetic_field(xy, FACET_OMEGA)
+    package = np.mean(
+        (np.abs(electric[:, 0]) ** 2 + np.abs(electric[:, 1]) ** 2).reshape(6, 64),
+        axis=1,
+    )
+    np.testing.assert_allclose(reference, package, rtol=1e-2)
+
+
+@pytest.mark.parametrize(("contrast", "v"), [(0.003, 2.0), (0.003, 4.0), (0.01, 2.0)])
+def test_the_facet_correction_is_the_local_fresnel_estimate(contrast, v):
+    """At weak guidance the omitted facet term is the local Fresnel estimate.
+
+    To leading order the admittance difference D = Y_f - Y_0 is the local index
+    step Y_vac (n(r) - n_co) and Y_0 + Y_f is 2 Y_vac n_co, so the identity
+    a_exact - a_model = -<u_i, D (Y_0 + Y_f)^-1 D e_m>/4 becomes
+    -(Y_vac (n_cl - n_co)^2 / (8 n_co)) times the cladding overlap of beam and
+    mode: second order in the step, and negative. The rigorous solution agrees to
+    a few per cent, the size of the next order.
+    """
+    radius, indices = facet_fibre(contrast, v)
+    radii, weights, theta = ring_rule((0.0, radius, 8 * radius), radius / 4)
+    r, t = radii[:, None], theta[None, :]
+    ex = Beam(1.0).field(r * np.cos(t), r * np.sin(t), radius, 0.0)
+    incident = (
+        (
+            0.5
+            * FACET_CORE
+            * Y_VACUUM
+            * np.sum((radii * weights)[:, None] * np.abs(ex) ** 2)
+        )
+        * 2
+        * np.pi
+        / theta.size
+    )
+    facet = StepIndexFacet(1, radius, indices, FACET_OMEGA, 8 * radius, 100)
+    coefficients = facet.basis.project(
+        radii, weights, theta, ex * np.cos(t), -ex * np.sin(t)
+    )
+    mode = int(facet.guided()[0])
+    u, _ = facet.unit_mode(mode)
+    exact, model_exact_h, _, _ = facet.amplitudes(coefficients, mode)
+    step = indices[2] - indices[1]
+    local = -(Y_VACUUM * step**2 / (8 * FACET_CORE)) * (
+        u.conj() @ facet.cladding_gram @ coefficients
+    )
+    rigorous = (abs(exact) ** 2 - abs(model_exact_h) ** 2) / incident
+    estimate = 2 * float(np.real(np.conj(model_exact_h) * local)) / incident
+    assert rigorous < 0.0
+    assert rigorous == pytest.approx(estimate, rel=0.05)
+
+
+FACET_CASES = [
+    # (V, beam, orders, which): HE11 over the V range, then higher channels.
+    *(
+        (v, beam, (1, -1), 0)
+        for v in (1.5, 2.4, 4.0, 8.0)
+        for beam in (Beam(1.0), Beam(2.0), Beam(1.5, (0.5, 0.0), 0.3))
+    ),
+    (4.0, Beam(2.0), (1, -1), 2),
+    (4.0, Beam(2.0, (0.0, 0.0), 0.3), (2, -2), 0),
+    (4.0, Beam(2.0, (0.0, 0.5)), (0,), 0),
+    (4.0, Beam(2.0, (0.0, 0.0), 0.3), (0,), 1),
+]
+"""The envelope's sampled cases: V, beam, azimuthal orders and guided index.
+
+HE11 at both ends of the V range and between, centred, wide and displaced and
+tilted; then at V = 4 the HE12 (third mode of order one, the largest higher-mode
+discrepancy found), HE21 (order two), TE01 (a y-displaced x-polarised beam is the
+one that excites it) and TM01."""
+
+
+def worst_facet(contrast, **discretisation):
+    """Return the largest |facet| share over the cases at a contrast, and its case."""
+    worst, where = 0.0, None
+    for v, beam, orders, which in FACET_CASES:
+        radius, indices = facet_fibre(contrast, v)
+        shares = mode_shares(
+            beam, radius, indices, FACET_OMEGA, orders, which, **discretisation
+        )
+        if abs(shares.facet) > worst:
+            worst, where = abs(shares.facet), (v, beam, orders, which)
+    return worst, where
+
+
+@pytest.mark.medium
+def test_the_vector_step_index_envelope_bounds_the_omitted_facet():
+    """The vector model against the full facet solution, over the envelope's range.
+
+    At the top contrast, 0.05, the largest omitted share is 6.9e-4 (HE11 at
+    V = 1.5, a wide beam: the most power in the cladding, where the index steps);
+    the bound is twice it. Halving the contrast quarters it: the discrepancy is
+    second order in the step, so the allowance scales with the squared contrast.
+    Refining the basis and widening the cylinder estimates the numerical error.
+    """
+    envelope = VECTOR_STEP_INDEX_ENVELOPE
+    top = envelope.ranges["contrast"][1]
+    worst, where = worst_facet(top)
+    assert where is not None
+    assert worst == pytest.approx(6.9e-4, rel=0.05)
+    v, beam, orders, which = where
+    radius, indices = facet_fibre(top, v)
+    fine = mode_shares(
+        beam, radius, indices, FACET_OMEGA, orders, which, outer=12.0, count=200
+    )
+    assert abs(abs(fine.facet) - worst) <= envelope.numerical
+    assert 2 * worst + envelope.numerical <= envelope.bound
+    radius, indices = facet_fibre(0.5 * top, v)
+    half = mode_shares(beam, radius, indices, FACET_OMEGA, orders, which)
+    assert abs(half.facet) <= 0.3 * worst
+    assert envelope.allowance({"contrast_squared": (0.5 * top) ** 2}) >= 2 * abs(
+        half.facet
+    )
+
+
+def facet_port(contrast, v_centre):
+    """Return a general modal port of a step-index HE11 pair, V at 835 nm given.
+
+    48 azimuthal nodes: with the provider's default nine a narrow guide's node rule
+    aliases a sampled beam's oblique columns into a spurious apparent gain.
+    """
+    wavelength = 835e-9
+    radius, (_, core, cladding) = facet_fibre(contrast, v_centre)
+    radius *= wavelength / FACET_WAVELENGTH
+    grid = FieldGrid.from_limits(1e-3, wavelength, (815e-9, 860e-9), 60e-15)
+    provider = make_provider(
+        radius=radius,
+        descriptors=(("HE", 1, 1, "even"), ("HE", 1, 1, "odd")),
+        indices=(core, cladding),
+    )
+    active = grid.omega[grid.active_mask]
+    guide = ModalGuide.from_provider(
+        provider,
+        np.linspace(0.99 * active[0], 1.01 * active[-1], 17),
+        nodes=provider.node_rule(0.99 * active[0], n_r=48, n_theta=48),
+        degenerate_blocks=((0, 1),),
+    )
+    simulation = Simulation.from_waveguide(
+        (),
+        1e-4,
+        provider=guide,
+        grid=grid,
+        lambda0=wavelength,
+        energy=1e-12,
+        fwhm=20e-15,
+        pulseshape="gauss",
+        backend="numpy_ref",
+        dz_max=5e-5,
+        dz_init=5e-5,
+        n_save=2,
+    )
+    return simulation.input_port(), radius, (core, core, cladding)
+
+
+@pytest.mark.medium
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.GeneralModalBasisWarning")
+def test_vector_paraxial_launches_the_facet_reference_within_its_items():
+    """``couple`` into a step-index guide against the facet solution, bin by bin.
+
+    One Cartesian plane carries a different beam in each of four bins, so one
+    coupling samples V from 1.8 to 2.4. In each bin the launched share equals
+    the reference's own evaluation of the model to the guide's tabulation
+    (measured to 4e-6); the incident beam's H closure, the model's other omission,
+    is within the angular item; and the facet the model omits is within the
+    envelope item. The envelope item is the allowance at the plane's weighted
+    squared contrast.
+    """
+    port, radius, indices = facet_port(0.01, 2.4)
+    grid = port.grid
+    aperture = math.sqrt(indices[1] ** 2 - indices[2] ** 2)
+    frequency = np.asarray(port.normalised_frequency)
+    active = np.flatnonzero(grid.active_mask)
+    beams = {
+        int(active[np.argmin(np.abs(frequency[active] - v))]): beam
+        for v, beam in (
+            (1.8, Beam(2.0)),
+            (2.0, Beam(1.5, (0.5, 0.0), 0.3)),
+            (2.2, Beam(1.0, (0.3, 0.0))),
+            (2.4, Beam(2.0, (0.25, 0.0), 0.2)),
+        )
+    }
+
+    def field(x, y, omega):
+        samples = np.zeros((x.size, omega.size), dtype=complex)
+        for k, beam in beams.items():
+            j = int(np.argmin(np.abs(omega - grid.omega[k])))
+            samples[:, j] = beam.field(x, y, radius, omega[j] / C * aperture)
+        return samples
+
+    lowest = min(grid.omega[k] for k in beams)
+    # The corner column, sqrt(2) pi / spacing, stays below 0.9 n k at the lowest
+    # bin: no column is evanescent in any bin.
+    spacing = 0.8 * 2 * math.pi * C / lowest / indices[0]
+    half = 8 * radius
+    count = 2 * math.ceil(half / spacing)
+    plane = FieldPlane.from_analytic(
+        grid,
+        PlaneGeometry(0.0),
+        field,
+        space=FreeGrid(half, count, half, count),
+        index=np.asarray(port.reference_index),
+    )
+    report = couple(
+        plane, port, model=CouplingModel("vector_paraxial", model_error=0.5)
+    ).report
+    items = {(item.name, item.scope): item for item in report.items}
+    envelope = items["envelope", "model"]
+    angular = cast("float", items["angular", "field"].value)
+    contrast = np.asarray(port.contrast)
+    weighted = float(np.sum(contrast**2 * report.incident) / np.sum(report.incident))
+    assert envelope.counted
+    assert VECTOR_STEP_INDEX_ENVELOPE.identity in envelope.note
+    assert envelope.value == pytest.approx(
+        VECTOR_STEP_INDEX_ENVELOPE.allowance({"contrast_squared": weighted}), rel=1e-12
+    )
+    for k, beam in beams.items():
+        shares = mode_shares(beam, radius, indices, grid.omega[k], outer=12.0)
+        launched = report.launched[k] / report.incident[k]
+        # The guide's tables interpolate E/H between 17 knots: the measured
+        # difference from the reference's own model evaluation is 4e-6.
+        assert abs(launched - shares.model) < 1e-5
+        assert abs(shares.model_exact_h - shares.model) <= angular
+        assert abs(shares.facet) <= cast("float", envelope.value)
+        assert abs(launched - shares.exact) <= cast("float", envelope.value) + angular

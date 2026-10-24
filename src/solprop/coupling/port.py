@@ -138,6 +138,12 @@ class InputPort:
         guide's dielectric regions at each bin, shape ``(n_omega,)``, zero off the
         active band; None where the screen does not apply (a capillary wall, a
         spatial medium).
+    normalised_frequency : numpy.ndarray or None, optional
+        A step-index general guide's normalised frequency
+        :math:`V = (\omega/c)\,a\sqrt{n_{\rm co}^2 - n_{\rm cl}^2}` at its entrance
+        at each bin, shape ``(n_omega,)``, zero off the active band: what the
+        recorded vector envelope's range is checked against. None for every other
+        port.
 
     Raises
     ------
@@ -160,6 +166,7 @@ class InputPort:
     models: tuple[str, ...] = ("same_basis",)
     profiles: ScalarModeBasis | None = None
     contrast: Float[np.ndarray, " n_omega"] | None = None
+    normalised_frequency: Float[np.ndarray, " n_omega"] | None = None
 
     def __post_init__(self) -> None:
         """Check the shape, the basis and the reference index."""
@@ -188,6 +195,7 @@ class InputPort:
             ("electric", np.complex128),
             ("magnetic", np.complex128),
             ("contrast", np.float64),
+            ("normalised_frequency", np.float64),
         ):
             value = getattr(self, name)
             if value is not None:

@@ -151,7 +151,13 @@ small: the coupling's admission budget (`model_error`) bounds the closure's erro
 against the provider's own $\mathbf H$, the weak-guidance contrast of the guide's
 regions, the angular content of the beam and of the channels, and the metric defect of
 $F$ against the run's declared metric. A strongly guiding core, such as a silica strand
-in air, fails the contrast screen and is refused by name. It is *not* $Q$, the record's
+in air, fails the contrast screen and is refused by name. The pairing also omits the
+light the entrance facet reflects; for a step-index guide that omission is bounded by a
+recorded envelope against an independent mode-matching solution of the facet, counted
+in the budget and refused outside its range (contrast to 0.05, V from 1.5 to 8; see
+[the coupling chapter](../workflows/coupling.md#the-admission-budget-and-the-report)).
+A graded-index guide has no recorded envelope; its report says so and leaves the item
+uncounted. It is *not* $Q$, the record's
 other map ([modal projection](modal-projection.md#the-synthesis-and-projection-maps)),
 which contracts a *polarisation* for a **source** term. For a field you sample yourself,
 {py:func}`~solprop.translate.modal_tables.project_transverse_field` applies the

@@ -21,6 +21,7 @@ from collections.abc import Sequence
 from typing import cast
 
 import numpy as np
+from jaxtyping import Float
 
 from solprop.constants import EPS0, C
 from solprop.coupling import (
@@ -35,7 +36,7 @@ from solprop.coupling import (
 )
 from solprop.exceptions import CouplingError, TranslationError
 from solprop.grid import TimeGrid
-from solprop.modes.guide import ModalGuide
+from solprop.modes.guide import ModalGuide, StepIndexProvider
 from solprop.modes.protocol import Mode
 from solprop.spatial import FluxSide, SpatialMedium
 from solprop.translate.chebyshev import PiecewiseChebyshev
@@ -45,7 +46,13 @@ from solprop.translate.modal_tables import ModalTransformTables
 from solprop.translate.problem import KernelProblem
 from solprop.translate.spatial import axial_admittance
 
-__all__ = ["frame_record", "guide_contrast", "input_port", "port_metric"]
+__all__ = [
+    "frame_record",
+    "guide_contrast",
+    "input_port",
+    "port_metric",
+    "step_index_frequency",
+]
 
 
 def frame_record(
@@ -216,7 +223,7 @@ def input_port(  # noqa: PLR0913 - the problem and each part of the entrance it 
         index = values
     nodes = weights = electric = magnetic = None
     models: tuple[str, ...] = ("same_basis",)
-    profiles = contrast = None
+    profiles = contrast = frequency = None
     if tables is not None:
         synthesis = tables.synthesis
         moves = synthesis is not None and synthesis.shape[0] * synthesis.shape[1] > 1
@@ -229,6 +236,7 @@ def input_port(  # noqa: PLR0913 - the problem and each part of the entrance it 
             magnetic = np.conj(tables.magnetic[0])
             if guide is not None:
                 index, contrast = guide_contrast(guide, grid)
+                frequency = step_index_frequency(guide, grid, z)
                 models = ("same_basis", "vector_paraxial")
     if route == "modal" and modes:
         try:
@@ -259,6 +267,7 @@ def input_port(  # noqa: PLR0913 - the problem and each part of the entrance it 
         models,
         profiles,
         contrast,
+        frequency,
     )
 
 
@@ -287,6 +296,47 @@ def _scalar_contrast(profiles: ScalarModeBasis, index: np.ndarray) -> np.ndarray
             np.abs(values[live] ** 2 - index[live] ** 2) / (2.0 * index[live] ** 2),
         )
     return contrast
+
+
+def step_index_frequency(
+    guide: ModalGuide, grid: TimeGrid, z: float
+) -> Float[np.ndarray, " n_omega"] | None:
+    r"""Return a step-index guide's normalised frequency at its entrance, per bin.
+
+    :math:`V = (\omega/c)\,a(z)\sqrt{n_{\rm co}^2 - n_{\rm cl}^2}`, with the core
+    radius at the entrance and the real parts of the core's and the cladding's
+    declared laws, is what the recorded vector envelope's range
+    (:data:`solprop.coupling.envelopes.VECTOR_STEP_INDEX_ENVELOPE`) is stated in.
+
+    Parameters
+    ----------
+    guide : solprop.modes.guide.ModalGuide
+        The guide.
+    grid : solprop.grid.TimeGrid
+        The run's grid.
+    z : float
+        The entrance, m.
+
+    Returns
+    -------
+    numpy.ndarray or None
+        V at each bin, shape ``(n_omega,)``, zero off the active positive band;
+        None for a guide whose provider is not a
+        :class:`~solprop.modes.guide.StepIndexProvider`.
+    """
+    provider = guide.field_provider
+    if not isinstance(provider, StepIndexProvider):
+        return None
+    live = grid.active_mask & (grid.omega > 0)
+    omega = grid.omega[live]
+    radius = float(provider.modes[0].core_radius(np.asarray([z]))[0])
+    core, cladding = (
+        np.real(np.asarray(region.material.permittivity(omega)))
+        for region in provider.regions
+    )
+    frequency = np.zeros(grid.n_omega)
+    frequency[live] = omega / C * radius * np.sqrt(np.maximum(core - cladding, 0.0))
+    return frequency
 
 
 def guide_contrast(guide: ModalGuide, grid: TimeGrid) -> tuple[np.ndarray, np.ndarray]:
