@@ -135,7 +135,7 @@ from solprop.physdata import density, gamma3, n2
 from solprop.processing.compression import compress_taylor
 from solprop.processing.time import fwhm
 from solprop.pulses import GaussianPulse, PlanarPulse
-from solprop.spatial import planar_mode_energy
+from solprop.spatial import SpatialFlux, SpatialMedium, planar_mode_energy
 from solprop.stats import StatsSpec, default_spec
 from solprop.stepper import PIController
 
@@ -231,7 +231,9 @@ print(
 # every sample of the pulse from one vectorised call of the rate.
 t = np.linspace(-4.0, 4.0, 4001) * DURATION
 envelope = intensity * np.exp(-4.0 * np.log(2.0) * (t / DURATION) ** 2)
-amplitude = np.sqrt(2.0 * envelope / (EPS0 * C))
+# The axial intensity is n0 eps0 c |E|^2 / 2 in the gas (SEP 34); the rate reads E.
+n0 = float(np.real(SpatialMedium("Ar", pressure=PRESSURE).index(np.array([k0 * C]))[0]))
+amplitude = np.sqrt(2.0 * envelope / (n0 * EPS0 * C))
 rate = linear_cycle_averages(OptmatRate("Ar", WAVELENGTH), amplitude)
 electrons = density("Ar", PRESSURE) * (1.0 - np.exp(-np.trapezoid(rate, t)))
 omega0 = k0 * C
@@ -318,8 +320,19 @@ def rows_of(plane):
     return np.fft.ifft(plane[:, 0].reshape(space.n_y, space.n_p, -1), axis=0)
 
 
+def closure_of(plane, flux):
+    """Return the magnetic closure of a saved plane as rows at each y.
+
+    Each ``(p, k_y)`` column carries its own admittance ``c q / omega`` (SEP 34);
+    the internal spectrum takes its conjugate.
+    """
+    return rows_of(np.conj(flux.admittance())[:, None, :] * plane)
+
+
+flux = SpatialFlux.resolve(grid, space, clean.medium)
 fields = clean_output.fields("fft")
 entrance, exit_ = rows_of(fields[0]), rows_of(fields[-1])
+entrance_g, exit_g = closure_of(fields[0], flux), closure_of(fields[-1], flux)
 centre = int(np.argmin(np.abs(space.y)))
 
 # %%
@@ -331,8 +344,8 @@ centre = int(np.argmin(np.abs(space.y)))
 # Kerr effect moves a little energy between the modes while the loss damps the
 # higher ones.
 
-launched = planar_mode_energy(grid, space, fields[0]) / ENERGY
-leaving = planar_mode_energy(grid, space, fields[-1]) / ENERGY
+launched = planar_mode_energy(fields[0], flux) / ENERGY
+leaving = planar_mode_energy(fields[-1], flux) / ENERGY
 for mode, projected, first, last in zip(modes, shares, launched, leaving, strict=True):
     print(
         f"{mode.channel_label.display_label}: projected {projected:.3e}, "
@@ -468,18 +481,26 @@ fig.tight_layout()
 # *et al.* (2010) give as 71 % (67.6 % measured).
 
 
-def fluence_across(rows):
-    """Return the fluence integrated across the gap at each y, J/m."""
-    return np.sum(fourier.energy_omega(rows, grid.dt, kind=grid.kind), axis=-1)
+def fluence_across(rows, closure):
+    """Return the axial flux integrated over time and across the gap at each y, J/m.
+
+    The slab modes are orthonormal in x, so the gap integral pairs each mode with
+    its own closure.
+    """
+    weights = fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
+    return np.sum(weights * np.real(rows * np.conj(closure)), axis=(-2, -1))
 
 
-def mid_plane_peak(rows):
-    """Return the peak intensity over time on the mid-plane at each y, W/m^2."""
+def mid_plane_peak(rows, closure):
+    """Return the peak axial intensity over time on the mid-plane at each y, W/m^2."""
     field = fourier.inverse(np.einsum("p,ypw->yw", space.centre, rows), kind=grid.kind)
-    return 0.5 * EPS0 * C * np.max(np.abs(field) ** 2, axis=-1)
+    magnetic = fourier.inverse(
+        np.einsum("p,ypw->yw", space.centre, closure), kind=grid.kind
+    )
+    return 0.5 * EPS0 * C * np.max(np.real(field * np.conj(magnetic)), axis=-1)
 
 
-fluence = fluence_across(exit_)
+fluence = fluence_across(exit_, exit_g)
 lit = fluence > 1e-3 * fluence.max()
 durations = np.full(space.n_y, np.nan)
 for index in np.flatnonzero(lit):
@@ -492,12 +513,12 @@ print(
 
 fig, (top, middle, bottom) = plt.subplots(3, 1, figsize=(6.4, 7.2), sharex=True)
 y_mm = space.y * 1e3
-top.plot(y_mm, fluence_across(entrance), color="0.6", label="entrance")
+top.plot(y_mm, fluence_across(entrance, entrance_g), color="0.6", label="entrance")
 top.plot(y_mm, fluence, label="exit")
 top.set_ylabel("fluence across\nthe gap (J/m)")
 top.legend(frameon=False)
-middle.plot(y_mm, mid_plane_peak(entrance) * 1e-4, color="0.6")
-middle.plot(y_mm, mid_plane_peak(exit_) * 1e-4)
+middle.plot(y_mm, mid_plane_peak(entrance, entrance_g) * 1e-4, color="0.6")
+middle.plot(y_mm, mid_plane_peak(exit_, exit_g) * 1e-4)
 middle.set_ylabel("peak intensity\nat x = 0 (W/cm$^2$)")
 bottom.plot(y_mm[lit], durations[lit] * 1e15)
 bottom.axhline(1.5 * durations[centre] * 1e15, color="0.6", linestyle=":")
@@ -525,7 +546,9 @@ fig.tight_layout()
 
 rng = np.random.default_rng(49)
 noise = 1.0 + SEED * rng.standard_normal(space.n_y)
-seeded_rows = rows_of(launch.build(grid, space)) * noise[:, None, None]
+seeded_rows = (
+    rows_of(launch.build(grid, space, medium=clean.medium)) * noise[:, None, None]
+)
 seeded_launch = np.fft.fft(seeded_rows, axis=0).reshape(space.n_columns, 1, -1)
 planes = np.union1d(np.arange(1, 11) * LONG / 10, [LENGTH])
 long_grid = EnvelopeGrid.from_limits(LONG, WAVELENGTH, (450e-9, 1.6e-6), 400e-15)
@@ -535,7 +558,13 @@ seeded = Simulation.from_planar(
 seeded_output = seeded.run(progress="none")
 seeded_fields = seeded_output.fields("fft")
 seeded_z = np.asarray(seeded_output["z"])
-seeded_fluence = np.array([fluence_across(rows_of(plane)) for plane in seeded_fields])
+long_flux = SpatialFlux.resolve(long_grid, space, clean.medium)
+seeded_fluence = np.array(
+    [
+        fluence_across(rows_of(plane), closure_of(plane, long_flux))
+        for plane in seeded_fields
+    ]
+)
 del seeded_fields
 
 # %%

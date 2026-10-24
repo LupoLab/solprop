@@ -713,6 +713,52 @@
    "name": "SlabMode"
   }
  ],
+ "SpatialFlux.resolve": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.spatial",
+   "module_short": "solprop.spatial",
+   "name": "SpatialFlux.resolve"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "SpatialFlux.resolve"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.spatial.SpatialFlux",
+   "module_short": "solprop.spatial.SpatialFlux",
+   "name": "resolve"
+  }
+ ],
+ "SpatialMedium": [
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop.spatial",
+   "module_short": "solprop.spatial",
+   "name": "SpatialMedium"
+  },
+  {
+   "is_class": true,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "SpatialMedium"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.spatial",
+   "module_short": "solprop.spatial",
+   "name": "SpatialMedium"
+  }
+ ],
  "StatsSpec": [
   {
    "is_class": true,
@@ -1565,6 +1611,22 @@
    "name": "Simulation"
   }
  ],
+ "clean.medium": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.spatial",
+   "module_short": "solprop.spatial",
+   "name": "SpatialMedium"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "SpatialMedium"
+  }
+ ],
  "clean.run": [
   {
    "is_class": false,
@@ -1819,6 +1881,15 @@
    "name": "ndarray"
   }
  ],
+ "closure_of": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  }
+ ],
  "compress_taylor": [
   {
    "is_class": false,
@@ -2030,6 +2101,15 @@
    "name": "ndarray"
   }
  ],
+ "entrance_g": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
  "envelope": [
   {
    "is_class": false,
@@ -2111,6 +2191,15 @@
   }
  ],
  "exit_": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "exit_g": [
   {
    "is_class": false,
    "is_explicit": false,
@@ -2277,6 +2366,38 @@
    "name": "function"
   }
  ],
+ "flux": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.spatial",
+   "module_short": "solprop.spatial",
+   "name": "SpatialFlux"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "SpatialFlux"
+  }
+ ],
+ "flux.admittance": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.spatial",
+   "module_short": "solprop.spatial",
+   "name": "SpatialFlux.admittance"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "SpatialFlux.admittance"
+  }
+ ],
  "focusing": [
   {
    "is_class": false,
@@ -2286,7 +2407,7 @@
    "name": "float64"
   }
  ],
- "fourier.energy_omega": [
+ "fourier.energy_weights": [
   {
    "is_class": false,
    "is_explicit": false,
@@ -2299,7 +2420,7 @@
    "is_explicit": false,
    "module": "solprop.fourier",
    "module_short": "solprop.fourier",
-   "name": "energy_omega"
+   "name": "energy_weights"
   }
  ],
  "fourier.inverse": [
@@ -2423,6 +2544,50 @@
    "module": "builtins",
    "module_short": "builtins",
    "name": "str"
+  }
+ ],
+ "grid.n_omega": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.grid",
+   "module_short": "solprop.grid",
+   "name": "EnvelopeGrid.n_omega"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "EnvelopeGrid.n_omega"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.grid",
+   "module_short": "solprop.grid",
+   "name": "TimeGrid.n_omega"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "TimeGrid.n_omega"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop._display",
+   "module_short": "solprop._display",
+   "name": "Displayed.n_omega"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "Displayed.n_omega"
   }
  ],
  "grid.n_t": [
@@ -3232,6 +3397,22 @@
    "name": "ndarray"
   }
  ],
+ "long_flux": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop.spatial",
+   "module_short": "solprop.spatial",
+   "name": "SpatialFlux"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "solprop",
+   "module_short": "solprop",
+   "name": "SpatialFlux"
+  }
+ ],
  "long_grid": [
   {
    "is_class": false,
@@ -3525,6 +3706,15 @@
    "name": "list"
   }
  ],
+ "n0": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
  "n2": [
   {
    "is_class": false,
@@ -3669,6 +3859,22 @@
    "module": "numpy",
    "module_short": "numpy",
    "name": "concatenate"
+  }
+ ],
+ "np.conj": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ufunc"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "conj"
   }
  ],
  "np.einsum": [

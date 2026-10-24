@@ -190,6 +190,7 @@ from solprop.profiles import (
     Constant,
     DensityPath,
     Linear,
+    PathVariation,
     PiecewiseLinear,
     PressureGradient,
 )
@@ -269,6 +270,7 @@ __all__ = [
     "Multistep",
     "NonlinearPhase",
     "OptmatRate",
+    "PathVariation",
     "PiecewiseLinear",
     "PlanarGrid",
     "PlanarPulse",

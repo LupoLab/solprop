@@ -89,7 +89,7 @@ def test_tensor_run_resumes_with_the_same_realisation_and_configuration(
             # The same stored realisation carried by one march: its rounding budget.
             assert_matched(actual, expected, march, what=key)
     metadata = resume(part).metadata
-    assert metadata.schema_version == 22
+    assert metadata.schema_version == 23
     record = repr(metadata.configuration)
     assert "tensor_terms" in record and "rank2" in record and "isotropic" in record
 

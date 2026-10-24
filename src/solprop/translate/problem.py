@@ -40,6 +40,7 @@ from typing import Any, Literal, cast
 import numpy as np
 from jaxtyping import Bool, Complex, Float
 
+from solprop.adiabatic import AdiabaticAccuracy, certify_radial_path
 from solprop.boundaries import (
     STABILITY_RADIUS,
     Absorber,
@@ -105,6 +106,7 @@ from solprop.translate.coupled import (
     section_expansion,
 )
 from solprop.translate.expansion import ParameterExpansion
+from solprop.translate.flux import flux_plan
 from solprop.translate.free import free_operators, free_transform
 from solprop.translate.general import (
     GeneralModalRoute,
@@ -149,7 +151,12 @@ from solprop.translate.responses import (
     response_kinks,
     unlanded_kinks,
 )
-from solprop.translate.spatial import RateBounds, SeparableOperator, rate_bounds
+from solprop.translate.spatial import (
+    FluxPlan,
+    RateBounds,
+    SeparableOperator,
+    rate_bounds,
+)
 from solprop.translate.tdse import TDSEDescriptor
 from solprop.translate.tdse_source import (
     STEADY_CURRENT_CERTIFICATE_LIMIT,
@@ -186,7 +193,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 34
+SCHEMA_VERSION = 35
 """Version of the kernel contract this module implements.
 
 Incremented on every change to the field list of ``docs/dev/kernel-contract.md``. A
@@ -408,6 +415,13 @@ class attribute ``helpers``, the backend's implementation of the per-stage Cheby
 rows and the Adams basis, which the shared driver, march and engines pass down
 (``solprop._helpers``). An older native build does not set it and would run solprop's
 Numba helpers, so it is refused.
+
+Version 35 (SEP 34) adds ``flux``, the spatial run's plane-measure coefficients
+(:class:`solprop.translate.spatial.FluxPlan`): every spatial statistic is the axial
+Poynting flux of the medium at its plane, weighted by the admittance
+``c k_z / omega`` of that plane's root, with the complex admittance for local flux.
+A radial gas path's cumulative operator gains the forward amplitude term
+``-ln(Y_z(z)/Y_z(0))/2``. A problem without spatial geometry carries no plan.
 """
 
 DEFAULT_COMPONENTS = ("x",)
@@ -971,6 +985,9 @@ class KernelProblem:
         Independent current source numerator, ``-crop_scale/(2 epsilon_0 c)``,
         shape ``(n_modes, n_pol, n_omega)``. Zero outside the retained band.
         Divide by the stage's real effective index without dividing by frequency.
+    flux : solprop.translate.spatial.FluxPlan or None, optional
+        A spatial run's plane-measure coefficients (version 35); required with
+        spatial geometry and absent otherwise.
 
     Examples
     --------
@@ -989,7 +1006,7 @@ class KernelProblem:
     ...     dz_max=0.1, dz_init=1e-3, shock=False, prefactor_index=1.0, density=1.0,
     ... )
     >>> problem.shape, problem.grid_kind, problem.schema_version
-    ((1, 1, 1, 4096), 'envelope', 34)
+    ((1, 1, 1, 4096), 'envelope', 35)
     """
 
     schema_version: int
@@ -1005,6 +1022,7 @@ class KernelProblem:
     stats_spec: StatsSpec
     tdse: TDSEDescriptor | None = None
     current_numerator: Float[np.ndarray, "n_modes n_pol n_omega"] | None = None
+    flux: FluxPlan | None = None
 
     @property
     def device_ready(self) -> bool:
@@ -1415,6 +1433,20 @@ class KernelProblem:
             msg = "power_weight_constant must match its degree-zero table"
             raise TranslationError(msg)
 
+    def _check_flux(self) -> None:
+        """Check a spatial problem carries its plane measure on the run's band."""
+        if (self.transform.geometry is None) != (self.flux is None):
+            msg = (
+                "a spatial problem requires its plane measure (flux), and a problem "
+                "without spatial geometry carries none"
+            )
+            raise TranslationError(msg)
+        if self.flux is not None and not np.array_equal(
+            self.flux.base.active, self.grids.active_mask
+        ):
+            msg = "the plane measure's active mask must match the temporal grid"
+            raise TranslationError(msg)
+
     def _check_spatial(self) -> None:
         """Check spatial geometry and the shared separable representation agree."""
         geometry = self.transform.geometry
@@ -1422,6 +1454,7 @@ class KernelProblem:
         if self.responses.separable is not separable:
             msg = "linear and responses must share the same separable coefficients"
             raise TranslationError(msg)
+        self._check_flux()
         if separable is not None:
             if geometry is None or geometry.kind not in ("free", "slab"):
                 msg = "a separable spatial operator requires free or slab geometry"
@@ -2341,6 +2374,7 @@ class _Assembly:
     taper_coupling: bool = True
     evanescent_rate: float | None = None
     transverse_absorber: TransverseCollar | None = None
+    adiabatic_accuracy: AdiabaticAccuracy | None = None
 
 
 def _check_operator_settings(
@@ -2379,6 +2413,40 @@ def _check_operator_settings(
         raise TranslationError(msg)
 
 
+def _refuse_planes_at_jumps(
+    medium: SpatialMedium | None, planes: Float[np.ndarray, " n_z"]
+) -> None:
+    """Refuse a save plane on a declared index jump, whose side would be ambiguous.
+
+    SEP 34 section 4.4: a plane at a jump measures one side's forward closure, and
+    a request that does not say which is ambiguous.
+
+    Parameters
+    ----------
+    medium : solprop.spatial.SpatialMedium or None
+        The run's medium; None for a modal run, which has none.
+    planes : numpy.ndarray
+        The requested save positions in m.
+
+    Raises
+    ------
+    TranslationError
+        If a plane lies exactly on a declared jump.
+    """
+    if medium is None:
+        return
+    for name, path in medium.parameter_paths.items():
+        jumps = np.asarray(path.jumps)
+        hit = planes[np.isin(planes, jumps)]
+        if hit.size:
+            msg = (
+                f"save plane z = {float(hit[0])!r} m lies on a declared jump of the "
+                f"medium's {name} path, where its side would be ambiguous; move the "
+                "plane off the jump"
+            )
+            raise TranslationError(msg)
+
+
 def _spatial_assembly(
     spatial_grid: RadialGrid | FreeGrid | PlanarGrid,
     medium: SpatialMedium,
@@ -2389,8 +2457,9 @@ def _spatial_assembly(
     LinearOperator,
     Transform,
     PiecewiseChebyshev | ParameterExpansion | SeparableOperator,
+    FluxPlan,
 ]:
-    """Assemble the operator, the transform and the prefactor of spatial geometry.
+    """Assemble the operator, the transform, the prefactor and the plane measure.
 
     Parameters
     ----------
@@ -2409,7 +2478,8 @@ def _spatial_assembly(
     Returns
     -------
     tuple
-        The operator, the transform and the already translated prefactor.
+        The operator, the transform, the already translated prefactor and the
+        run's plane measure.
     """
     dispersion = (
         SpatialDispersion(medium, grid, frame)
@@ -2456,7 +2526,12 @@ def _spatial_assembly(
                 margin=build.margin,
             )
         )
-        return linear, transform, prefactor
+        return (
+            linear,
+            transform,
+            prefactor,
+            flux_plan(spatial_grid, dispersion, linear, tol=build.tol),
+        )
     if isinstance(spatial_grid, FreeGrid):
         linear, prefactor = free_operators(
             spatial_grid,
@@ -2482,7 +2557,27 @@ def _spatial_assembly(
                 margin=build.margin,
             )
         )
-        return linear, transform, prefactor
+        return (
+            linear,
+            transform,
+            prefactor,
+            flux_plan(spatial_grid, dispersion, linear, tol=build.tol),
+        )
+    admission = None
+    if not all(path.is_constant for path in medium.parameter_paths.values()):
+        # SEP 34 section 4.5: every active propagating column must meet the
+        # adiabatic budgets over the whole run path before the forward amplitude
+        # transport is trusted.
+        admission = replace(
+            certify_radial_path(
+                dispersion,
+                spatial_grid.k_r**2,
+                (0.0, build.z_max),
+                build.adiabatic_accuracy,
+            ),
+            # The operator tables resolve the represented path to this tolerance.
+            interpolation_envelope=build.tol,
+        )
     linear, prefactor = radial_operators(
         spatial_grid,
         dispersion,
@@ -2507,7 +2602,12 @@ def _spatial_assembly(
             margin=build.margin,
         )
     )
-    return linear, transform, prefactor
+    return (
+        linear,
+        transform,
+        prefactor,
+        flux_plan(spatial_grid, dispersion, linear, tol=build.tol, admission=admission),
+    )
 
 
 def _general_assembly(
@@ -5512,6 +5612,7 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     initial_z: float = 0.0,
     evanescent_rate: float | None = None,
     transverse_absorber: TransverseCollar | None = None,
+    adiabatic_accuracy: AdiabaticAccuracy | None = None,
 ) -> KernelProblem:
     """Turn the physics objects of a run into a validated kernel problem.
 
@@ -5687,6 +5788,10 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         A transverse-wavevector safety ramp folded into the Cartesian operator as
         ``SeparableOperator.kperp_rate`` (SEP 22 section 4.3). Refused on the radial
         and hybrid planar kinds and without a spatial grid.
+    adiabatic_accuracy : solprop.adiabatic.AdiabaticAccuracy or None, optional
+        The budgets a radial medium varying along z must meet for its forward
+        amplitude transport (SEP 34 section 4.5); None, the default, is
+        ``AdiabaticAccuracy()``. A path exceeding them is refused.
 
     Returns
     -------
@@ -5793,6 +5898,7 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     if z_max <= 0.0:
         msg = f"save_planes must contain a positive position, got {planes}"
         raise TranslationError(msg)
+    _refuse_planes_at_jumps(medium, planes)
 
     thg = any(getattr(one, "thg", False) for one in responses)
     working_frame = frame if frame is not None else Frame.comoving(grid, thg=thg)
@@ -5821,17 +5927,19 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         taper_coupling=taper_coupling,
         evanescent_rate=evanescent_rate,
         transverse_absorber=transverse_absorber,
+        adiabatic_accuracy=adiabatic_accuracy,
     )
     # Each mode's frequency-only terms are sampled once per frequency vector for the
     # whole assembly: the dispersion, power-weight and prefactor tables all read them.
     with _shared_sampling():
         translated_prefactor = None
+        flux = None
         if general is not None:
             linear, transform, translated_prefactor = _general_assembly(
                 general, grid, mode_set, working_frame, build
             )
         elif spatial_grid is not None and medium is not None:
-            linear, transform, translated_prefactor = _spatial_assembly(
+            linear, transform, translated_prefactor, flux = _spatial_assembly(
                 spatial_grid, medium, grid, working_frame, build
             )
         else:
@@ -5954,6 +6062,7 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         stats_spec=StatsSpec() if stats_spec is None else stats_spec,
         tdse=tdse,
         current_numerator=None if tdse is None else current_numerator(grid),
+        flux=flux,
     )
     _validated(problem)
     logger.debug(
@@ -6006,7 +6115,7 @@ def debug_summary(problem: KernelProblem) -> str:
     ...     width=100e-15, peak_power=9.8, pulseshape="sech", n_save=3,
     ... )
     >>> print(debug_summary(simulation.translate()).splitlines()[0])
-    kernel problem schema 34: envelope grid, route modal
+    kernel problem schema 35: envelope grid, route modal
     """
     linear, transform = problem.linear, problem.transform
     tables, metric = transform.modal_tables, linear.modal_metric

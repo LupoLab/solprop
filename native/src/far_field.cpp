@@ -35,21 +35,20 @@ FarFieldLayout far_field_layout(const std::uint64_t flags,
   if ((flags & far_field_amplitude) != 0)
     layout.amplitude = layout.collected == 0 ? 1 : 0;
   layout.stride = (layout.collected == 0 ? 1 : 0) +
-                  (layout.amplitude >= 0 ? 2 * static_cast<long>(n_pol) : 0);
+                  (layout.amplitude >= 0 ? 4 * static_cast<long>(n_pol) : 0);
   long slots = 0;
   const auto place = [&slots](long& first, const long count) {
     first = count != 0 ? slots : -1;
     slots += count;
   };
   place(layout.beam, (flags & far_field_beam) != 0 ? 1 : 0);
-  place(layout.poynting, (flags & far_field_poynting) != 0 ? 1 : 0);
   place(layout.absorbed, (flags & far_field_absorbed) != 0
                              ? static_cast<long>(far_field_absorbed_channels)
                              : 0);
   place(layout.regions,
         (flags & far_field_regions) != 0 ? static_cast<long>(n_regions) : 0);
   place(layout.apertures, layout.stride * static_cast<long>(n_apertures));
-  place(layout.axis, (flags & far_field_axis) != 0 ? 2 * static_cast<long>(n_pol) : 0);
+  place(layout.axis, (flags & far_field_axis) != 0 ? 4 * static_cast<long>(n_pol) : 0);
   layout.n_slots = static_cast<std::size_t>(slots);
   return layout;
 }
@@ -158,11 +157,10 @@ std::vector<double> FarFieldPass::run(const std::uint64_t flags,
     return {};
   const auto n_bands = far_field_band_count(n_x_, n_y_, layout.n_slots, n_omega_);
   const auto needed = n_bands * layout.n_slots * n_omega_;
-  // Spectral rows (beam, flux, regions, collected, the apertures' axes, the axis),
-  // then the four absorbed powers.
+  // Spectral rows (beam, regions, collected, the apertures' axes, the axis), then
+  // the four absorbed powers.
   std::size_t spectral =
-      (layout.beam >= 0 ? 1U : 0U) + (layout.poynting >= 0 ? 1U : 0U) +
-      (layout.regions >= 0 ? n_regions : 0) +
+      (layout.beam >= 0 ? 1U : 0U) + (layout.regions >= 0 ? n_regions : 0) +
       (layout.collected >= 0 ? n_apertures : 0) +
       (layout.amplitude >= 0 ? n_apertures : 0) + (layout.axis >= 0 ? 1U : 0U);
   const std::size_t packed_size =
@@ -228,7 +226,6 @@ void FarFieldPass::accumulate(const FarFieldLayout& layout, const std::size_t n_
   const auto slots = layout.n_slots;
   const auto row = far_field_aperture_constants + n;
   const auto region_table = n_apertures * row;
-  const bool operated = layout.poynting >= 0 || layout.absorbed >= 0;
   const auto weights = inputs.weights;
   const auto on_axis = inputs.on_axis;
   const auto square = inputs.square;
@@ -281,30 +278,31 @@ void FarFieldPass::accumulate(const FarFieldLayout& layout, const std::size_t n_
                   const Complex value = field(column * n_pol + pol, bin);
                   power += value.real() * value.real() + value.imag() * value.imag();
                 }
-                const double weighted = weight * power;
+                const Complex longitudinal = (square(bin) - transverse(column)) +
+                                             (square_low(bin) - transverse_low(column));
+                const Complex root = Kokkos::sqrt(longitudinal);
+                const bool propagating = longitudinal.real() > 0.0;
+                const double attenuation =
+                    propagating ? root.imag()
+                                : Kokkos::min(Kokkos::abs(root.imag()), evanescent);
+                const bool live = active(bin) != 0U;
+                // The conjugate admittance the internal spectrum's closure takes
+                // (solprop SEP 34), zero off the forward power ports.
+                const Complex closing =
+                    live && propagating && omega(bin) > 0.0
+                        ? Complex(far_field_speed_of_light * root.real(),
+                                  -(far_field_speed_of_light * root.imag())) /
+                              omega(bin)
+                        : Complex{};
+                const double weighted = weight * power * closing.real();
                 if (layout.beam >= 0)
                   at(layout.beam) += weighted;
-                if (operated) {
-                  const Complex longitudinal =
-                      (square(bin) - transverse(column)) +
-                      (square_low(bin) - transverse_low(column));
-                  const Complex root = Kokkos::sqrt(longitudinal);
-                  const bool propagating = longitudinal.real() > 0.0;
-                  const double attenuation =
-                      propagating ? root.imag()
-                                  : Kokkos::min(Kokkos::abs(root.imag()), evanescent);
-                  const bool live = active(bin) != 0U;
-                  if (layout.poynting >= 0 && live && propagating && omega(bin) > 0.0)
-                    at(layout.poynting) +=
-                        weighted *
-                        ((far_field_speed_of_light * root.real()) / omega(bin));
-                  if (layout.absorbed >= 0) {
-                    at(layout.absorbed) += weighted * spectral_rate(bin);
-                    if (live) {
-                      at(layout.absorbed + 1) += weighted * transverse_rate(column);
-                      at(propagating ? layout.absorbed + 3 : layout.absorbed + 2) +=
-                          weighted * (2.0 * attenuation);
-                    }
+                if (layout.absorbed >= 0) {
+                  at(layout.absorbed) += weighted * spectral_rate(bin);
+                  if (live) {
+                    at(layout.absorbed + 1) += weighted * transverse_rate(column);
+                    at(propagating ? layout.absorbed + 3 : layout.absorbed + 2) +=
+                        weighted * (2.0 * attenuation);
                   }
                 }
                 for (std::size_t region = 0; region < regions_used; ++region) {
@@ -314,9 +312,15 @@ void FarFieldPass::accumulate(const FarFieldLayout& layout, const std::size_t n_
                     at(layout.regions + static_cast<long>(region)) += weighted;
                 }
                 for (std::size_t pol = 0; pol < n_axes; ++pol) {
-                  const Complex product = alpha * field(column * n_pol + pol, bin);
-                  at(layout.axis + 2 * static_cast<long>(pol)) += product.real();
-                  at(layout.axis + 2 * static_cast<long>(pol) + 1) += product.imag();
+                  const Complex value = field(column * n_pol + pol, bin);
+                  const Complex product = alpha * value;
+                  const Complex closed = alpha * (closing * value);
+                  const long slot = layout.axis + 2 * static_cast<long>(pol);
+                  const long again = slot + 2 * static_cast<long>(n_pol);
+                  at(slot) += product.real();
+                  at(slot + 1) += product.imag();
+                  at(again) += closed.real();
+                  at(again + 1) += closed.imag();
                 }
                 double radius = 0.0;
                 double origin = 0.0;
@@ -349,12 +353,17 @@ void FarFieldPass::accumulate(const FarFieldLayout& layout, const std::size_t n_
                         (exponent == 1 ? transmission : transmission * transmission);
                   if (layout.amplitude >= 0)
                     for (std::size_t pol = 0; pol < n_pol; ++pol) {
-                      const Complex product =
-                          alpha * (transmission * field(column * n_pol + pol, bin));
+                      const Complex through =
+                          transmission * field(column * n_pol + pol, bin);
+                      const Complex product = alpha * through;
+                      const Complex closed = alpha * (closing * through);
                       const long slot =
                           first_slot + layout.amplitude + 2 * static_cast<long>(pol);
+                      const long again = slot + 2 * static_cast<long>(n_pol);
                       at(slot) += product.real();
                       at(slot + 1) += product.imag();
+                      at(again) += closed.real();
+                      at(again + 1) += closed.imag();
                     }
                 }
               });
@@ -380,8 +389,7 @@ void FarFieldPass::finish(const FarFieldLayout& layout, const std::size_t n_band
   const double density = envelope ? dt_ * dt_ / (2.0 * std::numbers::pi)
                                   : 2.0 * (dt_ * dt_) / std::numbers::pi;
   const double energy = dt_ / static_cast<double>(n_t_);
-  const std::size_t leading = static_cast<std::size_t>(layout.beam >= 0) +
-                              static_cast<std::size_t>(layout.poynting >= 0);
+  const std::size_t leading = static_cast<std::size_t>(layout.beam >= 0);
   const std::size_t absorbed = layout.absorbed >= 0 ? far_field_absorbed_channels : 0;
   const std::size_t spectral = (packed_size - absorbed) / n;
   const std::size_t regions = layout.regions >= 0 ? n_regions : 0;
@@ -396,13 +404,13 @@ void FarFieldPass::finish(const FarFieldLayout& layout, const std::size_t n_band
     Kokkos::parallel_for(
         "solprop_native.far_field.finish", Range2(execution_, {0, 0}, {spectral, n}),
         KOKKOS_LAMBDA(const std::size_t row, const std::size_t bin) {
-          // Rows in packed order: beam, flux, regions, collected, the apertures'
-          // axes, the axis; the absorbed powers sit after the first two.
+          // Rows in packed order: beam, regions, collected, the apertures' axes, the
+          // axis; the absorbed powers sit after the beam.
           std::size_t rest = row;
           long slot = -1;
           bool amplitude = false;
           if (rest < leading) {
-            slot = rest == 0 && layout.beam >= 0 ? layout.beam : layout.poynting;
+            slot = layout.beam;
           } else if ((rest -= leading) < regions) {
             slot = layout.regions + static_cast<long>(rest);
           } else if ((rest -= regions) < collected) {
@@ -419,10 +427,13 @@ void FarFieldPass::finish(const FarFieldLayout& layout, const std::size_t n_band
           const auto first = static_cast<std::size_t>(slot);
           double value = 0.0;
           if (amplitude) {
+            // Re(A conj(G)), the amplitude's same-frequency pairing with its closure.
             for (std::size_t pol = 0; pol < n_pol; ++pol) {
               const double real = band_sum(first + 2 * pol, bin);
               const double imag = band_sum(first + 2 * pol + 1, bin);
-              value += density * (real * real + imag * imag);
+              const double closed_real = band_sum(first + 2 * (n_pol + pol), bin);
+              const double closed_imag = band_sum(first + 2 * (n_pol + pol) + 1, bin);
+              value += density * (real * closed_real + imag * closed_imag);
             }
           } else {
             value = density * band_sum(first, bin);

@@ -32,8 +32,10 @@ correlation has a closed form to compare with.
 # %%
 # Scales and the one-half rule
 # ----------------------------
-# The pulses are 50 fs long at 800 nm with a 50 μm waist and 0.25 μJ each; the sample
-# is 1 mm of a medium of constant index 1.45 with an illustrative nonlinear index of
+# The pulses are 50 fs long at 800 nm with a 50 μm waist and a peak field of
+# :math:`9.49\times10^8` V/m each, about 0.36 μJ each in the sample (printed below);
+# the sample is 1 mm of a medium of constant index 1.45 with an illustrative
+# nonlinear index of
 # :math:`3\times10^{-20}` m²/W. Inside it the beams travel at :math:`\pm15` mrad, so
 # their transverse wavenumbers are :math:`\pm K_0` with :math:`K_0 = nk_0\sin\theta`.
 # The signal :math:`2\mathbf k_1-\mathbf k_2` leaves at :math:`3K_0`, and its mirror
@@ -62,7 +64,7 @@ from solprop.grid import EnvelopeGrid, FreeGrid
 from solprop.nonlinear.responses import KerrResponse
 from solprop.physdata.nonlinear_data import chi3_from_n2
 from solprop.pulses import GaussianPulse
-from solprop.spatial import SpatialMedium, spatial_energy
+from solprop.spatial import SpatialFlux, SpatialMedium, spatial_energy
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
 
@@ -72,7 +74,7 @@ WAVELENGTH = 800e-9
 INDEX = 1.45
 N2 = 3e-20
 WAIST = 50e-6
-ENERGY = 0.25e-6
+FIELD = 9.4934e8  # V/m, the peak of each beam's analytic field
 FWHM = 50e-15
 ANGLE = 0.015
 K0 = 2 * np.pi * INDEX / WAVELENGTH * np.sin(ANGLE)
@@ -98,25 +100,32 @@ print(f"grid: {space.n_x} x {space.n_y} columns, {grid.n_omega} frequencies")
 # ``(n_x*n_y, n_pol, n_omega)`` in the internal FFT convention, whose tilt carries a
 # minus sign (the :doc:`/introduction/lessons/plot_04_crossing_beams` lesson derives
 # it). Beam 1 travels towards positive x; beam 2, towards negative x, is delayed by
-# ``t0``, positive for later arrival.
+# ``t0``, positive for later arrival. Each beam is stated by its physical field: a
+# Gaussian times a temporal envelope of unit peak, scaled to ``FIELD``. Its energy is
+# then what it carries through the sample's entrance, the axial Poynting flux in the
+# glass (:doc:`/guide/free-space/flux`).
 
 
 def beam(spatial_grid, direction, delay=0.0):
-    """One tilted Gaussian beam, normalised to ENERGY on its grid."""
+    """One tilted Gaussian beam of peak field FIELD on its grid."""
     x, y = np.meshgrid(spatial_grid.x, spatial_grid.y)
-    pulse = GaussianPulse(wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY, t0=delay)
+    pulse = GaussianPulse(wavelength=WAVELENGTH, fwhm=FWHM, peak_power=1.0, t0=delay)
     profile = np.exp(-(x**2 + y**2) / WAIST**2)
     tilt = np.exp(
         -1j * direction * x[..., None] * grid.omega * INDEX * np.sin(ANGLE) / C
     )
-    physical = profile[..., None] * tilt * pulse.build(grid)[0, 0]
-    spectrum = np.fft.fft2(physical, axes=(0, 1)).reshape(-1, 1, grid.n_omega)
-    return spectrum * np.sqrt(ENERGY / spatial_energy(grid, spatial_grid, spectrum))
+    physical = FIELD * profile[..., None] * tilt * pulse.build(grid)[0, 0]
+    return np.fft.fft2(physical, axes=(0, 1)).reshape(-1, 1, grid.n_omega)
 
 
 def launch(spatial_grid, delay=0.0):
     """Both beams, beam 2 delayed by `delay` in s."""
     return beam(spatial_grid, +1) + beam(spatial_grid, -1, delay)
+
+
+glass = SpatialMedium(INDEX)
+energy = spatial_energy(beam(space, +1), SpatialFlux.resolve(grid, space, glass))
+print(f"each beam carries {energy * 1e6:.4f} μJ into the sample")
 
 
 # %%
@@ -188,7 +197,7 @@ def simulation_for(spatial_grid, **changes):
     return Simulation.from_free(
         grid,
         spatial_grid,
-        SpatialMedium(INDEX),
+        glass,
         [KerrResponse(chi3_from_n2(N2, INDEX), thg=False)],
         launch(spatial_grid),
         settings=settings_for(**changes),
@@ -259,9 +268,10 @@ axis.legend()
 def kx_spectrum(spatial_grid, run):
     """The exit plane's energy per k_x column, summed over k_y and frequency."""
     field = run.plane_field(-1, convention="fft")
-    density = np.sum(np.abs(field) ** 2, axis=(1, 2)).reshape(
-        spatial_grid.n_y, spatial_grid.n_x
-    )
+    # Each column and bin weighted by its real axial admittance in the glass.
+    flux = SpatialFlux.resolve(grid, spatial_grid, glass, z=LENGTH)
+    weighted = np.real(flux.admittance()) * np.sum(np.abs(field) ** 2, axis=1)
+    density = np.sum(weighted, axis=1).reshape(spatial_grid.n_y, spatial_grid.n_x)
     profile = density.sum(axis=0)
     return np.fft.fftshift(spatial_grid.k_x), np.fft.fftshift(profile / profile.sum())
 

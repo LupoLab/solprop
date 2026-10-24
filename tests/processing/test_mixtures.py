@@ -27,6 +27,22 @@ from solprop.spatial import SpatialMedium
 from solprop.translate.linop import power_weight_at
 
 
+def admittance(medium, grid, transverse):
+    """Return the real admittance ``c Re(k_z)/omega`` of each column and bin.
+
+    ``k_z = sqrt((omega n / c)**2 - k_perp**2)`` from the medium's own index, on
+    active positive-frequency propagating bins, zero elsewhere (SEP 34 section 4.2).
+    The fill's density is constant, so the plane's position does not enter.
+    """
+    omega = grid.omega
+    live = grid.active_mask & (omega > 0)
+    eta = np.zeros((transverse.size, grid.n_omega))
+    square = (omega[live] * medium.index(omega[live]) / C) ** 2 - transverse[:, None]
+    root = np.sqrt(square.astype(complex))
+    eta[:, live] = np.where(np.real(square) > 0, C * np.real(root) / omega[live], 0.0)
+    return eta
+
+
 @pytest.fixture(params=["modal", "radial", "free"])
 def case(request):
     material, grid, mode, _, problem = mixture_case()
@@ -159,6 +175,16 @@ def test_node_fluence_integrates_to_saved_energy(case, outputs):
         weights = geometry.spatial_weights
         spectral_weights = EPS0 * C / 2 * geometry.spectral_weights
     spectral = fourier.spectral_density(memory.fields("fft"), grid.dt, kind=grid.kind)
+    if geometry is not None:
+        # Parseval over the plane leaves each column's spectral density weighted by
+        # its real admittance in the fill: the signed fluence integrates to the
+        # axial-flux energy (SEP 34 section 4.2).
+        space = simulation.spatial_grid
+        assert space is not None
+        transverse = space.k_r**2 if isinstance(space, RadialGrid) else space.kperp_sq
+        spectral = (
+            spectral * admittance(simulation.medium, grid, transverse)[None, :, None, :]
+        )
     expected = grid.d_omega * np.sum(
         spectral * spectral_weights[None, :, None, None], axis=(1, 2, 3)
     )
@@ -170,7 +196,7 @@ def test_saved_record_contains_ordered_species_and_complete_optics(case, outputs
     simulation, _ = case
     memory, reloaded = outputs
     for output in (memory, reloaded):
-        assert output.metadata.schema_version == 22
+        assert output.metadata.schema_version == 23
         material = output.metadata.configuration["medium"]
         assert material["labels"] == ["population-0", "population-1"]
         assert (
@@ -258,6 +284,24 @@ def test_unrecorded_material_positions_are_refused(case, factor):
         processing.node_fluence(output)
 
 
+@pytest.mark.parametrize("case", ["radial"], indirect=True)
+def test_a_spatial_record_without_its_plane_measure_is_refused(case):
+    """A schema-22 spatial record predates the medium flux measure (SEP 34)."""
+    simulation, problem = case
+    metadata = simulation.metadata()
+    assert metadata.spatial is not None
+    spatial = {
+        key: value
+        for key, value in metadata.spatial.items()
+        if key not in {"flux_model", "flux_plan"}
+    }
+    output = MemoryOutput()
+    output.open(replace(metadata, schema_version=22, spatial=spatial))
+    output.save(SavedPlane(z=simulation.grid.length, field=problem.initial.field0[0]))
+    with pytest.raises(ProcessingError, match="predates the medium axial-flux"):
+        processing.node_fluence(output)
+
+
 def test_a_schema4_mixture_file_is_still_readable():
     path = Path(__file__).parents[1] / "data" / "mixture_schema4.h5"
     with HDF5Output(path, readonly=True) as output:
@@ -308,7 +352,10 @@ def test_coarse_radial_fluence_matches_direct_bessel_synthesis():
     )
     spectrum = np.einsum("ij,jpw->ipw", basis, field)
     spectral = fourier.spectral_density(spectrum, grid.dt, kind=grid.kind)
-    expected = EPS0 * C / 2 * grid.d_omega * np.sum(spectral, axis=(1, 2))
+    # One column: E and its closure share the Bessel profile, so each bin pairs to
+    # |E|^2 times that column's real admittance in the fill (SEP 34 section 4.2).
+    eta = admittance(SpatialMedium(material), grid, space.k_r[:1] ** 2)[0]
+    expected = EPS0 * C / 2 * grid.d_omega * np.sum(spectral * eta, axis=(1, 2))
     np.testing.assert_allclose(
         processing.node_fluence(output)[0], expected, rtol=bound, atol=0
     )

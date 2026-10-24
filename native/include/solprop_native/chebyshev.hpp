@@ -145,12 +145,15 @@ KOKKOS_INLINE_FUNCTION std::size_t interval_index(const double z, const double* 
  * `c[i * stride]` is the coefficient of degree `i`, for `i < n_terms`; `n_terms` is at
  * least one. The working type is the coefficients' (double, or Kokkos complex).
  */
+// nvcc still needs the `typename` that C++20 makes redundant on the dependent type.
+// NOLINTBEGIN(readability-redundant-typename)
 template <class Stored>
-KOKKOS_INLINE_FUNCTION Coefficient<Stored>::Value
+KOKKOS_INLINE_FUNCTION typename Coefficient<Stored>::Value
 clenshaw_column(const Stored* c, const std::size_t stride, const std::size_t n_terms,
                 const double x) {
-  using Value = Coefficient<Stored>::Value;
+  using Value = typename Coefficient<Stored>::Value;
   using Load = Coefficient<Stored>;
+  // NOLINTEND(readability-redundant-typename)
   if (n_terms == 1)
     return add(Load::load(c[0]), Value(mul(0.0, x)));
   if (n_terms == 2)

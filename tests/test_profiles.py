@@ -651,6 +651,7 @@ def test_profile_identity_refuses_an_arbitrary_callable():
 
     class Elsewhere:
         breakpoints = np.empty(0)
+        jumps = np.empty(0)
         z_span = (0.0, 1.0)
         derivative_is_analytic = True
         is_constant = False
@@ -660,6 +661,9 @@ def test_profile_identity_refuses_an_arbitrary_callable():
 
         def derivative(self, z):
             return np.zeros_like(z)
+
+        def variation(self, start, end):
+            return Constant(0.0).variation(start, end)
 
     with pytest.raises(TranslationError, match="no structural identity"):
         profile_identity(Elsewhere())

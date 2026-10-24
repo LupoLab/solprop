@@ -517,7 +517,10 @@ Withdrawn (development-process record, not a design decision).
   the noise floor drifts along a gradient by at most 0.3 % of the noise amplitude over a
   20 bar gradient. The rejected alternative, carrying the true-power amplitude as the
   internal state, would have changed the first stage pass and the on-axis synthesis in
-  every backend for the same result.
+  every backend for the same result. The first approximation was removed by
+  [SEP 34](seps/sep-0034-medium-flux.md) (2026-10-23): the spatial functionals, launches
+  and noise now use the medium's axial admittance, and a radial gas gradient carries the
+  matching endpoint term.
 
 ## ADR-031 — The default capillary polarisation is x, and parity is defined once
 

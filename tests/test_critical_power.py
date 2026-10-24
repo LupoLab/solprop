@@ -74,19 +74,32 @@ def test_critical_power_matches_the_independent_townes_boundary_value_problem(re
         quadrature_error,
         quadrature_budget,
     )
-    wavelength, chi3 = 800e-9, 3e-26
-    expected = mass * EPS0 * C * wavelength**2 / (3 * np.pi * chi3)
+    # The BVP mass bounds integral(|E_a|^2 dS), in which the index cancels; the
+    # physical paraxial power is n0 eps0 c / 2 times it (axial Poynting flux).
+    wavelength, chi3, index = 800e-9, 3e-26, 1.45
+    expected = index * mass * EPS0 * C * wavelength**2 / (3 * np.pi * chi3)
     bound = mass_bound / mass + gamma(128)
-    assert_allclose(critical_power(wavelength, chi3), expected, rtol=bound, atol=0)
+    assert_allclose(
+        critical_power(wavelength, chi3, index=index), expected, rtol=bound, atol=0
+    )
     # 2*Townes mass > Gaussian's exact negative-Hamiltonian sufficient mass.
     assert 2 * (mass - mass_bound) > 2
 
 
 def test_critical_power_has_wavelength_squared_and_inverse_susceptibility_scaling():
-    base = critical_power(800e-9, 3e-26)
+    base = critical_power(800e-9, 3e-26, index=1.0)
     # Log/exp evaluation and cancellation across decades, fewer than 128 eps.
-    assert_allclose(critical_power(1600e-9, 3e-26), 4 * base, rtol=gamma(128), atol=0)
-    assert_allclose(critical_power(800e-9, 6e-26), base / 2, rtol=gamma(128), atol=0)
+    assert_allclose(
+        critical_power(1600e-9, 3e-26, index=1.0), 4 * base, rtol=gamma(128), atol=0
+    )
+    assert_allclose(
+        critical_power(800e-9, 6e-26, index=1.0), base / 2, rtol=gamma(128), atol=0
+    )
+    # At fixed chi3 the physical power is linear in n0: the field threshold is
+    # index-free and the paraxial flux is n0 eps0 c |E|^2 / 2.
+    assert_allclose(
+        critical_power(800e-9, 3e-26, index=2.5), 2.5 * base, rtol=gamma(128), atol=0
+    )
 
 
 @pytest.mark.parametrize(
@@ -102,4 +115,10 @@ def test_critical_power_has_wavelength_squared_and_inverse_susceptibility_scalin
 )
 def test_critical_power_refuses_invalid_or_unrepresentable_inputs(wavelength, chi3):
     with pytest.raises(MaterialError, match="critical power"):
-        critical_power(wavelength, chi3)
+        critical_power(wavelength, chi3, index=1.0)
+
+
+@pytest.mark.parametrize("index", [0.0, -1.0, np.inf, np.nan])
+def test_critical_power_refuses_an_invalid_index(index):
+    with pytest.raises(MaterialError, match="critical power"):
+        critical_power(800e-9, 3e-26, index=index)

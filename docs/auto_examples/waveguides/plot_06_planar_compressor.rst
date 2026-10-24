@@ -128,7 +128,7 @@ propagates, the closed forms give the regime:
 * the B integral over the guide;
 * the whole-beam self-focusing length of Arnold's section 2.1.
 
-.. GENERATED FROM PYTHON SOURCE LINES 115-245
+.. GENERATED FROM PYTHON SOURCE LINES 115-247
 
 .. code-block:: Python
 
@@ -155,7 +155,7 @@ propagates, the closed forms give the regime:
     from solprop.processing.compression import compress_taylor
     from solprop.processing.time import fwhm
     from solprop.pulses import GaussianPulse, PlanarPulse
-    from solprop.spatial import planar_mode_energy
+    from solprop.spatial import SpatialFlux, SpatialMedium, planar_mode_energy
     from solprop.stats import StatsSpec, default_spec
     from solprop.stepper import PIController
 
@@ -251,7 +251,9 @@ propagates, the closed forms give the regime:
     # every sample of the pulse from one vectorised call of the rate.
     t = np.linspace(-4.0, 4.0, 4001) * DURATION
     envelope = intensity * np.exp(-4.0 * np.log(2.0) * (t / DURATION) ** 2)
-    amplitude = np.sqrt(2.0 * envelope / (EPS0 * C))
+    # The axial intensity is n0 eps0 c |E|^2 / 2 in the gas (SEP 34); the rate reads E.
+    n0 = float(np.real(SpatialMedium("Ar", pressure=PRESSURE).index(np.array([k0 * C]))[0]))
+    amplitude = np.sqrt(2.0 * envelope / (n0 * EPS0 * C))
     rate = linear_cycle_averages(OptmatRate("Ar", WAVELENGTH), amplitude)
     electrons = density("Ar", PRESSURE) * (1.0 - np.exp(-np.trapezoid(rate, t)))
     omega0 = k0 * C
@@ -277,12 +279,12 @@ propagates, the closed forms give the regime:
     incident peak power 190 GW, peak intensity 3.35e+13 W/cm^2 (Arnold: 3.35e13)
     n2 1.567e-23 m^2/W here, 1.489e-23 in Arnold's model; B over 0.21 m: 8.65 here, 8.22 with Arnold's n2 (they quote 8)
     P*/Pc = 4193; whole-beam self-focusing length 2.5 m, 12 guide lengths
-    electrons at the peak 3.6e+14 cm^-3; their index change is 1.9% of the Kerr one
+    electrons at the peak 3.5e+14 cm^-3; their index change is 1.9% of the Kerr one
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 246-261
+.. GENERATED FROM PYTHON SOURCE LINES 248-263
 
 The grid and the launch
 -----------------------
@@ -300,7 +302,7 @@ entrance, as in the experiment.
 The statistics are recorded at every step as well as at the save planes: the
 energy for the transmission, and the peak intensity for the B integral.
 
-.. GENERATED FROM PYTHON SOURCE LINES 261-298
+.. GENERATED FROM PYTHON SOURCE LINES 263-300
 
 .. code-block:: Python
 
@@ -357,19 +359,19 @@ energy for the transmission, and the peak intensity for the B integral.
       spacing in y:    38.67 um
       window factor:   0.1
       measure:         area: energy J, power W
-    estimated memory on native: 1.74 GB
+    estimated memory on native: 1.77 GB
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 299-303
+.. GENERATED FROM PYTHON SOURCE LINES 301-305
 
 The propagation
 ---------------
 Kerr only. The backend is the default, ``"auto"``, which is the native build where
 one is installed.
 
-.. GENERATED FROM PYTHON SOURCE LINES 303-325
+.. GENERATED FROM PYTHON SOURCE LINES 305-338
 
 .. code-block:: Python
 
@@ -391,8 +393,19 @@ one is installed.
         return np.fft.ifft(plane[:, 0].reshape(space.n_y, space.n_p, -1), axis=0)
 
 
+    def closure_of(plane, flux):
+        """Return the magnetic closure of a saved plane as rows at each y.
+
+        Each ``(p, k_y)`` column carries its own admittance ``c q / omega`` (SEP 34);
+        the internal spectrum takes its conjugate.
+        """
+        return rows_of(np.conj(flux.admittance())[:, None, :] * plane)
+
+
+    flux = SpatialFlux.resolve(grid, space, clean.medium)
     fields = clean_output.fields("fft")
     entrance, exit_ = rows_of(fields[0]), rows_of(fields[-1])
+    entrance_g, exit_g = closure_of(fields[0], flux), closure_of(fields[-1], flux)
     centre = int(np.argmin(np.abs(space.y)))
 
 
@@ -415,7 +428,7 @@ one is installed.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 326-333
+.. GENERATED FROM PYTHON SOURCE LINES 339-346
 
 The launch's modal shares
 -------------------------
@@ -425,13 +438,13 @@ against the Gaussian's projection. They agree to the quadrature of the x rule;
 Kerr effect moves a little energy between the modes while the loss damps the
 higher ones.
 
-.. GENERATED FROM PYTHON SOURCE LINES 333-342
+.. GENERATED FROM PYTHON SOURCE LINES 346-355
 
 .. code-block:: Python
 
 
-    launched = planar_mode_energy(grid, space, fields[0]) / ENERGY
-    leaving = planar_mode_energy(grid, space, fields[-1]) / ENERGY
+    launched = planar_mode_energy(fields[0], flux) / ENERGY
+    leaving = planar_mode_energy(fields[-1], flux) / ENERGY
     for mode, projected, first, last in zip(modes, shares, launched, leaving, strict=True):
         print(
             f"{mode.channel_label.display_label}: projected {projected:.3e}, "
@@ -447,14 +460,14 @@ higher ones.
  .. code-block:: none
 
     TE1: projected 9.812e-01, launched 9.812e-01, at the exit 9.208e-01
-    TE3: projected 1.348e-04, launched 1.348e-04, at the exit 7.629e-04
-    TE5: projected 2.030e-03, launched 2.030e-03, at the exit 4.527e-04
-    TE7: projected 1.196e-03, launched 1.196e-03, at the exit 6.230e-05
+    TE3: projected 1.348e-04, launched 1.348e-04, at the exit 7.622e-04
+    TE5: projected 2.030e-03, launched 2.030e-03, at the exit 4.526e-04
+    TE7: projected 1.196e-03, launched 1.196e-03, at the exit 6.228e-05
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 343-350
+.. GENERATED FROM PYTHON SOURCE LINES 356-363
 
 Transmission
 ------------
@@ -464,7 +477,7 @@ Arnold's closed form: each mode keeps its launched share and loses power at
 moves energy between modes, and because loss grows as :math:`\lambda^2` across the
 broadened spectrum.
 
-.. GENERATED FROM PYTHON SOURCE LINES 350-368
+.. GENERATED FROM PYTHON SOURCE LINES 363-381
 
 .. code-block:: Python
 
@@ -504,7 +517,7 @@ broadened spectrum.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 369-375
+.. GENERATED FROM PYTHON SOURCE LINES 382-388
 
 Spectral broadening
 -------------------
@@ -513,7 +526,7 @@ each against the entrance on its own decibel scale. The centre, where the intens
 is highest, broadens most; averaged over the beam, the wings add a narrower
 spectrum on top.
 
-.. GENERATED FROM PYTHON SOURCE LINES 375-403
+.. GENERATED FROM PYTHON SOURCE LINES 388-416
 
 .. code-block:: Python
 
@@ -557,7 +570,7 @@ spectrum on top.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 404-412
+.. GENERATED FROM PYTHON SOURCE LINES 417-425
 
 The compressed pulse
 --------------------
@@ -568,7 +581,7 @@ the highest peak power of the pulse at the beam centre, summed over the modes: t
 power per metre of y there. It returns the phase, the durations and the transform
 limit.
 
-.. GENERATED FROM PYTHON SOURCE LINES 412-455
+.. GENERATED FROM PYTHON SOURCE LINES 425-468
 
 .. code-block:: Python
 
@@ -629,17 +642,17 @@ limit.
  .. code-block:: none
 
     Compression by taylor
-      found:      GDD -76.32 fs^2
-      duration:   44.84 fs before, 9.182 fs after, 8.574 fs at the transform limit
-      peak power: 18.9 TW before, 77.28 TW after, 90.78 TW at the limit
-      quality:    0.8513 of the transform-limited peak power
+      found:      GDD -76.34 fs^2
+      duration:   44.84 fs before, 9.185 fs after, 8.577 fs at the transform limit
+      peak power: 18.89 TW before, 77.23 TW after, 90.72 TW at the limit
+      quality:    0.8514 of the transform-limited peak power
       search:     converged: Solution found. (78 evaluations)
     GDD -76 fs^2 compresses the centre from 44.8 fs to 9.2 fs (transform limit 8.6 fs; Akturk measured 13.6 fs with mirrors of about -300 fs^2)
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 456-469
+.. GENERATED FROM PYTHON SOURCE LINES 469-482
 
 Across the beam
 ---------------
@@ -655,24 +668,32 @@ see less self-phase modulation, so the centre's phase compresses them less. The
 share of the energy within 1.5 times the centre's duration is the number Arnold
 *et al.* (2010) give as 71 % (67.6 % measured).
 
-.. GENERATED FROM PYTHON SOURCE LINES 469-509
+.. GENERATED FROM PYTHON SOURCE LINES 482-530
 
 .. code-block:: Python
 
 
 
-    def fluence_across(rows):
-        """Return the fluence integrated across the gap at each y, J/m."""
-        return np.sum(fourier.energy_omega(rows, grid.dt, kind=grid.kind), axis=-1)
+    def fluence_across(rows, closure):
+        """Return the axial flux integrated over time and across the gap at each y, J/m.
+
+        The slab modes are orthonormal in x, so the gap integral pairs each mode with
+        its own closure.
+        """
+        weights = fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
+        return np.sum(weights * np.real(rows * np.conj(closure)), axis=(-2, -1))
 
 
-    def mid_plane_peak(rows):
-        """Return the peak intensity over time on the mid-plane at each y, W/m^2."""
+    def mid_plane_peak(rows, closure):
+        """Return the peak axial intensity over time on the mid-plane at each y, W/m^2."""
         field = fourier.inverse(np.einsum("p,ypw->yw", space.centre, rows), kind=grid.kind)
-        return 0.5 * EPS0 * C * np.max(np.abs(field) ** 2, axis=-1)
+        magnetic = fourier.inverse(
+            np.einsum("p,ypw->yw", space.centre, closure), kind=grid.kind
+        )
+        return 0.5 * EPS0 * C * np.max(np.real(field * np.conj(magnetic)), axis=-1)
 
 
-    fluence = fluence_across(exit_)
+    fluence = fluence_across(exit_, exit_g)
     lit = fluence > 1e-3 * fluence.max()
     durations = np.full(space.n_y, np.nan)
     for index in np.flatnonzero(lit):
@@ -685,12 +706,12 @@ share of the energy within 1.5 times the centre's duration is the number Arnold
 
     fig, (top, middle, bottom) = plt.subplots(3, 1, figsize=(6.4, 7.2), sharex=True)
     y_mm = space.y * 1e3
-    top.plot(y_mm, fluence_across(entrance), color="0.6", label="entrance")
+    top.plot(y_mm, fluence_across(entrance, entrance_g), color="0.6", label="entrance")
     top.plot(y_mm, fluence, label="exit")
     top.set_ylabel("fluence across\nthe gap (J/m)")
     top.legend(frameon=False)
-    middle.plot(y_mm, mid_plane_peak(entrance) * 1e-4, color="0.6")
-    middle.plot(y_mm, mid_plane_peak(exit_) * 1e-4)
+    middle.plot(y_mm, mid_plane_peak(entrance, entrance_g) * 1e-4, color="0.6")
+    middle.plot(y_mm, mid_plane_peak(exit_, exit_g) * 1e-4)
     middle.set_ylabel("peak intensity\nat x = 0 (W/cm$^2$)")
     bottom.plot(y_mm[lit], durations[lit] * 1e15)
     bottom.axhline(1.5 * durations[centre] * 1e15, color="0.6", linestyle=":")
@@ -717,7 +738,7 @@ share of the energy within 1.5 times the centre's duration is the number Arnold
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 510-525
+.. GENERATED FROM PYTHON SOURCE LINES 531-546
 
 A beam that is not clean
 ------------------------
@@ -735,14 +756,16 @@ of wavenumber :math:`K` grows as :math:`\exp(gz)`, with
 :math:`K` up to :math:`2k_0\sqrt{n_2I}`, 3.6e4 rad/m here, and fastest at a period
 of 0.25 mm.
 
-.. GENERATED FROM PYTHON SOURCE LINES 525-541
+.. GENERATED FROM PYTHON SOURCE LINES 546-570
 
 .. code-block:: Python
 
 
     rng = np.random.default_rng(49)
     noise = 1.0 + SEED * rng.standard_normal(space.n_y)
-    seeded_rows = rows_of(launch.build(grid, space)) * noise[:, None, None]
+    seeded_rows = (
+        rows_of(launch.build(grid, space, medium=clean.medium)) * noise[:, None, None]
+    )
     seeded_launch = np.fft.fft(seeded_rows, axis=0).reshape(space.n_columns, 1, -1)
     planes = np.union1d(np.arange(1, 11) * LONG / 10, [LENGTH])
     long_grid = EnvelopeGrid.from_limits(LONG, WAVELENGTH, (450e-9, 1.6e-6), 400e-15)
@@ -752,7 +775,13 @@ of 0.25 mm.
     seeded_output = seeded.run(progress="none")
     seeded_fields = seeded_output.fields("fft")
     seeded_z = np.asarray(seeded_output["z"])
-    seeded_fluence = np.array([fluence_across(rows_of(plane)) for plane in seeded_fields])
+    long_flux = SpatialFlux.resolve(long_grid, space, clean.medium)
+    seeded_fluence = np.array(
+        [
+            fluence_across(rows_of(plane), closure_of(plane, long_flux))
+            for plane in seeded_fields
+        ]
+    )
     del seeded_fields
 
 
@@ -762,7 +791,7 @@ of 0.25 mm.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 542-547
+.. GENERATED FROM PYTHON SOURCE LINES 571-576
 
 The B integral of both runs along z: the model's own nonlinear phase at its peak,
 :math:`k_0 n_2 \int I_{\rm peak}\,dz`, with :math:`I_{\rm peak}` the largest
@@ -770,7 +799,7 @@ intensity anywhere in the beam at each step. The ripples are measured as the rms
 relative departure of the fluence from its own smooth part (wavenumbers below
 5e3 rad/m, periods above 1.3 mm) within one beam radius of the centre.
 
-.. GENERATED FROM PYTHON SOURCE LINES 547-600
+.. GENERATED FROM PYTHON SOURCE LINES 576-629
 
 .. code-block:: Python
 
@@ -842,30 +871,30 @@ relative departure of the fluence from its own smooth part (wavenumbers below
 
     z =  0.0 cm: B =  0.00, fluence ripple 1.89e-05
     z =  5.0 cm: B =  2.14, fluence ripple 1.47e-05
-    z = 10.0 cm: B =  4.24, fluence ripple 2.34e-05
-    z = 15.0 cm: B =  6.28, fluence ripple 6.77e-05
+    z = 10.0 cm: B =  4.24, fluence ripple 2.33e-05
+    z = 15.0 cm: B =  6.28, fluence ripple 6.76e-05
     z = 20.0 cm: B =  8.29, fluence ripple 2.35e-04
-    z = 21.0 cm: B =  8.68, fluence ripple 3.04e-04
-    z = 25.0 cm: B = 10.24, fluence ripple 8.54e-04
-    z = 30.0 cm: B = 12.18, fluence ripple 3.14e-03
-    z = 35.0 cm: B = 14.22, fluence ripple 1.16e-02
-    z = 40.0 cm: B = 17.17, fluence ripple 4.33e-02
-    z = 45.0 cm: B = 36.64, fluence ripple 1.57e-01
-    z = 50.0 cm: B = 101.25, fluence ripple 2.32e-01
+    z = 21.0 cm: B =  8.68, fluence ripple 3.03e-04
+    z = 25.0 cm: B = 10.24, fluence ripple 8.51e-04
+    z = 30.0 cm: B = 12.18, fluence ripple 3.13e-03
+    z = 35.0 cm: B = 14.22, fluence ripple 1.15e-02
+    z = 40.0 cm: B = 17.16, fluence ripple 4.31e-02
+    z = 45.0 cm: B = 36.42, fluence ripple 1.56e-01
+    z = 50.0 cm: B = 100.99, fluence ripple 2.31e-01
     clean beam: B = 8.68 at the exit, ripple 1.7e-09
-    the ripple first exceeds 10 % at B = 36.6
+    the ripple first exceeds 10 % at B = 36.4
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 601-605
+.. GENERATED FROM PYTHON SOURCE LINES 630-634
 
 The seeded beam's fluence across y at every saved plane, and at the guide's own
 length and at 50 cm, beside the clean beam at 21 cm. The gain is largest where the
 intensity is, so the ripples should appear first at the centre of the beam, at
 about the MI period, and spread outwards as they deepen into filaments.
 
-.. GENERATED FROM PYTHON SOURCE LINES 605-624
+.. GENERATED FROM PYTHON SOURCE LINES 634-653
 
 .. code-block:: Python
 
@@ -900,14 +929,14 @@ about the MI period, and spread outwards as they deepen into filaments.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 625-629
+.. GENERATED FROM PYTHON SOURCE LINES 654-658
 
 Runtime and reproducibility
 ---------------------------
 Two runs of four slab modes by 1024 samples in y by 512 in time: 21 cm with a clean
 beam and 50 cm with a seeded one.
 
-.. GENERATED FROM PYTHON SOURCE LINES 629-637
+.. GENERATED FROM PYTHON SOURCE LINES 658-666
 
 .. code-block:: Python
 
@@ -927,12 +956,12 @@ beam and 50 cm with a seeded one.
 
  .. code-block:: none
 
-    335 s; backend native, 18 threads
+    567 s; backend native, 18 threads
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 638-644
+.. GENERATED FROM PYTHON SOURCE LINES 667-673
 
 Related reading
 ---------------
@@ -944,7 +973,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (5 minutes 35.210 seconds)
+   **Total running time of the script:** (9 minutes 26.641 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_06_planar_compressor.py:

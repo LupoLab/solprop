@@ -8,7 +8,8 @@ free-space run evolves the electric field itself on a transverse grid, with the 
 routes: the time grids, the pulses, the Kerr, plasma and Raman responses, the stepper,
 the output files and the backends. The derivations — the operator, the field units, the
 absorbing collar and the critical power — are on the reference page,
-[the free-space model](model.md); this page is how to use it.
+[the free-space model](model.md), and what energy and intensity mean in a medium is
+[energy and flux in a medium](flux.md); this page is how to use it.
 
 Every snippet on this page runs as written, in seconds (the test suite executes them in
 order), and may build on the ones before it.
@@ -69,7 +70,8 @@ finite height between two plates; it is described with the other guides, in
 
 A beam is a temporal pulse wrapped in a transverse profile,
 {py:class}`~solprop.pulses.SpatialPulse`; `waist` is the 1/e² intensity radius, and the
-pulse's `energy` or `peak_power` is the whole beam's. The medium is a
+pulse's `energy` or `peak_power` is the whole beam's physical energy or peak power in the
+medium at the launch plane ([energy and flux in a medium](flux.md)). The medium is a
 {py:class}`~solprop.spatial.SpatialMedium` — a gas at a pressure, a glass, or a constant
 index; `SpatialMedium()` is vacuum. The responses are the same objects the fibre routes
 use. Here a 100 µm beam at 1.5 times the critical power propagates a centimetre
@@ -82,7 +84,8 @@ from solprop.boundaries import absorber
 from solprop.driver import SimulationSettings, prop_radial
 from solprop.grid import EnvelopeGrid, RadialGrid
 from solprop.nonlinear.responses import KerrResponse
-from solprop.physdata import chi3, gamma3
+from solprop.constants import C
+from solprop.physdata import chi3, gamma3, refractive_index
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium, critical_power
 from solprop.stats import StatsSpec
@@ -90,7 +93,8 @@ from solprop.stepper import PIController
 
 length, planes = 1e-2, 10
 argon = SpatialMedium("Ar", pressure=1.0)
-power = critical_power(800e-9, chi3("Ar", pressure=1.0, wavelength=800e-9))
+n0 = float(refractive_index("Ar", 2 * np.pi * C / 800e-9, pressure=1.0))
+power = critical_power(800e-9, chi3("Ar", pressure=1.0, wavelength=800e-9), index=n0)
 print(f"critical power in argon at 1 bar: {power * 1e-9:.3g} GW")
 
 grid = EnvelopeGrid.from_limits(length, 800e-9, (600e-9, 1.2e-6), 200e-15, thg=False)
@@ -121,7 +125,7 @@ run = prop_radial(
 The statistics are recorded at every saved plane. `beam_radius` holds two radii of the
 fluence: the second moment (index 0), which the wings dominate, and the interpolated
 radius at which the fluence falls to 1/e² of its peak (index 1), which follows the core;
-`peak_intensity` is the largest intensity over the grid:
+`peak_intensity` is the largest axial flux over the grid:
 
 ```python
 radius = np.asarray(run["stats/beam_radius"])[..., 1].reshape(-1)
@@ -152,7 +156,9 @@ or a filament. Both are checked the usual way: double them and compare.
 A `SpatialPulse` is built at its waist unless `propz=` moves it: a negative distance
 launches the beam before its waist, so it focuses during the run. By default the launch
 is made in the run's own medium; to launch a beam focused in vacuum — a lens outside the
-cell — build the spectrum yourself and pass it as the input:
+cell — build the spectrum yourself and pass it as the input. Its `energy` is then the
+energy in vacuum; in the argon the same field carries $n_0$ times as much, which the
+run's `energy` statistic reports:
 
 ```python
 focusing = SpatialPulse(
@@ -256,12 +262,16 @@ at half of it, the beam diffracts.
 
 A free-space run writes the same output as any other, with the spatial axes, weights and
 units in its metadata. The processing and plotting functions take it directly; the
-fluence at a plane is {py:func}`~solprop.spatial.spatial_fluence`:
+fluence at a plane is {py:func}`~solprop.spatial.spatial_fluence`, which takes the field
+and the measure of its plane, a {py:class}`~solprop.spatial.SpatialFlux` resolved in the
+medium at that position:
 
 ```python
-from solprop.spatial import spatial_fluence
+from solprop.spatial import SpatialFlux, spatial_fluence
 
-fluence = spatial_fluence(grid, space, run.planes()[-1].field)  # J/m², at space.r
+exit_plane = run.planes()[-1]
+flux = SpatialFlux.resolve(grid, space, argon, z=exit_plane.z)
+fluence = spatial_fluence(exit_plane.field, flux)  # J/m², at space.r
 print(f"peak fluence at the exit: {float(fluence.max()):.3g} J/m²")
 ```
 
@@ -285,7 +295,8 @@ on the model page under
 - The radial grid represents no azimuthal structure: a beam that breaks into several
   filaments, or is not round, needs the Cartesian grid.
 - A medium that varies along z — a pressure profile — is accepted on the radial grid
-  only; the Cartesian and line grids take a constant medium.
+  only, when it meets the [adiabatic certificate](flux.md#the-adiabatic-certificate); the
+  Cartesian and line grids take a constant medium.
 - The line is uniform in y: no collapse, no critical power, and no instability in y.
 - The critical power is the Townes value for a monochromatic, paraxial, Kerr-only beam.
   It orders a run, but it does not predict where a pulse with plasma will collapse.

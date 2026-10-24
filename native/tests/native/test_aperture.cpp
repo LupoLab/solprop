@@ -3,11 +3,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // The far-field pass of solprop SEP 23 against a straightforward serial host reduction
-// of the same definitions: the beam and axial-flux spectra, the absorbed channels, the
-// regions, the apertures' collected and on-axis spectra and the on-axis spectrum, on a
-// plane and on a line of several blocks, on field and envelope grids. The two sum the
-// same terms in different associations, so they agree within a rounding bound fixed
-// before running (solprop SEP 25), never by bits; hard-edge membership is shared.
+// of the same definitions, measured by the medium's axial flux (solprop SEP 34): the
+// beam spectrum, the absorbed channels, the regions, the apertures' collected and
+// on-axis spectra and the on-axis spectrum, on a plane and on a line of several blocks,
+// on field and envelope grids. The two sum the same terms in different associations, so
+// they agree within a rounding bound fixed before running (solprop SEP 25), never by
+// bits; hard-edge membership is shared.
 
 #include "bounds.hpp"
 #include "solprop_native/core.hpp"
@@ -184,12 +185,14 @@ std::vector<double> reference(const Case& data, const int profile, const int exp
   const std::size_t row = native::far_field_aperture_constants + n;
   const std::size_t n_apertures = data.apertures.size() / row;
   const std::size_t n_regions = data.regions.size() / 4;
-  std::vector<double> beam(n), flux(n), absorbed(4), axis(n);
+  std::vector<double> beam(n), absorbed(4), axis(n);
   std::vector<std::vector<double>> regions(n_regions, std::vector<double>(n));
   std::vector<std::vector<double>> collected(n_apertures, std::vector<double>(n));
   std::vector<std::vector<double>> through(n_apertures, std::vector<double>(n));
   for (std::size_t bin = 0; bin < n; ++bin) {
+    // Each amplitude and its magnetic closure, the same sum with conj(eta) applied.
     std::vector<std::complex<double>> amplitude(n_pol), axial(n_apertures * n_pol);
+    std::vector<std::complex<double>> closed(n_pol), closed_axial(n_apertures * n_pol);
     for (std::size_t column = 0; column < columns; ++column) {
       const double kx = problem.spatial_k_x[column % problem.n_x];
       const double ky = problem.spatial_k_y[column / problem.n_x];
@@ -198,8 +201,6 @@ std::vector<double> reference(const Case& data, const int profile, const int exp
         power += std::norm(
             std::complex<double>(data.field[(column * n_pol + pol) * n + bin].real(),
                                  data.field[(column * n_pol + pol) * n + bin].imag()));
-      const double weighted = data.weights[column] * power;
-      beam[bin] += weighted;
       const std::complex<double> longitudinal =
           (std::complex<double>(data.square[bin].real(), data.square[bin].imag()) -
            data.transverse[column]) +
@@ -211,9 +212,13 @@ std::vector<double> reference(const Case& data, const int profile, const int exp
       const double attenuation =
           propagating ? root.imag() : std::min(std::abs(root.imag()), data.evanescent);
       const bool live = data.active[bin] != 0U;
-      if (live && propagating && data.omega[bin] > 0.0)
-        flux[bin] +=
-            weighted * native::far_field_speed_of_light * root.real() / data.omega[bin];
+      // The conjugate admittance conj(c k_z / omega) on the forward power ports.
+      const std::complex<double> closing =
+          live && propagating && data.omega[bin] > 0.0
+              ? std::conj(native::far_field_speed_of_light * root / data.omega[bin])
+              : std::complex<double>{};
+      const double weighted = data.weights[column] * power * closing.real();
+      beam[bin] += weighted;
       const double energy = (envelope || bin == 0 || bin + 1 == n ? 1.0 : 4.0) * dt /
                             static_cast<double>(problem.n_t);
       absorbed[0] += energy * weighted * data.spectral_rate[bin];
@@ -233,6 +238,8 @@ std::vector<double> reference(const Case& data, const int profile, const int exp
         const auto& stored = data.field[(column * n_pol + pol) * n + bin];
         const std::complex<double> value(stored.real(), stored.imag());
         amplitude[pol] += magnitude ? std::abs(alpha) * std::abs(value) : alpha * value;
+        closed[pol] += magnitude ? std::abs(alpha) * std::abs(closing) * std::abs(value)
+                                 : alpha * (closing * value);
       }
       for (std::size_t index = 0; index < n_apertures; ++index) {
         const double* constants = &data.apertures[index * row];
@@ -250,19 +257,23 @@ std::vector<double> reference(const Case& data, const int profile, const int exp
           axial[index * n_pol + pol] += magnitude
                                             ? std::abs(alpha) * weight * std::abs(value)
                                             : alpha * (weight * value);
+          closed_axial[index * n_pol + pol] +=
+              magnitude ? std::abs(alpha) * weight * std::abs(closing) * std::abs(value)
+                        : alpha * (closing * (weight * value));
         }
       }
     }
+    // Re(A conj(G)): the amplitude's pairing with its closure.
     for (std::size_t pol = 0; pol < n_pol; ++pol)
-      axis[bin] += density * std::norm(amplitude[pol]);
+      axis[bin] += density * (amplitude[pol] * std::conj(closed[pol])).real();
     for (std::size_t index = 0; index < n_apertures; ++index)
       for (std::size_t pol = 0; pol < n_pol; ++pol)
-        through[index][bin] += density * std::norm(axial[index * n_pol + pol]);
+        through[index][bin] += density * (axial[index * n_pol + pol] *
+                                          std::conj(closed_axial[index * n_pol + pol]))
+                                             .real();
   }
   std::vector<double> packed;
   for (const double value : beam)
-    packed.push_back(0.5 * density * value);
-  for (const double value : flux)
     packed.push_back(0.5 * density * value);
   for (const double value : absorbed)
     packed.push_back(0.5 * value);
@@ -314,15 +325,17 @@ TEST_P(FarFieldPassAgainstHost, EveryStatisticMatchesTheSerialReduction) {
   const auto expected = reference(data, variant.profile, variant.exponent, false);
   const auto magnitude = reference(data, variant.profile, variant.exponent, true);
   expect_matches(actual, expected, magnitude, variant.n_x * variant.n_y);
-  // Every channel and aperture takes part on this fixture.
+  // Every channel but the evanescent one, which carries no axial flux, and every
+  // aperture take part on this fixture.
   const auto n = data.problem.n_omega;
-  for (std::size_t channel = 0; channel < 4; ++channel)
-    EXPECT_NE(actual[2 * n + channel], 0.0) << channel;
+  for (const std::size_t channel : {0U, 1U, 3U})
+    EXPECT_NE(actual[n + channel], 0.0) << channel;
+  EXPECT_EQ(actual[n + 2], 0.0);
   // On a line the boxes excluding k_y = 0 select nothing (SEP 23 section 4.10).
   for (std::size_t row = variant.n_y == 1 ? 2 : 0; row < 4 + 3; ++row) {
     double total = 0.0;
     for (std::size_t bin = 0; bin < n; ++bin)
-      total += actual[2 * n + 4 + row * n + bin];
+      total += actual[n + 4 + row * n + bin];
     EXPECT_GT(total, 0.0) << row;
   }
 }
@@ -362,17 +375,17 @@ TEST(FarFieldPass, APartialRequestPacksOnlyItsRows) {
   auto data = make_case(5, 4, 1, true, 1);
   const auto every = run(data, kEvery, 1, 2);
   const auto n = data.problem.n_omega;
-  // The axial flux and the apertures' on-axis spectra alone: the same values as the
-  // full request's rows, within the bound (another slot count, the same sums).
+  // The beam spectrum and the apertures' on-axis spectra alone: the same values as
+  // the full request's rows, within the bound (another slot count, the same sums).
   const auto partial =
-      run(data, native::far_field_poynting | native::far_field_amplitude, 1, 2);
+      run(data, native::far_field_beam | native::far_field_amplitude, 1, 2);
   ASSERT_EQ(partial.size(), 4 * n);
   const auto magnitude = reference(data, 1, 2, true);
   const double relative = 3.0 * gamma(8 * 20 + 64) + 8.0 * kEpsilon;
   for (std::size_t bin = 0; bin < n; ++bin) {
-    EXPECT_LE(std::abs(partial[bin] - every[n + bin]), relative * magnitude[n + bin]);
+    EXPECT_LE(std::abs(partial[bin] - every[bin]), relative * magnitude[bin]);
     for (std::size_t index = 0; index < 3; ++index) {
-      const auto full = 2 * n + 4 + (4 + 3) * n + index * n + bin;
+      const auto full = n + 4 + (4 + 3) * n + index * n + bin;
       EXPECT_LE(std::abs(partial[n + index * n + bin] - every[full]),
                 relative * magnitude[full]);
     }
@@ -399,11 +412,8 @@ TEST(FarFieldPass, DeclaredAperturesCostNothingUnlessAsked) {
   const double relative = 3.0 * gamma(8 * 20 + 64) + 8.0 * kEpsilon;
   for (std::size_t index = 0; index < bare.size(); ++index) {
     // Packed rows: the beam, the absorbed powers, the regions, the axis; the full
-    // request also packs the flux row and three rows of each aperture statistic.
-    const std::size_t full = index < n           ? index
-                             : index < n + 4     ? index + n
-                             : index < 5 * n + 4 ? index + n
-                                                 : index + (1 + 3 + 3) * n;
+    // request also packs three rows of each aperture statistic before the axis.
+    const std::size_t full = index < 5 * n + 4 ? index : index + (3 + 3) * n;
     EXPECT_LE(std::abs(declared[index] - bare[index]), relative * magnitude[full])
         << index;
   }
@@ -413,19 +423,19 @@ TEST(FarFieldPass, TheLayoutAndBandsAreSolpropsOwn) {
   // solprop's far_field_layout: every quantity, three apertures, four regions, two
   // polarisations.
   const auto layout = native::far_field_layout(kEvery, 3, 4, 2);
+  // Each amplitude holds its electric sum and its magnetic closure, 4 n_pol slots.
   EXPECT_EQ(layout.beam, 0);
-  EXPECT_EQ(layout.poynting, 1);
-  EXPECT_EQ(layout.absorbed, 2);
-  EXPECT_EQ(layout.regions, 6);
-  EXPECT_EQ(layout.apertures, 10);
-  EXPECT_EQ(layout.stride, 5);
+  EXPECT_EQ(layout.absorbed, 1);
+  EXPECT_EQ(layout.regions, 5);
+  EXPECT_EQ(layout.apertures, 9);
+  EXPECT_EQ(layout.stride, 9);
   EXPECT_EQ(layout.collected, 0);
   EXPECT_EQ(layout.amplitude, 1);
-  EXPECT_EQ(layout.axis, 25);
-  EXPECT_EQ(layout.n_slots, 29U);
+  EXPECT_EQ(layout.axis, 36);
+  EXPECT_EQ(layout.n_slots, 44U);
   const auto alone = native::far_field_layout(native::far_field_amplitude, 2, 0, 1);
   EXPECT_EQ(alone.apertures, 0);
-  EXPECT_EQ(alone.stride, 2);
+  EXPECT_EQ(alone.stride, 4);
   EXPECT_EQ(alone.collected, -1);
   EXPECT_EQ(alone.amplitude, 0);
   EXPECT_EQ(native::far_field_layout(native::far_field_regions, 0, 0, 1).n_slots, 0U);
@@ -476,6 +486,8 @@ TEST(FarFieldPass, TheElementFunctionsHoldTheirContracts) {
 TEST(FarFieldPass, InvalidRequestsAreRefused) {
   auto data = make_case(5, 4, 1, true, 1);
   EXPECT_THROW(static_cast<void>(run(data, 16, 1, 2)), std::invalid_argument);
+  // The axial-flux spectrum's former flag: the beam spectrum is the axial flux.
+  EXPECT_THROW(static_cast<void>(run(data, 1U << 6U, 1, 2)), std::invalid_argument);
   EXPECT_THROW(static_cast<void>(run(data, 0, 1, 2)), std::invalid_argument);
   EXPECT_THROW(static_cast<void>(run(data, kEvery, 4, 2)), std::invalid_argument);
   EXPECT_THROW(static_cast<void>(run(data, kEvery, 1, 3)), std::invalid_argument);

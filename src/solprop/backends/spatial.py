@@ -4,7 +4,6 @@
 
 """Collect spatial host statistics through bounded transverse reconstruction chunks."""
 
-import functools
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass, fields
 
@@ -29,9 +28,11 @@ from solprop.stats import PROFILE_STATISTICS, StatsSpec, analytic_field, profile
 from solprop.translate.modal import Transform
 from solprop.translate.problem import KernelProblem
 from solprop.translate.spatial import (
+    FluxPlan,
     SeparableOperator,
     SpatialGeometry,
     aperture_tables,
+    axial_admittance,
     axial_factors,
 )
 
@@ -43,24 +44,31 @@ __all__ = [
     "FarFieldLayout",
     "FarFieldTables",
     "collar_block",
+    "collar_field_fraction",
     "collect_spatial",
     "far_field_bands",
     "far_field_layout",
     "far_field_partials",
+    "fluence_budget",
     "radial_absorber_matrix",
+    "signed_fluence_widths",
     "slab_columns",
     "slab_projection",
     "slab_rows",
     "slab_synthesis",
-    "spatial_collar_fraction",
 ]
 
 
-def spatial_collar_fraction(
+def collar_field_fraction(
     problem: KernelProblem,
     field: Complex[np.ndarray, "n_modes n_pol n_omega"],
 ) -> float:
-    """Measure the fraction of physical beam fluence in the declared spatial collar.
+    """Measure the fraction of the beam's field norm in the declared spatial collar.
+
+    A named electric-field-norm boundary diagnostic, the share of
+    ``integral |E_a|^2 dA dt`` on the collar's nodes: it says how much field reaches
+    the transverse boundary. It is not a fraction of the physical axial flux, which
+    the nonlocal admittance need not localise on those nodes (SEP 34 section 5.1).
 
     Parameters
     ----------
@@ -72,7 +80,7 @@ def spatial_collar_fraction(
     Returns
     -------
     float
-        Energy fraction on nodes where the spatial window is below one. Zero
+        Field-norm fraction on nodes where the spatial window is below one. Zero
         for an empty beam, absent geometry or a disabled spatial window.
 
     Notes
@@ -237,14 +245,16 @@ class FarFieldLayout:
     """Where each quantity of a compiled far-field pass lives in its slots.
 
     The slot order of SEP 23 section 6, present slots only: the beam spectrum, the
-    axial flux, the four absorbed-power channels, the regions, then per aperture its
-    collected spectrum and the real and imaginary parts of its on-axis amplitude per
-    polarisation, then the on-axis amplitude itself (the ``W = 1`` slot). An absent
+    four absorbed-power channels, the regions, then per aperture its collected
+    spectrum and its on-axis amplitude, then the on-axis amplitude itself (the
+    ``W = 1`` slot). An amplitude is the real and imaginary parts per polarisation of
+    the electric sum ``sum_c alpha_c W E_c``, then those of its magnetic closure
+    ``sum_c alpha_c W conj(eta_c) E_c`` (SEP 34), ``4 n_pol`` slots. An absent
     quantity is ``-1``.
 
     Attributes
     ----------
-    beam, poynting, absorbed, regions : int
+    beam, absorbed, regions : int
         The first slot of each, or -1.
     apertures : int
         The first aperture's first slot, or -1.
@@ -253,13 +263,13 @@ class FarFieldLayout:
     collected, amplitude : int
         Offsets within an aperture's slots, or -1.
     axis : int
-        The first of the ``2 n_pol`` slots of the on-axis amplitude, or -1.
+        The first of the ``4 n_pol`` slots of the on-axis amplitude and its closure,
+        or -1.
     n_slots : int
         Slots in all, positive.
     """
 
     beam: int
-    poynting: int
     absorbed: int
     regions: int
     apertures: int
@@ -275,7 +285,7 @@ class FarFieldLayout:
         Returns
         -------
         numpy.ndarray
-            The attributes in their declared order, int64, shape ``(10,)``.
+            The attributes in their declared order, int64, shape ``(9,)``.
         """
         return np.array([getattr(self, item.name) for item in fields(self)], np.int64)
 
@@ -315,24 +325,23 @@ def far_field_layout(
     ...     n_apertures=2, n_regions=0, n_pol=1,
     ... )
     >>> layout.beam, layout.apertures, layout.stride, layout.axis, layout.n_slots
-    (0, 1, 1, 3, 5)
+    (0, 1, 1, 3, 7)
     """
     wanted = set(names)
     collected = 0 if "aperture_spectrum" in wanted else -1
     amplitude = (
         (1 if collected == 0 else 0) if "aperture_on_axis_spectrum" in wanted else -1
     )
-    stride = int(collected == 0) + (2 * n_pol if amplitude >= 0 else 0)
+    stride = int(collected == 0) + (4 * n_pol if amplitude >= 0 else 0)
     counts = (
         ("beam", 1 if "beam_spectrum" in wanted else 0),
-        ("poynting", 1 if "poynting_spectrum" in wanted else 0),
         (
             "absorbed",
             len(ABSORBED_CHANNELS) if "absorbed_power" in wanted else 0,
         ),
         ("regions", n_regions if "region_spectrum" in wanted else 0),
         ("apertures", stride * n_apertures),
-        ("axis", 2 * n_pol if wanted & set(axis_folded) else 0),
+        ("axis", 4 * n_pol if wanted & set(axis_folded) else 0),
     )
     first: dict[str, int] = {}
     slots = 0
@@ -498,13 +507,23 @@ def collect_spatial(  # noqa: PLR0913 - statistics context plus borrowed FFT wor
     field: Complex[np.ndarray, "n_modes n_pol n_omega"],
     *,
     z: float,
+    flux: FluxPlan | None,
     profiles: Mapping[str, ZProfile] | None = None,
     physical: np.ndarray | None = None,
     tables: ApertureTables | None = None,
     operator: SeparableOperator | None = None,
-    axis: Complex[np.ndarray, "n_pol n_omega"] | None = None,
+    axis: tuple[
+        Complex[np.ndarray, "n_pol n_omega"], Complex[np.ndarray, "n_pol n_omega"]
+    ]
+    | None = None,
+    closure: Complex[np.ndarray, "n_modes n_pol n_omega"] | None = None,
 ) -> dict[str, np.ndarray]:
     """Collect spatial statistics without retaining a full physical-space field.
+
+    Every field statistic is the axial Poynting flux of the medium at the plane
+    (SEP 34): energy and spectra weigh each column and bin by the real admittance
+    ``c Re(k_z)/omega`` of the plane's root, and local statistics pair the field
+    with its magnetic closure, synthesised from the complex admittance.
 
     Parameters
     ----------
@@ -518,6 +537,8 @@ def collect_spatial(  # noqa: PLR0913 - statistics context plus borrowed FFT wor
         One internal spatial spectrum, shape ``(n_modes, n_pol, n_omega)``.
     z : float
         Current propagation position in m.
+    flux : solprop.translate.spatial.FluxPlan or None
+        The run's plane measure; required by every field statistic.
     profiles : collections.abc.Mapping or None, optional
         Named scalar paths, where requested.
     physical : numpy.ndarray or None, optional
@@ -527,12 +548,15 @@ def collect_spatial(  # noqa: PLR0913 - statistics context plus borrowed FFT wor
         The far-field tables (:class:`FarFieldTables`), needed by the far-field
         statistics of SEP 23.
     operator : solprop.translate.spatial.SeparableOperator or None, optional
-        The run's separable linear operator, needed by ``poynting_spectrum`` and
-        ``absorbed_power``.
-    axis : numpy.ndarray or None, optional
-        The on-axis amplitude ``sum_c alpha_c E_c`` in V/m, shape
-        ``(n_pol, n_omega)``, when a compiled pass has formed it (SEP 23 section 6);
-        the axis statistics then read it instead of forming it here.
+        The run's separable linear operator, whose rates ``absorbed_power`` needs.
+    axis : tuple of numpy.ndarray or None, optional
+        The on-axis amplitude ``sum_c alpha_c E_c`` in V/m and its magnetic closure
+        ``sum_c alpha_c conj(eta_c) E_c``, each of shape ``(n_pol, n_omega)``, when a
+        compiled pass has formed them (SEP 23 section 6); the axis statistics then
+        read them instead of forming them here.
+    closure : numpy.ndarray or None, optional
+        The spectrum's magnetic closure ``conj(eta) E`` at this plane, when a
+        compiled pass has formed it; the local statistics then read it.
 
     Returns
     -------
@@ -542,13 +566,14 @@ def collect_spatial(  # noqa: PLR0913 - statistics context plus borrowed FFT wor
     Raises
     ------
     BackendError
-        If geometry or a requested statistic dependency is missing.
+        If geometry, the plane measure or a requested statistic dependency is
+        missing, or a width is asked of a fluence negative beyond its rounding.
 
     Notes
     -----
     The far-field statistics are one pass of
     :func:`solprop.spatial.aperture_statistics` over the columns, in chunks of the
-    transform's ``node_chunk``, reading the operator's root through
+    transform's ``node_chunk``, reading the plane's root through
     :func:`solprop.translate.spatial.axial_factors`, the root the stages use.
     """
     geometry = transform.geometry
@@ -557,65 +582,83 @@ def collect_spatial(  # noqa: PLR0913 - statistics context plus borrowed FFT wor
         raise BackendError(msg)
     values: dict[str, np.ndarray] = {}
     wanted = set(spec.names)
+    fielded = wanted & (
+        {
+            "energy",
+            "on_axis_spectrum",
+            "on_axis_intensity",
+            "peak_intensity",
+            "beam_radius",
+            "fwhm_r",
+        }
+        | set(FAR_FIELD_STATISTICS)
+    )
+    if fielded and flux is None:
+        msg = f"spatial statistics {sorted(fielded)} need the run's plane measure"
+        raise BackendError(msg)
+    plane = None if flux is None else flux.at(z)
     conversion = 0.5 * EPS0 * C
-    if "energy" in wanted:
-        columns = fourier.energy_omega(field, grid.dt, kind=grid.kind)
-        values["energy"] = np.asarray(
-            conversion * np.sum(geometry.spectral_weights[:, None] * columns)
-        )
-    values.update(_far_field(wanted, grid, transform, field, tables, operator))
+    chunks = [
+        slice(first, min(first + transform.node_chunk, transform.n_modes))
+        for first in range(0, transform.n_modes, transform.node_chunk)
+    ]
     axis_needed = bool(
         wanted & {"on_axis_spectrum", "on_axis_intensity", "beam_radius", "fwhm_r"}
     )
+    local_needed = bool(wanted & {"peak_intensity", "beam_radius", "fwhm_r"})
+    if (
+        closure is None
+        and plane is not None
+        and (local_needed or (axis_needed and axis is None))
+    ):
+        # The internal spectrum carries the conjugate admittance (SpatialFlux).
+        closure = np.empty_like(field)
+        for columns in chunks:
+            closure[columns] = (
+                np.conj(axial_admittance(plane, grid.omega, columns))[:, None]
+                * field[columns]
+            )
+    if "energy" in wanted:
+        assert plane is not None
+        weights = fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
+        total = 0.0
+        for columns in chunks:
+            real = np.real(axial_admittance(plane, grid.omega, columns))
+            density = np.sum(np.abs(field[columns]) ** 2, axis=1)
+            total += float(
+                np.sum(
+                    geometry.spectral_weights[columns, None] * weights * real * density
+                )
+            )
+        values["energy"] = np.asarray(conversion * total)
+    values.update(
+        _far_field(
+            wanted, grid, transform, field, tables, plane=plane, operator=operator
+        )
+    )
     axis_fluence = 0.0
     if axis_needed:
-        axis_values, axis_fluence = _axis_statistics(
-            wanted,
-            grid,
-            np.einsum("r,rpw->pw", geometry.on_axis, field) if axis is None else axis,
-        )
+        if axis is None:
+            assert closure is not None
+            axis = (
+                np.einsum("r,rpw->pw", geometry.on_axis, field),
+                np.einsum("r,rpw->pw", geometry.on_axis, closure),
+            )
+        axis_values, axis_fluence = _axis_statistics(wanted, grid, *axis)
         values.update(axis_values)
-    if wanted & {"peak_intensity", "beam_radius", "fwhm_r"}:
-        full = (
-            _free_physical(transform, field, grid.pad_scale)
-            if physical is None
-            else physical
+    if local_needed:
+        assert closure is not None
+        values.update(
+            _local_statistics(
+                wanted,
+                grid,
+                transform,
+                field,
+                closure,
+                physical=physical,
+                axis_fluence=axis_fluence,
+            )
         )
-        fluence = np.empty(transform.n_nodes)
-        peak = 0.0
-        for first in range(0, transform.n_nodes, transform.node_chunk):
-            rows = slice(first, first + transform.node_chunk)
-            physical = (
-                full[rows]
-                if full is not None
-                else (
-                    (transform.synthesis[rows] / grid.pad_scale)
-                    @ field.reshape(transform.n_modes, -1)
-                ).reshape(-1, field.shape[1], field.shape[2])
-            )
-            intensity = conversion * np.sum(
-                np.abs(analytic_field(grid, physical)) ** 2, axis=1
-            )
-            fluence[rows] = grid.dt * np.sum(intensity, axis=-1)
-            peak = max(peak, float(np.max(intensity)))
-        if "peak_intensity" in wanted:
-            values["peak_intensity"] = np.asarray(peak)
-        if wanted & {"beam_radius", "fwhm_r"}:
-            widths = (
-                radial_fluence_widths(
-                    geometry.axes[0], fluence, geometry.spatial_weights, axis_fluence
-                )
-                if geometry.kind == "radial"
-                else _slab_widths(geometry, fluence)
-                if geometry.kind == "slab"
-                else cartesian_fluence_widths(
-                    geometry.axes[0], geometry.axes[1], fluence
-                )
-            )
-            if "beam_radius" in wanted:
-                values["beam_radius"] = np.asarray(widths[:2])
-            if "fwhm_r" in wanted:
-                values["fwhm_r"] = np.asarray(widths[2])
     for name in wanted & set(PROFILE_STATISTICS):
         if profiles is None or name not in profiles:
             msg = f"spatial statistic {name!r} needs its named profile"
@@ -628,12 +671,211 @@ def collect_spatial(  # noqa: PLR0913 - statistics context plus borrowed FFT wor
     return values
 
 
-def _far_field(
+def _local_statistics(  # noqa: PLR0913 - the local pass's whole context
+    wanted: set[str],
+    grid: TimeGrid,
+    transform: Transform,
+    field: np.ndarray,
+    closure: np.ndarray,
+    *,
+    physical: np.ndarray | None,
+    axis_fluence: float,
+) -> dict[str, np.ndarray]:
+    """Form the peak local axial flux and the fluence widths, node chunk by chunk.
+
+    Parameters
+    ----------
+    wanted : set of str
+        Requested catalogue names.
+    grid : solprop.grid.TimeGrid
+        Temporal transform and energy measure.
+    transform : solprop.translate.modal.Transform
+        The run's synthesis and geometry.
+    field : numpy.ndarray
+        One internal spectrum, shape ``(n_modes, n_pol, n_omega)``.
+    closure : numpy.ndarray
+        Its magnetic closure ``G / (eps0 c)``, same shape.
+    physical : numpy.ndarray or None
+        A compiled backend's borrowed physical-space field, or None.
+    axis_fluence : float
+        The on-axis fluence in J/m^2, for the radial widths.
+
+    Returns
+    -------
+    dict
+        ``peak_intensity``, ``beam_radius`` and ``fwhm_r`` where requested.
+
+    Raises
+    ------
+    BackendError
+        If a width is asked of a fluence negative beyond its rounding budget.
+    """
+    geometry = transform.geometry
+    assert geometry is not None
+    conversion = 0.5 * EPS0 * C
+    full = (
+        _free_physical(transform, field, grid.pad_scale)
+        if physical is None
+        else physical
+    )
+    full_closure = _free_physical(transform, closure, grid.pad_scale)
+    fluence = np.empty(transform.n_nodes)
+    magnitudes = np.empty(transform.n_nodes)
+    peak = -np.inf
+    for first in range(0, transform.n_nodes, transform.node_chunk):
+        rows = slice(first, first + transform.node_chunk)
+
+        electric = analytic_field(grid, _rows(transform, grid, field, full, rows))
+        magnetic = analytic_field(
+            grid, _rows(transform, grid, closure, full_closure, rows)
+        )
+        intensity = conversion * np.sum(np.real(electric * np.conj(magnetic)), axis=1)
+        fluence[rows] = grid.dt * np.sum(intensity, axis=-1)
+        magnitudes[rows] = (
+            conversion
+            * grid.dt
+            * np.sum(np.abs(electric) * np.abs(magnetic), axis=(1, 2))
+        )
+        peak = max(peak, float(np.max(intensity)))
+    values: dict[str, np.ndarray] = {}
+    if "peak_intensity" in wanted:
+        values["peak_intensity"] = np.asarray(peak)
+    if wanted & {"beam_radius", "fwhm_r"}:
+        budget = fluence_budget(
+            magnitudes, field.shape[1] * grid.n_t + transform.n_modes
+        )
+        widths = signed_fluence_widths(geometry, fluence, budget, axis_fluence)
+        if "beam_radius" in wanted:
+            values["beam_radius"] = np.asarray(widths[:2])
+        if "fwhm_r" in wanted:
+            values["fwhm_r"] = np.asarray(widths[2])
+    return values
+
+
+def fluence_budget(
+    magnitude: Float[np.ndarray, " n_nodes"], n_terms: int
+) -> Float[np.ndarray, " n_nodes"]:
+    """Return the rounding budget of a signed local fluence (SEP 34 section 5.1).
+
+    A node's fluence ``(eps0 c/2) dt sum Re(E G*)`` sums ``n_pol n_t`` products of
+    two syntheses over the columns; ``n_terms`` counts both sums. A synthesis (a
+    transverse FFT or a dense sum, then the temporal FFT) errs normwise: each node's
+    value carries rounding of the whole field's size, which in a beam's wings far
+    exceeds the value itself. Eight rounding units per term, relative to the largest
+    magnitude ``(eps0 c/2) dt sum |E| |G|`` over the nodes, bound every node's error.
+
+    Parameters
+    ----------
+    magnitude : numpy.ndarray
+        The fluence magnitude at each node in J/m^2.
+    n_terms : int
+        ``n_pol * n_t + n_modes``.
+
+    Returns
+    -------
+    numpy.ndarray
+        The budget in J/m^2 at each node.
+    """
+    largest = float(np.max(magnitude)) if np.size(magnitude) else 0.0
+    return np.full(np.shape(magnitude), 8 * n_terms * np.finfo(float).eps * largest)
+
+
+def signed_fluence_widths(
+    geometry: SpatialGeometry,
+    fluence: Float[np.ndarray, " n_nodes"],
+    budget: Float[np.ndarray, " n_nodes"],
+    axis_fluence: float,
+) -> tuple[float, float, float]:
+    """Return the widths of a signed local fluence, refusing a negative profile.
+
+    A fluence negative by more than its rounding budget (:func:`fluence_budget`) has
+    no width (SEP 34 section 5.1); within the budget it is rounding and is read as
+    zero.
+
+    Parameters
+    ----------
+    geometry : solprop.translate.spatial.SpatialGeometry
+        Radial, Cartesian, line or planar geometry.
+    fluence : numpy.ndarray
+        Signed fluence in J/m^2 at the nodes.
+    budget : numpy.ndarray
+        Its rounding budget at each node.
+    axis_fluence : float
+        The on-axis fluence in J/m^2, which the radial widths read.
+
+    Returns
+    -------
+    tuple of float
+        Second-moment, 1/e^2 and FWHM widths in m, as the geometry's width helper
+        defines them.
+
+    Raises
+    ------
+    BackendError
+        If the fluence is negative beyond its budget anywhere.
+    """
+    if np.any(fluence < -budget):
+        worst = int(np.argmin(fluence + budget))
+        msg = (
+            "beam_radius and fwhm_r need a nonnegative fluence profile, and the "
+            f"signed axial flux is {fluence[worst]:.3e} J/m^2 at node {worst}, "
+            "beyond its rounding budget; the width is undefined for it"
+        )
+        raise BackendError(msg)
+    fluence = np.maximum(fluence, 0.0)
+    if geometry.kind == "radial":
+        return radial_fluence_widths(
+            geometry.axes[0], fluence, geometry.spatial_weights, axis_fluence
+        )
+    if geometry.kind == "slab":
+        moment, radius, fwhm = _slab_widths(geometry, fluence)
+        return moment, radius, fwhm
+    return cartesian_fluence_widths(geometry.axes[0], geometry.axes[1], fluence)
+
+
+def _rows(
+    transform: Transform,
+    grid: TimeGrid,
+    source: np.ndarray,
+    whole: np.ndarray | None,
+    rows: slice,
+) -> np.ndarray:
+    """Return one node chunk of a spectrum's physical field.
+
+    Parameters
+    ----------
+    transform : solprop.translate.modal.Transform
+        The run's synthesis.
+    grid : solprop.grid.TimeGrid
+        The temporal grid, whose pad scale the synthesis carries.
+    source : numpy.ndarray
+        Internal spectrum, shape ``(n_modes, n_pol, n_omega)``.
+    whole : numpy.ndarray or None
+        Its already synthesised physical volume, or None to synthesise the rows.
+    rows : slice
+        The node chunk.
+
+    Returns
+    -------
+    numpy.ndarray
+        Physical spectra in V/m at the chunk's nodes.
+    """
+    if whole is not None:
+        return whole[rows]
+    return (
+        (transform.synthesis[rows] / grid.pad_scale)
+        @ source.reshape(transform.n_modes, -1)
+    ).reshape(-1, source.shape[1], source.shape[2])
+
+
+def _far_field(  # noqa: PLR0913 - the far-field pass's whole context
     names: set[str],
     grid: TimeGrid,
     transform: Transform,
     field: Complex[np.ndarray, "n_modes n_pol n_omega"],
     tables: ApertureTables | None,
+    *,
+    plane: SeparableOperator | None,
     operator: SeparableOperator | None,
 ) -> dict[str, np.ndarray]:
     """Form the requested far-field statistics in one chunked pass.
@@ -651,8 +893,10 @@ def _far_field(
         One internal spectrum, shape ``(n_x*n_y, n_pol, n_omega)``.
     tables : solprop.spatial.ApertureTables or None
         The far-field tables.
+    plane : solprop.translate.spatial.SeparableOperator or None
+        The plane's coefficients, whose root weighs every statistic.
     operator : solprop.translate.spatial.SeparableOperator or None
-        The run's separable operator.
+        The run's separable operator, whose rates ``absorbed_power`` reads.
 
     Returns
     -------
@@ -673,15 +917,31 @@ def _far_field(
             "forms at construction"
         )
         raise BackendError(msg)
-    axial = None
-    if names & set(OPERATOR_STATISTICS):
-        if operator is None:
-            msg = (
-                f"{sorted(names & set(OPERATOR_STATISTICS))} need the run's separable "
-                "linear operator, and this problem carries none"
-            )
-            raise BackendError(msg)
-        axial = functools.partial(axial_factors, operator, grid.omega)
+    if names & set(OPERATOR_STATISTICS) and operator is None:
+        msg = (
+            f"{sorted(names & set(OPERATOR_STATISTICS))} need the run's separable "
+            "linear operator, and this problem carries none"
+        )
+        raise BackendError(msg)
+    assert plane is not None
+    rated = operator if operator is not None else plane
+
+    def axial(columns: slice) -> tuple[np.ndarray, np.ndarray]:
+        """Return the plane's admittance and the operator's rates for a chunk.
+
+        Parameters
+        ----------
+        columns : slice
+            The transverse columns of the chunk.
+
+        Returns
+        -------
+        tuple of numpy.ndarray
+            The complex admittance and the four absorption rates.
+        """
+        _, rates = axial_factors(rated, grid.omega, columns)
+        return axial_admittance(plane, grid.omega, columns), rates
+
     return aperture_statistics(
         sorted(names), grid, field, tables, axial=axial, chunk=transform.node_chunk
     )
@@ -690,7 +950,8 @@ def _far_field(
 def _axis_statistics(
     wanted: set[str],
     grid: TimeGrid,
-    axis: np.ndarray,
+    axis: Complex[np.ndarray, "n_pol n_omega"],
+    closure: Complex[np.ndarray, "n_pol n_omega"],
 ) -> tuple[dict[str, np.ndarray], float]:
     """Reduce the requested statistics of the on-axis spectrum.
 
@@ -703,6 +964,8 @@ def _axis_statistics(
     axis : numpy.ndarray
         The on-axis amplitude, the on-axis weights contracted with the spectrum,
         shape ``(n_pol, n_omega)``.
+    closure : numpy.ndarray
+        The on-axis magnetic closure ``G / (eps0 c)``, same shape.
 
     Returns
     -------
@@ -710,14 +973,20 @@ def _axis_statistics(
         Requested on-axis statistics and axial fluence in J/m^2.
     """
     conversion = 0.5 * EPS0 * C
-    density = conversion * np.sum(
-        fourier.spectral_density(axis, grid.dt, kind=grid.kind), axis=0
+    factor = fourier.spectral_density(
+        np.ones(grid.n_omega, complex), grid.dt, kind=grid.kind
     )
+    density = conversion * factor * np.sum(np.real(axis * np.conj(closure)), axis=0)
     values: dict[str, np.ndarray] = {}
     if "on_axis_spectrum" in wanted:
         values["on_axis_spectrum"] = density
     if "on_axis_intensity" in wanted:
-        power = np.sum(np.abs(analytic_field(grid, axis)) ** 2, axis=0)
+        power = np.sum(
+            np.real(
+                analytic_field(grid, axis) * np.conj(analytic_field(grid, closure))
+            ),
+            axis=0,
+        )
         values["on_axis_intensity"] = np.asarray(conversion * np.max(power))
     return values, float(np.sum(density) * grid.d_omega)
 

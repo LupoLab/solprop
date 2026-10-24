@@ -48,7 +48,7 @@ def test_spatial_channels_and_all_population_statistics(
         grid,
         None,
         responses,
-        pulse.build(grid, space),
+        pulse.build(grid, space, medium=SpatialMedium(mixture)),
         spatial_grid=space,
         medium=SpatialMedium(mixture),
         controller=original.stepper.controller,

@@ -930,4 +930,20 @@ def test_raman_tensor_identity_survives_metadata_round_trip_and_controls_resume(
         assert original.configuration_hash() != other.configuration_hash()
         with pytest.raises(OutputError, match=r"configuration\.raman"):
             resolve_metadata_write(restored, other)
-    assert original.schema_version == 22
+    assert original.schema_version == 23
+
+
+def test_spatial_metadata_of_schema_23_names_its_flux_model(envelope_grid, stepper):
+    """From schema 23 (SEP 34) a spatial record carries its plane measure's model."""
+    spatial = {"kind": "radial"}
+    with pytest.raises(OutputError, match="must name its flux_model"):
+        make_metadata(envelope_grid, stepper, simulation_kind="radial", spatial=spatial)
+    # A record written before the measure existed is still read.
+    older = make_metadata(
+        envelope_grid,
+        stepper,
+        simulation_kind="radial",
+        spatial=spatial,
+        schema_version=22,
+    )
+    assert older.spatial == spatial

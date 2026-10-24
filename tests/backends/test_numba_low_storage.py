@@ -58,6 +58,7 @@ from solprop.nonlinear.gnlse import SpecifiedMode
 from solprop.nonlinear.raman import DampedOscillator, RamanResponse, undamped_dephasing
 from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
 from solprop.pulses import GaussianPulse, SpatialPulse
+from solprop.spatial import SpatialFlux, SpatialMedium
 from solprop.stepper import FixedSchedule
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.linop import delta_phi
@@ -425,7 +426,7 @@ def test_the_radial_route_with_its_in_stage_collar_agrees(family):
     problem = radial_problem(
         grid,
         space,
-        pulse.build(grid, space),
+        pulse.build(grid, space, medium=SpatialMedium()),
         [KerrResponse(CHI3, thg=False)],
         steps=STEPS,
     )
@@ -474,11 +475,14 @@ def test_a_cartesian_kerr_beam_agrees(mode, collar, noisy):
     """Every flow treatment, with the exchange of section 4.3 and the fused noise."""
     noise = (
         spatial_noise(
-            EnvelopeGrid.from_limits(
-                1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
+            SpatialFlux.resolve(
+                EnvelopeGrid.from_limits(
+                    1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
+                ),
+                # The collar's window factor, as `cartesian_march` builds its grid.
+                FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0.25 if collar else 0),
+                SpatialMedium(),
             ),
-            # The collar's window factor, as `cartesian_march` builds its grid.
-            FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0.25 if collar else 0),
             np.random.default_rng(7),
             model="modified",
         )
@@ -494,7 +498,8 @@ def test_a_cartesian_kerr_beam_agrees(mode, collar, noisy):
         problem = dataclasses.replace(
             problem,
             initial=dataclasses.replace(
-                problem.initial, field0=pulse.build(grid, space)[None]
+                problem.initial,
+                field0=pulse.build(grid, space, medium=SpatialMedium())[None],
             ),
         )
     assert_parity(problem, grid, noise=noise, transverse=problem.transform.n_nodes)
@@ -540,7 +545,7 @@ def test_a_line_beam_agrees(family):
     problem = radial_problem(
         grid,
         space,
-        pulse.build(grid, space),
+        pulse.build(grid, space, medium=SpatialMedium()),
         responses,
         steps=STEPS,
         density=density,
@@ -766,7 +771,11 @@ def test_the_noise_and_a_field_free_plane_add_one_volume_each():
     """The draw is one counted volume; the held plane one more (SEP 22, Q14)."""
     grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
     space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0)
-    noise = spatial_noise(grid, space, np.random.default_rng(7), model="modified")
+    noise = spatial_noise(
+        SpatialFlux.resolve(grid, space, SpatialMedium()),
+        np.random.default_rng(7),
+        model="modified",
+    )
     problem, grid, _ = cartesian_march("tabulate", noise=noise)
     field = 16 * math.prod(problem.shape)
     backend = NumbaCpuBackend(problem, grid=grid)

@@ -16,8 +16,7 @@ regions*):
   :class:`~solprop.stats.ApertureSet` in a mask plane;
 - ``region_spectrum``, the spectrum in boxes of transverse wavevector, here the four
   quadrants;
-- ``beam_spectrum`` and ``poynting_spectrum``, the whole beam's spectrum and its
-  axial-flux counterpart;
+- ``beam_spectrum``, the whole beam's spectrum;
 - ``absorbed_power``, what the absorbers remove per unit length, sampled every step.
 
 Two equal pulses cross at a small angle in a thin Kerr sample, as in
@@ -26,17 +25,19 @@ into a new direction. Holes in a mask plane catch the two beams, one of the
 four-wave-mixing signals and a dark spot where no light should arrive. The tutorial
 shows the paraxial map that places each frequency in the mask plane, the chromatic
 weight an aperture applies, the two edge weightings against a closed form, and checks
-the run's statistic against a computation from a kept field.
+the run's statistic against a computation from a kept field. Every spectrum is the axial
+Poynting flux inside the sample, in its medium (:doc:`/guide/free-space/flux`).
 """
 
 # %%
 # The sample and the grid
 # -----------------------
-# The pulses are 50 fs long at 800 nm with a 40 μm waist and 0.1 μJ each; the sample
-# is 1 mm of a dispersionless medium of index 1.45 with an illustrative nonlinear index
-# of :math:`3\times10^{-20}` m²/W. Inside it the beams travel at :math:`\pm10` mrad,
-# transverse wavenumbers :math:`\pm K_0`; the signal :math:`2\mathbf k_1-\mathbf k_2`
-# leaves at :math:`3K_0`.
+# The pulses are 50 fs long at 800 nm with a 40 μm waist and a peak field of
+# :math:`7.51\times10^8` V/m each, about 0.145 μJ each in the sample (printed below);
+# the sample is 1 mm of a dispersionless medium of index 1.45 with an illustrative
+# nonlinear index of :math:`3\times10^{-20}` m²/W. Inside it the beams travel at
+# :math:`\pm10` mrad, transverse wavenumbers :math:`\pm K_0`; the signal
+# :math:`2\mathbf k_1-\mathbf k_2` leaves at :math:`3K_0`.
 #
 # Two grid choices matter for far-field statistics. The spacing keeps the cubic
 # products from folding back (the one-half rule of :doc:`/guide/free-space/cartesian`
@@ -61,6 +62,7 @@ from solprop.output.schema import SavedPlane
 from solprop.physdata.nonlinear_data import chi3_from_n2
 from solprop.pulses import GaussianPulse
 from solprop.spatial import (
+    SpatialFlux,
     SpatialMedium,
     aperture_profile,
     quadrature_half_width,
@@ -75,7 +77,7 @@ WAVELENGTH = 800e-9
 INDEX = 1.45
 N2 = 3e-20
 WAIST = 40e-6
-ENERGY = 0.1e-6
+FIELD = 7.5051e8  # V/m, the peak of each beam's analytic field
 FWHM = 50e-15
 ANGLE = 0.010
 K0 = 2 * np.pi * INDEX / WAVELENGTH * np.sin(ANGLE)
@@ -90,23 +92,28 @@ print(f"K0/k_max = {K0 / k_max:.2f}; grid {space.n_x} x {space.n_y} x {grid.n_om
 # Each beam is the transverse DFT of its field in the internal FFT convention, whose
 # tilt carries a minus sign: beam 1 travels towards positive x
 # (:doc:`/introduction/lessons/plot_04_crossing_beams`). The tilt is achromatic, a
-# fixed angle at every frequency.
+# fixed angle at every frequency. Each beam is stated by its physical field, a
+# Gaussian times a temporal envelope of unit peak scaled to ``FIELD``, and its energy
+# is measured in the sample's medium.
 
 
 def beam(direction):
-    """One tilted Gaussian beam, normalised to ENERGY on the grid."""
+    """One tilted Gaussian beam of peak field FIELD on the grid."""
     x, y = np.meshgrid(space.x, space.y)
-    pulse = GaussianPulse(wavelength=WAVELENGTH, fwhm=FWHM, energy=ENERGY)
+    pulse = GaussianPulse(wavelength=WAVELENGTH, fwhm=FWHM, peak_power=1.0)
     profile = np.exp(-(x**2 + y**2) / WAIST**2)
     tilt = np.exp(
         -1j * direction * x[..., None] * grid.omega * INDEX * np.sin(ANGLE) / C
     )
-    physical = profile[..., None] * tilt * pulse.build(grid)[0, 0]
-    spectrum = np.fft.fft2(physical, axes=(0, 1)).reshape(-1, 1, grid.n_omega)
-    return spectrum * np.sqrt(ENERGY / spatial_energy(grid, space, spectrum))
+    physical = FIELD * profile[..., None] * tilt * pulse.build(grid)[0, 0]
+    return np.fft.fft2(physical, axes=(0, 1)).reshape(-1, 1, grid.n_omega)
 
 
+sample = SpatialMedium(INDEX)
+entrance = SpatialFlux.resolve(grid, space, sample)
+exit_plane = SpatialFlux.resolve(grid, space, sample, z=LENGTH)
 launch = beam(+1) + beam(-1)
+print(f"each beam carries {spatial_energy(beam(+1), entrance) * 1e6:.4f} μJ")
 
 # %%
 # The detectors
@@ -171,7 +178,6 @@ planes = list(np.linspace(step, LENGTH, 8))
 names = (
     "energy",
     "beam_spectrum",
-    "poynting_spectrum",
     "aperture_spectrum",
     "region_spectrum",
     "absorbed_power",
@@ -197,7 +203,7 @@ settings = SimulationSettings(
 output = prop_free(
     grid,
     space,
-    SpatialMedium(INDEX),
+    sample,
     [KerrResponse(chi3_from_n2(N2, INDEX), thg=False)],
     launch,
     settings=settings,
@@ -217,10 +223,12 @@ print(f"{z.size} planes from {z[0] * 1e3:.3f} to {z[-1] * 1e3:.3f} mm")
 # achromatic tilt sends them, while each spot's radius scales as :math:`1/\omega`
 # (by 5 % across these three): a fixed hole is a different cone of
 # :math:`\boldsymbol\kappa` at every frequency. The stored axes are in FFT order and
-# the physical wavevector is their negative.
+# the physical wavevector is their negative. Each column's spectral energy is its
+# squared field weighted by its real axial admittance in the sample, as every
+# statistic here weights it.
 
 field = output.plane_field(-1, convention="fft")  # (n_x*n_y, 1, n_omega)
-power = np.abs(field[:, 0]) ** 2
+power = np.real(exit_plane.admittance()) * np.abs(field[:, 0]) ** 2
 kappa_x = np.fft.fftshift(-space.k_x)
 kappa_y = np.fft.fftshift(-space.k_y)
 figure, axes = plt.subplots(1, 3, figsize=(11, 3.2), layout="constrained")
@@ -325,7 +333,7 @@ def entrance_fraction(apertures):
         StatsSpec(names=("beam_spectrum", "aperture_spectrum"), apertures=apertures),
         grid,
         SavedPlane(z=0.0, field=launch),
-        space=space,
+        flux=entrance,
     )
     # Equal beams: beam 1 carries half of the beam spectrum.
     return values["aperture_spectrum"][0][bright] / (
@@ -417,15 +425,15 @@ bottom.set(xlabel="wavelength (nm)", ylabel="|statistic - integral|")
 # The exit plane's field was kept, so its statistics can be recomputed from it. With
 # ``collect``, the same function a run uses, they agree to rounding. Written out from
 # the definition -- each column's image at :math:`s\boldsymbol\kappa`, the profile at
-# the quadrature diameter, the column's power summed -- they agree too: on a Cartesian
-# grid every column carries the same weight, so the ratio to the beam spectrum needs no
-# normalisation.
+# the quadrature diameter, the column's admittance-weighted power summed -- they agree
+# too: on a Cartesian grid every column has the same transverse weight, so the ratio
+# to the beam spectrum needs no further normalisation.
 
 values = collect(
     StatsSpec(names=("beam_spectrum", "aperture_spectrum"), apertures=holes),
     grid,
     SavedPlane(z=LENGTH, field=field),
-    space=space,
+    flux=exit_plane,
 )
 difference = np.max(np.abs(values["aperture_spectrum"] - collected[-1]))
 print(f"collect against the run: {difference / np.max(collected[-1]):.1e}")
@@ -449,8 +457,8 @@ print(
 )
 
 # %%
-# Quadrants and the axial flux
-# ----------------------------
+# Quadrants and the energy
+# ------------------------
 # The quadrants tile the columns exactly, so their sum is the beam spectrum to
 # rounding. Beam 1 and the signal it feeds travel towards positive x, beam 2 and its
 # signal towards negative x, and the two halves carry nearly equal energy. The boxes
@@ -458,11 +466,11 @@ print(
 # the row :math:`\kappa_y=0`, which carries the most energy, to the upper one: hence
 # the upper quadrants' larger share.
 #
-# ``poynting_spectrum`` weights each column by the obliquity
-# :math:`c\operatorname{Re}k_z/\omega`, which inside a medium is about its index: the
-# ratio to the beam spectrum is the factor by which the vacuum-normalised spectra
-# above are low inside the sample (the vacuum-flux caveat of
-# :doc:`/guide/free-space/model`).
+# The beam spectrum weights each column by its real axial admittance in the sample,
+# :math:`\varepsilon_0c^2\operatorname{Re}k_z/\omega`, about the index times
+# :math:`\varepsilon_0c` for these small angles: it is the physical axial flux inside
+# the sample, and its integral over frequency is the ``energy`` statistic. The
+# transmission of the exit face into air is not modelled.
 
 regions = np.asarray(output["stats/region_spectrum"])[-1]
 tiling = np.max(np.abs(regions.sum(axis=0) - beam_spectrum[-1]))
@@ -474,9 +482,12 @@ print(
     f"upper {quadrant_energy[2] + quadrant_energy[3]:.4e} J, "
     f"lower {quadrant_energy[0] + quadrant_energy[1]:.4e} J"
 )
-poynting = np.asarray(output["stats/poynting_spectrum"])[-1]
-obliquity = np.sum(poynting[bright]) / np.sum(beam_spectrum[-1][bright])
-print(f"beam-averaged obliquity at the exit: {obliquity:.6f} (index {INDEX})")
+exit_energy = np.ravel(output["stats/energy"])[-1]
+integral = np.sum(beam_spectrum[-1]) * grid.d_omega
+print(
+    f"exit energy {exit_energy:.6e} J; beam spectrum integral {integral:.6e} J; "
+    f"relative difference {abs(integral / exit_energy - 1):.1e}"
+)
 
 # %%
 # The absorbed power

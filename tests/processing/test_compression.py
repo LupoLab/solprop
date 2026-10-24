@@ -476,7 +476,13 @@ def _spatial_output():
     assert metadata is not None
     spatial = MemoryOutput()
     spatial.open(
-        replace(metadata, simulation_kind="radial", spatial={"geometry": "radial"})
+        replace(
+            metadata,
+            simulation_kind="radial",
+            # A spatial record names its plane measure (output schema 23); these
+            # tests refuse the basis before any statistic reads it.
+            spatial={"geometry": "radial", "flux_model": "scalar-axial-admittance"},
+        )
     )
     return spatial
 

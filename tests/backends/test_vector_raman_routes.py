@@ -73,7 +73,7 @@ def test_spatial_vector_raman_and_actual_width_tails(
         GaussianPulse(wavelength=800e-9, fwhm=20e-15, energy=1e-7),
         80e-6,
         jones=(1, 0.35j),
-    ).build(grid, space)
+    ).build(grid, space, medium=SpatialMedium())
     problem = assemble(
         grid,
         None,

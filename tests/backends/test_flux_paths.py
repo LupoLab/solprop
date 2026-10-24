@@ -1,0 +1,155 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""Test physical flux through radial gas paths on every backend (SEP 34)."""
+
+from collections.abc import Mapping
+from typing import cast
+
+import numpy as np
+import pytest
+
+from solprop.adiabatic import AdiabaticAccuracy
+from solprop.driver.simulation import Simulation, SimulationSettings
+from solprop.exceptions import MaterialError, TranslationError
+from solprop.grid import EnvelopeGrid, RadialGrid
+from solprop.output.schema import serialise
+from solprop.profiles import FromCallable, Linear
+from solprop.pulses import GaussianPulse, SpatialPulse
+from solprop.spatial import SpatialFlux, SpatialMedium, spatial_energy
+from solprop.stats import StatsSpec
+from solprop.stepper.controller import PIController
+from solprop.translate.flux import flux_from_record, flux_record
+
+LENGTH = 1e-3
+ENERGY = 3e-9
+
+
+def _step(z: np.ndarray) -> np.ndarray:
+    """Return a 1 to 3 bar pressure step at half the length."""
+    return np.where(z < LENGTH / 2, 1.0, 3.0)
+
+
+def _case(
+    backend: str,
+    medium: SpatialMedium,
+    planes: list[float],
+    accuracy: AdiabaticAccuracy | None = None,
+) -> Simulation:
+    """Return a short linear radial run of a 3 nJ beam through `medium`."""
+    grid = EnvelopeGrid.from_limits(LENGTH, 800e-9, (600e-9, 1.2e-6), 150e-15)
+    pulse = SpatialPulse(
+        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=ENERGY), 60e-6
+    )
+    settings = SimulationSettings(
+        controller=PIController(rtol=1e-8, atol=1e-14),
+        save_planes=planes,
+        dz_max=LENGTH / 4,
+        dz_init=LENGTH / 4,
+        backend=backend,
+        stats=StatsSpec(names=("energy", "peak_intensity")),
+        adiabatic_accuracy=accuracy,
+    )
+    return Simulation.from_radial(
+        grid, RadialGrid(6e-4, 16), medium, [], pulse, settings=settings
+    )
+
+
+MEDIA = {
+    "ramp": SpatialMedium("Ar", pressure=Linear(0.5, 3.0, LENGTH)),
+    "step": SpatialMedium(
+        "Ar",
+        pressure=FromCallable(
+            _step,
+            (0.0, 1.2 * LENGTH),
+            jumps=np.array([LENGTH / 2]),
+            turning=np.empty(0),
+        ),
+    ),
+}
+
+
+@pytest.mark.parametrize("profile", sorted(MEDIA))
+def test_linear_flux_is_conserved_through_a_gas_path(spatial_backend_class, profile):
+    """A lossless path keeps the launched physical energy at every plane."""
+    medium = MEDIA[profile]
+    simulation = _case(spatial_backend_class.name, medium, [0.25e-3, 0.75e-3, LENGTH])
+    admission = simulation.translate().flux
+    assert admission is not None
+    assert admission.admission is not None
+    # The certificate is exact for these monotone paths; the step attains it.
+    if profile == "step":
+        index = medium.index(np.array([2.35e15]), 0.0)[0].real
+        after = medium.index(np.array([2.35e15]), LENGTH)[0].real
+        fresnel = ((after - index) / (after + index)) ** 2
+        assert admission.admission.reflection == pytest.approx(fresnel, rel=2e-2)
+    output = simulation.run()
+    stored = np.asarray(output["stats/energy"]).ravel()
+    # The linear flow conserves Y_z |E|^2 to its representation budget (about
+    # 1e-14 relative here) and the stepper's rounding.
+    assert stored == pytest.approx(np.full(stored.shape, ENERGY), rel=1e-11)
+    grid = simulation.grid
+    space = simulation.spatial_grid
+    assert isinstance(space, RadialGrid)
+    for field, z in zip(
+        output.fields("fft"), [0.0, 0.25e-3, 0.75e-3, LENGTH], strict=True
+    ):
+        flux = SpatialFlux.resolve(grid, space, medium, z=z)
+        # In-run and saved-plane measures share one definition: rounding of the sum
+        # plus the material table's interpolation (relative 1e-12 of k^2).
+        assert spatial_energy(field, flux) == pytest.approx(ENERGY, rel=1e-11)
+
+
+def test_a_plane_or_flux_on_a_jump_needs_a_side():
+    """A save plane on a declared jump refuses; a flux there names its side."""
+    medium = MEDIA["step"]
+    with pytest.raises(TranslationError, match="declared jump"):
+        _case("numpy_ref", medium, [LENGTH / 2, LENGTH]).translate()
+    grid = EnvelopeGrid.from_limits(LENGTH, 800e-9, (600e-9, 1.2e-6), 150e-15)
+    space = RadialGrid(6e-4, 16)
+    with pytest.raises(MaterialError, match="must say which"):
+        SpatialFlux.resolve(grid, space, medium, z=LENGTH / 2)
+    before = SpatialFlux.resolve(grid, space, medium, z=LENGTH / 2, side="before")
+    after = SpatialFlux.resolve(grid, space, medium, z=LENGTH / 2, side="after")
+    assert np.all(np.real(before.admittance()) <= np.real(after.admittance()))
+    assert np.any(np.real(before.admittance()) < np.real(after.admittance()))
+
+
+def test_the_recorded_plane_measure_keeps_its_certificate():
+    """A gradient run's output record rebuilds its plane measure and admission."""
+    plan = _case("numpy_ref", MEDIA["step"], [LENGTH]).translate().flux
+    assert plan is not None
+    assert plan.admission is not None
+    for record in (flux_record(plan), serialise(flux_record(plan))):
+        rebuilt = flux_from_record(cast("Mapping[str, object]", record))
+        admission = rebuilt.admission
+        assert admission is not None
+        assert admission.variation == plan.admission.variation
+        assert admission.accuracy == plan.admission.accuracy
+        assert admission.z_span == plan.admission.z_span
+        assert np.array_equal(admission.support, plan.admission.support)
+        assert np.array_equal(admission.jumps, plan.admission.jumps)
+        # The material table is stored exactly, so the plane's coefficients agree.
+        assert np.array_equal(
+            rebuilt.at(0.7 * LENGTH).k_squared, plan.at(0.7 * LENGTH).k_squared
+        )
+
+
+def test_a_set_adiabatic_budget_is_recorded_and_enforced():
+    """The budget enters the record and the digest, and a tight one refuses a step."""
+    default = _case("numpy_ref", MEDIA["step"], [LENGTH])
+    loose = AdiabaticAccuracy(field_error=1e-2, reflected_energy=1e-2)
+    chosen = _case("numpy_ref", MEDIA["step"], [LENGTH], accuracy=loose)
+    metadata = chosen.metadata()
+    assert metadata.configuration["adiabatic_accuracy"] is loose
+    assert "adiabatic_accuracy" not in default.metadata().configuration
+    assert metadata.configuration_hash() != default.metadata().configuration_hash()
+    plan = chosen.translate().flux
+    assert plan is not None
+    assert plan.admission is not None
+    assert plan.admission.accuracy == loose
+    # The 1 to 3 bar argon step reflects about 7e-8 of the power (Fresnel).
+    tight = AdiabaticAccuracy(reflected_energy=1e-9)
+    with pytest.raises(MaterialError, match="reflected energy"):
+        _case("numpy_ref", MEDIA["step"], [LENGTH], accuracy=tight).translate()

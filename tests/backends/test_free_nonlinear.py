@@ -13,11 +13,32 @@ import pytest
 from backends.test_radial_nonlinear import derivative, make_problem
 from bounds import gamma
 from cartesian_oracles import longitudinal_square
+from solprop import fourier
 from solprop.constants import EPS0, C
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid
 from solprop.nonlinear.responses import KerrResponse
-from solprop.pulses import GaussianPulse, SpatialPulse
+from solprop.pulses import GaussianPulse
+from solprop.translate.spatial import FluxPlan
 from spatial_records import record_metric
+
+
+def gaussian_input(grid, space, *, waist, energy, jones):
+    """Return a Gaussian beam's internal spectrum, scaled by the paraxial measure.
+
+    A 30 fs Gaussian temporal pulse times a Gaussian profile of 1/e field radius
+    ``waist``, Jones-normalised and confined to the active band, with
+    ``eps0 c / 2 sum_j w_j |E_j|^2`` equal to ``energy``: an explicit amplitude, with
+    no claim about the axial flux of its evanescent columns.
+    """
+    temporal = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=energy).build(grid)
+    x, y = np.meshgrid(space.x, space.y)
+    profile = np.fft.fft2(np.exp(-(x**2 + y**2) / waist**2)).ravel()
+    profile /= np.sqrt(
+        0.5 * EPS0 * C * np.sum(space.spectral_weights * abs(profile) ** 2)
+    )
+    vector = np.asarray(jones, dtype=complex)
+    vector = fourier.to_internal(vector / np.linalg.norm(vector))
+    return profile[:, None, None] * vector[None, :, None] * temporal * grid.active_mask
 
 
 @pytest.mark.parametrize("family", ["field_real", "field_analytic", "envelope"])
@@ -33,12 +54,16 @@ def test_cartesian_kerr_matches_physical_column_oracle(
     )
     grid = constructor(1e-4, 800e-9, (600e-9, 1.2e-6), 150e-15)
     space = FreeGrid(3e-4 * spatial_scale, 9, 4e-4 * spatial_scale, 12, window_factor=0)
-    pulse = SpatialPulse(
-        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9 * spatial_scale**2),
-        80e-6 * spatial_scale,
+    # The oracle's subject is the response, not the launch: at the 0.001 scale the
+    # beam is sub-wavelength and mostly evanescent, which a launch normalised in
+    # axial flux refuses, so the input is an explicit array of known amplitude.
+    initial = gaussian_input(
+        grid,
+        space,
+        waist=80e-6 * spatial_scale,
+        energy=3e-9 * spatial_scale**2,
         jones=(1, 0.4j) if n_pol == 2 else (1,),
     )
-    initial = pulse.build(grid, space) * grid.active_mask
     response = KerrResponse(1e-22, thg=family == "field_real")
     # Bound each transform by its 1-norm, cubic products by 6*max|E|^3,
     # and the final prefactor by its active-band maximum. There are fewer
@@ -185,6 +210,8 @@ def test_cartesian_linear_flow_resolves_both_sides_and_exact_cutoff(
         problem,
         linear=dataclasses.replace(problem.linear, separable=data),
         responses=dataclasses.replace(problem.responses, separable=data),
+        # A uniform Cartesian medium's plane measure is its own operator (SEP 34).
+        flux=FluxPlan(data),
     )
     root = np.sqrt(complex(residual))
     expected = initial.copy()

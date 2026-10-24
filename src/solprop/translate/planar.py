@@ -30,6 +30,7 @@ from fractions import Fraction
 from typing import cast
 
 import numpy as np
+from jaxtyping import Complex
 
 from solprop.boundaries import TEMPORAL_ALPHA_LENGTH, Absorber
 from solprop.constants import EPS0, C
@@ -44,7 +45,7 @@ from solprop.translate.linop import DEFAULT_MARGIN, LinearOperator, tabulate
 from solprop.translate.modal import DEFAULT_SPATIAL_NODE_BUDGET, Transform
 from solprop.translate.spatial import SeparableOperator, SpatialGeometry
 
-__all__ = ["planar_operators", "planar_transform"]
+__all__ = ["planar_kappa", "planar_operators", "planar_transform", "square_residuals"]
 
 
 def _validate_span(n_pol: int, z_max: float, margin: float) -> float:
@@ -242,15 +243,9 @@ def planar_operators(
     _check_medium(space, dispersion.medium)
     span = _validate_span(n_pol, z_max, margin)
     grid = dispersion.grid
-    active = grid.active_mask
-    omega = grid.omega[active]
     _, _, numerator, clamped = dispersion.shared_values()
     square, square_low = dispersion.material_squares()
-    medium = dispersion.medium.index(omega)
-    kappa = np.zeros((space.n_p, grid.n_omega), dtype=np.complex128)
-    for row, mode in enumerate(space.modes):
-        index = np.asarray(mode.neff(omega), dtype=np.complex128)
-        kappa[row, active] = (omega / C) ** 2 * ((medium - index) * (medium + index))
+    kappa = planar_kappa(space, dispersion)
     beta0, beta1 = frame_quantities(space.modes[0], dispersion.frame)
     origin = dispersion.frame.omega0 if grid.kind == "envelope" else 0.0
     frame = beta0 + beta1 * (grid.omega - origin)
@@ -258,14 +253,14 @@ def planar_operators(
         k_squared=square,
         kperp_sq=space.kperp_sq,
         k_squared_low=square_low,
-        kperp_sq_low=np.repeat(_square_residuals(space.k_y), space.n_p),
+        kperp_sq_low=np.repeat(square_residuals(space.k_y), space.n_p),
         frame=frame,
         spectral_rate=np.zeros(grid.n_omega)
         if absorber is None
         else absorber.spectral_rate,
         prefactor_numerator=numerator * grid.crop_scale,
         prefactor_clamped=clamped * grid.crop_scale,
-        active=active,
+        active=grid.active_mask,
         evanescent_rate=dispersion.evanescent_rate,
         n_pol=n_pol,
         z_span=(0.0, span),
@@ -284,6 +279,38 @@ def planar_operators(
         beta1=tabulate(lambda z: np.full_like(z, beta1), 0.0, span),
         separable=data,
     ), data
+
+
+def planar_kappa(
+    space: PlanarGrid, dispersion: SpatialDispersion
+) -> Complex[np.ndarray, "n_p n_omega"]:
+    """Return each slab channel's transverse wave-number square ``kappa_p**2``.
+
+    ``kappa_p**2 = k**2 eps_co - beta_p**2`` is formed from the mode's own complex
+    index as ``(omega/c)**2 (n_co - n_p)(n_co + n_p)``, whose difference factor is
+    exact for indices this close.
+
+    Parameters
+    ----------
+    space : solprop.modes.slab.PlanarGrid
+        Slab channels and the y axis.
+    dispersion : solprop.spatial.SpatialDispersion
+        The fill as a bulk medium and the temporal grid.
+
+    Returns
+    -------
+    numpy.ndarray
+        Complex squares in m^-2, shape ``(n_p, n_omega)``, zero at inactive bins.
+    """
+    grid = dispersion.grid
+    active = grid.active_mask
+    omega = grid.omega[active]
+    medium = dispersion.medium.index(omega)
+    kappa = np.zeros((space.n_p, grid.n_omega), dtype=np.complex128)
+    for row, mode in enumerate(space.modes):
+        index = np.asarray(mode.neff(omega), dtype=np.complex128)
+        kappa[row, active] = (omega / C) ** 2 * ((medium - index) * (medium + index))
+    return kappa
 
 
 def _check_medium(space: PlanarGrid, medium: SpatialMedium) -> None:
@@ -333,7 +360,7 @@ def _check_medium(space: PlanarGrid, medium: SpatialMedium) -> None:
         raise TranslationError(msg)
 
 
-def _square_residuals(axis: np.ndarray) -> np.ndarray:
+def square_residuals(axis: np.ndarray) -> np.ndarray:
     """Return the exact residuals of an axis's rounded squares.
 
     Parameters
@@ -370,7 +397,7 @@ def _warn_grazing(space: PlanarGrid, grid: TimeGrid, data: SeparableOperator) ->
     assert data.kappa_sq is not None
     order = np.argsort(space.k_y**2, kind="stable")
     transverse = (space.k_y**2)[order]
-    transverse_low = _square_residuals(space.k_y)[order]
+    transverse_low = square_residuals(space.k_y)[order]
     epsilon = np.finfo(float).eps
     for omega_bin in np.flatnonzero(grid.active_mask):
         for channel in range(space.n_p):

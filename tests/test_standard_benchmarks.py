@@ -417,11 +417,11 @@ def fake_worker(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "scenario, status",
+    "scenario, status, limit",
     [
-        ("crash", "failed"),
-        ("timeout", "timeout"),
-        ("missing", "failed"),
+        ("crash", "failed", 60.0),
+        ("timeout", "timeout", 0.3),
+        ("missing", "failed", 60.0),
     ],
 )
 def test_worker_crash_timeout_and_missing_receipts_are_rows(
@@ -429,13 +429,16 @@ def test_worker_crash_timeout_and_missing_receipts_are_rows(
     fake_worker,
     scenario,
     status,
+    limit,
 ):
+    # Only the timeout case runs into its limit; the others get room for a slow
+    # interpreter start (a loaded Windows runner can take longer than 0.3 s).
     result = collection.launch(
         sys.executable,
         {"scenario": scenario, "harness_root": str(fake_worker)},
         dict(os.environ),
         tmp_path / "attempt",
-        (0.3, None),
+        (limit, None),
         system.eligible_cpus(),
     )
     assert result["status"] == status

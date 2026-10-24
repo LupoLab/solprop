@@ -105,21 +105,33 @@ def test_cartesian_square_and_prefactor_meet_the_predeclared_certificate(
 
 def test_cartesian_launch_uses_the_corrected_exact_linear_operator():
     grid = EnvelopeGrid.from_limits(1e-4, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
-    space = FreeGrid(3e-7, 9, 4e-7, 12, window_factor=0)
-    temporal = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-15)
-    distance = 1e-6
-    start = SpatialPulse(temporal, 80e-9).build(grid, space)
-    launch = SpatialPulse(temporal, 80e-9, propz=distance).build(grid, space)
-    dispersion = SpatialDispersion(SpatialMedium(), grid, Frame.comoving(grid))
+    # Every column propagates (k_perp below pi/dx = 4.7e5 m^-1, far under k): a
+    # launch is normalised in axial flux, and refuses a beam whose evanescent
+    # columns carry its field (SEP 34). The small-k_perp operator is the one whose
+    # cancellation the corrected form avoids.
+    space = FreeGrid(3e-5, 9, 4e-5, 12, window_factor=0)
+    temporal = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-11)
+    distance = 1e-4
+    medium = SpatialMedium()
+    start = SpatialPulse(temporal, 8e-6).build(grid, space, medium=medium)
+    launch = SpatialPulse(temporal, 8e-6, propz=distance).build(
+        grid, space, medium=medium
+    )
+    dispersion = SpatialDispersion(medium, grid, Frame.comoving(grid))
     expected = start * np.exp(distance * dispersion.operator(space))[:, None]
     # The launch and the direct expression perform the same scalar operations: a
     # complex exponential (a few ulps of its unit modulus, plus the rounding of its
-    # argument, distance times the operator) and one product.
+    # argument, distance times the operator) and one product. Each is then
+    # normalised at its own plane: the lossless flow keeps the energy, so the two
+    # factors differ by the rounding of their two sums of n positive terms.
     operator = dispersion.operator(space)
-    phase_error = 8 * np.finfo(float).eps * distance * float(np.max(np.abs(operator)))
+    eps = np.finfo(float).eps
+    phase_error = 8 * eps * distance * float(np.max(np.abs(operator)))
+    terms = space.n_columns * grid.n_omega
+    normalisation = terms * eps / (1 - terms * eps)
     np.testing.assert_allclose(
         launch,
         expected,
         rtol=0,
-        atol=(8 * np.finfo(float).eps + phase_error) * float(np.max(np.abs(start))),
+        atol=(8 * eps + phase_error + normalisation) * float(np.max(np.abs(start))),
     )

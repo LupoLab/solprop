@@ -23,7 +23,10 @@ the numbers are those of the [analytic Poynting flux](power-and-intensity.md):
 - the temporal peaks and widths use the Hermitian product of the analytic fields formed
   from $a$ and $w a$, and the on-axis statistic the corresponding physical fields;
 - a route that overrides the prefactor's index with a constant (the GNLSE, whose
-  constant is one) uses that constant as the weight.
+  constant is one) uses that constant as the weight;
+- a free-space run weights each transverse column by the axial admittance of the medium
+  at the plane, real for energies and complex for local flux, so its spatial statistics
+  are the physical axial Poynting flux there ([energy and flux in a medium](../free-space/flux.md)).
 
 A saved modal plane holds the **true-power** amplitude $b = \sqrt{w}\,a$ instead
 (`output.fields("fft")` returns it in the Fourier convention). The array functions
@@ -292,7 +295,7 @@ the physical flux from the guide's stored reference and needs no metric at all.
 
 A spectrally resolved measurement after a thin sample rarely sees the whole beam: the
 light travels a distance $z_m$, or passes a lens of focal length $f$, and part of it
-enters a spectrometer through an aperture. Six statistics of a Cartesian or line
+enters a spectrometer through an aperture. Five statistics of a Cartesian or line
 free-space run ({py:class}`~solprop.grid.FreeGrid`, {py:class}`~solprop.grid.LineGrid`)
 record what such a detector measures, at every saved plane, without storing the field:
 
@@ -301,8 +304,7 @@ record what such a detector measures, at every saved plane, without storing the 
 | `aperture_spectrum` | the spectrum collected through each aperture of an {py:class}`~solprop.stats.ApertureSet` |
 | `aperture_on_axis_spectrum` | the on-axis spectral fluence behind each aperture placed in a Fourier plane |
 | `region_spectrum` | the spectrum in each box of transverse wavevector of `spectral_regions` |
-| `beam_spectrum` | the whole-beam spectral energy density |
-| `poynting_spectrum` | the beam spectrum weighted by the obliquity $c\operatorname{Re}k_z/\omega$, the axial-flux spectrum |
+| `beam_spectrum` | the whole-beam spectral energy density, the axial flux of the medium at the plane |
 | `absorbed_power` | the power the spectral, transverse, evanescent and material absorbers remove, per unit length |
 
 Their shapes and units are in the [catalogue](statistics-catalogue.md) and their
@@ -416,7 +418,7 @@ holds the mask. The amplitude is linear in the field, so $W$ enters it once unde
 weightings (at $D_q$ under quadrature weighting); with $W\equiv1$ it is
 `on_axis_spectrum`.
 
-### Regions, the beam and the axial flux
+### Regions and the beam
 
 A region is a half-open box
 $[\kappa^{\rm lo}_x,\kappa^{\rm hi}_x)\times[\kappa^{\rm lo}_y,\kappa^{\rm hi}_y)$ of
@@ -429,19 +431,21 @@ chromatic: it selects the same $\boldsymbol\kappa$ at every frequency, hence ang
 shrink as $1/\omega$, except for half-planes and quadrants, which select the sign of the
 angle at every frequency. A chromatic cone is a centred aperture.
 
+Every spectrum here weights each column by its real axial admittance in the run's
+medium, $Y_z=\varepsilon_0c\,\eta$ with $\eta=c\operatorname{Re}k_z/\omega$ and $k_z$ the
+root the stages use; $\eta=0$ on inactive and evanescent bins and at $\omega\le0$
+([energy and flux in a medium](../free-space/flux.md)). In vacuum $\eta=\cos\theta$, the
+obliquity; in a medium $\eta\approx\operatorname{Re}n$ for a paraxial beam.
 `beam_spectrum` is the collected spectrum with $W\equiv1$: by the transverse Parseval
 identity its sum times `d_omega` is `energy` (with the field grid's documented end-bin
-rule, [grids](../setup/grids.md)). `poynting_spectrum` weights it by the obliquity
-$O=c\operatorname{Re}k_z/\omega$, with $k_z$ the root the stages use; $O=0$ on inactive
-and evanescent bins and at $\omega\le0$. In vacuum $O=\cos\theta$, so the ratio of the
-two is the beam-averaged obliquity, below one for any transverse content; for a Gaussian
-of waist $w_0$ it is the mean of $\sqrt{1-u}$ over $u$ exponentially distributed with
-mean $2/(kw_0)^2$, about $1-(kw_0)^{-2}$. In a medium $O\approx\operatorname{Re}n$ for a
-paraxial beam: the factor by which every vacuum-normalised spectrum here is low (the
-vacuum-flux caveat of the [free-space model](../free-space/model.md#far-field-and-fourier-plane-statistics)).
+rule, [grids](../setup/grids.md)). The on-axis spectra pair the coherent on-axis field
+with its magnetic closure at the same frequency, so each column carries its own
+admittance. These are the powers crossing the run's last plane inside the medium; the
+transmission of an exit face is not modelled.
 
 `absorbed_power` is four powers in J/m, in the order `spectral`, `transverse`,
-`evanescent`, `material` ({py:data}`~solprop.spatial.ABSORBED_CHANNELS`): the spectral
+`evanescent`, `material` ({py:data}`~solprop.spatial.ABSORBED_CHANNELS`), each a power
+rate weighted by the same real admittance as `energy`: the spectral
 absorber's rate on every bin, as the stages apply it; the transverse-wavevector rate,
 zero until the operator carries one; the evanescent cap
 $2\min(|\operatorname{Im}k_z|,\alpha_{\rm ev})$ on active evanescent bins; and
@@ -462,18 +466,18 @@ $\kappa_y$ interval contains zero, and is refused otherwise. At a field grid's
 zero-frequency and Nyquist bins every spectrum follows `spectral_density`'s documented
 rule; both bins are zero on every grid solprop builds.
 
-The first four statistics are determined by a saved spectrum and its grid, so
-{py:func}`~solprop.stats.collect` forms them from a plane with `space=FreeGrid(...)`;
-`poynting_spectrum` and `absorbed_power` need the run's linear operator, which a plane
-does not carry, and `collect` refuses them by name. A spec naming a statistic whose
+The first four statistics are determined by a saved spectrum and the measure of its
+plane, so {py:func}`~solprop.stats.collect` forms them from a plane with
+`flux=SpatialFlux.resolve(grid, space, medium, z=plane.z)`; `absorbed_power` needs the
+run's linear operator, which a plane does not carry, and `collect` refuses it by name. A spec naming a statistic whose
 table it does not carry is refused when it is built, and so are radial and planar-hybrid
-geometry, which have no Cartesian transverse wavevector. All six run on `numpy_ref`,
+geometry, which have no Cartesian transverse wavevector. All five run on `numpy_ref`,
 through the reference pass {py:func}`~solprop.spatial.aperture_statistics`, and on
 `numba_cpu`, which computes them natively in one compiled pass over the state, threaded
 over bands of columns whose sums do not depend on the thread count; it agrees with the
 reference within a rounding bound, and decides every hard edge as the reference does.
 On `numba_cpu` the same pass also forms `on_axis_spectrum` (an aperture with
-$W\equiv1$), and a plane's six statistics cost about as much as `energy`. The native
+$W\equiv1$), and a plane's five statistics cost about as much as `energy`. The native
 backend runs the same pass natively, in the same order of sums, and agrees with both
 within that bound; a solprop-native build from before this pass is refused them by
 name, before it is built.
@@ -506,8 +510,9 @@ output["stats/aperture_spectrum"]   # (n_z, 4, n_omega) in J/(rad/s)
 ```
 
 The [far-field statistics tutorial](../../auto_tutorials/free_space/plot_07_far_field_statistics.rst)
-runs all six on a free-space run. The design is
-[SEP 23](../../dev/seps/archive/sep-0023-far-field-aperture-spectra.md).
+runs all five on a free-space run. The design is
+[SEP 23](../../dev/seps/archive/sep-0023-far-field-aperture-spectra.md), and the
+medium measure is [SEP 34](../../dev/seps/sep-0034-medium-flux.md).
 
 ## What `collect` guarantees
 

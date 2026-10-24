@@ -275,6 +275,7 @@ def spatial(name: str, settings: SimulationSettings) -> Simulation:
 
     import numpy as np  # noqa: PLC0415
 
+    from solprop.constants import C  # noqa: PLC0415
     from solprop.driver import Simulation  # noqa: PLC0415
     from solprop.grid import FieldGrid, FreeGrid, LineGrid, RadialGrid  # noqa: PLC0415
     from solprop.nonlinear.optmat_rates import OptmatRate  # noqa: PLC0415
@@ -300,7 +301,10 @@ def spatial(name: str, settings: SimulationSettings) -> Simulation:
     chi3 = gamma3("Ar", wavelength=800e-9)
     density = float(medium.density(np.array([0.0]))[0])
     fraction = 3.0 if plasma else 3000.0 if name == "line" else 0.9
-    power = fraction * critical_power(800e-9, chi3 * density)
+    # The physical critical power at the fill's carrier index (SEP 34).
+    carrier = 2 * math.pi * C / 800e-9
+    index = float(np.real(medium.index(np.array([carrier]))[0]))
+    power = fraction * critical_power(800e-9, chi3 * density, index=index)
     energy = power * 30e-15 * math.sqrt(math.pi / (4 * math.log(2)))
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=energy), 100e-6

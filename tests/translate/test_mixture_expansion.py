@@ -87,10 +87,20 @@ def test_independent_radial_profiles_use_the_general_table(optical_population):
         * (index0**2 + index0 * index1 + index1**2)
         / (index0 + index1)
     )
+    # The adiabatic amplitude term of SEP 34 section 4.4 is the endpoint log-ratio
+    # of the same closed-form roots, every column propagating far from cutoff. Its
+    # table is resolved to a relative 1e-9 of itself (see tests/translate/
+    # test_radial.py), absolutely far below the phase bound for a ratio of 1e-6.
+    amplitude = -0.5 * np.log(np.real(last) / np.real(first))
     reference = np.zeros((space.n_r, grid.n_omega), dtype=complex)
-    reference[:, grid.active_mask] = -1j * (integral - wave_numbers * index_integral)
+    reference[:, grid.active_mask] = amplitude - 1j * (
+        integral - wave_numbers * index_integral
+    )
     assert_allclose(
-        delta_phi(operator, 0.0, grid.length)[0, :, 0], reference, atol=bound, rtol=0
+        delta_phi(operator, 0.0, grid.length)[0, :, 0],
+        reference,
+        atol=bound + 1e-9 * float(np.max(np.abs(amplitude))),
+        rtol=0,
     )
 
 

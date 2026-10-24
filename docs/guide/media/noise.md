@@ -152,9 +152,15 @@ it drew. No draw ever uses NumPy's global generator.
 
 A mode axis and a polarisation axis are always present: every draw has the shape
 `(n_modes, n_pol, n_omega)`, so a one-mode run and the first mode of a two-mode run with
-the same seed see the same realisation. For the spatially resolved geometries,
-{py:func}`~solprop.noise.spatial_noise` draws one photon per transverse column,
-polarisation and active frequency bin in the same way.
+the same seed see the same realisation. For the radial, Cartesian and line grids,
+{py:func}`~solprop.noise.spatial_noise` draws one photon per admitted transverse column,
+polarisation and frequency bin in the same way. It takes the entrance plane's
+{py:class}`~solprop.spatial.SpatialFlux`: each column and bin is scaled so that its
+energy, weighted by the real axial admittance of the entrance medium, is $\hbar\omega$,
+the measure a launch is normalised in. Nonpropagating, inactive and zero-frequency bins
+are not power ports and carry no photon; the random stream is drawn as before, so a seed
+keeps its meaning ([energy and flux in a medium](../free-space/flux.md#the-discrete-measure-endpoints-and-noise)).
+A planar grid carries no noise draw.
 
 An ensemble is a sequence of seeds. Run it on a fixed step schedule (`schedule=`, see
 [scans](../workflows/scans.md)): the numerical error of a fixed schedule is then a common systematic

@@ -48,7 +48,7 @@ class State:
         self, scale: npt.NDArray[np.float64]
     ) -> npt.NDArray[np.float64]: ...
     def spatial_statistics(
-        self, flags: int, intensity_factor: float
+        self, flags: int, intensity_factor: float, z: float
     ) -> npt.NDArray[np.float64]: ...
     def aperture_statistics(
         self,

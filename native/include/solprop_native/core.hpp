@@ -222,6 +222,17 @@ struct Problem {
   // and spatial_absorber_rate is then per column. Zero n_p and empty kappa elsewhere.
   std::size_t n_p{};
   std::vector<Complex> spatial_kappa_sq;
+  // solprop kernel schema 35 (SEP 34): a non-separable spatial run's plane measure,
+  // the entrance's material squares (n_omega) and transverse squares (n_modes) whose
+  // root is solprop's `longitudinal_root`; `flux_table` when the material square
+  // varies along z and is uploaded as a `TableKind::flux` table of n_omega values. A
+  // separable run's measure is its own operator's (these stay empty). `flux_closure`
+  // allocates the magnetic closure's buffers at construction, for a request with a
+  // local flux statistic.
+  std::vector<Complex> flux_k_squared, flux_k_squared_low;
+  std::vector<double> flux_kperp_sq, flux_kperp_sq_low;
+  bool flux_table{};
+  bool flux_closure{};
   /** Free space or the hybrid planar kind: the separable operator and a y FFT. */
   [[nodiscard]] bool separable_geometry() const noexcept { return n_x != 0; }
   [[nodiscard]] bool slab_geometry() const noexcept { return n_p != 0; }
@@ -496,7 +507,7 @@ struct TrialScalars {
 };
 
 /** Which general z table a call names (solprop SEP 29 G1). */
-enum class TableKind { phi, prefactor, rate };
+enum class TableKind { phi, prefactor, rate, flux };
 
 /** Execution-space views, FFT plans, and scratch owned by one State. */
 class Workspace;
@@ -637,8 +648,15 @@ public:
                     const std::vector<double>& fractions);
   void prepare_raman(const std::vector<double>& rates,
                      const std::vector<double>& densities = {});
-  [[nodiscard]] std::vector<double> spatial_statistics(std::uint64_t flags,
-                                                       double intensity_factor);
+  /**
+   * The spatial statistics of the accepted state at the plane `z`, measured by the
+   * medium's axial flux (solprop SEP 34): flags 1 energy, 2 on-axis peak intensity, 4
+   * peak intensity, 8 on-axis spectrum, 16 the widths' fluence block (the signed
+   * fluence at each node, the axis fluence, then each node's magnitude
+   * `dt sum |E| |G|`), packed in that order.
+   */
+  [[nodiscard]] std::vector<double>
+  spatial_statistics(std::uint64_t flags, double intensity_factor, double z);
   /**
    * solprop SEP 23's far-field statistics of the accepted state on a Cartesian or line
    * grid, one banded pass; see `FarFieldPass::run` (`far_field.hpp`) for the tables,

@@ -27,6 +27,7 @@ from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid
 from solprop.nonlinear.raman import DampedOscillator, RamanResponse, undamped_dephasing
 from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
 from solprop.pulses import GaussianPulse, SpatialPulse
+from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.translate.ionisation import build_rate_table
 from spatial_records import record_equivalence, record_metric
@@ -66,7 +67,11 @@ def free_case(request):
     else:
         responses = [KerrResponse(CHI3, thg=False)]
     problem = make_problem(
-        grid, space, pulse.build(grid, space), responses, density=density
+        grid,
+        space,
+        pulse.build(grid, space, medium=SpatialMedium()),
+        responses,
+        density=density,
     )
     plasma_names = (
         ("electron_density", "peak_ionisation_rate")
@@ -222,7 +227,11 @@ def test_cartesian_analytic_family_plasma_statistics_scan_the_whole_field(
         PlasmaResponse("Ar", build_rate_table(QuadraticRate(), (1e3, 1e10))),
     ]
     problem = make_problem(
-        grid, space, pulse.build(grid, space), responses, density=1e22
+        grid,
+        space,
+        pulse.build(grid, space, medium=SpatialMedium()),
+        responses,
+        density=1e22,
     )
     # Kerr without its harmonic on a field grid: the analytic family (backends.md 3.1a).
     assert problem.flags.has_plasma and problem.flags.n_channels == 1
