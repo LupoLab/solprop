@@ -250,7 +250,7 @@ for the vector model), every item with its scope -- this field, the whole map, o
 model -- the source plane's exterior, and the source's SEP 34 path certificate,
 separately and with its scope. A zero field is a valid zero launch whose `efficiency` is
 `None`. The recorded envelopes ({py:mod}`solprop.coupling.envelopes`) bound what the
-scalar model omits, measured by the test suite against independent physics:
+approximate models omit, measured by the test suite against independent physics:
 
 - *Capillary.* The scalar profile $J_0(u_mr/a)$ against Marcatili's leaky core field
   $J_0(u_m(1 - i\delta)r/a)$, $\delta = |\nu_n|c/(\omega a)$ with $\nu_n$ the wall
@@ -266,8 +266,29 @@ scalar model omits, measured by the test suite against independent physics:
   radius ratios 0.7--1.43. V is checked at the profile wavelength and at every occupied
   bin, since it grows with frequency.
 
+- *Vector model into a step-index guide.* The flux pairing with the incident field
+  against an independent full-vector mode-matching solution of the planar entrance
+  facet: the incident and reflected fields in the input medium, the fibre's forward
+  guided and radiation fields, tangential $\mathbf E$ and $\mathbf H$ continuous,
+  solved per azimuthal order in a large conducting cylinder on its own TE/TM basis.
+  The exact amplitude differs from the model's by
+  $-\tfrac14\langle\mathbf u_i, D(Y_0 + Y_f)^{-1}D\,\mathbf e_m\rangle$ with
+  $D = Y_f - Y_0$ the difference of the fibre's and the medium's admittance operators,
+  so the omission is second order in the index step; at weak guidance it is the local
+  Fresnel estimate $-(n_{\rm cl} - n_{\rm co})^2/(8n_{\rm co})$ times the beam's
+  cladding overlap with the mode, which the solution matches to a few per cent. Over
+  Gaussian beams of waist $a$ to $2a$, displaced to $0.5a$ and tilted to 0.3 NA, into
+  $HE_{11}$ at V from 1.5 to 8 and the higher channels at V = 4, the largest omitted
+  share at contrast 0.05 is $6.9\times10^{-4}$ ($HE_{11}$ at V = 1.5); the bound is
+  $1.4\times10^{-3}$, scaled by the squared weighted contrast over $0.05^2$: about
+  $5.6\times10^{-5}$ at contrast 0.01. The beam is in the core's index: a beam in air
+  meets a bulk step first (a separate planar interface), and the model refuses it
+  through its source metric. The incident beam's own $\mathbf H$ closure is the
+  angular item's, not the envelope's. A graded-index guide has no recorded envelope;
+  its item has no value and is not counted.
+
 A pair outside its envelope's range is refused, not extrapolated; bins of a covered pair
-whose $\delta$ or V leave the range carry an unbounded discrepancy, so their share of
+whose $\delta$, V or contrast leave the range carry an unbounded discrepancy, so their share of
 the incident energy is added to the item in full.
 
 ### A Gaussian beam into a capillary
@@ -429,7 +450,8 @@ coupling=CouplingModel("vector_paraxial", model_error=...))`, which couples the 
 through `couple` and records the report as `configuration["launch"]`
 ([general modal propagation](../waveguides/general-modal.md)). A strongly guiding core
 fails the contrast screen and is refused; the closure is qualified against the
-provider's own H.
+provider's own H, and for a step-index guide the facet reflection the model omits is
+counted through its recorded envelope (above).
 
 ## Transporting a plane between planes
 

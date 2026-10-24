@@ -104,6 +104,12 @@ The first public release. It contains:
   than against the scalar profile itself; bins outside an envelope's range, including a
   fibre's V across the band, are counted in full; the modal overlap quadrature enters
   the budget as `2 delta + delta^2`.
+  `VECTOR_STEP_INDEX_ENVELOPE` bounds `vector_paraxial` into a step-index guide
+  against an independent full-vector mode-matching solution of the entrance facet
+  (bound 1.4e-3 at contrast 0.05, V 1.5 to 8, scaled by the squared contrast); its
+  item is counted and a guide outside its range is refused by name. A step-index
+  port carries `InputPort.normalised_frequency`; a graded-index guide keeps an
+  uncounted item without a value.
 - **Media and responses.**
   - Gases, gas mixtures, glasses and metals from the [optmat](https://github.com/LupoLab/optmat)
     material library.

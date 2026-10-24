@@ -1939,6 +1939,7 @@ plain defects among them are fixed above or were superseded):
    `processing.mixtures` and `processing.planes` rebuild the plane measure there).
 10. *(Phase 3 Q1)* A recorded provider envelope for `vector_paraxial`: recommended before
     Final, against an independent mode-matching calculation for `StepIndexProvider`.
+    *Resolved 2026-10-24* (maintainer decision A1 below): `VECTOR_STEP_INDEX_ENVELOPE`.
 11. *(Phase 3 Q2, Q3)* The cone rule for small-core direct overlaps and a
     Gaussian → LP01 envelope: maintainer decision; the cone rule is conservative there.
 12. *(Phase 3 Q4)* The general guide's target angular item at every occupied bin: yes if
@@ -2107,6 +2108,104 @@ Its output was regenerated with `poe docs-examples plot_04_graded_index_multimod
 (10 min 23 s): incident 159.67 nJ, launched 0.99998 of it, budget 1.832e-2 of 0.1
 (angular 1.25e-2, contrast 9.5e-3, closure 4.6e-3, passivity 1.1e-3); entrance shares
 LP01 0.933, LP02 0.0625. The figures changed only in their last digits.
+
+### Maintainer decisions — 2026-10-24
+
+- A1 — *A recorded pair envelope for `vector_paraxial` into a `StepIndexProvider`
+  guide* (Phase 5 open question 10, Phase 3 open question 1; resolved). The maintainer
+  decided the vector model needs a recorded envelope before Final, against an
+  independent mode-matching calculation. Delivered on `sep31/vector-envelope`:
+  `VECTOR_STEP_INDEX_ENVELOPE` (`step-index-vector-facet-mode-matching-2026-10`) in
+  `coupling/envelopes.py`; `InputPort.normalised_frequency` (V of a step-index guide
+  at the entrance, per bin, filled by `translate.coupling.step_index_frequency`);
+  `_vector_envelope_item` in `coupler.py`; the oracle `tests/facet_mode_matching.py`.
+- A1 — *Reference.* A full-vector mode-matching solution of the planar entrance
+  facet: incident and reflected fields in the input medium, the fibre's forward guided
+  and radiation fields, tangential E and H continuous. Written with
+  $\mathbf u = \mathbf E_t$, $\mathbf v = -\hat z\times\mathbf H_t$, Maxwell's
+  equations give $\beta\mathbf u = A\mathbf v$, $\beta\mathbf v = P\mathbf u$
+  ($A = \omega\mu_0 + (\omega\varepsilon_0)^{-1}\nabla_t\varepsilon^{-1}
+  \nabla_t\cdot$, $P = \omega\varepsilon_0\varepsilon - (\omega\mu_0)^{-1}
+  \hat z\times\nabla_t\,\mathrm{curl}$), the forward admittance is
+  $Y = P(AP)^{-1/2}$, and continuity gives the transmitted field
+  $2(Y_0 + Y_f)^{-1}Y_0\mathbf u_i$ exactly; its guided amplitude is its flux pairing
+  with the unit-power mode. Each azimuthal order is solved separately in a perfectly
+  conducting cylinder of 8 (12 for the refinement) core radii, on the cylinder's own
+  orthonormal TE/TM Bessel fields, with Galerkin matrices on Gauss–Legendre panels
+  broken at the core. The model's amplitude differs from the exact one by
+  $-\tfrac14\langle\mathbf u_i, D(Y_0 + Y_f)^{-1}D\mathbf e_m\rangle$,
+  $D = Y_f - Y_0$: second order in the index step.
+- A1 — *Independence and validation.* `StepIndexMode.electromagnetic_field` is **not**
+  independent of the provider: both evaluate the same analytic fields
+  (`modes/_stepindex_vector._fields` and `_power`), the provider at its nodes. The
+  reference therefore solves its own modes and uses nothing of the package's
+  step-index code. Checks: its HE11 effective index converges (as 1/N, the smooth
+  basis meeting the jump in $E_r$) to Snyder and Love's exact vector eigenvalue
+  equation solved directly, which the package's solver matches to 1e-12; its HE11
+  radial profile matches `electromagnetic_field` to 1e-2 at N = 100; a uniform guide
+  of another index gives every basis field its modal Fresnel transmission to 1e-9
+  (a known solution); incident power equals reflected plus transmitted to 1e-10; at
+  weak guidance the facet term equals the local Fresnel estimate
+  $-(n_{\rm cl}-n_{\rm co})^2Y_{\rm vac}/(8n_{\rm co})$ times the beam's cladding
+  overlap to 2–4 % (contrast 0.003–0.01; 10 % at 0.03), the size of the next order.
+- A1 — *Measurements.* The facet term (the exact share minus the model's with the same
+  incident H) over x-polarised Gaussian beams of waist 0.5a–2a, displaced to 0.5a,
+  tilted to 0.3 NA, contrast 0.001–0.05 and V 1.5–8 for HE11; at V 3–8 for every
+  guided channel (HE12, EH11, HE21, HE31, HE41, TE01, TM01, ...), contrast 0.01 and
+  0.05. It is
+  negative (the model over-launches) and proportional to the squared contrast to
+  within 7 % across the range: HE11 $0.26$–$0.28\Delta^2$ at V = 1.5 falling to $0.02\Delta^2$
+  at V = 6–8; higher channels at most $0.19\Delta^2$ (HE12 at V = 4, near cutoff;
+  $0.05\Delta^2$ at V = 8).
+  Largest: $6.9\times10^{-4}$ at contrast 0.05, V = 1.5, a 2a waist. Refining the
+  basis (100 → 200 fields) and the cylinder (8a → 12a) changes it by $1.1\times10^{-5}$.
+  Against `couple` itself (Cartesian planes, one beam per bin, the guide tabulated at
+  17 knots with a 48 × 48 node rule): at contrasts 0.003–0.01 the launched share
+  equals the reference's own evaluation of the model to $\le 1.6\times10^{-5}$
+  (2e-5–5e-5 at V = 1.5 bins near the band edge, where the cylinder must be 12a and
+  the tables are coarsest), the incident beam's closure term (exact H against
+  $Y_0\hat z\times\mathbf E_t$, up to $2.6\times10^{-4}$) is within the angular item
+  (0.11), and the facet term within the envelope item. At contrast 0.05 the launch
+  matches to $3\times10^{-4}$ at V 1.5–2.6 (coarse planes whose numerical item already
+  counts $10^{-4}$) and to $10^{-4}$ at V 3.5–6, the size of the reference's own
+  refinement change there; the total difference from the exact share stays within
+  the envelope item plus the angular item everywhere. At contrast 0.05 the closure
+  item alone (0.045 at V = 5.4, 0.098 at V = 2.4) needs a large `model_error`.
+- A1 — *Recorded.* Range contrast 0–0.05 (`contrast_squared` 0–2.5e-3), V 1.5–8,
+  any bound channel of the provider, a beam in the core's index; bound
+  $1.4\times10^{-3}$ (twice the largest, numerical included), numerical
+  $2\times10^{-5}$; the allowance scales with the incident-weighted squared contrast
+  over $0.05^2$ (`scaled_by="contrast_squared"`, the existing linear `allowance`
+  applied to the square): $5.6\times10^{-5}$ at contrast 0.01. Scaling is justified by
+  the measured $\Delta^2$ law and the identity above; a linear scaling would overstate
+  a 0.01 guide fivefold. The envelope bounds only the facet's reflection and backward
+  fields; the incident H closure stays the angular item's and the guide's tabulation
+  the numerical items'.
+- A1 — *Admission now.* `vector_paraxial` into a step-index guide counts the envelope
+  item (allowance plus the incident share of bins whose V or contrast leave the range);
+  weighted V or contrast outside the range is refused by name ("not qualified for this
+  step-index guide: v = … lies outside the envelope …"). The contrast screen still
+  applies; the envelope does not replace it (the closure item limits the same guides).
+  A beam in another medium than the core (air into silica: the reference puts the model
+  6 % high, a 3 % bulk Fresnel loss) is refused through the source-metric item, as
+  §4.3 requires a separate planar interface. The strand of the incident tests
+  (V = 5.1, contrast 0.0069) and its 5 µm sibling (V = 6.4) are inside the range.
+- A1 — *Graded index.* Not covered: a `GradedIndexProvider` port carries no V and keeps
+  the uncounted `envelope` item without a value, its note saying only a step-index
+  guide has one; its facet omission is bounded only by the contrast screen and the
+  closure, as before. The graded-index worked example and `benchmarks/guides.py` are
+  unchanged. Refusing graded guides was rejected: the local-Fresnel identity says the
+  omission is second order in the local step and the screen caps that step, so
+  refusing would remove a working, screened path for no measured defect; a
+  graded-index reference (the same solver with a layered core) is the follow-up.
+- A1 — *Limitations.* x-polarised Gaussian beams only (no supplied incident H, no
+  measured beams); constant indices (the envelope depends on V and contrast, which
+  the port evaluates per bin from the regions' laws); a reference whose fields
+  converge only as 1/N, so its absolute shares carry ~1e-5 and only the facet
+  difference is resolved finely; the test sweep samples corners, the full sweep was
+  run once and is recorded here. The `couple` comparison at V = 1.5 bins shows a
+  ~2e-5 implementation difference attributed to the guide's tabulation, not to the
+  facet.
 
 ## Part III — History
 
