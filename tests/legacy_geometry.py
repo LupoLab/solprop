@@ -17,7 +17,11 @@ import dataclasses
 from solprop.boundaries import Absorber, no_absorber
 from solprop.grid import TimeGrid
 
-LEGACY_GRID = {"fft_size": "pow2", "collar_fraction": 0.05, "collar_placement": "inside"}
+LEGACY_GRID = {
+    "fft_size": "pow2",
+    "collar_fraction": 0.05,
+    "collar_placement": "inside",
+}
 """``from_limits`` keywords that rebuild a grid as solprop built it before SEP 21."""
 
 
