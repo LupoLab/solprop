@@ -7,8 +7,8 @@
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-10-25) |
 | **Status** | Draft |
-| **Review status** | Not reviewed |
-| **Reviewers** | — |
+| **Review status** | In review |
+| **Reviewers** | GPT-6 (AI) |
 | **Type** | Change |
 | **Created** | 2026-10-25 |
 | **Resolution** | — |
@@ -339,3 +339,264 @@ affected; no difference to record.
 ## Part III — History
 
 - 2026-10-25: Drafted, with a `numpy_ref` prototype's measurements.
+
+- 2026-10-25: GPT-6 completed the AI review of Part I at `2a4a7f9`, recorded
+  below. Review status is `In review`; proposal status remains `Draft`. No human
+  review or maintainer decision is implied.
+
+### AI review — 2026-10-25 — GPT-6
+
+Reviewed all of Part I against the conventions, current Adams implementations,
+SEPs 16 and 25, and SEP 0's acceptance criteria. **Recommendation: revise before
+acceptance.** The constant-operator change of variable is sound, including the
+dense-output prefactor. It provides a useful intermediate choice between the
+unshifted exponential and interaction formulations. It does not, however, establish
+unchanged stability or reliable error detection for the residual source, and the
+proposed default covers more regimes than the evidence establishes.
+
+Only the review header and Part III are changed. P1 points concern numerical
+correctness, qualification or execution contracts that should be settled before
+acceptance; P2 points require explicit design decisions or corrections. All
+maintainer decisions and responses to R1–R10 are pending. Numerical probes below
+evaluate the proposed formula independently; they are not qualification of an
+implemented feature or a reproduction of the prototype's propagation results.
+
+1. **R1 (P1), §§1, 4, 7, 9 — An unchanged predictor–corrector defect can miss a
+   large error introduced by the shift.** Consider a populated scalar bin with
+   $h=1$ m, $D=2\pi\mathrm{i}$ m⁻¹, $F=1$ amplitude-unit/m, and $u_n=1$,
+   with exact history on equally spaced nodes. The proposed rule gives
+   $\sigma=2\pi\mathrm{i}$ and $hD-\sigma=0$. Every rotated sample is one,
+   so both predictor and corrector add one. The exact source integral is zero:
+   $\int_0^1 e^{2\pi\mathrm{i}(1-s)}\,ds=0$. Independent moment calculations
+   at predictor orders 1, 3 and 5 gave absolute endpoint error 1, with defects
+   between zero and $4.5\times10^{-16}$; the unshifted formula was exact to
+   rounding. At $h\operatorname{Im}D=2\pi\pm0.001$, order 3 still gives
+   error about one and defect $3.75\times10^{-10}$, so the failure is not
+   confined to an exactly resonant phase. This also affects mixed rotations:
+   with $D=\mathrm{i}$ m⁻¹,
+   $F(z)=e^{\mathrm{i}z}+0.1e^{3\mathrm{i}z}$ in consistent units and
+   $h=\pi$ m, the scalar frame aliases the residual harmonic. A third-order
+   predictor gave error $0.1\pi$ and a defect below $10^{-30}$.
+
+   This is finite-sampling aliasing, not a flaw in the integral identity, and
+   does not prove that a normal adaptive startup reaches these stencils. It does
+   show that neither a small defect nor a populated-bin norm establishes the
+   blanket claims; the risk is not confined to an invisible weak band or a
+   harmonic boundary. **Recommended change/question:** state the smoothness and
+   resolution assumptions for the *rotated* source. Add mixed-frequency and
+   non-carrier-driven witnesses, including near-resonant phases, variable steps,
+   adaptive startup and replay. What qualification or admission rule prevents
+   the new default from losing the unshifted method's accuracy on these sources?
+   Do not infer global accuracy or universal improvement from exactness of the
+   homogeneous flow.
+
+2. **R2 (P1), §4, “The in-stage collar's stability limit” — A purely imaginary
+   shift does change the explicit recurrence's stability.** For the scalar test
+   equation $u'=Du+\lambda u$, a constant shift makes the recurrence, after a
+   unit-modulus change of coordinates, the unshifted exponential PEC recurrence
+   with $x'=hD-\sigma$ and the same $h\lambda$. Its stability therefore depends
+   on the residual imaginary phase as well as the real damping. For PEC3/4,
+   $hD=0$ and $h\lambda=-0.25$, the recurrence's spectral radius is
+   $0.8879010401$. Applying $\sigma=-4\mathrm{i}$, as a second bin's reference
+   phase can require, changes it to $1.0245058313$: stable becomes unstable,
+   despite $0.25$ lying inside the quoted negative-real interval $0.30$.
+   Both quadrature-built weights and production `exponential_weights` give
+   these values. The recurrence retains the predicted-state source, as the
+   actual PEC method does.
+
+   This commuting scalar damping example already disproves the stated reason;
+   the temporal collar additionally couples spectral bins. **Recommended
+   change/question:** derive or measure the applicable stability envelope in
+   residual phase and damping, and qualify the order-selection weight against
+   it. Include a resolved collar case and a coupled case. Under precisely what
+   restrictions can `PEC_REAL_INTERVAL` remain an adequate order-selection
+   heuristic? Keep that question distinct from a rigorous stability guarantee.
+
+3. **R3 (P2), §§1, 4, 7 — Make the carrier sign and the field/envelope equivalence
+   explicit.** With the defined $\kappa=\beta(\omega_0)-\beta_1\omega_0$,
+   the internal reference operator is $D_{\rm ref}=-\mathrm{i}\kappa$ and
+   $\sigma=-\mathrm{i}h\kappa$. The matching witness is consequently
+   $F=e^{-\mathrm{i}\kappa z}g(z)$. Section 7 instead writes the plus sign;
+   using the proposed default shift on that witness leaves a rotation at
+   $2\kappa$, so its promised polynomial exactness does not follow. Either
+   change the witness's sign or explicitly define a different signed rotation
+   rate and supply its shift.
+
+   Also, $D_{\rm field}=D_{\rm envelope}-\mathrm{i}\kappa$ refers to the
+   envelope operator **without** THG and with the same physical frame. For the
+   documented envelope operator **with** THG, the difference is instead
+   $+\mathrm{i}\beta_1\omega_0$, and its carrier shift is based on
+   $-\mathrm{i}\beta_0$. **Recommended change/question:** derive the two
+   cases separately and state the phase-equivariant response assumptions under
+   which the fundamental source transforms as claimed. “Kerr-only” must specify
+   whether the real-field cubic's THG part is retained. Restrict field/envelope
+   parity to matched physics and grids; similar call counts are a performance
+   observation, not a correctness criterion. The already suspected envelope-THG
+   discrepancy cannot certify that route's accuracy.
+
+4. **R4 (P2), §§5–6, 11–12, Q3 and Q5 — Specify how every supported route obtains
+   its reference shift before phase 1.** “At the reference frequency of the
+   reference mode” is not yet an executable rule. A field lattice need not
+   contain that frequency exactly; a custom `Frame` can use a reference different
+   from the grid's; free-space columns are transverse wavevectors rather than
+   guided modes; and a coupled route's cumulative diagonal can be a common
+   carrier rather than the full first channel's operator. These choices can
+   change the residual phase that drives R1 and R2. The statement that an
+   envelope without THG necessarily has a near-zero shift also needs the
+   co-moving-frame assumption; custom frame coefficients are supported.
+
+   **Recommended change/question:** name the selected frequency/bin, tie rule,
+   channel or transverse column, and behaviour when that reference is inactive
+   or absent, for each admitted route. Say whether the shift represents the
+   common diagonal or an eigenvalue of a coupled block, and specify its batch
+   semantics. Test a shifted launch, a non-fundamental launch, a custom frame
+   and free-space propagation. Assign Q3–Q5 to a decision point before they are
+   needed by the implementation; retain an explicit refusal or `off` path for
+   unqualified choices rather than relying on a backend-specific convention.
+
+5. **R5 (P1), §§4, 6–7, 11 — Complete the varying-operator and coupled recurrence,
+   rather than extending the constant-diagonal identity by assertion.** The
+   transported compensation can indeed retain its existing *formula*, but its
+   endpoint state is the new predictor, so its values and its combined defect
+   change. A chord shift also removes only the chord phase: for a source
+   proportional to $e^{\int D_{\rm ref}\,dz}$, a varying carrier leaves a
+   residual phase across the history. The constant-polynomial witness cannot
+   establish accuracy or estimator behaviour there.
+
+   For a coupled block, distinguish the homogeneous flow $e^{hB}$ from the
+   moments $\varphi_k(hB-\sigma I)$. Currently `coupled_moments` returns both
+   in one `_MatrixMoments` object and `HostHistory.exponential_trial` uses that
+   object as the flow too. Merely shifting its input shifts the propagated
+   state, contrary to this SEP's central contract. **Recommended
+   change/question:** write the complete predictor, corrector, combined defect
+   and dense formula with transported compensation, and identify the separate
+   unshifted flow in both Schur and eigenbasis paths. Require manufactured
+   varying-carrier and nonnormal-block witnesses, three-level convergence,
+   changing step sizes/rejections, dense endpoints and interiors, section
+   transitions, hard kinks and the structurally source-free exact chord. Include
+   cancellation between the source and compensation defects. No extra source
+   call should be required, but that does not by itself validate the estimate.
+
+6. **R6 (P2), §§5, 7, 11–12, Q1–Q2 — Separate the scalar proposal from extensions
+   whose safety criterion is not yet defined.** A frequency threshold does not
+   identify a nonlinear source's phase: fundamental broadening and harmonic
+   generation can contribute to the same bin, as the prototype already found.
+   Moving the threshold into a gap does not prove that it remains in one. The
+   requirement that a weak band be no worse than the unshifted result permits
+   both methods to be wrong. Give the band an independent reference and an
+   absolute or relative observable error budget fixed before comparison,
+   including motion and filling of the gap and any boundary change after a
+   rejected trial. Otherwise defer `harmonic` explicitly and retain scalar-only
+   acceptance criteria.
+
+   Including loss in the shift has a separate range problem. An evaluated bin
+   with $hD=0$ and a lossy reference $\sigma=-1000$ needs moments at $+1000$
+   and exponentially small sample factors: the proposed separate evaluation
+   overflows/underflows although the original integral is finite.
+   `phi_functions` deliberately refuses real arguments above 700. **Recommended
+   change/question:** keep Q2 outside this implementation unless a stable
+   combined evaluation, its admissible range and its tests are specified; the
+   algebra's allowance for complex shifts is not a floating-point guarantee.
+
+7. **R7 (P1), §§5–6, 9, 11 — Reconcile the method switch and phased rollout with
+   the versioned seam.** A `carrier_frame` field on `Multistep` is carried inside
+   `StepperSettings.integrator`, which is part of `KernelProblem`; it is not a
+   backend-only private flag. The version-20 record in `translate.problem`
+   explicitly includes the earlier addition of `formulation` to that method.
+   The unconditional promise of no `SCHEMA_VERSION` change is therefore not
+   justified by leaving the outer dataclass fields alone. In particular, an
+   older native adapter must not silently accept a scalar/harmonic request and
+   run unshifted arithmetic.
+
+   **Recommended change/question:** settle the interface and capability
+   contract, state which phase bumps the schema when required, and require
+   unsupported backends to refuse the selected frame by name. Keep the old
+   default until phase 4's qualification or state how earlier phases remain
+   independently usable. Distinguish kernel schema compatibility from whether
+   the existing output fields can already record the setting; the latter need
+   not automatically require a new output layout.
+
+8. **R8 (P1), §6 — Native dense observation is a separate implementation, and
+   the cost claim omits changed moment work.** `_ResidentAdams.observe` in
+   `native/src/solprop_native/backend.py` calls the native
+   `adams_exponential_observe`; `GeneralWorkspace::adams_exponential_observe`
+   in `native/src/general.cpp` evaluates the moments and sums in a Kokkos
+   kernel. It does not use the shared reference pass. Updating trial and accept
+   alone leaves saved interior planes inconsistent with the new step.
+
+   **Recommended change/question:** include native dense state and arithmetic
+   explicitly, preserve the accepted trial's shift across later trial/rejection
+   activity, and test interior planes against an analytic shifted witness and
+   NumPy on CPU and qualified devices. For coupled host paths, likewise ensure
+   the shift reaches their actual interpolant. Account for any retained factors
+   in the memory ledger. The timing model must also include moment evaluation:
+   `phi_functions` switches algorithms at $|x|=3$, so making $x-\sigma$ small
+   changes the cost beyond one multiply per history sample. A device readback
+   also introduces a dependency/synchronisation. Measure wall time, memory and
+   transfers before claiming that the frame costs nothing where the old method
+   already led.
+
+9. **R9 (P2), §§1, 7, 9 — Unchanged history arrays do not mean unchanged resume
+   compatibility or rounding-level agreement.** `AdamsMarch._refusal` compares
+   `snapshot.method` with `repr(self._method)`, and the run record stores the
+   method representation. Adding the proposed field changes that identity even
+   for `off`; an entirely hidden switch instead risks leaving different
+   arithmetic under one identity. Moreover, a history's stored source was
+   evaluated at a predictor produced by the previous method. Keeping its array
+   representation is not proof that a cross-policy continuation is the same
+   discrete computation.
+
+   **Recommended change/question:** state the treatment of old checkpoints and
+   of `off`/`scalar`/`harmonic` changes: explicit refusal, a documented restart,
+   or a qualified conversion. Record the effective policy and deterministic
+   selection rule, and test saved and in-memory continuation. Follow SEP 25:
+   rounding bounds apply to matched methods, schedules, orders and histories;
+   general adaptive/resumed comparisons need accuracy envelopes against a
+   converged reference. Include rotation, phase evaluation, subtraction and
+   interpolation conditioning in new rounding budgets rather than promising
+   the existing bounds unchanged. “Results change within the tolerance” is
+   not a global-error guarantee supplied by `rtol`.
+
+10. **R10 (P2), §§1–2, 7, 10–11 — Make the performance evidence reproducible and
+    the qualification compliant with the short-window policy.** The table names
+    physical parameters but no complete executable fixture, prototype revision,
+    realised grids, time window, wavelength limits, response selections, collar
+    scheme or timing setup. These affect the comparison materially. At common
+    `rtol`, 477 calls with error $1.4\times10^{-5}$ versus 2669 with
+    $5.8\times10^{-6}$ is promising but not matched accuracy; the additional
+    582-call point strengthens the motivation without establishing all claimed
+    nonregressions. An IP-DOPRI5 run at a tighter tolerance is a candidate
+    reference until its convergence and agreement with the named second method
+    are shown.
+
+    The proposed phases also call for repeated work–precision measurements on
+    fibres of 0.1–4.2 m with hundreds to tens of thousands of source calls.
+    `AGENTS.md` and SEP 0 §7 require about ten steps or a problem short enough
+    to finish in seconds; full problems belong in the gallery exceptions.
+    **Recommended change/question:** retain these figures as preliminary
+    motivation, publish reproducible case builders and a ledger, and define
+    short launch and developed-spectrum windows that retain the difficult
+    physics. State reference convergence checks, worst-plane field and named
+    weak-band error budgets, the error range for matched-work comparisons, and
+    timing variability/nonregression margins in advance. Cover cheap-source and
+    currently favoured unshifted cases as well as dense gases. Do not extrapolate
+    short-window timing to a full run; put any full-size demonstration in an
+    appropriate worked example.
+
+**Evidence and limits of this review.** The shifted integral and dense formula
+were independently re-derived. A polynomial rotating source on irregular history
+nodes, with $hD=-0.4+7\mathrm{i}$ and $\sigma=2.3\mathrm{i}$, agreed with
+independent quadrature at $\xi=0.2,0.63,1$ to below $5\times10^{-17}$ absolute
+error in the chosen unit-amplitude witness. R1 used augmented matrix exponentials
+for moments; R2 was cross-checked with direct quadrature and production weights.
+These small scalar probes do not establish propagation accuracy, performance or
+device support. The prototype's four campaigns were not rerun.
+
+The bibliographic details of both §13 references were checked against the
+[Cox–Matthews publisher record](https://doi.org/10.1006/jcph.2002.6995) and
+[Hochbruck–Ostermann institutional record](https://publikationen.bibliothek.kit.edu/1000041812).
+The latter's [author manuscript](https://na.math.kit.edu/download/papers/multistep.pdf),
+§2, supplies the variation-of-constants/interpolation foundation; it does not by
+itself qualify this variable-step, carrier-shifted PEC controller. The full
+Cox–Matthews text was not checked. No physical constants or material coefficients
+were transcribed or changed.
