@@ -1101,7 +1101,8 @@ the harness's metrics are relative errors at the last plane):
 | `rdw` | 2.6e-6 | 4.9e-5 bands | 1.7e-5 | survives |
 | `ctc` | 2.6e-3 | 3.4e-4 peak | 1.3e-3 | survives with a limit: 0.05 m (field 4.3e-5 there; 0.025 m 6.6e-6) |
 | `argon` | 1.8e-4 | 2.1e-4 bands | 5.2e-4 | survives |
-| `argon_envelope`, over 0.1 m | 2.7e-6 | 4.2e-5 bands | 1.9e-5 | survives; the 0.4 m runs are pending |
+| `argon_envelope`, over 0.1 m | 2.7e-6 | 4.2e-5 bands | 1.9e-5 | survives |
+| `argon_envelope`, 0.4 m (completed after this report, recorded in phase 4) | 1.3e-5 | 2.1e-5 ionised | 3.5e-5 | survives |
 | `nitrogen` | 1.1e-6 | 2.7e-5 bands | 3.1e-6 | survives |
 | `radial_kerr` | 8.5e-6 | 1.3e-4 bands | 1.3e-4 | survives |
 | `radial_filament` | 2.3e-6 | 1.2e-5 peak | 1.3e-5 | survives |
@@ -1390,9 +1391,11 @@ same binary64 references:
 | `argon_envelope`, 0.1 m | 8.6e-6 | 3.4e-5 bands | 1.8e-5 | survives |
 | `argon` (field grid), 0.4 m | 2.2e-4 | 2.8e-4 bands | 3.4e-4 | survives |
 
-The oracle's 0.4 m envelope run at `1e-5` (on the workstation, 3.5 h) gives field
-3.5e-5 and ionised fraction 2.8e-5; the device's at the same tolerance takes 5 s. Its
-`1e-6` run was still running at this report; the `mlx` record stands in for it.
+The oracle's 0.4 m envelope runs, on the workstation, give field 1.3e-5 and ionised
+fraction 2.1e-5 at `1e-6` (5.9 h; binary64 at the same tolerance: 1.3e-5 and 2.0e-5)
+and 3.5e-5 and 2.8e-5 at `1e-5` (3.5 h): the case survives on the oracle too. The
+device's runs take 5–7 s; its larger errors are its discretisation of the moments
+(class T), inside the envelopes by a factor of twenty.
 
 **Agreement with the oracle** (fixed schedule): the envelope-plasma capillary 4.4e-7
 after eight steps, against a plasma effect of order one on the same field; the device's
@@ -1410,6 +1413,34 @@ steps after two):
 | batched projection against per-stream, field plasma, one mode | 1.18 |
 | the same, four and eight modes | 1.05, 1.01 |
 
+**On a quiet machine.** The same-process A/B of every phase's cases, repeated on the
+Apple M5 Max with nothing else running (six alternating rounds, the first dropped,
+median per fixed step; `native` at its default thread budget; the spread of `native`
+under 2 %, of `mlx` up to 27 % on the smallest, launch-bound cases):
+
+| case | `native` ms | `mlx` ms | `native` / `mlx` |
+|---|---|---|---|
+| GNLSE with Raman, 2^14 | 4.34 | 2.53 | 1.7 |
+| GNLSE with Raman, 2^16 | 12.0 | 3.51 | 3.4 |
+| GNLSE with Raman, 2^18 | 41.0 | 7.79 | 5.3 |
+| Ar capillary, field plasma, one mode, 300 fs | 2.17 | 4.26 | 0.51 |
+| the same, four modes | 3.09 | 4.49 | 0.69 |
+| the same, eight modes on 1 ps | 16.2 | 14.4 | 1.12 |
+| Ar capillary, envelope plasma, one mode, 300 fs | 33.9 | 4.20 | 8.1 |
+| the same, four modes | 34.5 | 4.28 | 8.1 |
+| the same, eight modes on 1 ps | 16.0 | 4.58 | 3.5 |
+| radial Kerr beam, 64 nodes | 2.56 | 2.45 | 1.05 |
+| radial Kerr beam, 256 nodes | 14.9 | 5.13 | 2.9 |
+| Cartesian Kerr beam, 64 × 64 | 26.2 | 13.5 | 1.9 |
+| Cartesian Kerr beam, 128 × 128 | 243 | 127 | 1.9 |
+| radial argon filament, 64 nodes | 7.34 | 4.15 | 1.8 |
+| the same, 128 nodes | 11.6 | 4.65 | 2.5 |
+| the same, 256 nodes | 28.5 | 8.84 | 3.2 |
+
+They agree with the loaded machine's indicative ratios to within their spread. The
+standard suite's harness (SEP 30) has no `mlx` cases yet; adding them is on the
+roadmap.
+
 **Measured kernels (§11).** Phases 2–3 showed the small plasma capillaries bound by
 launches. The projections, a third of such a stage, are batched (above); the rest of
 the stage is a few dozen elementwise passes and two scans per channel. A fused stage
@@ -1423,10 +1454,14 @@ truncation, not the precision. Adams stays refused under single precision and
 `RungeKutta()` stays the default; whether a rule comparing binary32 Adams with binary64
 Adams should decide it is the maintainer's open decision, on the roadmap.
 
-**Open, moved to the roadmap**: a benchmark of the suite's cases on a quiet machine
-(§7.4); whether a hosted macOS runner exposes Metal (Q7), which the pull request's
-first CI run records; the Adams rule; a fused stage kernel; single-precision and mixed
-modes of `native` and `numba_cpu`.
+**Q7 answered.** The pull request's first CI run recorded that the hosted macOS
+runner (macos-15, arm64) exposes Metal to MLX, so the `mlx` tests run on a GPU in CI.
+Its GPU computes float32 products in float32 even with TF32 enabled, so the TF32
+refusal test skips there.
+
+**Open, moved to the roadmap**: `mlx` cases in the standard benchmark suite (SEP 30);
+the Adams rule; a fused stage kernel; single-precision and mixed modes of `native` and
+`numba_cpu`.
 
 **Deviations.** None from Part I. The binary32 exponent refusal is new; it applies §4.3's
 range rule to the propagator.

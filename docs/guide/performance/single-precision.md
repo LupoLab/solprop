@@ -109,7 +109,7 @@ field's error, and binary64's own field error at the same tolerance for comparis
 | dispersive-wave emission, He capillary gradient, two modes, 1.5 m | 2.6e-6 | 4.9e-5 (bands) | 1.3e-6 | survives |
 | comb-to-continuum, H₂ capillary at 40 bar, 0.1 m, noise-free | 2.6e-3 | 3.4e-4 (peak) | 3.0e-7 | survives over 0.05 m |
 | plasma blue shift, Ar capillary, field grid, 0.4 m | 1.8e-4 | 2.1e-4 (bands) | 1.6e-4 | survives |
-| plasma blue shift, Ar capillary, envelope grid, 0.1 m | 2.7e-6 | 4.2e-5 (bands) | 1.7e-6 | survives |
+| plasma blue shift, Ar capillary, envelope grid, 0.4 m | 1.3e-5 | 2.1e-5 (ionised) | 1.3e-5 | survives |
 | molecular Raman, N₂ capillary at 2 bar, 0.3 m | 1.1e-6 | 2.7e-5 (bands) | 1.6e-7 | survives |
 | radial Kerr beam, 0.3 m | 8.5e-6 | 1.3e-4 (bands) | 8.6e-6 | survives |
 | radial filament in argon with plasma, 3 cm | 2.3e-6 | 1.2e-5 (peak) | 2.2e-6 | survives |
@@ -148,17 +148,23 @@ field-grid one 2.2e-4 (2.8e-4, bands): both survive.
   states.
 - **Performance.** On the reference implementation a single-precision run costs about as
   much as a double-precision one. On `mlx` the gain over `native` grows with the
-  problem: on one Apple-silicon laptop, in the same process, a GNLSE step on a single
-  line took 0.65, 0.36 and 0.19 times `native`'s time at 2¹⁴, 2¹⁶ and 2¹⁸ samples,
-  and an eight-mode capillary with ionisation on a 1 ps window 0.83 times. In free
-  space, ten Kerr steps took 0.87 and 0.26 times `native`'s time on 64 and 256 radial
-  nodes, about 0.5 times on 64 × 64 and 128 × 128 Cartesian grids, and a field-grid
-  argon filament 0.68 and 0.43 times on 64 and 128 radial nodes. With the envelope-grid
-  plasma, whose cycle moments are one GPU thread per sample, a capillary step took
-  0.13–0.22 times `native`'s time from one to eight modes. Small
-  capillary runs (one to four modes on a 300 fs window) are slower on the GPU, 2–3
-  times `native`'s time, bound by the GPU's per-operation latency. These are indicative
-  figures from a loaded machine, not benchmarks.
+  problem, and is largest for the envelope-grid plasma, whose cycle moments the GPU
+  evaluates one sample per thread. On an otherwise idle Apple M5 Max, in the same
+  process, the median time of a fixed step on `native` (binary64) over that on `mlx`
+  (binary32) was:
+
+  | case | `native` / `mlx` |
+  |---|---|
+  | GNLSE with Raman, one line, 2¹⁴ / 2¹⁶ / 2¹⁸ samples | 1.7 / 3.4 / 5.3 |
+  | Ar capillary, field-grid plasma, 1 / 4 modes (300 fs) and 8 modes (1 ps) | 0.51 / 0.69 / 1.12 |
+  | the same with the envelope-grid plasma | 8.1 / 8.1 / 3.5 |
+  | radial Kerr beam, 64 / 256 nodes | 1.05 / 2.9 |
+  | Cartesian Kerr beam, 64 × 64 / 128 × 128 | 1.9 / 1.9 |
+  | radial argon filament, field grid, 64 / 128 / 256 nodes | 1.8 / 2.5 / 3.2 |
+
+  Small field-plasma capillaries are slower on the GPU, bound by its per-operation
+  latency. These are same-process comparisons on one machine, not the standard
+  benchmark suite.
 
 The [worked example](../../auto_examples/performance/plot_01_single_precision.rst) runs a
 capillary with the envelope-grid plasma and a radial filament in both precisions and

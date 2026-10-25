@@ -579,9 +579,9 @@ GPUs with slow double precision.
   Apple GPUs on the fibre, radial and Cartesian routes with every response but the
   refused ones. Its open questions: whether a rule comparing binary32 Adams with
   binary64 Adams should admit `Multistep()` under single precision (binary64 Adams has
-  the same errors at the tolerances the study used); a benchmark of the suite's cases
-  on `mlx` on a quiet machine; whether a hosted macOS runner exposes Metal; and a fused
-  stage kernel for the launch-bound small plasma capillaries. Open beyond it: single precision on
+  the same errors at the tolerances the study used); `mlx` cases in the standard
+  benchmark suite (SEP 30); and a fused stage kernel for the launch-bound small plasma
+  capillaries. Open beyond it: single precision on
   `native` and `numba_cpu` (Kokkos, Kokkos Kernels and Kokkos-FFT support it on every
   backend in use), on the routes SEP 33 refuses, and noise models under single
   precision, which SEP 33 refuses as a known limitation: binary32 rounding can reach a
