@@ -1594,7 +1594,7 @@ against binary64 at the same tolerance):
 
 **Findings for later phases.**
 
-- *For the maintainers before phase 5 (Q2):* the like-with-like Adams rule, as fixed,
+- *For the maintainers before phase 5 (Q2; decided below):* the like-with-like Adams rule, as fixed,
   cannot admit Adams at tolerances where binary64 is more accurate than mixed
   precision's coherent floor, whatever the integrator. A rule comparing mixed Adams
   with mixed Runge–Kutta at the same tolerance (SEP 33's form), or one asking only for
@@ -1638,6 +1638,13 @@ below 10⁻¹² counts as 10⁻¹² in the Adams ratio. None changes Part I.
 and the native backend test that reads the schema, `tests/test_seps.py`, and the docs
 build. CI runs the full gate on the SEP's pull request.
 
+### Maintainer decision after phase 1 (2026-10-25)
+
+John Travers, on the phase 1 report: for Q2, phase 5 compares mixed Adams with mixed
+Runge–Kutta at the same tolerance (SEP 33's form), in place of binary64 Adams, keeping
+the rest of §7.3's rule (within every envelope, at most twice in every metric, at each
+candidate tolerance on `rdw` and `argon`). Phase 2 proceeds.
+
 ## Part III — History
 
 - 2026-10-25: Drafted (Opus 5.5), after an indicative A40 measurement of transforms,
@@ -1666,6 +1673,8 @@ build. CI runs the full gate on the SEP's pull request.
   `Draft`.
 - 2026-10-25: Accepted by John Travers. Part I is frozen. The decision record of §9 is
   written as ADR-055.
+- 2026-10-25: Phase 1 implemented and reported (Part II). John Travers decided that
+  phase 5's Adams rule (Q2) compares mixed Adams with mixed Runge–Kutta.
 
 ### AI review — 2026-10-25
 
