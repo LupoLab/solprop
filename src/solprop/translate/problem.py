@@ -5144,6 +5144,67 @@ def _walk_tables(problem: KernelProblem) -> list[tuple[str, PiecewiseChebyshev]]
     return [(name, table) for name, table in candidates if table is not None]
 
 
+def _even_chunk(count: int, limit: int) -> int:
+    """Return the smallest chunk that covers `count` items in as few passes as `limit`.
+
+    Parameters
+    ----------
+    count : int
+        Items to cover (positive).
+    limit : int
+        Largest admitted chunk (positive).
+
+    Returns
+    -------
+    int
+        ``ceil(count / ceil(count / limit))``, at most `limit` and `count`.
+
+    Examples
+    --------
+    >>> _even_chunk(33, 32), _even_chunk(33, 33), _even_chunk(100, 30)
+    (17, 33, 25)
+    """
+    passes = -(-count // limit)
+    return -(-count // passes)
+
+
+def _balanced_chunk(transform: Transform) -> Transform:
+    """Spread the nodes evenly over the passes the admitted chunk already needs.
+
+    The budget admissions each take ``budget // per_node``, which can leave a
+    last pass of a node or two: 33 RDW nodes under a limit of 32 ran a whole
+    32-node pass and then a one-node tail on one thread, about 1.6 times the cost
+    of one 33-node pass. The same number of passes of near-equal size (17 and 16)
+    never exceeds the admitted chunk, so every budget still holds. A planar chunk
+    of whole transverse rows stays whole rows; one shorter than a row is kept.
+
+    Parameters
+    ----------
+    transform : Transform
+        Transform with its admitted chunk.
+
+    Returns
+    -------
+    Transform
+        The transform, with the smallest chunk that needs no more passes.
+    """
+    row_nodes = (
+        transform.geometry.shape[0]
+        if transform.geometry is not None and transform.geometry.kind == "slab"
+        else 1
+    )
+    rows = transform.n_nodes // row_nodes
+    rows_per_chunk, partial = divmod(transform.node_chunk, row_nodes)
+    if partial or rows_per_chunk >= rows:
+        return transform
+    chunk = _even_chunk(rows, rows_per_chunk) * row_nodes
+    return (
+        transform
+        if chunk == transform.node_chunk
+        else replace(transform, node_chunk=chunk)
+    )
+
+
 def _envelope_chunk(
     transform: Transform, n_pol: int, n_to: int, budget: int, *, enabled: bool
 ) -> Transform:
@@ -6154,7 +6215,9 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         grid.n_to,
         node_budget,
     )
-    transform = _held_current_chunk(transform, compiled, n_pol, grid.n_to, node_budget)
+    transform = _balanced_chunk(
+        _held_current_chunk(transform, compiled, n_pol, grid.n_to, node_budget)
+    )
     initial = _power_initial(
         Initial(
             field0=state,
