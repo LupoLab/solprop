@@ -173,6 +173,7 @@ __all__ = [
     "DEFAULT_STRETCH",
     "EXPONENT_BUDGET",
     "LOG_DBL_MAX",
+    "LOG_FLT_MAX",
     "MAX_GENERAL_FLOW_EXPONENT",
     "MAX_N_COMPONENTS",
     "MAX_N_POL",
@@ -1279,6 +1280,68 @@ class KernelProblem:
                     "binary32 (SEP 33 section 5.1); use precision='double'"
                 )
                 raise TranslationError(msg)
+        self._check_single_exponent()
+
+    def _check_single_exponent(self) -> None:
+        """Refuse a step whose propagator or its inverse overflows binary32.
+
+        The interaction picture multiplies each stage by ``exp(-dPhi)`` and the state
+        by ``exp(dPhi)``; held in binary32, either is infinite once ``|Re dPhi|``
+        passes ``log(FLT_MAX)``, about 88.72, where binary64 reaches 709.78. A strong
+        spectral collar on a long step is the usual cause. As
+        :meth:`_check_exponent_budget` does for binary64, a replayed schedule's
+        longest step, or the floor ``dz_min``, is held to the limit -- an adaptive
+        controller rejects a non-finite trial above its floor and shrinks -- and every
+        kind is checked: the exponent is evaluated from the operator itself over that
+        step at the start and the end of the run, which for a varying operator samples
+        its range.
+
+        Raises
+        ------
+        TranslationError
+            Past ``log(FLT_MAX)``, naming the exponent, the step and the remedies.
+
+        Warns
+        -----
+        solprop.exceptions.ExponentBudgetWarning
+            Between nine tenths of the limit and the limit.
+        """
+        schedule = self.stepper.schedule
+        step, source = (
+            (float(np.max(schedule.steps)), "replayed step")
+            if schedule is not None
+            else (self.stepper.dz_min, "step floor dz_min")
+        )
+        start = float(self.initial.z)
+        end = float(self.stepper.save_planes[-1])
+        step = min(step, end - start)
+        exponent = 0.0
+        for first in {start, end - step}:
+            phase = delta_phi(self.linear, first, first + step)
+            exponent = max(exponent, float(np.max(np.abs(np.real(phase)))))
+        if exponent <= EXPONENT_BUDGET * LOG_FLT_MAX:
+            return
+        message = (
+            f"precision='single': the {source} {step:.3e} m gives a propagator "
+            f"exponent |Re dPhi| of {exponent:.1f}"
+        )
+        remedy = (
+            "take steps shorter than "
+            f"{step * EXPONENT_BUDGET * LOG_FLT_MAX / exponent:.3e} m, weaken the "
+            "collar with a larger boundary_length, or use precision='double'"
+        )
+        if exponent > LOG_FLT_MAX:
+            msg = (
+                f"{message}, past binary32's range exp({LOG_FLT_MAX:.2f}): the "
+                f"interaction picture's inverse propagator overflows; {remedy}"
+            )
+            raise TranslationError(msg)
+        warnings.warn(
+            f"{message}, within a tenth of binary32's range exp({LOG_FLT_MAX:.2f}): "
+            f"the run completes only while the field stays small; {remedy}",
+            ExponentBudgetWarning,
+            stacklevel=4,
+        )
 
     def _check_tdse(self) -> None:
         """Refuse a manually constructed atomic seam outside the admitted route."""
@@ -2281,6 +2344,9 @@ LOG_DBL_MAX = math.log(np.finfo(np.float64).max)
 IEEE Std 754-2019, doi:10.1109/IEEESTD.2019.8766229. A propagator factor
 ``exp(h lambda)`` past it is infinite on every backend (SEP 22 section 4.5).
 """
+
+LOG_FLT_MAX = math.log(float(np.finfo(np.float32).max))
+"""``log(FLT_MAX)``, about 88.72: binary32's largest finite ``exp`` (SEP 33)."""
 
 EXPONENT_BUDGET = 0.9
 """Fraction of :data:`LOG_DBL_MAX` above which translation warns of a step it cannot

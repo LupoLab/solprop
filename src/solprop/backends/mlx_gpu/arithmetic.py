@@ -109,8 +109,17 @@ _COMBINE = """
     // exp(hi + lo) = exp(hi) (1 + lo) to binary64-level accuracy, lo being below
     // hi's unit in the last place.
     float magnitude = metal::precise::exp(sign * re.x) * (1.0f + sign * re.y);
-    out_re[i] = magnitude * metal::precise::cos(angle);
-    out_im[i] = magnitude * metal::precise::sin(angle);
+    float c = metal::precise::cos(angle);
+    float s = metal::precise::sin(angle);
+    // Binary32 cosine and sine leave c^2 + s^2 off one by a few u with a bias that
+    // a long march accumulates in the energy; one Newton step on the double-float
+    // squared modulus returns the phasor to unit modulus. The step is applied as
+    // c + c delta by a fused multiply-add: a factor 1 + delta rounded to binary32
+    // would itself be biased, its spacing being u below one and 2u above.
+    float2 norm = df_add(two_prod(c, c), two_prod(s, s));
+    float delta = -0.5f * ((norm.x - 1.0f) + norm.y);
+    out_re[i] = magnitude * metal::fma(c, delta, c);
+    out_im[i] = magnitude * metal::fma(s, delta, s);
 """
 
 
@@ -367,8 +376,9 @@ def population(exposure: mx.array, preionisation: float) -> tuple[mx.array, mx.a
 
     The oracle's ``stable_population`` (SEP 33 section 4.4): ``f = p + (1 - p)
     (-expm1(-X))`` and ``sigma = (1 - p) exp(-X)``. On the Metal device it is a custom
-    kernel in ``"safe"`` math mode with Kahan's ``expm1``; on MLX's CPU device MLX's own
-    ``expm1``, which is accurate there.
+    kernel in ``"safe"`` math mode with Kahan's ``expm1``; on MLX's CPU device, whose
+    ``exp`` errs by up to 3e-6 relative at large arguments, NumPy's binary64 forms
+    rounded once.
 
     Parameters
     ----------
@@ -385,7 +395,14 @@ def population(exposure: mx.array, preionisation: float) -> tuple[mx.array, mx.a
     keep = float(np.float32(1.0 - preionisation))
     initial = float(np.float32(preionisation))
     if not on_gpu():
-        return initial + keep * -mx.expm1(-exposure), keep * mx.exp(-exposure)
+        # MLX's CPU exp errs by up to 3e-6 relative near exp(-80); on the CPU device
+        # the host's binary64 forms, rounded once, are the oracle's own.
+        wide = np.array(exposure, dtype=np.float64)
+        fraction = initial + keep * -np.expm1(-wide)
+        survival = keep * np.exp(-wide)
+        return mx.array(fraction.astype(np.float32)), mx.array(
+            survival.astype(np.float32)
+        )
     flat = exposure.reshape(-1)
     n = flat.size
     fraction, survival = _population_kernel()(  # pyright: ignore[reportCallIssue]

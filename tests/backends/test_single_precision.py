@@ -42,7 +42,12 @@ from solprop.boundaries import absorber
 from solprop.constants import EPS0
 from solprop.driver import Simulation, prop_gnlse
 from solprop.driver.simulation import SimulationSettings
-from solprop.exceptions import BackendError, ConvergenceError, DriverError
+from solprop.exceptions import (
+    BackendError,
+    ConvergenceError,
+    DriverError,
+    TranslationError,
+)
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.nonlinear.ionisation import RunningIntegral
 from solprop.nonlinear.optmat_raman import gas_raman
@@ -201,6 +206,19 @@ def test_the_compiled_backends_refuse_a_single_precision_problem(name):
     problem = gnlse("single").translate()
     with pytest.raises(BackendError, match="binary64 only"):
         select(name, problem)
+
+
+def test_a_step_whose_inverse_propagator_overflows_binary32_is_refused():
+    """A 1 mm capillary's collar on 0.25 mm steps: |Re dPhi| = 150, past 88.72.
+
+    Binary64 runs it (its limit is 709.78); binary32 would hold ``exp(150)`` in the
+    interaction picture's inverse propagator.
+    """
+    length = 0.001
+    schedule = FixedSchedule.uniform(0.0, length, length / 4)
+    capillary("double", length=length, schedule=schedule).translate()
+    with pytest.raises(TranslationError, match=r"past binary32's range exp\(88\.72\)"):
+        capillary("single", length=length, schedule=schedule).translate()
 
 
 def test_a_noise_model_is_refused_under_single_precision():

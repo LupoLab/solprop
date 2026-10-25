@@ -1579,25 +1579,48 @@ statistics from the widened state -- while the state and every per-step pass liv
 device (`mlx_gpu/passes.py`, the oracle's passes in MLX). It admits the fibre, radial
 and Cartesian (and line) routes with Runge–Kutta, the low-storage march (`MlxLowStorage`)
 and lockstep batches (`MlxBatchRunner`, which builds every member's step before one
-evaluation); the envelope-grid plasma, a z table, Adams and interpolated planes are
-refused by name. The radial route is the fibre route's quadrature with the Hankel
+evaluation), with every response the oracle runs; a z table, Adams and interpolated
+planes are refused by name. The radial route is the fibre route's quadrature with the Hankel
 matrices as its synthesis and projection, its plasma spectrum formed on the nodes and
 projected once (`_device_radial_plasma`), and its absorber matrix applied in the stage.
 The Cartesian route (`_device_free`) uploads its separable operator once, at unit
 distance, as one double-float term the stage's `dz` weights, and its per-column
 prefactor; its transverse transforms are MLX's `fftn` over the two transverse axes,
 probed with the temporal ones at construction, and its window's rate is the in-stage
-collar.
+collar. On the quadrature routes each chunk's streams -- the polarisation, the plasma's
+gated and edge currents, the envelope plasma's drive and loss -- are projected in one
+matrix product (`passes.project_many`), measured at 1.18 times faster on a one-mode
+plasma capillary, where launches bound the stage, and neutral on larger ones.
+
+**The envelope-grid plasma** (`mlx_gpu/envelope.py`, SEP 33 §6.3) is one kernel thread
+per sample: native's closed-form ellipse (`envelope_axes`: the scaled Gram matrix's
+eigenvalues, the minor axis from the determinant, so circular, nearly linear and scalar
+fields keep their limits), the accepted 64–512-point rules split at the table's cut
+angles, each level's sums compensated, refined to the representation's `2e-6`, and a
+failure flag per sample that the backend reads with the trial's norm and turns into the
+oracle's `ConvergenceError`. The split is honoured exactly: past the low cut the rate is
+zero, before the high cut it is the ceiling, and between them the field is held inside
+the table's range. Without that, binary32's rounding of a cut angle (an arccosine near
+one) put a node across the cutoff for a field within 4e-6 of it, the levels jittered and
+the refinement failed at a rate of 2e-33 s^-1, where the oracle's binary64 converges.
+The exposure is the trapezoid's doubling scan and the populations the stable kernel;
+the species statistics' node scan uses the same kernel. Against the oracle's SVD and
+adaptive quadrature a sample's rate and loss current agree within 2.3e-6 (median 2e-7)
+relative to the representation's `1e-30` s^-1 floor; loss currents below binary32's
+normal range (rates near the floor) are flushed to zero. It is qualified as a
+discretisation (class T) in SEP 33 Part II. On MLX's CPU device the oracle's host
+evaluation runs instead.
 
 **The protected operations** (SEP 33 §6.3), each a custom Metal kernel in `"safe"`
 math mode with its test in `tests/backends/test_mlx.py`, or established by a probe:
 
 | operation | mechanism | measured |
 |---|---|---|
-| stage propagators and term combinations | `DoubleFloatTerms`: binary64 terms as float32 pairs, combined and range-reduced in double-float, `exp(hi)(1 + lo)` | at most 5 u, independent of the phase; drift `c <= 0.85` |
+| stage propagators and term combinations | `DoubleFloatTerms`: binary64 terms as float32 pairs, combined and range-reduced in double-float, `exp(hi)(1 + lo)`, the phasor renormalised by one Newton step on its double-float squared modulus, applied by `fma` | at most 5 u, independent of the phase; drift `c` 0.15–0.32 and energy drift equal to the oracle's to three digits |
 | populations | Kahan's `expm1` from the precise `exp` and `log` | 4 u; MLX's own GPU `expm1` errs by up to 1e-4 |
 | running integrals | the oracle's doubling scan in one threadgroup per row | the oracle's sums to the bit |
 | ionisation rate | the spline with an exact `fma` ratio, Kahan's `log1p`, a double-float constant term | 5 u at worst, median 0.7 u |
+| envelope cycle moments | closed-form ellipse, split rules with the cutoffs honoured, compensated sums, per-sample failure flag | 2.3e-6 against the oracle's adaptive moments (budget 2e-6 each) |
 | matrix products | `MLX_ENABLE_TF32=0` at import; `gemm_probe` at construction, bound `2**-17` | 2e-7 float32 against 7e-4 TF32 |
 
 **Measured MLX behaviour that shaped the backend.** The GPU FFT is about three times
@@ -1611,7 +1634,9 @@ each stage and each running integral is evaluated as it is formed.
 graph the backend keeps, and bounds MLX's measured peak; on the spatial routes a stage
 also holds the transverse transforms' copies and the reference's in-place passes as
 separate arrays, measured at up to 18 fine-grid columns per column on the Cartesian
-route and 6 on the radial one (`memory._MLX_TRANSIENT_COLUMNS`). On MLX's CPU device, which CI
+route and 6 on the radial one (`memory._MLX_TRANSIENT_COLUMNS`), and with the envelope
+plasma the device's own arrays per node sample (drive, loss and current; rate,
+exposure, populations, flag and scan scratch per channel). On MLX's CPU device, which CI
 uses where no Metal GPU is present, the kernels are replaced by MLX operations (the
 propagator by NumPy in binary64) and their tests skip.
 

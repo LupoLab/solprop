@@ -578,6 +578,14 @@ def _mlx_per_stage(problem: KernelProblem, rows: dict[str, int]) -> int:
         columns = min(transform.node_chunk, transform.n_nodes) * transform.n_pol
         fine = columns * problem.shape[2] * problem.grids.n_to * 8
         per_stage += _MLX_TRANSIENT_COLUMNS.get(geometry.kind, 0) * fine
+    if problem.responses.envelope_plasma is not None:
+        # The device's envelope plasma per node sample and channel: the drive, the
+        # loss and the loss current, complex64, and the rate, exposure, fraction,
+        # survival, failure flag and scan scratch, four bytes each.
+        nodes = min(transform.node_chunk, transform.n_nodes)
+        samples = nodes * problem.grids.n_to
+        channels = len(problem.responses.envelope_plasma.channels)
+        per_stage += samples * (3 * 8 * transform.n_pol + channels * 6 * 4)
     return per_stage
 
 

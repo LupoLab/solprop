@@ -36,6 +36,12 @@ interfaces. Under single precision:
   ({data}`~solprop.translate.precision.SINGLE_RTOL_FLOOR`), and an explicit adaptive
   `rtol` below it is refused: a local error target below binary32's rounding per step
   buys steps without accuracy. A fixed schedule reads no tolerance.
+- **The step's exponent.** Binary32 represents ``exp(x)`` only up to $x \approx 88.7$
+  (binary64 to 709.8). The interaction picture multiplies by the linear propagator and
+  its inverse, so a replayed step (or an adaptive run's floor `dz_min`) over which a
+  strong collar or loss reaches that exponent is refused at translation, with the
+  shortest step that fits, and one within a tenth of it is warned of. A 1 mm capillary's
+  default collar on 0.25 mm steps is one such case.
 - **The integrator.** The default is `RungeKutta()` (DOPRI5) and the low-storage march is
   admitted; the Adams integrator, `Multistep()`, is refused until its single-precision
   accuracy is established.
@@ -53,7 +59,7 @@ interfaces. Under single precision:
 | capillaries, solid-core and GNLSE fibres, mode-averaged and multimode, field and envelope grids | yes | yes |
 | Kerr, the envelope grid's third-harmonic term, scalar and tensor Raman, gas Raman mixtures, the silica bundle | yes | yes |
 | field-grid plasma | yes | yes |
-| envelope-grid plasma | yes | refused, a later phase |
+| envelope-grid plasma | yes | yes, each sample's ellipse and cycle moments in one GPU kernel |
 | radial and Cartesian free space, including a line, with their transverse collars | yes | yes |
 | gradients, tapers, loss, both temporal absorber schemes, the polarisation taper | yes | yes, where the operator is device-ready (not a z table) |
 | Runge–Kutta, the low-storage march, fixed-schedule batches | yes | yes |

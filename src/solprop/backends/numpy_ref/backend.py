@@ -376,6 +376,31 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             self._tables.t_window,
         )
 
+    def _envelope_populations(
+        self,
+        nodes: Complex[np.ndarray, "n_nodes n_pol n_to"],
+        initials: tuple[float, ...],
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Return each envelope channel's final fraction and peak rate at the nodes.
+
+        Parameters
+        ----------
+        nodes : numpy.ndarray
+            The physical envelope at the nodes, V/m.
+        initials : tuple of float
+            The channels' pre-ionised fractions here.
+
+        Returns
+        -------
+        tuple of numpy.ndarray
+            :func:`solprop.backends.numpy_ref.envelope_plasma.envelope_populations`.
+        """
+        envelope = self._problem.responses.envelope_plasma
+        assert envelope is not None
+        return envelope_populations(
+            nodes, envelope, initials, self._problem.grids.dt_fine
+        )
+
     def _error_norm(
         self,
         error: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
@@ -750,11 +775,8 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             else:
                 nodes = self._nodes_at(field)
             if responses.envelope_plasma is not None:
-                fractions, peaks = envelope_populations(
-                    nodes,
-                    responses.envelope_plasma,
-                    tuple(float(c.preionisation(self._z)) for c in channels),
-                    grids.dt_fine,
+                fractions, peaks = self._envelope_populations(
+                    nodes, tuple(float(c.preionisation(self._z)) for c in channels)
                 )
                 if scans is not None:
                     scans[member] = (fractions, peaks)

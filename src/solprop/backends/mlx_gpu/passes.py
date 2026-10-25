@@ -13,6 +13,7 @@ element-wise work MLX's own operations. Every array is float32 or complex64.
 """
 
 from dataclasses import dataclass
+from typing import cast
 
 import mlx.core as mx
 import numpy as np
@@ -205,6 +206,54 @@ def project(values: mx.array, columns: mx.array, taper: float, n_pol: int) -> mx
     n_chunk, n_pol_node, n_to = values.shape
     rows = values.reshape(n_chunk * n_pol, n_pol_node // n_pol, n_to)
     return _product(columns * (1.0 / taper), rows)
+
+
+def project_many(
+    values: list[mx.array], columns: mx.array, taper: float, n_pol: int
+) -> list[mx.array]:
+    """Project several node arrays onto the modes in one matrix product.
+
+    The arrays' real parts (a complex array's real and imaginary parts) are placed
+    side by side along the time axis, so that the polarisation and the plasma's two
+    current streams take one launch rather than four; every column of the product is
+    the one :func:`project` forms, by the same inner products.
+
+    Parameters
+    ----------
+    values : list of mlx.core.array
+        ``(n_nodes_chunk, n_pol_node, n_to)`` each, float32 or complex64.
+    columns : mlx.core.array
+        The chunk's columns of the narrowed projection matrix.
+    taper : float
+        The taper scale.
+    n_pol : int
+        Components the transform resolves at each node.
+
+    Returns
+    -------
+    list of mlx.core.array
+        Each array projected, ``(n_modes, n_pol_state, n_to)``, in its own dtype.
+    """
+    parts = []
+    for array in values:
+        if array.dtype == mx.complex64:
+            parts += [mx.real(array), mx.imag(array)]
+        else:
+            parts.append(array)
+    n_chunk, n_pol_node, n_to = values[0].shape
+    rows = mx.concatenate(parts, axis=-1).reshape(
+        n_chunk * n_pol, n_pol_node // n_pol, len(parts) * n_to
+    )
+    product = _product(columns * (1.0 / taper), rows)
+    pieces = list(cast(list[mx.array], mx.split(product, len(parts), axis=-1)))
+    results = []
+    for array in values:
+        if array.dtype == mx.complex64:
+            re, im = pieces.pop(0), pieces.pop(0)
+            results.append(re + 1j * im)
+        else:
+            results.append(pieces.pop(0))
+    return results
 
 
 def analytic(values: mx.array) -> mx.array:

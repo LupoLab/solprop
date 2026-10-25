@@ -37,17 +37,21 @@ from solprop.backends.mlx_gpu.arithmetic import (
     fft_probe,
     gemm_probe,
     on_gpu,
+    population,
+    prefix_scan,
 )
+from solprop.backends.mlx_gpu.envelope import DeviceCycle, envelope_cycle
 from solprop.backends.numpy_ref.passes import _kerr as compiled_kerr
 from solprop.backends.numpy_ref.passes import _raman_thg as raman_thg
 from solprop.backends.numpy_ref.single import NumpySingleBackend
 from solprop.constants import EPS0
-from solprop.exceptions import BackendError
+from solprop.exceptions import BackendError, ConvergenceError
 from solprop.grid import TimeGrid
 from solprop.modes.protocol import Mode
 from solprop.profiles import ZProfile
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
+from solprop.translate.envelope_plasma import EnvelopePlasmaAssembly
 from solprop.translate.linop import _separable_phase
 from solprop.translate.precision import combine
 from solprop.translate.problem import KernelProblem
@@ -60,6 +64,9 @@ __all__ = ["DeviceSources", "MlxBackend", "MlxLowStorage", "refuse_unsupported"]
 
 _SOURCE_STAGES = frozenset(
     {
+        ResponseStage.ENVELOPE_CYCLE,
+        ResponseStage.ENVELOPE_POPULATION,
+        ResponseStage.ENVELOPE_SOURCES,
         ResponseStage.KERR,
         ResponseStage.RAMAN_DRIVE,
         ResponseStage.PLASMA_CURRENT,
@@ -87,6 +94,22 @@ class DeviceSources:
     current: mx.array | None
 
 
+def _summed(totals: list[mx.array], parts: list[mx.array]) -> list[mx.array]:
+    """Return two lists of arrays summed element by element.
+
+    Parameters
+    ----------
+    totals, parts : list of mlx.core.array
+        Arrays of matching shapes.
+
+    Returns
+    -------
+    list of mlx.core.array
+        The sums.
+    """
+    return [a + b for a, b in zip(totals, parts, strict=True)]
+
+
 def refuse_unsupported(problem: KernelProblem) -> None:
     """Refuse, by name, what the ``mlx`` backend does not run in this phase.
 
@@ -108,10 +131,6 @@ def refuse_unsupported(problem: KernelProblem) -> None:
         )
     stepper = problem.stepper
     refusals = [
-        (
-            problem.responses.envelope_plasma is not None,
-            "the envelope-grid plasma (SEP 33 phase 4); use backend='numpy_ref'",
-        ),
         (
             not problem.device_ready,
             "an operator or prefactor that took the z table: it is not device-ready, "
@@ -214,6 +233,7 @@ class MlxBackend(NumpySingleBackend):
             device.DeviceRateTable.upload(channel.rate)
             for channel in responses.plasma_channels
         )
+        self._upload_envelope(responses.envelope_plasma)
         self._raman_upload: tuple[object, mx.array] | None = None
         self._unit = mx.ones((1,), dtype=mx.complex64)
         # Whether each stage is evaluated as it is formed, bounding the live graph to
@@ -242,6 +262,30 @@ class MlxBackend(NumpySingleBackend):
         mx.set_cache_limit(mlx_graph_bytes(problem))
 
     # The state on the device.
+
+    def _upload_envelope(self, envelope: EnvelopePlasmaAssembly | None) -> None:
+        """Upload the envelope plasma's cycle representations and source factors.
+
+        Parameters
+        ----------
+        envelope : solprop.translate.envelope_plasma.EnvelopePlasmaAssembly or None
+            The compiled envelope plasma, if any.
+        """
+        self._cycles = (
+            ()
+            if envelope is None
+            else tuple(DeviceCycle.upload(c.cycle) for c in envelope.channels)
+        )
+        self._envelope_factors = (
+            None
+            if envelope is None
+            else (
+                mx.array(self._rounded(envelope.factors.drude)),
+                mx.array(self._rounded(envelope.factors.loss)),
+            )
+        )
+        # The refinement failures of the trial being built, read with its norm.
+        self._envelope_failures: list[mx.array] = []
 
     def _upload_operator(self, problem: KernelProblem) -> None:
         """Upload the linear operator's terms and the free-space tables.
@@ -397,6 +441,7 @@ class MlxBackend(NumpySingleBackend):
         """
         state = cast(mx.array, self._require_state())
         self._hoist(z)
+        self._envelope_failures = []
         tableau = self._problem.stepper.tableau
         self._stage_bundles(
             z, [z + dz, *(z + float(node) * dz for node in tableau.nodes)]
@@ -505,7 +550,7 @@ class MlxBackend(NumpySingleBackend):
             self._raman_upload = (spectrum, mx.array(spectrum))
         return self._raman_upload[1]
 
-    def _device_nonlinear(
+    def _device_nonlinear(  # noqa: PLR0915 - the oracle's modal stage, pass by pass
         self, lab: mx.array, bundle: StageScalars, back: mx.array
     ) -> mx.array:
         """Evaluate one stage derivative on the device.
@@ -545,48 +590,57 @@ class MlxBackend(NumpySingleBackend):
         raman = self._device_raman(bundle)
         taper = bundle.taper_scale
         n_pol = transform.n_pol
-        projected = None
-        coarse = None
-        gated = edge = coarse_gated = coarse_edge = None
+        # Per stream (the polarisation, the plasma's gated and edge currents, the
+        # envelope plasma's drive and loss), the projection on the fine quadrature
+        # and, for the alarm, on the embedded one: one matrix product each per chunk.
+        fine: list[mx.array] | None = None
+        embedded: list[mx.array] | None = None
+        plasma = envelope = False
         for first in range(0, transform.n_nodes, transform.node_chunk):
             rows = slice(first * n_pol, (first + transform.node_chunk) * n_pol)
             field = device.synthesise(modal_t, self._synthesis[rows], taper, n_pol)
             sources = self._device_sources(field, bundle, raman)
-            polarisation = sources.polarisation
-            columns = self._projection[:, rows]
-            part = device.project(polarisation, columns, taper, n_pol)
-            projected = part if projected is None else projected + part
-            if self._coarse is not None:
-                reduced = device.project(
-                    polarisation, self._coarse[:, rows], taper, n_pol
-                )
-                coarse = reduced if coarse is None else coarse + reduced
+            streams = [sources.polarisation]
             if sources.current is not None:
-                current = sources.current
-                g = device.project(self._t_window * current, columns, taper, n_pol)
-                e = device.project(
-                    self._t_window_derivative * current, columns, taper, n_pol
+                plasma = True
+                streams += [
+                    self._t_window * sources.current,
+                    self._t_window_derivative * sources.current,
+                ]
+            if self._cycles:
+                envelope = True
+                streams += list(self._device_envelope(field, bundle))
+            parts = device.project_many(
+                streams, self._projection[:, rows], taper, n_pol
+            )
+            fine = parts if fine is None else _summed(fine, parts)
+            if self._coarse is not None:
+                parts = device.project_many(
+                    streams, self._coarse[:, rows], taper, n_pol
                 )
-                gated = g if gated is None else gated + g
-                edge = e if edge is None else edge + e
-                if self._coarse is not None:
-                    cc = self._coarse[:, rows]
-                    cg = device.project(self._t_window * current, cc, taper, n_pol)
-                    ce = device.project(
-                        self._t_window_derivative * current, cc, taper, n_pol
-                    )
-                    coarse_gated = cg if coarse_gated is None else coarse_gated + cg
-                    coarse_edge = ce if coarse_edge is None else coarse_edge + ce
-        assert projected is not None
+                embedded = parts if embedded is None else _summed(embedded, parts)
+        assert fine is not None
+        projected, *rest = fine
+        coarse, *coarse_rest = [None] * len(fine) if embedded is None else embedded
+        gated = edge = None
+        if plasma:
+            gated, edge = rest[:2]
+            self._last_plasma = (gated, edge, *coarse_rest[:2])  # pyright: ignore[reportAttributeAccessIssue]
+            rest, coarse_rest = rest[2:], coarse_rest[2:]
+        else:
+            self._last_plasma = None
+        drives = rest if envelope else None
+        self._last_envelope = (  # pyright: ignore[reportAttributeAccessIssue]
+            (*rest, *coarse_rest) if envelope else None
+        )
         self._last_projected = projected  # pyright: ignore[reportAttributeAccessIssue]
         self._last_coarse = coarse  # pyright: ignore[reportAttributeAccessIssue]
         self._last_bundle = bundle
-        self._last_plasma = (
-            None if gated is None else (gated, edge, coarse_gated, coarse_edge)  # pyright: ignore[reportAttributeAccessIssue]
-        )
         spectrum = device.to_frequency(projected, self._crop, kind=kind)
         if gated is not None and edge is not None:
             spectrum = spectrum + self._device_held(gated, edge)
+        if drives is not None:
+            spectrum = spectrum + self._envelope_spectrum(drives)
         return back * self._normalised(spectrum, bundle, absorber)[None]
 
     def _normalised(
@@ -760,6 +814,10 @@ class MlxBackend(NumpySingleBackend):
                         self._t_window * sources.current,
                         self._t_window_derivative * sources.current,
                     )
+                if self._cycles:
+                    part = part + self._envelope_spectrum(
+                        list(self._device_envelope(field, bundle))
+                    )
                 parts.append(part)
             spectrum = mx.concatenate(parts, axis=0) if len(parts) > 1 else parts[0]
             spectrum = mx.fft.fftn(spectrum.reshape(shape), axes=[0, 1]).reshape(
@@ -879,6 +937,162 @@ class MlxBackend(NumpySingleBackend):
                 raise BackendError(msg)
         return DeviceSources(total * self._t_window, current)
 
+    def _device_envelope(
+        self, field: mx.array, bundle: StageScalars
+    ) -> tuple[mx.array, mx.array]:
+        """Return the envelope plasma's windowed drive and loss at a chunk of nodes.
+
+        The oracle's ``envelope_sources`` on the device: each channel's cycle moments by
+        :func:`~solprop.backends.mlx_gpu.envelope.envelope_cycle`, its exposure by the
+        trapezoid's doubling scan, its populations in their stable forms, and the drive
+        ``(e^2/m) N f E`` and the loss ``I_p N sigma J_w``, both divided by ``s``. On
+        MLX's CPU device the oracle's host evaluation, in binary64.
+
+        Parameters
+        ----------
+        field : mlx.core.array
+            The scaled envelope at the nodes, ``(n_nodes, n_pol, n_to)``.
+        bundle : solprop.translate.stage.StageScalars
+            The stage's host scalars.
+
+        Returns
+        -------
+        tuple of mlx.core.array
+            The drive and the loss, complex64.
+        """
+        if not on_gpu():
+            drive, loss = super()._envelope_sources(np.array(field), bundle)
+            return mx.array(drive), mx.array(loss)
+        envelope = self._problem.responses.envelope_plasma
+        assert envelope is not None
+        k = self._scale_exponent
+        half_step = float(np.float32(0.5 * self._problem.grids.dt_fine))
+        drive = mx.zeros_like(field)
+        loss = mx.zeros_like(field)
+        for channel, cycle, density, initial in zip(
+            envelope.channels,
+            self._cycles,
+            bundle.plasma_densities,
+            bundle.plasma_preionisation,
+            strict=True,
+        ):
+            rate, current, failures = envelope_cycle(field, cycle, k)
+            self._envelope_failures.append(failures)
+            increments = (rate[..., :-1] + rate[..., 1:]) * half_step
+            zero = mx.zeros((*rate.shape[:-1], 1), dtype=mx.float32)
+            exposure = mx.concatenate([zero, prefix_scan(increments)], axis=-1)
+            fraction, survival = population(exposure, initial)
+            weight = combine(channel.charge_mass_ratio, density).binary32()
+            work = combine(
+                channel.ionisation_potential, density, exponent=-k
+            ).binary32()
+            drive = drive + (weight * fraction)[:, None, :] * field
+            loss = loss + (work * survival)[:, None, :] * current
+        return drive * self._t_window, loss * self._t_window
+
+    def _envelope_populations(
+        self,
+        nodes: Complex[np.ndarray, "n_nodes n_pol n_to"],
+        initials: tuple[float, ...],
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Return each channel's final fraction and peak rate, by the device's moments.
+
+        The statistics' node scan with the stage's own formulation, so that a
+        statistic and the propagation see the same populations; on MLX's CPU device
+        the oracle's.
+
+        Parameters
+        ----------
+        nodes : numpy.ndarray
+            The physical envelope at the nodes, V/m.
+        initials : tuple of float
+            The channels' pre-ionised fractions here.
+
+        Returns
+        -------
+        tuple of numpy.ndarray
+            Final fractions and peak rates, ``(n_channels, n_nodes)``, binary64.
+
+        Raises
+        ------
+        solprop.exceptions.ConvergenceError
+            If a sample's refinement failed.
+        """
+        if not on_gpu():
+            return super()._envelope_populations(nodes, initials)
+        # The statistics' field is physical: scaled by the state's own power of two,
+        # it is binary32 at the propagation's range.
+        k = self._scale_exponent
+        field = mx.array((nodes * math.ldexp(1.0, -k)).astype(np.complex64))
+        half_step = float(np.float32(0.5 * self._problem.grids.dt_fine))
+        fractions, peaks, failures = [], [], []
+        for cycle, initial in zip(self._cycles, initials, strict=True):
+            rate, _, failed = envelope_cycle(field, cycle, k)
+            increments = (rate[..., :-1] + rate[..., 1:]) * half_step
+            exposure = prefix_scan(increments)[..., -1]
+            fraction, _ = population(exposure, initial)
+            fractions.append(fraction)
+            peaks.append(mx.max(rate, axis=-1))
+            failures.append(failed)
+        mx.eval(fractions, peaks, failures)
+        self._raise_on_failures(float(sum(int(cast(int, f.item())) for f in failures)))
+        return (
+            np.array(mx.stack(fractions), dtype=np.float64),
+            np.array(mx.stack(peaks), dtype=np.float64),
+        )
+
+    def _envelope_spectrum(self, drives: list[mx.array]) -> mx.array:
+        """Return the drive's and the loss's spectrum times their factors.
+
+        Parameters
+        ----------
+        drives : list of mlx.core.array
+            The drive and the loss on the fine time grid.
+
+        Returns
+        -------
+        mlx.core.array
+            ``-drive / omega**2 - i loss / omega`` on the coarse grid.
+        """
+        assert self._envelope_factors is not None
+        drude, loss = self._envelope_factors
+        return drude * device.to_frequency(
+            drives[0], self._crop, kind=self._kind
+        ) + loss * device.to_frequency(drives[1], self._crop, kind=self._kind)
+
+    def _failure_count(self) -> mx.array:
+        """Return the trial's envelope refinement failures, float32 (zero without).
+
+        Returns
+        -------
+        mlx.core.array
+            A scalar.
+        """
+        total = mx.zeros((), dtype=mx.float32)
+        for count in self._envelope_failures:
+            total = total + count.astype(mx.float32)
+        return total
+
+    def _raise_on_failures(self, count: float) -> None:
+        """Refuse a trial whose cycle moments did not converge, as the oracle does.
+
+        Parameters
+        ----------
+        count : float
+            The trial's failed samples.
+
+        Raises
+        ------
+        solprop.exceptions.ConvergenceError
+            If any sample's refinement failed by the 512-point rule.
+        """
+        if count:
+            msg = (
+                "envelope plasma directional moments did not converge by order 512 "
+                f"at {int(count)} samples"
+            )
+            raise ConvergenceError(msg)
+
     def _device_norm(
         self, error: mx.array, state: mx.array, advanced: mx.array
     ) -> float:
@@ -916,8 +1130,10 @@ class MlxBackend(NumpySingleBackend):
         # One synchronisation per trial: the three sums, their powers and whether the
         # whole trial state is finite, which spares the finish a check of its own.
         reductions.append(mx.all(mx.isfinite(advanced)).astype(mx.float32))
+        reductions.append(self._failure_count())
         values = np.array(mx.stack(reductions), dtype=np.float64)
-        if not np.all(np.isfinite(values)) or values[-1] != 1.0:
+        self._raise_on_failures(values[-1])
+        if not np.all(np.isfinite(values[:-1])) or values[-2] != 1.0:
             return math.inf
         squares = [
             math.ldexp(values[2 * k + 1], 2 * int(values[2 * k])) for k in range(3)
@@ -934,16 +1150,28 @@ class MlxBackend(NumpySingleBackend):
 
     def _update_alarm(self) -> None:
         """Evaluate the quadrature alarm on the host from the last stage's rows."""
-        held = (self._last_projected, self._last_coarse, self._last_plasma)
+        held = (
+            self._last_projected,
+            self._last_coarse,
+            self._last_plasma,
+            self._last_envelope,
+        )
         to_host = lambda value: None if value is None else np.array(value)  # noqa: E731
         self._last_projected = to_host(held[0])  # pyright: ignore[reportAttributeAccessIssue]
         self._last_coarse = to_host(held[1])  # pyright: ignore[reportAttributeAccessIssue]
         if held[2] is not None:
             self._last_plasma = tuple(to_host(part) for part in held[2])  # pyright: ignore[reportAttributeAccessIssue]
+        if held[3] is not None:
+            self._last_envelope = tuple(to_host(part) for part in held[3])  # pyright: ignore[reportAttributeAccessIssue]
         try:
             super()._update_alarm()
         finally:
-            self._last_projected, self._last_coarse, self._last_plasma = held  # pyright: ignore[reportAttributeAccessIssue]
+            (
+                self._last_projected,
+                self._last_coarse,
+                self._last_plasma,
+                self._last_envelope,
+            ) = held  # pyright: ignore[reportAttributeAccessIssue]
 
     # The low-storage march's hooks and engine.
 
@@ -1113,6 +1341,7 @@ class MlxLowStorage:
         backend._stage_bundles(z, [z, midpoint])
         backend._stage_bundles(midpoint, [midpoint, end])
         backend._stage_bundles(end, [end])
+        backend._envelope_failures = []
         state = cast(mx.array, backend._state)
         source = backend._adams_lab_source(state, z)
         first = backend._adams_propagator(z, midpoint)
@@ -1134,5 +1363,9 @@ class MlxLowStorage:
         state = second * accumulator + (dz / 6.0) * source
         backend._state = cast(Any, state)
         self.stiffness = 2.0 * upper / lower if lower > 0.0 else math.nan
+        if backend._envelope_failures:
+            backend._raise_on_failures(
+                float(cast(float, backend._failure_count().item()))
+            )
         norm = self._norm(state)
         return norm * norm

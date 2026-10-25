@@ -45,7 +45,11 @@ from solprop.backends.mlx_gpu.arithmetic import (
     prefix_scan,
 )
 from solprop.backends.mlx_gpu.backend import MlxBackend
+from solprop.backends.mlx_gpu.envelope import DeviceCycle, envelope_cycle
 from solprop.backends.mlx_gpu.passes import DeviceRateTable
+from solprop.backends.numpy_ref.envelope_plasma import (
+    _cycle_quantities,
+)
 from solprop.backends.numpy_ref.single import NumpySingleBackend
 from solprop.backends.protocol import Backend
 from solprop.backends.registry import available, select, select_batch
@@ -134,12 +138,6 @@ def test_mlx_is_a_single_precision_backend_only():
         assert simulation.settings.backend == "mlx"
 
 
-def test_the_envelope_plasma_waits_for_phase_four():
-    problem = capillary("single", envelope=True, plasma=True).translate()
-    with pytest.raises(BackendError, match="envelope-grid plasma"):
-        select("mlx", problem)
-
-
 # Class R against the oracle.
 
 
@@ -172,6 +170,35 @@ def test_a_plasma_capillary_agrees_with_the_oracle(gas):
     )
     depth = 13
     assert_within(device, oracle, step_bound(16, 4, depth, scans=4))
+
+
+def envelope_plasma_case() -> Simulation:
+    """Return a 1 mm envelope-plasma capillary on a 150 fs window, eight steps."""
+    length = 0.001
+    return capillary(
+        "single",
+        envelope=True,
+        plasma=True,
+        length=length,
+        trange=150e-15,
+        wavelength_limits=(300e-9, 2e-6),
+        schedule=FixedSchedule.uniform(0.0, length, length / 8),
+    )
+
+
+@gpu_only
+def test_an_envelope_plasma_capillary_agrees_with_the_oracle():
+    """Class T: the device's cycle moments are a discretisation of the oracle's.
+
+    On MLX's CPU device the envelope plasma is the oracle's own evaluation, so the
+    comparison is run on the Metal device only.
+
+    Each evaluation's moments may differ from the oracle's adaptive ones by the
+    representation's budget, ``moment_rtol`` relative, on top of the binary32 rounding
+    of the matched step; the plasma changes this field by order one.
+    """
+    device, oracle = pair(envelope_plasma_case)
+    assert_within(device, oracle, step_bound(8, 4, 8, scans=4) + 8 * 2e-6)
 
 
 def test_an_envelope_capillary_agrees_with_the_oracle():
@@ -377,6 +404,105 @@ def test_the_propagator_kernel_does_not_err_with_the_phase():
 
 
 @gpu_only
+def ellipses(rng: np.random.Generator, n: int, low: float, high: float) -> np.ndarray:
+    """Return two-component envelopes: linear, circular, elliptical, near-linear, zero.
+
+    Amplitudes are log-uniform over ``[low, high]``.
+    """
+    amplitude = np.exp(rng.uniform(math.log(low), math.log(high), n))
+    kind = rng.integers(0, 5, n)
+    chi = np.select(
+        [kind == 0, kind == 1, kind == 3],
+        [0.0, math.pi / 4, 1e-4],
+        rng.uniform(-math.pi / 4, math.pi / 4, n),
+    )
+    psi = rng.uniform(0, math.pi, n)
+    x = np.cos(psi) * np.cos(chi) - 1j * np.sin(psi) * np.sin(chi)
+    y = np.sin(psi) * np.cos(chi) + 1j * np.cos(psi) * np.sin(chi)
+    field = np.stack([x, y]) * amplitude * np.exp(1j * rng.uniform(0, 2 * math.pi, n))
+    field[:, kind == 4] = 0
+    return field
+
+
+@gpu_only
+@pytest.mark.parametrize("n_pol", [1, 2])
+def test_the_cycle_kernel_agrees_with_the_oracles_moments(n_pol):
+    """Each sample's rate and loss current against the oracle's SVD and refinement.
+
+    Both meet the representation's ``2e-6`` budget against the exact moments, so they
+    differ by at most twice it plus the kernel's rounding of the rate's steep slope,
+    relative to the representation's floor; zero rates (below the cutoff, zero fields)
+    are zero on both.
+    """
+    channel = capillary("single", envelope=True, plasma=True).translate()
+    envelope = channel.responses.envelope_plasma
+    assert envelope is not None
+    cycle = envelope.channels[0].cycle
+    table = cycle.rate
+    field = ellipses(
+        np.random.default_rng(33), 4000, 0.5 * table.field_min, 2 * table.field_max
+    )[:n_pol]
+    exponent = 10
+    scaled = (field * 2.0**-exponent).astype(np.complex64)
+    rate, current, failed = envelope_cycle(
+        mx.array(scaled[None]), DeviceCycle.upload(cycle), exponent
+    )
+    assert int(cast(int, failed.item())) == 0
+    rate, current = np.array(rate)[0], np.array(current)[0]
+    exact, loss = _cycle_quantities(
+        scaled.astype(np.complex128) * 2.0**exponent, cycle, loss=True
+    )
+    assert np.array_equal(rate == 0, exact == 0)
+    # Relative to the representation's own comparison floor: within 0.1 % of the
+    # table's lower cutoff the cut angle, an arccosine near one, amplifies binary32's
+    # rounding of the field, at rates below 1e-30 s^-1 that the floor already ignores.
+    floor = np.maximum(exact, cycle.negligible_rate)
+    bound = 2 * cycle.moment_rtol + 64 * UNIT_ROUNDOFF_32
+    assert np.max(np.abs(rate - exact) / floor) < bound
+    # The current per unit work is of order rate / E: at rates near the floor it is a
+    # binary32 subnormal, which the GPU flushes (SEP 33 section 4.3, rule 7); its loss
+    # term, times the work, is then below 1e-29 A/m^2.
+    size = np.linalg.norm(loss, axis=0)
+    live = size > float(np.finfo(np.float32).tiny) * 2**24
+    error = np.linalg.norm(current - loss, axis=0)[live]
+    assert np.max(error / size[live]) < bound
+
+
+@gpu_only
+def test_a_refinement_failure_stops_the_march():
+    """A zero budget never converges: the step is refused, as the oracle refuses."""
+    with ExitStack() as cleanup:
+        backend = cast(
+            MlxBackend,
+            loaded(on("mlx", capillary("single", envelope=True, plasma=True)), cleanup),
+        )
+        backend._cycles = tuple(
+            dataclasses.replace(cycle, moment_rtol=0.0) for cycle in backend._cycles
+        )
+        with pytest.raises(ConvergenceError, match="did not converge by order 512"):
+            backend.propagate_to(0.001)
+
+
+@gpu_only
+def test_the_envelope_populations_are_the_oracles():
+    """The species statistics' node scan on the device against the oracle's."""
+    simulation = capillary("single", envelope=True, plasma=True)
+    with ExitStack() as cleanup:
+        device = cast(MlxBackend, loaded(on("mlx", simulation), cleanup))
+        oracle = loaded(capillary("single", envelope=True, plasma=True), cleanup)
+        device.propagate_to(0.002)
+        field = device.observe().field
+        assert field is not None
+        nodes = oracle._nodes_at(field[0])  # pyright: ignore[reportAttributeAccessIssue]
+        initials = (0.0,)
+        fractions, peaks = device._envelope_populations(nodes, initials)
+        expected = oracle._envelope_populations(nodes, initials)  # pyright: ignore[reportAttributeAccessIssue]
+    assert np.max(fractions) > 1e-6
+    bound = 2 * 2e-6 + 4096 * UNIT_ROUNDOFF_32
+    assert_within(fractions, expected[0], bound)
+    assert_within(peaks, expected[1], bound)
+
+
 def test_the_population_kernel_keeps_small_and_saturated_exposures():
     """MLX's own GPU expm1 loses up to 1e-4 at small arguments; the kernel does not."""
     exposure = np.concatenate([np.geomspace(1e-12, 80, 4000)]).astype(np.float32)
@@ -512,6 +638,22 @@ def test_the_memory_estimate_bounds_the_measured_peak_in_free_space(route):
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(float(simulation.settings.save_planes[-1]))
+        assert mx.get_peak_memory() <= estimate.total
+    finally:
+        backend.close()
+
+
+@gpu_only
+def test_the_memory_estimate_bounds_the_measured_peak_with_envelope_plasma():
+    """The cycle kernel's outputs, the histories and the drive and loss per stage."""
+    simulation = on("mlx", envelope_plasma_case())
+    problem = simulation.translate()
+    estimate = estimate_memory(problem, "mlx")
+    mx.reset_peak_memory()
+    backend = select("mlx", problem, grid=simulation.grid)
+    try:
+        backend.set_initial(problem.initial.field0, None)
+        backend.propagate_to(0.001)
         assert mx.get_peak_memory() <= estimate.total
     finally:
         backend.close()

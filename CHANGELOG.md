@@ -175,11 +175,15 @@ The first public release. It contains:
   configuration, so a resume in the other precision is refused (kernel schema 36,
   output schema 25).
   - The `mlx` backend (`pip install solprop[mlx]`, macOS on Apple silicon) runs
-    single-precision capillary, fibre, radial and Cartesian free-space runs on the
-    Apple GPU through MLX, validated
-    against the reference backend's single-precision path; `backend="auto"` chooses it
-    under `precision="single"`. Its propagators are formed in double-float arithmetic
-    in a custom Metal kernel, and its matrix products are checked not to be TF32.
+    single-precision capillary, fibre, radial and Cartesian free-space runs, the
+    envelope-grid plasma among them, on the Apple GPU through MLX, validated against
+    the reference backend's single-precision path; `backend="auto"` chooses it under
+    `precision="single"`. Its propagators are formed in double-float arithmetic in a
+    custom Metal kernel, its matrix products are checked not to be TF32, and each
+    envelope sample's cycle moments are one kernel thread.
+  - Under single precision a replayed step (or an adaptive floor) whose propagator
+    exponent passes binary32's range, `exp(88.7)`, is refused at translation, and one
+    within a tenth of it is warned of.
 - **The native backend.**
   - Native CPU optimisation: a coherent NEON FFTW build for Apple silicon, long-row
     Raman planning with a compact FFTW/vDSP selection rule, and deferred embedded
