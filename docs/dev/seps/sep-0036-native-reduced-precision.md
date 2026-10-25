@@ -1458,6 +1458,13 @@ tolerance, the mixed run is within every envelope and its error is at most twice
 binary64 Adams's at the same tolerance in every metric (an error below 10⁻¹² counts as
 10⁻¹²). Phase 5 decides the admission and the default; phase 1 records the measurement.
 
+**Amendment (2026-10-25, before any comparison was scored).** The maintainers moved
+`argon_envelope`'s mixed candidates to phase 3: they run on native mixed once native is
+qualified against the oracle, since the oracle's envelope-grid plasma, evaluated in
+Python, takes hours per run. Its binary64 runs on `native` are made in phase 1 as above;
+its verdict, and its part in the floor rule, are recorded in phase 3. The floor rule in
+phase 1 is applied over the other ten cases and is provisional as stated.
+
 **Where the record lives.** Accuracy runs only, one thread per run, on an Apple M5 Max;
 no timing here is a benchmark. The harness and raw results are kept with the project's
 development records (SEP 30's rule); the verdicts and limits are recorded here and, in
