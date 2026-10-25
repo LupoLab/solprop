@@ -99,6 +99,13 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
   data and integration questions must be settled before acceptance; shared-level
   ladders, vector saturation and repeated-window histories remain future work.
+- [SEP 36 — Single and mixed precision on the native backend](seps/sep-0036-native-reduced-precision.md):
+  SEP 33's binary32 contract on native CPU and CUDA builds, keeping binary64 where it
+  costs nothing, and a mixed mode (binary64 state, propagators and history; binary32
+  transforms, responses and matrix products) with a `numpy_ref` oracle, a survival
+  study and noise qualified under mixed precision. Targets reduced-FP64 GPUs such as
+  the A40, full-rate GPUs and multi-core CPUs; `numba_cpu`, a fused batch axis and AMD
+  device qualification stay open below.
 
 The informal items below record work not fully covered by these proposals. When adding
 or revising a SEP, remove an informal item only if the proposal covers it in full;
@@ -562,8 +569,11 @@ GPUs with slow double precision.
   evaluates `exp`, `cos` and `sin` per bin and stage, which there may cost as much as the
   transforms. Profile first. Remedies that stay in double include deriving one stage's
   propagator from another's (squaring a half-step propagator) and reusing propagators
-  while `dz` is unchanged.
-- A single-precision source evaluation inside a double-precision solver: the transforms,
+  while `dz` is unchanged. SEP 36 (draft) measures this on the A40 for its mixed mode
+  and evaluates these remedies above a stated share of the step.
+- A single-precision source evaluation inside a double-precision solver, on `native`:
+  proposed as the mixed mode of [SEP 36](seps/sep-0036-native-reduced-precision.md)
+  (draft). The notes below predate it; on `numba_cpu` it stays open. The transforms,
   the responses and the modal GEMMs in FP32; the state, the linear phase increments, the
   Adams history and the running sums in FP64. Its rounding enters each step scaled by
   `dz`, about FP32's epsilon times the step's nonlinear phase, so the error estimate's
@@ -582,7 +592,8 @@ GPUs with slow double precision.
   the same errors at the tolerances the study used); `mlx` cases in the standard
   benchmark suite (SEP 30); and a fused stage kernel for the launch-bound small plasma
   capillaries. Open beyond it: single precision on
-  `native` and `numba_cpu` (Kokkos, Kokkos Kernels and Kokkos-FFT support it on every
+  `native` (proposed in [SEP 36](seps/sep-0036-native-reduced-precision.md), draft)
+  and `numba_cpu` (Kokkos, Kokkos Kernels and Kokkos-FFT support it on every
   backend in use), on the routes SEP 33 refuses, and noise models under single
   precision, which SEP 33 refuses as a known limitation: binary32 rounding can reach a
   one-photon-per-mode seed at high pulse energy. Kokkos has no Metal backend, and one
