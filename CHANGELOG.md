@@ -254,3 +254,8 @@ The first public release. It contains:
   keeps the carrier phase is now a pure delay on both grids
   (`solprop.linear.frame_origin`), and envelope runs with the harmonic agree with
   field-grid runs. Results of envelope runs with `thg=True` change.
+- **Reading the planes of a run with periodic step statistics.** The in-memory store
+  learnt the statistic names only at the first plane with rows, and gave the planes
+  before it no empty piece in those columns, so `planes()` (and `to_file`) of any run
+  with a periodic subset failed with "step statistics columns must have equal row
+  counts". The HDF5 file was not affected.
