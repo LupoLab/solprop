@@ -86,6 +86,15 @@ def test_weigh_sums_each_module_and_keeps_the_largest_report(tmp_path):
     assert shards.weigh([first, second]) == {"a.py": 3.5, "b.py": 4.0}
 
 
+def test_weigh_names_windows_files_as_node_ids_do(tmp_path):
+    path = tmp_path / "windows.xml"
+    path.write_text(
+        '<testsuites><testsuite><testcase file="tests\\a\\test_b.py" name="t"'
+        ' time="2.0"/></testsuite></testsuites>'
+    )
+    assert shards.weigh([path]) == {"tests/a/test_b.py": 2.0}
+
+
 def test_the_committed_weights_name_test_files():
     seconds = json.loads(shards.WEIGHTS.read_text(encoding="utf-8"))["seconds"]
     assert seconds

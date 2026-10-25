@@ -79,7 +79,8 @@ def weigh(reports: Sequence[Path]) -> dict[str, float]:
         for case in ElementTree.parse(report).getroot().iter("testcase"):
             path = case.get("file")
             if path:
-                seconds[path] += float(case.get("time") or 0.0)
+                # Windows reports name files with its own separator; node IDs use "/".
+                seconds[path.replace("\\", "/")] += float(case.get("time") or 0.0)
         for module, value in seconds.items():
             totals[module] = max(totals.get(module, 0.0), value)
     return {module: round(totals[module], 1) for module in sorted(totals)}
