@@ -1043,7 +1043,7 @@ def test_the_surface_a_backend_subclasses_is_frozen(driver):
     Version 36 adds the problem's ``precision`` (SEP 33), without changing these
     driver or stage signatures.
     """
-    assert SCHEMA_VERSION == 36, "the seam changed: rewrite the literals of this test"
+    assert SCHEMA_VERSION == 37, "the seam changed: rewrite the literals of this test"
     for name, signature in {
         "observe_members": (
             "(self) -> tuple[solprop.backends.protocol.Observation, ...]"

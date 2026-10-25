@@ -101,15 +101,17 @@ def test_the_record_names_the_formulation():
     assert repr(Multistep()) == (
         "Multistep(order=5, variable_order=True, max_calls=None, interval_cap=False, "
         "equal_approach=True, max_growth=2.0, min_factor=0.2, safety=0.8, "
-        "formulation='exponential')"
+        "formulation='exponential', carrier_frame='off')"
     )
     assert repr(ComparisonMultistep(corrector="pece", order=4)) == (
         "ComparisonMultistep(order=4, variable_order=False, max_calls=None, "
         "interval_cap=False, equal_approach=True, max_growth=2.0, min_factor=0.2, "
-        "safety=0.8, formulation='interaction', corrector='pece', "
+        "safety=0.8, formulation='interaction', carrier_frame='off', corrector='pece', "
         "corrector_order=None, interpolant='adams')"
     )
-    assert repr(INTERACTION).endswith("safety=0.8, formulation='interaction')")
+    assert repr(INTERACTION).endswith(
+        "safety=0.8, formulation='interaction', carrier_frame='off')"
+    )
     assert EXPONENTIAL.name == "exponential-adams-pec5/6-variable"
     assert Multistep() == EXPONENTIAL
     assert INTERACTION != EXPONENTIAL

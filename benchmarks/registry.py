@@ -251,9 +251,11 @@ _MODAL = (
         (1, 4096, 8192),
         "benchmarks/cases.py:rdw with one resolved mode",
     ),
+    # Revision 2 (SEP 35 phase 4): a 2 ps window, as a production run of this pulse
+    # takes; revision 1's 1 ps crowded the 400 fs pulse. Its entrance re-piloted.
     Case(
         "ctc_reduced",
-        1,
+        2,
         ("modal-capillary",),
         "capillary",
         (*ADAPTIVE, FIXED),
@@ -261,8 +263,8 @@ _MODAL = (
         0.0,
         ENTRANCE_SCHEDULES["ctc_reduced"][-1],
         0.00012,
-        (2, 4096, 8192),
-        "benchmarks/cases.py:ctc_reduced",
+        (2, 8192, 16384),
+        "benchmarks/cases.py:ctc_reduced with a 2 ps window",
     ),
     Case(
         "argon_blueshift",

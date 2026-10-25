@@ -107,7 +107,9 @@ def _resolved_capillary(name: str) -> Simulation:
             40.0,
             lambda0=515e-9,
             wavelength_limits=(170e-9, 4e-6) if full else (250e-9, 2e-6),
-            trange=4e-12 if full else 1e-12,
+            # Revision 2 of the reduced case: 2 ps, the window a production run of
+            # this pulse takes (1 ps crowded its 400 fs pulse).
+            trange=4e-12 if full else 2e-12,
             fwhm=400e-15,
             energy=10e-6,
             modes=6 if full else 2,

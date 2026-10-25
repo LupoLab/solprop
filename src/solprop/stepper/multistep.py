@@ -42,8 +42,10 @@ from solprop._helpers import NUMBA, Helpers
 from solprop.exceptions import StepperError
 
 __all__ = [
+    "CARRIER_PHASE_CAP",
     "MAX_ADAMS_ORDER",
     "PEC_REAL_INTERVAL",
+    "CarrierFrame",
     "ComparisonMultistep",
     "Corrector",
     "Formulation",
@@ -67,7 +69,26 @@ order ``q + 1`` (SEP 13), so the interval is that formula's: ``h |lambda|`` up t
 DOPRI5. Computed from the spectral radius of the PEC recurrence for
 ``u' = lambda u`` in ``tests/stepper/test_multistep.py``. It binds a damping term
 integrated explicitly -- the in-stage collar -- in either formulation: the exponential
-one integrates the diagonal operator exactly, but the collar is in its source."""
+one integrates the diagonal operator exactly, but the collar is in its source.
+
+The interval is the one at a residual phase ``Im x' = 0``, ``x'`` the argument of the
+step's moments: ``h D`` in the exponential formulation, ``h D - sigma`` under a carrier
+frame (:data:`CarrierFrame`). In a bin whose residual phase per step is nonzero the
+recurrence is the same with ``x'`` in place of ``x``; every ``h |lambda|`` up to the
+interval stays stable for ``|Im x'|`` up to about 5.9, 5.1, 3.5, 3.2 and 3.0 at
+``q = 1..5`` without loss, and further with it (SEP 35 section 4.4, reproduced in
+``tests/backends/test_carrier_frame.py``). Neither formulation enforces that condition;
+the temporal collar couples bins, so the bound is a heuristic in both."""
+
+CARRIER_PHASE_CAP = 1.0
+"""Largest carrier phase ``h |kappa|`` a step may cover under a carrier frame, rad.
+
+Part of the :data:`CarrierFrame` policy, not a setting (SEP 35 section 4.3): the
+residual rotation per step of the source components the shift does not remove --
+stationary ones at ``kappa``, the third harmonic's at ``2 kappa`` -- then stays at or
+below 1 and 2 rad, short of the ``pi`` at which the samples alias and the defect stops
+seeing the error. The proposal is shortened before a trial; a shortened step is not a
+landing."""
 
 Interpolant = Literal["adams", "hermite"]
 """How a comparison method interpolates save planes when they are interpolated.
@@ -85,6 +106,23 @@ Formulation = Literal["interaction", "exponential"]
 by the exact linear flow (Lawson's interaction picture, SEP 13). ``"exponential"``,
 :class:`Multistep`'s default, interpolates the untransported samples and integrates the
 polynomial exactly against the linear flow (exponential Adams).
+"""
+
+CarrierFrame = Literal["off", "scalar"]
+"""Which carrier phase the exponential formulation removes from its history (SEP 35).
+
+On a field grid, and on an envelope grid with the third harmonic, the operator keeps
+``beta_0`` and the source that follows the carrier rotates along ``z`` at
+``kappa = beta(omega_0) - beta_1 omega_0``. ``"scalar"`` interpolates, inside each step,
+``G_j = exp(sigma (1 - theta_j)) F_j`` with ``sigma = i Im x`` at the reference bin, and
+integrates it against the moments at ``x - sigma``: exact for any ``sigma``, with the
+state, the stored history and the linear flow untouched, and each step capped at
+:data:`CARRIER_PHASE_CAP`. ``"off"``, the default, is SEP 16's arithmetic. On an
+envelope grid without the third harmonic the shift is the present arithmetic exactly
+(``sigma = 0``). The shift saves source calls on dense gases at matched total-field
+error, but the weak bands it leaves less accurate (SEP 35 phase 4,
+``docs/guide/numerics/adams.md``), which is why it is not the default. A per-band shift
+of the third harmonic was developed and removed by SEP 35's gate.
 """
 
 Corrector = Literal["none", "pec", "pece"]
@@ -145,17 +183,26 @@ class Multistep:
         default. A run's record hashes the method's representation, which names it
         (output schema 15); a record made before then that names none was stepped in
         the interaction picture.
+    carrier_frame : {'off', 'scalar'}
+        The carrier phase the exponential formulation removes from its history inside
+        each step (:data:`CarrierFrame`, ``docs/guide/numerics/adams.md``); ``"off"`` by
+        default. The shift needs the exponential formulation and is refused by name
+        on a backend or route that does not deliver it. The representation names it,
+        so a march snapshot taken under another policy restarts its history.
 
     Raises
     ------
     StepperError
-        If a field is outside its range.
+        If a field is outside its range, or a carrier frame is asked of the interaction
+        formulation.
 
     Examples
     --------
     >>> from solprop.stepper.multistep import Multistep
     >>> Multistep().name
     'exponential-adams-pec5/6-variable'
+    >>> Multistep(carrier_frame="scalar").name
+    'exponential-adams-pec5/6-variable-scalar-frame'
     >>> Multistep(order=3, variable_order=False, formulation="interaction").name
     'adams-pec3/4'
     """
@@ -169,6 +216,7 @@ class Multistep:
     min_factor: float = 0.2
     safety: float = 0.8
     formulation: Formulation = "exponential"
+    carrier_frame: CarrierFrame = "off"
 
     def __post_init__(self) -> None:
         """Check the ranges.
@@ -184,6 +232,17 @@ class Multistep:
             msg = (
                 "formulation must be 'interaction' or 'exponential', got "
                 f"{self.formulation!r}"
+            )
+            raise StepperError(msg)
+        if self.carrier_frame not in ("off", "scalar"):  # pragma: no cover
+            msg = f"carrier_frame must be 'off' or 'scalar', got {self.carrier_frame!r}"
+            raise StepperError(msg)
+        if self.carrier_frame != "off" and self.formulation != "exponential":
+            # SEP 35 section 5: the interaction picture already transports the whole
+            # linear phase; a shift has nothing left to remove.
+            msg = (
+                f"carrier_frame={self.carrier_frame!r} needs the exponential "
+                f"formulation, got formulation={self.formulation!r}"
             )
             raise StepperError(msg)
         if not 1 <= self.order <= MAX_ADAMS_ORDER:
@@ -220,12 +279,14 @@ class Multistep:
         Returns
         -------
         str
-            ``adams-pec<q>/<q + 1>``, with ``-variable`` when the order is chosen and
-            an ``exponential-`` prefix for the exponential formulation.
+            ``adams-pec<q>/<q + 1>``, with ``-variable`` when the order is chosen, an
+            ``exponential-`` prefix for the exponential formulation and a
+            ``-<policy>-frame`` suffix under a carrier frame.
         """
         variable = "-variable" if self.variable_order else ""
         prefix = "exponential-" if self.formulation == "exponential" else ""
-        return f"{prefix}adams-pec{self.order}/{self.order + 1}{variable}"
+        frame = "" if self.carrier_frame == "off" else f"-{self.carrier_frame}-frame"
+        return f"{prefix}adams-pec{self.order}/{self.order + 1}{variable}{frame}"
 
     @property
     def real_stability_interval(self) -> float:

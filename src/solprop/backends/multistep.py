@@ -54,12 +54,17 @@ from scipy.linalg import expm
 from solprop._helpers import NUMBA, Helpers
 from solprop._interrupts import committing
 from solprop.backends.driver import StepDriver
-from solprop.backends.exponential import phi_functions
+from solprop.backends.exponential import (
+    CarrierReference,
+    carrier_reference,
+    phi_functions,
+)
 from solprop.backends.numpy_ref import passes
 from solprop.exceptions import BackendError, ConvergenceError, ResponseBudgetError
 from solprop.output.schema import MarchSnapshot
 from solprop.stepper.controller import limit_step
 from solprop.stepper.multistep import (
+    CARRIER_PHASE_CAP,
     PEC_REAL_INTERVAL,
     Multistep,
     integrated_weights,
@@ -104,6 +109,10 @@ logger = logging.getLogger(__name__)
 
 _State = Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
 _StoreRows = Complex[np.ndarray, "n_slots n_batch n_modes n_pol n_omega"]
+_Shift = Complex[np.ndarray, "#n_batch 1 1 #n_omega"]
+"""A carrier frame's shift: one per batch member (SEP 35); a bin axis broadcasts."""
+_Factors = Complex[np.ndarray, "n_used #n_batch 1 1 #n_omega"]
+"""A carrier frame's rotation of each history row a trial reads, in its slots' order."""
 
 
 @dataclass
@@ -703,7 +712,7 @@ def _eigen_functions(
             matrices[k, route] = math.factorial(k) * _through(pair, phi[k + 1])
 
 
-def coupled_moments(
+def coupled_moments(  # noqa: PLR0913 - the optional evaluators and shift are keywords
     exponent: _State,
     count: int,
     block: CoupledBlock,
@@ -711,6 +720,7 @@ def coupled_moments(
     *,
     eigen: Callable[..., None] = _eigen_functions,
     diagonal: Callable[[np.ndarray, int], np.ndarray] | None = None,
+    carrier: _Shift | None = None,
 ) -> _MatrixMoments:
     """Return a coupled trial's flow and moments ``k! phi_{k+1}(h B)``, ``k < count``.
 
@@ -741,12 +751,22 @@ def coupled_moments(
     diagonal : callable or None, optional
         ``(exponent, count) -> moments`` off the block; ``None`` for the reference's
         :meth:`ExponentialKernels.moments`.
+    carrier : numpy.ndarray or None, optional
+        A carrier frame's ``sigma`` (SEP 35 section 4.5), broadcasting against
+        `exponent`. The moments are then those of the shifted block
+        ``h B - sigma I``, and the flow is ``exp(sigma)`` times its ``phi_0``:
+        ``sigma I`` commutes with ``B``, so ``exp(h B) = exp(sigma) exp(h B - sigma
+        I)`` and one evaluation gives both, in the augmented and eigenbasis paths
+        alike. ``None`` for the unshifted step.
 
     Returns
     -------
     _MatrixMoments
-        The flow and the moments.
+        The flow ``exp(h B)`` and the moments.
     """
+    unshifted = exponent
+    if carrier is not None:
+        exponent = np.ascontiguousarray(exponent - carrier)
     active = block.active
     # The block's bins take matrix moments below: the scalar ones are formed off it.
     scalar = np.zeros((count, *exponent.shape), dtype=np.complex128)
@@ -755,7 +775,7 @@ def coupled_moments(
         scalar[..., ~active] = moments(
             np.ascontiguousarray(exponent[..., ~active]), count
         )
-    flow_scalar = np.exp(exponent)
+    flow_scalar = np.exp(unshifted)
     n_modes = block.triangular.shape[-1]
     shift = exponent[0, 0, 0, active]
     matrices = np.empty((count, *block.triangular.shape), dtype=np.complex128)
@@ -786,6 +806,9 @@ def coupled_moments(
                 @ functions[:, column : column + n_modes]
                 @ adjoint
             )
+    if carrier is not None:
+        factor = np.exp(np.broadcast_to(carrier, unshifted.shape)[0, 0, 0, active])
+        flow_matrix = factor[:, np.newaxis, np.newaxis] * flow_matrix
     return _MatrixMoments(scalar, flow_scalar, matrices, flow_matrix, active)
 
 
@@ -798,6 +821,10 @@ class ExponentialKernels:
     ``h sum_k M_k (sum_j c_jk F_j)`` (``solprop.backends.exponential``), so no
     per-node weight volume is formed. Accepting a step re-anchors nothing. The
     compiled backends' kernels are checked against these passes.
+
+    Under a carrier frame (SEP 35) the same passes take the moments at ``x - sigma``
+    and rows rotated by ``exp(sigma (1 - theta_j))``; the caller forms both
+    (:class:`HostHistory`), so the passes themselves do not change.
 
     Parameters
     ----------
@@ -857,7 +884,7 @@ class ExponentialKernels:
         return flow * values
 
     def moments(
-        self, exponent: _State, count: int
+        self, exponent: _State, count: int, *, shift: _Shift | None = None
     ) -> Complex[np.ndarray, "n_k n_batch n_modes n_pol n_omega"]:
         """Return ``k! phi_{k+1}(x)`` for ``k < count`` along a new leading axis.
 
@@ -867,12 +894,17 @@ class ExponentialKernels:
             ``x = Phi(z + h) - Phi(z)``, in the canonical layout.
         count : int
             The most interpolation nodes any formula of the trial has.
+        shift : numpy.ndarray or None, optional
+            A carrier frame's ``sigma`` (SEP 35): the moments are then those of
+            ``x - sigma``, and the step's flow stays ``exp(x)`` (:meth:`flow`).
 
         Returns
         -------
         numpy.ndarray
             Shape ``(count, *x.shape)``.
         """
+        if shift is not None:
+            exponent = exponent - shift
         phi = phi_functions(exponent, count)
         factors = np.array([math.factorial(k) for k in range(count)], dtype=np.float64)
         return phi[1:] * factors.reshape((count, *([1] * exponent.ndim)))
@@ -1002,6 +1034,8 @@ class ExponentialKernels:
         slots: np.ndarray,
         coefficients: np.ndarray,
         dz: float,
+        *,
+        factors: _Factors | None = None,
     ) -> _State:
         """Return the predicted field ``exp(x) u_n + dz sum_k M_k sum_j c_jk F_j``.
 
@@ -1021,13 +1055,18 @@ class ExponentialKernels:
             The predictor's Lagrange coefficients, shape ``(len(slots), len(slots))``.
         dz : float
             The step, m.
+        factors : numpy.ndarray or None, optional
+            A carrier frame's rotation of each row read, ``exp(sigma (1 - theta_j))``
+            in the slots' order (SEP 35 section 6.2); ``None`` for none.
 
         Returns
         -------
         numpy.ndarray
             The predicted lab-frame field at the end of the step.
         """
-        return self._predicted(state, flow, moments, store, slots, coefficients, dz)
+        return self._predicted(
+            state, flow, moments, store, slots, coefficients, dz, factors=factors
+        )
 
     def _predicted(  # noqa: PLR0913, PLR0917 - buffers are a kernel's parameters
         self,
@@ -1038,6 +1077,8 @@ class ExponentialKernels:
         slots: np.ndarray,
         coefficients: np.ndarray,
         dz: float,
+        *,
+        factors: _Factors | None = None,
     ) -> _State:
         """Return :meth:`predict`'s field; shared with the coupled passes.
 
@@ -1055,13 +1096,15 @@ class ExponentialKernels:
             The predictor's coefficients.
         dz : float
             The step, m.
+        factors : numpy.ndarray or None, optional
+            The rows' carrier-frame rotations, in the slots' order.
 
         Returns
         -------
         numpy.ndarray
             The predicted field.
         """
-        values = [store[slot] for slot in slots]
+        values = _rows_read(store, slots, factors)
         return self._times_flow(flow, state) + self._applied(
             moments, coefficients, values, dz
         )
@@ -1102,6 +1145,8 @@ class ExponentialKernels:
         mask: np.ndarray,
         divisor: np.ndarray,
         extra: tuple[_State, list[_State]] | None = None,
+        *,
+        factors: _Factors | None = None,
     ) -> tuple[_State, np.ndarray]:
         """Return the corrected field and the scaled norms of the defects.
 
@@ -1136,6 +1181,9 @@ class ExponentialKernels:
         extra : tuple or None, optional
             The compensation's corrector term and its term in each defect, or
             ``None`` for a constant operator.
+        factors : numpy.ndarray or None, optional
+            A carrier frame's rotation of each history row read, in the slots'
+            order; the new source's is one.
 
         Returns
         -------
@@ -1147,7 +1195,7 @@ class ExponentialKernels:
             flow,
             moments,
             source,
-            (store, slots),
+            (store, slots, factors),
             (corrector, rows),
             dz,
             (mask, divisor),
@@ -1160,7 +1208,7 @@ class ExponentialKernels:
         flow: Any,
         moments: Any,
         source: _State,
-        history: tuple[np.ndarray, np.ndarray],
+        history: tuple[np.ndarray, np.ndarray, _Factors | None],
         tables: tuple[np.ndarray, np.ndarray],
         dz: float,
         scoring: tuple[np.ndarray, np.ndarray],
@@ -1176,8 +1224,9 @@ class ExponentialKernels:
             The trial's flow and moments.
         source : numpy.ndarray
             The new sample.
-        history : tuple of numpy.ndarray
-            The store and the rows after the source.
+        history : tuple
+            The store, the rows after the source and their carrier-frame rotations
+            (``None`` for none).
         tables : tuple of numpy.ndarray
             The corrector's coefficients and the defect rows.
         dz : float
@@ -1192,10 +1241,10 @@ class ExponentialKernels:
         tuple
             The corrected field and one norm per row.
         """
-        store, slots = history
+        store, slots, factors = history
         corrector, rows = tables
         mask, divisor = scoring
-        values = [source, *(store[slot] for slot in slots)]
+        values = [source, *_rows_read(store, slots, factors)]
         advanced = self._times_flow(flow, state) + self._applied(
             moments, corrector, values, dz
         )
@@ -1230,7 +1279,13 @@ class CoupledExponentialKernels(ExponentialKernels):
         return self
 
     def coupled_moments(
-        self, exponent: _State, count: int, block: CoupledBlock, dz: float
+        self,
+        exponent: _State,
+        count: int,
+        block: CoupledBlock,
+        dz: float,
+        *,
+        shift: _Shift | None = None,
     ) -> _MatrixMoments:
         """Return a coupled trial's flow and moments (:func:`coupled_moments`).
 
@@ -1244,13 +1299,15 @@ class CoupledExponentialKernels(ExponentialKernels):
             The step's frozen block.
         dz : float
             The step, m.
+        shift : numpy.ndarray or None, optional
+            A carrier frame's ``sigma``: the shifted block's moments, the true flow.
 
         Returns
         -------
         _MatrixMoments
             The flow and the moments.
         """
-        return coupled_moments(exponent, count, block, dz)
+        return coupled_moments(exponent, count, block, dz, carrier=shift)
 
     def _times_moment(self, moments: Any, k: int, values: _State) -> _State:
         """Return ``M_k values`` through the trial's block.
@@ -1349,6 +1406,8 @@ class CoupledExponentialKernels(ExponentialKernels):
         slots: np.ndarray,
         coefficients: np.ndarray,
         dz: float,
+        *,
+        factors: _Factors | None = None,
     ) -> _State:
         """Return the predicted field through the trial's block.
 
@@ -1366,13 +1425,17 @@ class CoupledExponentialKernels(ExponentialKernels):
             The predictor's Lagrange coefficients.
         dz : float
             The step, m.
+        factors : numpy.ndarray or None, optional
+            The rows' carrier-frame rotations, in the slots' order.
 
         Returns
         -------
         numpy.ndarray
             The predicted lab-frame field at the end of the step.
         """
-        return self._predicted(state, flow, moments, store, slots, coefficients, dz)
+        return self._predicted(
+            state, flow, moments, store, slots, coefficients, dz, factors=factors
+        )
 
     def correct(  # noqa: PLR0913, PLR0917 - buffers are a kernel's parameters
         self,
@@ -1389,6 +1452,8 @@ class CoupledExponentialKernels(ExponentialKernels):
         mask: np.ndarray,
         divisor: np.ndarray,
         extra: tuple[_State, list[_State]] | None = None,
+        *,
+        factors: _Factors | None = None,
     ) -> tuple[_State, np.ndarray]:
         """Return the corrected field and the defects' norms through the block.
 
@@ -1416,6 +1481,8 @@ class CoupledExponentialKernels(ExponentialKernels):
             The norm's scale per bin.
         extra : tuple or None, optional
             A varying operator's compensation terms.
+        factors : numpy.ndarray or None, optional
+            The history rows' carrier-frame rotations, in the slots' order.
 
         Returns
         -------
@@ -1427,7 +1494,7 @@ class CoupledExponentialKernels(ExponentialKernels):
             flow,
             moments,
             source,
-            (store, slots),
+            (store, slots, factors),
             (corrector, rows),
             dz,
             (mask, divisor),
@@ -1446,6 +1513,8 @@ class _ExponentialStep:
     coefficients: np.ndarray
     values: list[_State]
     compensation: tuple[list[float], list[_State]] | None = None
+    shift: np.ndarray | None = None
+    """The accepted trial's carrier shift (SEP 35), ``None`` without one."""
 
 
 @dataclass
@@ -1463,6 +1532,10 @@ class _ExponentialTrial:
     slots: np.ndarray
     order: int
     compensation: "_Compensation | None"  # noqa: UP037 - defined below
+    shift: np.ndarray | None = None
+    """The trial's carrier shift (SEP 35), ``None`` without one."""
+    factors: np.ndarray | None = None
+    """The rotations of the history rows the trial read, in its slots' order."""
 
 
 @dataclass
@@ -1523,6 +1596,29 @@ class _Compensation:
         self.endpoint = (rate - self.exponent / self.dz) * state
         if residual is not None:
             self.endpoint = self.endpoint + residual
+
+    def rotate(self, shift: _Shift) -> None:
+        """Rotate the untransported witness's terms by a trial's carrier shift.
+
+        The transported treatment's formula is unchanged under a carrier frame (SEP 35
+        section 4.5): its terms are carried by the reference flow and integrated with
+        the ordinary Adams weights. The untransported witness integrates its terms
+        against the trial's moments, which are the shifted ones, so its history terms
+        take the samples' factors ``exp(sigma (1 - theta_j))``; the endpoint's is one.
+
+        Parameters
+        ----------
+        shift : numpy.ndarray
+            The trial's ``sigma``.
+        """
+        if self.treatment == "transported":
+            return
+        self.carried = np.stack(
+            [
+                np.exp(shift * (1.0 - node)) * row
+                for node, row in zip(self.nodes, self.carried, strict=True)
+            ]
+        )
 
     def _sum(self, nodes: list[float], first: _State | None, count: int) -> _State:
         """Return ``h`` times the treatment's integral over the given samples.
@@ -1951,6 +2047,16 @@ class HostHistory:
         self._exponential_dense: _ExponentialStep | None = None
         self._fused_trial: _FusedTrial | None = None
         self._exponential_trial: _ExponentialTrial | None = None
+        # SEP 35: the carrier phase each exponential trial removes from the samples
+        # it reads, from a reference fixed for the run; None when off. An inert one
+        # (sigma = 0) takes the unshifted arithmetic exactly.
+        self.carrier: CarrierReference | None = (
+            None if exponential is None else carrier_reference(backend._problem, method)
+        )
+        if self.carrier is not None:
+            logger.info(
+                "carrier frame %r: %s", self.carrier.policy, self.carrier.reason
+            )
 
     def reset(self) -> None:
         """Forget the last accepted step and any trial in flight."""
@@ -2277,8 +2383,9 @@ class HostHistory:
         and the corrector integrate their interpolants exactly against the step's flow
         ``exp(x)``, ``x = Phi(z + h) - Phi(z)``; the defects of the neighbouring orders
         are scored from the same moments. A varying operator adds the compensation of
-        its samples (SEP 16 section 4.2). The trial is held for
-        :meth:`exponential_accept`.
+        its samples (SEP 16 section 4.2). Under a carrier frame the samples read are
+        rotated and the moments shifted (SEP 35 section 4.1); the flow is unchanged.
+        The trial is held for :meth:`exponential_accept`.
 
         Parameters
         ----------
@@ -2314,34 +2421,43 @@ class HostHistory:
         # functions of the frozen block on the bins that carry one, applied by the
         # reference passes.
         block = cast("CoupledBlock | None", backend._adams_block(z, dz))
-        moments: Any
-        flow: Any
+        # SEP 35 section 4.1: with F(z_n + s) = exp(-sigma (1 - s/h)) G(s), the
+        # step interpolates G_j = exp(sigma (1 - theta_j)) F_j and integrates it
+        # against the moments at x - sigma; exact for any sigma, the flow untouched.
+        carrier = self.carrier
+        shift = (
+            None if carrier is None or not carrier.active else carrier.shift(exponent)
+        )
         if block is not None:
             kernels = kernels.coupled()
-            moments = kernels.coupled_moments(exponent, width, block, dz)
-            flow = moments
-        else:
-            moments = kernels.moments(exponent, width)
-            flow = kernels.flow(exponent)
+        moments, flow = _trial_propagators(kernels, exponent, width, block, dz, shift)
         if state.dtype == np.complex64:
             # SEP 33: the flow and its moments are evaluated in binary64, like every
             # propagator, and rounded once to the state's binary32.
             moments = np.asarray(moments).astype(np.complex64)
             flow = np.asarray(flow).astype(np.complex64)
+        rows_read = slots[: width - 1]
+        factors = (
+            None if shift is None else _carrier_factors(nodes, len(rows_read), shift)
+        )
+        rotation = {} if factors is None else {"factors": factors[:order]}
         lab = kernels.predict(
             state,
             flow,
             moments,
             store,
-            slots[:order],
+            rows_read[:order],
             lagrange_coefficients(nodes[:order], check=False, helpers=backend.helpers),
             dz,
+            **rotation,
         )
         compensation = None
         if self.compensated:
             compensation = self._compensation_terms(
                 exponent, moments, nodes, slots[: width - 1], dz, block
             )
+            if shift is not None:
+                compensation.rotate(shift)
             lab = lab + compensation.predictor(order)
             if state.dtype == np.complex64:
                 # SEP 33: the compensation is formed in binary64 from the binary32
@@ -2369,13 +2485,14 @@ class HostHistory:
             moments,
             source,
             store,
-            slots[: width - 1],
+            rows_read,
             corrector,
             rows,
             dz,
             mask,
             _divisor(backend, state),
             extra,
+            **({} if factors is None else {"factors": factors}),
         )
         if state.dtype == np.complex64:
             advanced = np.asarray(advanced).astype(np.complex64)
@@ -2391,6 +2508,8 @@ class HostHistory:
             slots=slots,
             order=order,
             compensation=compensation,
+            shift=shift,
+            factors=factors,
         )
         return norms
 
@@ -2424,10 +2543,18 @@ class HostHistory:
                 start=trial.state.copy(),
                 exponent=trial.exponent,
                 coefficients=trial.corrector[: order + 1, : order + 1].copy(),
+                # Under a carrier frame, the rotated samples and the accepted
+                # trial's own shift, held until the next accepted step.
                 values=[
                     trial.source.copy(),
-                    *(store[slot].copy() for slot in slots[:order]),
+                    *(
+                        store[slot].copy()
+                        if trial.factors is None
+                        else trial.factors[index] * store[slot]
+                        for index, slot in enumerate(slots[:order])
+                    ),
                 ],
+                shift=trial.shift,
                 compensation=None
                 if compensation is None
                 else compensation.observation(
@@ -2568,7 +2695,10 @@ class HostHistory:
 
         The accepted corrector's interpolant integrated exactly against the flow to the
         fraction ``xi`` of the step (SEP 16 section 4.3):
-        ``exp(xi x) u_n + h sum_k k! xi**(k+1) phi_{k+1}(xi x) sum_j c_jk F_j``. Every
+        ``exp(xi x) u_n + h sum_k k! xi**(k+1) phi_{k+1}(xi x) sum_j c_jk F_j``; under
+        a carrier frame the rotated samples ``G_j``, the moments at ``xi (x - sigma)``
+        and the factor ``exp(-sigma (1 - xi))``, with the accepted step's ``sigma``
+        (SEP 35 section 4.1). Every
         factor is a forward flow, so a strongly damped bin needs no guard; no source
         is evaluated and nothing enters the history.
 
@@ -2589,13 +2719,20 @@ class HostHistory:
         kernels = ExponentialKernels(helpers=helpers)
         xi = (position - step.z) / step.dz
         count = step.coefficients.shape[1]
-        moments = kernels.moments(xi * step.exponent, count)
+        shift = step.shift
+        # Under a carrier frame (SEP 35 section 4.1) the accepted step's rotated
+        # samples, integrated against the moments at xi (x - sigma) and carried back
+        # by exp(-sigma (1 - xi)); every factor is bounded for an imaginary sigma.
+        moments = kernels.moments(
+            xi * (step.exponent if shift is None else step.exponent - shift), count
+        )
         scaled = moments * np.array([xi ** (k + 1) for k in range(count)]).reshape(
             (count, *([1] * step.start.ndim))
         )
-        value = np.exp(xi * step.exponent) * step.start + kernels.apply(
-            scaled, step.coefficients, step.values, step.dz
-        )
+        increment = kernels.apply(scaled, step.coefficients, step.values, step.dz)
+        if shift is not None:
+            increment = np.exp(-shift * (1.0 - xi)) * increment
+        value = np.exp(xi * step.exponent) * step.start + increment
         if step.compensation is not None:
             nodes, terms = step.compensation
             weights = integrated_weights(
@@ -2613,6 +2750,109 @@ class HostHistory:
             damped = np.real(step.exponent) < -1.0
             value = np.where(damped, np.exp(xi * step.exponent) * step.start, value)
         return self._backend._apply_mask(value)
+
+
+def _trial_propagators(
+    kernels: Any,
+    exponent: Any,
+    width: int,
+    block: CoupledBlock | None,
+    dz: float,
+    shift: _Shift | None,
+) -> tuple[Any, Any]:
+    """Return a trial's moments and flow, shifted by `shift` when it is given.
+
+    Parameters
+    ----------
+    kernels : Any
+        The backend's exponential kernels, already the coupled ones for a block.
+    exponent : Any
+        The step's increment of Phi, the true linear exponent.
+    width : int
+        The number of moments, one more than the highest order scored.
+    block : CoupledBlock or None
+        The section's frozen block, or None off a coupled section.
+    dz : float
+        The step.
+    shift : numpy.ndarray or None
+        The carrier shift sigma per member, or None when no frame is active.
+
+    Returns
+    -------
+    tuple
+        The moments at the shifted exponent and the true flow exp(x).
+    """
+    moments: Any
+    flow: Any
+    if block is not None:
+        # The moments are the shifted block's and the flow exp(sigma) times its
+        # phi_0, the true exp(h B) (section 4.5): one evaluation, never the
+        # shifted flow.
+        moments = (
+            kernels.coupled_moments(exponent, width, block, dz)
+            if shift is None
+            else kernels.coupled_moments(exponent, width, block, dz, shift=shift)
+        )
+        flow = moments
+    else:
+        moments = (
+            kernels.moments(exponent, width)
+            if shift is None
+            else kernels.moments(exponent, width, shift=shift)
+        )
+        # After the moments: a compiled backend forms exp(x) in their pass.
+        flow = kernels.flow(exponent)
+    return moments, flow
+
+
+def _carrier_factors(nodes: list[float], count: int, shift: _Shift) -> _Factors:
+    """Return the rotations ``exp(sigma (1 - theta_j))`` of a trial's history rows.
+
+    The rotated-sample form of SEP 35 section 6.2: the passes multiply each row by its
+    factor as they read it, so the store keeps the untransported samples and a
+    rejection, a resume or a later step with its own shift reads them unchanged.
+
+    Parameters
+    ----------
+    nodes : list of float
+        The history's normalised positions ``theta_j``, newest first.
+    count : int
+        The rows read.
+    shift : numpy.ndarray
+        The trial's ``sigma``.
+
+    Returns
+    -------
+    numpy.ndarray
+        One factor per row, ``(count, *shift.shape)``.
+    """
+    return np.stack([np.exp(shift * (1.0 - nodes[index])) for index in range(count)])
+
+
+def _rows_read(
+    store: Complex[np.ndarray, "n_slots n_batch n_modes n_pol n_omega"],
+    slots: np.ndarray,
+    factors: _Factors | None,
+) -> list[_State]:
+    """Return the history rows a pass combines, rotated when a carrier frame asks.
+
+    Parameters
+    ----------
+    store : numpy.ndarray
+        The history rows.
+    slots : numpy.ndarray
+        The rows read, newest first.
+    factors : numpy.ndarray or None
+        Their rotations, in the slots' order; ``None`` for the rows themselves.
+
+    Returns
+    -------
+    list of numpy.ndarray
+        The rows; rotated ones are new arrays.
+    """
+    if factors is None:
+        return [store[slot] for slot in slots]
+    return [factor * store[slot] for factor, slot in zip(factors, slots, strict=False)]
 
 
 def _divisor(backend: StepDriver, state: _State) -> np.ndarray:
@@ -2975,7 +3215,7 @@ class AdamsMarch:
             try:
                 if not self._history:
                     self._start()
-                stop = landing(backend._z, backend._proposal, targets)
+                stop = landing(backend._z, self._capped(backend._proposal), targets)
                 dz, end, kink = self._approach(stop, targets, target)
                 # The accepted step moves the position with the state, and restarts
                 # the history at a kink, in one commit (`_land`).
@@ -3147,6 +3387,40 @@ class AdamsMarch:
         value = self._engine.start(z, stored=stored)
         self._history = [_Derivative(z, value, "accepted", 0 if stored else -1)]
         self._order = 1 if self._method.variable_order else self._method.order
+
+    def _capped(self, proposal: float) -> float:
+        """Return the proposal shortened to the carrier frame's phase cap.
+
+        Under a carrier frame no step covers more than :data:`CARRIER_PHASE_CAP` of
+        carrier phase (SEP 35 section 6.4), measured by one chord of the reference
+        element's operator over the proposal (:class:`CarrierChord`), the largest over
+        the batch. Applied before
+        the landing rule, so a shortened step is not a landing; a fixed schedule's
+        replay is not capped.
+
+        Parameters
+        ----------
+        proposal : float
+            The controller's proposal, m.
+
+        Returns
+        -------
+        float
+            The proposal, or the shorter step the cap allows, m.
+        """
+        carrier = getattr(self._engine, "carrier", None)
+        if not isinstance(carrier, CarrierReference) or not carrier.active:
+            return proposal
+        backend = self._backend
+        z = backend._z
+        # Measured over the part of the proposal inside the run, where the operator's
+        # representation is defined; the landing rule clips the rest. One scalar per
+        # member, from the reference element's own representation.
+        end = min(z + proposal, backend._problem.stepper.z_end)
+        phase = carrier.chord_phase(z, end)
+        if phase <= CARRIER_PHASE_CAP:
+            return proposal
+        return (end - z) * (CARRIER_PHASE_CAP / phase)
 
     def _approach(
         self, stop: object, targets: StepTargets, target: float

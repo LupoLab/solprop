@@ -247,7 +247,9 @@ def test_approved_limits_apply_only_to_reviewed_measurements():
             assert policy is not None
             assert policy.bound == bound
             assert approved_envelope({**configuration, "stop": 0.5}) is None
-            assert approved_envelope({**configuration, "revision": 2}) is None
+            # A later workload revision never inherits the review.
+            later = {**configuration, "revision": configuration["revision"] + 1}
+            assert approved_envelope(later) is None
         if FIXED in CASES[case].tracks:
             assert approved_envelope(CASES[case].measurement(FIXED)) is None
 

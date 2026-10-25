@@ -84,7 +84,7 @@ def test_build_info_is_frozen_and_complete() -> None:
     assert dataclasses.is_dataclass(info)
     with pytest.raises(dataclasses.FrozenInstanceError):
         info.thread_count = 99  # type: ignore[misc]
-    assert info.schema_version == 36
+    assert info.schema_version == 37
     assert info.response_full_thread_columns > 0
     assert (
         info.response_full_thread_columns
@@ -223,7 +223,7 @@ def test_module_entry_point_prints_one_json_record() -> None:
     assert completed.returncode == 0, completed.stderr
     lines = completed.stdout.splitlines()
     assert len(lines) == 1
-    assert json.loads(lines[0])["schema_version"] == 36
+    assert json.loads(lines[0])["schema_version"] == 37
 
 
 @pytest.mark.parametrize("explicit", [None, "3"])

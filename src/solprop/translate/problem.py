@@ -195,7 +195,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 36
+SCHEMA_VERSION = 37
 """Version of the kernel contract this module implements.
 
 Incremented on every change to the field list of ``docs/dev/kernel-contract.md``. A
@@ -429,6 +429,14 @@ Version 36 (SEP 33) adds ``precision``, the arithmetic the run is held in
 (:class:`solprop.translate.precision.Precision`). Every table stays binary64 at the
 seam; a backend that admits single precision narrows its tables on upload, and every
 other backend refuses a single-precision problem by name.
+
+Version 37 (SEP 35) gives ``StepperSettings.integrator`` a ``carrier_frame`` field,
+``"off"`` (the version-36 method bit for bit) or ``"scalar"`` (a ``"harmonic"`` value
+existed during SEP 35's development and was removed by its gate): the carrier phase the
+exponential formulation removes from its history inside each step. A backend that does
+not deliver the shift refuses it by name, and a build against an older version refuses
+the problem rather than step a requested shift unshifted; no ``KernelProblem`` field or
+stage bundle moves.
 """
 
 DEFAULT_COMPONENTS = ("x",)
@@ -1016,7 +1024,7 @@ class KernelProblem:
     ...     dz_max=0.1, dz_init=1e-3, shock=False, prefactor_index=1.0, density=1.0,
     ... )
     >>> problem.shape, problem.grid_kind, problem.schema_version
-    ((1, 1, 1, 4096), 'envelope', 36)
+    ((1, 1, 1, 4096), 'envelope', 37)
     """
 
     schema_version: int
@@ -6251,7 +6259,7 @@ def debug_summary(problem: KernelProblem) -> str:
     ...     width=100e-15, peak_power=9.8, pulseshape="sech", n_save=3,
     ... )
     >>> print(debug_summary(simulation.translate()).splitlines()[0])
-    kernel problem schema 36: envelope grid, route modal
+    kernel problem schema 37: envelope grid, route modal
     """
     linear, transform = problem.linear, problem.transform
     tables, metric = transform.modal_tables, linear.modal_metric

@@ -175,6 +175,7 @@ class State:
         comp_corrector: npt.NDArray[np.float64],
         comp_rows: npt.NDArray[np.float64],
         rate: npt.NDArray[np.float64],
+        carrier: npt.NDArray[np.float64],
     ) -> npt.NDArray[np.float64]: ...
     def adams_exponential_accept(
         self, dz: float, free: int, dense: npt.NDArray[np.uint64], interpolate: bool
@@ -186,6 +187,7 @@ class State:
         coefficients: npt.NDArray[np.float64],
         dense_weight: npt.NDArray[np.float64],
         dense_theta: npt.NDArray[np.float64],
+        carrier: npt.NDArray[np.float64],
     ) -> None: ...
     def adams_hold(self) -> None: ...
     def adams_restore(self) -> None: ...

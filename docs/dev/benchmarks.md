@@ -177,9 +177,9 @@ against the previous default build on the large windows (best of complete paired
 | small cases (eight case/track configurations), geometric mean | 2.00× faster | 2.06× faster |
 | averaged helium RDW | same within noise | same within noise |
 | resolved blueshift | 2.0–2.6× faster | 1.8–2.4× faster |
-| reduced comb-to-continuum | 2.8–3.1× faster | 2.4–3.6× faster |
+| reduced comb-to-continuum (revision 1, 1 ps) | 2.8–3.1× faster | 2.4–3.6× faster |
 | RDW ten-step window | 1.81× faster | 2.33× faster |
-| reduced comb-to-continuum ten-step window | 3.18× faster | 3.85× faster |
+| reduced comb-to-continuum ten-step window (revision 1, 1 ps) | 3.18× faster | 3.85× faster |
 | full comb-to-continuum ten-step window | 7.9 % faster | 2.7 % faster, noisy |
 | general modal | 4–11 % faster | same, noisy |
 | Cartesian and radial filaments | same within noise | within 5 %, noisy |
@@ -324,6 +324,26 @@ dense 81 + 3 products ([algorithms.md](algorithms.md)), on a two-channel step-in
 (288 nodes, 256 samples) at one thread: the respond kernel alone 2.5 times faster on
 `numba_cpu`; a ten-step window 1.45 times faster on `numba_cpu` and 1.35 times on Kokkos
 CPU. The gain shrinks as channels are added.
+
+### Adams carrier frame per step
+
+The scalar carrier frame ([SEP 35](seps/archive/sep-0035-carrier-frame-exponential-adams.md))
+adds, per trial, a shifted argument and one complex product per element in the moments
+pass and one complex product per history row read. Ten replayed steps of a 2 mm,
+40 bar hydrogen capillary (16 µm, 515 nm, 2 ps window, 4097 bins, one mode, a weak
+collar), the stepping alone timed, one thread, median ratio of nine same-process
+interleaved pairs on an Apple M5 Max, a machine in ordinary use (labelled A/B, not an
+absolute timing):
+
+| source | `numba_cpu` off → scalar | ratio | native CPU off → scalar | ratio |
+|---|---|---|---|---|
+| Kerr only | 11.9 → 12.4 ms | 1.042 [1.019, 1.096] | 9.2 → 9.7 ms | 1.057 [1.036, 1.066] |
+| Kerr and Raman | 121.5 → 121.9 ms | 1.007 [0.995, 1.017] | 95.4 → 95.8 ms | 1.006 [0.997, 1.009] |
+
+Forming `exp(x - sigma)` as `exp(x) exp(-sigma)` instead of a second exponential took
+native's Kerr-only ratio from 1.076 to 1.057. The per-step cost is a few per cent where
+the source is cheap and negligible where it is not; the policy's case rests on the calls
+it saves, which SEP 35's phase 4 measures at matched error.
 
 (resident-adams-memory)=
 ### Resident Adams storage
