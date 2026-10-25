@@ -41,8 +41,8 @@ Success is judged in three ways:
 - a survival record for the mixed mode, including noise-seeded cases, against
   criteria fixed in advance;
 - recorded speed-ups over binary64 native on the targets that motivate it: NVIDIA GPUs
-  with reduced binary64 rates such as the A40, data-centre GPUs, and multi-core x86-64
-  and aarch64 CPUs.
+  with reduced binary64 rates such as the A40, an AMD Instinct GPU with full binary64
+  rates, and multi-core x86-64 and aarch64 CPUs.
 
 ### 2. Motivation and scope
 
@@ -159,9 +159,14 @@ can therefore qualify noise where single cannot (§4.4).
   advance (Q2).
 - An A40 (Ampere, `AMPERE86`) build preset and a local GPU qualification lane on A40
   nodes.
-- Benchmarks of both modes against binary64 native on the A40, multi-core x86-64 and
-  aarch64 CPUs, and against `mlx` on an Apple-silicon Mac. These include the throughput
-  of concurrent independent runs on one GPU.
+- Qualification of both modes on an AMD Instinct GPU (CDNA 3, `AMD_GFX942`, such as the
+  MI325X) through the HIP build, on rented hardware within a budget agreed with the
+  maintainers before the phase starts: the same class R tests and confirmation cases
+  as on the A40, the rocBLAS and rocFFT probes, and profiled benchmarks.
+- Benchmarks of both modes against binary64 native on the A40, the AMD GPU, multi-core
+  x86-64 and aarch64 CPUs, and against `mlx` on an Apple-silicon Mac. These include the
+  throughput of concurrent independent runs on one GPU, and per-pass profiles on both
+  GPUs, so that where each mode's time goes is understood, not only its total.
 
 **Not in scope.**
 - `numba_cpu`. It keeps refusing both reduced modes, and its refusal message names
@@ -178,8 +183,8 @@ can therefore qualify noise where single cannot (§4.4).
   on tensor cores are discussed in §10 and not proposed.
 - Binary32 output files (SEP 33 Q6, still deferred).
 - A mixed mode on `mlx`, which Apple GPUs cannot provide.
-- GPU qualification on AMD hardware. The HIP build compiles, but qualifying it on a
-  device is deferred (Q9).
+- AMD GPUs other than the qualified CDNA 3 part (other architectures need their own
+  build and lane), and AMD consumer GPUs.
 
 ### 3. Context
 
@@ -468,7 +473,11 @@ shots = [
   both.
 - **Noise.** Refused under `"single"`. Under `"mixed"`, refused until phase 5, then
   admitted on the routes and cases the study qualifies, with a refusal or a documented
-  limit where it does not (§7.3, Q4).
+  limit where it does not (§7.3, Q4). A mixed run with a noise model records in its
+  output metadata an estimate of its accumulated rounding floor, $\sigma_r$ of §4.4,
+  from the per-step nonlinear phase (the norm of one stage value, folded into the
+  existing norm reduction), beside the seed's $\sigma_q$, so a user can read the margin
+  of their own run.
 - **The build record.** `BuildInfo.precision` becomes `precisions`, the tuple of
   compiled modes (for example `("double", "single", "mixed")`). `solprop_native.build_info()`
   and the backend table report it.
@@ -489,7 +498,7 @@ shots = [
 
 "Phase $n$" is the phase that admits the capability (§11).
 
-| capability | `numpy_ref` mixed | `native` single, CPU | `native` mixed, CPU | `native` single and mixed, CUDA |
+| capability | `numpy_ref` mixed | `native` single, CPU | `native` mixed, CPU | `native` single and mixed, CUDA and HIP |
 |---|---|---|---|---|
 | fibre route, every SEP 33 response, field-grid plasma, field and envelope grids | 1 | 2 | 3 | 4 |
 | envelope-grid plasma | 1 | 3 | 3 | 4 |
@@ -498,7 +507,6 @@ shots = [
 | Adams | study (1, 5) | refused (Q3) | 5, if admitted | 5, if admitted |
 | fixed-schedule lockstep batches | 1 | 2 | 3 | 4 |
 | noise | study (5) | refused | 5, where qualified | 5, where qualified |
-| HIP device builds | — | — | — | compile only (Q9) |
 | SEP 33's refused routes and responses | refused | refused | refused | refused |
 
 ### 6. Implementation strategies
@@ -582,13 +590,16 @@ input.
 - *TF32.* cuBLAS computes binary32 products in TF32 when an application asks for it,
   and `NVIDIA_TF32_OVERRIDE` can force it [5]. Construction runs a GEMM probe on each
   product shape the run uses, with Gaussian factors and SEP 33's discriminating
-  threshold $2^{-17}$. It refuses if TF32 is detected, naming the variable. rocBLAS's
-  `xf32` mode is covered by the same probe on HIP builds.
+  threshold $2^{-17}$. It refuses if TF32 is detected, naming the variable. On HIP
+  builds the same probe covers rocBLAS's reduced-precision `xf32` compute type, which
+  CDNA 3 offers for binary32 products.
 - *Transforms.* cuFFT and FFTW in single precision are characterised against
-  `fft_bound` at $u_{32}$ at each length and kind the routes use, in the test suite.
+  `fft_bound` at $u_{32}$ at each length and kind the routes use, in the test suite,
+  and rocFFT likewise on the AMD lane.
 - *Subnormals.* No build sets flush-to-zero (SEP 25). CUDA's binary32 arithmetic keeps
-  subnormals unless `-ftz=true`, which the build must not pass. The device lane checks
-  that a subnormal survives a pass.
+  subnormals unless `-ftz=true`, which the build must not pass; HIP builds must not pass
+  `-fgpu-flush-denormals-to-zero`. Each device lane checks that a subnormal survives a
+  pass.
 
 **The Python side.**
 - The host-side range work of SEP 33 (the launch scale, block exponents and combined
@@ -605,7 +616,9 @@ input.
 **Build options.** `SOLPROP_NATIVE_PRECISIONS` (default `double;single;mixed`) selects
 the instantiated policies. A build without `double` is refused, since binary64 is the
 default arithmetic. Phase 2 measures what the reduced policies add to compile time and
-wheel size. Q5 decides whether the distributed wheels carry all three.
+wheel size. The distributed wheels carry all three (Q5), unless the reduced policies
+add more than 60 % to a wheel's size or take it past PyPI's per-file limit; then single
+and mixed become an option of source builds and the guide says so.
 
 #### 6.4 Propagators on reduced-FP64 GPUs
 
@@ -627,7 +640,10 @@ in order, each binary64-accurate and each tested against the oracle:
    as SEP 33's MLX kernel does for the argument. This is the most work, and is used
    only if 1 and 2 do not bring the share below the threshold.
 
-Single precision needs none of these (§4.3).
+Single precision needs none of these (§4.3). On the AMD GPU, whose binary64 vector
+rate is half its binary32 rate, the binary64 propagator is expected to be
+bandwidth-bound; phase 4 measures its share there too, as the contrast that separates
+the A40's compute cost from the format's byte cost.
 
 #### 6.5 Envelope-grid plasma
 
@@ -651,7 +667,11 @@ on the fibre cases at $2^{13}$–$2^{16}$ samples, three ways:
   threads.
 
 The result informs the guide's advice on how to fill a GPU with an ensemble. It also
-decides by rule whether a fused batch axis is proposed as a later SEP (Q8).
+decides by rule whether a fused batch axis is proposed as a later SEP (Q8): only if, on
+a noise ensemble of $2^{14}$–$2^{15}$-sample fibre runs, the best of the three ways
+reaches less than half the throughput per GPU of the same case at $2^{18}$. If
+concurrent processes already pass, the guide advises them and nothing is built. The
+same measurement is repeated on the AMD GPU.
 
 #### 6.7 Cost and memory
 
@@ -686,8 +706,8 @@ window.
   suite's noise (SEP 30's rules).
 - **Native single against `numpy_ref` single**, and **native mixed against `numpy_ref`
   mixed**, on fixed schedules with a fixed-order method, for every capability of §5.1
-  in its phase. These run on the CPU build in CI and on the CUDA build in the local A40
-  lane.
+  in its phase. These run on the CPU build in CI, on the CUDA build in the local A40
+  lane, and on the HIP build on the AMD GPU.
 - **Native single against `mlx`** on an Apple-silicon Mac. Both are bounded against the
   oracle, so this is a consistency check, not a gate.
 - **The linear part of mixed precision.** A source-free run under mixed precision
@@ -713,8 +733,9 @@ window.
 **Single precision.** The oracle's survival record (SEP 33 Part II) transfers to native
 through the class R tests above. Phase 4 confirms it on the A40 by rerunning three of
 its cases on the CUDA build against their binary64 references: `ctc` at its 0.05 m
-limit, `argon` and `radial_filament`. Each is judged by SEP 33's envelopes. This is a
-confirmation, not a new study.
+limit, `argon` and `radial_filament`. Each is judged by SEP 33's envelopes. The same
+three cases, and the mixed study's `rdw` and `argon`, are rerun on the AMD GPU. This is
+a confirmation, not a new study.
 
 **Mixed precision: coherent cases.** The criteria are SEP 33 §7.3's, recorded in
 Part II before the first comparison:
@@ -740,7 +761,7 @@ is needed.
   single's, so its limit should lengthen.
 
 **Mixed precision: noise-seeded cases.** The criteria are recorded before the first
-comparison. Cases run on reduced windows, with ensembles of $N = 32$ shots with
+comparison. Cases run on reduced windows, with ensembles of $N = 64$ shots with
 matched seeds against binary64 ensembles:
 
 | id | route | definition | expected |
@@ -756,18 +777,21 @@ of the largest:
 - **the ensemble-mean spectral energy** per band. Envelope: the larger of 1 % and
   twice the binary64 ensemble's standard error of the mean.
 - **the modulus of the first-order coherence**, $\lvert g_{12}\rvert$ [6], per band.
-  Envelope: 0.02 absolute.
+  Envelope: the larger of 0.02 absolute and twice the binary64 ensemble's standard
+  error of $\lvert g_{12}\rvert$ in that band (by bootstrap over its shots), so that a
+  partly coherent band does not fail on sampling alone.
 - **the rounding margin** $\sigma_q/\sigma_r$ per band, from the difference between
   mixed and binary64 shots with identical seeds, measured at 1 % of the length (before
   amplification), against the seed's own spectral amplitude. Envelope: at least 20 dB
-  in every band.
+  in every band. This is the primary criterion: it tests directly that binary32 is not
+  the source of the noise, and it needs a few shots, not an ensemble.
 
 Verdicts are as for the coherent cases. A failure becomes a refusal where its
 condition can be computed from the problem before the run; otherwise it becomes a
 documented limit (Q4). The study records the measured $\sigma_r$ against §4.4's
-estimate. It also states whether a problem-level predicate, such as one in pulse
-energy, occupied bins and expected nonlinear phase, separates the passing cases from
-the failing ones.
+estimate, and the metadata estimate of §5 against the measured margin. It also states
+whether a problem-level predicate, such as one in pulse energy, occupied bins and
+expected nonlinear phase, separates the passing cases from the failing ones.
 
 #### 7.4 Benchmarks
 
@@ -777,7 +801,12 @@ measured peak memory:
 - the SEP 30 core cases on CPU, single and mixed against binary64 native, on an x86-64
   host (2× AMD EPYC 7763 nodes and the x86-64-v3 wheel) and an aarch64 host (Apple
   M5 Max, and a Linux aarch64 host where available);
-- the same cases on the A40, with the batch and concurrency throughput of §6.6;
+- the same cases on the A40 and on the AMD GPU, with the batch and concurrency
+  throughput of §6.6;
+- per-pass profiles of one step in each mode on both GPUs (Nsight Systems on the A40,
+  `rocprofv3` kernel traces on the AMD GPU), attributing the time to transforms,
+  matrix products, element-wise passes, propagators, reductions and launch overhead,
+  and comparing the attribution with the indicative figures of §2;
 - native single against `mlx` on the same Mac.
 
 The user guide's advice comes from these records. Where a mode gains less than 1.3× on
@@ -792,7 +821,7 @@ a target and route, the guide says so. Benchmarks are not merge gates.
   - each mode's floor and limits;
   - the benchmark tables.
 - [The native backend](../../guide/performance/native.md): running reduced precision on
-  CPUs and GPUs, the A40 example, and the TF32 refusal.
+  CPUs and GPUs, the A40 and AMD examples, and the TF32 and `xf32` refusals.
 - [Building the native backend](../../guide/performance/building-native.md):
   `SOLPROP_NATIVE_PRECISIONS`, the Ampere (`AMPERE86`) preset, and FFTW's
   single-precision libraries for source builds.
@@ -867,7 +896,7 @@ a target and route, the guide says so. Benchmarks are not merge gates.
 All phases are made on one branch and reach `main` in one pull request, opened when the
 SEP is set Final. Continuous integration runs the full gate on it. Each phase is
 qualified on its own and reports in Part II. The local A40 lane is part of the
-definition of done of phases 4 and 5.
+definition of done of phases 4 and 5, and the AMD lane of phase 4.
 
 **Phase 1 — The mixed setting and its oracle.**
 - `Precision`'s mixed form, admission, validation, schemas, the mixed bound, and
@@ -895,16 +924,18 @@ definition of done of phases 4 and 5.
 - Verifies: class R against both oracles; the mixed source-free witness on native; CPU
   benchmarks on the suite's radial and Cartesian cases.
 
-**Phase 4 — CUDA on the A40.**
-- The `AMPERE86` preset, the TF32 probe and the subnormal check.
+**Phase 4 — GPUs: CUDA on the A40, HIP on an AMD Instinct GPU.**
+- The `AMPERE86` preset, the TF32 and `xf32` probes and the subnormal checks.
 - Both modes on the CUDA build, and the local A40 lane running native's GPU tests for
   both modes.
-- The propagator share and §6.4's remedies if needed. The throughput measurements of
-  §6.6.
-- A HIP build that compiles with both modes.
-- Verifies: class R on device against the oracles; the three single-precision
-  confirmation cases; benchmarks against binary64 on the A40 and against the CPU hosts;
-  the Q8 rule applied.
+- Both modes on the HIP build (`AMD_GFX942`), with the same tests on a rented CDNA 3
+  GPU, within the agreed budget, each rental destroyed as soon as its evidence is
+  recorded.
+- The propagator share on both GPUs and §6.4's remedies if needed. The throughput
+  measurements of §6.6 and the per-pass profiles of §7.4 on both.
+- Verifies: class R on both devices against the oracles; the confirmation cases of
+  §7.3; benchmarks against binary64 on each GPU and against the CPU hosts; the Q8 rule
+  applied.
 
 **Phase 5 — Noise, Adams and the final records.**
 - The noise-seeded study on native mixed (validated in phases 3–4) against binary64
@@ -914,8 +945,8 @@ definition of done of phases 4 and 5.
 - The mixed floor and the Adams admission decided by the rules of §7.3, with the
   defaults set accordingly. The binary32 Adams measurement for Q3.
 - The user guide, the worked example and the final benchmark records. The SEP becomes
-  Final when both native modes agree with their oracles within their bounds on CPU and
-  on the A40.
+  Final when both native modes agree with their oracles within their bounds on CPU, on
+  the A40 and on the AMD GPU.
 
 ### 12. Open questions
 
@@ -926,33 +957,39 @@ Decided by the maintainers on 2026-10-25, when this draft was commissioned:
 - a fused batch axis measured, not built;
 - `numba_cpu` excluded.
 
-Open, for decision before acceptance unless deferred to a named phase:
+Decided by the maintainers on 2026-10-25, on the draft's questions (Part III). What
+remains open is what the phases measure within these decisions.
 
-- **Q1 — The mixed floor.** Proposed: $10^{-8}$ provisionally, raised by §7.3's rule in
-  phases 1 and 5.
-- **Q2 — Adams under mixed precision.** Proposed: the like-with-like rule of §7.3, with
-  `Multistep()` as the mixed default if it is admitted (phase 5).
-- **Q3 — Adams under single precision.** Proposed: refused on native as on `mlx`, with
-  native's binary32 measurements on the like-with-like rule recorded for the roadmap's
-  open SEP 33 question, which this SEP does not decide.
-- **Q4 — Noise criteria.** Proposed: $N = 32$, the envelopes of §7.3 (mean spectrum,
-  $\lvert g_{12}\rvert$ within 0.02, a margin of at least 20 dB), and a refusal
-  predicate only if the study finds one computable from the problem, otherwise a
-  documented limit.
-- **Q5 — The wheels.** Proposed: the distributed CPU wheels carry all three modes if
-  the reduced policies add at most 60 % to the wheel's size. Otherwise single and mixed
-  become a build option for source builds.
-- **Q6 — `auto` under single precision on an Apple-silicon Mac.** Proposed: `mlx`, as
-  now, falling back to native's CPU build.
-- **Q7 — The mixed propagator on reduced-FP64 GPUs.** Proposed: always binary64, with
-  §6.4's remedies above a 15 % share of the step.
-- **Q8 — A fused batch axis.** Proposed rule: a later SEP is proposed if the best
-  throughput per A40 on a $2^{14}$ fibre case is below half of that at $2^{18}$,
-  measured by solo runs, lockstep batches and concurrent processes.
-- **Q9 — AMD GPUs.** Proposed: HIP builds compile in phase 4. Device qualification on
-  MI-series hardware is deferred to the roadmap, with no rental spend in this SEP.
-- **Q10 — Continuous integration.** Proposed: CI runs both modes on the CPU build, and
-  the A40 lane runs locally, as SEP 33's GPU lane did before hosted runners were checked.
+- **Q1 — The mixed floor. Decided:** $10^{-8}$, raised by §7.3's rule. *Open:* the rule's
+  outcome (phases 1 and 5).
+- **Q2 — Adams under mixed precision. Decided:** the like-with-like rule of §7.3, with
+  `Multistep()` becoming the mixed default if admitted. *Open:* the admission (phase 5).
+- **Q3 — Adams under single precision. Decided:** refused on native as on `mlx`. Native
+  records its binary32 Adams measurements under the like-with-like rule; if phase 5
+  admits Adams under mixed precision by that rule, applying the same rule to single
+  precision on `mlx` and native is proposed on the roadmap as one small follow-up.
+- **Q4 — Noise criteria. Decided:** $N = 64$; the rounding margin of at least 20 dB as
+  the primary criterion; the mean spectrum within the larger of 1 % and twice the
+  standard error; $\lvert g_{12}\rvert$ within the larger of 0.02 and twice its
+  standard error; a refusal only if the study finds a predicate computable from the
+  problem, otherwise a documented limit; the rounding-floor estimate recorded in each
+  noise-seeded mixed run's metadata (§5).
+- **Q5 — The wheels. Decided:** the distributed CPU wheels carry all three modes, unless
+  phase 2 measures more than 60 % growth or a size past PyPI's per-file limit (§6.3).
+- **Q6 — `auto` under single precision on an Apple-silicon Mac. Decided:** `mlx`, as
+  now, falling back to native's CPU build. *Open:* whether phase 4's benchmarks justify a
+  size threshold, recorded for the roadmap.
+- **Q7 — The mixed propagator on reduced-FP64 GPUs. Decided:** always binary64, with
+  §6.4's remedies above a 15 % share of the step (phase 4).
+- **Q8 — A fused batch axis. Decided:** the rule of §6.6, measured in samples times
+  steps per second on a noise ensemble of small fibre runs (phase 4).
+- **Q9 — AMD GPUs. Decided:** qualified in this SEP, not deferred: both modes on the
+  HIP build on a rented CDNA 3 GPU, with class R tests, the confirmation cases, the
+  probes, benchmarks and per-pass profiles (phase 4), within a budget agreed before the
+  phase starts.
+- **Q10 — Continuous integration. Decided:** CI runs both modes on the CPU build; the A40
+  lane runs locally and the AMD lane on its rental, each part of the definition of done
+  of the phases that touch device code, with results recorded in Part II.
 
 ### 13. References
 
@@ -983,3 +1020,8 @@ Open, for decision before acceptance unless deferred to a named phase:
   measurement on an Apple M5 Max. The maintainers chose two modes (single and mixed),
   noise qualified under mixed precision only, SEP 33's routes, measuring a fused batch
   axis before proposing one, and no `numba_cpu` work.
+- 2026-10-25: Revised (Opus 5.5) with the maintainers' decisions on Q1–Q10: the
+  recommendations were accepted, with the noise criteria tightened (64 shots, the
+  rounding margin primary, standard-error-aware envelopes, the margin recorded in each
+  run), and with AMD GPUs qualified in this SEP rather than deferred (Q9), which adds a
+  HIP lane, benchmarks and per-pass profiles to phase 4.

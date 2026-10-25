@@ -104,8 +104,8 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   costs nothing, and a mixed mode (binary64 state, propagators and history; binary32
   transforms, responses and matrix products) with a `numpy_ref` oracle, a survival
   study and noise qualified under mixed precision. Targets reduced-FP64 GPUs such as
-  the A40, full-rate GPUs and multi-core CPUs; `numba_cpu`, a fused batch axis and AMD
-  device qualification stay open below.
+  the A40, AMD Instinct GPUs and multi-core CPUs; `numba_cpu` and a fused batch axis
+  stay open below.
 
 The informal items below record work not fully covered by these proposals. When adding
 or revising a SEP, remove an informal item only if the proposal covers it in full;
