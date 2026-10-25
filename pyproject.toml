@@ -190,10 +190,9 @@ max-args = 6                      # forces a config dataclass past this
 [tool.ruff.lint.per-file-ignores]
 "tests/**"          = ["D", "ANN", "PLR2004", "ARG"]   # dummies implement protocols with unused args
 "benchmarks/**"     = ["D", "ANN", "T20"]
-# Independent oracles and rejected prototypes that tests compare against: research code,
-# held to the benchmark rules rather than the package's.
+# Independent oracles that tests compare against: research code, held to the benchmark
+# rules rather than the package's.
 "tests/oracles/**"   = ["D", "ANN", "T20", "PLR2004", "ARG"]
-"tests/prototypes/**" = ["D", "ANN", "T20", "PLR2004", "ARG"]
 "docs/conf.py"      = ["D", "ANN"]
 "docs/introduction/tutorials/**" = ["D", "ANN", "T20", "E402"]  # the same gallery cell conventions
 "docs/tutorials/**" = ["D", "ANN", "T20", "E402"]   # gallery scripts: cells and prints
@@ -203,9 +202,7 @@ max-args = 6                      # forces a config dataclass past this
 # -------------------------------------------------------------------------- type check
 [tool.basedpyright]               # basedpyright also reads [tool.pyright]
 include = ["src", "tests", "benchmarks"]
-exclude = ["tests/oracles", "tests/prototypes"]
-# The rejected plasma prototypes some kernel tests compare against import each other by name.
-extraPaths = ["tests/prototypes"]
+exclude = ["tests/oracles"]
 typeCheckingMode = "standard"     # "strict" once the baseline is clean
 pythonVersion = "3.14"
 failOnWarnings = true
@@ -285,12 +282,14 @@ help = "Run the bounded core quick suite; pass list, run, compare or qualify opt
 # group per module assigned by tests/conftest.py. Module fixtures stay on one worker;
 # explicit xdist_group marks let independent expensive cases run on separate workers.
 # Every thread pool stays at one thread per worker so eighteen workers do not fight over
-# the same cores. SOLPROP_NATIVE_THREADS is the native backend's own process cap
-# (OMP_NUM_THREADS does not set it). NUMBA_NUM_THREADS is left alone: it is a ceiling,
-# and the tests that compare thread counts ask numba_cpu for several threads.
+# the same cores: SOLPROP_THREADS=1 is each worker's thread budget (ADR-052), which both
+# backends size every pool within; SOLPROP_NATIVE_THREADS is the native backend's own
+# cap (OMP_NUM_THREADS does not set it). NUMBA_NUM_THREADS is left alone: it is a
+# ceiling, and the tests that compare thread counts lift the budget and ask numba_cpu
+# for several threads. The statistics-cost check runs alone and keeps the full budget.
 [tool.poe.tasks.test]
 cmd = "pytest -n auto --dist loadgroup"
-env = { PYTHONUTF8 = "1", SOLPROP_NATIVE_THREADS = "1", VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
+env = { PYTHONUTF8 = "1", SOLPROP_THREADS = "1", SOLPROP_NATIVE_THREADS = "1", VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
 help = "Default lane (fast and medium tiers) under xdist; plain `pytest` runs it serially."
 
 [tool.poe.tasks.test-slow]
@@ -301,7 +300,7 @@ help = "Slow lane, followed by the statistics cost check without competing test 
 [tool.poe.tasks.test-slow-functional]
 # `--durations=0` times every test: it is the data the tiers are maintained from.
 cmd = "pytest -m slow -k 'not test_the_statistics_channel_costs_under_a_quarter_of_a_step' --durations=0 -n auto --dist loadgroup"
-env = { PYTHONUTF8 = "1", SOLPROP_NATIVE_THREADS = "1", VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
+env = { PYTHONUTF8 = "1", SOLPROP_THREADS = "1", SOLPROP_NATIVE_THREADS = "1", VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
 help = "Functional slow tests: the milestones, ladders and CtC-size build."
 
 [tool.poe.tasks.test-statistics-cost]
@@ -322,17 +321,33 @@ help = "Measure periodic statistics on ten steps, after the parallel slow tests 
 # pytest-cov combines the workers' data, and the second pass appends to the first.
 [tool.poe.tasks.cov-kernels]
 cmd = "pytest tests/backends/test_bodies.py tests/backends/test_numba_cpu_kernels.py tests/backends/test_numba_band_kernels.py tests/backends/test_numba_held_plasma.py tests/backends/test_numba_mixture_channels.py tests/backends/test_numba_cpu_fraction_reuse.py tests/backends/test_envelope_plasma_host.py tests/backends/test_envelope_plasma_geometries.py tests/backends/test_vector_raman.py tests/backends/test_vector_raman_routes.py tests/backends/test_numba_general_kernels.py tests/backends/test_numba_flow_kernels.py tests/backends/test_numba_planar_kernels.py tests/backends/test_numba_dispersive_kernels.py tests/backends/test_numba_low_storage_kernels.py tests/backends/test_numba_far_field_kernels.py --cov --cov-config=coverage-cpu.ini --cov-report= --cov-fail-under=0 -p no:randomly -n auto --dist loadgroup"
-env = { PYTHONUTF8 = "1", NUMBA_DISABLE_JIT = "1", SOLPROP_NATIVE_THREADS = "1", VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
+env = { PYTHONUTF8 = "1", NUMBA_DISABLE_JIT = "1", SOLPROP_THREADS = "1", SOLPROP_NATIVE_THREADS = "1", VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
 help = "Coverage pass 1: the compiled bodies, run in the interpreter so they are counted."
 
 [tool.poe.tasks.cov-rest]
 cmd = "pytest --cov --cov-config=coverage-cpu.ini --cov-append --cov-report=term-missing --cov-report=xml --durations=25 -m 'not slow and not gpu and not benchmark' -n auto --dist loadgroup"
-env = { PYTHONUTF8 = "1", SOLPROP_NATIVE_THREADS = "1", VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
+env = { PYTHONUTF8 = "1", SOLPROP_THREADS = "1", SOLPROP_NATIVE_THREADS = "1", VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
 help = "Coverage pass 2: everything else, compiled; 100 % of the CPU source required."
 
 [tool.poe.tasks.cov]
 sequence = ["cov-kernels", "cov-rest"]
 help = "Coverage lane: the kernel bodies interpreted, then the rest compiled (CPU source)."
+
+# CI runs the coverage lane as parallel jobs: cov-kernels, and cov-part once per shard
+# (SOLPROP_TEST_SHARD=i/n, tests/shards.py), each leaving its own data file, which
+# cov-report combines from coverage-data/ and holds to the 100 %.
+[tool.poe.tasks.cov-part]
+cmd = "pytest --cov --cov-config=coverage-cpu.ini --cov-report= --cov-fail-under=0 -m 'not slow and not gpu and not benchmark' -n auto --dist loadgroup"
+env = { PYTHONUTF8 = "1", SOLPROP_THREADS = "1", SOLPROP_NATIVE_THREADS = "1", VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1", OMP_NUM_THREADS = "1" }
+help = "Coverage pass 2 for one shard (SOLPROP_TEST_SHARD), without the 100 % check."
+
+[tool.poe.tasks.cov-report]
+sequence = [
+    { cmd = "coverage combine --rcfile=coverage-cpu.ini coverage-data" },
+    { cmd = "coverage xml --rcfile=coverage-cpu.ini --fail-under=0" },
+    { cmd = "coverage report --rcfile=coverage-cpu.ini" },
+]
+help = "Combine the coverage parts in coverage-data/, write coverage.xml, require 100 %."
 
 # The structure figures and the geometry figures are drawn on demand, not by the docs
 # build: the SVGs are committed and `structure.md` and `spatial-decompositions.md` only

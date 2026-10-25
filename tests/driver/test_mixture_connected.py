@@ -12,7 +12,6 @@ qualification of the air data in the ultraviolet.
 """
 
 import json
-import os
 from dataclasses import replace
 from itertools import pairwise
 
@@ -21,6 +20,7 @@ import pytest
 from scipy.integrate import cumulative_trapezoid
 
 from rate_oracles import AdkOracle
+from selected_backend import selected_backend
 from solprop import fourier, processing
 from solprop.constants import EPS0, C
 from solprop.driver import Simulation, SimulationSettings
@@ -93,7 +93,7 @@ def connected_simulation(ffac=6.0, *, passive=False):
             dz_max=2e-3,
             quadrature=transverse_quadrature([mode], n_r=16),
             ionisation_field_range=None if passive else (1e7, 1e12),
-            backend=os.environ.get("SOLPROP_TEST_BACKEND", "numba_cpu"),
+            backend=selected_backend(),
             schedule=FixedSchedule(np.full(10, grid.length / 10)) if passive else None,
             stats=StatsSpec(
                 names=(

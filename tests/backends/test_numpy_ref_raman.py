@@ -301,11 +301,13 @@ def raman_capillary(raman_field_grid):
 
 @pytest.mark.parametrize("override", [None, 1, 2])
 def test_raman_pool_uses_its_doubled_operand_and_shared_override(
-    raman_capillary, override, monkeypatch, record_property
+    thread_budget_lifted, raman_capillary, override, monkeypatch, record_property
 ):
     """Raman owns its size choice while explicit FFTW requests still govern both."""
     problem, _, _ = raman_capillary()
-    monkeypatch.setattr(numba_fft, "_available_threads", lambda: 4)
+    monkeypatch.setattr(
+        numba_fft, "_thread_budget", lambda: numba_fft.ThreadBudget(4, "affinity")
+    )
     monkeypatch.setattr(numba_fft, "FFTW_THREAD_ELEMENTS", 2 * problem.grids.n_to)
     monkeypatch.delenv("SOLPROP_FFTW_THREADS", raising=False)
     if override == 1:
@@ -348,13 +350,15 @@ def test_raman_pool_uses_its_doubled_operand_and_shared_override(
 @pytest.mark.parametrize("chunk", [3, 4, 5])
 @pytest.mark.parametrize("override", [None, 1, 2])
 def test_raman_tail_trial_matches_reference_without_replanning(
-    raman_capillary, chunk, override, monkeypatch, record_property
+    thread_budget_lifted, raman_capillary, chunk, override, monkeypatch, record_property
 ):
     """Actual remainder plans preserve the trial, padding and explicit pool requests."""
     problem, _, _ = raman_capillary(modal=True, chunk=chunk)
     assert problem.transform.n_nodes == 5
     tail = problem.transform.n_nodes % chunk
-    monkeypatch.setattr(numba_fft, "_available_threads", lambda: 4)
+    monkeypatch.setattr(
+        numba_fft, "_thread_budget", lambda: numba_fft.ThreadBudget(4, "affinity")
+    )
     monkeypatch.setattr(numba_fft, "FFTW_THREAD_ELEMENTS", 4 * problem.grids.n_to)
     monkeypatch.delenv("SOLPROP_FFTW_THREADS", raising=False)
     if override == 1:

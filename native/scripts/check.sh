@@ -73,6 +73,14 @@ cpp_sources=(
   tests/native/test_z_table.cpp
 )
 
+# The stages to run, all of them by default; CI runs them as parallel jobs. "lint" is
+# ruff, pyright and clang-format; "tidy" and "sanitize" build and run the native tests
+# under clang-tidy and under ASan and UBSan; "pytest" is the package's pytest suite on
+# the editable build; "wheel" builds the distribution wheel and smoke-tests it, and
+# copies it to SOLPROP_NATIVE_CHECK_WHEEL_DIR when that is set.
+stages=" ${SOLPROP_NATIVE_CHECK_STAGES:-lint tidy sanitize pytest wheel} "
+stage() { [[ $stages == *" $1 "* ]]; }
+
 qualification_python=${SOLPROP_NATIVE_QUALIFICATION_PYTHON:-}
 if [[ -n "$qualification_python" ]]; then
   if [[ ! -x "$qualification_python" ]]; then
@@ -91,15 +99,16 @@ export UV_NO_SYNC=1
 # sync considers it satisfied after the commit moves: reinstall solprop so its metadata
 # names the same commit as the native package built below (one version for both).
 uv pip install --python "$python_executable" --no-deps --reinstall --editable "$workspace_root"
-if [[ -z "$qualification_python" ]]; then
+if [[ -z "$qualification_python" ]] && { stage lint || stage pytest; }; then
   uv pip install --python "$python_executable" --no-deps --no-build-isolation --editable .
 fi
 # The repository's version, as hatch-vcs gives solprop and setuptools-scm gives this
 # package: the native wheel built below must carry it (one version for both).
 expected_version=$("$python_executable" -c 'import sys; from setuptools_scm import get_version; print(get_version(root=sys.argv[1], fallback_version="0.0.0"))' "$workspace_root")
+mkdir -p build
+if stage lint; then
 uv run ruff format --check .
 uv run ruff check .
-mkdir -p build
 uv run python - "$repo_root" "$workspace_root" <<'PY'
 import json
 import sys
@@ -118,14 +127,18 @@ PY
 npx --yes pyright@1.1.413 --project build/pyright-worktree.json
 # The formatter is the dev group's pinned clang-format, never the machine's LLVM.
 uv run clang-format --dry-run --Werror "${cpp_sources[@]}"
+fi
 
+if stage tidy; then
 cmake --fresh --preset cpu-tidy \
   -DSOLPROP_NATIVE_RAMAN_FFT_PROVIDER="$raman_provider" \
   -DCMAKE_CXX_COMPILER="$cxx_compiler" \
   -DPython_EXECUTABLE="$python_executable"
 cmake --build --preset cpu-tidy --parallel
 ctest --test-dir build/presets/cpu-tidy --output-on-failure
+fi
 
+if stage sanitize; then
 cmake --fresh --preset cpu-sanitize \
   -DSOLPROP_NATIVE_RAMAN_FFT_PROVIDER="$raman_provider" \
   -DCMAKE_CXX_COMPILER="$cxx_compiler" \
@@ -134,8 +147,9 @@ cmake --build --preset cpu-sanitize --target solprop_native_tests --parallel
 ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=1:strict_string_checks=1}" \
 UBSAN_OPTIONS="${UBSAN_OPTIONS:-print_stacktrace=1:halt_on_error=1}" \
   ctest --test-dir build/presets/cpu-sanitize --output-on-failure
+fi
 
-if [[ -z "$qualification_python" ]]; then
+if [[ -z "$qualification_python" ]] && stage pytest; then
   uv pip install --python "$python_executable" --no-deps --no-build-isolation -e .
   OMP_PROC_BIND="${OMP_PROC_BIND:-spread}" \
   OMP_PLACES="${OMP_PLACES:-cores}" \
@@ -147,6 +161,9 @@ fi
 # the wheel is the distribution build published binaries use (a CPU baseline and the
 # platform's BLAS, copied into the wheel on Linux), in its own build tree. The tidy
 # and sanitizer presets are the reference profile.
+if ! stage wheel; then
+  exit 0
+fi
 quality_temp=$(mktemp -d "${TMPDIR:-/tmp}/solprop-native-check.XXXXXX")
 trap 'rm -rf "$quality_temp"' EXIT
 distribution_wheel=(-Ccmake.define.SOLPROP_NATIVE_PROFILE=DISTRIBUTION "-Cbuild-dir=build/distribution-{wheel_tag}")
@@ -194,3 +211,7 @@ if sys.platform == "linux":
 json.dumps(info.__dict__)
 subprocess.run([sys.executable, "-I", "-m", "solprop_native"], check=True, capture_output=True, text=True)
 PY
+if [[ -n "${SOLPROP_NATIVE_CHECK_WHEEL_DIR:-}" ]]; then
+  mkdir -p "$SOLPROP_NATIVE_CHECK_WHEEL_DIR"
+  cp "${wheels[0]}" "$SOLPROP_NATIVE_CHECK_WHEEL_DIR"/
+fi

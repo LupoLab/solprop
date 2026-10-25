@@ -14,6 +14,7 @@ from jaxtyping import TypeCheckError
 from scipy.integrate import solve_ivp
 from scipy.optimize import brentq
 
+from runtime_types import TYPECHECKED
 from solprop import tools
 from solprop.constants import C
 from solprop.exceptions import ModeError, ToolsError
@@ -186,7 +187,10 @@ def test_default_rdw_phase_uses_the_largest_constituent_in_the_soliton_mode(shap
 )
 def test_phase_declarations_fail_before_search(kwargs, message):
     mode = MarcatiliMode(125e-6, "He", 1.0, cladding=1.45)
-    if kwargs.get("shape") == "wrong" or kwargs.get("nonlinear_phase") == "wrong":
+    # The literal annotations refuse these first when the runtime checks are on.
+    if TYPECHECKED and (
+        kwargs.get("shape") == "wrong" or kwargs.get("nonlinear_phase") == "wrong"
+    ):
         with pytest.raises(TypeCheckError):
             tools.lambda_rdw(mode, PUMP, **kwargs)
     else:
@@ -228,6 +232,8 @@ def test_invalid_diameter_geometry_is_rejected(radius, wall, ratio, count):
         TubeLattice.from_inner_diameter_ratio(radius, wall, ratio, count)
 
 
+# A pressure search over full mode solves: tens of seconds, not under one.
+@pytest.mark.medium
 @pytest.mark.parametrize("shape", ["sech", "gauss"])
 @pytest.mark.parametrize("vincetti", [False, True])
 def test_pressure_search_inverts_constituent_phase_for_both_modes(shape, vincetti):

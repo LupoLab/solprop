@@ -153,6 +153,15 @@ The first public release. It contains:
     `numba_cpu` and warns once, naming the missing features; `backend="native"` raises
     there
     ([SEP 29](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0029-compiled-backend-distribution.html)).
+  - One thread budget per process (ADR-052): the smallest of its CPU affinity mask, the
+    tightest control-group CPU quota on its path (versions 1 and 2, rounded down) and
+    `SOLPROP_THREADS`. Every pool of both CPU backends is sized within it, explicit
+    counts included; `numba_cpu`'s kernels are also held to `NUMBA_NUM_THREADS`, so a
+    large problem no longer fails at construction when that is below the CPUs, and the
+    native backend no longer takes every CPU of the machine. `SOLPROP_OVERSUBSCRIBE=1`
+    lets an explicit count exceed the CPUs for thread-count tests. The budget and its
+    source are recorded in run metadata; the `Pool` and Slurm scan executors set
+    `SOLPROP_THREADS` per worker instead of forcing every pool to the worker's count.
   - Each backend is tested against the reference implementation within derived error
     bounds.
   - A short start-up: a run on the native backend imports neither Numba nor

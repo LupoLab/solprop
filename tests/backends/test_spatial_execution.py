@@ -193,11 +193,11 @@ def test_parallel_combine_agrees_with_the_serial_one(noise, contiguous, two_work
 
 
 def test_spatial_execution_metadata_and_independent_fft_override(
-    free_case, monkeypatch
+    thread_budget_lifted, free_case, monkeypatch
 ):
     _, grid, _, problem = free_case
     monkeypatch.setattr(fft, "REGIME_ELEMENTS", 1)
-    monkeypatch.setattr(fft, "_available_threads", lambda: 4)
+    monkeypatch.setattr(fft, "_thread_budget", lambda: fft.ThreadBudget(4, "affinity"))
     monkeypatch.setenv("SOLPROP_TRANSVERSE_FFTW_THREADS", "3")
     backend = NumbaCpuBackend(problem, grid=grid, threads=2, fftw_threads=1)
     try:
@@ -221,7 +221,7 @@ def test_spatial_execution_metadata_and_independent_fft_override(
 
 @pytest.mark.parametrize("steps", [0, 1, 8])
 def test_parallel_spatial_passes_follow_the_existing_physics_ladder(
-    free_case, steps, monkeypatch
+    thread_budget_lifted, free_case, steps, monkeypatch
 ):
     family, grid, space, problem = free_case
     monkeypatch.setattr(fft, "REGIME_ELEMENTS", 1)

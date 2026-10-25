@@ -20,7 +20,6 @@ import functools
 import json
 import logging
 import math
-import os
 import statistics
 import subprocess
 import sys
@@ -58,6 +57,7 @@ from march_bounds import (
     simulation_bound,
 )
 from rate_oracles import HISTORICAL_ATOMS, AdkOracle, PptOracle, adk_oracle, ppt_oracle
+from selected_backend import selected_backend
 from solprop import tools
 from solprop.backends.numpy_ref import QUADRATURE_ALARM, NumpyRefBackend, passes
 from solprop.backends.registry import select
@@ -1712,7 +1712,7 @@ VUV = (100e-9, 140e-9)
 # Luna's own defaults, which its interface cannot set and which every published
 # Luna result therefore carries.
 LUNA_TOLERANCES = {"rtol": 1e-6, "atol": 1e-10}
-TEST_BACKEND = os.environ.get("SOLPROP_TEST_BACKEND", "numba_cpu")
+TEST_BACKEND = selected_backend()
 
 # The Luna witnesses are frozen (``docs/dev/testing.md``): never regenerated, so every
 # input a comparison with one depends on is stated in the run compared, and a change of

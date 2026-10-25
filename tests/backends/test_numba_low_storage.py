@@ -595,7 +595,9 @@ def test_a_planar_beam_agrees(name):
 # --- threads, the kernels and the engine --------------------------------------------
 
 
-def test_the_parallel_kernels_agree_with_the_serial_ones_at_1_2_and_4_threads():
+def test_the_parallel_kernels_agree_with_the_serial_ones_at_1_2_and_4_threads(
+    thread_budget_lifted,
+):
     """Each element's arithmetic is the same; only the norm's column sum may reorder.
 
     Every fold mode and flow treatment of the Cartesian kernels, and the modal and
@@ -669,7 +671,7 @@ def test_the_parallel_kernels_agree_with_the_serial_ones_at_1_2_and_4_threads():
 
 
 @pytest.mark.medium
-def test_whole_runs_agree_at_1_2_and_4_threads():
+def test_whole_runs_agree_at_1_2_and_4_threads(thread_budget_lifted):
     """The kernel and FFTW pools at 1, 2 and 4 threads: the same replay, to rounding.
 
     The large regime is asked for so the column loops are ``prange``; the transforms

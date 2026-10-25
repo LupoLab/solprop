@@ -16,10 +16,16 @@ import os
 import numpy as np
 import pytest
 from numba import get_num_threads
+from numba.core import config as numba_config
 from scipy.signal import hilbert
 
+from solprop import _process
 from solprop.backends.numba_cpu import fft
 from solprop.exceptions import BackendError
+
+# These tests size pools against the machine (or a monkeypatched one), not the lanes'
+# one-thread budget.
+pytestmark = pytest.mark.usefixtures("thread_budget_lifted")
 
 N_TO = 64
 N_T = 32
@@ -63,9 +69,9 @@ def test_a_field_volume_transform_takes_every_allowed_thread():
     below = fft.choose_pools(1, 1, fft.FFTW_WIDE_ELEMENTS - 1, spatial=True)
     wide = fft.choose_pools(1, 1, fft.FFTW_WIDE_ELEMENTS, spatial=True)
     modal = fft.choose_pools(1, 1, fft.FFTW_WIDE_ELEMENTS)
-    capped = min(fft.FFTW_MAX_THREADS, fft._available_threads())
+    capped = min(fft.FFTW_MAX_THREADS, fft._thread_budget().threads)
     assert below.fftw == capped
-    assert wide.fftw == fft._available_threads()
+    assert wide.fftw == fft._thread_budget().threads
     assert modal.fftw == capped
 
 
@@ -124,12 +130,75 @@ def test_the_overrides_win_and_are_capped_by_the_machine():
     assert huge.numba <= (os.cpu_count() or 1)
 
 
+def test_the_kernel_pool_is_capped_by_numbas_own_pool(monkeypatch):
+    """``NUMBA_NUM_THREADS`` below the CPUs caps the kernels, and only the kernels.
+
+    A Slurm node granting 64 CPUs to a worker that exported ``NUMBA_NUM_THREADS=8``
+    asked Numba for 64 threads in the large regime, and ``set_num_threads`` refused.
+    """
+    monkeypatch.setattr(fft, "_thread_budget", lambda: fft.ThreadBudget(64, "affinity"))
+    monkeypatch.setattr(numba_config, "NUMBA_NUM_THREADS", 8)
+    big = 10 * fft.REGIME_ELEMENTS
+    large = fft.choose_pools(big, big, fft.FFTW_WIDE_ELEMENTS, spatial=True)
+    assert (large.regime, large.numba, large.fftw) == ("large", 8, 64)
+    explicit = fft.choose_pools(
+        1000, 1000, 1000, threads=32, fftw_threads=32, blas_threads=32
+    )
+    assert (explicit.numba, explicit.fftw, explicit.blas) == (8, 32, 32)
+    assert fft.choose_pools(1000, 1000, 1000, threads=4).numba == 4
+
+
+def test_solprop_threads_caps_every_pool(monkeypatch):
+    """``SOLPROP_THREADS`` holds every pool, chosen or explicit, within the budget."""
+    monkeypatch.setattr(_process, "allowed_cpus", lambda: tuple(range(64)))
+    monkeypatch.setattr(_process, "cgroup_cpus", lambda: None)
+    monkeypatch.setattr(numba_config, "NUMBA_NUM_THREADS", 64)
+    monkeypatch.setenv("SOLPROP_THREADS", "3")
+    assert fft._thread_budget().threads == 3
+    big = 10 * fft.REGIME_ELEMENTS
+    chosen = fft.choose_pools(big, big, fft.FFTW_WIDE_ELEMENTS, spatial=True)
+    assert (chosen.numba, chosen.fftw) == (3, 3)
+    assert chosen.as_metadata()["thread_budget_source"] == "SOLPROP_THREADS"
+    explicit = fft.choose_pools(
+        1000, 1000, 1000, threads=8, fftw_threads=8, blas_threads=8
+    )
+    assert (explicit.numba, explicit.fftw, explicit.blas) == (3, 3, 3)
+    monkeypatch.setenv("SOLPROP_THREADS", "128")
+    assert (fft._thread_budget().threads, fft._thread_budget().source) == (
+        64,
+        "affinity",
+    )
+
+
+def test_oversubscribing_lets_explicit_counts_pass_the_cpus(monkeypatch):
+    """``SOLPROP_OVERSUBSCRIBE=1`` honours an explicit count above the CPUs."""
+    monkeypatch.setattr(_process, "allowed_cpus", lambda: tuple(range(2)))
+    monkeypatch.setattr(_process, "cgroup_cpus", lambda: None)
+    monkeypatch.setattr(numba_config, "NUMBA_NUM_THREADS", 8)
+    monkeypatch.delenv("SOLPROP_THREADS", raising=False)
+    monkeypatch.setenv("SOLPROP_OVERSUBSCRIBE", "1")
+    explicit = fft.choose_pools(
+        1000, 1000, 1000, threads=16, fftw_threads=4, blas_threads=4
+    )
+    assert (explicit.numba, explicit.fftw, explicit.blas) == (8, 4, 4)
+    big = 10 * fft.REGIME_ELEMENTS
+    assert fft.choose_pools(big, big, big).numba == 2
+
+
+@pytest.mark.parametrize("value", ["0", "-2", "many"])
+def test_solprop_threads_must_be_a_positive_count(monkeypatch, value):
+    monkeypatch.setenv("SOLPROP_THREADS", value)
+    with pytest.raises(BackendError, match="SOLPROP_THREADS"):
+        fft.choose_pools(1000, 1000, 1000)
+
+
 @pytest.mark.parametrize(
     "offset, expected", [(-1, "small"), (0, "small"), (1, "large")]
 )
 def test_the_modal_cutoff_changes_only_the_kernel_regime(offset, expected, monkeypatch):
     """The cutoff changes node dispatch without changing either library pool."""
-    monkeypatch.setattr(fft, "_available_threads", lambda: 18)
+    monkeypatch.setattr(fft, "_thread_budget", lambda: fft.ThreadBudget(18, "affinity"))
+    monkeypatch.setattr(numba_config, "NUMBA_NUM_THREADS", 18)
     size = fft.MODAL_REGIME_ELEMENTS + offset
     previous = fft.choose_pools(size, 33 * 8192, 2 * 8192)
     candidate = fft.choose_pools(

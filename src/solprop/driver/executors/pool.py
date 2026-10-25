@@ -19,7 +19,7 @@ from multiprocessing.process import BaseProcess
 from pathlib import Path
 from typing import cast
 
-from solprop._process import allowed_cpus
+from solprop._process import allowed_cpus, thread_budget
 from solprop.exceptions import DriverError
 
 __all__ = ["MemoryBudget", "Pool", "peak_rss"]
@@ -36,11 +36,7 @@ else:
 _ENVIRONMENT_LOCK = threading.Lock()
 _THREAD_VARIABLES = (
     "NUMBA_NUM_THREADS",
-    "SOLPROP_NUMBA_THREADS",
-    "SOLPROP_FFTW_THREADS",
-    "SOLPROP_TRANSVERSE_FFTW_THREADS",
-    "SOLPROP_BLAS_THREADS",
-    "SOLPROP_NATIVE_THREADS",
+    "SOLPROP_THREADS",
     "OMP_NUM_THREADS",
     "OPENBLAS_NUM_THREADS",
     "MKL_NUM_THREADS",
@@ -207,22 +203,23 @@ def _cpus() -> tuple[int, ...]:
     tuple of int
         CPUs available within the allocation.
     """
+    try:
+        budget = thread_budget()
+    except ValueError as error:
+        raise DriverError(str(error)) from error
     available = allowed_cpus()
     allocated = os.environ.get("SLURM_CPUS_PER_TASK")
     if allocated and allocated.isdecimal():
         available = available[: int(allocated)]
-    quota = Path("/sys/fs/cgroup/cpu.max")
-    if quota.exists():
-        value, period = quota.read_text(encoding="utf-8").split()
-        if value != "max":
-            available = available[: max(1, int(value) // int(period))]
     offset = int(os.environ.get("SOLPROP_SCAN_CPU_OFFSET", "0"))
     count = int(os.environ.get("SOLPROP_SCAN_CPU_COUNT", str(len(available))))
     if offset < 0 or count < 1:
         raise DriverError(
             "scan instance CPU offsets/counts must be non-negative/positive"
         )
-    return available[offset : offset + count]
+    # The instance's own CPUs first, then the controller's budget (ADR-052) over them:
+    # cut first, a budget smaller than the allocation would empty a later instance.
+    return available[offset : offset + count][: budget.threads]
 
 
 @dataclass(frozen=True)

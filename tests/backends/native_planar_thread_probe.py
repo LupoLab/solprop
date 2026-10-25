@@ -29,6 +29,15 @@ from backends.test_planar_native import native_class, planar_case, propagate, wi
 
 # The doctest collection imports every module under tests/, and the arguments it
 # was given are not case names: only a subprocess run saves the fields.
+
+
+def _runtime_threads() -> np.ndarray:
+    """Return the Kokkos pool this probe ran with, for the caller to check."""
+    return np.array(
+        importlib.import_module("solprop_native").build_info().runtime_threads
+    )
+
+
 if __name__ == "__main__":
     warnings.simplefilter("ignore")
     fields = {}
@@ -37,4 +46,4 @@ if __name__ == "__main__":
         fields[f"case{index}"], _ = propagate(
             with_steps(problem, 10), grid, native_class()
         )
-    np.savez(sys.argv[1], **fields)
+    np.savez(sys.argv[1], runtime_threads=_runtime_threads(), **fields)

@@ -392,9 +392,9 @@ a live lock file would create a second lock inode and defeat mutual exclusion.
 Recovery has known limits. A live but wedged owner on the same host holds its point
 indefinitely, because the lease age is not consulted while its process is alive: stop
 that process to release the point. An interrupted `Local` or `Pool` scan skips its
-`running` points for `stale_age` seconds on restart. Container CPU and memory limits
-are read from the root cgroup rather than the process's own cgroup, so on a shared node
-under a cgroup manager without Slurm variables the workers can be mis-sized; a failing
+`running` points for `stale_age` seconds on restart. Container memory limits are read
+from the root cgroup rather than the process's own cgroup, so on a shared node under a
+cgroup manager without Slurm variables the workers can be given too much memory; a failing
 platform probe raises outside the {py:class}`~solprop.exceptions.SolpropError`
 hierarchy. The scan file grows on every resume, because HDF5 does not reclaim the
 groups it recreates.
