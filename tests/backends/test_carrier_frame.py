@@ -216,12 +216,21 @@ def per_band(problem) -> Manufactured:
     return Manufactured((profile,), (rates,))
 
 
-def march(simulation, source=None, *, schedule=None, method=None, prepare=None):
+def march(
+    simulation,
+    source=None,
+    *,
+    schedule=None,
+    method=None,
+    prepare=None,
+    backend_class=NumpyRefBackend,
+):
     """Run a simulation's problem on numpy_ref; return planes, errors, accepted steps.
 
     With `source`, the lab-frame source is replaced by it and each plane's error
     against the closed form is the largest active bin's, relative to the field.
-    `prepare` may rewrite the problem first (a shifted or non-fundamental launch).
+    `prepare` may rewrite the problem first (a shifted or non-fundamental launch);
+    `backend_class` is the backend run.
     """
     problem = simulation.translate()
     stepper = problem.stepper
@@ -232,7 +241,7 @@ def march(simulation, source=None, *, schedule=None, method=None, prepare=None):
     problem = dataclasses.replace(problem, stepper=stepper)
     if prepare is not None:
         problem = prepare(problem)
-    backend = NumpyRefBackend(problem, grid=simulation.grid, modes=simulation.modes)
+    backend = backend_class(problem, grid=simulation.grid, modes=simulation.modes)
     active = problem.grids.active_mask
     try:
         if source is not None:
@@ -327,15 +336,19 @@ def test_the_refusals_name_the_policy_and_the_route():
     assert _carrier_refusal("scalar", "numpy_ref", everything, None) is None
 
 
-def test_numba_cpu_refuses_a_shift_by_name():
-    simulation = capillary(SCALAR)
-    with pytest.raises(BackendError, match=r"numba_cpu: Multistep\(carrier_frame="):
+def test_numba_cpu_refuses_the_harmonic_shift_by_name():
+    # Phase 2 delivers the scalar shift on numba_cpu; the harmonic one waits for the
+    # gate of section 7.4.
+    simulation = capillary(HARMONIC)
+    with pytest.raises(
+        BackendError, match=r"numba_cpu: .*until it passes SEP 35's gate"
+    ):
         NumbaCpuBackend(
             simulation.translate(), grid=simulation.grid, modes=simulation.modes
         )
-    # The unshifted method is unaffected.
-    off = capillary(OFF)
-    NumbaCpuBackend(off.translate(), grid=off.grid, modes=off.modes).close()
+    for method in (OFF, SCALAR):
+        built = capillary(method)
+        NumbaCpuBackend(built.translate(), grid=built.grid, modes=built.modes).close()
 
 
 @pytest.mark.skipif("native" not in available(), reason="native is not installed")
@@ -977,7 +990,7 @@ def test_the_shifted_block_keeps_the_true_flow():
             np.testing.assert_allclose(moments.matrices[k, 0], exact[k], atol=1e-11)
 
 
-def coupled_run(name, integrator, rtol):
+def coupled_run(name, integrator, rtol, backend_class=NumpyRefBackend):
     """Run a flow-parity case adaptively to its end; return the field and the march."""
     with warnings.catch_warnings():
         for category in (*flow_parity.QUIET, SolpropWarning):
@@ -994,7 +1007,7 @@ def coupled_run(name, integrator, rtol):
             simulation.settings, integrator=integrator
         )
         problem = simulation.translate()
-    backend = NumpyRefBackend(problem, grid=simulation.grid, modes=simulation.modes)
+    backend = backend_class(problem, grid=simulation.grid, modes=simulation.modes)
     try:
         backend.set_initial(problem.initial.field0, None)
         for plane in problem.stepper.save_planes:
@@ -1160,3 +1173,139 @@ def test_the_moments_at_the_reference_bin_take_the_near_branch():
     shifted = np.array([-1e-3 + 0j, -0.5 + 0j])
     phi = phi_functions(shifted, 3)
     np.testing.assert_allclose(phi[1], np.expm1(shifted) / shifted, rtol=1e-15)
+
+
+# --- the compiled backends (phases 2 and 3) ----------------------------------------
+
+COMPILED: dict[str, type] = {"numba_cpu": NumbaCpuBackend}
+"""The compiled backends that deliver the scalar shift."""
+
+
+def one_trial_inputs(seed=35):
+    """Return a random trial: exponent, shift, state, store, slots and coefficients."""
+    rng = np.random.default_rng(seed)
+    shape = (2, 2, 1, 64)
+    exponent = rng.normal(size=shape) * 0.2 - 0.05 + 1j * rng.uniform(-30, 30, shape)
+    # One shift per batch member, from its own reference element, under the cap.
+    shift = (1j * np.array([0.8, -0.6])).reshape((2, 1, 1, 1))
+    state = rng.normal(size=shape) + 1j * rng.normal(size=shape)
+    store = rng.normal(size=(7, *shape)) + 1j * rng.normal(size=(7, *shape))
+    nodes = [0.0, -0.7, -1.5, -2.6]
+    slots = np.array([3, 0, 5, 1], dtype=np.int64)
+    return exponent, shift, state, store, nodes, slots
+
+
+def test_the_compiled_passes_follow_the_reference_within_the_budget():
+    # One trial's moments, flow, predictor and corrector on numba_cpu against the
+    # reference, from the same inputs: within twice the increment's rounding budget
+    # (bounds.carrier_increment_budget) plus the flow's few ulp of the state.
+    from solprop.backends.multistep import (  # noqa: PLC0415 - the private helpers
+        _carrier_factors,  # pyright: ignore[reportPrivateUsage]
+    )
+    from solprop.backends.numba_cpu.multistep import (  # noqa: PLC0415
+        NumbaExponentialKernels,
+    )
+
+    exponent, shift, state, store, nodes, slots = one_trial_inputs()
+    order = 3
+    width = len(slots) + 1
+    reference, compiled = ExponentialKernels(), NumbaExponentialKernels()
+    expected = reference.moments(exponent, width, shift=shift)
+    found = compiled.moments(exponent, width, shift=shift)
+    np.testing.assert_allclose(found, expected, rtol=0, atol=512 * EPS)
+    # The flow is the unshifted step's, formed beside the shifted moments.
+    np.testing.assert_allclose(compiled.flow(exponent), np.exp(exponent), rtol=4 * EPS)
+    factors = _carrier_factors(nodes, len(slots), shift)
+    coefficients = lagrange_coefficients(nodes[:order])
+    predicted = (
+        reference.predict(
+            state,
+            np.exp(exponent),
+            expected,
+            store,
+            slots[:order],
+            coefficients,
+            1.0,
+            factors=factors[:order],
+        ),
+        compiled.predict(
+            state,
+            compiled.flow(exponent),
+            found,
+            store,
+            slots[:order],
+            coefficients,
+            1.0,
+            factors=factors[:order],
+        ),
+    )
+    samples = np.stack([store[slot] for slot in slots[:order]])
+    budget = 2 * carrier_increment_budget(
+        coefficients, expected, samples, nodes[:order], shift, exponent - shift
+    ) + 8 * EPS * np.abs(np.exp(exponent) * state)
+    assert np.all(np.abs(predicted[1] - predicted[0]) <= budget)
+    # Unrotated rows are a different sum: the factors are applied, not ignored.
+    unrotated = compiled.predict(
+        state, compiled.flow(exponent), found, store, slots[:order], coefficients, 1.0
+    )
+    assert np.max(np.abs(unrotated - predicted[1])) > 1e3 * np.max(budget)
+
+
+@pytest.mark.parametrize("backend_name", sorted(COMPILED))
+def test_a_compiled_backend_steps_the_frame_exactly(backend_name):
+    # The manufactured carrier-following source through the compiled march: exact to
+    # rounding, dense planes and the cap included, in the reference's calls.
+    simulation = capillary(SCALAR)
+    source = manufactured(simulation.translate())
+    expected = march(simulation, source)
+    run = march(simulation, source, backend_class=COMPILED[backend_name])
+    assert max(run.errors) <= manufactured_budget(run)
+    assert run.march.ledger.total == expected.march.ledger.total
+    assert np.max(run.steps) * abs(reference_rate(run.problem)) <= 1 + 1e-9
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize("backend_name", sorted(COMPILED))
+def test_a_compiled_backend_follows_the_reference_on_a_matched_window(backend_name):
+    # A physical window replayed on the reference's own accepted steps at a fixed
+    # order, so both run the same discrete method and history (SEP 25): they differ
+    # by rounding alone, 512 eps a step relative to the field.
+    method = Multistep(variable_order=False, carrier_frame="scalar")
+    simulation = capillary(
+        method,
+        WINDOW,
+        rtol=1e-8,
+        energy=2e-6,
+        n_save=2,
+        interpolate=False,
+        collar="weak",
+    )
+    adaptive = march(simulation)
+    steps = adaptive.steps.copy()
+    steps[-1] = WINDOW - float(np.sum(steps[:-1]))
+    schedule = FixedSchedule(steps)
+    expected = march(simulation, schedule=schedule)
+    found = march(simulation, schedule=schedule, backend_class=COMPILED[backend_name])
+    assert_within(
+        found.fields[-1],
+        expected.fields[-1],
+        len(steps) * 512 * EPS,
+        what=f"{backend_name} against numpy_ref",
+    )
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize("backend_name", sorted(COMPILED))
+@pytest.mark.parametrize("name", ["scalar", "taper"])
+def test_a_compiled_backend_follows_the_reference_beside_a_coupled_flow(
+    backend_name, name
+):
+    # The shifted block's moments and true flow, on the compiled coupled passes, in
+    # the reference's calls; the bound is the unshifted comparison's
+    # (tests/backends/test_exponential_coupled.py).
+    expected, reference = coupled_run(name, SCALAR, 1e-8)
+    found, run = coupled_run(name, SCALAR, 1e-8, COMPILED[backend_name])
+    assert reference is not None and run is not None
+    assert run.ledger.total == reference.ledger.total
+    scale = np.max(np.abs(expected))
+    np.testing.assert_allclose(found, expected, rtol=0, atol=1e-11 * scale)

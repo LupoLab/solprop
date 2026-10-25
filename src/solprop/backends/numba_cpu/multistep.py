@@ -57,6 +57,7 @@ from solprop.backends.multistep import (
     coupled_moments,
     factored_defect_rows,
 )
+from solprop.exceptions import BackendError
 from solprop.stepper.multistep import MAX_ADAMS_ORDER
 
 __all__ = [
@@ -77,6 +78,8 @@ _FACTORIALS = np.array([float(np.prod(np.arange(1, k + 1))) for k in range(12)])
 
 _State = Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
 _Store = Complex[np.ndarray, "n_slots n_batch n_modes n_pol n_omega"]
+_Shift = Complex[np.ndarray, "#n_batch 1 1 #n_omega"]
+_Factors = Complex[np.ndarray, "n_used #n_batch 1 1 #n_omega"]
 
 
 @njit(cache=True, nogil=True, strict=True)
@@ -368,6 +371,8 @@ def make_passes(*, parallel: bool) -> AdamsPasses:  # noqa: PLR0915 - seven kern
         factorials: Any,
         moments: Any,
         flow: Any,
+        shifted: bool,
+        shifts: Any,
     ) -> None:  # pragma: no cover - compiled
         """Write ``k! phi_{k+1}(x)`` for ``k < count`` and ``exp(x)`` per element.
 
@@ -393,6 +398,12 @@ def make_passes(*, parallel: bool) -> AdamsPasses:  # noqa: PLR0915 - seven kern
             Written, shape ``(count, n_rows, n_omega)``.
         flow : numpy.ndarray
             Written with ``exp(x)``, shape ``(n_rows, n_omega)``.
+        shifted : bool
+            Whether a carrier frame shifts the moments (SEP 35).
+        shifts : numpy.ndarray
+            ``sigma`` per row, read when `shifted` holds: the moments are then those
+            of ``x - sigma``, each with its own exponential, and the flow stays
+            ``exp(x)``.
         """
         n_rows, n_omega = exponent.shape
         for row in rows_of(n_rows):
@@ -401,7 +412,19 @@ def make_passes(*, parallel: bool) -> AdamsPasses:  # noqa: PLR0915 - seven kern
             for j in range(n_omega):
                 x = exponent[row, j]
                 flow[row, j] = np.exp(x)
-                _phi(x, flow[row, j], count, reciprocal, inverse_terms, out, old)
+                if shifted:
+                    residual = x - shifts[row]
+                    _phi(
+                        residual,
+                        np.exp(residual),
+                        count,
+                        reciprocal,
+                        inverse_terms,
+                        out,
+                        old,
+                    )
+                else:
+                    _phi(x, flow[row, j], count, reciprocal, inverse_terms, out, old)
                 for k in range(count):
                     moments[k, row, j] = factorials[k] * out[k + 1]
 
@@ -415,6 +438,8 @@ def make_passes(*, parallel: bool) -> AdamsPasses:  # noqa: PLR0915 - seven kern
         coefficients: Any,
         dz: float,
         out: Any,
+        rotate: bool,
+        factors: Any,
     ) -> None:  # pragma: no cover - compiled
         """Write ``exp(x) u + dz sum_k M_k sum_j c_jk F_j`` over flattened rows.
 
@@ -434,21 +459,36 @@ def make_passes(*, parallel: bool) -> AdamsPasses:  # noqa: PLR0915 - seven kern
             The step, m.
         out : numpy.ndarray
             Written with the field.
+        rotate : bool
+            Whether a carrier frame rotates the rows read (SEP 35 section 6.2).
+        factors : numpy.ndarray
+            ``exp(sigma (1 - theta_t))`` per slot and row, shape
+            ``(len(slots), n_rows)``, read when `rotate` holds.
         """
         n_rows, n_omega = state.shape
         count = coefficients.shape[1]
         for row in rows_of(n_rows):
+            values = np.empty(slots.size, dtype=np.complex128)
             for j in range(n_omega):
                 total = 0.0 + 0.0j
-                for k in range(count):
-                    combined = 0.0 + 0.0j
+                if rotate:
                     for t in range(slots.size):
-                        combined += coefficients[t, k] * store[slots[t], row, j]
-                    total += moments[k, row, j] * combined
+                        values[t] = factors[t, row] * store[slots[t], row, j]
+                    for k in range(count):
+                        combined = 0.0 + 0.0j
+                        for t in range(slots.size):
+                            combined += coefficients[t, k] * values[t]
+                        total += moments[k, row, j] * combined
+                else:
+                    for k in range(count):
+                        combined = 0.0 + 0.0j
+                        for t in range(slots.size):
+                            combined += coefficients[t, k] * store[slots[t], row, j]
+                        total += moments[k, row, j] * combined
                 out[row, j] = flow[row, j] * state[row, j] + dz * total
 
     @no_type_check
-    def exponential_correct(  # noqa: PLR0913, PLR0917 - buffers are a kernel's parameters
+    def exponential_correct(  # noqa: PLR0912, PLR0913, PLR0917 - one traversal's buffers
         state: Any,
         flow: Any,
         moments: Any,
@@ -465,6 +505,8 @@ def make_passes(*, parallel: bool) -> AdamsPasses:  # noqa: PLR0915 - seven kern
         extra_defects: Any,
         out: Any,
         partials: Any,
+        rotate: bool,
+        factors: Any,
     ) -> None:  # pragma: no cover - compiled
         """Write the corrected field and each row's squared scaled defect norms.
 
@@ -504,6 +546,11 @@ def make_passes(*, parallel: bool) -> AdamsPasses:  # noqa: PLR0915 - seven kern
         partials : numpy.ndarray
             Written with each row's squared norm per defect, shape
             ``(n_rows, n_defects)``.
+        rotate : bool
+            Whether a carrier frame rotates the history rows read.
+        factors : numpy.ndarray
+            ``exp(sigma (1 - theta_t))`` per history slot and row, shape
+            ``(width - 1, n_rows)``, read when `rotate` holds; the source's is one.
         """
         n_rows, n_omega = state.shape
         width, count = corrector.shape
@@ -514,8 +561,12 @@ def make_passes(*, parallel: bool) -> AdamsPasses:  # noqa: PLR0915 - seven kern
                 partials[row, index] = 0.0
             for j in range(n_omega):
                 values[0] = source[row, j]
-                for t in range(width - 1):
-                    values[t + 1] = store[slots[t], row, j]
+                if rotate:
+                    for t in range(width - 1):
+                        values[t + 1] = factors[t, row] * store[slots[t], row, j]
+                else:
+                    for t in range(width - 1):
+                        values[t + 1] = store[slots[t], row, j]
                 total = 0.0 + 0.0j
                 for k in range(count):
                     combined = 0.0 + 0.0j
@@ -1131,7 +1182,7 @@ class NumbaExponentialKernels(ExponentialKernels):
         self._coupled: NumbaCoupledExponentialKernels | None = None
 
     def moments(
-        self, exponent: _State, count: int
+        self, exponent: _State, count: int, *, shift: _Shift | None = None
     ) -> Complex[np.ndarray, "n_k n_batch n_modes n_pol n_omega"]:
         """Return ``k! phi_{k+1}(x)`` for ``k < count``, forming ``exp(x)`` beside them.
 
@@ -1141,6 +1192,9 @@ class NumbaExponentialKernels(ExponentialKernels):
             ``x = Phi(z + h) - Phi(z)``.
         count : int
             The most nodes a formula of the trial has.
+        shift : numpy.ndarray or None, optional
+            A scalar carrier frame's ``sigma`` per batch member (SEP 35): the moments
+            are those of ``x - sigma`` and the flow stays ``exp(x)``.
 
         Returns
         -------
@@ -1162,6 +1216,8 @@ class NumbaExponentialKernels(ExponentialKernels):
             _FACTORIALS[:count],
             moments.reshape(count, -1, n_omega),
             self._flow.reshape(-1, n_omega),
+            shift is not None,
+            _UNSHIFTED if shift is None else _per_row(shift, exponent.shape),
         )
         return moments
 
@@ -1263,6 +1319,8 @@ class NumbaExponentialKernels(ExponentialKernels):
         slots: Int[np.ndarray, " n_used"],
         coefficients: Float[np.ndarray, "n_used n_c"],
         dz: float,
+        *,
+        factors: _Factors | None = None,
     ) -> _State:
         """Return the predicted field in one pass.
 
@@ -1282,6 +1340,9 @@ class NumbaExponentialKernels(ExponentialKernels):
             The predictor's Lagrange coefficients.
         dz : float
             The step, m.
+        factors : numpy.ndarray or None, optional
+            A scalar carrier frame's rotation of each row read, in the slots' order;
+            multiplied in as the pass reads the row.
 
         Returns
         -------
@@ -1299,6 +1360,8 @@ class NumbaExponentialKernels(ExponentialKernels):
             np.ascontiguousarray(coefficients),
             float(dz),
             out.reshape(-1, n_omega),
+            factors is not None,
+            _UNROTATED if factors is None else _per_slot_row(factors, state.shape),
         )
         return out
 
@@ -1316,6 +1379,8 @@ class NumbaExponentialKernels(ExponentialKernels):
         mask: Bool[np.ndarray, " n_omega"],
         divisor: Float[np.ndarray, " n_omega"],
         extra: tuple[_State, list[_State]] | None = None,
+        *,
+        factors: _Factors | None = None,
     ) -> tuple[_State, Float[np.ndarray, " n_defects"]]:
         """Return the corrected field and the defects' norms in one pass.
 
@@ -1346,6 +1411,9 @@ class NumbaExponentialKernels(ExponentialKernels):
         extra : tuple or None, optional
             A varying operator's compensation: its corrector term and its term in
             each defect.
+        factors : numpy.ndarray or None, optional
+            A scalar carrier frame's rotation of each history row read, in the
+            slots' order.
 
         Returns
         -------
@@ -1380,6 +1448,8 @@ class NumbaExponentialKernels(ExponentialKernels):
             extra_defects,
             out.reshape(-1, n_omega),
             partials,
+            factors is not None,
+            _UNROTATED if factors is None else _per_slot_row(factors, state.shape),
         )
         return out, np.sqrt(partials.sum(axis=0))
 
@@ -1428,7 +1498,7 @@ class NumbaCoupledExponentialKernels(
         block: CoupledBlock,
         dz: float,
         *,
-        shift: Complex[np.ndarray, "#n_batch 1 1 #n_omega"] | None = None,
+        shift: _Shift | None = None,
     ) -> Any:
         """Return a coupled trial's flow and moments, the route's bins compiled.
 
@@ -1443,8 +1513,8 @@ class NumbaCoupledExponentialKernels(
         dz : float
             The step, m.
         shift : numpy.ndarray or None, optional
-            A carrier frame's ``sigma``; this backend refuses one before a march
-            starts, so only the unshifted step reaches it.
+            A carrier frame's ``sigma``: the shifted block's moments, the true flow
+            (:func:`~solprop.backends.multistep.coupled_moments`).
 
         Returns
         -------
@@ -1531,6 +1601,8 @@ class NumbaCoupledExponentialKernels(
         slots: Int[np.ndarray, " n_used"],
         coefficients: Float[np.ndarray, "n_used n_c"],
         dz: float,
+        *,
+        factors: _Factors | None = None,
     ) -> _State:
         """Return the predicted field through the trial's block, in one pass.
 
@@ -1548,6 +1620,9 @@ class NumbaCoupledExponentialKernels(
             The predictor's Lagrange coefficients.
         dz : float
             The step, m.
+        factors : numpy.ndarray or None, optional
+            A carrier frame's rotation of each row read, in the slots' order: the
+            rows are rotated into a buffer of their own before the pass.
 
         Returns
         -------
@@ -1555,6 +1630,7 @@ class NumbaCoupledExponentialKernels(
             The predicted lab-frame field at the end of the step.
         """
         del flow
+        store, slots = _rotated_rows(store, slots, factors)
         out = np.empty_like(state)
         _coupled_predict(
             np.ascontiguousarray(state),
@@ -1585,6 +1661,8 @@ class NumbaCoupledExponentialKernels(
         mask: Bool[np.ndarray, " n_omega"],
         divisor: Float[np.ndarray, " n_omega"],
         extra: tuple[_State, list[_State]] | None = None,
+        *,
+        factors: _Factors | None = None,
     ) -> tuple[_State, Float[np.ndarray, " n_defects"]]:
         """Return the corrected field and the defects' norms through the block.
 
@@ -1613,6 +1691,9 @@ class NumbaCoupledExponentialKernels(
             The scale per bin.
         extra : tuple or None, optional
             The compensation's corrector term and its term in each defect.
+        factors : numpy.ndarray or None, optional
+            A carrier frame's rotation of each history row read, in the slots'
+            order, applied before the pass.
 
         Returns
         -------
@@ -1620,6 +1701,7 @@ class NumbaCoupledExponentialKernels(
             The corrected field and one norm per defect.
         """
         del flow
+        store, slots = _rotated_rows(store, slots, factors)
         out = np.empty_like(state)
         sums = np.empty(rows.shape[0])
         if extra is None:
@@ -1737,5 +1819,104 @@ def _diagonal_moments(exponent: np.ndarray, count: int) -> np.ndarray:
         _FACTORIALS[:count],
         moments.reshape(count, -1, n_last),
         flow.reshape(-1, n_last),
+        False,  # coupled_moments shifts the exponent itself
+        _UNSHIFTED,
     )
     return moments
+
+
+_UNSHIFTED = np.zeros(1, dtype=np.complex128)
+"""The moments pass's ``shifts`` when no carrier frame shifts them; never read."""
+
+_UNROTATED = np.ones((1, 1), dtype=np.complex128)
+"""The predict and correct passes' ``factors`` without a carrier frame; never read."""
+
+
+def _per_row(shift: _Shift, shape: tuple[int, ...]) -> Complex[np.ndarray, " n_rows"]:
+    """Return a scalar carrier frame's shift per flattened row of a state.
+
+    Parameters
+    ----------
+    shift : numpy.ndarray
+        ``sigma``, shape ``(n_batch_or_1, 1, 1, 1)``.
+    shape : tuple of int
+        The state's shape.
+
+    Returns
+    -------
+    numpy.ndarray
+        One shift per ``(batch, mode, polarisation)`` row.
+
+    Raises
+    ------
+    BackendError
+        If the shift varies across bins: the harmonic policy is not delivered here.
+    """
+    if shift.shape[-1] != 1:
+        msg = "numba_cpu: the compiled passes take one carrier shift per batch member"
+        raise BackendError(msg)
+    return np.ascontiguousarray(np.broadcast_to(shift[..., 0], shape[:-1])).reshape(-1)
+
+
+def _per_slot_row(
+    factors: _Factors, shape: tuple[int, ...]
+) -> Complex[np.ndarray, "n_used n_rows"]:
+    """Return a scalar carrier frame's rotations per slot and flattened row.
+
+    Parameters
+    ----------
+    factors : numpy.ndarray
+        ``exp(sigma (1 - theta_t))``, shape ``(n_used, n_batch_or_1, 1, 1, 1)``.
+    shape : tuple of int
+        The state's shape.
+
+    Returns
+    -------
+    numpy.ndarray
+        Shape ``(n_used, n_rows)``.
+
+    Raises
+    ------
+    BackendError
+        If the rotations vary across bins.
+    """
+    if factors.shape[-1] != 1:
+        msg = "numba_cpu: the compiled passes take one carrier rotation per row"
+        raise BackendError(msg)
+    count = factors.shape[0]
+    return np.ascontiguousarray(
+        np.broadcast_to(factors[..., 0], (count, *shape[:-1]))
+    ).reshape(count, -1)
+
+
+def _rotated_rows(
+    store: _Store, slots: Int[np.ndarray, " n_used"], factors: _Factors | None
+) -> tuple[
+    Complex[np.ndarray, "n_read n_batch n_modes n_pol n_omega"],
+    Int[np.ndarray, " n_used"],
+]:
+    """Return the store and slots a coupled pass reads, rotated when asked.
+
+    The coupled passes keep their compiled traversal; a carrier frame's rotation of
+    their few rows is formed beforehand, into a buffer of its own.
+
+    Parameters
+    ----------
+    store : numpy.ndarray
+        The history rows.
+    slots : numpy.ndarray
+        The rows read, newest first.
+    factors : numpy.ndarray or None
+        Their rotations, in the slots' order.
+
+    Returns
+    -------
+    tuple
+        The rows to read and their slots.
+    """
+    if factors is None:
+        return store, slots
+    rotated = np.empty((len(slots), *store.shape[1:]), dtype=np.complex128)
+    for index, slot in enumerate(slots):
+        rotated[index] = factors[index] * store[slot]
+    return rotated, np.arange(len(slots), dtype=np.int64)
