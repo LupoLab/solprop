@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from ._budget import native_threads, thread_budget
 from ._cpu import check_cpu_baseline
 
 if platform.system() == "Darwin" and "pyfftw" in sys.modules:
@@ -41,6 +42,12 @@ check_cpu_baseline(Path(__file__).parent)
 PROCESS_CPUS: tuple[int, ...] = (
     tuple(sorted(os.sched_getaffinity(0))) if sys.platform == "linux" else ()
 )
+
+# The process's thread budget (solprop ADR-052): the smallest of those CPUs, its
+# control groups' quota and SOLPROP_THREADS, as solprop reads it. The Kokkos pool is
+# SOLPROP_NATIVE_THREADS within it, or all of it.
+THREAD_BUDGET = thread_budget(len(PROCESS_CPUS) or os.process_cpu_count() or 1)
+_REQUESTED_THREADS = native_threads(THREAD_BUDGET)
 
 from . import _core  # noqa: E402  (only after the processor check)
 
@@ -72,24 +79,6 @@ __all__ = [
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 __version__ = version("solprop-native")
-
-
-def _thread_request() -> int:
-    value = os.environ.get("SOLPROP_NATIVE_THREADS")
-    if value is None or not value.strip():
-        return max(1, os.cpu_count() or 1)
-    try:
-        threads = int(value)
-    except ValueError as error:
-        raise ValueError(
-            f"SOLPROP_NATIVE_THREADS must be a thread count, and is {value!r}"
-        ) from error
-    if threads < 1:
-        raise ValueError(f"SOLPROP_NATIVE_THREADS must be positive, and is {value!r}")
-    return threads
-
-
-_REQUESTED_THREADS = _thread_request()
 
 
 def _pool_request(name: str, what: str = "thread count") -> int:
@@ -136,12 +125,13 @@ _core.initialize_runtime(
 # Fit a host OpenBLAS to the Kokkos pool unless its thread count is set explicitly. A
 # pthreads OpenBLAS runs its own pool beside Kokkos's and oversubscribes the cores (2 to
 # 75 times slower on the modal and wall cases), so it is held to one thread; an OpenMP
-# OpenBLAS shares the runtime and is capped at the Kokkos thread count.
+# OpenBLAS shares the runtime and is capped at the Kokkos thread count, and at the
+# budget where SOLPROP_OVERSUBSCRIBE took Kokkos past it.
 if not any(
     os.environ.get(name, "").strip()
     for name in ("OPENBLAS_NUM_THREADS", "GOTO_NUM_THREADS", "OMP_NUM_THREADS")
 ):
-    _core.fit_blas_threads(_REQUESTED_THREADS)
+    _core.fit_blas_threads(min(_REQUESTED_THREADS, THREAD_BUDGET.threads))
 
 DRIVER_SURFACE: tuple[str, ...] = (
     "_adams_adopt",

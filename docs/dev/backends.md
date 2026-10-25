@@ -684,8 +684,9 @@ import/export is explicit (`fft.py`), never at import time, and `fft.wisdom_dige
 which wisdom a run's plans came from. Transforms run in place, because the buffers are
 owned anyway and it helps cache residency (§6).
 FFTW threads default to 1 for transforms below a measured size and to the outer extent above
-it; numba's pool and FFTW's pool are set separately and both capped by the cgroup CPU quota
-when present (read `/sys/fs/cgroup/cpu.max`, not `os.cpu_count()`).
+it; numba's pool and FFTW's pool are set separately and both held within the process's
+thread budget (ADR-052: the affinity mask, the cgroup CPU quota on the process's own path
+rounded down, and `SOLPROP_THREADS`; never `os.cpu_count()`).
 
 ### 3.4 Threading regimes
 
@@ -750,8 +751,8 @@ see [benchmarks.md](benchmarks.md#indicative-results).
 
 Rejected by measurement: the OpenMP and TBB threading layers, a blocked temporal plasma
 scan (42× slower on a single node), an eight-node time-outer traversal, `expm1`, a
-reciprocal rate lookup, and every smaller kernel width on a 36-core server. The two rejected
-traversals are kept as prototypes under `tests/prototypes/`, not in the package.
+reciprocal rate lookup, and every smaller kernel width on a 36-core server. Neither
+rejected traversal is kept, in the package or among its tests.
 `OMP_WAIT_POLICY=PASSIVE` buys 14–39 % on a 36-core server's CtC cases at 18 and 36
 threads. For pyFFTW's own OpenMP runtime it is the default on Linux
 (`backends/numba_cpu/openmp.py`). pyFFTW's Linux wheels thread FFTW through a private

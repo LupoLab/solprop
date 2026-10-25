@@ -241,8 +241,9 @@ endif()
 
 # Kokkos FFT maps the OpenMP host execution space to FFTW's threaded library and
 # plans with the concurrency of the execution-space instance it is given. The Python
-# module initialises Kokkos with SOLPROP_NATIVE_THREADS (all logical CPUs when unset)
-# and sizes the kernel, FFT and Raman FFT instances from the optional
+# module initialises Kokkos with SOLPROP_NATIVE_THREADS within the process's thread
+# budget (solprop ADR-052: the affinity mask, the cgroup quota and SOLPROP_THREADS) and
+# sizes the kernel, FFT and Raman FFT instances from the optional
 # SOLPROP_NATIVE_*_THREADS pools, all read once at import; OMP_NUM_THREADS does not
 # set these counts.
 option(SOLPROP_NATIVE_ENABLE_OPENMP "Use OpenMP in Kokkos and FFTW" ON)

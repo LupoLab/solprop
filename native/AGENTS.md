@@ -79,10 +79,11 @@ has passed with this backend freshly built. Report the compiler, build type, exe
 space, thread settings and any check that was not run.
 
 CI (the repository's `.github/workflows/ci.yml`) runs on every push and pull request:
-the `native-quality` job runs `native/scripts/check.sh` on Linux, and the `native-suite`
-job builds the CPU distribution wheel, installs it and runs solprop's default test lane
-with the native backend selected, beside solprop's own `gate`, `windows` and
-lowest-dependencies jobs. macOS is qualified locally. GPU builds are validated by hand
+the `native-quality` jobs run `native/scripts/check.sh` on Linux, one group of its stages
+each (`SOLPROP_NATIVE_CHECK_STAGES`). The `native-wheel` jobs build the CPU distribution
+wheel on Linux, macOS and Windows, cached under a hash of `native/`, and solprop's
+default lane runs on it on macOS and Windows with the native backend selected, and in
+the coverage lane on Linux. GPU builds are validated by hand
 (`.github/workflows/cuda.yml` on a self-hosted runner, or `pytest -m gpu` on a machine
 with a device).
 

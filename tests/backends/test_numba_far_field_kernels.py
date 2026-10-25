@@ -555,7 +555,7 @@ def shared_case():
     int(vars(config)["NUMBA_NUM_THREADS"]) < 4,
     reason="needs four numba threads",
 )
-def test_the_pass_does_not_depend_on_the_thread_count():
+def test_the_pass_does_not_depend_on_the_thread_count(thread_budget_lifted):
     grid, field, problem, tables = shared_case()
     pass_ = FarFieldPass(problem, parallel=True)
     assert far_field_partials(problem)[1] == 10  # one band per row

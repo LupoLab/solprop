@@ -11,12 +11,12 @@ files describe the same problem and must stay in step.
 """
 
 import math
-import os
 from dataclasses import dataclass
 
 import numpy as np
 import pytest
 
+from selected_backend import selected_backend
 from solprop.backends.registry import available
 from solprop.driver import Simulation
 from solprop.grid import EnvelopeGrid
@@ -38,8 +38,8 @@ SHORT_LENGTH = DISPERSION_LENGTH / 10
 
 @pytest.fixture(scope="session")
 def test_backend_name():
-    """Backend selected for M1 by ``SOLPROP_TEST_BACKEND`` (Numba by default)."""
-    name = os.environ.get("SOLPROP_TEST_BACKEND", "numba_cpu")
+    """Backend selected for M1 by ``SOLPROP_TEST_BACKEND`` (``"auto"`` by default)."""
+    name = selected_backend()
     if name not in available():
         pytest.fail(f"SOLPROP_TEST_BACKEND={name!r} is not available")
     return name

@@ -33,6 +33,15 @@ from backends.test_numba_dispersive_kerr import averaged, run
 
 # The doctest collection imports every module under tests/, and the arguments it
 # was given are not evaluators: only a subprocess run saves the fields.
+
+
+def _runtime_threads() -> np.ndarray:
+    """Return the Kokkos pool this probe ran with, for the caller to check."""
+    return np.array(
+        importlib.import_module("solprop_native").build_info().runtime_threads
+    )
+
+
 if __name__ == "__main__":
     from solprop_native import NativeBackend  # pyright: ignore[reportMissingImports]
 
@@ -49,4 +58,4 @@ if __name__ == "__main__":
         else:
             problem, grid = averaged(case, envelope=False, thg=True)
         fields[f"case{index}"], _ = run(NativeBackend, fixed_order(problem), grid)
-    np.savez(sys.argv[1], **fields)
+    np.savez(sys.argv[1], runtime_threads=_runtime_threads(), **fields)

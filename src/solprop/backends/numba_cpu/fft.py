@@ -33,8 +33,9 @@ from typing import Any, Literal
 import numpy as np
 import threadpoolctl
 from numba import get_num_threads, set_num_threads
+from numba.core import config as numba_config
 
-from solprop._process import allowed_cpus, unbound
+from solprop._process import ThreadBudget, thread_budget, unbound
 from solprop.backends.numba_cpu import openmp
 from solprop.backends.numba_cpu.openmp import pyfftw
 from solprop.exceptions import BackendError
@@ -253,6 +254,11 @@ class ThreadPools:
         How Numba's threads were started
         (:func:`solprop.backends.numba_cpu.openmp.numba_launch`): ``"unset"`` until
         :func:`apply_pools` starts them.
+    thread_budget : int
+        The process's thread budget, which every pool stays within (ADR-052); zero
+        where it was not read.
+    thread_budget_source : str
+        The limit that set it (``solprop._process.ThreadBudget``).
     """
 
     regime: str
@@ -261,6 +267,8 @@ class ThreadPools:
     blas: int
     blas_mechanism: str
     numba_openmp: str = "unset"
+    thread_budget: int = 0
+    thread_budget_source: str = "unset"
 
     def as_metadata(self) -> dict[str, object]:
         """Return the pools as the run's metadata records them.
@@ -277,30 +285,34 @@ class ThreadPools:
             "blas_threads": self.blas,
             "blas_mechanism": self.blas_mechanism,
             "numba_openmp": self.numba_openmp,
+            "thread_budget": self.thread_budget,
+            "thread_budget_source": self.thread_budget_source,
         }
 
 
-def _available_threads() -> int:
-    """Return how many threads this process may actually run.
+def _thread_budget() -> ThreadBudget:
+    """Return the process's thread budget, which every pool here stays within.
 
-    ``os.cpu_count`` reports the machine; a container is capped below it by its cgroup
-    quota or its affinity mask, and a pool sized from the machine inside a half-core
-    container spends its life being descheduled.
+    ``os.cpu_count`` reports the machine; a process is held below it by its affinity
+    mask, its control groups' CPU quota and ``SOLPROP_THREADS``
+    (``solprop._process.thread_budget``, ADR-052), and a pool sized from the
+    machine inside a half-core container spends its life being descheduled.
 
     Returns
     -------
-    int
-        The cap, at least one.
+    solprop._process.ThreadBudget
+        The budget and the limit that set it.
+
+    Raises
+    ------
+    BackendError
+        If ``SOLPROP_THREADS`` is set to something that is not a positive thread count,
+        or ``SOLPROP_OVERSUBSCRIBE`` to anything but ``0`` or ``1``.
     """
-    # The process's grant, not the main thread's affinity, which an OpenMP runtime
-    # started with OMP_PROC_BIND narrows to one CPU (solprop._process).
-    counts = [os.cpu_count() or 1, len(allowed_cpus())]
-    quota = Path("/sys/fs/cgroup/cpu.max")
-    if quota.is_file():  # pragma: no cover - Linux cgroup v2 only
-        parts = quota.read_text(encoding="utf-8").split()
-        if len(parts) == 2 and parts[0] != "max":
-            counts.append(max(1, round(int(parts[0]) / int(parts[1]))))
-    return max(1, min(counts))
+    try:
+        return thread_budget()
+    except ValueError as error:
+        raise BackendError(str(error)) from error
 
 
 def choose_pools(  # noqa: PLR0913 - pool sizes, cutoff and explicit overrides
@@ -326,7 +338,10 @@ def choose_pools(  # noqa: PLR0913 - pool sizes, cutoff and explicit overrides
     transform_elements : int
         ``n_columns * n_to`` of the batched modal transform, which decides FFTW's.
     threads : int, optional
-        Override for the kernels' pool. ``None`` takes the regime's choice.
+        Override for the kernels' pool. ``None`` takes the regime's choice. Either way
+        the pool is clamped to the process's thread budget
+        (``solprop._process.ThreadBudget.explicit``) and to Numba's own
+        ``NUMBA_NUM_THREADS``.
     fftw_threads : int, optional
         Override for FFTW's pool.
     blas_threads : int, optional
@@ -379,9 +394,16 @@ def choose_pools(  # noqa: PLR0913 - pool sizes, cutoff and explicit overrides
     if cutoff < 1:
         msg = f"regime_elements must be a positive element count, got {cutoff}"
         raise BackendError(msg)
-    cap = _available_threads()
+    budget = _thread_budget()
+    cap = budget.threads
+    # Numba's pool is fixed at import by NUMBA_NUM_THREADS and set_num_threads refuses
+    # more, so the kernels are held to it as well; FFTW and the BLAS have no such limit.
+    ceiling: int = numba_config.NUMBA_NUM_THREADS  # pyright: ignore[reportAttributeAccessIssue] - set at import
     large = elements > cutoff if regime is None else regime == "large"
-    kernels = min(cap, threads) if threads is not None else (cap if large else 1)
+    if threads is not None:
+        kernels = min(budget.explicit(threads), ceiling)
+    else:
+        kernels = min(cap, ceiling) if large else 1
     # The regime decides the *kernels'* pool, because that is what it is about: whether
     # the node loop is a prange. The transforms and the GEMMs are governed by their own
     # measured thresholds and not by the regime, since a transform of 393 216 elements
@@ -389,7 +411,7 @@ def choose_pools(  # noqa: PLR0913 - pool sizes, cutoff and explicit overrides
     # case, which is well inside the large regime, is exactly where the old
     # `large and ...` conjunction still left it serial.
     if fftw_threads is not None:
-        fftw = min(cap, fftw_threads)
+        fftw = budget.explicit(fftw_threads)
     else:
         fftw = (
             cap
@@ -399,7 +421,7 @@ def choose_pools(  # noqa: PLR0913 - pool sizes, cutoff and explicit overrides
             else 1
         )
     if blas_threads is not None:
-        blas = min(cap, blas_threads)
+        blas = budget.explicit(blas_threads)
     else:
         blas = (
             min(cap, BLAS_MAX_THREADS) if gemm_elements >= BLAS_THREAD_ELEMENTS else 1
@@ -410,6 +432,8 @@ def choose_pools(  # noqa: PLR0913 - pool sizes, cutoff and explicit overrides
         fftw=fftw,
         blas=blas,
         blas_mechanism="unset",
+        thread_budget=budget.threads,
+        thread_budget_source=budget.source,
     )
 
 
@@ -450,27 +474,13 @@ def apply_pools(
         # Apple's Accelerate is the case that matters here: numpy links it on macOS, it
         # threads through Grand Central Dispatch, and it exposes no set_num_threads at
         # all. Saying so is the honest record; pretending the pool was set is not.
-        uncontrolled = ThreadPools(
-            regime=pools.regime,
-            numba=pools.numba,
-            fftw=pools.fftw,
-            blas=pools.blas,
-            blas_mechanism="uncontrolled",
-            numba_openmp=pools.numba_openmp,
-        )
+        uncontrolled = replace(pools, blas_mechanism="uncontrolled")
         _log_pools(uncontrolled)
         return uncontrolled, None
     limiter = libraries.limit(limits=pools.blas)
     limiter.__enter__()
     names = ",".join(sorted({one.internal_api for one in libraries.lib_controllers}))
-    reached = ThreadPools(
-        regime=pools.regime,
-        numba=get_num_threads(),
-        fftw=pools.fftw,
-        blas=pools.blas,
-        blas_mechanism=names,
-        numba_openmp=pools.numba_openmp,
-    )
+    reached = replace(pools, numba=get_num_threads(), blas_mechanism=names)
     _log_pools(reached)
     return reached, limiter
 

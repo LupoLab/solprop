@@ -715,6 +715,8 @@ def test_the_band_column_agrees_across_thread_counts(tmp_path: Path) -> None:
                 **os.environ,
                 "OMP_PROC_BIND": "false",
                 "SOLPROP_NATIVE_THREADS": str(threads),
+                "SOLPROP_OVERSUBSCRIBE": "1",
+                "SOLPROP_THREADS": "",
                 "SOLPROP_NATIVE_KERNEL_THREADS": str(threads),
             },
         )

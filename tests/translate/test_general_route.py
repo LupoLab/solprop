@@ -28,6 +28,7 @@ from modal_provider_cases import (
     general_grid,
     general_guide,
 )
+from runtime_types import unchecked
 from solprop.exceptions import ModeError, TranslationError
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.modes import StepIndexMode
@@ -658,11 +659,11 @@ def test_an_unknown_kerr_form_is_refused_by_name():
     """
     unknown = cast("KerrForm", "quartic")
     with pytest.raises(TranslationError, match="got form='quartic'"):
-        isotropic_kerr_tensor.__wrapped__(unknown)  # type: ignore[attr-defined]
+        unchecked(isotropic_kerr_tensor)(unknown)
     # The identity the record carries is built from the same vocabulary and makes
     # the same refusal, rather than the bare KeyError of a mapping lookup.
     with pytest.raises(TranslationError, match="got form='quartic'"):
-        instantaneous_model_id.__wrapped__(unknown, delayed=False)  # type: ignore[attr-defined]
+        unchecked(instantaneous_model_id)(unknown, delayed=False)
 
 
 def test_a_zero_n2_is_never_ambiguous():

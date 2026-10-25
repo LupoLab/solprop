@@ -1163,6 +1163,86 @@ Withdrawn (development-process record, not a design decision).
   layer; before the first public release a resume-compatibility policy is decided
   (roadmap, *Release preparation*).
 
+## ADR-052 — One thread budget per process, which every pool stays within
+
+- **Status:** accepted
+- **Context:** each piece sized its threads its own way. `numba_cpu` read the affinity
+  mask and the root control group's `cpu.max`, rounded to nearest, but not
+  `NUMBA_NUM_THREADS`, so a large problem failed at construction when that was below the
+  CPUs (a 64-CPU Slurm allocation with `NUMBA_NUM_THREADS=8`). Its `SOLPROP_*_THREADS`
+  variables forced a pool's size rather than capping it, so the scan executors held a
+  worker to its share only by forcing every pool, small problems included. The native
+  backend took `os.cpu_count()`, the machine rather than the allocation, and honoured
+  any `SOLPROP_NATIVE_THREADS`. `Pool` had a third reader. Under `poe test`, 370 of
+  1175 sampled pool-building tests started an 18-thread kernel pool beside 17 other
+  workers.
+- **Decision:** a process has one thread budget, the smallest of its affinity mask (read
+  at import, before an OpenMP runtime can bind the main thread), the tightest CPU quota
+  on its own control-group path (versions 1 and 2, rounded **down**, at least one) and
+  `SOLPROP_THREADS`, read alike by both backends; `numba_cpu`'s kernels are also held to
+  `NUMBA_NUM_THREADS`, Numba's own ceiling. Every pool's automatic size stays within it,
+  and so does every explicit count (`threads=`, the per-pool variables,
+  `SOLPROP_NATIVE_THREADS` for the Kokkos pool), clamped rather than refused. `SOLPROP_OVERSUBSCRIBE=1` lets an explicit
+  count exceed the CPUs and the quota, never `SOLPROP_THREADS`. The pools take turns, so
+  each may use the whole budget. The budget and the limit that set it are recorded with
+  the pools in a run's metadata, with the same meaning on every backend. The executors
+  set `SOLPROP_THREADS` per worker (a Slurm instance's controller keeps its whole CPU
+  share, and its own instance slice is taken before its budget), and the test lanes set
+  it to one per xdist worker.
+- **Why:** a quota limits CPU time, not CPUs: a team that exceeds it is throttled for the
+  rest of each period, and one that synchronises at every step stalls whole, so 1.5 CPUs
+  is one thread (Go and Java round up for throughput workloads that tolerate it). A
+  limit that only narrows cannot oversubscribe a machine from a shell profile. The
+  oversubscription opt-in exists because thread-count invariance tests need more
+  threads than a CI runner has CPUs; production never does.
+- **Consequences:** the native backend cannot import solprop and sizes Kokkos at import,
+  so it carries a copy of the reader (`solprop_native._budget`); `tests/test_process.py`
+  runs both copies on the same control groups and environment. A process reads its own
+  quota once. A test that compares thread counts lifts its budget explicitly.
+  `SLURM_CPUS_PER_TASK` stays a `Pool` setting rather than part of the budget, since
+  Slurm narrows the mask itself where it binds tasks. A quota is shared by every
+  process in its control group, and no process can tell how many siblings it has: two
+  solprop processes in one CPU-limited container (Kubernetes CPU limits, Docker
+  `--cpus`), whether independent runs or scan instances sliced by
+  `SOLPROP_SCAN_CPU_OFFSET`/`COUNT`, each take the whole quota. Each should set
+  `SOLPROP_THREADS` to its share; `Pool` already shares its budget among its workers.
+  Virtual machines (cloud instances included) and Slurm jobs set no quota by default;
+  their limit is the mask.
+
+## ADR-053 — Runtime type checks in one CI lane; the CI lanes sharded
+
+- **Status:** accepted
+- **Context:** the jaxtyping and beartype import hook (ADR-018) wraps every annotated
+  function in the test session: each call binds its arguments and matches every array's
+  shape. The reference backend's inner loops call small annotated functions millions of
+  times. One medium test took 257 s with the hook and 22 s without; the whole default
+  lane took 15 min with it and 7 min without on 18 workers, with 2.3 times less CPU.
+  Every CI lane ran the default lane with the hook, on two or three xdist workers, so a
+  pull request waited two to two and a half hours for its longest jobs. The coverage
+  lane was cancelled at 99 % after two and a half hours.
+- **Decision:**
+  - `SOLPROP_TEST_TYPECHECK=0` leaves the hook out of a session (`tests/runtime_types.py`).
+    The default stays on, so a developer's `poe test` checks as before.
+  - In CI, the coverage lane runs with the hook, so every annotated call that the default
+    lane makes is still checked once per run, on Linux, beside the measure of 100 %. The
+    macOS, Windows, lowest-dependency and slow lanes run without it.
+  - A test that asserts what the hook raises skips without it (`requires_typecheck`).
+  - A test that reaches past the hook uses `unchecked()`.
+  - Each long lane runs as parallel jobs, the shards of whole modules that
+    `SOLPROP_TEST_SHARD=i/n` selects (`tests/shards.py`). They are balanced by measured
+    seconds per module.
+  - The coverage shards' data files are combined in one job, which requires 100 %.
+- **Why:** the checks find annotation and shape errors in solprop's own Python code.
+  Those errors do not depend on the platform or on the dependency floor, and one lane
+  that runs every test sees every call. Repeating the checks on four platforms bought
+  nothing and cost most of CI's time. Shards trade more, shorter jobs for wall time,
+  which costs nothing on public runners up to the account's concurrency.
+- **Consequences:** a shape error reached only by a platform-specific path, or only by a
+  slow test, is no longer checked in CI. Run `poe test` locally, which still checks, to
+  find one. The shard weights (`tests/data/shard_weights.json`) need refreshing when the
+  suite's balance shifts: `tests/shards.py` rewrites them from the JUnit reports that
+  each shard uploads. A stale table costs time, never coverage.
+
 ## ADR-054 — Single precision as an opt-in arithmetic, validated against its oracle
 
 - **Status:** accepted; amends [architecture.md §1](architecture.md) ("Double precision

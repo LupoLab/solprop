@@ -65,15 +65,14 @@ that looks like a quoted annotation — `"..."` becomes a bare `Ellipsis`, which
 rejects — so shape strings are written with names (`"*shape"`, `" n_omega"`), never as
 `"..."`, and forward references under `TYPE_CHECKING` are kept out of quoted form.
 Per-file: tests drop docstring, annotation, magic-value and unused-argument rules (dummies
-implement protocols with unused arguments); the independent oracles and rejected
-prototypes under `tests/oracles/` and `tests/prototypes/` are held to the benchmark rules;
+implement protocols with unused arguments); the independent oracles under
+`tests/oracles/` are held to the benchmark rules;
 `docs/conf.py` drops docstring and annotation rules; gallery scripts and worked examples
 drop them too and allow `print` and cell-style imports; benchmarks allow `print`.
 
 ## basedpyright
 
-`include = ["src", "tests"]` without the oracles and prototypes (the prototypes, which
-kernel tests import, are on `extraPaths`), `typeCheckingMode = "standard"` (strict once the baseline is
+`include = ["src", "tests"]` without the oracles, `typeCheckingMode = "standard"` (strict once the baseline is
 clean), `pythonVersion = "3.14"`, `failOnWarnings = true`, `reportMissingTypeStubs = false`
 because numba, pyfftw and pyfluids ship no stubs (narrow ignores are still preferred over
 broad ones); `scipy-stubs` supplies SciPy's. The checker is pinned to an exact version and
@@ -121,7 +120,9 @@ the `numpydoc` extension alone (napoleon is not loaded: the two conflict).
 configured for the PEP 484 numeric tower
 (`beartype.beartype(conf=beartype.BeartypeConf(is_pep484_tower=True))`), before importing
 the package, so shape and dtype annotations are checked at runtime during tests only;
-production imports are unaffected. numpydoc's `PR02` fires on any dataclass documented with
+production imports are unaffected. `SOLPROP_TEST_TYPECHECK=0` leaves the hook out, which
+makes the reference backend's tests several times faster; CI checks in its coverage lane
+only (ADR-053). numpydoc's `PR02` fires on any dataclass documented with
 a `Parameters` section (the hook cannot see the generated `__init__`); document fields under
 `Attributes`, or add `# numpydoc ignore=PR02` on the class line.
 
@@ -163,15 +164,20 @@ build works offline and survives a flaky mirror; refresh the copies occasionally
 ## Environment variables the tools honour
 
 - `NUMBA_DISABLE_JIT=1` (the first coverage pass) and `NUMBA_NUM_THREADS`.
+- `SOLPROP_THREADS`, the thread budget every CPU backend's pools stay within, and
+  `SOLPROP_OVERSUBSCRIBE`, which lets an explicit count exceed the CPUs (ADR-052).
 - The `numba_cpu` pools and plans: `SOLPROP_NUMBA_THREADS`, `SOLPROP_FFTW_THREADS`,
   `SOLPROP_BLAS_THREADS`, `SOLPROP_TRANSVERSE_FFTW_THREADS` (the transverse FFTW pool of a
   Cartesian run), `SOLPROP_NUMBA_REGIME` (the threading regime), `SOLPROP_FFTW_PLAN`
   (`estimate` in CI and tests, `measure` by default) and `SOLPROP_FFTW_WISDOM` (a wisdom
   file).
 - `SOLPROP_MEMORY_BUDGET`, the memory admission budget ([backends.md §8](backends.md)).
-- In the test suite: `SOLPROP_TEST_BACKEND` (the backend the driver tests select,
-  `numba_cpu` by default) and `SOLPROP_WRITE_RECORDS=1` (rewrite the committed convergence
-  records, announced at the end of the session).
+- In the test suite: `SOLPROP_TEST_BACKEND` (the backend the driver tests select; by
+  default what `backend="auto"` selects, `native` where it is installed),
+  `SOLPROP_TEST_TYPECHECK=0` (leave out the runtime type checks, ADR-053),
+  `SOLPROP_TEST_SHARD=i/n` (run shard *i* of *n*, whole modules, as CI does) and
+  `SOLPROP_WRITE_RECORDS=1` (rewrite the committed convergence records, announced at the
+  end of the session).
 - In the docs build: `SOLPROP_RUN_EXAMPLES` (set by `poe docs-examples`).
 
 ## CI
@@ -185,27 +191,42 @@ the test lanes below are skipped. A push to `main` that merges a pull request ru
 further jobs when its tree is the pull request head's tree and CI passed on that head:
 the pull request was up to date with `main`, so its run tested exactly what was merged.
 A pull request that was behind `main` merges to a new tree, which runs in full. Any other
-change, or a push whose base is unknown, runs every job except docs-tests:
+change, or a push whose base is unknown, runs every job except docs-tests.
+
+The long lanes run as **shards**, parallel jobs that each take whole modules:
+`SOLPROP_TEST_SHARD=i/n` keeps shard *i* of *n* (`tests/shards.py`, ADR-053). The shards
+are balanced by the seconds per module in `tests/data/shard_weights.json`. Every shard
+uploads a JUnit report, and `uv run python tests/shards.py junit-*.xml` rewrites the
+table from a run's reports when the balance drifts. The runtime type checks (the
+jaxtyping hook) run in the coverage lane only; the other test lanes set
+`SOLPROP_TEST_TYPECHECK=0` (ADR-053).
 
 - **static** (Linux): `uv lock --check`, ruff (lint and format check), `poe types`,
   `poe docstrings`, `poe spell`, `poe reuse`.
 - **docs** (Linux): `poe docs`.
-- **test** (macOS arm64): `poe test`, the default lane.
-- **coverage** (Linux x86-64): `poe cov` with the native package built from this tree
-  (its paths in solprop count towards the 100 %), the default lane with coverage (so
-  Linux runs the default lane once), and the report uploaded to Codecov for the badge.
-- **slow** (Linux and macOS): `poe test-slow`; on macOS only its functional tests, the
-  statistics-cost timing being Linux's.
-- **windows**: `uv run poe test`, the default lane, on `numpy_ref` and `numba_cpu`.
-- **oldest** (Linux): the package installed with `uv pip install --resolution
-  lowest-direct`, so every dependency sits at its floor, then the default lane
-  ([dependencies.md](dependencies.md)).
-- **native-quality** (Linux): `uv run poe check-native`, the native package's gate
-  (`native/scripts/check.sh`): its lint and strict types, clang-format, clang-tidy, the
-  native tests, ASan and UBSan, its pytest suite, and the distribution wheel's build and
-  isolated smoke test.
-- **native-suite** (Linux): this tree's `native/` built as its CPU distribution wheel and
-  installed, then the default lane with `SOLPROP_TEST_BACKEND=native`.
+- **native-wheel** (Linux x86-64, macOS arm64, Windows x64): this tree's `native/` built
+  as its CPU distribution wheel, cached under a hash of the native sources, so a change
+  outside `native/` reuses the last build. On Linux the build is the native gate's
+  `wheel` stage (the build and its isolated smoke test); on macOS and Windows it is
+  cibuildwheel, as in `wheels.yml`. The test lanes below install the wheel.
+- **test** (macOS arm64 and Windows x64, three shards each): `poe test`, the default lane,
+  with the wheel installed, so `backend="auto"` and the driver tests select `native`.
+- **coverage** (Linux x86-64): `poe cov` as parallel jobs, with the wheel installed (its
+  paths in solprop count towards the 100 %) and `SOLPROP_TEST_BACKEND=numba_cpu` (so do
+  `numba_cpu`'s). One job runs `poe cov-kernels` and six shards run `poe cov-part`.
+  **coverage-report** combines their data (`poe cov-report`), requires 100 % of
+  statements and branches, and uploads the report to Codecov for the badge.
+- **slow** (Linux and macOS): `poe test-slow`; on macOS only its functional tests, with
+  the wheel installed, the statistics-cost timing being Linux's.
+- **oldest** (Linux, three shards): the package installed with `uv pip install
+  --resolution lowest-direct`, so every dependency sits at its floor, then the default
+  lane ([dependencies.md](dependencies.md)). It has no native package, so this is also
+  the default lane on `numba_cpu`.
+- **native-quality** (Linux, three jobs): `uv run poe check-native`, the native package's
+  gate (`native/scripts/check.sh`), split by `SOLPROP_NATIVE_CHECK_STAGES`. The jobs are
+  its lint and strict types, clang-format and its pytest suite (`lint pytest`);
+  clang-tidy and the native tests (`tidy`); and ASan and UBSan (`sanitize`). The
+  distribution wheel's stage is native-wheel's Linux job.
 
 `.github/workflows/wheels.yml` builds the native release wheels (Linux x86-64 and
 aarch64, macOS arm64, Windows x64) on pull requests that change the wheel recipe
@@ -213,9 +234,9 @@ aarch64, macOS arm64, Windows x64) on pull requests that change the wheel recipe
 tags and by hand, tests each installed wheel, and publishes on a release tag once enabled
 ([Releasing and the native wheels](releasing.md)).
 
-`numba_cpu` needs no job of its own: without solprop-native installed, `backend="auto"`
-selects it, and the parity tests check it against `numpy_ref` in every job. GPU tests run
-by hand on a node with a device (`pytest -m gpu`). The self-hosted
+`numba_cpu` runs in the coverage lane's driver tests, in the lowest-dependency lane and
+in the Linux slow lane; the parity tests check it against `numpy_ref` in every job. GPU
+tests run by hand on a node with a device (`pytest -m gpu`). The self-hosted
 `.github/workflows/cuda.yml`, started by hand, builds the CUDA extension and runs the
 native package's pytest suite and Compute Sanitizer on it. Keep the gate's steps identical to
 `poe check`; a change to one is a change to the other, in the same commit.

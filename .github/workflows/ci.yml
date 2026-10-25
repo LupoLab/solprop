@@ -89,9 +89,8 @@ jobs:
           uv run pytest -n 4 $(grep -lE '"docs"|"docs/|"(CHANGELOG|README|AGENTS)\.md"|\.md"\)|/ "[a-z0-9-]+\.md"' tests/test_*.py tests/*/test_*.py)
 
   # The definition-of-done gate of AGENTS.md (`poe check`), split into jobs that run in
-  # parallel: the static checks, the documentation, the default test lane and the slow
-  # lane. The default lane runs with coverage on Linux (the coverage job) and plainly on
-  # macOS, so each platform runs it once.
+  # parallel: the static checks, the documentation, and the default lane, sharded, with
+  # coverage on Linux and plainly on macOS and Windows; then the slow lane.
   static:
     needs: changes
     if: needs.changes.outputs.lanes != 'none'
@@ -130,12 +129,99 @@ jobs:
       - run: uv sync --locked
       - run: uv run poe docs
 
-  test:
+  # The native CPU distribution wheel for each test platform, built once per change to
+  # the native sources and cached under their hash: most changes do not touch native/,
+  # and reuse the wheel of the last run that did. On Linux the build is the native
+  # gate's wheel stage (native/scripts/check.sh: build, then an isolated smoke test); on
+  # macOS and Windows it is cibuildwheel, as in wheels.yml, which smoke-tests too.
+  native-wheel:
     needs: changes
     if: needs.changes.outputs.lanes == 'full'
-    name: test (macos-latest)
-    runs-on: macos-latest
-    timeout-minutes: 120
+    name: native-wheel (${{ matrix.id }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: linux-x86_64, os: ubuntu-24.04 }
+          - { id: macos-arm64, os: macos-15 }
+          - { id: windows-amd64, os: windows-2025 }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # both distributions take their version from the tags
+      - id: cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: wheelhouse
+          key: >-
+            native-wheel-v1-${{ matrix.id }}-${{ hashFiles('native/**', '!native/tests/**',
+            '!native/benchmarks/**', '!native/**/*.md') }}
+      - if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'Linux'
+        name: Install the native toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes cmake g++-14 libfftw3-dev ninja-build pkg-config
+      - if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'Linux'
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+      - if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'Linux'
+        env:
+          CXX: g++-14
+        run: |
+          uv python install 3.14
+          SOLPROP_NATIVE_CHECK_STAGES=wheel SOLPROP_NATIVE_CHECK_WHEEL_DIR="$PWD/wheelhouse" \
+            uv run --locked poe check-native
+      - if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'macOS'
+        run: brew install llvm ninja
+      - if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        with:
+          arch: x64
+      - if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'Windows'
+        run: choco install ninja --yes --no-progress
+      - if: steps.cache.outputs.cache-hit != 'true' && runner.os != 'Linux'
+        uses: pypa/cibuildwheel@b9e566a2b284570af229f6c2a33673410d0389a3 # v4.3.4
+        with:
+          package-dir: native
+          output-dir: wheelhouse
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-wheel-${{ matrix.id }}
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+          retention-days: 3
+
+  # The default lane on macOS and Windows with the native CPU backend installed, as a
+  # user installs solprop[native]: backend="auto" and the driver tests select it, and
+  # the parity tests compare it and numba_cpu with numpy_ref. Each lane is split into
+  # shards of whole modules (SOLPROP_TEST_SHARD, tests/shards.py) run as parallel jobs,
+  # without the runtime type checks, which the coverage lane runs (ADR-053).
+  test:
+    needs: [changes, native-wheel]
+    if: needs.changes.outputs.lanes == 'full'
+    name: test (${{ matrix.platform.id }}, ${{ matrix.shard }}/3)
+    runs-on: ${{ matrix.platform.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { id: macos-arm64, os: macos-15 }
+          - { id: windows-amd64, os: windows-2025 }
+        shard: [1, 2, 3]
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONUTF8: "1"
+      SOLPROP_TEST_SHARD: ${{ matrix.shard }}/3
+      # The runtime type checks run in the coverage lane only (ADR-053).
+      SOLPROP_TEST_TYPECHECK: "0"
+      # Three workers on Windows's four vCPUs; xdist's "auto" counts physical cores (two).
+      PYTEST_XDIST_AUTO_NUM_WORKERS: "3"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -143,23 +229,43 @@ jobs:
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: native-wheel-${{ matrix.platform.id }}
+          path: wheelhouse
       - run: uv python install 3.14
-      # The mlx backend's tests (SEP 33) run here, on MLX's CPU device when the hosted
-      # runner has no usable Metal GPU; the next step records which (Q7).
-      - run: uv sync --locked --extra mlx
-      - run: uv run python -c "import mlx.core as mx; print('Metal available:', mx.metal.is_available())"
-      - run: uv run poe test
+      # The wheel goes in after the sync, which would remove it (hence --no-sync below).
+      # On macOS the sync adds the mlx extra: the mlx backend's tests (SEP 33) run here,
+      # on MLX's CPU device when the hosted runner has no usable Metal GPU.
+      - run: uv sync --locked ${{ runner.os == 'macOS' && '--extra mlx' || '' }}
+      - run: uv pip install --no-deps wheelhouse/*.whl
+      - run: >-
+          uv run --no-sync python -c "from solprop.backends.registry import resolve_name;
+          assert resolve_name() == 'native', resolve_name()"
+      # Records whether the hosted runner exposes Metal to MLX (SEP 33, Q7).
+      - if: runner.os == 'macOS'
+        run: >-
+          uv run --no-sync python -c "import mlx.core as mx;
+          print('Metal available:', mx.metal.is_available())"
+      - run: uv run --no-sync poe test --junitxml=junit.xml
+      # The timings tests/shards.py rewrites the shard weights from.
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: junit-${{ matrix.platform.id }}-${{ matrix.shard }}
+          path: junit.xml
+          retention-days: 14
 
+  # The slow lane on Linux, without the native package: numba_cpu, and the statistics
+  # channel's cost budget, a timing measurement that runs alone on the runner.
   slow:
     needs: changes
     if: needs.changes.outputs.lanes == 'full'
-    name: slow (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    name: slow (ubuntu-latest)
+    runs-on: ubuntu-latest
     timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
+    env:
+      SOLPROP_TEST_TYPECHECK: "0"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -169,23 +275,18 @@ jobs:
           enable-cache: true
       - run: uv python install 3.14
       - run: uv sync --locked
-      # The statistics channel's cost budget is a timing measurement: on Linux only,
-      # where it runs alone on the runner; macOS's three shared cores make it noise.
-      - if: runner.os == 'Linux'
-        run: uv run poe test-slow
-      - if: runner.os != 'Linux'
-        run: uv run poe test-slow-functional
+      - run: uv run --no-sync poe test-slow
 
-  # The default lane at 100 % of statements and branches (the lane's two passes), on
-  # Linux with the native package built from this tree (solprop's native paths are part
-  # of the 100 %), and its report (coverage.xml) for the badge.
-  coverage:
-    needs: changes
+  # The slow lane's functional tests on macOS, with the native wheel installed; macOS's
+  # three shared cores make the statistics-cost timing noise.
+  slow-macos:
+    needs: [changes, native-wheel]
     if: needs.changes.outputs.lanes == 'full'
-    runs-on: ubuntu-latest
-    timeout-minutes: 150
+    name: slow (macos-arm64)
+    runs-on: macos-15
+    timeout-minutes: 90
     env:
-      CXX: g++-14
+      SOLPROP_TEST_TYPECHECK: "0"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -193,25 +294,103 @@ jobs:
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: true
-      - name: Install the native toolchain
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: native-wheel-macos-arm64
+          path: wheelhouse
+      - run: uv python install 3.14
+      - run: uv sync --locked
+      - run: uv pip install --no-deps wheelhouse/*.whl
+      - run: uv run --no-sync poe test-slow-functional
+
+  # The coverage lane (`poe cov`) as parallel jobs, on Linux with the native wheel
+  # installed (solprop's native paths are part of the 100 %) and the driver tests on
+  # numba_cpu (its paths are too): the kernel bodies interpreted in one job, the rest of
+  # the default lane compiled in shards. coverage-report combines their data and
+  # requires 100 % of statements and branches. The one lane with the runtime type
+  # checks (ADR-053): every annotated call in the default lane is checked here.
+  coverage:
+    needs: [changes, native-wheel]
+    if: needs.changes.outputs.lanes == 'full'
+    name: coverage (${{ matrix.part }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [kernels, 1/6, 2/6, 3/6, 4/6, 5/6, 6/6]
+    env:
+      SOLPROP_TEST_BACKEND: numba_cpu
+      # Three workers, with swap: four exhausted the runner's 16 GB.
+      PYTEST_XDIST_AUTO_NUM_WORKERS: "3"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # hatch-vcs derives the version from tags
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: native-wheel-linux-x86_64
+          path: wheelhouse
+      - name: Install the native runtime libraries
         run: |
           sudo apt-get update
-          sudo apt-get install --yes cmake g++-14 libfftw3-dev ninja-build pkg-config
+          sudo apt-get install --yes libfftw3-dev
       - run: uv python install 3.14
-      - run: uv sync --locked --extra native
-      # The default lane's peak memory on four test workers is at the edge of the
-      # runner's 16 GB (the runner shut down mid-suite twice): swap turns a peak into a
-      # slowdown, and three workers lower it.
+      - run: uv sync --locked
+      - run: uv pip install --no-deps wheelhouse/*.whl
       - name: Add swap
         run: |
           sudo fallocate -l 12G /swap.extra
           sudo chmod 600 /swap.extra
           sudo mkswap /swap.extra
           sudo swapon /swap.extra
-          free -h
-      - run: uv run poe cov
+      - if: matrix.part == 'kernels'
+        run: uv run --no-sync poe cov-kernels
+      - if: matrix.part != 'kernels'
+        run: uv run --no-sync poe cov-part --junitxml=junit.xml
         env:
-          PYTEST_XDIST_AUTO_NUM_WORKERS: "3"
+          SOLPROP_TEST_SHARD: ${{ matrix.part }}
+      - id: name
+        if: ${{ !cancelled() }}
+        run: echo "name=$(echo '${{ matrix.part }}' | tr / -)" >> "$GITHUB_OUTPUT"
+      - if: ${{ !cancelled() && matrix.part != 'kernels' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: junit-coverage-${{ steps.name.outputs.name }}
+          path: junit.xml
+          retention-days: 14
+      - run: mkdir coverage-data && mv .coverage "coverage-data/.coverage.${{ steps.name.outputs.name }}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-${{ steps.name.outputs.name }}
+          path: coverage-data
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 3
+
+  coverage-report:
+    needs: [changes, coverage]
+    if: needs.changes.outputs.lanes == 'full'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # hatch-vcs derives the version from tags
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: coverage-*
+          path: coverage-data
+          merge-multiple: true
+      - run: uv python install 3.14
+      - run: uv sync --locked
+      - run: uv run --no-sync poe cov-report
       - if: ${{ !cancelled() }}
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
@@ -219,36 +398,23 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
-  # The default lane on Windows: numpy_ref and numba_cpu (the native package's Windows build
-  # is not yet in CI). The lint, type, docstring, spelling, REUSE and docs steps are
-  # platform-independent and run in the static and docs jobs.
-  windows:
-    needs: changes
-    if: needs.changes.outputs.lanes == 'full'
-    runs-on: windows-latest
-    timeout-minutes: 180
-    env:
-      PYTHONUTF8: "1"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          enable-cache: true
-      - run: uv python install 3.14
-      - run: uv sync --locked
-      - run: uv run poe test
-
   # The floors in pyproject.toml are claims: test them. solprop with the lowest versions
-  # of its direct dependencies that the floors allow, and the test tools at their latest.
+  # of its direct dependencies that the floors allow, and the test tools at their latest;
+  # no native package, so this lane is also the default lane on numba_cpu.
   oldest:
     needs: changes
     if: needs.changes.outputs.lanes == 'full'
-    name: tests (lowest dependencies)
+    name: tests (lowest dependencies, ${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     env:
+      SOLPROP_TEST_SHARD: ${{ matrix.shard }}/3
+      SOLPROP_TEST_TYPECHECK: "0"
+      SOLPROP_THREADS: "1"
       VECLIB_MAXIMUM_THREADS: "1"
       OPENBLAS_NUM_THREADS: "1"
       MKL_NUM_THREADS: "1"
@@ -266,20 +432,26 @@ jobs:
       - run: uv pip list
       - run: .venv/bin/python -m pytest -n auto --dist loadgroup
 
-  # The native package's gate (native/scripts/check.sh): its format, lint and strict
-  # typing, clang-format, clang-tidy, the native tests, the ASan+UBSan native tests,
-  # pytest on an editable build, and the distribution wheel's build and isolated smoke
-  # test.
+  # The native package's gate (native/scripts/check.sh) as parallel jobs, one per
+  # stage group: its format, lint and strict typing, clang-format and its pytest suite
+  # on an editable build; clang-tidy and the native tests; the ASan+UBSan native tests.
+  # The distribution wheel's build and isolated smoke test is native-wheel (Linux).
   native-quality:
     needs: changes
     if: needs.changes.outputs.lanes == 'full'
+    name: native-quality (${{ matrix.stages }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        stages: [lint pytest, tidy, sanitize]
     env:
       CXX: g++-14
       OMP_NUM_THREADS: "4"
       OMP_PROC_BIND: spread
       OMP_PLACES: cores
+      SOLPROP_NATIVE_CHECK_STAGES: ${{ matrix.stages }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -288,7 +460,8 @@ jobs:
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: true
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - if: contains(matrix.stages, 'lint')
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "26"
       - name: Install the native toolchain
@@ -297,52 +470,3 @@ jobs:
           sudo apt-get install --yes clang-tidy cmake g++-14 libfftw3-dev ninja-build pkg-config
       - run: uv python install 3.14
       - run: uv run --locked poe check-native
-
-  # The default lane with the native CPU backend, from this tree's distribution wheel.
-  # Every other job runs without it, so backend="auto" selects numba_cpu there, and
-  # numpy_ref is checked by the parity tests in every job.
-  native-suite:
-    needs: changes
-    if: needs.changes.outputs.lanes == 'full'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 180
-    env:
-      CXX: g++-14
-      # The driver tests select their backend from this variable, not from "auto".
-      SOLPROP_TEST_BACKEND: native
-      # Three test workers (with swap below): four exhausted the runner's memory at 87 %
-      # of the suite, and two did not finish in two hours.
-      PYTEST_XDIST_AUTO_NUM_WORKERS: "3"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          enable-cache: true
-      - name: Install the native toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes cmake g++-14 libfftw3-dev ninja-build pkg-config
-      - run: uv python install 3.14
-      - run: uv sync --locked
-      - name: Build the native CPU distribution wheel
-        working-directory: native
-        run: >-
-          uv build --python 3.14 --wheel
-          -Ccmake.define.SOLPROP_NATIVE_PROFILE=DISTRIBUTION --out-dir ../wheelhouse
-      - name: Install the wheel into the environment
-        run: |
-          uv pip install --python .venv/bin/python --no-deps wheelhouse/*.whl
-          uv run --no-sync python -c "from solprop.backends.registry import resolve_name; assert resolve_name() == 'native', resolve_name()"
-      # The default lane's peak memory on four test workers is at the edge of the
-      # runner's 16 GB (the runner shut down mid-suite twice): swap turns a peak into a
-      # slowdown, and three workers lower it.
-      - name: Add swap
-        run: |
-          sudo fallocate -l 12G /swap.extra
-          sudo chmod 600 /swap.extra
-          sudo mkswap /swap.extra
-          sudo swapon /swap.extra
-          free -h
-      - run: uv run --no-sync poe test

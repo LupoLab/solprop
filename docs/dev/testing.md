@@ -99,13 +99,16 @@ including literal `@` characters in parameter IDs. Convergence-record writes
 remain serial-only; normal grouped runs do not regenerate witnesses. The benchmark
 suite under `benchmarks/` is outside `testpaths` and is never collected.
 
-A lane's remaining scheduling floor is its longest group. Pinning
+A lane's remaining scheduling floor is its longest group. Pinning `SOLPROP_THREADS` (each
+worker's thread budget, ADR-052, which every pool of both backends stays within),
 `SOLPROP_NATIVE_THREADS`, `VECLIB_MAXIMUM_THREADS`, `OPENBLAS_NUM_THREADS`,
 `MKL_NUM_THREADS` and `OMP_NUM_THREADS` to one keeps eighteen workers from each opening a
-thread pool over the same cores; the native backend's pool follows only
-`SOLPROP_NATIVE_THREADS`. `NUMBA_NUM_THREADS` is not pinned: it is numba's ceiling, not
-its default, and a test that compares thread counts asks `numba_cpu` for several threads
-(a ceiling of one refuses them). Serial and parallel runs select the same tests; inspect
+thread pool over the same cores. `NUMBA_NUM_THREADS` is not pinned: it is numba's
+ceiling, not its default. A test that compares thread counts lifts the budget for itself
+to four threads (the `thread_budget_lifted` fixture) and asks for several; a native
+thread probe runs with `SOLPROP_THREADS` blank and `SOLPROP_OVERSUBSCRIBE=1`, so it gets
+the count it asks for on any runner, and saves the Kokkos pool it ran with for its
+caller to check (`tests/backends/matched.py::native_thread_fields`). Serial and parallel runs select the same tests; inspect
 the current `--durations` output before choosing another independent group to split. The
 lane stays
 reproducible: `pytest-randomly` picks one seed in the controller and the workers share it,
@@ -128,7 +131,7 @@ carry a claim that used to need four thousand.
 Medium tests are parametrised over every installed compatible backend and stay medium. The
 base checkout has `numpy_ref` and `numba_cpu`; an installed `solprop-native` adds `native`
 conditionally. The slow ladders run on the backend selected by `SOLPROP_TEST_BACKEND`,
-defaulting to `numba_cpu`; the backend-versus-reference parity test of §1, with the
+defaulting to what `backend="auto"` selects (`native` where installed, else `numba_cpu`); the backend-versus-reference parity test of §1, with the
 equivalence tolerance of §3, stands in for duplicate copies already known to agree.
 
 Spatial tests select their backends through the explicit spatial fixtures of
