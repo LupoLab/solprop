@@ -3209,8 +3209,7 @@ template <class Policy> void GeneralWorkspace<Policy>::allocate() {
       if (tiled) {
         // The widest tile whose two scratch rows the device's team scratch holds.
         using Team = Kokkos::TeamPolicy<ExecutionSpace>;
-        const auto scratch_limit =
-            static_cast<std::size_t>(Team::scratch_size_max(0));
+        const auto scratch_limit = static_cast<std::size_t>(Team::scratch_size_max(0));
         std::size_t largest = band_tile_max;
         while (largest > band_tile_min &&
                band_tile_bytes<ExecutionSpace>(largest) > scratch_limit)
@@ -8392,7 +8391,7 @@ GeneralWorkspace<Policy>::band_team_policy(const std::size_t node_count,
   const int requested = band_host_team_size(node_count);
 #endif
   Team policy(response_space_for(node_count), league,
-                std::max(1, std::min(requested, widest)));
+              std::max(1, std::min(requested, widest)));
   policy.set_scratch_size(0, scratch);
   return policy;
 }
@@ -8719,7 +8718,7 @@ GeneralWorkspace<Policy>::tiled_band_policy(const std::size_t rows, const bool s
   const int requested = std::max(1, band_tile_threads_);
 #endif
   Team policy(response_execution_space_, league,
-                std::max(1, std::min(requested, widest)));
+              std::max(1, std::min(requested, widest)));
   policy.set_scratch_size(0, Kokkos::PerTeam(bytes));
   return policy;
 }
