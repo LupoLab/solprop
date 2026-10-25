@@ -21,8 +21,8 @@
 ## Part I — Proposal
 
 *Revised on 2026-10-25 after the GPT-6 AI review. The response to the review (Part III)
-says what changed for each finding, and which changes need the maintainers' decision
-(§12).*
+says what changed for each finding; the maintainers' decisions on the changes are in
+§12.*
 
 ### 1. Abstract
 
@@ -1312,8 +1312,8 @@ Decided by the maintainers on 2026-10-25, when this draft was commissioned:
 
 Decided by the maintainers on 2026-10-25, on the draft's questions. The revision after
 the AI review changed the details of four of these decisions and added two new
-questions. Those are marked **revised** or **new**, and await the maintainers'
-confirmation before acceptance.
+questions. Those are marked **revised** or **new**; the maintainers confirmed all six
+as written on 2026-10-25 (Part III).
 
 - **Q1 — The mixed floor. Decided:** $10^{-8}$, raised by §7.3's rule. **Revised:** the
   rule also raises the floor when the mixed run needs markedly more accepted or
@@ -1360,10 +1360,10 @@ confirmation before acceptance.
 - **Q10 — Continuous integration. Decided:** CI runs both modes on the CPU build; the A40
   lane runs locally and the AMD lane on its rentals, each part of the definition of done
   of phases 4 and 5, with results recorded in Part II.
-- **Q11 — The two noise models (new, R9).** Proposed: qualify both, `"input"` on every
+- **Q11 — The two noise models (new, R9). Decided:** qualify both, `"input"` on every
   noise case and `"modified"` on three. A model is refused under mixed precision on any
   route where it does not pass.
-- **Q12 — Binary64 stage values under mixed precision (new, R1).** Proposed: every row
+- **Q12 — Binary64 stage values under mixed precision (new, R1). Decided:** every row
   stored in the interaction variable is binary64 under mixed precision, so the mode
   needs no damping restriction (§4.2). The cost is that stage combinations run at the
   binary64 rate, which on the A40 is about 2.2× a binary32 pass. Mixed precision's gain
@@ -1416,6 +1416,10 @@ confirmation before acceptance.
   answered in the response below. The indicative A40 and CPU measurements were rerun.
   Four decided questions are revised in detail (Q1, Q4, Q7, Q9) and two are new (Q11,
   Q12); all six await the maintainers' confirmation.
+- 2026-10-25: John Travers confirmed the revised Q1, Q4, Q7 and Q9 and the proposed Q11
+  and Q12 as written; recorded in §12. Every question of §12 is now decided, leaving
+  only what the phases measure. Review status remains `In review`, awaiting a human
+  review.
 
 ### AI review — 2026-10-25
 
