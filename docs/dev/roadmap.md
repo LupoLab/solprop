@@ -112,13 +112,15 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   under single precision; those, and single-precision and mixed modes of `native` and
   `numba_cpu`, remain open below.
 - [SEP 35 — A carrier frame for the exponential Adams history](seps/sep-0035-carrier-frame-exponential-adams.md):
-  an opt-in `Multistep(carrier_frame="scalar")` policy for field grids that interpolates
+  an opt-in `Multistep(carrier_frame="scalar")` policy that interpolates
   the source history with the carrier's phase removed, integrates the remainder against
   shifted $\varphi$-functions and caps the carrier phase per step, so dense gases no longer
   pay for resolving the carrier rotation. Exact for any shift; aliasing and collar
-  stability conditions stated; all three backends, then short-window qualification on the
-  suite before any change of default. Per-band and lossy shifts, and envelope grids with
-  the third harmonic, are outside it.
+  stability conditions stated; field grids and envelope grids with the third harmonic; all
+  three backends, then short-window qualification on the suite before any change of
+  default. Also fixes a loose-tolerance accuracy failure of the present default (argon at
+  `rtol = 1e-3`). A per-band "harmonic" shift is developed on `numpy_ref` behind a gate;
+  lossy shifts are not proposed.
 
 The informal items below record work not fully covered by these proposals. When adding
 or revising a SEP, remove an informal item only if the proposal covers it in full;

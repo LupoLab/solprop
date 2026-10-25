@@ -24,13 +24,15 @@
 
 The default `Multistep()` integrates the nonlinear source in SEP 16's exponential
 formulation: the linear flow is exact and a polynomial through the untransported source
-samples is integrated against it. On a field grid the operator keeps $\beta_0$, so the
-part of the source that follows the carrier rotates along $z$ at
+samples is integrated against it. On a field grid, and on an envelope grid with the third
+harmonic, the operator keeps $\beta_0$, so the part of the source that follows the carrier
+rotates along $z$ at
 $\kappa = \beta(\omega_0) - \beta_1\omega_0$, and the polynomial has to follow that
 rotation. In dense molecular gases $|\kappa|$ reaches thousands of radians per metre and the
 default takes several times more source evaluations than IP-DOPRI5 or the interaction
-formulation (2669 against 798 and 1401 on a reduced hydrogen comb-to-continuum case).
-This SEP proposes an opt-in policy, `Multistep(carrier_frame="scalar")`, that
+formulation (2669 against 798 and 1401 on a reduced hydrogen comb-to-continuum case); at
+a loose tolerance it can also be badly wrong (a final-field error of 0.97 on an argon
+capillary at `rtol = 1e-3`, against 0.07 for IP-DOPRI5). This SEP proposes an opt-in policy, `Multistep(carrier_frame="scalar")`, that
 interpolates, inside each step, the source with the carrier's phase removed, integrates
 the remainder against correspondingly shifted $\varphi$-functions, and caps the carrier
 phase a step may cover. The change of variable is exact for any shift. The state, the
@@ -38,8 +40,11 @@ stored history, the carrier-envelope phase and the linear flow are untouched; th
 error estimate, the order choice and their stability assumptions are re-examined (§4)
 rather than assumed. In a reference-backend prototype the policy reaches the comb-to-continuum
 case's present accuracy with 4.6 to 5 times fewer evaluations and leaves three helium and
-hydrogen cases where the present default already led unchanged or slightly better.
-Whether it becomes the default is decided only after short-window qualification on the
+hydrogen cases where the present default already led unchanged or slightly better; on the
+argon case it brings the error at `rtol = 1e-3` to 0.05 with fewer evaluations than
+IP-DOPRI5. A per-band variant, `carrier_frame="harmonic"`, that also removes the third
+harmonic's rotation is developed alongside on the reference backend and promoted only if it
+passes a gate fixed in §7.4. Whether either becomes the default is decided only after short-window qualification on the
 benchmark suite, against error and timing criteria fixed in §7 before measurement.
 
 ### 2. Motivation and scope
@@ -57,23 +62,24 @@ enough for a polynomial to follow it.
 **In scope.**
 
 - The exponential formulation's predictor, corrector, defect estimates and interpolated
-  planes on **field grids**, for the operators SEP 16 steps: constant, separable and varying
+  planes on every grid whose operator keeps the carrier phase — **field grids and envelope
+  grids with the third-harmonic term**, whose operators are the same (§4.2) — for the
+  operators SEP 16 steps: constant, separable and varying
   diagonal operators with their compensation, the in-stage collar, and the constant-Schur
   and frozen-residual coupled sections.
-- A step cap on the carrier phase, part of the policy (§4.4).
+- A step cap on the carrier phase, part of the policy (§4.3).
+- The per-band ("harmonic") shift of §4.6, on `numpy_ref` first and on the compiled
+  backends only once it passes the gate of §7.4.
+- An interim note in the manual (phase 1) on the present default's loose-tolerance
+  failure on field grids in dense gases (§7.2).
 - `numpy_ref`, `numba_cpu` and the native backend, CPU first, devices after.
 - The decision on the default (phase 4), against criteria fixed in §7.
 
 **Out of scope.**
 
-- *Envelope grids.* Without the third harmonic the operator subtracts $\beta_0$ and the
-  policy is the present arithmetic exactly (§6.1). With the third harmonic the operator
-  keeps $\beta_0$, but this SEP does not admit that route: its carrier shift and the
-  harmonic's rotation differ from the field grid's (§4.2), and a comparison made while this
-  SEP was drafted indicated that the route generates far less third harmonic than the
-  field grid for the same short propagation. That is a separate question; until it is
-  settled the policy is refused there by name.
-- *Per-band ("harmonic") shifts and shifts with a real part.* Both are deferred (§10, §12).
+- *Envelope grids without the third harmonic.* The operator subtracts $\beta_0$ and the
+  policy is the present arithmetic exactly (§6.1).
+- *Shifts with a real part.* Not proposed (§10).
 - The interaction formulation and the Runge–Kutta marches, which already transport the
   linear phase.
 - The weak-band blind spot of the step-size norm in general
@@ -170,12 +176,13 @@ Every one of these is still integrated exactly in its linear part; what changes 
 fast the interpolated function rotates. The unshifted formulation has the mirror image:
 the carrier-following part rotates at $\kappa$ and the stationary part is smooth.
 
-**Envelope grid with the third harmonic** (not admitted, §2). There
-$D_\text{envTHG} = -\mathrm{i}(\beta - \beta_1(\omega-\omega_0)) - \alpha/2$, so
-$D_\text{field} - D_\text{envTHG} = +\mathrm{i}\beta_1\omega_0$ and the carrier shift would
-be $-\mathrm{i}\beta_0 h$, with $|\beta_0|$ of order $10^6$–$10^7$ rad/m. The rotations of
-that route's harmonic source and harmonic field depend on its carrier factor and are not
-derived here.
+**Envelope grid with the third harmonic.** Its frame keeps the carrier phase whole and
+measures the delay from zero frequency
+([which terms the frame removes](../../guide/numerics/linear-operator.md#which-terms-the-frame-removes),
+`solprop.linear.frame_origin`), so its operator is the field grid's,
+$-\mathrm{i}(\beta - \beta_1\omega) - \alpha/2$, the same $\kappa$ and the same shift apply,
+and the harmonic term's carrier factor $e^{2\mathrm{i}\omega_0 t}$ is fixed in time, so the
+harmonic band's source rotates at $3\kappa$ as on the field grid.
 
 #### 4.3 Resolution and aliasing
 
@@ -222,6 +229,12 @@ comb-to-continuum case; with it, that case takes 582 rather than 477
 evaluations and its error falls from $1.4\times10^{-5}$ to $6.4\times10^{-6}$, consistent
 with the uncapped run's under-resolved residual rotation. On the three helium and
 hydrogen cases of §7 the cap never binds and the step sequences are identical.
+
+**What the scalar shift leaves.** The third-harmonic band's residual $2\kappa$ is resolved,
+not removed, and at a loose tolerance it can set the order. On the argon case of §7.2 the
+present default runs at order 2 throughout; with the scalar shift the run sits at order 1,
+where the order-2 defect exceeds the order-1 one, with or without the plasma. §4.6 removes
+that residual.
 
 #### 4.4 Stability
 
@@ -286,16 +299,39 @@ and the moments in one object (`coupled_moments`, used as both by
 `HostHistory.exponential_trial`): the shifted object's moments must not be used as the
 flow. The structurally source-free exact chord has no source and is unchanged.
 
+#### 4.6 The harmonic shift
+
+Because $D$ is diagonal, §4.1 holds with one shift per element. The harmonic policy takes
+$\sigma(\omega) = m(\omega)\,\sigma$ with $m = 3$ on the third-harmonic band and $m = 1$
+elsewhere, so that the harmonic source, rotating at $3\kappa$, is smooth as well; the
+moments are evaluated at $hD - m\sigma$ element by element and the samples rotated by
+$e^{m\sigma(1-\theta_j)}$, as in §6.2's first form, which already allows a per-element
+shift. Every statement of §4.1–4.5 holds element by element, including the exactness of the
+step for any $m$; the cap is unchanged.
+
+The difficulty is $m(\omega)$. A frequency boundary does not identify a source's phase:
+self-phase-modulated broadening of the fundamental and harmonic generation reach the same
+bins, so a bin given $m = 3$ may hold fundamental-band content with a residual $-2\kappa$,
+and the reverse. A boundary placed in a spectral gap does not stay in one as the spectrum
+develops, and a boundary that moves would have to stay fixed within an accepted step, its
+history and its dense output, and be reproducible after a rejection and on resume. The
+candidate rules, to be compared under §7.4, are a fixed boundary at $2\omega_0$ (the
+prototype's), a fixed boundary at the run's declared band edge between the fundamental and
+harmonic bands, and a boundary fixed per run from the launched spectrum's support. The
+harmonic policy is admitted only by the gate of §7.4; until it passes, `"harmonic"` exists on
+`numpy_ref` only and refuses elsewhere by name.
+
 ### 5. Proposed interface
 
 ```text
 Multistep(carrier_frame="off")     # SEP 16's arithmetic; the default until phase 4
-Multistep(carrier_frame="scalar")  # §4, with the step cap
+Multistep(carrier_frame="scalar")    # §4.1–4.5, with the step cap
+Multistep(carrier_frame="harmonic")  # §4.6; numpy_ref only until it passes §7.4
 ```
 
-A field of `Multistep`, validated like `formulation`: `"scalar"` is refused with the
-interaction formulation, refused on an envelope grid with the third-harmonic term, and
-equivalent to `"off"` on an envelope grid without it (§6.1). The cap $c$ is a module
+A field of `Multistep`, validated like `formulation`: either shift is refused with the
+interaction formulation and equivalent to `"off"` on an envelope grid without the
+third-harmonic term (§6.1). The cap $c$ is a module
 constant of the policy, not a separate knob. A backend or route that does not yet
 implement the policy refuses `"scalar"` by name, as `refuse_formulation` does for
 undelivered exponential cases. Whether `"scalar"` becomes the default is phase 4's
@@ -321,6 +357,10 @@ changes $\kappa$ and with it $\sigma$; nothing else depends on it.
 
 **Per batch member.** Members may carry different operators, so $\sigma$, the sample
 factors and the cap are per member; the step is capped by the largest $|\kappa_b|$.
+
+**Harmonic band.** For `"harmonic"`, $m(\omega)$ is fixed for the run when the problem is
+translated, by the rule §7.4 selects, and recorded with the run; it never changes within a
+run, so a rejected trial, a dense plane and a resumed history see the same $m$.
 
 **Where the policy is inert.** On an envelope grid without the third harmonic the frame
 subtracts $\beta_0$, $\sigma$ would be the table's rounding, and the policy sets
@@ -406,12 +446,17 @@ cost is made before that.
   witness with three-level convergence; a non-normal frozen block; changing steps and
   rejections; dense endpoints and interiors; section transitions; hard kinks; the
   source-free chord unchanged; a witness where source and compensation defects cancel.
+- **Envelope grids with the third harmonic**: the policy on that grid against the field
+  grid for the same physics, both against converged references (not against each other).
+- **Harmonic band** (§4.6): exactness with a per-element shift; $m$ unchanged across
+  rejections, dense planes and resume; a witness whose fundamental broadening crosses the
+  boundary.
 - **Routes and the reference rule** (§6.1): a shifted launch (pulse away from the frame
   frequency), a non-fundamental launch on a multimode route, a custom frame, and a
   free-space case before free space is admitted; an inactive reference bin falls back to
   $\sigma = 0$ with its reason recorded.
 - **Contract**: older-schema refusal; refusal of `"scalar"` where undelivered, with the
-  interaction formulation and on an envelope grid with the third harmonic; a snapshot under
+  interaction formulation, and of `"harmonic"` off `numpy_ref` before the gate; a snapshot under
   another policy refused; saved and in-memory continuation under the same policy agreeing
   within SEP 25's bounds for matched methods, schedules, orders and histories.
 - **Backend parity**: `numba_cpu` and native against `numpy_ref` under SEP 25's rounding
@@ -455,10 +500,39 @@ On B the error rose from $1.6$ to $2.5\times10^{-6}$ at fewer calls; matched-err
 comparison there is part of phase 4. These figures are full-length runs made to
 understand the problem; qualification uses the short windows of §7.3.
 
+**A loose-tolerance failure.** Case E is the suite's `argon_blueshift`: 13 µm Ar at
+1.7 bar, 0.4 m, 800 nm, 30 fs, 3 µJ, one mode, no loss, 300 nm–4 µm, 400 fs window, with
+the default responses including the plasma; $\kappa = -4412$ rad/m. Error against
+IP-DOPRI5 at `rtol = 1e-8` on `numba_cpu`:
+
+| `rtol` | `off` | `scalar` | `scalar` (capped) | `harmonic` | `harmonic` (capped) | IP-DOPRI5 |
+|---|---|---|---|---|---|---|
+| 1e-3 | 3909 / 0.97 | 2092 / 5.9e-2 | 2312 / 4.7e-2 | 2857 / 0.21 | 3100 / 5.1e-2 | 2625 / 7.2e-2 |
+| 1e-4 | 6741 / 9.5e-3 | 4596 / 8.8e-3 | 4596 / 8.8e-3 | 5162 / 2.2e-2 | 5413 / 1.7e-3 | 4949 / 9.9e-3 |
+
+`off` gives the same 0.97 on `numba_cpu` and native. It is not aliasing ($h|\kappa|$ is at
+most 0.56) and not an under-reading estimate: the order stays at 2 (3 at `1e-4`), the defects
+are level from the input on, nothing is rejected, and about 3900 honestly estimated steps of
+a few parts in $10^4$ each accumulate; a self-compression near 8 cm amplifies the
+accumulated error of every method about 4.5 times. With the scalar shift the order sits at 1
+(§4.3), also without the plasma (at `rtol = 1e-3`: 4931 steps and 0.18 against a
+plasma-free reference, where IP-DOPRI5 takes 688 steps to 0.25). The uncapped harmonic shift is worse than the scalar
+one; capped, it is the most accurate at `1e-4` but takes about 20 % more evaluations.
+
+**Envelope grid with the third harmonic.** Case D's physics with Kerr only (no Raman) over
+4 cm on that grid, against IP-DOPRI5 at `rtol = 1e-9`, the shifts with the cap:
+
+| `rtol` | `off` | `scalar` | `harmonic` | IP-DOPRI5 |
+|---|---|---|---|---|
+| 1e-4 | 230 / 7.7e-5 | 117 / 7.1e-6 | 103 / 5.1e-7 | 203 / 4.3e-5 |
+| 1e-6 | 500 / 8.0e-7 | 383 / 4.5e-8 | 103 / 1.0e-8 | 385 / 1.8e-8 |
+
+The harmonic run's 103 evaluations are the cap's ($4\,\text{cm}\times|\kappa| \approx 97$ rad).
+
 Shifts measured and not proposed: one per mode from each mode's own $\beta_0$ (B: 2522
 evaluations, against 1742, because the higher modes' sources are driven by the
 fundamental); one per element estimated from the two newest samples (B: 3009 with 260
-rejections); a $3\sigma$ shift above $2\omega_0$ (§10).
+rejections).
 
 #### 7.3 Qualification and the default decision (phase 4)
 
@@ -480,7 +554,10 @@ finishes in seconds — never full-length runs:
   a budget fixed before measurement: the policy's weak-band error at matched worst-plane
   error must not exceed `off`'s by more than a factor of 2, and must be below $10^{-2}$
   relative in each named band at the tolerances compared.
-- **Matched work**: work–precision curves over `rtol` from $10^{-5}$ to $10^{-8}$; compare
+- **Loose tolerance**: case E's failure mode at `rtol = 1e-3` on a developed-spectrum
+  window that includes its self-compression, where accumulated error is visible in a short
+  propagation.
+- **Matched work**: work–precision curves over `rtol` from $10^{-3}$ to $10^{-8}$; compare
   calls and time at worst-plane errors from $10^{-3}$ to $10^{-6}$ by interpolation.
 - **Default criterion**: `"scalar"` becomes the default only if, on every case and window,
   it needs no more than 1.1 times `off`'s calls and time at matched worst-plane error and
@@ -490,6 +567,23 @@ finishes in seconds — never full-length runs:
 
 Short-window timings are not extrapolated to full runs; a full-size demonstration, if
 wanted, is a worked example.
+
+#### 7.4 The harmonic gate
+
+`"harmonic"` is promoted to the compiled backends, and considered for the default, only if,
+on the cases and windows of §7.3 including a self-phase-modulation-dominated one (case C)
+and one with a developed harmonic (case D on the envelope grid with the third harmonic):
+
+- each band named in §7.3 has its own converged reference and an error budget fixed before
+  measurement: at matched worst-plane error the harmonic policy's band error is at most the
+  scalar policy's, and below $10^{-2}$ relative;
+- at matched worst-plane error it needs no more than 1.1 times the scalar policy's calls on
+  any case, and fewer on at least one;
+- the boundary rule chosen (§4.6) passes the crossing-broadening witness, and a run whose
+  spectrum moves across the boundary meets the band budget;
+- with the cap, which the measurements of §7.2 show it needs.
+
+If it fails, `"harmonic"` is removed and the scalar policy stands alone.
 
 ### 8. Documentation
 
@@ -508,7 +602,7 @@ contract's `SCHEMA_VERSION` is bumped in phase 1; older compiled adapters refuse
 than run the old arithmetic. The method's representation changes for every `Multistep`,
 so a march snapshot taken before this SEP is refused on resume and the history restarts;
 no output layout changes. Envelope grids without the third harmonic are unchanged under
-either policy; envelope grids with it refuse `"scalar"`. If phase 4 makes `"scalar"` the
+any policy; envelope grids with it are treated as field grids. If phase 4 makes a shift the
 default, field-grid trajectories change: results stay within the accuracy envelopes
 qualified against converged references (SEP 25), which `rtol` alone does not guarantee,
 and recorded call counts, timings and pinned budgets are re-measured. Luna.jl's steppers
@@ -526,13 +620,11 @@ are not affected; no difference to record.
 - **Store the history in a rotating frame.** Equivalent per step, but the stored rows
   would carry an absolute phase $\int\kappa\,dz$ that resume and gradients must track.
 - **Lower order.** Measured worse (§2).
-- **A per-band ("harmonic") shift**, $3\sigma$ above $2\omega_0$. It took 757, 1210 and
-  13895 evaluations on A, B and D but 584 on C, whose self-phase-modulated content above
-  $2\omega_0$ follows the carrier. A frequency threshold does not identify a source's
-  phase: broadening and harmonic generation reach the same bins, and a threshold in a
-  spectral gap does not stay in one. Deferred until a safety criterion with an
-  independent weak-band reference and a fixed budget, covering gap motion and boundary
-  changes after rejections, can be defined.
+- **The harmonic shift as the only policy.** Uncapped with a boundary at $2\omega_0$ it
+  took 757, 1210 and 13895 evaluations on A, B and D but 584 on C, whose
+  self-phase-modulated content above $2\omega_0$ follows the carrier, and on E it was worse
+  than the scalar shift unless capped. It is developed beside the scalar policy and gated
+  (§4.6, §7.4), not adopted alone.
 - **A shift with a real part (loss).** With a lossy reference, a bin with $hD = 0$ needs
   moments at $-\sigma$ with a large positive real part and exponentially small sample
   factors; evaluated separately they overflow and underflow although the integral is
@@ -542,27 +634,39 @@ are not affected; no difference to record.
 
 ### 11. Phases
 
-1. **`numpy_ref`, opt-in.** The policy on field grids for the diagonal, separable and
-   varying operators with compensation, the coupled constant-Schur and frozen-residual
-   sections, the cap and the dense formula; the `carrier_frame` field, its refusals and
-   the `SCHEMA_VERSION` bump; every witness and test of §7.1 on `numpy_ref`; the rounding
-   budget derived; the manual pages. Free space is refused until qualified here or later.
-2. **`numba_cpu`.** Shifted exponent and sample factors in its exponential kernels;
-   parity to the phase 1 budget; short-window timings.
+1. **`numpy_ref`, opt-in.** The scalar and harmonic policies on field grids and envelope
+   grids with the third harmonic, for the diagonal, separable and varying operators with
+   compensation, the coupled constant-Schur and frozen-residual sections, the cap and the
+   dense formula; the `carrier_frame` field, its refusals and the `SCHEMA_VERSION` bump;
+   every witness and test of §7.1 on `numpy_ref`; the rounding budget derived; the manual
+   pages. Free space is refused until qualified here or later. **Interim manual note**, in
+   [the Adams methods](../../guide/numerics/adams.md#limitations) and
+   [choosing a stepper](../../guide/numerics/choosing-a-stepper.md): on field grids (and
+   envelope grids with the third harmonic) in dense gases, the default `Multistep()` at a
+   loose tolerance can accumulate a large error over many steps (case E); use
+   `RungeKutta()` or `rtol <= 1e-4` there, or `carrier_frame="scalar"` once delivered on the
+   backend in use.
+2. **`numba_cpu`.** Shifted exponent and sample factors in its exponential kernels, for
+   the scalar policy; parity to the phase 1 budget; short-window timings.
 3. **Native.** Trial, accept and dense observation on CPU with the host-formed shift;
    parity and timings; then device builds under the standing GPU policy.
 4. **Qualification and the default.** §7.3 on `numba_cpu` and native CPU, the decision on
-   the default against its criterion, re-measured manual ranks and pinned budgets.
+   the default against its criterion, re-measured manual ranks and pinned budgets; the
+   harmonic gate (§7.4) on `numpy_ref`, and, if it passes, the harmonic policy on
+   `numba_cpu` and native in this phase, with the same parity and timing requirements, or
+   its removal if it fails.
 
 Each phase is independently mergeable: the default is `"off"` until phase 4, and a backend
 without the policy refuses it by name.
 
 ### 12. Open questions
 
-- **Q1 — per-band shifts.** Deferred out of this SEP (§10).
+- **Q1 — per-band shifts.** In scope behind a gate (§4.6, §7.4): which boundary rule,
+  settled in phase 4; the policy is removed if no rule passes.
 - **Q2 — loss in the shift.** Not proposed (§10).
 - **Q3 — envelope grids.** Resolved: without the third harmonic the policy is inert
-  ($\sigma \equiv 0$); with it, refused (§2, §6.1).
+  ($\sigma \equiv 0$); with it, the grid's operator is the field grid's and the policy
+  applies unchanged (§4.2).
 - **Q4 — the switch.** Resolved: a public `carrier_frame` field, `"off"` by default until
   phase 4 (§5).
 - **Q5 — the reference on multimode, coupled and free-space routes.** The rule is fixed
@@ -597,6 +701,12 @@ without the policy refuses it by name.
   an opt-in `carrier_frame` policy with a step cap, field grids only, stability and
   aliasing conditions derived, the reference rule and contract specified, the harmonic and
   lossy shifts deferred, qualification criteria fixed before measurement.
+
+- 2026-10-25: Revised after maintainer decisions. Folded in a loose-tolerance failure of
+  the present default (argon, `rtol = 1e-3`, error 0.97) as evidence and a phase 4 case;
+  brought the harmonic shift back as a gated item (§4.6, §7.4); admitted envelope grids with
+  the third harmonic, whose frame now measures its delay from zero frequency so that their
+  operator is the field grid's; added an interim manual note to phase 1.
 
 ### AI review — 2026-10-25 — GPT-6
 
@@ -914,6 +1024,10 @@ on R1–R10 are still pending.
    given (§10, Q1), and a real part in the shift is not proposed (§10, Q2), for the range
    reason the review gives. The weak-band criterion is now an absolute budget against an
    independent reference, fixed before measurement (§7.3).
+   *Maintainer decision (John Travers, 2026-10-25):* bring the harmonic shift back into
+   this SEP as a gated item. Done in §4.6 and §7.4, with R6's criteria as the gate:
+   per-band references and budgets fixed in advance, boundary crossing and fixed-per-run
+   $m(\omega)$ across rejections and resume, and removal if it fails.
 
 7. **R7 — accepted.** §5 and §6.5 make `carrier_frame` a field of `Multistep`, carried in
    `KernelProblem`, with a `SCHEMA_VERSION` bump in phase 1, refusals by name on every
