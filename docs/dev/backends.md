@@ -361,6 +361,25 @@ that kernel matches the line's Lorentzian to 1e-5; the soliton self-frequency sh
 Gordon's rate to 2.4 % at T₀ = 800 fs; and the photon number of a lossless GNLSE run with
 the shock term and Raman on is conserved exactly while the energy falls by 7.2e-6.
 
+**Single precision** ([SEP 33](seps/archive/sep-0033-single-precision-mlx.md), ADR-054). A
+problem whose `precision` is single is executed by `NumpySingleBackend`
+(`backends/numpy_ref/single.py`), which the registry constructs for `numpy_ref`: the
+reference's passes and step loop in binary32, through hooks of the reference that leave
+its binary64 arithmetic unchanged (`SourceTables`, `_propagator`, `_rounded`,
+`_error_norm`, `_envelope_sources`). It narrows the source tables once at construction,
+each with its block exponent (applied at upload where that is exact, refused otherwise
+unless the pass carries it, as the Raman kernel's does); holds the state at the launch's
+power-of-two scale `s`; forms every propagator, prefactor and z-table value in binary64
+and rounds it once; evaluates Kerr, Raman (scalar, tensor, mixtures) and the field-grid
+plasma in binary32 with each term's homogeneity factor in one host coefficient, the
+stable population forms and blocked running integrals
+(`translate.precision.prefix_sum`); reduces the controller's norms as scaled sums of
+squares against `atol / s`; and checks after every trial that the state and stages stayed
+complex64 and after every step that the state is finite. The ionisation rate's table
+lookup, the envelope-grid plasma's cycle moments and the statistics are evaluated in
+binary64 from the binary32 field, which is what the oracle defines. `numba_cpu` and
+`native` refuse a single-precision problem by name.
+
 **Selection.** `backends/registry.py`: `available()` detects with
 `importlib.util.find_spec` and never caches; `select(name, problem, *, grid, modes,
 profiles)` builds one. The three keyword arguments are what `stats()` needs and the kernel
@@ -665,8 +684,9 @@ import/export is explicit (`fft.py`), never at import time, and `fft.wisdom_dige
 which wisdom a run's plans came from. Transforms run in place, because the buffers are
 owned anyway and it helps cache residency (§6).
 FFTW threads default to 1 for transforms below a measured size and to the outer extent above
-it; numba's pool and FFTW's pool are set separately and both capped by the cgroup CPU quota
-when present (read `/sys/fs/cgroup/cpu.max`, not `os.cpu_count()`).
+it; numba's pool and FFTW's pool are set separately and both held within the process's
+thread budget (ADR-052: the affinity mask, the cgroup CPU quota on the process's own path
+rounded down, and `SOLPROP_THREADS`; never `os.cpu_count()`).
 
 ### 3.4 Threading regimes
 
@@ -731,8 +751,8 @@ see [benchmarks.md](benchmarks.md#indicative-results).
 
 Rejected by measurement: the OpenMP and TBB threading layers, a blocked temporal plasma
 scan (42× slower on a single node), an eight-node time-outer traversal, `expm1`, a
-reciprocal rate lookup, and every smaller kernel width on a 36-core server. The two rejected
-traversals are kept as prototypes under `tests/prototypes/`, not in the package.
+reciprocal rate lookup, and every smaller kernel width on a 36-core server. Neither
+rejected traversal is kept, in the package or among its tests.
 `OMP_WAIT_POLICY=PASSIVE` buys 14–39 % on a 36-core server's CtC cases at 18 and 36
 threads. For pyFFTW's own OpenMP runtime it is the default on Linux
 (`backends/numba_cpu/openmp.py`). pyFFTW's Linux wheels thread FFTW through a private
@@ -1549,6 +1569,78 @@ its tidy and sanitizer role only. The native adapter's contract tuples `MODAL_TA
 and `COUPLED_FLOW_FIELDS` name the general leaves' members its adapter reads, so a rename
 is refused by `check_build`.
 
+## 4a. `mlx`: single precision on Apple GPUs
+
+[SEP 33](seps/archive/sep-0033-single-precision-mlx.md)'s `solprop.backends.mlx_gpu`, the extra
+`mlx` (macOS on Apple silicon), registered as `"mlx"` and listed by
+`registry.available("single")` only: it refuses `precision="double"`. `MlxBackend`
+subclasses the single-precision oracle (`NumpySingleBackend`) and keeps its host side
+-- admission, narrowed tables and exponents, the state scale, stage bundles, landing,
+statistics from the widened state -- while the state and every per-step pass live on the
+device (`mlx_gpu/passes.py`, the oracle's passes in MLX). It admits the fibre, radial
+and Cartesian (and line) routes with Runge–Kutta, the low-storage march (`MlxLowStorage`)
+and lockstep batches (`MlxBatchRunner`, which builds every member's step before one
+evaluation), with every response the oracle runs; a z table, Adams and interpolated
+planes are refused by name. The radial route is the fibre route's quadrature with the Hankel
+matrices as its synthesis and projection, its plasma spectrum formed on the nodes and
+projected once (`_device_radial_plasma`), and its absorber matrix applied in the stage.
+The Cartesian route (`_device_free`) uploads its separable operator once, at unit
+distance, as one double-float term the stage's `dz` weights, and its per-column
+prefactor; its transverse transforms are MLX's `fftn` over the two transverse axes,
+probed with the temporal ones at construction, and its window's rate is the in-stage
+collar. On the quadrature routes each chunk's streams -- the polarisation, the plasma's
+gated and edge currents, the envelope plasma's drive and loss -- are projected in one
+matrix product (`passes.project_many`), measured at 1.18 times faster on a one-mode
+plasma capillary, where launches bound the stage, and neutral on larger ones.
+
+**The envelope-grid plasma** (`mlx_gpu/envelope.py`, SEP 33 §6.3) is one kernel thread
+per sample: native's closed-form ellipse (`envelope_axes`: the scaled Gram matrix's
+eigenvalues, the minor axis from the determinant, so circular, nearly linear and scalar
+fields keep their limits), the accepted 64–512-point rules split at the table's cut
+angles, each level's sums compensated, refined to the representation's `2e-6`, and a
+failure flag per sample that the backend reads with the trial's norm and turns into the
+oracle's `ConvergenceError`. The split is honoured exactly: past the low cut the rate is
+zero, before the high cut it is the ceiling, and between them the field is held inside
+the table's range. Without that, binary32's rounding of a cut angle (an arccosine near
+one) put a node across the cutoff for a field within 4e-6 of it, the levels jittered and
+the refinement failed at a rate of 2e-33 s^-1, where the oracle's binary64 converges.
+The exposure is the trapezoid's doubling scan and the populations the stable kernel;
+the species statistics' node scan uses the same kernel. Against the oracle's SVD and
+adaptive quadrature a sample's rate and loss current agree within 2.3e-6 (median 2e-7)
+relative to the representation's `1e-30` s^-1 floor; loss currents below binary32's
+normal range (rates near the floor) are flushed to zero. It is qualified as a
+discretisation (class T) in SEP 33 Part II. On MLX's CPU device the oracle's host
+evaluation runs instead.
+
+**The protected operations** (SEP 33 §6.3), each a custom Metal kernel in `"safe"`
+math mode with its test in `tests/backends/test_mlx.py`, or established by a probe:
+
+| operation | mechanism | measured |
+|---|---|---|
+| stage propagators and term combinations | `DoubleFloatTerms`: binary64 terms as float32 pairs, combined and range-reduced in double-float, `exp(hi)(1 + lo)`, the phasor renormalised by one Newton step on its double-float squared modulus, applied by `fma` | at most 5 u, independent of the phase; drift `c` 0.15–0.32 and energy drift equal to the oracle's to three digits |
+| populations | Kahan's `expm1` from the precise `exp` and `log` | 4 u; MLX's own GPU `expm1` errs by up to 1e-4 |
+| running integrals | the oracle's doubling scan in one threadgroup per row | the oracle's sums to the bit |
+| ionisation rate | the spline with an exact `fma` ratio, Kahan's `log1p`, a double-float constant term | 5 u at worst, median 0.7 u |
+| envelope cycle moments | closed-form ellipse, split rules with the cutoffs honoured, compensated sums, per-sample failure flag | 2.3e-6 against the oracle's adaptive moments (budget 2e-6 each) |
+| matrix products | `MLX_ENABLE_TF32=0` at import; `gemm_probe` at construction, bound `2**-17` | 2e-7 float32 against 7e-4 TF32 |
+
+**Measured MLX behaviour that shaped the backend.** The GPU FFT is about three times
+less accurate than NumPy's float32 transform and its round trip shrinks by 1–2e-7, a
+coherent bias; the split-step collar is therefore applied as the correction
+`a + F(F^-1(a)(f - 1))`, which only the collar's bins see. Graph lifetimes: below
+`memory.MLX_GRAPH_BUDGET` (1 GiB) a whole step is one graph, read with its norm in one
+synchronisation (the three scaled sums and the trial state's finiteness); above it
+each stage and each running integral is evaluated as it is formed.
+`estimate_memory("mlx")` counts the device tables, the double-float terms and the
+graph the backend keeps, and bounds MLX's measured peak; on the spatial routes a stage
+also holds the transverse transforms' copies and the reference's in-place passes as
+separate arrays, measured at up to 18 fine-grid columns per column on the Cartesian
+route and 6 on the radial one (`memory._MLX_TRANSIENT_COLUMNS`), and with the envelope
+plasma the device's own arrays per node sample (drive, loss and current; rate,
+exposure, populations, flag and scan scratch per channel). On MLX's CPU device, which CI
+uses where no Metal GPU is present, the kernels are replaced by MLX operations (the
+propagator by NumPy in binary64) and their tests skip.
+
 ## 5. JAX: evaluated, not adopted
 
 A JAX backend was measured against `numba_cpu` at the step level on the RDW and CtC
@@ -1691,6 +1783,7 @@ that execution space.
 | field-free observation (`observe(field=False)`), the runner, a transverse collar's rate and a set evanescent rate on the separable element | yes | yes | yes (field-free observation needs no native change; the rate is one view in `SpatialCoefficients`) | compiles; not qualified |
 | materials from optmat: gas Raman leaves of many rows on gradients, rate tables, optmat walls, the silica bundles | yes | yes | yes | not qualified |
 | coupling between runs (`field_plane`, `regrid`, `couple`, `Outcouple`, `transport`, `with_input`; SEP 31) | host-side: any source and receiving backend | host-side | host-side | receiving runs not qualified |
+| single precision (`precision="single"`, SEP 33): fibre, radial and Cartesian routes, Kerr, Raman, field and envelope plasma, both absorber schemes, Runge–Kutta and the low-storage march, fixed-schedule batches | the oracle | refused | refused | refused; `mlx` runs every route but the envelope-grid plasma (below) |
 
 **Materials from optmat** ([SEP 3](seps/archive/sep-0003-optmat-materials.md), a run under
 `MaterialSelection`) reach the backends as the arrays any other run carries: index and
@@ -1740,6 +1833,11 @@ Which backend and build to choose for a run is the user guide's
 ## 11. Current limits
 
 - `"cf4"` coupled-flow sections run only on `numpy_ref`.
+- Single precision runs on `numpy_ref`, its oracle, and on `mlx` (the fibre, radial and
+  Cartesian routes); it
+  refuses the general modal route, the hybrid planar kind, coupled flows, TDSE responses,
+  the dispersive electronic response, the far-field statistics, noise models, the Adams
+  integrator and an adaptive `rtol` below `1e-6`.
 - The dispersive electronic response runs on `numpy_ref`, `numba_cpu` and `native` on
   every route; on a device it is qualified on one AMD Instinct generation (HIP) and one
   NVIDIA Hopper device (CUDA); a polynomial mixture costs one group per distinct leg

@@ -188,7 +188,9 @@ def test_a_separable_exponent_is_the_host_volume():
 
 @pytest.mark.medium
 @pytest.mark.parametrize("formulation", ["interaction", "exponential"])
-def test_a_large_problem_marches_on_the_parallel_passes(formulation, monkeypatch):
+def test_a_large_problem_marches_on_the_parallel_passes(
+    thread_budget_lifted, formulation, monkeypatch
+):
     simulation, problem = _cartesian(formulation)
 
     def march(threads: int):

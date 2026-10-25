@@ -138,7 +138,12 @@ which is the envelope form of Genty et al., *Opt. Express* **15**, 5382 (2007). 
 $\mathrm{e}^{+2\mathrm{i}\omega_0 t}$ sign follows from
 $E_a = A\mathrm{e}^{+\mathrm{i}\omega_0 t}$ in the internal FFT convention. The sign is
 tied to the envelope convention, so it is derived here rather than transcribed from the
-literature.
+literature. The factor carries no $z$ dependence, which holds only because $t$ is a
+pure retarded time: the frame must keep the carrier phase whole, removing neither
+$\beta_0$ nor the constant $-\beta_1\omega_0$ that a delay measured from the carrier
+would remove ([which terms the frame removes](../numerics/linear-operator.md#which-terms-the-frame-removes)).
+A regression test compares the third harmonic of a short hydrogen capillary on the two
+grids and against the closed-form weak-conversion estimate.
 
 The four cases {meth}`solprop.nonlinear.responses.KerrResponse.evaluate` implements are
 therefore

@@ -54,7 +54,9 @@ D(ω, z) = −i (β(ω, z) − β₀(z) − β₁(z)(ω − ω₀)) − α(ω, z
 with `α_abs` the spectral absorber rate of ADR-007 (zero where there is no collar). This is
 the envelope-grid form. On a field grid `β₀` is kept, because a constant phase on the
 half-spectrum of a real field rotates its carrier-envelope phase, and the frame term is
-`β₁ω` through the origin; an envelope grid with a third-harmonic term keeps `β₀` too
+`β₁ω` through the origin; an envelope grid with a third-harmonic term keeps `β₀` too, and
+with it measures the frame term `β₁ω` from the origin, because `β₁(ω − ω₀)` would still
+remove the constant `−β₁ω₀`, which `A³ e^{2iω₀t}` does not share
 (`docs/guide/numerics/linear-operator.md`, "Which terms the frame removes"). These are Luna's
 internal signs, so kernels and stored spectra compare directly with Luna's.
 The stored spectral state is the **raw forward DFT of the sample array**,
@@ -246,8 +248,9 @@ Cartesian one).
   `phi` a carrier phase. A run's reference is the integral of the affine term its
   linear operator removed, `phi + omega tau = integral_0^z R dz`,
   `R = beta0 + beta1 (omega - omega_o)`, with `omega_o` the frame's reference
-  frequency on an envelope grid and zero on a field grid (where `beta0` is kept in
-  the operator and contributes nothing here). Output schema 24 stores the exact
+  frequency on an envelope grid that removes `beta0` and zero on a field grid or an
+  envelope grid with a third harmonic (where `beta0` is kept in the operator and
+  contributes nothing here). Output schema 24 stores the exact
   Chebyshev antiderivatives of the frame tables, so the pair is rebuilt from the
   file; a launched run inherits its source plane's pair as its origin.
 - *Affine phase and delay.* An operation that removes a known affine term adds it to
@@ -323,7 +326,10 @@ Cartesian one).
 ## 6. Array layout and axis names
 
 Kernel state and canonical storage: `(n_batch, n_modes, n_pol, n_omega)` complex128, ω
-contiguous (C order). Saved fields: `(n_z, n_modes, n_pol, n_omega)`, with a leading `n_batch`
+contiguous (C order). Under `precision="single"` (SEP 33, ADR-054) a backend holds the
+state as complex64 at the run's exact power-of-two scale `s`, `a / s`; what crosses the
+seam to the host, and every saved field, is the physical state widened to complex128.
+Saved fields: `(n_z, n_modes, n_pol, n_omega)`, with a leading `n_batch`
 for batch runs. Space-domain buffers: `(n_nodes_chunk, n_pol, n_to)`. Convenience accessors
 may squeeze trivial axes; the seam and the files never do.
 

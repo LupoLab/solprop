@@ -26,7 +26,7 @@ also runs by hand.
 | host execution space | Kokkos OpenMP | Kokkos OpenMP | Kokkos OpenMP | Kokkos OpenMP |
 | OpenMP runtime | GCC's `libgomp` | GCC's `libgomp` | LLVM `libomp`, built for the target | LLVM `libomp` from the LLVM installation |
 | BLAS | OpenBLAS 0.3.34, OpenMP, `DYNAMIC_ARCH`, `solprop_` prefix (built by the configure step) | the same | Accelerate | OpenBLAS 0.3.34, OpenMP, one fixed Haswell target (no `DYNAMIC_ARCH`), static |
-| FFTW 3.3.11 | shared, SSE2 and AVX codelets | shared, cycle counter | shared, cycle counter | static, SSE2 and AVX codelets |
+| FFTW 3.3.11 | shared, SSE2 and AVX codelets | shared, cycle counter, NEON codelets | shared, cycle counter, NEON codelets | static, SSE2 and AVX codelets |
 | repair | `auditwheel` | `auditwheel` | `delocate` | `delvewheel` (mangled names) |
 
 Every bundled library runs on the same OpenMP runtime as Kokkos, so a process holds one
@@ -75,7 +75,8 @@ checkout and run, in order:
 
 1. `python -I native/ci/smoke.py --version VERSION`: the package imports and passes
    `check_build()`, is the distribution build at the release's version, loads the FFT,
-   BLAS and OpenMP libraries from inside the wheel, and carries their licences;
+   BLAS and OpenMP libraries from inside the wheel, and carries their licences; on Arm,
+   both precisions of its FFTW carry the NEON codelets;
 2. `python -I -m solprop_native`: the build record;
 3. `python -I native/ci/coexistence.py`: NumPy, SciPy, pyFFTW and Numba imported before
    and after `solprop_native`, each order in a fresh process, every package's thread

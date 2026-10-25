@@ -14,7 +14,7 @@ import pytest
 
 from backends.matched import assert_columns_agree
 from bounds import assert_within
-from plasma_prototypes import inputs, reference_arguments
+from plasma_column_inputs import inputs, reference_arguments
 from solprop.backends.numba_cpu import kernels
 
 

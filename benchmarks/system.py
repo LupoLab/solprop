@@ -41,6 +41,8 @@ __all__ = [
 ]
 
 POOL_VARIABLES = (
+    "SOLPROP_THREADS",
+    "SOLPROP_OVERSUBSCRIBE",
     "SOLPROP_NATIVE_THREADS",
     "SOLPROP_NATIVE_KERNEL_THREADS",
     "SOLPROP_NATIVE_FFT_THREADS",
@@ -172,6 +174,7 @@ def thread_environment(
         if key not in ("SOLPROP_FFTW_PLAN", "KOKKOS_TOOLS_LIBS"):
             environment.pop(key, None)
     for key in (
+        "SOLPROP_THREADS",
         "SOLPROP_NATIVE_THREADS",
         "SOLPROP_NUMBA_THREADS",
         "NUMBA_NUM_THREADS",

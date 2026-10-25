@@ -286,9 +286,8 @@ def test_a_fixed_frame_sets_the_removed_affine_term():
     )
     kept = Frame(grid.omega0, subtract_beta0=False)
     moved, _ = transport(plane, [gap], frame=kept)
-    assert moved.reference.phase == pytest.approx(
-        -grid.omega0 * 0.2 / 299792458.0, rel=1e-12
-    )
+    # A frame that keeps the carrier phase is a pure delay: no phase at all.
+    assert moved.reference.phase == 0.0
     back, _ = transport(moved, [FreeSpace(-0.2, air)], frame=kept)
     assert back.provenance.history[-2].endswith("(reconstruction)")
     assert back.reference.phase == pytest.approx(0.0, abs=1e-9)

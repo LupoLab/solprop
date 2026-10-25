@@ -164,7 +164,10 @@ planes. Things to know:
 
 ## Threads on the CPU build
 
-The CPU build uses every logical CPU by default. `SOLPROP_NATIVE_THREADS` caps it, and
+The CPU build uses the process's thread budget by default: the CPUs in its affinity
+mask (which `taskset` or a batch scheduler's allocation narrows), a container's CPU
+quota and `SOLPROP_THREADS`, solprop's budget for every CPU backend
+([performance tuning](tuning.md)). `SOLPROP_NATIVE_THREADS` narrows it further, and
 four further variables size its individual pools; all are read once, when
 `solprop_native` is imported, so set them before starting Python:
 

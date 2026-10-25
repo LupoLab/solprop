@@ -93,6 +93,8 @@ def test_envelope_fields_and_all_populations_agree_across_cpu_threads(
             env={
                 **os.environ,
                 "SOLPROP_NATIVE_THREADS": str(threads),
+                "SOLPROP_OVERSUBSCRIBE": "1",
+                "SOLPROP_THREADS": "",
                 "SOLPROP_NATIVE_KERNEL_THREADS": str(threads),
                 "SOLPROP_NATIVE_FFT_THREADS": str(threads),
                 "OMP_DYNAMIC": "FALSE",

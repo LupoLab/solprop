@@ -85,7 +85,7 @@ from solprop.noise import NoiseRealisation
 from solprop.physdata import Gas
 from solprop.physdata.mixtures import Mixture
 from solprop.profiles import FromCallable, ZProfile
-from solprop.spatial import SpatialDispersion, SpatialMedium
+from solprop.spatial import FAR_FIELD_STATISTICS, SpatialDispersion, SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper.controller import PIController, default_dz_min
 from solprop.stepper.low_storage import LowStorageRungeKutta
@@ -138,6 +138,7 @@ from solprop.translate.modal import (
 )
 from solprop.translate.planar import planar_operators, planar_transform
 from solprop.translate.plasma_source import plasma_source_record
+from solprop.translate.precision import DOUBLE, Precision
 from solprop.translate.radial import (
     radial_operators,
     radial_rate_bounds,
@@ -172,6 +173,7 @@ __all__ = [
     "DEFAULT_STRETCH",
     "EXPONENT_BUDGET",
     "LOG_DBL_MAX",
+    "LOG_FLT_MAX",
     "MAX_GENERAL_FLOW_EXPONENT",
     "MAX_N_COMPONENTS",
     "MAX_N_POL",
@@ -193,7 +195,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 35
+SCHEMA_VERSION = 36
 """Version of the kernel contract this module implements.
 
 Incremented on every change to the field list of ``docs/dev/kernel-contract.md``. A
@@ -422,6 +424,11 @@ Poynting flux of the medium at its plane, weighted by the admittance
 ``c k_z / omega`` of that plane's root, with the complex admittance for local flux.
 A radial gas path's cumulative operator gains the forward amplitude term
 ``-ln(Y_z(z)/Y_z(0))/2``. A problem without spatial geometry carries no plan.
+
+Version 36 (SEP 33) adds ``precision``, the arithmetic the run is held in
+(:class:`solprop.translate.precision.Precision`). Every table stays binary64 at the
+seam; a backend that admits single precision narrows its tables on upload, and every
+other backend refuses a single-precision problem by name.
 """
 
 DEFAULT_COMPONENTS = ("x",)
@@ -988,6 +995,9 @@ class KernelProblem:
     flux : solprop.translate.spatial.FluxPlan or None, optional
         A spatial run's plane-measure coefficients (version 35); required with
         spatial geometry and absent otherwise.
+    precision : solprop.translate.precision.Precision, optional
+        The arithmetic the run is held in (version 36): binary64 by default, or
+        binary32 under SEP 33's contract. Tables are binary64 here either way.
 
     Examples
     --------
@@ -1006,7 +1016,7 @@ class KernelProblem:
     ...     dz_max=0.1, dz_init=1e-3, shock=False, prefactor_index=1.0, density=1.0,
     ... )
     >>> problem.shape, problem.grid_kind, problem.schema_version
-    ((1, 1, 1, 4096), 'envelope', 35)
+    ((1, 1, 1, 4096), 'envelope', 36)
     """
 
     schema_version: int
@@ -1023,6 +1033,7 @@ class KernelProblem:
     tdse: TDSEDescriptor | None = None
     current_numerator: Float[np.ndarray, "n_modes n_pol n_omega"] | None = None
     flux: FluxPlan | None = None
+    precision: Precision = DOUBLE
 
     @property
     def device_ready(self) -> bool:
@@ -1121,6 +1132,7 @@ class KernelProblem:
         if (self.tdse is None) != (self.current_numerator is None):
             raise TranslationError("TDSE descriptor and current numerator must coexist")
         self._check_integrator()
+        self._check_precision()
         if self.tdse is not None:
             self._check_tdse()
             unavailable = TDSE_UNAVAILABLE_STATISTICS.intersection(
@@ -1217,6 +1229,121 @@ class KernelProblem:
                 "runs on the Adams route alone; use Multistep()"
             )
             raise TranslationError(msg)
+
+    def _check_precision(self) -> None:
+        """Refuse, by name, what no backend runs in single precision (SEP 33 5.1).
+
+        The general modal route (a moving guide among it), the hybrid planar kind,
+        coupled flows (``"cf4"`` sections among them), TDSE responses, the dispersive
+        electronic response, the far-field statistics and noise models are outside
+        SEP 33's scope, so every backend refuses them under ``precision="single"``.
+
+        Raises
+        ------
+        TranslationError
+            Naming the refused route, response or statistic.
+        """
+        if not isinstance(
+            self.precision, Precision
+        ):  # pragma: no cover - refused by the annotation where it is checked
+            raise TranslationError("precision must be a Precision record")
+        if not self.precision.single:
+            return
+        geometry = self.transform.geometry
+        refused = [
+            (self.transform.modal_tables is not None, "the general modal route"),
+            (
+                geometry is not None and geometry.kind == "slab",
+                "the hybrid planar kind",
+            ),
+            (self.linear.coupled_flow is not None, "a coupled flow"),
+            (self.tdse is not None, "a TDSE response"),
+            (
+                self.responses.dispersive_kerr is not None,
+                "the dispersive electronic response",
+            ),
+            (
+                bool(
+                    set(FAR_FIELD_STATISTICS).intersection(
+                        (*self.stats_spec.names, *self.stats_spec.periodic)
+                    )
+                ),
+                "the far-field statistics",
+            ),
+            (
+                self.flags.has_noise or self.initial.noise_model != "none",
+                "a noise model (a known limitation of single precision)",
+            ),
+        ]
+        for refuse, name in refused:
+            if refuse:
+                msg = (
+                    f"precision='single' refuses {name}: no backend runs it in "
+                    "binary32 (SEP 33 section 5.1); use precision='double'"
+                )
+                raise TranslationError(msg)
+        self._check_single_exponent()
+
+    def _check_single_exponent(self) -> None:
+        """Refuse a step whose propagator or its inverse overflows binary32.
+
+        The interaction picture multiplies each stage by ``exp(-dPhi)`` and the state
+        by ``exp(dPhi)``; held in binary32, either is infinite once ``|Re dPhi|``
+        passes ``log(FLT_MAX)``, about 88.72, where binary64 reaches 709.78. A strong
+        spectral collar on a long step is the usual cause. As
+        :meth:`_check_exponent_budget` does for binary64, a replayed schedule's
+        longest step, or the floor ``dz_min``, is held to the limit -- an adaptive
+        controller rejects a non-finite trial above its floor and shrinks -- and every
+        kind is checked: the exponent is evaluated from the operator itself over that
+        step at the start and the end of the run, which for a varying operator samples
+        its range.
+
+        Raises
+        ------
+        TranslationError
+            Past ``log(FLT_MAX)``, naming the exponent, the step and the remedies.
+
+        Warns
+        -----
+        solprop.exceptions.ExponentBudgetWarning
+            Between nine tenths of the limit and the limit.
+        """
+        schedule = self.stepper.schedule
+        step, source = (
+            (float(np.max(schedule.steps)), "replayed step")
+            if schedule is not None
+            else (self.stepper.dz_min, "step floor dz_min")
+        )
+        start = float(self.initial.z)
+        end = float(self.stepper.save_planes[-1])
+        step = min(step, end - start)
+        exponent = 0.0
+        for first in {start, end - step}:
+            phase = delta_phi(self.linear, first, first + step)
+            exponent = max(exponent, float(np.max(np.abs(np.real(phase)))))
+        if exponent <= EXPONENT_BUDGET * LOG_FLT_MAX:
+            return
+        message = (
+            f"precision='single': the {source} {step:.3e} m gives a propagator "
+            f"exponent |Re dPhi| of {exponent:.1f}"
+        )
+        remedy = (
+            "take steps shorter than "
+            f"{step * EXPONENT_BUDGET * LOG_FLT_MAX / exponent:.3e} m, weaken the "
+            "collar with a larger boundary_length, or use precision='double'"
+        )
+        if exponent > LOG_FLT_MAX:
+            msg = (
+                f"{message}, past binary32's range exp({LOG_FLT_MAX:.2f}): the "
+                f"interaction picture's inverse propagator overflows; {remedy}"
+            )
+            raise TranslationError(msg)
+        warnings.warn(
+            f"{message}, within a tenth of binary32's range exp({LOG_FLT_MAX:.2f}): "
+            f"the run completes only while the field stays small; {remedy}",
+            ExponentBudgetWarning,
+            stacklevel=4,
+        )
 
     def _check_tdse(self) -> None:
         """Refuse a manually constructed atomic seam outside the admitted route."""
@@ -2219,6 +2346,9 @@ LOG_DBL_MAX = math.log(np.finfo(np.float64).max)
 IEEE Std 754-2019, doi:10.1109/IEEESTD.2019.8766229. A propagator factor
 ``exp(h lambda)`` past it is infinite on every backend (SEP 22 section 4.5).
 """
+
+LOG_FLT_MAX = math.log(float(np.finfo(np.float32).max))
+"""``log(FLT_MAX)``, about 88.72: binary32's largest finite ``exp`` (SEP 33)."""
 
 EXPONENT_BUDGET = 0.9
 """Fraction of :data:`LOG_DBL_MAX` above which translation warns of a step it cannot
@@ -5613,6 +5743,7 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     evanescent_rate: float | None = None,
     transverse_absorber: TransverseCollar | None = None,
     adiabatic_accuracy: AdiabaticAccuracy | None = None,
+    precision: Precision = DOUBLE,
 ) -> KernelProblem:
     """Turn the physics objects of a run into a validated kernel problem.
 
@@ -5792,6 +5923,10 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         The budgets a radial medium varying along z must meet for its forward
         amplitude transport (SEP 34 section 4.5); None, the default, is
         ``AdiabaticAccuracy()``. A path exceeding them is refused.
+    precision : solprop.translate.precision.Precision, optional
+        The arithmetic the run is held in (SEP 33): :data:`~.precision.DOUBLE`, the
+        default, or :data:`~.precision.SINGLE`. The tables are built in binary64
+        either way; what single precision refuses is refused here.
 
     Returns
     -------
@@ -6063,6 +6198,7 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         tdse=tdse,
         current_numerator=None if tdse is None else current_numerator(grid),
         flux=flux,
+        precision=precision,
     )
     _validated(problem)
     logger.debug(
@@ -6115,7 +6251,7 @@ def debug_summary(problem: KernelProblem) -> str:
     ...     width=100e-15, peak_power=9.8, pulseshape="sech", n_save=3,
     ... )
     >>> print(debug_summary(simulation.translate()).splitlines()[0])
-    kernel problem schema 35: envelope grid, route modal
+    kernel problem schema 36: envelope grid, route modal
     """
     linear, transform = problem.linear, problem.transform
     tables, metric = transform.modal_tables, linear.modal_metric

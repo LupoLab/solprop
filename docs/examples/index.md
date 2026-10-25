@@ -26,6 +26,7 @@ sequence if you are new to solprop.
 | Supercontinuum and noise | [Input pulses and their shot-noise floor](../auto_tutorials/basics/plot_02_pulses.rst) | [Supercontinuum generation](../auto_examples/supercontinuum/index.rst): mechanisms, ensembles, noise, and coherence |
 | Waveguide geometry | [Waveguide tutorials](../auto_tutorials/waveguides/index.rst) | [Waveguide physics](../auto_examples/waveguides/index.rst): gradients, tapers, vector modes, and planar compressors |
 | Beams and free space | [Free-space tutorials](../auto_tutorials/free_space/index.rst): radial, Cartesian, line, and planar calculations | Follow their links to the [free-space guide](../guide/free-space/index.md) for model and resolution choices |
+| Performance | [Choosing a backend](../guide/performance/backends.md) | [Performance](../auto_examples/performance/index.rst): single precision on an Apple GPU against binary64 |
 | Inputs, analysis, and workflows | [Basics](../auto_tutorials/basics/index.rst) and [optical tools](../auto_tutorials/tools/index.rst) | Use the analysis in a worked simulation as a starting point for your own output |
 
 ## Two kinds of calculation

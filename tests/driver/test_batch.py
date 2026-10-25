@@ -11,6 +11,7 @@ import pytest
 from jaxtyping import TypeCheckError
 
 from driver.test_scans import build_point
+from runtime_types import requires_typecheck
 from solprop.backends.protocol import Observation, StepHistory, StepStats
 from solprop.driver.batch import (
     BatchMember,
@@ -173,6 +174,7 @@ def test_batch_refuses_invalid_size(size):
         list(compatible_groups([], size))
 
 
+@requires_typecheck
 @pytest.mark.parametrize("size", [1.5])
 def test_batch_size_rejects_fractional_type(size):
     with pytest.raises(TypeCheckError, match="size"):

@@ -36,7 +36,7 @@ from solprop.boundaries import TEMPORAL_ALPHA_LENGTH, Absorber
 from solprop.constants import EPS0, C
 from solprop.exceptions import GrazingIncidenceWarning, TranslationError
 from solprop.grid import TimeGrid
-from solprop.linear import frame_quantities
+from solprop.linear import frame_origin, frame_quantities
 from solprop.modes.slab import PlanarGrid, SlabMode
 from solprop.physdata import Gas, Mixture, as_gas
 from solprop.physdata.glasses import GlassIndex
@@ -247,7 +247,7 @@ def planar_operators(
     square, square_low = dispersion.material_squares()
     kappa = planar_kappa(space, dispersion)
     beta0, beta1 = frame_quantities(space.modes[0], dispersion.frame)
-    origin = dispersion.frame.omega0 if grid.kind == "envelope" else 0.0
+    origin = frame_origin(dispersion.frame, grid.kind)
     frame = beta0 + beta1 * (grid.omega - origin)
     data = SeparableOperator(
         k_squared=square,

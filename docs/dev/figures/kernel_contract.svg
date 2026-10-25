@@ -80,7 +80,7 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="42.0" y="146.75" font-size="12" class="dim">derived from the content of §2 to §8</text>
 <text x="42.0" y="162.25" font-size="12" class="dim">by translate.assemble</text>
 <rect x="386.0" y="125.0" width="420.0" height="66.0" rx="7" ry="7" class="fill-t" />
-<text x="396.0" y="147.0" font-size="15" class="bold ink-t">§1   schema_version · grid_kind · shape · flags</text>
+<text x="396.0" y="147.0" font-size="15" class="bold ink-t">§1   schema_version · grid_kind · shape · flags · precision</text>
 <text x="396.0" y="162.5" font-size="12" class="dim">identity and validation</text>
 <text x="396.0" y="178.0" font-size="12" class="dim">translate.problem.Flags</text>
 <rect x="864.0" y="125.0" width="304.0" height="51.0" rx="7" ry="7" class="fill-b" />

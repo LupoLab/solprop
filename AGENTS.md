@@ -93,24 +93,25 @@ coverage lane requires 100 % of statements and branches of the whole package
 `# pragma: no cover` needs a reason on the same line.
 
 **CI** (`.github/workflows/ci.yml`) runs on every push to `main` and every pull request:
-`poe check` split into parallel jobs (the static checks and the documentation on Linux,
-the default lane on macOS, and on Linux the coverage lane, which is the default lane
-with coverage); the slow lane on Linux and macOS; the default lane on Windows; the
-default lane at the lowest dependency versions; and the default lane with the native
-CPU backend (`docs/dev/tooling.md`, "CI"). Between them the jobs run exactly
-`poe check`'s steps: change both in the same commit.
+`poe check` split into parallel jobs (the static checks and the documentation on Linux;
+the default lane on macOS and Windows with the native CPU wheel built from this tree; and
+on Linux the coverage lane, which is the default lane with coverage and the runtime type
+checks); the slow lane on Linux and macOS; and the default lane at the lowest dependency
+versions. The long lanes run as shards of whole modules (`SOLPROP_TEST_SHARD`), and only
+the coverage lane runs the type checks (ADR-053; `docs/dev/tooling.md`, "CI"). Between
+them the jobs run exactly `poe check`'s steps: change both in the same commit.
 
 **Changes touching `native/`** follow [`native/AGENTS.md`](native/AGENTS.md). Their full
 gate, `uv run poe check-native` (`uv run poe check-all` for both gates), also runs in CI:
-the native gate as the `native-quality` job and solprop's default lane on the native CPU
-distribution wheel as `native-suite`.
+the native gate as the `native-quality` jobs and the distribution wheel's build and smoke
+test as `native-wheel`, whose wheel the macOS, Windows and coverage lanes install.
 
 **Slices of a phased SEP.** Develop first and test towards the end. Each slice runs the
 fast checks only: `ruff check --fix`, `ruff format`, `ruff check`, `basedpyright` and the
 test modules that directly exercise the code it changed (`uv run pytest -n auto
-<files>`). The full gate, slow lanes and coverage lane run in CI on the SEP's single pull
-request, opened once the SEP is set `Final`. After a failure, rerun the failing modules,
-not the whole lane.
+<files>`). The full gate, slow lanes and coverage lane run in CI on the SEP's single
+pull request, opened once the SEP is set `Final`. After a CI failure, rerun the failing
+modules locally, fix, and push; never the whole lane.
 
 **Qualification scope.** A change is qualified on `numpy_ref`, `numba_cpu` and, when it
 is installed, the native **CPU** build; GPU builds are exercised separately with

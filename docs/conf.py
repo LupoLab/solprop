@@ -27,6 +27,10 @@ from sphinx_gallery.utils import get_md5sum
 if importlib.util.find_spec("solprop_native") is not None:
     importlib.import_module("solprop_native")
 
+# The mlx backend's optional dependency is macOS-only (SEP 33): elsewhere autodoc reads
+# its modules against a mock of MLX.
+autodoc_mock_imports = [] if importlib.util.find_spec("mlx") is not None else ["mlx"]
+
 # Initialise the reference backend through its package entry point before
 # autosummary visits its implementation modules in an arbitrary order. Importing
 # populations first encounters the package's existing circular initialisation.
@@ -145,6 +149,8 @@ nitpick_ignore = [
     # carries as a class attribute; private for the same reason.
     ("py:class", "solprop._helpers.Helpers"),
     ("py:class", "Helpers"),
+    # MLX publishes no inventory Sphinx can resolve (the mlx backend, SEP 33).
+    ("py:class", "mlx.core.array"),
 ]
 # Array annotations are written with jaxtyping on numpy arrays (ADR-018). Neither
 # jaxtyping nor numpy's private typing aliases publish an inventory Sphinx can resolve,
@@ -212,6 +218,7 @@ sphinx_gallery_conf = {
             "examples/processes",
             "examples/supercontinuum",
             "examples/waveguides",
+            "examples/performance",
         ]
     ),
     "within_subsection_order": "FileNameSortKey",

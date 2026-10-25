@@ -481,6 +481,8 @@ def _probe(
             **os.environ,
             "OMP_PROC_BIND": "false",
             "SOLPROP_NATIVE_THREADS": str(threads),
+            "SOLPROP_OVERSUBSCRIBE": "1",
+            "SOLPROP_THREADS": "",
             **{name: str(threads) for name in POOL_VARIABLES},
         },
     )

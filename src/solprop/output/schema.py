@@ -113,7 +113,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 24
+SCHEMA_VERSION = 25
 """Version of the record layout; incremented whenever a stored field changes meaning.
 
 Version 9 adds the SEP 13 stepping method. Independent version-10 branches added
@@ -178,6 +178,10 @@ identity (``configuration["coupling"]``). Any saved plane's absolute phase and t
 reference is rebuilt from it alone. The tables are derived numbers, outside the hash;
 the inherited origin is in the configuration, inside it. Planes of an earlier file
 cannot be exchanged.
+
+Version 25 (SEP 33) records every run's ``precision`` in its hashed configuration,
+``"double"`` included, so a resume in the other precision is refused through the hash.
+The saved arrays are binary64 either way.
 """
 
 INLINE_ARRAY_LIMIT = 2**20

@@ -112,7 +112,7 @@ from solprop.translate.stage import (
 )
 from solprop.translate.tdse import TDSEPurpose
 
-from . import _core, build_info, check_build
+from . import THREAD_BUDGET, _core, build_info, check_build
 from ._helpers import NATIVE
 
 type ComplexArray = npt.NDArray[np.complex128]
@@ -1342,6 +1342,8 @@ class NativeBackend(StepDriver[_core.State]):
             **work,
             **facts.info,
             "solprop_version": facts.solprop_version,
+            "thread_budget": THREAD_BUDGET.threads,
+            "thread_budget_source": THREAD_BUDGET.source,
             "planning_seconds": self._native_state.planning_seconds,
             "raman_fft_provider": self._native_state.raman_fft_provider,
             "raman_fft_tasks": self._native_state.raman_fft_tasks,
@@ -2249,6 +2251,11 @@ def _refuse_unsupported(problem: KernelProblem) -> None:
         raise BackendError(
             f"solprop-native implements schema {SCHEMA_VERSION}; problem declares "
             f"{problem.schema_version}"
+        )
+    if problem.precision.single:
+        raise BackendError(
+            "solprop-native computes in binary64 only and refuses precision='single' "
+            "(solprop SEP 33); use backend='numpy_ref', the single-precision oracle"
         )
     if problem.tdse is not None:
         raise BackendError(

@@ -19,6 +19,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from solprop import _process
 from solprop.driver.executors import pool
 from solprop.driver.executors.queue import Queue
 from solprop.driver.executors.slurm import Slurm
@@ -45,18 +46,17 @@ def test_linux_memory_limits_ignore_unlimited_or_zero_cgroups(
 
 
 @pytest.mark.parametrize("offset,count", [(-1, 1), (0, 0)])
-def test_cpu_instance_refuses_invalid_slice(tmp_path, monkeypatch, offset, count):
-    monkeypatch.setattr(pool, "Path", lambda name: tmp_path / "missing")
+def test_cpu_instance_refuses_invalid_slice(monkeypatch, offset, count):
+    monkeypatch.setattr(_process, "cgroup_cpus", lambda: None)
     monkeypatch.setenv("SOLPROP_SCAN_CPU_OFFSET", str(offset))
     monkeypatch.setenv("SOLPROP_SCAN_CPU_COUNT", str(count))
     with pytest.raises(DriverError, match="offsets/counts"):
         pool._cpus()
 
 
-def test_unlimited_cpu_quota_preserves_allocated_affinity(tmp_path, monkeypatch):
-    quota = tmp_path / "cpu.max"
-    quota.write_text("max 100000")
-    monkeypatch.setattr(pool, "Path", lambda name: quota)
+def test_unlimited_cpu_quota_preserves_allocated_affinity(monkeypatch):
+    monkeypatch.setattr(_process, "cgroup_cpus", lambda: None)
+    monkeypatch.delenv("SOLPROP_THREADS", raising=False)
     monkeypatch.setattr(
         pool.os, "sched_getaffinity", lambda pid: {1, 3, 5, 7}, raising=False
     )
@@ -66,15 +66,65 @@ def test_unlimited_cpu_quota_preserves_allocated_affinity(tmp_path, monkeypatch)
     assert pool._cpus() == (3, 5)
 
 
+@pytest.mark.parametrize("limit", ["quota", "variable"])
+def test_the_controllers_thread_budget_limits_the_cpus_shared_out(monkeypatch, limit):
+    """A CPU quota or ``SOLPROP_THREADS`` holds the scan's workers within the budget."""
+    monkeypatch.setattr(
+        pool.os, "sched_getaffinity", lambda pid: set(range(8)), raising=False
+    )
+    monkeypatch.setattr(
+        _process, "cgroup_cpus", lambda: 3 if limit == "quota" else None
+    )
+    if limit == "variable":
+        monkeypatch.setenv("SOLPROP_THREADS", "3")
+    else:
+        monkeypatch.delenv("SOLPROP_THREADS", raising=False)
+    for name in (
+        "SLURM_CPUS_PER_TASK",
+        "SOLPROP_SCAN_CPU_OFFSET",
+        "SOLPROP_SCAN_CPU_COUNT",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    assert pool._cpus() == (0, 1, 2)
+
+
+@pytest.mark.parametrize(("budget", "expected"), [(None, (4, 5, 6, 7)), ("2", (4, 5))])
+def test_a_slurm_instance_keeps_its_cpus_under_a_smaller_budget(
+    monkeypatch, budget, expected
+):
+    """The second of two instances on eight CPUs: its slice first, then the budget.
+
+    Cutting the mask to the budget before the offset left this instance no CPUs.
+    """
+    monkeypatch.setattr(
+        pool.os, "sched_getaffinity", lambda pid: set(range(8)), raising=False
+    )
+    monkeypatch.setattr(_process, "cgroup_cpus", lambda: None)
+    monkeypatch.setenv("SLURM_CPUS_PER_TASK", "8")
+    monkeypatch.setenv("SOLPROP_SCAN_CPU_OFFSET", "4")
+    monkeypatch.setenv("SOLPROP_SCAN_CPU_COUNT", "4")
+    if budget is None:
+        monkeypatch.delenv("SOLPROP_THREADS", raising=False)
+    else:
+        monkeypatch.setenv("SOLPROP_THREADS", budget)
+    assert pool._cpus() == expected
+
+
+def test_an_invalid_thread_budget_is_a_driver_error(monkeypatch):
+    monkeypatch.setenv("SOLPROP_THREADS", "none")
+    with pytest.raises(DriverError, match="SOLPROP_THREADS"):
+        pool._cpus()
+
+
 def test_cpus_count_the_processors_where_there_is_no_affinity_call(
-    tmp_path, monkeypatch
+    thread_budget_lifted, monkeypatch
 ):
     """macOS has no `sched_getaffinity`; the count is then `process_cpu_count`.
 
     Taken out on every platform, so the branch each operating system does not take
     in production is still exercised on it.
     """
-    monkeypatch.setattr(pool, "Path", lambda name: tmp_path / "missing")
+    monkeypatch.setattr(_process, "cgroup_cpus", lambda: None)
     monkeypatch.delattr(pool.os, "sched_getaffinity", raising=False)
     monkeypatch.setattr(pool.os, "process_cpu_count", lambda: 3)
     for name in (
@@ -239,11 +289,11 @@ class EchoWork:
 @pytest.mark.parametrize("fresh", [False, True])
 def test_pool_reuses_or_replaces_workers_as_requested(monkeypatch, fresh):
     monkeypatch.setattr(pool.Pool, "_admit", lambda *args: ((0,), 1))
-    monkeypatch.setenv("SOLPROP_NUMBA_THREADS", "3")
+    monkeypatch.setenv("SOLPROP_THREADS", "3")
     output = list(pool.Pool(fresh=fresh, pin=False).run([0, 1], EchoWork()))
     assert [point for point, pid in output] == [0, 1]
     assert (output[0][1] != output[1][1]) is fresh
-    assert os.environ["SOLPROP_NUMBA_THREADS"] == "3"
+    assert os.environ["SOLPROP_THREADS"] == "3"
 
 
 def test_pool_replaces_crashed_worker_and_keeps_pending_points(monkeypatch):

@@ -34,7 +34,7 @@ import threading
 import uuid
 import warnings
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Literal, cast
 
@@ -47,7 +47,7 @@ from solprop._display import Displayed, engineering, line, summarise
 from solprop.adiabatic import AdiabaticAccuracy
 from solprop.backends.multistep import CallLedger
 from solprop.backends.protocol import Backend
-from solprop.backends.registry import resolve_name, select
+from solprop.backends.registry import metal_available, resolve_name, select
 from solprop.boundaries import (
     Absorber,
     TransverseCollar,
@@ -113,7 +113,7 @@ from solprop.grid import (
     RadialGrid,
     TimeGrid,
 )
-from solprop.linear import Frame, frame_quantities
+from solprop.linear import Frame, frame_origin, frame_quantities
 from solprop.log import DEFAULT_PROGRESS_PERIOD, ProgressChoice, ProgressReporter
 from solprop.modes.antiresonant import TubeLattice
 from solprop.modes.capillary import (
@@ -271,6 +271,13 @@ from solprop.translate.plasma_integration import (
     integration_record,
 )
 from solprop.translate.plasma_source import _BENCHMARK_GATED, plasma_source_record
+from solprop.translate.precision import (
+    SINGLE_RTOL_FLOOR,
+    Precision,
+    PrecisionName,
+    admit_precision,
+    precision_named,
+)
 from solprop.translate.problem import (
     DEFAULT_COMPONENTS,
     KernelProblem,
@@ -444,9 +451,13 @@ class SimulationSettings(Displayed):
         A positive ``k`` also saves the end of every ``k``-th accepted step, the
         march's own positions, beside the requested planes (SEP 14 phase 3); ``0``
         saves the requested planes only. Not in scans.
-    integrator : Multistep, RungeKutta or LowStorageRungeKutta
+    integrator : Multistep, RungeKutta, LowStorageRungeKutta or None
         The method that steps the run (``docs/guide/numerics/choosing-a-stepper.md``).
-        The default, ``Multistep()``, is the low-call exponential Adams method, which
+        ``None``, the default, takes ``Multistep()`` under double precision and
+        ``RungeKutta()`` under single precision, which refuses the Adams method until
+        its single-precision survival is established (SEP 33, Q2); the stored value
+        is the resolved method. ``Multistep()`` is the low-call exponential Adams
+        method, which
         ``numpy_ref``, ``numba_cpu`` and ``native`` execute for supported
         configurations;
         ``RungeKutta()`` is the interaction-picture DOPRI5 march, which every backend
@@ -517,6 +528,18 @@ class SimulationSettings(Displayed):
         resolves to ``"native"`` when installed, otherwise ``"numba_cpu"``, at
         settings construction. The stored name is concrete, including in scan workers.
         An installed backend's import or construction errors never trigger a fallback.
+    precision : {'double', 'single'}
+        The arithmetic the run is held in (SEP 33,
+        ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is
+        binary64 throughout and changes nothing.
+        ``"single"`` holds the state, the stages, the transforms and the responses in
+        binary32, with the controller and every host scalar in binary64; it admits
+        ``backend="numpy_ref"`` (the single-precision oracle), refuses an adaptive
+        ``rtol`` below :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR`, the
+        Adams integrator and noise models, and is refused by ``numba_cpu`` and
+        ``native``. ``backend="auto"`` resolves to a GPU backend that computes in
+        binary32 when one is installed and is otherwise refused. Part of the hashed
+        configuration; outputs are binary64 either way.
     resume_history : bool or None
         Whether the output keeps the Adams march's state at every save plane and
         terminal checkpoint, so that a resume continues the history -- its samples, its
@@ -610,9 +633,8 @@ class SimulationSettings(Displayed):
     stats: StatsSpec | None = None
     polarisation_taper: bool = False
     backend: str = "auto"
-    integrator: Multistep | RungeKutta | LowStorageRungeKutta = field(
-        default_factory=Multistep
-    )
+    integrator: Multistep | RungeKutta | LowStorageRungeKutta | None = None
+    precision: PrecisionName = "double"
     resume_history: bool | None = None
     tdse_execution: TDSEExecution | None = None
     fields: FieldsChoice = "all"
@@ -702,6 +724,13 @@ class SimulationSettings(Displayed):
         if refusal is not None:
             raise DriverError(refusal)
         object.__setattr__(self, "field_planes", tuple(self.field_planes))
+        precision = _precision(self.precision)
+        if self.integrator is None:
+            object.__setattr__(
+                self, "integrator", RungeKutta() if precision.single else Multistep()
+            )
+        if precision.single:
+            object.__setattr__(self, "backend", _single_backend(self.backend))
         if self.fields == "planes" and self.step_planes:
             msg = (
                 "fields='planes' names saved planes by index, and step_planes saves "
@@ -746,6 +775,100 @@ class SimulationSettings(Displayed):
         # interaction one on every route but a coupled flow, which it refuses by name
         # (SEP 16 phases 3 and 5).
         object.__setattr__(self, "backend", resolve_name(self.backend))
+        try:
+            admit_precision(
+                precision,
+                backend=self.backend,
+                adams=isinstance(self.integrator, Multistep),
+                rtol=getattr(self.controller, "rtol", None),
+                schedule=self.schedule is not None,
+            )
+        except TranslationError as error:
+            raise DriverError(str(error)) from error
+
+
+def _tolerance(rtol: float | None, precision: PrecisionName, default: float) -> float:
+    """Return a keyword interface's relative tolerance under its precision.
+
+    Parameters
+    ----------
+    rtol : float or None
+        The caller's tolerance; ``None`` takes the default.
+    precision : {'double', 'single'}
+        The run's precision.
+    default : float
+        The interface's binary64 default.
+
+    Returns
+    -------
+    float
+        `rtol` when given, which is never raised silently; otherwise `default`, or
+        :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR` under single precision
+        (SEP 33, Q1).
+    """
+    if rtol is not None:
+        return rtol
+    return SINGLE_RTOL_FLOOR if precision == "single" else default
+
+
+def _precision(name: PrecisionName) -> Precision:
+    """Return the record of a public precision value, refusing an unknown one.
+
+    Parameters
+    ----------
+    name : {'double', 'single'}
+        The settings' value.
+
+    Returns
+    -------
+    solprop.translate.precision.Precision
+        The record.
+
+    Raises
+    ------
+    DriverError
+        If `name` is not a public value.
+    """
+    if name not in ("double", "single"):  # pragma: no cover - refused by its annotation
+        msg = f"precision must be 'double' or 'single', got {name!r}"
+        raise DriverError(msg)
+    return precision_named(name)
+
+
+def _single_backend(backend: str) -> str:
+    """Resolve ``"auto"`` for a single-precision run (SEP 33, Q8).
+
+    ``"auto"`` resolves to ``"mlx"`` when MLX and a Metal device are present, and
+    otherwise is refused: it never resolves to a binary64 backend, and
+    never to ``numpy_ref``, the oracle, which is not a production backend. An explicit
+    name passes through to :func:`~solprop.translate.precision.admit_precision`.
+
+    Parameters
+    ----------
+    backend : str
+        The requested backend name.
+
+    Returns
+    -------
+    str
+        The concrete backend name.
+
+    Raises
+    ------
+    DriverError
+        If `backend` is ``"auto"`` and no single-precision GPU backend is installed.
+    """
+    if backend != "auto":
+        return backend
+    if metal_available():
+        return "mlx"
+    msg = (
+        "precision='single' with backend='auto' resolves to the mlx backend, which "
+        "needs the mlx extra (pip install solprop[mlx]) on an Apple-silicon Mac with a "
+        "Metal GPU; pass backend='numpy_ref' for the single-precision reference (the "
+        "oracle, not a production backend) or use precision='double'"
+    )
+    raise DriverError(msg)
 
 
 def _stepper_record(settings: StepperSettings) -> StepperRecord:
@@ -1103,7 +1226,10 @@ def _plane_reference_record(
         ``carrier``, ``origin``, ``parent``, ``frame`` and ``basis``, as
         :attr:`solprop.output.schema.RunMetadata.reference` documents them.
     """
-    reference = grid.omega0 if frame is None else frame.omega0
+    # The co-moving frame keeps the carrier phase exactly when a harmonic term is
+    # present, and then measures its delay from zero frequency (`frame_origin`).
+    if frame is None:
+        frame = Frame.comoving(grid, thg=problem.grids.carrier_2w0 is not None)
     coupling = configuration.get("coupling")
     origin: object = PlaneReference().record()
     parent: object = None
@@ -1115,9 +1241,7 @@ def _plane_reference_record(
         "carrier": float(grid.omega0),
         "origin": origin,
         "parent": parent,
-        "frame": frame_record(
-            problem.linear, reference if grid.kind == "envelope" else 0.0
-        ),
+        "frame": frame_record(problem.linear, frame_origin(frame, grid.kind)),
         "basis": _plane_bases(problem, grid, configuration, modes, modal),
     }
 
@@ -1678,6 +1802,7 @@ class Simulation(Displayed):
                     evanescent_rate=settings.evanescent_rate,
                     transverse_absorber=settings.transverse_absorber,
                     adiabatic_accuracy=settings.adiabatic_accuracy,
+                    precision=precision_named(settings.precision),
                 )
         return self._problem
 
@@ -2178,6 +2303,9 @@ class Simulation(Displayed):
                     "absorber": self.settings.absorber,
                     "absorber_scheme": self.settings.absorber_scheme,
                     "propagator_mode": self.settings.propagator_mode,
+                    # Every run records its precision, double included (SEP 33
+                    # section 5.3, ADR-051), so a resume in the other is refused.
+                    "precision": self.settings.precision,
                 }
             )
             if self.frame is not None:
@@ -3226,7 +3354,7 @@ class Simulation(Displayed):
         raman_fraction: float | None = None,
         noise: NoiseModel | None = None,
         seed: int | None = None,
-        rtol: float = DEFAULT_RTOL,
+        rtol: float | None = None,
         atol: float = DEFAULT_ATOL,
         dz_max: float | None = None,
         dz_init: float | None = None,
@@ -3239,6 +3367,7 @@ class Simulation(Displayed):
         stats: StatsSpec | None = None,
         polarisation_taper: bool = False,
         backend: str = "auto",
+        precision: PrecisionName = "double",
         materials: MaterialSelection | None = None,
     ) -> "Simulation":  # noqa: UP037 - beartype resolves it while the body still runs
         """Build a simulation of a GNLSE fibre from its coefficients.
@@ -3329,7 +3458,7 @@ class Simulation(Displayed):
         seed : int, optional
             Entropy of the generator the realisation is drawn from, recorded in the
             output so a run is reproducible.
-        rtol : float, optional
+        rtol : float or None, optional
             Relative tolerance of the step controller.
         atol : float, optional
             Absolute tolerance, in the square root of watts.
@@ -3371,6 +3500,12 @@ class Simulation(Displayed):
         backend : str, optional
             Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
             and otherwise use Numba CPU. Import or construction errors do not fall back.
+        precision : {'double', 'single'}, optional
+            The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
+            ``"single"``, which takes ``rtol`` at the floor
+            :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR` by default,
+            ``RungeKutta()`` and ``backend="numpy_ref"``
+            (:attr:`SimulationSettings.precision`).
         materials : solprop.physdata.selection.MaterialSelection or None, optional
             Take fused silica's nonlinear response from optmat's silica bundle
             (:class:`~solprop.physdata.glasses.SilicaBundle`): with `raman` on, an
@@ -3431,7 +3566,9 @@ class Simulation(Displayed):
             pulses=pulses,
         )
         settings = SimulationSettings(
-            controller=PIController(rtol=rtol, atol=atol),
+            controller=PIController(
+                rtol=_tolerance(rtol, precision, DEFAULT_RTOL), atol=atol
+            ),
             save_planes=_save_planes(length, save_planes, n_save),
             # Relative defaults, so that the first step and the cap scale with the
             # fibre.
@@ -3439,7 +3576,7 @@ class Simulation(Displayed):
             dz_init=length * 1e-4 if dz_init is None else dz_init,
             auto_init=dz_init is None,
             schedule=schedule,
-            integrator=Multistep() if integrator is None else integrator,
+            integrator=integrator,
             interpolate_planes=interpolate_planes,
             step_planes=step_planes,
             density=1.0,
@@ -3448,6 +3585,7 @@ class Simulation(Displayed):
             stats=default_spec("mode_averaged") if stats is None else stats,
             polarisation_taper=polarisation_taper,
             backend=backend,
+            precision=precision,
         )
         return cls(
             working,
@@ -3515,7 +3653,7 @@ class Simulation(Displayed):
         absorber_scheme: AbsorberScheme | None = None,
         noise: NoiseModel | None = None,
         seed: int | None = None,
-        rtol: float = WAVEGUIDE_RTOL,
+        rtol: float | None = None,
         atol: float = WAVEGUIDE_ATOL,
         dz_max: float | None = None,
         dz_init: float | None = None,
@@ -3528,6 +3666,7 @@ class Simulation(Displayed):
         stats: StatsSpec | None = None,
         node_budget: int = DEFAULT_NODE_BUDGET,
         backend: str = "auto",
+        precision: PrecisionName = "double",
         polarisation: str | float | None = None,
         materials: MaterialSelection | None = None,
         tdse: TDSEGasResponse | None = None,
@@ -3741,7 +3880,7 @@ class Simulation(Displayed):
             Which shot-noise model to carry.
         seed : int or None, optional
             Entropy of the noise generator.
-        rtol : float, optional
+        rtol : float or None, optional
             Relative step tolerance; the default is :data:`WAVEGUIDE_RTOL`, the modal
             waveguide default. Calibrate it for a production run
             (``docs/dev/stepper.md`` section 3).
@@ -3784,6 +3923,12 @@ class Simulation(Displayed):
         backend : str, optional
             Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
             and otherwise use Numba CPU. Import or construction errors do not fall back.
+        precision : {'double', 'single'}, optional
+            The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
+            ``"single"``, which takes ``rtol`` at the floor
+            :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR` by default,
+            ``RungeKutta()`` and ``backend="numpy_ref"``
+            (:attr:`SimulationSettings.precision`).
         polarisation : str, float or None, optional
             Refused; this path is scalar.
         materials : solprop.physdata.selection.MaterialSelection or None, optional
@@ -3882,7 +4027,7 @@ class Simulation(Displayed):
             dz_max=dz_max,
             dz_init=dz_init,
             schedule=schedule,
-            integrator=Multistep() if integrator is None else integrator,
+            integrator=integrator,
             interpolate_planes=interpolate_planes,
             step_planes=step_planes,
             save_planes=save_planes,
@@ -3890,6 +4035,7 @@ class Simulation(Displayed):
             stats=stats,
             node_budget=node_budget,
             backend=backend,
+            precision=precision,
             polarisation=polarisation,
             materials=MaterialSelection() if materials is None else materials,
             tdse=tdse,
@@ -3947,7 +4093,7 @@ class Simulation(Displayed):
         absorber: Absorber | None = None,
         noise: NoiseModel | None = None,
         seed: int | None = None,
-        rtol: float = WAVEGUIDE_RTOL,
+        rtol: float | None = None,
         atol: float = WAVEGUIDE_ATOL,
         dz_max: float | None = None,
         dz_init: float | None = None,
@@ -3958,6 +4104,7 @@ class Simulation(Displayed):
         stats: StatsSpec | None = None,
         node_budget: int = DEFAULT_NODE_BUDGET,
         backend: str = "auto",
+        precision: PrecisionName = "double",
         polarisation: str | float | None = None,
         taper_coupling: bool = True,
         memory_budget: int | str | None = None,
@@ -4207,7 +4354,7 @@ class Simulation(Displayed):
             Which shot-noise model to carry.
         seed : int or None, optional
             Entropy of the noise generator.
-        rtol : float, optional
+        rtol : float or None, optional
             Relative step tolerance; the default is :data:`WAVEGUIDE_RTOL`, the modal
             waveguide default. Calibrate it for a production run
             (``docs/dev/stepper.md`` section 3).
@@ -4238,6 +4385,12 @@ class Simulation(Displayed):
         backend : str, optional
             Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
             and otherwise use Numba CPU. Import or construction errors do not fall back.
+        precision : {'double', 'single'}, optional
+            The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
+            ``"single"``, which takes ``rtol`` at the floor
+            :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR` by default,
+            ``RungeKutta()`` and ``backend="numpy_ref"``
+            (:attr:`SimulationSettings.precision`).
         polarisation : str, float or None, optional
             Refused; this path is scalar.
         taper_coupling : bool, optional
@@ -4329,6 +4482,7 @@ class Simulation(Displayed):
                 stats=stats,
                 node_budget=node_budget,
                 backend=backend,
+                precision=precision,
                 memory_budget=memory_budget,
                 polarisation=polarisation,
                 taper_coupling=taper_coupling,
@@ -4404,6 +4558,7 @@ class Simulation(Displayed):
             stats=stats,
             node_budget=node_budget,
             backend=backend,
+            precision=precision,
             polarisation=polarisation,
             taper_coupling=taper_coupling,
             materials=MaterialSelection() if materials is None else materials,
@@ -4436,7 +4591,7 @@ class Simulation(Displayed):
         absorber: Absorber | None,
         noise: NoiseModel | None,
         seed: int | None,
-        rtol: float,
+        rtol: float | None,
         atol: float,
         dz_max: float | None,
         dz_init: float | None,
@@ -4445,6 +4600,7 @@ class Simulation(Displayed):
         n_save: int | None,
         stats: StatsSpec | None,
         backend: str,
+        precision: PrecisionName,
         memory_budget: int | str | None,
         materials: MaterialSelection | None = None,
         integrator: Multistep | RungeKutta | LowStorageRungeKutta | None = None,
@@ -4495,6 +4651,9 @@ class Simulation(Displayed):
             Which statistics to record; ``None`` takes :func:`_general_stats`.
         backend : str
             Registry name, or ``"auto"``.
+        precision : {'double', 'single'}
+            The arithmetic the run is held in; the general route is refused under
+            single precision.
         memory_budget : int or str or None
             The budget the guide's route is admitted against before it is built.
         materials : solprop.physdata.selection.MaterialSelection or None, optional
@@ -4626,13 +4785,15 @@ class Simulation(Displayed):
         else:
             field0 = _in_channel(built, provider, channel)
         settings = SimulationSettings(
-            controller=PIController(rtol=rtol, atol=atol),
+            controller=PIController(
+                rtol=_tolerance(rtol, precision, WAVEGUIDE_RTOL), atol=atol
+            ),
             save_planes=planes,
             dz_max=length / 2 if dz_max is None else dz_max,
             dz_init=length * 1e-4 if dz_init is None else dz_init,
             auto_init=dz_init is None,
             schedule=schedule,
-            integrator=Multistep() if integrator is None else integrator,
+            integrator=integrator,
             absorber=collar(working) if absorber is None else absorber,
             # The route carries its nodes, its materials and its normalisation in
             # its own leaves: the static transverse quadrature, the component
@@ -4640,6 +4801,7 @@ class Simulation(Displayed):
             # by the translation layer and are not settings of this run.
             stats=_general_stats() if stats is None else stats,
             backend=backend,
+            precision=precision,
         )
         simulation = cls(
             working,
@@ -4716,7 +4878,7 @@ class Simulation(Displayed):
         absorber_scheme: AbsorberScheme | None = None,
         noise: NoiseModel | None = None,
         seed: int | None = None,
-        rtol: float = WAVEGUIDE_RTOL,
+        rtol: float | None = None,
         atol: float = WAVEGUIDE_ATOL,
         dz_max: float | None = None,
         dz_init: float | None = None,
@@ -4729,6 +4891,7 @@ class Simulation(Displayed):
         stats: StatsSpec | None = None,
         node_budget: int = DEFAULT_NODE_BUDGET,
         backend: str = "auto",
+        precision: PrecisionName = "double",
         polarisation: str | float | None = None,
         materials: MaterialSelection | None = None,
         tdse: TDSEGasResponse | None = None,
@@ -4941,7 +5104,7 @@ class Simulation(Displayed):
             Which shot-noise model to carry.
         seed : int or None, optional
             Entropy of the noise generator.
-        rtol : float, optional
+        rtol : float or None, optional
             Relative step tolerance; the default is :data:`WAVEGUIDE_RTOL`, the modal
             waveguide default. Calibrate it for a production run
             (``docs/dev/stepper.md`` section 3).
@@ -4981,6 +5144,12 @@ class Simulation(Displayed):
         backend : str, optional
             Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
             and otherwise use Numba CPU. Import or construction errors do not fall back.
+        precision : {'double', 'single'}, optional
+            The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
+            ``"single"``, which takes ``rtol`` at the floor
+            :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR` by default,
+            ``RungeKutta()`` and ``backend="numpy_ref"``
+            (:attr:`SimulationSettings.precision`).
         polarisation : str, float or None, optional
             Refused; this path is scalar.
         materials : solprop.physdata.selection.MaterialSelection or None, optional
@@ -5212,7 +5381,9 @@ class Simulation(Displayed):
             _InputPeak(field0, mode_set, working, rule) if ionising else None,
         )
         settings = SimulationSettings(
-            controller=PIController(rtol=rtol, atol=atol),
+            controller=PIController(
+                rtol=_tolerance(rtol, precision, WAVEGUIDE_RTOL), atol=atol
+            ),
             save_planes=_save_planes(length, save_planes, n_save),
             # Relative defaults, so that the first step and the cap scale with the
             # capillary.
@@ -5220,7 +5391,7 @@ class Simulation(Displayed):
             dz_init=length * 1e-4 if dz_init is None else dz_init,
             auto_init=dz_init is None,
             schedule=schedule,
-            integrator=Multistep() if integrator is None else integrator,
+            integrator=integrator,
             interpolate_planes=interpolate_planes,
             step_planes=step_planes,
             density=None,
@@ -5250,6 +5421,7 @@ class Simulation(Displayed):
             if atomic is None or stats is not None
             else _tdse_stats(_capillary_stats(with_plasma=False, mixture=mixture)),
             backend=backend,
+            precision=precision,
             tdse_execution=None if atomic is None else atomic.execution,
         )
         simulation = cls(

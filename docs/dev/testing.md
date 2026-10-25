@@ -73,7 +73,7 @@ instead of a tier marker:
 | default | `uv run poe test` | fast **and** medium, compiled kernels, random order (`pytest-randomly`), warnings as errors, doctests included, under xdist with every thread pool at one thread per worker. Step 8 of `poe check`. Plain `uv run pytest` runs the same selection serially (`addopts` carries no `-n`), for one file or test and for debugging. |
 | medium alone | `uv run poe test-medium` | the medium tier, timed against its budget |
 | slow | `uv run poe test-slow` | the slow tier under xdist, one worker per core, `--dist loadgroup`, every thread pool pinned to one thread per worker |
-| coverage | `uv run poe cov` | interpreted CPU kernel bodies, then the compiled fast and medium tiers, both under xdist with one thread per worker; 100 % of the package (`coverage-cpu.ini`) |
+| coverage | `uv run poe cov` | interpreted CPU kernel bodies, then the compiled fast and medium tiers, both under xdist with one thread per worker; 100 % of the package but the `mlx` backend, which needs macOS on Apple silicon and is tested in the macOS lane (`coverage-cpu.ini`) |
 | gpu | `uv run pytest -m gpu` | needs a card |
 | benchmark | by hand, per docstring; `uv run poe bench` for `benchmarks/` | see [benchmarks.md](benchmarks.md) |
 
@@ -99,13 +99,16 @@ including literal `@` characters in parameter IDs. Convergence-record writes
 remain serial-only; normal grouped runs do not regenerate witnesses. The benchmark
 suite under `benchmarks/` is outside `testpaths` and is never collected.
 
-A lane's remaining scheduling floor is its longest group. Pinning
+A lane's remaining scheduling floor is its longest group. Pinning `SOLPROP_THREADS` (each
+worker's thread budget, ADR-052, which every pool of both backends stays within),
 `SOLPROP_NATIVE_THREADS`, `VECLIB_MAXIMUM_THREADS`, `OPENBLAS_NUM_THREADS`,
 `MKL_NUM_THREADS` and `OMP_NUM_THREADS` to one keeps eighteen workers from each opening a
-thread pool over the same cores; the native backend's pool follows only
-`SOLPROP_NATIVE_THREADS`. `NUMBA_NUM_THREADS` is not pinned: it is numba's ceiling, not
-its default, and a test that compares thread counts asks `numba_cpu` for several threads
-(a ceiling of one refuses them). Serial and parallel runs select the same tests; inspect
+thread pool over the same cores. `NUMBA_NUM_THREADS` is not pinned: it is numba's
+ceiling, not its default. A test that compares thread counts lifts the budget for itself
+to four threads (the `thread_budget_lifted` fixture) and asks for several; a native
+thread probe runs with `SOLPROP_THREADS` blank and `SOLPROP_OVERSUBSCRIBE=1`, so it gets
+the count it asks for on any runner, and saves the Kokkos pool it ran with for its
+caller to check (`tests/backends/matched.py::native_thread_fields`). Serial and parallel runs select the same tests; inspect
 the current `--durations` output before choosing another independent group to split. The
 lane stays
 reproducible: `pytest-randomly` picks one seed in the controller and the workers share it,
@@ -128,7 +131,7 @@ carry a claim that used to need four thousand.
 Medium tests are parametrised over every installed compatible backend and stay medium. The
 base checkout has `numpy_ref` and `numba_cpu`; an installed `solprop-native` adds `native`
 conditionally. The slow ladders run on the backend selected by `SOLPROP_TEST_BACKEND`,
-defaulting to `numba_cpu`; the backend-versus-reference parity test of §1, with the
+defaulting to what `backend="auto"` selects (`native` where installed, else `numba_cpu`); the backend-versus-reference parity test of §1, with the
 equivalence tolerance of §3, stands in for duplicate copies already known to agree.
 
 Spatial tests select their backends through the explicit spatial fixtures of
@@ -209,7 +212,14 @@ margin, never fitted to the discrepancy they then accept. The ladder of
 [accuracy.md](accuracy.md) section 7 is the pattern (`16 ε` for one step, `128 ε` for
 eight), and `tests/bounds.py` provides `gamma`, `higham_gamma`, `fft_bound`, `scan_bound`,
 `prefix_bound`, `stencil_bound`, `step_budget` and `propagation_growth`. `u = 2⁻⁵³` and
-`ε = 2u` are not interchangeable. A case whose dynamics amplify strongly is compared
+`ε = 2u` are not interchangeable. **Binary32** ([SEP 33](seps/archive/sep-0033-single-precision-mlx.md)):
+every formula takes its roundoff as a parameter (`UNIT_ROUNDOFF_32 = 2⁻²⁴`,
+`EPS_32 = 2⁻²³`) and is re-evaluated there, not scaled from its binary64 value, since
+`γ_k`'s denominator matters and each refuses `k u ≥ 1`. A binary32 bound includes one
+rounding per narrowed table entry and the conditioning of signed sums; where it exceeds a
+tenth of the case's accuracy envelope it is uninformative, and the comparison runs over a
+shorter window instead. Backend agreement within a binary32 rounding bound is never a
+survival verdict: that is SEP 33's class T study against binary64 references. A case whose dynamics amplify strongly is compared
 over a short window. Backend equivalence uses peak-normalised or normwise deviation
 against nontrivial reference fields, so a zeros-returning backend cannot pass:
 `assert_within` checks finiteness, refuses an identically zero reference and reports

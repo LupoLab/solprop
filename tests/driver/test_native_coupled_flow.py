@@ -506,10 +506,17 @@ PROBE = Path(__file__).with_name("native_flow_thread_probe.py")
 
 
 def thread_states(probe: Path, threads: int, names, directory: Path):
-    """Run a probe at one thread count and return each case's final state."""
+    """Run a probe at one thread count and return each case's final state.
+
+    The lanes' one-thread budget is lifted and oversubscription allowed (ADR-052), and
+    the probe's Kokkos pool is checked, so a silent cap cannot compare one thread with
+    one thread.
+    """
     path = directory / f"states-{threads}.npz"
     environment = os.environ | {
         "SOLPROP_NATIVE_THREADS": str(threads),
+        "SOLPROP_THREADS": "",
+        "SOLPROP_OVERSUBSCRIBE": "1",
         "OMP_PROC_BIND": "false",
     }
     subprocess.run(
@@ -521,6 +528,7 @@ def thread_states(probe: Path, threads: int, names, directory: Path):
         cwd=Path(__file__).parents[1],
     )
     with np.load(path) as stored:
+        assert int(stored["runtime_threads"]) == threads
         return {name: stored[name] for name in names}
 
 
