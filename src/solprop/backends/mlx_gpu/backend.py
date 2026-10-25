@@ -44,7 +44,7 @@ from solprop.backends.mlx_gpu.envelope import DeviceCycle, envelope_cycle
 from solprop.backends.numpy_ref.passes import _kerr as compiled_kerr
 from solprop.backends.numpy_ref.passes import _raman_thg as raman_thg
 from solprop.backends.numpy_ref.single import NumpySingleBackend
-from solprop.constants import EPS0
+from solprop.backends.reduced import kerr_factor, raman_factor
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.grid import TimeGrid
 from solprop.modes.protocol import Mode
@@ -883,9 +883,7 @@ class MlxBackend(NumpySingleBackend):
         for stage in responses.response_order:
             if stage is ResponseStage.KERR:
                 kerr = compiled_kerr(responses)
-                factor = combine(
-                    kerr.coefficient, bundle.kerr_density, exponent=2 * k
-                ).binary32()
+                factor = kerr_factor(kerr, bundle.kerr_density, k)
                 total = total + device.kerr(field, kerr, factor, self._device_carrier)
             elif stage is ResponseStage.RAMAN_DRIVE:
                 assert raman is not None
@@ -896,9 +894,7 @@ class MlxBackend(NumpySingleBackend):
                     if bundle.raman_densities
                     else bundle.density
                 )
-                factor = combine(
-                    EPS0, density, exponent=2 * k + self._raman_exponent
-                ).binary32()
+                factor = raman_factor(density, k, self._raman_exponent)
                 total = total + device.raman(
                     field, raman, factor, kind=self._kind, thg=raman_thg(responses)
                 )

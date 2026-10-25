@@ -54,7 +54,13 @@ from jaxtyping import Complex, Float, Inexact, Num
 from solprop.backends.numpy_ref import passes
 from solprop.backends.numpy_ref.backend import NumpyRefBackend, SourceTables
 from solprop.backends.numpy_ref.envelope_plasma import envelope_sources
-from solprop.constants import EPS0
+from solprop.backends.reduced import (
+    LaunchScale,
+    kerr_factor,
+    narrowed_kernel,
+    narrowed_table,
+    raman_factor,
+)
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.fourier import GridKind
 from solprop.grid import TimeGrid
@@ -66,11 +72,8 @@ from solprop.stepper.controller import PIController
 from solprop.translate.precision import (
     PrecisionName,
     block_exponent,
-    combine,
-    launch_peak,
     prefix_sum,
     scaled_square_sum,
-    state_scale,
 )
 from solprop.translate.problem import KernelProblem
 from solprop.translate.responses import (
@@ -93,7 +96,6 @@ __all__ = [
     "stable_population",
 ]
 
-_TINY = float(np.finfo(np.float32).tiny)
 
 # Stages the single-precision source evaluation reaches elsewhere: the rate and the
 # population inside the plasma current, the sum and window at the end, and the
@@ -109,7 +111,6 @@ _ELSEWHERE = frozenset(
         ResponseStage.ENVELOPE_SOURCES,
     }
 )
-_HUGE = float(np.finfo(np.float32).max)
 
 
 class NumpySingleBackend(NumpyRefBackend):
@@ -166,10 +167,8 @@ class NumpySingleBackend(NumpyRefBackend):
         )
         self._real = np.dtype(np.float32)
         self._complex = np.dtype(np.complex64)
-        self._scale = state_scale(
-            launch_peak(problem.initial.field0, problem.grid_kind)
-        )
-        self._scale_exponent = math.frexp(self._scale)[1] - 1
+        launch = LaunchScale.of(problem)
+        self._scale, self._scale_exponent = launch.scale, launch.exponent
         # Block exponents of every narrowed table, by name (SEP 33 section 4.3).
         self.block_exponents: dict[str, int] = {}
         tables = self._tables
@@ -261,9 +260,7 @@ class NumpySingleBackend(NumpyRefBackend):
         """
         source = np.asarray(values)
         self.block_exponents[name] = block_exponent(source)
-        _check_range(source, f"the {name} table")
-        dtype = self._complex if np.iscomplexobj(source) else self._real
-        narrowed = np.ascontiguousarray(source, dtype=dtype)
+        narrowed = narrowed_table(source, f"the {name} table")
         narrowed.setflags(write=False)
         return narrowed
 
@@ -291,10 +288,7 @@ class NumpySingleBackend(NumpyRefBackend):
             If the array overflows binary32, or its largest magnitude is below one and
             an entry would fall below binary32's smallest normal number.
         """
-        source = np.asarray(values)
-        _check_range(source, "a host-evaluated array")
-        dtype = self._complex if np.iscomplexobj(source) else self._real
-        return source.astype(dtype)
+        return narrowed_table(values, "a host-evaluated array")
 
     # The state and what crosses to the host.
 
@@ -648,8 +642,7 @@ class NumpySingleBackend(NumpyRefBackend):
         if spectrum is None:
             return None
         if spectrum is not cached or spectrum.dtype != self._complex:
-            exponent = block_exponent(spectrum)
-            narrowed = (spectrum * math.ldexp(1.0, -exponent)).astype(self._complex)
+            narrowed, exponent = narrowed_kernel(spectrum)
             self._raman_exponent = exponent
             self.block_exponents["raman_kernel"] = exponent
             self._raman_kernel = narrowed
@@ -703,36 +696,6 @@ class NumpySingleBackend(NumpyRefBackend):
             old_low, old_high = self.intermediate_ranges[name]
             low, high = min(low, old_low), max(high, old_high)
         self.intermediate_ranges[name] = (low, high)
-
-
-def _check_range(source: np.ndarray, what: str) -> None:
-    """Refuse narrowing an array that would lose range a block exponent keeps.
-
-    Parameters
-    ----------
-    source : numpy.ndarray
-        The binary64 array.
-    what : str
-        What it is, for the message.
-
-    Raises
-    ------
-    BackendError
-        If its largest magnitude overflows binary32, or is below one beside an entry
-        below binary32's smallest normal number.
-    """
-    magnitude = np.abs(source)
-    largest = float(np.max(magnitude, initial=0.0))
-    if not math.isfinite(largest) or largest >= _HUGE:
-        msg = f"{what} reaches {largest:.3e}, beyond binary32's range"
-        raise BackendError(msg)
-    if largest < 1.0 and bool(np.any((magnitude > 0.0) & (magnitude < _TINY))):
-        msg = (
-            f"{what} holds entries below binary32's smallest normal number beside a "
-            f"largest of {largest:.3e}: its pass must carry its block exponent, and "
-            "none does (SEP 33 section 4.3)"
-        )
-        raise BackendError(msg)
 
 
 def _require_dtype(values: np.ndarray, dtype: np.dtype, what: str) -> None:
@@ -823,9 +786,7 @@ def single_sources(  # noqa: PLR0913 - the fused pass takes what the responses n
         if stage is ResponseStage.KERR:
             kerr = responses.kerr_coefficients
             assert kerr is not None
-            factor = combine(
-                kerr.coefficient, scalars.kerr_density, exponent=2 * k
-            ).binary32()
+            factor = kerr_factor(kerr, scalars.kerr_density, k)
             total = total + kerr_single(field_t, kerr, factor, carrier)
         elif stage is ResponseStage.RAMAN_DRIVE:
             assert raman_spectrum is not None
@@ -836,11 +797,10 @@ def single_sources(  # noqa: PLR0913 - the fused pass takes what the responses n
                 if scalars.raman_densities
                 else scalars.density
             )
-            factor = combine(EPS0, density, exponent=2 * k + raman_exponent)
             total = total + raman_single(
                 field_t,
                 raman_spectrum,
-                factor.binary32(),
+                raman_factor(density, k, raman_exponent),
                 kind=kind,
                 thg=passes._raman_thg(responses),
             )
