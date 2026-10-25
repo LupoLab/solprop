@@ -111,7 +111,7 @@ different objects:
 |---|---|
 | field | $-\mathrm{i}\,(\beta - \beta_1\omega) - \alpha/2$ |
 | envelope, no third harmonic | $-\mathrm{i}\,(\beta - \beta_0 - \beta_1(\omega - \omega_\text{ref})) - \alpha/2$ |
-| envelope, with third harmonic | $-\mathrm{i}\,(\beta - \beta_1(\omega - \omega_\text{ref})) - \alpha/2$ |
+| envelope, with third harmonic | $-\mathrm{i}\,(\beta - \beta_1\omega) - \alpha/2$ |
 
 A field grid stores the *real* field. Multiplying its half-spectrum by a
 frequency-independent phase is not a global phase at all: it rotates the
@@ -123,7 +123,17 @@ An envelope grid has already had the carrier taken out, so removing $\beta_0$ as
 simply stops the envelope spinning at $\beta_0$ per metre. The exception is a
 third-harmonic term: its $\mathrm{e}^{2\mathrm{i}\omega_0 t}$ factor is tied to the true
 carrier phase (see [the nonlinear responses](../media/nonlinear.md)), and removing $\beta_0$ would
-shift the harmonic relative to the fundamental. [the conventions](../../dev/conventions.md) §2
+shift the harmonic relative to the fundamental. Such a frame keeps the carrier phase
+*whole*, so its delay is measured from zero frequency, exactly as on a field grid.
+Measured from $\omega_\text{ref}$, the term $\beta_1(\omega - \omega_\text{ref})$ would
+still remove a constant $-\beta_1\omega_\text{ref}$: the envelope would turn at
+$\beta_1\omega_\text{ref}$ per metre and $A^3$ at three times that, while the
+harmonic's carrier factor is fixed in time, so the third harmonic would be driven with a
+spurious mismatch of $2\beta_1\omega_\text{ref}$, about $1.2\times10^{7}\ \mathrm{rad/m}$
+in a gas at 1 µm, against a true $\beta(3\omega_0) - 3\beta(\omega_0)$ of order
+$10^{3}$–$10^{4}\ \mathrm{rad/m}$ in a gas-filled capillary. A frame that keeps
+$\beta_0$ on an envelope grid therefore always measures its delay from zero
+({func}`solprop.linear.frame_origin`). [the conventions](../../dev/conventions.md) §2
 writes the envelope form for both grids, which is the right formula in the case it is
 usually read for. {meth}`solprop.linear.Frame.comoving` picks the rule from the grid.
 
