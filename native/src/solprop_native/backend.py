@@ -20,7 +20,7 @@ import numpy as np
 import numpy.typing as npt
 from solprop._helpers import Helpers
 from solprop.backends.driver import StepDriver
-from solprop.backends.exponential import refuse_formulation
+from solprop.backends.exponential import refuse_carrier_frame, refuse_formulation
 from solprop.backends.low_storage import LowStorageMarch, schedule_key, table_steps
 from solprop.backends.memory import (
     LOCAL_FLUX_STATISTICS,
@@ -2244,6 +2244,8 @@ def _refuse_adams(problem: KernelProblem) -> None:
             "'exponential') or the Runge-Kutta march"
         )
     refuse_formulation(problem, "native")
+    # SEP 35 phase 3 delivers the scalar shift here.
+    refuse_carrier_frame(problem, "native")
 
 
 def _refuse_unsupported(problem: KernelProblem) -> None:

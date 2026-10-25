@@ -42,6 +42,7 @@ References
 
 import math
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 import numpy as np
 from jaxtyping import Complex, Float, Inexact
@@ -50,6 +51,7 @@ from solprop._helpers import NUMBA, Helpers
 from solprop.exceptions import BackendError, StepperError
 from solprop.stepper.multistep import (
     MAX_ADAMS_ORDER,
+    CarrierFrame,
     Multistep,
     lagrange_coefficients,
 )
@@ -58,10 +60,14 @@ from solprop.translate.problem import KernelProblem
 __all__ = [
     "COUPLED_SECTIONS",
     "EXPONENTIAL_REPRESENTATIONS",
+    "HARMONIC_BOUNDARY",
     "MAX_PHI_ORDER",
     "PHI_JOIN",
+    "CarrierReference",
+    "carrier_reference",
     "exponential_weights",
     "phi_functions",
+    "refuse_carrier_frame",
     "refuse_formulation",
 ]
 
@@ -90,6 +96,14 @@ is the source alone, ``R_n = F``. A varying one (``expansion``, ``table``) takes
 compensated reference of SEP 16 section 4.2 (phase 4): the chord over the step and the
 transported compensation ``(D(z_j) - B_n) u_j``, with ``D`` the derivative of the
 representation itself."""
+
+HARMONIC_BOUNDARY = 2.0
+"""Where the harmonic carrier frame's band starts, in units of ``omega_0``.
+
+``"harmonic"`` gives the bins at or above ``HARMONIC_BOUNDARY * omega_0`` three times
+the scalar shift and every other bin the shift itself, fixed for the run (SEP 35
+section 4.6). This is the prototype's rule, one of three candidates; which one the
+policy keeps is decided by SEP 35's harmonic gate (section 7.4)."""
 
 _SERIES_TERMS = 24
 """Taylor terms of the highest phi function at ``|y| <= 1/2``.
@@ -328,5 +342,215 @@ def refuse_formulation(problem: KernelProblem, backend: str) -> None:
             f"{backend}: the {method.name} integrator does not step a coupled flow's "
             f"{unsupported} sections; pass integrator=RungeKutta(), the Runge-Kutta "
             "march"
+        )
+        raise BackendError(msg)
+
+
+@dataclass(frozen=True)
+class CarrierReference:
+    """Where a run's carrier frame takes its shift, fixed for the run (SEP 35 6.1).
+
+    The shift of batch member ``b`` is ``sigma_b = i Im x[b, 0, 0, bin]``, ``x`` the
+    trial's own exponent ``Phi(z + h) - Phi(z)``: column 0 is the frame's mode
+    (``build_phi`` fixes the frame on the first mode; a coupled route's carrier is the
+    same in every channel), polarisation 0. The change of variable is exact for any
+    shift, so the choice of bin only changes how smooth the interpolated source is.
+
+    Attributes
+    ----------
+    policy : {'scalar', 'harmonic'}
+        The policy asked for (:data:`solprop.stepper.multistep.CarrierFrame`).
+    bin : int or None
+        The active bin nearest the reference frequency, ties to the lower index;
+        ``None`` where the policy is inert (``sigma = 0`` for the run).
+    omega : float or None
+        That bin's angular frequency, rad/s; ``None`` with `bin`.
+    multiplier : numpy.ndarray or None
+        For ``"harmonic"``, the shift's multiple per bin, shape ``(n_omega,)``: 3 at or
+        above :data:`HARMONIC_BOUNDARY` ``omega_0``, 1 below. ``None`` for ``"scalar"``.
+    reason : str
+        How the reference was chosen, or why the policy is inert, for the run's log.
+    """
+
+    policy: CarrierFrame
+    bin: int | None
+    omega: float | None
+    multiplier: Float[np.ndarray, " n_omega"] | None
+    reason: str
+
+    @property
+    def active(self) -> bool:
+        """Return whether the shift can be nonzero.
+
+        Returns
+        -------
+        bool
+            ``False`` when the run takes ``sigma = 0``, the present arithmetic exactly.
+        """
+        return self.bin is not None
+
+    def shift(
+        self, exponent: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
+    ) -> Complex[np.ndarray, "n_batch 1 1 n_shift"]:
+        """Return each batch member's shift for a trial's exponent.
+
+        Parameters
+        ----------
+        exponent : numpy.ndarray
+            ``x = Phi(z + h) - Phi(z)``, in the canonical layout.
+
+        Returns
+        -------
+        numpy.ndarray
+            Purely imaginary, shape ``(n_batch, 1, 1, 1)`` for ``"scalar"`` or
+            ``(n_batch, 1, 1, n_omega)`` for ``"harmonic"``, broadcasting against the
+            state.
+
+        Raises
+        ------
+        BackendError
+            If the policy is inert: such a run takes the unshifted arithmetic.
+        """
+        if self.bin is None:
+            msg = f"the carrier frame is inert for this run: {self.reason}"
+            raise BackendError(msg)
+        # The real part (loss) is never shifted (SEP 35 section 10).
+        phase = np.imag(exponent[:, 0, 0, self.bin]).reshape((-1, 1, 1, 1))
+        shift = 1j * phase
+        if self.multiplier is not None:
+            shift = shift * self.multiplier
+        return shift
+
+    def phase(
+        self, exponent: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
+    ) -> float:
+        """Return the largest carrier phase over the batch, for the step cap.
+
+        Parameters
+        ----------
+        exponent : numpy.ndarray
+            ``x`` over a proposed step.
+
+        Returns
+        -------
+        float
+            ``max_b |Im x[b, 0, 0, bin]|``, rad; 0 when the policy is inert.
+        """
+        if self.bin is None:
+            return 0.0
+        return float(np.max(np.abs(np.imag(exponent[:, 0, 0, self.bin]))))
+
+
+def carrier_reference(
+    problem: KernelProblem, method: Multistep
+) -> CarrierReference | None:
+    """Return where a run's carrier frame takes its shift, or ``None`` when off.
+
+    The reference rule of SEP 35 section 6.1. An envelope grid without the third
+    harmonic subtracts ``beta_0``, so its shift would be the table's rounding: the
+    policy is inert there and the run is the present arithmetic exactly. An envelope
+    grid with the third harmonic keeps the carrier phase whole, its operator is the
+    field grid's, and it is treated as one. The reference frequency is the grids'
+    ``omega0``; a custom frame with another reference changes only how much of the
+    rotation the shift removes, never the step's exactness.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The problem.
+    method : solprop.stepper.multistep.Multistep
+        The method.
+
+    Returns
+    -------
+    CarrierReference or None
+        ``None`` for ``carrier_frame="off"`` or the interaction formulation.
+    """
+    policy = method.carrier_frame
+    if policy == "off" or method.formulation != "exponential":
+        return None
+    grids = problem.grids
+    if problem.grid_kind == "envelope" and grids.carrier_2w0 is None:
+        return CarrierReference(
+            policy,
+            None,
+            None,
+            None,
+            "an envelope grid without the third harmonic removes beta_0: sigma = 0",
+        )
+    # argmin returns the first of equal distances: the lower index of the frequency
+    # axis's own order.
+    nearest = int(np.argmin(np.abs(grids.omega - grids.omega0)))
+    if not bool(grids.active_mask[nearest]):
+        return CarrierReference(
+            policy,
+            None,
+            None,
+            None,
+            f"the bin nearest the reference frequency ({nearest}) is inactive: "
+            "sigma = 0",
+        )
+    multiplier = None
+    if policy == "harmonic":
+        multiplier = np.where(
+            grids.omega >= HARMONIC_BOUNDARY * grids.omega0, 3.0, 1.0
+        ).astype(np.float64)
+    omega = float(grids.omega[nearest])
+    return CarrierReference(
+        policy,
+        nearest,
+        omega,
+        multiplier,
+        f"reference bin {nearest} at {omega:.6e} rad/s"
+        + (
+            f", 3 sigma at and above {HARMONIC_BOUNDARY:g} omega0"
+            if policy == "harmonic"
+            else ""
+        ),
+    )
+
+
+def refuse_carrier_frame(
+    problem: KernelProblem,
+    backend: str,
+    *,
+    delivered: frozenset[str] = frozenset(),
+) -> None:
+    """Refuse a carrier frame where it is not yet delivered (SEP 35 section 5).
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The problem.
+    backend : str
+        The backend's name, for the message.
+    delivered : frozenset of str, optional
+        The policies this backend steps; none by default.
+
+    Raises
+    ------
+    BackendError
+        Naming the policy and what does not deliver it.
+    """
+    method = problem.stepper.integrator
+    if not isinstance(method, Multistep) or method.carrier_frame == "off":
+        return
+    policy = method.carrier_frame
+    if policy not in delivered:
+        gate = (
+            "; the harmonic shift runs on numpy_ref only until it passes SEP 35's gate"
+            if policy == "harmonic"
+            else ""
+        )
+        msg = (
+            f"{backend}: Multistep(carrier_frame={policy!r}) is not delivered on this "
+            f"backend{gate}; pass carrier_frame='off' or use numpy_ref"
+        )
+        raise BackendError(msg)
+    geometry = problem.transform.geometry
+    if geometry is not None:
+        msg = (
+            f"{backend}: Multistep(carrier_frame={policy!r}) is not yet qualified on "
+            f"a free-space route ({geometry.kind!r} geometry); pass carrier_frame='off'"
         )
         raise BackendError(msg)

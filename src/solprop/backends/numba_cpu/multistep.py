@@ -1422,7 +1422,13 @@ class NumbaCoupledExponentialKernels(
         return self
 
     def coupled_moments(
-        self, exponent: _State, count: int, block: CoupledBlock, dz: float
+        self,
+        exponent: _State,
+        count: int,
+        block: CoupledBlock,
+        dz: float,
+        *,
+        shift: _State | None = None,
     ) -> Any:
         """Return a coupled trial's flow and moments, the route's bins compiled.
 
@@ -1436,6 +1442,9 @@ class NumbaCoupledExponentialKernels(
             The step's frozen block.
         dz : float
             The step, m.
+        shift : numpy.ndarray or None, optional
+            A carrier frame's ``sigma``; this backend refuses one before a march
+            starts, so only the unshifted step reaches it.
 
         Returns
         -------
@@ -1449,6 +1458,7 @@ class NumbaCoupledExponentialKernels(
             dz,
             eigen=_fill_route,
             diagonal=_diagonal_moments,
+            carrier=shift,
         )
 
     def carry_coupled(
