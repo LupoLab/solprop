@@ -12,14 +12,17 @@ installed package and nothing from a checkout::
 It checks that the package imports and passes ``check_build``, that it is the
 distribution build, that its version is the expected one, and that the libraries it
 loaded (FFT, BLAS, OpenMP) are the copies inside the installed wheel, not ones from
-the build machine or the system. It then runs ``python -m solprop_native`` and checks
+the build machine or the system. On Arm it checks that both precisions of the bundled
+FFTW carry the NEON codelets. It then runs ``python -m solprop_native`` and checks
 that the build record it prints is JSON.
 """
 
 from __future__ import annotations
 
 import argparse
+import ctypes
 import json
+import platform
 import subprocess
 import sys
 from pathlib import Path
@@ -37,6 +40,32 @@ def bundled(library: str, package: Path) -> bool:
     path = Path(library).resolve()
     roots = (package, package.parent / "solprop_native.libs")
     return any(path.is_relative_to(root) for root in roots)
+
+
+def fftw_versions(fft_library: str) -> dict[str, str]:
+    """Return the version strings of the bundled FFTW's double and single libraries.
+
+    FFTW names its codelet family in the version (``fftw-3.3.11-neon``). The single
+    precision library lies beside the double one under the repair's naming.
+    """
+    single = sorted(
+        {
+            path.resolve()
+            for path in Path(fft_library).parent.glob("libfftw3f[-.]*")
+            if path.suffix not in {".a", ".la"}
+        }
+    )
+    if len(single) != 1:
+        sys.exit(f"expected one single-precision FFTW beside {fft_library}: {single}")
+    versions = {}
+    for symbol, library in (
+        ("fftw_version", fft_library),
+        ("fftwf_version", str(single[0])),
+    ):
+        handle = ctypes.CDLL(library)
+        address = ctypes.addressof(ctypes.c_char.in_dll(handle, symbol))
+        versions[symbol] = ctypes.string_at(address).decode()
+    return versions
 
 
 def main() -> None:
@@ -69,6 +98,12 @@ def main() -> None:
             and not bundled(library, package)
         ):
             sys.exit(f"{name} {library} is not the wheel's own copy (under {package})")
+    # Compiling with -mcpu does not enable FFTW's NEON codelets; the recipe must.
+    fftw = {}
+    if platform.machine() in {"arm64", "aarch64"}:
+        fftw = fftw_versions(info.fft_library)
+        if scalar := [name for name, version in fftw.items() if "-neon" not in version]:
+            sys.exit(f"the bundled FFTW lacks NEON codelets: {fftw} ({scalar})")
     if info.blas_backend == "OpenBLAS" and info.blas_threads is None:
         sys.exit("the bundled OpenBLAS reports no thread count")
     # Every library the wheel bundles travels with its licence.
@@ -99,6 +134,7 @@ def main() -> None:
         "blas_thread_policy": info.blas_thread_policy,
         "fft_backend": info.fft_backend,
         **loaded,
+        **fftw,
     }
     sys.stdout.write(json.dumps(summary, indent=2, sort_keys=True) + "\n")
 

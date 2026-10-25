@@ -82,7 +82,8 @@ For an Apple silicon performance build, the pinned dependency recipe enables FFT
 does not enable those codelets. The recipe also retains the Arm cycle counter needed
 by measured planning, the Apple M1 distribution baseline and the macOS 14 deployment
 target. Its FFTW threading libraries and the native extension share one source-built
-LLVM OpenMP runtime; Accelerate remains the BLAS provider.
+LLVM OpenMP runtime; Accelerate remains the BLAS provider. The Linux aarch64 wheel's
+recipe enables the same NEON codelets, on its Neoverse N1 baseline.
 
 From the repository root, use a fresh, owned dependency prefix:
 
