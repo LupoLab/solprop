@@ -38,21 +38,24 @@ from solprop.backends.registry import (
     select,
     select_batch,
 )
+from solprop.boundaries import absorber
 from solprop.constants import EPS0
 from solprop.driver import Simulation, prop_gnlse
 from solprop.driver.simulation import SimulationSettings
 from solprop.exceptions import BackendError, ConvergenceError, DriverError
-from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, RadialGrid
+from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.nonlinear.ionisation import RunningIntegral
+from solprop.nonlinear.optmat_raman import gas_raman
 from solprop.nonlinear.optmat_rates import OptmatRate
 from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
 from solprop.physdata import gamma3
+from solprop.physdata.selection import MaterialSelection
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import LowStorageRungeKutta, PIController, RungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
-from solprop.translate.precision import combine, precision_named
+from solprop.translate.precision import PrecisionName, combine, precision_named
 from vector_raman_cases import vector_problem
 
 U32 = UNIT_ROUNDOFF_32
@@ -354,6 +357,103 @@ def test_a_batch_member_is_its_solo_run():
         assert_within(field, solo, bound)
 
 
+def spatial_kerr(
+    route: str,
+    precision: str,
+    *,
+    steps: int = 10,
+    absorbed: bool = False,
+    energy: float = 3e-4,
+    chi3: float = 1e-25,
+) -> Simulation:
+    """Return a self-focusing Kerr beam on the radial or Cartesian route.
+
+    `absorbed` adds the grid's collars: the transverse window's in-stage rate beside
+    the temporal one.
+    """
+    length = 0.1
+    grid = EnvelopeGrid.from_limits(
+        length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
+    )
+    spaces = {
+        "radial": RadialGrid(2e-3, 32),
+        "cartesian": FreeGrid(2e-3, 16, 2e-3, 16),
+        "line": LineGrid(2e-3, 16),
+    }
+    pulse = SpatialPulse(
+        GaussianPulse(wavelength=800e-9, fwhm=50e-15, energy=energy), 300e-6
+    )
+    settings = SimulationSettings(
+        controller=PIController(rtol=1e-6, atol=0.0),
+        save_planes=[length],
+        dz_max=length,
+        dz_init=length / steps,
+        schedule=FixedSchedule.uniform(0.0, length, length / steps),
+        backend="numpy_ref",
+        integrator=RungeKutta(),
+        precision=precision,  # pyright: ignore[reportArgumentType]
+        absorber=absorber(grid, boundary_length=100 * length) if absorbed else None,
+    )
+    constructor = Simulation.from_radial if route == "radial" else Simulation.from_free
+    return constructor(
+        grid,
+        spaces[route],
+        SpatialMedium(),
+        [KerrResponse(chi3, thg=False)],
+        pulse,
+        settings=settings,
+    )
+
+
+def plasma_beam(
+    precision: str, *, route: str = "radial", gas: str = "Ar"
+) -> Simulation:
+    """Return a short filament on the radial (or Cartesian) route, ten steps.
+
+    Nitrogen adds its molecular Raman response beside the plasma.
+    """
+    length = 1e-3
+    grid = FieldGrid.from_limits(length, 800e-9, (350e-9, 2e-6), 150e-15)
+    pulse = SpatialPulse(
+        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=2e-4), 100e-6
+    )
+    responses: list[object] = [
+        KerrResponse(gamma3(gas, wavelength=800e-9), thg=False),
+        PlasmaResponse(gas, OptmatRate(gas, 800e-9)),
+    ]
+    if gas == "N2":
+        selection = MaterialSelection(carrier_wavelength=800e-9)
+        responses.append(gas_raman(gas, selection=selection, thg=False))
+    settings = SimulationSettings(
+        controller=PIController(rtol=1e-6, atol=0.0),
+        save_planes=[length],
+        dz_max=length,
+        dz_init=length / 10,
+        schedule=FixedSchedule.uniform(0.0, length, length / 10),
+        backend="numpy_ref",
+        integrator=RungeKutta(),
+        ionisation_field_range=(1e7, 1e11),
+        precision=precision,  # pyright: ignore[reportArgumentType]
+    )
+    if route == "cartesian":
+        return Simulation.from_free(
+            grid,
+            FreeGrid(1e-3, 16, 1e-3, 16),
+            SpatialMedium(gas, 1.0),
+            responses,
+            pulse,
+            settings=settings,
+        )
+    return Simulation.from_radial(
+        grid,
+        RadialGrid(1e-3, 32),
+        SpatialMedium(gas, 1.0),
+        responses,
+        pulse,
+        settings=settings,
+    )
+
+
 @pytest.mark.parametrize("route", ["radial", "cartesian"])
 def test_the_spatial_routes_agree_with_binary64_within_their_bounds(route):
     """Ten steps of a self-focusing Kerr beam; a transverse transform per stage.
@@ -361,76 +461,18 @@ def test_the_spatial_routes_agree_with_binary64_within_their_bounds(route):
     The radial route's Hankel GEMM over ``n_r`` nodes and the Cartesian route's
     two-dimensional transform add their depth to the temporal transform's.
     """
-    length = 0.1
-    grid = EnvelopeGrid.from_limits(
-        length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
-    )
-    space = RadialGrid(2e-3, 32) if route == "radial" else FreeGrid(2e-3, 16, 2e-3, 16)
-    pulse = SpatialPulse(
-        GaussianPulse(wavelength=800e-9, fwhm=50e-15, energy=3e-4), 300e-6
-    )
-    fields = {}
-    for precision in ("double", "single"):
-        settings = SimulationSettings(
-            controller=PIController(rtol=1e-6, atol=0.0),
-            save_planes=[length],
-            dz_max=length,
-            dz_init=length / 10,
-            schedule=FixedSchedule.uniform(0.0, length, length / 10),
-            backend="numpy_ref",
-            integrator=RungeKutta(),
-            precision=precision,  # pyright: ignore[reportArgumentType]
-        )
-        constructor = (
-            Simulation.from_radial if route == "radial" else Simulation.from_free
-        )
-        fields[precision] = finish(
-            constructor(
-                grid,
-                space,
-                SpatialMedium(),
-                [KerrResponse(1e-25, thg=False)],
-                pulse,
-                settings=settings,
-            )
-        )
+    fields = {p: finish(spatial_kerr(route, p)) for p in ("double", "single")}
+    n_t = spatial_kerr(route, "double").grid.n_t
     transverse = 32 if route == "radial" else 2 * 4
-    depth = math.ceil(math.log2(grid.n_t)) + transverse
+    depth = math.ceil(math.log2(n_t)) + transverse
     bound = 10 * (2 * U32 + 7 * 16 * EPS_32 * depth)
     assert_within(fields["single"], fields["double"], bound)
 
 
 def test_a_radial_plasma_beam_agrees_with_binary64_within_its_bound():
     """The radial route's own plasma spectrum (held current on nodes), ten steps."""
-    length = 1e-3
-    grid = FieldGrid.from_limits(length, 800e-9, (350e-9, 2e-6), 150e-15)
-    medium = SpatialMedium("Ar", 1.0)
-    pulse = SpatialPulse(
-        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=2e-4), 100e-6
-    )
-    responses = [
-        KerrResponse(gamma3("Ar", wavelength=800e-9), thg=False),
-        PlasmaResponse("Ar", OptmatRate("Ar", 800e-9)),
-    ]
-    fields = {}
-    for precision in ("double", "single"):
-        settings = SimulationSettings(
-            controller=PIController(rtol=1e-6, atol=0.0),
-            save_planes=[length],
-            dz_max=length,
-            dz_init=length / 10,
-            schedule=FixedSchedule.uniform(0.0, length, length / 10),
-            backend="numpy_ref",
-            integrator=RungeKutta(),
-            ionisation_field_range=(1e7, 1e11),
-            precision=precision,  # pyright: ignore[reportArgumentType]
-        )
-        fields[precision] = finish(
-            Simulation.from_radial(
-                grid, RadialGrid(1e-3, 32), medium, responses, pulse, settings=settings
-            )
-        )
-    depth = math.ceil(math.log2(grid.n_t)) + 32
+    fields = {p: finish(plasma_beam(p)) for p in ("double", "single")}
+    depth = math.ceil(math.log2(plasma_beam("double").grid.n_t)) + 32
     bound = 10 * (2 * U32 + 7 * (16 * EPS_32 * depth + 4 * higham_gamma(depth, U32)))
     assert_within(fields["single"], fields["double"], bound)
 
@@ -440,10 +482,11 @@ def test_tensor_raman_on_two_components_agrees_with_binary64(family):
     """Both helicities and an oblique delayed probe through H2's tensor ladder."""
     problem, grid, modes = vector_problem(family=family, steps=8)
     fields = {}
-    for precision, backend_class in (
+    cases: tuple[tuple[PrecisionName, type[NumpyRefBackend]], ...] = (
         ("double", NumpyRefBackend),
         ("single", NumpySingleBackend),
-    ):
+    )
+    for precision, backend_class in cases:
         case = dataclasses.replace(problem, precision=precision_named(precision))
         backend = backend_class(case, grid=grid, modes=modes)
         try:

@@ -180,7 +180,7 @@ def test_an_unknown_name_lists_what_is_usable(linear_problem, narrow_grid):
 
 
 def test_the_table_holds_the_backends_that_exist():
-    """The in-tree CUDA backend has been removed; mlx is SEP 33's single-precision GPU."""
+    """The in-tree CUDA backend is gone; mlx is SEP 33's single-precision GPU."""
     assert sorted(BACKENDS) == ["mlx", "native", "numba_cpu", "numpy_ref"]
 
 

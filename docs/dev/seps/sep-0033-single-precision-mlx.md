@@ -1248,6 +1248,69 @@ records; the benchmark on a quiet machine (§7.4).
 
 **Deviations.** None from Part I.
 
+### Phase 3 — report (2026-10-25)
+
+**Delivered.**
+
+- `MlxBackend` on the radial route: the Hankel synthesis and projection as the fibre
+  route's float32 products (`gemm_probe` on the radial shapes), Kerr, Raman and the
+  field-grid plasma on the nodes, the radial plasma spectrum formed on the nodes and
+  projected once (`_device_radial_plasma`, the oracle's `_radial_plasma_spectrum`), and
+  the radial absorber matrix in the stage.
+- On the Cartesian route and its line (`_device_free`): the separable operator uploaded
+  once, at unit distance, as one double-float term the stage's `dz` weights (the oracle
+  forms `separable_values(...) * dz` in binary64 and rounds it, the same quantity), the
+  per-column prefactor narrowed once, MLX's `fftn`/`ifftn` over the transverse axes,
+  the responses per column chunk on the fine grid, and the window's in-stage rate with
+  the temporal collar. `fft_probe` adds the transverse lengths; `gemm_probe` is skipped,
+  the route having no quadrature products.
+- `memory._mlx_per_stage` with `_MLX_TRANSIENT_COLUMNS` (18 fine-grid columns per
+  column on the Cartesian route, 6 on the radial one): MLX's transverse transforms copy
+  their axes and the reference's in-place passes are separate arrays on the device.
+  Measured peak against the estimate: 0.72–0.84 on the Kerr beams with both collars,
+  0.18–0.78 across 16 × 16 to 32 × 32 Cartesian grids with 128–512 samples, 0.30–0.51
+  on the filaments, each graph policy (whole step or stage by stage) measured.
+- Tests in `tests/backends/test_mlx.py` (42 on the Metal device; 36 and 6 kernel
+  skips on MLX's CPU device): class R against `numpy_ref` single for Kerr beams on the
+  radial, Cartesian and line routes, each with and without its collars; argon
+  filaments on the radial and Cartesian routes and a nitrogen one on the radial route
+  with its Raman response; Gaussian-beam diffraction; the Cartesian launch whose sum of
+  squares exceeds binary32's range; the memory estimate on both routes. The case
+  builders are shared with the oracle's tests in `test_single_precision.py`.
+
+**Agreement with the oracle** (ten steps, same schedule, normwise relative): Kerr
+beams 5.7e-7 (radial), 6.4e-7 (Cartesian) and 7.4e-7 (line); with the collars 5.8e-7,
+6.4e-7 and 7.6e-7, against the collars' own effect of 9e-5 and 1e-4 on the radial and
+Cartesian runs; the argon filament 5.7e-7. A full run with its output agrees on the saved field and every statistic within
+2e-6 (the species' peak rate and ionisation energy the largest).
+
+**Gaussian-beam diffraction** on a 128 × 128 Cartesian grid over one Rayleigh range of
+a 100 µm waist: width, axial amplitude and Gouy phase within 1.6e-6, 1e-8 and 1.3e-8
+of paraxial optics, against the exact operator's non-paraxial bound of 6.5e-6; the
+oracle's errors are the same to two digits.
+
+**Indicative timings** (the same loaded laptop, same-process A/B against `native` in
+binary64, the best of two rounds, ten fixed steps after a warm step; not a benchmark):
+
+| case | `native` / `mlx` time |
+|---|---|
+| Kerr beam, 64 radial nodes, 512 samples | 1.15 |
+| Kerr beam, 256 radial nodes, 1024 samples | 3.8 |
+| Kerr beam, 64 × 64 Cartesian, 256 samples | 2.2 |
+| Kerr beam, 128 × 128 Cartesian, 512 samples | 2.0 |
+| argon filament, 64 radial nodes, field grid (513 bins) | 1.5 |
+| argon filament, 128 radial nodes | 2.3 |
+
+The Cartesian route gains less than the radial one at the same state size: its two
+transverse transform pairs per stage (four with the collar) are MLX's `fftn`, whose
+axis copies are the transients the memory rows count. A fused transverse kernel is a
+candidate for phase 4's measured kernels (§11).
+
+**Not yet done in this phase**: the benchmark suite's filament and Kerr-beam cases on a
+quiet machine (§7.4), with phase 2's; Q7 at the first CI run.
+
+**Deviations.** None from Part I.
+
 ## Part III — History
 
 - 2026-10-23: Drafted, after an indicative synthetic MLX measurement on an Apple-silicon laptop.

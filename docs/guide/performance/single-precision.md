@@ -9,8 +9,8 @@ its accuracy in binary32 is a property of the problem, so this page records whic
 
 ```{note}
 Single precision runs on the `mlx` backend, on the GPU of an Apple-silicon Mac
-([choosing a backend](backends.md#the-apple-gpu-backend)), for capillary and fibre runs;
-radial and Cartesian free space follow. `numpy_ref` runs every route below as the
+([choosing a backend](backends.md#the-apple-gpu-backend)), for capillary and fibre runs
+and radial and Cartesian free space. `numpy_ref` runs every route below as the
 reference implementation, which defines the arithmetic and measures it but is not fast.
 `numba_cpu` and `native` compute in binary64 only.
 ```
@@ -54,7 +54,7 @@ interfaces. Under single precision:
 | Kerr, the envelope grid's third-harmonic term, scalar and tensor Raman, gas Raman mixtures, the silica bundle | yes | yes |
 | field-grid plasma | yes | yes |
 | envelope-grid plasma | yes | refused, a later phase |
-| radial and Cartesian free space, including a line | yes | refused, the next phase |
+| radial and Cartesian free space, including a line, with their transverse collars | yes | yes |
 | gradients, tapers, loss, both temporal absorber schemes, the polarisation taper | yes | yes, where the operator is device-ready (not a z table) |
 | Runge–Kutta, the low-storage march, fixed-schedule batches | yes | yes |
 | the Adams integrator | refused, pending its accuracy record | refused |
@@ -133,7 +133,10 @@ At `rtol = 1e-5` every case but the comb-to-continuum stays inside its envelopes
   much as a double-precision one. On `mlx` the gain over `native` grows with the
   problem: on one Apple-silicon laptop, in the same process, a GNLSE step on a single
   line took 0.65, 0.36 and 0.19 times `native`'s time at 2¹⁴, 2¹⁶ and 2¹⁸ samples,
-  and an eight-mode capillary with ionisation on a 1 ps window 0.83 times. Small
+  and an eight-mode capillary with ionisation on a 1 ps window 0.83 times. In free
+  space, ten Kerr steps took 0.87 and 0.26 times `native`'s time on 64 and 256 radial
+  nodes, about 0.5 times on 64 × 64 and 128 × 128 Cartesian grids, and a field-grid
+  argon filament 0.68 and 0.43 times on 64 and 128 radial nodes. Small
   capillary runs (one to four modes on a 300 fs window) are slower on the GPU, 2–3
   times `native`'s time, bound by the GPU's per-operation latency. These are indicative
   figures from a loaded machine, not benchmarks.

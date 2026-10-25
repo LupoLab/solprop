@@ -122,8 +122,9 @@ arithmetic, so it runs `precision="single"` only, under the contract and with th
 accuracy record of [single precision](single-precision.md); it is validated against the
 reference backend's single-precision path. It runs the capillary and fibre routes
 (mode-averaged and multimode, field and envelope grids, Kerr, Raman, field-grid plasma,
-both absorber schemes, Runge–Kutta and the low-storage march, lockstep batches);
-radial and Cartesian free space follow, and the envelope-grid plasma later.
+both absorber schemes, Runge–Kutta and the low-storage march, lockstep batches) and
+radial and Cartesian free space, including a line, with their transverse collars; the
+envelope-grid plasma follows in a later phase.
 
 MLX computes float32 matrix products in TF32 by default on Apple GPUs, which SEP 25's
 arithmetic rules forbid. solprop sets `MLX_ENABLE_TF32=0` when it imports the backend,

@@ -454,6 +454,8 @@ _PER_STAGE_ROWS = frozenset(
         "held_current_projected",
         "held_current_embedded",
         "held_current_spectra",
+        "transverse_scratch",
+        "spatial_absorber_time",
     }
 )
 
@@ -475,7 +477,7 @@ def mlx_rows(problem: KernelProblem, rows: dict[str, int]) -> dict[str, int]:
     Parameters
     ----------
     problem : solprop.translate.problem.KernelProblem
-        A single-precision problem on the fibre route.
+        A single-precision problem on a fibre, radial or Cartesian route.
     rows : dict
         Its single-precision reference rows.
 
@@ -490,7 +492,7 @@ def mlx_rows(problem: KernelProblem, rows: dict[str, int]) -> dict[str, int]:
     state = math.prod(problem.shape)
     linear = problem.linear
     phi_terms = 1 if linear.phi_expansion is None else linear.phi_expansion.n_terms
-    per_stage = sum(size for name, size in rows.items() if name in _PER_STAGE_ROWS)
+    per_stage = _mlx_per_stage(problem, rows)
     scan = _mlx_scan_bytes(problem)
     stages = problem.stepper.tableau.n_stages
     stage = 2 * per_stage + scan
@@ -536,7 +538,7 @@ def mlx_stage_bytes(problem: KernelProblem) -> int:
     Parameters
     ----------
     problem : solprop.translate.problem.KernelProblem
-        A single-precision problem on the fibre route.
+        A single-precision problem on a fibre, radial or Cartesian route.
 
     Returns
     -------
@@ -544,8 +546,39 @@ def mlx_stage_bytes(problem: KernelProblem) -> int:
         Twice the per-stage working rows, with a scan's levels.
     """
     rows = single_precision_rows(problem, _reference_base(problem))
+    return 2 * _mlx_per_stage(problem, rows) + _mlx_scan_bytes(problem)
+
+
+# Fine-grid column arrays a stage's graph holds beyond the reference's rows on the
+# spatial routes: MLX's transverse transforms copy their axes to the last one and
+# back, and the reference's in-place passes are separate arrays on the device.
+# Measured against MLX's peak on radial and Cartesian beams (tests/backends/test_mlx).
+_MLX_TRANSIENT_COLUMNS = {"free": 18, "radial": 6}
+
+
+def _mlx_per_stage(problem: KernelProblem, rows: dict[str, int]) -> int:
+    """Return one stage's working bytes on ``mlx``, before the graph's doubling.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        A single-precision problem.
+    rows : dict
+        Its single-precision reference rows.
+
+    Returns
+    -------
+    int
+        The ``_PER_STAGE_ROWS`` and, on a spatial route, its transform transients.
+    """
     per_stage = sum(size for name, size in rows.items() if name in _PER_STAGE_ROWS)
-    return 2 * per_stage + _mlx_scan_bytes(problem)
+    transform = problem.transform
+    geometry = transform.geometry
+    if geometry is not None:
+        columns = min(transform.node_chunk, transform.n_nodes) * transform.n_pol
+        fine = columns * problem.shape[2] * problem.grids.n_to * 8
+        per_stage += _MLX_TRANSIENT_COLUMNS.get(geometry.kind, 0) * fine
+    return per_stage
 
 
 def _mlx_scan_bytes(problem: KernelProblem) -> int:
@@ -575,7 +608,7 @@ def mlx_graph_bytes(problem: KernelProblem) -> int:
     Parameters
     ----------
     problem : solprop.translate.problem.KernelProblem
-        A single-precision problem on the fibre route.
+        A single-precision problem on a fibre, radial or Cartesian route.
 
     Returns
     -------

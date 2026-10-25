@@ -28,7 +28,12 @@ pytest.importorskip("mlx.core")
 
 import mlx.core as mx
 
-from backends.test_single_precision import capillary, gnlse
+from backends.test_single_precision import (
+    capillary,
+    gnlse,
+    plasma_beam,
+    spatial_kerr,
+)
 from bounds import EPS_32, UNIT_ROUNDOFF_32, assert_within, fft_bound, higham_gamma
 from solprop.backends.memory import estimate_memory
 from solprop.backends.mlx_gpu.arithmetic import (
@@ -44,9 +49,17 @@ from solprop.backends.mlx_gpu.passes import DeviceRateTable
 from solprop.backends.numpy_ref.single import NumpySingleBackend
 from solprop.backends.protocol import Backend
 from solprop.backends.registry import available, select, select_batch
-from solprop.driver import Simulation
+from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BackendError, ConvergenceError
-from solprop.stepper import LowStorageRungeKutta
+from solprop.grid import EnvelopeGrid, FreeGrid
+from solprop.pulses import GaussianPulse, SpatialPulse
+from solprop.spatial import SpatialMedium
+from solprop.stepper import (
+    FixedSchedule,
+    LowStorageRungeKutta,
+    PIController,
+    RungeKutta,
+)
 from solprop.translate.precision import SINGLE, prefix_sum
 from vector_raman_cases import vector_problem
 
@@ -174,6 +187,109 @@ def test_a_multimode_capillary_agrees_with_the_oracle():
     assert_within(device, oracle, step_bound(16, 4, 13, scans=4))
 
 
+@pytest.mark.parametrize("absorbed", [False, True])
+@pytest.mark.parametrize("route", ["radial", "cartesian", "line"])
+def test_the_spatial_routes_agree_with_the_oracle(route, absorbed):
+    """A Kerr beam: the Hankel products over 32 nodes, or the 16-point transforms.
+
+    Absorbed, the in-stage collar adds the radial absorber matrix or the Cartesian
+    window's rate, each with its own pair of transforms.
+    """
+    device, oracle = pair(lambda: spatial_kerr(route, "single", absorbed=absorbed))
+    transverse = {"radial": 32, "cartesian": 2 * 4, "line": 4}[route]
+    transforms = 4 if absorbed else 2
+    assert_within(device, oracle, step_bound(10, transforms, 11 + transverse))
+
+
+@pytest.mark.parametrize(
+    ("route", "gas"), [("radial", "Ar"), ("cartesian", "Ar"), ("radial", "N2")]
+)
+def test_a_plasma_beam_agrees_with_the_oracle(route, gas):
+    """The held current on nodes (radial, projected once) or on columns (Cartesian).
+
+    Nitrogen adds the molecular Raman response on the radial nodes.
+    """
+    device, oracle = pair(lambda: plasma_beam("single", route=route, gas=gas))
+    transverse = 32 if route == "radial" else 2 * 4
+    assert_within(device, oracle, step_bound(10, 4, 13 + transverse, scans=4))
+
+
+def test_a_cartesian_beam_whose_energy_sum_overflows_binary32_runs_scaled():
+    """A 10 GJ launch: its sum of squares exceeds binary32's range, its state does not.
+
+    The state's power-of-two scale holds the device's sums, its norm among them, in
+    range; the Kerr response at zero strength still puts the scaled field through
+    every nonlinear pass.
+    """
+
+    def build() -> Simulation:
+        return spatial_kerr("cartesian", "single", energy=1e10, chi3=0.0)
+
+    launch = build().translate().initial.field0
+    assert np.sum(np.abs(launch.astype(np.complex128)) ** 2) > np.finfo(np.float32).max
+    device, oracle = pair(build)
+    assert np.all(np.isfinite(device))
+    assert_within(device, oracle, step_bound(10, 2, 11 + 2 * 4))
+
+
+def test_a_gaussian_beam_diffracts_as_paraxial_optics_says():
+    """A 100 um waist over one Rayleigh range on a 128 x 128 Cartesian grid.
+
+    At the carrier bin the width grows by sqrt(2), the axial amplitude falls by
+    sqrt(2) and the Gouy phase is ``arctan(1)`` (internal convention). The bound is
+    four times the exact operator's first non-paraxial term, ``(k w0)^-2``; binary32's
+    ten propagator roundings sit well inside it.
+    """
+    wavelength, waist = 800e-9, 100e-6
+    k = 2 * math.pi / wavelength
+    rayleigh = k * waist**2 / 2
+    grid = EnvelopeGrid.from_limits(
+        rayleigh, wavelength, (780e-9, 820e-9), 2e-12, thg=False
+    )
+    space = FreeGrid(1.5e-3, 128, 1.5e-3, 128, window_factor=0)
+    settings = SimulationSettings(
+        controller=PIController(rtol=1e-6, atol=0.0),
+        save_planes=[rayleigh],
+        dz_max=rayleigh,
+        dz_init=rayleigh / 10,
+        schedule=FixedSchedule.uniform(0.0, rayleigh, rayleigh / 10),
+        backend="mlx",
+        integrator=RungeKutta(),
+        precision="single",
+    )
+    pulse = SpatialPulse(
+        GaussianPulse(wavelength=wavelength, fwhm=300e-15, energy=1e-3), waist
+    )
+    simulation = Simulation.from_free(
+        grid, space, SpatialMedium(), [], pulse, settings=settings
+    )
+    index = int(np.argmin(np.abs(grid.omega - grid.omega0)))
+    assert grid.omega[index] == grid.omega0
+
+    def beam(field: np.ndarray | None) -> np.ndarray:
+        assert field is not None
+        return np.fft.ifft2(field[0, :, 0, index].reshape(space.n_y, space.n_x))
+
+    with ExitStack() as cleanup:
+        backend = loaded(simulation, cleanup)
+        entrance = beam(backend.observe().field)
+        backend.propagate_to(rayleigh)
+        exit_ = beam(backend.observe().field)
+    x, y = np.meshgrid(space.x, space.y)
+
+    def width(values: np.ndarray) -> float:
+        intensity = np.abs(values) ** 2
+        return float(np.sqrt(2 * np.sum(intensity * (x**2 + y**2)) / np.sum(intensity)))
+
+    centre = (int(np.argmin(np.abs(space.y))), int(np.argmin(np.abs(space.x))))
+    bound = 4 / (k * waist) ** 2
+    assert abs(width(exit_) / (math.sqrt(2) * width(entrance)) - 1) < bound
+    amplitude = abs(exit_[centre]) / abs(entrance[centre])
+    assert abs(amplitude * math.sqrt(2) - 1) < bound
+    gouy = float(np.angle(exit_[centre] / entrance[centre]))
+    assert abs(gouy - math.atan(1)) < bound
+
+
 def test_a_batch_member_is_its_solo_run():
     with ExitStack() as cleanup:
         members = tuple(
@@ -185,6 +301,7 @@ def test_a_batch_member_is_its_solo_run():
         runner.propagate_to(0.05)
         batch = [member.field for member in runner.observe_members()]
     for field, power in zip(batch, (100.0, 150.0), strict=True):
+        assert field is not None
         assert np.array_equal(field, finish(on("mlx", gnlse("single", power=power))))
 
 
@@ -195,6 +312,7 @@ def test_a_resume_across_the_oracle_and_mlx_continues_the_run():
         first = loaded(gnlse("single"), cleanup)
         first.propagate_to(0.025)
         plane = first.observe().field
+        assert plane is not None
         second = loaded(on("mlx", gnlse("single")), cleanup)
         second.set_initial(plane, None, z=0.025)
         second.propagate_to(0.05)
@@ -378,6 +496,22 @@ def test_the_memory_estimate_bounds_the_measured_peak(modes):
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(0.002)
+        assert mx.get_peak_memory() <= estimate.total
+    finally:
+        backend.close()
+
+
+@pytest.mark.parametrize("route", ["radial", "cartesian"])
+def test_the_memory_estimate_bounds_the_measured_peak_in_free_space(route):
+    """The transverse transforms' transients, with both collars in each stage."""
+    simulation = on("mlx", spatial_kerr(route, "single", absorbed=True))
+    problem = simulation.translate()
+    estimate = estimate_memory(problem, "mlx")
+    mx.reset_peak_memory()
+    backend = select("mlx", problem, grid=simulation.grid)
+    try:
+        backend.set_initial(problem.initial.field0, None)
+        backend.propagate_to(float(simulation.settings.save_planes[-1]))
         assert mx.get_peak_memory() <= estimate.total
     finally:
         backend.close()

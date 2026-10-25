@@ -175,7 +175,8 @@ The first public release. It contains:
   configuration, so a resume in the other precision is refused (kernel schema 36,
   output schema 25).
   - The `mlx` backend (`pip install solprop[mlx]`, macOS on Apple silicon) runs
-    single-precision capillary and fibre runs on the Apple GPU through MLX, validated
+    single-precision capillary, fibre, radial and Cartesian free-space runs on the
+    Apple GPU through MLX, validated
     against the reference backend's single-precision path; `backend="auto"` chooses it
     under `precision="single"`. Its propagators are formed in double-float arithmetic
     in a custom Metal kernel, and its matrix products are checked not to be TF32.

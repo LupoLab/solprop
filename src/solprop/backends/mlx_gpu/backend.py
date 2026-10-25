@@ -13,12 +13,12 @@ and prefactors (:class:`~solprop.backends.mlx_gpu.arithmetic.DoubleFloatTerms`),
 transforms, the synthesis and projection products, the responses, the finish and the
 error norm, reduced on the device to a few scalars per trial.
 
-Phase 2 of SEP 33 admits the fibre route: mode-averaged and multimode capillaries,
-solid-core and GNLSE fibres on field and envelope grids, with Kerr, the envelope grid's
-harmonic, scalar and tensor Raman, gas mixtures, the silica bundle, the field-grid
-plasma with its held current, loss, both temporal absorber schemes, the polarisation
-taper and device-ready gradients, stepped by Runge-Kutta. Everything else is refused
-by name.
+It admits the fibre route -- mode-averaged and multimode capillaries, solid-core and
+GNLSE fibres on field and envelope grids, with Kerr, the envelope grid's harmonic,
+scalar and tensor Raman, gas mixtures, the silica bundle, the field-grid plasma with its
+held current, loss, both temporal absorber schemes, the polarisation taper and
+device-ready gradients -- and radial and Cartesian free space, including a line, with
+their transverse collars, stepped by Runge-Kutta. Everything else is refused by name.
 """
 
 import math
@@ -48,9 +48,11 @@ from solprop.modes.protocol import Mode
 from solprop.profiles import ZProfile
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
+from solprop.translate.linop import _separable_phase
 from solprop.translate.precision import combine
 from solprop.translate.problem import KernelProblem
 from solprop.translate.responses import ResponseStage
+from solprop.translate.spatial import separable_values
 from solprop.translate.stage import StageScalars
 from solprop.translate.tdse import TDSEBinding
 
@@ -107,10 +109,6 @@ def refuse_unsupported(problem: KernelProblem) -> None:
     stepper = problem.stepper
     refusals = [
         (
-            problem.transform.geometry is not None,
-            "radial and Cartesian free space (SEP 33 phase 3); use backend='numpy_ref'",
-        ),
-        (
             problem.responses.envelope_plasma is not None,
             "the envelope-grid plasma (SEP 33 phase 4); use backend='numpy_ref'",
         ),
@@ -136,12 +134,12 @@ def refuse_unsupported(problem: KernelProblem) -> None:
 
 
 class MlxBackend(NumpySingleBackend):
-    """Propagate a single-precision fibre problem on an Apple-silicon GPU.
+    """Propagate a single-precision problem on an Apple-silicon GPU.
 
     Parameters
     ----------
     problem : solprop.translate.problem.KernelProblem
-        A validated single-precision problem on the fibre route.
+        A validated single-precision fibre, radial or Cartesian problem.
     grid : solprop.grid.TimeGrid, optional
         The grid, needed only by ``stats``.
     modes : collections.abc.Sequence, optional
@@ -204,9 +202,7 @@ class MlxBackend(NumpySingleBackend):
             inverse[grids.active_mask] = self._held_factors[0]
             squared[grids.active_mask] = self._held_factors[1]
             self._held_device = (mx.array(inverse), mx.array(squared))
-        if self._terms.phi is None:
-            raise BackendError("mlx needs the operator's device-ready terms")
-        self._phi = DoubleFloatTerms.upload(self._terms.phi)
+        self._upload_operator(problem)
         self._prefactor_terms = (
             None
             if self._terms.prefactor is None
@@ -230,9 +226,14 @@ class MlxBackend(NumpySingleBackend):
         chunk = min(transform.node_chunk, transform.n_nodes) * n_pol
         shapes = [(chunk, transform.n_modes, problem.shape[2] * n_to)]
         shapes.append((transform.n_modes, chunk, problem.shape[2] * n_to))
-        self.gemm_error = gemm_probe(shapes) if on_gpu() else 0.0
+        # The Cartesian route has no quadrature products; its transverse transforms
+        # are complex transforms along each axis, probed beside the temporal ones.
+        separable = problem.linear.separable is not None
+        self.gemm_error = gemm_probe(shapes) if on_gpu() and not separable else 0.0
         kind = problem.grid_kind
         lengths = [(kind, n_to), (kind, grids.n_t)]
+        if separable and transform.geometry is not None:
+            lengths += [("envelope", n) for n in transform.geometry.shape if n > 1]
         if problem.responses.raman_terms:
             lengths.append(("field", 2 * n_to))
         self.fft_error = fft_probe(lengths)
@@ -241,6 +242,43 @@ class MlxBackend(NumpySingleBackend):
         mx.set_cache_limit(mlx_graph_bytes(problem))
 
     # The state on the device.
+
+    def _upload_operator(self, problem: KernelProblem) -> None:
+        """Upload the linear operator's terms and the free-space tables.
+
+        Parameters
+        ----------
+        problem : solprop.translate.problem.KernelProblem
+            The adopted problem.
+
+        Raises
+        ------
+        solprop.exceptions.BackendError
+            When a fibre operator has no device-ready terms.
+        """
+        separable = problem.linear.separable
+        self._free_prefactor: mx.array | None = None
+        if separable is not None:
+            # A separable operator is one term linear in the distance: the operator
+            # at unit distance, weighted by the bundle's dz (translate.linop).
+            self._phi = DoubleFloatTerms.upload(
+                _separable_phase(separable, 1.0, imaginary=False)[None]
+            )
+            _, prefactor = separable_values(separable)
+            self._free_prefactor = mx.array(self._cast(prefactor))
+        elif self._terms.phi is None:
+            raise BackendError("mlx needs the operator's device-ready terms")
+        else:
+            self._phi = DoubleFloatTerms.upload(self._terms.phi)
+        self._spatial_matrix = (
+            mx.array(self._spatial_absorber) if self._spatial_absorber.size else None
+        )
+        geometry = problem.transform.geometry
+        self._radial_plasma = (
+            geometry is not None
+            and geometry.kind == "radial"
+            and bool(problem.responses.plasma_channels)
+        )
 
     def set_initial(
         self,
@@ -493,8 +531,13 @@ class MlxBackend(NumpySingleBackend):
             problem.transform,
         )
         kind = self._kind
+        if self._free_prefactor is not None:
+            return self._device_free(lab, bundle, back)
         modal_t = device.to_time(lab[0], self._pad_crop, grids.n_to, kind=kind)
         absorber = self._device_absorber(modal_t)
+        if self._radial_plasma:
+            spectrum = self._device_radial_plasma(modal_t, bundle)
+            return back * self._normalised(spectrum, bundle, absorber)[None]
         if len(responses.response_order) == 1:
             if absorber is None:
                 return mx.zeros_like(lab)
@@ -544,10 +587,29 @@ class MlxBackend(NumpySingleBackend):
         spectrum = device.to_frequency(projected, self._crop, kind=kind)
         if gated is not None and edge is not None:
             spectrum = spectrum + self._device_held(gated, edge)
+        return back * self._normalised(spectrum, bundle, absorber)[None]
+
+    def _normalised(
+        self, spectrum: mx.array, bundle: StageScalars, absorber: mx.array | None
+    ) -> mx.array:
+        """Apply the prefactor and window to a source spectrum and add the collar.
+
+        Parameters
+        ----------
+        spectrum : mlx.core.array
+            The coarse source spectrum.
+        bundle : solprop.translate.stage.StageScalars
+            The stage's host scalars.
+        absorber : mlx.core.array or None
+            The in-stage collar's term.
+
+        Returns
+        -------
+        mlx.core.array
+            The stage derivative before the inverse propagator.
+        """
         normalised = self._device_prefactor(bundle) * self._omega_window * spectrum
-        if absorber is not None:
-            normalised = normalised + absorber
-        return back * normalised[None]
+        return normalised if absorber is None else normalised + absorber
 
     def _device_held(self, gated: mx.array, edge: mx.array) -> mx.array:
         """Return the held plasma current's spectrum on the device.
@@ -583,12 +645,153 @@ class MlxBackend(NumpySingleBackend):
         mlx.core.array or None
             ``-alpha E / 2`` on the coarse grid, masked to the active band.
         """
-        if not self._in_stage_absorber or self._temporal_rate is None:
+        if not self._in_stage_absorber:
             return None
-        if self._problem.responses.absorber_scheme != "nonlinear":
-            return None
-        term = -0.5 * self._temporal_rate * modal_t
+        term = mx.zeros_like(modal_t)
+        if (
+            self._temporal_rate is not None
+            and self._problem.responses.absorber_scheme == "nonlinear"
+        ):
+            term = -0.5 * self._temporal_rate * modal_t
+        if self._spatial_matrix is not None:
+            n_modes = modal_t.shape[0]
+            flat = modal_t.reshape(n_modes, -1)
+            product = (self._spatial_matrix @ mx.real(flat)).astype(modal_t.dtype)
+            if modal_t.dtype == mx.complex64:
+                product = product + 1j * (self._spatial_matrix @ mx.imag(flat))
+            term = term + product.reshape(modal_t.shape)
         return device.to_frequency(term, self._crop, kind=self._kind) * self._active
+
+    def _device_radial_plasma(
+        self, modal_t: mx.array, bundle: StageScalars
+    ) -> mx.array:
+        """Return the radial route's plasma-bearing source spectrum.
+
+        The oracle's ``_radial_plasma_spectrum``: each node's polarisation and held
+        current are transformed on the node, then projected onto the Hankel modes.
+
+        Parameters
+        ----------
+        modal_t : mlx.core.array
+            The modal field on the fine time grid.
+        bundle : solprop.translate.stage.StageScalars
+            The stage's host scalars.
+
+        Returns
+        -------
+        mlx.core.array
+            The coarse source spectrum before the prefactor.
+        """
+        transform = self._problem.transform
+        raman = self._device_raman(bundle)
+        n_pol = transform.n_pol
+        spectrum = None
+        for first in range(0, transform.n_nodes, transform.node_chunk):
+            rows = slice(first * n_pol, (first + transform.node_chunk) * n_pol)
+            field = device.synthesise(
+                modal_t, self._synthesis[rows], bundle.taper_scale, n_pol
+            )
+            sources = self._device_sources(field, bundle, raman)
+            nodal = device.to_frequency(
+                sources.polarisation, self._crop, kind=self._kind
+            )
+            assert sources.current is not None
+            nodal = nodal + self._device_held(
+                self._t_window * sources.current,
+                self._t_window_derivative * sources.current,
+            )
+            part = device.project(
+                nodal, self._projection[:, rows], bundle.taper_scale, n_pol
+            )
+            spectrum = part if spectrum is None else spectrum + part
+        assert spectrum is not None
+        return spectrum
+
+    def _device_free(
+        self, lab: mx.array, bundle: StageScalars, back: mx.array
+    ) -> mx.array:
+        """Evaluate a Cartesian (or line) stage derivative on the device.
+
+        The oracle's ``_nonlinear_free``: the transverse inverse transform, the
+        responses per chunk of columns on the fine time grid, the forward transforms,
+        the per-column prefactor, and the in-stage collars.
+
+        Parameters
+        ----------
+        lab : mlx.core.array
+            The lab-frame stage input, ``(1, n_columns, n_pol, n_omega)``.
+        bundle : solprop.translate.stage.StageScalars
+            The stage's host scalars.
+        back : mlx.core.array
+            ``exp(-dPhi)`` of the stage.
+
+        Returns
+        -------
+        mlx.core.array
+            The stage derivative in the interaction variable.
+        """
+        problem = self._problem
+        transform, grids, responses = (
+            problem.transform,
+            problem.grids,
+            problem.responses,
+        )
+        geometry = transform.geometry
+        assert geometry is not None and self._free_prefactor is not None
+        nx, ny = geometry.shape
+        shape = (ny, nx, *lab.shape[2:])
+        result = mx.zeros(lab.shape[1:], dtype=mx.complex64)
+        kind = self._kind
+        if len(responses.response_order) > 1:
+            physical = mx.fft.ifftn(lab[0].reshape(shape), axes=[0, 1]).reshape(
+                lab.shape[1:]
+            )
+            raman = self._device_raman(bundle)
+            parts = []
+            for first in range(0, transform.n_nodes, transform.node_chunk):
+                rows = physical[first : first + transform.node_chunk]
+                field = grids.pad_scale * device.to_time(
+                    rows, self._pad_crop, grids.n_to, kind=kind
+                )
+                sources = self._device_sources(field, bundle, raman)
+                part = device.to_frequency(sources.polarisation, self._crop, kind=kind)
+                if sources.current is not None:
+                    part = part + self._device_held(
+                        self._t_window * sources.current,
+                        self._t_window_derivative * sources.current,
+                    )
+                parts.append(part)
+            spectrum = mx.concatenate(parts, axis=0) if len(parts) > 1 else parts[0]
+            spectrum = mx.fft.fftn(spectrum.reshape(shape), axes=[0, 1]).reshape(
+                lab.shape[1:]
+            )
+            result = self._free_prefactor * self._omega_window * spectrum
+        if self._in_stage_absorber:
+            physical = mx.fft.ifftn(lab[0].reshape(shape), axes=[0, 1]).reshape(
+                lab.shape[1:]
+            )
+            temporal = self._temporal_rate
+            if responses.absorber_scheme != "nonlinear":
+                temporal = None
+            spatial = mx.array(self._cast(geometry.absorber_rate))
+            parts = []
+            for first in range(0, transform.n_nodes, transform.node_chunk):
+                rows = slice(first, first + transform.node_chunk)
+                field = device.to_time(
+                    physical[rows], self._pad_crop, grids.n_to, kind=kind
+                )
+                rate = spatial[rows][:, None, None]
+                if temporal is not None:
+                    rate = rate + temporal
+                parts.append(
+                    device.to_frequency(-0.5 * rate * field, self._crop, kind=kind)
+                )
+            collar = mx.concatenate(parts, axis=0) if len(parts) > 1 else parts[0]
+            collar = mx.fft.fftn(collar.reshape(shape), axes=[0, 1]).reshape(
+                lab.shape[1:]
+            )
+            result = result + self._active * collar
+        return back * result[None]
 
     def _device_sources(
         self, field: mx.array, bundle: StageScalars, raman: mx.array | None

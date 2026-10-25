@@ -1576,11 +1576,18 @@ is refused by `check_build`.
 subclasses the single-precision oracle (`NumpySingleBackend`) and keeps its host side
 -- admission, narrowed tables and exponents, the state scale, stage bundles, landing,
 statistics from the widened state -- while the state and every per-step pass live on the
-device (`mlx_gpu/passes.py`, the oracle's passes in MLX). Phase 2 admits the fibre route
-with Runge–Kutta, the low-storage march (`MlxLowStorage`) and lockstep batches
-(`MlxBatchRunner`, which builds every member's step before one evaluation); radial and
-Cartesian free space, the envelope-grid plasma, a z table, Adams and interpolated planes
-are refused by name.
+device (`mlx_gpu/passes.py`, the oracle's passes in MLX). It admits the fibre, radial
+and Cartesian (and line) routes with Runge–Kutta, the low-storage march (`MlxLowStorage`)
+and lockstep batches (`MlxBatchRunner`, which builds every member's step before one
+evaluation); the envelope-grid plasma, a z table, Adams and interpolated planes are
+refused by name. The radial route is the fibre route's quadrature with the Hankel
+matrices as its synthesis and projection, its plasma spectrum formed on the nodes and
+projected once (`_device_radial_plasma`), and its absorber matrix applied in the stage.
+The Cartesian route (`_device_free`) uploads its separable operator once, at unit
+distance, as one double-float term the stage's `dz` weights, and its per-column
+prefactor; its transverse transforms are MLX's `fftn` over the two transverse axes,
+probed with the temporal ones at construction, and its window's rate is the in-stage
+collar.
 
 **The protected operations** (SEP 33 §6.3), each a custom Metal kernel in `"safe"`
 math mode with its test in `tests/backends/test_mlx.py`, or established by a probe:
@@ -1601,7 +1608,10 @@ coherent bias; the split-step collar is therefore applied as the correction
 synchronisation (the three scaled sums and the trial state's finiteness); above it
 each stage and each running integral is evaluated as it is formed.
 `estimate_memory("mlx")` counts the device tables, the double-float terms and the
-graph the backend keeps, and bounds MLX's measured peak. On MLX's CPU device, which CI
+graph the backend keeps, and bounds MLX's measured peak; on the spatial routes a stage
+also holds the transverse transforms' copies and the reference's in-place passes as
+separate arrays, measured at up to 18 fine-grid columns per column on the Cartesian
+route and 6 on the radial one (`memory._MLX_TRANSIENT_COLUMNS`). On MLX's CPU device, which CI
 uses where no Metal GPU is present, the kernels are replaced by MLX operations (the
 propagator by NumPy in binary64) and their tests skip.
 
@@ -1747,7 +1757,7 @@ that execution space.
 | field-free observation (`observe(field=False)`), the runner, a transverse collar's rate and a set evanescent rate on the separable element | yes | yes | yes (field-free observation needs no native change; the rate is one view in `SpatialCoefficients`) | compiles; not qualified |
 | materials from optmat: gas Raman leaves of many rows on gradients, rate tables, optmat walls, the silica bundles | yes | yes | yes | not qualified |
 | coupling between runs (`field_plane`, `regrid`, `couple`, `Outcouple`, `transport`, `with_input`; SEP 31) | host-side: any source and receiving backend | host-side | host-side | receiving runs not qualified |
-| single precision (`precision="single"`, SEP 33): fibre, radial and Cartesian routes, Kerr, Raman, field and envelope plasma, both absorber schemes, Runge–Kutta and the low-storage march, fixed-schedule batches | the oracle | refused | refused | refused; `mlx` runs the fibre route (below) |
+| single precision (`precision="single"`, SEP 33): fibre, radial and Cartesian routes, Kerr, Raman, field and envelope plasma, both absorber schemes, Runge–Kutta and the low-storage march, fixed-schedule batches | the oracle | refused | refused | refused; `mlx` runs every route but the envelope-grid plasma (below) |
 
 **Materials from optmat** ([SEP 3](seps/archive/sep-0003-optmat-materials.md), a run under
 `MaterialSelection`) reach the backends as the arrays any other run carries: index and
@@ -1797,7 +1807,8 @@ Which backend and build to choose for a run is the user guide's
 ## 11. Current limits
 
 - `"cf4"` coupled-flow sections run only on `numpy_ref`.
-- Single precision runs on `numpy_ref`, its oracle, and on `mlx` (the fibre route); it
+- Single precision runs on `numpy_ref`, its oracle, and on `mlx` (the fibre, radial and
+  Cartesian routes); it
   refuses the general modal route, the hybrid planar kind, coupled flows, TDSE responses,
   the dispersive electronic response, the far-field statistics, noise models, the Adams
   integrator and an adaptive `rtol` below `1e-6`.
