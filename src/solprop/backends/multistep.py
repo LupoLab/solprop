@@ -820,6 +820,10 @@ class ExponentialKernels:
     per-node weight volume is formed. Accepting a step re-anchors nothing. The
     compiled backends' kernels are checked against these passes.
 
+    Under a carrier frame (SEP 35) the same passes take the moments at ``x - sigma``
+    and rows rotated by ``exp(sigma (1 - theta_j))``; the caller forms both
+    (:class:`HostHistory`), so the passes themselves do not change.
+
     Parameters
     ----------
     helpers : solprop._helpers.Helpers, optional
@@ -2339,8 +2343,9 @@ class HostHistory:
         and the corrector integrate their interpolants exactly against the step's flow
         ``exp(x)``, ``x = Phi(z + h) - Phi(z)``; the defects of the neighbouring orders
         are scored from the same moments. A varying operator adds the compensation of
-        its samples (SEP 16 section 4.2). The trial is held for
-        :meth:`exponential_accept`.
+        its samples (SEP 16 section 4.2). Under a carrier frame the samples read are
+        rotated and the moments shifted (SEP 35 section 4.1); the flow is unchanged.
+        The trial is held for :meth:`exponential_accept`.
 
         Parameters
         ----------
@@ -2653,7 +2658,10 @@ class HostHistory:
 
         The accepted corrector's interpolant integrated exactly against the flow to the
         fraction ``xi`` of the step (SEP 16 section 4.3):
-        ``exp(xi x) u_n + h sum_k k! xi**(k+1) phi_{k+1}(xi x) sum_j c_jk F_j``. Every
+        ``exp(xi x) u_n + h sum_k k! xi**(k+1) phi_{k+1}(xi x) sum_j c_jk F_j``; under
+        a carrier frame the rotated samples ``G_j``, the moments at ``xi (x - sigma)``
+        and the factor ``exp(-sigma (1 - xi))``, with the accepted step's ``sigma``
+        (SEP 35 section 4.1). Every
         factor is a forward flow, so a strongly damped bin needs no guard; no source
         is evaluated and nothing enters the history.
 

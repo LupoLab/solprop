@@ -48,6 +48,15 @@ Within `Multistep()`, the interaction formulation (`formulation="interaction"`) 
 alternative where the source is linear in each weak bin's own field, as beside the
 `modified` noise ([which formulation suits which source](adams.md#the-exponential-formulation)).
 
+**Dense gases on field grids, at loose tolerances.** On a field grid (or an envelope
+grid with the third harmonic) in a dense gas, the default `Multistep()` at a loose
+tolerance can accumulate a large error over many honestly estimated steps: 0.97 on an
+argon capillary at `rtol = 1e-3`, against 0.07 for `RungeKutta()`
+([limitations](adams.md#limitations)). There, use `RungeKutta()` or `rtol <= 1e-4`, or
+`Multistep(carrier_frame="scalar")` once it is delivered on the backend in use (it runs
+on `numpy_ref` now; [the carrier frame](adams.md#the-carrier-frame)). The ranking above
+is re-measured when the carrier frame's default is decided.
+
 ## What decides
 
 **What a call costs against what a step costs.** Every step of either integrator also

@@ -113,6 +113,11 @@ different objects:
 | envelope, no third harmonic | $-\mathrm{i}\,(\beta - \beta_0 - \beta_1(\omega - \omega_\text{ref})) - \alpha/2$ |
 | envelope, with third harmonic | $-\mathrm{i}\,(\beta - \beta_1\omega) - \alpha/2$ |
 
+The two grids that keep $\beta_0$ propagate a source that follows the carrier at
+$\kappa = \beta(\omega_0) - \beta_1\omega_0$ per metre, which the default Adams
+integrator has to resolve; [the carrier frame](adams.md#the-carrier-frame) removes that
+rotation inside each step.
+
 A field grid stores the *real* field. Multiplying its half-spectrum by a
 frequency-independent phase is not a global phase at all: it rotates the
 carrier-envelope phase of the field, which drives ionisation and the third harmonic. So

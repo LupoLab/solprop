@@ -51,7 +51,10 @@ with constant and varying operators and every noise model the route admits. Besi
 coupled flow (a coherent capillary wall, a split block, a moving guide) only the
 exponential formulation runs, on its constant-Schur and frozen-residual sections; the
 interaction formulation and CF4 sections are refused by name. Another backend refuses
-`Multistep()` by name and runs `RungeKutta()`.
+`Multistep()` by name and runs `RungeKutta()`. `Multistep(carrier_frame="scalar")`
+removes the carrier's rotation from the exponential history on field grids
+([the carrier frame](#the-carrier-frame)); it is opt-in and runs on `numpy_ref` only
+for now.
 
 `Multistep()` is SEP 13's selected method, in SEP 16's exponential formulation:
 
@@ -190,6 +193,10 @@ history is the one a polynomial follows:
 - *A source that rotates with its own bin's free phase* — a term linear in the field of
   that bin, such as the part of the `modified` noise's source linear in the draw in a
   weak bin — is smooth only once transported, and favours the interaction picture.
+- *A source that follows the carrier* on a field grid — the fundamental band of the
+  Kerr, Raman and envelope-driven responses — rotates at the carrier's rate $\kappa$
+  in the laboratory frame, thousands of radians per metre in a dense gas. Neither
+  formulation makes it smooth; [the carrier frame](#the-carrier-frame) does.
 
 On the scalar witnesses of `tests/stepper/test_exponential_scalar_march.py` the first
 case gives the exponential formulation errors of $10^{-11}$ where the interaction
@@ -299,6 +306,117 @@ two to three times fewer calls than IP-DOPRI5 at matched error. On `numba_cpu` a
 the native backend, the bins on the flow actions' eigenbasis route take their matrix functions as
 `W f(x + h λ) Y` from that basis; `numba_cpu` forms them, applies them and carries the
 compensation in compiled passes.
+
+### The carrier frame
+
+On a field grid the operator keeps the propagation constant at the reference frequency,
+so it differs from the envelope grid's (same frame, no third harmonic) by a constant
+phase rate at every frequency,
+
+$$D_\text{field} = D_\text{env} - \mathrm{i}\kappa,\qquad
+\kappa = \beta(\omega_0) - \beta_1\omega_0 ,$$
+
+and an envelope grid with the third harmonic has the field grid's operator. The part of
+the source that follows the carrier then rotates at $\kappa$ along $z$: 12 rad/m in a
+low-pressure helium capillary, $-5.5\times10^{3}$ rad/m in 40 bar of hydrogen. At order
+five the controller keeps $h|\kappa|$ small enough for a polynomial to follow that
+rotation, which costs steps: on a dense molecular gas the exponential formulation took
+several times more source evaluations than IP-DOPRI5.
+
+`Multistep(carrier_frame="scalar")` removes the rotation inside each step. For any
+$\sigma$, writing $F(z_n+s) = e^{-\sigma(1-s/h)}G(s)$ gives exactly
+
+$$u_{n+1} = e^{hD}u_n + h\sum_k k!\,\varphi_{k+1}(hD-\sigma)\sum_j c_{jk}\,G_j,
+\qquad G_j = e^{\sigma(1-\theta_j)}F_j ,$$
+
+so the step interpolates the rotated samples $G_j$ and integrates them against the
+moments at $hD - \sigma$. The shift is the step's own carrier phase,
+$\sigma = \mathrm{i}\operatorname{Im}(hD)$ at the active bin nearest the reference
+frequency, on the frame's mode and first polarisation, one per batch member. The
+state, the stored samples and the linear flow $e^{hD}$ are unchanged; only the function
+the polynomial follows is. Rotating the samples without shifting the moments would not
+be equivalent: it integrates $G$ against the wrong flow, an error of order
+$|\sigma|$ per step. An interpolated plane at the fraction $\xi$ is
+
+$$u(z_n+\xi h) = e^{\xi hD}u_n + e^{-\sigma(1-\xi)}\,h\sum_k k!\,\xi^{k+1}
+\varphi_{k+1}\bigl(\xi(hD-\sigma)\bigr)\sum_j c_{jk}G_j ,$$
+
+with the accepted step's $\sigma$. A varying operator keeps its transported
+compensation unchanged (its endpoint is now the shifted predictor's state); beside a
+coupled flow the moments are those of the shifted block $hB - \sigma I$ and the flow is
+$e^{\sigma}$ times its $\varphi_0$, the true $e^{hB}$, since $\sigma I$ commutes with
+$B$.
+
+**What the shift does not remove.** Three parts of a source do not follow the carrier:
+the third-harmonic part of the real-field cubic, which rotates at $3\kappa$ and keeps a
+residual $2\kappa$; parts near zero frequency and driven bins not tied to the carrier
+(optical rectification, a Raman or plasma polarisation's slow part), which the shift
+gives a residual $\kappa$; and responses to the carrier-envelope phase itself, such as
+field-grid ionisation. They are still integrated exactly in their linear part, and the
+polynomial resolves them as it resolves any rotating component, while the residual phase
+per step stays well below $\pi$. At $\pi$ the samples alias: they look smooth and the
+predictor–corrector defect stops seeing the error. The same failure exists without the
+shift for a carrier-following source at $h|\kappa| = 2\pi$.
+
+**The cap.** Each step therefore covers at most one radian of carrier phase,
+$h|\kappa| \le 1$ (`solprop.stepper.multistep.CARRIER_PHASE_CAP`, part of the policy
+rather than a setting): the residual phase of a stationary part is then at most 1 rad
+and of the third harmonic 2 rad. On a mixed witness, a carrier with a residual
+$2\kappa$ component of a tenth of its amplitude, the defect exceeds the error by 2.8 to
+13 at the cap and orders one to six, and first falls below it at $h|\kappa|$ between 2.05
+and 2.5, so one cap serves every order. The step proposal is shortened before the trial;
+a shortened step is not a landing and does not restart the history. On the
+comb-to-continuum case the cap cost 582 rather than 477 evaluations and halved the error;
+on the helium cases it never bound.
+
+**Stability.** For a damping term in the source, the in-stage collar's, the shifted
+recurrence is the unshifted one at $x' = hD - \sigma$, and its stability depends on the
+residual phase $\operatorname{Im}x'$ as well as on the damping. Every damping up to
+`PEC_REAL_INTERVAL` stays stable while $|\operatorname{Im}x'|$ is at most
+
+| order | interval | $\operatorname{Re}x' = 0$ | $\operatorname{Re}x' = -0.1$ | $\operatorname{Re}x' = -0.5$ |
+|---|---|---|---|---|
+| 1 | 1.0 | > 5.9 | > 5.9 | > 5.9 |
+| 2 | 0.545 | 5.1 | > 5.9 | > 5.9 |
+| 3 | 0.3 | 3.5 | > 5.9 | > 5.9 |
+| 4 | 0.163 | 3.2 | 3.4 | > 5.9 |
+| 5 | 0.0877 | 3.0 | 3.1 | > 5.9 |
+
+The unshifted formulation needs the same with $x' = hD$, and neither enforces it: the
+collar couples bins, so the per-bin bound is a heuristic in both. The shift moves each
+damped bin's residual phase by at most the cap's one radian.
+
+**Where it applies.** On field grids and on envelope grids with the third harmonic. On
+an envelope grid without it the frame removes $\beta_0$ already, the shift is zero, and
+the run is the unshifted arithmetic exactly. If the reference bin is inactive the run
+takes $\sigma = 0$ and its log says why. The shift is formed from the grid's reference
+frequency; a launch away from it, or a custom frame, leaves part of the rotation, which
+changes the cost and never the exactness. Either shift needs the exponential
+formulation, and the free-space routes refuse it until it is qualified there.
+
+**What it measured** (preliminary, full-length `numpy_ref` runs at `rtol = 1e-6`,
+source evaluations and final-field error against a tighter IP-DOPRI5 reference;
+[SEP 35](../../dev/seps/sep-0035-carrier-frame-exponential-adams.md) §7.2):
+
+| case | $\kappa$, rad/m | `"off"` | `"scalar"` | interaction | IP-DOPRI5 |
+|---|---|---|---|---|---|
+| He capillary, 0.2 bar fill, 4.2 m | −12 | 1128 / 1.4e-6 | 932 / 1.1e-6 | 1644 / 7.5e-7 | 2268 / 4.4e-6 |
+| He capillary, four modes, 1.5 m | −48 | 1805 / 1.6e-6 | 1742 / 2.5e-6 | 10475 / 3.1e-7 | 12397 / 2.5e-6 |
+| H₂ 40 bar comb-to-continuum, 0.1 m | −5470 | 2669 / 5.8e-6 | 582 / 6.4e-6 | 1401 / 2.3e-6 | 798 / 3.0e-7 |
+| H₂ 5 bar self-frequency shift, 1 m | −2420 | 26060 / 1.0e-4 | 18910 / 7.6e-5 | 17032 / 6.6e-5 | 27979 / 3.2e-5 |
+
+On the argon capillary of the limitations below, at `rtol = 1e-3`, it brought the error
+from 0.97 to 0.05 in fewer evaluations than IP-DOPRI5. These are motivation, not
+qualification; whether it becomes the default is decided on the benchmark suite's short
+windows against criteria fixed in advance.
+
+**The harmonic frame.** `carrier_frame="harmonic"` also gives the third-harmonic band,
+the bins at or above $2\omega_0$, three times the shift, so that the harmonic source is
+smooth too; the moments then take $hD - m(\omega)\sigma$ element by element, with
+$m(\omega)$ fixed for the run. A frequency boundary does not identify a source's
+phase — self-phase-modulated fundamental light and harmonic generation reach the same
+bins — so it is experimental: `numpy_ref` only, until it passes the gate of SEP 35 §7.4,
+and removed if it does not.
 
 ## Stability, and the temporal collar
 
@@ -503,6 +621,19 @@ gives the measured ranking by regime, on both compiled backends and on devices.
 - **Loose tolerances.** An error of five per cent or more allowed per step compounds
   through the history, and the predictor–corrector estimate is unreliable there: an
   adaptive run at `rtol` of 5e-2 or more is warned on.
+- **Loose tolerances in dense gases, on field grids.** On field grids, and envelope
+  grids with the third harmonic, in a dense gas the default `Multistep()` at a loose
+  tolerance can accumulate a large error over many honestly estimated steps: on a 13 µm
+  argon capillary at 1.7 bar (0.4 m, 30 fs, 3 µJ, plasma on), `rtol = 1e-3` gave a
+  final-field error of 0.97 in 3909 evaluations, against 0.07 for `RungeKutta()` in
+  2625. The order stays at two, nothing is rejected and each step's estimate is a few
+  parts in $10^4$; a self-compression amplifies the accumulated error of every method.
+  At `rtol = 1e-4` all methods agree to about 1 %. There, use `RungeKutta()` or
+  `rtol <= 1e-4`, or `carrier_frame="scalar"` once it is delivered on the backend in
+  use (0.05 on `numpy_ref`, [the carrier frame](#the-carrier-frame)).
+- **The carrier frame** runs on `numpy_ref` only; `numba_cpu`, `native` and the
+  free-space routes refuse it by name. A march snapshot taken under another policy, or
+  before the policy existed, restarts the history.
 - **Weak wings.** The error norm scores the whole active band, so the light generated
   outside the requested band is integrated under control. Bins far below the peak —
   under 1e-10 of its power — can still hold free radiation under the pulse's
