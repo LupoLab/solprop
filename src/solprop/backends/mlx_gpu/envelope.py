@@ -18,8 +18,9 @@ decisions. On the device each sample is one thread of one custom kernel:
   angle cannot put a node on the wrong side of a cutoff -- each level's sums
   compensated, and refined until two successive levels agree within the
   representation's frozen budget (``2e-6`` relative, floor ``1e-30`` s^-1);
-- the rate from the table's spline as in :func:`~solprop.backends.mlx_gpu.arithmetic.
-  rate_kernel` (an exact ``fma`` local coordinate, a double-float constant term);
+- the rate from the table's spline as in
+  :func:`~solprop.backends.mlx_gpu.arithmetic.rate_kernel` (an exact ``fma`` local
+  coordinate, a double-float constant term);
 - a failure flag per sample where the 512-point rule does not converge, which the
   backend reads with the step's norm and turns into the oracle's ``ConvergenceError``.
 

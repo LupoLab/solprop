@@ -35,6 +35,7 @@ from solprop.exceptions import BackendError
 __all__ = [
     "GEMM_PROBE_BOUND",
     "DoubleFloatTerms",
+    "fft_bound_32",
     "fft_probe",
     "gemm_probe",
     "on_gpu",

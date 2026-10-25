@@ -48,9 +48,11 @@ from solprop.translate.tdse import TDSEBinding
 __all__ = [
     "BACKENDS",
     "FAR_FIELD_BACKENDS",
+    "SINGLE_ONLY",
     "BackendEntry",
     "available",
     "available_device_memory",
+    "metal_available",
     "resolve_name",
     "select",
     "select_batch",

@@ -35,6 +35,7 @@ __all__ = [
     "kerr",
     "plasma_current",
     "project",
+    "project_many",
     "raman",
     "running_integral",
     "synthesise",

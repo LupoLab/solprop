@@ -27,5 +27,6 @@ sep-0028-free-space-evaluation
 sep-0029-compiled-backend-distribution
 sep-0030-standard-benchmark-suite
 sep-0031-simulation-coupling
+sep-0033-single-precision-mlx
 sep-0034-medium-flux
 ```

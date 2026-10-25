@@ -2,7 +2,7 @@
 
 solprop computes in IEEE binary64 (double precision) by default. A run can instead hold
 its propagated field and its nonlinear evaluation in binary32 (single precision) with
-`precision="single"` ([SEP 33](../../dev/seps/sep-0033-single-precision-mlx.md)).
+`precision="single"` ([SEP 33](../../dev/seps/archive/sep-0033-single-precision-mlx.md)).
 Single precision halves the memory of every field-sized buffer and is what graphics
 processors without fast binary64 arithmetic compute in; whether a given problem keeps
 its accuracy in binary32 is a property of the problem, so this page records which do.
@@ -110,6 +110,10 @@ field's error, and binary64's own field error at the same tolerance for comparis
 | Cartesian Kerr beam, 64 × 64 | 2.7e-6 | 2.0e-5 (bands) | 4.2e-6 | survives |
 
 At `rtol = 1e-5` every case but the comb-to-continuum stays inside its envelopes too.
+The table is the reference implementation's. On `mlx`, whose envelope-grid plasma is
+its own discretisation of the cycle moments, the envelope-grid blue shift over its full
+0.4 m has field error 4.8e-5 (largest other 5.3e-5, the ionised fraction) and the
+field-grid one 2.2e-4 (2.8e-4, bands): both survive.
 
 - **The comb-to-continuum limit.** Noise-free stimulated Raman scattering grows from
   whatever seed the Stokes band holds; rounding seeds it at the level of the unit
@@ -142,7 +146,15 @@ At `rtol = 1e-5` every case but the comb-to-continuum stays inside its envelopes
   and an eight-mode capillary with ionisation on a 1 ps window 0.83 times. In free
   space, ten Kerr steps took 0.87 and 0.26 times `native`'s time on 64 and 256 radial
   nodes, about 0.5 times on 64 × 64 and 128 × 128 Cartesian grids, and a field-grid
-  argon filament 0.68 and 0.43 times on 64 and 128 radial nodes. Small
+  argon filament 0.68 and 0.43 times on 64 and 128 radial nodes. With the envelope-grid
+  plasma, whose cycle moments are one GPU thread per sample, a capillary step took
+  0.13–0.22 times `native`'s time from one to eight modes. Small
   capillary runs (one to four modes on a 300 fs window) are slower on the GPU, 2–3
   times `native`'s time, bound by the GPU's per-operation latency. These are indicative
   figures from a loaded machine, not benchmarks.
+
+The [worked example](../../auto_examples/performance/plot_01_single_precision.rst) runs a
+capillary with the envelope-grid plasma and a radial filament in both precisions and
+compares them. The precision setting, its binary32 contract, the survival study and the
+`mlx` backend were proposed and carried out by
+[SEP 33](../../dev/seps/archive/sep-0033-single-precision-mlx.md).

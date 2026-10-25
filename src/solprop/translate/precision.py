@@ -8,7 +8,7 @@ A run is ``"double"`` (binary64, the default and the only arithmetic of ``numba_
 and ``native``) or ``"single"``: the propagated state, the stage values, every transform
 and the responses in IEEE binary32, with the controller, every host scalar and the
 linear propagator's exponent in binary64
-(``docs/dev/seps/sep-0033-single-precision-mlx.md`` section 4.2, ADR-052). This module
+(``docs/dev/seps/archive/sep-0033-single-precision-mlx.md`` section 4.2, ADR-052). This module
 holds what every backend that admits single precision shares, so that they compute the
 same exponents and refuse the same things:
 

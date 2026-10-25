@@ -31,16 +31,6 @@ being implemented.
   identifies a new material contract. Ne/Xe, mixtures, mode-averaged and multimode
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
-- [SEP 33 — Single-precision propagation, and an MLX backend for Apple GPUs](seps/sep-0033-single-precision-mlx.md):
-  in progress. A run-level `precision="single"` setting under a binary32 contract
-  (block exponents per narrowed buffer, an exact power-of-two state scale, a
-  binary64-accurate propagator), with `numpy_ref` as its oracle and a survival study
-  judged against criteria fixed before measurement (phase 1); then an `mlx` backend for
-  Apple-silicon GPUs on capillary fibre runs (phase 2), radial and Cartesian free space
-  (phase 3), and envelope-grid plasma and the Adams admission (phase 4). The general
-  modal route, the planar kind, coupled flows, TDSE responses and noise models are
-  refused under single precision; those, and single-precision and mixed modes of
-  `native` and `numba_cpu`, remain open.
 
 
 ## Draft enhancement proposals
@@ -584,9 +574,14 @@ GPUs with slow double precision.
   cases and one noise-seeded case. Noise-seeded runs may fail it, since FP32 rounding can
   sit near a one-photon-per-mode seed for pulses of a microjoule and above. Adoption
   would be a SEP.
-- Entirely single precision, and Metal: [SEP 33](seps/sep-0033-single-precision-mlx.md)
-  proposes the precision setting, a `numpy_ref` oracle and an MLX backend for Apple
-  GPUs on the fibre, radial and Cartesian routes. Open beyond it: single precision on
+- Entirely single precision, and Metal: [SEP 33](seps/archive/sep-0033-single-precision-mlx.md)
+  (final) built the precision setting, a `numpy_ref` oracle and an MLX backend for
+  Apple GPUs on the fibre, radial and Cartesian routes with every response but the
+  refused ones. Its open questions: whether a rule comparing binary32 Adams with
+  binary64 Adams should admit `Multistep()` under single precision (binary64 Adams has
+  the same errors at the tolerances the study used); a benchmark of the suite's cases
+  on `mlx` on a quiet machine; whether a hosted macOS runner exposes Metal; and a fused
+  stage kernel for the launch-bound small plasma capillaries. Open beyond it: single precision on
   `native` and `numba_cpu` (Kokkos, Kokkos Kernels and Kokkos-FFT support it on every
   backend in use), on the routes SEP 33 refuses, and noise models under single
   precision, which SEP 33 refuses as a known limitation: binary32 rounding can reach a

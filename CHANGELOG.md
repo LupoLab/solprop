@@ -161,7 +161,7 @@ The first public release. It contains:
     model needs). A five-centimetre capillary run with ionisation is under way in about
     3 s on an Apple M5 Max, from 5.5 s.
 - **Single precision**
-  ([SEP 33](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0033-single-precision-mlx.html),
+  ([SEP 33](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0033-single-precision-mlx.html),
   in progress). `precision="single"` on `SimulationSettings` and on `prop_gnlse`,
   `prop_capillary` and `prop_waveguide` holds the state, the transforms and the
   responses in binary32, with the controller and the propagator's exponent in binary64,

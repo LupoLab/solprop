@@ -117,7 +117,7 @@ or its numerical accuracy.
 
 `pip install solprop[mlx]` installs [MLX](https://ml-explore.github.io/mlx/) on macOS on
 Apple silicon, and with it the `mlx` backend
-([SEP 33](../../dev/seps/sep-0033-single-precision-mlx.md)). Apple GPUs have no binary64
+([SEP 33](../../dev/seps/archive/sep-0033-single-precision-mlx.md)). Apple GPUs have no binary64
 arithmetic, so it runs `precision="single"` only, under the contract and with the
 accuracy record of [single precision](single-precision.md); it is validated against the
 reference backend's single-precision path. It runs the capillary and fibre routes

@@ -50,7 +50,7 @@ the build's execution space, with no fallback.
 ## The Apple-GPU backend (`mlx` extra)
 
 MLX (`mlx`, MIT licence, compatible with GPL-3.0-or-later) is the optional extra of the
-`mlx` backend ([SEP 33](seps/sep-0033-single-precision-mlx.md)), declared with the marker
+`mlx` backend ([SEP 33](seps/archive/sep-0033-single-precision-mlx.md)), declared with the marker
 `sys_platform == "darwin" and platform_machine == "arm64"` and pinned to a tested minor
 version, `mlx>=0.32.4,<0.33`; the macOS floor is MLX's wheels'. A pin is raised only in
 a pull request that runs the GPU lane and the arithmetic probes (Q9). Nothing outside

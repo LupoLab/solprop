@@ -1167,7 +1167,7 @@ Withdrawn (development-process record, not a design decision).
 
 - **Status:** accepted; amends [architecture.md §1](architecture.md) ("Double precision
   throughout") and records an exception to ADR-020 for the `mlx` route
-  ([SEP 33](seps/sep-0033-single-precision-mlx.md))
+  ([SEP 33](seps/archive/sep-0033-single-precision-mlx.md))
 - **Context:** Apple-silicon GPUs have several times the CPU's single-precision
   throughput and no binary64 arithmetic, and Kokkos has no Metal backend. Whether a
   problem survives binary32 depends on the problem, so it has to be measured, against
