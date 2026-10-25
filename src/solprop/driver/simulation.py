@@ -95,6 +95,7 @@ from solprop.exceptions import (
     DriverError,
     GasFlowWarning,
     GrazingIncidenceWarning,
+    GridError,
     MaterialRangeWarning,
     MemoryBudgetError,
     MemoryBudgetWarning,
@@ -107,6 +108,7 @@ from solprop.exceptions import (
 from solprop.fourier import power_amplitude
 from solprop.gasflow import VacuumEnd
 from solprop.grid import (
+    DEFAULT_COLLAR_FRACTION,
     EnvelopeGrid,
     FieldGrid,
     FreeGrid,
@@ -1505,7 +1507,7 @@ class Simulation(Displayed):
     ... )
     >>> handler = simulation.run()
     >>> handler.n_saved, simulation.translate().shape
-    (2, (1, 1, 1, 1024))
+    (2, (1, 1, 1, 768))
     """
 
     def __init__(  # noqa: PLR0913 - the physics of a run, each a distinct object
@@ -1735,7 +1737,7 @@ class Simulation(Displayed):
         ... )
         >>> problem = simulation.translate()
         >>> problem.shape, simulation.translate() is problem
-        ((1, 1, 1, 1024), True)
+        ((1, 1, 1, 768), True)
         """
         if self._problem is None:
             settings = self.settings
@@ -3186,6 +3188,7 @@ class Simulation(Displayed):
                     bool(getattr(response, "thg", False)) for response in responses
                 ),
             )
+        settings = _spatial_default(settings, grid)
         simulation = cls(
             grid,
             (),
@@ -3286,6 +3289,7 @@ class Simulation(Displayed):
                     ),
                 ),
             )
+        settings = _spatial_default(settings, grid)
         simulation = cls(
             grid,
             (),
@@ -3501,9 +3505,9 @@ class Simulation(Displayed):
             ``False``: the taper costs a systematic error of the size of the field's
             content in the collar, and the rate absorber acts either way.
         absorber : solprop.boundaries.Absorber, False or None, optional
-            The collar rates. ``None``, the default, gives a GNLSE run no absorbing
-            boundaries, as before; ``False`` is the same with the hard band mask
-            kept (:func:`solprop.boundaries.no_absorber`).
+            The collar rates; ``None`` builds the default collar of the grid
+            (:func:`default_collar`), and ``False`` switches both soft collars off
+            and keeps the hard band mask (:func:`solprop.boundaries.no_absorber`).
         absorber_scheme : {'nonlinear', 'split_step'} or None, optional
             How a temporal collar is applied (ADR-025); ``None`` is the default,
             inside every stage.
@@ -3549,7 +3553,14 @@ class Simulation(Displayed):
         """
         materials = MaterialSelection() if materials is None else materials
         _refuse_dispersive_policy(materials, "a GNLSE run's fitted gamma")
-        working = _gnlse_grid(grid, length, lambda0, wavelength_limits, trange)
+        working = _gnlse_grid(
+            grid,
+            length,
+            lambda0,
+            wavelength_limits,
+            trange,
+            collar=absorber is not False,
+        )
         _check_selection_carrier(materials, working.reference_wavelength, lambda0)
         mapping = _gnlse_fibre(
             gamma,
@@ -3575,7 +3586,7 @@ class Simulation(Displayed):
             phases=phases,
             pulses=pulses,
         )
-        boundary, scheme = _boundary(absorber, absorber_scheme, working, default=None)
+        boundary, scheme = _boundary(absorber, absorber_scheme, working)
         settings = SimulationSettings(
             controller=PIController(
                 rtol=_tolerance(rtol, precision, DEFAULT_RTOL), atol=atol
@@ -4725,7 +4736,14 @@ class Simulation(Displayed):
                 )
                 raise DriverError(msg)
         working = _capillary_grid(
-            grid, length, lambda0, wavelength_limits, trange, envelope=False, thg=False
+            grid,
+            length,
+            lambda0,
+            wavelength_limits,
+            trange,
+            envelope=False,
+            thg=False,
+            collar=absorber is not False,
         )
         if working.kind != "field":
             msg = (
@@ -5275,7 +5293,14 @@ class Simulation(Displayed):
         )
 
         working = _capillary_grid(
-            grid, length, lambda0, wavelength_limits, trange, envelope=envelope, thg=thg
+            grid,
+            length,
+            lambda0,
+            wavelength_limits,
+            trange,
+            envelope=envelope,
+            thg=thg,
+            collar=absorber is not False,
         )
         materials = MaterialSelection() if materials is None else materials
         _check_selection_carrier(materials, working.reference_wavelength, lambda0)
@@ -7204,6 +7229,8 @@ def _gnlse_grid(
     lambda0: float,
     wavelength_limits: tuple[float, float] | None,
     trange: float | None,
+    *,
+    collar: bool = True,
 ) -> TimeGrid:
     """Return the envelope grid a GNLSE run propagates on.
 
@@ -7219,6 +7246,9 @@ def _gnlse_grid(
         Window limits, m.
     trange : float or None
         Time window, s.
+    collar : bool, optional
+        Whether to leave room for a temporal collar outside the request; ``False``
+        (``absorber=False``) builds the request alone (SEP 21, Q16).
 
     Returns
     -------
@@ -7247,7 +7277,9 @@ def _gnlse_grid(
             "your own"
         )
         raise DriverError(msg)
-    return EnvelopeGrid.from_limits(length, lambda0, wavelength_limits, trange)
+    return EnvelopeGrid.from_limits(
+        length, lambda0, wavelength_limits, trange, collar_fraction=_room(collar)
+    )
 
 
 def _gnlse_fibre(  # noqa: PLR0913 - the coefficients of the mapping
@@ -7751,6 +7783,22 @@ def default_field_range(peak_field: float) -> tuple[float, float]:
     return (peak_field * _FIELD_RANGE_BELOW, peak_field * _FIELD_RANGE_ABOVE)
 
 
+def _room(collar: bool) -> float:
+    """Return a built grid's collar fraction: the default, or none without a collar.
+
+    Parameters
+    ----------
+    collar : bool
+        Whether the run has a temporal collar.
+
+    Returns
+    -------
+    float
+        :data:`solprop.grid.DEFAULT_COLLAR_FRACTION`, or zero.
+    """
+    return DEFAULT_COLLAR_FRACTION if collar else 0.0
+
+
 def _capillary_grid(  # noqa: PLR0913 - the three grid keywords and the two switches
     grid: TimeGrid | None,
     length: float,
@@ -7760,6 +7808,7 @@ def _capillary_grid(  # noqa: PLR0913 - the three grid keywords and the two swit
     *,
     envelope: bool,
     thg: bool,
+    collar: bool = True,
 ) -> TimeGrid:
     """Return the grid a capillary run propagates on.
 
@@ -7780,6 +7829,9 @@ def _capillary_grid(  # noqa: PLR0913 - the three grid keywords and the two swit
     thg : bool
         Whether the responses reach the third harmonic, which sets an envelope grid's
         oversampling.
+    collar : bool, optional
+        Whether to leave room for a temporal collar outside the request; ``False``
+        (``absorber=False``) builds the request alone (SEP 21, Q16).
 
     Returns
     -------
@@ -7805,11 +7857,14 @@ def _capillary_grid(  # noqa: PLR0913 - the three grid keywords and the two swit
             "or a grid of your own"
         )
         raise DriverError(msg)
+    room = _room(collar)
     if envelope:
         return EnvelopeGrid.from_limits(
-            length, lambda0, wavelength_limits, trange, thg=thg
+            length, lambda0, wavelength_limits, trange, thg=thg, collar_fraction=room
         )
-    return FieldGrid.from_limits(length, lambda0, wavelength_limits, trange)
+    return FieldGrid.from_limits(
+        length, lambda0, wavelength_limits, trange, collar_fraction=room
+    )
 
 
 def _capillary_modes(  # noqa: PLR0913 - capillary geometry and material keywords
@@ -10040,7 +10095,7 @@ def _boundary(
     scheme: AbsorberScheme | None,
     grid: TimeGrid,
     *,
-    default: Callable[[TimeGrid], Absorber] | None = collar,
+    default: Callable[[TimeGrid], Absorber] | None = None,
 ) -> tuple[Absorber | None, AbsorberScheme]:
     """Resolve a builder's absorber keywords (SEP 21 section 5).
 
@@ -10054,8 +10109,8 @@ def _boundary(
     grid : TimeGrid
         The run's grid.
     default : callable or None, optional
-        The route's collar when none is given; ``None`` for a route with no
-        absorbing boundaries by default.
+        The route's collar when none is given; ``None`` is
+        :func:`default_collar`.
 
     Returns
     -------
@@ -10077,5 +10132,63 @@ def _boundary(
             raise DriverError(msg)
         return no_absorber(grid), DEFAULT_ABSORBER_SCHEME
     if absorber is None:
-        absorber = None if default is None else default(grid)
+        absorber = default_collar(grid) if default is None else default(grid)
     return absorber, DEFAULT_ABSORBER_SCHEME if scheme is None else scheme
+
+
+def default_collar(grid: TimeGrid) -> Absorber:
+    """Return a route's default absorbing boundaries on a grid (SEP 21).
+
+    :func:`solprop.boundaries.absorber` at its defaults, spectral-only when the grid
+    leaves too little room outside the request for a temporal collar to taper
+    (``collar_fraction=0`` and no rounding slack).
+
+    Parameters
+    ----------
+    grid : TimeGrid
+        The run's grid.
+
+    Returns
+    -------
+    Absorber
+        The default collar.
+
+    Examples
+    --------
+    >>> from solprop.driver.simulation import default_collar
+    >>> from solprop.grid import FieldGrid
+    >>> grid = FieldGrid.from_limits(1.5, 800e-9, (90e-9, 4e-6), 400e-15)
+    >>> default_collar(grid).temporal
+    True
+    """
+    try:
+        return collar(grid)
+    except GridError:
+        # No room for a temporal taper outside the request: the spectral collar alone.
+        return collar(grid, temporal=False)
+
+
+def _spatial_default(
+    settings: SimulationSettings, grid: TimeGrid
+) -> SimulationSettings:
+    """Give a spatial run whose settings declare no absorber the default collar.
+
+    The temporal and spectral collars become the routes' default (SEP 21, D6); the
+    real-space collar stays off, as it was without an absorber (D9).
+
+    Parameters
+    ----------
+    settings : SimulationSettings
+        The run's settings.
+    grid : TimeGrid
+        The run's temporal grid.
+
+    Returns
+    -------
+    SimulationSettings
+        The settings, with an absorber.
+    """
+    if settings.absorber is not None:
+        return settings
+    boundary = dataclasses.replace(default_collar(grid), spatial=False)
+    return dataclasses.replace(settings, absorber=boundary)

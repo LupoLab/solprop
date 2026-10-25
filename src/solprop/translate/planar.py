@@ -161,7 +161,7 @@ def planar_transform(  # noqa: PLR0913 - geometry and shared translation control
         ),
         window=window,
         absorber_rate=np.zeros(space.n_nodes)
-        if absorber is None
+        if absorber is None or not absorber.spatial
         else TEMPORAL_ALPHA_LENGTH * (1 - window) / absorber.in_stage_length,
         on_axis=space.on_axis,
         forward_scale=1.0,

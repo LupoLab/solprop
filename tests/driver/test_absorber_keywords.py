@@ -21,6 +21,7 @@ import pytest
 from solprop.boundaries import absorber, no_absorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.driver.interface import _with_boundary
+from solprop.driver.simulation import _spatial_default
 from solprop.exceptions import DriverError
 from solprop.grid import FieldGrid
 from solprop.modes.capillary import MarcatiliMode
@@ -79,8 +80,10 @@ def test_a_scheme_beside_absorber_false_is_refused(
 
 
 def test_gnlse_takes_the_absorber_keywords() -> None:
-    """GNLSE keeps no boundaries by default and takes a collar and a scheme."""
-    assert _gnlse().settings.absorber is None
+    """GNLSE takes the routes' default collar, ``False``, a collar and a scheme."""
+    default = _gnlse().settings.absorber
+    assert default is not None
+    assert default.temporal
     off = _gnlse(absorber=False).settings.absorber
     assert off is not None
     assert not np.any(off.spectral_rate)
@@ -117,8 +120,11 @@ def test_spatial_absorber_false_keeps_the_lengths(grid: FieldGrid) -> None:
     assert not np.any(off.temporal_rate_fine)
     assert off.in_stage_length == collar.in_stage_length
     assert off.reference_length == collar.reference_length
-    # Nothing to switch off: the settings carry no absorber, and keep none.
-    assert _with_boundary(_settings(grid), grid, False, None).absorber is None
+    # The settings carry none: the hard mask alone, the real-space collar off.
+    bare = _with_boundary(_settings(grid), grid, False, None).absorber
+    assert bare is not None
+    assert not np.any(bare.spectral_rate)
+    assert bare.spatial is False
 
 
 def test_spatial_keywords_refuse_a_contradiction(grid: FieldGrid) -> None:
@@ -136,3 +142,22 @@ def test_spatial_keywords_refuse_a_contradiction(grid: FieldGrid) -> None:
     same = _with_boundary(_settings(grid), grid, absorber(grid), "split_step")
     assert same.absorber_scheme == "split_step"
     assert same.absorber is not None
+
+
+def test_absorber_false_leaves_no_collar_room_in_a_built_grid() -> None:
+    """Without a temporal collar the built grid holds only the request (Q16)."""
+    with_collar, without = _capillary().grid, _capillary(absorber=False).grid
+    assert without.n_t < with_collar.n_t
+    assert with_collar.t_collar.one_high == without.t_collar.one_high
+
+
+def test_spatial_defaults_leave_the_real_space_collar_off() -> None:
+    """A spatial run whose settings declare no absorber gets the default temporal and
+    spectral collars, with the real-space collar inert as before (SEP 21, D6, D9)."""
+    grid = FieldGrid.from_limits(0.1, 800e-9, (200e-9, 2e-6), 200e-15)
+    settings = _spatial_default(_settings(grid), grid)
+    assert settings.absorber is not None
+    assert settings.absorber.temporal
+    assert settings.absorber.spatial is False
+    given = _settings(grid, absorber=absorber(grid))
+    assert _spatial_default(given, grid) is given

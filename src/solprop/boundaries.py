@@ -206,6 +206,12 @@ class Absorber:
         arrays; it is recorded only when ``False``. Any collar whose temporal rates
         are all zero, however it was built, is translated to no temporal absorber
         (:func:`solprop.translate.masks.temporal_rates`).
+    spatial : bool
+        Whether a radial, Cartesian or planar run applies its real-space collar,
+        ``12.6 (1 - W) / ell_c``. ``False`` keeps the transverse window inert, as a
+        spatial run without an absorber has it; the default collar of a spatial run
+        whose settings declare none is built so (SEP 21), so that adding the
+        temporal and spectral collars does not switch the real-space one on.
 
     Raises
     ------
@@ -233,6 +239,7 @@ class Absorber:
     reference_length: float
     collar_length: float | None = None
     temporal: bool = True
+    spatial: bool = True
 
     def __post_init__(self) -> None:
         """Validate what the shape annotations cannot express.
@@ -579,7 +586,9 @@ def absorber(
     """
     length = _reference_length(grid, boundary_N, boundary_length)
     _check_collar("spectral", grid.omega_collar, grid.omega, "rad/s")
-    _check_collar("temporal", grid.t_collar, grid.t, "s")
+    if temporal:
+        # A spectral-only collar needs no room in time: its grid may have none.
+        _check_collar("temporal", grid.t_collar, grid.t, "s")
     spectral = collar_rate(grid.omega_window, length)
     # Outside the active mask the linear operator is zero and the nonlinear polarisation
     # is masked, so there is nothing left for a rate to absorb; leaving the capped value

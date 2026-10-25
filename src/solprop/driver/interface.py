@@ -27,7 +27,7 @@ from typing import Literal
 import numpy as np
 from jaxtyping import Float
 
-from solprop.boundaries import Absorber
+from solprop.boundaries import Absorber, no_absorber
 from solprop.coupling.models import CouplingModel
 from solprop.driver.simulation import (
     DEFAULT_ATOL,
@@ -591,8 +591,8 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         costs a systematic error of the size of the field's content in the collar, and
         the rate absorber acts either way (``docs/guide/numerics/boundaries.md``).
     absorber : solprop.boundaries.Absorber, False or None, optional
-        The collar rates. ``None``, the default, gives a GNLSE run no absorbing
-        boundaries; ``False`` is the same with the hard band mask kept
+        The collar rates; ``None`` builds the default collar of the grid, and
+        ``False`` switches both soft collars off and keeps the hard band mask
         (:func:`solprop.boundaries.no_absorber`; SEP 21).
     absorber_scheme : {'nonlinear', 'split_step'} or None, optional
         How a temporal collar is applied (ADR-025); ``None`` is the default, inside
@@ -1650,7 +1650,8 @@ def _with_boundary(
     absorber : Absorber, False or None
         The collar given; ``False`` zeroes the temporal and spectral rates of the
         settings' absorber and keeps its lengths, so that the real-space collar, which
-        reads them, is unchanged; ``None`` leaves the settings' own.
+        reads them, is unchanged (without one it builds the hard mask alone, with the
+        real-space collar off, as before); ``None`` leaves the settings' own.
     scheme : {'nonlinear', 'split_step'} or None
         The temporal scheme given; ``None`` leaves the settings' own.
 
@@ -1674,14 +1675,17 @@ def _with_boundary(
             )
             raise DriverError(msg)
         current = settings.absorber
-        if current is not None:
-            changes["absorber"] = dataclasses.replace(
+        changes["absorber"] = (
+            dataclasses.replace(no_absorber(grid), spatial=False)
+            if current is None
+            else dataclasses.replace(
                 current,
                 spectral_rate=np.zeros_like(current.spectral_rate),
                 temporal_rate=np.zeros(grid.n_t),
                 temporal_rate_fine=np.zeros(grid.n_to),
                 temporal=False,
             )
+        )
     elif absorber is not None:
         if settings.absorber is not None:
             msg = (
