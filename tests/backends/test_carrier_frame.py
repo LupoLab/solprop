@@ -57,11 +57,14 @@ from solprop.backends.numba_cpu.multistep import (
 )
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import absorber
-from solprop.driver import Simulation
+from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BackendError, SolpropWarning, StepperError
-from solprop.grid import EnvelopeGrid, FieldGrid
+from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid
 from solprop.linear import Frame
-from solprop.stepper import FixedSchedule, RungeKutta
+from solprop.nonlinear.responses import KerrResponse
+from solprop.pulses import GaussianPulse, SpatialPulse
+from solprop.spatial import SpatialMedium
+from solprop.stepper import FixedSchedule, PIController, RungeKutta
 from solprop.stepper.multistep import (
     CARRIER_PHASE_CAP,
     PEC_REAL_INTERVAL,
@@ -408,7 +411,25 @@ def test_the_chord_is_the_reference_element_on_every_representation():
     assert reference.chord_phase(2e-4, 1.5e-3) == pytest.approx(
         float(np.max(np.abs(np.imag(constant.exponent(2e-4, 1.5e-3)))))
     )
-    # Without a chord (the separable representation) the cap cannot read it.
+    # The separable representation of a Cartesian free-space route has none ...
+    grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
+    free = Simulation.from_free(
+        grid,
+        FreeGrid(3e-4, 8, 4e-4, 6, window_factor=0.2),
+        SpatialMedium(),
+        [KerrResponse(1e-22, thg=False)],
+        SpatialPulse(GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6), 60e-6),
+        settings=SimulationSettings(
+            controller=PIController(rtol=1e-6, atol=1e-14),
+            save_planes=[1e-3],
+            dz_max=1e-3,
+            dz_init=1e-4,
+            backend="numpy_ref",
+        ),
+    ).translate()
+    assert free.linear.phi_representation == "separable"
+    assert carrier_chord(free.linear, 0) is None
+    # ... and without a chord the cap cannot read the phase.
     chordless = dataclasses.replace(reference, chord=None)
     with pytest.raises(BackendError, match="has no chord"):
         chordless.chord_phase(0.0, 1e-3)
