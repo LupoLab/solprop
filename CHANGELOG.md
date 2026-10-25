@@ -283,3 +283,14 @@ The first public release. It contains:
   before it no empty piece in those columns, so `planes()` (and `to_file`) of any run
   with a periodic subset failed with "step statistics columns must have equal row
   counts". The HDF5 file was not affected.
+- **Native CPU cost cliffs at 2-3-5-smooth grid sizes.** Two causes made some smooth
+  sizes 1.6-1.8 times slower per source evaluation than the neighbouring power of two
+  on the native CPU backend. The node-chunk budget took `budget // per_node`, so 33
+  resolved-mode nodes under a limit of 32 ran a 32-node pass and then a one-node tail on
+  one thread; the nodes are now spread evenly over the same number of passes (17 and
+  16). And the threading thresholds for stage kernels (8192 elements) and modal FFTs
+  (32,768 samples) sat just above the four-mode RDW's sizes at n_t 4000, so its stage
+  and transforms ran serially; they are now 4096 and 16,384. On an 18-core AVX-512
+  socket the RDW case costs 1.32 ms per evaluation at n_t 4000 (was 2.47; 4096:
+  1.24-1.36) and 2.54 ms at 8640 (was 3.55; 8192: 2.28-2.31)
+  (`native/benchmarks/size_cliffs.py`).

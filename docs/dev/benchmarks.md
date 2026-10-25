@@ -192,6 +192,29 @@ coupled-flow matrix function on the scalar wall took about 20 times its threaded
 time; both were corrected before the comparison above. "Noisy" rows did not meet the
 predeclared stability check; taper, short-line and planar controls were not requalified.
 
+(smooth-size-cliffs)=
+### Smooth grid sizes
+
+`native/benchmarks/size_cliffs.py` times the four-mode RDW capillary per source
+evaluation (short and long capped Runge-Kutta windows, their difference) on 2-3-5-smooth
+and power-of-two grids, and flags a size whose cost per sample exceeds its nearest power
+of two's by more than 25 %. Two size boundaries made cliffs: the stage threshold (8192
+elements, just above n_t 4000's 8004-element stage, whose entry kernel then took 708 us
+serially against 59 us at full width) with the FFT threshold (32,768 samples, above its
+32,000-sample batch), and a node budget that left 33 nodes as a 32-node pass and a serial
+one-node tail at n_t 8640. With the thresholds at 4096 and 16,384 and the nodes spread
+evenly over the passes, on one 18-core socket of a Xeon Gold 6240 (GCC 16, FFTW 3.3.11,
+ms per evaluation, two rounds each):
+
+| n_t | 4000 | 4096 | 4500 | 5000 | 6000 | 7200 | 8000 | 8192 | 8640 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| before | 2.45–2.47 | 1.24–1.36 | 1.49–1.56 | 1.54–1.57 | 1.86–1.87 | 2.21–2.26 | 2.38–2.39 | 2.29–2.30 | 3.52–3.55 |
+| after | 1.32 | 1.27–1.36 | 1.53–1.54 | 1.57–1.61 | 1.83–1.87 | 2.17–2.26 | 2.38–2.40 | 2.28–2.31 | 2.54–2.58 |
+
+At a stage threshold of 1024 a 1351-element SSFS stage regressed (1.2 to 1.7 ms); the
+reduced comb-to-continuum and SSFS cases did not move at 4096. On a loaded 18-core arm64
+laptop the RDW at n_t 4000 went from 0.82 to 0.95 ms, level with n_t 4096 (0.98 ms).
+
 (radial-chunk-dispatch)=
 ### Radial analytic chunk dispatch
 

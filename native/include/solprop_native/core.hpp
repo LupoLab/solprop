@@ -42,8 +42,11 @@ public:
 };
 
 /** Below this many real-side samples per execution a modal or spatial FFTW plan runs
-    on one thread (`ThreadPolicy::threaded_fft_min_samples` unless set at start). */
-inline constexpr std::size_t default_threaded_fft_min_samples = 32768;
+    on one thread (`ThreadPolicy::threaded_fft_min_samples` unless set at start). At
+    32768 the four-mode RDW's 32000-sample coarse batch (n_t 4000) ran serially, its
+    transforms 2.5-3.2 times slower on an 18-core AVX-512 socket than the 32768-sample
+    batch's four-thread ones. */
+inline constexpr std::size_t default_threaded_fft_min_samples = 16384;
 
 /** Process-start CPU policy; execution instances never exceed the runtime budget. */
 struct ThreadPolicy {
@@ -108,7 +111,12 @@ enum class CpuPool { kernels, fft, raman_fft, raman_tail_fft };
 // and a full-width FFT regressed the Cartesian filament on the server. The column
 // boundary retains the measured 33-column regime and includes 44-column tails.
 // This is a construction-time shape rule, shared by both hosts and all responses.
-inline constexpr std::size_t stage_thread_min_elements = 8192;
+// The stage boundary sat at 8192, just under the calibrated 8196-element RDW stage,
+// so the same case on a 2-3-5-smooth grid (n_t 4000, 8004 elements) ran its stage
+// entry serially: 708 us against 59 us at full width on an 18-core AVX-512 socket,
+// 1.8 times the whole evaluation of n_t 4096. At 4096, 4000-sample RDW costs the same
+// per evaluation as 4096; at 1024 a 1351-element SSFS stage regressed.
+inline constexpr std::size_t stage_thread_min_elements = 4096;
 inline constexpr std::size_t copy_thread_min_elements = 65536;
 // The 38691-work scalar-wall flow needs full width: its serial block functions
 // took 2.39 s versus 0.13 s with the full pool in the server window profile.
@@ -117,7 +125,7 @@ inline constexpr std::size_t modal_thread_min_elements = 65536;
 inline constexpr std::size_t response_thread_min_elements = 32768;
 inline constexpr std::size_t dense_thread_min_elements = 1048576;
 inline constexpr std::size_t raman_thread_min_elements = 65536;
-inline constexpr std::size_t stage_full_thread_elements = 8192;
+inline constexpr std::size_t stage_full_thread_elements = 4096;
 inline constexpr std::size_t response_full_thread_elements = 196608;
 inline constexpr std::size_t response_full_thread_samples = 65536;
 inline constexpr std::size_t response_full_thread_columns = 40;
