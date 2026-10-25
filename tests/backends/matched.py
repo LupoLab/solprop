@@ -60,10 +60,15 @@ def native_thread_fields(
     """Run a thread probe at one Kokkos thread count and return its saved arrays.
 
     The probe takes the path of an ``.npz`` file to write and then its case names, and
-    saves one array per case under the case's position (``case0``, ``case1``, ...).
+    saves one array per case under the case's position (``case0``, ``case1``, ...),
+    and the Kokkos pool it ran with (``runtime_threads``), which must be `threads`:
+    the lanes' one-thread budget is lifted and oversubscription allowed (ADR-052), so
+    a silent cap fails here rather than comparing one thread with one thread.
     """
     environment = os.environ | {
         "SOLPROP_NATIVE_THREADS": str(threads),
+        "SOLPROP_THREADS": "",
+        "SOLPROP_OVERSUBSCRIBE": "1",
         "OMP_PROC_BIND": "false",
     }
     output = directory / f"{probe.stem}-{threads}-{len(list(directory.iterdir()))}.npz"
@@ -76,6 +81,7 @@ def native_thread_fields(
         cwd=probe.parents[1],
     )
     with np.load(output) as saved:
+        assert int(saved["runtime_threads"]) == threads
         return {name: saved[f"case{index}"] for index, name in enumerate(names)}
 
 

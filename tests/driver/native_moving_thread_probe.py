@@ -29,7 +29,18 @@ from driver.test_native_moving_guide import CASES
 
 # The doctest collection imports every module under tests/, and the arguments it
 # was given are not case names: only a subprocess run writes the states.
+
+
+def _runtime_threads() -> np.ndarray:
+    """Return the Kokkos pool this probe ran with, for the caller to check."""
+    return np.array(
+        importlib.import_module("solprop_native").build_info().runtime_threads
+    )
+
+
 if __name__ == "__main__":
     warnings.simplefilter("ignore")
     states = {name: propagate(CASES[name](), native_class()) for name in sys.argv[2:]}
-    np.savez(sys.argv[1], allow_pickle=False, **states)
+    np.savez(
+        sys.argv[1], allow_pickle=False, runtime_threads=_runtime_threads(), **states
+    )

@@ -598,7 +598,7 @@ def test_a_general_polynomial_region_groups_its_species_and_forms_one_cube():
 @pytest.mark.medium
 @pytest.mark.parametrize("evaluator", EVALUATORS)
 @pytest.mark.parametrize("route", ["free", "planar", "general"])
-def test_one_thread_and_four_agree(route, evaluator):
+def test_one_thread_and_four_agree(thread_budget_lifted, route, evaluator):
     """The parallel node loops, forced, against the serial ones, and two runs alike.
 
     The same fixed-order method on the same fixed schedule, so the runs differ by the

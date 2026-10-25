@@ -12,6 +12,7 @@ import pytest
 from jaxtyping import TypeCheckError
 
 import solprop
+from runtime_types import requires_typecheck
 from solprop import backends, exceptions
 from solprop.physdata.sellmeier import _wavelength_extremes
 
@@ -118,6 +119,7 @@ def test_warning_hierarchy_roots_at_solprop_warning():
     assert not issubclass(exceptions.SolpropWarning, exceptions.SolpropError)
 
 
+@requires_typecheck
 def test_runtime_shape_checking_is_installed():
     # The jaxtyping import hook in conftest.py is what enforces every array annotation
     # in the package. It is easy for it to be silently inactive -- if it is scoped to

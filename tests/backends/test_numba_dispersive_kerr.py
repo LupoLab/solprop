@@ -649,7 +649,7 @@ def test_runge_kutta_steps_match_the_reference(evaluator):
 @pytest.mark.medium
 @pytest.mark.parametrize("evaluator", sorted(POLICIES))
 @pytest.mark.parametrize("raman", [False, True])
-def test_one_thread_and_four_agree(raman, evaluator):
+def test_one_thread_and_four_agree(thread_budget_lifted, raman, evaluator):
     """The parallel node loops, forced, against the serial ones, and two runs alike.
 
     The same fixed-order method on the same fixed schedule, so the runs differ by the

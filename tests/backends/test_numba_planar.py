@@ -510,7 +510,7 @@ def test_two_runs_agree(cases):
 
 @pytest.mark.medium
 @pytest.mark.parametrize("name", ["kerr-collar", "field-plasma"])
-def test_one_thread_and_four_agree(cases, name, monkeypatch):
+def test_one_thread_and_four_agree(thread_budget_lifted, cases, name, monkeypatch):
     """The large regime's parallel kernels, forced on a small case, are the serial ones.
 
     The cutoff of the parallel spatial passes is lowered so that the planar finish and

@@ -51,6 +51,15 @@ def problem_and_grid():
 
 # The doctest collection imports every module under tests/, and the arguments it
 # was given are not array names: only a subprocess run saves the arrays.
+
+
+def _runtime_threads() -> np.ndarray:
+    """Return the Kokkos pool this probe ran with, for the caller to check."""
+    return np.array(
+        importlib.import_module("solprop_native").build_info().runtime_threads
+    )
+
+
 if __name__ == "__main__":
     solprop_native = importlib.import_module("solprop_native")
     problem, grid = problem_and_grid()
@@ -71,6 +80,7 @@ if __name__ == "__main__":
             arrays[f"stats:{name}"] = values[name]
         np.savez(
             sys.argv[1],
+            runtime_threads=_runtime_threads(),
             **{f"case{index}": arrays[key] for index, key in enumerate(sys.argv[2:])},
         )
     finally:

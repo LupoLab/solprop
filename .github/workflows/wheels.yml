@@ -134,6 +134,9 @@ jobs:
         env:
           SOLPROP_TEST_BACKEND: native
           PYTEST_XDIST_AUTO_NUM_WORKERS: "3"
+          # The runtime type checks run in ci.yml's coverage lane (ADR-053); here they
+          # would more than double the lane's time without checking anything new.
+          SOLPROP_TEST_TYPECHECK: "0"
         run: uv run --no-sync poe test
 
   # The x86-64 wheel's CPU floor under Intel's emulator: it works on a Haswell

@@ -20,9 +20,12 @@ started and puts it back after.
 """
 
 import contextlib
+import functools
 import os
 import sys
 from collections.abc import Iterator
+from dataclasses import dataclass
+from pathlib import Path
 
 
 def _query() -> tuple[int, ...]:
@@ -120,6 +123,268 @@ def _collapsed() -> bool:
         True when :func:`allowed_cpus` differs from the thread's current affinity.
     """
     return allowed_cpus() != _query()
+
+
+@dataclass(frozen=True)
+class ThreadBudget:
+    """The threads a process may run at once, and the limit that set it.
+
+    Attributes
+    ----------
+    threads : int
+        The budget, at least one.
+    source : str
+        The tightest limit: ``"affinity"``, ``"cgroup quota"`` or the name of the
+        environment variable that set it.
+    oversubscribe : bool
+        Whether ``SOLPROP_OVERSUBSCRIBE`` lets an explicit count exceed the CPUs and
+        the quota (see :meth:`explicit`).
+    requested : int or None
+        ``SOLPROP_THREADS``, which nothing exceeds, or ``None`` when it is unset.
+    """
+
+    threads: int
+    source: str
+    oversubscribe: bool = False
+    requested: int | None = None
+
+    def explicit(self, count: int) -> int:
+        """Clamp a count someone asked for to what this budget allows.
+
+        Normally the budget itself. With ``SOLPROP_OVERSUBSCRIBE=1`` only
+        ``SOLPROP_THREADS`` holds, so a test can run more threads than the machine
+        has CPUs on purpose (a thread-count invariance test on a small runner).
+
+        Parameters
+        ----------
+        count : int
+            The positive count asked for.
+
+        Returns
+        -------
+        int
+            The count allowed.
+
+        Examples
+        --------
+        >>> from solprop._process import ThreadBudget
+        >>> ThreadBudget(4, "affinity").explicit(8)
+        4
+        >>> ThreadBudget(4, "affinity", oversubscribe=True).explicit(8)
+        8
+        """
+        if not self.oversubscribe:
+            return min(count, self.threads)
+        return count if self.requested is None else min(count, self.requested)
+
+
+def _quota(directory: Path) -> int | None:
+    """Return one control group's CPU quota in whole CPUs, or ``None`` for none.
+
+    Parameters
+    ----------
+    directory : pathlib.Path
+        The group's directory: ``cpu.max`` (version 2) or ``cpu.cfs_quota_us`` and
+        ``cpu.cfs_period_us`` (version 1).
+
+    Returns
+    -------
+    int or None
+        The quota divided by its period, rounded down and at least one.
+    """
+    try:
+        limit = directory / "cpu.max"
+        if limit.is_file():
+            value, period = limit.read_text(encoding="utf-8").split()
+            return None if value == "max" else max(1, int(value) // int(period))
+        quota, period = directory / "cpu.cfs_quota_us", directory / "cpu.cfs_period_us"
+        if quota.is_file() and period.is_file():
+            value = int(quota.read_text(encoding="utf-8"))
+            if value > 0:
+                return max(1, value // int(period.read_text(encoding="utf-8")))
+    except OSError, ValueError:
+        return None
+    return None
+
+
+def cgroup_cpus(root: Path | None = None) -> int | None:
+    """Return the tightest CPU quota on this process's control-group path.
+
+    A quota limits CPU *time*, not which CPUs: a team of threads that exceeds it is
+    throttled for the rest of each period, and a team that waits on itself at every
+    step stalls whole. The quota is therefore rounded **down** -- 1.5 CPUs is one
+    thread. Every group from the process's own up to the hierarchy's root is read,
+    for control-group versions 1 and 2, because a parent's quota binds its children.
+
+    This process's own quota (``root`` unset) is read once and kept: every backend
+    build and every scan admission asks, and a running process's groups do not
+    change under it.
+
+    Parameters
+    ----------
+    root : pathlib.Path, optional
+        A filesystem root to read under instead, for tests; never kept.
+
+    Returns
+    -------
+    int or None
+        Whole CPUs, at least one, or ``None`` where no quota is set or none can be
+        read (not Linux, or no control groups).
+
+    Examples
+    --------
+    >>> from solprop._process import cgroup_cpus
+    >>> cgroup_cpus() is None or cgroup_cpus() >= 1
+    True
+    """
+    return _own_cgroup_cpus() if root is None else _read_cgroup_cpus(root)
+
+
+@functools.cache
+def _own_cgroup_cpus() -> int | None:
+    """Return this process's CPU quota, read once.
+
+    Returns
+    -------
+    int or None
+        As :func:`cgroup_cpus`.
+    """
+    return _read_cgroup_cpus(Path("/"))
+
+
+def _read_cgroup_cpus(root: Path) -> int | None:
+    """Read the tightest CPU quota on this process's path under a filesystem root.
+
+    Parameters
+    ----------
+    root : pathlib.Path
+        The filesystem root.
+
+    Returns
+    -------
+    int or None
+        As :func:`cgroup_cpus`.
+    """
+    try:
+        lines = (root / "proc/self/cgroup").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    mounts = root / "sys/fs/cgroup"
+    quotas: list[int] = []
+    for line in lines:
+        fields = line.split(":", 2)
+        if len(fields) != 3:
+            continue
+        controllers, path = fields[1], Path(fields[2].lstrip("/"))
+        if not controllers:
+            base = mounts
+        elif "cpu" in controllers.split(","):
+            base = mounts / controllers
+            base = base if base.is_dir() else mounts / "cpu"
+        else:
+            continue
+        # A container without its own cgroup namespace names the host's path, which
+        # its /sys/fs/cgroup does not have; the parents end at the mount, its own group.
+        for directory in (path, *path.parents):
+            quota = _quota(base / directory)
+            if quota is not None:
+                quotas.append(quota)
+    return min(quotas) if quotas else None
+
+
+def thread_count(name: str) -> int | None:
+    """Read a positive thread count from the environment.
+
+    Parameters
+    ----------
+    name : str
+        The variable, for example ``"SOLPROP_THREADS"``.
+
+    Returns
+    -------
+    int or None
+        The count, or ``None`` when the variable is unset or blank.
+
+    Raises
+    ------
+    ValueError
+        If the variable is set to something that is not a positive integer.
+    """
+    value = os.environ.get(name, "").strip()
+    if not value:
+        return None
+    try:
+        count = int(value)
+    except ValueError as error:
+        msg = f"{name} must be a thread count, and is {value!r}"
+        raise ValueError(msg) from error
+    if count < 1:
+        msg = f"{name} must be positive, and is {value!r}"
+        raise ValueError(msg)
+    return count
+
+
+def thread_budget() -> ThreadBudget:
+    """Return how many threads this process may run at once (ADR-052).
+
+    The smallest of the CPUs it may run on (:func:`allowed_cpus`: ``taskset``, a batch
+    scheduler's allocation), its control groups' CPU quota (:func:`cgroup_cpus`) and
+    ``SOLPROP_THREADS``. Every pool solprop sizes is held within it, and so is any
+    count asked for explicitly unless ``SOLPROP_OVERSUBSCRIBE=1``
+    (:meth:`ThreadBudget.explicit`); the pools take turns, so each may use the whole
+    budget.
+
+    Returns
+    -------
+    ThreadBudget
+        The budget and the limit that set it; on a tie, the earlier in that order.
+
+    Raises
+    ------
+    ValueError
+        If ``SOLPROP_THREADS`` is not a positive thread count, or
+        ``SOLPROP_OVERSUBSCRIBE`` is neither ``0`` nor ``1``.
+
+    Examples
+    --------
+    >>> from solprop._process import thread_budget
+    >>> thread_budget().threads >= 1
+    True
+    """
+    limits = [(len(allowed_cpus()), "affinity")]
+    quota = cgroup_cpus()
+    if quota is not None:
+        limits.append((quota, "cgroup quota"))
+    requested = thread_count("SOLPROP_THREADS")
+    if requested is not None:
+        limits.append((requested, "SOLPROP_THREADS"))
+    threads, source = min(limits, key=lambda limit: limit[0])
+    return ThreadBudget(
+        threads=max(1, threads),
+        source=source,
+        oversubscribe=oversubscribing(),
+        requested=requested,
+    )
+
+
+def oversubscribing() -> bool:
+    """Return whether ``SOLPROP_OVERSUBSCRIBE`` lets explicit counts pass the CPUs.
+
+    Returns
+    -------
+    bool
+        ``True`` for ``1``, ``False`` for ``0`` or unset.
+
+    Raises
+    ------
+    ValueError
+        For any other value.
+    """
+    value = os.environ.get("SOLPROP_OVERSUBSCRIBE", "").strip()
+    if value not in {"", "0", "1"}:
+        msg = f"SOLPROP_OVERSUBSCRIBE must be 0 or 1, and is {value!r}"
+        raise ValueError(msg)
+    return value == "1"
 
 
 @contextlib.contextmanager

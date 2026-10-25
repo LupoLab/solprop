@@ -120,7 +120,7 @@ def run(backend_class, problem, grid, *, threads=1):
 @pytest.mark.parametrize("geometry", ["modal", "radial", "free"])
 @pytest.mark.parametrize("n_pol", [1, 2])
 def test_two_population_host_geometries_and_partial_chunks(
-    envelope_mixture, geometry, n_pol
+    thread_budget_lifted, envelope_mixture, geometry, n_pol
 ):
     problem, grid = geometry_case(envelope_mixture, geometry, n_pol)
     reference, _ = run(NumpyRefBackend, problem, grid)
@@ -140,7 +140,9 @@ def test_two_population_host_geometries_and_partial_chunks(
 
 
 @pytest.mark.medium
-def test_host_sources_are_repeatable_and_thread_invariant(envelope_mixture):
+def test_host_sources_are_repeatable_and_thread_invariant(
+    thread_budget_lifted, envelope_mixture
+):
     """A repeat and a four-thread run of the two fixed Runge-Kutta steps.
 
     One computation on one schedule, its sums ordered by the threads: held to the
@@ -156,7 +158,9 @@ def test_host_sources_are_repeatable_and_thread_invariant(envelope_mixture):
 
 @pytest.mark.medium
 @pytest.mark.parametrize("backend_class", [NumpyRefBackend, NumbaCpuBackend])
-def test_vector_mode_rows_match_state_polarisation(envelope_mixture, backend_class):
+def test_vector_mode_rows_match_state_polarisation(
+    thread_budget_lifted, envelope_mixture, backend_class
+):
     mixture, responses = envelope_mixture
     original, grid = geometry_case(envelope_mixture, "modal", 2)
     mode = MarcatiliMode(30e-6, mixture=mixture, cladding=1.45, loss=False)
@@ -192,7 +196,9 @@ def test_vector_mode_rows_match_state_polarisation(envelope_mixture, backend_cla
 
 
 @pytest.mark.medium
-def test_taper_and_density_paths_reach_each_envelope_population(envelope_mixture):
+def test_taper_and_density_paths_reach_each_envelope_population(
+    thread_budget_lifted, envelope_mixture
+):
     mixture, responses = envelope_mixture
     original, grid = geometry_case(envelope_mixture, "modal", 2)
     mixture = replace(

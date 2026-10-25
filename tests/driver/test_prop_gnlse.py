@@ -17,6 +17,7 @@ import pytest
 
 from bounds import departure
 from march_bounds import FIXED_ORDER, assert_matched, simulation_bound
+from selected_backend import selected_backend
 from solprop import fourier
 from solprop.backends.registry import select
 from solprop.constants import C
@@ -74,7 +75,7 @@ def cheap_settings(**keywords):
         "rtol": 1e-8,
         "atol": 1e-18,
         "n_save": 2,
-        "backend": os.environ.get("SOLPROP_TEST_BACKEND", "numba_cpu"),
+        "backend": selected_backend(),
     } | keywords
 
 

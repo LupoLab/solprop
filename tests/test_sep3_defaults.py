@@ -8,9 +8,9 @@ Phase 4a made an omitted selection ``MaterialSelection()`` and kept a temporary
 ``"registry"`` value per family; Phase 4b deleted it with solprop's own data. These
 tests pin what the default resolves to, that the deleted names and the registry value
 are gone, and the decisions of Phase 4a that outlive the registry (Q14, Q17, Q26).
-The pre-deletion witnesses (``tests/data/sep3_baseline.npz``) and the attributed
-change of each one (``sep3_attribution.json``) are historical records; the registry
-runs that reproduced them bit for bit were last run at solprop ``8d116c8``.
+The pre-deletion witnesses and the attributed change of each one were historical
+records, no longer kept beside the tests; the registry runs that reproduced them bit for
+bit were last run at solprop ``8d116c8``.
 """
 
 import warnings

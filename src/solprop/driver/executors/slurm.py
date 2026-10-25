@@ -249,8 +249,11 @@ class Slurm:
         ]
         if assigned:
             lines.append('    export CUDA_VISIBLE_DEVICES="${devices[$instance]}"')
+        # Each instance's controller keeps its whole share: SOLPROP_THREADS is the
+        # budget its Pool workers are each spawned with, not the controller's own.
         for variable in _THREAD_VARIABLES:
-            lines.append(f"    export {variable}={self.threads}")
+            if variable != "SOLPROP_THREADS":
+                lines.append(f"    export {variable}={self.threads}")
         lines.append("    export OMP_WAIT_POLICY=passive")
         command = [
             sys.executable,

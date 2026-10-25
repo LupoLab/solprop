@@ -34,7 +34,7 @@ The backend decides which pools exist at all (see [Choosing a backend](backends.
 |---|---|---|
 | `numpy_ref` | NumPy's BLAS only | the reference; single-threaded apart from matrix products |
 | `numba_cpu` | Numba kernels, FFTW, BLAS (and FFTW for the transverse transforms of free-space runs) | sizes each pool from the problem |
-| native CPU (`native`) | OpenMP kernels, FFTW (modal and spatial transforms), the Raman convolution transforms (Kokkos-FFT over FFTW, with selected macOS shapes on Accelerate's vDSP), a vendor BLAS | uses every logical CPU unless told otherwise |
+| native CPU (`native`) | OpenMP kernels, FFTW (modal and spatial transforms), the Raman convolution transforms (Kokkos-FFT over FFTW, with selected macOS shapes on Accelerate's vDSP), a vendor BLAS | uses every CPU in the process's affinity mask unless told otherwise |
 | native GPU (`native`, CUDA or HIP build) | the device | CPU pools are irrelevant; one device per process |
 
 `backend="auto"` chooses the native backend when `solprop-native` is installed and
@@ -83,14 +83,34 @@ or above 262 144 elements ($n_\text{rows} \times n_{to}$), one below. The BLAS p
 set through [threadpoolctl](https://github.com/joblib/threadpoolctl); Apple's
 Accelerate exposes no thread control at all, and is recorded as `uncontrolled`.
 
-"Every CPU available" means the smallest of the machine's logical CPU count, the
-process's CPU affinity (for example under `taskset` or a batch scheduler) and a Linux
-cgroup CPU quota (containers).
+"Every CPU available" means the process's **thread budget**, the smallest of:
+
+- its CPU affinity mask, the CPUs it may run on (narrowed by `taskset`, `numactl` or a
+  batch scheduler's allocation);
+- the tightest Linux control-group CPU quota on its path (containers), rounded **down**:
+  a quota limits CPU time, and a team of threads that exceeds it is throttled whole, so
+  a quota of 1.5 CPUs runs one thread;
+- `SOLPROP_THREADS`, if set.
+
+Both CPU backends size every pool within this budget, and clamp an explicit count
+(`threads=` or a variable below) to it rather than refusing it; the pools take turns, so
+each may use all of it. Set `SOLPROP_THREADS` to each process's share when several
+processes share CPUs without being pinned apart. That includes several solprop
+processes in one CPU-limited container (a Kubernetes CPU limit, Docker `--cpus`): the
+quota is the container's, and each process would otherwise take all of it. A cloud
+virtual machine or a Slurm job has no quota by default (`cat /sys/fs/cgroup/cpu.max`
+prints `max`); there the CPUs it may run on are the limit. `SOLPROP_OVERSUBSCRIBE=1` lets an
+explicit count exceed the CPUs and the quota (never `SOLPROP_THREADS`), for a test that
+compares thread counts on a small machine; a run has no reason to set it. The budget and
+the limit that set it are recorded in the run's metadata (`thread_budget`,
+`thread_budget_source`).
 
 Each pool can be fixed from the environment:
 
 | variable | pool | default |
 |---|---|---|
+| `SOLPROP_THREADS` | the process's thread budget, which every pool below (and the native backend's) stays within | the affinity mask and quota alone |
+| `SOLPROP_OVERSUBSCRIBE` | `1` lets an explicit count exceed the CPUs and the quota | `0` |
 | `SOLPROP_NUMBA_THREADS` | Numba kernel threads | all available CPUs above the size threshold, else 1 |
 | `SOLPROP_NUMBA_REGIME` | `small` (serial node loop) or `large` (parallel node loop) | chosen from the size threshold |
 | `SOLPROP_FFTW_THREADS` | FFTW threads for the temporal and Raman transforms | every available CPU from 1 048 576 elements, up to 4 from 65 536, else 1 |
@@ -116,13 +136,11 @@ benchmarks; unset, nothing is timed and nothing is added to a pass. On the nativ
 stages are profiling regions (`solprop_native.free.*`) that any Kokkos Tools timer
 reports.
 
-Every explicit count is clamped to the CPUs available. `NUMBA_NUM_THREADS`, Numba's own
-variable, sets the size of the pool Numba creates at import, and a kernel pool larger
-than that is an error rather than being clamped: if you lower `NUMBA_NUM_THREADS` below
-the number of CPUs, set `SOLPROP_NUMBA_THREADS` to at most the same value, or a problem
-in the large regime fails when its backend is built. `NUMBA_THREADING_LAYER` chooses
-Numba's threading layer (`omp`, `tbb` or `workqueue`) and is normally best left
-alone.
+Every explicit count is clamped to the thread budget. `NUMBA_NUM_THREADS`, Numba's own
+variable, sets the size of the pool Numba creates at import, and the kernel pool, chosen
+or explicit, is clamped to it as well; the FFTW and BLAS pools are not, since they are
+not Numba's. `NUMBA_THREADING_LAYER` chooses Numba's threading layer (`omp`, `tbb` or
+`workqueue`) and is normally best left alone.
 
 **FFTW's idle threads on Linux.** pyFFTW's Linux wheels thread FFTW through their own
 copy of GNU OpenMP. If that runtime's idle threads spin, they take the cores the Numba
@@ -174,7 +192,7 @@ imported:
 
 | variable | pool | default |
 |---|---|---|
-| `SOLPROP_NATIVE_THREADS` | the process-wide cap; Kokkos' OpenMP pool is created with this many threads | the number of logical CPUs |
+| `SOLPROP_NATIVE_THREADS` | the size of Kokkos' OpenMP pool, an explicit count within the thread budget (above the CPUs only with `SOLPROP_OVERSUBSCRIBE=1`, above `SOLPROP_THREADS` never) | the thread budget |
 | `SOLPROP_NATIVE_KERNEL_THREADS` | response, stage and reduction kernels | sized per operation, up to the cap |
 | `SOLPROP_NATIVE_FFT_THREADS` | FFTW threads for the modal and spatial transforms | sized per plan, up to the cap |
 | `SOLPROP_NATIVE_RAMAN_FFT_THREADS` | threads for the Raman convolution transforms of complete node chunks | sized per plan, up to the cap |
@@ -254,10 +272,12 @@ initialises Kokkos with an explicit thread count, which takes precedence; set
 `SOLPROP_NATIVE_THREADS` instead. (Kokkos prints a warning at start-up if
 `OMP_NUM_THREADS` asks for fewer threads than it was given.)
 
-**The default cap is every logical CPU.** Automatic sizing avoids assigning all of
-those threads to small operations. On a shared machine or when several solprop
-processes run side by side, set `SOLPROP_NATIVE_THREADS` to each process's CPU budget.
-The operation policy stays within that budget.
+**The default cap is the thread budget** (above): the CPUs in the process's affinity
+mask, a container's quota and `SOLPROP_THREADS`. Automatic sizing avoids assigning all
+of those threads to small operations. On a shared machine or when several solprop
+processes run side by side, set `SOLPROP_THREADS` (which holds `numba_cpu` too) or
+`SOLPROP_NATIVE_THREADS` to each process's CPU budget. The operation policy stays within
+that budget.
 
 ### OpenMP placement and waiting
 
@@ -334,11 +354,10 @@ single-threaded workers almost always beat one many-threaded run: each worker ke
 own caches and nothing waits for synchronisation. solprop's
 {class}`~solprop.driver.executors.pool.Pool` executor does this for you: every worker is a
 newly spawned Python process started with **all** of `NUMBA_NUM_THREADS`,
-`SOLPROP_NUMBA_THREADS`, `SOLPROP_FFTW_THREADS`, `SOLPROP_TRANSVERSE_FFTW_THREADS`,
-`SOLPROP_BLAS_THREADS`, `SOLPROP_NATIVE_THREADS`, `OMP_NUM_THREADS`,
-`OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS` and `VECLIB_MAXIMUM_THREADS` set to its
-`threads` (one by default) and `OMP_WAIT_POLICY=passive`, and on Linux each worker is
-pinned to its own CPUs. The number of workers is the number of CPUs available divided
+`SOLPROP_THREADS`, `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS` and
+`VECLIB_MAXIMUM_THREADS` set to its `threads` (one by default) and
+`OMP_WAIT_POLICY=passive`, so every pool of either backend is sized within that budget,
+and on Linux each worker is pinned to its own CPUs. The number of workers is the number of CPUs available divided
 by `threads`, reduced if a memory probe of the first point shows that fewer fit (four
 fifths of the memory, less the controller's own, divided by one worker's footprint).
 `run_scan` runs its points one after another in the calling process unless it is given
@@ -363,8 +382,7 @@ serial kernel regime selected, before Python starts:
 
 ```sh
 NUMBA_NUM_THREADS=1 NUMBA_THREADING_LAYER=workqueue SOLPROP_NUMBA_REGIME=small \
-SOLPROP_NUMBA_THREADS=1 SOLPROP_FFTW_THREADS=1 SOLPROP_BLAS_THREADS=1 \
-SOLPROP_NATIVE_THREADS=1 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+SOLPROP_THREADS=1 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
 VECLIB_MAXIMUM_THREADS=1 OMP_WAIT_POLICY=passive OMP_PROC_BIND=false \
     python point.py
 ```
