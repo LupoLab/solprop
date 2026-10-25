@@ -149,7 +149,7 @@ field-grid one 2.2e-4 (2.8e-4, bands): both survive.
 - **Performance.** On the reference implementation a single-precision run costs about as
   much as a double-precision one. On `mlx` the gain over `native` grows with the
   problem, and is largest for the envelope-grid plasma, whose cycle moments the GPU
-  evaluates one sample per thread. On an otherwise idle Apple M5 Max, in the same
+  evaluates one sample per thread. On an otherwise idle Apple-silicon laptop, in the same
   process, the median time of a fixed step on `native` (binary64) over that on `mlx`
   (binary32) was:
 

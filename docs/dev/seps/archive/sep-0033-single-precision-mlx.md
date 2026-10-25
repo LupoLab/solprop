@@ -1414,7 +1414,7 @@ steps after two):
 | the same, four and eight modes | 1.05, 1.01 |
 
 **On a quiet machine.** The same-process A/B of every phase's cases, repeated on the
-Apple M5 Max with nothing else running (six alternating rounds, the first dropped,
+Apple-silicon laptop with nothing else running (six alternating rounds, the first dropped,
 median per fixed step; `native` at its default thread budget; the spread of `native`
 under 2 %, of `mlx` up to 27 % on the smallest, launch-bound cases):
 
