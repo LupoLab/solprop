@@ -113,7 +113,7 @@ from solprop.grid import (
     RadialGrid,
     TimeGrid,
 )
-from solprop.linear import Frame, frame_quantities
+from solprop.linear import Frame, frame_origin, frame_quantities
 from solprop.log import DEFAULT_PROGRESS_PERIOD, ProgressChoice, ProgressReporter
 from solprop.modes.antiresonant import TubeLattice
 from solprop.modes.capillary import (
@@ -1226,7 +1226,10 @@ def _plane_reference_record(
         ``carrier``, ``origin``, ``parent``, ``frame`` and ``basis``, as
         :attr:`solprop.output.schema.RunMetadata.reference` documents them.
     """
-    reference = grid.omega0 if frame is None else frame.omega0
+    # The co-moving frame keeps the carrier phase exactly when a harmonic term is
+    # present, and then measures its delay from zero frequency (`frame_origin`).
+    if frame is None:
+        frame = Frame.comoving(grid, thg=problem.grids.carrier_2w0 is not None)
     coupling = configuration.get("coupling")
     origin: object = PlaneReference().record()
     parent: object = None
@@ -1238,9 +1241,7 @@ def _plane_reference_record(
         "carrier": float(grid.omega0),
         "origin": origin,
         "parent": parent,
-        "frame": frame_record(
-            problem.linear, reference if grid.kind == "envelope" else 0.0
-        ),
+        "frame": frame_record(problem.linear, frame_origin(frame, grid.kind)),
         "basis": _plane_bases(problem, grid, configuration, modes, modal),
     }
 

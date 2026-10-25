@@ -237,11 +237,12 @@ def test_the_envelope_grid_operator_removes_the_carrier_phase_too(mode, envelope
 def test_the_envelope_grid_keeps_the_carrier_phase_when_a_harmonic_is_present(
     mode, envelope_grid
 ):
+    # Keeping the carrier phase whole means the delay is measured from zero frequency
+    # too: from the carrier it would still remove the constant -beta_1 omega_ref, which
+    # the harmonic's exp(2i omega0 t) does not share.
     frame = Frame.comoving(envelope_grid, thg=True)
     operator = dispersion_operator(mode, envelope_grid, frame)
-    expected = expected_operator(
-        mode, envelope_grid, subtract_beta0=False, origin=OMEGA_REF
-    )
+    expected = expected_operator(mode, envelope_grid, subtract_beta0=False, origin=0.0)
     assert deviation(operator, expected) < round_off_bound(mode, envelope_grid)
 
 
@@ -255,8 +256,9 @@ def test_the_two_envelope_frames_differ_by_a_constant(mode, envelope_grid):
     )[active]
     difference = with_beta0 - without
     assert deviation(difference, difference[0]) < round_off_bound(mode, envelope_grid)
+    beta0 = mode.beta(np.array([OMEGA_REF]))[0]
     assert difference[0] == pytest.approx(
-        1j * mode.beta(np.array([OMEGA_REF]))[0], rel=1e-12
+        1j * (beta0 - GROUP_INDEX / C * OMEGA_REF), rel=1e-12
     )
 
 
