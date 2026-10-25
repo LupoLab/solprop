@@ -1189,9 +1189,22 @@ there, and every method, IP-DOPRI5 at `rtol = 1e-8` included, leaves it with err
 the noise floor and is highly sensitive; it does not discriminate between methods, and
 it qualifies the large blue-band losses recorded above for the 1 ps window.
 
-The interaction formulation was not run on these windows; it was second on the 1 ps
-window and fastest on the argon and hydrogen-soliton cases. The suite's `ctc_reduced`
-case moves to the 2 ps window (revision 2).
+The Adams interaction formulation (`Multistep(formulation="interaction")`, second on
+the 1 ps window and fastest on the argon and hydrogen-soliton cases) was then run on the
+2 ps windows in the same setup. It is the second-fastest method there, and the carrier
+frame stays the fastest. Time at matched error as a ratio to `"scalar"`:
+
+| 2 ps window | measure | `"off"` | IP-DOPRI5 | interaction |
+|---|---|---|---|---|
+| launch | worst-plane field (1e-7) | 2.28 | 2.08 | 1.63 |
+| launch | weak bins (1e-5 to 1e-7) | 1.81–2.44 | 1.95–2.40 | 1.37–1.73 |
+| developed | worst-plane field (1e-5 to 1e-7) | 2.51–2.92 | 1.64–2.02 | 1.37–1.42 |
+| developed | weak bins (1e-3 to 1e-6) | 1.93–2.11 | 1.64–2.06 | 1.06–1.28 |
+
+In calls the interaction formulation takes 1.21–1.69 times the carrier frame's. So on
+this case with a realistic window the carrier frame takes 30–40 % less time than the
+best method that exists without it, narrowing to 6–17 % in the developed window's weak
+bins. The suite's `ctc_reduced` case moves to the 2 ps window (revision 2).
 
 ## Part III — History
 
@@ -1233,6 +1246,8 @@ case moves to the 2 ps window (revision 2).
 
 - 2026-10-25: Phase 4 supplement: the comb-to-continuum case on 2 ps and 4 ps windows
   (Part II); the suite's `ctc_reduced` moves to a 2 ps window.
+
+- 2026-10-25: The Adams interaction formulation added to the 2 ps comparison (Part II).
 
 ### AI review — 2026-10-25 — GPT-6
 
