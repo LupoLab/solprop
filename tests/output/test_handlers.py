@@ -1124,6 +1124,30 @@ def test_a_plane_with_an_empty_channel_keeps_the_columns_aligned(grid, metadata)
     assert restored[1].step_stats.names == memory.step_stat_names
 
 
+def test_an_entrance_plane_without_names_keeps_the_columns_aligned(grid, metadata):
+    """The driver's entrance plane carries no rows and no names, as a run saves it.
+
+    The statistic names are learnt only at the first plane with rows, so the planes
+    before it must still get their empty pieces in those columns, or every later plane
+    reads another plane's rows.
+    """
+    memory = MemoryOutput()
+    memory.open(metadata)
+    planes = [
+        dataclasses.replace(make_plane(grid, 0), step_stats=StepStats.empty()),
+        *(make_plane(grid, index, with_rows=True) for index in (1, 2, 3)),
+    ]
+    for plane in planes:
+        memory.save(plane)
+    assert memory["step_stats/counts"].tolist() == [0, 1, 2, 0]
+    restored = memory.planes()
+    assert [plane.step_stats.n_rows for plane in restored] == [0, 1, 2, 0]
+    for original, plane in zip(planes[1:], restored[1:], strict=True):
+        for name, value in original.step_stats.values.items():
+            np.testing.assert_array_equal(plane.step_stats.values[name], value)
+    assert restored[0].step_stats.values["energy"].shape == (0, N_MODES, N_POL)
+
+
 def test_the_memory_store_names_the_row_columns_it_holds(grid, metadata):
     """A run *with* a channel still says which statistics it recorded."""
     memory = MemoryOutput()
