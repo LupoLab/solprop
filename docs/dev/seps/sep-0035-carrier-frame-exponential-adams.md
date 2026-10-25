@@ -708,6 +708,9 @@ without the policy refuses it by name.
   the third harmonic, whose frame now measures its delay from zero frequency so that their
   operator is the field grid's; added an interim manual note to phase 1.
 
+- 2026-10-25: Maintainer decisions recorded: responses to R1–R10 approved; default
+  `"off"` until phase 4; phase 4 thresholds accepted; pre-SEP snapshots refused; fixed cap.
+
 ### AI review — 2026-10-25 — GPT-6
 
 Reviewed all of Part I against the conventions, current Adams implementations,
@@ -969,8 +972,15 @@ were transcribed or changed.
 
 Every point was checked against the code and, where it made a numerical claim, reproduced
 before Part I was revised. The proposal is now an opt-in policy with a step cap; the
-default decision moves to phase 4 against criteria fixed in advance. Maintainer decisions
-on R1–R10 are still pending.
+default decision moves to phase 4 against criteria fixed in advance.
+
+*Maintainer decisions (John Travers, 2026-10-25):* the responses to R1–R10 below are
+approved as recorded (R6 with the further decision noted under it). In addition: the
+default stays `"off"` until the phase 4 gate, with the interim manual note in phase 1; the
+phase 4 thresholds of §7.3 and §7.4 are accepted as written; march snapshots taken before
+this SEP or under another policy are refused and restart their history (no compatibility
+path for `"off"`); and the step cap is a fixed constant of the policy, its value re-checked
+in phase 1 (Q6), not a user setting.
 
 1. **R1 — accepted; the cap added.** The counterexamples reproduce, and the failure has an
    exact mirror in the present formulation: a carrier-following source at
