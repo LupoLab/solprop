@@ -14,7 +14,7 @@
 # x86-64 FFTW's SSE2 and AVX codelets are chosen at run time (AVX2 and AVX-512 codelets were not a
 # uniform gain when measured, so they are left out). On Arm the cycle counter is
 # enabled, so that measured planning (FFTW_MEASURE) works; without one FFTW plans by
-# estimate only. Apple silicon also enables FFTW's explicit NEON codelets in both
+# estimate only. Both Arm wheels also enable FFTW's explicit NEON codelets in both
 # precisions; compiler auto-vectorisation does not enable these implementations.
 #
 # OpenMP: on Linux the compiler's own runtime (GCC's libgomp in the manylinux image);
@@ -44,7 +44,7 @@ case "$(uname -s)/$(uname -m)" in
     ;;
   Linux/aarch64)
     cflags="-O3 -mcpu=neoverse-n1"
-    simd=(--enable-armv8-cntvct-el0)
+    simd=(--enable-armv8-cntvct-el0 --enable-neon)
     ;;
   Darwin/arm64)
     : "${MACOSX_DEPLOYMENT_TARGET:?set MACOSX_DEPLOYMENT_TARGET}"

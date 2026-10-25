@@ -194,7 +194,8 @@ The first public release. It contains:
     exponent passes binary32's range, `exp(88.7)`, is refused at translation, and one
     within a tenth of it is warned of.
 - **The native backend.**
-  - Native CPU optimisation: a coherent NEON FFTW build for Apple silicon, long-row
+  - Native CPU optimisation: a coherent NEON FFTW build for Apple silicon and Linux
+    aarch64 (the wheels' smoke test requires it on Arm), long-row
     Raman planning with a compact FFTW/vDSP selection rule, and deferred embedded
     transverse diagnostics for ordinary DOPRI5 modal trials. Accelerate BLAS, kernel
     schema 35, frontend signatures, protected arithmetic and state layouts are
