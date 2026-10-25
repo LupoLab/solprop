@@ -261,7 +261,7 @@ def test_envelope_hdf5_resume_and_reconstruction(
             budget = max(budget, fresh)
             np.testing.assert_allclose(actual, expected, rtol=0, atol=budget * scale)
         assert restored.metadata is not None
-        assert restored.metadata.schema_version == 24
+        assert restored.metadata.schema_version == 25
         assert restored.metadata.configuration["statistic_rate_conventions"] == {
             "peak_ionisation_rate": "cycle-averaged",
             "species_peak_ionisation_rate": "cycle-averaged",

@@ -200,7 +200,11 @@ def to_time(
     """
     n_modes, n_pol = spectrum.shape[:2]
     n_omega_fine = fourier.n_omega_for(n_to, kind)
-    fine = np.zeros((n_modes * n_pol, n_omega_fine), dtype=np.complex128)
+    # The spectrum's own precision: complex128, or complex64 on SEP 33's
+    # single-precision path.
+    fine = np.zeros(
+        (n_modes * n_pol, n_omega_fine), dtype=np.result_type(spectrum, np.complex64)
+    )
     fine[..., crop_index] = spectrum.reshape(n_modes * n_pol, -1)
     return fourier.inverse(fine, kind=kind).reshape(n_modes, n_pol, n_to)
 

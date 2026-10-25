@@ -326,7 +326,10 @@ Cartesian one).
 ## 6. Array layout and axis names
 
 Kernel state and canonical storage: `(n_batch, n_modes, n_pol, n_omega)` complex128, ω
-contiguous (C order). Saved fields: `(n_z, n_modes, n_pol, n_omega)`, with a leading `n_batch`
+contiguous (C order). Under `precision="single"` (SEP 33, ADR-054) a backend holds the
+state as complex64 at the run's exact power-of-two scale `s`, `a / s`; what crosses the
+seam to the host, and every saved field, is the physical state widened to complex128.
+Saved fields: `(n_z, n_modes, n_pol, n_omega)`, with a leading `n_batch`
 for batch runs. Space-domain buffers: `(n_nodes_chunk, n_pol, n_to)`. Convenience accessors
 may squeeze trivial axes; the seam and the files never do.
 

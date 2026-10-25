@@ -305,8 +305,11 @@ it with `open_tdse_archive` ([the TDSE response](../media/tdse.md#the-raw-respon
 
 ## The schema version
 
-Every file records its `schema_version`; this release writes schema 24
-(`solprop.output.SCHEMA_VERSION`). Schema 24 adds the plane-reference record
+Every file records its `schema_version`; this release writes schema 25
+(`solprop.output.SCHEMA_VERSION`). Schema 25 records every run's `precision`
+(`"double"` or `"single"`, [single precision](../performance/single-precision.md)) in
+its configuration, so a run is never resumed in the other precision. Schema 24 added
+the plane-reference record
 (`RunMetadata.reference`, [provenance](provenance.md#the-metadata-schema)), from which a
 saved plane is read back as a coherent field plane
 ([coupling simulations](../workflows/coupling.md)); planes of an earlier file are not

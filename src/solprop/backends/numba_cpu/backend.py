@@ -4940,6 +4940,11 @@ def _refuse_unsupported(problem: KernelProblem) -> None:
             f"the problem declares version {problem.schema_version}"
         )
         raise BackendError(msg)
+    if problem.precision.single:
+        raise BackendError(
+            "numba_cpu computes in binary64 only and refuses precision='single' "
+            "(solprop SEP 33); use backend='numpy_ref', the single-precision oracle"
+        )
     if problem.tdse is not None:
         raise BackendError("numba_cpu does not execute TDSE responses; use numpy_ref")
     refuse_general_leaves(problem, "numba_cpu", admits=_GENERAL_LEAVES)

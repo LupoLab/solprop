@@ -111,7 +111,7 @@ the header; `tests/test_seps.py` checks it.
 - **Implementers** carry out its phases. They may be the author or not, and may be people
   or coding agents; a phase can be picked up by a different implementer from the one
   before, from the SEP and its reports alone.
-- **Reviewers** review the proposal before acceptance and each phase's pull request. Each
+- **Reviewers** review the proposal before acceptance and its implementation pull request. Each
   review of the proposal is recorded in the **Reviewers** field as `Name (human)` or
   `Model version (AI)`, and the **Review status** field summarises them (§6, *Review*).
   The author may be one of the human reviewers.
@@ -183,7 +183,7 @@ A SEP is ready to accept when:
   references, and says what will set each tolerance;
 - the documentation plan names the manual page, and a tutorial or worked example where
   appropriate;
-- the phases are defined, each independently mergeable;
+- the phases are defined, each independently qualified and reported;
 - the open questions are resolved, or explicitly deferred to a named phase;
 - its review status is `Reviewed`: at least one human and one frontier AI model have
   reviewed it (*Review*, above).
@@ -203,20 +203,22 @@ supersedes it. A return to `Draft` moves its roadmap listing back to the draft s
 
 ### Implementation
 
-An implementer picks up an accepted SEP in a pull request that sets the status to
+An implementer picks up an accepted SEP with a commit that sets the status to
 `In progress` and records, in the **Implementation** field, who is implementing it and the
-branch of the first phase. Each phase is then:
+branch. Every phase is made on that one branch, `feature/sep-NNNN-short-slug`, which may
+start on top of an open pull request's branch when pull requests are stacked behind CI.
+Each phase is:
 
-1. implemented on its own branch, `feature/sep-NNNN-short-slug` (with a suffix naming the
-   phase when there are several), under the rules of §7;
-2. qualified with the full gate and lanes of `AGENTS.md`;
-3. reported: the phase report (§8) is appended to Part II in the same pull request, and
-   the **Implementation** field and Part III updated;
-4. reviewed and merged.
+1. implemented under the rules of §7, native code in `native/` with the Python backends;
+2. checked with the fast checks and the directly affected tests of `AGENTS.md` only;
+3. reported: the phase report (§8) is appended to Part II, and the **Implementation**
+   field and Part III updated, in commits on the branch.
 
-Phases may be taken by different implementers, and independent phases may run in
-parallel. Work in `solprop-kokkos` is made in that repository on a branch of the same
-name; its pull request cites the SEP, and its report goes into the SEP here.
+The SEP reaches `main` in one pull request, opened when its last commit sets `Final`
+(*Completion*). CI runs the full gate, slow and coverage lanes on it; failures are fixed
+by further commits on the branch. Reviewers review that pull request, and merging it is
+the maintainers' approval. Phases may be taken by different implementers, one after
+another on the branch.
 
 ### Completion
 
@@ -230,7 +232,7 @@ A SEP becomes `Final` when:
 - the open questions left are moved to the roadmap or to issues, and named in the last
   report.
 
-The SEP's last implementation pull request sets `Final` in its last commit, so that
+The SEP's implementation pull request sets `Final` in its last commit, so that
 merging it, which is the maintainers' approval, completes the SEP. A separate pull
 request sets `Final` only when the evidence for it can exist only after the merge (a run
 of the published artefacts, for example); being documentation alone, it runs only the
@@ -251,7 +253,8 @@ A SEP is written so that a contributor, or a coding agent, who has never seen th
 discussion behind it could implement it from the SEP and solprop's own documentation and
 code. It may refer to:
 
-- solprop and `solprop-kokkos`: their documentation pages, modules, tests and ADRs;
+- solprop and its native backend, `solprop-native`: their documentation pages, modules,
+  tests and ADRs;
 - optmat, solprop's companion optical-materials package: its documentation, modules and
   data files, cited by module or page name;
 - the scientific literature, with DOIs where they exist;
@@ -291,12 +294,11 @@ and compares options; it is not a line-by-line plan, which belongs to the implem
 
 ## 8. The implementation record
 
-Part II of a SEP holds one report per phase, appended when the phase merges. The reports
+Part II of a SEP holds one report per phase, appended when the phase is complete. The reports
 are how a SEP can be continued by someone else, and how the reasoning behind the finished
 code is kept. Each report states:
 
-- **Scope:** the phase, the date, the implementer, the branch and the merge commits (in
-  both repositories when `solprop-kokkos` is changed).
+- **Scope:** the phase, the date, the implementer, the branch and the phase's commits.
 - **Delivered:** the modules, tests and pages added or changed, as paths.
 - **Deviations from the proposal**, and why each was necessary.
 - **Decisions:** choices made during implementation that the proposal left open. A
@@ -345,3 +347,8 @@ that edits this document and adds a line to its history.
 - 2026-10-18: Reviews are recorded in place as numbered points under Part III, without
   rewriting Part I; the drafting agent responds point by point and revises the
   proposal (maintainer's preferred practice, first used for SEP 26).
+- 2026-10-24: One branch and one pull request per SEP implementation, opened when the
+  SEP is set `Final`; phases are reported in commits on that branch, may start on top of
+  stacked pull requests, run only targeted checks locally, and leave the full gate,
+  slow and coverage lanes to CI on the pull request (maintainer's decision, first used
+  for SEP 21). Native work is in `native/`, no longer a separate repository.

@@ -169,6 +169,30 @@ The first public release. It contains:
     optmat rate builds only the model it uses (optmat 0.9.1, which reads only the data a
     model needs). A five-centimetre capillary run with ionisation is under way in about
     3 s on an Apple M5 Max, from 5.5 s.
+- **Single precision**
+  ([SEP 33](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0033-single-precision-mlx.html)).
+  `precision="single"` on `SimulationSettings` and on `prop_gnlse`,
+  `prop_capillary` and `prop_waveguide` holds the state, the transforms and the
+  responses in binary32, with the controller and the propagator's exponent in binary64,
+  every narrowed table at its own power-of-two exponent and the state at an exact scale.
+  `numpy_ref` runs it as the single-precision reference (oracle) on the fibre, radial and
+  Cartesian routes; `numba_cpu` and `native` refuse it. Its default `rtol` is the
+  floor `1e-6`, below which an explicit tolerance is refused, and its default integrator
+  `RungeKutta()`; noise models and the Adams integrator are refused. A
+  [survival record](https://solprop.readthedocs.io/en/latest/guide/performance/single-precision.html)
+  states which problems keep their accuracy. Every run records its precision in its
+  configuration, so a resume in the other precision is refused (kernel schema 36,
+  output schema 25).
+  - The `mlx` backend (`pip install solprop[mlx]`, macOS on Apple silicon) runs
+    single-precision capillary, fibre, radial and Cartesian free-space runs, the
+    envelope-grid plasma among them, on the Apple GPU through MLX, validated against
+    the reference backend's single-precision path; `backend="auto"` chooses it under
+    `precision="single"`. Its propagators are formed in double-float arithmetic in a
+    custom Metal kernel, its matrix products are checked not to be TF32, and each
+    envelope sample's cycle moments are one kernel thread.
+  - Under single precision a replayed step (or an adaptive floor) whose propagator
+    exponent passes binary32's range, `exp(88.7)`, is refused at translation, and one
+    within a tenth of it is warned of.
 - **The native backend.**
   - Native CPU optimisation: a coherent NEON FFTW build for Apple silicon, long-row
     Raman planning with a compact FFTW/vDSP selection rule, and deferred embedded

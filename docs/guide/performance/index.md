@@ -21,4 +21,5 @@ building-native
 resources
 progress
 tuning
+single-precision
 ```

@@ -51,7 +51,12 @@ from solprop.noise import NoiseRealisation
 from solprop.output.schema import MarchSnapshot
 from solprop.profiles import ZProfile
 from solprop.stats import StatsSpec
-from solprop.stepper.controller import START_GROWTH, ControlRecord, limit_step
+from solprop.stepper.controller import (
+    START_GROWTH,
+    ControlRecord,
+    PIController,
+    limit_step,
+)
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule, StepTargets, landing
@@ -718,6 +723,20 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         """
         self._z = z
         self._state = cast(_StateT, state)
+
+    @property
+    def _norm_controller(self) -> PIController:
+        """Return the controller whose tolerances scale this backend's error norms.
+
+        The problem's own; a backend whose state is held at a scale ``s`` divides its
+        absolute tolerance by ``s`` (SEP 33 section 4.3).
+
+        Returns
+        -------
+        solprop.stepper.controller.PIController
+            The controller.
+        """
+        return self._problem.stepper.controller
 
     def _observed_field(
         self, state: _StateT

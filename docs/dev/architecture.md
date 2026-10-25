@@ -29,9 +29,13 @@ Luna's scope and its most valuable design choices, and is designed around the fo
 - a clean, fast-loading Python package that plays well with NumPy, SciPy, matplotlib and h5py.
 
 **Priorities, in order:** accuracy and reliability; then as much CPU performance as can be
-had; then GPU performance (ADR-020). Double precision throughout: realistic modelling always
+had; then GPU performance (ADR-020). Double precision by default: realistic modelling always
 carries noise, so the stepper's job is efficiency at sufficient accuracy, not extended
-precision.
+precision. Single precision is an explicit per-run choice, `precision="single"`, under
+SEP 33's contract (ADR-054): the state, stages, transforms and responses in binary32,
+the controller, host scalars and propagator exponents in binary64, every narrowed table
+with its own power-of-two exponent and the state at an exact scale. `numpy_ref`'s
+single-precision path is its oracle; `numba_cpu` and `native` compute in binary64 only.
 
 ## 2. The model
 
@@ -98,7 +102,7 @@ records the absolute launch, the TDSE identity, the outcome and any terminal che
 beside the step limits and the dense and step-plane policies. The full-band sensitivity to
 the window and the atomic cut error are unresolved
 ([TDSE accuracy and limitations](../guide/media/tdse.md#accuracy-and-limitations)). The
-current versions are kernel schema 35 and saved-output schema 24
+current versions are kernel schema 36 and saved-output schema 25
 ([kernel contract](kernel-contract.md)).
 
 **haCC helium** ([SEP 20](seps/archive/sep-0020-hacc-helium-tdse.md)). The same route carries a second atomic model, the
