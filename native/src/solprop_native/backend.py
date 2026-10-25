@@ -2252,10 +2252,11 @@ def _refuse_unsupported(problem: KernelProblem) -> None:
             f"solprop-native implements schema {SCHEMA_VERSION}; problem declares "
             f"{problem.schema_version}"
         )
-    if problem.precision.single:
+    if problem.precision.reduced:
+        name = problem.precision.name
         raise BackendError(
-            "solprop-native computes in binary64 only and refuses precision='single' "
-            "(solprop SEP 33); use backend='numpy_ref', the single-precision oracle"
+            f"solprop-native computes in binary64 only and refuses precision={name!r} "
+            "(solprop SEP 36 adds it); use backend='numpy_ref', the oracle"
         )
     if problem.tdse is not None:
         raise BackendError(

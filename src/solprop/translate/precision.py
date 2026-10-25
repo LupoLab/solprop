@@ -2,21 +2,31 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The arithmetic a run is held in, and the range rules of single precision (SEP 33).
+"""The arithmetic a run is held in, and the range rules of reduced precision.
 
-A run is ``"double"`` (binary64, the default and the only arithmetic of ``numba_cpu``
-and ``native``) or ``"single"``: the propagated state, the stage values, every transform
-and the responses in IEEE binary32, with the controller, every host scalar and the
-linear propagator's exponent in binary64
-(``docs/dev/seps/archive/sep-0033-single-precision-mlx.md`` section 4.2, ADR-054).
-This module holds what every backend that admits single precision shares, so that
+A run is ``"double"`` (binary64, the default and the only arithmetic of ``numba_cpu``),
+``"single"`` or ``"mixed"``:
+
+* ``"single"`` (SEP 33, ADR-054) holds the propagated state, the stage values, every
+  transform and the responses in IEEE binary32, with the controller, every host scalar
+  and the linear propagator's exponent in binary64
+  (``docs/dev/seps/archive/sep-0033-single-precision-mlx.md`` section 4.2);
+* ``"mixed"`` (SEP 36, ADR-055) holds everything that touches the propagated state in
+  binary64 -- the state, every row stored in the interaction variable, the
+  propagators, the once-per-step boundary treatments and the norms -- and evaluates
+  the source in binary32: the transforms, the responses with their running integrals,
+  the in-stage absorber terms and the matrix products
+  (``docs/dev/seps/sep-0036-native-reduced-precision.md`` section 4.2).
+
+This module holds what every backend that admits a reduced precision shares, so that
 they compute the same exponents and refuse the same things:
 
 * :class:`Precision`, the record a :class:`~solprop.translate.problem.KernelProblem`
-  carries, with named fields so that a later mixed mode (a binary32 source beside a
-  binary64 state) is a third public value rather than a schema redesign;
-* :func:`admit_precision`, the shared admission of the defaults and refusals;
-* the range helpers of SEP 33 section 4.3: :func:`block_exponent` and :func:`narrow`
+  carries, with a field for the state and one for the source;
+* :func:`admit_precision`, the shared admission of the defaults and refusals, with
+  :func:`rtol_floor` and :data:`REDUCED_PRECISION_BACKENDS`;
+* the range helpers of SEP 33 section 4.3, which both reduced modes use for their
+  binary32 source: :func:`block_exponent` and :func:`narrow`
   for every table narrowed at upload, :func:`state_scale` for the state's exact
   power-of-two scale, :class:`Coefficient` and :func:`combine` for the scalar factors
   combined on the host, and :func:`pairwise_sum`, :func:`prefix_sum` and
@@ -42,9 +52,12 @@ from solprop.fourier import GridKind
 
 __all__ = [
     "DOUBLE",
+    "MIXED",
+    "MIXED_RTOL_FLOOR",
+    "REDUCED_PRECISION_BACKENDS",
     "SINGLE",
-    "SINGLE_PRECISION_BACKENDS",
     "SINGLE_RTOL_FLOOR",
+    "Arithmetic",
     "Coefficient",
     "Narrowed",
     "Precision",
@@ -57,13 +70,18 @@ __all__ = [
     "pairwise_sum",
     "precision_named",
     "prefix_sum",
+    "rtol_floor",
     "scaled_square_sum",
     "state_scale",
+    "study_active",
     "study_admission",
 ]
 
-PrecisionName = Literal["double", "single"]
-"""The public values of ``precision``: binary64 or binary32 arithmetic."""
+PrecisionName = Literal["double", "single", "mixed"]
+"""The public values of ``precision``: binary64, binary32, or a binary32 source."""
+
+Arithmetic = Literal["double", "single"]
+"""The arithmetic of one field of :class:`Precision`: binary64 or binary32."""
 
 SINGLE_RTOL_FLOOR = 1e-6
 """The smallest relative tolerance a single-precision run admits (SEP 33, Q1).
@@ -73,12 +91,25 @@ roundoff, buys steps without accuracy. An explicit tolerance below the floor is 
 and the floor is every interface's default under single precision.
 """
 
-SINGLE_PRECISION_BACKENDS: tuple[str, ...] = ("numpy_ref", "mlx")
-"""The backends that admit ``precision="single"``.
+MIXED_RTOL_FLOOR = 1e-8
+"""The smallest relative tolerance a mixed-precision run admits (SEP 36, Q1).
 
-``numpy_ref`` is the single-precision oracle (SEP 33 phase 1) and ``mlx`` the Apple-GPU
-backend (phase 2). ``numba_cpu`` and ``native`` refuse it by name until a later
-proposal adds their own modes.
+The controller's embedded estimate sees the binary32 source's rounding scaled by the
+weights' differences and the step's nonlinear phase, about ``1e-1 c_s u32 log2(n)
+phi_NL``, which is below ``1e-8`` for ``n = 2**16`` and ``phi_NL <= 0.1`` (SEP 36
+section 4.2). The survival study raises it by the rule of SEP 36 section 7.3.
+"""
+
+REDUCED_PRECISION_BACKENDS: dict[str, tuple[str, ...]] = {
+    "single": ("numpy_ref", "mlx"),
+    "mixed": ("numpy_ref",),
+}
+"""The backends that admit each reduced precision.
+
+``numpy_ref`` is the oracle of both (SEP 33 phase 1, SEP 36 phase 1) and ``mlx`` the
+Apple-GPU backend of single precision; Apple GPUs have no binary64, so it refuses
+``"mixed"``. ``native`` joins each list when its build compiles that mode (SEP 36
+phases 2 and 3); ``numba_cpu`` refuses both.
 """
 
 
@@ -86,15 +117,16 @@ proposal adds their own modes.
 class Precision:
     """The arithmetic of a run's propagated state and of its source evaluation.
 
-    The public strings map to equal fields: ``"double"`` is binary64 throughout and
-    ``"single"`` binary32 throughout, with the host scalars, the controller and the
-    propagator's exponent in binary64 either way. A mixed mode would set the two fields
-    apart and is not admitted.
+    The public strings map to the fields: ``"double"`` is binary64 throughout,
+    ``"single"`` binary32 throughout, and ``"mixed"`` a binary64 state beside a binary32
+    source, with the host scalars and the controller in binary64 in every mode. A
+    binary32 state beside a binary64 source is refused.
 
     Attributes
     ----------
     state : {'double', 'single'}
-        The propagated state, the stage values and the error estimate's array.
+        The propagated state, the stage values, every row stored in the interaction
+        variable and the error estimate's array.
     source : {'double', 'single'}
         The transforms and the responses of a source evaluation.
 
@@ -105,20 +137,23 @@ class Precision:
     Precision(state='single', source='single')
     >>> Precision().name, precision_named("single").single
     ('double', True)
+    >>> precision_named("mixed").name, precision_named("mixed").reduced
+    ('mixed', True)
     """
 
-    state: PrecisionName = "double"
-    source: PrecisionName = "double"
+    state: Arithmetic = "double"
+    source: Arithmetic = "double"
 
     def __post_init__(self) -> None:
-        """Refuse an unknown name or a mixed record.
+        """Refuse an unknown arithmetic or a binary32 state beside a binary64 source.
 
         Raises
         ------
         TranslationError
-            If either field is not a public value, or the two differ.
+            If either field is not ``"double"`` or ``"single"``, or the state is
+            binary32 while the source is binary64.
         """
-        names = get_args(PrecisionName)
+        names = get_args(Arithmetic)
         bad = self.state not in names or self.source not in names
         if bad:  # pragma: no cover - refused by the annotation where it is checked
             msg = (
@@ -126,10 +161,10 @@ class Precision:
                 f"{self.state!r}, source={self.source!r}"
             )
             raise TranslationError(msg)
-        if self.state != self.source:
+        if self.state == "single" and self.source == "double":
             msg = (
-                "a mixed precision (a binary32 source beside a binary64 state, or the "
-                "reverse) is not admitted; use precision='double' or 'single'"
+                "a binary32 state beside a binary64 source is not admitted; use "
+                "precision='double', 'single' or 'mixed'"
             )
             raise TranslationError(msg)
 
@@ -139,9 +174,11 @@ class Precision:
 
         Returns
         -------
-        {'double', 'single'}
-            The shared value of the two fields.
+        {'double', 'single', 'mixed'}
+            ``"mixed"`` when the fields differ, otherwise their shared value.
         """
+        if self.state != self.source:
+            return "mixed"
         return self.state
 
     @property
@@ -156,8 +193,30 @@ class Precision:
         return self.state == "single"
 
     @property
+    def mixed(self) -> bool:
+        """Return whether a binary64 state carries a binary32 source.
+
+        Returns
+        -------
+        bool
+            True under ``precision="mixed"``.
+        """
+        return self.state != self.source
+
+    @property
+    def reduced(self) -> bool:
+        """Return whether any pass is held in binary32.
+
+        Returns
+        -------
+        bool
+            True under ``precision="single"`` and ``precision="mixed"``.
+        """
+        return self.source == "single"
+
+    @property
     def complex_dtype(self) -> np.dtype:
-        """Return the dtype of the state and of every complex pass.
+        """Return the dtype of the state and of every row stored beside it.
 
         Returns
         -------
@@ -168,7 +227,7 @@ class Precision:
 
     @property
     def real_dtype(self) -> np.dtype:
-        """Return the dtype of every real pass.
+        """Return the dtype of the state's real passes.
 
         Returns
         -------
@@ -177,6 +236,17 @@ class Precision:
         """
         return np.dtype(np.float32 if self.single else np.float64)
 
+    @property
+    def source_complex_dtype(self) -> np.dtype:
+        """Return the dtype of every complex pass of a source evaluation.
+
+        Returns
+        -------
+        numpy.dtype
+            ``complex64`` under single and mixed precision, ``complex128`` otherwise.
+        """
+        return np.dtype(np.complex64 if self.reduced else np.complex128)
+
 
 DOUBLE = Precision()
 """Binary64 throughout: the default."""
@@ -184,19 +254,22 @@ DOUBLE = Precision()
 SINGLE = Precision("single", "single")
 """Binary32 for the state, the stages and the source evaluation."""
 
+MIXED = Precision("double", "single")
+"""A binary64 state, stages and linear part beside a binary32 source (SEP 36)."""
+
 
 def precision_named(name: PrecisionName | Precision) -> Precision:
     """Return the record for a public precision value.
 
     Parameters
     ----------
-    name : {'double', 'single'} or Precision
+    name : {'double', 'single', 'mixed'} or Precision
         The public value, or a record, which is returned unchanged.
 
     Returns
     -------
     Precision
-        :data:`DOUBLE` or :data:`SINGLE`.
+        :data:`DOUBLE`, :data:`SINGLE` or :data:`MIXED`.
 
     Raises
     ------
@@ -211,12 +284,34 @@ def precision_named(name: PrecisionName | Precision) -> Precision:
     """
     if isinstance(name, Precision):
         return name
-    if name == "double":
-        return DOUBLE
-    if name != "single":  # pragma: no cover - refused by the annotation where checked
-        msg = f"precision must be 'double' or 'single', got {name!r}"
+    records = {"double": DOUBLE, "single": SINGLE, "mixed": MIXED}
+    if name not in records:  # pragma: no cover - refused by the annotation first
+        msg = f"precision must be 'double', 'single' or 'mixed', got {name!r}"
         raise TranslationError(msg)
-    return SINGLE
+    return records[name]
+
+
+def rtol_floor(precision: Precision | PrecisionName) -> float:
+    """Return the smallest relative tolerance a precision admits.
+
+    Parameters
+    ----------
+    precision : Precision or {'double', 'single', 'mixed'}
+        The run's precision.
+
+    Returns
+    -------
+    float
+        :data:`SINGLE_RTOL_FLOOR`, :data:`MIXED_RTOL_FLOOR`, or zero for binary64.
+
+    Examples
+    --------
+    >>> from solprop.translate.precision import rtol_floor
+    >>> rtol_floor("double"), rtol_floor("single"), rtol_floor("mixed")
+    (0.0, 1e-06, 1e-08)
+    """
+    name = precision_named(precision).name
+    return {"single": SINGLE_RTOL_FLOOR, "mixed": MIXED_RTOL_FLOOR}.get(name, 0.0)
 
 
 _STUDY: ContextVar[bool] = ContextVar("solprop_precision_study", default=False)
@@ -226,9 +321,10 @@ _STUDY: ContextVar[bool] = ContextVar("solprop_precision_study", default=False)
 def study_admission() -> Iterator[None]:
     """Admit, inside the block, what the survival study measures and the public refuses.
 
-    The private, test-only route of SEP 33 section 5.2: the study runs the Adams
-    integrator under single precision through it, to measure whether Adams can be
-    admitted (Q2). No public interface sets it.
+    The private, test-only route of SEP 33 section 5.2: the studies run the Adams
+    integrator under single and mixed precision through it, to measure whether Adams
+    can be admitted (SEP 33 Q2, SEP 36 Q2), and noise models under mixed precision
+    before SEP 36 phase 5 admits them. No public interface sets it.
 
     Yields
     ------
@@ -242,6 +338,17 @@ def study_admission() -> Iterator[None]:
         _STUDY.reset(token)
 
 
+def study_active() -> bool:
+    """Return whether the code runs inside :func:`study_admission`.
+
+    Returns
+    -------
+    bool
+        True inside the block.
+    """
+    return _STUDY.get()
+
+
 def admit_precision(
     precision: Precision,
     *,
@@ -250,14 +357,15 @@ def admit_precision(
     rtol: float | None,
     schedule: bool,
 ) -> None:
-    """Apply the single-precision refusals every interface and backend shares.
+    """Apply the reduced-precision refusals every interface and backend shares.
 
-    SEP 33 section 5.2. A binary64 run passes unchanged. A single-precision run is
-    refused on a backend that does not admit it (:data:`SINGLE_PRECISION_BACKENDS`),
-    with the Adams integrator until the survival study admits it, and with an adaptive
-    tolerance below :data:`SINGLE_RTOL_FLOOR`. The routes and responses no backend runs
-    in binary32 are refused by
-    :meth:`~solprop.translate.problem.KernelProblem.validate`, where they are known.
+    SEP 33 section 5.2 and SEP 36 section 5. A binary64 run passes unchanged. A single-
+    or mixed-precision run is refused on a backend that does not admit its mode
+    (:data:`REDUCED_PRECISION_BACKENDS`), with the Adams integrator until the survival
+    study admits it, and with an adaptive tolerance below the mode's floor
+    (:func:`rtol_floor`). The routes and responses no backend runs in binary32 are
+    refused by :meth:`~solprop.translate.problem.KernelProblem.validate`, where they
+    are known.
 
     Parameters
     ----------
@@ -284,27 +392,29 @@ def admit_precision(
     ...                 schedule=False) is None
     True
     """
-    if not precision.single:
+    if not precision.reduced:
         return
-    if backend not in SINGLE_PRECISION_BACKENDS:
+    name = precision.name
+    admitted = REDUCED_PRECISION_BACKENDS[name]
+    if backend not in admitted:
         msg = (
-            f"backend {backend!r} computes in binary64 only and refuses "
-            f"precision='single'; the backends that admit it are "
-            f"{', '.join(SINGLE_PRECISION_BACKENDS)} (SEP 33)"
+            f"backend {backend!r} refuses precision={name!r}; the backends that admit "
+            f"it are {', '.join(admitted)} (SEP 33, SEP 36)"
         )
         raise TranslationError(msg)
     if adams and not _STUDY.get():
         msg = (
-            "the Adams integrator (Multistep) is not admitted under precision='single' "
-            "until its single-precision survival is established; use "
-            "integrator=RungeKutta(), the single-precision default"
+            "the Adams integrator (Multistep) is not admitted under "
+            f"precision={name!r} until its {name}-precision survival is established; "
+            f"use integrator=RungeKutta(), the {name}-precision default"
         )
         raise TranslationError(msg)
-    if not schedule and rtol is not None and rtol < SINGLE_RTOL_FLOOR:
+    floor = rtol_floor(precision)
+    if not schedule and rtol is not None and rtol < floor:
         msg = (
-            f"rtol={rtol:g} is below the single-precision floor {SINGLE_RTOL_FLOOR:g}: "
-            "a tighter local error target buys steps without accuracy in binary32; "
-            "take rtol at least the floor, or precision='double'"
+            f"rtol={rtol:g} is below the {name}-precision floor {floor:g}: a tighter "
+            "local error target buys steps without accuracy against the source's "
+            "binary32 rounding; take rtol at least the floor, or precision='double'"
         )
         raise TranslationError(msg)
 

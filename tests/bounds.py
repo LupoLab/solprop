@@ -31,7 +31,9 @@ two are not interchangeable (SEP 25 section 4.1). Every formula takes its roundo
 parameter, binary64's by default, so that SEP 33's binary32 bounds are the same formulas
 evaluated at :data:`UNIT_ROUNDOFF_32` (or :data:`EPS_32`) rather than binary64 bounds
 scaled: ``gamma_k``'s denominator matters at binary32, and each formula refuses a
-roundoff outside its domain (``k u < 1``). The established ladder of
+roundoff outside its domain (``k u < 1``). SEP 36's mixed bound composes them per
+stage, step and run (:func:`source_pass_bound`, :func:`rate_condition`,
+:func:`mixed_step_bound`, :func:`mixed_run_bound`). The established ladder of
 ``docs/dev/accuracy.md`` section 7 is written in ``EPS``: :func:`gamma`,
 :func:`fft_bound` and :func:`scan_bound` keep its constants, which were fixed before
 the first device result. The CPU rows retain their established bounds; the Kokkos
@@ -361,6 +363,100 @@ def assert_work_within(actual: int, expected: int, *, factor: float, what: str =
         raise AssertionError(
             f"{label}{actual} outside [{expected / factor:g}, {expected * factor:g}]"
         )
+
+
+def source_pass_bound(
+    samples: int, *, scans: int = 0, transverse: int = 0, eps: float = EPS_32
+) -> float:
+    """Return SEP 33's relative bound of one source evaluation's passes, ``E_pass``.
+
+    The ladder SEP 33's class R tests fixed for a stage: the source's transform pair
+    and its pointwise response at ``16 eps d`` with ``d = ceil(log2 n) + transverse``,
+    the depth of the temporal transform plus that of a transverse transform or matrix
+    product, plus, for each of `scans` running integrals of the plasma, twice Higham's
+    ``gamma_d`` at that depth (SEP 25 section 4.6). Evaluated at binary32's ``eps`` by
+    default, as the source of both reduced modes runs (SEP 36 section 7.1, item 1).
+    """
+    depth = math.ceil(math.log2(samples)) + transverse
+    return 16 * eps * depth + scans * 2 * higham_gamma(depth, eps / 2)
+
+
+def rate_condition(rate, fields) -> float:
+    """Return the plasma's condition number ``1 + max |d ln W / d ln |E||``.
+
+    SEP 36 section 7.1, item 1: a relative change ``delta`` of the field moves the
+    rate by its logarithmic slope times ``delta``, the ionised fraction (a running
+    integral of the rate) by at most as much, and the current, which also carries the
+    field, by one more ``delta``. The slope is read from the rate on the host by a
+    central difference of relative step 1e-4 at every field magnitude in `fields`
+    (V/m) where the rate is positive, so the steepness near a table's cutoffs enters
+    explicitly; magnitudes where the rate vanishes on both sides contribute nothing.
+    """
+    magnitudes = np.unique(np.abs(np.asarray(fields, dtype=np.float64)))
+    magnitudes = magnitudes[magnitudes > 0]
+    step = 1e-4
+    upper = np.asarray(rate(magnitudes * (1 + step)), dtype=np.float64)
+    lower = np.asarray(rate(magnitudes * (1 - step)), dtype=np.float64)
+    live = (upper > 0) & (lower > 0)
+    if not np.any(live):
+        return 1.0
+    slopes = (np.log(upper[live]) - np.log(lower[live])) / (
+        math.log1p(step) - math.log1p(-step)
+    )
+    return 1.0 + float(np.max(np.abs(slopes)))
+
+
+def mixed_step_bound(  # noqa: PLR0913 - the terms of SEP 36 section 7.1
+    phase: float,
+    *,
+    kappa: float,
+    passes: float,
+    weights,
+    stages: int,
+    absolute: float = 0.0,
+    u: float = UNIT_ROUNDOFF_32,
+) -> float:
+    """Return one step's relative state error under mixed precision (SEP 36 7.1).
+
+    Item 1: a stage's source differs from binary64's by ``kappa u + E_pass`` relative
+    to its normwise magnitude (the narrowing of the binary64 input carried by the
+    response's condition number `kappa`, the passes by `passes`), plus the absolute
+    underflow term `absolute` relative to the state; the binary64 inverse propagator
+    scales the absolute bound bin by bin and leaves the relative one unchanged.
+    Item 2: the step's state error is ``phase sum_i |b_i| (kappa u + E_pass)``, the
+    stages' errors weighted by the solution weights `weights` and carried into the
+    step by its nonlinear phase ``phase = dz ||N|| / ||A||``, times
+    ``(1 + kappa phase)**stages`` for their propagation into later stages.
+    """
+    source = kappa * u + passes
+    transport = (1.0 + kappa * phase) ** stages
+    return (
+        phase * float(np.sum(np.abs(np.asarray(weights)))) * source * transport
+        + absolute
+    )
+
+
+def mixed_run_bound(
+    step_bounds,
+    *,
+    samples: int,
+    stages: int,
+    growth: float = 1.0,
+    eps: float = EPS,
+) -> float:
+    """Return a mixed run's relative bound on a fixed schedule (SEP 36 7.1, item 3).
+
+    The per-step bounds of :func:`mixed_step_bound` summed and multiplied by the
+    case's `growth` (:func:`propagation_growth`), plus the binary64 state path's own
+    rounding per step at the ladder's binary64 constants (the state rounded twice and
+    each stage's binary64 linear passes at ``16 eps ceil(log2 n)``), which is
+    negligible beside the binary32 terms but stated. For a comparison of two sides,
+    add each side's bound (item 4).
+    """
+    bounds = np.asarray(step_bounds, dtype=np.float64)
+    depth = math.ceil(math.log2(samples))
+    state_path = bounds.size * (2 * eps + stages * 16 * eps * depth)
+    return growth * (float(np.sum(bounds)) + state_path)
 
 
 Bound = Callable[..., float]

@@ -1396,6 +1396,73 @@ as written on 2026-10-25 (Part III).
 
 *One report per phase, appended as each phase is completed (SEP 0 §8).*
 
+### Phase 1 — coherent-case criteria (recorded 2026-10-25, before the study's first comparison)
+
+The criteria are §7.3's, as the maintainers decided them (Q1, Q2). This section fixes the
+cases, the runs and the way each metric and rule is computed before any study comparison
+runs. The class R tests of §7.2 compared the mixed oracle with binary64 on fixed
+schedules while the path was built; none of them is a study comparison, and none set a
+criterion.
+
+**Cases.** SEP 33's eleven, with their definitions unchanged (SEP 33 Part II, phase 1
+criteria): `spm`, `soliton`, `rdw`, `ctc`, `argon`, `argon_envelope`, `nitrogen`,
+`radial_kerr`, `radial_filament`, `cartesian_diffraction` and `cartesian_kerr`.
+`argon_envelope` runs its 0.1 m window, as SEP 33's verdict for it did: the oracle's
+envelope-grid plasma is evaluated in Python and took 6 h over 0.4 m at `1e-6` in SEP 33,
+and `1e-8` takes more steps. Expected, as §7.3 says: every case survives at the floor;
+`ctc` is to be measured. If `ctc` does not survive over 0.1 m, it is rerun over SEP 33's
+0.05 m and 0.025 m windows to state its limit.
+
+**Runs.** Every run is a `RungeKutta()` run unless stated, on the same grid,
+discretisation, plasma rule and quadrature as its reference:
+
+- the reference in binary64 at `rtol = 1e-10`, checked against binary64 at `1e-9`; the
+  check passes when every metric below is under a tenth of its envelope;
+- candidates in mixed precision on `numpy_ref` at `rtol = 1e-8` (the floor), `1e-7` and
+  `1e-6`;
+- beside each candidate, binary64 on `numpy_ref` at the same tolerance, which separates
+  precision from truncation;
+- `argon_envelope`'s binary64 runs (reference, check and the three tolerances) on
+  `native`, whose envelope plasma is the same discretisation and quadrature, as SEP 33
+  did; its mixed candidates on `numpy_ref`, the only mixed path in this phase;
+- every run records its accepted and rejected steps.
+
+**Metrics and envelopes** are SEP 33's, computed by the same code against the reference
+at the last plane: the field (10⁻³), the 32 spectral bands above −40 dB of the largest
+(1 %), the total energy (10⁻⁴), the peak power or intensity (10⁻³), the ionised fraction
+where the reference's exceeds 10⁻⁶ (10⁻³) and the beam width (10⁻³), all relative. The
+mixed candidate's difference from binary64 at the same tolerance is reported beside its
+error, as the precision's part of it.
+
+**Verdicts.** A case *survives* if its mixed runs are within every envelope at the floor
+the rule below settles and at every looser candidate; it *survives with a limit* if
+that holds only over a stated shorter length; it *fails* otherwise.
+
+**The floor (Q1).** Starting at `1e-8`, the floor rises to `1e-7` if either holds:
+
+1. on every case, no metric's error at `1e-8` is smaller than at `1e-7` by more than
+   25 % (the gain `(e(1e-7) − e(1e-8)) / e(1e-7)` is at most 0.25 for every case and
+   metric; a metric with zero error at `1e-7` has gain zero);
+2. on any case at `1e-8`, the mixed run takes more than 1.25 times the accepted steps of
+   the binary64 run at `1e-8`, or more than 1.5 times its rejected steps; where binary64
+   rejects no step, its count is taken as one, so that a single mixed rejection does not
+   decide the rule.
+
+If it rises, the same test is applied from `1e-7` to `1e-6`. The phase 1 outcome is
+provisional; phase 5 decides the floor with the noise study (Q1).
+
+**Adams (Q2), provisional.** `rdw` and `argon` with `Multistep()` through the study's
+private admission, in mixed precision and in binary64 at each of `1e-8`, `1e-7` and
+`1e-6`. Adams is admissible under mixed precision if, on both cases and at each
+tolerance, the mixed run is within every envelope and its error is at most twice
+binary64 Adams's at the same tolerance in every metric (an error below 10⁻¹² counts as
+10⁻¹²). Phase 5 decides the admission and the default; phase 1 records the measurement.
+
+**Where the record lives.** Accuracy runs only, one thread per run, on an Apple M5 Max;
+no timing here is a benchmark. The harness and raw results are kept with the project's
+development records (SEP 30's rule); the verdicts and limits are recorded here and, in
+phase 5, on the manual page.
+
 ## Part III — History
 
 - 2026-10-25: Drafted (Opus 5.5), after an indicative A40 measurement of transforms,

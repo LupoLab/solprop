@@ -23,6 +23,7 @@ import pytest
 from scipy import signal
 
 from bounds import EPS_32, UNIT_ROUNDOFF_32, assert_within, higham_gamma, prefix_bound
+from precision_cases import capillary, finish, gnlse, loaded, plasma_beam, spatial_kerr
 from solprop.backends import registry
 from solprop.backends.memory import (
     MLX_GRAPH_BUDGET,
@@ -47,11 +48,9 @@ from solprop.backends.registry import (
     select,
     select_batch,
 )
-from solprop.boundaries import absorber
 from solprop.constants import EPS0
 from solprop.driver import Simulation, prop_gnlse
 from solprop.driver import simulation as simulation_module
-from solprop.driver.simulation import SimulationSettings
 from solprop.exceptions import (
     BackendError,
     ConvergenceError,
@@ -59,15 +58,7 @@ from solprop.exceptions import (
     ExponentBudgetWarning,
     TranslationError,
 )
-from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.nonlinear.ionisation import RunningIntegral
-from solprop.nonlinear.optmat_raman import gas_raman
-from solprop.nonlinear.optmat_rates import OptmatRate
-from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
-from solprop.physdata import gamma3
-from solprop.physdata.selection import MaterialSelection
-from solprop.pulses import GaussianPulse, SpatialPulse
-from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import LowStorageRungeKutta, PIController, RungeKutta
 from solprop.stepper.multistep import Multistep
@@ -81,91 +72,6 @@ from solprop.translate.precision import (
 from vector_raman_cases import vector_problem
 
 U32 = UNIT_ROUNDOFF_32
-
-
-def gnlse(  # noqa: PLR0913 - the case's own knobs
-    precision: str,
-    *,
-    length: float = 0.05,
-    steps: int | None = 10,
-    gamma: float = 0.11,
-    power: float = 100.0,
-    raman: bool = True,
-    integrator: RungeKutta | LowStorageRungeKutta | Multistep | None = None,
-    beta0: float = 0.0,
-    taper: bool = False,
-) -> Simulation:
-    """Return a 1024-bin soliton fibre, replayed on a uniform schedule by default."""
-    schedule = (
-        None
-        if steps is None
-        else FixedSchedule.uniform(0.0, length, length / steps, save_planes=[length])
-    )
-    return Simulation.from_gnlse(
-        gamma,
-        length,
-        [beta0, 0.0, -1.183e-26, 8.1e-41],
-        lambda0=835e-9,
-        wavelength_limits=(500e-9, 2e-6),
-        trange=1e-12,
-        width=50e-15,
-        peak_power=power,
-        pulseshape="sech",
-        save_planes=[length],
-        backend="numpy_ref",
-        precision=precision,  # pyright: ignore[reportArgumentType]
-        schedule=schedule,
-        integrator=RungeKutta() if integrator is None else integrator,
-        raman=raman,
-        polarisation_taper=taper,
-    )
-
-
-def capillary(
-    precision: str, gas: str | dict[str, float] = "Ar", **overrides
-) -> Simulation:
-    """Return a short field-grid capillary, ionising in argon, on 16 fixed steps.
-
-    The split-step collar is unconditionally stable, so the steps need not stay inside
-    the in-stage collar's limit, which a short capillary's strong collar lowers.
-    """
-    length = overrides.pop("length", 0.004)
-    keywords = {
-        "lambda0": 800e-9,
-        "wavelength_limits": (150e-9, 3e-6),
-        "trange": 300e-15,
-        "fwhm": 10e-15,
-        "energy": 60e-6,
-        "n_save": 2,
-        "backend": "numpy_ref",
-        "precision": precision,
-        "integrator": RungeKutta(),
-        "schedule": FixedSchedule.uniform(0.0, length, length / 16),
-        "absorber_scheme": "split_step",
-    } | overrides
-    return Simulation.from_capillary(50e-6, length, gas, 1.0, **keywords)
-
-
-def loaded(simulation: Simulation, cleanup: ExitStack | None = None) -> Backend:
-    """Return the simulation's backend with its launch loaded."""
-    problem = simulation.translate()
-    backend = select("numpy_ref", problem, grid=simulation.grid)
-    if cleanup is not None:
-        cleanup.callback(backend.close)
-    backend.set_initial(problem.initial.field0, None)
-    return backend
-
-
-def finish(simulation: Simulation) -> np.ndarray:
-    """Run to the last save plane and return the observed field."""
-    backend = loaded(simulation)
-    try:
-        backend.propagate_to(float(simulation.settings.save_planes[-1]))
-        field = backend.observe().field
-        assert field is not None
-        return field
-    finally:
-        backend.close()
 
 
 def rescaled(backend: Backend, exponent: int) -> None:
@@ -207,7 +113,7 @@ def test_single_precision_takes_its_defaults_and_refuses_what_it_does_not_run():
         with pytest.raises(DriverError, match="backend='auto'"):
             automatic()
     for backend in ("numba_cpu", "native"):
-        with pytest.raises(DriverError, match="binary64 only"):
+        with pytest.raises(DriverError, match="refuses precision='single'"):
             dataclasses.replace(settings, backend=backend)
     with pytest.raises(DriverError, match="Adams integrator"):
         dataclasses.replace(settings, integrator=Multistep())
@@ -402,103 +308,6 @@ def test_a_batch_member_is_its_solo_run():
     bound = 10 * (2 * U32 + 7 * 16 * EPS_32 * 10)
     for field in batch:
         assert_within(field, solo, bound)
-
-
-def spatial_kerr(
-    route: str,
-    precision: str,
-    *,
-    steps: int = 10,
-    absorbed: bool = False,
-    energy: float = 3e-4,
-    chi3: float = 1e-25,
-) -> Simulation:
-    """Return a self-focusing Kerr beam on the radial or Cartesian route.
-
-    `absorbed` adds the grid's collars: the transverse window's in-stage rate beside
-    the temporal one.
-    """
-    length = 0.1
-    grid = EnvelopeGrid.from_limits(
-        length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
-    )
-    spaces = {
-        "radial": RadialGrid(2e-3, 32),
-        "cartesian": FreeGrid(2e-3, 16, 2e-3, 16),
-        "line": LineGrid(2e-3, 16),
-    }
-    pulse = SpatialPulse(
-        GaussianPulse(wavelength=800e-9, fwhm=50e-15, energy=energy), 300e-6
-    )
-    settings = SimulationSettings(
-        controller=PIController(rtol=1e-6, atol=0.0),
-        save_planes=[length],
-        dz_max=length,
-        dz_init=length / steps,
-        schedule=FixedSchedule.uniform(0.0, length, length / steps),
-        backend="numpy_ref",
-        integrator=RungeKutta(),
-        precision=precision,  # pyright: ignore[reportArgumentType]
-        absorber=absorber(grid, boundary_length=100 * length) if absorbed else None,
-    )
-    constructor = Simulation.from_radial if route == "radial" else Simulation.from_free
-    return constructor(
-        grid,
-        spaces[route],
-        SpatialMedium(),
-        [KerrResponse(chi3, thg=False)],
-        pulse,
-        settings=settings,
-    )
-
-
-def plasma_beam(
-    precision: str, *, route: str = "radial", gas: str = "Ar"
-) -> Simulation:
-    """Return a short filament on the radial (or Cartesian) route, ten steps.
-
-    Nitrogen adds its molecular Raman response beside the plasma.
-    """
-    length = 1e-3
-    grid = FieldGrid.from_limits(length, 800e-9, (350e-9, 2e-6), 150e-15)
-    pulse = SpatialPulse(
-        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=2e-4), 100e-6
-    )
-    responses: list[object] = [
-        KerrResponse(gamma3(gas, wavelength=800e-9), thg=False),
-        PlasmaResponse(gas, OptmatRate(gas, 800e-9)),
-    ]
-    if gas == "N2":
-        selection = MaterialSelection(carrier_wavelength=800e-9)
-        responses.append(gas_raman(gas, selection=selection, thg=False))
-    settings = SimulationSettings(
-        controller=PIController(rtol=1e-6, atol=0.0),
-        save_planes=[length],
-        dz_max=length,
-        dz_init=length / 10,
-        schedule=FixedSchedule.uniform(0.0, length, length / 10),
-        backend="numpy_ref",
-        integrator=RungeKutta(),
-        ionisation_field_range=(1e7, 1e11),
-        precision=precision,  # pyright: ignore[reportArgumentType]
-    )
-    if route == "cartesian":
-        return Simulation.from_free(
-            grid,
-            FreeGrid(1e-3, 16, 1e-3, 16),
-            SpatialMedium(gas, 1.0),
-            responses,
-            pulse,
-            settings=settings,
-        )
-    return Simulation.from_radial(
-        grid,
-        RadialGrid(1e-3, 32),
-        SpatialMedium(gas, 1.0),
-        responses,
-        pulse,
-        settings=settings,
-    )
 
 
 @pytest.mark.parametrize("route", ["radial", "cartesian"])
@@ -754,7 +563,7 @@ def test_the_memory_estimate_counts_binary32_buffers():
 
 def test_the_single_oracle_refuses_a_double_problem():
     problem = gnlse("double").translate()
-    with pytest.raises(BackendError, match="needs a single problem"):
+    with pytest.raises(BackendError, match="needs a single-precision problem"):
         NumpySingleBackend(problem)
 
 
@@ -935,8 +744,18 @@ def test_without_mlx_single_precision_lists_the_oracle_only(monkeypatch):
 
 def test_auto_resolves_to_mlx_where_metal_is_present(monkeypatch):
     monkeypatch.setattr(simulation_module, "metal_available", lambda: True)
-    assert simulation_module._single_backend("auto") == "mlx"
-    assert simulation_module._single_backend("numpy_ref") == "numpy_ref"
+    assert simulation_module._reduced_backend("auto", "single") == "mlx"
+    assert simulation_module._reduced_backend("numpy_ref", "single") == "numpy_ref"
+
+
+def test_auto_resolves_to_native_where_its_build_runs_single(monkeypatch):
+    monkeypatch.setattr(simulation_module, "metal_available", lambda: False)
+    monkeypatch.setattr(
+        simulation_module, "native_precisions", lambda: ("double", "single")
+    )
+    assert simulation_module._reduced_backend("auto", "single") == "native"
+    with pytest.raises(DriverError, match="native extra"):
+        simulation_module._reduced_backend("auto", "mixed")
 
 
 @pytest.mark.parametrize(

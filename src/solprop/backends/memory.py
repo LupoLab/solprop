@@ -125,6 +125,7 @@ __all__ = [
     "low_storage_flows",
     "low_storage_memory",
     "low_storage_stage_register",
+    "mixed_precision_rows",
     "mlx_bounded",
     "mlx_graph_bytes",
     "mlx_rows",
@@ -342,6 +343,8 @@ def estimate_memory(problem: KernelProblem, backend: str) -> MemoryEstimate:
     base = _reference_base(problem)
     if problem.precision.single:
         base = single_precision_rows(problem, base)
+    elif problem.precision.mixed:
+        base = mixed_precision_rows(problem, base)
     if name == "mlx":
         base |= mlx_rows(problem, base)
     if name in {"numba_cpu", "native"} and problem.responses.plasma_channels:
@@ -423,6 +426,68 @@ def single_precision_rows(
         name: size if name in _BINARY64_ROWS else size // 2
         for name, size in rows.items()
     }
+    single["single_tables"] = _narrowed_table_bytes(problem)
+    single["single_widened_state"] = 16 * math.prod(problem.shape)
+    return single
+
+
+# The rows that touch the propagated state, binary64 under mixed precision: the state,
+# every row stored in the interaction variable, the propagators and the noise.
+_STATE_ROWS = frozenset(
+    {
+        "state",
+        "noise",
+        "stages",
+        "accumulator_solution",
+        "accumulator_error",
+        "register_accumulator",
+        "register_stage",
+    }
+)
+
+
+def mixed_precision_rows(
+    problem: KernelProblem, rows: dict[str, int]
+) -> dict[str, int]:
+    """Return the reference's base rows for a mixed-precision problem.
+
+    SEP 36 section 6.7: every row stored beside the state is binary64, as are the rows
+    of ``_BINARY64_ROWS``; the source's workspaces are binary32 and half the
+    reference's. The narrowed copies of the source tables and the narrowed stage input
+    are added.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        A mixed-precision problem.
+    rows : dict
+        The reference's rows, bytes.
+
+    Returns
+    -------
+    dict
+        The rows, bytes, with ``single_tables`` and ``mixed_narrowed_input`` added.
+    """
+    kept = _BINARY64_ROWS | _STATE_ROWS
+    mixed = {name: size if name in kept else size // 2 for name, size in rows.items()}
+    mixed["single_tables"] = _narrowed_table_bytes(problem)
+    mixed["mixed_narrowed_input"] = 8 * math.prod(problem.shape)
+    return mixed
+
+
+def _narrowed_table_bytes(problem: KernelProblem) -> int:
+    """Return the bytes of the source tables a reduced-precision path narrows.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The problem.
+
+    Returns
+    -------
+    int
+        Four bytes per narrowed element.
+    """
     transform, grids = problem.transform, problem.grids
     tables = transform.synthesis.size + transform.projection.size
     if not np.array_equal(transform.projection, transform.projection_coarse):
@@ -430,9 +495,7 @@ def single_precision_rows(
     tables += 2 * grids.n_to + grids.omega_window.size
     if problem.responses.temporal_absorber_fine is not None:
         tables += grids.n_to
-    single["single_tables"] = 4 * tables
-    single["single_widened_state"] = 16 * math.prod(problem.shape)
-    return single
+    return 4 * tables
 
 
 # The single-precision rows a step's lazy graph holds once per stage on the device.

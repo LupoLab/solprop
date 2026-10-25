@@ -138,7 +138,7 @@ from solprop.translate.modal import (
 )
 from solprop.translate.planar import planar_operators, planar_transform
 from solprop.translate.plasma_source import plasma_source_record
-from solprop.translate.precision import DOUBLE, Precision
+from solprop.translate.precision import DOUBLE, Precision, study_active
 from solprop.translate.radial import (
     radial_operators,
     radial_rate_bounds,
@@ -195,7 +195,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 36
+SCHEMA_VERSION = 37
 """Version of the kernel contract this module implements.
 
 Incremented on every change to the field list of ``docs/dev/kernel-contract.md``. A
@@ -429,6 +429,9 @@ Version 36 (SEP 33) adds ``precision``, the arithmetic the run is held in
 (:class:`solprop.translate.precision.Precision`). Every table stays binary64 at the
 seam; a backend that admits single precision narrows its tables on upload, and every
 other backend refuses a single-precision problem by name.
+
+Version 37 (SEP 36) admits ``precision`` with a binary64 state beside a binary32 source,
+the ``"mixed"`` mode. No field moves; a backend that does not run it refuses it by name.
 """
 
 DEFAULT_COMPONENTS = ("x",)
@@ -1016,7 +1019,7 @@ class KernelProblem:
     ...     dz_max=0.1, dz_init=1e-3, shock=False, prefactor_index=1.0, density=1.0,
     ... )
     >>> problem.shape, problem.grid_kind, problem.schema_version
-    ((1, 1, 1, 4096), 'envelope', 36)
+    ((1, 1, 1, 4096), 'envelope', 37)
     """
 
     schema_version: int
@@ -1231,12 +1234,15 @@ class KernelProblem:
             raise TranslationError(msg)
 
     def _check_precision(self) -> None:
-        """Refuse, by name, what no backend runs in single precision (SEP 33 5.1).
+        """Refuse, by name, what no backend runs in reduced precision (SEP 33, SEP 36).
 
         The general modal route (a moving guide among it), the hybrid planar kind,
         coupled flows (``"cf4"`` sections among them), TDSE responses, the dispersive
-        electronic response, the far-field statistics and noise models are outside
-        SEP 33's scope, so every backend refuses them under ``precision="single"``.
+        electronic response and the far-field statistics are outside SEP 33's scope,
+        so every backend refuses them under ``precision="single"`` and ``"mixed"``
+        alike (SEP 36 section 5.1). Noise models are refused under single precision
+        (SEP 33 section 4.5) and under mixed precision until SEP 36's noise study
+        admits them, except inside :func:`~solprop.translate.precision.study_admission`.
 
         Raises
         ------
@@ -1247,8 +1253,10 @@ class KernelProblem:
             self.precision, Precision
         ):  # pragma: no cover - refused by the annotation where it is checked
             raise TranslationError("precision must be a Precision record")
-        if not self.precision.single:
+        if not self.precision.reduced:
             return
+        name = self.precision.name
+        noise = self.flags.has_noise or self.initial.noise_model != "none"
         geometry = self.transform.geometry
         refused = [
             (self.transform.modal_tables is not None, "the general modal route"),
@@ -1270,19 +1278,28 @@ class KernelProblem:
                 ),
                 "the far-field statistics",
             ),
-            (
-                self.flags.has_noise or self.initial.noise_model != "none",
-                "a noise model (a known limitation of single precision)",
-            ),
         ]
-        for refuse, name in refused:
+        for refuse, what in refused:
             if refuse:
                 msg = (
-                    f"precision='single' refuses {name}: no backend runs it in "
+                    f"precision={name!r} refuses {what}: no backend runs it in "
                     "binary32 (SEP 33 section 5.1); use precision='double'"
                 )
                 raise TranslationError(msg)
-        self._check_single_exponent()
+        if noise and self.precision.single:
+            msg = (
+                "precision='single' refuses a noise model, a known limitation of "
+                "single precision (SEP 33 section 4.5); use precision='double'"
+            )
+            raise TranslationError(msg)
+        if noise and not study_active():
+            msg = (
+                "precision='mixed' refuses a noise model until its noise study "
+                "qualifies it (SEP 36 section 7.3); use precision='double'"
+            )
+            raise TranslationError(msg)
+        if self.precision.single:
+            self._check_single_exponent()
 
     def _check_single_exponent(self) -> None:
         """Refuse a step whose propagator or its inverse overflows binary32.
@@ -6251,7 +6268,7 @@ def debug_summary(problem: KernelProblem) -> str:
     ...     width=100e-15, peak_power=9.8, pulseshape="sech", n_save=3,
     ... )
     >>> print(debug_summary(simulation.translate()).splitlines()[0])
-    kernel problem schema 36: envelope grid, route modal
+    kernel problem schema 37: envelope grid, route modal
     """
     linear, transform = problem.linear, problem.transform
     tables, metric = transform.modal_tables, linear.modal_metric

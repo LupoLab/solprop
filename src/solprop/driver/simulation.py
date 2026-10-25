@@ -47,7 +47,12 @@ from solprop._display import Displayed, engineering, line, summarise
 from solprop.adiabatic import AdiabaticAccuracy
 from solprop.backends.multistep import CallLedger
 from solprop.backends.protocol import Backend
-from solprop.backends.registry import metal_available, resolve_name, select
+from solprop.backends.registry import (
+    metal_available,
+    native_precisions,
+    resolve_name,
+    select,
+)
 from solprop.boundaries import (
     Absorber,
     TransverseCollar,
@@ -272,11 +277,11 @@ from solprop.translate.plasma_integration import (
 )
 from solprop.translate.plasma_source import _BENCHMARK_GATED, plasma_source_record
 from solprop.translate.precision import (
-    SINGLE_RTOL_FLOOR,
     Precision,
     PrecisionName,
     admit_precision,
     precision_named,
+    rtol_floor,
 )
 from solprop.translate.problem import (
     DEFAULT_COMPONENTS,
@@ -528,18 +533,24 @@ class SimulationSettings(Displayed):
         resolves to ``"native"`` when installed, otherwise ``"numba_cpu"``, at
         settings construction. The stored name is concrete, including in scan workers.
         An installed backend's import or construction errors never trigger a fallback.
-    precision : {'double', 'single'}
-        The arithmetic the run is held in (SEP 33,
+    precision : {'double', 'single', 'mixed'}
+        The arithmetic the run is held in (SEP 33, SEP 36,
         ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is
         binary64 throughout and changes nothing.
         ``"single"`` holds the state, the stages, the transforms and the responses in
-        binary32, with the controller and every host scalar in binary64; it admits
-        ``backend="numpy_ref"`` (the single-precision oracle), refuses an adaptive
-        ``rtol`` below :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR`, the
-        Adams integrator and noise models, and is refused by ``numba_cpu`` and
-        ``native``. ``backend="auto"`` resolves to a GPU backend that computes in
-        binary32 when one is installed and is otherwise refused. Part of the hashed
-        configuration; outputs are binary64 either way.
+        binary32, with the controller and every host scalar in binary64. ``"mixed"``
+        holds the state, every row stored in the interaction variable, the
+        propagators and the once-per-step boundary treatments in binary64, and the
+        source evaluation (its transforms, responses and in-stage absorber terms) in
+        binary32. Each admits the backends of
+        :data:`~solprop.translate.precision.REDUCED_PRECISION_BACKENDS` (``numpy_ref``
+        is the oracle of both), and refuses an adaptive ``rtol`` below its floor
+        (:func:`~solprop.translate.precision.rtol_floor`), the Adams integrator and
+        noise models. ``backend="auto"`` resolves under ``"single"`` to a GPU backend
+        that computes in binary32 when one is installed, and under ``"mixed"`` to
+        ``native`` when its build has the mode; it never resolves to the oracle, and is
+        otherwise refused. Part of the hashed configuration; outputs are binary64 in
+        every mode.
     resume_history : bool or None
         Whether the output keeps the Adams march's state at every save plane and
         terminal checkpoint, so that a resume continues the history -- its samples, its
@@ -727,10 +738,12 @@ class SimulationSettings(Displayed):
         precision = _precision(self.precision)
         if self.integrator is None:
             object.__setattr__(
-                self, "integrator", RungeKutta() if precision.single else Multistep()
+                self, "integrator", RungeKutta() if precision.reduced else Multistep()
             )
-        if precision.single:
-            object.__setattr__(self, "backend", _single_backend(self.backend))
+        if precision.reduced:
+            object.__setattr__(
+                self, "backend", _reduced_backend(self.backend, precision.name)
+            )
         if self.fields == "planes" and self.step_planes:
             msg = (
                 "fields='planes' names saved planes by index, and step_planes saves "
@@ -794,7 +807,7 @@ def _tolerance(rtol: float | None, precision: PrecisionName, default: float) -> 
     ----------
     rtol : float or None
         The caller's tolerance; ``None`` takes the default.
-    precision : {'double', 'single'}
+    precision : {'double', 'single', 'mixed'}
         The run's precision.
     default : float
         The interface's binary64 default.
@@ -802,13 +815,13 @@ def _tolerance(rtol: float | None, precision: PrecisionName, default: float) -> 
     Returns
     -------
     float
-        `rtol` when given, which is never raised silently; otherwise `default`, or
-        :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR` under single precision
-        (SEP 33, Q1).
+        `rtol` when given, which is never raised silently; otherwise the larger of
+        `default` and the precision's floor
+        (:func:`~solprop.translate.precision.rtol_floor`; SEP 33 Q1, SEP 36 section 5).
     """
     if rtol is not None:
         return rtol
-    return SINGLE_RTOL_FLOOR if precision == "single" else default
+    return max(default, rtol_floor(precision))
 
 
 def _precision(name: PrecisionName) -> Precision:
@@ -816,7 +829,7 @@ def _precision(name: PrecisionName) -> Precision:
 
     Parameters
     ----------
-    name : {'double', 'single'}
+    name : {'double', 'single', 'mixed'}
         The settings' value.
 
     Returns
@@ -829,24 +842,29 @@ def _precision(name: PrecisionName) -> Precision:
     DriverError
         If `name` is not a public value.
     """
-    if name not in ("double", "single"):  # pragma: no cover - refused by its annotation
-        msg = f"precision must be 'double' or 'single', got {name!r}"
+    if name not in ("double", "single", "mixed"):  # pragma: no cover - annotation
+        msg = f"precision must be 'double', 'single' or 'mixed', got {name!r}"
         raise DriverError(msg)
     return precision_named(name)
 
 
-def _single_backend(backend: str) -> str:
-    """Resolve ``"auto"`` for a single-precision run (SEP 33, Q8).
+def _reduced_backend(backend: str, precision: PrecisionName) -> str:
+    """Resolve ``"auto"`` for a single- or mixed-precision run (SEP 33 Q8, SEP 36 5).
 
-    ``"auto"`` resolves to ``"mlx"`` when MLX and a Metal device are present, and
-    otherwise is refused: it never resolves to a binary64 backend, and
-    never to ``numpy_ref``, the oracle, which is not a production backend. An explicit
-    name passes through to :func:`~solprop.translate.precision.admit_precision`.
+    Under ``"single"``, ``"auto"`` resolves to ``"mlx"`` when MLX and a Metal device
+    are present (SEP 36, Q6), otherwise to ``"native"`` when its build compiled single
+    precision. Under ``"mixed"`` it resolves to ``"native"`` when its build compiled
+    the mode. Otherwise it is refused: it never resolves to a backend that would refuse
+    the mode, and never to ``numpy_ref``, the oracle, which is not a production
+    backend. An explicit name passes through to
+    :func:`~solprop.translate.precision.admit_precision`.
 
     Parameters
     ----------
     backend : str
         The requested backend name.
+    precision : {'single', 'mixed'}
+        The run's reduced precision.
 
     Returns
     -------
@@ -856,17 +874,25 @@ def _single_backend(backend: str) -> str:
     Raises
     ------
     DriverError
-        If `backend` is ``"auto"`` and no single-precision GPU backend is installed.
+        If `backend` is ``"auto"`` and no installed production backend runs the mode.
     """
     if backend != "auto":
         return backend
-    if metal_available():
+    if precision == "single" and metal_available():
         return "mlx"
+    if precision in native_precisions():
+        return "native"
+    alternatives = (
+        "the mlx extra (pip install solprop[mlx]) on an Apple-silicon Mac with a Metal "
+        "GPU, or "
+        if precision == "single"
+        else ""
+    )
     msg = (
-        "precision='single' with backend='auto' resolves to the mlx backend, which "
-        "needs the mlx extra (pip install solprop[mlx]) on an Apple-silicon Mac with a "
-        "Metal GPU; pass backend='numpy_ref' for the single-precision reference (the "
-        "oracle, not a production backend) or use precision='double'"
+        f"precision={precision!r} with backend='auto' needs {alternatives}the native "
+        f"extra (pip install solprop[native]) built with {precision} precision; pass "
+        "backend='numpy_ref' for the reference (the oracle, not a production backend) "
+        "or use precision='double'"
     )
     raise DriverError(msg)
 
@@ -3500,11 +3526,11 @@ class Simulation(Displayed):
         backend : str, optional
             Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
             and otherwise use Numba CPU. Import or construction errors do not fall back.
-        precision : {'double', 'single'}, optional
-            The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
-            ``"single"``, which takes ``rtol`` at the floor
-            :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR` by default,
-            ``RungeKutta()`` and ``backend="numpy_ref"``
+        precision : {'double', 'single', 'mixed'}, optional
+            The arithmetic the run is held in (SEP 33, SEP 36): ``"double"``, the
+            default, ``"single"`` or ``"mixed"``, which take ``rtol`` by default at
+            the larger of this default and the mode's floor
+            (:func:`~solprop.translate.precision.rtol_floor`) and ``RungeKutta()``
             (:attr:`SimulationSettings.precision`).
         materials : solprop.physdata.selection.MaterialSelection or None, optional
             Take fused silica's nonlinear response from optmat's silica bundle
@@ -3923,11 +3949,11 @@ class Simulation(Displayed):
         backend : str, optional
             Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
             and otherwise use Numba CPU. Import or construction errors do not fall back.
-        precision : {'double', 'single'}, optional
-            The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
-            ``"single"``, which takes ``rtol`` at the floor
-            :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR` by default,
-            ``RungeKutta()`` and ``backend="numpy_ref"``
+        precision : {'double', 'single', 'mixed'}, optional
+            The arithmetic the run is held in (SEP 33, SEP 36): ``"double"``, the
+            default, ``"single"`` or ``"mixed"``, which take ``rtol`` by default at
+            the larger of this default and the mode's floor
+            (:func:`~solprop.translate.precision.rtol_floor`) and ``RungeKutta()``
             (:attr:`SimulationSettings.precision`).
         polarisation : str, float or None, optional
             Refused; this path is scalar.
@@ -4385,11 +4411,11 @@ class Simulation(Displayed):
         backend : str, optional
             Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
             and otherwise use Numba CPU. Import or construction errors do not fall back.
-        precision : {'double', 'single'}, optional
-            The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
-            ``"single"``, which takes ``rtol`` at the floor
-            :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR` by default,
-            ``RungeKutta()`` and ``backend="numpy_ref"``
+        precision : {'double', 'single', 'mixed'}, optional
+            The arithmetic the run is held in (SEP 33, SEP 36): ``"double"``, the
+            default, ``"single"`` or ``"mixed"``, which take ``rtol`` by default at
+            the larger of this default and the mode's floor
+            (:func:`~solprop.translate.precision.rtol_floor`) and ``RungeKutta()``
             (:attr:`SimulationSettings.precision`).
         polarisation : str, float or None, optional
             Refused; this path is scalar.
@@ -4651,9 +4677,9 @@ class Simulation(Displayed):
             Which statistics to record; ``None`` takes :func:`_general_stats`.
         backend : str
             Registry name, or ``"auto"``.
-        precision : {'double', 'single'}
+        precision : {'double', 'single', 'mixed'}
             The arithmetic the run is held in; the general route is refused under
-            single precision.
+            single and mixed precision.
         memory_budget : int or str or None
             The budget the guide's route is admitted against before it is built.
         materials : solprop.physdata.selection.MaterialSelection or None, optional
@@ -5144,11 +5170,11 @@ class Simulation(Displayed):
         backend : str, optional
             Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
             and otherwise use Numba CPU. Import or construction errors do not fall back.
-        precision : {'double', 'single'}, optional
-            The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
-            ``"single"``, which takes ``rtol`` at the floor
-            :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR` by default,
-            ``RungeKutta()`` and ``backend="numpy_ref"``
+        precision : {'double', 'single', 'mixed'}, optional
+            The arithmetic the run is held in (SEP 33, SEP 36): ``"double"``, the
+            default, ``"single"`` or ``"mixed"``, which take ``rtol`` by default at
+            the larger of this default and the mode's floor
+            (:func:`~solprop.translate.precision.rtol_floor`) and ``RungeKutta()``
             (:attr:`SimulationSettings.precision`).
         polarisation : str, float or None, optional
             Refused; this path is scalar.

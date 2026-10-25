@@ -305,10 +305,11 @@ it with `open_tdse_archive` ([the TDSE response](../media/tdse.md#the-raw-respon
 
 ## The schema version
 
-Every file records its `schema_version`; this release writes schema 25
-(`solprop.output.SCHEMA_VERSION`). Schema 25 records every run's `precision`
-(`"double"` or `"single"`, [single precision](../performance/single-precision.md)) in
-its configuration, so a run is never resumed in the other precision. Schema 24 added
+Every file records its `schema_version`; this release writes schema 26
+(`solprop.output.SCHEMA_VERSION`). Schema 26 admits `"mixed"` as that precision.
+Schema 25 records every run's `precision` (`"double"`, `"single"` or, from schema 26,
+`"mixed"`; [single precision](../performance/single-precision.md)) in its
+configuration, so a run is never resumed in another precision. Schema 24 added
 the plane-reference record
 (`RunMetadata.reference`, [provenance](provenance.md#the-metadata-schema)), from which a
 saved plane is read back as a coherent field plane

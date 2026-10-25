@@ -569,14 +569,17 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
         and otherwise use Numba CPU. Import or construction errors do not fall back.
         :func:`solprop.backends.registry.available` lists what can be used.
-    precision : {'double', 'single'}, optional
-        The arithmetic the run is held in (SEP 33,
+    precision : {'double', 'single', 'mixed'}, optional
+        The arithmetic the run is held in (SEP 33, SEP 36,
         ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is
         binary64 throughout. ``"single"`` holds the state and the source evaluation in
-        binary32: its default `rtol` is the floor
-        :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR`, below which an explicit
-        value is refused; its default integrator is ``RungeKutta()``, and the Adams
-        method, noise models and every backend but ``numpy_ref`` are refused.
+        binary32; ``"mixed"`` holds the state and every stored row in binary64 and the
+        source evaluation in binary32. Each takes `rtol` by default at the larger of
+        the binary64 default and its floor (1e-6 single, 1e-8 mixed;
+        :func:`~solprop.translate.precision.rtol_floor`), below which an explicit value
+        is refused, and
+        ``RungeKutta()``; the Adams method, noise models and the backends that do not
+        run the mode are refused.
     resume : bool or {'interpolated'}, optional
         Continue the file at `output` if it holds this same run, instead of replacing
         it. Only a path can be resumed.
@@ -1006,14 +1009,17 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
     backend : str, optional
         Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
         and otherwise use Numba CPU. Import or construction errors do not fall back.
-    precision : {'double', 'single'}, optional
-        The arithmetic the run is held in (SEP 33,
+    precision : {'double', 'single', 'mixed'}, optional
+        The arithmetic the run is held in (SEP 33, SEP 36,
         ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is
         binary64 throughout. ``"single"`` holds the state and the source evaluation in
-        binary32: its default `rtol` is the floor
-        :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR`, below which an explicit
-        value is refused; its default integrator is ``RungeKutta()``, and the Adams
-        method, noise models and every backend but ``numpy_ref`` are refused.
+        binary32; ``"mixed"`` holds the state and every stored row in binary64 and the
+        source evaluation in binary32. Each takes `rtol` by default at the larger of
+        the binary64 default and its floor (1e-6 single, 1e-8 mixed;
+        :func:`~solprop.translate.precision.rtol_floor`), below which an explicit value
+        is refused, and
+        ``RungeKutta()``; the Adams method, noise models and the backends that do not
+        run the mode are refused.
     polarisation : str, float or None, optional
         Refused; this path is scalar.
     output : solprop.output.schema.Output, pathlib.Path, str or None, optional
@@ -1462,14 +1468,17 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
     backend : str, optional
         Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
         and otherwise use Numba CPU. Import or construction errors do not fall back.
-    precision : {'double', 'single'}, optional
-        The arithmetic the run is held in (SEP 33,
+    precision : {'double', 'single', 'mixed'}, optional
+        The arithmetic the run is held in (SEP 33, SEP 36,
         ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is
         binary64 throughout. ``"single"`` holds the state and the source evaluation in
-        binary32: its default `rtol` is the floor
-        :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR`, below which an explicit
-        value is refused; its default integrator is ``RungeKutta()``, and the Adams
-        method, noise models and every backend but ``numpy_ref`` are refused.
+        binary32; ``"mixed"`` holds the state and every stored row in binary64 and the
+        source evaluation in binary32. Each takes `rtol` by default at the larger of
+        the binary64 default and its floor (1e-6 single, 1e-8 mixed;
+        :func:`~solprop.translate.precision.rtol_floor`), below which an explicit value
+        is refused, and
+        ``RungeKutta()``; the Adams method, noise models and the backends that do not
+        run the mode are refused.
     polarisation : str, float or None, optional
         Refused; this path is scalar.
     taper_coupling : bool, optional

@@ -46,6 +46,7 @@ What is binary32 and what is not:
 import dataclasses
 import math
 from collections.abc import Mapping, Sequence
+from typing import ClassVar
 
 import numpy as np
 from jaxtyping import Complex, Float, Inexact, Num
@@ -63,6 +64,7 @@ from solprop.profiles import ZProfile
 from solprop.stats import StatsSpec
 from solprop.stepper.controller import PIController
 from solprop.translate.precision import (
+    PrecisionName,
     block_exponent,
     combine,
     launch_peak,
@@ -136,6 +138,9 @@ class NumpySingleBackend(NumpyRefBackend):
         losing range that its pass does not carry.
     """
 
+    # The precision this class runs; the mixed oracle reuses the constructor.
+    precision_name: ClassVar[PrecisionName] = "single"
+
     def __init__(
         self,
         problem: KernelProblem,
@@ -146,8 +151,12 @@ class NumpySingleBackend(NumpyRefBackend):
         tdse_binding: TDSEBinding | None = None,
     ) -> None:
         """Adopt a single-precision problem and narrow its tables."""
-        if not problem.precision.single:
-            raise BackendError("the single-precision path needs a single problem")
+        if problem.precision.name != self.precision_name:
+            msg = (
+                f"the {self.precision_name}-precision path needs a "
+                f"{self.precision_name}-precision problem"
+            )
+            raise BackendError(msg)
         super().__init__(
             problem,
             grid=grid,

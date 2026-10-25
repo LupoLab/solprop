@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The precision record, its admission and the range helpers of SEP 33."""
+"""The precision record, its admission and the range helpers of SEP 33 and SEP 36."""
 
 import math
 
@@ -15,6 +15,8 @@ from bounds import UNIT_ROUNDOFF_32, higham_gamma, prefix_bound
 from solprop.exceptions import TranslationError
 from solprop.translate.precision import (
     DOUBLE,
+    MIXED,
+    MIXED_RTOL_FLOOR,
     SINGLE,
     SINGLE_RTOL_FLOOR,
     Precision,
@@ -26,19 +28,30 @@ from solprop.translate.precision import (
     pairwise_sum,
     precision_named,
     prefix_sum,
+    rtol_floor,
     scaled_square_sum,
     state_scale,
+    study_active,
     study_admission,
 )
 
 TINY32 = float(np.finfo(np.float32).tiny)
 
 
-def test_the_public_values_name_equal_fields_and_a_mixed_record_is_refused():
+def test_the_public_values_name_their_fields_and_a_binary32_state_needs_its_source():
     assert precision_named("double") is DOUBLE
     assert precision_named("single") is SINGLE
+    assert precision_named("mixed") is MIXED
+    assert Precision("double", "single") == MIXED and MIXED.name == "mixed"
     assert SINGLE.complex_dtype == np.complex64 and DOUBLE.real_dtype == np.float64
-    with pytest.raises(TranslationError, match="mixed precision"):
+    # Mixed precision stores binary64 rows and evaluates a binary32 source.
+    assert MIXED.complex_dtype == np.complex128 and MIXED.real_dtype == np.float64
+    assert MIXED.source_complex_dtype == np.complex64
+    assert DOUBLE.source_complex_dtype == np.complex128
+    assert [p.reduced for p in (DOUBLE, SINGLE, MIXED)] == [False, True, True]
+    assert [p.mixed for p in (DOUBLE, SINGLE, MIXED)] == [False, False, True]
+    assert not MIXED.single
+    with pytest.raises(TranslationError, match="binary32 state beside a binary64"):
         Precision("single", "double")
     # The annotation refuses the value first wherever annotations are checked.
     with pytest.raises((TranslationError, TypeCheckError)):
@@ -59,18 +72,30 @@ def test_admission_refuses_by_name_and_the_study_reaches_adams():
         )
 
     admit(SINGLE)
+    admit(MIXED, rtol=1e-8)
     admit(DOUBLE, "native", rtol=1e-12)
-    with pytest.raises(TranslationError, match=r"numba_cpu.*binary64 only"):
+    with pytest.raises(TranslationError, match=r"numba_cpu.*precision='single'"):
         admit(SINGLE, "numba_cpu")
+    for backend in ("numba_cpu", "native", "mlx"):
+        with pytest.raises(TranslationError, match="refuses precision='mixed'"):
+            admit(MIXED, backend)
     with pytest.raises(TranslationError, match="floor 1e-06"):
         admit(SINGLE, rtol=1e-7)
+    with pytest.raises(TranslationError, match="mixed-precision floor 1e-08"):
+        admit(MIXED, rtol=1e-9)
     # A replayed schedule reads no tolerance.
     admit(SINGLE, rtol=1e-12, schedule=True)
-    with pytest.raises(TranslationError, match="Adams integrator"):
-        admit(SINGLE, adams=True)
+    admit(MIXED, rtol=1e-12, schedule=True)
+    for precision in (SINGLE, MIXED):
+        with pytest.raises(TranslationError, match="Adams integrator"):
+            admit(precision, adams=True)
+    assert not study_active()
     with study_admission():
+        assert study_active()
         admit(SINGLE, adams=True)
-    assert SINGLE_RTOL_FLOOR == 1e-6
+        admit(MIXED, adams=True, rtol=1e-8)
+    assert SINGLE_RTOL_FLOOR == 1e-6 and MIXED_RTOL_FLOOR == 1e-8
+    assert rtol_floor(DOUBLE) == 0.0 and rtol_floor(MIXED) == MIXED_RTOL_FLOOR
 
 
 def test_a_molecular_kernel_keeps_every_bin_under_its_block_exponent():
@@ -165,9 +190,10 @@ def test_a_sum_of_squares_that_overflows_binary32_is_scaled_first():
     assert TINY32 > 1e-40
 
 
-def test_a_record_names_its_shared_value_and_passes_through():
-    assert SINGLE.name == "single"
+def test_a_record_names_its_value_and_passes_through():
+    assert SINGLE.name == "single" and DOUBLE.name == "double"
     assert precision_named(SINGLE) is SINGLE
+    assert precision_named(MIXED) is MIXED
 
 
 def test_an_empty_launch_has_no_peak():

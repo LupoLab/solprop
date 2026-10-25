@@ -41,7 +41,7 @@ from solprop.modes.protocol import Mode
 from solprop.profiles import ZProfile
 from solprop.spatial import FAR_FIELD_STATISTICS
 from solprop.translate.plasma_source import _BENCHMARK_GATED
-from solprop.translate.precision import SINGLE_PRECISION_BACKENDS
+from solprop.translate.precision import REDUCED_PRECISION_BACKENDS
 from solprop.translate.problem import KernelProblem
 from solprop.translate.tdse import TDSEBinding
 
@@ -53,6 +53,7 @@ __all__ = [
     "available",
     "available_device_memory",
     "metal_available",
+    "native_precisions",
     "resolve_name",
     "select",
     "select_batch",
@@ -182,10 +183,11 @@ def available(precision: str = "double") -> tuple[str, ...]:
 
     Parameters
     ----------
-    precision : {'double', 'single'}, optional
-        The arithmetic asked for (SEP 33). ``"double"``, the default, lists the binary64
-        backends, which leaves out ``mlx``; ``"single"`` lists those that admit single
-        precision (:data:`solprop.translate.precision.SINGLE_PRECISION_BACKENDS`).
+    precision : {'double', 'single', 'mixed'}, optional
+        The arithmetic asked for (SEP 33, SEP 36). ``"double"``, the default, lists the
+        binary64 backends, which leaves out ``mlx``; ``"single"`` and ``"mixed"`` list
+        those that admit the mode
+        (:data:`solprop.translate.precision.REDUCED_PRECISION_BACKENDS`).
 
     Returns
     -------
@@ -198,8 +200,8 @@ def available(precision: str = "double") -> tuple[str, ...]:
     >>> "numpy_ref" in available()
     True
     """
-    if precision == "single":
-        names = SINGLE_PRECISION_BACKENDS
+    if precision in REDUCED_PRECISION_BACKENDS:
+        names = REDUCED_PRECISION_BACKENDS[precision]
     else:
         names = tuple(name for name in BACKENDS if name not in SINGLE_ONLY)
     return tuple(name for name in names if _satisfied(BACKENDS[name]))
@@ -218,6 +220,26 @@ def metal_available() -> bool:
     if not _satisfied(BACKENDS["mlx"]):
         return False
     return _metal_device()  # pragma: no cover - needs MLX, macOS on Apple silicon
+
+
+def native_precisions() -> tuple[str, ...]:
+    """Return the precisions the installed native build compiled (SEP 36 section 6.3).
+
+    Imports the native extension only when it is installed. A build that predates the
+    record compiled binary64 alone.
+
+    Returns
+    -------
+    tuple of str
+        The build's modes, ``()`` without the native extension.
+    """
+    if not _satisfied(BACKENDS["native"]):
+        return ()
+    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        build_info,
+    )
+
+    return tuple(getattr(build_info(), "precisions", ("double",)))
 
 
 def _metal_device() -> bool:  # pragma: no cover - needs MLX, macOS on Apple silicon
@@ -612,6 +634,18 @@ def _construct(
         # reason to import every backend or initialize a native runtime.
         from solprop.backends.numpy_ref import NumpyRefBackend  # noqa: PLC0415
 
+        if problem.precision.mixed:
+            from solprop.backends.numpy_ref.mixed import (  # noqa: PLC0415
+                NumpyMixedBackend,
+            )
+
+            return NumpyMixedBackend(
+                problem,
+                grid=grid,
+                modes=modes,
+                profiles=profiles,
+                tdse_binding=tdse_binding,
+            )
         if problem.precision.single:
             from solprop.backends.numpy_ref.single import (  # noqa: PLC0415
                 NumpySingleBackend,

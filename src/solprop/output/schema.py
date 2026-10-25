@@ -113,7 +113,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 25
+SCHEMA_VERSION = 26
 """Version of the record layout; incremented whenever a stored field changes meaning.
 
 Version 9 adds the SEP 13 stepping method. Independent version-10 branches added
@@ -182,6 +182,9 @@ cannot be exchanged.
 Version 25 (SEP 33) records every run's ``precision`` in its hashed configuration,
 ``"double"`` included, so a resume in the other precision is refused through the hash.
 The saved arrays are binary64 either way.
+
+Version 26 (SEP 36) admits ``"mixed"`` as the configuration's ``precision``: a binary64
+state beside a binary32 source. The saved arrays are binary64 in every mode.
 """
 
 INLINE_ARRAY_LIMIT = 2**20

@@ -226,7 +226,7 @@ def test_the_problem_carries_the_leaf_and_its_stage_row(field_grid, mode):
     problem = problem_for(
         field_grid, mode, [DispersiveKerrResponse(ARGON, "polynomial")]
     )
-    assert problem.schema_version == SCHEMA_VERSION == 36
+    assert problem.schema_version == SCHEMA_VERSION == 37
     assert problem.grids.carrier_2w0 is None
     bundle = scalars(problem, 0.0, 0.05)
     expected = float(mode.density(np.array([0.05]))[0])

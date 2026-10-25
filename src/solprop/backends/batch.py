@@ -361,7 +361,9 @@ class LockstepRunner(StepDriver[tuple[object, ...]]):
             self._members = ()
 
 
-def _validate_members(members: tuple[StepDriver[object], ...]) -> None:
+def _validate_members(  # noqa: PLR0912 - one refusal per contract term
+    members: tuple[StepDriver[object], ...],
+) -> None:
     """Require one backend and a shared entrance-to-end replay contract.
 
     Parameters
@@ -387,6 +389,11 @@ def _validate_members(members: tuple[StepDriver[object], ...]) -> None:
         member._require_state()
         if member.name != first.name:
             raise BackendError("lockstep execution refuses mixed backends")
+        if member._problem.precision != first._problem.precision:
+            raise BackendError(
+                "lockstep execution admits members of one precision (SEP 36 section "
+                "5): run each precision as its own batch"
+            )
         if member._z != 0.0 or member._history or member._schedule_index != 0:
             raise BackendError(
                 "lockstep members must be freshly loaded at the entrance"

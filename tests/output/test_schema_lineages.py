@@ -171,7 +171,7 @@ def test_schema_18_round_trips_hacc_and_sae_records(tmp_path, monkeypatch, kind)
         "sae": lambda: dataclasses.replace(_sae(), sampling=TDSESampling(4)),
     }[kind]()
     metadata = _tdse_metadata(response)
-    assert metadata.schema_version == 25
+    assert metadata.schema_version == 26
     record = metadata.tdse
     assert record is not None
     descriptor = json.loads(str(record["configuration_json"]))
@@ -199,7 +199,7 @@ def test_schema_18_round_trips_hacc_and_sae_records(tmp_path, monkeypatch, kind)
         )
     with open_file(path) as stored:
         assert stored.metadata is not None
-        assert stored.metadata.schema_version == 25
+        assert stored.metadata.schema_version == 26
         assert stored.metadata.configuration_hash() == metadata.configuration_hash()
         assert stored.metadata.tdse == metadata.tdse
         assert stored.outcome is not None

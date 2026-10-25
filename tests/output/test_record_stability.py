@@ -107,7 +107,7 @@ def build(kind: str) -> Simulation:
 
 def split(kind: str):
     metadata = build(kind).metadata()
-    assert metadata.schema_version == SCHEMA_VERSION == 25
+    assert metadata.schema_version == SCHEMA_VERSION == 26
     # SEP 27 changes the global resume boundary, not these non-plasma records.
     # SEP 34 adds the plane measure to the spatial record (output schema 23); the
     # schema-21 projection leaves it out, and everything else must be unchanged.

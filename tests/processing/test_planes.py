@@ -131,7 +131,7 @@ def test_the_record_survives_a_file(capillary_run, tmp_path):
     simulation.run(path, progress="none")
     with open_file(path) as stored:
         assert stored.metadata is not None and memory.metadata is not None
-        assert stored.metadata.schema_version == 25
+        assert stored.metadata.schema_version == 26
         assert stored.metadata.reference == memory.metadata.reference
         assert (
             stored.metadata.configuration_hash() == memory.metadata.configuration_hash()
