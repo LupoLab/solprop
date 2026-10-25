@@ -1988,7 +1988,7 @@ parts) are cited through it.
 
 ## Part II — Implementation record
 
-### Phase 0a — decisions and interim findings (in progress)
+### Phase 0a — decisions and interim findings
 
 Recorded as they are made; the phase 0a report (§8 of SEP 0) follows at the end of the
 phase. The campaign harness and its raw results are kept with the project's
@@ -2035,6 +2035,219 @@ it grows only from rounding.
   temporal absorption at the same window.
 - *Step counts.* On the reduced CtC case solprop accepts 3163 steps to Luna's 205 at the
   witness tolerance; phase 0a explains the difference.
+
+### Phase 0a report — 2026-10-25 (draft, awaiting the maintainer's decisions)
+
+**Scope.** Phase 0a of §11: windows, monitors and collar geometry; no package change.
+Implementer Opus 5.5 (AI) for John Travers, 2026-10-24 to 2026-10-25, on
+`feature/sep-0021-temporal-boundaries` (the phase's package commits are the reduced CtC
+case of D2 only). The campaign harness, its raw records and run logs are kept with the
+project's development records, as §11 requires. Accuracy runs used `numpy_ref` and
+`numba_cpu` on the maintainer's Mac and on the university cluster; every timing ran on
+one 18-core socket of a dual-socket AVX-512 workstation, one hardware thread per core, serially,
+with `numba_cpu` and a native CPU build of this branch (GCC 16, FFTW, OpenBLAS). A
+two-core job of another project shared the machine on separate cores.
+
+**Delivered.** No package change beyond D2. Harness pieces: wide references extrapolated
+in 1/M; the strategy sweep (§4.10) over five cases, two steppers and five tolerances;
+the geometry and strength sweep; slow-walker reflection; placement and frames; guard
+prototypes; the split's attribution; the radial transfer; passivity; endpoint energy
+diagnostics; transform-size cost; full-length timings.
+
+**Deviations.**
+
+- The reduced CtC case changed (D2): the former 1 ps window clipped the pump, so its
+  continuum and cross-code differences were the boundary's. It is kept as a
+  guard-monitor counterexample.
+- The geometry, reflection and attribution sweeps place the collar outside the requested
+  window on smooth sizes (Q4, D1) rather than at today's geometry, because a power of
+  two's slack makes every collar fraction alike.
+- Low-storage RK4 schedules were not calibrated (§11 asks for them where supported). The
+  adaptive pair and both multistep formulations were; RK4 is a gap for phase 2's monitor
+  coverage rules.
+- The general modal route was excluded, as the precondition of §11 allows; its split
+  disagreement stays on the roadmap.
+
+**Findings.**
+
+1. *References.* Wide-window references converge at first order in the window factor
+   through a band-edge mesh term (interim findings); extrapolated as `2F(2M) - F(M)`,
+   their uncertainty is 4e-6 to 5e-5 per case. Every requested-window comparison is
+   floored by that term (canonical 1.9e-5), so absorber effects are measured as collar
+   against no temporal absorption at equal M.
+2. *Where the field reaches the edge* (soliton witness, RDW, SSFS), the collar's own
+   model error (1e-4 to 2e-3) or the wrap of the run without absorption is the floor of
+   every requested-window strategy; only wider windows reach 1e-4 or below. *Where it
+   stays clear* (canonical, reduced CtC) every strategy is equally accurate.
+3. *Geometry and strength.* Strength set by a protected walk-off (Q17: counted on both
+   edges) is never less accurate than today's AN = 252 and costs fewer Multistep steps
+   (canonical 1120 to 890 at equal error, the floor no longer binding). The plateau
+   profile is 10-30x worse on the soliton witness. Width matters only where light enters
+   the collar (soliton 10 to 20 %: 2.7e-3 to 1.9e-5).
+4. *Reflection of slow walkers* (§4.2). Reflection grows with AN and falls steeply with
+   Ωw: at Ωw = 10, 6.4e-3 at AN 252, 1.2e-3 at AN 100, 5.9e-5 at AN 25; at Ωw = 2, 4-16 %
+   at every strength. Transmission (wrap) is about 8 % at AN 25 and 0.8 % at AN 50, and
+   below the measurement's 5e-3 resolution from AN 100. A collar weak enough not to
+   reflect at Ωw of order 10 transmits; slow walkers with Ωw < 10 are reflected at the
+   percent level by any collar that does not transmit.
+5. *Split against in-stage.* At the recommended geometry the field barely enters the
+   collar and the schemes differ by 1e-9 to 2e-7 on RDW and SSFS, against errors of 6e-5
+   to 6e-4, with identical steps. Where the field sits in the collar (soliton witness)
+   the difference is the Lie splitting: first order in h under Multistep (3.6e-6,
+   1.8e-6, 7.4e-7 at 17, 29, 64 steps), 5.6e-7 under RK. The second mask contributes
+   1e-8 to 5e-7 and partly cancels the splitting; the coarse against fine sampling of
+   the rate contributes 1e-13 to 7e-12.
+6. *Placement and frames* (§4.11). On RDW an early launch (0.3 of the window, away from
+   the drift) cuts the error 5x at no cost; the fastest-light frame adds nothing (RDW's
+   default frame is within 8 fs of it). A prescribed frame off the carrier costs
+   Multistep steps (midpoint 5x, fastest 1.25x): the field-grid history rotation of the
+   interim findings, at the frame's mismatch. On SSFS placement does not move the error
+   (the grid's floor), and the midpoint frame is harmful: light leaves both edges. The
+   planning group-delay range overstates the walk-off (SSFS 2.0 ps at a 1e-4 floor
+   against a 1.8 ps window), because late radiation has not walked the whole length.
+7. *Guards* (§4.12). Launch problems are flagged at z = 0 (the 1 ps CtC launch fills a
+   5 % guard at 1.9e-3). The square root of the peak occupancy of a 5 % guard bounds the
+   measured field error in every case, from about equal (RDW, 2x) to 25x above (SSFS).
+   The peak is not always at the exit (RDW 2x at 1.2 m of 1.5 m, SSFS 2x at 0.13 m), and
+   a full-period crossing is invisible at the endpoints (1.3e-13 return, end occupancy
+   1e-28), so the check cadence matters. At a 1e-3 threshold a 50 fs packet is caught at
+   cadences up to 3.5-7 guard crossing lengths.
+8. *Energy diagnostics* (§4.6, R3). Occupancy, removal rate and the split's discrete
+   difference were evaluated at every accepted endpoint. On the conservative soliton
+   witness the in-stage trapezoid matches the true loss to 1e-3 of it at three step
+   levels, and the split's discrete difference is exact to four digits. On the field-grid
+   cases exponential weights and the split difference bracket the trapezoid within
+   3-7 %. One inverse transform per accepted step is the cost.
+   - The square root of the removed fraction bounds the error of the same window without
+     absorption in every case but one, tightly on RDW (5.6e-4 against 2.2e-4).
+   - The exception is the 1 ps CtC case. It removes 1.7e-3 and its error is 0.93: clipped
+     launch content seeds stimulated Raman scattering. Removal cannot bound a nonlinear
+     consequence; launch occupancy (8.8e-4 at z = 0, against 2e-5 or less elsewhere) does
+     flag it.
+9. *Passivity* (Q15). On constant-metric routes (ordinary modal and GNLSE) the collar is
+   passive by construction; the measured generalised eigenvalues of the collar's
+   quadratic form against the energy lie in [-2e-16, 1].
+   - In SEP 34's admittance metric on the radial case the worst gain is -6.6e-11 of the
+     peak rate for the temporal collar and -2.9e-7 for the real-space collar. Removal
+     rates of actual fields along z are positive for both.
+   - A column whose transverse cutoff falls inside the band reaches -6.7e-5. As the
+     admittance approaches zero the ratio is unbounded: the collar scatters zero-flux
+     content into propagating bins.
+10. *The radial collars* (R4), on the suite's spatial-absorber case. The beam reaches a
+    0.3 mm radius in 8 cm at 0.9 critical power; temporal absorption was off. Today's
+    collar (10 % inside the radius, AN 252) is barely better than a hard wall: an error
+    of 1.0e-1 over the requested radius and 2.3e-2 in the core, against 1.0e-1 and 2.8e-2
+    for the wall. The error is reflection from the collar, and it reaches the core.
+    - A collar outside the requested radius, wider and weaker, is 20x (aperture) and 130x
+      (core) more accurate: 30 % at AN 10 gives 4.5e-3 and 1.7e-4, in 46 instead of 241
+      RK steps.
+    - The temporal trends transfer: width matters most, and weaker is better down to an
+      optimum where transmission onto the outer wall takes over.
+    - The walk-off formula is within 1.5x of the optimum at wide collars and too strong
+      at narrow ones.
+11. *Transform sizes* (D1). On `numba_cpu` the per-sample cost of smooth sizes is within
+    -20 to +25 % of the nearest power of two, so any smooth size that saves samples is
+    cheaper per evaluation: reduced CtC at 1.25x, 9000 samples cost 13.1 ms against
+    30.2 ms for 16384.
+    - The native build agrees in general, but some smooth sizes are slow. RDW at 4000
+      costs 1.8x what 4096 does; 8640 costs 1.7x per sample what 8192 does.
+    - The realised smooth size is not monotone in the request: RDW at 1.375x gives 8640
+      samples, more than 2x's 8000.
+12. *Timings at matched error.* These are full-length runs on that socket; the native
+    SSFS timings were still running at the time of writing.
+    - Where the requested window qualifies, the collar, split and no-absorber runs cost
+      the same within 5 %. Smooth windows at 1.25-1.5x cost 1.0-1.6x as much, 2x windows
+      1.5-2x and 4x windows 2.5-5x.
+    - At 1e-4 the requested window does not qualify on RDW (RK) or SSFS. On RDW the
+      cheapest run is smooth 1.25x (RK 37.6 s against 60.0 s for 2x on `numba_cpu`;
+      native 9.1 s against 13.4 s). SSFS needs the 2x window: 274 s with Multistep and
+      187 s with RK, 2.7x and 3.2x the 1e-3 cost.
+    - Peak resident memory was 230-450 MB in every run, so memory binds none of these
+      cases.
+    - Independently of the boundary, RK is 1.7-6x faster than Multistep on the Raman
+      cases (native reduced CtC: 4.4 s against 27 s). A carrier-frame history
+      extrapolation addresses this outside this SEP.
+
+**Recommendations.**
+
+- **R1 — geometry and strength defaults.**
+  - Place the collar outside the requested window (Q4) on smooth sizes (D1).
+  - Set the strength from the protected walk-off counted on both edges (Q17), capped
+    below at the transmission limit (AN of about 100 for the slow walkers measured, so
+    use the larger of the two). Keep the complement profile and reject the plateau.
+  - Use a 10 % collar per edge. Offer a wider collar as the setting for launches into
+    the edge, and have the monitor's message suggest it rather than defaulting to it.
+  - Q3: no change to `boundary_N`'s meaning; walk-off becomes the default
+    parameterisation.
+- **R2 — the floor.** After R1 the stiffness floor binds none of the cases: canonical's
+  extra steps under today's collar disappear at walk-off strength, and on RDW and SSFS
+  the collar costs no steps. No case qualifies phase 1's implicit collar. Recommend
+  recording phase 1 and phase 4 as not built.
+- **R3 — diagnostics.**
+  - Accumulate occupancy and temporal removal at committed endpoints (the
+    `_take_step_stats` sites, §4.6) by trapezoid, with a 10 % quadrature budget. That is
+    three times the measured spread, so the bound is defensible without per-run
+    refinement.
+  - Under the split, record the discrete energy difference instead, which is exact.
+  - Warn at the end of a run when the square root of the removed fraction exceeds
+    1e-3 (the 1e-3 budget). Warn at launch when collar or guard occupancy exceeds 1e-4.
+  - On spatial routes report signed rates in SEP 34's metric. They are passive except
+    near transverse cutoff, so Q15 needs no change to the collar operator.
+- **R4 — spatial collars.** The temporal results transfer, and the radial collar's error
+  is larger than the temporal one: a collar outside the requested radius, 20-30 % wide
+  at AN 10-50, is 20-130x more accurate and cheaper. They should not take the temporal
+  walk-off strength unchanged. Recommend the follow-up SEP of Q10 for the real-space
+  collars' geometry, with this case as its witness. Phase 2 must not move spatial
+  strength when it changes the temporal default (SEP 22's shared `collar_length`).
+- **R6 — production strategies.** Keep temporal absorption on by default.
+  - On the requested window it costs nothing measurable at R1's geometry. Where a run
+    needs more accuracy than the requested window gives, only a wider window delivers
+    it, and the cheapest is a smooth 1.25-2x window, which no default can choose without
+    knowing the budget.
+  - Admit the monitored no-absorber mode as an opt-in for wide windows, and make the
+    monitor's advice name the smooth window factor.
+  - Make an early launch a documented setting, not a default.
+  - Adopt no prescribed frame until the Multistep carrier-frame work removes its step
+    cost.
+  - Counterexamples: the 1 ps CtC launch, which no boundary saves, and slow walkers
+    with Ωw < 10.
+- **R7 — guard monitor.**
+  - Guards of 5 % of the realised window per edge, measured in the energy-density proxy
+    of §4.6 relative to the plane's energy.
+  - Warn when the square root of the guard occupancy exceeds the run's error budget
+    (1e-3 by default); error at 10x the budget.
+  - Check at every accepted step on adaptive and multistep marches; a fixed low-storage
+    schedule must refuse coverage it cannot give.
+  - Always check at launch.
+  - The bound held in every case measured, but it is 1-25x conservative, and a single
+    nonlinear counterexample shows that occupancy below threshold after launch does not
+    guarantee accuracy.
+  - Not qualified: noise floors and weak bands, the general modal and spatial metrics
+    (not measured), and the low-storage march.
+
+**Decisions needed from the maintainer before phase 2:** R1 (geometry, strength, Q3,
+Q17), the R6 default (keep absorption; monitored no-absorber opt-in), R7's policy, the R3
+thresholds and Q15, D1's size table (fast sizes only), and whether to record phases 1
+and 4 as not built (R2).
+
+**Limitations.**
+
+- One radial case, one gas, Kerr only.
+- No general modal or planar route.
+- Low-storage RK4 not calibrated.
+- Guard and energy thresholds come from six cases.
+- Reflection was measured at one dispersion (β₂ only).
+- Timings are for one socket of one machine.
+
+**Open questions.**
+
+23. **Q23: smooth sizes that are slow on the native backend and not monotone in the
+    request.** The size chooser should be checked against a measured cost table before
+    D1 lands. Destination: phase 2, with D1.
+
+**Handoff.** The harness, raw records, tables and logs are with the development records
+under the SEP's number. Phase 2 starts from the decisions above; the witnesses of §7
+(wrap, flux, floor law) are ready to become tests.
 
 ## Part III — History
 
