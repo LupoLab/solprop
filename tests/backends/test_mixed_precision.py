@@ -229,8 +229,14 @@ def bound_of(
     return mixed_run_bound(steps, samples=samples, stages=stages)
 
 
+# A bound above a tenth of the field's class T envelope (1e-3) is uninformative, and
+# the comparison runs on a shorter window instead (SEP 36 section 7.1).
+INFORMATIVE = 1e-4
+
+
 def compare(build: Build, bound: float, what: str = "") -> float:
-    """Assert a case's mixed result agrees with binary64 within `bound`."""
+    """Assert a case's mixed result is within an informative `bound` of binary64's."""
+    assert bound < INFORMATIVE, f"{what}: the bound {bound:.2e} is uninformative"
     mixed, double = finish(build("mixed")), finish(build("double"))
     return assert_within(mixed, double, bound, what=what)
 
@@ -448,10 +454,14 @@ def test_a_source_evaluation_is_within_its_stage_bound(build, transverse, expone
 
 @pytest.mark.parametrize("steps", [1, 10])
 def test_the_oracle_agrees_with_binary64_within_the_mixed_bound(steps):
-    """The fibre route with Kerr, Raman and shock, one step and ten."""
+    """The fibre route with Kerr, Raman and shock: one 5 mm step, and ten.
+
+    The single step is the ten-step run's first, a nonlinear phase of 0.055: one step of
+    the whole 5 cm (0.55) would carry the bound's transport factor past informative.
+    """
 
     def build(p: str) -> Simulation:
-        return gnlse(p, steps=steps)
+        return gnlse(p, steps=steps, length=0.005 * steps)
 
     compare(build, bound_of(build))
 
@@ -496,17 +506,30 @@ def test_the_spatial_routes_agree_with_binary64_within_the_mixed_bound(
     compare(build, bound_of(build, transverse=transverse))
 
 
+def ionising(precision: str, **overrides) -> Simulation:
+    """Return the ionising capillary's first 0.25 mm on 64 steps.
+
+    Its first 0.25 mm step has a nonlinear phase of 0.5 and the plasma's condition
+    number reaches 17, so over the class R tests' 16 steps of 4 mm the bound's transport
+    factor ``(1 + kappa phi)**7`` makes it uninformative; this shorter window, with a
+    phase near 0.008 per step, is the one it is compared on (SEP 36 section 7.1).
+    """
+    length = 2.5e-4
+    schedule = FixedSchedule.uniform(0.0, length, length / 64)
+    return capillary(precision, length=length, schedule=schedule, **overrides)
+
+
 @pytest.mark.parametrize(
     ("build", "transverse"),
     [
-        pytest.param(capillary, 0, id="capillary"),
+        pytest.param(ionising, 0, id="capillary"),
         pytest.param(
-            lambda p: capillary(p, gas="N2", wavelength_limits=(200e-9, 3e-6)),
+            lambda p: ionising(p, gas="N2", wavelength_limits=(200e-9, 3e-6)),
             0,
             id="capillary-raman",
         ),
         pytest.param(
-            lambda p: capillary(p, gas={"Ar": 0.5, "He": 0.5}), 0, id="mixture"
+            lambda p: ionising(p, gas={"Ar": 0.5, "He": 0.5}), 0, id="mixture"
         ),
         pytest.param(plasma_beam, 32, id="radial-filament"),
     ],

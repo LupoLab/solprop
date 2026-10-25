@@ -219,7 +219,18 @@ every formula takes its roundoff as a parameter (`UNIT_ROUNDOFF_32 = 2⁻²⁴`,
 rounding per narrowed table entry and the conditioning of signed sums; where it exceeds a
 tenth of the case's accuracy envelope it is uninformative, and the comparison runs over a
 shorter window instead. Backend agreement within a binary32 rounding bound is never a
-survival verdict: that is SEP 33's class T study against binary64 references. A case whose dynamics amplify strongly is compared
+survival verdict: that is SEP 33's class T study against binary64 references.
+**Mixed precision** ([SEP 36](seps/sep-0036-native-reduced-precision.md) section 7.1)
+composes these per stage, step and run: a stage's source differs from binary64's by
+`κ u₃₂ + E_pass` relative to its normwise magnitude (`κ` the response's condition
+number, 3 for Kerr and Raman, `1 + max |d ln W / d ln |E||` for the plasma, read from its
+rate; `E_pass` the binary32 ladder of the source's transforms, products and scans,
+`source_pass_bound`); a step weights its stages by the solution weights, carries them
+in by its nonlinear phase `Δz ‖N‖ / ‖A‖` read from the binary64 reference's own stages
+(plus the in-stage collars' absorber exponent `Δz rate / 2`) and by
+`(1 + κ φ)^s` for their propagation into later stages (`mixed_step_bound`); a run sums
+its steps with the binary64 state path's own rounding (`mixed_run_bound`), and a
+comparison adds its two sides' bounds. A case whose dynamics amplify strongly is compared
 over a short window. Backend equivalence uses peak-normalised or normwise deviation
 against nontrivial reference fields, so a zeros-returning backend cannot pass:
 `assert_within` checks finiteness, refuses an identically zero reference and reports

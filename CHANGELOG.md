@@ -181,8 +181,7 @@ The first public release. It contains:
   `RungeKutta()`; noise models and the Adams integrator are refused. A
   [survival record](https://solprop.readthedocs.io/en/latest/guide/performance/single-precision.html)
   states which problems keep their accuracy. Every run records its precision in its
-  configuration, so a resume in the other precision is refused (kernel schema 36,
-  output schema 25).
+  configuration, so a resume in another precision is refused.
   - The `mlx` backend (`pip install solprop[mlx]`, macOS on Apple silicon) runs
     single-precision capillary, fibre, radial and Cartesian free-space runs, the
     envelope-grid plasma among them, on the Apple GPU through MLX, validated against
@@ -193,6 +192,18 @@ The first public release. It contains:
   - Under single precision a replayed step (or an adaptive floor) whose propagator
     exponent passes binary32's range, `exp(88.7)`, is refused at translation, and one
     within a tenth of it is warned of.
+- **Mixed precision**
+  ([SEP 36](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0036-native-reduced-precision.html),
+  in progress). `precision="mixed"` keeps the state, every stored stage and history row,
+  the propagators, the boundary treatments and the norms in binary64, and evaluates the
+  source (its transforms, responses and in-stage collars) in binary32. `numpy_ref` runs
+  it as the mixed-precision reference (oracle) on single precision's routes, with no
+  damping limit; `numba_cpu`, `native` and `mlx` refuse it. Its default `rtol` is the
+  larger of each interface's binary64 default and the floor `1e-8`, below which an
+  explicit tolerance is refused, and its default integrator `RungeKutta()`; noise
+  models and the Adams integrator are refused until the survival studies admit them.
+  `backend="auto"` resolves a reduced precision to `native` when its build compiles the
+  mode (kernel schema 37, output schema 26).
 - **The native backend.**
   - Native CPU optimisation: a coherent NEON FFTW build for Apple silicon, long-row
     Raman planning with a compact FFTW/vDSP selection rule, and deferred embedded

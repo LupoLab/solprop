@@ -34,8 +34,13 @@ carries noise, so the stepper's job is efficiency at sufficient accuracy, not ex
 precision. Single precision is an explicit per-run choice, `precision="single"`, under
 SEP 33's contract (ADR-054): the state, stages, transforms and responses in binary32,
 the controller, host scalars and propagator exponents in binary64, every narrowed table
-with its own power-of-two exponent and the state at an exact scale. `numpy_ref`'s
-single-precision path is its oracle; `numba_cpu` and `native` compute in binary64 only.
+with its own power-of-two exponent and the state at an exact scale. Mixed precision,
+`precision="mixed"` (SEP 36, ADR-055), keeps everything that touches the state in
+binary64 -- the state, every row stored in the interaction variable, the propagators,
+the once-per-step boundary treatments and the norms -- and evaluates the source in
+binary32 on the state narrowed once at the same exact scale. `numpy_ref`'s single and
+mixed paths are the oracles of the two modes; `numba_cpu` computes in binary64 only, and
+`native` until its build compiles the reduced modes (SEP 36 phases 2 and 3).
 
 ## 2. The model
 

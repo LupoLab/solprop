@@ -380,6 +380,22 @@ lookup, the envelope-grid plasma's cycle moments and the statistics are evaluate
 binary64 from the binary32 field, which is what the oracle defines. `numba_cpu` and
 `native` refuse a single-precision problem by name.
 
+**Mixed precision** ([SEP 36](seps/sep-0036-native-reduced-precision.md), ADR-055). A
+problem whose `precision` is mixed is executed by `NumpyMixedBackend`
+(`backends/numpy_ref/mixed.py`), a subclass of `NumpySingleBackend` that keeps its
+narrowed source tables, coefficients and passes and restores the reference's binary64
+hooks for everything that touches the state: `set_initial` (noise drawn and held in
+binary64), `_propagator`, `_error_norm`, `_finish` (the band mask and the split-step
+collar with its binary64 transforms), `_trial_step`, `_adams_adopt`, `stats` and the
+observed field. Its `_nonlinear` is SEP 36 section 4.2's operation order: the binary64
+stage input (noise added there), narrowed once as `fl32(y / s)`; the single path's
+source, called with a unit inverse propagator, which returns `N(s y) / s` in binary32
+(the in-stage collars among its terms); widened exactly, multiplied by `s` and by the
+binary64 inverse propagator, and stored in complex128. Every stored row -- Runge–Kutta
+stages, low-storage registers, the Adams history, dense-output rows -- is therefore
+binary64 and no step's damping is restricted. Dtype guards refuse a binary32 array in a
+stored row and a binary64 array inside the source by name.
+
 **Selection.** `backends/registry.py`: `available()` detects with
 `importlib.util.find_spec` and never caches; `select(name, problem, *, grid, modes,
 profiles)` builds one. The three keyword arguments are what `stats()` needs and the kernel
@@ -1784,6 +1800,7 @@ that execution space.
 | materials from optmat: gas Raman leaves of many rows on gradients, rate tables, optmat walls, the silica bundles | yes | yes | yes | not qualified |
 | coupling between runs (`field_plane`, `regrid`, `couple`, `Outcouple`, `transport`, `with_input`; SEP 31) | host-side: any source and receiving backend | host-side | host-side | receiving runs not qualified |
 | single precision (`precision="single"`, SEP 33): fibre, radial and Cartesian routes, Kerr, Raman, field and envelope plasma, both absorber schemes, Runge–Kutta and the low-storage march, fixed-schedule batches | the oracle | refused | refused | refused; `mlx` runs every route but the envelope-grid plasma (below) |
+| mixed precision (`precision="mixed"`, SEP 36): the same capabilities, with no damping limit; Adams and noise through the study's private admission only | the oracle | refused | refused | refused; `mlx` refuses it (no binary64 on Apple GPUs) |
 
 **Materials from optmat** ([SEP 3](seps/archive/sep-0003-optmat-materials.md), a run under
 `MaterialSelection`) reach the backends as the arrays any other run carries: index and
@@ -1838,6 +1855,9 @@ Which backend and build to choose for a run is the user guide's
   refuses the general modal route, the hybrid planar kind, coupled flows, TDSE responses,
   the dispersive electronic response, the far-field statistics, noise models, the Adams
   integrator and an adaptive `rtol` below `1e-6`.
+- Mixed precision runs on `numpy_ref`, its oracle, only (SEP 36 phase 1); it refuses the
+  same routes and responses as single precision, noise models and the Adams integrator
+  until SEP 36's studies admit them, and an adaptive `rtol` below `1e-8`.
 - The dispersive electronic response runs on `numpy_ref`, `numba_cpu` and `native` on
   every route; on a device it is qualified on one AMD Instinct generation (HIP) and one
   NVIDIA Hopper device (CUDA); a polynomial mixture costs one group per distinct leg
