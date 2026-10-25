@@ -39,6 +39,7 @@ __all__ = [
     "Frame",
     "LossPolicy",
     "dispersion_operator",
+    "frame_origin",
     "frame_quantities",
     "log_power_weight",
     "power_weight",
@@ -258,7 +259,7 @@ class Frame:
     ===================  =========================================================
     field                ``-i (beta - beta_1 omega) - alpha/2``
     envelope, no THG     ``-i (beta - beta_0 - beta_1 (omega - omega_ref)) - alpha/2``
-    envelope, with THG   ``-i (beta - beta_1 (omega - omega_ref)) - alpha/2``
+    envelope, with THG   ``-i (beta - beta_1 omega) - alpha/2``
     ===================  =========================================================
 
     A field grid stores the real field, so subtracting ``beta_0`` would rotate its
@@ -266,17 +267,22 @@ class Frame:
     term is measured from zero frequency, because a pure delay is a phase linear in
     ``omega`` through the origin. An envelope grid has the carrier removed already, so
     ``beta_0`` may be taken out — except when a third-harmonic term is present, whose
-    ``exp(2 i omega_ref t)`` factor is tied to the true carrier phase.
-    ``conventions.md`` section 2 writes the envelope
+    ``exp(2 i omega_ref t)`` factor is tied to the true carrier phase. Such a frame
+    keeps the carrier phase whole, so its delay is also measured from zero frequency:
+    ``beta_1 (omega - omega_ref)`` would still remove a constant ``-beta_1 omega_ref``,
+    a carrier phase of ``beta_1 omega_ref z`` that the cubic term does not share (see
+    :func:`frame_origin`). ``conventions.md`` section 2 writes the envelope
     form for both grids. :meth:`comoving` chooses it for you.
 
     Attributes
     ----------
     omega0 : float
         Reference angular frequency, rad/s, positive: where ``beta_0`` and ``beta_1``
-        are evaluated and, on an envelope grid, the origin of the frame term.
+        are evaluated and, on an envelope grid that removes ``beta_0``, the origin of
+        the frame term.
     subtract_beta0 : bool
-        Whether the constant phase is removed.
+        Whether the constant phase is removed. ``False`` keeps the whole carrier
+        phase, so the frame term is then measured from zero frequency on either grid.
     beta0 : float or None, optional
         Fixed ``beta_0`` in 1/m. ``None``, the default, recomputes it from the mode at
         each ``z``, which is what makes the frame co-moving on a gradient fibre.
@@ -360,6 +366,42 @@ class Frame:
         return cls(
             omega0=grid.omega0, subtract_beta0=grid.kind == "envelope" and not thg
         )
+
+
+def frame_origin(frame: Frame, kind: str) -> float:
+    """Return where the frame's delay term ``beta_1 (omega - origin)`` starts.
+
+    A frame either removes the carrier phase or keeps it whole. One that removes it —
+    an envelope grid without a third harmonic — measures the delay from its carrier,
+    ``omega0``, alongside ``beta_0``. One that keeps it — a field grid, or an envelope
+    grid with ``subtract_beta0=False`` — measures the delay from zero frequency, so the
+    frame is a pure change of time origin. Measured from ``omega0`` instead, the delay
+    term would also remove the constant ``-beta_1 omega0``: the envelope would turn at
+    ``beta_1 omega0`` per metre, about 1e7 rad/m in a gas at 1 um, while
+    ``A**3 exp(2 i omega0 t)`` turns at three times that, so the third harmonic would be
+    driven with a spurious mismatch of ``2 beta_1 omega0``.
+
+    Parameters
+    ----------
+    frame : Frame
+        The frame.
+    kind : {'field', 'envelope'}
+        The spectral layout of the grid the operator is evaluated on.
+
+    Returns
+    -------
+    float
+        ``frame.omega0`` on an envelope grid whose frame removes ``beta_0``, else 0.0.
+
+    Examples
+    --------
+    >>> from solprop.linear import Frame, frame_origin
+    >>> frame_origin(Frame(1.8e15, subtract_beta0=True), "envelope")
+    1800000000000000.0
+    >>> frame_origin(Frame(1.8e15, subtract_beta0=False), "envelope")
+    0.0
+    """
+    return frame.omega0 if kind == "envelope" and frame.subtract_beta0 else 0.0
 
 
 def frame_quantities(mode: Mode, frame: Frame, z: float = 0.0) -> tuple[float, float]:
@@ -544,10 +586,10 @@ def dispersion_operator(
     clamped = np.minimum(attenuation, limit)
 
     beta0, beta1 = frame_quantities(mode, frame, z)
-    # A field grid stores the real field, so its frame is a pure change of time origin:
-    # a phase linear in omega through zero. An envelope grid measures the same delay
-    # from its carrier. See `Frame`.
-    origin = frame.omega0 if grid.kind == "envelope" else 0.0
+    # A frame that keeps the carrier phase is a pure change of time origin: a phase
+    # linear in omega through zero. One that removes it measures the delay from the
+    # carrier. See `frame_origin`.
+    origin = frame_origin(frame, grid.kind)
 
     operator = np.zeros(grid.n_omega, dtype=complex)
     operator[active] = -1j * (beta - beta0 - beta1 * (omega - origin)) - 0.5 * clamped

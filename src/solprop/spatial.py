@@ -28,7 +28,7 @@ from solprop import fourier
 from solprop.constants import EPS0, ROOM_TEMPERATURE, C
 from solprop.exceptions import GridError, MaterialError, OutputError
 from solprop.grid import FreeGrid, LineGrid, RadialGrid, TimeGrid
-from solprop.linear import Frame
+from solprop.linear import Frame, frame_origin
 from solprop.modes.slab import PlanarGrid
 from solprop.physdata import Gas, as_gas
 from solprop.physdata.glasses import GlassIndex
@@ -475,7 +475,7 @@ class SpatialDispersion:
         square = np.zeros(grid.n_omega, dtype=np.complex128)
         square[active] = (omega * self.medium.index(omega, z) / C) ** 2
         beta0, beta1 = self.frame_quantities(z)
-        origin = self.frame.omega0 if grid.kind == "envelope" else 0.0
+        origin = frame_origin(self.frame, grid.kind)
         frame = beta0 + beta1 * (grid.omega - origin)
         numerator = np.zeros(grid.n_omega, dtype=np.complex128)
         clamped = np.zeros_like(numerator)

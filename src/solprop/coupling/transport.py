@@ -55,7 +55,7 @@ from solprop.coupling.plane import (
 from solprop.exceptions import CouplingError
 from solprop.fourier import spectrum_to_internal, spectrum_to_optics
 from solprop.grid import TimeGrid
-from solprop.linear import Frame
+from solprop.linear import Frame, frame_origin
 from solprop.optics import TransferFunction
 from solprop.spatial import FluxSide, SpatialFlux, SpatialMedium, spatial_energy
 
@@ -196,7 +196,7 @@ def _frame_term(
     beta0 = 0.0
     if envelope and frame.subtract_beta0:
         beta0 = index * reference / C if frame.beta0 is None else frame.beta0
-    origin = reference if envelope else 0.0
+    origin = frame_origin(frame, grid.kind)
     return (beta0 - origin * beta1) * distance, beta1 * distance, "the plane's frame"
 
 
