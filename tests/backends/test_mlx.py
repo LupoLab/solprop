@@ -557,10 +557,21 @@ def test_the_device_rate_table_holds_the_slope_free_of_ln_e():
 
 @gpu_only
 def test_the_gemm_probe_separates_float32_from_tf32():
+    """With TF32 enabled the probe refuses, where the GPU has a TF32 path at all.
+
+    Apple's newer GPUs compute float32 products in TF32 when MLX allows it; an older
+    one (a hosted runner's) computes them in float32 regardless, and has nothing to
+    refuse.
+    """
     assert gemm_probe([(256, 256, 256), (64, 8, 4096)]) < 2.0**-17
     script = (
         "import mlx.core as mx, numpy as np\n"
-        "a = mx.array(np.ones((8, 8), np.float32)); mx.eval(a @ a)\n"
+        "rng = np.random.default_rng(0)\n"
+        "x = rng.standard_normal((256, 256)).astype(np.float32)\n"
+        "y = np.array(mx.array(x) @ mx.array(x), dtype=np.float64)\n"
+        "w = x.astype(np.float64) @ x.astype(np.float64)\n"
+        "if np.linalg.norm(y - w) / np.linalg.norm(w) < 2.0**-17:\n"
+        "    print('no tf32'); raise SystemExit\n"
         "import solprop.backends.mlx_gpu\n"
         "from solprop.backends.mlx_gpu.arithmetic import gemm_probe\n"
         "from solprop.exceptions import BackendError\n"
@@ -576,6 +587,8 @@ def test_the_gemm_probe_separates_float32_from_tf32():
         env=environment,
         check=True,
     )
+    if result.stdout.strip() == "no tf32":
+        pytest.skip("this GPU computes float32 products even with TF32 enabled")
     assert result.stdout.strip() == "refused True"
 
 

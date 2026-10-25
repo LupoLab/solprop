@@ -32,6 +32,5 @@ class NativeExtraHook(MetadataHookInterface):
         extras["native"] = [f"solprop-native=={metadata['version']}"]
         # The Apple-GPU backend (SEP 33), on macOS on Apple silicon only; the pin is
         # raised only with the GPU lane and the arithmetic probes run (Q9).
-        extras["mlx"] = [
-            'mlx>=0.32.4,<0.33; sys_platform == "darwin" and platform_machine == "arm64"'
-        ]
+        apple_silicon = 'sys_platform == "darwin" and platform_machine == "arm64"'
+        extras["mlx"] = [f"mlx>=0.32.4,<0.33; {apple_silicon}"]

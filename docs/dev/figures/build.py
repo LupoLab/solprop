@@ -691,6 +691,7 @@ MODULES = {
                 "envelope_plasma",
                 "raman",
                 "masks",
+                "precision",
                 "tdse",
                 "tdse_source",
             ),
@@ -719,11 +720,16 @@ MODULES = {
                 "backend",
                 "batch",
                 "passes",
+                "single",
                 "admission",
                 "envelope_plasma",
                 "general_modal",
                 "tdse",
             ),
+        ),
+        Module(
+            "backends/mlx_gpu/",
+            ("backend", "batch", "passes", "arithmetic", "envelope"),
         ),
         Module(
             "backends/numba_cpu/",
@@ -923,7 +929,7 @@ CONTRACT_SECTIONS = (
     Section(
         1,
         "identity and validation",
-        ("schema_version", "grid_kind", "shape", "flags"),
+        ("schema_version", "grid_kind", "shape", "flags", "precision"),
         "translate.problem.Flags",
         ("derived from the content of §2 to §8", "by translate.assemble"),
         "T",

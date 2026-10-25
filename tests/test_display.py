@@ -666,11 +666,12 @@ def test_the_run_record_is_what_it_was_before_the_printing(examples):
     numbers, floors = {}, {}
     for schema, literal in literals.items():
         # Keep the historical projection: schema 22 adds the held-current identity,
-        # whose record and hash separation have their own held-source contract test.
+        # whose record and hash separation have their own held-source contract test,
+        # and schema 25 the precision, which its own resume test separates (SEP 33).
         configuration = {
             key: value
             for key, value in metadata.configuration.items()
-            if key != "plasma_source"
+            if key not in ("plasma_source", "precision")
         }
         record = replace(
             metadata,
@@ -701,7 +702,7 @@ def test_the_run_record_names_its_power_convention(examples):
     # the spectral convention; a schema-5 record (which carries no material manifest)
     # reads back as the vacuum label.
     metadata = quiet(examples["Simulation"].metadata)
-    assert "optics spectra, poynting amplitudes, schema 24" in str(metadata)
+    assert "optics spectra, poynting amplitudes, schema 25" in str(metadata)
     older = replace(
         metadata, schema_version=5, quadrature=None, materials=MaterialManifest()
     )
