@@ -23,7 +23,8 @@ controller's tolerance and the binary32 propagator's rounding, which accumulates
 the run's steps -- and the energy, the spectral centroid, the electron density, the
 peak intensity and the beam radius agree to the digits printed. At these sizes much
 of each run's wall time is its set-up: the GPU run took about 0.6 times ``native``'s
-binary64 time for the capillary and the same for the filament on one laptop, while
+binary64 time for the capillary and the same for the filament on a MacBook Pro M5
+Max, while
 the envelope plasma's step itself is several times faster on the GPU
 (:doc:`/guide/performance/single-precision`).
 

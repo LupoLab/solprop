@@ -51,7 +51,7 @@ sharing the same memory, and no hardware binary64 arithmetic at all. Using it ne
 backend outside Kokkos, and that backend can only compute in binary32.
 
 **The indicative gain is large on the large problems.** A synthetic measurement
-(2026-10-23, an Apple-silicon laptop: 18 CPU cores, a 40-core GPU, MLX 0.32.4) timed one
+(2026-10-23, a MacBook Pro M5 Max: 18 CPU cores, a 40-core GPU, MLX 0.32.4) timed one
 interaction-picture Kerr source evaluation: the stage combination with three earlier
 stages, an inverse transform, $\gamma |E|^2 E$, a forward transform and the finish
 $i\,w\,F$, with a real 256 × 256 transverse-transform GEMM each way on the radial shape
@@ -584,7 +584,7 @@ evidence, separate from the TF32 admission:
 If a probe fails, or a protected operation cannot be established on the installed MLX
 and device, the backend refuses to run, naming the operation and what to do.
 
-**TF32 and an initialised MLX.** MLX 0.32.4 on that laptop's GPU computes float32 matrix
+**TF32 and an initialised MLX.** MLX 0.32.4 on the M5 Max's GPU computes float32 matrix
 products in TF32 by default (a relative error of $7.7 \times 10^{-4}$ was measured on
 256 × 256 products, against $2.9 \times 10^{-7}$ in float32), and its documentation says
 `MLX_ENABLE_TF32=0` keeps them in float32 and that many settings are read when a
@@ -1147,7 +1147,7 @@ the harness's metrics are relative errors at the last plane):
   reaches it.
 - *Envelope plasma on the oracle is slow*: the per-sample decomposition and adaptive
   quadrature run in Python: one binary32 run of the envelope case takes 52–80 min over
-  0.1 m on an idle workstation core and hours over 0.4 m. Its binary64 references (`1e-10`,
+  0.1 m on an idle core of a 2× Xeon Gold 6240 workstation (36 cores) and hours over 0.4 m. Its binary64 references (`1e-10`,
   `1e-9`, `1e-6`) were therefore computed on `native`, whose envelope plasma is the same
   discretisation and quadrature, qualified against `numpy_ref` to rounding — orders of
   magnitude inside these envelopes; the reference check passed (6.4e-9). The candidates
@@ -1224,7 +1224,7 @@ modes 1.0e-5 over 256 steps; tensor Raman on two components; low-storage 2.0e-7;
 members equal to their solo runs bitwise; a resume across the oracle and `mlx` within
 its bound.
 
-**Indicative timings** (one Apple-silicon laptop under heavy load, same-process A/B
+**Indicative timings** (the MacBook Pro M5 Max under heavy load, same-process A/B
 against `native` in binary64, four alternating rounds, fixed 20-step schedules, median
 time per step; not a benchmark, which §7.4 assigns to a quiet machine):
 
@@ -1290,7 +1290,7 @@ a 100 µm waist: width, axial amplitude and Gouy phase within 1.6e-6, 1e-8 and 1
 of paraxial optics, against the exact operator's non-paraxial bound of 6.5e-6; the
 oracle's errors are the same to two digits.
 
-**Indicative timings** (the same loaded laptop, same-process A/B against `native` in
+**Indicative timings** (the same loaded MacBook Pro M5 Max, same-process A/B against `native` in
 binary64, the best of two rounds, ten fixed steps after a warm step; not a benchmark):
 
 | case | `native` / `mlx` time |
@@ -1391,7 +1391,7 @@ same binary64 references:
 | `argon_envelope`, 0.1 m | 8.6e-6 | 3.4e-5 bands | 1.8e-5 | survives |
 | `argon` (field grid), 0.4 m | 2.2e-4 | 2.8e-4 bands | 3.4e-4 | survives |
 
-The oracle's 0.4 m envelope runs, on the workstation, give field 1.3e-5 and ionised
+The oracle's 0.4 m envelope runs, on the 2× Xeon Gold 6240 workstation, give field 1.3e-5 and ionised
 fraction 2.1e-5 at `1e-6` (5.9 h; binary64 at the same tolerance: 1.3e-5 and 2.0e-5)
 and 3.5e-5 and 2.8e-5 at `1e-5` (3.5 h): the case survives on the oracle too. The
 device's runs take 5–7 s; its larger errors are its discretisation of the moments
@@ -1402,7 +1402,7 @@ after eight steps, against a plasma effect of order one on the same field; the d
 envelope sources against the oracle's on a mid-run field, drive identical and loss
 4.2e-7; the device rate's energy-weighted bias 1e-7 relative.
 
-**Indicative timings** (one laptop under load, same process, median of three, ten fixed
+**Indicative timings** (the MacBook Pro M5 Max under load, same process, median of three, ten fixed
 steps after two):
 
 | case | `native` / `mlx` time |
@@ -1414,7 +1414,7 @@ steps after two):
 | the same, four and eight modes | 1.05, 1.01 |
 
 **On a quiet machine.** The same-process A/B of every phase's cases, repeated on the
-Apple-silicon laptop with nothing else running (six alternating rounds, the first dropped,
+MacBook Pro M5 Max (18 CPU cores, 40-core GPU) with nothing else running (six alternating rounds, the first dropped,
 median per fixed step; `native` at its default thread budget; the spread of `native`
 under 2 %, of `mlx` up to 27 % on the smallest, launch-bound cases):
 
@@ -1468,7 +1468,7 @@ range rule to the propagator.
 
 ## Part III — History
 
-- 2026-10-23: Drafted, after an indicative synthetic MLX measurement on an Apple-silicon laptop.
+- 2026-10-23: Drafted, after an indicative synthetic MLX measurement on a MacBook Pro M5 Max.
   The maintainer chose the routes (capillary fibre runs, radial and Cartesian free
   space; not the general modal route), batches only through the existing interface,
   MLX as an optional extra, and a `numpy_ref` single-precision oracle.

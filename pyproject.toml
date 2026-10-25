@@ -218,7 +218,9 @@ testpaths = ["tests", "src"]      # src so --doctest-modules sees Examples
 pythonpath = ["."]               # the tests import the benchmark suite as `benchmarks`
 # Numerical record_property fixtures require the legacy JUnit property format.
 junit_family = "legacy"
-addopts = "-ra --strict-markers --strict-config --doctest-modules -m 'not slow and not gpu and not benchmark'"
+# The mlx backend's modules (SEP 33) import MLX, which installs on macOS on Apple
+# silicon only, and hold no doctests: they are not collected; tests/ imports them.
+addopts = "-ra --strict-markers --strict-config --doctest-modules -m 'not slow and not gpu and not benchmark' --ignore=src/solprop/backends/mlx_gpu"
 filterwarnings = ["error"]        # add targeted `ignore::...` entries as needed
 markers = [
     # The three tiers of docs/dev/testing.md section 2, one marker each; a test carries
