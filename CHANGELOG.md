@@ -290,7 +290,9 @@ The first public release. It contains:
   one thread; the nodes are now spread evenly over the same number of passes (17 and
   16). And the threading thresholds for stage kernels (8192 elements) and modal FFTs
   (32,768 samples) sat just above the four-mode RDW's sizes at n_t 4000, so its stage
-  and transforms ran serially; they are now 4096 and 16,384. On an 18-core AVX-512
-  socket the RDW case costs 1.32 ms per evaluation at n_t 4000 (was 2.47; 4096:
-  1.24-1.36) and 2.54 ms at 8640 (was 3.55; 8192: 2.28-2.31)
-  (`native/benchmarks/size_cliffs.py`).
+  and transforms ran serially; on Linux they are now 4096 and 16,384. On an 18-core
+  Cascade Lake socket the RDW case costs 1.32 ms per evaluation at n_t 4000 (was 2.47;
+  4096: 1.24-1.36) and 2.54 ms at 8640 (was 3.55; 8192: 2.28-2.31); on Zen 3 n_t 4000
+  is 24-27 % faster (`native/benchmarks/size_cliffs.py`). macOS keeps 8192 and 32,768:
+  on an Apple arm64 laptop the serial stage and transforms are the faster ones at those
+  sizes, and its node-chunk gain at n_t 8640 is 26 %.

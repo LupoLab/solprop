@@ -2633,9 +2633,13 @@ TEST(CpuThreadPolicy, ShortCopiesDoNotInheritTheStageWidth) {
 }
 
 TEST(CpuThreadPolicy, SmoothGridSizesKeepThePowerOfTwoWidths) {
-  // The four-mode RDW on n_t 4000 (a 2-3-5-smooth size) against 4096: its stage of
-  // 8004 elements and coarse FFT batch of 32000 samples take the widths of 8196 and
-  // 32768, rather than falling to one thread just under a power-of-two boundary.
+  // The four-mode RDW on n_t 4000 (a 2-3-5-smooth size) against 4096: on Linux its
+  // stage of 8004 elements and coarse FFT batch of 32000 samples take the widths of
+  // 8196 and 32768, rather than falling to one thread just under a power-of-two
+  // boundary. macOS keeps the earlier boundaries, where the serial ones are faster.
+#if defined(__APPLE__)
+  GTEST_SKIP() << "macOS keeps the 8192/32768 boundaries";
+#endif
   native::ThreadPolicy policy{18, 18, 18, 18, native::default_threaded_fft_min_samples};
   const auto width = [&](const native::CpuOperation operation, const std::size_t n) {
     return native::operation_threads(policy, native::CpuPool::kernels, operation, n);

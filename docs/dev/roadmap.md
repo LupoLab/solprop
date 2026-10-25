@@ -506,7 +506,12 @@ any of the first ten items.
   within about 1 % of the pre-policy build on the 36-core Xeon (2026-10-22). Open items:
   - the scalar wall, 10 % slower there at the default width, against an A/A spread under
     1 % (on Apple silicon it is faster); find the cause;
-  - the taper, short-line and planar controls.
+  - the taper, short-line and planar controls;
+  - the stage and FFT starts on macOS, kept at 8,192 and 32,768 while Linux uses 4,096
+    and 16,384 ([smooth grid sizes](benchmarks.md#smooth-size-cliffs)): on Apple
+    silicon the serial stage is faster even at 8,196 elements, so sweep the crossover
+    there on a quiet machine (`native/benchmarks/size_cliffs.py` and the SSFS and
+    reduced comb-to-continuum cases) and set its own values.
 - **The multimode step at full width on Linux**: at 36 threads on the Xeon, general-modal
   RK is about 6 % slower than before the per-core changes (reduced comb-to-continuum is
   4 % faster). Estimate planning is as slow, so FFT plan selection is ruled out; find the

@@ -1516,7 +1516,7 @@ at most:
   the kernel's blocking and order are free. Vendor-BLAS and device builds use
   `KokkosBlas::gemm`.
 - **Small transforms on one FFTW thread.** A modal or spatial plan whose real side holds
-  fewer than **16 384** samples per execution (`default_threaded_fft_min_samples`;
+  fewer than **16 384** samples per execution (32 768 on macOS; `default_threaded_fft_min_samples`;
   `SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES` overrides it) is made on a one-thread
   execution instance, because below that a threaded FFTW plan only costs time: the
   threshold is a speed threshold. FFTW's planner may choose a transform's factorisation by

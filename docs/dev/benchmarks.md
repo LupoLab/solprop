@@ -212,8 +212,14 @@ ms per evaluation, two rounds each):
 | after | 1.32 | 1.27–1.36 | 1.53–1.54 | 1.57–1.61 | 1.83–1.87 | 2.17–2.26 | 2.38–2.40 | 2.28–2.31 | 2.54–2.58 |
 
 At a stage threshold of 1024 a 1351-element SSFS stage regressed (1.2 to 1.7 ms); the
-reduced comb-to-continuum and SSFS cases did not move at 4096. On a loaded 18-core arm64
-laptop the RDW at n_t 4000 went from 0.82 to 0.95 ms, level with n_t 4096 (0.98 ms).
+reduced comb-to-continuum and SSFS cases did not move at 4096. On a dual EPYC 7643 (Zen 3,
+idle node, pinned) the same change made n_t 4000 24-27 % faster at 12 and 24 threads
+(2.36-2.42 to 1.74-1.82 ms), and the even chunks made n_t 8640 4-13 % faster; other sizes
+moved within 5 %. On an 18-core Apple arm64 laptop, in contrast, n_t 4000 went from 0.88
+to 1.04 ms (level with 4096), and even 4096's threaded stage is dearer than 4000's serial
+one: the crossover there lies above 8192. macOS therefore keeps the stage and FFT
+starts at 8192 and 32,768; its own crossover still needs a sweep on a quiet machine. Its
+node-chunk gain stands (n_t 8640: 2.35 to 1.73 ms).
 
 (radial-chunk-dispatch)=
 ### Radial analytic chunk dispatch

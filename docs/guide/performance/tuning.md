@@ -197,7 +197,7 @@ imported:
 | `SOLPROP_NATIVE_FFT_THREADS` | FFTW threads for the modal and spatial transforms | sized per plan, up to the cap |
 | `SOLPROP_NATIVE_RAMAN_FFT_THREADS` | threads for the Raman convolution transforms of complete node chunks | sized per plan, up to the cap |
 | `SOLPROP_NATIVE_RAMAN_TAIL_FFT_THREADS` | threads for the Raman transforms of the last, partial node chunk | sized from active rows, up to the cap |
-| `SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES` | the real-side samples per execution from which a modal or spatial FFT plan is threaded | 16,384 |
+| `SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES` | the real-side samples per execution from which a modal or spatial FFT plan is threaded | 16,384 (32,768 on macOS) |
 | `SOLPROP_NATIVE_BAND_TILES` | the field plasma column's band form: unset for the build's own (tiled on a GPU, a team per node on a CPU), `0` for the team column, a positive `N` for the tiled column with host teams of `N` threads | unset |
 
 The four pool variables are optional positive integers, clamped to the cap; an invalid
@@ -214,20 +214,22 @@ and fused batch updates use their own work sizes. Vendor BLAS pools retain their
 process-start settings. Non-OpenMP host builds preserve their execution-space policy;
 `build_info().cpu_size_policy_enabled` reports whether operation widths are supported.
 
-The thresholds below are shared across CPU hosts; `C` is the clamped capacity of the
+The thresholds below are shared across CPU hosts, except that macOS keeps higher stage
+and FFT starts (8,192 and 32,768), where a short serial loop is still the faster one;
+`C` is the clamped capacity of the
 relevant pool, and sizes count work in the operation itself, not bytes. Between the two
 thresholds an operation uses `min(4, C)` threads; equal thresholds give only serial or
 full-width execution.
 
 | operation | work used for sizing | threading starts | full pool starts |
 |---|---|---:|---:|
-| stage, update and reduction | elements in the field or fused batch | 4,096 | 4,096 |
+| stage, update and reduction | elements in the field or fused batch | 4,096 (8,192 on macOS) | as threading |
 | packing and temporal copies | entries actually copied | 65,536 | 65,536 |
 | nonlinear response | active columns × components × fine samples | 32,768 | 196,608, or 65,536 fine samples per column, or 40 component columns |
 | native/custom GEMM | output rows × inner dimension × samples | 1,048,576 | 1,048,576 |
 | general modal synthesis/projection | active nodes × components × spectral samples × modes | 65,536 | 65,536 |
 | coupled matrix functions | active spectral bins × modes³ | 32,768 | 32,768 |
-| modal/spatial FFT | real-side samples in the actual batch | 16,384 (`SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES`) | 131,072 |
+| modal/spatial FFT | real-side samples in the actual batch | 16,384, 32,768 on macOS (`SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES`) | 131,072 |
 | Raman FFT | real-side samples in the actual batch | 65,536 | 262,144 |
 
 A response column is one active node and one component; its column-length and
