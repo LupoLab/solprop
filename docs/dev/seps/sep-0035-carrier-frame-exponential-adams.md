@@ -1202,8 +1202,8 @@ frame stays the fastest. Time at matched error as a ratio to `"scalar"`:
 | developed | weak bins (1e-3 to 1e-6) | 1.93–2.11 | 1.64–2.06 | 1.06–1.28 |
 
 In calls the interaction formulation takes 1.21–1.69 times the carrier frame's. So on
-this case with a realistic window the carrier frame takes 30–40 % less time than the
-best method that exists without it, narrowing to 6–17 % in the developed window's weak
+this case with a realistic window the carrier frame takes 27–42 % less time than the
+best method that exists without it, narrowing to 6–22 % in the developed window's weak
 bins. The suite's `ctc_reduced` case moves to the 2 ps window (revision 2).
 
 ## Part III — History
