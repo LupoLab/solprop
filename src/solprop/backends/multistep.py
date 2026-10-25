@@ -2760,7 +2760,28 @@ def _trial_propagators(
     dz: float,
     shift: _Shift | None,
 ) -> tuple[Any, Any]:
-    """Return a trial's moments and flow, shifted by `shift` when it is given."""
+    """Return a trial's moments and flow, shifted by `shift` when it is given.
+
+    Parameters
+    ----------
+    kernels : Any
+        The backend's exponential kernels, already the coupled ones for a block.
+    exponent : Any
+        The step's increment of Phi, the true linear exponent.
+    width : int
+        The number of moments, one more than the highest order scored.
+    block : CoupledBlock or None
+        The section's frozen block, or None off a coupled section.
+    dz : float
+        The step.
+    shift : numpy.ndarray or None
+        The carrier shift sigma per member, or None when no frame is active.
+
+    Returns
+    -------
+    tuple
+        The moments at the shifted exponent and the true flow exp(x).
+    """
     moments: Any
     flow: Any
     if block is not None:
