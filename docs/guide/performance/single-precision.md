@@ -21,9 +21,15 @@ reference implementation, which defines the arithmetic and measures it but is no
 from solprop.driver import prop_capillary
 
 output = prop_capillary(
-    125e-6, 0.1, "He", 0.8,
-    lambda0=800e-9, fwhm=10e-15, energy=100e-6,
-    wavelength_limits=(200e-9, 3e-6), trange=200e-15,
+    125e-6,
+    0.1,
+    "He",
+    0.8,
+    lambda0=800e-9,
+    fwhm=10e-15,
+    energy=100e-6,
+    wavelength_limits=(200e-9, 3e-6),
+    trange=200e-15,
     precision="single",
     backend="numpy_ref",
 )

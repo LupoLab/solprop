@@ -27,7 +27,7 @@ import math
 from dataclasses import dataclass
 from functools import cache
 
-import mlx.core as mx
+import mlx.core as mx  # pyright: ignore[reportMissingImports] - macOS arm64 only
 import numpy as np
 
 from solprop.exceptions import BackendError

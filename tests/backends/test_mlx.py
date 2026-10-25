@@ -26,7 +26,7 @@ import pytest
 
 pytest.importorskip("mlx.core")
 
-import mlx.core as mx
+import mlx.core as mx  # pyright: ignore[reportMissingImports] - macOS arm64 only
 
 from backends.test_single_precision import (
     capillary,

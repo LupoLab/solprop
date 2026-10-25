@@ -26,7 +26,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
-import mlx.core as mx
+import mlx.core as mx  # pyright: ignore[reportMissingImports] - macOS arm64 only
 import numpy as np
 from jaxtyping import Complex
 

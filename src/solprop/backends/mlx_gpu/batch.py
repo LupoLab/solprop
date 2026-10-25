@@ -14,7 +14,7 @@ member's step graph, evaluates them together, then reads each member's norm.
 from collections.abc import Sequence
 from typing import cast
 
-import mlx.core as mx
+import mlx.core as mx  # pyright: ignore[reportMissingImports] - macOS arm64 only
 
 from solprop.backends.batch import LockstepRunner
 from solprop.backends.mlx_gpu.backend import MlxBackend

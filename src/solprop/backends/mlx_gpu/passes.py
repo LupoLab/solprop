@@ -15,7 +15,7 @@ element-wise work MLX's own operations. Every array is float32 or complex64.
 from dataclasses import dataclass
 from typing import cast
 
-import mlx.core as mx
+import mlx.core as mx  # pyright: ignore[reportMissingImports] - macOS arm64 only
 import numpy as np
 
 from solprop.backends.mlx_gpu.arithmetic import (
