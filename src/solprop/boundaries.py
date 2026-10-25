@@ -91,6 +91,7 @@ __all__ = [
     "apply_split_step",
     "collar_rate",
     "custom_absorber",
+    "no_absorber",
     "nonlinear_absorber_term",
     "split_step_factor",
     "stable_step",
@@ -599,6 +600,52 @@ def absorber(
     )
     _log_summary(grid, boundary)
     return boundary
+
+
+def no_absorber(
+    grid: TimeGrid,
+    *,
+    boundary_N: float = DEFAULT_BOUNDARY_N,  # noqa: N803 - the established parameter name
+    boundary_length: float | None = None,
+) -> Absorber:
+    """Build boundaries with both soft collars off and the hard band mask kept.
+
+    What ``absorber=False`` on the keyword interfaces means (SEP 21 section 5): the
+    temporal and spectral rates are zero, so no light is absorbed at either edge of
+    the window, and the hard band mask still keeps the field inside the representable
+    band. The reference length is kept, so that a radial, Cartesian or planar run's
+    real-space collar, which reads it, keeps its strength.
+
+    Parameters
+    ----------
+    grid : TimeGrid
+        The grid, for its masks and its propagation length.
+    boundary_N : float, optional
+        As for :func:`absorber`; it sets only the reference length here.
+    boundary_length : float or None, optional
+        Reference length in metres, overriding ``boundary_N``.
+
+    Returns
+    -------
+    Absorber
+        Zero spectral and temporal rates, the band mask and the reference length,
+        recorded as ``temporal=False``.
+
+    Examples
+    --------
+    >>> from solprop.boundaries import no_absorber
+    >>> from solprop.grid import FieldGrid
+    >>> grid = FieldGrid.from_limits(1.5, 800e-9, (90e-9, 4e-6), 400e-15)
+    >>> boundary = no_absorber(grid)
+    >>> float(boundary.spectral_rate.max()), float(boundary.temporal_rate.max())
+    (0.0, 0.0)
+    >>> bool(boundary.band_mask.any())
+    True
+    """
+    base = absorber(
+        grid, boundary_N=boundary_N, boundary_length=boundary_length, temporal=False
+    )
+    return replace(base, spectral_rate=np.zeros_like(base.spectral_rate))
 
 
 def custom_absorber(
