@@ -225,6 +225,8 @@ CGROUP_CASES = [
         },
         None,
     ),
+    # A line that is not hierarchy:controllers:path is skipped, not fatal.
+    ("garbled\n0::/a", {"a": {"cpu.max": "200000 100000"}}, 2),
     # A quota below one CPU still runs one thread.
     ("0::/", {".": {"cpu.max": "50000 100000"}}, 1),
     ("0::/", {".": {"cpu.max": "garbled"}}, None),
