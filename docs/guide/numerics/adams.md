@@ -53,8 +53,8 @@ exponential formulation runs, on its constant-Schur and frozen-residual sections
 interaction formulation and CF4 sections are refused by name. Another backend refuses
 `Multistep()` by name and runs `RungeKutta()`. `Multistep(carrier_frame="scalar")`
 removes the carrier's rotation from the exponential history on field grids
-([the carrier frame](#the-carrier-frame)); it is opt-in and runs on `numpy_ref` only
-for now.
+([the carrier frame](#the-carrier-frame)); it is opt-in and runs on `numpy_ref`,
+`numba_cpu` and native CPU builds.
 
 `Multistep()` is SEP 13's selected method, in SEP 16's exponential formulation:
 
@@ -394,6 +394,18 @@ frequency; a launch away from it, or a custom frame, leaves part of the rotation
 changes the cost and never the exactness. Either shift needs the exponential
 formulation, and the free-space routes refuse it until it is qualified there.
 
+**On the compiled backends.** `numba_cpu` fuses the shift into its passes: the moments
+pass forms $\varphi(x - \sigma)$ with $e^x$ beside it, and the predictor and corrector
+multiply each history row by its factor $e^{\sigma(1-\theta_j)}$ as they read it, so
+the stored samples are never copied. The native engine does the same in its kernels;
+its $\sigma$ is formed on the host from the operator's own representation at the
+reference element, one number a step, so nothing is read back from the engine, and the
+accepted step's $\sigma$ is held for its interpolated planes. Both follow `numpy_ref`
+to rounding on matched steps. On ten replayed steps of a dense-gas capillary each step
+cost 4–6 % more than the unshifted method's with a cheap Kerr source and under 1 % more
+with Raman ([benchmarks](../../dev/benchmarks.md)); the policy pays for itself only
+through the steps it saves.
+
 **What it measured** (preliminary, full-length `numpy_ref` runs at `rtol = 1e-6`,
 source evaluations and final-field error against a tighter IP-DOPRI5 reference;
 [SEP 35](../../dev/seps/sep-0035-carrier-frame-exponential-adams.md) §7.2):
@@ -629,11 +641,13 @@ gives the measured ranking by regime, on both compiled backends and on devices.
   2625. The order stays at two, nothing is rejected and each step's estimate is a few
   parts in $10^4$; a self-compression amplifies the accumulated error of every method.
   At `rtol = 1e-4` all methods agree to about 1 %. There, use `RungeKutta()` or
-  `rtol <= 1e-4`, or `carrier_frame="scalar"` once it is delivered on the backend in
-  use (0.05 on `numpy_ref`, [the carrier frame](#the-carrier-frame)).
-- **The carrier frame** runs on `numpy_ref` only; `numba_cpu`, `native` and the
-  free-space routes refuse it by name. A march snapshot taken under another policy, or
-  before the policy existed, restarts the history.
+  `rtol <= 1e-4`, or `carrier_frame="scalar"` (0.05 on the same case,
+  [the carrier frame](#the-carrier-frame)).
+- **The carrier frame.** `"scalar"` runs on `numpy_ref`, `numba_cpu` and native CPU
+  builds; a native device build refuses it by name until it is qualified there, and
+  `"harmonic"` runs on `numpy_ref` only. The free-space routes refuse either. A march
+  snapshot taken under another policy, or before the policy existed, restarts the
+  history.
 - **Weak wings.** The error norm scores the whole active band, so the light generated
   outside the requested band is integrated under control. Bins far below the peak —
   under 1e-10 of its power — can still hold free radiation under the pulse's

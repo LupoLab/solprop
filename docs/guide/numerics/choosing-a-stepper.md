@@ -53,9 +53,9 @@ grid with the third harmonic) in a dense gas, the default `Multistep()` at a loo
 tolerance can accumulate a large error over many honestly estimated steps: 0.97 on an
 argon capillary at `rtol = 1e-3`, against 0.07 for `RungeKutta()`
 ([limitations](adams.md#limitations)). There, use `RungeKutta()` or `rtol <= 1e-4`, or
-`Multistep(carrier_frame="scalar")` once it is delivered on the backend in use (it runs
-on `numpy_ref` now; [the carrier frame](adams.md#the-carrier-frame)). The ranking above
-is re-measured when the carrier frame's default is decided.
+`Multistep(carrier_frame="scalar")` on `numpy_ref`, `numba_cpu` or native CPU
+([the carrier frame](adams.md#the-carrier-frame)). The ranking above is re-measured when
+the carrier frame's default is decided.
 
 ## What decides
 

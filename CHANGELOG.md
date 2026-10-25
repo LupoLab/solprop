@@ -42,13 +42,14 @@ The first public release. It contains:
   schema 23 (`flux_model`, `flux_plan`).
 - **A carrier frame for the exponential Adams history**
   ([SEP 35](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0035-carrier-frame-exponential-adams.html),
-  phase 1). `Multistep(carrier_frame="scalar")` interpolates, inside each step, the
+  phases 1–3). `Multistep(carrier_frame="scalar")` interpolates, inside each step, the
   source with the carrier's phase removed and integrates it against correspondingly
   shifted moments, exactly for any shift, with each step capped at one radian of
   carrier phase (`CARRIER_PHASE_CAP`); on field grids and envelope grids with the third
   harmonic in dense gases it takes several times fewer source evaluations. `"harmonic"`
   also shifts the third-harmonic band and is experimental. Opt-in (`"off"` is the
-  default) and on `numpy_ref` only: `numba_cpu`, native and the free-space routes
+  default); `"scalar"` runs on `numpy_ref`, `numba_cpu` and native CPU builds, and
+  `"harmonic"` on `numpy_ref` only; native device builds and the free-space routes
   refuse it by name. Kernel schema 36 (`Multistep.carrier_frame`); every `Multistep`
   representation names the policy, so a march snapshot taken before it restarts its
   history.

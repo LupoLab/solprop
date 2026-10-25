@@ -374,19 +374,30 @@ nothing it stores. `HostHistory` holds the run's `CarrierReference`
 (`backends.exponential.carrier_reference`: the active bin nearest the grids' `omega0`,
 or inert, `sigma = 0`, on an envelope grid without the third harmonic or when that bin
 is inactive; for `"harmonic"` the per-bin multiple, fixed for the run). Each trial reads
-`sigma_b = i Im x[b, 0, 0, bin]` from its own exponent, forms the moments at `x - sigma`
-and reads the history rows it uses rotated by `exp(sigma (1 - theta_j))` into a compact
-buffer of its own (`_rotated`), so the store keeps the untransported samples and a
-rejection, a resume or the next step's shift reads them unchanged. Beside a coupled flow
-`coupled_moments(..., carrier=sigma)` forms the shifted block's moments and the flow
-`exp(sigma)` times its `phi_0`; the transported compensation is unchanged and the
-untransported witness's terms are rotated as the samples (`_Compensation.rotate`). The
-accepted step keeps its `sigma` and rotated rows for dense observation. The march caps
-each proposal at `CARRIER_PHASE_CAP` of carrier phase before the landing rule
-(`AdamsMarch._capped`), so a capped step is not a landing; a replayed schedule is not
-capped. An inert or `"off"` run takes the unshifted arithmetic exactly. Only
-`numpy_ref` delivers it; `numba_cpu`, native and the free-space routes refuse it by
-name (`backends.exponential.refuse_carrier_frame`).
+`sigma_b = i Im x[b, 0, 0, bin]` from its own exponent and hands the kernels
+`moments(x, count, shift=sigma)` -- the moments at `x - sigma`, the flow still `exp(x)`
+-- and, for the rows it reads, `factors=exp(sigma (1 - theta_j))`
+(`_carrier_factors`), which the predictor and corrector multiply in as they read each
+row: the store keeps the untransported samples, so a rejection, a resume or the next
+step's shift reads them unchanged. `numba_cpu` fuses both into its compiled passes (the
+moments pass's `shifts` per row; the predict and correct passes' `factors` per slot and
+row); its coupled passes rotate their few rows beforehand (`_rotated_rows`). Beside a
+coupled flow `coupled_moments(..., carrier=sigma)` forms the shifted block's moments and
+the flow `exp(sigma)` times its `phi_0`; the transported compensation is unchanged and
+the untransported witness's terms are rotated as the samples (`_Compensation.rotate`).
+The accepted step keeps its `sigma` and rotated rows for dense observation. The march
+caps each proposal at `CARRIER_PHASE_CAP` of carrier phase before the landing rule
+(`AdamsMarch._capped`), measured by the reference element's chord alone
+(`CarrierChord`, the operator's own constant, expansion or z table at that element),
+so a capped step is not a landing; a replayed schedule is not capped. The native
+engine (`_ResidentAdams`) forms its `sigma` from the same chord on the host and passes
+it with the factors in `ExponentialWeights` (`shifted`, `shift`, `factor_re`,
+`factor_im`); its kernels read rows through `adams_history` and form moments through
+`adams_moment_phi`, and dense observation takes the accepted step's carrier frame. An
+inert or `"off"` run takes the unshifted arithmetic exactly. `"scalar"` runs on
+`numpy_ref`, `numba_cpu` and native CPU builds; `"harmonic"` on `numpy_ref` only; a
+native device build and the free-space routes refuse it by name
+(`backends.exponential.refuse_carrier_frame`).
 
 **Varying operators** (ADR-042): a trial takes the chord
 `B_n = ΔΦ / h` as its reference; the march keeps two more rows per history slot, the

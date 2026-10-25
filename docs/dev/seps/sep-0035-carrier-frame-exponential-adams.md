@@ -15,7 +15,7 @@
 | **Requires** | [SEP 16](archive/sep-0016-unified-multistep.md) (the default multistep stepper and its exponential formulation); [SEP 25](archive/sep-0025-rounding-level-reproducibility.md) (the rounding-level reproducibility contract) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Branch `feature/multistep-carrier-frame`: phase 1 (`numpy_ref`, opt-in) complete; phases 2–4 to follow, one pull request at Final |
+| **Implementation** | Branch `feature/multistep-carrier-frame`: phases 1–3 (`numpy_ref`, `numba_cpu`, native CPU; opt-in) complete; device builds and phase 4 to follow, one pull request at Final |
 | **Manual pages** | [The Adams integrator: the carrier frame](../../guide/numerics/adams.md#the-carrier-frame); [choosing a stepper](../../guide/numerics/choosing-a-stepper.md); [the linear operator](../../guide/numerics/linear-operator.md#which-terms-the-frame-removes) |
 
 ## Part I — Proposal
@@ -868,6 +868,106 @@ the trial and accept entry points take it and the factors, `adams_exponential_ob
 takes the accepted step's `sigma`, with parity, timings and then devices. Phase 4: §7.3
 and §7.4 on the suite's short windows.
 
+### Phase 2 — `numba_cpu` (2026-10-25)
+
+**Delivered.**
+
+- `solprop/backends/numba_cpu/multistep.py`: the compiled moments pass takes `shifts`
+  per flattened row and forms `phi(x - sigma)` with `exp(x)` beside it; the
+  exponential predict and correct passes take one rotation factor per slot and row and
+  multiply each history row by it as they read it (§6.2's rotated-sample form, fused);
+  the coupled compiled passes rotate their few rows beforehand (`_rotated_rows`), and
+  `coupled_moments` takes the shift on the compiled eigenbasis route too.
+- `solprop/backends/multistep.py`: the reference passes take the same interface
+  (`moments(..., shift=)`, `predict(..., factors=)`, `correct(..., factors=)`), so
+  `HostHistory` has one path for every backend; phase 1's pre-rotated copy of the rows
+  (`_rotated`) is replaced by `_carrier_factors` and the passes' own row reads.
+- `solprop/backends/numba_cpu/backend.py`: `numba_cpu` delivers `"scalar"` and refuses
+  `"harmonic"` by name, pending §7.4.
+- Tests in `tests/backends/test_carrier_frame.py`, parametrised over the compiled
+  backends: one trial's moments, flow and predictor against the reference within the
+  phase 1 budget (`carrier_increment_budget`), with a check that the factors are
+  applied; exactness of the manufactured source through the compiled march; a matched
+  window and a matched gas gradient (the reference's own accepted steps, fixed order);
+  dense planes; and coupled sections.
+
+**A defect found and fixed before it shipped.** `NumbaExponentialKernels.flow` returns
+the exponential its moments pass formed, whatever argument it is given. Phase 1's host
+path called `moments(x - sigma)` and then `flow(x)`, which on `numba_cpu` would have
+been the shifted flow `exp(x - sigma)`: harmless while `numba_cpu` refused the policy,
+wrong once delivered. The moments pass now receives `x` and the shift separately, so the
+flow is always `exp(x)`.
+
+**Deviation.** Both compiled backends form `exp(x - sigma)` as `exp(x) exp(-sigma)`, one
+complex product per element, where the reference takes a second exponential. The
+difference is a few ulp, inside the moments' 256-ulp share of the budget; it took
+native's Kerr-only per-step ratio from 1.076 to 1.057.
+
+**Verification.** Matched comparisons against `numpy_ref` (relative, the largest plane):
+a 3 mm dense-hydrogen window with interpolated planes 3.3e-15 in 294 calls on both; the
+40 → 20 bar gradient 1.1e-14 in 275; the coupled scalar wall 5.6e-16 in 9 and the taper
+2.3e-15 in 48. The Adams, exponential, coupled, resume and compiled-pass modules pass
+(207 passed, 3 skipped). Ten-step timings in
+[benchmarks](../benchmarks.md#adams-carrier-frame-per-step): 1.04 per step on a
+Kerr-only source, 1.01 with Raman.
+
+### Phase 3 — native CPU (2026-10-25)
+
+**Delivered.**
+
+- `native/include/solprop_native/core.hpp`: `ExponentialWeights` carries a scalar
+  carrier frame by value (`shifted`, `shift`, `exp(-sigma)`, and the factors' real and
+  imaginary parts, one per history row); a native state holds one batch member, so one
+  `sigma` a trial.
+- `native/src/general.cpp`: `adams_moment_phi` (moments at `x - sigma`, flow `exp(x)`)
+  and `adams_history` (a history row rotated as it is read) at every exponential site:
+  the elementwise moments beside a coupled flow, the block functions on host and device
+  (the flow `exp(h B)` kept, each eigenvalue shifted for the moments), the predictor and
+  corrector, both coupled passes, and both defect-norm reducers. Dense observation takes
+  the accepted step's `sigma` and factors: the moments at `xi (x - sigma)`, the rotated
+  samples and `exp(-sigma (1 - xi))`.
+- `native/src/bindings.cpp`, `_core.pyi`: the trial and the observation take a packed
+  `carrier` array (empty for none).
+- `native/src/solprop_native/backend.py`: `_ResidentAdams` holds the run's
+  `CarrierReference`, forms `sigma` from its chord and the factors on the host, and holds
+  the accepted step's across later trials and rejections; CPU builds deliver `"scalar"`,
+  device builds and `"harmonic"` are refused by name.
+- `solprop/backends/exponential.py`: `CarrierChord`, the operator's own representation
+  (constant, expansion or z table) at the reference element alone, for every batch
+  member. The step cap now reads it on every backend instead of the full exponent, one
+  scalar a proposal (§6.4's cost); a test checks it against each backend's own exponent
+  for a constant operator and a gradient's expansion.
+
+**Deviations.**
+
+1. *The source of native's `sigma`.* §6.1 asks for the trial's own exponent; native forms
+   that in C++, so the host takes the same element from the chord (§6.1's "On native"
+   paragraph). The two agree to rounding (tested within 64 ulp of the exponent).
+2. *Device builds are refused*, not qualified: the kernels are written for both host and
+   device variants, but no device build was run (that needs a rental, under the standing
+   GPU policy and a budget agreed first).
+
+**Verification.** Matched comparisons against `numpy_ref`: the window 1.4e-15, the
+gradient 3.5e-15, the scalar wall 5.6e-16 and the taper 2.1e-15, each in the reference's
+calls; dense planes inside steps agree to rounding. The native package's own suite passes
+(384 passed, 11 skipped) with its schema literals updated; the solprop modules that run
+native (resident Adams, coupled, resume history, the carrier frame) pass. The native
+extension was built from this tree (`uv sync --extra native --reinstall-package
+solprop-native`); its full gate (`poe check-native`: clang-tidy, sanitisers, the wheel)
+was not run locally and runs in CI. Ten-step timings: 1.06 per step on a Kerr-only
+source, 1.01 with Raman.
+
+**Open questions.**
+
+1. Device qualification: a short GPU segment (one NVIDIA, one AMD device) running the
+   compiled parity tests and the ten-step timing, under the standing policy.
+2. The per-step overhead on cheap sources (4–6 %) counts against the policy in phase
+   4's 1.1× criterion wherever it saves few calls; fusing the rotation into the
+   divided-difference rows of the defect reducers is the remaining lever.
+
+**Handoff.** Phase 4: §7.3's qualification on the suite's short windows on `numba_cpu`
+and native CPU, the default decision, and §7.4's harmonic gate on `numpy_ref`.
+
 ## Part III — History
 
 - 2026-10-25: Drafted, with a `numpy_ref` prototype's measurements.
@@ -895,6 +995,9 @@ and §7.4 on the suite's short windows.
 
 - 2026-10-25: Phase 1 (`numpy_ref`, opt-in) implemented on
   `feature/multistep-carrier-frame`; status `In progress`; report in Part II.
+
+- 2026-10-25: Phases 2 (`numba_cpu`) and 3 (native CPU) implemented on the same
+  branch; reports in Part II.
 
 ### AI review — 2026-10-25 — GPT-6
 
