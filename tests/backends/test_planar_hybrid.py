@@ -26,6 +26,7 @@ from numpy.testing import assert_allclose, assert_array_equal
 
 from backends.test_numba_band_bounds import rate_error_bound
 from bounds import fft_bound, gamma, step_evaluations
+from legacy_geometry import LEGACY_GRID, bare_absorber
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.backends.spatial import (
     slab_columns,
@@ -68,7 +69,9 @@ pytestmark = [
 EPS = np.finfo(float).eps
 LENGTH = 0.1
 HALF_GAP = 63.5e-6
-ENVELOPE = EnvelopeGrid.from_limits(LENGTH, 800e-9, (650e-9, 1000e-9), 1.2e-12)
+ENVELOPE = EnvelopeGrid.from_limits(
+    LENGTH, 800e-9, (650e-9, 1000e-9), 1.2e-12, **LEGACY_GRID
+)
 
 FAMILIES = {
     # name: (grid, gas, energy J/m, fwhm s, plasma, raman, n_r, n_y, steps, scheme)
@@ -93,7 +96,9 @@ FAMILIES = {
     # smaller, diverged there (to 4e192, finite: a replay cannot reject) and is stable
     # from forty, eighty and a hundred and sixty agreeing to 1e-4.
     "field-plasma": (
-        FieldGrid.from_limits(LENGTH, 800e-9, (400e-9, 2000e-9), 600e-15),
+        FieldGrid.from_limits(
+            LENGTH, 800e-9, (400e-9, 2000e-9), 600e-15, **LEGACY_GRID
+        ),
         "Ar",
         2.0,
         50e-15,
@@ -379,6 +384,7 @@ def test_a_linear_beam_diffracts_in_y_and_decays_as_each_slab_mode():
         dz_init=length / 10,
         schedule=FixedSchedule(np.full(10, length / 10)),
         backend="numpy_ref",
+        absorber=bare_absorber(grid),
     )
     problem = Simulation.from_planar(
         grid, space, [], field0, settings=settings
@@ -522,6 +528,7 @@ def test_the_planar_launch_carries_the_coupled_share_of_the_incident_energy():
         schedule=FixedSchedule(np.full(1, 1e-3)),
         backend="numpy_ref",
         stats=spec,
+        absorber=bare_absorber(grid),
     )
     simulation = Simulation.from_planar(grid, space, [], pulse, settings=settings)
     problem = simulation.translate()

@@ -7,6 +7,7 @@ import logging
 import numpy as np
 import pytest
 
+from legacy_geometry import LEGACY_GRID
 from solprop import fourier
 from solprop.constants import C
 from solprop.exceptions import GridError, ModeError
@@ -33,6 +34,8 @@ GRID = {
     "reference_wavelength": CENTRE,
     "wavelength_limits": (700e-9, 2.0e-6),
     "trange": 2e-12,
+    # The grid the operator regression was recorded on.
+    **LEGACY_GRID,
 }
 
 

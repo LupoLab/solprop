@@ -21,6 +21,7 @@ import numpy as np
 import pytest
 
 from bounds import AccuracyEnvelope, assert_within, fft_bound, gamma
+from legacy_geometry import LEGACY_GRID, bare_absorber
 from solprop.backends.driver import StepDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.protocol import Observation, StepHistory
@@ -68,9 +69,13 @@ def cartesian(
     interpolate: bool = False,
     rtol: float = 1e-6,
 ) -> Simulation:
-    """Return a small Cartesian Kerr run of ten replayed (or adaptive) steps."""
+    """Return a small Cartesian Kerr run of ten replayed (or adaptive) steps.
+
+    On the former grid and without a collar: ten replayed steps are refused beside
+    the default collar, and these tests are about field retention, not boundaries.
+    """
     grid = EnvelopeGrid.from_limits(
-        LENGTH, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
+        LENGTH, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False, **LEGACY_GRID
     )
     space = FreeGrid(3e-4, 12, 4e-4, 12, window_factor=0.25)
     pulse = SpatialPulse(
@@ -88,6 +93,7 @@ def cartesian(
         integrator=RungeKutta(),
         backend=backend,
         stats=default_spec("free"),
+        absorber=bare_absorber(grid),
     )
     return Simulation.from_free(
         grid,
@@ -102,17 +108,23 @@ def cartesian(
 
 
 def low_storage(length: float = 0.02, steps: int = 8) -> Simulation:
-    """Return a short soliton replayed by the low-storage march on ``numpy_ref``."""
+    """Return a short soliton replayed by the low-storage march on ``numpy_ref``.
+
+    On the former grid and without a collar, as :func:`cartesian`.
+    """
     schedule = FixedSchedule.uniform(
         0.0, length, length / steps, save_planes=[length / 2]
+    )
+    grid = EnvelopeGrid.from_limits(
+        length, 835e-9, (500e-9, 2e-6), 1e-12, **LEGACY_GRID
     )
     return Simulation.from_gnlse(
         0.11,
         length,
         [0.0, 0.0, -11.83e-27],
         lambda0=835e-9,
-        wavelength_limits=(500e-9, 2e-6),
-        trange=1e-12,
+        grid=grid,
+        absorber=bare_absorber(grid),
         width=100e-15,
         peak_power=9.8,
         pulseshape="sech",

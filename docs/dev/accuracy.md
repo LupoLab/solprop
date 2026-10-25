@@ -340,31 +340,26 @@ densities agree to 0.04 %, which is what excludes the rate as a cause.
 ```
 
 
-## 6. Milestone M4: the comb-to-continuum continuum, six modes, 0.2 m
+## 6. Milestone M4: the comb-to-continuum case
 
-All rows are asserted in `tests/driver/test_prop_capillary.py`.
+All rows are asserted in `tests/driver/test_prop_capillary.py`. Luna is compared on the
+reduced case only; the full case (six modes, 0.3 m on a 4 ps window) is solprop's own.
 
-| metric | reduced case (2 modes, 1 ps window) |
+| metric | reduced case (1 mode, 2 ps window, 0.1 m) |
 |---|---|
-| input states | 2.014e-6 in total energy, at the 1e-5 pulse/grid bound |
-| fundamental, shape | 0.15438 |
-| fundamental, content | 1.04401 |
-| second mode | 0.58884 |
-| Stokes rungs, ours over Luna's | 0.84578, 1.52348, 1.21135 |
-| peak on-axis field | 0.71 of Luna's — a single-sample extremum, open, no bound rests on it |
+| exit energy, ours over Luna's | 1.00001 |
+| fundamental, content | 1.00001 |
+| fundamental, shape | 0.03833 |
 
-The witness runs use the true-power conversion and launch of the introduction, and match
-the archived Luna vibrational strength explicitly. The fill is constant, so the change of
-variables leaves no logarithmic term behind: every metric is within 2e-4 of its
-vacuum-normalised value, which is the evidence that the launch energy is the whole of the
-convention's effect.
-
-The reduced case is a pessimistic one: its window is 2.5 pulse widths and both codes'
-collars work there — a twentieth of its input field sits in the temporal collar, so a
-change of the collar's profile moves every metric of the reduced column. The bounds are
-±10 % two-sided on the reduced case; `numba_cpu` reproduces every metric to four figures.
-Still open: solprop accepts 11 671 steps to Luna's 9163 at the same tolerance, a
-controller question and not a tuning target.
+The reduced case is the fundamental alone on a window five pulse widths wide, so the
+pump stays clear of both codes' temporal collars, and it runs without input noise.
+Noise-free, its Raman cascade grows only from rounding, so the two codes agree on the
+fundamental and its energy, and the shape row is the relative L2 distance of the
+normalised exit spectra. Seeded with shot noise the same case forms the cascade
+(`test_the_seeded_reduced_ctc_case_forms_the_raman_cascade`), which is asserted on
+solprop alone. The former reduced case, two modes on a 1 ps window, clipped the 400 fs
+pump at the window's edge, and the stimulated Raman scattering it seeded in both codes
+was the boundary's (SEP 21, D2).
 
 ## 7. Backend equivalence
 

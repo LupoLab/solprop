@@ -207,7 +207,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     >>> summary.z, summary.n_rejected, summary.met_tolerance
     (0.01, 0, True)
     >>> backend.observe().field.shape
-    (1, 1, 1, 1024)
+    (1, 1, 1, 768)
     >>> backend.close()
     """
 

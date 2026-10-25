@@ -67,14 +67,18 @@ class AccuracyEnvelope:
 # on 2026-10-24 against fresh tight references: field errors 5.8e-8 and 2.4e-7
 # (Multistep, RK) for CtC and 3.0e-7 and 4.6e-8 for reduced CtC, with the references'
 # own coarse-to-tight difference 4e-11, so the reviewed ceilings carry over.
+# SEP 21 phase 2 (2026-10-25) re-gridded the cases at their new revisions
+# (benchmarks/registry.py); the measurement hashes below name those revisions. The
+# ceilings are carried over from the review of the former grids and have not been
+# requalified on the new ones.
 CORE_ENVELOPES = (
     AccuracyEnvelope(
         "rdw",
         1,
         1e-4,
         (
-            "6ea41171e90bd551e8b3afcf05dcf1d75f570f8db36f75f193302b2ea5e31732",
-            "a2c01b6756f5257aecfbdfa1d801a27d790df0c033fbfc3f80a2a6f6195d64af",
+            "535191adef32c0151a07f4a27b23ad54a553814ff20eba70a88f10f255f10007",
+            "cd6a383a6a760157e2caaa300ad8bffce5bb7889316617528c400ba70e3ae9de",
         ),
     ),
     AccuracyEnvelope(
@@ -82,8 +86,8 @@ CORE_ENVELOPES = (
         1,
         1e-5,
         (
-            "77921ed867f8cb363a481ddeb796cd727e618cbfa4f701b5bac5d2b57f4caacf",
-            "de1a99b0ec449fde92ddbcf312ebec7d0d2edddd305b5ec7bb9d69304001c62e",
+            "f9119a6f4a12f5610f07898465baff64e9c81a458a17df7a84a15b1a46930608",
+            "4d055999b7d0bd0cccbfc62c19f0000a376b48974dabad2e9162fababe59dafd",
         ),
     ),
     AccuracyEnvelope(
@@ -91,8 +95,8 @@ CORE_ENVELOPES = (
         1,
         1e-4,
         (
-            "fd4f0b9918208908821ebad776d54b34ff476f752bb17ad06b5c4c8d9d1c7982",
-            "27a930d6d7849dc5422a6cb053def410743b2d5890adbbf8dcc951d95ae9abdb",
+            "06ea9b0501632011742be494d81afe398485af3a23780a786c99134851c30261",
+            "79805b76638c6ddbdc8aa141fe6081579651e2e282368051782ba48a1bf8d260",
         ),
     ),
 )
@@ -105,8 +109,8 @@ MODAL_ENVELOPES = (
         1,
         1e-4,
         (
-            "84398731ca1744959ce10c617def158c21c3103589fa2d1708c0af7d79dabcd1",
-            "bc171d288de1c2889b0023888f375b4d2327ddf6fc64d49da27fb72757a30a85",
+            "ea018e193a4cbc0398a2cd53d81a3289f2e7ba86bfd2f97af1fdad10d64cdfac",
+            "6030641f91a88e938316a4ef72e8ad7030ca5485dcda00cd1adf374e373f3746",
         ),
     ),
     AccuracyEnvelope(
@@ -114,8 +118,8 @@ MODAL_ENVELOPES = (
         1,
         1e-4,
         (
-            "7368f97cd67d64e1a9872011b5eeb35e74be67d0c4a1a10a74ad6ad61df5d79c",
-            "c45322f255a93e83c0ebf518227d8fe6ab091bfd0c0052d817c481fad19103da",
+            "aa4ab9c1bbbdd264d7cc4a362afd2de912363dcf5176dd4d11cc3dccacbab625",
+            "f9af618d54a042e7ff8b2cd2c0dc53c17d24d75df15dad16ceb1d82214fa2330",
         ),
     ),
     AccuracyEnvelope(
@@ -123,8 +127,8 @@ MODAL_ENVELOPES = (
         1,
         1e-4,
         (
-            "535113368d35b09ad660d445aee2233020f9c374a876142b35c873378569fc7d",
-            "a98e65bf58f35de0f4a456c42b6a7f149166f5e3b495f6fa143fc4f0812b2ce8",
+            "a08c1f2f09b8755d8b1f8ce99223f0b154021887ed3fa36f4f3faaadae9198f5",
+            "1c9d67a55ae2f343376e56508c204bf65f1033fc3e6b67dbc7a16e93d597b5d1",
         ),
     ),
     AccuracyEnvelope(
@@ -132,8 +136,8 @@ MODAL_ENVELOPES = (
         1,
         1e-4,
         (
-            "6a17ad8758d995c1458fec33ad01536b26d2fe03a3fb46ea9964ac30e7b7f2c6",
-            "0679ec539ff730fe2aae493e9d807cffb5f012179b8c98be7b3e5c1bf608298e",
+            "5b72fa31b826c801b7cf7e86c9bfa9251e47f8c3ffd1b689ae91cec003596de0",
+            "f044a7a680e4371b21da6b195a8bd72c8296fde3d0dda73cd35158a196dbd4e2",
         ),
     ),
     AccuracyEnvelope(
@@ -141,8 +145,8 @@ MODAL_ENVELOPES = (
         1,
         1e-4,
         (
-            "888f3999189c641288bcc860fbddcf4624db391e5578805d4c494496d2919c83",
-            "9c8963f38ea41269e16a523be941159d9c75cb5baa8607b1077a9c9abcea46ff",
+            "2e9b2768bf28969faee1e2e83e7b5c5e24c860577d0e883a1cd99ec350549c6d",
+            "75fca12e36f6baeb88201a161a64a8029ae3282cafedd85de7a62938ce60aba8",
         ),
     ),
     AccuracyEnvelope(
@@ -150,8 +154,8 @@ MODAL_ENVELOPES = (
         1,
         1e-4,
         (
-            "ab37a5d92bd7e06c1df1a0a14796f69af327d1992033acfe209cca544db43114",
-            "74837207a40ba6312b0c495771993123e6e70a6d86bb4e51032b7c2a98a76636",
+            "bb0e3cc3aad09187afbc2abe309412ed1064e4b6f0729412f4fee4d46b6cf32a",
+            "0a6098dfa8ca092a9304e6fa0511467204c6b2877b9e8bf426f29677ef205449",
         ),
     ),
     AccuracyEnvelope(
@@ -159,8 +163,8 @@ MODAL_ENVELOPES = (
         1,
         1e-4,
         (
-            "518d3484e2f2f3da16db6819464eaf6d08976574b13e89d9f08bde274aa0d851",
-            "980f036d6e7bedfab73abc814f03edd1d5cfedaf5145db8cfd0287dfbb19306c",
+            "5e856d2ee20cc5103670ce61a54776acd0d5380f61e55c95577ec3ed2dc99e2b",
+            "5d72fa4851658d2954c41a58ab72d9f340e439fc2bdc1c43fa2fb91d83d0a853",
         ),
     ),
     AccuracyEnvelope(
@@ -168,8 +172,8 @@ MODAL_ENVELOPES = (
         1,
         1e-4,
         (
-            "aa895940a728b6e3b57472987b29dc740e06087cd694b58342436cfc39af9296",
-            "0780a2bbbf0b678986662eda981391524d0385524a7d8a8fb365e0711e1166a0",
+            "e31d67b8797c00180db3944955b21ef7c8b6be60d2b4eff5767b88685193e572",
+            "9a9da42bd94689463581c94500f1abd943ee8ecbd94535b9f2bd9b9fdf97049d",
         ),
     ),
     AccuracyEnvelope(
@@ -177,8 +181,8 @@ MODAL_ENVELOPES = (
         1,
         1e-4,
         (
-            "eadafdd81e90c9038c378fb450e4eb6092d4dd8100cf371bc0a4a8cc28519320",
-            "aded17e77fe4c1a7838d8aca5cfc1729301dda9fbd6cf3c17d242f76f8e4ea95",
+            "5b2d72a9ce3a1f012b192fee0c9b30f23c9df95909d47531e55f5bf0c0f4689e",
+            "54202dd6cda53db7c5189d434b737995ba94dd23021cf5f810cedd131fad40e0",
         ),
     ),
 )
@@ -191,8 +195,8 @@ ADVANCED_ENVELOPES = (
         1,
         1e-4,
         (
-            "9ba5e7e873ed929e2b7db006932ebee35ca873548f29851fc18aaa0422ba9caa",
-            "86687e068e8218247971ae5623cc969ce18f3de1ba1ca66a27e282f4fd7aa9e1",
+            "a0642916ad9e5d57b684c26250750b6d64883bc796f2eaff51810b56f22c5fa8",
+            "348b426520876847f7fd8df2e19614e95fa0019908ecefb13e946f61c660f87d",
         ),
     ),
     AccuracyEnvelope(
@@ -200,8 +204,8 @@ ADVANCED_ENVELOPES = (
         1,
         1e-4,
         (
-            "1c38a9c2d6a6a39caf2b8b06cb6cdf4b1f4bb785c305a20ec1f3342f0484ba85",
-            "94433388be568d010b2800fbd3fa0d17c3319069e3eb7fd6077050f10f65c48c",
+            "581f5e525d21700b212a23effebe7ff6ca698851181405f78cd133aedc02e1b3",
+            "fb307c7d114a4ea4c277a558626d0f4120b8f6b8bd030ca415a2a4cf03a3ef7c",
         ),
     ),
     AccuracyEnvelope(
@@ -209,8 +213,8 @@ ADVANCED_ENVELOPES = (
         1,
         1e-4,
         (
-            "9deef7413f17aba0e269726bb6a54900d588bc9dff6ed96979dc2b9114522f35",
-            "592a601bd2e5504a13c345227947ae10ce6a1ac809b793f158b179ed2f5458aa",
+            "759ff7d3c95925fe23b9997a9cd6706b92a916727234028231d0522ed9e50c8b",
+            "dabe45cc3a22056cb3053f4a93f2236c53336b0396f4ef2244347eff54c8cf56",
         ),
     ),
     AccuracyEnvelope(
@@ -218,8 +222,8 @@ ADVANCED_ENVELOPES = (
         1,
         1e-4,
         (
-            "3bbe22681b246cb1a77257208090f8d2bc20046a139b697035bb63ecacd3b6ae",
-            "473f17d1d87579fe1eeda62eaffc5bf54e3f7135043fd9977aff0f28131f774b",
+            "c941817a9254188e4a6ab0003dec748ff39939eb6ce4fcf4cd4ee5d385c542cc",
+            "784fc26a3265d24199a666a735444881909479b114484b04637b51f3402e9b13",
         ),
     ),
     AccuracyEnvelope(
@@ -227,8 +231,8 @@ ADVANCED_ENVELOPES = (
         1,
         1e-4,
         (
-            "81627ea4c59490d57102307eed5671ca58418f6f53722388a9a78d60ee6902b1",
-            "a7864758611f50c7cc5fa8d08cffa9d3995933c21edcf6b322d34bc2fcf6b92d",
+            "8ba57ed541529a90e8e03723f9ade9c0bcdedda1c9e3d3898eea005304f0cbed",
+            "c609923210bf9e6535685affe4d53bb0d8368e97109345a888e09468a46feca9",
         ),
     ),
     AccuracyEnvelope(
@@ -245,8 +249,8 @@ ADVANCED_ENVELOPES = (
         1,
         1e-4,
         (
-            "dc66ca6ccc1a65baadec48f7c96e26e37b2d199d57dba41e4500e119fc0121c7",
-            "d49290aca313beff4ebc73243cd2d9d186cba2bf9d52669d1ff65e16659d9bb3",
+            "13f3513e35a7c5facabecbc8b5917c55ea9d239db82a7851cc6c93de20ac7184",
+            "2ea66a1214e9d6777c0e536c2f3c62e9cd8fef238c69c03cd7e0c4242d30dc1f",
         ),
     ),
     AccuracyEnvelope(
@@ -254,8 +258,8 @@ ADVANCED_ENVELOPES = (
         1,
         1e-4,
         (
-            "129cd4088e49bf0c1c5331e9749cd36cd46ec312727e35409238daef177b78e4",
-            "f0b8f82edd4d13115be421e1810c7ef209aa8e81007507812a076a3f85e7ec63",
+            "0c042beeb6689a36ace6236146a5ae33dd2b4c8274fb0ef997c1ca7612c8e655",
+            "06a10ab3f5ffbcc7b4df3c768864d261738ef9a0687b0b73c3d1f22c0a941a6b",
         ),
     ),
     AccuracyEnvelope(
@@ -263,8 +267,8 @@ ADVANCED_ENVELOPES = (
         1,
         1e-4,
         (
-            "8bf25ceed3203b27ec13865165ef6cea225c1286cc7525429e24fec86ed612c1",
-            "980eecce15e9ec1945afeceb1f78cb664b8772244d31d494eeccd056af778c5b",
+            "6f947cd489b8ca4620292bac87027aeaca455c446eb07f18ee2cf8d3cca7bf9d",
+            "0614197f59685f70f758d22ddebf512e013c53696ed0ef5e5b7950970d2956c4",
         ),
     ),
     AccuracyEnvelope(
@@ -272,8 +276,8 @@ ADVANCED_ENVELOPES = (
         1,
         1e-4,
         (
-            "0e4d9b2bf5cdc30fad613f55f907c4f33afdf1d4ace3f11233149024223d1c81",
-            "a41e0224f29efeb3de357cf4dc9cf5f16bf5c3ad0c11e21df44be5073b7be14e",
+            "c5233b5bfdbc9152fdd88ec88ec3494744a14c0f6162a87109a194fbd8be2957",
+            "ed6d92503416e0fabac2f2c6f203b587ade9bfb463a7102c2065d26b3ec78ea9",
         ),
     ),
     AccuracyEnvelope(
@@ -281,8 +285,8 @@ ADVANCED_ENVELOPES = (
         1,
         1e-4,
         (
-            "7de22f4914a486c40a822928232299064908a0f3debb5af1aaf623b68d729ee1",
-            "0c007223550acdbb8c4eeb6a997af893bd955f0470a687a3954f2a58d9f37f80",
+            "e0890b8c1076f8ee0a6c121a989335e545aedec07157cf8f15c82df6841ddf8a",
+            "87afcc77d2c04d18b839070c906b03baf3d6ba3e65398cc1a7833bd9ec128007",
         ),
     ),
 )
@@ -295,8 +299,8 @@ EXERCISE_ENVELOPES = (
         1,
         1e-4,
         (
-            "0b4c6af3f20ade9ecec1072f1eac075928ad22c14e6318a2da9f95e5031fe3ba",
-            "b1a6e6fdd496a92a335aa8007567145fa26320c3f0221a3bed57c2a4bcc584d0",
+            "042691e4d922727e1d39a965c420c4253c56e42e352dca742316e20869486f98",
+            "ea3f908fc767ced99db8b7b5eedb6ef0c76c80b829dc82619d995680c09228ee",
         ),
     ),
     AccuracyEnvelope(
@@ -313,8 +317,8 @@ EXERCISE_ENVELOPES = (
         1,
         1e-4,
         (
-            "2d1c9a98977d3e4839cc5558e318c10548b9bad9d8df16581fb5772c89138e60",
-            "6dea7e88f7cfdffc39be63c097a2966a05134e9e71d0e7471c4c55ad6dd6973c",
+            "d53f4aacad210a9c530eadb8c520bf10d72aee72d811b2feb470627a5a9bb53a",
+            "e476a16527ab9f2ec6ad2471656bf598eaa0e293ee10ad8c54caec2121575b20",
         ),
     ),
     AccuracyEnvelope(
@@ -322,8 +326,8 @@ EXERCISE_ENVELOPES = (
         1,
         1e-4,
         (
-            "588813bb72fc29f6b3834ded9c7078a8a1a5746eef2680c75ad65e5e5a272c96",
-            "97688f847d3f35cb2be89782cd16aef024201a814da67bf4b4da67a19cc67f19",
+            "563fab8b6ca31f1988892b1ed49e7a7cc8329e8249842eb8ef27c7e645828d1e",
+            "c9548440f1d9ba7701401f33edccabb36f97db5fd085f328620912155b65f24f",
         ),
     ),
     AccuracyEnvelope(
@@ -331,8 +335,8 @@ EXERCISE_ENVELOPES = (
         1,
         1e-4,
         (
-            "7a9effb9c27b84f72195703d8e302ba5684861461af079ba1af26d1e66b7c8cf",
-            "d19a47f0d7595f813c452a8d21ae826c606d9b179f7e7963a2efddbd18abffab",
+            "f3c3a476d422e9f9a6185bde3c5c6bfdac1de4813eb8856df3d7935ed7450ead",
+            "b5a55c882ee996fcaf7916cfb3609b0944333ead811a8a1de010ff531c8d6fa5",
         ),
     ),
     AccuracyEnvelope(
@@ -340,8 +344,8 @@ EXERCISE_ENVELOPES = (
         1,
         1e-4,
         (
-            "abda1dacc9a31f448e8b3690bc8c55f6fb1954e652d1d20cc9e081bc6aed41df",
-            "1bcf695c1d051f8b5c211292642f0e726412067f22f8dd79bdda801336f5d286",
+            "96c5ba349d53e7013172d9b783ad596fd9527a6dfd32093e70dcc6178baf2a43",
+            "5cb640050f6aa36d17433d198c56a8cb433a915cc5a725b855054f60450767b5",
         ),
     ),
     AccuracyEnvelope(
@@ -349,8 +353,8 @@ EXERCISE_ENVELOPES = (
         1,
         1e-4,
         (
-            "5d3495b4fd41c594e540e16df660d76e7550d68a93e923b1fb5a916f0fe9a002",
-            "ab15d2ce3fdb08db0e9da45629045f6d895fb619d2bdbe3c18b7f3073adaccf2",
+            "6eb5dd34de4404092d6f08723a87dbaaef24fd67a369f5555e377c73edcb7645",
+            "bf18c4ae7b01e904c6afe63422a60b7569359fca67e904cb5f6f12ea0ca14314",
         ),
     ),
     AccuracyEnvelope(
@@ -358,8 +362,8 @@ EXERCISE_ENVELOPES = (
         1,
         1e-4,
         (
-            "c6c68a6abd1d74cb374c726452ca8e44a9ac752fd3278ce50c94a54fcadcac1b",
-            "8bd833422a9dab440b53eb4e7fa10972b9d4db9e184dace1908745bfcd429255",
+            "1cf95ca74e3ba9640f42fb73fd4902ea423a0be815b732374dbfe2a89b93f1f9",
+            "7d74cf7591ee889f87428690bd3cbe9d3784e373f0b8084dd3ec9f6a135e5b74",
         ),
     ),
     AccuracyEnvelope(
@@ -367,8 +371,8 @@ EXERCISE_ENVELOPES = (
         1,
         1e-4,
         (
-            "a7d905d7c129c6019fd9deee3ab6dc45b30f75d2dc3bbe5337d03f72a5f32ff1",
-            "8d3fd4c34ccbbeba9a7858521de43bd338139c89619e6a2a8c322a96d4de25c0",
+            "ec07ca4f09b515bc248662da37421c438acb20747c10d993878fcf3ba07fc97f",
+            "ca6ffbd2daef828d232f0925b9194787deb72173ea682752c3835211e84e3688",
         ),
     ),
     AccuracyEnvelope(
@@ -376,8 +380,8 @@ EXERCISE_ENVELOPES = (
         1,
         1e-4,
         (
-            "4dabb07cb9e633d7ac63577fb19172c86848d5d865078d0feaa8f46397ab6334",
-            "0900e26546e1db9bc6c852a3fe9bc8794a79e8e309d4fa48a09801235982547f",
+            "5da7c8c23ad39f15a52f66fec5b61d5e7ddf680d518d1174e78aa6e23a30eedc",
+            "ec5e08975186a3079d873039e98e21dd7c2ecb0b39886cdce37a8d00054a7ad2",
         ),
     ),
     AccuracyEnvelope(
@@ -385,8 +389,8 @@ EXERCISE_ENVELOPES = (
         1,
         1e-4,
         (
-            "d1de6a66bc4d147aabe4d590f7255e7d0c55ebf8682b55c58b88052af3d5a989",
-            "0d107f4509d4d8854093958451882b59b6a0e04c4e52274d175d49f7e76c34aa",
+            "9ea383414cc72b76935faba42b4ed178c22ed84c3d039358b1b86c69fad9882c",
+            "f717d6d4aa19f51c2acfa4090955d06714448d27fb4c640f0e3bfa24fbf0a707",
         ),
     ),
 )

@@ -51,6 +51,7 @@ def simulation(index, backend, noise=None):
         seed=index + 13 if noise is not None else None,
         backend=backend,
         integrator=RungeKutta(),
+        absorber=False,
     )
 
 

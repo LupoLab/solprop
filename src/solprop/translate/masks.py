@@ -469,7 +469,7 @@ def noise_spectrum(
     >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 4e-12)
     >>> draw = modified_noise(grid, np.random.default_rng(7))
     >>> noise_spectrum(draw, (1, 1, 1, grid.n_omega)).shape
-    (1, 1, 1, 4096)
+    (1, 1, 1, 3072)
     """
     try:
         values = np.broadcast_to(noise.spectrum[np.newaxis], shape)

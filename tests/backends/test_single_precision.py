@@ -23,6 +23,7 @@ import pytest
 from scipy import signal
 
 from bounds import EPS_32, UNIT_ROUNDOFF_32, assert_within, higham_gamma, prefix_bound
+from legacy_geometry import LEGACY_GRID, bare_absorber
 from solprop.backends import registry
 from solprop.backends.memory import (
     MLX_GRAPH_BUDGET,
@@ -106,8 +107,12 @@ def gnlse(  # noqa: PLR0913 - the case's own knobs
         length,
         [beta0, 0.0, -1.183e-26, 8.1e-41],
         lambda0=835e-9,
-        wavelength_limits=(500e-9, 2e-6),
-        trange=1e-12,
+        # The former 1024-bin window and no collar: the bounds below count its bins,
+        # and a replayed schedule is refused beside the default collar.
+        grid=EnvelopeGrid.from_limits(
+            length, 835e-9, (500e-9, 2e-6), 1e-12, **LEGACY_GRID
+        ),
+        absorber=False,
         width=50e-15,
         peak_power=power,
         pulseshape="sech",
@@ -420,7 +425,7 @@ def spatial_kerr(
     """
     length = 0.1
     grid = EnvelopeGrid.from_limits(
-        length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
+        length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False, **LEGACY_GRID
     )
     spaces = {
         "radial": RadialGrid(2e-3, 32),
@@ -439,7 +444,11 @@ def spatial_kerr(
         backend="numpy_ref",
         integrator=RungeKutta(),
         precision=precision,  # pyright: ignore[reportArgumentType]
-        absorber=absorber(grid, boundary_length=100 * length) if absorbed else None,
+        absorber=(
+            absorber(grid, boundary_length=100 * length)
+            if absorbed
+            else bare_absorber(grid)
+        ),
     )
     constructor = Simulation.from_radial if route == "radial" else Simulation.from_free
     return constructor(
@@ -460,7 +469,7 @@ def plasma_beam(
     Nitrogen adds its molecular Raman response beside the plasma.
     """
     length = 1e-3
-    grid = FieldGrid.from_limits(length, 800e-9, (350e-9, 2e-6), 150e-15)
+    grid = FieldGrid.from_limits(length, 800e-9, (350e-9, 2e-6), 150e-15, **LEGACY_GRID)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=2e-4), 100e-6
     )
@@ -481,6 +490,7 @@ def plasma_beam(
         integrator=RungeKutta(),
         ionisation_field_range=(1e7, 1e11),
         precision=precision,  # pyright: ignore[reportArgumentType]
+        absorber=bare_absorber(grid),
     )
     if route == "cartesian":
         return Simulation.from_free(

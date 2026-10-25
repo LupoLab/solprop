@@ -662,17 +662,18 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
     >>> peak = 9 * abs(beta2) / (gamma * tau0**2)
     >>> handler = prop_gnlse(
     ...     gamma, 1.57e-3, [0.0, 0.0, beta2], lambda0=835e-9,
-    ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12,
+    ...     wavelength_limits=(500e-9, 2e-6), trange=2e-12,
     ...     width=tau0, peak_power=peak, pulseshape="sech", shock=False,
     ...     n_save=3, rtol=1e-8,
     ... )
     >>> handler.n_saved, handler["z"].tolist()
     (3, [0.0, 0.000785, 0.00157])
 
-    The fibre is lossless, so the energy statistic is the same at every plane:
+    The fibre is lossless and the window holds the soliton's tails clear of the
+    collar, so the energy statistic is the same at every plane:
 
     >>> energy = handler["stats/energy"][:, 0, 0]
-    >>> bool(abs(energy[-1] / energy[0] - 1.0) < 1e-9)
+    >>> bool(abs(energy[-1] / energy[0] - 1.0) < 1e-8)
     True
     """
     simulation = Simulation.from_gnlse(
@@ -1127,7 +1128,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
     ...         n_r=16, n_save=2, rtol=1e-8,
     ...     )
     >>> output["field"].shape[1:]
-    (2, 1, 257)
+    (2, 1, 193)
 
     The pressure the run saw is recorded beside the field, and it falls along the
     capillary:

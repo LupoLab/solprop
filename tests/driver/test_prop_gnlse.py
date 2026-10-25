@@ -16,6 +16,7 @@ import numpy as np
 import pytest
 
 from bounds import departure
+from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER, assert_matched, simulation_bound
 from selected_backend import selected_backend
 from solprop import fourier
@@ -76,6 +77,10 @@ def cheap_settings(**keywords):
         "atol": 1e-18,
         "n_save": 2,
         "backend": selected_backend(),
+        # No collar, so the grid is the request alone: these tests are about the
+        # keyword surface, a short fixed schedule is refused beside the default
+        # collar, and the loss and pulse-energy cases are exact on the window.
+        "absorber": False,
     } | keywords
 
 
@@ -174,13 +179,18 @@ def test_the_third_order_soliton_runs_the_same_through_the_interface(
     the ten digits the slow test reaches, which is enough to say the whole surface --
     grid, pulse, mapping, schedule, output -- reached the solver intact.
     """
+    # The ladder's grid and no collar: 400 fixed steps are refused beside the default
+    # one, and the recurrence measured here is the scheme's, not a boundary's.
+    grid = EnvelopeGrid.from_limits(
+        soliton.period, soliton.wavelength, (500e-9, 2e-6), 4e-12, **LEGACY_GRID
+    )
     simulation = Simulation.from_gnlse(
         soliton.gamma,
         soliton.period,
         [0.0, 0.0, soliton.beta2],
         lambda0=soliton.wavelength,
-        wavelength_limits=(500e-9, 2e-6),
-        trange=4e-12,
+        grid=grid,
+        absorber=bare_absorber(grid),
         width=soliton.tau0,
         peak_power=soliton.peak_power(3),
         pulseshape="sech",
@@ -348,10 +358,16 @@ def test_the_energy_and_the_peak_power_specify_the_same_sech_pulse():
     """For a sech**2 of natural width tau0, the energy is 2 P0 tau0."""
     peak = 9.8
     width = 100e-15
-    by_power = cheap(peak_power=peak, width=width)
-    by_energy = cheap(peak_power=None, energy=2.0 * peak * width, width=width)
+    # On the former grid, whose window the transform size rounds up past the 1 ps
+    # request: the truncation measured below is of that window.
+    grid = EnvelopeGrid.from_limits(SHORT, 835e-9, (500e-9, 2e-6), 1e-12, **LEGACY_GRID)
+    on_grid = {"grid": grid, "wavelength_limits": None, "trange": None}
+    by_power = cheap(peak_power=peak, width=width, **on_grid)
+    by_energy = cheap(
+        peak_power=None, energy=2.0 * peak * width, width=width, **on_grid
+    )
     # `2 P0 tau0` is the continuum energy while the pulse is scaled on the samples, so
-    # the two requests differ by the sech's truncated tails on a 1 ps window: the
+    # the two requests differ by the sech's truncated tails on that window: the
     # sampled energy of the peak-scaled pulse is 8.0e-8 below the analytic value, which
     # is the difference measured here (7.9e-8 relative in amplitude).
     assert np.allclose(by_energy["field"][-1], by_power["field"][-1], rtol=1e-7)
@@ -635,7 +651,10 @@ def test_index_table_fibre_matches_taylor_mapping():
             }
         )
     )
-    grid = EnvelopeGrid.from_limits(length, 835e-9, (500e-9, 2e-6), 1e-12)
+    # The grid `cheap` builds without a collar.
+    grid = EnvelopeGrid.from_limits(
+        length, 835e-9, (500e-9, 2e-6), 1e-12, collar_fraction=0.0
+    )
     omega = grid.omega[grid.active_mask]
     table_mode = SpecifiedMode.from_index_table(table, aeff=mode.aeff())
     # Error in the co-moving linear operator bounds accumulated phase/loss;

@@ -29,6 +29,7 @@ import pytest
 from scipy.integrate import quad
 from scipy.special import j0, jn_zeros, k0
 
+from legacy_geometry import LEGACY_GRID
 from solprop import fourier
 from solprop.backends.registry import available
 from solprop.constants import C
@@ -441,12 +442,14 @@ def test_a_solid_fibre_into_another_fibre():
             fibre=mode,
             n2=2.6e-20,
             lambda0=1064e-9,
-            wavelength_limits=(900e-9, 1300e-9),
-            trange=400e-15,
+            grid=EnvelopeGrid.from_limits(
+                1e-3, 1064e-9, (900e-9, 1300e-9), 400e-15, **LEGACY_GRID
+            ),
             fwhm=100e-15,
             energy=1e-9,
             n_save=2,
             backend=backend,
+            absorber=False,
         )
 
     source = fibre(2.18e-6, "numba_cpu")

@@ -120,7 +120,7 @@ def construct(configuration: Record) -> BatchCase:
     simulations, problems, members = [], [], []
     try:
         for index in range(2):
-            simulation = fiber(index)
+            simulation = fiber(index, collar=False)
             simulation.settings = replace(
                 simulation.settings,
                 controller=PIController(

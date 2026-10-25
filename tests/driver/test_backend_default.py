@@ -15,6 +15,7 @@ from typing import TypedDict
 import numpy as np
 import pytest
 
+from legacy_geometry import LEGACY_GRID
 from solprop.backends.registry import select
 from solprop.driver import (
     Simulation,
@@ -28,7 +29,7 @@ from solprop.driver import (
 from solprop.exceptions import (
     MaterialRangeWarning,
 )
-from solprop.grid import FreeGrid, RadialGrid
+from solprop.grid import FieldGrid, FreeGrid, RadialGrid
 from solprop.modes import MarcatiliMode
 from solprop.output import MemoryOutput
 from solprop.profiles import PiecewiseLinear
@@ -174,8 +175,10 @@ def test_auto_runs_a_z_table_taper_on_the_native_cpu_build():
             "lambda0": 800e-9,
             "fwhm": 10e-15,
             "energy": 1e-9,
-            "wavelength_limits": (90e-9, 3e-6),
-            "trange": 250e-15,
+            # The former grid, on which the expansion does not resolve.
+            "grid": FieldGrid.from_limits(
+                1.0, 800e-9, (90e-9, 3e-6), 250e-15, **LEGACY_GRID
+            ),
             "modes": 4,
             "dz_max": 2e-3,
             "n_save": 2,

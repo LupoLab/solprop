@@ -231,6 +231,7 @@ def kerr(name: str, settings: SimulationSettings) -> Simulation:
     Malitson, JOSA 55, 1205 (1965), doi:10.1364/JOSA.55.001205. This extraction
     preserves its declared UV extrapolation and records the resulting warning.
     """
+    from solprop.boundaries import no_absorber  # noqa: PLC0415
     from solprop.constants import EPS0, MU0, C  # noqa: PLC0415
     from solprop.driver import Simulation  # noqa: PLC0415
     from solprop.grid import EnvelopeGrid, FreeGrid  # noqa: PLC0415
@@ -252,6 +253,15 @@ def kerr(name: str, settings: SimulationSettings) -> Simulation:
         window,
         thg=False,
         fft_size="smooth",
+        collar_fraction=0.05,
+        collar_placement="inside",
+    )
+    # The case's only track replays a fixed RK4IP schedule, whose 0.5 um steps the
+    # default temporal collar would make unstable (SEP 21 refuses them), so the beam
+    # keeps the geometry it was frozen with: no collars, the collar room inside the
+    # window.
+    settings = dataclasses.replace(
+        settings, absorber=dataclasses.replace(no_absorber(grid), spatial=False)
     )
     space = FreeGrid(half_width * 1.1, size, half_width * 1.1, size, window_factor=0.0)
     glass = SellmeierGlass(
@@ -464,6 +474,9 @@ def build(configuration: Record) -> Simulation:
             raman=False,
             shock=False,
             n_save=2,
+            # The fixed track's 10 um steps are past the default collar's
+            # stability limit, which SEP 21 refuses; the smoke case has none.
+            absorber=False,
         )
         simulation.settings = dataclasses.replace(
             simulation.settings,

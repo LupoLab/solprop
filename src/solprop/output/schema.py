@@ -113,7 +113,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 25
+SCHEMA_VERSION = 26
 """Version of the record layout; incremented whenever a stored field changes meaning.
 
 Version 9 adds the SEP 13 stepping method. Independent version-10 branches added
@@ -182,6 +182,8 @@ cannot be exchanged.
 Version 25 (SEP 33) records every run's ``precision`` in its hashed configuration,
 ``"double"`` included, so a resume in the other precision is refused through the hash.
 The saved arrays are binary64 either way.
+Version 26 (SEP 21) records ``Absorber.spatial``, and a GNLSE or spatial run that
+declares no absorber records the default collar it now has rather than none.
 """
 
 INLINE_ARRAY_LIMIT = 2**20
@@ -4258,7 +4260,7 @@ class PlaneStore(Displayed, ABC):
         >>> n_omega = handler.metadata.grid.n_omega
         >>> handler.save(SavedPlane(z=0.0, field=np.ones((1, 1, n_omega), complex)))
         >>> handler.plane_field(-1).shape
-        (1, 1, 2048)
+        (1, 1, 2560)
         """
         plane = index + self._n_saved if index < 0 else index
         if not 0 <= plane < self._n_saved:

@@ -37,6 +37,7 @@ import numpy as np
 import pytest
 from scipy.linalg import expm
 
+import flow_parity
 from driver.test_coherent_capillary import (
     GRID,
     LENGTH,
@@ -56,7 +57,9 @@ from flow_parity import (
     formation_bound,
     run,
 )
+from legacy_geometry import LEGACY_GRID
 from march_bounds import FIXED_ORDER
+from modal_provider_cases import GENERAL_Z_END
 from solprop.backends import available
 from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -412,14 +415,31 @@ def test_the_in_band_answer_moves_by_less_than_the_derived_bound(case):
 @pytest.mark.medium
 @pytest.mark.parametrize("name", ["numpy_ref", "numba_cpu"])
 @pytest.mark.parametrize("case", ["scalar", "te_tm", "split", "taper", "gradient"])
-def test_a_flow_with_nothing_unscored_is_what_it_was(case, name, ndarrays_regression):
+def test_a_flow_with_nothing_unscored_is_what_it_was(
+    case, name, ndarrays_regression, monkeypatch
+):
     """A constant section, or a varying one with every bin scored, is unchanged.
 
     The constant cases take no residual at all; a varying case whose every active
     bin is scored applies it where it always did, in the same order. The final state
     after ten fixed steps at the fixed order matches its record within the march's
-    rounding budget (``tests/state_records.py``).
+    rounding budget (``tests/state_records.py``), on the grids it was recorded on:
+    the parity cases' grids in the former geometry, with their weak collar.
     """
+    grid = FieldGrid.from_limits(
+        LENGTH, 800e-9, (400e-9, 1.6e-6), 300e-15, **LEGACY_GRID
+    )
+    monkeypatch.setattr(flow_parity, "GRID", grid)
+    monkeypatch.setattr(
+        flow_parity, "WEAK_COLLAR", absorber(grid, boundary_length=1.0e3)
+    )
+    monkeypatch.setattr(
+        flow_parity,
+        "general_grid",
+        lambda: FieldGrid.from_limits(
+            GENERAL_Z_END, 835e-9, (815e-9, 860e-9), 60e-15, **LEGACY_GRID
+        ),
+    )
     backend = backend_class(name)
     simulation = build(case, integrator=FIXED_ORDER)
     problem = simulation.translate()

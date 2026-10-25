@@ -190,6 +190,12 @@ def profile(case):
     )
 
 
+_RECORDED = {"fft_size": "pow2", "collar_fraction": 0.05, "collar_placement": "inside"}
+"""The grid geometry the study was recorded on: a power-of-two transform whose window
+is the request, with the temporal collar inside it. :func:`grid_for` sizes the window
+so that the carrier is a bin, which a window widened past the request undoes."""
+
+
 def grid_for(wavelength, length):
     """Return a field grid on which the carrier is exactly a frequency bin.
 
@@ -198,12 +204,14 @@ def grid_for(wavelength, length):
     that keeps ``dt_fine`` at or below what the band demands.
     """
     limits = (0.625 * wavelength, 1.25 * wavelength)
-    default = FieldGrid.from_limits(length, wavelength, limits, 200e-15)
+    default = FieldGrid.from_limits(length, wavelength, limits, 200e-15, **_RECORDED)
     period = wavelength / C
     size = default.n_to
     bins = int(np.floor(default.dt_fine * size / period))
     step = bins * period / size
-    grid = FieldGrid.from_limits(length, wavelength, limits, size * step, dt=step)
+    grid = FieldGrid.from_limits(
+        length, wavelength, limits, size * step, dt=step, **_RECORDED
+    )
     carrier = int(np.argmin(abs(grid.omega - 2 * np.pi / period)))
     if abs(grid.omega[carrier] * period / (2 * np.pi) - 1) > 1e-12:
         raise RuntimeError("the carrier is not a bin of the constructed grid")

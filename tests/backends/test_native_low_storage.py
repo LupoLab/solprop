@@ -332,6 +332,8 @@ def test_auto_runs_the_march_on_native_when_installed():
         integrator=MARCH,
         dz_max=schedule.max_step,
         dz_init=schedule.max_step,
+        # Five replayed steps: no collar, as before the default one.
+        absorber=False,
     )
     assert simulation.settings.backend == "native"
     output = simulation.run()

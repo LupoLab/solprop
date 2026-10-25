@@ -14,6 +14,7 @@ from numba import get_num_threads, set_num_threads
 from backends import test_free_ladders
 from backends.test_radial_nonlinear import derivative, make_problem
 from bounds import assert_within, gamma
+from legacy_geometry import LEGACY_GRID
 from solprop.backends.numba_cpu import NumbaCpuBackend, fft, kernels, spatial
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.exceptions import BackendError
@@ -40,7 +41,9 @@ free_case = test_free_ladders.free_case
 def test_radial_real_blas_preserves_transform_and_memory_contract(
     spatial_backend_class, n_r, n_pol, chunk, duration, request
 ):
-    grid = EnvelopeGrid.from_limits(1e-4, 800e-9, (600e-9, 1.2e-6), duration, thg=False)
+    grid = EnvelopeGrid.from_limits(
+        1e-4, 800e-9, (600e-9, 1.2e-6), duration, thg=False, **LEGACY_GRID
+    )
     space = RadialGrid(6e-4, n_r, window_factor=0)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7),

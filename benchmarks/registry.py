@@ -40,14 +40,23 @@ SETS = (
 # First ten accepted entrance steps of the independent NumPy default-RK pilot
 # at rtol=1e-6. SEP 30 Part II records the pilot and verification. Keep these
 # separate from Case so freezing a diagnostic does not rename adaptive windows.
+#
+# SEP 21 phase 2 (2026-10-25) moved the temporal collar outside the requested
+# window, chose 2-3-5-smooth transform sizes and gave GNLSE and spatial runs the
+# default collar, so every case whose grid or boundaries that changed is at a new
+# revision (CtC and reduced CtC 3, the rest 2; grin_linear and envelope_plasma kept
+# theirs). As for reduced CtC's revision 2, the revised cases keep their entrance
+# edges: they bound the measured interval only, and re-freezing them would change
+# the workload without a protocol to justify the new one.
 _FIXED_SCHEDULES = {
     **{
-        (name, 1): edges
+        (name, revision): edges
         for name, edges in ENTRANCE_SCHEDULES.items()
         if name
         not in ("ctc_reduced", "scalar_wall", "vector_wall", "taper", "taper_wall")
+        for revision in (1, 2)
     },
-    ("radial_filament_256", 1): (
+    ("radial_filament_256", 2): (
         0.0,
         3e-6,
         3.7247892534444475e-5,
@@ -173,7 +182,7 @@ class Case:
 _CORE = (
     Case(
         "rdw",
-        1,
+        2,
         ("core", "modal-capillary"),
         "capillary",
         (*ADAPTIVE, FIXED),
@@ -181,12 +190,12 @@ _CORE = (
         0.02,
         0.04,
         0.002,
-        (4, 4096, 8192),
+        (4, 5120, 10240),
         "benchmarks/cases.py:rdw",
     ),
     Case(
         "ctc",
-        2,
+        3,
         ("core", "modal-capillary"),
         "capillary",
         (*ADAPTIVE, FIXED),
@@ -194,7 +203,7 @@ _CORE = (
         0.00017,
         0.00034,
         0.000017,
-        (6, 32768, 65536),
+        (6, 27648, 55296),
         "benchmarks/cases.py:ctc",
     ),
     Case(
@@ -222,7 +231,7 @@ _CORE = (
     ),
     Case(
         "radial_filament_256",
-        1,
+        2,
         ("core", "free-space"),
         "spatial",
         (*ADAPTIVE, FIXED),
@@ -240,7 +249,7 @@ _CORE = (
 _MODAL = (
     Case(
         "rdw_one_mode",
-        1,
+        2,
         ("modal-capillary",),
         "capillary",
         (*ADAPTIVE, FIXED),
@@ -248,12 +257,12 @@ _MODAL = (
         0.0,
         ENTRANCE_SCHEDULES["rdw_one_mode"][-1],
         None,
-        (1, 4096, 8192),
+        (1, 5120, 10240),
         "benchmarks/cases.py:rdw with one resolved mode",
     ),
     Case(
         "ctc_reduced",
-        2,
+        3,
         ("modal-capillary",),
         "capillary",
         (*ADAPTIVE, FIXED),
@@ -261,12 +270,12 @@ _MODAL = (
         0.0,
         ENTRANCE_SCHEDULES["ctc_reduced"][-1],
         0.00012,
-        (1, 8192, 16384),
+        (1, 9216, 18432),
         "benchmarks/cases.py:ctc_reduced",
     ),
     Case(
         "argon_blueshift",
-        1,
+        2,
         ("modal-capillary",),
         "capillary",
         (*ADAPTIVE, FIXED),
@@ -274,12 +283,12 @@ _MODAL = (
         0.0,
         ENTRANCE_SCHEDULES["argon_blueshift"][-1],
         None,
-        (1, 2048, 4096),
+        (1, 1536, 3072),
         "docs/examples/processes/plot_06_ionisation_blue_shift.py",
     ),
     Case(
         "h2_raman_6ps",
-        1,
+        2,
         ("modal-capillary",),
         "capillary",
         (*ADAPTIVE, FIXED),
@@ -287,12 +296,12 @@ _MODAL = (
         0.0,
         ENTRANCE_SCHEDULES["h2_raman_6ps"][-1],
         None,
-        (1, 16384, 32768),
+        (1, 18432, 36864),
         "docs/examples/processes/plot_05_raman_self_frequency_shift.py; 6 ps window",
     ),
     Case(
         "he_rdw_averaged",
-        1,
+        2,
         ("mode-averaged",),
         "capillary",
         (*ADAPTIVE, FIXED),
@@ -300,12 +309,12 @@ _MODAL = (
         0.0,
         ENTRANCE_SCHEDULES["he_rdw_averaged"][-1],
         None,
-        (1, 4096, 8192),
+        (1, 5120, 10240),
         "benchmarks/cases.py:rdw; benchmarks/sep25/cases.py averaged route",
     ),
     Case(
         "argon_blueshift_averaged",
-        1,
+        2,
         ("mode-averaged",),
         "capillary",
         (*ADAPTIVE, FIXED),
@@ -313,12 +322,12 @@ _MODAL = (
         0.0,
         ENTRANCE_SCHEDULES["argon_blueshift_averaged"][-1],
         None,
-        (1, 2048, 4096),
+        (1, 1536, 3072),
         "docs/examples/processes/plot_06_ionisation_blue_shift.py",
     ),
     Case(
         "h2_raman_6ps_averaged",
-        1,
+        2,
         ("mode-averaged",),
         "capillary",
         (*ADAPTIVE, FIXED),
@@ -326,12 +335,12 @@ _MODAL = (
         0.0,
         ENTRANCE_SCHEDULES["h2_raman_6ps_averaged"][-1],
         None,
-        (1, 16384, 32768),
+        (1, 18432, 36864),
         "docs/examples/processes/plot_05_raman_self_frequency_shift.py; 6 ps window",
     ),
     Case(
         "gnlse_soliton",
-        1,
+        2,
         ("mode-averaged",),
         "gnlse",
         (*ADAPTIVE, FIXED),
@@ -339,12 +348,12 @@ _MODAL = (
         0.0,
         ENTRANCE_SCHEDULES["gnlse_soliton"][-1],
         None,
-        (1, 4096, 4096),
+        (1, 3072, 3072),
         "docs/introduction/tutorials/plot_02_soliton.py",
     ),
     Case(
         "gnlse_raman_shock",
-        1,
+        2,
         ("mode-averaged",),
         "gnlse",
         (*ADAPTIVE, FIXED),
@@ -360,7 +369,7 @@ _MODAL = (
 _FREE = (
     Case(
         "radial_filament_512",
-        1,
+        2,
         ("free-space",),
         "spatial",
         (*ADAPTIVE, FIXED),
@@ -368,13 +377,13 @@ _FREE = (
         0.0,
         ENTRANCE_SCHEDULES["radial_filament_512"][-1],
         None,
-        (512, 1024, 2048),
+        (512, 864, 1728),
         "benchmarks/sep16/free_space.py:radial_filament_large",
         atol=0.0,
     ),
     Case(
         "cartesian_filament_128",
-        1,
+        2,
         ("free-space",),
         "spatial",
         (*ADAPTIVE, FIXED),
@@ -382,13 +391,13 @@ _FREE = (
         0.0,
         ENTRANCE_SCHEDULES["cartesian_filament_128"][-1],
         None,
-        (128, 128, 1024, 2048),
+        (128, 128, 864, 1728),
         "benchmarks/sep16/free_space.py:cartesian_filament_large",
         atol=0.0,
     ),
     Case(
         "cartesian_filament_256",
-        1,
+        2,
         ("free-space",),
         "spatial",
         (*ADAPTIVE, FIXED),
@@ -396,7 +405,7 @@ _FREE = (
         0.0,
         ENTRANCE_SCHEDULES["cartesian_filament_256"][-1],
         None,
-        (256, 256, 1024, 2048),
+        (256, 256, 864, 1728),
         "benchmarks/sep28/cases.py:cartesian_filament_256",
         atol=0.0,
     ),
@@ -440,7 +449,7 @@ _FREE = (
     ),
     Case(
         "line",
-        1,
+        2,
         ("free-space",),
         "spatial",
         (*ADAPTIVE, FIXED),
@@ -448,13 +457,13 @@ _FREE = (
         0.0,
         ENTRANCE_SCHEDULES["line"][-1],
         None,
-        (128, 512, 1024),
+        (128, 576, 1152),
         "benchmarks/sep16/free_space.py:line",
         atol=0.0,
     ),
     Case(
         "planar",
-        1,
+        2,
         ("free-space",),
         "spatial",
         (*ADAPTIVE, FIXED),
@@ -462,13 +471,13 @@ _FREE = (
         0.0,
         ENTRANCE_SCHEDULES["planar"][-1],
         None,
-        (2, 32, 512, 512),
+        (2, 32, 384, 384),
         "benchmarks/sep16/free_space.py:planar",
         atol=0.0,
     ),
     Case(
         "spatial_absorber",
-        1,
+        2,
         ("free-space",),
         "spatial",
         (*ADAPTIVE, FIXED),
@@ -476,7 +485,7 @@ _FREE = (
         0.0,
         ENTRANCE_SCHEDULES["spatial_absorber"][-1],
         None,
-        (64, 512, 1024),
+        (64, 576, 1152),
         "benchmarks/sep16/free_space.py:radial_boundary",
         atol=0.0,
     ),
@@ -488,14 +497,14 @@ _GUIDE_WARNINGS = {
             "construction",
             "SolpropWarning",
             "the temporal absorber attenuates a packet walking off by 0\\.15"
-            " fs over 0\\.0002 m by only 0\\.00065 nepers, below the 6\\.9 "
+            " fs over 0\\.0002 m by only 0\\.00035 nepers, below the 6\\.9 "
             "that stops it wrapping around the time window; widen trange, "
-            "or raise boundary_N above 2\\.12e\\+05",
+            "or raise boundary_N above 3\\.93e\\+05",
         ),
         WarningRule(
             "construction",
             "GrazingIncidenceWarning",
-            "the coherent wall block's quasi_static reaches 0\\.0449, within"
+            "the coherent wall block's quasi_static reaches 0\\.04525, within"
             " a factor ten of the 0\\.25 limit; the condensed paraxial model"
             " is marginal over this band",
         ),
@@ -505,14 +514,14 @@ _GUIDE_WARNINGS = {
             "construction",
             "SolpropWarning",
             "the temporal absorber attenuates a packet walking off by "
-            "0\\.141 fs over 0\\.0002 m by only 0\\.00069 nepers, below the "
+            "0\\.141 fs over 0\\.0002 m by only 0\\.00037 nepers, below the "
             "6\\.9 that stops it wrapping around the time window; widen "
-            "trange, or raise boundary_N above 2e\\+05",
+            "trange, or raise boundary_N above 3\\.7e\\+05",
         ),
         WarningRule(
             "construction",
             "GrazingIncidenceWarning",
-            "the coherent wall block's quasi_static reaches 0\\.06069, "
+            "the coherent wall block's quasi_static reaches 0\\.06117, "
             "within a factor ten of the 0\\.25 limit; the condensed paraxial"
             " model is marginal over this band",
         ),
@@ -522,9 +531,9 @@ _GUIDE_WARNINGS = {
             "construction",
             "SolpropWarning",
             "the temporal absorber attenuates a packet walking off by 0\\.19"
-            " fs over 0\\.0002 m by only 0\\.00051 nepers, below the 6\\.9 "
+            " fs over 0\\.0002 m by only 0\\.00028 nepers, below the 6\\.9 "
             "that stops it wrapping around the time window; widen trange, "
-            "or raise boundary_N above 2\\.69e\\+05",
+            "or raise boundary_N above 4\\.99e\\+05",
         ),
     ),
     "taper_wall": (
@@ -532,14 +541,14 @@ _GUIDE_WARNINGS = {
             "construction",
             "SolpropWarning",
             "the temporal absorber attenuates a packet walking off by 0\\.19"
-            " fs over 0\\.0002 m by only 0\\.00051 nepers, below the 6\\.9 "
+            " fs over 0\\.0002 m by only 0\\.00028 nepers, below the 6\\.9 "
             "that stops it wrapping around the time window; widen trange, "
-            "or raise boundary_N above 2\\.69e\\+05",
+            "or raise boundary_N above 4\\.99e\\+05",
         ),
         WarningRule(
             "construction",
             "GrazingIncidenceWarning",
-            "the coherent wall block's quasi_static reaches 0\\.05613, "
+            "the coherent wall block's quasi_static reaches 0\\.05657, "
             "within a factor ten of the 0\\.25 limit; the condensed paraxial"
             " model is marginal over this band",
         ),
@@ -554,7 +563,7 @@ _ADVANCED = (
     *(
         Case(
             name,
-            1,
+            2,
             ("advanced",),
             "advanced",
             (*ADAPTIVE, FIXED),
@@ -562,7 +571,7 @@ _ADVANCED = (
             0.0,
             ENTRANCE_SCHEDULES[name][-1],
             2e-5,
-            (4 if name == "vector_wall" else 3, 1024, 2048),
+            (4 if name == "vector_wall" else 3, 864, 1728),
             f"docs/tutorials/capillaries/{source}",
             warnings=_GUIDE_WARNINGS[name],
         )
@@ -576,7 +585,7 @@ _ADVANCED = (
     *(
         Case(
             name,
-            1,
+            1 if name == "grin_linear" else 2,
             ("advanced",),
             "advanced",
             (*ADAPTIVE, FIXED),
@@ -592,7 +601,7 @@ _ADVANCED = (
             (
                 "step_index_pair",
                 1e-3,
-                (2, 1024, 2048),
+                (2, 648, 1296),
                 "benchmarks/sep25/cases.py:_general",
             ),
             (
@@ -604,13 +613,13 @@ _ADVANCED = (
             (
                 "grin_nonlinear",
                 0.1,
-                (4, 4096, 8192),
+                (4, 3072, 6144),
                 "docs/examples/waveguides/plot_04_graded_index_multimode.py",
             ),
             (
                 "moving_solid_guide",
                 0.015,
-                (2, 2048, 4096),
+                (2, 2560, 5120),
                 "docs/examples/waveguides/plot_05_moving_solid_guide.py",
             ),
         )
@@ -620,7 +629,7 @@ _ADVANCED = (
 CASES = {case.name: case for case in (*_CORE, *_MODAL, *_FREE, *_ADVANCED)}
 CASES["smoke"] = Case(
     "smoke",
-    1,
+    2,
     (),
     "smoke",
     (*ADAPTIVE, FIXED),
@@ -633,7 +642,7 @@ CASES["smoke"] = Case(
 )
 CASES["batch"] = Case(
     "batch",
-    1,
+    2,
     ("backend-exercise",),
     "batch",
     (FIXED,),
@@ -641,7 +650,7 @@ CASES["batch"] = Case(
     0.0,
     1e-3,
     1e-4,
-    (2, 1, 1024, 1024),
+    (2, 1, 640, 640),
     "tests/backends/test_batch_lockstep.py:simulation; ten fixed RK steps",
 )
 
@@ -651,7 +660,7 @@ for _name, _length, _dimensions, _source in (
     (
         "vector_raman",
         2e-4,
-        (1, 2, 256, 256),
+        (1, 2, 192, 192),
         "tests/vector_raman_cases.py and vector Raman tutorial",
     ),
     (
@@ -663,56 +672,56 @@ for _name, _length, _dimensions, _source in (
     (
         "mixture_gradient",
         1.5,
-        (1, 1, 512, 1024),
+        (1, 1, 576, 1152),
         "docs/guide/media/mixtures.md; capillary interface case",
     ),
     (
         "dispersive_kerr",
         0.5,
-        (1, 1, 2048, 4096),
+        (1, 1, 1536, 3072),
         "docs/tutorials/capillaries/plot_11_dispersive_kerr.py",
     ),
     (
         "plasma_band",
         1e-3,
-        (2, 1, 512, 1024),
+        (2, 1, 576, 1152),
         "tests/backends/test_band_plasma_parity.py:modal",
     ),
     (
         "plasma_trapezoid",
         1e-3,
-        (2, 1, 512, 1024),
+        (2, 1, 576, 1152),
         "tests/backends/test_band_plasma_parity.py:modal",
     ),
     (
         "noise",
         1e-3,
-        (1, 1, 1024, 1024),
+        (1, 1, 768, 768),
         "tests/backends/test_batch_lockstep.py:simulation",
     ),
-    ("dense_output", 1.0, (1, 1, 1024, 1024), "tests/backends/test_dense_output.py"),
+    ("dense_output", 1.0, (1, 1, 768, 768), "tests/backends/test_dense_output.py"),
     (
         "absorber_schemes",
         1e-3,
-        (1, 1, 1024, 1024),
+        (1, 1, 768, 768),
         "tests/backends/test_batch_lockstep.py:simulation",
     ),
     (
         "ordinary_stats",
         1e-3,
-        (2, 1, 512, 1024),
+        (2, 1, 576, 1152),
         "tests/driver/test_prop_capillary.py:build",
     ),
     (
         "far_field_stats",
         1e-3,
-        (224, 64, 128, 128),
+        (224, 64, 160, 160),
         "docs/tutorials/free_space/plot_07_far_field_statistics.py",
     ),
 ):
     CASES[_name] = Case(
         _name,
-        1,
+        1 if _name == "envelope_plasma" else 2,
         ("backend-exercise",),
         "exercise",
         ADAPTIVE if _name == "dense_output" else (*ADAPTIVE, FIXED),

@@ -19,6 +19,7 @@ from numpy.testing import assert_allclose
 
 from backends.test_free_ladders import amplitude_bound
 from bounds import EPS, gamma
+from legacy_geometry import LEGACY_GRID, bare_absorber
 from solprop.backends.bodies import PLAIN
 from solprop.backends.driver import StepDriver
 from solprop.backends.numba_cpu.kernels import HOST
@@ -56,7 +57,10 @@ def test_a_zero_rate_is_todays_element_exactly(propagating, active):
 def column_run(backend, *, collar, schedule, rtol=1e-6):
     """A linear vacuum Cartesian run, its launch and its end, with `collar`."""
     length = 1e-3
-    grid = EnvelopeGrid.from_limits(length, 800e-9, (700e-9, 950e-9), 150e-15)
+    # The former grid and no temporal collar: the subject is the transverse one.
+    grid = EnvelopeGrid.from_limits(
+        length, 800e-9, (700e-9, 950e-9), 150e-15, **LEGACY_GRID
+    )
     # A coarse grid: every column propagates, so vacuum attenuates nothing else.
     space = FreeGrid(4e-4, 16, 3e-4, 12, window_factor=0)
     pulse = SpatialPulse(
@@ -73,6 +77,7 @@ def column_run(backend, *, collar, schedule, rtol=1e-6):
         integrator=RungeKutta(),
         backend=backend,
         transverse_absorber=collar,
+        absorber=bare_absorber(grid),
     )
     simulation = Simulation.from_free(
         grid, space, SpatialMedium(), [], pulse, settings=settings
@@ -144,8 +149,9 @@ def test_the_rate_never_reaches_the_noise_phase(backend):
 def collared_problem(steps):
     """A ten-step Cartesian Kerr problem with a transverse collar and its grid."""
     length = 1e-4
+    # The former grid and no temporal collar, as in column_run.
     grid = EnvelopeGrid.from_limits(
-        length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
+        length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False, **LEGACY_GRID
     )
     space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0.1)
     pulse = SpatialPulse(
@@ -169,6 +175,7 @@ def collared_problem(steps):
             backend="numpy_ref",
             transverse_absorber=TransverseCollar(2e4, fraction=0.3),
             evanescent_rate=5e3,
+            absorber=bare_absorber(grid),
         ),
     )
     return grid, space, simulation.translate(), length

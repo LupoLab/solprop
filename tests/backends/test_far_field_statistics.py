@@ -22,6 +22,7 @@ from scipy import integrate
 from backends import test_batch_lockstep as lockstep
 from backends.planar_cases import planar_case
 from bounds import assert_within, gamma
+from legacy_geometry import bare_absorber
 from solprop.backends import registry, select
 from solprop.backends.batch import LockstepRunner
 from solprop.backends.registry import statistics_refusal
@@ -76,7 +77,8 @@ def free_simulation(grid, space, launch, *, medium=None, spec=None, **settings):
         "save_planes": [1e-4],
         "dz_max": 1e-4,
         "dz_init": 1e-4,
-        "absorber": None,
+        # No collar unless declared, as an undeclared absorber meant before SEP 21.
+        "absorber": bare_absorber(grid),
         "backend": "numpy_ref",
         "integrator": RungeKutta(),
         "stats": far_spec() if spec is None else spec,

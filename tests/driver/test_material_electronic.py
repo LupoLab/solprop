@@ -140,6 +140,9 @@ GNLSE: dict[str, Any] = {
     "pulseshape": "sech",
     "shock": False,
     "schedule": FixedSchedule(np.full(STEPS, 1e-3 / STEPS)),
+    # No collar: ten fixed steps are refused beside the default one, and these tests
+    # are about the material policy, not boundaries.
+    "absorber": False,
     "n_save": 2,
     "backend": "numpy_ref",
 }

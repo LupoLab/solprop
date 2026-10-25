@@ -163,8 +163,13 @@ def dispersive() -> Simulation:
     )
 
 
-def fiber(index: int = 0, *, noise: bool = False) -> Simulation:
-    """Keep one member of the lockstep fixture, including its periodic statistics."""
+def fiber(index: int = 0, *, noise: bool = False, collar: bool = True) -> Simulation:
+    """Keep one member of the lockstep fixture, including its periodic statistics.
+
+    ``collar=False`` builds the member without the temporal and spectral collars,
+    for the batch case, whose fixed 0.1 mm steps the default collar would make
+    unstable (SEP 21 refuses such a schedule).
+    """
     return Simulation.from_gnlse(
         0.11 * (index + 1),
         1e-3,
@@ -179,6 +184,7 @@ def fiber(index: int = 0, *, noise: bool = False) -> Simulation:
         noise="modified" if noise else None,
         seed=index + 13 if noise else None,
         backend="numpy_ref",
+        absorber=None if collar else False,
     )
 
 

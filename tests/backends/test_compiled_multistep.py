@@ -17,12 +17,14 @@ import numpy as np
 import pytest
 
 from bounds import assert_within
+from legacy_geometry import LEGACY_GRID
 from solprop.backends import available
 from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import absorber
 from solprop.driver.simulation import Simulation, SimulationSettings
 from solprop.exceptions import DriverError
+from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.noise import modified_noise
 from solprop.stepper import PIController
 from solprop.stepper.multistep import ComparisonMultistep, Multistep
@@ -177,6 +179,13 @@ def test_numba_sources_the_analytic_field_and_the_envelope_plasma(route):
     # families: the analytic signal of a field without THG, and the envelope with its
     # plasma assembly. One evaluation is compared, at a field that reaches into the
     # temporal collar: whole runs part by round-off in the discrete order choice.
+    # The former grid, on which the tolerance below was measured.
+    limits = (0.01, 800e-9, (200e-9, 2e-6), 100e-15)
+    grid = (
+        EnvelopeGrid.from_limits(*limits, thg=False, **LEGACY_GRID)
+        if route.get("envelope")
+        else FieldGrid.from_limits(*limits, **LEGACY_GRID)
+    )
     simulation = Simulation.from_capillary(
         150e-6,
         0.01,
@@ -185,8 +194,7 @@ def test_numba_sources_the_analytic_field_and_the_envelope_plasma(route):
         lambda0=800e-9,
         fwhm=10e-15,
         energy=5e-5,
-        trange=100e-15,
-        wavelength_limits=(200e-9, 2e-6),
+        grid=grid,
         n_save=2,
         noise=None,
         integrator=Multistep(formulation="interaction"),

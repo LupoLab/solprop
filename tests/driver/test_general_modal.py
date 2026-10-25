@@ -34,6 +34,7 @@ import pytest
 from numpy.testing import assert_allclose
 
 from bounds import departure
+from legacy_geometry import LEGACY_GRID
 from march_bounds import (
     FIXED_ORDER,
     STATISTIC_FACTOR,
@@ -1162,7 +1163,7 @@ def test_an_hdf5_file_carries_the_labels_and_the_identities(guide, grid, tmp_pat
     simulation = build(guide, grid)
     simulation.run(path, progress="none")
     stored = resume(path).metadata
-    assert stored.schema_version == 25
+    assert stored.schema_version == 26
     assert stored.modal is not None
     assert dict(stored.modal)["basis"] == "general_modal"
     labels = [dict(one.label) for one in stored.modes if one.label is not None]
@@ -1483,10 +1484,15 @@ WEAK_COMMON = {
 
 @pytest.fixture(scope="module")
 def weak():
-    """The weakly guiding system: two grids, one guide band, and the coefficients."""
-    field_grid = FieldGrid.from_limits(GENERAL_Z_END, 835e-9, WEAK_WINDOW, WEAK_TRANGE)
+    """The weakly guiding system: two grids, one guide band, and the coefficients.
+
+    On the former grid geometry, on which the departures quoted here were measured.
+    """
+    field_grid = FieldGrid.from_limits(
+        GENERAL_Z_END, 835e-9, WEAK_WINDOW, WEAK_TRANGE, **LEGACY_GRID
+    )
     envelope_grid = EnvelopeGrid.from_limits(
-        GENERAL_Z_END, 835e-9, WEAK_WINDOW, WEAK_TRANGE
+        GENERAL_Z_END, 835e-9, WEAK_WINDOW, WEAK_TRANGE, **LEGACY_GRID
     )
     # One guide serves both routes, so its knots must cover the union of the two
     # grids' active bands: each starts at half its own lowest declared frequency.

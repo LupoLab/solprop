@@ -556,9 +556,11 @@ def test_the_ctc_keywords_build_the_case_luna_runs(luna):
     kinds = [type(response).__name__ for response in simulation.responses]
     raman = "RamanResponse" if luna else "OptmatRamanResponse"
     assert kinds == ["KerrResponse", "PlasmaResponse", raman]
-    # The realised grid is Luna's, bin for bin: 32768 samples on 16385 bins, which is
-    # the case `docs/dev/architecture.md` section 8 sizes at 1.6 MB a field.
-    assert (simulation.grid.n_t, simulation.grid.n_omega) == (32768, 16385)
+    # The realised grid is solprop's default for these keywords: the 4 ps request
+    # widened so that the temporal collar lies outside it, on the cheapest smooth
+    # transform size. Luna's own grid, 32768 samples on 16385 bins, is the witness
+    # grid (`WITNESS_GRID_RULES`), which the stored comparisons are run on.
+    assert (simulation.grid.n_t, simulation.grid.n_omega) == (27648, 13825)
 
 
 def test_the_ctc_keywords_select_optmats_rate_unless_the_comparison_rate_is_given():
@@ -1718,7 +1720,12 @@ TEST_BACKEND = selected_backend()
 # input a comparison with one depends on is stated in the run compared, and a change of
 # a solprop default cannot move what is compared. These are the inputs such a run would
 # otherwise take from a default, each today's default.
-WITNESS_GRID_RULES = {"ffac": 6.0, "fft_size": "pow2", "collar_fraction": 0.05}
+WITNESS_GRID_RULES = {
+    "ffac": 6.0,
+    "fft_size": "pow2",
+    "collar_fraction": 0.05,
+    "collar_placement": "inside",
+}
 """The field-grid rules every witness grid is built with; they realise Luna's axes."""
 
 

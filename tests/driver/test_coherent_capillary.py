@@ -32,6 +32,7 @@ from scipy.special import jn_zeros, jv
 
 import solprop.translate.problem as problem_module
 from bounds import assert_within, fft_bound, gamma, step_evaluations
+from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER
 from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
 from solprop.backends import available
@@ -59,7 +60,7 @@ from solprop.exceptions import (
     SolpropWarning,
     TranslationError,
 )
-from solprop.grid import FieldGrid, RadialGrid
+from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.linear import DEFAULT_LOSS_POLICY
 from solprop.modes import (
     CoherentWall,
@@ -123,8 +124,12 @@ LENGTH = 2e-4
 STEPS = 10
 """Steps of the fixed schedule, over a fifth of a millimetre."""
 
-GRID = FieldGrid.from_limits(LENGTH, 800e-9, (400e-9, 1.6e-6), 300e-15)
-"""One grid for every case here, so that a launch can be built against it."""
+GRID = FieldGrid.from_limits(LENGTH, 800e-9, (400e-9, 1.6e-6), 300e-15, **LEGACY_GRID)
+"""One grid for every case here, so that a launch can be built against it.
+
+The former geometry: the records here were made on it, and nothing here is about
+the temporal window.
+"""
 
 WEAK_COLLAR = absorber(GRID, boundary_length=1.0e3)
 """A collar five million times weaker than the default one.
@@ -494,7 +499,7 @@ def test_the_route_records_its_flow_on_the_schema_seven_identity():
     assert record["residual_norm_bound"] == 0.0
     assert record["radius"] == RADIUS
     assert 0.0 < float(cast("float", record["quasi_static"])) < 0.25
-    assert metadata.schema_version == 25
+    assert metadata.schema_version == 26
     assert capability_of(metadata) == "modal"
     assert "mean impedance coherent wall" in str(metadata)
     # Nothing that is not a scalar reaches the resume key.
@@ -1389,11 +1394,18 @@ def legacy_capillary_keywords(backend):
 
 
 def legacy_gnlse_keywords(backend):
-    """Return the keywords of the ten-step GNLSE run of the soliton case."""
+    """Return the keywords of the ten-step GNLSE run of the soliton case.
+
+    On the grid it was recorded on and without a collar, as the run was before
+    the default collar: the record is of that march.
+    """
+    grid = EnvelopeGrid.from_limits(
+        LEGACY_LENGTH, 835e-9, (500e-9, 2e-6), 1e-12, **LEGACY_GRID
+    )
     return {
         "lambda0": 835e-9,
-        "wavelength_limits": (500e-9, 2e-6),
-        "trange": 1e-12,
+        "grid": grid,
+        "absorber": bare_absorber(grid),
         "width": 100e-15,
         "peak_power": 9.8,
         "pulseshape": "sech",

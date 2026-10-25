@@ -48,6 +48,7 @@ from backends.planar_cases import CASES, planar_case
 from backends.test_planar_hybrid import HALF_GAP, LENGTH
 from backends.test_radial_nonlinear import derivative
 from bounds import assert_within, gamma, step_evaluations
+from legacy_geometry import LEGACY_GRID, bare_absorber
 from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numba_cpu import fft as numba_fft
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -75,7 +76,9 @@ pytestmark = [
 
 EPS = np.finfo(float).eps
 UNIT = EPS / 2
-FRONT_GRID = EnvelopeGrid.from_limits(LENGTH, 800e-9, (650e-9, 1000e-9), 600e-15)
+FRONT_GRID = EnvelopeGrid.from_limits(
+    LENGTH, 800e-9, (650e-9, 1000e-9), 600e-15, **LEGACY_GRID
+)
 """Slice D1's front-end grid (``tests/driver/test_prop_planar.py``)."""
 PLASMA_CASES = ("field-plasma", "envelope-plasma")
 FIELD_STATISTICS = (
@@ -463,6 +466,7 @@ def test_prop_planar_runs_on_numba_as_on_the_reference():
             schedule=FixedSchedule(np.full(10, LENGTH / 10)),
             backend=backend,
             stats=default_spec("free"),
+            absorber=bare_absorber(FRONT_GRID),
         )
         outputs[backend] = prop_planar(
             FRONT_GRID, space, responses, launch, settings=settings, progress="none"

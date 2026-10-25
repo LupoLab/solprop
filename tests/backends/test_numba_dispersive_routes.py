@@ -35,6 +35,7 @@ import pytest
 
 from backends.matched import fixed_order
 from bounds import assert_within, gamma, step_evaluations
+from legacy_geometry import LEGACY_GRID, bare_absorber
 from modal_provider_cases import GENERAL_Z_END, WAVELENGTH, general_grid
 from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numba_cpu.dispersive import DISPERSIVE_LEDGER_ROWS
@@ -142,7 +143,9 @@ def planar_problem(
     `absorbed` adds a temporal collar in the in-stage scheme, whose term reads the
     block's bare rows after the material.
     """
-    grid = FieldGrid.from_limits(PLANAR_LENGTH, 800e-9, (200e-9, 3e-6), 100e-15)
+    grid = FieldGrid.from_limits(
+        PLANAR_LENGTH, 800e-9, (200e-9, 3e-6), 100e-15, **LEGACY_GRID
+    )
     modes = [SlabMode(HALF_GAP, "Ar", 2.0, order=p, loss=False) for p in (1, 3)]
     pulse = PlanarPulse(
         GaussianPulse(wavelength=800e-9, fwhm=15e-15, energy=2e-4),
@@ -158,7 +161,9 @@ def planar_problem(
         backend="numpy_ref",
         stats=StatsSpec(names=("energy",)),
         integrator=Multistep() if integrator is None else integrator,
-        absorber=absorber(grid, boundary_length=1.0e3) if absorbed else None,
+        absorber=(
+            absorber(grid, boundary_length=1.0e3) if absorbed else bare_absorber(grid)
+        ),
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", SolpropWarning)

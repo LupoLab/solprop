@@ -23,6 +23,7 @@ import pytest
 
 from convergence_records import Column, Study, record
 from driver.test_prop_capillary import build
+from legacy_geometry import LEGACY_GRID
 from solprop.driver import prop_capillary
 from solprop.exceptions import (
     BackendError,
@@ -106,7 +107,11 @@ PLASMA_BAND_TEN_STEP = Study(
 def _run(gas, ffac, *, plasma, integration=None):
     """Return the exit spectrum and the run of one ten-step propagation."""
     length, limits, pressure, energy, seeds = CASES[gas]
-    grid = FieldGrid.from_limits(length, 800e-9, limits, 400e-15, ffac=ffac)
+    # The former geometry: a power-of-two transform nests the refinements' grids,
+    # which the Richardson reference needs, and the record was made on it.
+    grid = FieldGrid.from_limits(
+        length, 800e-9, limits, 400e-15, ffac=ffac, **LEGACY_GRID
+    )
     pulses = [GaussianPulse(wavelength=800e-9, fwhm=1.3e-15, energy=energy)] + [
         GaussianPulse(wavelength=seed, fwhm=4e-15, energy=energy * 2e-4)
         for seed in seeds

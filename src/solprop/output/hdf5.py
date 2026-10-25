@@ -741,7 +741,7 @@ class HDF5Output(PlaneStore):
     ...     shape = handler["field"].shape
     ...     handler.close()
     >>> shape
-    (1, 1, 1, 2048)
+    (1, 1, 1, 2560)
     """
 
     def __init__(
@@ -2158,6 +2158,6 @@ def open_file(path: Path | str) -> HDF5Output:
     ...     with open_file(Path(folder) / "run.h5") as stored:
     ...         shape, planes = stored["field"].shape, stored.n_saved
     >>> shape, planes, stored.closed
-    ((1, 1, 1, 2048), 1, True)
+    ((1, 1, 1, 2560), 1, True)
     """
     return HDF5Output(path, readonly=True)

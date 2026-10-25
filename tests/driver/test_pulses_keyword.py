@@ -114,10 +114,12 @@ GNLSE = {
 
 
 def test_one_pulse_through_pulses_equals_the_scalar_keywords():
-    # On a prescribed schedule at a fixed order, so that the two runs are one march.
+    # On a prescribed schedule at a fixed order, so that the two runs are one march,
+    # and without the collar, which refuses ten fixed steps.
     prescribed = {
         "schedule": FixedSchedule.uniform(0.0, 1e-4, 1e-5, save_planes=[]),
         "integrator": FIXED_ORDER,
+        "absorber": False,
     }
     scalar = prop_gnlse(
         **GNLSE,

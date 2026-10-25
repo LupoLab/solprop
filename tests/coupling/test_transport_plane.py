@@ -7,6 +7,7 @@
 import numpy as np
 import pytest
 
+from legacy_geometry import bare_absorber
 from solprop.coupling import (
     Aperture,
     FieldPlane,
@@ -57,6 +58,8 @@ def radial_run():
         dz_max=2e-4,
         dz_init=2e-4,
         backend="numpy_ref",
+        # The free-space transport applies no collar; nor does the run.
+        absorber=bare_absorber(grid),
     )
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 2.5e-5

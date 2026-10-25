@@ -11,10 +11,12 @@ import h5py
 import numpy as np
 import pytest
 
+from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER, assert_in_envelope, assert_matched, march_bound
 from solprop.backends.driver import StepDriver
 from solprop.backends.registry import select
 from solprop.exceptions import BackendError, DriverError, OutputError
+from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter
 from solprop.output import MemoryOutput
 from solprop.output.hdf5 import resume
@@ -85,11 +87,18 @@ def scheduled(build_simulation, **keywords):
 
     At the Adams method's fixed top order, so that a resume that continues the
     history is the same discrete computation as the uninterrupted run: the same steps,
-    orders and history, differing by rounding alone (SEP 25 section 4.4).
+    orders and history, differing by rounding alone (SEP 25 section 4.4). On the
+    former grid and without a collar: a short fixed schedule is refused beside the
+    default collar, and these tests are about resuming, not boundaries.
     """
     planes = np.linspace(0.0, LENGTH, N_SAVE)[1:]
+    grid = EnvelopeGrid.from_limits(
+        LENGTH, 835e-9, (500e-9, 2e-6), 1e-12, **LEGACY_GRID
+    )
     return build_simulation(
         length=LENGTH,
+        grid=grid,
+        absorber=bare_absorber(grid),
         n_save=N_SAVE,
         schedule=FixedSchedule.uniform(
             0.0, LENGTH, LENGTH / 40, save_planes=list(planes)

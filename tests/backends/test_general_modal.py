@@ -28,6 +28,7 @@ import pytest
 from numpy.testing import assert_allclose
 
 from bounds import assert_within, fft_bound, higham_gamma
+from legacy_geometry import LEGACY_GRID
 from modal_provider_cases import (
     GENERAL_CHI3 as CHI3,
 )
@@ -409,7 +410,10 @@ def harmonic_strand():
     """
     return strand_case(
         (("HE", 1, 1, "even"),),
-        grid=FieldGrid.from_limits(Z_END, 835e-9, (250e-9, 860e-9), 60e-15),
+        # The former geometry: the knots were chosen against its frequency samples.
+        grid=FieldGrid.from_limits(
+            Z_END, 835e-9, (250e-9, 860e-9), 60e-15, **LEGACY_GRID
+        ),
         # The band spans a factor seven in frequency where the shared case spans
         # 1.1, and the table's own held-out accuracy gate refuses nine knots there.
         knots=25,

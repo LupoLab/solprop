@@ -30,6 +30,7 @@ import pytest
 
 from driver.test_specified_paths import GRID, PULSE, linear_walkoff
 from driver.test_specified_paths import LENGTH as FIBRE_LENGTH
+from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import (
     FIXED_ORDER,
     TIGHTER,
@@ -41,7 +42,7 @@ from optmat_parity_cases import variant
 from solprop.backends import Backend, select, select_batch
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import MaterialRangeWarning
-from solprop.grid import EnvelopeGrid, RadialGrid
+from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.nonlinear.responses import KerrResponse
 from solprop.physdata import Mixture, gamma3
 from solprop.profiles import Linear, PiecewiseLinear
@@ -115,8 +116,8 @@ def test_a_multimode_taper_without_its_coupling(integrator):
         lambda0=800e-9,
         fwhm=10e-15,
         energy=1e-9,
-        wavelength_limits=(90e-9, 3e-6),
-        trange=250e-15,
+        # The former grid, on which the operator's expansion does not resolve.
+        grid=FieldGrid.from_limits(1.0, 800e-9, (90e-9, 3e-6), 250e-15, **LEGACY_GRID),
         modes=4,
         n_save=2,
         schedule=FixedSchedule(np.full(STEPS, 1.0 / STEPS)),
@@ -133,7 +134,9 @@ def test_a_radial_run_through_three_independent_species(integrator):
     # Three density paths exceed the two-parameter expansion on the radial route, so
     # both the operator and the prefactor take the z table.
     length = 1e-2
-    grid = EnvelopeGrid.from_limits(length, 800e-9, (400e-9, 2e-6), 200e-15)
+    grid = EnvelopeGrid.from_limits(
+        length, 800e-9, (400e-9, 2e-6), 200e-15, **LEGACY_GRID
+    )
     fill = Mixture.fill({"He": 0.4, "Ar": 0.3, "Ne": 0.3}, 1.0)
     fill = fill.with_densities(
         {
@@ -158,6 +161,8 @@ def test_a_radial_run_through_three_independent_species(integrator):
             schedule=FixedSchedule(np.full(STEPS, length / STEPS)),
             integrator=integrator,
             backend="numpy_ref",
+            # No collar: ten fixed steps are refused beside the default one.
+            absorber=bare_absorber(grid),
         ),
     )
     problem = simulation.translate()
@@ -194,6 +199,8 @@ def fibre(index, backend):
         schedule=schedule,
         integrator=RungeKutta(),
         backend=backend,
+        # No collar: four fixed steps are refused beside the default one.
+        absorber=False,
         **GRID,
         **PULSE,
     )
@@ -300,5 +307,7 @@ def test_the_noise_is_advanced_by_the_tables_phase(integrator):
         schedule=schedule,
         noise="modified",
         seed=3,
+        # No collar: ten fixed steps are refused beside the default one.
+        absorber=False,
     )
     assert_native_matches(simulation)

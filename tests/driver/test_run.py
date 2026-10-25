@@ -11,6 +11,7 @@ import h5py
 import numpy as np
 import pytest
 
+from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import (
     FIXED_ORDER,
     PRESCRIBED,
@@ -24,6 +25,7 @@ from solprop.backends.registry import select
 from solprop.driver import Simulation, SimulationSettings, metadata_for, run_problem
 from solprop.driver.run import plane_from_observation
 from solprop.exceptions import DriverError
+from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter
 from solprop.nonlinear.gnlse import problem_from
 from solprop.output import HDF5Output, MemoryOutput
@@ -59,6 +61,18 @@ STORED_ROW_COLUMNS = (
 )
 
 
+def bare(length):
+    """Return the soliton fibre's former grid and no collar, as keywords.
+
+    A short fixed schedule is refused beside the default collar, and these tests
+    are about the run loop, not boundaries.
+    """
+    grid = EnvelopeGrid.from_limits(
+        length, 835e-9, (500e-9, 2e-6), 1e-12, **LEGACY_GRID
+    )
+    return {"grid": grid, "absorber": bare_absorber(grid)}
+
+
 def matched(build_simulation, **keywords):
     """Return the soliton run on a prescribed schedule at the fixed Adams order.
 
@@ -69,7 +83,9 @@ def matched(build_simulation, **keywords):
     schedule = FixedSchedule.uniform(
         0.0, planes[-1], planes[-1] / 40, save_planes=planes
     )
-    return build_simulation(schedule=schedule, integrator=FIXED_ORDER, **keywords)
+    return build_simulation(
+        schedule=schedule, integrator=FIXED_ORDER, **bare(planes[-1]), **keywords
+    )
 
 
 class Recorder(NullReporter):
@@ -343,6 +359,7 @@ def test_a_step_too_coarse_for_its_tolerance_is_logged_with_its_plane(
             0.0, length, length / 4, save_planes=[length / 2]
         ),
         rtol=1e-12,
+        **bare(length),
     )
     with caplog.at_level(logging.WARNING, logger="solprop.driver.run"):
         simulation.run()

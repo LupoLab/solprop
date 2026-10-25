@@ -19,7 +19,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from record_numbers import assert_record_numbers, record_skeleton, skeleton_hash
+from legacy_geometry import LEGACY_GRID, bare_absorber
+from record_numbers import (
+    assert_record_numbers,
+    record_skeleton,
+    skeleton_hash,
+    without_sep21_absorber,
+)
 from solprop.boundaries import absorber, custom_absorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.grid import EnvelopeGrid, FreeGrid, RadialGrid
@@ -49,13 +55,15 @@ SKELETONS = {
 
 def spatial(kind: str) -> Simulation:
     """Return a small spatial run of the kind named, built from its public pieces."""
-    grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
+    grid = EnvelopeGrid.from_limits(
+        1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False, **LEGACY_GRID
+    )
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6), 60e-6
     )
     boundary = {
-        "radial": None,
-        "cartesian": None,
+        "radial": bare_absorber(grid),
+        "cartesian": bare_absorber(grid),
         "cartesian_absorber": absorber(grid),
         "custom_absorber": custom_absorber(grid, 0.0),
     }[kind]
@@ -94,20 +102,22 @@ def build(kind: str) -> Simulation:
             0.01,
             [0.0, 0.0, -1.183e-26],
             lambda0=835e-9,
-            wavelength_limits=(500e-9, 2e-6),
-            trange=1e-12,
+            grid=EnvelopeGrid.from_limits(
+                0.01, 835e-9, (500e-9, 2e-6), 1e-12, **LEGACY_GRID
+            ),
             width=100e-15,
             peak_power=9.8,
             pulseshape="sech",
             n_save=3,
             backend="numpy_ref",
+            absorber=False,
         )
     return spatial(kind)
 
 
 def split(kind: str):
     metadata = build(kind).metadata()
-    assert metadata.schema_version == SCHEMA_VERSION == 25
+    assert metadata.schema_version == SCHEMA_VERSION == 26
     # SEP 27 changes the global resume boundary, not these non-plasma records.
     # SEP 34 adds the plane measure to the spatial record (output schema 23); the
     # schema-21 projection leaves it out, and everything else must be unchanged.
@@ -130,7 +140,13 @@ def split(kind: str):
     historical = dataclasses.replace(
         metadata, schema_version=21, spatial=spatial, configuration=configuration
     )
-    return record_skeleton(without_optmat_release(historical.hashed()))
+    # SEP 21 records the absorber's spatial flag (output schema 26), and the runs that
+    # declared none record the bare boundaries that stand for it; the schema-21
+    # projection takes both back.
+    hashed = without_sep21_absorber(
+        historical.hashed(), bare=kind in ("modal", "radial", "cartesian")
+    )
+    return record_skeleton(without_optmat_release(hashed))
 
 
 @pytest.mark.parametrize("kind", sorted(SKELETONS))

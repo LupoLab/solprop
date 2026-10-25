@@ -648,6 +648,8 @@ def test_a_moving_dispersion_runs_on_the_native_backend(grid, integrator):
             backend=backend,
             schedule=FixedSchedule(np.full(10, LENGTH / 10)),
             integrator=integrator,
+            # No collar: ten fixed steps are refused beside the default one.
+            absorber=False,
             **GRID,
             **PULSE,
         )

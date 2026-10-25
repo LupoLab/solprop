@@ -13,6 +13,7 @@ from numpy.testing import assert_allclose
 
 from flux_oracles import admittance
 from hankel_oracles import gamma
+from legacy_geometry import LEGACY_GRID, bare_absorber
 from solprop.backends.registry import available
 from solprop.constants import EPS0, HBAR, C
 from solprop.driver import Simulation, SimulationSettings, prop_free
@@ -55,7 +56,9 @@ def free_case(request):
         if request.param == "field"
         else partial(EnvelopeGrid.from_limits, thg=False)
     )
-    grid = constructor(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15)
+    # The former grid and no collar: these tests are about the Cartesian route, and
+    # its exact linear flow is the reference.
+    grid = constructor(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, **LEGACY_GRID)
     space = FreeGrid(3e-4, 12, 4e-4, 16, window_factor=0)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 80e-6
@@ -66,6 +69,7 @@ def free_case(request):
         dz_max=grid.length,
         dz_init=grid.length,
         backend="numpy_ref",
+        absorber=bare_absorber(grid),
     )
     return grid, space, pulse, settings
 
@@ -324,7 +328,7 @@ def test_cartesian_resume_distinguishes_legacy_cutoff_arithmetic(free_case):
         grid, space, SpatialMedium(), [], pulse, settings=settings
     )
     current = simulation.metadata()
-    assert current.schema_version == 25
+    assert current.schema_version == 26
     assert current.configuration["spatial_arithmetic"] == "split-square-v1"
     legacy_configuration = dict(current.configuration)
     del legacy_configuration["spatial_arithmetic"]
@@ -339,7 +343,7 @@ LINE_WAVELENGTH = 800e-9
 LINE_K = 2 * np.pi / LINE_WAVELENGTH
 
 
-def _line_settings(length, planes, *, steps=None):
+def _line_settings(grid, length, planes, *, steps=None):
     return SimulationSettings(
         controller=PIController(rtol=1e-8, atol=1e-14),
         save_planes=planes,
@@ -352,6 +356,9 @@ def _line_settings(length, planes, *, steps=None):
         # them at order one.
         integrator=Multistep() if steps is None else RungeKutta(),
         backend="numpy_ref",
+        # No collar: the closed forms are lossless flows, and these tests are about
+        # the line, not boundaries.
+        absorber=bare_absorber(grid),
     )
 
 
@@ -368,7 +375,7 @@ def test_line_gaussian_diffracts_with_the_one_dimensional_closed_forms():
     waist = 100e-6
     rayleigh = LINE_K * waist**2 / 2
     grid = EnvelopeGrid.from_limits(
-        2 * rayleigh, LINE_WAVELENGTH, (780e-9, 820e-9), 2e-12, thg=False
+        2 * rayleigh, LINE_WAVELENGTH, (780e-9, 820e-9), 2e-12, thg=False, **LEGACY_GRID
     )
     assert grid.omega[0] == grid.omega0
     space = LineGrid(1.5e-3, 256, window_factor=0)
@@ -382,7 +389,7 @@ def test_line_gaussian_diffracts_with_the_one_dimensional_closed_forms():
         SpatialMedium(),
         [],
         pulse,
-        settings=_line_settings(2 * rayleigh, planes),
+        settings=_line_settings(grid, 2 * rayleigh, planes),
     )
     assert output.metadata is not None
     assert output.metadata.transverse_measure == "per_unit_width"
@@ -423,7 +430,7 @@ def test_line_focal_witness_of_pr_416():
     waist = 100e-6
     length = LINE_K * waist**2 / 2
     grid = EnvelopeGrid.from_limits(
-        length, LINE_WAVELENGTH, (780e-9, 820e-9), 2e-12, thg=False
+        length, LINE_WAVELENGTH, (780e-9, 820e-9), 2e-12, thg=False, **LEGACY_GRID
     )
     space = LineGrid(1.5e-3, 256, window_factor=0)
     temporal = GaussianPulse(wavelength=LINE_WAVELENGTH, fwhm=300e-15, energy=1e-3)
@@ -433,7 +440,7 @@ def test_line_focal_witness_of_pr_416():
         SpatialMedium(),
         [],
         SpatialPulse(temporal, waist, propz=-length),
-        settings=_line_settings(length, [length]),
+        settings=_line_settings(grid, length, [length]),
     )
     launched, focus = output.fields("fft")
     intensity = spatial_intensity(focus, _vacuum(grid, space))
@@ -460,7 +467,7 @@ def test_line_equals_a_plane_uniform_in_y():
     """
     length = 1e-2
     grid = EnvelopeGrid.from_limits(
-        length, LINE_WAVELENGTH, (700e-9, 950e-9), 400e-15, thg=False
+        length, LINE_WAVELENGTH, (700e-9, 950e-9), 400e-15, thg=False, **LEGACY_GRID
     )
     line = LineGrid(1e-3, 64, window_factor=0)
     plane = FreeGrid(1e-3, 64, 2e-4, 4, window_factor=0)
@@ -470,7 +477,7 @@ def test_line_equals_a_plane_uniform_in_y():
     uniform = np.zeros((plane.n_columns, 1, grid.n_omega), complex)
     uniform[: plane.n_x] = plane.n_y * start
     responses = [KerrResponse(3e-26, thg=False)]
-    settings = _line_settings(length, [length], steps=10)
+    settings = _line_settings(grid, length, [length], steps=10)
     along_line = prop_free(
         grid, line, SpatialMedium(), responses, start, settings=settings
     )
@@ -509,7 +516,7 @@ def test_line_kerr_soliton_holds_at_its_power_per_metre(fraction):
     length = 3 * LINE_K * x0**2
     power = fraction * 8 * EPS0 * C / (3 * LINE_K**2 * chi3 * x0)
     grid = EnvelopeGrid.from_limits(
-        length, LINE_WAVELENGTH, (760e-9, 845e-9), 6e-12, thg=False
+        length, LINE_WAVELENGTH, (760e-9, 845e-9), 6e-12, thg=False, **LEGACY_GRID
     )
     space = LineGrid(20 * x0, 256, window_factor=0)
     temporal = GaussianPulse(
@@ -537,7 +544,7 @@ def test_line_kerr_soliton_holds_at_its_power_per_metre(fraction):
         SpatialMedium(),
         [KerrResponse(chi3, thg=False)],
         start,
-        settings=_line_settings(length, [length], steps=10),
+        settings=_line_settings(grid, length, [length], steps=10),
     )
     final = spatial_intensity(output.fields("fft")[-1], _vacuum(grid, space))
     last = int(np.argmax(np.max(final, axis=0)))
@@ -554,12 +561,14 @@ def test_line_kerr_soliton_holds_at_its_power_per_metre(fraction):
 
 
 def test_line_run_is_recorded_and_labelled_per_metre_of_y(tmp_path):
-    grid = EnvelopeGrid.from_limits(1e-3, LINE_WAVELENGTH, (600e-9, 1.2e-6), 150e-15)
+    grid = EnvelopeGrid.from_limits(
+        1e-3, LINE_WAVELENGTH, (600e-9, 1.2e-6), 150e-15, **LEGACY_GRID
+    )
     line = LineGrid(3e-4, 16, window_factor=0.1)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=LINE_WAVELENGTH, fwhm=30e-15, energy=1e-3), 80e-6
     )
-    settings = _line_settings(1e-3, [1e-3])
+    settings = _line_settings(grid, 1e-3, [1e-3])
     simulation = Simulation.from_free(
         grid, line, SpatialMedium(), [], pulse, settings=settings
     )
@@ -592,7 +601,9 @@ def test_line_run_is_recorded_and_labelled_per_metre_of_y(tmp_path):
 
 @pytest.mark.parametrize("model", ["input", "modified"])
 def test_line_noise_is_one_photon_per_column_per_metre_of_y(model):
-    grid = EnvelopeGrid.from_limits(1e-3, LINE_WAVELENGTH, (600e-9, 1.2e-6), 150e-15)
+    grid = EnvelopeGrid.from_limits(
+        1e-3, LINE_WAVELENGTH, (600e-9, 1.2e-6), 150e-15, **LEGACY_GRID
+    )
     line = LineGrid(3e-4, 12, window_factor=0)
     draw = spatial_noise(_vacuum(grid, line), np.random.default_rng(49), model=model)
     # The plane's bound: fewer than 32 rounded operations per bin, no long sum.
@@ -614,12 +625,14 @@ def test_line_noise_is_one_photon_per_column_per_metre_of_y(model):
 
 
 def test_line_refusals_name_the_line():
-    grid = EnvelopeGrid.from_limits(1e-3, LINE_WAVELENGTH, (600e-9, 1.2e-6), 150e-15)
+    grid = EnvelopeGrid.from_limits(
+        1e-3, LINE_WAVELENGTH, (600e-9, 1.2e-6), 150e-15, **LEGACY_GRID
+    )
     line = LineGrid(3e-4, 16)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=LINE_WAVELENGTH, fwhm=30e-15, energy=1e-3), 80e-6
     )
-    settings = _line_settings(1e-3, [1e-3])
+    settings = _line_settings(grid, 1e-3, [1e-3])
     with pytest.raises(GridError, match="LineGrid"):
         critical_power(LINE_WAVELENGTH, 3e-26, index=1.0, space=line)
     plane = critical_power(
@@ -651,13 +664,20 @@ def test_line_refusals_name_the_line():
 
 def test_a_line_is_recorded_per_metre_of_y_without_from_free_s_key():
     """The measure follows the problem's geometry, not a key only from_free writes."""
-    grid = EnvelopeGrid.from_limits(1e-3, LINE_WAVELENGTH, (600e-9, 1.2e-6), 150e-15)
+    grid = EnvelopeGrid.from_limits(
+        1e-3, LINE_WAVELENGTH, (600e-9, 1.2e-6), 150e-15, **LEGACY_GRID
+    )
     line = LineGrid(3e-4, 16, window_factor=0.1)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=LINE_WAVELENGTH, fwhm=30e-15, energy=1e-3), 80e-6
     )
     simulation = Simulation.from_free(
-        grid, line, SpatialMedium(), [], pulse, settings=_line_settings(1e-3, [1e-3])
+        grid,
+        line,
+        SpatialMedium(),
+        [],
+        pulse,
+        settings=_line_settings(grid, 1e-3, [1e-3]),
     )
     simulation.configuration.pop("transverse_measure")
     assert "transverse_measure" not in simulation.configuration

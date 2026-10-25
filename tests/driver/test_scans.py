@@ -14,6 +14,7 @@ import h5py
 import numpy as np
 import pytest
 
+from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import (
     FIXED_ORDER,
     STATISTIC_FACTOR,
@@ -27,6 +28,7 @@ from solprop.driver.executors.pool import MemoryBudget, Pool
 from solprop.driver.scan import Scan, run_scan
 from solprop.driver.simulation import Simulation
 from solprop.exceptions import DriverError, OutputError, ProcessingError
+from solprop.grid import EnvelopeGrid
 from solprop.noise import input_noise
 from solprop.output._scan_lock import lock_path
 from solprop.output.hdf5 import _dataset, _group
@@ -54,15 +56,18 @@ def build_point(point):
 
     So that a scan point and the same simulation run alone are one discrete march,
     compared within its rounding budget (SEP 25 4.4): no controller decision is
-    left for rounding to fork.
+    left for rounding to fork. On the former grid and without a collar: a short
+    fixed schedule is refused beside the default collar, and these tests are about
+    scans, not boundaries.
     """
+    grid = EnvelopeGrid.from_limits(0.001, 835e-9, (500e-9, 2e-6), 1e-12, **LEGACY_GRID)
     return Simulation.from_gnlse(
         0.11,
         0.001,
         [0.0, 0.0, -1.183e-26],
         lambda0=835e-9,
-        wavelength_limits=(500e-9, 2e-6),
-        trange=1e-12,
+        grid=grid,
+        absorber=bare_absorber(grid),
         width=100e-15,
         peak_power=float(point.values["power"]),
         pulseshape="sech",

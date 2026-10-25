@@ -233,8 +233,13 @@ def test_a_replayed_schedule_saves_its_steps(integrator):
     schedule = FixedSchedule.uniform(
         0.0, 0.012, 0.001, save_planes=[0.004, 0.008, 0.012]
     )
+    # Without the collar, which refuses twelve fixed steps; the planes are the point.
     replay = soliton(
-        backend="numpy_ref", schedule=schedule, step_planes=1, integrator=integrator
+        backend="numpy_ref",
+        schedule=schedule,
+        step_planes=1,
+        integrator=integrator,
+        absorber=False,
     )
     z = np.asarray(replay.run(progress="none")["z"])
     np.testing.assert_allclose(z, np.linspace(0.0, 0.012, 13), rtol=0, atol=1e-15)

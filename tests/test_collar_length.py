@@ -51,8 +51,8 @@ def test_an_absorber_at_its_defaults_records_its_defaults(grid):
     assert collar.in_stage_length == collar.reference_length
     record = serialise(collar)
     assert isinstance(record, dict)
-    # Output schema 21: every field is recorded, the two SEP 22 added at their
-    # defaults too.
+    # Every field is recorded, the two SEP 22 added and SEP 21's real-space switch
+    # at their defaults too.
     assert set(record) == {
         "__class__",
         "spectral_rate",
@@ -62,8 +62,10 @@ def test_an_absorber_at_its_defaults_records_its_defaults(grid):
         "reference_length",
         "collar_length",
         "temporal",
+        "spatial",
     }
     assert record["collar_length"] is None and record["temporal"] is True
+    assert record["spatial"] is True
     explicit = dataclasses.replace(collar, collar_length=collar.reference_length)
     assert explicit.collar_length is None
     assert serialise(explicit) == record

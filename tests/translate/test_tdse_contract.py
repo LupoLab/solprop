@@ -14,6 +14,7 @@ import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 from tests.hacc_cases import hacc_response, preset_basis
 
+from legacy_geometry import LEGACY_GRID
 from solprop import fourier
 from solprop.exceptions import BackendError, ResponseBudgetError, TranslationError
 from solprop.grid import EnvelopeGrid, FieldGrid
@@ -40,7 +41,8 @@ from solprop.translate.tdse import (
 
 @pytest.fixture
 def grid():
-    return FieldGrid.from_limits(0.01, 800e-9, (120e-9, 1.6e-6), 60e-15)
+    # The grid the pinned identities below were taken on.
+    return FieldGrid.from_limits(0.01, 800e-9, (120e-9, 1.6e-6), 60e-15, **LEGACY_GRID)
 
 
 @pytest.fixture

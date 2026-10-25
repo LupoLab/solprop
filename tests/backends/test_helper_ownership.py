@@ -165,6 +165,8 @@ def z_table(integrator):
         noise=None,
         schedule=FixedSchedule(np.full(4, MOVING_LENGTH / 4)),
         integrator=INTEGRATORS[integrator],
+        # No collar: four fixed steps are refused beside the default one.
+        absorber=False,
         **GRID,
         **PULSE,
     )

@@ -16,6 +16,7 @@ from scipy.special import j0
 from backends.test_polarised_runs import QuadraticRate as EnergyRate
 from backends.test_polarised_runs import plasma_work_bound
 from bounds import gamma, ladder_bound
+from legacy_geometry import LEGACY_GRID
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.constants import EPS0, C
 from solprop.exceptions import BackendError, TranslationError
@@ -37,7 +38,9 @@ def test_radial_circular_plasma_pays_for_electrons_in_the_area_measure(
     spatial_backend_class, spacing, request
 ):
     tau, amplitude, density = 6e-15, 1e10, 1e22
-    grid = FieldGrid.from_limits(LENGTH, 800e-9, (200e-9, 4e-6), 100e-15, dt=spacing)
+    grid = FieldGrid.from_limits(
+        LENGTH, 800e-9, (200e-9, 4e-6), 100e-15, dt=spacing, **LEGACY_GRID
+    )
     # One Bessel eigenfunction makes the transverse adjoint identity exact for
     # the raw quadrature weights: wk_j F_ji = wr_i B_ij. No T^2=I assumption.
     space = RadialGrid(0.1, 16, window_factor=0.0)

@@ -31,6 +31,7 @@ import pytest
 
 from bounds import assert_within, fft_bound
 from former_raman import FORMER_H2, FORMER_N2, former_response
+from legacy_geometry import LEGACY_GRID
 from solprop import fourier
 from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numba_cpu import fft as numba_fft
@@ -660,7 +661,10 @@ class GainSetup:
     """
 
     def __init__(self, trange):
-        self.grid = EnvelopeGrid.from_limits(0.1, 835e-9, (650e-9, 1.2e-6), trange)
+        # Sized for the former geometry: the measured deficits quoted below are its.
+        self.grid = EnvelopeGrid.from_limits(
+            0.1, 835e-9, (650e-9, 1.2e-6), trange, **LEGACY_GRID
+        )
         self.kerr = KerrResponse(chi3=GAIN_CHI3, thg=False)
         self.raman = former_response(
             FORMER_N2, MolecularOptions(rotation=False), thg=False

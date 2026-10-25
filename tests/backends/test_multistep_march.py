@@ -14,6 +14,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from legacy_geometry import LEGACY_GRID
 from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import resolve_name
@@ -25,6 +26,7 @@ from solprop.exceptions import (
     SolpropWarning,
 )
 from solprop.gasflow import steady_fill
+from solprop.grid import EnvelopeGrid
 from solprop.stepper import TSIT5, FixedSchedule, PIController, RungeKutta
 from solprop.stepper.multistep import ComparisonMultistep, Multistep
 from solprop.translate.coupled import constant_schur_flow
@@ -38,6 +40,15 @@ PEC4 = ComparisonMultistep(corrector="pec", order=4)
 PECE4 = ComparisonMultistep(corrector="pece", order=4)
 AB4 = ComparisonMultistep(corrector="none", order=4)
 RICHTER = ComparisonMultistep(corrector="pec", order=1, corrector_order=2)
+
+
+@pytest.fixture(scope="session")
+def narrow_grid():
+    """Return the conftest's narrow grid as built before SEP 21.
+
+    The measurements here were fixed on it, and their subject is not the boundaries.
+    """
+    return EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 1e-12, **LEGACY_GRID)
 
 
 def run(problem, grid):

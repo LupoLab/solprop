@@ -402,6 +402,8 @@ def test_a_z_table_operator_agrees(mode):
         dz_init=length / STEPS,
         integrator=MARCH,
         backend="numpy_ref",
+        # Ten replayed steps: no collar, as before the default one.
+        absorber=False,
     )
     problem = with_mode(simulation.translate(), mode)
     assert problem.linear.phi_representation == "table"
