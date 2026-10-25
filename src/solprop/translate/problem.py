@@ -193,7 +193,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 35
+SCHEMA_VERSION = 36
 """Version of the kernel contract this module implements.
 
 Incremented on every change to the field list of ``docs/dev/kernel-contract.md``. A
@@ -422,6 +422,13 @@ Poynting flux of the medium at its plane, weighted by the admittance
 ``c k_z / omega`` of that plane's root, with the complex admittance for local flux.
 A radial gas path's cumulative operator gains the forward amplitude term
 ``-ln(Y_z(z)/Y_z(0))/2``. A problem without spatial geometry carries no plan.
+
+Version 36 (SEP 35 phase 1) gives ``StepperSettings.integrator`` a ``carrier_frame``
+field, ``"off"`` (the version-35 method bit for bit), ``"scalar"`` or ``"harmonic"``:
+the carrier phase the exponential formulation removes from its history inside each
+step. A backend that does not deliver a shift refuses it by name, and a build against
+an older version refuses the problem rather than step a requested shift unshifted; no
+``KernelProblem`` field or stage bundle moves.
 """
 
 DEFAULT_COMPONENTS = ("x",)
@@ -6115,7 +6122,7 @@ def debug_summary(problem: KernelProblem) -> str:
     ...     width=100e-15, peak_power=9.8, pulseshape="sech", n_save=3,
     ... )
     >>> print(debug_summary(simulation.translate()).splitlines()[0])
-    kernel problem schema 35: envelope grid, route modal
+    kernel problem schema 36: envelope grid, route modal
     """
     linear, transform = problem.linear, problem.transform
     tables, metric = transform.modal_tables, linear.modal_metric

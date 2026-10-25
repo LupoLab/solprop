@@ -89,7 +89,7 @@ expansion. A
 total-degree expansion is not part of the contract: it failed the joint memory and
 build-cost criterion on the short fixture.
 
-The current version is **35** (`solprop.translate.problem.SCHEMA_VERSION`), and the
+The current version is **36** (`solprop.translate.problem.SCHEMA_VERSION`), and the
 tables of this document describe it. A version bump that adds an optional field
 leaves every problem that does not use it unchanged, `schema_version` itself being the
 one thing that moves. Removing an admitted value needs no bump, because no consumer can
