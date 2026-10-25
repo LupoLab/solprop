@@ -177,9 +177,9 @@ against the previous default build on the large windows (best of complete paired
 | small cases (eight case/track configurations), geometric mean | 2.00× faster | 2.06× faster |
 | averaged helium RDW | same within noise | same within noise |
 | resolved blueshift | 2.0–2.6× faster | 1.8–2.4× faster |
-| reduced comb-to-continuum | 2.8–3.1× faster | 2.4–3.6× faster |
+| reduced comb-to-continuum (revision 1, 1 ps) | 2.8–3.1× faster | 2.4–3.6× faster |
 | RDW ten-step window | 1.81× faster | 2.33× faster |
-| reduced comb-to-continuum ten-step window | 3.18× faster | 3.85× faster |
+| reduced comb-to-continuum ten-step window (revision 1, 1 ps) | 3.18× faster | 3.85× faster |
 | full comb-to-continuum ten-step window | 7.9 % faster | 2.7 % faster, noisy |
 | general modal | 4–11 % faster | same, noisy |
 | Cartesian and radial filaments | same within noise | within 5 %, noisy |

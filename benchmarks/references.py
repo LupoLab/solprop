@@ -105,13 +105,15 @@ MODAL_ENVELOPES = (
             "bc171d288de1c2889b0023888f375b4d2327ddf6fc64d49da27fb72757a30a85",
         ),
     ),
+    # Workload revision 2 (the 2 ps window): the same 1e-4 ceiling, qualified anew
+    # (candidates 3.3e-7 and 1.1e-7 against tight RK, refinement witness 1.1e-11).
     AccuracyEnvelope(
         "ctc_reduced",
         1,
         1e-4,
         (
-            "565159afbdb832475b42b84e381998dffd57e12acfa55f7185acb775e2466909",
-            "29e3e85513c29fd5ecebec59d1933c836c0d00524cf2339aad9f2b42b8ffe664",
+            "f26795def59044337a7f89e3ebf8138eccf255cb2c5ea55168b07e4f8c0c1cf7",
+            "c82eda51f852d80f400c5097db873f5049287461d2789a2e90a766b91fdc18e5",
         ),
     ),
     AccuracyEnvelope(

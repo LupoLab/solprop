@@ -1154,6 +1154,45 @@ alternative is to withdraw it, with the manual advising the interaction formulat
 dense gases on field grids and `RungeKutta()` where the source is cheap, which this
 comparison supports in five of the seven cases.
 
+### Phase 4, supplement — the comb-to-continuum case on realistic windows (2026-10-25)
+
+The suite's `ctc_reduced` case uses a 1 ps window, which crowds its 400 fs pulse; a
+production run of this physics takes 2 ps or more. The same case (16 µm, 40 bar H₂, two
+modes, Raman at 294 K, plasma, 250 nm–2 µm, 515 nm, 400 fs, 10 µJ) was therefore run
+with 2 ps and 4 ps windows (4097 and 8193 bins against 2049), on the same launch and
+developed windows, with fresh start planes and references, on native CPU, one thread,
+five interleaved samples, IP-DOPRI5, `"off"` and `"scalar"`.
+
+**The 2 ps window is enough:** every method takes exactly the same calls at every
+tolerance on the 2 ps and 4 ps grids; only the cost of a call scales.
+
+**Time at matched error**, as a ratio to `"scalar"` (`"off"` / `"scalar"`, IP-DOPRI5 /
+`"scalar"`), at the decades all three reach:
+
+| window | worst-plane field | weak bins |
+|---|---|---|
+| 2 ps, launch | 2.28, 2.08 | 1.8–2.4, 1.9–2.4 |
+| 2 ps, developed | 2.5–2.9, 1.6–2.0 | 1.9–2.1, 1.6–2.1 |
+| 4 ps, launch | 2.26, 2.07 | 1.8–2.3, 1.9–2.4 |
+| 4 ps, developed | 2.8–2.9, 1.8–1.9 | 2.0–2.2, 1.8–2.0 |
+
+In calls the ratios are about the same. So on this physics with a realistic window
+the carrier frame takes about half the time of both the default and IP-DOPRI5 at matched
+error, in the populated bands and in the weak bins alike: a much larger margin than on
+the 1 ps window (0.69–0.88 of the next best), and without the weak-bin loss measured
+there.
+
+**The blue band (250–400 nm)** cannot be judged on these windows: its two references
+(IP-DOPRI5 at `1e-11`, the interaction formulation at `1e-10`) disagree by 2e-6 to 8e-4
+there, and every method, IP-DOPRI5 at `rtol = 1e-8` included, leaves it with errors of
+1e-2 and more. So early in the propagation that light is weak enough to be seeded by
+the noise floor and is highly sensitive; it does not discriminate between methods, and
+it qualifies the large blue-band losses recorded above for the 1 ps window.
+
+The interaction formulation was not run on these windows; it was second on the 1 ps
+window and fastest on the argon and hydrogen-soliton cases. The suite's `ctc_reduced`
+case moves to the 2 ps window (revision 2).
+
 ## Part III — History
 
 - 2026-10-25: Drafted, with a `numpy_ref` prototype's measurements.
@@ -1191,6 +1230,9 @@ comparison supports in five of the seven cases.
 
 - 2026-10-25: Phase 4 supplement: IP-DOPRI5 and the interaction formulation through the
   same windows; the four methods compared at matched band error (Part II).
+
+- 2026-10-25: Phase 4 supplement: the comb-to-continuum case on 2 ps and 4 ps windows
+  (Part II); the suite's `ctc_reduced` moves to a 2 ps window.
 
 ### AI review — 2026-10-25 — GPT-6
 
