@@ -37,9 +37,11 @@ from solprop.backends.exponential import (
     CarrierReference,
     _carrier_refusal,  # pyright: ignore[reportPrivateUsage]
     _nearest_bin,  # pyright: ignore[reportPrivateUsage]
+    carrier_chord,
     carrier_reference,
     exponential_weights,
     phi_functions,
+    refuse_carrier_frame,
 )
 from solprop.backends.multistep import (
     AdamsMarch,
@@ -49,6 +51,10 @@ from solprop.backends.multistep import (
     coupled_moments,
 )
 from solprop.backends.numba_cpu import NumbaCpuBackend
+from solprop.backends.numba_cpu.multistep import (
+    _per_row,  # pyright: ignore[reportPrivateUsage]
+    _per_slot_row,  # pyright: ignore[reportPrivateUsage]
+)
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import absorber
 from solprop.driver import Simulation
@@ -338,6 +344,23 @@ def test_the_refusals_name_the_policy_and_the_route():
     assert _carrier_refusal("scalar", "numpy_ref", everything, None) is None
 
 
+def test_a_backend_refuses_what_it_does_not_deliver():
+    problem = capillary(SCALAR).translate()
+    with pytest.raises(BackendError, match="carrier_frame='scalar'"):
+        refuse_carrier_frame(problem, "a backend")
+    refuse_carrier_frame(problem, "numpy_ref", delivered=frozenset({"scalar"}))
+    # The Runge-Kutta march (no Adams integrator) has no carrier frame to refuse.
+    stepper = dataclasses.replace(problem.stepper, integrator=None)
+    refuse_carrier_frame(dataclasses.replace(problem, stepper=stepper), "a backend")
+
+
+def test_the_compiled_passes_take_one_shift_per_row():
+    with pytest.raises(BackendError, match="one carrier shift per batch member"):
+        _per_row(np.zeros((1, 1, 1, 4), dtype=complex), (1, 2, 1, 4))
+    with pytest.raises(BackendError, match="one carrier rotation per row"):
+        _per_slot_row(np.ones((2, 1, 1, 1, 4), dtype=complex), (1, 2, 1, 4))
+
+
 def test_both_compiled_cpu_backends_accept_the_shift():
     for method in (OFF, SCALAR):
         built = capillary(method)
@@ -364,6 +387,33 @@ def test_the_reference_is_the_active_bin_nearest_the_reference_frequency():
     # Equally near bins: the tie goes to the lower index.
     assert _nearest_bin(np.array([0.5, 0.9, 1.1, 2.0]), 1.0) == 1
     assert carrier_reference(problem, OFF) is None
+
+
+def test_the_chord_is_the_reference_element_on_every_representation():
+    problem = capillary(SCALAR).translate()
+    reference = carrier_reference(problem, SCALAR)
+    assert reference is not None and reference.bin is not None
+    constant = carrier_chord(problem.linear, reference.bin)
+    assert constant is not None and constant.constant is not None
+    # A constant operator also carries its exact z table, Phi = D z on one interval:
+    # read as a table, the chord is the same.
+    linear = dataclasses.replace(
+        problem.linear, phi_representation="table", phi_constant=None
+    )
+    table = carrier_chord(linear, reference.bin)
+    assert table is not None and table.table is not None
+    np.testing.assert_allclose(
+        table.exponent(2e-4, 1.5e-3), constant.exponent(2e-4, 1.5e-3), rtol=1e-12
+    )
+    assert reference.chord_phase(2e-4, 1.5e-3) == pytest.approx(
+        float(np.max(np.abs(np.imag(constant.exponent(2e-4, 1.5e-3)))))
+    )
+    # Without a chord (the separable representation) the cap cannot read it.
+    chordless = dataclasses.replace(reference, chord=None)
+    with pytest.raises(BackendError, match="has no chord"):
+        chordless.chord_phase(0.0, 1e-3)
+    inert = dataclasses.replace(reference, bin=None, chord=None)
+    assert inert.chord_phase(0.0, 1e-3) == 0.0
 
 
 def test_the_policy_is_inert_where_no_carrier_phase_is_kept():
