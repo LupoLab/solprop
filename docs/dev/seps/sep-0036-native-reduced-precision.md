@@ -5,7 +5,7 @@
 | **SEP** | 36 |
 | **Title** | Single and mixed precision on the native backend |
 | **Author** | John Travers |
-| **Drafting agent** | Opus 5.5 (2026-10-25) |
+| **Drafting agent** | Opus 5.5 (2026-10-25); Opus 5.5 (2026-10-25, revision after review) |
 | **Status** | Draft |
 | **Review status** | In review |
 | **Reviewers** | GPT-6 (AI) |
@@ -20,20 +20,31 @@
 
 ## Part I — Proposal
 
+*Revised on 2026-10-25 after the GPT-6 AI review. The response to the review (Part III)
+says what changed for each finding, and which changes need the maintainers' decision
+(§12).*
+
 ### 1. Abstract
 
 Bring reduced precision to the native (Kokkos) backend, on its CPU builds and on its
 CUDA and HIP device builds, for speed and throughput. Two arithmetic modes are
-proposed. `precision="single"` is SEP 33's binary32 contract, unchanged, implemented on
-native. Native may keep in binary64 whatever the contract allows and measurement shows
-costs nothing. `precision="mixed"` is new: the propagated state, the propagators, the
-Adams history and every accumulation stay in binary64, and only the source evaluation
-is binary32. That covers the transforms, the responses and the transverse and modal
-matrix products. Mixed precision is possible only where binary64 exists, which is every
-native target but not Apple GPUs. It removes single precision's coherent propagator
-drift and keeps the error floor near binary32's rounding times a step's nonlinear
-phase. That makes it a candidate for noise-seeded ensembles, which single precision
-refuses. `numpy_ref` gains a mixed path as the oracle of the new mode. Its
+proposed.
+
+- **`precision="single"`** is SEP 33's binary32 contract, implemented on native. The
+  contract's exponential is stated here with bounded range reductions for its real and
+  imaginary parts (§4.3). Native may keep more in binary64 than the contract requires
+  where profiles show it is worth it, provided its comparison bounds still hold.
+- **`precision="mixed"`** is new. Everything that touches the propagated state is
+  binary64: the state, the stage values, the propagators, the Adams history, the
+  once-per-step boundary treatments, and the norms and statistics. The source
+  evaluation is binary32: the transforms, the responses with their own running
+  integrals, the in-stage absorber terms, and the transverse and modal matrix products.
+
+Mixed precision is possible only where binary64 exists, which is every native target
+but not Apple GPUs. It removes single precision's coherent propagator drift and its
+damping limit, and keeps the error floor near binary32's rounding times a step's
+nonlinear phase. That makes it a candidate for noise-seeded ensembles, which single
+precision refuses. `numpy_ref` gains a mixed path as the oracle of the new mode. Its
 single-precision path stays the oracle of the other.
 
 Success is judged in three ways:
@@ -52,77 +63,102 @@ successors), execute binary64 at 1/64 of their binary32 rate. Research clusters 
 of them; the A40 nodes available to this project are an example. The native device
 builds compute in binary64 throughout, so on these cards they run at the binary64 rate.
 
-**An indicative measurement on one A40** (2026-10-25: 48 GB, 84 SMs, CUDA 12.8.1,
-cuFFT and cuBLAS) timed the building blocks of an interaction-picture step. It ran in
-one process, with medians of seven rounds of 10–50 repetitions timed by CUDA events.
+**An indicative measurement on one A40** (2026-10-25: 48 GB, 84 SMs, CUDA 12.8.1 with
+its cuFFT and cuBLAS, `nvcc -O3 -arch=sm_86`) timed the building blocks of an
+interaction-picture step. It ran in one process, with medians of seven rounds of 10–50
+repetitions timed by CUDA events. Inputs were finite deterministic pseudo-random
+values in $[-0.5, 0.5)$. Every library status was checked, each transform pair's round
+trip was validated, and one GEMM element was checked against a host dot product
+(binary32 errors about $10^{-7}$ and $10^{-9}$ respectively). These figures motivate the
+proposal; they are not qualification evidence (§7.4).
 
-Transforms, forward and inverse complex-to-complex:
+Transforms, forward and inverse complex-to-complex, each pair followed by a $1/n$
+scaling pass:
 
 | shape | binary64, µs | binary32, µs | ratio |
 |---|---|---|---|
-| one line, $2^{14}$ | 106 | 16 | 6.7 |
-| one line, $2^{16}$ | 105 | 15 | 7.0 |
-| one line, $2^{18}$ | 249 | 26 | 9.7 |
-| 204 × 2048 (multimode) | 182 | 18 | 10.4 |
-| 64 × $2^{14}$ (a batch) | 707 | 58 | 12.2 |
-| 256 × 4096 (radial) | 553 | 58 | 9.6 |
-| 384 × 384 × 256 (Cartesian, 3-D) | 30 251 | 7718 | 3.9 |
+| one line, $2^{14}$ | 108 | 18 | 6.2 |
+| one line, $2^{16}$ | 108 | 17 | 6.3 |
+| one line, $2^{18}$ | 256 | 29 | 8.8 |
+| 204 × 2048 (multimode) | 202 | 22 | 9.1 |
+| 64 × $2^{14}$ (a batch) | 768 | 88 | 8.8 |
+| 256 × 4096 (radial) | 614 | 85 | 7.2 |
+| 384 × 384 × 256 (Cartesian, 3-D) | 32 418 | 8771 | 3.7 |
 
 Real matrix products ($m \times k$ by $k \times n$), binary32 in cuBLAS's pedantic
 mode (no TF32):
 
 | shape | DGEMM, µs | SGEMM, µs | ratio |
 |---|---|---|---|
-| 256 × 256 × 8192 (a radial Hankel transform) | 2296 | 65 | 35 |
+| 256 × 256 × 8192 (a radial Hankel transform) | 2296 | 66 | 35 |
 | 64 × 64 × 32 768 | 647 | 40 | 16 |
-| 1024 × 1024 × 4096 | 17 251 | 404 | 43 |
+| 1024 × 1024 × 4096 | 17 255 | 428 | 40 |
 
 Element-wise passes, µs per pass, at $n$ complex samples:
 
-| $n$ | stage combination: binary64 / binary32 / mixed | propagator from three terms: binary64 / binary32 / binary64 argument, binary32 trigonometry |
+| $n$ | stage combination: binary64 / binary32 | propagator from three terms: binary64 / binary32 / binary64 argument, binary32 trigonometry |
 |---|---|---|
-| $2^{16}$ | 6.5 / 3.2 / 8.1 | 17.6 / 2.8 / 7.8 |
-| $2^{18}$ | 49 / 24 / 34 | 55 / 16 / 29 |
-| $2^{20}$ | 206 / 88 / 124 | 198 / 59 / 103 |
-| 384 × 384 × 256 | 7360 / 3316 / 4622 | 6894 / 2039 / 3562 |
+| $2^{16}$ | 6.5 / 3.2 | 17.6 / 2.8 / 7.8 |
+| $2^{18}$ | 50 / 24 | 55 / 16 / 29 |
+| $2^{20}$ | 203 / 88 | 198 / 59 / 103 |
+| 384 × 384 × 256 | 7363 / 3319 | 6895 / 2040 / 3563 |
 
-Here "mixed" reads a binary64 state and propagator with three binary32 stage values
-and writes a binary32 source input. The last column forms the exponent and its range
-reduction in binary64 and evaluates `exp` and `sincos` of the reduced argument in
-binary32: SEP 33's contract (§4.2 there).
+The last column forms the exponent in binary64 and evaluates `exp` and `sincos` in
+binary32 with a single-constant reduction of the phase only. It is a timing kernel,
+not the accurate form of §4.3.
 
-Four conclusions shape this proposal:
+Reductions and running sums, µs:
+
+| $n$ | sum of squares: complex128 / complex64 with a binary32 accumulator / complex64 with a binary64 accumulator | inclusive scan: binary64 / binary32 / binary32 data with a binary64 accumulator |
+|---|---|---|
+| $2^{16}$ | 6.8 / 3.9 / 7.4 | 17 / 14 / 17 |
+| $2^{20}$ | 35 / 17 / 37 | 44 / 27 / 41 |
+| 384 × 384 × 256 | 1046 / 505 / 755 | 1074 / 549 / 806 |
+
+Five observations shape this proposal:
 - The transforms and the matrix products are where binary64 hurts on this card, by
-  7–12× and 16–43×.
-- Streaming element-wise passes are bandwidth-bound in either precision and cost only
-  the byte ratio, about 2.2×, in binary64.
-- A propagator with a binary64-accurate argument costs about half of a full binary64
-  one; full binary64 transcendentals make the pass compute-bound.
-- At $2^{14}$ the binary64 transform pair on the A40 (106 µs) is slower than the same
-  pair in FFTW on one laptop core (66 µs, below).
+  6–9× and 16–40×.
+- Streaming element-wise passes are bandwidth-bound in either precision and cost about
+  the byte ratio, 2.2×, in binary64.
+- A full binary64 propagator costs about 1.9× a form with a binary64 argument and
+  binary32 trigonometry at $2^{20}$, and 2.3× at $2^{16}$, where the binary64
+  transcendentals make it compute-bound.
+- Binary64 accumulation of binary32 data is not free on this card: a reduction or scan
+  costs 1.5–2.2× its binary32 form, close to the full binary64 cost.
+- At $2^{14}$ the binary64 transform pair on the A40 (108 µs) is about as slow as the
+  same pair in FFTW on one laptop core (118 µs under load, below).
 
-So a mixed mode on this card keeps most of single precision's gain on the transforms
-and matrix products. It pays about 1.4× on the element-wise passes, and on the
-propagator if that is formed in full binary64 (§6.4).
+So mixed precision on this card keeps single precision's gain on the transforms and
+matrix products. It keeps binary64's cost on everything that touches the state (§4.2),
+which on the A40 is the bandwidth-bound passes at their binary64 rate, plus the full
+binary64 propagator (§6.4). Whether that leaves a worthwhile mixed gain on a whole step
+is what phase 4's profiles establish.
 
 **On CPUs and full-rate GPUs the gain is the byte and SIMD factor.** The same transform
-pair, timed in FFTW 3.3.11 through pyFFTW on an Apple M5 Max CPU, measured binary64
-over binary32 as follows:
+pair, with FFTW's built-in normalisation, was timed through pyFFTW 0.15.1 on an Apple
+M5 Max CPU. It used FFTW 3.3.11 built with its NEON codelets in both precisions, the
+configuration of native's local macOS builds. Plans were made with `FFTW_MEASURE`,
+inputs were refilled after planning, and outputs were checked finite and round trips
+validated:
 
-| shape | threads | ratio |
+| shape | threads | ratio, binary64 over binary32 |
 |---|---|---|
-| $2^{14}$ | 1 | 1.30 |
-| $2^{16}$ | 1 | 1.53 |
-| $2^{18}$ | 4 | 1.17 |
-| 204 × 2048 | 4 | 1.43 |
-| 256 × 4096 | 8 | 1.47 |
+| $2^{14}$ | 1 | 1.26 |
+| $2^{16}$ | 1 | 1.51 |
+| $2^{18}$ | 4 | 1.43 |
+| 204 × 2048 | 4 | 1.34 |
+| 256 × 4096 | 8 | 1.62 |
 
-The machine was under other load (load average about 3.5), and this FFTW build is not
-the native wheel's. On x86-64-v3 (AVX2) and aarch64 (NEON, SVE) builds, the
+The machine was under other load (load average about 9.5), so only the ratios within
+each pair are meaningful. On x86-64-v3 (AVX2) and aarch64 (NEON, SVE) builds, the
 memory-bound passes should approach 2×. Data-centre GPUs with full binary64 rates
 (H100, H200, MI300-series) gain by the byte factor too, which also doubles the problem
-that fits in device memory. The phases' own measurements replace all of these figures
-(§7.4).
+that fits in device memory.
+
+These measurements are indicative. Their kernels and scripts are kept with the
+project's development records, as SEP 30 does for campaign harnesses. The phases
+replace them with public records made by the standard suite's harness under the
+benchmark rules, which carry compiler and library provenance (§7.4).
 
 **Native differs from MLX in one way that matters: binary64 is always there.** SEP 33
 had to put everything in binary32 on Apple GPUs and emulate binary64 only for the
@@ -131,9 +167,10 @@ that depends on the target and the pass. The design therefore makes two kinds of
 choice:
 - a *mode* choice for users: full binary32 for the largest speed-up, or mixed for
   binary64 accuracy in the linear part and a much lower error floor;
-- an *implementation* choice inside each mode: binary64 is kept wherever it is free or
-  nearly so, such as accumulators, host scalars and the propagator's argument, provided
-  the mode's error bounds still hold.
+- an *implementation* choice inside each mode: binary64 is kept where the mode's
+  contract needs it (the propagator's argument and host scalars under single
+  precision; everything that touches the state under mixed precision), and elsewhere where
+  profiles show it is worth its cost, provided the mode's bounds still hold (§4.5).
 
 **Noise ensembles are the throughput workload.** Many A40s run many independent
 noise-seeded shots, for coherence and ensemble spectra. SEP 33 refuses noise under
@@ -219,6 +256,15 @@ can therefore qualify noise where single cannot (§4.4).
     $10^{-3}$ is reached after about $3 \times 10^4$ steps.
   - Adams was not admitted by the rule then fixed, although binary64 Adams has the same
     errors at the same tolerances.
+- **Stage values and boundary treatments.** Stage values and Adams source rows are held
+  in the interaction variable: the reference's `_nonlinear` returns the source
+  multiplied by the inverse propagator $e^{-\Delta\Phi}$. Absorbers come in two schemes
+  (ADR-025). The in-stage scheme evaluates the temporal or spatial absorber as a term of
+  the stage (`_absorber_term`, and the Cartesian `_nonlinear_free`). The split-step
+  scheme applies $e^{-\mathrm{rate}\,\Delta z}$ to the accepted state in `_finish`,
+  through temporal (and on the Cartesian route, transverse) transforms. Noise comes in
+  two models: `"input"`, added to the launch state, and `"modified"`, kept apart,
+  phase-transported and added to every stage input.
 - **The native backend today** ([backends.md §4](../backends.md),
   [The native backend](../../guide/performance/native.md)):
   - *Language and size.* C++20 on Kokkos 5.2, Kokkos Kernels 5.2 and Kokkos-FFT 2.0,
@@ -272,7 +318,8 @@ can therefore qualify noise where single cannot (§4.4).
 SEP 33 §4 is adopted unchanged for `precision="single"` on native:
 - the four rounding contributions of an interaction-picture step (the source's and the
   state's, random; the propagator's and the coefficients', coherent);
-- the contract of §4.2, including the binary64-accurate propagator rounded once;
+- the contract of §4.2, including the binary64-accurate propagator rounded once, whose
+  binary32 evaluation §4.3 states with its range reductions and error;
 - the range rules of §4.3: block exponents for narrowed buffers, the launch's
   power-of-two state scale, coefficients combined on the host, per-term homogeneity
   factors and scaled reductions;
@@ -290,128 +337,229 @@ is the number of steps.
 
 #### 4.2 The mixed contract
 
-Write a stage as $k = \mathcal{N}(e^{\Delta\Phi}(A + \Delta z \sum_j a_j k_j))$, as in
-SEP 33 §4.1. Under `precision="mixed"` the work splits three ways.
+**The stage, written out.** In the interaction picture a stage value is the source
+pulled back to the step's start:
+$$k_i = e^{-\Delta\Phi_i}\,\mathcal{N}\big(e^{\Delta\Phi_i}(A + \Delta z \textstyle\sum_j a_{ij} k_j)\big),$$
+as `NumpyRefBackend._nonlinear` returns it (the source multiplied by the inverse
+propagator) and as the Adams source rows store it. The inverse factor $e^{-\Delta\Phi_i}$
+is large wherever a bin is strongly damped. A lab-frame source of $10^{-10}$ multiplied
+by $e^{150}$ is $1.4 \times 10^{55}$: binary64 holds it, binary32 does not. That is why
+SEP 33 refuses single-precision steps whose damping exceeds $\ln(\mathrm{FLT\_MAX})$.
 
-*Binary64:*
-- the state $A$ and every stage combination
-  $e^{\Delta\Phi}(A + \Delta z \sum_j a_j k_j)$, with each $k_j$ widened exactly before
-  it is scaled;
-- the propagators: the combination $\sum_t s_t \Phi_t$, its exponential and every
-  product with the state;
-- the accepted update and the error estimate's array;
-- the Adams history, its compensation rows and its propagators;
-- the controller, $z$, $\Delta z$, and every host scalar;
-- every running integral and reduction: the norms, the statistics, the plasma's
-  exposure and its free-current integrals.
+**The operation order under mixed precision**, per stage $i$:
 
-*Binary32*, with SEP 33's range rules for the source's buffers:
-- the source input, formed once per stage by rounding the binary64 stage state, divided
-  by the launch's power-of-two scale, to binary32;
-- every transform inside $\mathcal{N}$;
-- the pointwise responses: Kerr, the third-harmonic term, scalar and tensor Raman, and
-  the field- and envelope-grid plasma's rates, populations and currents;
-- the radial Hankel GEMMs and the Cartesian transverse transforms;
-- the stage value $k$, stored in binary32.
+1. *Stage input, binary64:* $y_i = e^{\Delta\Phi_i}(A + \Delta z \sum_j a_{ij} k_j)$,
+   with $A$, every $k_j$ and the propagator binary64. When the modified noise model is
+   active (§4.4), its phase-transported realisation is added here in binary64.
+2. *Narrowing, one rounding:* $\tilde y_i = \mathrm{fl}_{32}(y_i / s)$, with $s$ the
+   launch's power-of-two scale of SEP 33 §4.3. Division by $s$ is exact.
+3. *Source, binary32:* $\tilde n_i = \mathcal{N}_{32}(\tilde y_i)$, SEP 33's
+   single-precision source evaluation of the scaled input. This is every transform, the
+   responses with their running integrals in SEP 33's orders, the in-stage absorber
+   terms (below), and the transverse and modal matrix products. SEP 33's per-term
+   homogeneity factors make $\tilde n_i = \mathcal{N}(s\tilde y_i)/s$ up to binary32
+   rounding, held in range by its block exponents and combined coefficients.
+4. *Widening and pull-back, binary64:*
+   $k_i = e^{-\Delta\Phi_i} \cdot s \cdot \mathrm{wide}(\tilde n_i)$. Widening and the
+   multiplication by $s$ are exact; the inverse propagator is applied in binary64. The
+   stage value is stored in binary64.
 
-*Narrowed at upload with block exponents:* every table the source reads (Raman kernels,
-rate tables, prefactors, quadrature and transform matrices). Tables of the linear part
-(operator terms, masks, absorbers, collars) stay binary64.
+**Stored rows are binary64.** Steps 1 and 4 keep every row the march stores in the
+interaction variable in binary64, where the inverse flow's range is binary64's. This
+covers the Runge–Kutta stage values (FSAL included), the low-storage registers, the
+Adams source and history rows with their compensation, the dense-output rows and every
+snapshot row. Mixed precision therefore needs no damping restriction:
+`_check_single_exponent` applies to single precision only, and the binary32 values of
+step 3 are bounded by SEP 33's lab-frame range rules, which never see
+$e^{-\Delta\Phi}$. The cost is that the stage combinations read and write binary64,
+which on the A40 is the binary64 rate of a bandwidth-bound pass (§2). Binary32 stage
+rows would need SEP 33's damping refusal back and are not proposed (§10).
+
+**The linear part, precisely.** Two kinds of linear operation exist, and they differ in
+how their rounding enters the state:
+
+- *Once-per-step treatments act on the whole state:* the diagonal flow $e^{\Delta\Phi}$,
+  the band mask, and the split-step absorber of `_finish`, which transforms the state to
+  the time (and, on the Cartesian route, transverse) domain, applies
+  $e^{-\mathrm{rate}\,\Delta z}$ and transforms back. A binary32 rounding there would
+  enter the state unscaled, at $u_{32}$ per step, which is single precision's state
+  rounding. These are **binary64 under mixed precision, including their transforms**.
+  Mixed precision therefore keeps binary64 transform plans and buffers for the
+  split-step absorber when one is active, and the memory estimate and benchmarks count
+  them.
+- *In-stage terms are part of the source:* the in-stage temporal absorber
+  ($-\tfrac12\,\mathrm{rate}\,E$) and the spatial absorber of `_absorber_term` and the
+  Cartesian `_nonlinear_free` are evaluated on the stage input and enter the state
+  through $\Delta z\,k_i$, like any response. They are **binary32 under mixed
+  precision**, inside step 3. Their rounding is a source error scaled by the step's
+  absorber exponent $\Delta z\,\mathrm{rate}$.
+
+A source-free mixed run with an inactive collar therefore agrees with binary64 to
+binary64 rounding. A source-free run with an in-stage absorber carries the in-stage
+absorber's binary32 error, within the bound of §7.1. Both are tested (§7.2), under each
+absorber scheme.
+
+**Reductions.** Reductions over the state, meaning the error norm and the statistics,
+are formed from the binary64 state in binary64. Running integrals and reductions
+*inside* the source (the plasma's exposure and free-current integrals, the Raman
+convolution's sums, the quadrature projections) are part of step 3 and follow SEP 33:
+binary32, with SEP 33's bounded orders on the oracle and a stated depth bound on
+native. Sums inside the transforms and matrix products are the libraries' binary32
+sums, which no mode controls; the probes and bounds cover them (§6.3, §7.1).
 
 **Error.** The linear part is binary64, so contributions 2 and 3 of SEP 33 §4.1 (the
 state's rounding and the propagator's coherent drift) fall to binary64 levels. What
-remains is binary32's rounding of the source. It enters the state scaled by the step,
-as a relative error per step of about
+remains is binary32 rounding of the source and of its narrowed input. It enters the
+state scaled by the step. §7.1 states the comparison bound. As a scale for design, the
+heuristic per-step relative error is
 $$\delta \approx c_s\,u_{32}\,\log_2 n\;\phi_{\mathrm{NL}},$$
 random in sign from step to step, plus the coefficients' coherent error of about
-$u_{32}\,\Phi_{\mathrm{NL}}$ over the run. On the heuristic of SEP 33 §4.1,
-undifferentiated growth gives an accumulated error of about
-$u_{32}(c_s \log_2 n\,\phi_{\mathrm{NL}}\sqrt{M} + \Phi_{\mathrm{NL}})$, multiplied
-by the propagation's sensitivity where the dynamics amplify. Linear propagation
-contributes nothing at binary32 level, whatever the band-edge phase or the number of
-steps. That removes the step-count limit of single precision (SEP 33's
-$\approx 3 \times 10^4$ steps).
+$u_{32}\,\Phi_{\mathrm{NL}}$ over the run. These are estimates, not bounds. Responses with
+large condition numbers (a plasma rate near its cutoffs, a source formed by
+cancellation) multiply $\delta$ by their condition number, which §7.1's bound carries
+explicitly. Linear propagation contributes nothing at binary32 level, whatever the
+band-edge phase, the damping or the number of steps.
 
-**The controller's floor.** The embedded estimate
-$\Delta z \sum_i (b_i - \hat b_i) k_i$ sees the source's rounding scaled by the
-weights' differences, which for DOPRI5 are of order $10^{-2}$–$10^{-1}$. Its rounding
-noise is therefore about $10^{-1}\,c_s\,u_{32}\log_2 n\,\phi_{\mathrm{NL}}$. For
-$n = 2^{16}$ and $\phi_{\mathrm{NL}} \le 0.1$ that is below $10^{-8}$. The proposed
-floor for mixed precision is $\mathrm{rtol} \ge 10^{-8}$, to be raised by the study's
-rule (§7.3, Q1) if tolerances below the raised value buy nothing.
+**The controller's floor.** The embedded estimate $\Delta z \sum_i (b_i - \hat b_i) k_i$
+sees the source's rounding scaled by the weights' differences, which for DOPRI5 are of
+order $10^{-2}$–$10^{-1}$. Its rounding noise is about
+$10^{-1} c_s u_{32} \log_2 n\,\phi_{\mathrm{NL}}$. That is below $10^{-8}$ for
+$n = 2^{16}$ and $\phi_{\mathrm{NL}} \le 0.1$, so the floor is $\mathrm{rtol} \ge 10^{-8}$,
+raised by the study's rule (§7.3, Q1).
 
-**Range under mixed precision.** The state needs no scale. The source input is the
-state divided by the launch's power-of-two scale $s$, so it is exact apart from the one
-rounding to binary32, and every source buffer follows SEP 33 §4.3. The source's output
-is multiplied by its combined coefficient, which includes $s$'s homogeneity factor, as
-it is widened. Overflow of a binary64 stage combination is not a binary32 concern.
+Admission does not enforce a small $\phi_{\mathrm{NL}}$, and it need not for the
+controller to be safe. The rounding term of the estimate scales with $\Delta z$, while
+the truncation term scales with $\Delta z^5$. A step whose rounding noise exceeds the
+target is rejected and shortened, and the noise falls in proportion until it is below
+the target, which happens at $\phi_{\mathrm{NL}} \lesssim 10\,\mathrm{rtol}/(c_s u_{32}\log_2 n)$.
+The controller therefore cannot stall on rounding; at worst it takes more, shorter
+steps than binary64 would at the same tolerance. That cost is measured: the floor rule
+of §7.3 counts accepted and rejected steps against binary64's, not only final errors. A
+source that nearly vanishes contributes rounding in proportion and needs no special
+case. The absolute terms of SEP 33 §4.3 item 7 cover a source whose buffers underflow.
+
+**Range under mixed precision.** Range is as step 2–4 above: the binary32 values are
+SEP 33's scaled lab-frame quantities, and everything outside the source has binary64's
+range.
 
 #### 4.3 The propagator in each mode
 
-- **Single.** The contract asks for a binary64-accurate argument rounded once. Native
-  forms $\sum_t s_t\Phi_t$ and its range reduction modulo $2\pi$ in binary64 and
-  evaluates `exp` and `sincos` of the reduced argument in binary32, giving a binary32
-  propagator with a relative error of a few $u_{32}$. The argument is reduced to
-  $[-\pi, \pi]$, so binary32 `sincos` loses no accuracy to its size. This is one code
-  path on every target. On the A40 it costs 1.75× the all-binary32 form and 0.52× the
-  all-binary64 form (§2). On CPUs, binary64 trigonometry costs little more, and the
-  same path keeps one oracle comparison.
+- **Single.** SEP 33's contract asks for a binary64-accurate argument and one rounding
+  of the propagator. A binary32 evaluation of the exponential meets that only if *both*
+  parts of the argument are range-reduced in binary64 before the binary32 functions
+  run. Rounding the real part alone to binary32 costs $|x|\,u_{32}$ relative: at
+  $x = -80.000003$ the binary32 argument is $-80$, and $e^{-80}$ differs from $e^{x}$
+  by $3.0 \times 10^{-6}$, about $50\,u_{32}$. Native therefore evaluates, from the
+  binary64 argument $x + i\theta$:
+  - the real part as $e^{x} = 2^{m} e^{r}$, with $m = \mathrm{round}(x / \ln 2)$ and
+    $r = x - m \ln 2$ formed in binary64 with a two-part $\ln 2$ (Cody–Waite), so
+    $|r| \le \tfrac12 \ln 2$. Then $e^{r}$ is evaluated in binary32 and scaled by
+    $2^{m}$ exactly. Overflow and underflow are decided by $m$, within single
+    precision's existing damping limit $|x| \le \ln(\mathrm{FLT\_MAX})$;
+  - the phase as $\theta = 2\pi q + \rho$, with $q$ an integer and $\rho$ formed in
+    binary64 with a three-part $2\pi$ (Cody–Waite), so $|\rho| \le \pi$, then
+    `sincos` of $\rho$ in binary32. A single binary64 $2\pi$ constant is not enough:
+    at $|\theta| = 10^{14}$ rad it leaves a phasor error of $4 \times 10^{-3}$ to
+    $9 \times 10^{-3}$, depending on whether the subtraction is fused. With
+    the leading parts short enough that $q$ times each is exact, the three-part
+    reduction leaves an absolute error in $\rho$ below $10^{-14}$ for
+    $|\theta| \le 2^{30}$ rad. That limit is more than $10^{5}$ times the largest
+    per-step phase met so far ($10^{2}$–$10^{4}$ rad at band edges). Above $2^{30}$ rad the phase is
+    reduced by the binary64 library `sin` and `cos`, which are exact in their
+    reduction. That is rare, so its cost is immaterial.
+
+  The stated accuracy is a relative error of the binary32 propagator of at most
+  $10\,u_{32}$ for $|x| \le \ln(\mathrm{FLT\_MAX})$ and any finite $\theta$. That is
+  the documented accuracies of the binary32 `expf`, `sinf` and `cosf` used (at most
+  2 ulp on CUDA and HIP, 1 ulp in the CPU libraries; never the fast intrinsics) plus
+  the product's rounding. The tests of §7.2
+  check it at the extremes of both ranges, including the inverse propagator and the
+  modulus's drift over many steps. On the A40 the timing kernel of §2, which reduced
+  the phase only, cost 1.75× the all-binary32 form and 0.52× the all-binary64 form;
+  the accurate form adds a few binary64 operations per bin and is timed in phase 2.
+  MLX's double-float kernel (SEP 33) reduces both parts too. This makes explicit what
+  "binary64-accurate, then rounded" requires of any binary32 evaluation.
 - **Mixed.** The propagator multiplies a binary64 state, so a binary32 propagator would
-  bring back SEP 33's coherent drift, $c\,M\,u_{32}$. It is therefore formed and kept in
-  binary64. Its cost on reduced-FP64 GPUs is the one open performance risk of the mode
-  (§6.4).
+  bring back SEP 33's coherent drift, $c\,M\,u_{32}$. It is formed and kept in binary64
+  by the library's binary64 functions, as in the binary64 path. Its cost on
+  reduced-FP64 GPUs is the mode's main performance risk (§6.4).
 
 #### 4.4 Noise under mixed precision
 
-A one-photon-per-mode seed has a spectral amplitude, relative to the pulse's peak
-spectral amplitude, of about $\sigma_q \approx \sqrt{\hbar\omega_0 n_{\mathrm{occ}}/E_p}$
-over $n_{\mathrm{occ}}$ occupied bins (SEP 33 §4.5). That is $1.6 \times 10^{-5}$ for
-1 µJ over 1000 bins and $5 \times 10^{-7}$ at 1 mJ.
+**The two noise models.** `noise="input"` adds its realisation to the launch state
+once, so under mixed precision the seed lives in the binary64 state.
+`noise="modified"` keeps the realisation apart, transports its phase with the linear
+flow, and adds it to the stage input at every source evaluation, so the propagating
+field never carries it. Under mixed precision both are drawn in binary64. The modified
+model's realisation is phase-transported and added in binary64 at step 1 of §4.2,
+before the single narrowing of step 2. Both models are qualified separately (§7.3);
+one that does not qualify is refused under mixed precision by name.
 
-Under single precision, the state's own rounding reaches $u_{32}\sqrt{M} \approx
-6 \times 10^{-6}$ after $10^4$ steps. That is the reason noise stays refused there.
+**Where the seed can be lost.** A one-photon-per-mode seed has a spectral amplitude,
+relative to the pulse's peak spectral amplitude, of about
+$\sigma_q \approx \sqrt{\hbar\omega_0 n_{\mathrm{occ}}/E_p}$ over $n_{\mathrm{occ}}$
+occupied bins (SEP 33 §4.5): $1.6 \times 10^{-5}$ for 1 µJ over 1000 bins and
+$5 \times 10^{-7}$ at 1 mJ.
 
-Under mixed precision, only the source's rounding is binary32. A transform's rounding
-error is spread over its bins [3], so a normwise relative error $\delta$ puts about
-$\delta\sqrt{n_{\mathrm{occ}}/n}$ into each occupied bin, relative to the peak spectral
-amplitude. The accumulated rounding "seed" per bin is then about
-$$\sigma_r \approx c_s\,u_{32}\log_2 n\;\phi_{\mathrm{NL}}\sqrt{M\,n_{\mathrm{occ}}/n}.$$
-For $c_s = 1$, $n = 2^{14}$, $\phi_{\mathrm{NL}} = 0.05$, $M = 10^4$ and
-$n_{\mathrm{occ}}/n = 1/4$, this gives $\sigma_r \approx 2 \times 10^{-7}$. That is
-38 dB below a 1 µJ seed and about 8 dB below a 1 mJ seed.
+- *Narrowing* the stage input rounds each spectral sample relative to its own
+  magnitude. In an empty bin the seed is the sample and survives with relative error
+  $u_{32}$. In an occupied bin it survives if $\sigma_q \gg u_{32}$, which holds by
+  18 dB at 1 mJ and 48 dB at 1 µJ.
+- *The source's own rounding* is spread over the bins [3]. Relative to the seed's
+  contribution to the source, it is about $u_{32}\log_2 n/\sigma_q$ per evaluation.
+  This is what decides whether amplified noise statistics are the quantum seed's or
+  binary32's.
+- *Accumulation.* Rounding is injected at every step and amplified from where it is
+  injected by the same gain that amplifies the seed. A heuristic accumulated rounding
+  amplitude per bin, for constant steps and undifferentiated growth, is
+  $\sigma_r \approx c_s u_{32}\log_2 n\,\phi_{\mathrm{NL}}\sqrt{M n_{\mathrm{occ}}/n}$.
+  For $c_s = 1$, $n = 2^{14}$, $\phi_{\mathrm{NL}} = 0.05$, $M = 10^4$ and
+  $n_{\mathrm{occ}}/n = 1/4$, this is $2 \times 10^{-7}$: 38 dB below a 1 µJ seed and
+  about 8 dB below a 1 mJ seed.
 
-The heuristic is not a bound. The ratio $\sigma_r/\sigma_q$ is what decides whether
-amplified noise statistics are the quantum seed's or binary32's, so the study measures
-it directly (§7.3) and does not rely on this estimate. In binary64 the same estimate is
-$10^{-15}$ and always negligible.
+These estimates locate the risk but qualify nothing. In binary64 the same estimate is
+$10^{-15}$ and always negligible. The study (§7.3) measures the margin directly, with
+matched-discrete runs that isolate rounding from truncation, at every saved plane while
+the dynamics are linear in the seed, and with source-response witnesses at identical
+states. It separates the coherent bias (the noise-free difference) from the random part.
 
-Noise-seeded runs are chaotic where modulation instability or Raman gain amplify the
-seed. Individual shots with the same seed then diverge between precisions even when
-the ensemble is right. Noise is therefore qualified on ensemble statistics and on the
-rounding margin $\sigma_q/\sigma_r$, never on individual shots.
+**Chaos.** Noise-seeded runs are chaotic where modulation instability or Raman gain
+amplify the seed. Individual shots with the same seed then diverge between precisions
+even when the ensemble is right, as they would under any perturbation, including a
+binary64 one. Beyond the linear regime, noise is therefore qualified on ensemble
+statistics, never on individual shots.
 
-#### 4.5 Binary64 that native keeps under single precision
+#### 4.5 What native may keep in binary64 under single precision
 
-These choices cost nothing measurable, or close to it, and only reduce error. Each
-stays within the class R bounds against the binary32 oracle: a comparison's bound is
-the sum of both sides' bounds, and native's side only shrinks.
+Extra precision only shrinks native's side of a comparison bound, and a class R bound
+is the sum of both sides' bounds. So native may compute more in binary64 than the
+single contract requires without changing the oracle or the bounds. Whether it should
+is a performance question, answered per target by measurement. The A40 shows that
+binary64 is not free on reduced-FP64 GPUs even for accumulation (§2). The choices:
 
-- **Accumulators.** Norm partials, statistics and the plasma's running integrals load
-  binary32 values and accumulate in binary64. These passes are bandwidth-bound; on the
-  A40 a binary64 add per loaded binary32 complex sample uses about a third of the card's
-  binary64 rate. SEP 33's compensated binary32 scans become unnecessary on native.
-  SEP 33's Q5 ("the oracle defines the orders") still holds for the comparison: the
-  oracle's binary32 orders set the bound native is tested against.
-- **The propagator's argument**, as §4.3.
-- **Host scalars and combined coefficients**, as in SEP 33.
-- **Evaluated tables** (z tables, rate-table lookups) are formed in binary64 on the
-  device and rounded once, as the oracle does on the host. Where a binary64 lookup
-  costs more than a measured threshold on a reduced-FP64 GPU, the implementation
-  records it and keeps the binary64 form unless the oracle's bound allows the binary32
-  form.
+- **The propagator's argument** and its range reductions: binary64 always (§4.3).
+- **Host scalars and combined coefficients:** binary64 always, as in SEP 33.
+- **Norms and statistics** of the binary32 state: accumulated in binary64 on CPUs and
+  full-rate GPUs. On reduced-FP64 GPUs the phase 4 profiles decide between binary64
+  accumulation and SEP 33's scaled pairwise forms. They run once per step or plane, so
+  the choice is expected to matter little either way.
+- **Running integrals inside the source** (plasma exposure and free current): binary32,
+  in native's existing scan structure, with its depth bound (SEP 25 §4.6) stated at
+  $u_{32}$. This matches the oracle's bound but not its order. Binary64 accumulation is
+  an option if the bound is not informative for a case, at the measured cost.
+- **Evaluated tables** (z tables, rate-table lookups): formed in binary64 and rounded
+  once, as the oracle does on the host, unless the profiles show the binary64 lookup
+  is a significant share of the step on a reduced-FP64 GPU. In that case the binary32
+  form is adopted only where its added error is within the oracle comparison's bound.
 
 Binary32 stays mandatory under single precision for the state, the stage values, the
 transforms, the responses and the matrix products. Those are what the mode is for.
+
+**Existing oracle exceptions.** SEP 33's oracle computes some quantities in binary64
+from the binary32 state: the envelope-grid plasma's cycle moments, and the statistics.
+Comparisons of those quantities between native and the oracle are therefore not
+matched binary32 operation sequences. The tests say so and bound them as different
+algorithms on the same input, not as rounding of one sequence.
 
 #### 4.6 Integrators
 
@@ -472,12 +620,26 @@ shots = [
   refused until phase 5 admits it (§4.6, Q2). The low-storage march is admitted under
   both.
 - **Noise.** Refused under `"single"`. Under `"mixed"`, refused until phase 5, then
-  admitted on the routes and cases the study qualifies, with a refusal or a documented
-  limit where it does not (§7.3, Q4). A mixed run with a noise model records in its
-  output metadata an estimate of its accumulated rounding floor, $\sigma_r$ of §4.4,
-  from the per-step nonlinear phase (the norm of one stage value, folded into the
-  existing norm reduction), beside the seed's $\sigma_q$, so a user can read the margin
-  of their own run.
+  admitted per noise model (`"input"`, `"modified"`) on the routes and cases the study
+  qualifies, with a refusal or a documented limit where it does not (§7.3, Q4, Q11).
+- **The rounding-margin indicator.** A noise-seeded mixed run records in its output
+  metadata a heuristic indicator of its accumulated rounding, labelled as such:
+  - per accepted step, the step's nonlinear phase
+    $\phi = \Delta z\,\lVert k_{\mathrm{last}}\rVert / \lVert A\rVert$, from the last
+    stage value of the accepted step and the state, in the norm the controller already
+    uses (for multimode and radial states, the route's energy norm), computed in the
+    existing norm reduction;
+  - the running sum $\Sigma\phi^2$ over accepted steps only, since rejected trials do
+    not reach the state; FSAL and Adams evaluations count once, with the accepted step
+    they belong to;
+  - at each saved plane, $\sigma_r = c_s u_{32}\log_2 n \sqrt{\Sigma\phi^2\,
+    n_{\mathrm{occ}}/n}$ beside the seed's $\sigma_q$ of §4.4, with $n_{\mathrm{occ}}$
+    the bins above −30 dB of the state's peak spectral energy, and their ratio in dB.
+
+  The constant $c_s$ is calibrated by the study (§7.3). The indicator omits gain and
+  coherent bias, and the metadata says so. It is recorded as absent, not as a number,
+  for a zero state norm or a run without a noise model. The running sum is stored in
+  snapshots, restored on resume and reset when a runner is reused (SEP 22 §4.7).
 - **The build record.** `BuildInfo.precision` becomes `precisions`, the tuple of
   compiled modes (for example `("double", "single", "mixed")`). `solprop_native.build_info()`
   and the backend table report it.
@@ -488,9 +650,9 @@ shots = [
     backend is a class T comparison (SEP 33 §5.3).
   - A mixed snapshot stores a binary64 state and history, so its round trip is class P
     with no scaling.
-- **Memory.** `estimate_memory` counts each buffer at its mode's element size:
-  binary64 state, history and propagators, and binary32 source workspaces and stage
-  values under mixed.
+- **Memory.** `estimate_memory` counts each buffer at its mode's element size. Under
+  mixed precision, every stored row is binary64 and the source workspaces are binary32
+  (§6.7).
 - **Batches.** `select_batch` with `backend="native"` admits members of one precision.
   Members of different precisions are refused.
 
@@ -518,24 +680,41 @@ shots = [
   backend lists. `SINGLE_PRECISION_BACKENDS` becomes a mapping from mode to backends.
 - `KernelProblem._check_precision` refuses SEP 33's routes under both reduced modes.
   It refuses noise under single, and under mixed until phase 5.
-- `_check_single_exponent` applies to single only: the mixed propagator is binary64.
+- `_check_single_exponent` applies to single only: under mixed precision every row in
+  the interaction variable is binary64 (§4.2).
 - `SCHEMA_VERSION` and the output schema change in phase 1 for the new value, under
   ADR-051.
 - The SEP 33 range helpers serve both modes unchanged.
-- `tests/bounds.py` gains a mixed bound: the source's terms at $u_{32}$ and the state's
-  at $u_{64}$, composed as SEP 33 §7.1 composes its formulas.
+- `tests/bounds.py` gains the mixed bound of §7.1, with its condition numbers, transport
+  factor and two-sided composition.
 
 #### 6.2 `numpy_ref`: the mixed oracle
 
-`NumpyMixedBackend` reuses the binary32 source path of `NumpySingleBackend` and the
-binary64 state path of the reference. The hooks already separate them (`_upload` for
-the narrowed source tables, `_column_sources`, `_envelope_sources`, `_raman_spectrum`
-and `_held_streams` for the source; `_propagator`, `_finish` and `_error_norm` for the
-state). The source input is rounded once per stage at the launch scale. Stage values
-are stored in complex64 and widened exactly where they are combined. The dtype guards
-assert complex128 on the state and complex64 in the source. The oracle's reduction
-orders are SEP 33's in the source, and the reference's in binary64. Most of the work is
-in the class's composition, not in new arithmetic.
+`NumpyMixedBackend` implements §4.2's operation order explicitly. It does not merely
+compose the two existing paths: the single path's source returns $N(A)/s$ in binary32
+and its stage rows are binary32, and both differ from what mixed precision needs.
+
+- **The source** is the single path's (`single_sources`, `kerr_single`, `raman_single`,
+  `running_integral`, `plasma_current_single` and the narrowed tables), called on
+  $\mathrm{fl}_{32}(y_i / s)$. Its running integrals stay binary32 in SEP 33's orders,
+  because they are inside the source (§4.2).
+- **The pull-back** widens the result exactly, multiplies by $s$ and by the binary64
+  inverse propagator, and stores the stage value in complex128. These are the hooks
+  `_nonlinear`, `_finish` and `_adams_source`, which the single path overrides
+  differently.
+- **The state path** is the reference's binary64 path: `_propagator`, the stage
+  combinations, `_finish` with its split-step transforms, `_error_norm` and the
+  statistics.
+- **The in-stage absorber terms** move into the binary32 source. The split-step
+  absorber stays in binary64.
+- **Noise.** The modified model's realisation is added in binary64 before narrowing.
+- **Dtype guards** assert complex128 on the state, the stage values and every stored
+  row, complex64 or float32 inside the source, and that the source's input is the
+  narrowing of a binary64 array. Adversarial tests place a binary64 array inside the
+  source and a binary32 array in a stored row, and check that each is caught.
+
+The oracle's own exceptions (§4.5: envelope-grid plasma moments and statistics in
+binary64) carry over unchanged.
 
 #### 6.3 Native: a precision policy in the C++
 
@@ -544,13 +723,13 @@ in the class's composition, not in new arithmetic.
 - **A. Kernels templated on a precision policy** (recommended). A policy type names
   the roles:
 
-  | policy | state | source | accumulator | propagator |
+  | policy | state and stored rows | source, with its scans | state reductions | propagator |
   |---|---|---|---|---|
   | `Double` | `double` | `double` | `double` | `double` |
-  | `Single` | `float` | `float` | `double` | `float`, from a `double` argument |
+  | `Single` | `float` | `float` | per target (§4.5) | `float`, from a `double` argument (§4.3) |
   | `Mixed` | `double` | `float` | `double` | `double` |
 
-  The view aliases (`StateView`, `SourceView`, `TableView`, `AccumulatorView`) are
+  The view aliases (`StateView`, `SourceView`, `TableView`, `ReductionView`) are
   defined once per policy, replacing the per-file aliases. Each kernel and class is
   templated on the policy and explicitly instantiated in one translation unit per
   policy, so builds stay parallel. The strict helpers of `fp.hpp` become templates.
@@ -587,12 +766,27 @@ input.
   same SIMD codelets as the binary64 ones (AVX2 on x86-64-v3, NEON on aarch64).
 
 **Arithmetic probes**, as SEP 33 §6.3 does for MLX:
-- *TF32.* cuBLAS computes binary32 products in TF32 when an application asks for it,
-  and `NVIDIA_TF32_OVERRIDE` can force it [5]. Construction runs a GEMM probe on each
-  product shape the run uses, with Gaussian factors and SEP 33's discriminating
-  threshold $2^{-17}$. It refuses if TF32 is detected, naming the variable. On HIP
-  builds the same probe covers rocBLAS's reduced-precision `xf32` compute type, which
-  CDNA 3 offers for binary32 products.
+- *The math mode, set.* cuBLAS computes binary32 products in TF32 when the handle's
+  math mode allows it [5]. At construction, native sets the math mode explicitly on the
+  cuBLAS handle that Kokkos Kernels' library layer uses for its products (its handle
+  singleton): `CUBLAS_PEDANTIC_MATH` under single and mixed precision. On HIP it sets
+  rocBLAS's default (non-`xf32`) math mode on the corresponding handle. A product
+  issued through another handle or library is not admitted under the reduced modes.
+- *The math mode, probed.* Construction then runs a GEMM probe for each dispatch family
+  the run uses:
+  - real and complex;
+  - each transpose and layout combination that native issues;
+  - the full node-chunk shape and the tail chunk's shape.
+
+  Each probe multiplies small Gaussian factors with the run's inner dimension and at
+  most 64 rows and columns, against a binary64 host reference, with SEP 33's
+  discriminating threshold $2^{-17}$. Probe buffers are counted in the memory estimate
+  and released before the march. A failed probe refuses the run and reports the
+  observed relative error and the family, without guessing the cause.
+  `NVIDIA_TF32_OVERRIDE=0`, which the cuBLAS documentation describes as disabling TF32
+  [5], is mentioned in the message as one remedy, not as the diagnosis. The negative
+  tests select TF32 (and on HIP `xf32`) through each library's API in a test fixture
+  (§7.2).
 - *Transforms.* cuFFT and FFTW in single precision are characterised against
   `fft_bound` at $u_{32}$ at each length and kind the routes use, in the test suite,
   and rocFFT likewise on the AMD lane.
@@ -624,21 +818,34 @@ and mixed become an option of source builds and the guide says so.
 
 Under mixed precision, the binary64 propagator is formed per bin and stage, with its
 inverse sharing the trigonometry. On the A40 it costs about one binary64
-bandwidth-bound pass at $2^{20}$ (198 µs, against 206 µs for a binary64 stage
+bandwidth-bound pass at $2^{20}$ (198 µs, against 203 µs for a binary64 stage
 combination), but 6× the binary32 propagator at $2^{16}$. Phase 4 measures its share
-of a mixed step on the A40. If the share exceeds 15 %, the remedies below are evaluated
-in order, each binary64-accurate and each tested against the oracle:
+of a mixed step on the A40.
+
+**The 15 % share is a trigger to investigate, not a performance requirement.** Plain
+binary64 evaluation is always valid and stays the fallback. Above the trigger, phase 4
+evaluates the following remedies. Each is adopted only if it meets the binary64
+contract with its error included in the comparison bound, and only if it is faster:
 
 1. **Reuse while $\Delta z$ is unchanged.** Fixed schedules and constant-operator
    routes repeat the same propagators. They can be cached, keyed by the step and the
-   terms' weights, within the memory budget.
+   terms' weights, within the memory budget. The values are identical, so this adds no
+   error.
 2. **Derive stage propagators by products.** On a constant operator, the propagators at
    the stage nodes are products of a few base propagators. Binary64 complex
-   multiplication is bandwidth-bound, not transcendental-bound. The error grows by one
-   rounding per product, within the class R bound.
-3. **Binary64 range reduction with a double-float polynomial** on binary32 units,
-   as SEP 33's MLX kernel does for the argument. This is the most work, and is used
-   only if 1 and 2 do not bring the share below the threshold.
+   multiplication is bandwidth-bound, not transcendental-bound. Each product adds a few
+   $u_{64}$ relative, and on a damped bin the products of partial factors stay within
+   binary64's range, since every factor's modulus is between the step's endpoint values.
+   The bound counts the products per stage (at most the number of stages) and charges
+   $\gamma_{k}$ at $u_{64}$ for $k$ products. That stays negligible against the
+   source's $u_{32}$ terms, but the bound states it.
+
+A double-float evaluation on binary32 units is **not** proposed as a substitute. A
+two-term binary32 expansion carries about 48 significant bits, below binary64's 53,
+before its polynomial and range-reduction errors [8]. SEP 33's MLX kernel used one only
+to form a binary32 result. A double-float exponential would need its own error analysis
+over the full damping and phase ranges, and would be a new SEP's subject if the profiles
+ever justified it.
 
 Single precision needs none of these (§4.3). On the AMD GPU, whose binary64 vector
 rate is half its binary32 rate, the binary64 propagator is expected to be
@@ -675,14 +882,27 @@ same measurement is repeated on the AMD GPU.
 
 #### 6.7 Cost and memory
 
-- **Single precision** halves resident bytes against binary64.
-- **Mixed precision** keeps the state, the history, the propagators and the linear
-  tables in binary64 and halves the source's workspaces and stage values. A DOPRI5 run
-  with seven stage values is about 0.6 of binary64's resident bytes; an Adams run
-  depends on its history length.
+Resident bytes are derived from the memory ledgers (`estimate_memory` and the native
+backend's own ledger), not asserted. The proposal's expectations, to be replaced by the
+ledgers' figures in phases 2–3:
 
-`estimate_memory` reports both, and the device lane checks the measured peak against
-the estimate.
+- **Single precision** holds the state, the stage values, the history and the source
+  workspaces in binary32. The linear tables (operator terms and propagators as the
+  route stores them), the accumulators, the library workspaces and the retained outputs
+  keep their own sizes. The ratio to binary64 is therefore above one half. How far
+  above depends on the route: the linear tables are a small share on large spatial
+  grids and a larger one on small fibre runs.
+- **Mixed precision** keeps every stored row binary64 (§4.2). It halves only the
+  source's workspaces: the fine time grid, the node chunks, the transform buffers of
+  the source and the narrowed response tables. It adds the binary32 source plans
+  beside binary64 plans for the split-step absorber when one is active. On routes where
+  the source workspaces dominate (radial and Cartesian node chunks, multimode
+  quadratures), mixed precision saves a substantial fraction. On a single-mode fibre
+  run it saves little, and it may need slightly more if both plan sets are resident.
+
+Each phase records representative ratios from the ledgers for the benchmark cases, and
+the device lanes check the measured peak against the estimate, including library
+workspaces.
 
 #### 6.8 Dependencies
 
@@ -693,49 +913,118 @@ licence. cuFFT, cuBLAS, rocFFT and rocBLAS already include single precision.
 
 #### 7.1 Bounds
 
-Single precision uses SEP 33's binary32 bounds and limits of use (its §7.1). Mixed
-precision uses the bound of §6.1: binary32 terms for the source's operations and
-binary64 terms for the state's. A class R bound larger than a tenth of a case's class T
-envelope is uninformative, as in SEP 33, and the comparison then runs on a shorter
-window.
+**Single precision** uses SEP 33's binary32 bounds and limits of use (its §7.1), with
+§4.3's exponential bound in place of "one rounding of the propagator".
+
+**Mixed precision.** The bound is written per stage, then per step, then over the run.
+Each term is evaluated from quantities known before the comparison, never fitted to
+results.
+
+1. *Source error at a stage.* For the binary64 stage input $y_i$, the mixed stage value
+   differs from the binary64 one by, per bin,
+   $$\lvert \hat k_i - k_i \rvert \le \lvert e^{-\Delta\Phi_i}\rvert \Big( \kappa_{\mathcal N}\,u_{32}\,\lvert \mathcal N(y_i)\rvert_{\mathrm{nw}} + E_{\mathrm{pass},i} + E_{\mathrm{abs},i} \Big) + O(u_{64}).$$
+   - $\kappa_{\mathcal N}$ is the response's relative condition number with respect to
+     its input, which carries the narrowing of step 2: 3 for Kerr and Raman. For the
+     plasma it is $1 + \max \lvert d\ln W / d\ln\lvert E\rvert \rvert$ over the samples'
+     field range, read from the rate table on the host. The rate's steepness near its
+     cutoffs therefore enters explicitly.
+   - $E_{\mathrm{pass},i}$ is SEP 33's binary32 bound of the source's passes, from the
+     `tests/bounds.py` formulas at $u_{32}$: transforms, matrix products, scans and one
+     narrowing of each table entry per use.
+   - $E_{\mathrm{abs},i}$ is SEP 33 §4.3 item 7's absolute underflow term.
+   - $\lvert\cdot\rvert_{\mathrm{nw}}$ marks normwise terms (transforms, products)
+     spread over bins, as SEP 33's bounds spread them.
+   - The inverse propagator multiplies bin by bin in binary64, so it scales the absolute
+     bound and leaves the relative one unchanged. It is not an amplification of the
+     error relative to the stage value.
+2. *Transport through the step.* A stage error enters later stages through the source's
+   dependence on its input. To first order, the step's state error is
+   $\Delta z \sum_i \lvert b_i\rvert\,\lvert\hat k_i - k_i\rvert$, multiplied by
+   $(1 + \kappa_{\mathcal N}\phi_{\mathrm{NL}})^{s}$ for $s$ stages to cover
+   propagation into later stages. Here $\phi_{\mathrm{NL}}$ is the step's nonlinear
+   phase, computed from the binary64 reference's stage values. Products in the binary64
+   state path add $u_{64}$ terms (and §6.4's product count, if adopted).
+3. *Over the run.* On a fixed schedule the per-step bounds are summed and multiplied by
+   the existing `propagation_growth`, as SEP 33 does.
+4. *Two sides.* Native and the oracle each have their own bound, from their own
+   accumulators: native's scan depth bound, the oracle's SEP 33 orders. A comparison's
+   bound is their sum. Where one side's accumulator is binary64, its term is the
+   binary64 one.
+
+A bound larger than a tenth of a case's class T envelope is uninformative, as in
+SEP 33. That comparison then runs on a shorter window, and the test says so. Responses
+whose $\kappa$ makes every window uninformative (a plasma very close to a cutoff) are
+recorded as such, and qualified by the class T study alone.
 
 #### 7.2 Class P, class R and targeted tests
 
 - **No binary64 change.** The existing native suite passes unchanged on the `Double`
   instantiation. A same-host A/B on the SEP 30 core cases shows no slowdown beyond the
   suite's noise (SEP 30's rules).
+- **The oracles against binary64, one step.** As SEP 33 did for single precision:
+  `numpy_ref` mixed against `numpy_ref` binary64 over one step, within §7.1's bound, on
+  every capability of §5.1. This qualifies the mixed oracle independently of any
+  native comparison.
+- **Independent response witnesses, both reduced modes:**
+  - dispersion-free SPM's phase, $P\int\gamma\,dz$;
+  - the Raman convolution against a binary64 convolution of the same kernel;
+  - plasma populations at small and saturated exposure against their closed forms;
+  - photon-number conservation in lossless Kerr propagation.
+
+  These check the oracle against physics, not against itself.
 - **Native single against `numpy_ref` single**, and **native mixed against `numpy_ref`
   mixed**, on fixed schedules with a fixed-order method, for every capability of §5.1
   in its phase. These run on the CPU build in CI, on the CUDA build in the local A40
   lane, and on the HIP build on the AMD GPU.
 - **Native single against `mlx`** on an Apple-silicon Mac. Both are bounded against the
   oracle, so this is a consistency check, not a gate.
-- **The linear part of mixed precision.** A source-free run under mixed precision
-  agrees with binary64 within binary64 bounds. This witness shows that no binary32
-  arithmetic reached the linear path.
+- **The linear part of mixed precision.** Under each absorber scheme:
+  - a source-free run with no collar agrees with binary64 within binary64 bounds;
+  - a source-free run with a nonzero split-step temporal absorber agrees within binary64
+    bounds;
+  - a source-free run with nonzero in-stage temporal and spatial absorbers agrees within
+    §7.1's bound for the absorber terms.
+
+  All three run on the fibre route and on the Cartesian route.
+- **Damping and scale witnesses, mixed precision.**
+  - A strongly damped bin, with $|\mathrm{Re}\,\Delta\Phi| = 150$ per step, carrying a
+    small source, runs without overflow and agrees with binary64.
+  - A launch with scale $s \ne 1$ (a peak of $10^{9}$ V/m, so $s = 2^{30}$) gives the
+    physical $\mathcal N(A)$ within the bound, for Kerr, Raman and the plasma.
+- **The single-precision exponential.**
+  - Relative error at most $10\,u_{32}$ against a high-precision reference over
+    $x \in [-\ln \mathrm{FLT\_MAX}, \ln \mathrm{FLT\_MAX}]$, including $x$ just past
+    multiples of $\ln 2$ and the witness $x = -80.000003$.
+  - $\theta$ up to and beyond $2^{30}$ rad, including just past multiples of $2\pi$.
+  - The inverse propagator's error.
+  - Modulus drift over $10^4$ constant steps, against $c\,M\,u_{32}$ with SEP 33's $c$.
 - **SEP 33's targeted tests, repeated on native in both modes:**
   - scaling, class P where only powers of two differ;
   - the Cartesian energy that would overflow unscaled;
   - the vanished molecular Raman response;
-  - plasma populations at small and saturated exposure;
-  - the propagator drift, single only, with $c$ recorded per target;
+  - plasma populations;
+  - the propagator drift, single only;
   - failure injection in fixed, low-storage and adaptive runs;
   - resume across backends in the same precision (class T) and refusal across
     precisions;
-  - snapshot round trips;
+  - snapshot round trips, which are class P under mixed with binary64 rows;
   - memory against the estimate.
-- **Probes.** The TF32 GEMM probe on each product shape, with a forced-TF32 environment
-  refused; transform characterisation at $u_{32}$; a subnormal surviving a device pass.
+- **Probes (§6.3):**
+  - the GEMM probe on each dispatch family;
+  - a negative test that selects TF32 explicitly on the cuBLAS handle native uses, in a
+    test fixture, and expects the refusal; on HIP, the same with rocBLAS's `xf32` math
+    mode set through its API;
+  - transform characterisation at $u_{32}$;
+  - a subnormal surviving a device pass.
 - **Batches.** Each member agrees with its solo run within the mode's bound.
 
 #### 7.3 Class T: the survival studies
 
 **Single precision.** The oracle's survival record (SEP 33 Part II) transfers to native
-through the class R tests above. Phase 4 confirms it on the A40 by rerunning three of
-its cases on the CUDA build against their binary64 references: `ctc` at its 0.05 m
-limit, `argon` and `radial_filament`. Each is judged by SEP 33's envelopes. The same
-three cases, and the mixed study's `rdw` and `argon`, are rerun on the AMD GPU. This is
-a confirmation, not a new study.
+through the class R tests above. Phase 4 confirms it on each GPU, on the CUDA build on
+the A40 and on the HIP build on the AMD GPU, by rerunning three of its cases against
+their binary64 references: `ctc` at its 0.05 m limit, `argon` and `radial_filament`.
+Each is judged by SEP 33's envelopes. This is a confirmation, not a new study.
 
 **Mixed precision: coherent cases.** The criteria are SEP 33 §7.3's, recorded in
 Part II before the first comparison:
@@ -744,15 +1033,16 @@ Part II before the first comparison:
 - the same metrics and envelopes (field $10^{-3}$, bands 1 %, energy $10^{-4}$, peak
   $10^{-3}$, ionised fraction $10^{-3}$, width $10^{-3}$);
 - the same verdicts;
-- SEP 33's cases, with candidates at $10^{-8}$, $10^{-7}$ and $10^{-6}$.
+- SEP 33's cases, with candidates at $10^{-8}$, $10^{-7}$ and $10^{-6}$, each beside a
+  binary64 run at the same tolerance to separate precision from truncation.
 
-The study also records each case's error against the binary64 run at the same
-tolerance. This separates precision from truncation, which SEP 33's Adams finding showed
-is needed.
+The mixed `rdw` and `argon` cases are also confirmed on both GPUs in phase 4.
 
-- **The floor (Q1).** The floor rises from $10^{-8}$ to $10^{-7}$ if, on every case, no
-  metric's error at $10^{-8}$ is smaller than at $10^{-7}$ by more than 25 %. The same
-  test is then applied from $10^{-7}$ to $10^{-6}$.
+- **The floor (Q1).** The floor rises from $10^{-8}$ to $10^{-7}$ if either of two
+  things holds. One: on every case, no metric's error at $10^{-8}$ is smaller than at
+  $10^{-7}$ by more than 25 %. Two: on any case at $10^{-8}$, the mixed run takes more
+  than 1.25 times the accepted steps, or 1.5 times the rejected steps, of the binary64
+  run at the same tolerance. The same test is then applied from $10^{-7}$ to $10^{-6}$.
 - **Adams under mixed precision (Q2).** Admitted, and made the mixed default, if on the
   `rdw` and `argon` cases at each candidate tolerance its error is within every envelope
   and at most twice that of binary64 Adams at the same tolerance in every metric.
@@ -760,38 +1050,75 @@ is needed.
   rounding still seeds empty Stokes bins, at a level $\phi_{\mathrm{NL}}$ smaller than
   single's, so its limit should lengthen.
 
-**Mixed precision: noise-seeded cases.** The criteria are recorded before the first
-comparison. Cases run on reduced windows, with ensembles of $N = 64$ shots with
-matched seeds against binary64 ensembles:
+**Mixed precision: noise-seeded cases.** Every case's full definition is frozen in
+Part II before the first candidate comparison, as SEP 33 froze its cases: pump, fibre
+or medium parameters, energy, grid and window, length, saved planes, noise model,
+seeds, integrator and tolerances. The cases are:
 
-| id | route | definition | expected |
+| id | route | definition (frozen in Part II) | expected |
 |---|---|---|---|
-| `scg_coherent` | fibre, envelope | GNLSE supercontinuum in a silica photonic-crystal fibre, 50 fs pump in anomalous dispersion, length in the coherent regime | survives |
-| `scg_incoherent` | fibre, envelope | the same with a 1 ps pump, modulation-instability dominated, $\lvert g_{12}\rvert$ below 0.5 over most of the band | to measure |
-| `rdw_noise` | fibre, field | `rdw` with a one-photon-per-mode seed | survives |
+| `scg_coherent` | fibre, envelope | the photonic-crystal-fibre supercontinuum of [6] (its dispersion, $\gamma$, Raman and shock; 835 nm, 50 fs FWHM sech, 10 kW, 15 cm) | survives |
+| `scg_incoherent` | fibre, envelope | the same fibre with a longer pump chosen in Part II so that the binary64 ensemble's band-averaged $\lvert g_{12}\rvert$ is below 0.5 over most of the band | to measure |
+| `rdw_noise` | fibre, field | `rdw` with a seed | survives |
 | `ctc_noise` | fibre, field | `ctc` with a seed, Raman-gain dominated | to measure |
 | `radial_filament_noise` | radial | `radial_filament` with a seed | to measure |
 
-Metrics, at the last plane, in the 32 bands of SEP 33's spectral metric above −30 dB
-of the largest:
-- **the ensemble-mean spectral energy** per band. Envelope: the larger of 1 % and
-  twice the binary64 ensemble's standard error of the mean.
-- **the modulus of the first-order coherence**, $\lvert g_{12}\rvert$ [6], per band.
-  Envelope: the larger of 0.02 absolute and twice the binary64 ensemble's standard
-  error of $\lvert g_{12}\rvert$ in that band (by bootstrap over its shots), so that a
-  partly coherent band does not fail on sampling alone.
-- **the rounding margin** $\sigma_q/\sigma_r$ per band, from the difference between
-  mixed and binary64 shots with identical seeds, measured at 1 % of the length (before
-  amplification), against the seed's own spectral amplitude. Envelope: at least 20 dB
-  in every band. This is the primary criterion: it tests directly that binary32 is not
-  the source of the noise, and it needs a few shots, not an ensemble.
+Every case runs under `noise="input"`. `scg_coherent`, `scg_incoherent` and `rdw_noise`
+also run under `noise="modified"`. A model is admitted under mixed precision only on
+what it passes.
 
-Verdicts are as for the coherent cases. A failure becomes a refusal where its
+**The criteria**, recorded before the first comparison:
+
+1. **Rounding margin, in the linear regime (primary).** A binary64 run and a mixed run
+   are made on the same discrete steps: the binary64 run's accepted schedule, replayed
+   as a `FixedSchedule` in mixed precision. Their difference $D(z)$ then holds rounding
+   and its amplification only, not truncation or different step histories. Beside it,
+   the seed's response is $S(z) = A_{64}(z; \eta) - A_{64}(z; 0)$, for a seed $\eta$, on
+   the same schedule. Both are linear responses while they are small. Both carry
+   injection and amplification from everywhere along the run, rounding from every step
+   and the seed from its entrance.
+   - Per band above −30 dB of the mean spectrum, at every saved plane, the margin is
+     $10\log_{10}(\overline{|S|^2}/\overline{|D|^2})$, averaged over 8 seeds. It must be
+     at least 20 dB.
+   - The margin is evaluated from the entrance up to the plane where
+     $\overline{|S|^2}$ in that band first exceeds −20 dB of the band's mean energy. Up
+     to that plane both are perturbations of the same flow. Beyond it the dynamics are
+     no longer linear in the seed, and criterion 3 judges.
+   - The coherent part of $D$ is the noise-free matched-discrete difference. It is
+     reported separately as a bias and judged by the coherent-case envelopes. The random
+     part is $D$ minus that bias, and is what the margin uses.
+2. **Source-response witness at identical states.** At four planes of the binary64 run,
+   for 8 seeds, the source's response to the seed,
+   $\Delta\mathcal N = \mathcal N(A + \eta) - \mathcal N(A)$, is evaluated in mixed and
+   in binary64 on the same binary64 state. The difference must be at most −20 dB of
+   $\Delta\mathcal N$ in every band above −30 dB. This checks directly that narrowing
+   and the binary32 source keep the seed's effect. Under `"modified"` it uses that
+   model's stage-input addition.
+3. **Ensemble statistics, $N = 64$ shots, matched seeds,** at the last plane, against
+   the binary64 ensemble with the same seeds, in the 32 bands of SEP 33's spectral
+   metric above −30 dB of the binary64 ensemble's mean spectrum (the reference selects
+   the bands):
+   - *the ensemble-mean spectral energy* per band;
+   - *the band coherence*: `processing.coherence.g12` evaluated per bin, then averaged
+     over the band's bins weighted by the binary64 ensemble's mean spectrum.
+
+   Each statistic is compared on the paired difference, mixed minus binary64, over the
+   matched seeds. Its standard error is estimated by a paired bootstrap that resamples
+   seeds, with 2000 resamples. The tolerance is the larger of the absolute floor (1 %
+   of the band's energy; 0.02 in band coherence) and $z$ times the paired standard
+   error. Here $z$ holds the family-wise false-rejection rate at 5 % over every band and
+   both statistics of a case, by Bonferroni ($z = 3.4$, two-sided, for 64
+   comparisons).
+
+**Verdicts** are as for the coherent cases. A failure becomes a refusal where its
 condition can be computed from the problem before the run; otherwise it becomes a
-documented limit (Q4). The study records the measured $\sigma_r$ against §4.4's
-estimate, and the metadata estimate of §5 against the measured margin. It also states
-whether a problem-level predicate, such as one in pulse energy, occupied bins and
-expected nonlinear phase, separates the passing cases from the failing ones.
+documented limit (Q4). The study records the measured margins against §4.4's
+heuristic, and states whether a problem-level predicate separates the passing cases
+from the failing ones.
+
+**The recorded indicator (§5).** The study calibrates $c_s$ for the run-time indicator
+from the margins measured under criterion 1, and records how well the indicator
+predicts them. The indicator is labelled a heuristic wherever it is reported.
 
 #### 7.4 Benchmarks
 
@@ -807,9 +1134,17 @@ measured peak memory:
   `rocprofv3` kernel traces on the AMD GPU), attributing the time to transforms,
   matrix products, element-wise passes, propagators, reductions and launch overhead,
   and comparing the attribution with the indicative figures of §2;
-- native single against `mlx` on the same Mac.
+- native single against `mlx` on the same Mac;
+- the hypotheses of §2 and §4.5, each confirmed or refuted by the profiles: that mixed
+  precision keeps most of single precision's transform and product gain on a whole
+  step; the share of the binary64 propagator; and the cost of binary64 accumulation
+  for norms and statistics on each GPU.
 
-The user guide's advice comes from these records. Where a mode gains less than 1.3× on
+The records are made by the standard suite's harness (SEP 30), which captures the
+compiler, the Kokkos, Kokkos Kernels and Kokkos-FFT versions, the FFT and BLAS libraries
+and the build options. Their inputs are finite and representative, outputs are
+validated, and library statuses are checked. The recipe for each GPU lane is part of
+the building guide (§8). The user guide's advice comes from these records. Where a mode gains less than 1.3× on
 a target and route, the guide says so. Benchmarks are not merge gates.
 
 ### 8. Documentation
@@ -823,8 +1158,9 @@ a target and route, the guide says so. Benchmarks are not merge gates.
 - [The native backend](../../guide/performance/native.md): running reduced precision on
   CPUs and GPUs, the A40 and AMD examples, and the TF32 and `xf32` refusals.
 - [Building the native backend](../../guide/performance/building-native.md):
-  `SOLPROP_NATIVE_PRECISIONS`, the Ampere (`AMPERE86`) preset, and FFTW's
-  single-precision libraries for source builds.
+  `SOLPROP_NATIVE_PRECISIONS`, the Ampere (`AMPERE86`) preset, FFTW's
+  single-precision libraries for source builds, and the recipe for each GPU
+  qualification lane (A40 and CDNA 3).
 - [Choosing a backend](../../guide/performance/backends.md): the precision column.
 - The normative pages:
   - [architecture.md §1](../architecture.md): binary64 by default, single or mixed
@@ -850,7 +1186,7 @@ a target and route, the guide says so. Benchmarks are not merge gates.
 - **`mlx`** is unchanged, apart from refusing `"mixed"` by name and sharing the
   host-side range helpers.
 - **The ADR**, written at acceptance: *Reduced precision on the native backend: a mixed
-  mode, and binary64 kept where it is free*. It extends ADR-054 in four ways:
+  mode, and binary64 where the contract or the profiles call for it*. It extends ADR-054 in four ways:
   - binary32 is admitted on native under SEP 33's contract, validated against the same
     oracle;
   - a mixed mode with its own oracle;
@@ -873,12 +1209,22 @@ a target and route, the guide says so. Benchmarks are not merge gates.
   without the mode MLX runs, so the two could not be cross-checked. Not chosen.
 - **Compiling the source three times** (§6.3, B) and **hand-written binary32 kernels**
   (§6.3, C). Not chosen, for the reasons given there.
+- **Binary32 stage values under mixed precision**, as the first draft had them. They
+  halve the stage rows' traffic, but they hold $e^{-\Delta\Phi}\mathcal N$, which
+  overflows binary32 on strongly damped bins (§4.2). They would need SEP 33's damping
+  refusal back, or a per-bin exponent, under the one mode meant to have neither. Not
+  chosen. The profiles of phase 4 record the stage rows' share of a mixed step; if it
+  dominates, a later proposal can revisit this with an exponent scheme of its own.
 - **A binary32 propagator under mixed precision.** It costs the same as under single,
   and it reintroduces the coherent drift that is the mode's reason for being (§4.3).
   Not chosen.
-- **Compensated binary32 accumulation on native, as on `mlx`.** It is no faster than
-  binary64 accumulation of binary32 loads on any native target and is harder to bound.
-  Not chosen (§4.5).
+- **One accumulation policy for every target.** The A40 measurements (§2) show binary64
+  accumulation costing 1.5–2.2× on a reduced-FP64 GPU, while it is close to free on
+  CPUs. §4.5 therefore fixes what each mode's contract needs, and leaves the remaining
+  accumulator choices to per-target profiles within the same bounds.
+- **A double-float substitute for the binary64 propagator** (§6.4). It carries fewer
+  than binary64's bits before its own approximation errors [8], so it cannot meet the
+  mixed contract without a separate analysis. Not proposed.
 - **Emulated binary64 matrix products on tensor cores** (the Ozaki scheme, offered by
   recent cuBLAS releases on some architectures). It could make a full binary64 radial
   route fast on new GPUs. Its accuracy depends on the operands' exponent range, it is
@@ -896,7 +1242,7 @@ a target and route, the guide says so. Benchmarks are not merge gates.
 All phases are made on one branch and reach `main` in one pull request, opened when the
 SEP is set Final. Continuous integration runs the full gate on it. Each phase is
 qualified on its own and reports in Part II. The local A40 lane is part of the
-definition of done of phases 4 and 5, and the AMD lane of phase 4.
+definition of done of phases 4 and 5, and so is an AMD lane in each (§12, Q9 and Q10).
 
 **Phase 1 — The mixed setting and its oracle.**
 - `Precision`'s mixed form, admission, validation, schemas, the mixed bound, and
@@ -905,8 +1251,9 @@ definition of done of phases 4 and 5, and the AMD lane of phase 4.
   runs on `numpy_ref` mixed. References may run on binary64 native, as SEP 33 did for
   the envelope case. The study gives a provisional floor and a provisional Adams
   measurement.
-- Verifies: no binary64 change; the source-free witness; SEP 33's targeted tests in
-  mixed precision; the refusals.
+- Verifies: no binary64 change; the oracle against binary64 over one step, and the
+  independent response witnesses; the linear-part, damping and scale witnesses; SEP 33's
+  targeted tests in mixed precision; the dtype guards; the refusals.
 
 **Phase 2 — The native precision policy; single precision on the CPU fibre route.**
 - The policy types and view aliases, templated kernels, explicit instantiations,
@@ -921,8 +1268,9 @@ definition of done of phases 4 and 5, and the AMD lane of phase 4.
 **Phase 3 — The remaining CPU capabilities and mixed precision on native.**
 - Native single on radial and Cartesian free space and envelope-grid plasma.
 - Native mixed on every capability of §5.1.
-- Verifies: class R against both oracles; the mixed source-free witness on native; CPU
-  benchmarks on the suite's radial and Cartesian cases.
+- Verifies: class R against both oracles; the linear-part, damping and scale witnesses on
+  native; the single-precision exponential's tests; CPU benchmarks on the suite's
+  radial and Cartesian cases; the memory ledgers' representative ratios.
 
 **Phase 4 — GPUs: CUDA on the A40, HIP on an AMD Instinct GPU.**
 - The `AMPERE86` preset, the TF32 and `xf32` probes and the subnormal checks.
@@ -934,8 +1282,9 @@ definition of done of phases 4 and 5, and the AMD lane of phase 4.
 - The propagator share on both GPUs and §6.4's remedies if needed. The throughput
   measurements of §6.6 and the per-pass profiles of §7.4 on both.
 - Verifies: class R on both devices against the oracles; the confirmation cases of
-  §7.3; benchmarks against binary64 on each GPU and against the CPU hosts; the Q8 rule
-  applied.
+  §7.3 (single: `ctc`, `argon`, `radial_filament`; mixed: `rdw`, `argon`) on both
+  GPUs; the probes' negative tests; benchmarks and per-pass profiles against binary64
+  on each GPU and against the CPU hosts; the Q8 rule applied.
 
 **Phase 5 — Noise, Adams and the final records.**
 - The noise-seeded study on native mixed (validated in phases 3–4) against binary64
@@ -944,9 +1293,13 @@ definition of done of phases 4 and 5, and the AMD lane of phase 4.
   it implies.
 - The mixed floor and the Adams admission decided by the rules of §7.3, with the
   defaults set accordingly. The binary32 Adams measurement for Q3.
+- The rounding-margin indicator (§5), calibrated by the study.
+- On both GPUs, after these admissions: class R of noise-seeded mixed runs under each
+  admitted noise model, of Adams if admitted, and of their batches and snapshot round
+  trips. On the AMD GPU this is a second rental within the agreed budget.
 - The user guide, the worked example and the final benchmark records. The SEP becomes
-  Final when both native modes agree with their oracles within their bounds on CPU, on
-  the A40 and on the AMD GPU.
+  Final when both native modes, with every capability admitted by phase 5, agree with
+  their oracles within their bounds on CPU, on the A40 and on the AMD GPU.
 
 ### 12. Open questions
 
@@ -957,39 +1310,65 @@ Decided by the maintainers on 2026-10-25, when this draft was commissioned:
 - a fused batch axis measured, not built;
 - `numba_cpu` excluded.
 
-Decided by the maintainers on 2026-10-25, on the draft's questions (Part III). What
-remains open is what the phases measure within these decisions.
+Decided by the maintainers on 2026-10-25, on the draft's questions. The revision after
+the AI review changed the details of four of these decisions and added two new
+questions. Those are marked **revised** or **new**, and await the maintainers'
+confirmation before acceptance.
 
-- **Q1 — The mixed floor. Decided:** $10^{-8}$, raised by §7.3's rule. *Open:* the rule's
-  outcome (phases 1 and 5).
+- **Q1 — The mixed floor. Decided:** $10^{-8}$, raised by §7.3's rule. **Revised:** the
+  rule also raises the floor when the mixed run needs markedly more accepted or
+  rejected steps than binary64 at the same tolerance (R4). *Open:* the outcome (phases 1
+  and 5).
 - **Q2 — Adams under mixed precision. Decided:** the like-with-like rule of §7.3, with
   `Multistep()` becoming the mixed default if admitted. *Open:* the admission (phase 5).
 - **Q3 — Adams under single precision. Decided:** refused on native as on `mlx`. Native
-  records its binary32 Adams measurements under the like-with-like rule; if phase 5
+  records its binary32 Adams measurements under the like-with-like rule. If phase 5
   admits Adams under mixed precision by that rule, applying the same rule to single
   precision on `mlx` and native is proposed on the roadmap as one small follow-up.
-- **Q4 — Noise criteria. Decided:** $N = 64$; the rounding margin of at least 20 dB as
-  the primary criterion; the mean spectrum within the larger of 1 % and twice the
-  standard error; $\lvert g_{12}\rvert$ within the larger of 0.02 and twice its
-  standard error; a refusal only if the study finds a predicate computable from the
-  problem, otherwise a documented limit; the rounding-floor estimate recorded in each
-  noise-seeded mixed run's metadata (§5).
+- **Q4 — Noise criteria. Decided:** $N = 64$; a margin of at least 20 dB as the primary
+  criterion; the absolute floors of 1 % (mean spectrum) and 0.02 (coherence); a refusal
+  only for a predicate computable from the problem, otherwise a documented limit; an
+  indicator recorded in each run's metadata. **Revised** (R7–R9), keeping those numbers:
+  - the margin is measured on matched-discrete runs, at every saved plane up to the end
+    of the linear regime, against the seed's own response, with the coherent bias
+    separated out; this replaces "at 1 % of the length";
+  - a source-response witness at identical states is added;
+  - the ensemble tolerances use the paired standard error of the difference by
+    bootstrap over seeds, with Bonferroni control of the family-wise false-rejection
+    rate at 5 % ($z = 3.4$), in place of twice the reference's standard error, which
+    would falsely reject about 16 % of correct comparisons;
+  - band coherence is defined as `g12` per bin, averaged over the band weighted by the
+    reference's mean spectrum;
+  - the cases' parameters are frozen in Part II before the first comparison;
+  - the metadata indicator is a defined, labelled heuristic (§5).
 - **Q5 — The wheels. Decided:** the distributed CPU wheels carry all three modes, unless
   phase 2 measures more than 60 % growth or a size past PyPI's per-file limit (§6.3).
 - **Q6 — `auto` under single precision on an Apple-silicon Mac. Decided:** `mlx`, as
   now, falling back to native's CPU build. *Open:* whether phase 4's benchmarks justify a
   size threshold, recorded for the roadmap.
-- **Q7 — The mixed propagator on reduced-FP64 GPUs. Decided:** always binary64, with
-  §6.4's remedies above a 15 % share of the step (phase 4).
+- **Q7 — The mixed propagator on reduced-FP64 GPUs. Decided:** always binary64.
+  **Revised** (R6): the 15 % share triggers an investigation and does not impose a
+  requirement. Only caching and products are evaluated, each within a stated bound.
+  Plain binary64 evaluation remains the fallback. The double-float remedy is withdrawn.
 - **Q8 — A fused batch axis. Decided:** the rule of §6.6, measured in samples times
   steps per second on a noise ensemble of small fibre runs (phase 4).
 - **Q9 — AMD GPUs. Decided:** qualified in this SEP, not deferred: both modes on the
   HIP build on a rented CDNA 3 GPU, with class R tests, the confirmation cases, the
-  probes, benchmarks and per-pass profiles (phase 4), within a budget agreed before the
-  phase starts.
+  probes, benchmarks and per-pass profiles. **Revised** (R11): this happens in phase 4,
+  and again after phase 5's admissions (noise, Adams if admitted, batches and
+  snapshots), which needs a second rental within the budget agreed before phase 4.
 - **Q10 — Continuous integration. Decided:** CI runs both modes on the CPU build; the A40
-  lane runs locally and the AMD lane on its rental, each part of the definition of done
-  of the phases that touch device code, with results recorded in Part II.
+  lane runs locally and the AMD lane on its rentals, each part of the definition of done
+  of phases 4 and 5, with results recorded in Part II.
+- **Q11 — The two noise models (new, R9).** Proposed: qualify both, `"input"` on every
+  noise case and `"modified"` on three. A model is refused under mixed precision on any
+  route where it does not pass.
+- **Q12 — Binary64 stage values under mixed precision (new, R1).** Proposed: every row
+  stored in the interaction variable is binary64 under mixed precision, so the mode
+  needs no damping restriction (§4.2). The cost is that stage combinations run at the
+  binary64 rate, which on the A40 is about 2.2× a binary32 pass. Mixed precision's gain
+  there then comes from the transforms, the products and the responses alone. The
+  alternative, binary32 rows with SEP 33's damping refusal, is in §10.
 
 ### 13. References
 
@@ -1002,12 +1381,16 @@ remains open is what the phases measure within these decisions.
    doi:10.1137/S1064827593247023
 4. NVIDIA, *NVIDIA A40 datasheet* (2021): peak FP32 37.4 TFLOPS, FP64 0.585 TFLOPS,
    696 GB/s GDDR6, https://www.nvidia.com/en-us/data-center/a40/ (accessed 2026-10-25).
-5. NVIDIA, *cuBLAS library documentation*, "cublasSetMathMode" and
-   "NVIDIA_TF32_OVERRIDE", https://docs.nvidia.com/cuda/cublas/ (accessed 2026-10-25).
+5. NVIDIA, *cuBLAS library documentation*, CUDA 12.8, "cublasSetMathMode",
+   "cublasComputeType_t" and `NVIDIA_TF32_OVERRIDE`,
+   https://docs.nvidia.com/cuda/archive/12.8.1/cublas/ (accessed 2026-10-25).
 6. J. M. Dudley, G. Genty and S. Coen, "Supercontinuum generation in photonic crystal
    fiber," *Rev. Mod. Phys.* **78**, 1135–1184 (2006). doi:10.1103/RevModPhys.78.1135
 7. M. Frigo and S. G. Johnson, "The design and implementation of FFTW3," *Proc. IEEE*
    **93**, 216–231 (2005). doi:10.1109/JPROC.2004.840301
+8. M. Joldes, O. Marty, J.-M. Muller and V. Popescu, "Arithmetic algorithms for
+   extended precision using floating-point expansions," *IEEE Trans. Comput.* **65**,
+   1197–1210 (2016). doi:10.1109/TC.2015.2441714
 
 ## Part II — Implementation record
 
@@ -1029,6 +1412,10 @@ remains open is what the phases measure within these decisions.
 - 2026-10-25: Reviewed by GPT-6 (AI). Findings R1–R12 below concern Part I at
   `e0eaf2a`. Only the review metadata and this history were changed; Part I and Part II
   were left untouched.
+- 2026-10-25: Revised after the AI review (Opus 5.5). Every finding is accepted and
+  answered in the response below. The indicative A40 and CPU measurements were rerun.
+  Four decided questions are revised in detail (Q1, Q4, Q7, Q9) and two are new (Q11,
+  Q12); all six await the maintainers' confirmation.
 
 ### AI review — 2026-10-25
 
@@ -1231,3 +1618,112 @@ open for a maintainer response.
     `FFTW_MEASURE`, and timing-loop FFT/GEMM statuses are not checked. Use finite
     representative inputs, validate outputs and check library errors when replacing
     these explicitly indicative numbers with qualification evidence.
+
+### Response to review — 2026-10-25 — Opus 5.5
+
+Every finding was checked against the code and, where it made a numerical claim, by
+measurement before it was answered. All twelve are accepted. The A40 measurements of §2
+were rerun on the same card with finite inputs, checked statuses and validated outputs,
+and with reductions and scans added (R12). The CPU measurement was rerun with refilled
+inputs. The scalar witnesses of R5 and the false-rejection rate of R8 were reproduced.
+Decisions that the changes touch are marked in §12 for the maintainers.
+
+- **R1 (accepted; §4.2, §5, §6.1, §6.2, §6.7, §7.2, §10; Q12).** Confirmed:
+  `_nonlinear` returns the source multiplied by the inverse propagator, so a binary32
+  stage row can overflow on a damped bin even with a binary64 propagator. §4.2 now
+  writes out the complete operation order: binary64 stage input, one narrowing at the
+  launch scale, SEP 33's binary32 source returning $\mathcal N(A)/s$, exact widening
+  and multiplication by $s$, and a binary64 pull-back. It keeps every stored row binary64
+  (stages, FSAL, low-storage registers, Adams history, dense output, snapshots), so
+  no damping restriction is needed. The memory claims are corrected (§6.7). Damped-bin
+  and non-unit-scale witnesses are added. Binary32 rows with a damping refusal are
+  recorded as the alternative, and the performance cost is put to the maintainers as
+  Q12.
+- **R2 (accepted; §3, §4.2, §6.2, §7.2).** Confirmed in `_absorber_term`,
+  `_nonlinear_free` and `_finish`. The linear part is now defined precisely.
+  Once-per-step treatments on the whole state are binary64 including their transforms:
+  the diagonal flow, the mask and the split-step absorber. Mixed precision therefore
+  keeps binary64 plans for the split-step absorber, which the memory and benchmark
+  accounting count. In-stage absorber terms are part of the binary32 source, with
+  rounding scaled by $\Delta z\,\mathrm{rate}$. The tests cover both schemes, temporal
+  and spatial absorbers, the fibre and Cartesian routes, and a collar-free source-free
+  run.
+- **R3 (accepted; §1, §4.2, §4.5, §6.2).** Confirmed: the single source's running
+  integrals are binary32 in SEP 33's orders. Rather than widening them, the contract now
+  says what the first draft should have said. Reductions over the state are binary64.
+  Running integrals and sums inside the source are part of the binary32 source. Library
+  sums inside transforms and products are binary32 and covered by the probes and
+  bounds. The abstract no longer claims "every accumulation". The oracle is specified
+  as an explicit implementation of the operation order with dtype guards and adversarial
+  boundary tests. The oracle's existing binary64 exceptions are listed (§4.5).
+- **R4 (accepted; §4.2, §7.1, §7.2, §7.3).** §7.1 now writes the mixed bound per stage,
+  per step and per run. It includes the input narrowing through each response's
+  condition number (the plasma's read from its rate table, so cutoffs enter
+  explicitly), the passes' binary32 bounds, the absolute underflow term, the inverse
+  flow (bin by bin, which scales the absolute bound and leaves the relative one
+  unchanged), transport into later stages, and the two sides' accumulators. The
+  one-step oracle-against-binary64 test and independent response witnesses are
+  restored. The controller argument now shows why it cannot stall: rounding in the
+  estimate scales as $\Delta z$ against truncation's $\Delta z^5$. The floor rule now
+  also counts accepted and rejected steps.
+- **R5 (accepted; §4.1, §4.3, §7.2).** Reproduced: the binary32 cast of $-80.000003$ is
+  $-80$, with $3.0 \times 10^{-6}$ relative error in the exponential. A single
+  binary64 $2\pi$ leaves a phasor error of $4$–$9 \times 10^{-3}$ at $10^{14}$ rad.
+  §4.3 now reduces the real part by $\ln 2$ (Cody–Waite, exact power-of-two scaling)
+  and the phase by a three-part $2\pi$ for $|\theta| \le 2^{30}$ rad, falling back to
+  the binary64 library above. It states a $10\,u_{32}$ bound from the functions'
+  documented accuracies. Tests cover both ranges' extremes, the inverse propagator and
+  modulus drift. The timing kernel is labelled as such in §2.
+- **R6 (accepted; §6.4, §10; Q7 revised).** The double-float remedy is withdrawn: two
+  binary32 terms carry about 48 bits, and its approximation errors would need their own
+  analysis. The 15 % share is now a trigger to investigate. Plain binary64 remains the
+  fallback. Product-derived propagators carry their product count in the bound.
+- **R7 (accepted; §4.4, §7.3; Q4 revised).** Agreed that an early-plane measurement on
+  independently adaptive runs neither isolates rounding nor captures accumulation. The
+  primary criterion is now a margin on matched-discrete runs (the binary64 schedule
+  replayed in mixed precision) against the seed's own response on the same schedule. It
+  is evaluated at every saved plane until the band's dynamics stop being linear in the
+  seed, with the coherent bias separated as the noise-free difference. A
+  source-response witness at identical states tests directly that narrowing keeps the
+  seed's effect. §4.4 shows where the seed could be lost and why it survives narrowing
+  (per-sample relative rounding), and labels its estimates as heuristics.
+- **R8 (accepted; §7.3; Q4 revised).** Reproduced the 15.7 % per-comparison false
+  rejection. The ensemble tolerances now use the paired standard error of the
+  difference by bootstrap over seeds, with Bonferroni family-wise control at 5 %
+  ($z = 3.4$ for 64 comparisons per case), keeping the maintainers' absolute floors.
+  This changes the decided rule and is flagged in §12. Band coherence is defined
+  (per-bin `g12`, mean-spectrum-weighted band average), the bands are selected from the
+  reference, and the cases' parameters are frozen in Part II before comparison, as
+  SEP 33 did.
+- **R9 (accepted; §3, §4.4, §5, §7.3; Q11 new).** Confirmed: the modified model adds its
+  phase-transported realisation at every stage input. Both models are now specified,
+  drawn, transported and added in binary64 before the one narrowing. Both are qualified,
+  and an unqualified model is refused by name. The metadata indicator is defined
+  (accepted steps only, FSAL and Adams counted with their step, the route's energy
+  norm, the occupied-bin rule, $c_s$ calibrated by the study, absent rather than a
+  number when undefined, persisted through snapshots and reset on reuse) and labelled a
+  heuristic that omits gain and bias.
+- **R10 (accepted; §6.3, §7.2).** Corrected: `NVIDIA_TF32_OVERRIDE=0` disables TF32,
+  and nothing in the cited documentation makes it force TF32. Native now sets the math
+  mode explicitly on the handle Kokkos Kernels uses (and rocBLAS's default mode on HIP).
+  It probes each dispatch family (real and complex, transposes, layouts, tail chunks)
+  with small slices against a host reference, inside the memory estimate. It reports
+  the observed error without attributing a cause. The negative tests select TF32 or
+  `xf32` through the libraries' APIs.
+- **R11 (accepted; §7.3, §11, §12; Q9 revised).** Phase 5 now reruns the device checks
+  for its admissions (noise models, Adams if admitted, batches, snapshots) on both GPUs,
+  with a second AMD rental within the agreed budget. The Final criterion covers every
+  capability admitted by phase 5. The mixed `rdw` and `argon` confirmations run on both
+  GPUs.
+- **R12 (accepted; §2, §4.5, §6.7, §7.4, §10).** Corrected: the full binary64 propagator
+  is 1.9× the reduced-argument form at $2^{20}$, not 1.4×. The rerun shows binary64
+  accumulation of binary32 data costing 1.5–2.2× on the A40, so the "free" claim is
+  withdrawn. §4.5 now keeps binary64 where the contract needs it and leaves other
+  accumulator choices to per-target profiles. The first draft's 2.2×-cheaper mixed
+  stage combination no longer applies once stage rows are binary64 (R1), and §2 says so.
+  The memory claims now come from the ledgers. The benchmark inputs are now finite, the
+  outputs validated and the statuses checked. The rerun changed the transform ratios
+  from 7–12× to 6–9×, since each pair now includes a scaling pass. The public records
+  will come from the standard suite's harness with full provenance (§7.4). The
+  indicative kernels stay with the development records, as SEP 30 keeps campaign
+  harnesses.
