@@ -1852,7 +1852,7 @@ def _per_row(shift: _Shift, shape: tuple[int, ...]) -> Complex[np.ndarray, " n_r
     Raises
     ------
     BackendError
-        If the shift varies across bins: the harmonic policy is not delivered here.
+        If the shift varies across bins: no policy delivered here does.
     """
     if shift.shape[-1] != 1:
         msg = "numba_cpu: the compiled passes take one carrier shift per batch member"

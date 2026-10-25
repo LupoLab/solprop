@@ -15,7 +15,7 @@
 | **Requires** | [SEP 16](archive/sep-0016-unified-multistep.md) (the default multistep stepper and its exponential formulation); [SEP 25](archive/sep-0025-rounding-level-reproducibility.md) (the rounding-level reproducibility contract) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Branch `feature/multistep-carrier-frame`: phases 1–3 (`numpy_ref`, `numba_cpu`, native CPU; opt-in) complete; device builds and phase 4 to follow, one pull request at Final |
+| **Implementation** | Branch `feature/multistep-carrier-frame`: phases 1–4 complete (`numpy_ref`, `numba_cpu`, native CPU; opt-in; the default unchanged; `"harmonic"` removed); one pull request at Final |
 | **Manual pages** | [The Adams integrator: the carrier frame](../../guide/numerics/adams.md#the-carrier-frame); [choosing a stepper](../../guide/numerics/choosing-a-stepper.md); [the linear operator](../../guide/numerics/linear-operator.md#which-terms-the-frame-removes) |
 
 ## Part I — Proposal
@@ -968,6 +968,132 @@ source, 1.01 with Raman.
 **Handoff.** Phase 4: §7.3's qualification on the suite's short windows on `numba_cpu`
 and native CPU, the default decision, and §7.4's harmonic gate on `numpy_ref`.
 
+### Phase 4 — qualification and the default (2026-10-25)
+
+**Decision.** `"off"` stays the default and `"scalar"` stays opt-in: it fails §7.3's
+criterion on the weak-band budget and, on native CPU, on time. `"harmonic"` fails the
+gate of §7.4 and is removed.
+
+**What was run** (fixed before measurement, as §7.3 and §7.4 require).
+
+- *Cases*, every one a field grid: the suite's `ctc_reduced` (two modes, Raman),
+  `h2_raman_6ps`, `rdw` (four modes), `he_rdw_averaged` and `argon_blueshift`; a case-A
+  capillary (§7.2's A, helium steady fill, plasma on); and, for the cheap-source case,
+  case A with Kerr alone (deviation 2). For the gate: §7.2's case C on its field grid,
+  and case D's physics with Kerr alone on the envelope grid with the third harmonic.
+- *Windows*: the launch window, from the input plane to the end of the suite's entrance
+  schedule (1.3 mm to 39 mm; 40 mm for case A, 2 and 40 mm for the gate's C and D),
+  and a developed window started from a plane written once and propagated 3 to 40 mm:
+  `ctc_reduced` 50–55 mm, argon 60–100 mm (through its self-compression),
+  `h2_raman_6ps` 0.50–0.52 m, both RDW cases 0.60–0.64 m, case A 2.00–2.04 m, C
+  50–53 mm, D 0.30–0.34 m. Five planes a window.
+- *References*: IP-DOPRI5 at `rtol = 1e-11` on `numba_cpu`, three orders tighter than
+  the tightest tolerance compared, each checked against the interaction formulation at
+  `1e-10`. Every worst-plane check passed: agreement from 1.5e-12 to 6.9e-9 (argon's
+  developed window), below a tenth of every error compared at the matched errors used.
+- *Runs*: `"off"` and `"scalar"` at `rtol` 1e-3 to 1e-8 on `numba_cpu` and native CPU,
+  one thread, five interleaved samples each (median); the gate on `numpy_ref` with the
+  three boundary rules of §4.6: 2 omega_0, the run's requested band edge (2.06 omega_0
+  for C, 2.58 for D), and the launched spectrum's support (its upper edge at 1e-6 of
+  the peak power, reflected about 2 omega_0: 2.99 and 2.75).
+- *Errors*: worst-plane relative field error; each window's weak bins (1e-9 to 1e-3 of
+  the reference's final peak power) and its named band (the blue side, 250–400 nm, for
+  the comb-to-continuum; 300–600 nm for argon; the red-shifted soliton band,
+  1.3–2.5 µm, for `h2_raman_6ps`; the ultraviolet, 100–150 nm, for both RDW cases and
+  100–200 nm for case A), as the band-limited difference over the band's largest
+  reference norm (floor 1e-3), worst plane.
+
+**Results: the default criterion.** Calls and time at matched worst-plane error as a
+ratio to `"off"` (the range over the matched errors and both windows), and the largest
+ratio of the weak or named band error at matched worst-plane error:
+
+| case | calls | time, `numba_cpu` | time, native | band error ratio |
+|---|---|---|---|---|
+| `ctc_reduced` | 0.48–0.69 | 0.49–0.70 | 0.49–0.71 | 394 (blue, launch); 5.4 (developed) |
+| `h2_raman_6ps` | 0.34–0.73 | 0.35–0.75 | 0.38–0.77 | 484 (red, launch); 58 (weak) |
+| `argon_blueshift` | 0.57–1.08 | 0.58–1.09 | 0.59–1.13 | 5.3 (blue, launch) |
+| `he_rdw_averaged` | 0.82–1.04 | 0.88–1.13 | 0.96–1.29 | 3.3 (ultraviolet, launch) |
+| `rdw` | 0.87–1.01 | 0.88–1.02 | 0.97–1.15 | 1.7 |
+| case A | 0.93–1.03 | 0.98–1.08 | 1.04–1.16 | 1.2 |
+| case A, Kerr only | 0.93–1.03 | 1.02–1.13 | 1.20–1.33 | 1.2 |
+
+The criterion asked for at most 1.1× in calls and time and at most 2× and below 1e-2 in
+every band: the calls pass everywhere (argon's developed window reaches 1.08 at 1e-6);
+the time fails on native for both helium RDW cases and both case-A variants and on
+`numba_cpu` for the averaged RDW and the Kerr-only case; and the band budget fails on
+five windows. The weak-band loss is the finding that matters: at the worst-plane error
+at which the default resolves the comb-to-continuum launch's blue side to 3.1e-5 the
+shift leaves it at 4.3e-3, and the self-frequency-shift launch's red band at 0.11
+against 9.5e-4. The source of a weakly populated, driven bin does not follow the
+carrier, so the shift gives it a residual rotation, and the step-size norm, which the
+populated bins dominate, does not see it. The loose-tolerance failure of case E is
+mended on its developed window: at `rtol = 1e-3`, 3.9e-3 in 353 calls against the
+default's 2.0e-2 in 538, on both backends.
+
+**Results: the harmonic gate.** Case C's windows are cap-bound (21 and 26 calls for
+every policy): its only bins above 2 omega_0 are the 250–257 nm edge of its grid, where
+self-phase-modulated fundamental light lies, and the 2 omega_0 and band-edge rules left
+that band 5 to 8 times worse than the scalar shift (0.5 against 0.06; that band's
+reference agreed only to 7e-3, so the comparison is indicative). On D's developed window
+those two rules took 0.72–0.96 of the scalar shift's calls but left the fundamental band
+2 to 5 times less accurate. The support rule is the scalar shift on C (its boundary
+lies beyond the grid) and on D's developed window (1.00–1.02 of the calls, band errors
+within interpolation noise of the scalar's), and took 0.43–0.52 of the calls on D's
+launch, with a better harmonic band and a fundamental band up to 1.3 times worse at one
+matched error. §7.4 asks for every band at most the scalar's and below 1e-2: the first
+two rules fail clearly, the support rule narrowly, and its one advantage is a single
+launch window. `"harmonic"` is removed (§4.6, §7.4).
+
+**Delivered.**
+
+- `solprop/stepper/multistep.py`, `solprop/backends/exponential.py` and the three
+  backends: `CarrierFrame` is `"off" | "scalar"`; `HARMONIC_BOUNDARY`, the per-bin
+  multiple of `CarrierReference` and the harmonic refusals are gone (the kernel contract
+  needs no bump to remove an admitted value). Tests in
+  `tests/backends/test_carrier_frame.py` follow; the per-band manufactured source stays
+  as the witness that the scalar shift resolves a developed third harmonic without being
+  exact for it.
+- Manual: [the carrier frame](../../guide/numerics/adams.md#the-carrier-frame) with the
+  phase 4 results and the advice that follows from them (use `"scalar"` where the
+  populated band is the observable; check a weak-band observable against a tighter run),
+  the limitations entry, and [choosing a stepper](../../guide/numerics/choosing-a-stepper.md),
+  whose ranking, measured with the default, stands. The changelog, design notes,
+  capability table and contract row lose `"harmonic"`.
+
+**Deviations.**
+
+1. *The matched range.* §7.3 compares at worst-plane errors 1e-3 to 1e-6; the short
+   windows rarely reach 1e-3 (most stay below 1e-5 even at `rtol = 1e-3`), so the
+   comparison was made at every decade from 1e-3 to 1e-9 that both curves span. That is
+   stricter, not looser.
+2. *The cheap-source case.* The GNLSE route exists only on envelope grids, where the
+   policy is inert; case A with Kerr alone stands in for it.
+3. *The developed windows' start planes* were written by IP-DOPRI5 at `rtol = 1e-8`, not
+   a converged run: every compared run starts from the same plane, so it has to be
+   physical, not exact.
+4. *Timing.* Nine single-thread processes at once on separate physical cores of one
+   socket of a two-socket Intel Xeon Gold 6240 workstation, each pair of policies
+   interleaved sample by sample, so that a change of load reaches both alike; not one
+   process on an idle machine.
+5. *Case C's band above 2 omega_0* has no converged reference (its two references agree
+   to 7e-3 there); its gate comparison is indicative only.
+
+**Verification.** The carrier-frame, multistep and exponential-march modules pass after
+the removal (228 passed). The qualification's harness, fixtures, raw records and
+references are kept with the project's development records; the figures here are its
+analysis.
+
+**Open questions** (for the roadmap at Final).
+
+1. A weak-band-aware estimate under the shift: scoring a driven weak band in the
+   step-size norm, or a per-bin shift chosen by the source's own rotation rather than a
+   frequency boundary, might keep the calls and recover the bands.
+2. Device qualification of native's kernels (refused by name until then).
+3. Native's per-step overhead on cheap sources (1.2–1.3× on helium Kerr alone).
+
+**Handoff.** All four phases are complete. Final needs the SEP archived, its open
+questions on the roadmap and the single pull request opened.
+
 ## Part III — History
 
 - 2026-10-25: Drafted, with a `numpy_ref` prototype's measurements.
@@ -998,6 +1124,10 @@ and native CPU, the default decision, and §7.4's harmonic gate on `numpy_ref`.
 
 - 2026-10-25: Phases 2 (`numba_cpu`) and 3 (native CPU) implemented on the same
   branch; reports in Part II.
+
+- 2026-10-25: Phase 4: the default stays `"off"` (the weak-band budget and native's
+  time fail §7.3's criterion); `"harmonic"` fails §7.4's gate and is removed. Report
+  in Part II.
 
 ### AI review — 2026-10-25 — GPT-6
 

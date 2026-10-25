@@ -41,9 +41,9 @@ being implemented.
   three backends, then short-window qualification on the suite before any change of
   default. Also fixes a loose-tolerance accuracy failure of the present default (argon at
   `rtol = 1e-3`). A per-band "harmonic" shift is developed on `numpy_ref` behind a gate;
-  lossy shifts are not proposed. In progress: phases 1–3 (`numpy_ref`, `numba_cpu` and
-  native CPU, opt-in) are complete; device qualification and the phase 4
-  qualification follow.
+  lossy shifts are not proposed. In progress: all four phases are complete; the
+  default stays `"off"` (the shift leaves weak bands less accurate) and the harmonic
+  shift is removed. Final follows with the single pull request.
 
 ## Draft enhancement proposals
 

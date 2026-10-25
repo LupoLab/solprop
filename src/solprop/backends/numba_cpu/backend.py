@@ -4916,8 +4916,7 @@ def _refuse_adams(problem: KernelProblem) -> None:
         )
         raise BackendError(msg)
     refuse_formulation(problem, "numba_cpu")
-    # SEP 35 phase 2: the scalar shift, fused into the compiled passes; the harmonic
-    # one waits for its gate (section 7.4).
+    # SEP 35 phase 2: the scalar shift, fused into the compiled passes.
     refuse_carrier_frame(problem, "numba_cpu", delivered=frozenset({"scalar"}))
 
 

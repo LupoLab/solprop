@@ -424,7 +424,8 @@ A radial gas path's cumulative operator gains the forward amplitude term
 ``-ln(Y_z(z)/Y_z(0))/2``. A problem without spatial geometry carries no plan.
 
 Version 36 (SEP 35 phase 1) gives ``StepperSettings.integrator`` a ``carrier_frame``
-field, ``"off"`` (the version-35 method bit for bit), ``"scalar"`` or ``"harmonic"``:
+field, ``"off"`` (the version-35 method bit for bit) or ``"scalar"`` (a ``"harmonic"``
+value existed during SEP 35's development and was removed by its gate):
 the carrier phase the exponential formulation removes from its history inside each
 step. A backend that does not deliver a shift refuses it by name, and a build against
 an older version refuses the problem rather than step a requested shift unshifted; no

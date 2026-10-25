@@ -2290,7 +2290,7 @@ def _refuse_adams(problem: KernelProblem) -> None:
         )
     refuse_formulation(problem, "native")
     # SEP 35 phase 3: the scalar shift on CPU builds; device builds wait for their
-    # qualification, and the harmonic shift for its gate (section 7.4).
+    # qualification.
     device = _on_device()
     refuse_carrier_frame(
         problem,

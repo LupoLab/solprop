@@ -406,29 +406,39 @@ cost 4–6 % more than the unshifted method's with a cheap Kerr source and under
 with Raman ([benchmarks](../../dev/benchmarks.md)); the policy pays for itself only
 through the steps it saves.
 
-**What it measured** (preliminary, full-length `numpy_ref` runs at `rtol = 1e-6`,
-source evaluations and final-field error against a tighter IP-DOPRI5 reference;
-[SEP 35](../../dev/seps/sep-0035-carrier-frame-exponential-adams.md) §7.2):
+**What it measured.** On the short windows of
+[SEP 35](../../dev/seps/sep-0035-carrier-frame-exponential-adams.md) §7.3 — the
+launch from the input plane and a developed window started from a plane of a converged
+run, each against IP-DOPRI5 three orders tighter — the shift's calls and one-thread
+time at matched worst-plane field error, as a ratio to the default's, on `numba_cpu`
+(native CPU in brackets where it differs):
 
-| case | $\kappa$, rad/m | `"off"` | `"scalar"` | interaction | IP-DOPRI5 |
-|---|---|---|---|---|---|
-| He capillary, 0.2 bar fill, 4.2 m | −12 | 1128 / 1.4e-6 | 932 / 1.1e-6 | 1644 / 7.5e-7 | 2268 / 4.4e-6 |
-| He capillary, four modes, 1.5 m | −48 | 1805 / 1.6e-6 | 1742 / 2.5e-6 | 10475 / 3.1e-7 | 12397 / 2.5e-6 |
-| H₂ 40 bar comb-to-continuum, 0.1 m | −5470 | 2669 / 5.8e-6 | 582 / 6.4e-6 | 1401 / 2.3e-6 | 798 / 3.0e-7 |
-| H₂ 5 bar self-frequency shift, 1 m | −2420 | 26060 / 1.0e-4 | 18910 / 7.6e-5 | 17032 / 6.6e-5 | 27979 / 3.2e-5 |
+| case | calls | time | weak and named bands at matched error |
+|---|---|---|---|
+| H₂ 40 bar comb-to-continuum, two modes, Raman | 0.48–0.69 | 0.49–0.70 | blue band up to 390× worse on the launch, 5× developed |
+| H₂ 5 bar self-frequency shift, Raman, 6 ps | 0.34–0.73 | 0.35–0.75 (–0.77) | red band up to 480× worse on the launch |
+| Ar 1.7 bar blue shift, plasma | 0.57–1.08 | 0.58–1.09 (–1.13) | blue band up to 5× worse on the launch |
+| He 0.8 → 0 bar RDW, four modes and averaged | 0.82–1.04 | 0.88–1.13 (–1.29) | ultraviolet band up to 3× worse |
+| He 0.2 bar fill, plasma, and Kerr only | 0.93–1.03 | 0.98–1.13 (–1.33) | within 1.2× |
 
-On the argon capillary of the limitations below, at `rtol = 1e-3`, it brought the error
-from 0.97 to 0.05 in fewer evaluations than IP-DOPRI5. These are motivation, not
-qualification; whether it becomes the default is decided on the benchmark suite's short
-windows against criteria fixed in advance.
+So in the dense gases it reaches a given total-field error in half to three quarters
+of the calls and time, and on the argon window through its self-compression at
+`rtol = 1e-3` it gave 3.9e-3 where the default gave 2.0e-2, in 353 calls against 538.
+But the weak bands it leaves less accurate, because the source of a weakly populated,
+driven bin does not follow the carrier and the step-size norm, which the populated
+bins dominate, does not see it: at the total-field error at which the default resolves
+the comb-to-continuum's blue side to 3e-5, the shift leaves it at 4e-3. On helium the
+calls are level and the time a few per cent to a third higher. That is why `"off"`
+stays the default. Use `"scalar"` where the observable is the populated band of a
+dense-gas field-grid run, and check a weak-band observable against a tighter run.
 
-**The harmonic frame.** `carrier_frame="harmonic"` also gives the third-harmonic band,
-the bins at or above $2\omega_0$, three times the shift, so that the harmonic source is
-smooth too; the moments then take $hD - m(\omega)\sigma$ element by element, with
-$m(\omega)$ fixed for the run. A frequency boundary does not identify a source's
-phase — self-phase-modulated fundamental light and harmonic generation reach the same
-bins — so it is experimental: `numpy_ref` only, until it passes the gate of SEP 35 §7.4,
-and removed if it does not.
+A per-band variant that also shifted the third-harmonic band was developed and
+measured, and removed: with a boundary at $2\omega_0$ or at the requested band edge it
+left the comb-to-continuum's self-phase-modulated light above $2\omega_0$ and the
+fundamental band of an envelope run with the third harmonic several times less
+accurate, and with a boundary set from the launched spectrum it was the scalar shift
+everywhere but one launch window
+([SEP 35](../../dev/seps/sep-0035-carrier-frame-exponential-adams.md) §7.4).
 
 ## Stability, and the temporal collar
 
@@ -642,10 +652,11 @@ gives the measured ranking by regime, on both compiled backends and on devices.
   parts in $10^4$; a self-compression amplifies the accumulated error of every method.
   At `rtol = 1e-4` all methods agree to about 1 %. There, use `RungeKutta()` or
   `rtol <= 1e-4`, or `carrier_frame="scalar"` (0.05 on the same case,
-  [the carrier frame](#the-carrier-frame)).
-- **The carrier frame.** `"scalar"` runs on `numpy_ref`, `numba_cpu` and native CPU
-  builds; a native device build refuses it by name until it is qualified there, and
-  `"harmonic"` runs on `numpy_ref` only. The free-space routes refuse either. A march
+  [the carrier frame](#the-carrier-frame)) where the populated band is the observable.
+- **The carrier frame** (`carrier_frame="scalar"`) runs on `numpy_ref`, `numba_cpu`
+  and native CPU builds; a native device build and the free-space routes refuse it by
+  name. At a matched total-field error it leaves weak bands less accurate than the
+  default, by up to a few hundred times on the dense-gas launches measured. A march
   snapshot taken under another policy, or before the policy existed, restarts the
   history.
 - **Weak wings.** The error norm scores the whole active band, so the light generated

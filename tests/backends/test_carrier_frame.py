@@ -34,7 +34,6 @@ import flow_parity
 from bounds import EPS, assert_within, carrier_increment_budget
 from solprop.backends import available
 from solprop.backends.exponential import (
-    HARMONIC_BOUNDARY,
     CarrierReference,
     _carrier_refusal,  # pyright: ignore[reportPrivateUsage]
     _nearest_bin,  # pyright: ignore[reportPrivateUsage]
@@ -68,7 +67,6 @@ from solprop.translate.coupled import schur_blocks, schur_eigenbasis
 
 OFF = Multistep()
 SCALAR = Multistep(carrier_frame="scalar")
-HARMONIC = Multistep(carrier_frame="harmonic")
 
 # --- fixtures -------------------------------------------------------------------------
 
@@ -208,10 +206,14 @@ def manufactured(problem, harmonic=0.0, stationary=False) -> Manufactured:
 
 
 def per_band(problem) -> Manufactured:
-    """Return a source rotating at the harmonic policy's own rates, ``m(omega) rho``."""
+    """Return a source rotating at three times the carrier's rate above 2 omega0.
+
+    The developed third harmonic's rotation, which the scalar shift leaves a residual
+    2 kappa.
+    """
     profile = random_profile(problem)
     grids = problem.grids
-    multiple = np.where(grids.omega >= HARMONIC_BOUNDARY * grids.omega0, 3.0, 1.0)
+    multiple = np.where(grids.omega >= 2.0 * grids.omega0, 3.0, 1.0)
     rates = multiple * reference_rate(problem) * np.ones(profile.shape)
     return Manufactured((profile,), (rates,))
 
@@ -306,28 +308,26 @@ def test_the_policy_is_a_field_of_the_method():
     assert OFF.carrier_frame == "off"
     assert OFF.name == "exponential-adams-pec5/6-variable"
     assert SCALAR.name == "exponential-adams-pec5/6-variable-scalar-frame"
-    assert HARMONIC.name == "exponential-adams-pec5/6-variable-harmonic-frame"
     # The representation names the policy, so the run's record and a snapshot do.
     assert "carrier_frame='scalar'" in repr(SCALAR)
     assert SCALAR != OFF
     assert CARRIER_PHASE_CAP == 1.0
 
 
-@pytest.mark.parametrize("policy", ["scalar", "harmonic"])
-def test_a_shift_needs_the_exponential_formulation(policy):
+def test_a_shift_needs_the_exponential_formulation():
     with pytest.raises(StepperError, match="needs the exponential formulation"):
-        Multistep(formulation="interaction", carrier_frame=policy)
+        Multistep(formulation="interaction", carrier_frame="scalar")
     with pytest.raises(StepperError, match="needs the exponential formulation"):
-        ComparisonMultistep(carrier_frame=policy)
+        ComparisonMultistep(carrier_frame="scalar")
 
 
 def test_the_refusals_name_the_policy_and_the_route():
-    everything = frozenset({"scalar", "harmonic"})
-    refusal = _carrier_refusal("scalar", "numba_cpu", frozenset(), None)
+    everything = frozenset({"scalar"})
+    refusal = _carrier_refusal("scalar", "native (device build)", frozenset(), None)
     assert refusal is not None
-    assert refusal.startswith("numba_cpu: Multistep(carrier_frame='scalar')")
-    harmonic = _carrier_refusal("harmonic", "native", frozenset({"scalar"}), None)
-    assert harmonic is not None and "until it passes SEP 35's gate" in harmonic
+    assert refusal.startswith(
+        "native (device build): Multistep(carrier_frame='scalar') is not delivered"
+    )
     for kind in ("free", "radial", "slab"):
         spatial = _carrier_refusal("scalar", "numpy_ref", everything, kind)
         assert spatial is not None and f"free-space route ('{kind}'" in spatial
@@ -336,34 +336,10 @@ def test_the_refusals_name_the_policy_and_the_route():
     assert _carrier_refusal("scalar", "numpy_ref", everything, None) is None
 
 
-def test_numba_cpu_refuses_the_harmonic_shift_by_name():
-    # Phase 2 delivers the scalar shift on numba_cpu; the harmonic one waits for the
-    # gate of section 7.4.
-    simulation = capillary(HARMONIC)
-    with pytest.raises(
-        BackendError, match=r"numba_cpu: .*until it passes SEP 35's gate"
-    ):
-        NumbaCpuBackend(
-            simulation.translate(), grid=simulation.grid, modes=simulation.modes
-        )
+def test_both_compiled_cpu_backends_accept_the_shift():
     for method in (OFF, SCALAR):
         built = capillary(method)
         NumbaCpuBackend(built.translate(), grid=built.grid, modes=built.modes).close()
-
-
-@pytest.mark.skipif("native" not in available(), reason="native is not installed")
-def test_native_refuses_the_harmonic_shift_by_name():
-    # Phase 3 delivers the scalar shift on native CPU builds; the harmonic one waits
-    # for its gate, and a device build for its own qualification.
-    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-        NativeBackend,
-    )
-
-    simulation = capillary(HARMONIC)
-    with pytest.raises(BackendError, match=r"native.*: Multistep\(carrier_frame="):
-        NativeBackend(
-            simulation.translate(), grid=simulation.grid, modes=simulation.modes
-        )
 
 
 def test_a_problem_of_the_older_schema_is_refused():
@@ -383,15 +359,8 @@ def test_the_reference_is_the_active_bin_nearest_the_reference_frequency():
     assert reference is not None and reference.active
     assert reference.bin == int(np.argmin(np.abs(grids.omega - grids.omega0)))
     assert reference.omega == grids.omega[reference.bin]
-    assert reference.multiplier is None
     # Equally near bins: the tie goes to the lower index.
     assert _nearest_bin(np.array([0.5, 0.9, 1.1, 2.0]), 1.0) == 1
-    harmonic = carrier_reference(problem, HARMONIC)
-    assert harmonic is not None and harmonic.multiplier is not None
-    expected = np.where(grids.omega >= HARMONIC_BOUNDARY * grids.omega0, 3.0, 1.0)
-    assert np.array_equal(harmonic.multiplier, expected)
-    assert np.any(expected == 3.0) and np.any(grids.active_mask[expected == 3.0])
-    assert "3 sigma at and above 2 omega0" in harmonic.reason
     assert carrier_reference(problem, OFF) is None
 
 
@@ -430,21 +399,15 @@ def test_the_shift_is_per_member_and_the_cap_reads_the_largest():
     # Other modes and polarisations never set the shift.
     exponent[:, 1:, :, :] = 5j
     exponent[:, :, 1, :] = 9j
-    reference = CarrierReference("scalar", 1, 1.0, None, "")
+    reference = CarrierReference("scalar", 1, 1.0, "")
     shift = reference.shift(exponent)
     assert shift.shape == (2, 1, 1, 1)
     # Imaginary only: the loss is never shifted (section 10).
     assert shift.ravel().tolist() == [0.3j, -0.7j]
     assert reference.phase(exponent) == pytest.approx(0.7)
-    multiple = np.array([1.0, 1.0, 3.0, 3.0])
-    harmonic = dataclasses.replace(reference, policy="harmonic", multiplier=multiple)
-    assert harmonic.shift(exponent).shape == (2, 1, 1, 4)
-    np.testing.assert_allclose(
-        harmonic.shift(exponent)[1, 0, 0], [-0.7j, -0.7j, -2.1j, -2.1j], rtol=1e-15
-    )
 
 
-# --- exactness (sections 4.1, 4.6 and 7.1) --------------------------------------------
+# --- exactness (sections 4.1 and 7.1) --------------------------------------------
 
 
 def manufactured_budget(run) -> float:
@@ -463,19 +426,14 @@ TOLERANCE_LEVEL = 1e-11
 """Below the 2e-10 to 1e-9 the unexact runs measure at rtol 1e-8, far above rounding."""
 
 
-@pytest.mark.parametrize(
-    ("method", "build"),
-    [(SCALAR, manufactured), (HARMONIC, per_band)],
-    ids=["scalar", "harmonic"],
-)
-def test_a_source_following_the_frame_is_stepped_exactly(method, build):
+def test_a_source_following_the_frame_is_stepped_exactly():
     # F = p exp(i rho z) with rho the frame's own rate: the rotated samples are
     # constant, so every order's polynomial is exact and the step is exact to
     # rounding, at the planes interpolated inside steps as at the step ends
     # (section 4.1's dense formula with the accepted step's sigma).
-    simulation = capillary(method)
+    simulation = capillary(SCALAR)
     problem = simulation.translate()
-    source = build(problem)
+    source = manufactured(problem)
     run = march(simulation, source)
     assert run.march.ledger.dense_observations > 0
     assert max(run.errors) <= manufactured_budget(run)
@@ -494,9 +452,9 @@ def test_a_source_following_the_frame_is_stepped_exactly(method, build):
 
 
 def test_the_scalar_shift_is_not_exact_for_the_harmonic_band():
-    # The harmonic policy's source has bins at three times the rate above 2 omega0:
-    # the scalar shift leaves them a residual 2 kappa, which it resolves to the
-    # tolerance, not exactly.
+    # A source with bins at three times the rate above 2 omega0, a developed third
+    # harmonic: the scalar shift leaves them a residual 2 kappa, which it resolves to
+    # the tolerance, not exactly.
     simulation = capillary(SCALAR)
     run = march(simulation, per_band(simulation.translate()))
     assert min(run.errors) > TOLERANCE_LEVEL
@@ -750,19 +708,6 @@ def test_the_controller_recovers_from_rejections_under_the_frame():
     run = march(simulation, source, prepare=long_first_step)
     assert run.march.ledger.rejected_steps > 0
     assert max(run.errors) < 1e-10 * run.march.ledger.accepted_steps
-
-
-def test_fundamental_content_above_the_boundary_is_resolved_at_a_cost():
-    # SEP 35 section 4.6's difficulty: a bin given m = 3 that holds fundamental
-    # content (here the whole source follows the carrier) has a residual -2 kappa.
-    # The harmonic policy resolves it to the tolerance, with more calls than the
-    # scalar one, which is exact for it. Recorded for the gate (section 7.4).
-    simulation = capillary(HARMONIC)
-    source = manufactured(simulation.translate())
-    harmonic = march(simulation, source)
-    scalar = march(capillary(SCALAR), source)
-    assert max(harmonic.errors) < 1e-8 * harmonic.march.ledger.accepted_steps
-    assert harmonic.march.ledger.total > scalar.march.ledger.total
 
 
 # --- the inert policy -----------------------------------------------------------------
@@ -1067,7 +1012,7 @@ def test_a_snapshot_continues_only_under_its_own_policy():
         second.close()
     assert_within(resumed, continued, max(steps, 1) * 512 * EPS, what="resumed history")
     # Under another policy, or before this SEP (the representation differs): refused.
-    for method in (OFF, HARMONIC):
+    for method in (OFF, Multistep(carrier_frame="scalar", order=4)):
         other = dataclasses.replace(
             problem, stepper=dataclasses.replace(problem.stepper, integrator=method)
         )
@@ -1078,24 +1023,6 @@ def test_a_snapshot_continues_only_under_its_own_policy():
         finally:
             backend.close()
         assert reason is not None and "carrier_frame='scalar'" in reason
-
-
-def test_the_harmonic_bands_are_fixed_for_the_run():
-    # m(omega) is fixed when the march is built and never changes across rejections,
-    # dense planes or a resume (section 6.1): one array for the run.
-    simulation = capillary(HARMONIC, energy=1e-6)
-    problem = simulation.translate()
-    backend = NumpyRefBackend(problem, grid=simulation.grid, modes=simulation.modes)
-    try:
-        carrier = carrier_of(backend._adams)
-        assert carrier is not None and carrier.multiplier is not None
-        before = carrier.multiplier.copy()
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(float(problem.stepper.save_planes[-1]))
-        assert carrier_of(backend._adams) is carrier
-        assert np.array_equal(carrier.multiplier, before)
-    finally:
-        backend.close()
 
 
 # --- the parity rounding budget -------------------------------------------------------

@@ -110,7 +110,7 @@ logger = logging.getLogger(__name__)
 _State = Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
 _StoreRows = Complex[np.ndarray, "n_slots n_batch n_modes n_pol n_omega"]
 _Shift = Complex[np.ndarray, "#n_batch 1 1 #n_omega"]
-"""A carrier frame's shift: one per batch member, or per bin too (SEP 35)."""
+"""A carrier frame's shift: one per batch member (SEP 35); a bin axis broadcasts."""
 _Factors = Complex[np.ndarray, "n_used #n_batch 1 1 #n_omega"]
 """A carrier frame's rotation of each history row a trial reads, in its slots' order."""
 

@@ -373,7 +373,7 @@ and CF4 sections are refused by name (`backends.exponential.refuse_formulation`)
 nothing it stores. `HostHistory` holds the run's `CarrierReference`
 (`backends.exponential.carrier_reference`: the active bin nearest the grids' `omega0`,
 or inert, `sigma = 0`, on an envelope grid without the third harmonic or when that bin
-is inactive; for `"harmonic"` the per-bin multiple, fixed for the run). Each trial reads
+is inactive). Each trial reads
 `sigma_b = i Im x[b, 0, 0, bin]` from its own exponent and hands the kernels
 `moments(x, count, shift=sigma)` -- the moments at `x - sigma`, the flow still `exp(x)`
 -- and, for the rows it reads, `factors=exp(sigma (1 - theta_j))`
@@ -395,8 +395,8 @@ it with the factors in `ExponentialWeights` (`shifted`, `shift`, `factor_re`,
 `factor_im`); its kernels read rows through `adams_history` and form moments through
 `adams_moment_phi`, and dense observation takes the accepted step's carrier frame. An
 inert or `"off"` run takes the unshifted arithmetic exactly. `"scalar"` runs on
-`numpy_ref`, `numba_cpu` and native CPU builds; `"harmonic"` on `numpy_ref` only; a
-native device build and the free-space routes refuse it by name
+`numpy_ref`, `numba_cpu` and native CPU builds; a native device build and the
+free-space routes refuse it by name
 (`backends.exponential.refuse_carrier_frame`).
 
 **Varying operators** (ADR-042): a trial takes the chord

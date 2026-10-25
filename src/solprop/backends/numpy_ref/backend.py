@@ -2647,10 +2647,8 @@ def _refuse_adams(problem: KernelProblem) -> None:
         )
         raise BackendError(msg)
     refuse_formulation(problem, "numpy_ref")
-    # SEP 35 phase 1: both shifts are delivered here, the reference, first.
-    refuse_carrier_frame(
-        problem, "numpy_ref", delivered=frozenset({"scalar", "harmonic"})
-    )
+    # SEP 35: the scalar shift, on the guided routes.
+    refuse_carrier_frame(problem, "numpy_ref", delivered=frozenset({"scalar"}))
 
 
 def _refuse_unsupported(problem: KernelProblem) -> None:

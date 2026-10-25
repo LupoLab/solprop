@@ -64,7 +64,6 @@ from solprop.translate.problem import KernelProblem
 __all__ = [
     "COUPLED_SECTIONS",
     "EXPONENTIAL_REPRESENTATIONS",
-    "HARMONIC_BOUNDARY",
     "MAX_PHI_ORDER",
     "PHI_JOIN",
     "CarrierChord",
@@ -102,14 +101,6 @@ is the source alone, ``R_n = F``. A varying one (``expansion``, ``table``) takes
 compensated reference of SEP 16 section 4.2 (phase 4): the chord over the step and the
 transported compensation ``(D(z_j) - B_n) u_j``, with ``D`` the derivative of the
 representation itself."""
-
-HARMONIC_BOUNDARY = 2.0
-"""Where the harmonic carrier frame's band starts, in units of ``omega_0``.
-
-``"harmonic"`` gives the bins at or above ``HARMONIC_BOUNDARY * omega_0`` three times
-the scalar shift and every other bin the shift itself, fixed for the run (SEP 35
-section 4.6). This is the prototype's rule, one of three candidates; which one the
-policy keeps is decided by SEP 35's harmonic gate (section 7.4)."""
 
 _SERIES_TERMS = 24
 """Taylor terms of the highest phi function at ``|y| <= 1/2``.
@@ -416,7 +407,18 @@ def carrier_chord(linear: LinearOperator, index: int) -> CarrierChord | None:
     """
 
     def element(values: np.ndarray) -> np.ndarray:
-        """Return ``values[..., b, 0, 0, index]`` over its leading axes and batch."""
+        """Return ``values[..., b, 0, 0, index]`` over its leading axes and batch.
+
+        Parameters
+        ----------
+        values : numpy.ndarray
+            A representation's array, its last four axes the state's layout.
+
+        Returns
+        -------
+        numpy.ndarray
+            Column 0, polarisation 0 and the reference bin, every leading axis kept.
+        """
         column = min(index, values.shape[-1] - 1)
         return np.ascontiguousarray(values[..., 0, 0, column])
 
@@ -447,16 +449,13 @@ class CarrierReference:
 
     Attributes
     ----------
-    policy : {'scalar', 'harmonic'}
+    policy : {'scalar'}
         The policy asked for (:data:`solprop.stepper.multistep.CarrierFrame`).
     bin : int or None
         The active bin nearest the reference frequency, ties to the lower index;
         ``None`` where the policy is inert (``sigma = 0`` for the run).
     omega : float or None
         That bin's angular frequency, rad/s; ``None`` with `bin`.
-    multiplier : numpy.ndarray or None
-        For ``"harmonic"``, the shift's multiple per bin, shape ``(n_omega,)``: 3 at or
-        above :data:`HARMONIC_BOUNDARY` ``omega_0``, 1 below. ``None`` for ``"scalar"``.
     reason : str
         How the reference was chosen, or why the policy is inert, for the run's log.
     chord : CarrierChord or None, optional
@@ -467,7 +466,6 @@ class CarrierReference:
     policy: CarrierFrame
     bin: int | None
     omega: float | None
-    multiplier: Float[np.ndarray, " n_omega"] | None
     reason: str
     chord: CarrierChord | None = None
 
@@ -484,7 +482,7 @@ class CarrierReference:
 
     def shift(
         self, exponent: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
-    ) -> Complex[np.ndarray, "n_batch 1 1 #n_omega"]:
+    ) -> Complex[np.ndarray, "n_batch 1 1 1"]:
         """Return each batch member's shift for a trial's exponent.
 
         Parameters
@@ -495,8 +493,7 @@ class CarrierReference:
         Returns
         -------
         numpy.ndarray
-            Purely imaginary, shape ``(n_batch, 1, 1, 1)`` for ``"scalar"`` or
-            ``(n_batch, 1, 1, n_omega)`` for ``"harmonic"``, broadcasting against the
+            Purely imaginary, shape ``(n_batch, 1, 1, 1)``, broadcasting against the
             state.
 
         Raises
@@ -509,10 +506,7 @@ class CarrierReference:
             raise BackendError(msg)
         # The real part (loss) is never shifted (SEP 35 section 10).
         phase = np.imag(exponent[:, 0, 0, self.bin]).reshape((-1, 1, 1, 1))
-        shift = 1j * phase
-        if self.multiplier is not None:
-            shift = shift * self.multiplier
-        return shift
+        return 1j * phase
 
     def phase(
         self, exponent: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
@@ -594,7 +588,6 @@ def carrier_reference(
             policy,
             None,
             None,
-            None,
             "an envelope grid without the third harmonic removes beta_0: sigma = 0",
         )
     nearest = _nearest_bin(grids.omega, grids.omega0)
@@ -603,27 +596,15 @@ def carrier_reference(
             policy,
             None,
             None,
-            None,
             f"the bin nearest the reference frequency ({nearest}) is inactive: "
             "sigma = 0",
         )
-    multiplier = None
-    if policy == "harmonic":
-        multiplier = np.where(
-            grids.omega >= HARMONIC_BOUNDARY * grids.omega0, 3.0, 1.0
-        ).astype(np.float64)
     omega = float(grids.omega[nearest])
     return CarrierReference(
         policy,
         nearest,
         omega,
-        multiplier,
-        f"reference bin {nearest} at {omega:.6e} rad/s"
-        + (
-            f", 3 sigma at and above {HARMONIC_BOUNDARY:g} omega0"
-            if policy == "harmonic"
-            else ""
-        ),
+        f"reference bin {nearest} at {omega:.6e} rad/s",
         carrier_chord(problem.linear, nearest),
     )
 
@@ -654,7 +635,7 @@ def _carrier_refusal(
 
     Parameters
     ----------
-    policy : {'off', 'scalar', 'harmonic'}
+    policy : {'off', 'scalar'}
         The policy asked for.
     backend : str
         The backend's name, for the message.
@@ -671,14 +652,9 @@ def _carrier_refusal(
     if policy == "off":
         return None
     if policy not in delivered:
-        gate = (
-            "; the harmonic shift runs on numpy_ref only until it passes SEP 35's gate"
-            if policy == "harmonic"
-            else ""
-        )
         return (
             f"{backend}: Multistep(carrier_frame={policy!r}) is not delivered on this "
-            f"backend{gate}; pass carrier_frame='off' or use numpy_ref"
+            "backend; pass carrier_frame='off'"
         )
     if geometry is not None:
         return (

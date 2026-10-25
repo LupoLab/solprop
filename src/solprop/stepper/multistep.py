@@ -108,7 +108,7 @@ by the exact linear flow (Lawson's interaction picture, SEP 13). ``"exponential"
 polynomial exactly against the linear flow (exponential Adams).
 """
 
-CarrierFrame = Literal["off", "scalar", "harmonic"]
+CarrierFrame = Literal["off", "scalar"]
 """Which carrier phase the exponential formulation removes from its history (SEP 35).
 
 On a field grid, and on an envelope grid with the third harmonic, the operator keeps
@@ -117,10 +117,12 @@ On a field grid, and on an envelope grid with the third harmonic, the operator k
 ``G_j = exp(sigma (1 - theta_j)) F_j`` with ``sigma = i Im x`` at the reference bin, and
 integrates it against the moments at ``x - sigma``: exact for any ``sigma``, with the
 state, the stored history and the linear flow untouched, and each step capped at
-:data:`CARRIER_PHASE_CAP`. ``"harmonic"`` also gives the third-harmonic band
-``3 sigma``, on ``numpy_ref`` only until it passes SEP 35's gate. ``"off"``, the
-default, is SEP 16's arithmetic. On an envelope grid without the third harmonic either
-shift is the present arithmetic exactly (``sigma = 0``).
+:data:`CARRIER_PHASE_CAP`. ``"off"``, the default, is SEP 16's arithmetic. On an
+envelope grid without the third harmonic the shift is the present arithmetic exactly
+(``sigma = 0``). The shift saves source calls on dense gases at matched total-field
+error, but the weak bands it leaves less accurate (SEP 35 phase 4,
+``docs/guide/numerics/adams.md``), which is why it is not the default. A per-band shift
+of the third harmonic was developed and removed by SEP 35's gate.
 """
 
 Corrector = Literal["none", "pec", "pece"]
@@ -181,10 +183,10 @@ class Multistep:
         default. A run's record hashes the method's representation, which names it
         (output schema 15); a record made before then that names none was stepped in
         the interaction picture.
-    carrier_frame : {'off', 'scalar', 'harmonic'}
+    carrier_frame : {'off', 'scalar'}
         The carrier phase the exponential formulation removes from its history inside
         each step (:data:`CarrierFrame`, ``docs/guide/numerics/adams.md``); ``"off"`` by
-        default. Either shift needs the exponential formulation and is refused by name
+        default. The shift needs the exponential formulation and is refused by name
         on a backend or route that does not deliver it. The representation names it,
         so a march snapshot taken under another policy restarts its history.
 
@@ -232,11 +234,8 @@ class Multistep:
                 f"{self.formulation!r}"
             )
             raise StepperError(msg)
-        if self.carrier_frame not in ("off", "scalar", "harmonic"):  # pragma: no cover
-            msg = (
-                "carrier_frame must be 'off', 'scalar' or 'harmonic', got "
-                f"{self.carrier_frame!r}"
-            )
+        if self.carrier_frame not in ("off", "scalar"):  # pragma: no cover
+            msg = f"carrier_frame must be 'off' or 'scalar', got {self.carrier_frame!r}"
             raise StepperError(msg)
         if self.carrier_frame != "off" and self.formulation != "exponential":
             # SEP 35 section 5: the interaction picture already transports the whole

@@ -42,15 +42,15 @@ The first public release. It contains:
   schema 23 (`flux_model`, `flux_plan`).
 - **A carrier frame for the exponential Adams history**
   ([SEP 35](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0035-carrier-frame-exponential-adams.html),
-  phases 1–3). `Multistep(carrier_frame="scalar")` interpolates, inside each step, the
+  phases 1–4). `Multistep(carrier_frame="scalar")` interpolates, inside each step, the
   source with the carrier's phase removed and integrates it against correspondingly
   shifted moments, exactly for any shift, with each step capped at one radian of
   carrier phase (`CARRIER_PHASE_CAP`); on field grids and envelope grids with the third
-  harmonic in dense gases it takes several times fewer source evaluations. `"harmonic"`
-  also shifts the third-harmonic band and is experimental. Opt-in (`"off"` is the
-  default); `"scalar"` runs on `numpy_ref`, `numba_cpu` and native CPU builds, and
-  `"harmonic"` on `numpy_ref` only; native device builds and the free-space routes
-  refuse it by name. Kernel schema 36 (`Multistep.carrier_frame`); every `Multistep`
+  harmonic in dense molecular gases it reaches a given total-field error in half to
+  three quarters of the default's calls and time, but leaves weak bands less accurate,
+  so it is opt-in and `"off"` stays the default. It runs on `numpy_ref`, `numba_cpu`
+  and native CPU builds; native device builds and the free-space routes refuse it by
+  name. Kernel schema 36 (`Multistep.carrier_frame`); every `Multistep`
   representation names the policy, so a march snapshot taken before it restarts its
   history.
 - **Incident beams into general modal guides**
