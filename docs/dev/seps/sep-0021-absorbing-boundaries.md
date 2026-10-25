@@ -1686,7 +1686,8 @@ The recommendations:
   if it fails, R6 cannot recommend the monitored default. Any adopted default or
   new frame/placement setting requires a recorded maintainer decision before phase 2.
 
-**Phase 1: the implicit-collar study (prototypes only, after R2/R6/R7).**
+**Phase 1: the implicit-collar study (prototypes only, after R2/R6/R7).** (Not built:
+D4, 2026-10-25.)
 
 - NumPy prototypes in the campaign harness, for both multistep formulations, with the collar
   implicit in predictor and corrector:
@@ -1741,7 +1742,7 @@ implementation may overlap only after that shared contract is fixed.
   backends, with §7's conditional identities and independent error bounds as its gates.
 - Kernel and output schema bumps.
 
-**Phase 4: the implicit collar.** Only if phase 1 passes.
+**Phase 4: the implicit collar.** Only if phase 1 passes. (Not built: D4, 2026-10-25.)
 
 - On all three backends; the order choice moved to the implicit intervals; the
   replayed-step and `dz_min` refusal at $2r_{\rm AM}/\alpha_{\max}$ in both formulations
@@ -2036,7 +2037,7 @@ it grows only from rounding.
 - *Step counts.* On the reduced CtC case solprop accepts 3163 steps to Luna's 205 at the
   witness tolerance; phase 0a explains the difference.
 
-### Phase 0a report — 2026-10-25 (draft, awaiting the maintainer's decisions)
+### Phase 0a report — 2026-10-25
 
 **Scope.** Phase 0a of §11: windows, monitors and collar geometry; no package change.
 Implementer Opus 5.5 (AI) for John Travers, 2026-10-24 to 2026-10-25, on
@@ -2276,10 +2277,31 @@ diagnostics; transform-size cost; full-length timings.
   - Not qualified: noise floors and weak bands, the general modal and spatial metrics
     (not measured), and the low-storage march.
 
-**Decisions needed from the maintainer before phase 2:** R1 (collar outside the request,
-today's strength, Q3, Q17), the R6 default (keep absorption; monitored no-absorber
-opt-in), R7's policy, the R3 thresholds and Q15, D1's size chooser (Q23), and whether to
-record phases 1 and 4 as not built (R2).
+**Decisions (John Travers, 2026-10-25).** The revised recommendations are accepted:
+
+- **D3 — geometry and strength (R1, Q3, Q17).** The temporal collar sits outside the
+  requested window, on smooth sizes, 10 % per edge, complement profile, at today's
+  strength (AN = 252). A walk-off parameterisation, counted on both edges, is an
+  optional setting. `boundary_N` keeps its meaning.
+- **D4 — phases 1 and 4 are not built (R2).** No case qualifies the implicit collar.
+- **D5 — diagnostics (R3, Q15).** Occupancy and temporal removal accumulate at
+  committed endpoints by trapezoid (10 % quadrature budget); the split records its
+  exact discrete difference. End-of-run warnings at a removed-fraction square root above
+  1e-3 and launch occupancy above 1e-4, and the removed fraction is always reported.
+  Spatial routes report signed rates in SEP 34's metric; the collar operator does not
+  change.
+- **D6 — default strategy (R6).** Temporal absorption stays on by default, with the
+  guard monitor; the no-absorber mode is a monitored opt-in; early launch is a
+  documented setting; no prescribed frame for now.
+- **D7 — guard monitor (R7).** Guards of 5 % per edge in the energy-density proxy; warn
+  when the square root of guard occupancy exceeds the error budget (1e-3 by default),
+  error at ten times it; checks at every accepted step and at launch; a fixed
+  low-storage schedule refuses coverage it cannot give.
+- **D8 — the size chooser (Q23).** Choose the cheaper of the next smooth size and the
+  next power of two from a measured per-platform cost model, and revisit the divisor
+  rule.
+- **D9 — spatial collars (R4).** Their geometry goes to the follow-up SEP of Q10; phase
+  2 leaves spatial strength unchanged.
 
 **Limitations.**
 
@@ -2427,6 +2449,9 @@ under the SEP's number. Phase 2 starts from the decisions above; the witnesses o
   the open native CPU optimisation pull request; the earlier draft pull request was
   closed into it. On that base SEPs 29, 31 and 34 are Final, so §3.1's links and status
   were updated before freezing.
+- 2026-10-25: Phase 0a reported in Part II, revised the same day after long walk-off
+  cases the maintainer asked for; its recommendations accepted by John Travers as
+  decisions D3–D9. Phases 1 and 4 are not built. Phase 2 started.
 
 ### AI review — 2026-10-24 (Opus 5.5)
 
