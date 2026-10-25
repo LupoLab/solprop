@@ -1470,6 +1470,174 @@ no timing here is a benchmark. The harness and raw results are kept with the pro
 development records (SEP 30's rule); the verdicts and limits are recorded here and, in
 phase 5, on the manual page.
 
+### Phase 1 — report (2026-10-25)
+
+**Delivered.**
+
+- `solprop.translate.precision`: `Precision` admits a binary64 state beside a binary32
+  source (`MIXED`, `name == "mixed"`, the properties `mixed`, `reduced` and
+  `source_complex_dtype`); `PrecisionName` takes `"mixed"`; the per-mode backend lists
+  `REDUCED_PRECISION_BACKENDS` (replacing `SINGLE_PRECISION_BACKENDS`), the floor
+  `MIXED_RTOL_FLOOR = 1e-8` and `rtol_floor`; `admit_precision` applies each mode's
+  backends, Adams rule and floor; `study_active` beside `study_admission`.
+- `KernelProblem` (kernel schema 37): `_check_precision` refuses SEP 33's routes and
+  responses under both reduced modes, noise under single, and noise under mixed outside
+  the study's admission; `_check_single_exponent` runs under single only. The output
+  schema is 26. `numba_cpu`, `native` and `mlx` refuse `"mixed"` by name; the native
+  build record reports schema 37.
+- Interfaces: `precision` takes `"mixed"` on `SimulationSettings` and every keyword
+  interface; each reduced mode's default `rtol` is the larger of the interface's
+  binary64 default and the floor; `RungeKutta()` is the default; `backend="auto"`
+  resolves `"single"` to `mlx`, else to `native` when its build compiles it, and
+  `"mixed"` to `native` when its build compiles it (`registry.native_precisions`), and
+  is refused otherwise. Lockstep batches admit members of one precision.
+- `backends/numpy_ref/mixed.py`: `NumpyMixedBackend` (§6.2, below); the memory rows
+  `mixed_precision_rows`.
+- `tests/bounds.py`: the mixed bound of §7.1 (`source_pass_bound`, `rate_condition`,
+  `mixed_step_bound`, `mixed_run_bound`). `tests/backends/test_mixed_precision.py`
+  (64 tests) and `tests/precision_cases.py`, the cases both reduced modes' oracle tests
+  now share.
+- Normative pages: architecture.md §1, conventions.md §6, kernel-contract.md,
+  testing.md §3, backends.md (§2, §9, §11); the output guide's schema note; the
+  changelog.
+
+**How the operation order is implemented on the oracle.** `NumpyMixedBackend`
+subclasses `NumpySingleBackend`: it keeps the single path's narrowed source tables,
+combined coefficients, binary32 passes and host evaluations (SEP 33's oracle
+exceptions included), and restores the binary64 reference for every hook that touches
+the state: `set_initial` (noise drawn and held in binary64), `_propagator`,
+`_error_norm`, `_finish`, `_trial_step`, `_adams_adopt`, `stats` and the observed
+field. Its `_nonlinear` is §4.2's steps 2–4 around the reference's step 1 (the stage
+input with the modified noise added, in `passes.stage_input`): `fl32(y / s)`; the
+single path's source called with a unit inverse propagator, which returns `N(s y) / s`
+with the in-stage collars among its terms; `exp(-dPhi) * (s * wide(.))` in binary64.
+So every stored row (stages, low-storage registers, Adams history, dense-output rows,
+snapshots) is complex128, the low-storage and Adams marches and the lockstep batch need
+no change, and the split-step collar keeps its binary64 transforms. The dtype guards
+check the stage input and every stored row complex128 and the source's value
+complex64; the adversarial tests put a binary64 prefactor inside the source and a
+binary32 stage value in a stored row, and each is refused by name.
+
+**Class R record** (fixed schedules, the mixed oracle against binary64; observed
+departure over §7.1's bound, every bound below a tenth of the field envelope):
+
+| case | departure | bound | fraction |
+|---|---|---|---|
+| fibre, Kerr, Raman, shock: one 5 mm step | 7.1e-9 | 2.8e-6 | 2.6e-3 |
+| the same, ten steps | 3.0e-8 | 2.8e-5 | 1.1e-3 |
+| low-storage march | 2.8e-8 | 1.2e-5 | 2.3e-3 |
+| multimode capillary (four modes) | 1.3e-8 | 4.0e-6 | 3.1e-3 |
+| envelope capillary | 5.7e-8 | 2.1e-5 | 2.7e-3 |
+| radial, Cartesian, line Kerr beams | 4.7e-8, 5.8e-8, 2.2e-11 | 7.3e-5, 6.8e-5, 7.4e-9 | 6.5e-4–2.9e-3 |
+| field-grid plasma: argon, nitrogen (with Raman) over 0.25 mm | 3.9e-8, 2.9e-8 | 3.9e-5, 3.5e-5 | 1.0e-3, 8.4e-4 |
+| radial filament | 2.5e-9 | 1.9e-6 | 1.3e-3 |
+| in-stage temporal collar, no source | 1.7e-9 | 1.1e-5 | 1.6e-4 |
+| damped bin, `Re dPhi` = 150 per step | 2.1e-8 | 9.3e-6 | 2.2e-3 |
+
+The source-free runs, with no collar or a split-step one, on the fibre and Cartesian
+routes, agree within binary64 bounds. Each stage-level source evaluation is within
+`kappa u32 + E_pass` of binary64's at the launch's scale and at `s = 2**30`. The
+witnesses hold: dispersion-free SPM against its closed form and photon-number
+conservation, in both reduced modes; the damped bin's stored stage values exceed
+binary32's range, as §4.2 says they may. A non-finite source stops the adaptive,
+replayed and low-storage marches; an Adams snapshot round trip is exact.
+
+**Coherent-case study** (criteria above; every reference passed its `1e-9` check;
+relative errors at the last plane against the reference; *precision* is the mixed run
+against binary64 at the same tolerance):
+
+| case | mixed `1e-8`: field | `1e-7` | `1e-6` | precision part (field, every tolerance) | largest other metric at `1e-7` | verdict |
+|---|---|---|---|---|---|---|
+| `spm` | 8.2e-6 | 9.3e-6 | 7.8e-6 | 7.9e-6–9.3e-6 | 8.3e-5 bands | survives |
+| `soliton` | 1.8e-6 | 1.7e-6 | 1.9e-6 | 1.7e-6–1.8e-6 | 5.6e-7 bands | survives |
+| `rdw` | 6.5e-7 | 6.1e-7 | 2.3e-6 | 6.5e-7–1.3e-6 | 2.6e-6 bands | survives |
+| `ctc`, 0.1 m | 1.5e-3 | 8.9e-4 | 1.5e-3 | 8.9e-4–1.5e-3 | 9.7e-5 peak | survives with a limit: 0.05 m (field 1.9e-4; 0.025 m 1.9e-6) |
+| `argon` | 1.5e-5 | 1.6e-5 | 2.1e-4 | 1.5e-5–6.0e-5 | 1.6e-5 ionised | survives |
+| `nitrogen` | 6.7e-7 | 7.1e-7 | 7.8e-7 | 6.7e-7–7.3e-7 | 2.9e-5 bands | survives |
+| `radial_kerr` | 7.6e-7 | 5.4e-7 | 8.2e-6 | 6.2e-7–8.2e-7 | 9.0e-6 bands | survives |
+| `radial_filament` | 2.1e-7 | 5.2e-7 | 2.3e-6 | 2.2e-7–4.5e-7 | 1.3e-6 peak | survives |
+| `cartesian_diffraction` | 0 | 0 | 0 | 0 | 0 | survives |
+| `cartesian_kerr` | 2.6e-6 | 2.6e-6 | 2.0e-6 | 2.6e-6–2.8e-6 | 1.0e-5 bands | survives |
+| `argon_envelope` | phase 3 | | | | | |
+
+- *The floor* is provisionally **`1e-7`**. The step clause of Q1 raises it from `1e-8`:
+  at `1e-8` `ctc` takes 411 accepted steps against binary64's 276 (1.49×; 351 against
+  219 over 0.05 m), and `rdw` rejects two steps against one. The gain clause alone would
+  not have raised it (`spm`, `soliton`, `rdw` and `radial_filament` gain 56–97 % on some
+  metric). From `1e-7` to `1e-6` neither clause holds: every case is within 1.11× the
+  accepted steps and 1.0× the rejections of binary64 at `1e-7`.
+- *The precision part is a coherent floor.* The mixed run's difference from binary64 at
+  the same tolerance is the same at every candidate (above): §4.2's coherent term, not
+  the controller's. On `spm` it is 8.2e-6, about four times `u32 Phi_NL` (10π rad), and
+  it equals single precision's error there (SEP 33: 7.9e-6), since `spm`'s error is the
+  source's rounding, not the state's or the propagator's. Where the state's rounding or
+  the propagator's drift dominated single precision, mixed precision is much better:
+  `soliton` 1.8e-6 against 2.7e-5, `argon` 1.5e-5 against 1.8e-4, `radial_kerr` 7.6e-7
+  against 8.5e-6. Tolerances below `1e-7` therefore buy no accuracy on these cases.
+- *`ctc` keeps SEP 33's limit, 0.05 m.* Its error is precision throughout (binary64 at
+  `1e-8` is 2.1e-8 from the reference): the source's binary32 rounding seeds the empty
+  Stokes bins, which noise-free stimulated Raman scattering amplifies, as single
+  precision's state rounding did. §7.3 expected the limit to lengthen; at these
+  windows it does not (0.05 m: 1.9e-4 mixed at `1e-7`, against single's 4.3e-5;
+  0.025 m: 1.9e-6 against 6.6e-6). The seed is one rounding of the source per step in
+  either mode, of similar size, and its amplification is the case's.
+- *Adams (Q2), provisional: not admissible by the rule as fixed.* On `rdw` and `argon`
+  every mixed Adams run is within every envelope, and its errors match mixed
+  Runge–Kutta's at each tolerance (`rdw` `1e-8`: field 6.2e-7 against 6.5e-7; `argon`
+  `1e-7`: 1.2e-5 against 1.6e-5). The rule compares it with binary64 Adams, whose
+  errors at `1e-8` and `1e-7` are below mixed precision's coherent floor (`rdw` field
+  1.9e-8; `argon` 2.1e-6), so the ratio reaches 13–590 at those tolerances and 3.5–74 at
+  `1e-6`. The rule measures the precision floor, which mixed Runge–Kutta would fail by
+  the same ratios, rather than Adams. At `1e-8` mixed Adams also takes 1.58× binary64's
+  accepted steps on `rdw` (5165 against 3264), 1.02× at `1e-7`. Phase 5 decides (open,
+  below).
+
+**Findings for later phases.**
+
+- *For the maintainers before phase 5 (Q2):* the like-with-like Adams rule, as fixed,
+  cannot admit Adams at tolerances where binary64 is more accurate than mixed
+  precision's coherent floor, whatever the integrator. A rule comparing mixed Adams
+  with mixed Runge–Kutta at the same tolerance (SEP 33's form), or one asking only for
+  the envelopes at the settled floor, would admit it on this record. Part I is frozen;
+  this is put to the maintainers for phase 5, where the admission is decided.
+- *The plasma's condition number.* §7.1 reads `kappa` over "the samples' field range".
+  The tests take it over the fields the binary64 reference evaluated a rate at where
+  the rate is at least `u32` of its largest, since smaller rates contribute below
+  binary32's rounding of the largest term to the normwise bound; this gives 17
+  (argon) and 19 (filament). Over every field the logarithmic slope grows without
+  limit as the field falls, which would make every plasma bound uninformative.
+- *Informative windows.* The transport factor `(1 + kappa phi)**s` makes the ionising
+  capillary's 0.25 mm steps (`phi` = 0.5, `kappa` = 17) and one 5 cm fibre step
+  (`phi` = 0.55) uninformative; their class R tests run on 0.25 mm in 64 steps and on
+  one 5 mm step. The default capillary collar in the in-stage scheme (6.3e4 1/m, an
+  absorber exponent of 2.6 per step at the scheme's stability limit) is uninformative
+  over any window; the class R test uses a 126 1/m collar, and the class T study
+  qualifies the strong one. In-stage collars enter the bound by the step's absorber
+  exponent `dz rate / 2` (§4.2), since their binary32 error is the transform's normwise
+  rounding times the rate, not a fraction of the term.
+- *The state's units.* The launch scale is `2**1`–`2**16` on these cases (the state is
+  not in V/m), so the non-unit-scale witness sets `s = 2**30` on the oracle.
+- *Schema numbers.* SEP 35's open pull request also moves the kernel schema from 36;
+  whichever merges second takes the next number.
+- *Memory.* `numpy_ref`'s constructed ledger counts binary64 rows in every precision,
+  as SEP 33 left it; `estimate_memory` counts the mixed rows. Phase 3 records the
+  native ledgers' ratios.
+
+**Deviations.** The envelope-plasma case's mixed candidates moved to phase 3 (the
+amendment above). The class R tests run on the shorter windows, the forced scale and
+the weaker in-stage collar above, as §7.1 provides for uninformative bounds; the
+Cartesian split-step source-free case takes a grid without a spatial collar, which is
+always an in-stage term. The criteria section fixed two operational details §7.3 leaves
+open: a binary64 run with no rejection counts as one in the step clause, and an error
+below 10⁻¹² counts as 10⁻¹² in the Adams ratio. None changes Part I.
+
+**Verification.** The new and changed modules pass: `test_mixed_precision.py` (64),
+`test_single_precision.py`, `test_precision.py`, the registry, memory, batch,
+`numpy_ref`, record-stability, schema and display modules and the schema pins
+(1557 in one run, after two doctests' schema numbers), native's API-contract tests
+and the native backend test that reads the schema, `tests/test_seps.py`, and the docs
+build. CI runs the full gate on the SEP's pull request.
+
 ## Part III — History
 
 - 2026-10-25: Drafted (Opus 5.5), after an indicative A40 measurement of transforms,

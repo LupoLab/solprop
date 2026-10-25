@@ -45,13 +45,18 @@ from precision_cases import (
 )
 from solprop.backends import memory
 from solprop.backends.memory import estimate_memory, mixed_precision_rows
-from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.backends.numpy_ref.mixed import NumpyMixedBackend
 from solprop.backends.protocol import Backend
 from solprop.backends.registry import available, select, select_batch
 from solprop.boundaries import absorber
 from solprop.driver import Simulation, prop_gnlse
-from solprop.exceptions import BackendError, DriverError, TranslationError
+from solprop.exceptions import (
+    BackendError,
+    ConvergenceError,
+    DriverError,
+    TranslationError,
+)
 from solprop.stats import StatsSpec
 from solprop.stepper import DOPRI5, LowStorageRungeKutta, RungeKutta
 from solprop.stepper.multistep import Multistep
@@ -830,3 +835,48 @@ def test_the_memory_estimate_keeps_the_stored_rows_binary64():
         for p in ("double", "single", "mixed")
     }
     assert totals["single"] < totals["mixed"] < totals["double"]
+
+
+@pytest.mark.parametrize("march", ["adaptive", "replayed", "low_storage"])
+def test_a_non_finite_source_stops_every_march(march):
+    simulation = {
+        "adaptive": gnlse("mixed", steps=None),
+        "replayed": gnlse("mixed"),
+        "low_storage": gnlse("mixed", integrator=LowStorageRungeKutta()),
+    }[march]
+    with ExitStack() as cleanup:
+        backend = cast(NumpyMixedBackend, loaded(simulation, cleanup))
+        original = backend._column_sources
+
+        def poisoned(field_t, bundle, raman):
+            sources = original(field_t, bundle, raman)
+            return passes.NonlinearSources(
+                sources.polarisation * np.float32(np.nan), sources.current
+            )
+
+        backend._column_sources = poisoned
+        with pytest.raises(ConvergenceError):
+            backend.propagate_to(0.05)
+
+
+def test_an_adams_snapshot_round_trip_is_exact():
+    """The state and the history rows are binary64: class P, no scaling (SEP 36 5)."""
+    with study_admission():
+        simulation = gnlse("mixed", steps=None, integrator=Multistep())
+        with ExitStack() as cleanup:
+            first = loaded(simulation, cleanup)
+            first.propagate_to(0.02)
+            snapshot = first.march_snapshot()
+            assert snapshot is not None
+            second = loaded(simulation, cleanup)
+            second.set_initial(snapshot.state, None, z=snapshot.z)
+            assert second.restore_march(snapshot) is None
+            again = second.march_snapshot()
+    assert again is not None
+    assert snapshot.state.dtype == np.complex128
+    assert np.array_equal(again.state, snapshot.state)
+    assert set(again.rows) == set(snapshot.rows)
+    for name, rows in snapshot.rows.items():
+        assert np.array_equal(again.rows[name], rows), name
+        if np.iscomplexobj(rows):
+            assert rows.dtype == np.complex128, name
