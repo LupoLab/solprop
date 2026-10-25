@@ -56,9 +56,6 @@ std::size_t block_size(const std::size_t count, const Problem& problem,
                  product(problem.n_modes, problem.n_modes, name), name);
 }
 
-using ComplexView3 = CoupledFlowAction::ComplexView3;
-using ComplexView4 = CoupledFlowAction::ComplexView4;
-
 // solprop's reference `_TAYLOR_ORDER` and `_TAYLOR_SCALE`
 // (`numpy_ref/backend.py`): the series degree and the row-sum norm the exponent is
 // scaled below; the host refuses a length needing more than 30 squarings first.

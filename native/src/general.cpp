@@ -196,11 +196,6 @@ std::size_t device_free_bytes() {
 #endif
 }
 
-using ComplexView2 = Kokkos::View<Complex**, Layout, MemorySpace>;
-using ComplexView3 = Kokkos::View<Complex***, Layout, MemorySpace>;
-using RealView2 = Kokkos::View<double**, Layout, MemorySpace>;
-using RealView3 = Kokkos::View<double***, Layout, MemorySpace>;
-
 template <int Components, bool RealField>
 KOKKOS_INLINE_FUNCTION void
 write_raman_drive(const RealView2& drive, const std::size_t node,
@@ -222,38 +217,35 @@ write_raman_drive(const RealView2& drive, const std::size_t node,
     }
   }
 }
-using ByteView = Kokkos::View<unsigned char*, Layout, MemorySpace>;
-using IndexView = Kokkos::View<std::size_t*, Layout, MemorySpace>;
-using InverseRealPlan = KokkosFFT::Plan<ExecutionSpace, ComplexView2, RealView2>;
-using ForwardRealPlan = KokkosFFT::Plan<ExecutionSpace, RealView2, ComplexView2>;
-using RamanForwardPlan = RamanFftPlan<ExecutionSpace, RealView2, ComplexView2>;
-using RamanInversePlan = RamanFftPlan<ExecutionSpace, ComplexView2, RealView2>;
-using ComplexPlan = KokkosFFT::Plan<ExecutionSpace, ComplexView2, ComplexView2>;
-using TransversePlan = KokkosFFT::Plan<ExecutionSpace, ComplexView3, ComplexView3, 2>;
-// The hybrid planar kind transforms y alone, the trailing axis of (bins, n_p, n_y).
-using SlabPlan = KokkosFFT::Plan<ExecutionSpace, ComplexView3, ComplexView3, 1>;
 
 // Each current keeps its own chunk accumulator, including stacked embedded
 // quadrature. Sharing the latter would mix currents between partial chunks.
-struct EnvelopeStream {
-  ComplexView2 node, projected, coarse, stacked, spectrum, coarse_spectrum;
-  std::unique_ptr<ComplexPlan> forward, coarse_forward;
+// Every buffer and plan of a stream is the source's (solprop SEP 36).
+template <class Policy> struct BasicEnvelopeStream {
+  using SourceView2 = typename Roles<Policy>::SourceView2;
+  using Plan = KokkosFFT::Plan<ExecutionSpace, SourceView2, SourceView2>;
+  SourceView2 node, projected, coarse, stacked, spectrum, coarse_spectrum;
+  std::unique_ptr<Plan> forward, coarse_forward;
   std::size_t bytes() const {
-    return sizeof(Complex) *
+    return sizeof(typename Roles<Policy>::SourceComplex) *
            (node.size() + projected.size() + coarse.size() + stacked.size() +
             spectrum.size() + coarse_spectrum.size());
   }
 };
 
 // Real current products own their projections, including an embedded quadrature.
-struct FieldCurrentStream {
-  RealView2 node, projected, coarse, stacked;
-  ComplexView2 spectrum, coarse_spectrum;
-  std::unique_ptr<ForwardRealPlan> forward, coarse_forward;
+template <class Policy> struct BasicFieldCurrentStream {
+  using SourceView2 = typename Roles<Policy>::SourceView2;
+  using SourceRealView2 = typename Roles<Policy>::SourceRealView2;
+  using Plan = KokkosFFT::Plan<ExecutionSpace, SourceRealView2, SourceView2>;
+  SourceRealView2 node, projected, coarse, stacked;
+  SourceView2 spectrum, coarse_spectrum;
+  std::unique_ptr<Plan> forward, coarse_forward;
   std::size_t bytes() const {
-    return sizeof(double) *
+    return sizeof(typename Policy::source) *
                (node.size() + projected.size() + coarse.size() + stacked.size()) +
-           sizeof(Complex) * (spectrum.size() + coarse_spectrum.size());
+           sizeof(typename Roles<Policy>::SourceComplex) *
+               (spectrum.size() + coarse_spectrum.size());
   }
 };
 
@@ -1482,10 +1474,125 @@ struct StageTerms {
 
 } // namespace
 
-class GeneralWorkspace {
+// Refuse, by name, a route that SEP 33 and SEP 36 keep binary64 under a reduced
+// policy: those routes' classes are binary64 code (precision.hpp).
+template <class Policy> void require_policy_route(const Problem& problem) {
+  if constexpr (!is_binary64_policy_v<Policy>) {
+    const auto refuse = [](const char* route) {
+      throw std::invalid_argument(std::string("the native backend runs ") + route +
+                                  " in binary64 only, not under the " + Policy::name +
+                                  " precision policy");
+    };
+    if (problem.general_modal)
+      refuse("the general modal route");
+    if (problem.coupled_flow)
+      refuse("a coupled flow");
+    if (problem.dispersive)
+      refuse("the dispersive Kerr response");
+    if (problem.slab_geometry())
+      refuse("the slab kind");
+    if (problem.free_geometry() && !problem.spatial_spectral_weights.empty())
+      refuse("the far-field statistics");
+  } else {
+    static_cast<void>(problem);
+  }
+}
+
+/*
+ * One general state's execution-space buffers, plans and scratch, on every route but
+ * the single-column one (`Workspace`, core.cpp), templated on a precision policy
+ * (solprop SEP 36 section 6.3; precision.hpp). Each buffer's type names its role:
+ *
+ * - state: the state (`current_`, `advanced_`), the Runge-Kutta rows (`stages_`,
+ *   `solution_`, `error_`, `residual_`, `recycled_`), the noise, the low-storage
+ *   registers and the held plane, the Adams history (store, slopes, moments, source,
+ *   saved and held rows, the compensation's states, rates and carried rows, the dense
+ *   rows and terms, the lab, endpoint and endpoint-rate rows), and the split-step
+ *   absorber's coarse spectrum, time rows, plans and rate.
+ * - propagator: the whole-step and stage-inverse propagators, the Adams propagator
+ *   and the low-storage flows.
+ * - argument (binary64 always): the operator's terms (`phi_terms_`), the Adams
+ *   exponents, a coupled flow's stage phase, the tableau and every per-stage scalar,
+ *   the Raman rates, densities and tensor weights, the spatial operator's and plane
+ *   measure's coefficients (`spatial_`, `flux_`) and the z tables.
+ * - source: the fine, projected, coarse and in-stage absorber spectra and their time
+ *   rows, the node and polarisation rows, the free-space transverse volume and its
+ *   plans, the packed radial rows, the Raman drives, spectra and convolutions, the
+ *   plasma band rows, tiles and channel scratch, the held and envelope streams, the
+ *   held current and spectra, and the envelope rates and exposure.
+ * - table: the prefactor terms, the carrier and the windows, the synthesis and
+ *   projection matrices in every scaled, chunked and stacked form, the in-stage
+ *   absorber's rate and spatial matrix, the Raman kernels, the plasma rate and channel
+ *   tables and taps, the held derivative, inverse and projection, and the envelope
+ *   rule and its Drude and loss factors.
+ * - reduction: the error and quadrature partials, the controller's scales and Adams
+ *   magnitude and divisor, the statistics' spectra, time rows, powers, weights and
+ *   packed output with their plan, the spatial and closure statistics, the plasma
+ *   statistics scratch, stash and diagnostics, and the envelope moments.
+ *
+ * The coupled flow's exponential-trial rows (`adams_block_`, `adams_applied_`,
+ * `adams_end_applied_`) and the objects of the routes refused under a reduced policy
+ * (`general_`, `flow_`, `dispersive_`, `separable_dispersive_`, `far_field_`) are
+ * binary64; `require_policy_route` refuses those routes under any other policy.
+ */
+template <class Policy> class GeneralWorkspace {
 public:
+  using RolesType = Roles<Policy>;
+  using StateView2 = typename RolesType::StateView2;
+  using StateView3 = typename RolesType::StateView3;
+  using StateRealView = typename RolesType::StateRealView;
+  using StateRealView2 = typename RolesType::StateRealView2;
+  using PropagatorView2 = typename RolesType::PropagatorView2;
+  using PropagatorView3 = typename RolesType::PropagatorView3;
+  using ArgumentView2 = typename RolesType::ArgumentView2;
+  using ArgumentView3 = typename RolesType::ArgumentView3;
+  using ArgumentRealView = typename RolesType::ArgumentRealView;
+  using ArgumentRealView2 = typename RolesType::ArgumentRealView2;
+  using SourceView2 = typename RolesType::SourceView2;
+  using SourceView3 = typename RolesType::SourceView3;
+  using SourceRealView2 = typename RolesType::SourceRealView2;
+  using SourceRealView3 = typename RolesType::SourceRealView3;
+  using TableView = typename RolesType::TableView;
+  using TableView2 = typename RolesType::TableView2;
+  using TableView3 = typename RolesType::TableView3;
+  using TableRealView = typename RolesType::TableRealView;
+  using TableRealView2 = typename RolesType::TableRealView2;
+  using TableRealView3 = typename RolesType::TableRealView3;
+  using ReductionView = typename RolesType::ReductionView;
+  using ReductionView2 = typename RolesType::ReductionView2;
+  using ReductionView3 = typename RolesType::ReductionView3;
+  using ReductionRealView = typename RolesType::ReductionRealView;
+  using ReductionRealView2 = typename RolesType::ReductionRealView2;
+  using ReductionRealView3 = typename RolesType::ReductionRealView3;
+  using ReductionScalarView = typename RolesType::ReductionScalarView;
+  using SourceComplexPlan = KokkosFFT::Plan<ExecutionSpace, SourceView2, SourceView2>;
+  using SourceForwardRealPlan =
+      KokkosFFT::Plan<ExecutionSpace, SourceRealView2, SourceView2>;
+  using SourceInverseRealPlan =
+      KokkosFFT::Plan<ExecutionSpace, SourceView2, SourceRealView2>;
+  using SourceTransversePlan =
+      KokkosFFT::Plan<ExecutionSpace, SourceView3, SourceView3, 2>;
+  // The hybrid planar kind transforms y alone, the trailing axis of (bins, n_p, n_y).
+  using SourceSlabPlan = KokkosFFT::Plan<ExecutionSpace, SourceView3, SourceView3, 1>;
+  using SourceRamanForwardPlan =
+      RamanFftPlan<ExecutionSpace, SourceRealView2, SourceView2>;
+  using SourceRamanInversePlan =
+      RamanFftPlan<ExecutionSpace, SourceView2, SourceRealView2>;
+  using TableRamanForwardPlan =
+      RamanFftPlan<ExecutionSpace, TableRealView2, TableView2>;
+  using StateComplexPlan = KokkosFFT::Plan<ExecutionSpace, StateView2, StateView2>;
+  using StateForwardRealPlan =
+      KokkosFFT::Plan<ExecutionSpace, StateRealView2, StateView2>;
+  using StateInverseRealPlan =
+      KokkosFFT::Plan<ExecutionSpace, StateView2, StateRealView2>;
+  using ReductionComplexPlan =
+      KokkosFFT::Plan<ExecutionSpace, ReductionView2, ReductionView2>;
+  using EnvelopeStream = BasicEnvelopeStream<Policy>;
+  using FieldCurrentStream = BasicFieldCurrentStream<Policy>;
+
   explicit GeneralWorkspace(Problem problem) : problem_(std::move(problem)) {
     require_general_problem(problem_);
+    require_policy_route<Policy>(problem_);
     execution_space_ =
         kernel_pool_.get(CpuOperation::stage, problem_.n_columns() * problem_.n_omega);
     const auto nodes = problem_.node_chunk;
@@ -1938,11 +2045,11 @@ public:
   mutable double quadrature_error_{Kokkos::Experimental::quiet_NaN_v<double>};
   bool adams_device_scale_ = false;
   double adams_rtol_ = 0.0, adams_atol_ = 0.0;
-  RealView adams_scale_weights_;
-  Kokkos::View<double, Layout, MemorySpace> adams_magnitude_sum_;
+  ReductionRealView adams_scale_weights_;
+  ReductionScalarView adams_magnitude_sum_;
   // The device's (last, peak) scores: an accepted step scores the quadrature on the
   // device and nothing crosses until the score is read.
-  RealView quadrature_scores_;
+  ReductionRealView quadrature_scores_;
   mutable bool quadrature_stale_ = false;
   SpatialCoefficients spatial_;
   // solprop SEP 34: the plane measure's coefficients. A separable run's are its own
@@ -1953,88 +2060,102 @@ public:
   z_table::Table flux_table_;
   // The magnetic closure's transverse volume on a separable run, beside
   // `transverse_`, allocated when a local flux statistic is asked for.
-  ComplexView3 flux_transverse_;
-  ComplexView3 transverse_;
-  std::unique_ptr<TransversePlan> transverse_forward_, transverse_inverse_;
-  std::unique_ptr<SlabPlan> slab_forward_, slab_inverse_;
-  ComplexView2 current_, advanced_, solution_, error_, residual_, recycled_, noise_;
+  ReductionView3 flux_transverse_;
+  SourceView3 transverse_;
+  std::unique_ptr<SourceTransversePlan> transverse_forward_, transverse_inverse_;
+  std::unique_ptr<SourceSlabPlan> slab_forward_, slab_inverse_;
+  StateView2 current_, advanced_, solution_, error_, residual_, recycled_, noise_;
   // solprop SEP 24 phase 3: the low-storage march's registers B and C (the state is
   // A), its flows and the field-free plane it holds (SEP 22, Q15), allocated at the
   // first such plane.
-  ComplexView2 register_accumulator_, register_stage_, held_plane_;
-  ComplexView3 low_storage_flows_;
+  StateView2 register_accumulator_, register_stage_, held_plane_;
+  PropagatorView3 low_storage_flows_;
   bool held_ready_{};
-  ComplexView2 whole_propagator_, fine_spectrum_, projected_spectrum_;
+  PropagatorView2 whole_propagator_;
+  SourceView2 fine_spectrum_, projected_spectrum_;
   // The stage's `sum_t dPhi_t Phi_t`, formed by the combination for a coupled flow's
   // residual, and its inverse propagator `exp(-sum)`, which the finish applies.
-  ComplexView2 stage_phase_, stage_inverse_;
-  ComplexView2 projected_coarse_spectrum_, absorber_spectrum_, modal_complex_;
-  ComplexView2 statistics_spectrum_, statistics_time_, statistics_weighted_time_;
-  RealView2 statistics_power_weight_;
+  ArgumentView2 stage_phase_;
+  PropagatorView2 stage_inverse_;
+  SourceView2 projected_coarse_spectrum_, absorber_spectrum_, modal_complex_;
+  ReductionView2 statistics_spectrum_, statistics_time_, statistics_weighted_time_;
+  ReductionRealView2 statistics_power_weight_;
   bool statistics_unit_weight_ = true;
-  ComplexView2 node_complex_, polarisation_complex_, projected_complex_;
-  ComplexView2 projected_coarse_complex_, absorber_complex_, coarse_spectrum_;
-  ComplexView2 coarse_time_complex_, scaled_synthesis_complex_;
-  ComplexView2 scaled_projection_complex_, scaled_projection_coarse_complex_;
-  ComplexView2 scaled_projection_stacked_complex_, projected_stacked_complex_;
-  ComplexView2 chunk_synthesis_complex_, tail_synthesis_complex_;
-  ComplexView2 chunk_projection_complex_, tail_projection_complex_;
-  ComplexView2 chunk_projection_stacked_complex_, tail_projection_stacked_complex_;
-  ComplexView2 node_raman_spectrum_, raman_kernel_spectrum_;
-  ComplexView2 raman_tail_spectrum_;
-  ComplexView2 spatial_absorber_complex_;
-  ComplexView3 stages_, phi_terms_, prefactor_terms_;
+  SourceView2 node_complex_, polarisation_complex_, projected_complex_;
+  SourceView2 projected_coarse_complex_, absorber_complex_;
+  StateView2 coarse_spectrum_;
+  StateView2 coarse_time_complex_;
+  TableView2 scaled_synthesis_complex_;
+  TableView2 scaled_projection_complex_, scaled_projection_coarse_complex_;
+  TableView2 scaled_projection_stacked_complex_;
+  SourceView2 projected_stacked_complex_;
+  TableView2 chunk_synthesis_complex_, tail_synthesis_complex_;
+  TableView2 chunk_projection_complex_, tail_projection_complex_;
+  TableView2 chunk_projection_stacked_complex_, tail_projection_stacked_complex_;
+  SourceView2 node_raman_spectrum_;
+  TableView2 raman_kernel_spectrum_;
+  SourceView2 raman_tail_spectrum_;
+  TableView2 spatial_absorber_complex_;
+  StateView3 stages_;
+  ArgumentView3 phi_terms_;
+  TableView3 prefactor_terms_;
   // solprop SEP 29 G1: the general z tables' coefficients, uploaded once; their values
   // at a trial's positions are written into the term slots above.
   z_table::Table phi_table_, prefactor_table_, rate_table_;
-  RealView2 radial_blas_input_, radial_blas_output_;
-  RealView2 modal_real_, node_real_, polarisation_real_, projected_real_;
-  RealView2 projected_coarse_real_, projected_stacked_real_, absorber_real_;
-  RealView2 coarse_time_real_;
-  RealView2 node_raman_drive_, node_raman_convolved_, raman_undamped_;
-  RealView2 raman_tail_drive_, raman_tail_convolved_;
-  RealView2 raman_kernel_time_, stage_raman_rates_, stage_raman_densities_;
-  RealView2 raman_tensor_weights_;
-  RealView raman_row_component_, raman_component_fraction_;
-  RealView2 synthesis_, projection_, projection_coarse_;
-  RealView2 spatial_absorber_real_;
-  RealView2 scaled_synthesis_, scaled_projection_, scaled_projection_coarse_;
-  RealView2 scaled_projection_stacked_;
-  RealView2 chunk_synthesis_, tail_synthesis_;
-  RealView2 chunk_projection_, tail_projection_;
-  RealView2 chunk_projection_stacked_, tail_projection_stacked_;
-  RealView2 partials_, quadrature_partials_, stash_candidate_, stash_current_;
-  RealView2 statistics_power_, plasma_statistics_scratch_;
+  SourceRealView2 radial_blas_input_, radial_blas_output_;
+  SourceRealView2 modal_real_, node_real_, polarisation_real_, projected_real_;
+  SourceRealView2 projected_coarse_real_, projected_stacked_real_, absorber_real_;
+  StateRealView2 coarse_time_real_;
+  SourceRealView2 node_raman_drive_, node_raman_convolved_;
+  TableRealView2 raman_undamped_;
+  SourceRealView2 raman_tail_drive_, raman_tail_convolved_;
+  TableRealView2 raman_kernel_time_;
+  ArgumentRealView2 stage_raman_rates_, stage_raman_densities_;
+  ArgumentRealView2 raman_tensor_weights_;
+  ArgumentRealView raman_row_component_, raman_component_fraction_;
+  TableRealView2 synthesis_, projection_, projection_coarse_;
+  TableRealView2 spatial_absorber_real_;
+  TableRealView2 scaled_synthesis_, scaled_projection_, scaled_projection_coarse_;
+  TableRealView2 scaled_projection_stacked_;
+  TableRealView2 chunk_synthesis_, tail_synthesis_;
+  TableRealView2 chunk_projection_, tail_projection_;
+  TableRealView2 chunk_projection_stacked_, tail_projection_stacked_;
+  ReductionRealView2 partials_, quadrature_partials_, stash_candidate_, stash_current_;
+  ReductionRealView2 statistics_power_, plasma_statistics_scratch_;
   // solprop SEP 34: each node's `|E| |G|` beside its signed flux, which bounds the
   // fluence's rounding; allocated with the closure's buffers.
-  RealView2 statistics_magnitude_;
-  RealView2 plasma_rate_, plasma_exposure_, plasma_fraction_;
-  RealView2 plasma_current_integrand_, plasma_free_current_;
-  RealView2 plasma_outer_current_;
-  RealView weighted_scale_, weighted_partials_;
-  RealView spatial_spectral_weights_;
-  ComplexView spatial_on_axis_;
-  RealView2 spatial_statistics_partials_;
-  RealView statistics_total_power_;
-  RealView statistics_on_axis_, statistics_packed_;
-  RealView tableau_, omega_, omega_window_, time_window_, absorber_fine_,
-      absorber_coarse_;
-  RealView stage_phi_delta_, stage_phi_at_, stage_prefactor_;
-  RealView stage_density_, stage_taper_, stage_preionisation_, rate_coefficients_;
-  RealView stage_kerr_density_, stage_plasma_density_, stage_raman_density_;
+  ReductionRealView2 statistics_magnitude_;
+  SourceRealView2 plasma_rate_, plasma_exposure_, plasma_fraction_;
+  SourceRealView2 plasma_current_integrand_, plasma_free_current_;
+  SourceRealView2 plasma_outer_current_;
+  ReductionRealView weighted_scale_, weighted_partials_;
+  ReductionRealView spatial_spectral_weights_;
+  ReductionView spatial_on_axis_;
+  ReductionRealView2 spatial_statistics_partials_;
+  ReductionRealView statistics_total_power_;
+  ReductionRealView statistics_on_axis_, statistics_packed_;
+  ArgumentRealView tableau_;
+  ReductionRealView omega_;
+  TableRealView omega_window_, time_window_, absorber_fine_;
+  StateRealView absorber_coarse_;
+  ArgumentRealView stage_phi_delta_, stage_phi_at_, stage_prefactor_;
+  ArgumentRealView stage_density_, stage_taper_, stage_preionisation_;
+  TableRealView rate_coefficients_;
+  ArgumentRealView stage_kerr_density_, stage_plasma_density_, stage_raman_density_;
   // Every per-stage scalar view above lives in one buffer, uploaded in one copy from
   // the next of a few host staging buffers (`upload_trial`).
-  RealView stage_scalars_;
+  ArgumentRealView stage_scalars_;
   std::vector<RealView::host_mirror_type> stage_staging_;
   std::size_t stage_staging_next_ = 0;
-  RealView2 channel_parameters_, stage_channel_density_, stage_channel_preionisation_;
-  RealView channel_coefficients_;
-  Kokkos::View<double***, Layout, MemorySpace> channel_scratch_;
+  TableRealView2 channel_parameters_;
+  ArgumentRealView2 stage_channel_density_, stage_channel_preionisation_;
+  TableRealView channel_coefficients_;
+  SourceRealView3 channel_scratch_;
   // solprop SEP 18 on a CPU build: the running-integral rule's taps, one row of ring
   // scratch per node of a chunk (the band column's, or the statistics scan's alone
   // under the trapezoid) and the run diagnostics' six parts per node.
-  RealView plasma_taps_;
-  RealView2 plasma_diagnostics_;
+  TableRealView plasma_taps_;
+  ReductionRealView2 plasma_diagnostics_;
   // The band column's scratch rows per kind: one per concurrently running team.
   std::size_t band_slots_{};
   // Whether the band rule runs the tiled column (`tiled_band_plasma_column`), its
@@ -2044,41 +2165,47 @@ public:
   std::size_t band_tile_{};
   std::size_t band_tile_count_{};
   int band_tile_threads_{band_tile_threads(thread_policy())};
-  RealView2 band_tile_totals_;
-  ComplexView carrier_;
+  SourceRealView2 band_tile_totals_;
+  TableView carrier_;
   std::array<EnvelopeStream, 2> envelope_streams_;
   std::array<FieldCurrentStream, 3> held_streams_;
-  RealView2 held_current_, held_projection_;
-  ComplexView2 held_nodal_spectrum_, held_projected_spectrum_;
-  RealView held_derivative_, held_inverse_;
-  RealView3 envelope_rule_nodes_, envelope_rule_weights_, envelope_moments_;
-  RealView2 envelope_rates_, envelope_exposure_;
+  SourceRealView2 held_current_;
+  TableRealView2 held_projection_;
+  SourceView2 held_nodal_spectrum_, held_projected_spectrum_;
+  TableRealView held_derivative_, held_inverse_;
+  TableRealView3 envelope_rule_nodes_, envelope_rule_weights_;
+  ReductionRealView3 envelope_moments_;
+  SourceRealView2 envelope_rates_, envelope_exposure_;
   IndexView envelope_failures_, envelope_status_;
   Kokkos::View<std::size_t*, Layout, Kokkos::HostSpace> envelope_host_status_;
-  RealView envelope_drude_factor_;
-  ComplexView envelope_loss_factor_;
+  TableRealView envelope_drude_factor_;
+  TableView envelope_loss_factor_;
   ByteView active_mask_, norm_mask_;
   // solprop SEP 16 phase 3b: the resident Adams history and its trial's scratch.
-  ComplexView3 adams_store_, adams_slopes_, adams_moments_;
-  ComplexView2 adams_source_, adams_propagator_, adams_exponent_, adams_saved_;
-  ComplexView2 adams_held_, adams_dense_start_, adams_dense_end_, adams_dense_exponent_;
-  Kokkos::View<double*, Layout, MemorySpace> adams_divisor_;
+  StateView3 adams_store_, adams_slopes_, adams_moments_;
+  StateView2 adams_source_;
+  PropagatorView2 adams_propagator_;
+  ArgumentView2 adams_exponent_;
+  StateView2 adams_saved_;
+  StateView2 adams_held_, adams_dense_start_, adams_dense_end_;
+  ArgumentView2 adams_dense_exponent_;
+  ReductionRealView adams_divisor_;
   // A varying operator's compensation: each sample's state and rate, the trial's
   // carried rows, its predicted field, endpoint term and rate, and dense observation's
   // terms.
-  ComplexView3 adams_states_, adams_rates_, adams_carried_, adams_dense_terms_;
-  ComplexView2 adams_lab_, adams_endpoint_, adams_endpoint_rate_;
-  Kokkos::View<double*, Layout, MemorySpace> adams_rate_weights_;
+  StateView3 adams_states_, adams_rates_, adams_carried_, adams_dense_terms_;
+  StateView2 adams_lab_, adams_endpoint_, adams_endpoint_rate_;
+  ArgumentRealView adams_rate_weights_;
   // A coupled flow's exponential trial (solprop SEP 16 phase 6): the step's flow and
   // moments on the block's bins, `(count + 1, n_active, n_modes, n_modes)` with the
   // flow first; a frozen-residual flow's weights at each sample and at the trial's end.
-  Kokkos::View<Complex****, Layout, MemorySpace> adams_block_;
+  Binary64::ComplexView4 adams_block_;
   // A frozen-residual flow's generator at each sample applied to its state, `G(z_j)
   // u_j`, formed once per sample; the trial's at its end, and the weights it is formed
   // from. A trial forms `R_s(z_j) u_j = G(z_j) u_j - G_s u_j` against its own section.
-  ComplexView3 adams_applied_;
-  ComplexView2 adams_end_applied_;
-  Kokkos::View<double*, Layout, MemorySpace> adams_end_weights_;
+  Binary64::ComplexView3 adams_applied_;
+  Binary64::ComplexView2 adams_end_applied_;
+  ArgumentRealView adams_end_weights_;
   std::size_t adams_dense_count_{};
   bool adams_trial_ready_{};
   bool adams_trial_compensated_{};
@@ -2096,31 +2223,35 @@ public:
   // projected rows (SEP 28): the copies between them are identities.
   bool separable_aliased_{};
   std::size_t temporal_tail_rows_{};
-  TailRowPlans<ExecutionSpace, ComplexView2, RealView2> temporal_tail_inverse_real_,
-      coarse_tail_inverse_real_;
-  TailRowPlans<ExecutionSpace, RealView2, ComplexView2> temporal_tail_forward_real_,
-      coarse_tail_forward_real_;
-  TailRowPlans<ExecutionSpace, ComplexView2, ComplexView2>
-      temporal_tail_inverse_complex_, temporal_tail_forward_complex_,
-      coarse_tail_inverse_complex_, coarse_tail_forward_complex_;
-  std::unique_ptr<InverseRealPlan> inverse_real_plan_;
-  std::unique_ptr<ComplexPlan> inverse_complex_plan_;
-  std::unique_ptr<ForwardRealPlan> forward_real_plan_;
-  std::unique_ptr<ComplexPlan> forward_complex_plan_;
-  std::unique_ptr<ForwardRealPlan> forward_coarse_real_plan_;
-  std::unique_ptr<ComplexPlan> forward_coarse_complex_plan_;
-  std::unique_ptr<ComplexPlan> statistics_inverse_plan_;
-  std::unique_ptr<ForwardRealPlan> absorber_real_plan_;
-  std::unique_ptr<ComplexPlan> absorber_complex_plan_;
-  std::unique_ptr<InverseRealPlan> coarse_inverse_real_plan_;
-  std::unique_ptr<ComplexPlan> coarse_inverse_complex_plan_;
-  std::unique_ptr<ForwardRealPlan> coarse_forward_real_plan_;
-  std::unique_ptr<ComplexPlan> coarse_forward_complex_plan_;
-  std::unique_ptr<RamanForwardPlan> raman_drive_forward_plan_;
-  std::unique_ptr<RamanInversePlan> raman_convolution_inverse_plan_;
-  std::unique_ptr<RamanForwardPlan> raman_tail_forward_plan_;
-  std::unique_ptr<RamanInversePlan> raman_tail_inverse_plan_;
-  std::unique_ptr<RamanForwardPlan> raman_kernel_forward_plan_;
+  TailRowPlans<ExecutionSpace, SourceView2, SourceRealView2>
+      temporal_tail_inverse_real_;
+  TailRowPlans<ExecutionSpace, SourceRealView2, SourceView2>
+      temporal_tail_forward_real_;
+  TailRowPlans<ExecutionSpace, SourceView2, SourceView2> temporal_tail_inverse_complex_,
+      temporal_tail_forward_complex_;
+  // The split-step absorber's tail rows transform the state.
+  TailRowPlans<ExecutionSpace, StateView2, StateRealView2> coarse_tail_inverse_real_;
+  TailRowPlans<ExecutionSpace, StateRealView2, StateView2> coarse_tail_forward_real_;
+  TailRowPlans<ExecutionSpace, StateView2, StateView2> coarse_tail_inverse_complex_,
+      coarse_tail_forward_complex_;
+  std::unique_ptr<SourceInverseRealPlan> inverse_real_plan_;
+  std::unique_ptr<SourceComplexPlan> inverse_complex_plan_;
+  std::unique_ptr<SourceForwardRealPlan> forward_real_plan_;
+  std::unique_ptr<SourceComplexPlan> forward_complex_plan_;
+  std::unique_ptr<SourceForwardRealPlan> forward_coarse_real_plan_;
+  std::unique_ptr<SourceComplexPlan> forward_coarse_complex_plan_;
+  std::unique_ptr<ReductionComplexPlan> statistics_inverse_plan_;
+  std::unique_ptr<SourceForwardRealPlan> absorber_real_plan_;
+  std::unique_ptr<SourceComplexPlan> absorber_complex_plan_;
+  std::unique_ptr<StateInverseRealPlan> coarse_inverse_real_plan_;
+  std::unique_ptr<StateComplexPlan> coarse_inverse_complex_plan_;
+  std::unique_ptr<StateForwardRealPlan> coarse_forward_real_plan_;
+  std::unique_ptr<StateComplexPlan> coarse_forward_complex_plan_;
+  std::unique_ptr<SourceRamanForwardPlan> raman_drive_forward_plan_;
+  std::unique_ptr<SourceRamanInversePlan> raman_convolution_inverse_plan_;
+  std::unique_ptr<SourceRamanForwardPlan> raman_tail_forward_plan_;
+  std::unique_ptr<SourceRamanInversePlan> raman_tail_inverse_plan_;
+  std::unique_ptr<TableRamanForwardPlan> raman_kernel_forward_plan_;
   // solprop's general modal route; null on every other route.
   std::unique_ptr<GeneralModalSource> general_;
   // solprop's linear.coupled_flow; null otherwise.
@@ -2151,7 +2282,8 @@ public:
 // one-mode field capillary's 2.4 to 3.1 times -- and lost at none. A device build
 // keeps the earlier conservative guard (two modes, eight nodes, 1024 samples) until
 // its own crossover is measured.
-bool GeneralWorkspace::hybrid_shape_eligible() const noexcept {
+template <class Policy>
+bool GeneralWorkspace<Policy>::hybrid_shape_eligible() const noexcept {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   return problem_.n_modes >= 2 && problem_.n_nodes >= 8 && problem_.n_to >= 1024;
 #else
@@ -2159,7 +2291,8 @@ bool GeneralWorkspace::hybrid_shape_eligible() const noexcept {
 #endif
 }
 
-bool GeneralWorkspace::use_packed_radial_blas() const noexcept {
+template <class Policy>
+bool GeneralWorkspace<Policy>::use_packed_radial_blas() const noexcept {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   return false;
 #else
@@ -2178,9 +2311,10 @@ bool GeneralWorkspace::use_packed_radial_blas() const noexcept {
 #endif
 }
 
-void GeneralWorkspace::packed_radial_gemm(const RealView2& matrix,
-                                          const ComplexView2& source,
-                                          const ComplexView2& destination) {
+template <class Policy>
+void GeneralWorkspace<Policy>::packed_radial_gemm(const RealView2& matrix,
+                                                  const ComplexView2& source,
+                                                  const ComplexView2& destination) {
   const auto input = radial_blas_input_;
   const auto output = radial_blas_output_;
   const auto rows = problem_.n_nodes;
@@ -2204,7 +2338,8 @@ void GeneralWorkspace::packed_radial_gemm(const RealView2& matrix,
   Kokkos::Profiling::popRegion();
 }
 
-bool GeneralWorkspace::use_blas_for_synthesis() const noexcept {
+template <class Policy>
+bool GeneralWorkspace<Policy>::use_blas_for_synthesis() const noexcept {
   if (use_packed_radial_blas())
     return false;
   // The hybrid planar kind contracts its small x rule per y row natively.
@@ -2247,7 +2382,8 @@ bool GeneralWorkspace::use_blas_for_synthesis() const noexcept {
 // A device takes it at the shapes where it already takes BLAS for the projection
 // (`hybrid_shape_eligible`): there the custom synthesis kernel cost 4.6 times the
 // projection's GEMM at 512 radial nodes (an AMD CDNA 3 device, 2026-10-06).
-bool GeneralWorkspace::use_interleaved_synthesis() const noexcept {
+template <class Policy>
+bool GeneralWorkspace<Policy>::use_interleaved_synthesis() const noexcept {
   if (problem_.family == FieldFamily::field_real || problem_.separable_geometry() ||
       problem_.n_pol_state != 1 || problem_.n_pol_transform != 1)
     return false;
@@ -2257,7 +2393,8 @@ bool GeneralWorkspace::use_interleaved_synthesis() const noexcept {
   return provider != GemmProvider::hybrid || hybrid_shape_eligible();
 }
 
-bool GeneralWorkspace::use_interleaved_projection() const noexcept {
+template <class Policy>
+bool GeneralWorkspace<Policy>::use_interleaved_projection() const noexcept {
   if (problem_.family != FieldFamily::envelope || problem_.separable_geometry() ||
       problem_.n_pol_state != 1 || problem_.n_pol_transform != 1)
     return false;
@@ -2267,7 +2404,8 @@ bool GeneralWorkspace::use_interleaved_projection() const noexcept {
   return provider != GemmProvider::hybrid || hybrid_shape_eligible();
 }
 
-bool GeneralWorkspace::use_blas_for_projection() const noexcept {
+template <class Policy>
+bool GeneralWorkspace<Policy>::use_blas_for_projection() const noexcept {
   if (use_packed_radial_blas())
     return false;
   // The hybrid planar kind contracts its small x rule per y row natively.
@@ -2300,7 +2438,8 @@ bool GeneralWorkspace::use_blas_for_projection() const noexcept {
   return provider != GemmProvider::hybrid || hybrid_shape_eligible();
 }
 
-bool GeneralWorkspace::use_chunked_blas_for_synthesis() const noexcept {
+template <class Policy>
+bool GeneralWorkspace<Policy>::use_chunked_blas_for_synthesis() const noexcept {
   return problem_.node_chunk < problem_.n_nodes && use_blas_for_synthesis();
 }
 
@@ -2310,7 +2449,8 @@ bool GeneralWorkspace::use_chunked_blas_for_synthesis() const noexcept {
 // scaling, two one-element GEMMs and the zero fill of the projection. Each folded
 // product is the GEMM's own one rounding, `(s * taper) * x` and `(p / taper) * y`.
 // The host's columns only: a device keeps its own column kernels.
-bool GeneralWorkspace::folds_single_node() const noexcept {
+template <class Policy>
+bool GeneralWorkspace<Policy>::folds_single_node() const noexcept {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   return false;
 #else
@@ -2323,11 +2463,13 @@ bool GeneralWorkspace::folds_single_node() const noexcept {
 #endif
 }
 
-bool GeneralWorkspace::use_chunked_blas_for_projection() const noexcept {
+template <class Policy>
+bool GeneralWorkspace<Policy>::use_chunked_blas_for_projection() const noexcept {
   return problem_.node_chunk < problem_.n_nodes && use_blas_for_projection();
 }
 
-std::string GeneralWorkspace::synthesis_provider() const {
+template <class Policy>
+std::string GeneralWorkspace<Policy>::synthesis_provider() const {
   const auto provider = selected_blas_provider_name();
   if (folds_single_node())
     return "folded";
@@ -2340,7 +2482,8 @@ std::string GeneralWorkspace::synthesis_provider() const {
   return std::string(use_blas_for_synthesis() ? provider : std::string_view("custom"));
 }
 
-std::string GeneralWorkspace::projection_provider() const {
+template <class Policy>
+std::string GeneralWorkspace<Policy>::projection_provider() const {
   const auto provider = selected_blas_provider_name();
   if (folds_single_node())
     return "folded";
@@ -2353,7 +2496,7 @@ std::string GeneralWorkspace::projection_provider() const {
   return std::string(use_blas_for_projection() ? provider : std::string_view("custom"));
 }
 
-std::string GeneralWorkspace::gemm_shape_policy() {
+template <class Policy> std::string GeneralWorkspace<Policy>::gemm_shape_policy() {
   return "host radial scalar envelope uses packed real BLAS for whole transforms "
          "with n_nodes/n_to >= 256 and a 22-column inventory within 64 MiB; "
          "device radial scalar envelope uses vendor complex BLAS with "
@@ -2371,7 +2514,8 @@ std::string GeneralWorkspace::gemm_shape_policy() {
          "arithmetic through a tiled host kernel, bit for bit";
 }
 
-std::size_t GeneralWorkspace::response_team_size() const noexcept {
+template <class Policy>
+std::size_t GeneralWorkspace<Policy>::response_team_size() const noexcept {
   constexpr auto configured = static_cast<std::size_t>(SOLPROP_NATIVE_DEVICE_TEAM_SIZE);
 #if defined(KOKKOS_ENABLE_CUDA)
   // Measured on a Hopper GPU, the crossover is sharp: 4,096-sample fibre problems
@@ -2383,7 +2527,7 @@ std::size_t GeneralWorkspace::response_team_size() const noexcept {
   return configured;
 }
 
-class GeneralBatchWorkspace {
+template <class Policy> class GeneralBatchWorkspace {
 public:
   explicit GeneralBatchWorkspace(std::vector<std::shared_ptr<GeneralState>> members)
       : members_(std::move(members)) {
@@ -2489,7 +2633,7 @@ private:
   bool closed_{};
 };
 
-void GeneralWorkspace::allocate() {
+template <class Policy> void GeneralWorkspace<Policy>::allocate() {
   if (problem_.low_storage
           ? problem_.low_storage_flows > 2 || problem_.coupled_flow ||
                 (!problem_.low_storage_stage_register && !problem_.free_geometry())
@@ -2529,10 +2673,10 @@ void GeneralWorkspace::allocate() {
     // transpose allocations. The canonical state retains omega-contiguous columns.
     transverse_ =
         problem_.slab_geometry()
-            ? ComplexView3("solprop_native.slab.transverse", n, problem_.n_p,
-                           problem_.n_y)
-            : ComplexView3("solprop_native.free.transverse", problem_.n_pol_state * n,
-                           problem_.n_y, problem_.n_x);
+            ? SourceView3("solprop_native.slab.transverse", n, problem_.n_p,
+                          problem_.n_y)
+            : SourceView3("solprop_native.free.transverse", problem_.n_pol_state * n,
+                          problem_.n_y, problem_.n_x);
     spatial_.square = ComplexView("solprop_native.free.k_squared", n);
     spatial_.square_low = ComplexView("solprop_native.free.k_squared_low", n);
     spatial_.numerator = ComplexView("solprop_native.free.numerator", n);
@@ -2552,9 +2696,9 @@ void GeneralWorkspace::allocate() {
     }
     flux_ = spatial_;
     if (problem_.flux_closure)
-      flux_transverse_ =
-          ComplexView3("solprop_native.flux.closure_transverse", transverse_.extent(0),
-                       transverse_.extent(1), transverse_.extent(2));
+      flux_transverse_ = ReductionView3("solprop_native.flux.closure_transverse",
+                                        transverse_.extent(0), transverse_.extent(1),
+                                        transverse_.extent(2));
   } else if (!problem_.flux_k_squared.empty()) {
     flux_.square = ComplexView("solprop_native.flux.k_squared", n);
     flux_.square_low = ComplexView("solprop_native.flux.k_squared_low", n);
@@ -2562,78 +2706,81 @@ void GeneralWorkspace::allocate() {
     flux_.transverse_low =
         RealView("solprop_native.flux.kperp_sq_low", problem_.n_modes);
   }
-  current_ = ComplexView2("solprop_native.state.current", columns, n);
+  current_ = StateView2("solprop_native.state.current", columns, n);
   if (problem_.low_storage) {
     // solprop SEP 24 section 6.7: the march holds its registers beside the state and
     // none of the Runge-Kutta views; the stage's input is formed in the route's own
     // scratch (`transverse_`, or the fine spectrum of the modal routes).
     register_accumulator_ =
-        ComplexView2("solprop_native.low_storage.accumulator", columns, n);
+        StateView2("solprop_native.low_storage.accumulator", columns, n);
     if (problem_.low_storage_stage_register)
-      register_stage_ = ComplexView2("solprop_native.low_storage.stage", columns, n);
-    low_storage_flows_ = ComplexView3("solprop_native.low_storage.flows",
-                                      problem_.low_storage_flows, columns, n);
+      register_stage_ = StateView2("solprop_native.low_storage.stage", columns, n);
+    low_storage_flows_ = PropagatorView3("solprop_native.low_storage.flows",
+                                         problem_.low_storage_flows, columns, n);
   } else {
-    advanced_ = ComplexView2("solprop_native.state.advanced", columns, n);
-    stages_ = ComplexView3("solprop_native.step.stages", problem_.n_stages, columns, n);
-    solution_ = ComplexView2("solprop_native.step.solution", columns, n);
-    error_ = ComplexView2("solprop_native.step.error", columns, n);
-    residual_ = ComplexView2("solprop_native.step.residual", columns, n);
-    recycled_ = ComplexView2("solprop_native.step.recycled", columns, n);
+    advanced_ = StateView2("solprop_native.state.advanced", columns, n);
+    stages_ = StateView3("solprop_native.step.stages", problem_.n_stages, columns, n);
+    solution_ = StateView2("solprop_native.step.solution", columns, n);
+    error_ = StateView2("solprop_native.step.error", columns, n);
+    residual_ = StateView2("solprop_native.step.residual", columns, n);
+    recycled_ = StateView2("solprop_native.step.recycled", columns, n);
     whole_propagator_ =
-        ComplexView2("solprop_native.step.whole_propagator", columns, n);
+        PropagatorView2("solprop_native.step.whole_propagator", columns, n);
     if (!problem_.separable_geometry())
-      stage_inverse_ = ComplexView2("solprop_native.step.stage_inverse", columns, n);
+      stage_inverse_ = PropagatorView2("solprop_native.step.stage_inverse", columns, n);
   }
   if (problem_.modified_noise)
-    noise_ = ComplexView2("solprop_native.noise", columns, n);
+    noise_ = StateView2("solprop_native.noise", columns, n);
   if (!problem_.separable_geometry() && problem_.coupled_flow)
-    stage_phase_ = ComplexView2("solprop_native.step.stage_phase", columns, n);
-  partials_ = RealView2("solprop_native.step.error_partials", 3, columns);
+    stage_phase_ = ArgumentView2("solprop_native.step.stage_phase", columns, n);
+  partials_ = ReductionRealView2("solprop_native.step.error_partials", 3, columns);
   if (!problem_.projection_coarse_matrix.empty())
     quadrature_partials_ =
-        RealView2("solprop_native.transform.quadrature_partials", 2, columns);
-  quadrature_scores_ = RealView("solprop_native.transform.quadrature_scores", 2);
+        ReductionRealView2("solprop_native.transform.quadrature_partials", 2, columns);
+  quadrature_scores_ =
+      ReductionRealView("solprop_native.transform.quadrature_scores", 2);
   Kokkos::deep_copy(quadrature_scores_, Kokkos::Experimental::quiet_NaN_v<double>);
   if (problem_.weighted_controller) {
-    weighted_scale_ = RealView("solprop_native.step.weighted_scale", n);
-    weighted_partials_ = RealView("solprop_native.step.weighted_partials", columns);
+    weighted_scale_ = ReductionRealView("solprop_native.step.weighted_scale", n);
+    weighted_partials_ =
+        ReductionRealView("solprop_native.step.weighted_partials", columns);
   }
   if (!problem_.spatial_spectral_weights.empty()) {
     spatial_spectral_weights_ =
-        RealView("solprop_native.spatial.spectral_weights", problem_.n_modes);
-    spatial_on_axis_ = ComplexView("solprop_native.spatial.on_axis", problem_.n_modes);
+        ReductionRealView("solprop_native.spatial.spectral_weights", problem_.n_modes);
+    spatial_on_axis_ =
+        ReductionView("solprop_native.spatial.on_axis", problem_.n_modes);
     // One row per column for the energy and per node for the peaks and fluence,
     // which differ on the hybrid planar kind alone.
     spatial_statistics_partials_ =
-        RealView2("solprop_native.spatial.statistics_partials",
-                  std::max(problem_.n_modes, problem_.n_nodes), 3);
+        ReductionRealView2("solprop_native.spatial.statistics_partials",
+                           std::max(problem_.n_modes, problem_.n_nodes), 3);
   }
-  statistics_spectrum_ =
-      ComplexView2("solprop_native.statistics.spectrum", statistics_rows, problem_.n_t);
+  statistics_spectrum_ = ReductionView2("solprop_native.statistics.spectrum",
+                                        statistics_rows, problem_.n_t);
   statistics_time_ =
-      ComplexView2("solprop_native.statistics.time", statistics_rows, problem_.n_t);
+      ReductionView2("solprop_native.statistics.time", statistics_rows, problem_.n_t);
   statistics_power_weight_ =
-      RealView2("solprop_native.statistics.power_weight",
-                problem_.spatial_spectral_weights.empty() ? columns : 0, n);
+      ReductionRealView2("solprop_native.statistics.power_weight",
+                         problem_.spatial_spectral_weights.empty() ? columns : 0, n);
   Kokkos::deep_copy(execution_space_, statistics_power_weight_, 1.0);
   // A spatial run's rows hold the magnetic closure in time (solprop SEP 34) when a
   // local flux statistic is asked for.
   statistics_weighted_time_ =
-      ComplexView2("solprop_native.statistics.weighted_time",
-                   problem_.spatial_spectral_weights.empty() ? temporal_columns
-                   : problem_.flux_closure                   ? statistics_rows
-                                                             : 0,
-                   problem_.n_t);
-  statistics_power_ =
-      RealView2("solprop_native.statistics.power", statistic_nodes, problem_.n_t);
+      ReductionView2("solprop_native.statistics.weighted_time",
+                     problem_.spatial_spectral_weights.empty() ? temporal_columns
+                     : problem_.flux_closure                   ? statistics_rows
+                                                               : 0,
+                     problem_.n_t);
+  statistics_power_ = ReductionRealView2("solprop_native.statistics.power",
+                                         statistic_nodes, problem_.n_t);
   if (problem_.flux_closure)
-    statistics_magnitude_ = RealView2("solprop_native.statistics.flux_magnitude",
-                                      statistic_nodes, problem_.n_t);
+    statistics_magnitude_ = ReductionRealView2(
+        "solprop_native.statistics.flux_magnitude", statistic_nodes, problem_.n_t);
   statistics_total_power_ =
-      RealView("solprop_native.statistics.total_power", problem_.n_t);
+      ReductionRealView("solprop_native.statistics.total_power", problem_.n_t);
   statistics_on_axis_ =
-      RealView("solprop_native.statistics.on_axis", 2 * problem_.n_modes);
+      ReductionRealView("solprop_native.statistics.on_axis", 2 * problem_.n_modes);
   const auto base_statistics = checked_sum(
       checked_sum(problem_.n_t,
                   checked_product(2, problem_.n_columns(), "statistics columns"),
@@ -2641,23 +2788,23 @@ void GeneralWorkspace::allocate() {
       checked_product(3, problem_.n_modes, "statistics modes"),
       "statistics packed output");
   statistics_packed_ =
-      RealView("solprop_native.statistics.packed",
-               checked_sum(base_statistics, 5, "statistics packed output"));
+      ReductionRealView("solprop_native.statistics.packed",
+                        checked_sum(base_statistics, 5, "statistics packed output"));
   crop_index_ = IndexView("solprop_native.transform.crop_index", n);
   active_mask_ = ByteView("solprop_native.mask.active", n);
   norm_mask_ = ByteView("solprop_native.mask.norm", n);
-  omega_window_ = RealView("solprop_native.window.omega", n);
-  omega_ = RealView("solprop_native.statistics.omega", problem_.omega.size());
-  time_window_ = RealView("solprop_native.window.time", problem_.n_to);
-  carrier_ = ComplexView("solprop_native.kerr.carrier", problem_.n_to);
-  phi_terms_ = ComplexView3("solprop_native.linear.phi_terms",
-                            problem_.separable_geometry() ? 0 : problem_.n_phi_terms,
-                            columns, n);
-  prefactor_terms_ = ComplexView3(
+  omega_window_ = TableRealView("solprop_native.window.omega", n);
+  omega_ = ReductionRealView("solprop_native.statistics.omega", problem_.omega.size());
+  time_window_ = TableRealView("solprop_native.window.time", problem_.n_to);
+  carrier_ = TableView("solprop_native.kerr.carrier", problem_.n_to);
+  phi_terms_ = ArgumentView3("solprop_native.linear.phi_terms",
+                             problem_.separable_geometry() ? 0 : problem_.n_phi_terms,
+                             columns, n);
+  prefactor_terms_ = TableView3(
       "solprop_native.response.prefactor_terms",
       problem_.separable_geometry() ? 0 : problem_.n_prefactor_terms, columns, n);
-  tableau_ =
-      RealView("solprop_native.step.tableau", problem_.n_stages * problem_.n_stages);
+  tableau_ = ArgumentRealView("solprop_native.step.tableau",
+                              problem_.n_stages * problem_.n_stages);
   {
     // One device buffer for every per-stage scalar view, so that a trial's scalars
     // cross in one copy instead of one per view: on a device each small copy from
@@ -2678,24 +2825,26 @@ void GeneralWorkspace::allocate() {
     std::size_t total = 0;
     for (const auto size : sizes)
       total += size;
-    stage_scalars_ = RealView("solprop_native.step.scalars", total);
+    stage_scalars_ = ArgumentRealView("solprop_native.step.scalars", total);
     double* next = stage_scalars_.data();
     const auto take = [&next](const std::size_t size) {
       double* const start = next;
       next += size;
       return start;
     };
-    stage_phi_delta_ = RealView(take(sizes[0]), sizes[0]);
-    stage_phi_at_ = RealView(take(sizes[1]), sizes[1]);
-    stage_prefactor_ = RealView(take(sizes[2]), sizes[2]);
-    stage_density_ = RealView(take(stages), stages);
-    stage_kerr_density_ = RealView(take(stages), stages);
-    stage_plasma_density_ = RealView(take(stages), stages);
-    stage_raman_density_ = RealView(take(stages), stages);
-    stage_channel_density_ = RealView2(take(stages * channels), stages, channels);
-    stage_channel_preionisation_ = RealView2(take(stages * channels), stages, channels);
-    stage_taper_ = RealView(take(stages), stages);
-    stage_preionisation_ = RealView(take(stages), stages);
+    stage_phi_delta_ = ArgumentRealView(take(sizes[0]), sizes[0]);
+    stage_phi_at_ = ArgumentRealView(take(sizes[1]), sizes[1]);
+    stage_prefactor_ = ArgumentRealView(take(sizes[2]), sizes[2]);
+    stage_density_ = ArgumentRealView(take(stages), stages);
+    stage_kerr_density_ = ArgumentRealView(take(stages), stages);
+    stage_plasma_density_ = ArgumentRealView(take(stages), stages);
+    stage_raman_density_ = ArgumentRealView(take(stages), stages);
+    stage_channel_density_ =
+        ArgumentRealView2(take(stages * channels), stages, channels);
+    stage_channel_preionisation_ =
+        ArgumentRealView2(take(stages * channels), stages, channels);
+    stage_taper_ = ArgumentRealView(take(stages), stages);
+    stage_preionisation_ = ArgumentRealView(take(stages), stages);
     // Two uploads a trial (the step's and the sample's) at most between fences; four
     // staging buffers leave each copy its source until it has surely been read.
     stage_staging_.clear();
@@ -2705,85 +2854,85 @@ void GeneralWorkspace::allocate() {
   if (problem_.raman) {
     const auto doubled = 2 * problem_.n_to;
     node_raman_drive_ =
-        RealView2("solprop_native.raman.node_drive",
-                  problem_.node_chunk * problem_.raman_drives(), doubled);
+        SourceRealView2("solprop_native.raman.node_drive",
+                        problem_.node_chunk * problem_.raman_drives(), doubled);
     node_raman_spectrum_ =
-        ComplexView2("solprop_native.raman.node_spectrum",
-                     problem_.node_chunk * problem_.raman_drives(), problem_.n_to + 1);
+        SourceView2("solprop_native.raman.node_spectrum",
+                    problem_.node_chunk * problem_.raman_drives(), problem_.n_to + 1);
     node_raman_convolved_ =
-        RealView2("solprop_native.raman.node_convolved",
-                  problem_.node_chunk * problem_.raman_drives(), doubled);
-    raman_undamped_ =
-        RealView2("solprop_native.raman.undamped", problem_.n_raman_terms, doubled);
-    raman_kernel_time_ = RealView2("solprop_native.raman.kernel_time",
-                                   problem_.raman_kernels(), doubled);
-    raman_kernel_spectrum_ = ComplexView2("solprop_native.raman.kernel_spectrum",
-                                          problem_.raman_kernels(), problem_.n_to + 1);
-    stage_raman_rates_ = RealView2("solprop_native.raman.stage_rates",
-                                   problem_.n_stages, problem_.n_raman_terms);
-    raman_tensor_weights_ =
-        RealView2("solprop_native.raman.tensor_weights", problem_.n_raman_terms, 2);
+        SourceRealView2("solprop_native.raman.node_convolved",
+                        problem_.node_chunk * problem_.raman_drives(), doubled);
+    raman_undamped_ = TableRealView2("solprop_native.raman.undamped",
+                                     problem_.n_raman_terms, doubled);
+    raman_kernel_time_ = TableRealView2("solprop_native.raman.kernel_time",
+                                        problem_.raman_kernels(), doubled);
+    raman_kernel_spectrum_ = TableView2("solprop_native.raman.kernel_spectrum",
+                                        problem_.raman_kernels(), problem_.n_to + 1);
+    stage_raman_rates_ = ArgumentRealView2("solprop_native.raman.stage_rates",
+                                           problem_.n_stages, problem_.n_raman_terms);
+    raman_tensor_weights_ = ArgumentRealView2("solprop_native.raman.tensor_weights",
+                                              problem_.n_raman_terms, 2);
     cached_raman_rates_.resize(problem_.n_raman_terms);
     if (problem_.n_raman_components > 1) {
       stage_raman_densities_ =
-          RealView2("solprop_native.raman.stage_densities", problem_.n_stages,
-                    problem_.n_raman_components);
-      raman_row_component_ =
-          RealView("solprop_native.raman.row_component", problem_.n_raman_terms);
-      raman_component_fraction_ = RealView("solprop_native.raman.component_fraction",
-                                           problem_.n_raman_components);
+          ArgumentRealView2("solprop_native.raman.stage_densities", problem_.n_stages,
+                            problem_.n_raman_components);
+      raman_row_component_ = ArgumentRealView("solprop_native.raman.row_component",
+                                              problem_.n_raman_terms);
+      raman_component_fraction_ = ArgumentRealView(
+          "solprop_native.raman.component_fraction", problem_.n_raman_components);
       cached_raman_densities_.resize(problem_.n_raman_components);
     }
   }
   if (use_packed_radial_blas()) {
-    radial_blas_input_ = RealView2("solprop_native.radial.blas_input", problem_.n_nodes,
-                                   2 * problem_.n_to);
-    radial_blas_output_ = RealView2("solprop_native.radial.blas_output",
-                                    problem_.n_nodes, 2 * problem_.n_to);
+    radial_blas_input_ = SourceRealView2("solprop_native.radial.blas_input",
+                                         problem_.n_nodes, 2 * problem_.n_to);
+    radial_blas_output_ = SourceRealView2("solprop_native.radial.blas_output",
+                                          problem_.n_nodes, 2 * problem_.n_to);
   }
   // The hybrid planar kind's slab rule in x, (n_x, n_p) and (n_p, n_x).
   const auto synthesis_rows = problem_.slab_geometry() ? problem_.n_x : transform_rows;
   const auto synthesis_columns =
       problem_.slab_geometry() ? problem_.n_p : problem_.n_modes;
-  synthesis_ = RealView2("solprop_native.transform.synthesis", synthesis_rows,
-                         synthesis_columns);
-  projection_ = RealView2("solprop_native.transform.projection", synthesis_columns,
-                          synthesis_rows);
-  scaled_synthesis_ = RealView2("solprop_native.transform.scaled_synthesis",
-                                transform_rows, problem_.n_modes);
-  scaled_projection_ = RealView2("solprop_native.transform.scaled_projection",
-                                 problem_.n_modes, transform_rows);
+  synthesis_ = TableRealView2("solprop_native.transform.synthesis", synthesis_rows,
+                              synthesis_columns);
+  projection_ = TableRealView2("solprop_native.transform.projection", synthesis_columns,
+                               synthesis_rows);
+  scaled_synthesis_ = TableRealView2("solprop_native.transform.scaled_synthesis",
+                                     transform_rows, problem_.n_modes);
+  scaled_projection_ = TableRealView2("solprop_native.transform.scaled_projection",
+                                      problem_.n_modes, transform_rows);
   if (problem_.family == FieldFamily::envelope && use_blas_for_synthesis()) {
     scaled_synthesis_complex_ =
-        ComplexView2("solprop_native.transform.scaled_synthesis_complex",
-                     transform_rows, problem_.n_modes);
+        TableView2("solprop_native.transform.scaled_synthesis_complex", transform_rows,
+                   problem_.n_modes);
     scaled_projection_complex_ =
-        ComplexView2("solprop_native.transform.scaled_projection_complex",
-                     problem_.n_modes, transform_rows);
+        TableView2("solprop_native.transform.scaled_projection_complex",
+                   problem_.n_modes, transform_rows);
   }
   if (!problem_.projection_coarse_matrix.empty()) {
-    projection_coarse_ = RealView2("solprop_native.transform.projection_coarse",
-                                   problem_.n_modes, transform_rows);
+    projection_coarse_ = TableRealView2("solprop_native.transform.projection_coarse",
+                                        problem_.n_modes, transform_rows);
     scaled_projection_coarse_ =
-        RealView2("solprop_native.transform.scaled_projection_coarse", problem_.n_modes,
-                  transform_rows);
+        TableRealView2("solprop_native.transform.scaled_projection_coarse",
+                       problem_.n_modes, transform_rows);
     if (problem_.family == FieldFamily::envelope && use_blas_for_projection()) {
       scaled_projection_coarse_complex_ =
-          ComplexView2("solprop_native.transform.scaled_projection_coarse_complex",
-                       problem_.n_modes, transform_rows);
+          TableView2("solprop_native.transform.scaled_projection_coarse_complex",
+                     problem_.n_modes, transform_rows);
       scaled_projection_stacked_complex_ =
-          ComplexView2("solprop_native.transform.scaled_projection_stacked_complex",
-                       2 * problem_.n_modes, transform_rows);
+          TableView2("solprop_native.transform.scaled_projection_stacked_complex",
+                     2 * problem_.n_modes, transform_rows);
       projected_stacked_complex_ =
-          ComplexView2("solprop_native.response.projected_stacked_complex", 2 * columns,
-                       problem_.n_to);
+          SourceView2("solprop_native.response.projected_stacked_complex", 2 * columns,
+                      problem_.n_to);
     } else if (problem_.family != FieldFamily::envelope) {
       scaled_projection_stacked_ =
-          RealView2("solprop_native.transform.scaled_projection_stacked",
-                    2 * problem_.n_modes, transform_rows);
+          TableRealView2("solprop_native.transform.scaled_projection_stacked",
+                         2 * problem_.n_modes, transform_rows);
       projected_stacked_real_ =
-          RealView2("solprop_native.response.projected_stacked_real",
-                    2 * temporal_columns, problem_.n_to);
+          SourceRealView2("solprop_native.response.projected_stacked_real",
+                          2 * temporal_columns, problem_.n_to);
     }
   }
   const auto chunk_transform_rows = problem_.node_chunk * problem_.n_pol_transform;
@@ -2792,18 +2941,18 @@ void GeneralWorkspace::allocate() {
   if (use_chunked_blas_for_synthesis()) {
     if (problem_.family == FieldFamily::envelope) {
       chunk_synthesis_complex_ =
-          ComplexView2("solprop_native.transform.chunk_synthesis_complex",
-                       chunk_transform_rows, problem_.n_modes);
+          TableView2("solprop_native.transform.chunk_synthesis_complex",
+                     chunk_transform_rows, problem_.n_modes);
       if (tail_transform_rows != 0)
         tail_synthesis_complex_ =
-            ComplexView2("solprop_native.transform.tail_synthesis_complex",
-                         tail_transform_rows, problem_.n_modes);
+            TableView2("solprop_native.transform.tail_synthesis_complex",
+                       tail_transform_rows, problem_.n_modes);
     } else {
-      chunk_synthesis_ = RealView2("solprop_native.transform.chunk_synthesis",
-                                   chunk_transform_rows, problem_.n_modes);
+      chunk_synthesis_ = TableRealView2("solprop_native.transform.chunk_synthesis",
+                                        chunk_transform_rows, problem_.n_modes);
       if (tail_transform_rows != 0)
-        tail_synthesis_ = RealView2("solprop_native.transform.tail_synthesis",
-                                    tail_transform_rows, problem_.n_modes);
+        tail_synthesis_ = TableRealView2("solprop_native.transform.tail_synthesis",
+                                         tail_transform_rows, problem_.n_modes);
     }
   }
   if (use_chunked_blas_for_projection()) {
@@ -2812,39 +2961,39 @@ void GeneralWorkspace::allocate() {
     if (problem_.family == FieldFamily::envelope) {
       if (stacked) {
         chunk_projection_stacked_complex_ =
-            ComplexView2("solprop_native.transform.chunk_projection_stacked_complex",
-                         projection_rows, chunk_transform_rows);
+            TableView2("solprop_native.transform.chunk_projection_stacked_complex",
+                       projection_rows, chunk_transform_rows);
         if (tail_transform_rows != 0)
           tail_projection_stacked_complex_ =
-              ComplexView2("solprop_native.transform.tail_projection_stacked_complex",
-                           projection_rows, tail_transform_rows);
+              TableView2("solprop_native.transform.tail_projection_stacked_complex",
+                         projection_rows, tail_transform_rows);
       } else {
         chunk_projection_complex_ =
-            ComplexView2("solprop_native.transform.chunk_projection_complex",
-                         projection_rows, chunk_transform_rows);
+            TableView2("solprop_native.transform.chunk_projection_complex",
+                       projection_rows, chunk_transform_rows);
         if (tail_transform_rows != 0)
           tail_projection_complex_ =
-              ComplexView2("solprop_native.transform.tail_projection_complex",
-                           projection_rows, tail_transform_rows);
+              TableView2("solprop_native.transform.tail_projection_complex",
+                         projection_rows, tail_transform_rows);
       }
     } else if (stacked) {
       chunk_projection_stacked_ =
-          RealView2("solprop_native.transform.chunk_projection_stacked",
-                    projection_rows, chunk_transform_rows);
+          TableRealView2("solprop_native.transform.chunk_projection_stacked",
+                         projection_rows, chunk_transform_rows);
       if (tail_transform_rows != 0)
         tail_projection_stacked_ =
-            RealView2("solprop_native.transform.tail_projection_stacked",
-                      projection_rows, tail_transform_rows);
+            TableRealView2("solprop_native.transform.tail_projection_stacked",
+                           projection_rows, tail_transform_rows);
     } else {
-      chunk_projection_ = RealView2("solprop_native.transform.chunk_projection",
-                                    projection_rows, chunk_transform_rows);
+      chunk_projection_ = TableRealView2("solprop_native.transform.chunk_projection",
+                                         projection_rows, chunk_transform_rows);
       if (tail_transform_rows != 0)
-        tail_projection_ = RealView2("solprop_native.transform.tail_projection",
-                                     projection_rows, tail_transform_rows);
+        tail_projection_ = TableRealView2("solprop_native.transform.tail_projection",
+                                          projection_rows, tail_transform_rows);
     }
   }
-  fine_spectrum_ = ComplexView2("solprop_native.fft.fine_spectrum", temporal_columns,
-                                fine_spectrum_size());
+  fine_spectrum_ = SourceView2("solprop_native.fft.fine_spectrum", temporal_columns,
+                               fine_spectrum_size());
   if (!problem_.separable_geometry() && problem_.n_omega != fine_spectrum_size())
     fine_gaps_ = IndexView("solprop_native.fft.fine_gaps", 3 * fine_gap_runs().size());
   if (problem_.separable_geometry() && problem_.n_omega != fine_spectrum_size()) {
@@ -2855,60 +3004,62 @@ void GeneralWorkspace::allocate() {
     separable_gaps_ = IndexView("solprop_native.free.fine_gaps", bins.size());
     copy_vector(execution_space_, separable_gaps_, bins);
   }
-  projected_spectrum_ = ComplexView2("solprop_native.fft.projected_spectrum",
-                                     temporal_columns, projected_spectrum_size());
+  projected_spectrum_ = SourceView2("solprop_native.fft.projected_spectrum",
+                                    temporal_columns, projected_spectrum_size());
   if (!problem_.projection_coarse_matrix.empty())
     projected_coarse_spectrum_ =
-        ComplexView2("solprop_native.fft.projected_coarse_spectrum", columns,
-                     projected_spectrum_size());
-  absorber_spectrum_ = ComplexView2("solprop_native.fft.absorber_spectrum",
-                                    temporal_columns, projected_spectrum_size());
+        SourceView2("solprop_native.fft.projected_coarse_spectrum", columns,
+                    projected_spectrum_size());
+  absorber_spectrum_ = SourceView2("solprop_native.fft.absorber_spectrum",
+                                   temporal_columns, projected_spectrum_size());
   if (problem_.family == FieldFamily::field_real) {
-    modal_real_ = RealView2("solprop_native.fft.modal_time_real", temporal_columns,
-                            problem_.n_to);
-    node_real_ = separable_aliased_ ? modal_real_
-                                    : RealView2("solprop_native.response.node_real",
-                                                chunk_rows, problem_.n_to);
-  } else {
-    modal_complex_ = ComplexView2("solprop_native.fft.modal_time_complex",
+    modal_real_ = SourceRealView2("solprop_native.fft.modal_time_real",
                                   temporal_columns, problem_.n_to);
+    node_real_ = separable_aliased_
+                     ? modal_real_
+                     : SourceRealView2("solprop_native.response.node_real", chunk_rows,
+                                       problem_.n_to);
+  } else {
+    modal_complex_ = SourceView2("solprop_native.fft.modal_time_complex",
+                                 temporal_columns, problem_.n_to);
     node_complex_ = separable_aliased_
                         ? modal_complex_
-                        : ComplexView2("solprop_native.response.node_complex",
-                                       chunk_rows, problem_.n_to);
+                        : SourceView2("solprop_native.response.node_complex",
+                                      chunk_rows, problem_.n_to);
   }
   if (problem_.family == FieldFamily::envelope) {
-    projected_complex_ = ComplexView2("solprop_native.response.projected_complex",
-                                      temporal_columns, problem_.n_to);
-    polarisation_complex_ =
-        separable_aliased_
-            ? projected_complex_
-            : ComplexView2("solprop_native.response.polarisation_complex", chunk_rows,
-                           problem_.n_to);
-    if (!problem_.projection_coarse_matrix.empty())
-      projected_coarse_complex_ =
-          ComplexView2("solprop_native.response.projected_coarse_complex",
-                       temporal_columns, problem_.n_to);
-    absorber_complex_ = ComplexView2("solprop_native.absorber.fine_complex",
+    projected_complex_ = SourceView2("solprop_native.response.projected_complex",
                                      temporal_columns, problem_.n_to);
-  } else {
-    projected_real_ = RealView2("solprop_native.response.projected_real",
-                                temporal_columns, problem_.n_to);
-    polarisation_real_ = separable_aliased_
-                             ? projected_real_
-                             : RealView2("solprop_native.response.polarisation_real",
+    polarisation_complex_ =
+        separable_aliased_ ? projected_complex_
+                           : SourceView2("solprop_native.response.polarisation_complex",
                                          chunk_rows, problem_.n_to);
     if (!problem_.projection_coarse_matrix.empty())
+      projected_coarse_complex_ =
+          SourceView2("solprop_native.response.projected_coarse_complex",
+                      temporal_columns, problem_.n_to);
+    absorber_complex_ = SourceView2("solprop_native.absorber.fine_complex",
+                                    temporal_columns, problem_.n_to);
+  } else {
+    projected_real_ = SourceRealView2("solprop_native.response.projected_real",
+                                      temporal_columns, problem_.n_to);
+    polarisation_real_ =
+        separable_aliased_
+            ? projected_real_
+            : SourceRealView2("solprop_native.response.polarisation_real", chunk_rows,
+                              problem_.n_to);
+    if (!problem_.projection_coarse_matrix.empty())
       projected_coarse_real_ =
-          RealView2("solprop_native.response.projected_coarse_real", temporal_columns,
-                    problem_.n_to);
-    absorber_real_ =
-        RealView2("solprop_native.absorber.fine_real", temporal_columns, problem_.n_to);
+          SourceRealView2("solprop_native.response.projected_coarse_real",
+                          temporal_columns, problem_.n_to);
+    absorber_real_ = SourceRealView2("solprop_native.absorber.fine_real",
+                                     temporal_columns, problem_.n_to);
   }
   if (held_plasma()) {
-    held_current_ = RealView2("solprop_native.held.current", chunk_rows, problem_.n_to);
-    held_derivative_ = RealView("solprop_native.held.derivative", problem_.n_to);
-    held_inverse_ = RealView("solprop_native.held.inverse", problem_.n_omega);
+    held_current_ =
+        SourceRealView2("solprop_native.held.current", chunk_rows, problem_.n_to);
+    held_derivative_ = TableRealView("solprop_native.held.derivative", problem_.n_to);
+    held_inverse_ = TableRealView("solprop_native.held.inverse", problem_.n_omega);
     const bool radial = held_radial();
     const auto rows = radial ? chunk_rows : temporal_columns;
     for (std::size_t index = 0; index < (radial ? 3U : 2U); ++index) {
@@ -2916,107 +3067,109 @@ void GeneralWorkspace::allocate() {
       const auto label =
           std::string("solprop_native.held.stream") + std::to_string(index) + ".";
       if (index < 2)
-        stream.node = RealView2(label + "node", chunk_rows, problem_.n_to);
-      stream.projected = RealView2(label + "projected", rows, problem_.n_to);
-      stream.spectrum = ComplexView2(label + "spectrum", rows, problem_.n_to / 2 + 1);
+        stream.node = SourceRealView2(label + "node", chunk_rows, problem_.n_to);
+      stream.projected = SourceRealView2(label + "projected", rows, problem_.n_to);
+      stream.spectrum = SourceView2(label + "spectrum", rows, problem_.n_to / 2 + 1);
       if (!problem_.projection_coarse_matrix.empty()) {
-        stream.coarse = RealView2(label + "coarse", rows, problem_.n_to);
+        stream.coarse = SourceRealView2(label + "coarse", rows, problem_.n_to);
         stream.coarse_spectrum =
-            ComplexView2(label + "coarse_spectrum", rows, problem_.n_to / 2 + 1);
-        stream.stacked = RealView2(label + "stacked", 2 * rows, problem_.n_to);
+            SourceView2(label + "coarse_spectrum", rows, problem_.n_to / 2 + 1);
+        stream.stacked = SourceRealView2(label + "stacked", 2 * rows, problem_.n_to);
       }
     }
     if (radial) {
-      held_nodal_spectrum_ = ComplexView2("solprop_native.held.nodal_spectrum",
-                                          chunk_rows, problem_.n_omega);
-      held_projected_spectrum_ = ComplexView2("solprop_native.held.projected_spectrum",
-                                              problem_.n_columns(), problem_.n_omega);
-      held_projection_ = RealView2("solprop_native.held.projection", problem_.n_modes,
-                                   problem_.node_chunk * problem_.n_pol_transform);
+      held_nodal_spectrum_ = SourceView2("solprop_native.held.nodal_spectrum",
+                                         chunk_rows, problem_.n_omega);
+      held_projected_spectrum_ = SourceView2("solprop_native.held.projected_spectrum",
+                                             problem_.n_columns(), problem_.n_omega);
+      held_projection_ =
+          TableRealView2("solprop_native.held.projection", problem_.n_modes,
+                         problem_.node_chunk * problem_.n_pol_transform);
     }
   }
   absorber_fine_ =
-      RealView("solprop_native.absorber.rate_fine", problem_.absorber_fine.size());
-  absorber_coarse_ =
-      RealView("solprop_native.absorber.rate_coarse", problem_.absorber_coarse.size());
+      TableRealView("solprop_native.absorber.rate_fine", problem_.absorber_fine.size());
+  absorber_coarse_ = StateRealView("solprop_native.absorber.rate_coarse",
+                                   problem_.absorber_coarse.size());
   if (!problem_.spatial_absorber_matrix.empty()) {
     if (problem_.family == FieldFamily::envelope) {
-      spatial_absorber_complex_ =
-          ComplexView2("solprop_native.absorber.spatial_complex", problem_.n_modes,
-                       problem_.n_modes);
+      spatial_absorber_complex_ = TableView2("solprop_native.absorber.spatial_complex",
+                                             problem_.n_modes, problem_.n_modes);
       std::vector<Complex> matrix;
       matrix.reserve(problem_.spatial_absorber_matrix.size());
       for (const auto value : problem_.spatial_absorber_matrix)
         matrix.emplace_back(value, 0.0);
       copy_vector(execution_space_, spatial_absorber_complex_, matrix);
     } else {
-      spatial_absorber_real_ = RealView2("solprop_native.absorber.spatial_real",
-                                         problem_.n_modes, problem_.n_modes);
+      spatial_absorber_real_ = TableRealView2("solprop_native.absorber.spatial_real",
+                                              problem_.n_modes, problem_.n_modes);
       copy_vector(execution_space_, spatial_absorber_real_,
                   problem_.spatial_absorber_matrix);
     }
   }
   if (problem_.envelope_plasma) {
-    envelope_rule_nodes_ =
-        RealView3("solprop_native.envelope.rule_nodes", problem_.n_channels, 4, 512);
-    envelope_rule_weights_ =
-        RealView3("solprop_native.envelope.rule_weights", problem_.n_channels, 4, 512);
-    envelope_moments_ = RealView3("solprop_native.envelope.moments", 2,
-                                  problem_.node_chunk, problem_.n_to);
-    envelope_rates_ =
-        RealView2("solprop_native.envelope.rates", problem_.node_chunk, problem_.n_to);
-    envelope_exposure_ = RealView2("solprop_native.envelope.exposure",
-                                   problem_.node_chunk, problem_.n_to);
+    envelope_rule_nodes_ = TableRealView3("solprop_native.envelope.rule_nodes",
+                                          problem_.n_channels, 4, 512);
+    envelope_rule_weights_ = TableRealView3("solprop_native.envelope.rule_weights",
+                                            problem_.n_channels, 4, 512);
+    envelope_moments_ = ReductionRealView3("solprop_native.envelope.moments", 2,
+                                           problem_.node_chunk, problem_.n_to);
+    envelope_rates_ = SourceRealView2("solprop_native.envelope.rates",
+                                      problem_.node_chunk, problem_.n_to);
+    envelope_exposure_ = SourceRealView2("solprop_native.envelope.exposure",
+                                         problem_.node_chunk, problem_.n_to);
     envelope_failures_ = IndexView("solprop_native.envelope.failures",
                                    problem_.node_chunk * problem_.n_to);
     envelope_status_ = IndexView("solprop_native.envelope.status", 1);
     envelope_host_status_ = Kokkos::View<std::size_t*, Layout, Kokkos::HostSpace>(
         "solprop_native.envelope.host_status", 1);
     envelope_drude_factor_ =
-        RealView("solprop_native.envelope.drude_factor", problem_.n_omega);
+        TableRealView("solprop_native.envelope.drude_factor", problem_.n_omega);
     envelope_loss_factor_ =
-        ComplexView("solprop_native.envelope.loss_factor", problem_.n_omega);
+        TableView("solprop_native.envelope.loss_factor", problem_.n_omega);
     for (std::size_t index = 0; index < envelope_streams_.size(); ++index) {
       auto& stream = envelope_streams_[index];
       const auto label =
           std::string("solprop_native.envelope.") + (index == 0 ? "drude." : "loss.");
-      stream.node = ComplexView2(label + "node", chunk_rows, problem_.n_to);
+      stream.node = SourceView2(label + "node", chunk_rows, problem_.n_to);
       stream.projected =
-          ComplexView2(label + "projected", temporal_columns, problem_.n_to);
+          SourceView2(label + "projected", temporal_columns, problem_.n_to);
       stream.spectrum =
-          ComplexView2(label + "spectrum", temporal_columns, problem_.n_to);
+          SourceView2(label + "spectrum", temporal_columns, problem_.n_to);
       if (!problem_.projection_coarse_matrix.empty()) {
-        stream.coarse = ComplexView2(label + "coarse", temporal_columns, problem_.n_to);
+        stream.coarse = SourceView2(label + "coarse", temporal_columns, problem_.n_to);
         stream.coarse_spectrum =
-            ComplexView2(label + "coarse_spectrum", temporal_columns, problem_.n_to);
+            SourceView2(label + "coarse_spectrum", temporal_columns, problem_.n_to);
       }
       if (!projected_stacked_complex_.empty())
         stream.stacked =
-            ComplexView2(label + "stacked", 2 * temporal_columns, problem_.n_to);
+            SourceView2(label + "stacked", 2 * temporal_columns, problem_.n_to);
     }
   }
   if (problem_.plasma) {
     if (problem_.n_channels > 1 || problem_.envelope_plasma) {
-      channel_parameters_ =
-          RealView2("solprop_native.plasma.channel_parameters", problem_.n_channels, 9);
-      channel_coefficients_ = RealView("solprop_native.plasma.channel_coefficients",
-                                       problem_.channel_coefficients.size());
+      channel_parameters_ = TableRealView2("solprop_native.plasma.channel_parameters",
+                                           problem_.n_channels, 9);
+      channel_coefficients_ =
+          TableRealView("solprop_native.plasma.channel_coefficients",
+                        problem_.channel_coefficients.size());
       if (!problem_.envelope_plasma)
         channel_scratch_ =
             decltype(channel_scratch_)("solprop_native.plasma.channel_scratch",
                                        problem_.n_channels, problem_.node_chunk, 4);
     }
-    rate_coefficients_ = RealView("solprop_native.plasma.rate_coefficients",
-                                  problem_.rate_coefficients.size());
+    rate_coefficients_ = TableRealView("solprop_native.plasma.rate_coefficients",
+                                       problem_.rate_coefficients.size());
     plasma_statistics_scratch_ =
-        RealView2("solprop_native.plasma.statistics_scratch", problem_.n_nodes,
-                  1 + 2 * problem_.n_channels);
+        ReductionRealView2("solprop_native.plasma.statistics_scratch", problem_.n_nodes,
+                           1 + 2 * problem_.n_channels);
     if (!problem_.envelope_plasma) {
       // solprop SEP 18: the rule's taps and the run diagnostics' six parts per node.
       plasma_taps_ =
-          RealView("solprop_native.plasma.taps", problem_.plasma_taps.size());
-      plasma_diagnostics_ = RealView2("solprop_native.plasma.diagnostics",
-                                      problem_.n_nodes, plasma_diagnostic_parts);
+          TableRealView("solprop_native.plasma.taps", problem_.plasma_taps.size());
+      plasma_diagnostics_ =
+          ReductionRealView2("solprop_native.plasma.diagnostics", problem_.n_nodes,
+                             plasma_diagnostic_parts);
     }
     if (!problem_.envelope_plasma) {
       // The band rule's team column and its statistics (`team_band_plasma_column`).
@@ -3055,9 +3208,9 @@ void GeneralWorkspace::allocate() {
 #endif
       if (tiled) {
         // The widest tile whose two scratch rows the device's team scratch holds.
-        using Policy = Kokkos::TeamPolicy<ExecutionSpace>;
+        using Team = Kokkos::TeamPolicy<ExecutionSpace>;
         const auto scratch_limit =
-            static_cast<std::size_t>(Policy::scratch_size_max(0));
+            static_cast<std::size_t>(Team::scratch_size_max(0));
         std::size_t largest = band_tile_max;
         while (largest > band_tile_min &&
                band_tile_bytes<ExecutionSpace>(largest) > scratch_limit)
@@ -3068,8 +3221,8 @@ void GeneralWorkspace::allocate() {
         band_tile_count_ = band_tile_count(problem_.n_to, band_tile_);
         require_allocation(checked_product(chunk_rows, band_tile_count_, "band tiles"),
                            sizeof(double), "band-tile bytes");
-        band_tile_totals_ = RealView2("solprop_native.plasma.band_tile_totals",
-                                      chunk_rows, band_tile_count_);
+        band_tile_totals_ = SourceRealView2("solprop_native.plasma.band_tile_totals",
+                                            chunk_rows, band_tile_count_);
       }
       const auto band_rows = checked_sum(
           checked_sum(checked_product(3, band_slots_, "band rows"), guard_rows,
@@ -3078,38 +3231,40 @@ void GeneralWorkspace::allocate() {
       require_allocation(checked_product(band_rows, problem_.n_to, "band rows"),
                          sizeof(double), "band-row bytes");
       plasma_rate_ =
-          RealView2("solprop_native.plasma.rate", band_slots_, problem_.n_to);
+          SourceRealView2("solprop_native.plasma.rate", band_slots_, problem_.n_to);
       plasma_exposure_ =
-          RealView2("solprop_native.plasma.exposure", band_slots_, problem_.n_to);
+          SourceRealView2("solprop_native.plasma.exposure", band_slots_, problem_.n_to);
       plasma_fraction_ =
-          RealView2("solprop_native.plasma.fraction", band_slots_, problem_.n_to);
+          SourceRealView2("solprop_native.plasma.fraction", band_slots_, problem_.n_to);
       if (component_rows != 0) {
-        plasma_current_integrand_ = RealView2("solprop_native.plasma.current_integrand",
-                                              component_rows, problem_.n_to);
+        plasma_current_integrand_ = SourceRealView2(
+            "solprop_native.plasma.current_integrand", component_rows, problem_.n_to);
       }
       if (guard_rows != 0)
-        plasma_free_current_ =
-            RealView2("solprop_native.plasma.free_current", guard_rows, problem_.n_to);
+        plasma_free_current_ = SourceRealView2("solprop_native.plasma.free_current",
+                                               guard_rows, problem_.n_to);
       if (weight_rows != 0)
-        plasma_outer_current_ = RealView2("solprop_native.plasma.outer_current",
-                                          weight_rows, problem_.n_to);
+        plasma_outer_current_ = SourceRealView2("solprop_native.plasma.outer_current",
+                                                weight_rows, problem_.n_to);
     }
     if (problem_.stash_plasma) {
-      stash_candidate_ = RealView2("solprop_native.plasma.stash_candidate",
-                                   problem_.n_nodes, 1 + 2 * problem_.n_channels);
-      stash_current_ = RealView2("solprop_native.plasma.stash_current",
-                                 problem_.n_nodes, 1 + 2 * problem_.n_channels);
+      stash_candidate_ =
+          ReductionRealView2("solprop_native.plasma.stash_candidate", problem_.n_nodes,
+                             1 + 2 * problem_.n_channels);
+      stash_current_ =
+          ReductionRealView2("solprop_native.plasma.stash_current", problem_.n_nodes,
+                             1 + 2 * problem_.n_channels);
     }
   }
   if (problem_.split_step_absorber) {
     coarse_spectrum_ =
-        ComplexView2("solprop_native.absorber.coarse_spectrum", temporal_columns, n);
+        StateView2("solprop_native.absorber.coarse_spectrum", temporal_columns, n);
     if (problem_.family == FieldFamily::envelope)
-      coarse_time_complex_ = ComplexView2("solprop_native.absorber.coarse_time_complex",
-                                          temporal_columns, problem_.n_t);
+      coarse_time_complex_ = StateView2("solprop_native.absorber.coarse_time_complex",
+                                        temporal_columns, problem_.n_t);
     else
-      coarse_time_real_ = RealView2("solprop_native.absorber.coarse_time_real",
-                                    temporal_columns, problem_.n_t);
+      coarse_time_real_ = StateRealView2("solprop_native.absorber.coarse_time_real",
+                                         temporal_columns, problem_.n_t);
   }
   if (problem_.general_modal) {
     general_ = std::make_unique<GeneralModalSource>(problem_);
@@ -3162,7 +3317,7 @@ void GeneralWorkspace::allocate() {
   }
 }
 
-void GeneralWorkspace::upload() {
+template <class Policy> void GeneralWorkspace<Policy>::upload() {
   if (problem_.n_raman_components > 1) {
     copy_vector(execution_space_, raman_row_component_, problem_.raman_row_component);
     copy_vector(execution_space_, raman_component_fraction_,
@@ -3257,7 +3412,9 @@ void GeneralWorkspace::upload() {
 // thresholds in core.hpp. Explicit FFT-pool requests bypass automatic sizing.
 // FFTW's factorisation can change with the width; comparisons use solprop's SEP 25
 // transform/propagation rounding budgets rather than bitwise agreement.
-const ExecutionSpace& GeneralWorkspace::fft_space_for(const std::size_t samples) {
+template <class Policy>
+const ExecutionSpace&
+GeneralWorkspace<Policy>::fft_space_for(const std::size_t samples) {
   return fft_pool_.get(CpuOperation::fft, samples);
 }
 
@@ -3265,7 +3422,7 @@ const ExecutionSpace& GeneralWorkspace::fft_space_for(const std::size_t samples)
 // Measured plans for free space's batched transforms (SEP 28): the transverse pair in
 // place on the scratch and, on the complex envelope, the chunk's temporal pair. The
 // scratch buffers are cleared after planning overwrote them.
-void GeneralWorkspace::seed_free_wisdom() {
+template <class Policy> void GeneralWorkspace<Policy>::seed_free_wisdom() {
   const auto planes = static_cast<int>(transverse_.extent(0));
   const auto n_y = static_cast<int>(transverse_.extent(1));
   const auto n_x = static_cast<int>(transverse_.extent(2));
@@ -3298,7 +3455,7 @@ void GeneralWorkspace::seed_free_wisdom() {
 }
 #endif
 
-void GeneralWorkspace::plan() {
+template <class Policy> void GeneralWorkspace<Policy>::plan() {
   fft_execution_space_ =
       fft_space_for(std::max(modal_complex_.size(), modal_real_.size()));
   if (problem_.raman) {
@@ -3330,19 +3487,19 @@ void GeneralWorkspace::plan() {
     // run on one FFTW thread, as every other small plan (`fft_space_for`).
     constexpr int y_axis = -1;
     const auto& space = fft_space_for(transverse_.size());
-    slab_forward_ = std::make_unique<SlabPlan>(space, transverse_, transverse_,
-                                               KokkosFFT::Direction::forward, y_axis);
-    slab_inverse_ = std::make_unique<SlabPlan>(space, transverse_, transverse_,
-                                               KokkosFFT::Direction::backward, y_axis);
+    slab_forward_ = std::make_unique<SourceSlabPlan>(
+        space, transverse_, transverse_, KokkosFFT::Direction::forward, y_axis);
+    slab_inverse_ = std::make_unique<SourceSlabPlan>(
+        space, transverse_, transverse_, KokkosFFT::Direction::backward, y_axis);
   } else if (problem_.free_geometry()) {
     const KokkosFFT::axis_type<2> axes{-2, -1};
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
     seed_free_wisdom();
 #endif
-    transverse_forward_ = std::make_unique<TransversePlan>(
+    transverse_forward_ = std::make_unique<SourceTransversePlan>(
         fft_space_for(transverse_.size()), transverse_, transverse_,
         KokkosFFT::Direction::forward, axes);
-    transverse_inverse_ = std::make_unique<TransversePlan>(
+    transverse_inverse_ = std::make_unique<SourceTransversePlan>(
         fft_space_for(transverse_.size()), transverse_, transverse_,
         KokkosFFT::Direction::backward, axes);
   }
@@ -3351,56 +3508,56 @@ void GeneralWorkspace::plan() {
     for (auto& stream : held_streams_) {
       if (stream.projected.empty())
         continue;
-      stream.forward = std::make_unique<ForwardRealPlan>(
+      stream.forward = std::make_unique<typename FieldCurrentStream::Plan>(
           fft_space_for(stream.projected.size()), stream.projected, stream.spectrum,
           KokkosFFT::Direction::forward, axis);
       if (!stream.coarse.empty())
-        stream.coarse_forward = std::make_unique<ForwardRealPlan>(
+        stream.coarse_forward = std::make_unique<typename FieldCurrentStream::Plan>(
             fft_space_for(stream.coarse.size()), stream.coarse, stream.coarse_spectrum,
             KokkosFFT::Direction::forward, axis);
     }
   if (problem_.envelope_plasma)
     for (auto& stream : envelope_streams_) {
-      stream.forward = std::make_unique<ComplexPlan>(
+      stream.forward = std::make_unique<typename EnvelopeStream::Plan>(
           fft_space_for(stream.projected.size()), stream.projected, stream.spectrum,
           KokkosFFT::Direction::forward, axis);
       if (!stream.coarse.empty())
-        stream.coarse_forward = std::make_unique<ComplexPlan>(
+        stream.coarse_forward = std::make_unique<typename EnvelopeStream::Plan>(
             fft_space_for(stream.coarse.size()), stream.coarse, stream.coarse_spectrum,
             KokkosFFT::Direction::forward, axis);
     }
-  statistics_inverse_plan_ = std::make_unique<ComplexPlan>(
+  statistics_inverse_plan_ = std::make_unique<ReductionComplexPlan>(
       fft_space_for(statistics_time_.size()), statistics_spectrum_, statistics_time_,
       KokkosFFT::Direction::backward, axis);
   if (problem_.family == FieldFamily::field_real) {
-    inverse_real_plan_ = std::make_unique<InverseRealPlan>(
+    inverse_real_plan_ = std::make_unique<SourceInverseRealPlan>(
         fft_space_for(modal_real_.size()), fine_spectrum_, modal_real_,
         KokkosFFT::Direction::backward, axis);
   } else {
-    inverse_complex_plan_ = std::make_unique<ComplexPlan>(
+    inverse_complex_plan_ = std::make_unique<SourceComplexPlan>(
         fft_space_for(modal_complex_.size()), fine_spectrum_, modal_complex_,
         KokkosFFT::Direction::backward, axis);
   }
   if (problem_.family == FieldFamily::envelope) {
-    forward_complex_plan_ = std::make_unique<ComplexPlan>(
+    forward_complex_plan_ = std::make_unique<SourceComplexPlan>(
         fft_space_for(projected_complex_.size()), projected_complex_,
         projected_spectrum_, KokkosFFT::Direction::forward, axis);
-    absorber_complex_plan_ = std::make_unique<ComplexPlan>(
+    absorber_complex_plan_ = std::make_unique<SourceComplexPlan>(
         fft_space_for(absorber_complex_.size()), absorber_complex_, absorber_spectrum_,
         KokkosFFT::Direction::forward, axis);
     if (!problem_.projection_coarse_matrix.empty())
-      forward_coarse_complex_plan_ = std::make_unique<ComplexPlan>(
+      forward_coarse_complex_plan_ = std::make_unique<SourceComplexPlan>(
           fft_space_for(projected_coarse_complex_.size()), projected_coarse_complex_,
           projected_coarse_spectrum_, KokkosFFT::Direction::forward, axis);
   } else {
-    forward_real_plan_ = std::make_unique<ForwardRealPlan>(
+    forward_real_plan_ = std::make_unique<SourceForwardRealPlan>(
         fft_space_for(projected_real_.size()), projected_real_, projected_spectrum_,
         KokkosFFT::Direction::forward, axis);
-    absorber_real_plan_ = std::make_unique<ForwardRealPlan>(
+    absorber_real_plan_ = std::make_unique<SourceForwardRealPlan>(
         fft_space_for(absorber_real_.size()), absorber_real_, absorber_spectrum_,
         KokkosFFT::Direction::forward, axis);
     if (!problem_.projection_coarse_matrix.empty())
-      forward_coarse_real_plan_ = std::make_unique<ForwardRealPlan>(
+      forward_coarse_real_plan_ = std::make_unique<SourceForwardRealPlan>(
           fft_space_for(projected_coarse_real_.size()), projected_coarse_real_,
           projected_coarse_spectrum_, KokkosFFT::Direction::forward, axis);
   }
@@ -3435,10 +3592,10 @@ void GeneralWorkspace::plan() {
   }
   if (problem_.raman) {
     const auto started = std::chrono::steady_clock::now();
-    raman_drive_forward_plan_ = std::make_unique<RamanForwardPlan>(
+    raman_drive_forward_plan_ = std::make_unique<SourceRamanForwardPlan>(
         raman_execution_space_, node_raman_drive_, node_raman_spectrum_,
         KokkosFFT::Direction::forward, axis);
-    raman_convolution_inverse_plan_ = std::make_unique<RamanInversePlan>(
+    raman_convolution_inverse_plan_ = std::make_unique<SourceRamanInversePlan>(
         raman_execution_space_, node_raman_spectrum_, node_raman_convolved_,
         KokkosFFT::Direction::backward, axis);
     const auto tail = problem_.n_nodes % problem_.node_chunk;
@@ -3450,14 +3607,14 @@ void GeneralWorkspace::plan() {
       raman_tail_spectrum_ = Kokkos::subview(node_raman_spectrum_, rows, Kokkos::ALL());
       raman_tail_convolved_ =
           Kokkos::subview(node_raman_convolved_, rows, Kokkos::ALL());
-      raman_tail_forward_plan_ = std::make_unique<RamanForwardPlan>(
+      raman_tail_forward_plan_ = std::make_unique<SourceRamanForwardPlan>(
           raman_tail_execution_space_, raman_tail_drive_, raman_tail_spectrum_,
           KokkosFFT::Direction::forward, axis);
-      raman_tail_inverse_plan_ = std::make_unique<RamanInversePlan>(
+      raman_tail_inverse_plan_ = std::make_unique<SourceRamanInversePlan>(
           raman_tail_execution_space_, raman_tail_spectrum_, raman_tail_convolved_,
           KokkosFFT::Direction::backward, axis);
     }
-    raman_kernel_forward_plan_ = std::make_unique<RamanForwardPlan>(
+    raman_kernel_forward_plan_ = std::make_unique<TableRamanForwardPlan>(
         raman_kernel_execution_space_, raman_kernel_time_, raman_kernel_spectrum_,
         KokkosFFT::Direction::forward, axis);
     raman_planning_seconds_ =
@@ -3467,17 +3624,17 @@ void GeneralWorkspace::plan() {
   if (!problem_.split_step_absorber)
     return;
   if (problem_.family == FieldFamily::envelope) {
-    coarse_inverse_complex_plan_ = std::make_unique<ComplexPlan>(
+    coarse_inverse_complex_plan_ = std::make_unique<StateComplexPlan>(
         fft_space_for(coarse_time_complex_.size()), coarse_spectrum_,
         coarse_time_complex_, KokkosFFT::Direction::backward, axis);
-    coarse_forward_complex_plan_ = std::make_unique<ComplexPlan>(
+    coarse_forward_complex_plan_ = std::make_unique<StateComplexPlan>(
         fft_space_for(coarse_time_complex_.size()), coarse_time_complex_,
         coarse_spectrum_, KokkosFFT::Direction::forward, axis);
   } else {
-    coarse_inverse_real_plan_ = std::make_unique<InverseRealPlan>(
+    coarse_inverse_real_plan_ = std::make_unique<StateInverseRealPlan>(
         fft_space_for(coarse_time_real_.size()), coarse_spectrum_, coarse_time_real_,
         KokkosFFT::Direction::backward, axis);
-    coarse_forward_real_plan_ = std::make_unique<ForwardRealPlan>(
+    coarse_forward_real_plan_ = std::make_unique<StateForwardRealPlan>(
         fft_space_for(coarse_time_real_.size()), coarse_time_real_, coarse_spectrum_,
         KokkosFFT::Direction::forward, axis);
   }
@@ -3502,8 +3659,9 @@ void GeneralWorkspace::plan() {
   }
 }
 
-void GeneralWorkspace::set_initial(const std::vector<Complex>& field,
-                                   const std::vector<Complex>& noise) {
+template <class Policy>
+void GeneralWorkspace<Policy>::set_initial(const std::vector<Complex>& field,
+                                           const std::vector<Complex>& noise) {
   require_open();
   require_extent(field.size(), problem_.n_columns() * problem_.n_omega,
                  "initial field");
@@ -3537,7 +3695,9 @@ void GeneralWorkspace::set_initial(const std::vector<Complex>& field,
   clear_fsal();
 }
 
-void GeneralWorkspace::require_trial_scalars(const TrialScalars& scalars) const {
+template <class Policy>
+void GeneralWorkspace<Policy>::require_trial_scalars(
+    const TrialScalars& scalars) const {
   const auto checked_values = [](const std::vector<double>& values, const char* name,
                                  bool nonnegative, bool fraction) {
     for (double value : values)
@@ -3594,7 +3754,8 @@ void GeneralWorkspace::require_trial_scalars(const TrialScalars& scalars) const 
   }
 }
 
-void GeneralWorkspace::upload_trial(const TrialScalars& scalars) {
+template <class Policy>
+void GeneralWorkspace<Policy>::upload_trial(const TrialScalars& scalars) {
   // Fill the next staging buffer at each view's place in the packed buffer, then copy
   // it across once (a host build's mirror is the buffer itself).
   auto staging = stage_staging_[stage_staging_next_];
@@ -3659,8 +3820,9 @@ void GeneralWorkspace::upload_trial(const TrialScalars& scalars) {
   }
 }
 
-void GeneralWorkspace::prepare_raman(const std::vector<double>& rates,
-                                     const std::vector<double>& densities) {
+template <class Policy>
+void GeneralWorkspace<Policy>::prepare_raman(const std::vector<double>& rates,
+                                             const std::vector<double>& densities) {
   require_open();
   if (!problem_.raman)
     throw std::logic_error("this state has no Raman workspace");
@@ -3689,8 +3851,10 @@ void GeneralWorkspace::prepare_raman(const std::vector<double>& rates,
   execution_space_.fence("solprop_native Raman diagnostic boundary");
 }
 
-void GeneralWorkspace::prepare_raman_stage(const std::size_t stage, const double* rates,
-                                           const double* densities) {
+template <class Policy>
+void GeneralWorkspace<Policy>::prepare_raman_stage(const std::size_t stage,
+                                                   const double* rates,
+                                                   const double* densities) {
   bool unchanged = raman_kernel_ready_;
   for (std::size_t term = 0; term < problem_.n_raman_terms; ++term)
     unchanged = unchanged && cached_raman_rates_[term] == rates[term];
@@ -3769,7 +3933,9 @@ void GeneralWorkspace::prepare_raman_stage(const std::size_t stage, const double
   ++raman_kernel_transforms_;
 }
 
-void GeneralWorkspace::prepare_trial(const double dz, const TrialScalars& scalars) {
+template <class Policy>
+void GeneralWorkspace<Policy>::prepare_trial(const double dz,
+                                             const TrialScalars& scalars) {
   require_open();
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");
@@ -3820,8 +3986,9 @@ void GeneralWorkspace::prepare_trial(const double dz, const TrialScalars& scalar
   batch_prepared_ = true;
 }
 
-std::vector<double> GeneralWorkspace::trial_step(const double dz,
-                                                 const TrialScalars& scalars) {
+template <class Policy>
+std::vector<double> GeneralWorkspace<Policy>::trial_step(const double dz,
+                                                         const TrialScalars& scalars) {
   prepare_trial(dz, scalars);
   if (flow_)
     flow_->carry_step(current_, solution_, error_);
@@ -3863,8 +4030,10 @@ std::vector<double> GeneralWorkspace::trial_step(const double dz,
 // and its in-stage absorber are the march's too. The accepted state is held in
 // `advanced_`, which only the Runge-Kutta accept writes, while the input takes its
 // place.
-std::vector<Complex> GeneralWorkspace::adams_source(const std::vector<Complex>& input,
-                                                    const TrialScalars& scalars) {
+template <class Policy>
+std::vector<Complex>
+GeneralWorkspace<Policy>::adams_source(const std::vector<Complex>& input,
+                                       const TrialScalars& scalars) {
   require_open();
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");
@@ -3903,7 +4072,9 @@ std::vector<Complex> GeneralWorkspace::adams_source(const std::vector<Complex>& 
 
 // Adopt an Adams step's end state, given on the host before its boundary treatments:
 // the shared finish masks it, or applies the split-step absorber, and makes it current.
-void GeneralWorkspace::adopt(const std::vector<Complex>& field, const double dz) {
+template <class Policy>
+void GeneralWorkspace<Policy>::adopt(const std::vector<Complex>& field,
+                                     const double dz) {
   require_open();
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");
@@ -4077,8 +4248,10 @@ void register_traversal(const char* label, const ExecutionSpace& execution,
 
 } // namespace
 
-double GeneralWorkspace::low_storage_step(const double dz, const TrialScalars& scalars,
-                                          const bool rebuild_table) {
+template <class Policy>
+double GeneralWorkspace<Policy>::low_storage_step(const double dz,
+                                                  const TrialScalars& scalars,
+                                                  const bool rebuild_table) {
   require_open();
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");
@@ -4128,7 +4301,8 @@ double GeneralWorkspace::low_storage_step(const double dz, const TrialScalars& s
 // table's interval (scalar row 2 of `phi_delta`) when the caller's key changed, or a
 // varying operator's `P` and `Q` from rows 0 and 1, every step. Recomputed flows are
 // formed in the finishes that apply them and hold nothing.
-void GeneralWorkspace::low_storage_flows_formed(const bool rebuild_table) {
+template <class Policy>
+void GeneralWorkspace<Policy>::low_storage_flows_formed(const bool rebuild_table) {
   const auto flows = low_storage_flows_;
   const auto count = problem_.low_storage_flows;
   if (count == 0 || (count == 1 && !rebuild_table))
@@ -4169,8 +4343,9 @@ void GeneralWorkspace::low_storage_flows_formed(const bool rebuild_table) {
 // an in-stage absorber the pass evaluates twice from the same input: the material
 // source, then the absorber's term, the exchange between them taking the material
 // output out of the scratch and re-forming the input (SEP 24 section 4.3).
-void GeneralWorkspace::low_storage_separable_pass(const std::size_t pass,
-                                                  const double dz) {
+template <class Policy>
+void GeneralWorkspace<Policy>::low_storage_separable_pass(const std::size_t pass,
+                                                          const double dz) {
   const bool material = problem_.nonlinear || problem_.plasma || problem_.raman ||
                         separable_dispersive_ != nullptr;
   const bool absorber = problem_.in_stage_absorber;
@@ -4218,7 +4393,8 @@ void column_norms(const char* label, const ExecutionSpace& execution,
       });
 }
 
-void GeneralWorkspace::low_storage_separable_input(const std::size_t pass) {
+template <class Policy>
+void GeneralWorkspace<Policy>::low_storage_separable_input(const std::size_t pass) {
   const auto source = pass == 0 ? current_ : register_stage_;
   const auto spatial = spatial_;
   const auto at = stage_phi_at_;
@@ -4246,9 +4422,11 @@ void GeneralWorkspace::low_storage_separable_input(const std::size_t pass) {
       });
 }
 
-void GeneralWorkspace::low_storage_separable_fold(const std::size_t pass,
-                                                  const int mode, const int term,
-                                                  const double dz) {
+template <class Policy>
+void GeneralWorkspace<Policy>::low_storage_separable_fold(const std::size_t pass,
+                                                          const int mode,
+                                                          const int term,
+                                                          const double dz) {
   const auto state = current_;
   const auto accumulator = register_accumulator_;
   const auto stage_register = register_stage_;
@@ -4367,7 +4545,9 @@ void GeneralWorkspace::low_storage_separable_fold(const std::size_t pass,
 // fine spectrum (and the general route's scaled channels); the shared core; and one
 // fold of the source -- prefactor, window and the in-stage absorber's term at the
 // pass's position, with no flow back to an anchor.
-void GeneralWorkspace::low_storage_modal_pass(const std::size_t pass, const double dz) {
+template <class Policy>
+void GeneralWorkspace<Policy>::low_storage_modal_pass(const std::size_t pass,
+                                                      const double dz) {
   const auto row = low_storage_rows[pass];
   const bool responds = general_
                             ? general_->responds() || problem_.in_stage_absorber
@@ -4429,7 +4609,8 @@ void GeneralWorkspace::low_storage_modal_pass(const std::size_t pass, const doub
       });
 }
 
-void GeneralWorkspace::low_storage_modal_input(const std::size_t pass) {
+template <class Policy>
+void GeneralWorkspace<Policy>::low_storage_modal_input(const std::size_t pass) {
   const auto source = pass == 0 ? current_ : register_stage_;
   const auto row = low_storage_rows[pass];
   const auto terms = stage_terms(row);
@@ -4461,18 +4642,19 @@ void GeneralWorkspace::low_storage_modal_input(const std::size_t pass) {
 // The accepted state at a field-free plane (SEP 22, Q15), held in the memory space: one
 // volume, allocated at the first such plane and kept, so that a step abandoned in
 // flight still leaves a resumable state without any host transfer at the plane.
-void GeneralWorkspace::hold_plane() {
+template <class Policy> void GeneralWorkspace<Policy>::hold_plane() {
   require_open();
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");
   if (!held_plane_.is_allocated())
-    held_plane_ = ComplexView2("solprop_native.low_storage.held_plane",
-                               problem_.n_columns(), problem_.n_omega);
+    held_plane_ = StateView2("solprop_native.low_storage.held_plane",
+                             problem_.n_columns(), problem_.n_omega);
   Kokkos::deep_copy(execution_space_, held_plane_, current_);
   held_ready_ = true;
 }
 
-std::vector<Complex> GeneralWorkspace::held_to_host() const {
+template <class Policy>
+std::vector<Complex> GeneralWorkspace<Policy>::held_to_host() const {
   require_open();
   if (!held_ready_)
     throw std::logic_error("no field-free plane is held");
@@ -4496,8 +4678,10 @@ std::vector<Complex> GeneralWorkspace::held_to_host() const {
 // and the norms cross. Each pass is the host engine's arithmetic (solprop's
 // backends/multistep.py, HostHistory and AdamsKernels), checked against it in parity.
 
-void GeneralWorkspace::adams_allocate(const std::size_t slots, const bool compensated,
-                                      const bool interpolate) {
+template <class Policy>
+void GeneralWorkspace<Policy>::adams_allocate(const std::size_t slots,
+                                              const bool compensated,
+                                              const bool interpolate) {
   require_open();
   if (slots == 0 || slots > adams_max_samples)
     throw std::invalid_argument("the Adams history needs 1 to 8 rows");
@@ -4506,31 +4690,30 @@ void GeneralWorkspace::adams_allocate(const std::size_t slots, const bool compen
   const auto columns = problem_.n_columns();
   const auto n = problem_.n_omega;
   if (compensated && adams_states_.extent(0) != slots) {
-    adams_states_ = ComplexView3("solprop_native.adams.states", slots, columns, n);
-    adams_rates_ = ComplexView3("solprop_native.adams.rates", slots, columns, n);
-    adams_carried_ = ComplexView3("solprop_native.adams.carried", slots, columns, n);
-    adams_lab_ = ComplexView2("solprop_native.adams.predicted", columns, n);
-    adams_endpoint_ = ComplexView2("solprop_native.adams.endpoint", columns, n);
-    adams_endpoint_rate_ =
-        ComplexView2("solprop_native.adams.endpoint_rate", columns, n);
-    adams_rate_weights_ = Kokkos::View<double*, Layout, MemorySpace>(
-        "solprop_native.adams.rate_weights", problem_.n_phi_terms);
+    adams_states_ = StateView3("solprop_native.adams.states", slots, columns, n);
+    adams_rates_ = StateView3("solprop_native.adams.rates", slots, columns, n);
+    adams_carried_ = StateView3("solprop_native.adams.carried", slots, columns, n);
+    adams_lab_ = StateView2("solprop_native.adams.predicted", columns, n);
+    adams_endpoint_ = StateView2("solprop_native.adams.endpoint", columns, n);
+    adams_endpoint_rate_ = StateView2("solprop_native.adams.endpoint_rate", columns, n);
+    adams_rate_weights_ =
+        ArgumentRealView("solprop_native.adams.rate_weights", problem_.n_phi_terms);
   }
   // Dense observations are opt-in. Keeping their slopes and saved fields on a run
   // that lands on its planes costs (slots + 4) whole fields without reading them.
   if (interpolate) {
     if (adams_slopes_.extent(0) != slots) {
       adams_slopes_ =
-          ComplexView3("solprop_native.adams.dense_slopes", slots, columns, n);
-      adams_held_ = ComplexView2("solprop_native.adams.held_state", columns, n);
-      adams_dense_start_ = ComplexView2("solprop_native.adams.dense_start", columns, n);
-      adams_dense_end_ = ComplexView2("solprop_native.adams.dense_end", columns, n);
+          StateView3("solprop_native.adams.dense_slopes", slots, columns, n);
+      adams_held_ = StateView2("solprop_native.adams.held_state", columns, n);
+      adams_dense_start_ = StateView2("solprop_native.adams.dense_start", columns, n);
+      adams_dense_end_ = StateView2("solprop_native.adams.dense_end", columns, n);
       adams_dense_exponent_ =
-          ComplexView2("solprop_native.adams.dense_exponent", columns, n);
+          ArgumentView2("solprop_native.adams.dense_exponent", columns, n);
     }
     if (compensated && adams_dense_terms_.extent(0) != slots)
       adams_dense_terms_ =
-          ComplexView3("solprop_native.adams.dense_terms", slots, columns, n);
+          StateView3("solprop_native.adams.dense_terms", slots, columns, n);
   } else {
     adams_slopes_ = {};
     adams_held_ = {};
@@ -4550,32 +4733,33 @@ void GeneralWorkspace::adams_allocate(const std::size_t slots, const bool compen
       throw std::logic_error("the resident Adams engine steps a coupled block of at "
                              "most 16 channels and one batch row");
     if (adams_block_.extent(0) != slots + 1)
-      adams_block_ = Kokkos::View<Complex****, Layout, MemorySpace>(
-          "solprop_native.adams.block", slots + 1, flow_->n_active(), problem_.n_modes,
-          problem_.n_modes);
+      adams_block_ =
+          Binary64::ComplexView4("solprop_native.adams.block", slots + 1,
+                                 flow_->n_active(), problem_.n_modes, problem_.n_modes);
     if (compensated && flow_->n_terms() != 0 && adams_applied_.extent(0) != slots) {
-      adams_applied_ = ComplexView3("solprop_native.adams.applied", slots, columns, n);
-      adams_end_applied_ = ComplexView2("solprop_native.adams.end_applied", columns, n);
-      adams_end_weights_ = Kokkos::View<double*, Layout, MemorySpace>(
-          "solprop_native.adams.end_weights", flow_->n_terms());
+      adams_applied_ =
+          Binary64::ComplexView3("solprop_native.adams.applied", slots, columns, n);
+      adams_end_applied_ =
+          Binary64::ComplexView2("solprop_native.adams.end_applied", columns, n);
+      adams_end_weights_ =
+          ArgumentRealView("solprop_native.adams.end_weights", flow_->n_terms());
     }
   }
   // The norm's scale per bin, written each trial; allocated here so that the history's
   // memory is held, and counted, from construction (solprop's adams_memory).
   if (adams_divisor_.extent(0) != n)
-    adams_divisor_ =
-        Kokkos::View<double*, Layout, MemorySpace>("solprop_native.adams.divisor", n);
+    adams_divisor_ = ReductionRealView("solprop_native.adams.divisor", n);
   if (adams_store_.extent(0) == slots)
     return;
-  adams_store_ = ComplexView3("solprop_native.adams.store", slots, columns, n);
-  adams_moments_ = ComplexView3("solprop_native.adams.moments", slots, columns, n);
-  adams_source_ = ComplexView2("solprop_native.adams.source", columns, n);
-  adams_propagator_ = ComplexView2("solprop_native.adams.propagator", columns, n);
-  adams_exponent_ = ComplexView2("solprop_native.adams.exponent", columns, n);
-  adams_saved_ = ComplexView2("solprop_native.adams.saved_state", columns, n);
+  adams_store_ = StateView3("solprop_native.adams.store", slots, columns, n);
+  adams_moments_ = StateView3("solprop_native.adams.moments", slots, columns, n);
+  adams_source_ = StateView2("solprop_native.adams.source", columns, n);
+  adams_propagator_ = PropagatorView2("solprop_native.adams.propagator", columns, n);
+  adams_exponent_ = ArgumentView2("solprop_native.adams.exponent", columns, n);
+  adams_saved_ = StateView2("solprop_native.adams.saved_state", columns, n);
 }
 
-void GeneralWorkspace::require_adams() const {
+template <class Policy> void GeneralWorkspace<Policy>::require_adams() const {
   require_open();
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");
@@ -4586,7 +4770,7 @@ void GeneralWorkspace::require_adams() const {
 // The whole step's exponent from the uploaded weights, and its exponential: on a
 // separable route the step's length times each element's operator, as the stage
 // kernel forms the whole propagator; otherwise `sum_t dPhi_t Phi_t` in term order.
-void GeneralWorkspace::adams_phase() {
+template <class Policy> void GeneralWorkspace<Policy>::adams_phase() {
   if (problem_.separable_geometry()) {
     const auto spatial = spatial_;
     const auto active = active_mask_;
@@ -4637,7 +4821,8 @@ void GeneralWorkspace::adams_phase() {
 
 // The stage-zero source at an anchor-frame field held in current_, as adams_source
 // evaluates it, into stages_(0); current_ is restored from adams_saved_ afterwards.
-void GeneralWorkspace::adams_evaluate(const TrialScalars& scalars) {
+template <class Policy>
+void GeneralWorkspace<Policy>::adams_evaluate(const TrialScalars& scalars) {
   if (general_)
     general_->set_weights(scalars.transform_weights);
   if (problem_.raman)
@@ -4651,8 +4836,9 @@ void GeneralWorkspace::adams_evaluate(const TrialScalars& scalars) {
   has_recycled_ = false;
 }
 
-void GeneralWorkspace::adams_start(const std::size_t slot,
-                                   const TrialScalars& scalars) {
+template <class Policy>
+void GeneralWorkspace<Policy>::adams_start(const std::size_t slot,
+                                           const TrialScalars& scalars) {
   require_adams();
   if (slot >= adams_store_.extent(0))
     throw std::out_of_range("Adams history row");
@@ -4682,27 +4868,30 @@ void GeneralWorkspace::adams_start(const std::size_t slot,
       });
 }
 
-void GeneralWorkspace::adams_scale(const double rtol, const double atol,
-                                   const std::vector<double>& weights) {
+template <class Policy>
+void GeneralWorkspace<Policy>::adams_scale(const double rtol, const double atol,
+                                           const std::vector<double>& weights) {
   require_open();
   if (!weights.empty())
     require_extent(weights.size(), problem_.n_omega, "Adams scale weights");
   adams_rtol_ = rtol;
   adams_atol_ = atol;
-  adams_scale_weights_ = RealView("solprop_native.adams.scale_weights", weights.size());
+  adams_scale_weights_ =
+      ReductionRealView("solprop_native.adams.scale_weights", weights.size());
   if (!weights.empty())
     copy_vector(execution_space_, adams_scale_weights_, weights);
-  adams_magnitude_sum_ =
-      Kokkos::View<double, Layout, MemorySpace>("solprop_native.adams.magnitude_sum");
+  adams_magnitude_sum_ = ReductionScalarView("solprop_native.adams.magnitude_sum");
   adams_device_scale_ = true;
 }
 
 // A trial's divisor: the host's when one is given, else formed on the device from the
 // accepted state, as solprop's PIController.scale forms it from the same magnitude.
-void GeneralWorkspace::adams_upload_divisor(const std::vector<double>& divisor) {
+template <class Policy>
+void GeneralWorkspace<Policy>::adams_upload_divisor(
+    const std::vector<double>& divisor) {
   if (adams_divisor_.extent(0) != problem_.n_omega)
-    adams_divisor_ = Kokkos::View<double*, Layout, MemorySpace>(
-        "solprop_native.adams.divisor", problem_.n_omega);
+    adams_divisor_ =
+        ReductionRealView("solprop_native.adams.divisor", problem_.n_omega);
   if (!divisor.empty() || !adams_device_scale_) {
     require_extent(divisor.size(), problem_.n_omega, "Adams norm divisor");
     copy_vector(execution_space_, adams_divisor_, divisor);
@@ -4738,7 +4927,7 @@ void GeneralWorkspace::adams_upload_divisor(const std::vector<double>& divisor) 
       });
 }
 
-double GeneralWorkspace::adams_magnitude() {
+template <class Policy> double GeneralWorkspace<Policy>::adams_magnitude() {
   require_adams();
   const auto current = current_;
   const auto in_norm = norm_mask_;
@@ -4807,10 +4996,10 @@ struct AdamsDefectNorms {
 
 } // namespace
 
-std::vector<double>
-GeneralWorkspace::adams_fused_trial(const double dz, const AdamsWeights& weights,
-                                    const std::vector<double>& divisor,
-                                    const TrialScalars& scalars) {
+template <class Policy>
+std::vector<double> GeneralWorkspace<Policy>::adams_fused_trial(
+    const double dz, const AdamsWeights& weights, const std::vector<double>& divisor,
+    const TrialScalars& scalars) {
   require_adams();
   if (flow_)
     throw std::logic_error("the Adams source is evaluated without a coupled flow");
@@ -4875,9 +5064,11 @@ GeneralWorkspace::adams_fused_trial(const double dz, const AdamsWeights& weights
   return norms;
 }
 
-void GeneralWorkspace::adams_fused_accept(const double dz, const AdamsWeights& keep,
-                                          const std::size_t free,
-                                          const AdamsWeights& dense) {
+template <class Policy>
+void GeneralWorkspace<Policy>::adams_fused_accept(const double dz,
+                                                  const AdamsWeights& keep,
+                                                  const std::size_t free,
+                                                  const AdamsWeights& dense) {
   require_adams();
   if (!adams_trial_ready_)
     throw std::logic_error("no Adams trial is held");
@@ -4930,14 +5121,14 @@ void GeneralWorkspace::adams_fused_accept(const double dz, const AdamsWeights& k
   execution_space_.fence("solprop_native Adams accepted-step boundary");
 }
 
-void GeneralWorkspace::adams_hold() {
+template <class Policy> void GeneralWorkspace<Policy>::adams_hold() {
   require_adams();
   if (adams_held_.empty())
     throw std::logic_error("Adams dense observation storage is not allocated");
   Kokkos::deep_copy(execution_space_, adams_held_, current_);
 }
 
-void GeneralWorkspace::adams_restore() {
+template <class Policy> void GeneralWorkspace<Policy>::adams_restore() {
   require_adams();
   if (adams_held_.empty())
     throw std::logic_error("Adams dense observation storage is not allocated");
@@ -4955,7 +5146,8 @@ void GeneralWorkspace::adams_restore() {
 // solprop's march. The copies are lossless: the view's own LayoutRight order, element
 // by element, with no arithmetic.
 
-ComplexView3 GeneralWorkspace::adams_row_view(const std::string& name) const {
+template <class Policy>
+ComplexView3 GeneralWorkspace<Policy>::adams_row_view(const std::string& name) const {
   require_adams();
   ComplexView3 view;
   if (name == "store")
@@ -4973,7 +5165,8 @@ ComplexView3 GeneralWorkspace::adams_row_view(const std::string& name) const {
   return view;
 }
 
-std::vector<std::string> GeneralWorkspace::adams_row_names() const {
+template <class Policy>
+std::vector<std::string> GeneralWorkspace<Policy>::adams_row_names() const {
   require_adams();
   std::vector<std::string> names{"store"};
   if (adams_states_.extent(0) != 0)
@@ -4983,14 +5176,16 @@ std::vector<std::string> GeneralWorkspace::adams_row_names() const {
   return names;
 }
 
+template <class Policy>
 std::array<std::size_t, 3>
-GeneralWorkspace::adams_row_extents(const std::string& name) const {
+GeneralWorkspace<Policy>::adams_row_extents(const std::string& name) const {
   const auto view = adams_row_view(name);
   return {view.extent(0), view.extent(1), view.extent(2)};
 }
 
+template <class Policy>
 std::vector<Complex>
-GeneralWorkspace::adams_rows_to_host(const std::string& name) const {
+GeneralWorkspace<Policy>::adams_rows_to_host(const std::string& name) const {
   std::vector<std::complex<double>> values(adams_row_view(name).size());
   adams_rows_to_host(name, values.data(), values.size());
   return {values.begin(), values.end()};
@@ -4998,9 +5193,10 @@ GeneralWorkspace::adams_rows_to_host(const std::string& name) const {
 
 // One copy, straight into the caller's buffer (a NumPy array's storage at the seam):
 // no intermediate host vector, so a kept save costs what the host engine's copy does.
-void GeneralWorkspace::adams_rows_to_host(const std::string& name,
-                                          std::complex<double>* destination,
-                                          const std::size_t size) const {
+template <class Policy>
+void GeneralWorkspace<Policy>::adams_rows_to_host(const std::string& name,
+                                                  std::complex<double>* destination,
+                                                  const std::size_t size) const {
   const auto view = adams_row_view(name);
   if (size != view.size())
     throw std::invalid_argument("the Adams history row '" + name +
@@ -5012,8 +5208,9 @@ void GeneralWorkspace::adams_rows_to_host(const std::string& name,
     destination[index] = {source[index].real(), source[index].imag()};
 }
 
-void GeneralWorkspace::adams_rows_from_host(const std::string& name,
-                                            const std::vector<Complex>& values) {
+template <class Policy>
+void GeneralWorkspace<Policy>::adams_rows_from_host(
+    const std::string& name, const std::vector<Complex>& values) {
   const auto view = adams_row_view(name);
   if (values.size() != view.size())
     throw std::invalid_argument("the Adams history row '" + name +
@@ -5027,12 +5224,14 @@ void GeneralWorkspace::adams_rows_from_host(const std::string& name,
 
 // solprop SEP 29 G1: the general z tables. A table is uploaded once, after the state
 // is constructed and before its first trial, which is the construction's allocation.
-void GeneralWorkspace::table_upload(const TableKind kind, std::vector<double> edges,
-                                    const double lower, const double upper,
-                                    const std::complex<double>* coefficients,
-                                    const std::size_t n_intervals,
-                                    const std::size_t n_terms,
-                                    const std::size_t n_values) {
+template <class Policy>
+void GeneralWorkspace<Policy>::table_upload(const TableKind kind,
+                                            std::vector<double> edges,
+                                            const double lower, const double upper,
+                                            const std::complex<double>* coefficients,
+                                            const std::size_t n_intervals,
+                                            const std::size_t n_terms,
+                                            const std::size_t n_values) {
   require_open();
   const bool prefactor = kind == TableKind::prefactor;
   const bool flux = kind == TableKind::flux;
@@ -5085,8 +5284,9 @@ void GeneralWorkspace::table_upload(const TableKind kind, std::vector<double> ed
 
 // The tables' values at a trial's positions into their term slots: Phi's and the
 // prefactor's, each a pass over its coefficients for every position at once.
-void GeneralWorkspace::table_evaluate(const std::vector<std::size_t>& slots,
-                                      const std::vector<double>& positions) {
+template <class Policy>
+void GeneralWorkspace<Policy>::table_evaluate(const std::vector<std::size_t>& slots,
+                                              const std::vector<double>& positions) {
   require_open();
   if (!phi_table_.present() && !prefactor_table_.present())
     throw std::logic_error("no z table has been uploaded");
@@ -5109,7 +5309,7 @@ void GeneralWorkspace::table_evaluate(const std::vector<std::size_t>& slots,
 
 // solprop SEP 34: the plane measure's material square at `z`, a radial varying
 // medium's, into the flux coefficients the statistics read; nothing for any other.
-void GeneralWorkspace::flux_at(const double z) {
+template <class Policy> void GeneralWorkspace<Policy>::flux_at(const double z) {
   if (!flux_table_.present())
     return;
   z_table::evaluate("solprop_native.flux.material_values", execution_space_,
@@ -5119,8 +5319,9 @@ void GeneralWorkspace::flux_at(const double z) {
 
 // D(z) = dPhi/dz from the rate table into one Phi term slot, read on the side of an
 // interior breakpoint `before` asks for (solprop's `phi_rate`).
-void GeneralWorkspace::table_rate(const std::size_t slot, const double z,
-                                  const bool before) {
+template <class Policy>
+void GeneralWorkspace<Policy>::table_rate(const std::size_t slot, const double z,
+                                          const bool before) {
   require_open();
   if (!rate_table_.present())
     throw std::logic_error("no rate table has been uploaded");
@@ -5132,9 +5333,10 @@ void GeneralWorkspace::table_rate(const std::size_t slot, const double z,
                     phi_terms_.data());
 }
 
+template <class Policy>
 std::vector<Complex>
-GeneralWorkspace::table_terms_to_host(const TableKind kind,
-                                      const std::size_t slot) const {
+GeneralWorkspace<Policy>::table_terms_to_host(const TableKind kind,
+                                              const std::size_t slot) const {
   require_open();
   const auto& terms = kind == TableKind::prefactor ? prefactor_terms_ : phi_terms_;
   if (slot >= terms.extent(0))
@@ -5152,8 +5354,9 @@ GeneralWorkspace::table_terms_to_host(const TableKind kind,
 
 // The stage kernels' own phase sum (`StageTerms::phase_sum`) over the Phi terms for one
 // row of weights, into a fresh host array: a diagnostic, outside any trial.
+template <class Policy>
 std::vector<Complex>
-GeneralWorkspace::phase_sum_to_host(const std::vector<double>& weights) {
+GeneralWorkspace<Policy>::phase_sum_to_host(const std::vector<double>& weights) {
   require_open();
   if (problem_.separable_geometry())
     throw std::logic_error("a separable operator has no Phi terms");
@@ -5181,8 +5384,10 @@ GeneralWorkspace::phase_sum_to_host(const std::vector<double>& weights) {
 // coefficients in `weights.corrector`) -- with a bin the step's flow changes by more
 // than an e-fold taking the anchor's value, carried to the observation by the uploaded
 // trial's flow and masked into current_.
-void GeneralWorkspace::adams_observe(const AdamsWeights& weights, const bool hermite,
-                                     const TrialScalars& scalars) {
+template <class Policy>
+void GeneralWorkspace<Policy>::adams_observe(const AdamsWeights& weights,
+                                             const bool hermite,
+                                             const TrialScalars& scalars) {
   require_adams();
   if (adams_dense_count_ == 0)
     throw std::logic_error("no Adams step is held for dense observation");
@@ -5525,12 +5730,13 @@ struct CoupledDefectNorms {
 
 // D(z) = sum_t w_t Phi_t from the operator's fixed terms (solprop's
 // translate.linop.rate_weights), into `out`.
-void GeneralWorkspace::adams_rate(const std::vector<double>& rate,
-                                  const ComplexView2& out) {
+template <class Policy>
+void GeneralWorkspace<Policy>::adams_rate(const std::vector<double>& rate,
+                                          const ComplexView2& out) {
   require_extent(rate.size(), problem_.n_phi_terms, "Adams rate weights");
   if (adams_rate_weights_.extent(0) != rate.size())
-    adams_rate_weights_ = Kokkos::View<double*, Layout, MemorySpace>(
-        "solprop_native.adams.rate_weights", rate.size());
+    adams_rate_weights_ =
+        ArgumentRealView("solprop_native.adams.rate_weights", rate.size());
   copy_vector(execution_space_, adams_rate_weights_, rate);
   const auto weights = adams_rate_weights_;
   const auto phi_terms = phi_terms_;
@@ -5547,8 +5753,9 @@ void GeneralWorkspace::adams_rate(const std::vector<double>& rate,
 }
 
 // The startup sample's state and rate, beside the source adams_start stored.
-void GeneralWorkspace::adams_compensation_start(const std::size_t slot,
-                                                const std::vector<double>& rate) {
+template <class Policy>
+void GeneralWorkspace<Policy>::adams_compensation_start(
+    const std::size_t slot, const std::vector<double>& rate) {
   require_adams();
   if (adams_states_.extent(0) == 0)
     throw std::logic_error("the Adams history carries no compensation");
@@ -5640,7 +5847,8 @@ adams_observed_compensation(const ExponentialWeights& weights, const std::size_t
   return total;
 }
 
-std::vector<double> GeneralWorkspace::adams_exponential_trial(
+template <class Policy>
+std::vector<double> GeneralWorkspace<Policy>::adams_exponential_trial(
     const double dz, const ExponentialWeights& weights,
     const std::vector<double>& divisor, const TrialScalars& step,
     const TrialScalars& sample, const std::vector<double>& rate) {
@@ -6030,8 +6238,8 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
     // The corrector forms the endpoint's rate and compensation; only the weights cross.
     require_extent(rate.size(), problem_.n_phi_terms, "Adams rate weights");
     if (adams_rate_weights_.extent(0) != rate.size())
-      adams_rate_weights_ = Kokkos::View<double*, Layout, MemorySpace>(
-          "solprop_native.adams.rate_weights", rate.size());
+      adams_rate_weights_ =
+          ArgumentRealView("solprop_native.adams.rate_weights", rate.size());
     copy_vector(execution_space_, adams_rate_weights_, rate);
   }
   if (compensated && coupled) {
@@ -6247,8 +6455,10 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
   return norms;
 }
 
-void GeneralWorkspace::adams_exponential_accept(const double dz, const std::size_t free,
-                                                const AdamsWeights& dense) {
+template <class Policy>
+void GeneralWorkspace<Policy>::adams_exponential_accept(const double dz,
+                                                        const std::size_t free,
+                                                        const AdamsWeights& dense) {
   require_adams();
   if (!adams_trial_ready_)
     throw std::logic_error("no Adams trial is held");
@@ -6331,8 +6541,9 @@ void GeneralWorkspace::adams_exponential_accept(const double dz, const std::size
 // The field at the fraction `xi` of the last accepted step: the accepted corrector's
 // interpolant integrated exactly against the flow, exp(xi x) u_n + dz sum_k
 // xi^(k+1) M_k(xi x) sum_j c_jk F_j (`weights.corrector`), masked into current_.
-void GeneralWorkspace::adams_exponential_observe(const double xi, const double dz,
-                                                 const ExponentialWeights& weights) {
+template <class Policy>
+void GeneralWorkspace<Policy>::adams_exponential_observe(
+    const double xi, const double dz, const ExponentialWeights& weights) {
   require_adams();
   if (adams_dense_count_ == 0)
     throw std::logic_error("no Adams step is held for dense observation");
@@ -6379,7 +6590,7 @@ void GeneralWorkspace::adams_exponential_observe(const double xi, const double d
   execution_space_.fence("solprop_native Adams observation boundary");
 }
 
-std::vector<double> GeneralWorkspace::collect_trial() {
+template <class Policy> std::vector<double> GeneralWorkspace<Policy>::collect_trial() {
   batch_prepared_ = false;
   // A coupled flow's last stage is carried back by the step's own inverse action, so
   // it is not the next step's first stage; solprop's reference takes no FSAL there.
@@ -6394,7 +6605,7 @@ std::vector<double> GeneralWorkspace::collect_trial() {
   return result;
 }
 
-void GeneralWorkspace::reuse_fsal() {
+template <class Policy> void GeneralWorkspace<Policy>::reuse_fsal() {
   const auto stages = stages_;
   const auto recycled = recycled_;
   const auto solution = solution_;
@@ -6414,8 +6625,9 @@ void GeneralWorkspace::reuse_fsal() {
       });
 }
 
-TransverseChunk
-GeneralWorkspace::transverse_chunk(const std::size_t first_unit) const noexcept {
+template <class Policy>
+TransverseChunk GeneralWorkspace<Policy>::transverse_chunk(
+    const std::size_t first_unit) const noexcept {
   const auto units =
       std::min(transverse_units_per_chunk(), transverse_units() - first_unit);
   if (problem_.slab_geometry())
@@ -6424,7 +6636,7 @@ GeneralWorkspace::transverse_chunk(const std::size_t first_unit) const noexcept 
   return {first_unit, units, first_unit, units};
 }
 
-void GeneralWorkspace::transverse_forward() {
+template <class Policy> void GeneralWorkspace<Policy>::transverse_forward() {
   if (slab_forward_)
     KokkosFFT::execute(*slab_forward_, transverse_, transverse_,
                        KokkosFFT::Normalization::none);
@@ -6433,11 +6645,14 @@ void GeneralWorkspace::transverse_forward() {
                        KokkosFFT::Normalization::none);
 }
 
-void GeneralWorkspace::transverse_inverse() { transverse_inverse(transverse_); }
+template <class Policy> void GeneralWorkspace<Policy>::transverse_inverse() {
+  transverse_inverse(transverse_);
+}
 
 // The in-place inverse transverse plan on another volume of the same extents: the
 // plan's own scratch or the magnetic closure's (solprop SEP 34).
-void GeneralWorkspace::transverse_inverse(const ComplexView3& scratch) {
+template <class Policy>
+void GeneralWorkspace<Policy>::transverse_inverse(const ComplexView3& scratch) {
   if (slab_inverse_)
     KokkosFFT::execute(*slab_inverse_, scratch, scratch,
                        KokkosFFT::Normalization::none);
@@ -6446,7 +6661,9 @@ void GeneralWorkspace::transverse_inverse(const ComplexView3& scratch) {
                        KokkosFFT::Normalization::none);
 }
 
-void GeneralWorkspace::separable_stage_input(const std::size_t stage, const double dz) {
+template <class Policy>
+void GeneralWorkspace<Policy>::separable_stage_input(const std::size_t stage,
+                                                     const double dz) {
   const auto current = current_;
   const auto stages = stages_;
   const auto tableau = tableau_;
@@ -6486,7 +6703,7 @@ void GeneralWorkspace::separable_stage_input(const std::size_t stage, const doub
       });
 }
 
-void GeneralWorkspace::separable_load_current() {
+template <class Policy> void GeneralWorkspace<Policy>::separable_load_current() {
   const auto current = current_;
   const auto scratch = transverse_;
   const auto n_pol = problem_.n_pol_state;
@@ -6503,8 +6720,9 @@ void GeneralWorkspace::separable_load_current() {
   transverse_inverse();
 }
 
-void GeneralWorkspace::separable_pack_chunk(const TransverseChunk& chunk,
-                                            const bool material) {
+template <class Policy>
+void GeneralWorkspace<Policy>::separable_pack_chunk(const TransverseChunk& chunk,
+                                                    const bool material) {
   const auto fine = fine_spectrum_;
   // Every crop bin of the chunk's rows is written below; only the bins outside the
   // crop need zeros, each chunk, since the inverse transform may destroy its input.
@@ -6561,7 +6779,8 @@ void GeneralWorkspace::separable_pack_chunk(const TransverseChunk& chunk,
 
 // The chunk's physical nodes from its temporal rows: free space's are the rows
 // themselves; the hybrid planar kind's are the slab synthesis of each y row.
-void GeneralWorkspace::separable_nodes(const TransverseChunk& chunk) {
+template <class Policy>
+void GeneralWorkspace<Policy>::separable_nodes(const TransverseChunk& chunk) {
   const bool real_field = problem_.family == FieldFamily::field_real;
   const auto n_to = problem_.n_to;
   const auto n_pol = problem_.n_pol_state;
@@ -6593,8 +6812,9 @@ void GeneralWorkspace::separable_nodes(const TransverseChunk& chunk) {
 
 // The hybrid planar kind's slab projection of a chunk's node source onto its y rows'
 // columns: the polarisation, or one envelope-plasma current stream.
-void GeneralWorkspace::slab_project(const TransverseChunk& chunk,
-                                    const EnvelopeStream* stream) {
+template <class Policy>
+void GeneralWorkspace<Policy>::slab_project(const TransverseChunk& chunk,
+                                            const EnvelopeStream* stream) {
   const auto units = chunk.nodes / problem_.n_x;
   const auto n_to = problem_.n_to;
   if (stream != nullptr)
@@ -6608,8 +6828,9 @@ void GeneralWorkspace::slab_project(const TransverseChunk& chunk,
                   polarisation_real_, projected_real_, units, n_to);
 }
 
-void GeneralWorkspace::separable_finish_transform(const std::size_t stage,
-                                                  const bool material) {
+template <class Policy>
+void GeneralWorkspace<Policy>::separable_finish_transform(const std::size_t stage,
+                                                          const bool material) {
   const auto scratch = transverse_;
   const auto spatial = spatial_;
   const auto stages = stages_;
@@ -6641,8 +6862,9 @@ void GeneralWorkspace::separable_finish_transform(const std::size_t stage,
 // response at the physical nodes (for the planar kind, synthesised from and projected
 // back onto the rows in time) or the in-stage absorber on the rows, and back; the
 // forward transverse transform and each column's prefactor and propagator.
-void GeneralWorkspace::evaluate_separable_stage(const std::size_t stage,
-                                                const double dz) {
+template <class Policy>
+void GeneralWorkspace<Policy>::evaluate_separable_stage(const std::size_t stage,
+                                                        const double dz) {
   auto* const dispersive = separable_dispersive_.get();
   const bool nonlinear =
       problem_.nonlinear || problem_.plasma || problem_.raman || dispersive != nullptr;
@@ -6683,7 +6905,8 @@ void GeneralWorkspace::evaluate_separable_stage(const std::size_t stage,
       });
 }
 
-void GeneralWorkspace::separable_to_time(const TransverseChunk& chunk) {
+template <class Policy>
+void GeneralWorkspace<Policy>::separable_to_time(const TransverseChunk& chunk) {
   const bool tail = temporal_tail_rows_ != 0 &&
                     chunk.rows * problem_.n_pol_state == temporal_tail_rows_;
   if (problem_.family == FieldFamily::field_real) {
@@ -6701,7 +6924,8 @@ void GeneralWorkspace::separable_to_time(const TransverseChunk& chunk) {
   }
 }
 
-void GeneralWorkspace::separable_to_frequency(const TransverseChunk& chunk) {
+template <class Policy>
+void GeneralWorkspace<Policy>::separable_to_frequency(const TransverseChunk& chunk) {
   const bool tail = temporal_tail_rows_ != 0 &&
                     chunk.rows * problem_.n_pol_state == temporal_tail_rows_;
   if (problem_.family == FieldFamily::envelope) {
@@ -6724,7 +6948,9 @@ void GeneralWorkspace::separable_to_frequency(const TransverseChunk& chunk) {
 // back into the scratch, in frequency, chunk by chunk through the temporal transforms.
 // Shared by the Runge-Kutta stage and the low-storage march's passes, which differ in
 // how they form the input and fold the output.
-void GeneralWorkspace::separable_core(const std::size_t stage, const bool material) {
+template <class Policy>
+void GeneralWorkspace<Policy>::separable_core(const std::size_t stage,
+                                              const bool material) {
   // SEP 6's dispersive response runs chunk by chunk beside the material's response
   // column, or alone in its place (`SeparableDispersive`).
   auto* const dispersive = separable_dispersive_.get();
@@ -6872,8 +7098,9 @@ void GeneralWorkspace::separable_core(const std::size_t stage, const bool materi
 }
 
 // The fine bins outside the crop as runs `(first bin, length)` in bin order.
+template <class Policy>
 std::vector<std::pair<std::size_t, std::size_t>>
-GeneralWorkspace::fine_gap_runs() const {
+GeneralWorkspace<Policy>::fine_gap_runs() const {
   std::vector<bool> filled(fine_spectrum_size(), false);
   for (const auto index : problem_.crop_index)
     filled[index] = true;
@@ -6889,7 +7116,8 @@ GeneralWorkspace::fine_gap_runs() const {
   return runs;
 }
 
-StageTerms GeneralWorkspace::stage_terms(const std::size_t stage) const {
+template <class Policy>
+StageTerms GeneralWorkspace<Policy>::stage_terms(const std::size_t stage) const {
   StageTerms terms;
   terms.current = current_;
   terms.fine = fine_spectrum_;
@@ -6951,7 +7179,8 @@ StageTerms GeneralWorkspace::stage_terms(const std::size_t stage) const {
 // stage, the combination, and the zero pad of the fine spectrum, in one traversal of
 // the bins. The finish and the combination are each the arithmetic of their own
 // kernels, so fusing them moves no rounding.
-void GeneralWorkspace::stage_entry(const std::size_t stage, const double dz) {
+template <class Policy>
+void GeneralWorkspace<Policy>::stage_entry(const std::size_t stage, const double dz) {
   const bool finish_previous = finish_pending_;
   finish_pending_ = false;
   if (finish_previous && (stage == 0 || pending_stage_ + 1 != stage))
@@ -7019,7 +7248,8 @@ void GeneralWorkspace::stage_entry(const std::size_t stage, const double dz) {
 
 // A stage's finish, or (inside a trial, when the next stage's entry follows with
 // nothing between) its deferral to that entry kernel.
-void GeneralWorkspace::finish_or_defer(const std::size_t stage) {
+template <class Policy>
+void GeneralWorkspace<Policy>::finish_or_defer(const std::size_t stage) {
   if (defer_finish_) {
     finish_pending_ = true;
     pending_stage_ = stage;
@@ -7028,7 +7258,9 @@ void GeneralWorkspace::finish_or_defer(const std::size_t stage) {
   finish_stage(stage);
 }
 
-void GeneralWorkspace::evaluate_stage(const std::size_t stage, const double dz) {
+template <class Policy>
+void GeneralWorkspace<Policy>::evaluate_stage(const std::size_t stage,
+                                              const double dz) {
   ++rk_source_evaluations_;
   if (!flow_) {
     evaluate_stage_source(stage, dz);
@@ -7045,7 +7277,9 @@ void GeneralWorkspace::evaluate_stage(const std::size_t stage, const double dz) 
                     problem_.error_weights[stage], stages_, solution_, error_);
 }
 
-void GeneralWorkspace::evaluate_stage_source(const std::size_t stage, const double dz) {
+template <class Policy>
+void GeneralWorkspace<Policy>::evaluate_stage_source(const std::size_t stage,
+                                                     const double dz) {
   if (!defer_quadrature_)
     coarse_pending_ = false;
   if (problem_.separable_geometry()) {
@@ -7062,7 +7296,8 @@ void GeneralWorkspace::evaluate_stage_source(const std::size_t stage, const doub
 // the in-stage absorber's beside it. Shared by the Runge-Kutta stage and the
 // low-storage march's passes. Returns whether a source was evaluated: a stage without
 // a response has none to finish.
-bool GeneralWorkspace::modal_core(const std::size_t stage) {
+template <class Policy>
+bool GeneralWorkspace<Policy>::modal_core(const std::size_t stage) {
   if (general_) {
     const bool general_active = general_->responds() || problem_.in_stage_absorber;
     if (general_active)
@@ -7174,7 +7409,8 @@ bool GeneralWorkspace::modal_core(const std::size_t stage) {
 // absorber on the modal time field as on every route, and the general source in place
 // of the legacy node pipeline; the finish applies the shared normalisation and the
 // return to the interaction picture (solprop `NumpyRefBackend._nonlinear_general`).
-void GeneralWorkspace::general_core(const std::size_t stage) {
+template <class Policy>
+void GeneralWorkspace<Policy>::general_core(const std::size_t stage) {
   if (problem_.in_stage_absorber) {
     KokkosFFT::execute(*inverse_real_plan_, fine_spectrum_, modal_real_,
                        KokkosFFT::Normalization::none);
@@ -7193,7 +7429,8 @@ void GeneralWorkspace::general_core(const std::size_t stage) {
     Kokkos::deep_copy(execution_space_, general_->source(), Complex{});
 }
 
-void GeneralWorkspace::scale_transform(const std::size_t stage) {
+template <class Policy>
+void GeneralWorkspace<Policy>::scale_transform(const std::size_t stage) {
   const auto synthesis = synthesis_;
   const auto projection = projection_;
   const auto projection_coarse = projection_coarse_;
@@ -7240,8 +7477,9 @@ void GeneralWorkspace::scale_transform(const std::size_t stage) {
       });
 }
 
-void GeneralWorkspace::synthesise(const std::size_t first_node,
-                                  const std::size_t node_count) {
+template <class Policy>
+void GeneralWorkspace<Policy>::synthesise(const std::size_t first_node,
+                                          const std::size_t node_count) {
   const bool whole_transform =
       first_node == 0 && node_count == problem_.n_nodes && problem_.n_pol_state == 1;
   if (whole_transform && !radial_blas_input_.empty()) {
@@ -7360,11 +7598,12 @@ void GeneralWorkspace::synthesise(const std::size_t first_node,
   Kokkos::Profiling::popRegion();
 }
 
+template <class Policy>
 template <FieldFamily Family, std::size_t Components, bool Plasma, bool Nonlinear,
           bool Stash>
-void GeneralWorkspace::response_harmonic(const std::size_t stage,
-                                         const std::size_t first_node,
-                                         const std::size_t node_count) {
+void GeneralWorkspace<Policy>::response_harmonic(const std::size_t stage,
+                                                 const std::size_t first_node,
+                                                 const std::size_t node_count) {
   if constexpr (Nonlinear && Family != FieldFamily::field_real) {
     if (problem_.harmonic_factor != 0.0) {
       response_raman<Family, Components, Plasma, Nonlinear, Stash, true>(
@@ -7376,11 +7615,12 @@ void GeneralWorkspace::response_harmonic(const std::size_t stage,
                                                                       node_count);
 }
 
+template <class Policy>
 template <FieldFamily Family, std::size_t Components, bool Plasma, bool Nonlinear,
           bool Stash, bool Harmonic>
-void GeneralWorkspace::response_raman(const std::size_t stage,
-                                      const std::size_t first_node,
-                                      const std::size_t node_count) {
+void GeneralWorkspace<Policy>::response_raman(const std::size_t stage,
+                                              const std::size_t first_node,
+                                              const std::size_t node_count) {
   if (problem_.raman) {
     if (problem_.raman_thg) {
       response_impl<Family, Components, Plasma, Nonlinear, Stash, Harmonic, true, true,
@@ -7395,10 +7635,11 @@ void GeneralWorkspace::response_raman(const std::size_t stage,
                 false>(stage, first_node, node_count);
 }
 
+template <class Policy>
 template <FieldFamily Family, std::size_t Components, bool Plasma, bool Nonlinear>
-void GeneralWorkspace::response_stash(const std::size_t stage,
-                                      const std::size_t first_node,
-                                      const std::size_t node_count) {
+void GeneralWorkspace<Policy>::response_stash(const std::size_t stage,
+                                              const std::size_t first_node,
+                                              const std::size_t node_count) {
   if constexpr (Plasma) {
     // Clang's host loop is measurably faster when the maximum-rate accumulator is
     // present. Keep that loop shape for every plasma problem, while the view and its
@@ -7411,10 +7652,11 @@ void GeneralWorkspace::response_stash(const std::size_t stage,
                                                                   node_count);
 }
 
+template <class Policy>
 template <FieldFamily Family, std::size_t Components, bool Plasma>
-void GeneralWorkspace::response_nonlinear(const std::size_t stage,
-                                          const std::size_t first_node,
-                                          const std::size_t node_count) {
+void GeneralWorkspace<Policy>::response_nonlinear(const std::size_t stage,
+                                                  const std::size_t first_node,
+                                                  const std::size_t node_count) {
   if (problem_.nonlinear) {
     response_stash<Family, Components, Plasma, true>(stage, first_node, node_count);
   } else {
@@ -7422,10 +7664,11 @@ void GeneralWorkspace::response_nonlinear(const std::size_t stage,
   }
 }
 
+template <class Policy>
 template <FieldFamily Family, std::size_t Components>
-void GeneralWorkspace::response_plasma(const std::size_t stage,
-                                       const std::size_t first_node,
-                                       const std::size_t node_count) {
+void GeneralWorkspace<Policy>::response_plasma(const std::size_t stage,
+                                               const std::size_t first_node,
+                                               const std::size_t node_count) {
   if (problem_.plasma && !problem_.envelope_plasma) {
     if constexpr (Family != FieldFamily::envelope) {
       // SEP 27: the band column writes the physical current separately. The
@@ -7455,8 +7698,10 @@ void GeneralWorkspace::response_plasma(const std::size_t stage,
   }
 }
 
-void GeneralWorkspace::response(const std::size_t stage, const std::size_t first_node,
-                                const std::size_t node_count) {
+template <class Policy>
+void GeneralWorkspace<Policy>::response(const std::size_t stage,
+                                        const std::size_t first_node,
+                                        const std::size_t node_count) {
   const auto components = problem_.effective_node_pol();
   switch (problem_.family) {
   case FieldFamily::field_real:
@@ -7479,12 +7724,13 @@ void GeneralWorkspace::response(const std::size_t stage, const std::size_t first
   }
 }
 
+template <class Policy>
 template <FieldFamily Family, std::size_t Components, bool Plasma, bool Nonlinear,
           bool Stash, bool Harmonic, bool Raman, bool RamanThg, bool Multiple,
           bool Folded>
-void GeneralWorkspace::response_impl(const std::size_t stage,
-                                     const std::size_t first_node,
-                                     const std::size_t node_count) {
+void GeneralWorkspace<Policy>::response_impl(const std::size_t stage,
+                                             const std::size_t first_node,
+                                             const std::size_t node_count) {
   // A single node's transforms fold into the column (`folds_single_node`), compiled
   // apart so that the other columns' arithmetic and layout are untouched.
   if constexpr (Components == 1 && !Raman && !Folded) {
@@ -8095,7 +8341,8 @@ KOKKOS_INLINE_FUNCTION void band_note(BandLive& live, const int index,
 }
 } // namespace
 
-int GeneralWorkspace::band_host_team_size(const std::size_t node_count) const {
+template <class Policy>
+int GeneralWorkspace<Policy>::band_host_team_size(const std::size_t node_count) const {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   static_cast<void>(node_count);
   return 1;
@@ -8112,7 +8359,8 @@ int GeneralWorkspace::band_host_team_size(const std::size_t node_count) const {
 #endif
 }
 
-std::size_t GeneralWorkspace::band_league(const std::size_t node_count) const {
+template <class Policy>
+std::size_t GeneralWorkspace<Policy>::band_league(const std::size_t node_count) const {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   return node_count;
 #else
@@ -8120,11 +8368,12 @@ std::size_t GeneralWorkspace::band_league(const std::size_t node_count) const {
 #endif
 }
 
+template <class Policy>
 template <class Functor>
 Kokkos::TeamPolicy<ExecutionSpace>
-GeneralWorkspace::band_team_policy(const std::size_t node_count,
-                                   const Functor& functor) const {
-  using Policy = Kokkos::TeamPolicy<ExecutionSpace>;
+GeneralWorkspace<Policy>::band_team_policy(const std::size_t node_count,
+                                           const Functor& functor) const {
+  using Team = Kokkos::TeamPolicy<ExecutionSpace>;
   constexpr auto policy_limit =
       static_cast<std::size_t>(std::numeric_limits<int>::max());
   if (node_count > policy_limit || problem_.n_to > policy_limit)
@@ -8134,7 +8383,7 @@ GeneralWorkspace::band_team_policy(const std::size_t node_count,
       Kokkos::PerTeam(band_staging_bytes<band_staging, ExecutionSpace>());
   // The widest team this kernel can launch with its scratch: a device's registers per
   // thread can hold the band column below the configured width.
-  Policy probe(response_space_for(node_count), league, 1);
+  Team probe(response_space_for(node_count), league, 1);
   probe.set_scratch_size(0, scratch);
   const int widest = probe.team_size_max(functor, Kokkos::ParallelForTag());
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
@@ -8142,7 +8391,7 @@ GeneralWorkspace::band_team_policy(const std::size_t node_count,
 #else
   const int requested = band_host_team_size(node_count);
 #endif
-  Policy policy(response_space_for(node_count), league,
+  Team policy(response_space_for(node_count), league,
                 std::max(1, std::min(requested, widest)));
   policy.set_scratch_size(0, scratch);
   return policy;
@@ -8163,10 +8412,11 @@ GeneralWorkspace::band_team_policy(const std::size_t node_count,
 // free-current integrand. The separate `held_current_` stores the total current. Each
 // filter and scan runs on its row's live window (`band_support`) and writes the rest:
 // zero before it, the final prefix after it, and an unchanged exposure's fraction.
+template <class Policy>
 template <FieldFamily Family, std::size_t Components, bool Multiple, bool Folded>
-void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
-                                               const std::size_t first_node,
-                                               const std::size_t node_count) {
+void GeneralWorkspace<Policy>::team_band_plasma_column(const std::size_t stage,
+                                                       const std::size_t first_node,
+                                                       const std::size_t node_count) {
   if constexpr (Components == 1 && !Folded) {
     if (folds_single_node()) {
       team_band_plasma_column<Family, Components, Multiple, true>(stage, first_node,
@@ -8447,11 +8697,12 @@ template <bool Multiple> struct BandRate {
 };
 } // namespace
 
+template <class Policy>
 template <class Functor>
 Kokkos::TeamPolicy<ExecutionSpace>
-GeneralWorkspace::tiled_band_policy(const std::size_t rows, const bool scratch,
-                                    const Functor& functor) const {
-  using Policy = Kokkos::TeamPolicy<ExecutionSpace>;
+GeneralWorkspace<Policy>::tiled_band_policy(const std::size_t rows, const bool scratch,
+                                            const Functor& functor) const {
+  using Team = Kokkos::TeamPolicy<ExecutionSpace>;
   constexpr auto policy_limit =
       static_cast<std::size_t>(std::numeric_limits<int>::max());
   if (band_tile_count_ == 0 || rows > policy_limit / band_tile_count_ ||
@@ -8459,7 +8710,7 @@ GeneralWorkspace::tiled_band_policy(const std::size_t rows, const bool scratch,
     throw std::length_error("tiled band column extent exceeds signed 32-bit range");
   const auto league = static_cast<int>(rows * band_tile_count_);
   const auto bytes = scratch ? band_tile_bytes<ExecutionSpace>(band_tile_) : 0;
-  Policy probe(response_execution_space_, league, 1);
+  Team probe(response_execution_space_, league, 1);
   probe.set_scratch_size(0, Kokkos::PerTeam(bytes));
   const int widest = probe.team_size_max(functor, Kokkos::ParallelForTag());
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
@@ -8467,7 +8718,7 @@ GeneralWorkspace::tiled_band_policy(const std::size_t rows, const bool scratch,
 #else
   const int requested = std::max(1, band_tile_threads_);
 #endif
-  Policy policy(response_execution_space_, league,
+  Team policy(response_execution_space_, league,
                 std::max(1, std::min(requested, widest)));
   policy.set_scratch_size(0, Kokkos::PerTeam(bytes));
   return policy;
@@ -8492,10 +8743,11 @@ GeneralWorkspace::tiled_band_policy(const std::size_t rows, const bool scratch,
 // Rows are by node within the chunk, the totals by row (`band_tile_totals_`). The
 // stash's fraction comes from the last sample's finish and its largest rate from a
 // reduction over the rate row. No window is skipped: every sample is formed.
+template <class Policy>
 template <FieldFamily Family, std::size_t Components, bool Multiple, bool Folded>
-void GeneralWorkspace::tiled_band_plasma_column(const std::size_t stage,
-                                                const std::size_t first_node,
-                                                const std::size_t node_count) {
+void GeneralWorkspace<Policy>::tiled_band_plasma_column(const std::size_t stage,
+                                                        const std::size_t first_node,
+                                                        const std::size_t node_count) {
   if constexpr (Components == 1 && !Folded) {
     if (folds_single_node()) {
       tiled_band_plasma_column<Family, Components, Multiple, true>(stage, first_node,
@@ -8682,8 +8934,10 @@ void GeneralWorkspace::tiled_band_plasma_column(const std::size_t stage,
 // The tiled column's local kernel over component rows: `source`'s band-filtered tile
 // prefixes from zero into the free-current rows (`plasma_outer_current_`),
 // and each tile's total into `band_tile_totals_`.
-void GeneralWorkspace::tiled_band_local(const RealView2& source, const std::size_t rows,
-                                        const char* label) {
+template <class Policy>
+void GeneralWorkspace<Policy>::tiled_band_local(const RealView2& source,
+                                                const std::size_t rows,
+                                                const char* label) {
   using TeamMember = Kokkos::TeamPolicy<ExecutionSpace>::member_type;
   const auto locals = plasma_outer_current_;
   const auto totals = band_tile_totals_;
@@ -8725,11 +8979,12 @@ void GeneralWorkspace::tiled_band_local(const RealView2& source, const std::size
 // `plasma_fraction_` filtered and then owed work, `plasma_exposure_` exposure and then
 // fraction), by slot as the column walks the nodes. Not a step's hot path: it runs
 // whole rows, without the column's live windows.
+template <class Policy>
 template <bool Diagnose>
-void GeneralWorkspace::team_band_statistics(const std::size_t first_node,
-                                            const std::size_t node_count,
-                                            const RealView2& output,
-                                            const double preionisation) {
+void GeneralWorkspace<Policy>::team_band_statistics(const std::size_t first_node,
+                                                    const std::size_t node_count,
+                                                    const RealView2& output,
+                                                    const double preionisation) {
   using TeamMember = Kokkos::TeamPolicy<ExecutionSpace>::member_type;
   const auto node_real = node_real_;
   const auto node_complex = node_complex_;
@@ -8898,8 +9153,9 @@ void GeneralWorkspace::team_band_statistics(const std::size_t first_node,
                        band_team_policy(node_count, scan), scan);
 }
 
-void GeneralWorkspace::convolve_raman(const std::size_t stage,
-                                      const std::size_t node_count) {
+template <class Policy>
+void GeneralWorkspace<Policy>::convolve_raman(const std::size_t stage,
+                                              const std::size_t node_count) {
   const bool tail = node_count != problem_.node_chunk;
   Kokkos::Profiling::pushRegion("solprop_native.raman.drive_fft");
   execute_raman(tail ? *raman_tail_forward_plan_ : *raman_drive_forward_plan_,
@@ -8934,8 +9190,9 @@ void GeneralWorkspace::convolve_raman(const std::size_t stage,
   finish_raman(stage, node_count);
 }
 
-void GeneralWorkspace::finish_raman(const std::size_t stage,
-                                    const std::size_t node_count) {
+template <class Policy>
+void GeneralWorkspace<Policy>::finish_raman(const std::size_t stage,
+                                            const std::size_t node_count) {
   Kokkos::Profiling::pushRegion("solprop_native.raman.finish");
   const auto node_real = node_real_;
   const auto node_complex = node_complex_;
@@ -8998,8 +9255,9 @@ void GeneralWorkspace::finish_raman(const std::size_t stage,
   Kokkos::Profiling::popRegion();
 }
 
-void GeneralWorkspace::envelope_cycle(const std::size_t channel,
-                                      const std::size_t node_count) {
+template <class Policy>
+void GeneralWorkspace<Policy>::envelope_cycle(const std::size_t channel,
+                                              const std::size_t node_count) {
   const auto field = node_complex_;
   const auto parameters = channel_parameters_;
   const auto coefficients = channel_coefficients_;
@@ -9089,11 +9347,12 @@ void GeneralWorkspace::envelope_cycle(const std::size_t channel,
       Kokkos::subview(envelope_exposure_, rows, Kokkos::ALL()), problem_.dt_fine);
 }
 
-void GeneralWorkspace::envelope_population(const std::size_t channel,
-                                           const std::size_t stage,
-                                           const std::size_t first_node,
-                                           const std::size_t node_count,
-                                           const RealView2& statistics) {
+template <class Policy>
+void GeneralWorkspace<Policy>::envelope_population(const std::size_t channel,
+                                                   const std::size_t stage,
+                                                   const std::size_t first_node,
+                                                   const std::size_t node_count,
+                                                   const RealView2& statistics) {
   envelope_cycle(channel, node_count);
   const auto rates = envelope_rates_;
   const auto exposure = envelope_exposure_;
@@ -9151,10 +9410,11 @@ void GeneralWorkspace::envelope_population(const std::size_t channel,
       });
 }
 
-void GeneralWorkspace::envelope_response(const std::size_t stage,
-                                         const std::size_t first_node,
-                                         const std::size_t node_count,
-                                         const TransverseChunk* chunk) {
+template <class Policy>
+void GeneralWorkspace<Policy>::envelope_response(const std::size_t stage,
+                                                 const std::size_t first_node,
+                                                 const std::size_t node_count,
+                                                 const TransverseChunk* chunk) {
   for (std::size_t channel = 0; channel < problem_.n_channels; ++channel)
     envelope_population(channel, stage, first_node, node_count, {});
   for (auto& stream : envelope_streams_) {
@@ -9180,10 +9440,11 @@ void GeneralWorkspace::envelope_response(const std::size_t stage,
 // SEP 27 forms two independently collared current products. Every maximum-chunk
 // row is written, including a partial chunk's padding, before a persistent FFT plan
 // can read it. Modal projection precedes the FFT; radial projection follows it.
-void GeneralWorkspace::held_response(const std::size_t stage,
-                                     const std::size_t first_node,
-                                     const std::size_t node_count,
-                                     const TransverseChunk* chunk) {
+template <class Policy>
+void GeneralWorkspace<Policy>::held_response(const std::size_t stage,
+                                             const std::size_t first_node,
+                                             const std::size_t node_count,
+                                             const TransverseChunk* chunk) {
   const auto current = held_current_;
   const auto window = time_window_;
   const auto derivative = held_derivative_;
@@ -9236,7 +9497,8 @@ void GeneralWorkspace::held_response(const std::size_t stage,
   }
 }
 
-void GeneralWorkspace::held_transform(const bool coarse_only) {
+template <class Policy>
+void GeneralWorkspace<Policy>::held_transform(const bool coarse_only) {
   for (std::size_t index = 0; index < 2; ++index) {
     auto& stream = held_streams_[index];
     if (!coarse_only)
@@ -9278,8 +9540,9 @@ void GeneralWorkspace::held_transform(const bool coarse_only) {
       });
 }
 
-void GeneralWorkspace::held_radial_projection(const std::size_t first_node,
-                                              const std::size_t node_count) {
+template <class Policy>
+void GeneralWorkspace<Policy>::held_radial_projection(const std::size_t first_node,
+                                                      const std::size_t node_count) {
   for (auto& stream : held_streams_)
     KokkosFFT::execute(*stream.forward, stream.projected, stream.spectrum,
                        KokkosFFT::Normalization::none);
@@ -9337,7 +9600,7 @@ void GeneralWorkspace::held_radial_projection(const std::size_t first_node,
       });
 }
 
-void GeneralWorkspace::envelope_transform() {
+template <class Policy> void GeneralWorkspace<Policy>::envelope_transform() {
   for (auto& stream : envelope_streams_) {
     KokkosFFT::execute(*stream.forward, stream.projected, stream.spectrum,
                        KokkosFFT::Normalization::none);
@@ -9367,10 +9630,12 @@ void GeneralWorkspace::envelope_transform() {
       });
 }
 
-void GeneralWorkspace::project(const std::size_t first_node,
-                               const std::size_t node_count, const bool first_chunk,
-                               const EnvelopeStream* stream,
-                               const FieldCurrentStream* field_stream) {
+template <class Policy>
+void GeneralWorkspace<Policy>::project(const std::size_t first_node,
+                                       const std::size_t node_count,
+                                       const bool first_chunk,
+                                       const EnvelopeStream* stream,
+                                       const FieldCurrentStream* field_stream) {
   const auto real_source =
       field_stream == nullptr ? polarisation_real_ : field_stream->node;
   const auto real_target =
@@ -9639,7 +9904,7 @@ void GeneralWorkspace::project(const std::size_t first_node,
   Kokkos::Profiling::popRegion();
 }
 
-void GeneralWorkspace::form_absorber() {
+template <class Policy> void GeneralWorkspace<Policy>::form_absorber() {
   const bool spatial = !problem_.spatial_absorber_matrix.empty();
   const auto modes = problem_.n_modes;
   const auto polarisations = problem_.n_pol_state;
@@ -9692,7 +9957,8 @@ void GeneralWorkspace::form_absorber() {
       });
 }
 
-void GeneralWorkspace::finish_stage(const std::size_t stage) {
+template <class Policy>
+void GeneralWorkspace<Policy>::finish_stage(const std::size_t stage) {
   const auto terms = stage_terms(stage);
   const double solution_weight = problem_.solution_weights[stage];
   const double error_weight = problem_.error_weights[stage];
@@ -9704,32 +9970,38 @@ void GeneralWorkspace::finish_stage(const std::size_t stage) {
       });
 }
 
-void GeneralWorkspace::set_flow_actions(const std::vector<Complex>& forward,
-                                        const std::vector<Complex>& inverse,
-                                        const std::vector<unsigned char>& identity) {
+template <class Policy>
+void GeneralWorkspace<Policy>::set_flow_actions(
+    const std::vector<Complex>& forward, const std::vector<Complex>& inverse,
+    const std::vector<unsigned char>& identity) {
   require_open();
   if (!flow_)
     throw std::logic_error("this state carries no coupled flow");
   flow_->set_actions(forward, inverse, identity);
 }
 
-std::vector<Complex> GeneralWorkspace::flow_actions_to_host(const bool inverse) const {
+template <class Policy>
+std::vector<Complex>
+GeneralWorkspace<Policy>::flow_actions_to_host(const bool inverse) const {
   require_open();
   if (!flow_)
     throw std::logic_error("this state carries no coupled flow");
   return flow_->actions_to_host(inverse);
 }
 
+template <class Policy>
 std::vector<double>
-GeneralWorkspace::form_flow_actions(const std::size_t section, const double dz,
-                                    const std::vector<double>& fractions) {
+GeneralWorkspace<Policy>::form_flow_actions(const std::size_t section, const double dz,
+                                            const std::vector<double>& fractions) {
   require_open();
   if (!flow_)
     throw std::logic_error("this state carries no coupled flow");
   return flow_->form_actions(section, dz, fractions);
 }
 
-std::vector<double> GeneralWorkspace::weighted_error(const std::vector<double>& scale) {
+template <class Policy>
+std::vector<double>
+GeneralWorkspace<Policy>::weighted_error(const std::vector<double>& scale) {
   require_open();
   if (!problem_.weighted_controller)
     throw std::logic_error("this state has no weighted controller workspace");
@@ -9776,8 +10048,11 @@ std::vector<double> GeneralWorkspace::weighted_error(const std::vector<double>& 
   return result;
 }
 
-void GeneralWorkspace::fill_statistics_time(const bool windowed, const double lower,
-                                            const double upper, const bool weighted) {
+template <class Policy>
+void GeneralWorkspace<Policy>::fill_statistics_time(const bool windowed,
+                                                    const double lower,
+                                                    const double upper,
+                                                    const bool weighted) {
   if (omega_.empty())
     throw std::logic_error("native statistics need the coarse frequency axis");
   Kokkos::deep_copy(execution_space_, statistics_spectrum_, Complex{});
@@ -9805,8 +10080,10 @@ void GeneralWorkspace::fill_statistics_time(const bool windowed, const double lo
                      KokkosFFT::Normalization::none);
 }
 
-void GeneralWorkspace::fill_statistics_pair(const bool windowed, const double lower,
-                                            const double upper) {
+template <class Policy>
+void GeneralWorkspace<Policy>::fill_statistics_pair(const bool windowed,
+                                                    const double lower,
+                                                    const double upper) {
   if (!statistics_unit_weight_) {
     fill_statistics_time(windowed, lower, upper, true);
     Kokkos::deep_copy(execution_space_, statistics_weighted_time_, statistics_time_);
@@ -9814,7 +10091,7 @@ void GeneralWorkspace::fill_statistics_pair(const bool windowed, const double lo
   fill_statistics_time(windowed, lower, upper);
 }
 
-void GeneralWorkspace::form_statistics_power() {
+template <class Policy> void GeneralWorkspace<Policy>::form_statistics_power() {
   const auto time_field = statistics_time_;
   const auto weighted_field = statistics_weighted_time_;
   const bool unit_weight = statistics_unit_weight_;
@@ -9834,7 +10111,7 @@ void GeneralWorkspace::form_statistics_power() {
       });
 }
 
-void GeneralWorkspace::form_statistics_total_power() {
+template <class Policy> void GeneralWorkspace<Policy>::form_statistics_total_power() {
   const auto power = statistics_power_;
   const auto total = statistics_total_power_;
   const auto modes = problem_.n_modes;
@@ -9849,11 +10126,12 @@ void GeneralWorkspace::form_statistics_total_power() {
       });
 }
 
-void GeneralWorkspace::scan_plasma_statistics(const std::size_t first_node,
-                                              const std::size_t node_count,
-                                              const RealView2& output,
-                                              const bool diagnose,
-                                              const double preionisation) {
+template <class Policy>
+void GeneralWorkspace<Policy>::scan_plasma_statistics(const std::size_t first_node,
+                                                      const std::size_t node_count,
+                                                      const RealView2& output,
+                                                      const bool diagnose,
+                                                      const double preionisation) {
   if (problem_.envelope_plasma) {
     if (diagnose)
       throw std::invalid_argument("the plasma integration diagnostics read the "
@@ -10011,7 +10289,8 @@ void GeneralWorkspace::scan_plasma_statistics(const std::size_t first_node,
 #endif
 }
 
-std::vector<double> GeneralWorkspace::statistics(
+template <class Policy>
+std::vector<double> GeneralWorkspace<Policy>::statistics(
     const std::uint64_t flags, const std::vector<double>& windows,
     const std::vector<double>& on_axis, const double density, const double taper,
     const double preionisation, const double intensity_factor,
@@ -10064,7 +10343,7 @@ std::vector<double> GeneralWorkspace::statistics(
   using StatisticsTeamMember = StatisticsTeamPolicy::member_type;
 #endif
   const auto n_windows = windows.size() / 2;
-  constexpr auto absent = std::numeric_limits<std::size_t>::max();
+  static constexpr auto absent = std::numeric_limits<std::size_t>::max();
   std::size_t packed_size = 0;
   const auto reserve = [&packed_size, requested](const StatisticsFlag flag,
                                                  const std::size_t count) {
@@ -10114,7 +10393,8 @@ std::vector<double> GeneralWorkspace::statistics(
 
   if (statistics_packed_.size() < packed_size) {
     execution_space_.fence("solprop_native statistics output resize");
-    statistics_packed_ = RealView("solprop_native.statistics.packed", packed_size);
+    statistics_packed_ =
+        ReductionRealView("solprop_native.statistics.packed", packed_size);
   }
   const auto packed = statistics_packed_;
   if (packed_size != 0)
@@ -10602,7 +10882,7 @@ std::vector<double> GeneralWorkspace::statistics(
 // solprop SEP 34: the buffers of the magnetic closure's synthesis, allocated at
 // construction when the problem's own request has a local flux statistic and here,
 // outside any trial step, when a later request first needs them.
-void GeneralWorkspace::require_flux_closure() {
+template <class Policy> void GeneralWorkspace<Policy>::require_flux_closure() {
   const auto rows = statistics_time_.extent(0);
   const bool time = statistics_weighted_time_.extent(0) != rows;
   const bool magnitude = statistics_magnitude_.extent(0) != statistics_power_.extent(0);
@@ -10612,21 +10892,21 @@ void GeneralWorkspace::require_flux_closure() {
   execution_space_.fence("solprop_native flux closure allocation");
   if (time)
     statistics_weighted_time_ =
-        ComplexView2("solprop_native.statistics.weighted_time", rows, problem_.n_t);
+        ReductionView2("solprop_native.statistics.weighted_time", rows, problem_.n_t);
   if (magnitude)
     statistics_magnitude_ =
-        RealView2("solprop_native.statistics.flux_magnitude",
-                  statistics_power_.extent(0), statistics_power_.extent(1));
+        ReductionRealView2("solprop_native.statistics.flux_magnitude",
+                           statistics_power_.extent(0), statistics_power_.extent(1));
   if (volume)
     flux_transverse_ =
-        ComplexView3("solprop_native.flux.closure_transverse", transverse_.extent(0),
-                     transverse_.extent(1), transverse_.extent(2));
+        ReductionView3("solprop_native.flux.closure_transverse", transverse_.extent(0),
+                       transverse_.extent(1), transverse_.extent(2));
 }
 
 // The magnetic closure of every column in time (a radial run's, solprop SEP 34): the
 // analytic spectrum times the conjugate admittance, inverted into the statistics'
 // time rows and kept in `statistics_weighted_time_`.
-void GeneralWorkspace::fill_statistics_closure() {
+template <class Policy> void GeneralWorkspace<Policy>::fill_statistics_closure() {
   Kokkos::deep_copy(execution_space_, statistics_spectrum_, Complex{});
   const auto current = current_;
   const auto spectrum = statistics_spectrum_;
@@ -10653,10 +10933,10 @@ void GeneralWorkspace::fill_statistics_closure() {
   Kokkos::deep_copy(execution_space_, statistics_weighted_time_, statistics_time_);
 }
 
-void GeneralWorkspace::separable_time_statistics(const std::size_t axis_peak,
-                                                 const std::size_t peak,
-                                                 const std::size_t fluence,
-                                                 const double intensity_factor) {
+template <class Policy>
+void GeneralWorkspace<Policy>::separable_time_statistics(
+    const std::size_t axis_peak, const std::size_t peak, const std::size_t fluence,
+    const double intensity_factor) {
   constexpr auto absent = std::numeric_limits<std::size_t>::max();
   constexpr double lowest = std::numeric_limits<double>::lowest();
   const auto current = current_;
@@ -10841,7 +11121,8 @@ void GeneralWorkspace::separable_time_statistics(const std::size_t axis_peak,
         });
 }
 
-std::vector<double> GeneralWorkspace::aperture_statistics(
+template <class Policy>
+std::vector<double> GeneralWorkspace<Policy>::aperture_statistics(
     const std::uint64_t flags, const std::vector<double>& apertures,
     const int profile_code, const int exponent, const std::vector<double>& regions,
     const double intensity_factor) {
@@ -10858,9 +11139,9 @@ std::vector<double> GeneralWorkspace::aperture_statistics(
                            spatial_.evanescent});
 }
 
-std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t flags,
-                                                         const double intensity_factor,
-                                                         const double z) {
+template <class Policy>
+std::vector<double> GeneralWorkspace<Policy>::spatial_statistics(
+    const std::uint64_t flags, const double intensity_factor, const double z) {
   require_open();
   if (!initialized_ || spatial_spectral_weights_.empty())
     throw std::logic_error(
@@ -10871,7 +11152,7 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
       intensity_factor <= 0.0 || !std::isfinite(z))
     throw std::invalid_argument(
         "invalid spatial statistic flags, intensity factor or position");
-  constexpr auto absent = std::numeric_limits<std::size_t>::max();
+  static constexpr auto absent = std::numeric_limits<std::size_t>::max();
   constexpr double lowest = std::numeric_limits<double>::lowest();
   std::size_t packed_size = 0;
   const auto reserve = [flags, &packed_size](const std::uint64_t bit,
@@ -10896,7 +11177,8 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
     return {};
   if (statistics_packed_.size() < packed_size) {
     execution_space_.fence("solprop_native spatial statistics output resize");
-    statistics_packed_ = RealView("solprop_native.statistics.packed", packed_size);
+    statistics_packed_ =
+        ReductionRealView("solprop_native.statistics.packed", packed_size);
   }
   // Every field statistic is the axial flux of the medium at the plane z.
   flux_at(z);
@@ -11080,7 +11362,7 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
   return result;
 }
 
-void GeneralWorkspace::finish(const double dz) {
+template <class Policy> void GeneralWorkspace<Policy>::finish(const double dz) {
   require_open();
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");
@@ -11107,7 +11389,7 @@ void GeneralWorkspace::finish(const double dz) {
   execution_space_.fence("solprop_native accepted-step boundary");
 }
 
-void GeneralWorkspace::finish_quadrature() {
+template <class Policy> void GeneralWorkspace<Policy>::finish_quadrature() {
   if (!coarse_pending_)
     return;
   if (problem_.family == FieldFamily::envelope)
@@ -11121,7 +11403,7 @@ void GeneralWorkspace::finish_quadrature() {
   coarse_pending_ = false;
 }
 
-void GeneralWorkspace::score_quadrature() {
+template <class Policy> void GeneralWorkspace<Policy>::score_quadrature() {
   quadrature_error_ = Kokkos::Experimental::quiet_NaN_v<double>;
   quadrature_stale_ = false;
   if (quadrature_partials_.empty() ||
@@ -11230,7 +11512,7 @@ void GeneralWorkspace::score_quadrature() {
   quadrature_stale_ = true;
 }
 
-double GeneralWorkspace::quadrature_error() const {
+template <class Policy> double GeneralWorkspace<Policy>::quadrature_error() const {
   if (quadrature_stale_) {
     const auto last = Kokkos::subview(quadrature_scores_, 0);
     Kokkos::deep_copy(execution_space_, quadrature_error_, last);
@@ -11240,7 +11522,7 @@ double GeneralWorkspace::quadrature_error() const {
   return quadrature_error_;
 }
 
-double GeneralWorkspace::quadrature_peak() {
+template <class Policy> double GeneralWorkspace<Policy>::quadrature_peak() {
   if (quadrature_scores_.extent(0) == 0)
     return Kokkos::Experimental::quiet_NaN_v<double>;
   double peak = 0.0;
@@ -11252,7 +11534,7 @@ double GeneralWorkspace::quadrature_peak() {
   return peak;
 }
 
-void GeneralWorkspace::promote_fsal() {
+template <class Policy> void GeneralWorkspace<Policy>::promote_fsal() {
   require_open();
   score_quadrature();
   if (!pending_fsal_)
@@ -11271,7 +11553,7 @@ void GeneralWorkspace::promote_fsal() {
   pending_fsal_ = false;
 }
 
-void GeneralWorkspace::clear_fsal() {
+template <class Policy> void GeneralWorkspace<Policy>::clear_fsal() {
   has_recycled_ = false;
   pending_fsal_ = false;
   coarse_pending_ = false;
@@ -11280,7 +11562,8 @@ void GeneralWorkspace::clear_fsal() {
   stash_is_current_ = false;
 }
 
-void GeneralWorkspace::mask(const ComplexView2& values) {
+template <class Policy>
+void GeneralWorkspace<Policy>::mask(const ComplexView2& values) {
   const auto active = active_mask_;
   Kokkos::parallel_for(
       "solprop_native.mask.accepted",
@@ -11291,7 +11574,8 @@ void GeneralWorkspace::mask(const ComplexView2& values) {
       });
 }
 
-void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows) {
+template <class Policy>
+void GeneralWorkspace<Policy>::split_columns(const double dz, std::size_t active_rows) {
   const bool tail = temporal_tail_rows_ != 0 && active_rows == temporal_tail_rows_;
   if (active_rows == 0)
     active_rows = coarse_spectrum_.extent(0);
@@ -11339,8 +11623,9 @@ void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows) {
 // The split-step temporal absorber on a separable geometry: the rate is the same at
 // every node, so it acts on the temporal rows (free space's nodes, the planar kind's
 // y rows of slab amplitudes) between the two transverse transforms.
-void GeneralWorkspace::separable_split_step(const double dz,
-                                            const ComplexView2& advanced) {
+template <class Policy>
+void GeneralWorkspace<Policy>::separable_split_step(const double dz,
+                                                    const ComplexView2& advanced) {
   const auto scratch = transverse_;
   const auto coarse = coarse_spectrum_;
   const auto active = active_mask_;
@@ -11394,7 +11679,9 @@ void GeneralWorkspace::separable_split_step(const double dz,
       });
 }
 
-void GeneralWorkspace::split_step(const double dz, const ComplexView2& advanced) {
+template <class Policy>
+void GeneralWorkspace<Policy>::split_step(const double dz,
+                                          const ComplexView2& advanced) {
   if (problem_.separable_geometry()) {
     separable_split_step(dz, advanced);
     return;
@@ -11418,7 +11705,8 @@ void GeneralWorkspace::split_step(const double dz, const ComplexView2& advanced)
       });
 }
 
-std::vector<Complex> GeneralWorkspace::field_to_host() const {
+template <class Policy>
+std::vector<Complex> GeneralWorkspace<Policy>::field_to_host() const {
   require_open();
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");
@@ -11431,7 +11719,9 @@ std::vector<Complex> GeneralWorkspace::field_to_host() const {
   return result;
 }
 
-std::vector<Complex> GeneralWorkspace::stage_to_host(const std::size_t stage) const {
+template <class Policy>
+std::vector<Complex>
+GeneralWorkspace<Policy>::stage_to_host(const std::size_t stage) const {
   require_open();
   if (!stages_ready_)
     throw std::logic_error("no trial stages have been evaluated");
@@ -11447,7 +11737,8 @@ std::vector<Complex> GeneralWorkspace::stage_to_host(const std::size_t stage) co
   return result;
 }
 
-std::vector<Complex> GeneralWorkspace::projected_to_host(const bool coarse) {
+template <class Policy>
+std::vector<Complex> GeneralWorkspace<Policy>::projected_to_host(const bool coarse) {
   require_open();
   if (!stages_ready_)
     throw std::logic_error("no trial stages have been evaluated");
@@ -11463,7 +11754,8 @@ std::vector<Complex> GeneralWorkspace::projected_to_host(const bool coarse) {
   return {host.data(), host.data() + host.size()};
 }
 
-std::map<std::string, bool> GeneralWorkspace::dispersive_path() const {
+template <class Policy>
+std::map<std::string, bool> GeneralWorkspace<Policy>::dispersive_path() const {
   if (separable_dispersive_)
     return {{"alone", separable_dispersive_->alone()},
             {"in_place", separable_dispersive_->in_place()},
@@ -11478,7 +11770,8 @@ std::map<std::string, bool> GeneralWorkspace::dispersive_path() const {
           {"borrowed", dispersive_->borrowed()}};
 }
 
-std::map<std::string, std::size_t> GeneralWorkspace::memory_ledger() const {
+template <class Policy>
+std::map<std::string, std::size_t> GeneralWorkspace<Policy>::memory_ledger() const {
   auto ledger =
       general_ ? general_->memory_ledger() : GeneralModalSource::empty_ledger();
   ledger.merge(flow_ ? flow_->memory_ledger() : CoupledFlowAction::empty_ledger());
@@ -11491,7 +11784,9 @@ std::map<std::string, std::size_t> GeneralWorkspace::memory_ledger() const {
   return ledger;
 }
 
-std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const {
+template <class Policy>
+std::map<std::string, std::size_t>
+GeneralWorkspace<Policy>::base_memory_ledger() const {
   const auto complex_bytes = sizeof(Complex);
   const auto real_bytes = sizeof(double);
   const auto byte_bytes = sizeof(unsigned char);
@@ -11739,7 +12034,7 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
   };
 }
 
-void GeneralWorkspace::close() noexcept {
+template <class Policy> void GeneralWorkspace<Policy>::close() noexcept {
   if (closed_)
     return;
   execution_space_.fence();
@@ -12012,8 +12307,13 @@ void GeneralWorkspace::close() noexcept {
   raman_kernel_ready_ = false;
 }
 
+// The policies this build selects (`SOLPROP_NATIVE_PRECISIONS`, precision.hpp),
+// instantiated here once each; the Python-facing classes below use `Double`.
+template class GeneralWorkspace<Double>;
+template class GeneralBatchWorkspace<Double>;
+
 GeneralState::GeneralState(Problem problem)
-    : workspace_(std::make_unique<GeneralWorkspace>(std::move(problem))) {}
+    : workspace_(std::make_unique<GeneralWorkspace<Double>>(std::move(problem))) {}
 GeneralState::~GeneralState() { close(); }
 void GeneralState::set_initial(const std::vector<Complex>& field,
                                const std::vector<Complex>& noise) {
@@ -12191,7 +12491,7 @@ std::string GeneralState::projection_provider() const {
   return workspace_ ? workspace_->projection_provider() : "closed";
 }
 std::string GeneralState::gemm_shape_policy() const {
-  return GeneralWorkspace::gemm_shape_policy();
+  return GeneralWorkspace<Double>::gemm_shape_policy();
 }
 std::size_t GeneralState::response_team_size() const noexcept {
   return workspace_ ? workspace_->response_team_size() : 0;
@@ -12244,7 +12544,7 @@ void GeneralState::close() noexcept {
 }
 
 GeneralBatch::GeneralBatch(std::vector<std::shared_ptr<GeneralState>> members)
-    : workspace_(std::make_unique<GeneralBatchWorkspace>(std::move(members))) {}
+    : workspace_(std::make_unique<GeneralBatchWorkspace<Double>>(std::move(members))) {}
 GeneralBatch::~GeneralBatch() { close(); }
 std::vector<double> GeneralBatch::accept(const double dz) {
   return workspace_->accept(dz);

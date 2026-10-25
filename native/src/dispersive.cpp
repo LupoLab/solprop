@@ -248,8 +248,6 @@ void over_nodes(const char* label, const ExecutionSpace& space,
 #endif
 }
 
-using ComplexView2 = Kokkos::View<Complex**, Layout, MemorySpace>;
-using RealView2 = Kokkos::View<double**, Layout, MemorySpace>;
 using Unmanaged = Kokkos::MemoryTraits<Kokkos::Unmanaged>;
 
 // The product functors over a chunk's nodes, chosen by the form and the components.

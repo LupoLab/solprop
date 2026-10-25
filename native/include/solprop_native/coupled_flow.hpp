@@ -39,10 +39,10 @@ void require_coupled_flow(const Problem& problem);
  */
 class CoupledFlowAction {
 public:
-  using ComplexView2 = Kokkos::View<Complex**, Layout, MemorySpace>;
-  using ComplexView3 = Kokkos::View<Complex***, Layout, MemorySpace>;
-  using ComplexView4 = Kokkos::View<Complex****, Layout, MemorySpace>;
-  using RealView2 = Kokkos::View<double**, Layout, MemorySpace>;
+  using ComplexView2 = Binary64::ComplexView2;
+  using ComplexView3 = Binary64::ComplexView3;
+  using ComplexView4 = Binary64::ComplexView4;
+  using RealView2 = Binary64::RealView2;
   using IndexView = Kokkos::View<std::size_t*, Layout, MemorySpace>;
   using IndexView2 = Kokkos::View<std::size_t**, Layout, MemorySpace>;
 

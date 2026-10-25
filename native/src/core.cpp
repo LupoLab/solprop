@@ -228,13 +228,6 @@ std::vector<double> reference_stream_copies(const std::size_t elements,
 
 namespace {
 
-using RealPlan = KokkosFFT::Plan<ExecutionSpace, RealView, ComplexView>;
-using InverseRealPlan = KokkosFFT::Plan<ExecutionSpace, ComplexView, RealView>;
-using ComplexPlan = KokkosFFT::Plan<ExecutionSpace, ComplexView, ComplexView>;
-using ByteView = Kokkos::View<unsigned char*, Layout, MemorySpace>;
-using IndexView = Kokkos::View<std::size_t*, Layout, MemorySpace>;
-using ComplexView2 = Kokkos::View<Complex**, Layout, MemorySpace>;
-
 KOKKOS_INLINE_FUNCTION Complex exponential(const Complex value) {
   const double magnitude = Kokkos::exp(value.real());
   return Complex(magnitude * Kokkos::cos(value.imag()),
@@ -305,8 +298,49 @@ void require_problem(const Problem& problem) {
 
 } // namespace
 
-class Workspace {
+/*
+ * One single-column state's execution-space buffers, plans and scratch, templated on
+ * a precision policy (solprop SEP 36 section 6.3; precision.hpp). Each buffer's type
+ * names its role:
+ *
+ * - state: the state (`current_`, `advanced_`), the Runge-Kutta rows (`stages_`,
+ *   `solution_`, `error_`, `recycled_`), the noise, and the split-step absorber's
+ *   coarse spectrum, time rows, plans and rate.
+ * - propagator: the whole-step propagator.
+ * - argument (binary64 always): the operator's terms, the tableau and the per-stage
+ *   scalars.
+ * - source: the fine, projected and in-stage absorber spectra, their time rows and
+ *   their plans.
+ * - table: the prefactor terms, the carrier, the windows and the in-stage absorber's
+ *   rate.
+ * - reduction: the error partials.
+ */
+template <class Policy> class Workspace {
 public:
+  using RolesType = Roles<Policy>;
+  using StateView = typename RolesType::StateView;
+  using StateView2 = typename RolesType::StateView2;
+  using StateRealView = typename RolesType::StateRealView;
+  using PropagatorView = typename RolesType::PropagatorView;
+  using ArgumentView2 = typename RolesType::ArgumentView2;
+  using ArgumentRealView = typename RolesType::ArgumentRealView;
+  using SourceView = typename RolesType::SourceView;
+  using SourceRealView = typename RolesType::SourceRealView;
+  using TableView = typename RolesType::TableView;
+  using TableView2 = typename RolesType::TableView2;
+  using TableRealView = typename RolesType::TableRealView;
+  using ReductionRealView = typename RolesType::ReductionRealView;
+  using SourceComplexPlan = KokkosFFT::Plan<ExecutionSpace, SourceView, SourceView>;
+  using SourceForwardRealPlan =
+      KokkosFFT::Plan<ExecutionSpace, SourceRealView, SourceView>;
+  using SourceInverseRealPlan =
+      KokkosFFT::Plan<ExecutionSpace, SourceView, SourceRealView>;
+  using StateComplexPlan = KokkosFFT::Plan<ExecutionSpace, StateView, StateView>;
+  using StateForwardRealPlan =
+      KokkosFFT::Plan<ExecutionSpace, StateRealView, StateView>;
+  using StateInverseRealPlan =
+      KokkosFFT::Plan<ExecutionSpace, StateView, StateRealView>;
+
   explicit Workspace(Problem problem) : problem_(std::move(problem)) {
     require_problem(problem_);
     execution_space_ = kernel_pool_.get(CpuOperation::stage, problem_.n_omega);
@@ -477,31 +511,41 @@ public:
   std::size_t rk_source_evaluations_{};
   bool pending_fsal_{};
   double planning_seconds_{};
-  ComplexView current_, advanced_, solution_, error_, recycled_, noise_;
-  ComplexView whole_propagator_, fine_spectrum_, projected_spectrum_;
-  ComplexView absorber_spectrum_, carrier_, fine_time_complex_;
-  ComplexView projected_complex_, absorber_complex_, coarse_spectrum_;
-  ComplexView coarse_time_complex_;
-  ComplexView2 stages_, phi_terms_, prefactor_terms_;
-  RealView partials_, omega_window_, time_window_, absorber_fine_;
-  RealView absorber_coarse_, fine_time_real_, projected_real_, absorber_real_;
-  RealView coarse_time_real_, tableau_, stage_phi_delta_, stage_phi_at_;
-  RealView stage_prefactor_, stage_density_, stage_taper_;
+  StateView current_, advanced_, solution_, error_, recycled_, noise_;
+  PropagatorView whole_propagator_;
+  SourceView fine_spectrum_, projected_spectrum_;
+  SourceView absorber_spectrum_;
+  TableView carrier_;
+  SourceView fine_time_complex_;
+  SourceView projected_complex_, absorber_complex_;
+  StateView coarse_spectrum_;
+  StateView coarse_time_complex_;
+  StateView2 stages_;
+  ArgumentView2 phi_terms_;
+  TableView2 prefactor_terms_;
+  ReductionRealView partials_;
+  TableRealView omega_window_, time_window_, absorber_fine_;
+  StateRealView absorber_coarse_;
+  SourceRealView fine_time_real_, projected_real_, absorber_real_;
+  StateRealView coarse_time_real_;
+  ArgumentRealView tableau_, stage_phi_delta_, stage_phi_at_;
+  ArgumentRealView stage_prefactor_, stage_density_, stage_taper_;
   ByteView active_mask_, norm_mask_;
   IndexView crop_index_;
-  std::unique_ptr<InverseRealPlan> inverse_real_plan_;
-  std::unique_ptr<ComplexPlan> inverse_complex_plan_;
-  std::unique_ptr<RealPlan> forward_real_plan_;
-  std::unique_ptr<ComplexPlan> forward_complex_plan_;
-  std::unique_ptr<RealPlan> absorber_real_plan_;
-  std::unique_ptr<ComplexPlan> absorber_complex_plan_;
-  std::unique_ptr<InverseRealPlan> coarse_inverse_real_plan_;
-  std::unique_ptr<ComplexPlan> coarse_inverse_complex_plan_;
-  std::unique_ptr<RealPlan> coarse_forward_real_plan_;
-  std::unique_ptr<ComplexPlan> coarse_forward_complex_plan_;
+  std::unique_ptr<SourceInverseRealPlan> inverse_real_plan_;
+  std::unique_ptr<SourceComplexPlan> inverse_complex_plan_;
+  std::unique_ptr<SourceForwardRealPlan> forward_real_plan_;
+  std::unique_ptr<SourceComplexPlan> forward_complex_plan_;
+  std::unique_ptr<SourceForwardRealPlan> absorber_real_plan_;
+  std::unique_ptr<SourceComplexPlan> absorber_complex_plan_;
+  std::unique_ptr<StateInverseRealPlan> coarse_inverse_real_plan_;
+  std::unique_ptr<StateComplexPlan> coarse_inverse_complex_plan_;
+  std::unique_ptr<StateForwardRealPlan> coarse_forward_real_plan_;
+  std::unique_ptr<StateComplexPlan> coarse_forward_complex_plan_;
 };
 
-void Workspace::require_trial_scalars(const TrialScalars& scalars) const {
+template <class Policy>
+void Workspace<Policy>::require_trial_scalars(const TrialScalars& scalars) const {
   require_extent(scalars.phi_delta.size(),
                  (problem_.n_stages + 1) * problem_.n_phi_terms, "phi_delta");
   require_extent(scalars.phi_at.size(), problem_.n_stages * problem_.n_phi_terms,
@@ -512,75 +556,77 @@ void Workspace::require_trial_scalars(const TrialScalars& scalars) const {
   require_extent(scalars.taper.size(), problem_.n_stages, "taper");
 }
 
-void Workspace::allocate() {
+template <class Policy> void Workspace<Policy>::allocate() {
   const auto n = problem_.n_omega;
-  current_ = ComplexView("solprop_native.state.current", n);
-  advanced_ = ComplexView("solprop_native.state.advanced", n);
-  stages_ = ComplexView2("solprop_native.step.stages", problem_.n_stages, n);
-  solution_ = ComplexView("solprop_native.step.solution", n);
-  error_ = ComplexView("solprop_native.step.error", n);
-  recycled_ = ComplexView("solprop_native.step.recycled", n);
+  current_ = StateView("solprop_native.state.current", n);
+  advanced_ = StateView("solprop_native.state.advanced", n);
+  stages_ = StateView2("solprop_native.step.stages", problem_.n_stages, n);
+  solution_ = StateView("solprop_native.step.solution", n);
+  error_ = StateView("solprop_native.step.error", n);
+  recycled_ = StateView("solprop_native.step.recycled", n);
   if (problem_.modified_noise)
-    noise_ = ComplexView("solprop_native.noise", n);
-  whole_propagator_ = ComplexView("solprop_native.step.whole_propagator", n);
-  partials_ = RealView("solprop_native.step.error_partials", 3);
+    noise_ = StateView("solprop_native.noise", n);
+  whole_propagator_ = PropagatorView("solprop_native.step.whole_propagator", n);
+  partials_ = ReductionRealView("solprop_native.step.error_partials", 3);
   crop_index_ = IndexView("solprop_native.transform.crop_index", n);
   active_mask_ = ByteView("solprop_native.mask.active", n);
   norm_mask_ = ByteView("solprop_native.mask.norm", n);
-  omega_window_ = RealView("solprop_native.window.omega", n);
-  time_window_ = RealView("solprop_native.window.time", problem_.n_to);
-  carrier_ = ComplexView("solprop_native.kerr.carrier", problem_.n_to);
-  phi_terms_ = ComplexView2("solprop_native.linear.phi_terms", problem_.n_phi_terms, n);
-  prefactor_terms_ = ComplexView2("solprop_native.response.prefactor_terms",
-                                  problem_.n_prefactor_terms, n);
-  tableau_ =
-      RealView("solprop_native.step.tableau", problem_.n_stages * problem_.n_stages);
-  stage_phi_delta_ = RealView("solprop_native.step.phi_delta",
-                              (problem_.n_stages + 1) * problem_.n_phi_terms);
-  stage_phi_at_ =
-      RealView("solprop_native.step.phi_at", problem_.n_stages * problem_.n_phi_terms);
-  stage_prefactor_ = RealView("solprop_native.step.prefactor",
-                              problem_.n_stages * problem_.n_prefactor_terms);
-  stage_density_ = RealView("solprop_native.step.density", problem_.n_stages);
-  stage_taper_ = RealView("solprop_native.step.taper", problem_.n_stages);
-  fine_spectrum_ =
-      ComplexView("solprop_native.fft.fine_spectrum", fine_spectrum_size());
+  omega_window_ = TableRealView("solprop_native.window.omega", n);
+  time_window_ = TableRealView("solprop_native.window.time", problem_.n_to);
+  carrier_ = TableView("solprop_native.kerr.carrier", problem_.n_to);
+  phi_terms_ =
+      ArgumentView2("solprop_native.linear.phi_terms", problem_.n_phi_terms, n);
+  prefactor_terms_ = TableView2("solprop_native.response.prefactor_terms",
+                                problem_.n_prefactor_terms, n);
+  tableau_ = ArgumentRealView("solprop_native.step.tableau",
+                              problem_.n_stages * problem_.n_stages);
+  stage_phi_delta_ = ArgumentRealView("solprop_native.step.phi_delta",
+                                      (problem_.n_stages + 1) * problem_.n_phi_terms);
+  stage_phi_at_ = ArgumentRealView("solprop_native.step.phi_at",
+                                   problem_.n_stages * problem_.n_phi_terms);
+  stage_prefactor_ = ArgumentRealView("solprop_native.step.prefactor",
+                                      problem_.n_stages * problem_.n_prefactor_terms);
+  stage_density_ = ArgumentRealView("solprop_native.step.density", problem_.n_stages);
+  stage_taper_ = ArgumentRealView("solprop_native.step.taper", problem_.n_stages);
+  fine_spectrum_ = SourceView("solprop_native.fft.fine_spectrum", fine_spectrum_size());
   projected_spectrum_ =
-      ComplexView("solprop_native.fft.projected_spectrum", projected_spectrum_size());
+      SourceView("solprop_native.fft.projected_spectrum", projected_spectrum_size());
   absorber_spectrum_ =
-      ComplexView("solprop_native.fft.absorber_spectrum", projected_spectrum_size());
+      SourceView("solprop_native.fft.absorber_spectrum", projected_spectrum_size());
   if (problem_.family == FieldFamily::field_real) {
-    fine_time_real_ = RealView("solprop_native.fft.modal_time_real", problem_.n_to);
+    fine_time_real_ =
+        SourceRealView("solprop_native.fft.modal_time_real", problem_.n_to);
   } else {
     fine_time_complex_ =
-        ComplexView("solprop_native.fft.modal_time_complex", problem_.n_to);
+        SourceView("solprop_native.fft.modal_time_complex", problem_.n_to);
   }
   if (problem_.family == FieldFamily::envelope) {
     projected_complex_ =
-        ComplexView("solprop_native.response.projected_complex", problem_.n_to);
+        SourceView("solprop_native.response.projected_complex", problem_.n_to);
     absorber_complex_ =
-        ComplexView("solprop_native.absorber.fine_complex", problem_.n_to);
+        SourceView("solprop_native.absorber.fine_complex", problem_.n_to);
   } else {
-    projected_real_ = RealView("solprop_native.response.projected_real", problem_.n_to);
-    absorber_real_ = RealView("solprop_native.absorber.fine_real", problem_.n_to);
+    projected_real_ =
+        SourceRealView("solprop_native.response.projected_real", problem_.n_to);
+    absorber_real_ = SourceRealView("solprop_native.absorber.fine_real", problem_.n_to);
   }
   absorber_fine_ =
-      RealView("solprop_native.absorber.rate_fine", problem_.absorber_fine.size());
-  absorber_coarse_ =
-      RealView("solprop_native.absorber.rate_coarse", problem_.absorber_coarse.size());
+      TableRealView("solprop_native.absorber.rate_fine", problem_.absorber_fine.size());
+  absorber_coarse_ = StateRealView("solprop_native.absorber.rate_coarse",
+                                   problem_.absorber_coarse.size());
   if (!problem_.split_step_absorber)
     return;
-  coarse_spectrum_ = ComplexView("solprop_native.absorber.coarse_spectrum", n);
+  coarse_spectrum_ = StateView("solprop_native.absorber.coarse_spectrum", n);
   if (problem_.family == FieldFamily::envelope) {
     coarse_time_complex_ =
-        ComplexView("solprop_native.absorber.coarse_time_complex", problem_.n_t);
+        StateView("solprop_native.absorber.coarse_time_complex", problem_.n_t);
   } else {
     coarse_time_real_ =
-        RealView("solprop_native.absorber.coarse_time_real", problem_.n_t);
+        StateRealView("solprop_native.absorber.coarse_time_real", problem_.n_t);
   }
 }
 
-void Workspace::upload() {
+template <class Policy> void Workspace<Policy>::upload() {
   copy_vector(execution_space_, crop_index_, problem_.crop_index);
   copy_vector(execution_space_, active_mask_, problem_.active_mask);
   copy_vector(execution_space_, norm_mask_, problem_.norm_mask);
@@ -607,7 +653,8 @@ void Workspace::upload() {
   Kokkos::deep_copy(execution_space_, prefactor_terms_, prefactor);
 }
 
-void Workspace::upload_trial(const TrialScalars& scalars) {
+template <class Policy>
+void Workspace<Policy>::upload_trial(const TrialScalars& scalars) {
   copy_vector(execution_space_, stage_phi_delta_, scalars.phi_delta);
   copy_vector(execution_space_, stage_phi_at_, scalars.phi_at);
   copy_vector(execution_space_, stage_prefactor_, scalars.prefactor);
@@ -615,52 +662,52 @@ void Workspace::upload_trial(const TrialScalars& scalars) {
   copy_vector(execution_space_, stage_taper_, scalars.taper);
 }
 
-void Workspace::plan() {
+template <class Policy> void Workspace<Policy>::plan() {
   constexpr int axis = -1;
   if (problem_.family == FieldFamily::field_real) {
-    inverse_real_plan_ = std::make_unique<InverseRealPlan>(
+    inverse_real_plan_ = std::make_unique<SourceInverseRealPlan>(
         fft_execution_space_, fine_spectrum_, fine_time_real_,
         KokkosFFT::Direction::backward, axis);
   } else {
-    inverse_complex_plan_ = std::make_unique<ComplexPlan>(
+    inverse_complex_plan_ = std::make_unique<SourceComplexPlan>(
         fft_execution_space_, fine_spectrum_, fine_time_complex_,
         KokkosFFT::Direction::backward, axis);
   }
   if (problem_.family == FieldFamily::envelope) {
-    forward_complex_plan_ = std::make_unique<ComplexPlan>(
+    forward_complex_plan_ = std::make_unique<SourceComplexPlan>(
         fft_execution_space_, projected_complex_, projected_spectrum_,
         KokkosFFT::Direction::forward, axis);
-    absorber_complex_plan_ = std::make_unique<ComplexPlan>(
+    absorber_complex_plan_ = std::make_unique<SourceComplexPlan>(
         fft_execution_space_, absorber_complex_, absorber_spectrum_,
         KokkosFFT::Direction::forward, axis);
   } else {
-    forward_real_plan_ = std::make_unique<RealPlan>(
+    forward_real_plan_ = std::make_unique<SourceForwardRealPlan>(
         fft_execution_space_, projected_real_, projected_spectrum_,
         KokkosFFT::Direction::forward, axis);
-    absorber_real_plan_ = std::make_unique<RealPlan>(
+    absorber_real_plan_ = std::make_unique<SourceForwardRealPlan>(
         fft_execution_space_, absorber_real_, absorber_spectrum_,
         KokkosFFT::Direction::forward, axis);
   }
   if (!problem_.split_step_absorber)
     return;
   if (problem_.family == FieldFamily::envelope) {
-    coarse_inverse_complex_plan_ = std::make_unique<ComplexPlan>(
+    coarse_inverse_complex_plan_ = std::make_unique<StateComplexPlan>(
         coarse_fft_execution_space_, coarse_spectrum_, coarse_time_complex_,
         KokkosFFT::Direction::backward, axis);
-    coarse_forward_complex_plan_ = std::make_unique<ComplexPlan>(
+    coarse_forward_complex_plan_ = std::make_unique<StateComplexPlan>(
         coarse_fft_execution_space_, coarse_time_complex_, coarse_spectrum_,
         KokkosFFT::Direction::forward, axis);
   } else {
-    coarse_inverse_real_plan_ = std::make_unique<InverseRealPlan>(
+    coarse_inverse_real_plan_ = std::make_unique<StateInverseRealPlan>(
         coarse_fft_execution_space_, coarse_spectrum_, coarse_time_real_,
         KokkosFFT::Direction::backward, axis);
-    coarse_forward_real_plan_ = std::make_unique<RealPlan>(
+    coarse_forward_real_plan_ = std::make_unique<StateForwardRealPlan>(
         coarse_fft_execution_space_, coarse_time_real_, coarse_spectrum_,
         KokkosFFT::Direction::forward, axis);
   }
 }
 
-void Workspace::reuse_fsal() {
+template <class Policy> void Workspace<Policy>::reuse_fsal() {
   const auto stages = stages_;
   const auto recycled = recycled_;
   const auto solution = solution_;
@@ -678,7 +725,8 @@ void Workspace::reuse_fsal() {
       });
 }
 
-void Workspace::evaluate_stage(const std::size_t stage, const double dz) {
+template <class Policy>
+void Workspace<Policy>::evaluate_stage(const std::size_t stage, const double dz) {
   ++rk_source_evaluations_;
   if (problem_.n_omega != fine_spectrum_size()) {
     Kokkos::deep_copy(execution_space_, fine_spectrum_, Complex{});
@@ -772,7 +820,7 @@ void Workspace::evaluate_stage(const std::size_t stage, const double dz) {
   finish_stage(stage);
 }
 
-void Workspace::inverse_transform() {
+template <class Policy> void Workspace<Policy>::inverse_transform() {
   if (problem_.family == FieldFamily::field_real) {
     KokkosFFT::execute(*inverse_real_plan_, fine_spectrum_, fine_time_real_,
                        KokkosFFT::Normalization::none);
@@ -782,7 +830,7 @@ void Workspace::inverse_transform() {
   }
 }
 
-void Workspace::response(const std::size_t stage) {
+template <class Policy> void Workspace<Policy>::response(const std::size_t stage) {
   const auto real_time = fine_time_real_;
   const auto complex_time = fine_time_complex_;
   const auto projected_real = projected_real_;
@@ -837,7 +885,7 @@ void Workspace::response(const std::size_t stage) {
       });
 }
 
-void Workspace::forward_response() {
+template <class Policy> void Workspace<Policy>::forward_response() {
   if (problem_.family == FieldFamily::envelope) {
     KokkosFFT::execute(*forward_complex_plan_, projected_complex_, projected_spectrum_,
                        KokkosFFT::Normalization::none);
@@ -847,7 +895,7 @@ void Workspace::forward_response() {
   }
 }
 
-void Workspace::form_absorber() {
+template <class Policy> void Workspace<Policy>::form_absorber() {
   const auto rate = absorber_fine_;
   const auto real_time = fine_time_real_;
   const auto complex_time = fine_time_complex_;
@@ -868,7 +916,7 @@ void Workspace::form_absorber() {
       });
 }
 
-void Workspace::forward_absorber() {
+template <class Policy> void Workspace<Policy>::forward_absorber() {
   if (problem_.family == FieldFamily::envelope) {
     KokkosFFT::execute(*absorber_complex_plan_, absorber_complex_, absorber_spectrum_,
                        KokkosFFT::Normalization::none);
@@ -878,7 +926,7 @@ void Workspace::forward_absorber() {
   }
 }
 
-void Workspace::finish_stage(const std::size_t stage) {
+template <class Policy> void Workspace<Policy>::finish_stage(const std::size_t stage) {
   const auto projected = projected_spectrum_;
   const auto absorber = absorber_spectrum_;
   const auto crop = crop_index_;
@@ -970,7 +1018,7 @@ struct AcceptScore {
 };
 } // namespace
 
-void Workspace::accept_and_score(const double dz) {
+template <class Policy> void Workspace<Policy>::accept_and_score(const double dz) {
   const AcceptScore score{3,      current_,          advanced_,  solution_,
                           error_, whole_propagator_, norm_mask_, dz};
   Kokkos::parallel_reduce(
@@ -979,7 +1027,7 @@ void Workspace::accept_and_score(const double dz) {
       partials_);
 }
 
-void Workspace::mask(const ComplexView& values) {
+template <class Policy> void Workspace<Policy>::mask(const ComplexView& values) {
   const auto active = active_mask_;
   Kokkos::parallel_for(
       "solprop_native.mask.accepted",
@@ -990,7 +1038,7 @@ void Workspace::mask(const ComplexView& values) {
       });
 }
 
-void Workspace::split_step(const double dz) {
+template <class Policy> void Workspace<Policy>::split_step(const double dz) {
   const auto advanced = advanced_;
   const auto coarse = coarse_spectrum_;
   const double inverse_n = 1.0 / static_cast<double>(problem_.n_t);
@@ -1036,7 +1084,8 @@ void Workspace::split_step(const double dz) {
       });
 }
 
-std::map<std::string, std::size_t> Workspace::memory_ledger() const {
+template <class Policy>
+std::map<std::string, std::size_t> Workspace<Policy>::memory_ledger() const {
   const std::size_t complex_bytes = sizeof(Complex);
   const std::size_t real_bytes = sizeof(double);
   const std::size_t fine_time =
@@ -1094,7 +1143,7 @@ std::map<std::string, std::size_t> Workspace::memory_ledger() const {
   };
 }
 
-void Workspace::close() noexcept {
+template <class Policy> void Workspace<Policy>::close() noexcept {
   if (closed_)
     return;
   execution_space_.fence();
@@ -1157,8 +1206,12 @@ void Workspace::close() noexcept {
   clear_fsal();
 }
 
+// The policies this build selects (`SOLPROP_NATIVE_PRECISIONS`, precision.hpp),
+// instantiated here once each; the Python-facing `State` uses `Double`.
+template class Workspace<Double>;
+
 State::State(Problem problem)
-    : workspace_(std::make_unique<Workspace>(std::move(problem))) {}
+    : workspace_(std::make_unique<Workspace<Double>>(std::move(problem))) {}
 State::~State() { close(); }
 void State::set_initial(const std::vector<Complex>& field,
                         const std::vector<Complex>& noise) {
