@@ -2167,22 +2167,66 @@ diagnostics; transform-size cost; full-length timings.
     - Independently of the boundary, RK is 1.7-6x faster than Multistep on the Raman
       cases (native reduced CtC: 4.4 s against 27 s). A carrier-frame history
       extrapolation addresses this outside this SEP.
+13. *Long walk-off* (added 2026-10-25, after the maintainer asked whether any temporal
+    absorber beats an alarm and a wider window). Two further cases were run against wide
+    references without absorption, adding Luna.jl's released filter (the window `W`
+    multiplied into the state once per accepted step) and the spectral error in dB
+    where the reference is above -60 and -80 dB of its peak, which weak signals need.
+    - The full-length SSFS gallery example (2 m, 3.5 ps) is not one: 3.8e-3 of the exit
+      energy lies outside the request but only 2e-7 outside 1.25x. Today's collar,
+      inside the requested window, cuts into that light (8e-3; 5 dB at -80 dB). Placing
+      the collar outside the request, or a 1.25x window without one, gives 1-2e-4 and
+      0.1 dB, at 22 % more samples.
+    - A multimode RDW capillary (six HE1m modes, 4.5 m with a 3 m near-vacuum tail,
+      400 fs) is. The light that walks off is weak and far-reaching: 2.4e-6 of the exit
+      energy lies outside the request, 9e-8 outside 2x and 9e-9 outside 3x. At -80 dB
+      today's collar on the requested window is within 2.5 dB (0.08 dB at -60 dB); without
+      absorption windows of 1-2x are 10-19 dB wrong and 3x, at three times the samples,
+      is needed for 0.04 dB. A weaker collar (walk-off strength, AN of about 30) is worse
+      than today's at -80 dB (7.5 dB): weak light crosses it and wraps.
+    - Luna.jl's released filter is the least accurate collar in both cases (SSFS 0.08-0.1
+      and 13-27 dB at -80 dB) and changes with the stepper and tolerance; the rate
+      collars (in-stage, and the split, which is the scheme of Luna.jl's rate-boundary
+      pull request) agree with each other.
+    - Steps and evaluations were the same for every strategy within a case, so cost
+      follows the realised grid size.
+    - Field errors near 1e-4 on smooth windows are the band-edge mesh term of
+      finding 1, not the boundary; the decibel metrics separate the strategies.
+14. *Transform sizes, continued.* An FFTW table of every even 2-3-5-smooth size and
+    power of two from 1024 to 262144 (batched real transforms, both planner efforts):
+    - The next smooth size costs a median 5-37 % less than the next power of two, but
+      more for 5-20 % of requests; the slow sizes are 3-heavy (1458, 1944, 6250, 6750,
+      up to 2x per sample). Estimated plans make it worse.
+    - On Apple silicon FFTW's NEON codelets are 1.3-2.7x faster than a build without
+      them, and the smooth choice is then within 14 % of the cheapest size for 90 % of
+      requests. Local Mac builds had been linking an FFTW without NEON; Mac timings in
+      this campaign are comparative only, and none of its conclusions rests on them.
+    - The native backend's slow sizes of finding 11 were not FFTW: measured planning
+      left them unchanged, and the same fine transforms are as fast as their powers of
+      two. They came from size thresholds in native kernels, fixed separately
+      (LupoLab/solprop pull request 24, open).
 
 **Recommendations.**
 
-- **R1 — geometry and strength defaults.**
-  - Place the collar outside the requested window (Q4) on smooth sizes (D1).
-  - Set the strength from the protected walk-off counted on both edges (Q17), capped
-    below at the transmission limit (AN of about 100 for the slow walkers measured, so
-    use the larger of the two). Keep the complement profile and reject the plateau.
-  - Use a 10 % collar per edge. Offer a wider collar as the setting for launches into
-    the edge, and have the monitor's message suggest it rather than defaulting to it.
-  - Q3: no change to `boundary_N`'s meaning; walk-off becomes the default
-    parameterisation.
-- **R2 — the floor.** After R1 the stiffness floor binds none of the cases: canonical's
-  extra steps under today's collar disappear at walk-off strength, and on RDW and SSFS
-  the collar costs no steps. No case qualifies phase 1's implicit collar. Recommend
-  recording phase 1 and phase 4 as not built.
+- **R1 — geometry and strength defaults** (revised 2026-10-25 after finding 13).
+  - Place the collar outside the requested window (Q4) on smooth sizes (D1). This is
+    the change that matters: a collar inside the request cuts into light the run keeps
+    (full SSFS, finding 13).
+  - Keep today's strength (AN = 252) as the default; do not weaken it to the protected
+    walk-off. Weak, far-walking light needs it (finding 13), and the transmission limit
+    of finding 4 bounds weakening anyway. Its costs are reflection of slow walkers
+    (finding 4) and, where light never enters the collar, extra Multistep steps
+    (canonical +20 %). The walk-off parameterisation is offered as a setting for runs
+    that know their walk-off, with Q17's both-edges count.
+  - Keep the complement profile and reject the plateau. Use a 10 % collar per edge;
+    the monitor suggests a wider one for launches into the edge.
+  - Q3: no change to `boundary_N`'s meaning.
+- **R2 — the floor.** At today's strength the floor costs Multistep steps where the
+  collar does no work (canonical +20 %, RK unaffected) and about 8 % on the multimode
+  RDW case, where the collar is needed; on RDW and SSFS it costs none. Removing the cap
+  could therefore save at most 8 % on a case where absorption is necessary, and the
+  canonical saving is on an avoidable collar, which §11 excludes. No case qualifies
+  phase 1's implicit collar. Recommend recording phase 1 and phase 4 as not built.
 - **R3 — diagnostics.**
   - Accumulate occupancy and temporal removal at committed endpoints (the
     `_take_step_stats` sites, §4.6) by trapezoid, with a 10 % quadrature budget. That is
@@ -2191,6 +2235,10 @@ diagnostics; transform-size cost; full-length timings.
   - Under the split, record the discrete energy difference instead, which is exact.
   - Warn at the end of a run when the square root of the removed fraction exceeds
     1e-3 (the 1e-3 budget). Warn at launch when collar or guard occupancy exceeds 1e-4.
+  - These are field-error thresholds. Weak spectral features are not covered: on the
+    multimode RDW case a removed fraction of a few 1e-6 governs the -80 dB spectrum.
+    Report the removed fraction itself in the end-of-run summary so a user with a weak
+    observable can judge it.
   - On spatial routes report signed rates in SEP 34's metric. They are passive except
     near transverse cutoff, so Q15 needs no change to the collar operator.
 - **R4 — spatial collars.** The temporal results transfer, and the radial collar's error
@@ -2199,11 +2247,14 @@ diagnostics; transform-size cost; full-length timings.
   walk-off strength unchanged. Recommend the follow-up SEP of Q10 for the real-space
   collars' geometry, with this case as its witness. Phase 2 must not move spatial
   strength when it changes the temporal default (SEP 22's shared `collar_length`).
-- **R6 — production strategies.** Keep temporal absorption on by default.
-  - On the requested window it costs nothing measurable at R1's geometry. Where a run
-    needs more accuracy than the requested window gives, only a wider window delivers
-    it, and the cheapest is a smooth 1.25-2x window, which no default can choose without
-    knowing the budget.
+- **R6 — production strategies** (revised 2026-10-25 after finding 13). Keep temporal
+  absorption on by default, placed outside the requested window, with the guard
+  monitor.
+  - The collar costs nothing measurable in steps where light reaches it, and it is the
+    only affordable way to keep weak spectral features: no-absorber windows needed 3x
+    the samples to match it at -80 dB. Near the pulse, a wider window is the safer
+    route to accuracy below the collar's own model error, and the cheapest is a smooth
+    1.25-2x window, which no default can choose without knowing the budget.
   - Admit the monitored no-absorber mode as an opt-in for wide windows, and make the
     monitor's advice name the smooth window factor.
   - Make an early launch a documented setting, not a default.
@@ -2225,10 +2276,10 @@ diagnostics; transform-size cost; full-length timings.
   - Not qualified: noise floors and weak bands, the general modal and spatial metrics
     (not measured), and the low-storage march.
 
-**Decisions needed from the maintainer before phase 2:** R1 (geometry, strength, Q3,
-Q17), the R6 default (keep absorption; monitored no-absorber opt-in), R7's policy, the R3
-thresholds and Q15, D1's size table (fast sizes only), and whether to record phases 1
-and 4 as not built (R2).
+**Decisions needed from the maintainer before phase 2:** R1 (collar outside the request,
+today's strength, Q3, Q17), the R6 default (keep absorption; monitored no-absorber
+opt-in), R7's policy, the R3 thresholds and Q15, D1's size chooser (Q23), and whether to
+record phases 1 and 4 as not built (R2).
 
 **Limitations.**
 
@@ -2237,13 +2288,19 @@ and 4 as not built (R2).
 - Low-storage RK4 not calibrated.
 - Guard and energy thresholds come from six cases.
 - Reflection was measured at one dispersion (β₂ only).
+- One long walk-off case with weak far-walking light; the strength recommendation rests
+  on it and on the transmission limit of finding 4.
 - Timings are for one socket of one machine.
 
 **Open questions.**
 
-23. **Q23: smooth sizes that are slow on the native backend and not monotone in the
-    request.** The size chooser should be checked against a measured cost table before
-    D1 lands. Destination: phase 2, with D1.
+23. **Q23: the smooth size chooser.** The next 2-3-5-smooth size is dearer than the next
+    power of two for 5-20 % of requests (finding 14), and the realised size is not
+    monotone in the request because the coarse size must divide the fine one. Recommend
+    choosing the cheaper of the next smooth size and the next power of two from a small
+    measured per-platform cost model, and revisiting the divisor rule. The native slow
+    sizes were a separate kernel threshold problem (finding 14). Destination: phase 2,
+    with D1.
 
 **Handoff.** The harness, raw records, tables and logs are with the development records
 under the SEP's number. Phase 2 starts from the decisions above; the witnesses of §7
