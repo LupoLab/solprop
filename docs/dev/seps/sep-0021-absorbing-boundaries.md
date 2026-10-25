@@ -2153,15 +2153,15 @@ diagnostics; transform-size cost; full-length timings.
       costs 1.8x what 4096 does; 8640 costs 1.7x per sample what 8192 does.
     - The realised smooth size is not monotone in the request: RDW at 1.375x gives 8640
       samples, more than 2x's 8000.
-12. *Timings at matched error.* These are full-length runs on that socket; the native
-    SSFS timings were still running at the time of writing.
+12. *Timings at matched error.* These are full-length runs on that socket.
     - Where the requested window qualifies, the collar, split and no-absorber runs cost
       the same within 5 %. Smooth windows at 1.25-1.5x cost 1.0-1.6x as much, 2x windows
       1.5-2x and 4x windows 2.5-5x.
     - At 1e-4 the requested window does not qualify on RDW (RK) or SSFS. On RDW the
       cheapest run is smooth 1.25x (RK 37.6 s against 60.0 s for 2x on `numba_cpu`;
-      native 9.1 s against 13.4 s). SSFS needs the 2x window: 274 s with Multistep and
-      187 s with RK, 2.7x and 3.2x the 1e-3 cost.
+      native 9.1 s against 13.4 s). SSFS needs the 2x window: on `numba_cpu` 274 s with
+      Multistep and 187 s with RK, 2.7x and 3.2x the 1e-3 cost; native 112 s and 50 s,
+      2.6x and 3.1x.
     - Peak resident memory was 230-450 MB in every run, so memory binds none of these
       cases.
     - Independently of the boundary, RK is 1.7-6x faster than Multistep on the Raman
