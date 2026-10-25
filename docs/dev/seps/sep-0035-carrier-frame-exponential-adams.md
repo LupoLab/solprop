@@ -6,7 +6,7 @@
 | **Title** | A carrier frame for the exponential Adams history |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-10-25; revision after review, 2026-10-25) |
-| **Status** | Accepted |
+| **Status** | In progress |
 | **Review status** | Reviewed |
 | **Reviewers** | GPT-6 (AI); John Travers (human) |
 | **Type** | Change |
@@ -15,8 +15,8 @@
 | **Requires** | [SEP 16](archive/sep-0016-unified-multistep.md) (the default multistep stepper and its exponential formulation); [SEP 25](archive/sep-0025-rounding-level-reproducibility.md) (the rounding-level reproducibility contract) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | — |
-| **Manual pages** | — |
+| **Implementation** | Branch `feature/multistep-carrier-frame`: phase 1 (`numpy_ref`, opt-in) complete; phases 2–4 to follow, one pull request at Final |
+| **Manual pages** | [The Adams integrator: the carrier frame](../../guide/numerics/adams.md#the-carrier-frame); [choosing a stepper](../../guide/numerics/choosing-a-stepper.md); [the linear operator](../../guide/numerics/linear-operator.md#which-terms-the-frame-removes) |
 
 ## Part I — Proposal
 
@@ -689,6 +689,185 @@ without the policy refuses it by name.
 
 *One report per phase, appended in the pull request that merges the phase (SEP 0 §8).*
 
+### Phase 1 — `numpy_ref`, opt-in (2026-10-25)
+
+**Delivered.**
+
+- `solprop/stepper/multistep.py`: `CarrierFrame` and the `Multistep.carrier_frame`
+  field (`"off"` by default), validated like `formulation` (a shift with the
+  interaction formulation is a `StepperError`, so `ComparisonMultistep` can only be
+  `"off"`); a `-scalar-frame` / `-harmonic-frame` suffix on the record name;
+  `CARRIER_PHASE_CAP = 1.0`; the residual-phase condition of §4.4 in the docstring of
+  `PEC_REAL_INTERVAL`.
+- `solprop/translate/problem.py`: `SCHEMA_VERSION = 36` with its version note; the
+  native binding reports 36 (`native/src/bindings.cpp`) and the frozen literals are
+  rewritten.
+- `solprop/backends/exponential.py`: `CarrierReference` (the run's reference bin, its
+  frequency, the harmonic multiple and the reason), `carrier_reference` (the rule of
+  §6.1), `HARMONIC_BOUNDARY` and `refuse_carrier_frame`, called beside
+  `refuse_formulation` on all three backends: `numpy_ref` delivers both policies,
+  `numba_cpu` and native refuse either by name, and every spatial geometry is refused.
+- `solprop/backends/multistep.py`: the shifted trial in `HostHistory` (moments at
+  `x - sigma`, the rows read rotated into a compact buffer by `_rotated`, the store
+  untouched); `coupled_moments(..., carrier=sigma)`, whose flow is `exp(sigma)` times
+  the shifted block's `phi_0` in both the augmented and eigenbasis paths;
+  `_Compensation.rotate` for the untransported witness; the dense formula of §4.1 with
+  the accepted step's `sigma`; the cap in `AdamsMarch._capped`. The prototype's
+  environment switches are gone.
+- Tests: `tests/backends/test_carrier_frame.py` (73 cases), the shifted reference march
+  in `tests/exponential_scalar.py` with two witnesses in
+  `tests/stepper/test_exponential_scalar_march.py`, and `carrier_increment_budget` in
+  `tests/bounds.py`.
+- Manual: [the carrier frame](../../guide/numerics/adams.md#the-carrier-frame), the
+  carrier-following source in *Which formulation suits which source*, the interim note
+  in [limitations](../../guide/numerics/adams.md#limitations) and in
+  [choosing a stepper](../../guide/numerics/choosing-a-stepper.md), and a pointer from the
+  grid table of [the linear operator](../../guide/numerics/linear-operator.md#which-terms-the-frame-removes).
+  Design: `docs/dev/stepper.md`, the capability table of `docs/dev/backends.md`, the
+  integrator row of `docs/dev/kernel-contract.md`. `CHANGELOG.md`.
+
+**Deviations from Part I, and why.**
+
+1. *The reference frequency* is the grids' `omega0`, not the `Frame`'s own: the kernel
+   problem does not carry the frame's reference. The two coincide for every co-moving
+   frame; a custom frame with another reference changes only how much rotation the
+   shift removes (§4.1 is exact for any `sigma`), which a test runs (a frame 5 % above
+   the grid's: 294 calls, as with the co-moving frame).
+2. *Recording.* The effective policy (the reference bin and its frequency, the reason
+   for an inert run, the harmonic rule) is logged at INFO when the march is built and
+   held on the engine (`HostHistory.carrier`); no output field is added, as §6.5
+   foresaw. The harmonic boundary is the module constant `HARMONIC_BOUNDARY`, so the
+   code version and the method's representation fix it.
+3. *Separable operators* exist only on the spatial routes, which phase 1 refuses with
+   free space (radial, Cartesian and line, planar). The separable case of §11 therefore
+   waits for the free-space qualification.
+4. *The coupled interpolant.* Interpolated planes are refused beside a coupled flow for
+   every stepper, so §6.3's "and the same in their interpolant" has nothing to change.
+5. *The cap* is one chord of the reference bin's exponent over the part of the proposal
+   inside the run, scaled once; a replayed schedule is not capped (its steps are given).
+   On a varying carrier a capped step can exceed one radian by the chord's error.
+6. *The native schema literal.* Bumping the kernel schema moves `bindings.cpp`'s
+   reported version; no native arithmetic changes, and the adapter refuses either shift
+   by name. The native extension was not built locally; CI builds it.
+7. *The crossing-broadening witness* (§7.1, harmonic band) is a manufactured source
+   whose whole content follows the carrier, so every bin at or above `2 omega_0` holds
+   fundamental-rate content under `m = 3`; a propagation whose spectrum moves across the
+   boundary is left to the phase 4 gate (§7.4), which needs one with per-band references.
+
+**Decisions.**
+
+- *Q6, the cap's value.* One cap for every order. On the mixed witness the defect
+  exceeds the error by 2.8 (q = 1) to 13 (q = 6) at `h|kappa| = 1`, and by 5.9 to 27 on
+  the stationary one; the mixed defect first falls below its error at `h|kappa|` = 2.05
+  (q = 1) to 2.5 (q = 6). An order-dependent cap would buy nothing measurable.
+- *Q7, the stability heuristic* (partly). On a 3 mm window whose in-stage collar binds
+  the step, the policy shows no growth: its field meets the accuracy envelope and its
+  energy does not exceed the reference's. It took 842 calls against 754 unshifted there,
+  so the order weight's interaction with the shifted residual phase is a cost question
+  for phase 4, not a stability failure. No residual-phase condition was added.
+- *Q5, a non-fundamental launch* (partly). All of a two-mode run's energy launched in the
+  second mode: the policy meets its envelope in 757 calls against 849 unshifted.
+
+**The parity rounding budget** (for phases 2 and 3; `bounds.carrier_increment_budget`).
+Elementwise, for the increment `sum_k M_k S_k`, `S_k = sum_j c_jk G_j`, with `u` the unit
+roundoff and `n` the nodes: a rotated sample `G_j = exp(sigma (1 - theta_j)) F_j` is
+within `|F_j| r_j`, `r_j = (u |sigma| + d) |1 - theta_j| + 6 u` (the argument's product,
+three correctly rounded real functions, the multiply, and the phase uncertainty `d` with
+which a backend forms `sigma`); `S_k` within `sum_j |c_jk| |F_j| (r_j + gamma_n + n^2 u)`,
+the last term the Lagrange coefficients' own formation; a moment within 256 ulp of its
+natural scale `E / (k + 1)`, `E = exp(max(Re x', 0))`, plus the argument's
+`u |x'| + d` carried by `|M_k'| <= E / (k + 1)`; and the outer sum within
+`gamma_n sum_k |M_k| |S_k|`. The rotation has unit modulus, so `|G_j| = |F_j|` and the
+interpolation's conditioning is the unshifted formulation's. Two implementations of a
+matched step differ by at most twice the bound; a run's budget adds the per-step bounds
+carried by the lossy flow. Against a 40-digit evaluation of one increment (five irregular
+nodes, `|Im x|` to 40, `sigma = 0.9i`) every element is inside it. A compiled backend
+whose `sigma` is formed from its own exponent passes that exponent's rounding as `d`.
+
+**Verification run.**
+
+- `uv run pytest -n 8 tests/backends/test_carrier_frame.py
+  tests/stepper/test_exponential_scalar_march.py`: 101 passed, 1 skipped (native is not
+  installed here), 27 s. The existing Adams and exponential modules
+  (`tests/stepper/test_multistep.py`, `tests/backends/test_exponential_{march,varying,coupled,weights}.py`,
+  `tests/backends/test_multistep_march.py`, `tests/backends/test_driver.py`,
+  `tests/translate/test_problem.py`): 525 passed, 1 skipped, after the two pinned
+  representations were updated. `tests/test_seps.py` passed.
+- `ruff check`, `ruff format`, `basedpyright` and `poe docstrings` on the changed files;
+  doctests of the two changed modules; `codespell`; `poe docs`; the public-tree scan.
+- Not run locally, by the working agreement: the full gate, the slow and coverage lanes
+  and the native gate, which run in CI on the SEP's pull request. No GPU and no
+  `numba_cuda`.
+
+**What the tests establish** (all on `numpy_ref`).
+
+- *Exactness through the march itself*: a manufactured source `p exp(i rho z)` at the
+  frame's own rate (and, for `"harmonic"`, at `m(omega)` times it) is stepped to
+  3e-16 – 8e-16 at every plane, the interpolated ones included, against 2e-10 – 1e-9
+  unshifted at the same `rtol`; the exact steps grow until the cap holds them at
+  `h|kappa| = 1.000`, with no restart, in 19 calls against 37.
+- §4.3's table reproduced to its two figures; aliasing blinds the defect in both
+  formulations; under the cap the defect bounds the error at every order (Q6).
+- §4.4's threshold table and the review's two spectral radii, from the recurrence with
+  production weights.
+- Adaptive marches from startup on a third-harmonic remainder and on a stationary part,
+  with variable steps, replayed on their own accepted steps, within the envelope; a run
+  that rejects and recovers.
+- The inert envelope grid bit for bit equal to `"off"`; the inactive-bin fallback with
+  its reason.
+- Short physical windows (3 mm of 40 bar hydrogen, 2 uJ, 30 fs, Kerr only, a weak
+  collar; Runge–Kutta at `rtol = 1e-11` as each window's reference), at `rtol = 1e-8`:
+
+  | window | `"off"` calls / error | `"scalar"` calls / error |
+  |---|---|---|
+  | field grid | 376 / 1.4e-9 | 294 / 6.7e-9 |
+  | envelope grid with the third harmonic | 375 / 4.8e-10 | 268 / 2.9e-9 |
+  | field grid, the window's own in-stage collar | 754 / 1.1e-9 | 842 / 3.3e-9 |
+  | launch 40 bins red of the reference | 374 / 8.9e-10 | 297 / 6.1e-10 |
+  | launch 40 bins blue of the reference | 653 / 3.1e-9 | 701 / 2.3e-9 |
+  | two modes, launched in the second | 849 / 1.6e-9 | 757 / 1.5e-9 |
+  | custom frame 5 % above the grid's reference | 377 / 1.4e-9 | 294 / 6.6e-9 |
+  | gas gradient 40 → 20 bar (compensated) | 754 / 9.1e-10 | 804 / 2.8e-9 |
+
+  Coupled sections at `rtol = 1e-9`, against Runge–Kutta at 1e-11: the scalar wall 13
+  and 12 calls (2.6e-12, 8.9e-13), the taper 65 and 63 (1.4e-10 both). These are equal
+  tolerances, not matched errors, and one machine: they are not the phase 4 comparison.
+
+**Sources.** Nothing was transcribed: the shifted step, the dense formula, the coupled
+identity and the budget were re-derived and checked against quadrature, augmented
+exponentials and a 40-digit evaluation. The two references of §13 were checked by the
+AI review; they were not re-read for this phase.
+
+**Limitations.**
+
+- `numpy_ref` only; the free-space routes, and so the separable representation, are
+  refused.
+- The harmonic boundary is the prototype's fixed `2 omega_0`, pending §7.4.
+- At equal `rtol` the policy's error on the short windows is up to five times the
+  unshifted one's, and it takes more calls under a binding in-stage collar, on a blue
+  launch and on the gradient window; whether it is cheaper at matched error is phase 4's
+  measurement.
+
+**Open questions.**
+
+1. Q7 remains open for the cost side: why the in-stage collar's window takes 12 % more
+   calls under the policy (the order weight against the shifted residual phase, or the
+   orders chosen), measured in phase 4.
+2. Q5 for a launch far from the reference: the blue launch took 7 % more calls; whether
+   a reference that follows the launch's own carrier is worth a deviation from §6.1.
+3. Whether the cap should follow the varying carrier to more than one chord (deviation 5).
+
+**Handoff.** Phase 2 (`numba_cpu`): give `NumbaExponentialKernels`' predict and correct
+the shifted exponent and a per-slot factor array (the rotated-sample form, fused into
+the row reads); the dense observation is the shared host code and needs nothing; the
+coupled path already takes `shift=` (its signature exists, the backend refuses until
+then). Lift the refusal for `"scalar"` only, check parity against `numpy_ref` with
+`carrier_increment_budget` (one step, eight steps, a short window) and record ten-step
+timings. Phase 3 (native): the host forms `sigma_b` from the operator's representation,
+the trial and accept entry points take it and the factors, `adams_exponential_observe`
+takes the accepted step's `sigma`, with parity, timings and then devices. Phase 4: §7.3
+and §7.4 on the suite's short windows.
+
 ## Part III — History
 
 - 2026-10-25: Drafted, with a `numpy_ref` prototype's measurements.
@@ -713,6 +892,9 @@ without the policy refuses it by name.
 
 - 2026-10-25: Reviewed by John Travers (human) and accepted. Implementation starts with
   phase 1 (`numpy_ref`, opt-in) on the same branch.
+
+- 2026-10-25: Phase 1 (`numpy_ref`, opt-in) implemented on
+  `feature/multistep-carrier-frame`; status `In progress`; report in Part II.
 
 ### AI review — 2026-10-25 — GPT-6
 
