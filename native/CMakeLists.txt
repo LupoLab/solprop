@@ -332,6 +332,32 @@ option(SOLPROP_NATIVE_BAND_STAGING
        "Stage the band rule's filter rows in team scratch (solprop SEP 18 Q8)"
        ${SOLPROP_NATIVE_BAND_STAGING_DEFAULT})
 
+# The precision policies the native core instantiates (solprop SEP 36 section 6.3,
+# include/solprop_native/precision.hpp). Binary64 is the default arithmetic, so every
+# build instantiates `double`; `single` and `mixed` are refused until they are built.
+set(SOLPROP_NATIVE_PRECISIONS "double" CACHE STRING
+    "Semicolon-separated precision policies to instantiate: double (required)")
+set(SOLPROP_NATIVE_PRECISION_DEFINITIONS)
+foreach(SOLPROP_NATIVE_PRECISION IN LISTS SOLPROP_NATIVE_PRECISIONS)
+  if(SOLPROP_NATIVE_PRECISION STREQUAL "double")
+    list(APPEND SOLPROP_NATIVE_PRECISION_DEFINITIONS SOLPROP_NATIVE_PRECISION_DOUBLE=1)
+  elseif(SOLPROP_NATIVE_PRECISION MATCHES "^(single|mixed)$")
+    message(FATAL_ERROR
+      "SOLPROP_NATIVE_PRECISIONS: the ${SOLPROP_NATIVE_PRECISION} precision policy "
+      "is not built yet (solprop SEP 36); use \"double\".")
+  else()
+    message(FATAL_ERROR
+      "SOLPROP_NATIVE_PRECISIONS must list double, single or mixed; got "
+      "\"${SOLPROP_NATIVE_PRECISION}\".")
+  endif()
+endforeach()
+list(REMOVE_DUPLICATES SOLPROP_NATIVE_PRECISION_DEFINITIONS)
+if(NOT "SOLPROP_NATIVE_PRECISION_DOUBLE=1" IN_LIST SOLPROP_NATIVE_PRECISION_DEFINITIONS)
+  message(FATAL_ERROR
+    "SOLPROP_NATIVE_PRECISIONS must include double, the default arithmetic; got "
+    "\"${SOLPROP_NATIVE_PRECISIONS}\".")
+endif()
+
 foreach(SOLPROP_NATIVE_DEVICE_SIZE IN ITEMS
         SOLPROP_NATIVE_DEVICE_TEAM_SIZE SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE)
   if(NOT "${${SOLPROP_NATIVE_DEVICE_SIZE}}" MATCHES
@@ -849,6 +875,7 @@ target_compile_definitions(solprop_native_core PUBLIC
   SOLPROP_NATIVE_DEVICE_TEAM_SIZE=${SOLPROP_NATIVE_DEVICE_TEAM_SIZE}
   SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE=${SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE}
   SOLPROP_NATIVE_BAND_STAGING=$<BOOL:${SOLPROP_NATIVE_BAND_STAGING}>
+  ${SOLPROP_NATIVE_PRECISION_DEFINITIONS}
 )
 if(SOLPROP_NATIVE_BLAS_BACKEND STREQUAL "OpenBLAS")
   target_compile_definitions(solprop_native_core PUBLIC
@@ -944,6 +971,7 @@ if(BUILD_TESTING)
     tests/native/test_envelope_plasma.cpp
     tests/native/test_fft.cpp
     tests/native/test_fp.cpp
+    tests/native/test_precision.cpp
     tests/native/test_general_modal.cpp
     tests/native/test_helpers.cpp
     tests/native/test_z_table.cpp
