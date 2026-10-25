@@ -61,81 +61,97 @@
 
 namespace solprop_native {
 
+/*
+ * The strict helpers are templates on the real type, `double` or `float` (solprop SEP
+ * 36): the scalar of the first complex operand decides it, and every other operand
+ * converts to it as it did to the `double` overloads, so the binary64 calls are the
+ * same functions as before.
+ */
+namespace fp_detail {
+template <class T> struct Identity {
+  using type = T;
+};
+// A parameter of this type takes no part in deducing `Real`.
+template <class Real> using Same = typename Identity<Real>::type;
+template <class Real>
+using SameComplex = typename Identity<Kokkos::complex<Real>>::type;
+} // namespace fp_detail
+
 /** `a + b`, each part rounded once. */
-SOLPROP_NATIVE_STRICT_FUNCTION
-KOKKOS_INLINE_FUNCTION Kokkos::complex<double>
-strict_add(const Kokkos::complex<double> a, const Kokkos::complex<double> b) {
+template <class Real>
+SOLPROP_NATIVE_STRICT_FUNCTION KOKKOS_INLINE_FUNCTION Kokkos::complex<Real>
+strict_add(const Kokkos::complex<Real> a, const fp_detail::SameComplex<Real> b) {
   SOLPROP_NATIVE_STRICT_BLOCK
   return {a.real() + b.real(), a.imag() + b.imag()};
 }
 
 /** `a + b` for a real `a`, as `Kokkos::complex`'s operator forms it. */
-SOLPROP_NATIVE_STRICT_FUNCTION
-KOKKOS_INLINE_FUNCTION Kokkos::complex<double>
-strict_add(const double a, const Kokkos::complex<double> b) {
+template <class Real>
+SOLPROP_NATIVE_STRICT_FUNCTION KOKKOS_INLINE_FUNCTION Kokkos::complex<Real>
+strict_add(const fp_detail::Same<Real> a, const Kokkos::complex<Real> b) {
   SOLPROP_NATIVE_STRICT_BLOCK
   return {a + b.real(), b.imag()};
 }
 
 /** `a - b`, each part rounded once. */
-SOLPROP_NATIVE_STRICT_FUNCTION
-KOKKOS_INLINE_FUNCTION Kokkos::complex<double>
-strict_sub(const Kokkos::complex<double> a, const Kokkos::complex<double> b) {
+template <class Real>
+SOLPROP_NATIVE_STRICT_FUNCTION KOKKOS_INLINE_FUNCTION Kokkos::complex<Real>
+strict_sub(const Kokkos::complex<Real> a, const fp_detail::SameComplex<Real> b) {
   SOLPROP_NATIVE_STRICT_BLOCK
   return {a.real() - b.real(), a.imag() - b.imag()};
 }
 
 /** `w a` for a real `w`: two rounded products. */
-SOLPROP_NATIVE_STRICT_FUNCTION
-KOKKOS_INLINE_FUNCTION Kokkos::complex<double>
-strict_scale(const double w, const Kokkos::complex<double> a) {
+template <class Real>
+SOLPROP_NATIVE_STRICT_FUNCTION KOKKOS_INLINE_FUNCTION Kokkos::complex<Real>
+strict_scale(const fp_detail::Same<Real> w, const Kokkos::complex<Real> a) {
   SOLPROP_NATIVE_STRICT_BLOCK
   return {w * a.real(), w * a.imag()};
 }
 
 /** `a b`, `Kokkos::complex`'s formula with every product and sum rounded. */
-SOLPROP_NATIVE_STRICT_FUNCTION
-KOKKOS_INLINE_FUNCTION Kokkos::complex<double>
-strict_mul(const Kokkos::complex<double> a, const Kokkos::complex<double> b) {
+template <class Real>
+SOLPROP_NATIVE_STRICT_FUNCTION KOKKOS_INLINE_FUNCTION Kokkos::complex<Real>
+strict_mul(const Kokkos::complex<Real> a, const fp_detail::SameComplex<Real> b) {
   SOLPROP_NATIVE_STRICT_BLOCK
-  const double rr = a.real() * b.real();
-  const double ii = a.imag() * b.imag();
-  const double ri = a.real() * b.imag();
-  const double ir = a.imag() * b.real();
+  const Real rr = a.real() * b.real();
+  const Real ii = a.imag() * b.imag();
+  const Real ri = a.real() * b.imag();
+  const Real ir = a.imag() * b.real();
   return {rr - ii, ri + ir};
 }
 
 /** `sum + w a` for a real `w`, the product rounded before the sum. */
-SOLPROP_NATIVE_STRICT_FUNCTION
-KOKKOS_INLINE_FUNCTION Kokkos::complex<double>
-strict_accumulate(const Kokkos::complex<double> sum, const double w,
-                  const Kokkos::complex<double> a) {
+template <class Real>
+SOLPROP_NATIVE_STRICT_FUNCTION KOKKOS_INLINE_FUNCTION Kokkos::complex<Real>
+strict_accumulate(const Kokkos::complex<Real> sum, const fp_detail::Same<Real> w,
+                  const fp_detail::SameComplex<Real> a) {
   SOLPROP_NATIVE_STRICT_BLOCK
-  const double real = w * a.real();
-  const double imag = w * a.imag();
+  const Real real = w * a.real();
+  const Real imag = w * a.imag();
   return {sum.real() + real, sum.imag() + imag};
 }
 
 /** `a / w` for a real `w`. */
-SOLPROP_NATIVE_STRICT_FUNCTION
-KOKKOS_INLINE_FUNCTION Kokkos::complex<double>
-strict_divide(const Kokkos::complex<double> a, const double w) {
+template <class Real>
+SOLPROP_NATIVE_STRICT_FUNCTION KOKKOS_INLINE_FUNCTION Kokkos::complex<Real>
+strict_divide(const Kokkos::complex<Real> a, const fp_detail::Same<Real> w) {
   SOLPROP_NATIVE_STRICT_BLOCK
   return {a.real() / w, a.imag() / w};
 }
 
 /** `a / b` by `Kokkos::complex`'s scaled algorithm, every operation rounded. */
-SOLPROP_NATIVE_STRICT_FUNCTION
-KOKKOS_INLINE_FUNCTION Kokkos::complex<double>
-strict_divide(const Kokkos::complex<double> a, const Kokkos::complex<double> b) {
+template <class Real>
+SOLPROP_NATIVE_STRICT_FUNCTION KOKKOS_INLINE_FUNCTION Kokkos::complex<Real>
+strict_divide(const Kokkos::complex<Real> a, const fp_detail::SameComplex<Real> b) {
   SOLPROP_NATIVE_STRICT_BLOCK
-  const double s = Kokkos::fabs(b.real()) + Kokkos::fabs(b.imag());
-  if (s == 0.0)
+  const Real s = Kokkos::fabs(b.real()) + Kokkos::fabs(b.imag());
+  if (s == Real(0))
     return {a.real() / s, a.imag() / s};
-  const Kokkos::complex<double> numerator(a.real() / s, a.imag() / s);
-  const Kokkos::complex<double> conjugate(b.real() / s, -b.imag() / s);
-  const double rr = conjugate.real() * conjugate.real();
-  const double ii = conjugate.imag() * conjugate.imag();
+  const Kokkos::complex<Real> numerator(a.real() / s, a.imag() / s);
+  const Kokkos::complex<Real> conjugate(b.real() / s, -b.imag() / s);
+  const Real rr = conjugate.real() * conjugate.real();
+  const Real ii = conjugate.imag() * conjugate.imag();
   return strict_divide(strict_mul(numerator, conjugate), rr + ii);
 }
 
