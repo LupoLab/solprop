@@ -6,12 +6,12 @@
 | **Title** | A carrier frame for the exponential Adams history |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-10-25; revision after review, 2026-10-25) |
-| **Status** | Draft |
-| **Review status** | In review |
-| **Reviewers** | GPT-6 (AI) |
+| **Status** | Accepted |
+| **Review status** | Reviewed |
+| **Reviewers** | GPT-6 (AI); John Travers (human) |
 | **Type** | Change |
 | **Created** | 2026-10-25 |
-| **Resolution** | — |
+| **Resolution** | Accepted 2026-10-25 by John Travers after reading the revised proposal, with the maintainer decisions recorded in Part III. No pull request; the proposal lands with its implementation's single pull request. |
 | **Requires** | [SEP 16](archive/sep-0016-unified-multistep.md) (the default multistep stepper and its exponential formulation); [SEP 25](archive/sep-0025-rounding-level-reproducibility.md) (the rounding-level reproducibility contract) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
@@ -710,6 +710,9 @@ without the policy refuses it by name.
 
 - 2026-10-25: Maintainer decisions recorded: responses to R1–R10 approved; default
   `"off"` until phase 4; phase 4 thresholds accepted; pre-SEP snapshots refused; fixed cap.
+
+- 2026-10-25: Reviewed by John Travers (human) and accepted. Implementation starts with
+  phase 1 (`numpy_ref`, opt-in) on the same branch.
 
 ### AI review — 2026-10-25 — GPT-6
 
