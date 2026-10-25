@@ -1094,6 +1094,66 @@ analysis.
 **Handoff.** All four phases are complete. Final needs the SEP archived, its open
 questions on the roadmap and the single pull request opened.
 
+### Phase 4, supplement — the four methods at matched band error (2026-10-25)
+
+§7.3 compares the two policies at matched worst-plane error, where `"scalar"`'s bands are
+worse. A user who needs a band tightens the tolerance until that band converges, so the
+question that decides whether the policy is worth keeping is the cost at matched error
+*in each band*, against every method a user could choose. IP-DOPRI5 and the interaction
+formulation were therefore run through the same windows, tolerances and references, on
+both backends, one thread, five interleaved samples (the setup of phase 4).
+
+**Method.** For each case, window, backend and error measure (worst-plane field, weak
+bins, named band), each method's calls and time at matched error, interpolated log-log on
+its work-precision front at every decade from 1e-2 to 1e-7 that all four reach: 105
+comparisons a backend. IP-DOPRI5's calls are its physical source evaluations, six a step
+and its rejections; the Adams methods' are their logical calls.
+
+**Calls.** `"scalar"` needs the fewest at 64 of the 105 points, the interaction
+formulation at 28, `"off"` at 13, IP-DOPRI5 at none.
+
+**Time**, the cost a user pays: the method that was fastest at most of a window's
+matched errors, and the median ratio of `"scalar"`'s time to the fastest of the other
+three:
+
+| case | fastest, `numba_cpu` | `"scalar"` / best other | fastest, native | `"scalar"` / best other |
+|---|---|---|---|---|
+| `ctc_reduced`, launch | `"scalar"` | 0.88 | `"scalar"` | 0.88 |
+| `ctc_reduced`, developed | `"scalar"` | 0.69 | `"scalar"` | 0.70 |
+| `rdw`, launch | `"scalar"` | 0.90 | IP-DOPRI5 | 1.08 |
+| `rdw`, developed | `"scalar"` | 0.94 | `"off"` | 1.06 |
+| `argon_blueshift`, launch | interaction | 1.31 | interaction | 1.37 |
+| `argon_blueshift`, developed | interaction | 1.17 | interaction | 1.20 |
+| `h2_raman_6ps`, launch | interaction | 1.30 | interaction | 1.19 |
+| `h2_raman_6ps`, developed | interaction | 1.16 | interaction | 1.25 |
+| `he_rdw_averaged`, launch | IP-DOPRI5 | 2.06 | IP-DOPRI5 | 2.32 |
+| `he_rdw_averaged`, developed | IP-DOPRI5 | 2.28 | IP-DOPRI5 | 2.60 |
+| case A, launch | interaction | 1.30 | interaction | 1.39 |
+| case A, Kerr only, launch | interaction | 1.97 | interaction | 2.28 |
+
+(Case A's developed windows reach only one common decade: 1.01–1.66 on `numba_cpu`,
+1.10–2.48 on native.) Over all points the fastest method is the interaction formulation
+at 41 (`numba_cpu`) and 44 (native), `"scalar"` at 39 and 22, IP-DOPRI5 at 20 and 28,
+`"off"` at 5 and 11.
+
+**Reading.** The carrier frame is the fastest method on one case of seven: the
+two-mode comb-to-continuum capillary with Raman, where it takes 0.69–0.88 of the time of
+the next best. On the four-mode helium RDW it is level with the default (0.90–0.94 on
+`numba_cpu`, 1.06–1.08 on native). Everywhere else a method that already exists is
+faster: the interaction formulation in dense argon and in the 5 bar hydrogen soliton
+(by 16–37 %), and IP-DOPRI5 or the interaction formulation on the single-mode helium
+cases, where a source evaluation is cheap (by a factor of 1.3–2.6). Where the shift wins
+calls it often loses time, because its per-step cost (§7.2's ledger entry) and the
+Adams arithmetic outweigh the calls a cheap source saves.
+
+**What this means for the policy** (a reading for the maintainer, not a decision): the
+default stays `"off"` as decided above. Keeping `"scalar"` buys 12–30 % on expensive,
+dense, multimode Raman problems at the cost of carrier-specific arithmetic in three
+backends, a step cap, and a tolerance that means something different in weak bands. The
+alternative is to withdraw it, with the manual advising the interaction formulation for
+dense gases on field grids and `RungeKutta()` where the source is cheap, which this
+comparison supports in five of the seven cases.
+
 ## Part III — History
 
 - 2026-10-25: Drafted, with a `numpy_ref` prototype's measurements.
@@ -1128,6 +1188,9 @@ questions on the roadmap and the single pull request opened.
 - 2026-10-25: Phase 4: the default stays `"off"` (the weak-band budget and native's
   time fail §7.3's criterion); `"harmonic"` fails §7.4's gate and is removed. Report
   in Part II.
+
+- 2026-10-25: Phase 4 supplement: IP-DOPRI5 and the interaction formulation through the
+  same windows; the four methods compared at matched band error (Part II).
 
 ### AI review — 2026-10-25 — GPT-6
 
