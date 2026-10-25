@@ -7,8 +7,8 @@
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-10-25) |
 | **Status** | Draft |
-| **Review status** | Not reviewed |
-| **Reviewers** | — |
+| **Review status** | In review |
+| **Reviewers** | GPT-6 (AI) |
 | **Type** | Feature |
 | **Created** | 2026-10-25 |
 | **Resolution** | — |
@@ -1025,3 +1025,209 @@ remains open is what the phases measure within these decisions.
   rounding margin primary, standard-error-aware envelopes, the margin recorded in each
   run), and with AMD GPUs qualified in this SEP rather than deferred (Q9), which adds a
   HIP lane, benchmarks and per-pass profiles to phase 4.
+
+- 2026-10-25: Reviewed by GPT-6 (AI). Findings R1–R12 below concern Part I at
+  `e0eaf2a`. Only the review metadata and this history were changed; Part I and Part II
+  were left untouched.
+
+### AI review — 2026-10-25
+
+**Reviewer:** GPT-6 (AI). **Recommendation:** revise before acceptance. The two-mode
+scope and the CPU-before-device sequence are reasonable. The main unresolved issues
+are the exact mixed arithmetic boundary, the propagator accuracy claims, and the
+experiment that will justify noise admission. The maintainers' Q1–Q10 decisions are
+not changed by this review; the questions below identify where their implementation
+or qualification needs a more precise contract, or an explicit reconsideration.
+
+The review checked the proposal against SEP 33 and its implementation record, the
+current precision and reference-backend code, the solver and storage conventions,
+and the supplied indicative benchmark sources and A40 output. The A40 table values
+agree with that output. Small scalar probes were run for R1 and R5; no propagation
+study, native build or device experiment was rerun. The supplied evidence did not
+include captured CPU timing output. Priorities: **P1** needs resolution before
+acceptance because it changes a numerical guarantee or its qualification; **P2**
+needs a specified answer before the affected phase is implemented. All findings are
+open for a maintainer response.
+
+1. **R1 — P1: Define the stored stage's frame, scale and range before removing the
+   damping restriction (§§4.2, 5, 6.1–6.3, 6.7).** The displayed stage equation omits
+   the inverse interaction-picture propagator. In the present implementation,
+   `NumpyRefBackend._nonlinear` returns the source multiplied by that inverse, and
+   `_adams_source` documents the same convention. Thus retaining a binary64
+   propagator does not establish that the stored complex64 stage fits. For example,
+   a lab-frame source of `1e-10` multiplied by `exp(150)` gives about `1.394e55`:
+   binary64 holds it, narrowing overflows, and multiplication by `exp(-150)` would
+   have recovered `1e-10`. This is precisely the kind of strongly damped bin that
+   motivated SEP 33's exponent restriction. Does mixed store lab-frame source rows,
+   interaction-picture rows with separate exponents, or bounded rows under a new
+   admission rule? Specify the complete operation order, including inverse flow,
+   source coefficients, widening and the conversion from `N(A / s)` to physical
+   `N(A)`. Reusing the single path returns `N(A) / s`, so an exact widening alone is
+   insufficient. Carry the chosen representation through FSAL, low-storage steps,
+   Adams history, dense output, snapshots and memory estimates. Add a damped-bin
+   witness and a non-unit-launch-scale nonlinear witness before dropping the guard.
+
+2. **R2 — P1: State which absorber operations retain binary64 accuracy (§§4.2, 6.2,
+   7.2).** Keeping absorber tables in binary64 does not keep their action in
+   binary64. The current `_absorber_term` transforms the field even when there is no
+   material response; the Cartesian `_nonlinear_free` also transforms the transverse
+   field for its spatial absorber. The split-step `_finish` uses temporal transforms,
+   and transverse transforms on the Cartesian route. If these reuse binary32 source
+   workspaces, a physically linear run acquires binary32 error. If they retain
+   binary64 transforms, the workspace and performance accounting must include those
+   plans and buffers. Please define whether “linear part” means only the diagonal
+   exponential or all admitted linear boundary treatments. Test the chosen guarantee
+   with nonzero temporal and spatial absorbers, under both temporal schemes, as well
+   as a source-free diagonal flow. A zero-source shortcut with inactive collars cannot
+   establish the broader guarantee currently stated.
+
+3. **R3 — P1: Make the mixed oracle implement the declared accumulation policy
+   (§§4.2, 4.5, 6.2–6.3).** The mixed contract puts every running integral and
+   reduction in binary64, but §6.2 reuses the single source and its reduction orders.
+   In `backends/numpy_ref/single.py`, `running_integral` forms binary32 increments,
+   calls the binary32 `prefix_sum`, and returns binary32; `plasma_current_single`
+   calls it for exposure and free current. These require a deliberate policy change
+   in the mixed oracle, not just composition of state hooks. Also distinguish
+   binary64 norm/scan accumulators from the internal binary32 sums in FFTs and
+   SGEMM/CGEMM: the abstract's “every accumulation” cannot literally cover both.
+   Specify where products, increments and partial sums are widened, and where results
+   are narrowed again. Add adversarial integral and dtype tests for those boundaries.
+   Separately identify the existing oracle exceptions (binary64 envelope moments and
+   statistics) so that their comparisons are not mistaken for matched binary32
+   operation sequences.
+
+4. **R4 — P1: Write the mixed comparison bound and qualify the oracle independently
+   (§§4.2, 6.1, 7.1–7.3).** “The source's terms at `u32` and the state's at `u64`”
+   does not yet specify how input narrowing, response conditioning, coefficient
+   rounding, inverse-flow amplification and source scaling compose into a state
+   error. The scalar `c_s u32 log2(n)` heuristic is not such a bound, especially for
+   plasma near rate cutoffs or a source formed by cancellation. State the bound's
+   inputs and absolute terms, including how a source error is transported through
+   each stage and how the two sides' different accumulator precisions are charged.
+   Restore SEP 33's explicit one-step oracle-versus-binary64 test, and add independent
+   response witnesses before using native-versus-oracle agreement as qualification.
+   For the proposed controller floor, check acceptance/rejection behaviour and
+   progress as well as final metric improvement: the argument assumes a small
+   per-step nonlinear phase that admission does not enforce. How are large nonlinear
+   phases and nearly vanishing sources handled without a bound fitted to the results?
+
+5. **R5 — P1: Bound both parts of the single-precision exponential (§§4.1, 4.3,
+   7.2).** Reducing the imaginary argument does not protect the real exponent. For
+   `x = -80.000003`, a binary32 cast produces `-80`; even an exact exponential of that
+   cast argument differs from `exp(x)` by about `3e-6`, roughly `50 u32`. A NumPy
+   scalar probe measured `2.97e-6`. This exponent is inside the stated damping limit,
+   so the claim of a propagator within a few `u32`, and the claim that SEP 33's
+   binary64-accurate exponential followed by one rounding is unchanged, need repair.
+   Specify range reduction for the real exponential or retain its binary64 evaluation,
+   and state the allowed error. For the phase, the indicative reduction using one
+   binary64 `2*pi` constant is also not uniformly accurate: at `1e14` radians its
+   phasor error is about `3.90e-3`, checked against a 70-digit reference. Either bound
+   admitted phase arguments or specify robust reduction and test its extremes,
+   cancellation, damping and modulus drift. The timing kernel alone is not an
+   accuracy witness.
+
+6. **R6 — P1: Do not require an unqualified double-float substitute for binary64
+   transcendentals (§6.4, Q7).** A two-binary32 expansion generally supplies about
+   48 significant bits, below binary64's 53, before polynomial and range-reduction
+   errors. The MLX precedent targets a binary32 output; it does not establish this
+   proposal's binary64 propagator contract. The arithmetic error analysis must cover
+   the chosen expansion, polynomial, reconstruction and damping range; see the
+   primary treatment of floating-point expansions by
+   [Joldes et al.](https://doi.org/10.1109/TC.2015.2441714).
+   Please make the third remedy conditional on a proved binary64 error budget, with
+   ordinary binary64 evaluation remaining valid if none of the remedies meets it.
+   Is the 15% share a trigger to investigate, or a performance requirement? As written,
+   it can force an unproved numerical scheme solely because the first two remedies
+   do not meet a timing threshold. Any product-derived propagators also need their
+   product count and amplification included in the bound.
+
+7. **R7 — P1: The 1%-of-length margin does not establish the noise margin of the
+   run (§§4.4, 7.3, Q4).** Even under the proposal's constant-step random-walk model,
+   measuring only the first 1% underestimates the full-run rounding amplitude by a
+   factor of ten, or 20 dB. Early passage at the chosen threshold can therefore mean
+   no margin at the end. Nor is “before amplification” guaranteed by a fraction of
+   length: gain may start immediately or be concentrated later. The difference of
+   two independently adaptive trajectories also includes truncation and different
+   histories, even at equal tolerance, so it does not isolate rounding. Define a
+   matched-discrete diagnostic (or a converged subtraction control), evaluate source
+   perturbations at identical states, and account for injection and amplification
+   throughout the run. Include a witness that the narrowed nonlinear source retains
+   the physical seed's response: a binary64 stored seed can still disappear when
+   `A + noise` is narrowed before evaluation. How will the study separate coherent
+   coefficient bias from random rounding, and connect either to the ensemble verdict?
+   The early-plane measurement can remain useful, but cannot alone be the stated
+   primary qualification of accumulated noise.
+
+8. **R8 — P2: Specify the uncertainty of the ensemble difference and the coherence
+   estimator (§7.3, Q4).** A tolerance based only on the reference ensemble's standard
+   error omits the candidate's sampling error and the covariance of matched seeds.
+   If chaotic evolution decorrelates the two and their variances are equal, the
+   difference has standard error `sqrt(2)` times either one's. In the Gaussian limit,
+   when the standard-error term sets the threshold, that gate falsely rejects
+   about 15.7% of individual comparisons before testing 32 bands and several metrics. Use a paired estimate or
+   paired bootstrap of the difference, and state how simultaneous bands are handled;
+   any change to the maintainers' numeric thresholds should be an explicit decision.
+   Define how `processing.coherence.g12` is aggregated into a band (averaging fields,
+   complex coherence or its modulus gives different observables), the bootstrap
+   resampling unit, and how dark bands are selected from the reference. Freeze the
+   pump, dispersion, energy, grid, propagation length, noise model, seeds and numerical
+   controls of the new supercontinuum cases before candidate comparisons. The current
+   qualitative case descriptions do not yet define a repeatable experiment.
+
+9. **R9 — P2: Complete noise admission and the recorded margin's semantics (§§4.4–5,
+   7.3, 11).** The package has both `noise="input"` and `noise="modified"`.
+   `StepDriver` puts the first into the initial state but injects the second at source
+   evaluations after unitary phase transport. The proposal's broad noise admission
+   and its example do not say which are qualified. State the precision of the draw,
+   its phase transport and addition, and either test both models or refuse the
+   unqualified one. For metadata, replace the constant-step `phi_NL sqrt(M)` expression
+   by a defined rule for variable steps, accepted versus rejected trials, FSAL and
+   Adams evaluations; specify `c_s`, the occupied-bin definition and the noise metric
+   for multimode and radial states under their energy measures. Persist any cumulative
+   diagnostic through snapshot/resume and reset it for a reused runner. A scalar
+   heuristic omitting correlated bias and gain should be labelled as such, rather than
+   presented as a measured per-band safety margin. What value is recorded when its
+   assumptions do not apply or the signal norm is zero?
+
+10. **R10 — P2: Enforce the vendor math policy and test the actual dispatch
+    (§§6.3, 7.2).** The cited
+    [CUDA 12.8 cuBLAS documentation](https://docs.nvidia.com/cuda/archive/12.8.1/cublas/index.html#cublascomputetype-t)
+    documents `NVIDIA_TF32_OVERRIDE=0` as disabling TF32; it does not establish the
+    claimed environment switch that forces TF32. Document a supported mechanism for
+    the failure test, such as explicitly selecting TF32 on the handle in a test
+    fixture, and specify the production math mode on the handle Kokkos actually uses.
+    A Gaussian probe is useful evidence, but does not configure that handle or cover
+    another dispatch. Define the tested real/complex, transpose and layout families,
+    including node-chunk tails, and how construction avoids a full problem-sized
+    reference GEMM and extra allocations outside the memory estimate. Use a supported
+    rocBLAS control for the corresponding negative test. A detected arithmetic
+    mismatch should report the observed mode or probe failure without attributing it
+    to an environment variable that may not have caused it.
+
+11. **R11 — P2: Close the AMD qualification gap after phase 5 (§§7.3, 11–12).**
+    Phase 4 qualifies both GPU modes before noise and possibly Adams are admitted.
+    Phase 5 changes those capabilities, but the opening of §11 names the AMD lane
+    only for phase 4, while the final criterion claims both modes qualified on AMD.
+    Q10 instead requires device evidence for phases that touch device code. Specify
+    the post-phase-5 HIP checks for noise, Adams if admitted, their batches and
+    snapshots, or explicitly limit the AMD claim until those checks run. Schedule any
+    required second rental within the separately agreed budget. Also make clear which
+    mixed confirmation cases run on CUDA: §7.3 explicitly assigns `rdw` and `argon`
+    to AMD, whereas its CUDA confirmation list is introduced as single precision.
+
+12. **R12 — P2: Keep performance and memory claims at the scope the evidence
+    supports (§§2, 4.5, 6.7, 7.4, 10).** The recorded A40 results support the motivation,
+    but at `2^16` the mixed combination is slower than binary64 (8.1 versus 6.5 us),
+    and the full binary64 propagator is about 1.9 times the reduced-argument variant
+    at `2^20` (198 versus 103 us), not 1.4 times. The indicative kernels do not time
+    reductions or plasma scans, so they cannot establish that binary64 accumulation
+    is free, or that compensation is never faster on any native target. Record these
+    as hypotheses for the planned profiles. Likewise single precision does not
+    literally halve all resident bytes while linear tables and accumulators remain
+    binary64; derive representative ratios from the named ledgers, including library
+    workspaces and output retention. For reproducibility, provide a public timing
+    recipe and CPU result record with compiler and library provenance. The supplied
+    GPU FFT/GEMM timing inputs were zero, the CPU script does not restore input after
+    `FFTW_MEASURE`, and timing-loop FFT/GEMM statuses are not checked. Use finite
+    representative inputs, validate outputs and check library errors when replacing
+    these explicitly indicative numbers with qualification evidence.
