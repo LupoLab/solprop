@@ -406,31 +406,64 @@ cost 4–6 % more than the unshifted method's with a cheap Kerr source and under
 with Raman ([benchmarks](../../dev/benchmarks.md)); the policy pays for itself only
 through the steps it saves.
 
-**What it measured.** On the short windows of
-[SEP 35](../../dev/seps/sep-0035-carrier-frame-exponential-adams.md) §7.3 — the
-launch from the input plane and a developed window started from a plane of a converged
-run, each against IP-DOPRI5 three orders tighter — the shift's calls and one-thread
-time at matched worst-plane field error, as a ratio to the default's, on `numba_cpu`
-(native CPU in brackets where it differs):
+**What it measured.** On short windows of the benchmark suite's cases
+([SEP 35](../../dev/seps/archive/sep-0035-carrier-frame-exponential-adams.md) Part II) — the
+launch from the input plane and a developed window started from a plane of an earlier
+run, each against IP-DOPRI5 three orders tighter, one thread — the one-thread time each
+method needs at matched error in the total field and in the weak bins, as a ratio to
+the carrier frame's:
 
-| case | calls | time | weak and named bands at matched error |
+| case | default `Multistep()` | interaction formulation | IP-DOPRI5 |
 |---|---|---|---|
-| H₂ 40 bar comb-to-continuum, two modes, Raman | 0.48–0.69 | 0.49–0.70 | blue band up to 390× worse on the launch, 5× developed |
-| H₂ 5 bar self-frequency shift, Raman, 6 ps | 0.34–0.73 | 0.35–0.75 (–0.77) | red band up to 480× worse on the launch |
-| Ar 1.7 bar blue shift, plasma | 0.57–1.08 | 0.58–1.09 (–1.13) | blue band up to 5× worse on the launch |
-| He 0.8 → 0 bar RDW, four modes and averaged | 0.82–1.04 | 0.88–1.13 (–1.29) | ultraviolet band up to 3× worse |
-| He 0.2 bar fill, plasma, and Kerr only | 0.93–1.03 | 0.98–1.13 (–1.33) | within 1.2× |
+| H₂ 40 bar comb-to-continuum, two modes, Raman, 2 ps (native) | 1.8–2.9 | 1.06–1.73 | 1.6–2.4 |
+| H₂ 5 bar self-frequency shift, Raman | 1.15–2.9 | 0.67–0.88 | 1.03–1.44 |
+| Ar 1.7 bar blue shift, plasma | 0.89–1.85 | 0.67–0.94 | 0.75–1.54 |
+| He RDW, four modes | 0.87–1.2 | 0.92–3.3 | 0.85–3.4 |
+| He single mode: averaged RDW, 0.2 bar fill | 0.74–1.16 | 0.44–0.77 | 0.32–2.5 |
 
-So in the dense gases it reaches a given total-field error in half to three quarters
-of the calls and time, and on the argon window through its self-compression at
-`rtol = 1e-3` it gave 3.9e-3 where the default gave 2.0e-2, in 353 calls against 538.
-But the weak bands it leaves less accurate, because the source of a weakly populated,
-driven bin does not follow the carrier and the step-size norm, which the populated
-bins dominate, does not see it: at the total-field error at which the default resolves
-the comb-to-continuum's blue side to 3e-5, the shift leaves it at 4e-3. On helium the
-calls are level and the time a few per cent to a third higher. That is why `"off"`
-stays the default. Use `"scalar"` where the observable is the populated band of a
-dense-gas field-grid run, and check a weak-band observable against a tighter run.
+A number above one means that method is slower than the carrier frame. So the carrier
+frame is the fastest method on the dense, multimode, Raman-active comb-to-continuum
+case, taking 27–42 % less time than the next best, the interaction formulation. In the
+other dense gases it is mostly faster than the default but slower than the interaction
+formulation; on the four-mode helium RDW it is level with the default and ahead of the
+others; and on single-mode helium it saves nothing, since a source evaluation is cheap
+there and a step costs 4–6 % more than the default's. On the argon window through its
+self-compression at `rtol = 1e-3` it gave 3.9e-3 where the default gave 2.0e-2.
+
+What it does not control as well is a weak band that is still being generated. The
+source of a weakly populated, driven bin does not follow the carrier, so the shift
+gives it a residual rotation that the step-size norm, which the populated bins
+dominate, does not see. At matched total-field error near the launch, the 1 ps
+comb-to-continuum's blue side and the self-frequency shift's red band came out a few
+hundred times less accurate than with the default; resolving those bands to the
+default's accuracy takes 10–30 % more calls than the default needs. Once the spectrum
+has developed, and in the weak bins of the 2 ps comb-to-continuum case, it is as
+accurate as the alternatives at less cost.
+
+**When to use it.**
+
+- *Use it* for field-grid runs (or envelope runs with the third harmonic) in dense
+  molecular gases where a source evaluation is expensive — several modes, Raman,
+  plasma — and the observable is the populated band or the developed spectrum: the
+  comb-to-continuum class, where it is the fastest method measured.
+- *Prefer the interaction formulation* (`Multistep(formulation="interaction")`) for
+  single-mode dense-gas runs such as an argon blue shift or a soliton
+  self-frequency shift, and *`RungeKutta()`* or the interaction formulation where the
+  source is cheap and the gas thin (helium capillaries, a low $|\kappa|$).
+- *Check a weak band that is still forming* — light generated in the first
+  millimetres, an ultraviolet or mid-infrared tail far below the peak — against a run
+  at a tighter tolerance, or with the default: the tolerance controls it less tightly
+  under the carrier frame than under the other methods.
+- *Expect a floor on the step count*: the cap allows at most one radian of carrier phase
+  a step, so a run takes at least about $|\kappa| L$ steps whatever its tolerance —
+  550 per 10 cm of 40 bar hydrogen, 12 per metre of 0.2 bar helium. On a long, weakly
+  nonlinear propagation through a dense gas the other methods can take fewer.
+- *It does nothing* on an envelope grid without the third harmonic (the run is the
+  default's, and its log says so), and it is refused on the free-space routes and on
+  native device builds.
+- To find $\kappa$ before a run: it is $\operatorname{Im}D$ at the reference frequency
+  of the frame's mode, $\beta(\omega_0) - \beta_1\omega_0$ in magnitude; the shift pays
+  only where the default's accepted steps cover a few tenths of a radian of it or more.
 
 A per-band variant that also shifted the third-harmonic band was developed and
 measured, and removed: with a boundary at $2\omega_0$ or at the requested band edge it
@@ -438,7 +471,7 @@ left the comb-to-continuum's self-phase-modulated light above $2\omega_0$ and th
 fundamental band of an envelope run with the third harmonic several times less
 accurate, and with a boundary set from the launched spectrum it was the scalar shift
 everywhere but one launch window
-([SEP 35](../../dev/seps/sep-0035-carrier-frame-exponential-adams.md) §7.4).
+([SEP 35](../../dev/seps/archive/sep-0035-carrier-frame-exponential-adams.md) §7.4).
 
 ## Stability, and the temporal collar
 
@@ -689,3 +722,6 @@ gives the measured ranking by regime, on both compiled backends and on devices.
 - The ranking was measured with the built-in Kerr and plasma responses. An expensive
   response must be requalified with its own sources; SEP 12 does this for the
   time-dependent Schrödinger equation.
+
+The carrier frame on this page was proposed, measured and delivered by
+[SEP 35](../../dev/seps/archive/sep-0035-carrier-frame-exponential-adams.md).

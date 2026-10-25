@@ -368,7 +368,7 @@ formed from each sample's flow weights against the step's own section. The lab-f
 source runs without the flow's pipeline on every backend. The interaction formulation
 and CF4 sections are refused by name (`backends.exponential.refuse_formulation`).
 
-**The carrier frame** ([SEP 35](seps/sep-0035-carrier-frame-exponential-adams.md),
+**The carrier frame** ([SEP 35](seps/archive/sep-0035-carrier-frame-exponential-adams.md),
 `Multistep.carrier_frame`, opt-in) changes what an exponential trial interpolates and
 nothing it stores. `HostHistory` holds the run's `CarrierReference`
 (`backends.exponential.carrier_reference`: the active bin nearest the grids' `omega0`,

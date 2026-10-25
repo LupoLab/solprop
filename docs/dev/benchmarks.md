@@ -327,7 +327,7 @@ CPU. The gain shrinks as channels are added.
 
 ### Adams carrier frame per step
 
-The scalar carrier frame ([SEP 35](seps/sep-0035-carrier-frame-exponential-adams.md))
+The scalar carrier frame ([SEP 35](seps/archive/sep-0035-carrier-frame-exponential-adams.md))
 adds, per trial, a shifted argument and one complex product per element in the moments
 pass and one complex product per history row read. Ten replayed steps of a 2 mm,
 40 bar hydrogen capillary (16 µm, 515 nm, 2 ps window, 4097 bins, one mode, a weak

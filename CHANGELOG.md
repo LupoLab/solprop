@@ -41,16 +41,18 @@ The first public release. It contains:
   `beam_spectrum` is the axial-flux spectrum. Kernel schema 35 (`flux`) and output
   schema 23 (`flux_model`, `flux_plan`).
 - **A carrier frame for the exponential Adams history**
-  ([SEP 35](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0035-carrier-frame-exponential-adams.html),
+  ([SEP 35](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0035-carrier-frame-exponential-adams.html),
   phases 1–4). `Multistep(carrier_frame="scalar")` interpolates, inside each step, the
   source with the carrier's phase removed and integrates it against correspondingly
   shifted moments, exactly for any shift, with each step capped at one radian of
   carrier phase (`CARRIER_PHASE_CAP`); on field grids and envelope grids with the third
-  harmonic in dense molecular gases it reaches a given total-field error in half to
-  three quarters of the default's calls and time, but leaves weak bands less accurate,
-  so it is opt-in and `"off"` stays the default. It runs on `numpy_ref`, `numba_cpu`
-  and native CPU builds; native device builds and the free-space routes refuse it by
-  name. Kernel schema 36 (`Multistep.carrier_frame`); every `Multistep`
+  harmonic. On dense, multimode, Raman-active runs such as a comb-to-continuum
+  capillary it is the fastest method measured, about half the time of the default and
+  of IP-DOPRI5; elsewhere it saves less or nothing, and a weak band still forming is
+  less tightly controlled, so it is opt-in and `"off"` stays the default. The manual's
+  decision guide says when to use it. It runs on `numpy_ref`, `numba_cpu` and native
+  CPU builds; native device builds and the free-space routes refuse it by name. The
+  benchmark suite's `ctc_reduced` case moves to a 2 ps window (revision 2). Kernel schema 36 (`Multistep.carrier_frame`); every `Multistep`
   representation names the policy, so a march snapshot taken before it restarts its
   history.
 - **Incident beams into general modal guides**

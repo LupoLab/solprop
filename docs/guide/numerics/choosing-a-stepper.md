@@ -48,16 +48,23 @@ Within `Multistep()`, the interaction formulation (`formulation="interaction"`) 
 alternative where the source is linear in each weak bin's own field, as beside the
 `modified` noise ([which formulation suits which source](adams.md#the-exponential-formulation)).
 
-**Dense gases on field grids, at loose tolerances.** On a field grid (or an envelope
-grid with the third harmonic) in a dense gas, the default `Multistep()` at a loose
-tolerance can accumulate a large error over many honestly estimated steps: 0.97 on an
-argon capillary at `rtol = 1e-3`, against 0.07 for `RungeKutta()`
-([limitations](adams.md#limitations)). There, use `RungeKutta()` or `rtol <= 1e-4`, or
-`Multistep(carrier_frame="scalar")` where the populated band is the observable
-([the carrier frame](adams.md#the-carrier-frame)). The carrier frame reaches a given
-total-field error in half to three quarters of the default's calls and time in dense
-molecular gases, levels on helium, and leaves weak bands less accurate, so the ranking
-above, measured with the default, stands.
+**Dense gases on field grids.** On a field grid (or an envelope grid with the third
+harmonic) in a dense gas the carrier phase turns thousands of radians per metre, and
+the default `Multistep()` spends steps following it; at a loose tolerance it can also
+accumulate a large error over many honestly estimated steps (0.97 on an argon capillary
+at `rtol = 1e-3`, against 0.07 for `RungeKutta()`; [limitations](adams.md#limitations)).
+There:
+
+- for a dense, multimode, Raman-active run such as a comb-to-continuum capillary, use
+  `Multistep(carrier_frame="scalar")`: the fastest method measured, about half the
+  default's and IP-DOPRI5's time;
+- for a single-mode dense-gas run (an argon blue shift, a soliton self-frequency
+  shift), use `Multistep(formulation="interaction")`;
+- at a loose tolerance, `RungeKutta()` or `rtol <= 1e-4` with the default.
+
+[When to use the carrier frame](adams.md#the-carrier-frame) gives the measurements and
+its caveats: a weak band that is still forming, and a floor of about $|\kappa| L$
+steps.
 
 ## What decides
 
@@ -321,4 +328,5 @@ A planar guide: two slab modes. {download}`CSV <../figures/stepper-gallery/plana
 ```
 
 The qualification on this page was proposed and carried out by
-[SEP 16](../../dev/seps/archive/sep-0016-unified-multistep.md).
+[SEP 16](../../dev/seps/archive/sep-0016-unified-multistep.md); the dense-gas advice
+comes from [SEP 35](../../dev/seps/archive/sep-0035-carrier-frame-exponential-adams.md).

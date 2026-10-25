@@ -6,17 +6,17 @@
 | **Title** | A carrier frame for the exponential Adams history |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-10-25; revision after review, 2026-10-25) |
-| **Status** | In progress |
+| **Status** | Final |
 | **Review status** | Reviewed |
 | **Reviewers** | GPT-6 (AI); John Travers (human) |
 | **Type** | Change |
 | **Created** | 2026-10-25 |
-| **Resolution** | Accepted 2026-10-25 by John Travers after reading the revised proposal, with the maintainer decisions recorded in Part III. No pull request; the proposal lands with its implementation's single pull request. |
-| **Requires** | [SEP 16](archive/sep-0016-unified-multistep.md) (the default multistep stepper and its exponential formulation); [SEP 25](archive/sep-0025-rounding-level-reproducibility.md) (the rounding-level reproducibility contract) |
+| **Resolution** | Accepted 2026-10-25 by John Travers after reading the revised proposal, with the maintainer decisions recorded in Part III. Final 2026-10-25 by John Travers after phase 4 and its supplements: `carrier_frame="scalar"` kept as an opt-in with a decision guide, the default unchanged, `"harmonic"` removed by its gate (Part II, "Closing"). The proposal lands with its implementation's single pull request. |
+| **Requires** | [SEP 16](sep-0016-unified-multistep.md) (the default multistep stepper and its exponential formulation); [SEP 25](sep-0025-rounding-level-reproducibility.md) (the rounding-level reproducibility contract) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Branch `feature/multistep-carrier-frame`: phases 1–4 complete (`numpy_ref`, `numba_cpu`, native CPU; opt-in; the default unchanged; `"harmonic"` removed); one pull request at Final |
-| **Manual pages** | [The Adams integrator: the carrier frame](../../guide/numerics/adams.md#the-carrier-frame); [choosing a stepper](../../guide/numerics/choosing-a-stepper.md); [the linear operator](../../guide/numerics/linear-operator.md#which-terms-the-frame-removes) |
+| **Implementation** | John Travers with Opus 5.5 (AI); phases 1–4 on `feature/multistep-carrier-frame` (`numpy_ref`, `numba_cpu`, native CPU), one pull request |
+| **Manual pages** | [The Adams integrator: the carrier frame](../../../guide/numerics/adams.md#the-carrier-frame); [choosing a stepper](../../../guide/numerics/choosing-a-stepper.md); [the linear operator](../../../guide/numerics/linear-operator.md#which-terms-the-frame-removes) |
 
 ## Part I — Proposal
 
@@ -83,25 +83,25 @@ enough for a polynomial to follow it.
 - The interaction formulation and the Runge–Kutta marches, which already transport the
   linear phase.
 - The weak-band blind spot of the step-size norm in general
-  ([limitations](../../guide/numerics/adams.md#limitations)); §7 gives the weak bands
+  ([limitations](../../../guide/numerics/adams.md#limitations)); §7 gives the weak bands
   this policy is judged on their own error budget.
 
 ### 3. Context
 
 The exponential formulation is described in
-[the Adams methods](../../guide/numerics/adams.md#the-exponential-formulation); its
+[the Adams methods](../../../guide/numerics/adams.md#the-exponential-formulation); its
 arithmetic is `ExponentialKernels` and `HostHistory.exponential_trial` in
 `solprop/backends/multistep.py`, with compiled counterparts in
 `solprop/backends/numba_cpu/multistep.py` and the native backend's resident Adams engine
 (`native/src/solprop_native/backend.py`, `native/src/general.cpp`). The operator and which
 frame terms each grid removes are set out in
-[the linear operator](../../guide/numerics/linear-operator.md#which-terms-the-frame-removes)
+[the linear operator](../../../guide/numerics/linear-operator.md#which-terms-the-frame-removes)
 and in `solprop.linear.Frame`: the frame is fixed on the first mode at its own reference
 frequency, and a field grid keeps $\beta_0$ because a frequency-independent phase on its
 half-spectrum changes the carrier-envelope phase. The order choice caps each order's step
 for an in-stage collar with `PEC_REAL_INTERVAL` (`solprop/stepper/multistep.py`), the
 negative-real stability interval of PEC $q/(q+1)$ for $u' = \lambda u$.
-[SEP 15](archive/sep-0015-exponential-adams.md) introduced exponential Adams stepping;
+[SEP 15](sep-0015-exponential-adams.md) introduced exponential Adams stepping;
 SEP 16 unified it with the interaction formulation and made it the default; SEP 25 sets
 the reproducibility contract the parity tests use.
 
@@ -110,7 +110,7 @@ the reproducibility contract the parity tests use.
 #### 4.1 The shifted step
 
 With a diagonal operator $D$ (internal FFT convention, so propagation is
-$e^{\int D\,dz}$ and $D = -\mathrm{i}(\dots)$, [conventions](../conventions.md)) and a
+$e^{\int D\,dz}$ and $D = -\mathrm{i}(\dots)$, [conventions](../../conventions.md)) and a
 source $F$, the exact step from $z_n$ is
 
 $$u_{n+1} = e^{hD}u_n + \int_0^h e^{(h-s)D}F(z_n+s)\,ds .$$
@@ -178,7 +178,7 @@ the carrier-following part rotates at $\kappa$ and the stationary part is smooth
 
 **Envelope grid with the third harmonic.** Its frame keeps the carrier phase whole and
 measures the delay from zero frequency
-([which terms the frame removes](../../guide/numerics/linear-operator.md#which-terms-the-frame-removes),
+([which terms the frame removes](../../../guide/numerics/linear-operator.md#which-terms-the-frame-removes),
 `solprop.linear.frame_origin`), so its operator is the field grid's,
 $-\mathrm{i}(\beta - \beta_1\omega) - \alpha/2$, the same $\kappa$ and the same shift apply,
 and the harmonic term's carrier factor $e^{2\mathrm{i}\omega_0 t}$ is fixed in time, so the
@@ -587,11 +587,11 @@ If it fails, `"harmonic"` is removed and the scalar policy stands alone.
 
 ### 8. Documentation
 
-[The Adams methods](../../guide/numerics/adams.md): the policy in *The exponential
+[The Adams methods](../../../guide/numerics/adams.md): the policy in *The exponential
 formulation*, with the shifted step, the dense formula, the cap, the resolution and
 stability conditions of §4.3–4.4, and *Which formulation suits which source* revised.
-[Choosing a stepper](../../guide/numerics/choosing-a-stepper.md): the phase 4 results.
-[The linear operator](../../guide/numerics/linear-operator.md): a pointer from the grid
+[Choosing a stepper](../../../guide/numerics/choosing-a-stepper.md): the phase 4 results.
+[The linear operator](../../../guide/numerics/linear-operator.md): a pointer from the grid
 table to the policy. Docstrings of `Multistep`, `ExponentialKernels` and
 `PEC_REAL_INTERVAL` (its residual-phase condition).
 
@@ -640,8 +640,8 @@ are not affected; no difference to record.
    dense formula; the `carrier_frame` field, its refusals and the `SCHEMA_VERSION` bump;
    every witness and test of §7.1 on `numpy_ref`; the rounding budget derived; the manual
    pages. Free space is refused until qualified here or later. **Interim manual note**, in
-   [the Adams methods](../../guide/numerics/adams.md#limitations) and
-   [choosing a stepper](../../guide/numerics/choosing-a-stepper.md): on field grids (and
+   [the Adams methods](../../../guide/numerics/adams.md#limitations) and
+   [choosing a stepper](../../../guide/numerics/choosing-a-stepper.md): on field grids (and
    envelope grids with the third harmonic) in dense gases, the default `Multistep()` at a
    loose tolerance can accumulate a large error over many steps (case E); use
    `RungeKutta()` or `rtol <= 1e-4` there, or `carrier_frame="scalar"` once delivered on the
@@ -718,11 +718,11 @@ without the policy refuses it by name.
   in `tests/exponential_scalar.py` with two witnesses in
   `tests/stepper/test_exponential_scalar_march.py`, and `carrier_increment_budget` in
   `tests/bounds.py`.
-- Manual: [the carrier frame](../../guide/numerics/adams.md#the-carrier-frame), the
+- Manual: [the carrier frame](../../../guide/numerics/adams.md#the-carrier-frame), the
   carrier-following source in *Which formulation suits which source*, the interim note
-  in [limitations](../../guide/numerics/adams.md#limitations) and in
-  [choosing a stepper](../../guide/numerics/choosing-a-stepper.md), and a pointer from the
-  grid table of [the linear operator](../../guide/numerics/linear-operator.md#which-terms-the-frame-removes).
+  in [limitations](../../../guide/numerics/adams.md#limitations) and in
+  [choosing a stepper](../../../guide/numerics/choosing-a-stepper.md), and a pointer from the
+  grid table of [the linear operator](../../../guide/numerics/linear-operator.md#which-terms-the-frame-removes).
   Design: `docs/dev/stepper.md`, the capability table of `docs/dev/backends.md`, the
   integrator row of `docs/dev/kernel-contract.md`. `CHANGELOG.md`.
 
@@ -908,7 +908,7 @@ a 3 mm dense-hydrogen window with interpolated planes 3.3e-15 in 294 calls on bo
 40 → 20 bar gradient 1.1e-14 in 275; the coupled scalar wall 5.6e-16 in 9 and the taper
 2.3e-15 in 48. The Adams, exponential, coupled, resume and compiled-pass modules pass
 (207 passed, 3 skipped). Ten-step timings in
-[benchmarks](../benchmarks.md#adams-carrier-frame-per-step): 1.04 per step on a
+[benchmarks](../../benchmarks.md#adams-carrier-frame-per-step): 1.04 per step on a
 Kerr-only source, 1.01 with Raman.
 
 ### Phase 3 — native CPU (2026-10-25)
@@ -1053,10 +1053,10 @@ launch window. `"harmonic"` is removed (§4.6, §7.4).
   `tests/backends/test_carrier_frame.py` follow; the per-band manufactured source stays
   as the witness that the scalar shift resolves a developed third harmonic without being
   exact for it.
-- Manual: [the carrier frame](../../guide/numerics/adams.md#the-carrier-frame) with the
+- Manual: [the carrier frame](../../../guide/numerics/adams.md#the-carrier-frame) with the
   phase 4 results and the advice that follows from them (use `"scalar"` where the
   populated band is the observable; check a weak-band observable against a tighter run),
-  the limitations entry, and [choosing a stepper](../../guide/numerics/choosing-a-stepper.md),
+  the limitations entry, and [choosing a stepper](../../../guide/numerics/choosing-a-stepper.md),
   whose ranking, measured with the default, stands. The changelog, design notes,
   capability table and contract row lose `"harmonic"`.
 
@@ -1206,6 +1206,44 @@ this case with a realistic window the carrier frame takes 27–42 % less time th
 best method that exists without it, narrowing to 6–22 % in the developed window's weak
 bins. The suite's `ctc_reduced` case moves to the 2 ps window (revision 2).
 
+### Closing — 2026-10-25
+
+All four phases are complete and reported. `Multistep(carrier_frame="scalar")` runs on
+`numpy_ref`, `numba_cpu` and native CPU builds with parity tests (6e-16 to 1e-14 on
+matched steps), opt-in; `"off"` stays the default, and `"harmonic"` was removed by the
+gate of §7.4. The measurements, taken together:
+
+- *It helps* most on dense, multimode, Raman-active field-grid runs: on the
+  comb-to-continuum case with a realistic 2 ps window it is the fastest method measured,
+  about half the time of the default and of IP-DOPRI5 at matched error and 27–42 % less
+  than the interaction formulation, in the populated bands and the weak bins alike. It
+  also removes the default's loose-tolerance failure in dense gases.
+- *It does not help* on single-mode dense gases (the interaction formulation is faster)
+  or on helium (no saving in calls, 4–7 % more per step on a cheap source).
+- *It can cost accuracy* in a weak, driven band that is still forming: at matched
+  total-field error near the launch such a band came out up to a few hundred times less
+  accurate, unseen by the step-size norm; resolving it takes 10–30 % more calls than the
+  default needs.
+- *It is a speed tool,* not a correctness one: the step is exact for any shift, and its
+  one accuracy gain, at loose tolerances, removes a pitfall of the default that
+  `RungeKutta()` does not have.
+
+The manual's [decision guide](../../../guide/numerics/adams.md#the-carrier-frame) and
+[choosing a stepper](../../../guide/numerics/choosing-a-stepper.md) say when to use it.
+The suite's `ctc_reduced` case moved to a 2 ps window (revision 2), its envelope
+qualified anew; its adoption review (`qualify --recheck ... --reviewed`) is the
+maintainer's. Moved to the [roadmap](../../roadmap.md):
+
+- **Weak-band control and the step floor** (phase 4 open question 1, phase 1 Q7's cost
+  side, deviation 5): a weak-band-aware estimate or a per-bin shift chosen by the
+  source's rotation; the collar-bound windows' extra calls; the cap's $|\kappa| L$ floor
+  on a long, weakly nonlinear dense-gas propagation.
+- **Devices and cheap sources** (phase 3 open questions 1 and 2, phase 4 question 3):
+  the device builds' parity and timing, and the per-step cost on cheap sources.
+
+Phase 1's Q5 (a launch far from the reference) is answered by phase 4's blue and red
+launches and needs no item; Q6 was settled in phase 1.
+
 ## Part III — History
 
 - 2026-10-25: Drafted, with a `numpy_ref` prototype's measurements.
@@ -1248,6 +1286,10 @@ bins. The suite's `ctc_reduced` case moves to the 2 ps window (revision 2).
   (Part II); the suite's `ctc_reduced` moves to a 2 ps window.
 
 - 2026-10-25: The Adams interaction formulation added to the 2 ps comparison (Part II).
+
+- 2026-10-25: Final, approved by John Travers: `carrier_frame="scalar"` kept as an
+  opt-in with the manual's decision guide; open questions moved to the roadmap
+  (Closing).
 
 ### AI review — 2026-10-25 — GPT-6
 

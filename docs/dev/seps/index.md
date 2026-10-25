@@ -37,7 +37,6 @@ Proposals that are active, in draft, accepted, in progress or deferred.
 | [21](sep-0021-absorbing-boundaries.md) | Temporal boundaries: wider windows, absorption and the escaped field | Draft | Change |
 | [32](sep-0032-raman-maxwell-bloch.md) | Raman Maxwell–Bloch dynamics | Draft | Feature |
 | [33](sep-0033-single-precision-mlx.md) | Single-precision propagation, and an MLX backend for Apple GPUs | Draft | Feature |
-| [35](sep-0035-carrier-frame-exponential-adams.md) | A carrier frame for the exponential Adams history | In progress | Change |
 
 SEP 13, the standalone numerical prerequisite for SEP 12, SEP 14, which carried it to
 the compiled backends, and SEP 16, which unified the multistep family and made it the
@@ -72,6 +71,7 @@ Proposals that are final, rejected, withdrawn or superseded; the
 | [30](archive/sep-0030-standard-benchmark-suite.md) | Standard benchmark suite | Final | Process |
 | [31](archive/sep-0031-simulation-coupling.md) | Coupling simulations and transporting ultrafast fields | Final | Feature |
 | [34](archive/sep-0034-medium-flux.md) | Medium flux for free-space propagation | Final | Change |
+| [35](archive/sep-0035-carrier-frame-exponential-adams.md) | A carrier frame for the exponential Adams history | Final | Change |
 
 ```{toctree}
 :hidden:
@@ -91,7 +91,6 @@ sep-0017-gas-two-photon-ionisation
 sep-0021-absorbing-boundaries
 sep-0032-raman-maxwell-bloch
 sep-0033-single-precision-mlx
-sep-0035-carrier-frame-exponential-adams
 template
 archive/index
 ```
