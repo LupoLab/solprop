@@ -629,7 +629,12 @@ def _nearest_bin(omega: Float[np.ndarray, " n_omega"], omega0: float) -> int:
 
 
 def _carrier_refusal(
-    policy: CarrierFrame, backend: str, delivered: frozenset[str], geometry: str | None
+    policy: CarrierFrame,
+    backend: str,
+    delivered: frozenset[str],
+    geometry: str | None,
+    *,
+    single: bool = False,
 ) -> str | None:
     """Return why `backend` cannot step a carrier frame, or ``None`` when it can.
 
@@ -643,6 +648,9 @@ def _carrier_refusal(
         The policies the backend steps.
     geometry : str or None
         The spatial geometry's kind; ``None`` on a guided route.
+    single : bool, optional
+        Whether the run is held in single precision (SEP 33), where the shift was not
+        qualified.
 
     Returns
     -------
@@ -660,6 +668,11 @@ def _carrier_refusal(
         return (
             f"{backend}: Multistep(carrier_frame={policy!r}) is not yet qualified on "
             f"a free-space route ({geometry!r} geometry); pass carrier_frame='off'"
+        )
+    if single:
+        return (
+            f"{backend}: Multistep(carrier_frame={policy!r}) is not qualified in "
+            "single precision; pass carrier_frame='off' or precision='double'"
         )
     return None
 
@@ -695,6 +708,7 @@ def refuse_carrier_frame(
         backend,
         delivered,
         None if geometry is None else geometry.kind,
+        single=problem.precision.single,
     )
     if refusal is not None:
         raise BackendError(refusal)

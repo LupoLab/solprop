@@ -494,7 +494,7 @@ def test_the_route_records_its_flow_on_the_schema_seven_identity():
     assert record["residual_norm_bound"] == 0.0
     assert record["radius"] == RADIUS
     assert 0.0 < float(cast("float", record["quasi_static"])) < 0.25
-    assert metadata.schema_version == 24
+    assert metadata.schema_version == 25
     assert capability_of(metadata) == "modal"
     assert "mean impedance coherent wall" in str(metadata)
     # Nothing that is not a scalar reaches the resume key.

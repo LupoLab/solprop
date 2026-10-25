@@ -385,7 +385,13 @@ class MemoryOutput(PlaneStore):
         for name in STEP_STATS_INDEX:
             self._step_stats[name].append(getattr(rows, name))
         for name in self.step_stat_names:
-            pieces = self._step_stats.setdefault(name, [])
+            if name not in self._step_stats:
+                # The names are learnt from the first plane with rows, so the planes
+                # before it -- the entrance plane at least -- get their empty pieces
+                # now, keeping this column one piece per plane like the index columns.
+                shape = np.shape(rows.values[name])[1:]
+                self._step_stats[name] = [np.zeros((0, *shape)) for _ in range(index)]
+            pieces = self._step_stats[name]
             if name in rows.values:
                 pieces.append(rows.values[name])
             else:

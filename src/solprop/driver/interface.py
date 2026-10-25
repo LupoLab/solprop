@@ -30,9 +30,7 @@ from solprop.boundaries import Absorber
 from solprop.coupling.models import CouplingModel
 from solprop.driver.simulation import (
     DEFAULT_ATOL,
-    DEFAULT_RTOL,
     WAVEGUIDE_ATOL,
-    WAVEGUIDE_RTOL,
     NoiseModel,
     Simulation,
     SimulationSettings,
@@ -73,6 +71,7 @@ from solprop.stepper.runge_kutta import RungeKutta
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.masks import AbsorberScheme
 from solprop.translate.modal import DEFAULT_NODE_BUDGET
+from solprop.translate.precision import PrecisionName
 from solprop.translate.responses import KerrForm
 
 __all__ = [
@@ -378,7 +377,7 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
     raman_fraction: float | None = None,
     noise: NoiseModel | None = None,
     seed: int | None = None,
-    rtol: float = DEFAULT_RTOL,
+    rtol: float | None = None,
     atol: float = DEFAULT_ATOL,
     dz_max: float | None = None,
     dz_init: float | None = None,
@@ -393,6 +392,7 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
     output: Output | Path | str | None = None,
     snapshots: SnapshotController | None = None,
     backend: str = "auto",
+    precision: PrecisionName = "double",
     resume: bool | Literal["interpolated"] = False,
     progress: ProgressReporter | ProgressChoice | None = None,
     progress_period: float = DEFAULT_PROGRESS_PERIOD,
@@ -512,7 +512,8 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         Entropy of the generator the realisation is drawn from. Recorded in the output,
         so a run is reproducible; ``None`` draws from the operating system and records
         what it drew.
-    rtol : float, optional
+    rtol : float or None, optional
+        ``None`` takes the default below, or the single-precision floor.
         Relative tolerance of the step controller, dimensionless and positive. The map
         from this local tolerance to the global error at the output is problem dependent
         and misses by one to three orders either way, so calibrate rather than assume
@@ -568,6 +569,14 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
         and otherwise use Numba CPU. Import or construction errors do not fall back.
         :func:`solprop.backends.registry.available` lists what can be used.
+    precision : {'double', 'single'}, optional
+        The arithmetic the run is held in (SEP 33,
+        ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is
+        binary64 throughout. ``"single"`` holds the state and the source evaluation in
+        binary32: its default `rtol` is the floor
+        :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR`, below which an explicit
+        value is refused; its default integrator is ``RungeKutta()``, and the Adams
+        method, noise models and every backend but ``numpy_ref`` are refused.
     resume : bool or {'interpolated'}, optional
         Continue the file at `output` if it holds this same run, instead of replacing
         it. Only a path can be resumed.
@@ -665,6 +674,7 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         stats=stats,
         polarisation_taper=polarisation_taper,
         backend=backend,
+        precision=precision,
         materials=materials,
     )
     logger.debug(
@@ -726,7 +736,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
     absorber_scheme: AbsorberScheme | None = None,
     noise: NoiseModel | None = None,
     seed: int | None = None,
-    rtol: float = WAVEGUIDE_RTOL,
+    rtol: float | None = None,
     atol: float = WAVEGUIDE_ATOL,
     dz_max: float | None = None,
     dz_init: float | None = None,
@@ -739,6 +749,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
     stats: StatsSpec | None = None,
     node_budget: int = DEFAULT_NODE_BUDGET,
     backend: str = "auto",
+    precision: PrecisionName = "double",
     polarisation: str | float | None = None,
     output: Output | Path | str | None = None,
     snapshots: SnapshotController | None = None,
@@ -952,7 +963,8 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         Which shot-noise model to carry.
     seed : int or None, optional
         Entropy of the noise generator.
-    rtol : float, optional
+    rtol : float or None, optional
+        ``None`` takes the default below, or the single-precision floor.
         Relative step tolerance; the default is
         :data:`~solprop.driver.simulation.WAVEGUIDE_RTOL`, the modal waveguide
         default. Calibrate it for a production run (``docs/dev/stepper.md``
@@ -994,6 +1006,14 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
     backend : str, optional
         Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
         and otherwise use Numba CPU. Import or construction errors do not fall back.
+    precision : {'double', 'single'}, optional
+        The arithmetic the run is held in (SEP 33,
+        ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is
+        binary64 throughout. ``"single"`` holds the state and the source evaluation in
+        binary32: its default `rtol` is the floor
+        :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR`, below which an explicit
+        value is refused; its default integrator is ``RungeKutta()``, and the Adams
+        method, noise models and every backend but ``numpy_ref`` are refused.
     polarisation : str, float or None, optional
         Refused; this path is scalar.
     output : solprop.output.schema.Output, pathlib.Path, str or None, optional
@@ -1129,6 +1149,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         stats=stats,
         node_budget=node_budget,
         backend=backend,
+        precision=precision,
         polarisation=polarisation,
         materials=materials,
         tdse=tdse,
@@ -1198,7 +1219,7 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
     absorber: Absorber | None = None,
     noise: NoiseModel | None = None,
     seed: int | None = None,
-    rtol: float = WAVEGUIDE_RTOL,
+    rtol: float | None = None,
     atol: float = WAVEGUIDE_ATOL,
     dz_max: float | None = None,
     dz_init: float | None = None,
@@ -1209,6 +1230,7 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
     stats: StatsSpec | None = None,
     node_budget: int = DEFAULT_NODE_BUDGET,
     backend: str = "auto",
+    precision: PrecisionName = "double",
     polarisation: str | float | None = None,
     taper_coupling: bool = True,
     output: Output | Path | str | None = None,
@@ -1408,7 +1430,8 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         Which shot-noise model to carry.
     seed : int or None, optional
         Entropy of the noise generator.
-    rtol : float, optional
+    rtol : float or None, optional
+        ``None`` takes the default below, or the single-precision floor.
         Relative step tolerance; the default is
         :data:`~solprop.driver.simulation.WAVEGUIDE_RTOL`, the modal waveguide
         default. Calibrate it for a production run (``docs/dev/stepper.md``
@@ -1439,6 +1462,14 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
     backend : str, optional
         Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
         and otherwise use Numba CPU. Import or construction errors do not fall back.
+    precision : {'double', 'single'}, optional
+        The arithmetic the run is held in (SEP 33,
+        ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is
+        binary64 throughout. ``"single"`` holds the state and the source evaluation in
+        binary32: its default `rtol` is the floor
+        :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR`, below which an explicit
+        value is refused; its default integrator is ``RungeKutta()``, and the Adams
+        method, noise models and every backend but ``numpy_ref`` are refused.
     polarisation : str, float or None, optional
         Refused; this path is scalar.
     taper_coupling : bool, optional
@@ -1527,6 +1558,7 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         stats=stats,
         node_budget=node_budget,
         backend=backend,
+        precision=precision,
         polarisation=polarisation,
         taper_coupling=taper_coupling,
         materials=materials,

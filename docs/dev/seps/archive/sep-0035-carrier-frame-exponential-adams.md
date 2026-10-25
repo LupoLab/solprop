@@ -699,7 +699,8 @@ without the policy refuses it by name.
   `"off"`); a `-scalar-frame` / `-harmonic-frame` suffix on the record name;
   `CARRIER_PHASE_CAP = 1.0`; the residual-phase condition of §4.4 in the docstring of
   `PEC_REAL_INTERVAL`.
-- `solprop/translate/problem.py`: `SCHEMA_VERSION = 36` with its version note; the
+- `solprop/translate/problem.py`: `SCHEMA_VERSION = 36` with its version note (37 when
+  merged after SEP 33, which took 36 for `KernelProblem.precision` meanwhile); the
   native binding reports 36 (`native/src/bindings.cpp`) and the frozen literals are
   rewritten.
 - `solprop/backends/exponential.py`: `CarrierReference` (the run's reference bin, its
@@ -1093,6 +1094,11 @@ analysis.
 
 **Handoff.** All four phases are complete. Final needs the SEP archived, its open
 questions on the roadmap and the single pull request opened.
+
+**Merging with SEP 33.** Merging current `main` brought SEP 33's kernel schema 36
+(`KernelProblem.precision`) and single precision on `numpy_ref`; the carrier frame's
+bump becomes version 37, and the shift is refused in single precision, where it was not
+qualified.
 
 ### Phase 4, supplement — the four methods at matched band error (2026-10-25)
 

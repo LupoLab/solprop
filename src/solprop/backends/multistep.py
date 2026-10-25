@@ -2131,10 +2131,16 @@ class HostHistory:
         if self._store is None or self._store.shape[1:] != value.shape:
             # Zeroed, not empty: the rows a short history has not reached go into a
             # resume snapshot as they are, and a file has to be reproducible.
-            self._store = np.zeros((self.n_slots, *value.shape), dtype=np.complex128)
+            # In the state's precision: complex64 on SEP 33's single-precision path.
+            self._store = np.zeros(
+                (self.n_slots, *value.shape),
+                dtype=np.result_type(value, np.complex64),
+            )
             if self.compensated:
                 self._states = np.zeros_like(self._store)
-                self._rates = np.zeros_like(self._store)
+                # The operator's rates are binary64 host data, differenced against
+                # the step's exponent, so they stay binary64 under SEP 33 too.
+                self._rates = np.zeros(self._store.shape, dtype=np.complex128)
         self._store[0] = value
         if self.compensated:
             assert self._states is not None and self._rates is not None
@@ -2422,27 +2428,14 @@ class HostHistory:
         shift = (
             None if carrier is None or not carrier.active else carrier.shift(exponent)
         )
-        moments: Any
-        flow: Any
         if block is not None:
             kernels = kernels.coupled()
-            # The moments are the shifted block's and the flow exp(sigma) times its
-            # phi_0, the true exp(h B) (section 4.5): one evaluation, never the
-            # shifted flow.
-            moments = (
-                kernels.coupled_moments(exponent, width, block, dz)
-                if shift is None
-                else kernels.coupled_moments(exponent, width, block, dz, shift=shift)
-            )
-            flow = moments
-        else:
-            moments = (
-                kernels.moments(exponent, width)
-                if shift is None
-                else kernels.moments(exponent, width, shift=shift)
-            )
-            # After the moments: a compiled backend forms exp(x) in their pass.
-            flow = kernels.flow(exponent)
+        moments, flow = _trial_propagators(kernels, exponent, width, block, dz, shift)
+        if state.dtype == np.complex64:
+            # SEP 33: the flow and its moments are evaluated in binary64, like every
+            # propagator, and rounded once to the state's binary32.
+            moments = np.asarray(moments).astype(np.complex64)
+            flow = np.asarray(flow).astype(np.complex64)
         rows_read = slots[: width - 1]
         factors = (
             None if shift is None else _carrier_factors(nodes, len(rows_read), shift)
@@ -2466,6 +2459,10 @@ class HostHistory:
             if shift is not None:
                 compensation.rotate(shift)
             lab = lab + compensation.predictor(order)
+            if state.dtype == np.complex64:
+                # SEP 33: the compensation is formed in binary64 from the binary32
+                # history and the prediction rounded once.
+                lab = lab.astype(np.complex64)
         source = backend._adams_lab_source(lab, z + dz, purpose="predictor")
         _, corrector = _exponential_rows(nodes, orders, width, helpers=backend.helpers)
         rows = kernels.defect_rows(nodes, orders, width)
@@ -2497,6 +2494,8 @@ class HostHistory:
             extra,
             **({} if factors is None else {"factors": factors}),
         )
+        if state.dtype == np.complex64:
+            advanced = np.asarray(advanced).astype(np.complex64)
         self._exponential_trial = _ExponentialTrial(
             z=z,
             dz=dz,
@@ -2753,6 +2752,38 @@ class HostHistory:
         return self._backend._apply_mask(value)
 
 
+def _trial_propagators(
+    kernels: Any,
+    exponent: Any,
+    width: int,
+    block: CoupledBlock | None,
+    dz: float,
+    shift: _Shift | None,
+) -> tuple[Any, Any]:
+    """Return a trial's moments and flow, shifted by `shift` when it is given."""
+    moments: Any
+    flow: Any
+    if block is not None:
+        # The moments are the shifted block's and the flow exp(sigma) times its
+        # phi_0, the true exp(h B) (section 4.5): one evaluation, never the
+        # shifted flow.
+        moments = (
+            kernels.coupled_moments(exponent, width, block, dz)
+            if shift is None
+            else kernels.coupled_moments(exponent, width, block, dz, shift=shift)
+        )
+        flow = moments
+    else:
+        moments = (
+            kernels.moments(exponent, width)
+            if shift is None
+            else kernels.moments(exponent, width, shift=shift)
+        )
+        # After the moments: a compiled backend forms exp(x) in their pass.
+        flow = kernels.flow(exponent)
+    return moments, flow
+
+
 def _carrier_factors(nodes: list[float], count: int, shift: _Shift) -> _Factors:
     """Return the rotations ``exp(sigma (1 - theta_j))`` of a trial's history rows.
 
@@ -2821,7 +2852,7 @@ def _divisor(backend: StepDriver, state: _State) -> np.ndarray:
         The scale of every bin, shape ``(n_omega,)``.
     """
     mask = backend._problem.grids.norm_mask
-    controller = backend._problem.stepper.controller
+    controller = backend._norm_controller
     magnitude = float(np.linalg.norm(state[..., mask]))
     scale = controller.scale(magnitude, magnitude)
     return (

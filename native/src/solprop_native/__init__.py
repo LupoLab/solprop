@@ -196,9 +196,11 @@ phase 2) adds the class attribute ``StepDriver.helpers``, through which solprop'
 shared stage and Adams code takes this backend's Chebyshev and basis helpers
 (``NativeBackend.helpers``); it is checked explicitly too. Schema 35 (solprop SEP 34)
 adds ``KernelProblem.flux``, the plane measure every spatial field statistic reads:
-this backend measures energy, spectra and local flux by it natively.
-Schema 36 (solprop SEP 35 phase 1) adds ``Multistep.carrier_frame``; this backend
-does not deliver a shift yet and refuses one by name.
+this backend measures energy, spectra and local flux by it natively. Schema 36 (solprop
+SEP 33) adds ``KernelProblem.precision``: this backend computes in binary64 only and
+refuses a single-precision problem by name. Schema 37 (solprop SEP 35) adds
+``Multistep.carrier_frame``: CPU builds step the scalar shift in the resident engine;
+device builds refuse it by name until they are qualified.
 
 solprop freezes this surface under its ``SCHEMA_VERSION`` (the test in its
 ``tests/backends/test_driver.py``); :func:`check_build` looks each member up so a

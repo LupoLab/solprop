@@ -6,17 +6,17 @@
 | **Title** | Single-precision propagation, and an MLX backend for Apple GPUs |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-10-23); Opus 5.5 (2026-10-23, revision after review) |
-| **Status** | Draft |
+| **Status** | Final |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); GPT-6 (AI) |
 | **Type** | Feature |
 | **Created** | 2026-10-23 |
-| **Resolution** | — |
-| **Requires** | [SEP 25](archive/sep-0025-rounding-level-reproducibility.md) (the floating-point policy and the bound classes this extends to binary32) |
+| **Resolution** | Accepted 2026-10-24 by John Travers after his human review, the GPT-6 AI review and the revision answering it, recorded in Part III. Final 2026-10-25 with phase 4, its open questions moved to the roadmap (Part II, phase 4 report); merging its pull request is the maintainer's approval. |
+| **Requires** | [SEP 25](sep-0025-rounding-level-reproducibility.md) (the floating-point policy and the bound classes this extends to binary32) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | — |
-| **Manual pages** | — |
+| **Implementation** | John Travers with Opus 5.5 (AI); phases 1–4 on `feature/sep-0033-single-precision`, one pull request |
+| **Manual pages** | [Single precision](../../../guide/performance/single-precision.md); [Choosing a backend](../../../guide/performance/backends.md#the-apple-gpu-backend); the worked example [Single precision on an Apple GPU](../../../auto_examples/performance/plot_01_single_precision.rst) |
 
 ## Part I — Proposal
 
@@ -45,13 +45,13 @@ speed-ups over the native CPU backend on the same machine.
 
 **Apple-silicon GPUs are idle.** solprop runs on a Mac's CPU only: the native backend's
 device builds target CUDA and HIP, and Kokkos has no Metal backend
-([roadmap](../roadmap.md), "Floating-point options and reduced precision"). An
+([roadmap](../../roadmap.md), "Floating-point options and reduced precision"). An
 Apple-silicon Mac has a GPU with several times the CPU's single-precision throughput,
 sharing the same memory, and no hardware binary64 arithmetic at all. Using it needs a
 backend outside Kokkos, and that backend can only compute in binary32.
 
 **The indicative gain is large on the large problems.** A synthetic measurement
-(2026-10-23, an Apple-silicon laptop: 18 CPU cores, a 40-core GPU, MLX 0.32.4) timed one
+(2026-10-23, a MacBook Pro M5 Max: 18 CPU cores, a 40-core GPU, MLX 0.32.4) timed one
 interaction-picture Kerr source evaluation: the stage combination with three earlier
 stages, an inverse transform, $\gamma |E|^2 E$, a forward transform and the finish
 $i\,w\,F$, with a real 256 × 256 transverse-transform GEMM each way on the radial shape
@@ -93,7 +93,7 @@ what a later native single-precision mode would need too.
 **In scope.**
 - The precision setting: `SimulationSettings.precision` and the keyword interfaces,
   `KernelProblem.precision`, the shared single-precision admission (defaults and
-  refusals), the recorded configuration and ADR-052 (§9).
+  refusals), the recorded configuration and ADR-054 (§9).
 - The single-precision contract (§4.2): what is binary32, what is formed in binary64,
   how every narrowed buffer is kept in range (§4.3), and the tolerance floor.
 - `numpy_ref`'s single-precision path on the capabilities of §5.1, as the oracle.
@@ -124,7 +124,7 @@ what a later native single-precision mode would need too.
   (`solprop.backends.driver.StepDriver`) owns the march, the controller, landing,
   history and noise, and a backend supplies `_trial_step`, `_apply_mask`, `stats` and,
   optionally, `_finish` and the Adams and low-storage hooks
-  ([backends.md §1](../backends.md), [architecture.md §9](../architecture.md)).
+  ([backends.md §1](../../backends.md), [architecture.md §9](../../architecture.md)).
   Fixed-schedule batches run through `solprop.backends.batch.LockstepRunner`, whose
   `_trial_step` calls each member's trial in turn and needs each member's host norm at
   once.
@@ -133,7 +133,7 @@ what a later native single-precision mode would need too.
   (`solprop.translate.stage`); the propagator exponent is
   $\Delta\Phi = \sum_t s_t \Phi_t$, with the weight differences $s_t$ formed on the host
   in binary64. A problem that took the z table is not `device_ready`
-  ([kernel-contract.md §3](../kernel-contract.md)).
+  ([kernel-contract.md §3](../../kernel-contract.md)).
 - **The responses as they are.** Raman kernels are per particle, with `dt` folded into
   the spectrum (`solprop.translate.raman.kernel_spectrum`), and multiplied by the
   density in the pass (`backends.numpy_ref.passes.raman_polarisation`): a molecular
@@ -143,13 +143,13 @@ what a later native single-precision mode would need too.
   keeps the neutral survival separately and evaluates its cycle moments with a
   per-sample singular-value decomposition and adaptive angular quadrature
   (`backends.numpy_ref.envelope_plasma`, `translate.envelope_plasma.cycle_moments`).
-- **The floating-point policy.** [SEP 25](archive/sep-0025-rounding-level-reproducibility.md)
+- **The floating-point policy.** [SEP 25](sep-0025-rounding-level-reproducibility.md)
   compares independent computations by numerical error, with five comparison classes
   and the bound helpers of `tests/bounds.py`, all written in binary64's `EPS` and `u`
-  ([testing.md §3](../testing.md)).
+  ([testing.md §3](../../testing.md)).
 - **Precision today.** Everything is binary64, and two normative pages say so:
-  [architecture.md §1](../architecture.md) ("Double precision throughout") and
-  [conventions.md §6](../conventions.md) (a complex128 kernel state). The translation
+  [architecture.md §1](../../architecture.md) ("Double precision throughout") and
+  [conventions.md §6](../../conventions.md) (a complex128 kernel state). The translation
   layer builds its tables in binary64; `numpy_ref` computes with NumPy and `scipy.fft`,
   both of which preserve complex64 inputs; `numba_cpu` and `native` are binary64
   throughout.
@@ -157,7 +157,7 @@ what a later native single-precision mode would need too.
   ADR-020 orders the priorities as accuracy and reliability, then CPU performance, then
   GPU, and builds GPU paths only for what the CPU backends have validated; ADR-051
   keeps no compatibility with earlier configurations or output schemas
-  ([decisions.md](../decisions.md)). §9 and §10 say how this proposal relates to each.
+  ([decisions.md](../../decisions.md)). §9 and §10 say how this proposal relates to each.
 - **The roadmap item** "Floating-point options and reduced precision" lists reduced
   precision as the one floating-point option with a large expected gain; this SEP takes
   up its MLX and entirely-single-precision bullets for the routes in scope.
@@ -255,7 +255,7 @@ Under `precision="single"`:
 - **Accumulated, not summed naively:** every long reduction or running integral (the
   norms, the statistics, the plasma's running integrals over time, the field grid's
   band-exact running sums of
-  [SEP 18](archive/sep-0018-band-exact-plasma-integrals.md)) uses a pairwise or blocked
+  [SEP 18](sep-0018-band-exact-plasma-integrals.md)) uses a pairwise or blocked
   order with the bound of its tree, or binary32 compensated summation, and states that
   bound: a sequential binary32 sum of $10^4$ terms could lose
   $10^4 u_{32} \approx 6 \times 10^{-4}$ of its value. The orders are the oracle's
@@ -514,7 +514,7 @@ function, never through a public interface.
 - **Configuration, metadata and resume** as §5.3.
 - **Memory.** `estimate_memory` takes the element sizes from the precision, and a
   backend may add its runtime's own terms (§6.3).
-- **ADR-052** (§9), and the normative pages it amends (§8).
+- **ADR-054** (§9), and the normative pages it amends (§8).
 
 #### 6.2 `numpy_ref`
 
@@ -584,7 +584,7 @@ evidence, separate from the TF32 admission:
 If a probe fails, or a protected operation cannot be established on the installed MLX
 and device, the backend refuses to run, naming the operation and what to do.
 
-**TF32 and an initialised MLX.** MLX 0.32.4 on that laptop's GPU computes float32 matrix
+**TF32 and an initialised MLX.** MLX 0.32.4 on the M5 Max's GPU computes float32 matrix
 products in TF32 by default (a relative error of $7.7 \times 10^{-4}$ was measured on
 256 × 256 products, against $2.9 \times 10^{-7}$ in float32), and its documentation says
 `MLX_ENABLE_TF32=0` keeps them in float32 and that many settings are read when a
@@ -655,7 +655,7 @@ third precision value.
 `mlx` (MIT licence, compatible with GPL-3.0-or-later), as an optional extra with the
 environment marker `sys_platform == "darwin" and platform_machine == "arm64"`, pinned
 to a tested minor version (`mlx>=0.32.4,<0.33` at drafting) and added to
-[dependencies.md](../dependencies.md), with the macOS floor taken from MLX's wheels.
+[dependencies.md](../../dependencies.md), with the macOS floor taken from MLX's wheels.
 The maintainer has agreed to it as an optional extra. A pin is raised only in a pull
 request that runs the GPU lane and the arithmetic probes (Q9).
 
@@ -787,7 +787,7 @@ propagation to the binary32 growth bound.
 Each phase records, on short windows, the time per accepted step of `mlx` against
 `native` (binary64, CPU) on the same Mac, at the shapes of §2 and the benchmark suite's
 corresponding cases, under the benchmark rules
-([benchmarks.md](../benchmarks.md#rules)), with the MLX version, its precision settings
+([benchmarks.md](../../benchmarks.md#rules)), with the MLX version, its precision settings
 and the measured peak memory. These replace §2's indicative figures in the user guide;
 they inform its advice and are not merge gates.
 
@@ -797,18 +797,18 @@ they inform its advice and are not merge gates.
   when to use it, the capability table, what is refused, the survival record with its
   criteria, the tolerance floor, the propagator's step-count limit and the known
   limitations.
-- The backends guide ([Choosing a backend](../../guide/performance/backends.md)): the
+- The backends guide ([Choosing a backend](../../../guide/performance/backends.md)): the
   `mlx` entry, its installation and `MLX_ENABLE_TF32`.
 - The normative pages, amended when phase 1 changes their contracts:
-  [architecture.md §1](../architecture.md) ("Double precision throughout" becomes
-  double precision by default, single precision opt-in under ADR-052) and §9 (the `mlx`
-  backend); [conventions.md §6](../conventions.md) (the kernel state is complex128, or
+  [architecture.md §1](../../architecture.md) ("Double precision throughout" becomes
+  double precision by default, single precision opt-in under ADR-054) and §9 (the `mlx`
+  backend); [conventions.md §6](../../conventions.md) (the kernel state is complex128, or
   complex64 under single precision, held at the run's scale); and
-  [kernel-contract.md](../kernel-contract.md) (the precision field, and that table
+  [kernel-contract.md](../../kernel-contract.md) (the precision field, and that table
   dtypes are binary64 at the seam and narrowed by backends).
-- [backends.md](../backends.md): a section on `mlx`, a column in §9 *What runs where*,
-  and §11's limits; [testing.md](../testing.md) §3: the binary32 bounds and their limits
-  of use; [decisions.md](../decisions.md): ADR-052.
+- [backends.md](../../backends.md): a section on `mlx`, a column in §9 *What runs where*,
+  and §11's limits; [testing.md](../../testing.md) §3: the binary32 bounds and their limits
+  of use; [decisions.md](../../decisions.md): ADR-054.
 - Docstrings for `precision` on every interface that takes it.
 - A worked example comparing single and double precision on one capillary and one
   radial case, run by hand with `poe docs-examples`.
@@ -824,8 +824,8 @@ they inform its advice and are not merge gates.
   resumed.
 - **Outputs.** No change to the saved arrays. Storing fields in binary32 would halve
   file sizes and is deferred (Q6).
-- **ADR-052 — Single precision as an opt-in arithmetic, validated against its oracle.**
-  Written at acceptance. It amends [architecture.md §1](../architecture.md)'s "Double
+- **ADR-054 — Single precision as an opt-in arithmetic, validated against its oracle.**
+  Written at acceptance. It amends [architecture.md §1](../../architecture.md)'s "Double
   precision throughout": binary64 stays the default and the only arithmetic of
   `numba_cpu` and `native`; binary32 is an explicit per-run choice under SEP 33's
   contract. It records the exception to ADR-020 for the `mlx` route: a GPU path whose
@@ -852,7 +852,7 @@ they inform its advice and are not merge gates.
   measurements stand against JAX as a CPU backend. PyTorch's MPS device covers complex
   arithmetic and FFTs only partially. MLX is Apple's own, supports complex64 transforms
   and custom Metal kernels, and is used here only for Apple GPUs, where no other
-  backend runs, so ADR-002's CPU comparison does not apply; ADR-052 records how the
+  backend runs, so ADR-002's CPU comparison does not apply; ADR-054 records how the
   route relates to ADR-020.
 - **A mixed mode first** (binary32 source, binary64 state) on `native`. Better accuracy
   for the same transform cost on CPUs and reduced-binary64 NVIDIA GPUs, but impossible
@@ -874,8 +874,9 @@ they inform its advice and are not merge gates.
 
 ### 11. Phases
 
-Each phase merges on its own with a green gate, its local GPU lane where `mlx` is
-touched, and its report in Part II.
+All phases are made on one branch and reach `main` in one pull request, opened when the
+SEP is set Final; continuous integration runs its full gate. Each phase is qualified on
+its own, with its local GPU lane where `mlx` is touched, and reports in Part II.
 
 **Phase 1 — The precision setting, the oracle path and the survival study.**
 - The setting, the `Precision` record, `KernelProblem.precision`, the admission function
@@ -968,7 +969,7 @@ phase 2–4 measurements settle within those decisions.
   admission rules of §7.3, recorded before any comparison.
 - **Q13 — Envelope plasma on `mlx`. Decided:** refused in phases 2–3; a device
   formulation qualified as a discretisation in phase 4.
-- **Q14 — ADR-052. Decided:** written at acceptance (§9).
+- **Q14 — ADR-054. Decided:** written at acceptance (§9).
 
 ### 13. References
 
@@ -988,9 +989,486 @@ phase 2–4 measurements settle within those decisions.
 
 ## Part II — Implementation record
 
+### Phase 1 — survival criteria (recorded 2026-10-24, before the study's first comparison)
+
+The criteria are §7.3's, as the maintainer decided them on 2026-10-23 (Q12); this
+section fixes the cases and the way each metric is computed before any study comparison
+runs. Development checks of the oracle against binary64 at equal tolerance were made
+while the path was built; none of them is a study comparison, and none set a criterion.
+
+**Cases.** Every case runs on `numpy_ref` with `RungeKutta()` unless stated, its
+binary64 reference at `rtol = 1e-10` on the same grid, discretisation, plasma rule and
+quadrature, checked against a binary64 run at `rtol = 1e-9`; candidates in single
+precision at `rtol = 1e-6` (the floor) and `1e-5`, and a binary64 run at `1e-6` for
+context. Windows are reduced; the full-length comparison is the worked example.
+
+| id | route | definition | expected |
+|---|---|---|---|
+| `spm` | fibre, envelope | GNLSE, no dispersion, γ = 0.11 W⁻¹m⁻¹, 1 kW sech of 50 fs FWHM at 835 nm, length for a nonlinear phase of 10π (0.2856 m), 400 nm–3 µm, 1 ps | survives |
+| `soliton` | fibre, envelope | GNLSE N = 1 soliton, β₂ = −1.183×10⁻²⁶ s²/m, γ = 0.11, T₀ = 28.4 fs, ten soliton periods, no Raman or shock | survives |
+| `rdw` | fibre, field | SEP 30's `rdw` in two modes: 125 µm He capillary, 0.8 → 0 bar gradient, 1.5 m, 7.5 fs 275 µJ at 800 nm, 90 nm–4 µm, 400 fs | survives |
+| `ctc` | fibre, field | the reduced comb-to-continuum case as SEP 21 corrected it: 16 µm H₂ capillary at 40 bar, one mode, 0.1 m, 400 fs 10 µJ at 515 nm, Raman, 294 K, 250 nm–2 µm, 2 ps, noise-free | survives with a limit |
+| `argon` | fibre, field | SEP 30's `argon_blueshift`: 13 µm Ar capillary at 1.7 bar, one mode, 0.4 m, 30 fs 3 µJ at 800 nm, no loss, 300 nm–4 µm, 400 fs | to measure |
+| `argon_envelope` | fibre, envelope | `argon` on an envelope grid with envelope-grid plasma | to measure |
+| `nitrogen` | fibre, field | 50 µm N₂ capillary at 2 bar, one mode, 0.3 m, 30 fs 50 µJ at 800 nm, molecular Raman, 200 nm–3 µm, 1 ps | to measure |
+| `radial_kerr` | radial | 64 nodes in 2 mm, vacuum with χ⁽³⁾ = 10⁻²⁵ m²/V², 300 µJ 50 fs Gaussian beam of 300 µm at 800 nm, 0.3 m, envelope 600 nm–1.2 µm, 300 fs | to measure |
+| `radial_filament` | radial | SEP 30's `radial_filament_256`: 1 bar Ar, Kerr and optmat plasma, 3 critical powers, 100 µm waist, 30 fs at 800 nm, 3 cm, 256 nodes in 1 mm, field grid 350 nm–2 µm, 250 fs | to measure |
+| `cartesian_diffraction` | Cartesian | 64 × 64 in 2 mm × 2 mm, vacuum, 300 µm waist, 50 fs at 800 nm, 0.3 m, envelope 600 nm–1.2 µm, 300 fs | survives |
+| `cartesian_kerr` | Cartesian | `cartesian_diffraction` with χ⁽³⁾ = 10⁻²⁵ m²/V² and 300 µJ | survives |
+| `rdw` and `argon` under Adams | fibre | the two cases with `Multistep()` through the study's private admission (Q2) | to measure |
+| noise model | any | refused under single precision (§4.5) | refused |
+| below the floor | any | refused under single precision (Q1) | refused |
+
+**Metrics**, each against the reference at the last plane:
+
+| metric | computed as | envelope |
+|---|---|---|
+| field | `‖a − a_ref‖ / ‖a_ref‖` over the whole saved state, binary64 | 10⁻³ |
+| spectral bands | the active band cut into 32 equal frequency bands; a band's energy is `Σ |a|²` over its bins and every mode, polarisation and transverse column; bands above −40 dB of the largest compared, relative | 1 % |
+| total energy | the run's own `energy` statistic | 10⁻⁴ relative |
+| peak power or intensity | `peak_power` (fibre) or `peak_intensity` (spatial) | 10⁻³ relative |
+| ionised fraction | `electron_density` over the gas density at the last plane, where the reference's exceeds 10⁻⁶ | 10⁻³ relative |
+| beam width | `fwhm_r` (radial) or the flux-weighted second-moment width (Cartesian) | 10⁻³ relative |
+
+**Verdicts and rules** as §7.3: *survives* within every envelope at `rtol = 1e-6` and
+`1e-5`; *survives with a limit* within them only over a stated shorter length, lower
+energy or looser tolerance; *fails* otherwise. The floor rises to 10⁻⁵ if on every case
+no metric's error at 10⁻⁶ is smaller than at 10⁻⁵ by more than 25 %. Adams is admitted
+in phase 4 only if on both its cases its error at each tolerance is at most twice
+Runge–Kutta's in every metric and within every envelope. The propagator record states
+the drift constant `c` of the constant-operator tests (§7.2) and the step count at which
+`c M u₃₂` reaches the field envelope.
+
+**Where the record lives.** The harness and raw results are kept with the project's
+development records (SEP 30's rule); the verdicts, the constants and the limits are
+recorded here and on the manual page.
+
+### Phase 1 — report (2026-10-24)
+
+**Delivered.**
+
+- `solprop.translate.precision`: the `Precision` record (`DOUBLE`, `SINGLE`), the shared
+  admission `admit_precision` with its private study route `study_admission`, the floor
+  `SINGLE_RTOL_FLOOR`, and the range and reduction helpers (`block_exponent`, `narrow`,
+  `launch_peak`, `state_scale`, `Coefficient`/`combine`, `pairwise_sum`, `prefix_sum`,
+  `scaled_square_sum`).
+- `KernelProblem.precision` (kernel schema 36) with the route refusals in `validate`;
+  `SimulationSettings.precision`, the integrator resolved by precision, the `auto`
+  refusal; `precision=` and the floor default on `prop_gnlse`, `prop_capillary` and
+  `prop_waveguide`; the precision in every hashed configuration (output schema 25).
+  `numba_cpu` and `native` (schema 36) refuse single precision by name.
+- `numpy_ref`'s single-precision path, `backends/numpy_ref/single.py`
+  (`NumpySingleBackend`), reached through hooks of the reference that leave its binary64
+  arithmetic unchanged (`SourceTables`, `_propagator`, `_rounded`, `_error_norm`,
+  `_envelope_sources`, `StepDriver._norm_controller`); dtype-following buffers in
+  `passes.to_time`, the radial plasma spectrum and the host Adams store; the memory rows
+  (`single_precision_rows`).
+- `tests/bounds.py` parameterised by the roundoff (`UNIT_ROUNDOFF_32`, `EPS_32`);
+  `tests/translate/test_precision.py` and `tests/backends/test_single_precision.py`
+  (class R on every route and response family, class P scaling and reload, the review's
+  counterexamples, refusals, guards, failure on every march, memory).
+- ADR-054; architecture.md §1, conventions.md §6, kernel-contract.md, backends.md (§2,
+  §9, §11), testing.md §3; the manual page *Single precision*; the changelog.
+
+**How the contract is implemented on the oracle** (implementation choices within §4.2,
+recorded here as the target `mlx` is compared against):
+
+- *Block exponents.* Every narrowed table has its exponent computed and recorded
+  (`block_exponents`). Where narrowing the table directly keeps every entry the
+  block-exponent form keeps — its largest magnitude at least one, or no entry below
+  binary32's smallest normal number — the exponent is applied at upload, exactly;
+  otherwise the table is refused unless its pass carries the exponent, as the Raman
+  kernel's does. The same rule governs every host-evaluated array rounded per stage.
+- *Host evaluation.* Every z-dependent array a pass multiplies by — the propagator, the
+  prefactor, a z-table value, the spatial collar's rate, the Adams flow and its
+  moments — is evaluated in binary64 and rounded once, as is the ionisation rate's table
+  lookup (whose binary32 logarithm would add `|ln E| u` to its argument), and the
+  envelope-grid plasma's sources (moments, populations, currents). The oracle's
+  statistics are binary64 functions of the exactly widened binary32 state.
+- *Homogeneity.* Kerr and Raman take `s²` in their combined coefficient; the plasma is
+  evaluated at the physical field `s E` (exact) and its current divided by `s` (exact),
+  which is §4.3's table of factors.
+- *Orders.* Running integrals use the doubling scan `prefix_sum` (each prefix of depth at
+  most `ceil(log2 n)`); norms are scaled sums of squares reduced by `pairwise_sum`.
+
+**Survival study** (cases and criteria above; references all passed their `1e-9` check;
+the harness's metrics are relative errors at the last plane):
+
+| case | single `1e-6`: field | largest other | single `1e-5`: field | verdict |
+|---|---|---|---|---|
+| `spm` | 7.9e-6 | 9.6e-5 bands | 9.3e-5 | survives |
+| `soliton` | 2.7e-5 | 6.5e-6 peak | 2.4e-5 | survives |
+| `rdw` | 2.6e-6 | 4.9e-5 bands | 1.7e-5 | survives |
+| `ctc` | 2.6e-3 | 3.4e-4 peak | 1.3e-3 | survives with a limit: 0.05 m (field 4.3e-5 there; 0.025 m 6.6e-6) |
+| `argon` | 1.8e-4 | 2.1e-4 bands | 5.2e-4 | survives |
+| `argon_envelope`, over 0.1 m | 2.7e-6 | 4.2e-5 bands | 1.9e-5 | survives |
+| `argon_envelope`, 0.4 m (completed after this report, recorded in phase 4) | 1.3e-5 | 2.1e-5 ionised | 3.5e-5 | survives |
+| `nitrogen` | 1.1e-6 | 2.7e-5 bands | 3.1e-6 | survives |
+| `radial_kerr` | 8.5e-6 | 1.3e-4 bands | 1.3e-4 | survives |
+| `radial_filament` | 2.3e-6 | 1.2e-5 peak | 1.3e-5 | survives |
+| `cartesian_diffraction` | 2.4e-7 | 2.4e-7 bands | 2.4e-7 | survives |
+| `cartesian_kerr` | 2.7e-6 | 2.0e-5 bands | 7.4e-5 | survives |
+
+- *The CtC limit is the physics.* A binary64 run whose launch carries an additive seed of
+  `2^-24` of its peak spectral amplitude in every active bin departs from the reference
+  by 5.1e-2 at 0.1 m and 2.3e-3 at 0.05 m (soliton 5.8e-7, rdw 9.9e-7, argon 4.6e-6):
+  noise-free stimulated
+  Raman scattering amplifies any rounding-sized Stokes seed, and binary32's rounding is
+  one. A multiplicative perturbation of the same size, which seeds no empty bin, moves
+  the result by 3.4e-7 only.
+- *The floor* stays at `1e-6` (Q1): the floor rule does not hold (`spm`'s field error
+  falls by 92 % from `1e-5` to `1e-6`).
+- *Adams* (Q2) is **not admitted** by the rule: on `argon` at `1e-5` its field error is
+  1.5e-3 (outside the envelope, three times Runge–Kutta's), and on `rdw` at `1e-6` its
+  energy error is 1.6e-7 against Runge–Kutta's 6.9e-8. The binary64 Adams runs at the
+  same tolerances have the same errors (argon at `1e-5`: field 1.5e-3; rdw at `1e-6`:
+  field 2.7e-6 against 2.6e-6 in binary32): the failure is Adams's truncation error at
+  those tolerances, not single precision. The rule as fixed compares with Runge–Kutta in
+  binary32, so the default stays `RungeKutta()` and `Multistep` stays refused; whether a
+  rule comparing Adams in binary32 with Adams in binary64 should decide phase 4 is the
+  maintainer's (open).
+- *The propagator drift* (`harness/drift.py`; constant operator, no source, uniform
+  steps): on a He capillary's field-grid operator the error is 4.5e-7, 2.9e-6, 3.1e-5
+  and 3.1e-4 after 10, 100, 1000 and 10 000 steps, `c` = 0.49–0.53 for `M >= 100`
+  (0.76 at 10, where the launch's rounding dominates); on the GNLSE operator `c` falls
+  from 0.32 to 0.085, rounding of the state averaging out. The field envelope 10⁻³ is
+  reached at `M ≈ 3.2e4` steps at `c = 0.53`; the manual page states it. The
+  binary32-exponent variant gives the same errors to 2 % for `M >= 100` (2.5 against
+  0.76 at 10): in these frames the occupied bins' `|dPhi|` per step is small, so the
+  review's witness (`|dPhi| ~ 10^3`) does not arise on these routes; the
+  binary64-accurate propagator costs nothing on the oracle and is kept.
+
+**Findings for later phases.**
+
+- *The inverse propagator's range.* In binary32 `exp(-dPhi)` overflows when a step's
+  damping exceeds about 88 nepers (709 in binary64). No study case reached it; an
+  adaptive run would reject such a step as non-finite and shrink it, a replayed one stops
+  with `ConvergenceError`. `mlx` (phase 2) records whether a strong collar on a long step
+  reaches it.
+- *Envelope plasma on the oracle is slow*: the per-sample decomposition and adaptive
+  quadrature run in Python: one binary32 run of the envelope case takes 52–80 min over
+  0.1 m on an idle core of a 2× Xeon Gold 6240 workstation (36 cores) and hours over 0.4 m. Its binary64 references (`1e-10`,
+  `1e-9`, `1e-6`) were therefore computed on `native`, whose envelope plasma is the same
+  discretisation and quadrature, qualified against `numpy_ref` to rounding — orders of
+  magnitude inside these envelopes; the reference check passed (6.4e-9). The candidates
+  ran on `numpy_ref`, the only single-precision path. The case ran over 0.1 m for its
+  verdict; the 0.4 m candidates are recorded when they finish. Phase 4's device
+  formulation is the remedy.
+- *Adams snapshots under single precision* (`HostHistory.load_rows`) still restore a
+  binary64 store; phase 4 revisits the layout, as §5.3 says.
+
+**Deviations.** None from Part I. The study ran on reduced windows as §7.3 says; the two
+CtC lengths and the perturbation witness were added to state the CtC limit, and are not
+new criteria. The envelope case's binary64 references ran on `native` and its verdict
+on 0.1 m, for run time (above). Two-component (tensor) Raman is implemented but has no test
+or study case yet; phase 2 adds its class R test.
+
+**Verification.** The new test modules pass (39 tests); the reference's existing tests
+pass unchanged (746 in the `numpy_ref`, memory, batch, held-plasma and registry modules;
+4302 in `tests/translate`, `tests/output`, `tests/processing` and `tests/driver` after the
+expected record pins: schema-21 projections leave out the precision as they leave out
+SEP 34's measure); native's backend tests pass with schema 36. CI runs the full gate on
+the SEP's pull request.
+
+### Phase 2 — report (2026-10-25)
+
+**Delivered.**
+
+- `solprop.backends.mlx_gpu` (`arithmetic.py`, `passes.py`, `backend.py`, `batch.py`),
+  registered as `"mlx"`; the `mlx` extra (`mlx>=0.32.4,<0.33`, macOS arm64) written by
+  `hatch_build.py`; `registry.available(precision=)` lists binary64 backends by
+  default and `mlx` under `"single"`; `backend="auto"` under single precision resolves
+  to `mlx` where MLX and Metal are present (Q8); `registry.metal_available`.
+- `MlxBackend` on the fibre route: mode-averaged and multimode, field and envelope
+  grids, Kerr and the harmonic, scalar and tensor Raman, mixtures, the field-grid plasma
+  with the held current, loss, both absorber schemes, the polarisation taper,
+  device-ready gradients; Runge–Kutta, the low-storage march (`MlxLowStorage`), lockstep
+  batches (`MlxBatchRunner`), statistics and `observe` through the oracle's host side.
+  Refused by name: radial and Cartesian free space (phase 3), the envelope-grid plasma
+  (phase 4), a z table, Adams, interpolated planes.
+- The protected operations as custom kernels in `"safe"` mode (propagator and term
+  combination in double-float, populations, the doubling scan, the rate table) and the
+  GEMM probe; `memory.mlx_rows`, `MLX_GRAPH_BUDGET` and the device ledger rows.
+- `tests/backends/test_mlx.py` (29 tests, the kernels', the FFT characterisation's and
+  the special values' among them); the macOS CI job installs the extra and
+  prints whether the runner exposes Metal; backends guide, dependencies, the manual
+  page's backend column, backends.md §4a, the changelog.
+
+**Findings about MLX 0.32.4 on an Apple-silicon GPU** (each with its test):
+
+- `expm1` errs by up to 1.0e-4 relative at small arguments (1,700 ulp); `exp`, `log`,
+  `log1p`, `sin` and `cos` are within 3 ulp. The populations use Kahan's `expm1` in a
+  kernel (4 u).
+- The FFT is about three times less accurate than NumPy's float32 transform (forward
+  3.4e-7 against 1.1e-7 at 2^12) and its round trip shrinks by 1.2–2.4e-7, a coherent
+  bias. Only the split-step collar puts the state through a round trip; it is applied as
+  a correction, which removed a 5.6e-6 drift over 16 steps. Characterised against
+  `fft_bound` at binary32 for real and complex transforms of 1024 to 2^18 samples and
+  the smooth lengths 3072 and 17920: the worst forward or round-trip error is 8.5e-7,
+  over a thousand times inside the bound; `fft_probe` repeats the measurement at each
+  run's own lengths when the backend is built.
+- Matrix products default to TF32 (7.3e-4 relative), as §6.3 says; the probe separates
+  them.
+- Float32 subnormals are flushed on the GPU (accepted, §4.3 rule 7).
+- The propagator kernel errs by at most 5 u (median 0.5 u), not the one rounding of the
+  oracle: binary32 `exp`, `cos` and `sin` of reduced arguments. It does not grow with
+  the phase. The device's drift constant is `c <= 0.85` (oracle 0.17–0.32);
+  double-float `sincos` is the refinement if a record needs it.
+
+**Agreement with the oracle** (class R, same schedule; bounds as the oracle tests'):
+soliton with Raman 2.0e-7 (10 steps) and 4.1e-7 with the kernel; envelope capillary
+8.7e-7; argon capillary 2.8e-6 and nitrogen 3.0e-6 (16 steps), whose free current
+integrates an oscillating field to a small net value, a one-ulp difference in the
+population moving it by 7e-4 — the conditioning §7.1's signed-sum bounds carry; four
+modes 1.0e-5 over 256 steps; tensor Raman on two components; low-storage 2.0e-7; batch
+members equal to their solo runs bitwise; a resume across the oracle and `mlx` within
+its bound.
+
+**Indicative timings** (the MacBook Pro M5 Max under heavy load, same-process A/B
+against `native` in binary64, four alternating rounds, fixed 20-step schedules, median
+time per step; not a benchmark, which §7.4 assigns to a quiet machine):
+
+| case | `native` / `mlx` time |
+|---|---|
+| GNLSE, one line, 2^14 samples | 1.5 |
+| GNLSE, one line, 2^16 | 2.7 |
+| GNLSE, one line, 2^18 | 5.4 |
+| Ar capillary with plasma, one mode, 300 fs (n_to 4096, 33 nodes) | 0.34 |
+| the same, four modes | 0.51 |
+| the same, eight modes on 1 ps (n_to 16384, 65 nodes) | 1.21 |
+
+Small runs are bound by the GPU's per-operation latency (a 33 × 4096 stage costs about
+0.8 ms in some sixty launches); the kernels for the scan and the rate table halved the
+plasma's share. Fusing more passes is phase 4's (§11). A first cut evaluated every
+propagator on the host (a bug in `DoubleFloatTerms.upload`, found by these timings and
+fixed); the A/B ratios above are after the fix.
+
+**Not yet done in this phase** (carried into the PR's remaining work, before Final):
+the hosted macOS runner's Metal result (Q7), which the first CI run on the pull request
+records; the benchmark on a quiet machine (§7.4).
+
+**Deviations.** None from Part I.
+
+### Phase 3 — report (2026-10-25)
+
+**Delivered.**
+
+- `MlxBackend` on the radial route: the Hankel synthesis and projection as the fibre
+  route's float32 products (`gemm_probe` on the radial shapes), Kerr, Raman and the
+  field-grid plasma on the nodes, the radial plasma spectrum formed on the nodes and
+  projected once (`_device_radial_plasma`, the oracle's `_radial_plasma_spectrum`), and
+  the radial absorber matrix in the stage.
+- On the Cartesian route and its line (`_device_free`): the separable operator uploaded
+  once, at unit distance, as one double-float term the stage's `dz` weights (the oracle
+  forms `separable_values(...) * dz` in binary64 and rounds it, the same quantity), the
+  per-column prefactor narrowed once, MLX's `fftn`/`ifftn` over the transverse axes,
+  the responses per column chunk on the fine grid, and the window's in-stage rate with
+  the temporal collar. `fft_probe` adds the transverse lengths; `gemm_probe` is skipped,
+  the route having no quadrature products.
+- `memory._mlx_per_stage` with `_MLX_TRANSIENT_COLUMNS` (18 fine-grid columns per
+  column on the Cartesian route, 6 on the radial one): MLX's transverse transforms copy
+  their axes and the reference's in-place passes are separate arrays on the device.
+  Measured peak against the estimate: 0.72–0.84 on the Kerr beams with both collars,
+  0.18–0.78 across 16 × 16 to 32 × 32 Cartesian grids with 128–512 samples, 0.30–0.51
+  on the filaments, each graph policy (whole step or stage by stage) measured.
+- Tests in `tests/backends/test_mlx.py` (42 on the Metal device; 36 and 6 kernel
+  skips on MLX's CPU device): class R against `numpy_ref` single for Kerr beams on the
+  radial, Cartesian and line routes, each with and without its collars; argon
+  filaments on the radial and Cartesian routes and a nitrogen one on the radial route
+  with its Raman response; Gaussian-beam diffraction; the Cartesian launch whose sum of
+  squares exceeds binary32's range; the memory estimate on both routes. The case
+  builders are shared with the oracle's tests in `test_single_precision.py`.
+
+**Agreement with the oracle** (ten steps, same schedule, normwise relative): Kerr
+beams 5.7e-7 (radial), 6.4e-7 (Cartesian) and 7.4e-7 (line); with the collars 5.8e-7,
+6.4e-7 and 7.6e-7, against the collars' own effect of 9e-5 and 1e-4 on the radial and
+Cartesian runs; the argon filament 5.7e-7. A full run with its output agrees on the saved field and every statistic within
+2e-6 (the species' peak rate and ionisation energy the largest).
+
+**Gaussian-beam diffraction** on a 128 × 128 Cartesian grid over one Rayleigh range of
+a 100 µm waist: width, axial amplitude and Gouy phase within 1.6e-6, 1e-8 and 1.3e-8
+of paraxial optics, against the exact operator's non-paraxial bound of 6.5e-6; the
+oracle's errors are the same to two digits.
+
+**Indicative timings** (the same loaded MacBook Pro M5 Max, same-process A/B against `native` in
+binary64, the best of two rounds, ten fixed steps after a warm step; not a benchmark):
+
+| case | `native` / `mlx` time |
+|---|---|
+| Kerr beam, 64 radial nodes, 512 samples | 1.15 |
+| Kerr beam, 256 radial nodes, 1024 samples | 3.8 |
+| Kerr beam, 64 × 64 Cartesian, 256 samples | 2.2 |
+| Kerr beam, 128 × 128 Cartesian, 512 samples | 2.0 |
+| argon filament, 64 radial nodes, field grid (513 bins) | 1.5 |
+| argon filament, 128 radial nodes | 2.3 |
+
+The Cartesian route gains less than the radial one at the same state size: its two
+transverse transform pairs per stage (four with the collar) are MLX's `fftn`, whose
+axis copies are the transients the memory rows count. A fused transverse kernel is a
+candidate for phase 4's measured kernels (§11).
+
+**Not yet done in this phase**: the benchmark suite's filament and Kerr-beam cases on a
+quiet machine (§7.4), with phase 2's; Q7 at the first CI run.
+
+**Deviations.** None from Part I.
+
+### Phase 4 — report (2026-10-25)
+
+**Delivered.**
+
+- The envelope-grid plasma on `mlx` (`mlx_gpu/envelope.py`), the device formulation of
+  §6.3: one kernel thread per sample computes the polarisation ellipse in closed form
+  (native's `envelope_axes`), the cycle moments on the accepted 64–512-point rules split
+  at the table's cut angles with each level's sums compensated, refined to the
+  representation's `2e-6`, the rate from the table's spline (the phase 2 rate kernel's
+  arithmetic), the loss current per unit work, and a failure flag. The trial's failures
+  are read with its norm, in the same synchronisation, and raise the oracle's
+  `ConvergenceError`; the low-storage march reads them after its step. The exposure is
+  the trapezoid's doubling scan, the populations the stable kernel, and the drive and
+  loss are projected with the polarisation. The species statistics' node scan uses the
+  same kernel through a new hook on the reference backend (`_envelope_populations`).
+- The phasor of the propagator kernel is renormalised (below).
+- Translation refuses, under single precision, a replayed step or an adaptive floor
+  whose propagator exponent `|Re dPhi|` passes `log(FLT_MAX) = 88.72`, on every kind,
+  and warns within a tenth of it (`KernelProblem._check_single_exponent`).
+- The modal routes project their streams (polarisation, gated and edge currents,
+  envelope drive and loss) in one matrix product per chunk (`passes.project_many`).
+- On MLX's CPU device the populations are formed in binary64 and rounded (MLX's CPU
+  `exp` errs by 3.4e-6 near `exp(-80)`), and the envelope plasma is the oracle's host
+  evaluation.
+- The memory estimate counts the device's envelope arrays; the measured peak is 0.63–0.69
+  of it on three envelope cases.
+- Tests (`tests/backends/test_mlx.py`, 47 on the Metal device; 38 and 9 skips on MLX's
+  CPU device): the cycle kernel against the oracle's SVD and adaptive moments on 4,000
+  linear, circular, elliptical, near-linear and zero fields, one and two components; a
+  refinement failure stopping the march; the species populations against the oracle's;
+  the envelope-plasma capillary against the oracle (class T); the memory estimate. In
+  `test_single_precision.py`, the binary32 exponent refusal.
+- The worked example *Single precision on an Apple GPU*
+  (`docs/examples/performance/plot_01_single_precision.py`), run by `poe docs-examples`.
+
+**Findings.**
+
+- *A cut angle rounded across a cutoff.* The first device kernel evaluated the rate at
+  every node of every panel, as native does in binary64. In binary32 the computed cut
+  angle (an arccosine near one) and the rate's own cutoff test disagree for a field
+  within a few parts in 10⁶ of the table's lower edge: nodes inside the panel saw a
+  field rounded below the cutoff and a zero rate, successive levels jittered, and the
+  refinement failed by order 512 at a rate of 2e-33 s⁻¹ in the survival study's
+  envelope case, where the oracle converges. The kernel now honours the split itself —
+  no contribution past the low cut, the ceiling rate before the high cut, the field held
+  inside the table's range between them — which is what the oracle's binary64 split
+  means. Within 0.1 % of the cutoff a moment is still conditioned by the angle; the
+  tests compare against the representation's `1e-30` s⁻¹ floor, as its own refinement
+  does. Loss currents per unit work below binary32's normal range (rates near the floor)
+  are flushed by the GPU, as §4.3 rule 7 accepts.
+- *The propagator's modulus bias.* The survival runs of the envelope case on `mlx`
+  were inside their envelopes but ten times the oracle's error at `rtol = 1e-6`, and no
+  better than at `1e-5`; the energy drifted by 6.2e-6 over 258 steps without the plasma.
+  The phase 2 kernel's binary32 `cos` and `sin` leave `c² + s²` off one by a few u with
+  a bias (an energy-weighted 1–3e-8 per propagator) that a long march accumulates. One
+  Newton step on the double-float squared modulus removes it — applied as `c + c δ` by a
+  fused multiply-add, because a factor `1 + δ` rounded to binary32 is itself biased, its
+  spacing being u below one and 2u above (a first version applied the factor and moved
+  the field-grid argon case from 2.2e-4 to 9.5e-4, deterministically, under every nudge
+  of the first step). With the fix the device's drift constant is `c` 0.15–0.32 and its
+  energy drift over 1,000 and 3,000 linear steps equals the oracle's to three digits
+  (7.80e-6 and 2.26e-5): what remains is binary32 storage's own rounding, which phase 1
+  records.
+- *A binary32 range limit on the step.* An envelope-plasma test on a 1 mm capillary
+  with 0.25 mm steps diverged on both single-precision backends and ran in binary64:
+  the spectral collar gave `Re dPhi = -150`, and the interaction picture's inverse
+  propagator `exp(150)` overflows binary32 (`exp(88.72)`) but not binary64 (`exp(709.78)`).
+  Phase 1's range analysis covered the tables and the state, not the propagator's
+  exponent; translation now refuses such a step (above).
+
+**Survival (class T) on `mlx`**, the §7.3 criteria and harness of phase 1, against the
+same binary64 references:
+
+| case | `mlx` single `1e-6`: field | largest other | `mlx` single `1e-5`: field | verdict |
+|---|---|---|---|---|
+| `argon_envelope`, 0.4 m | 4.8e-5 | 5.3e-5 ionised | 6.9e-5 | survives |
+| `argon_envelope`, 0.1 m | 8.6e-6 | 3.4e-5 bands | 1.8e-5 | survives |
+| `argon` (field grid), 0.4 m | 2.2e-4 | 2.8e-4 bands | 3.4e-4 | survives |
+
+The oracle's 0.4 m envelope runs, on the 2× Xeon Gold 6240 workstation, give field 1.3e-5 and ionised
+fraction 2.1e-5 at `1e-6` (5.9 h; binary64 at the same tolerance: 1.3e-5 and 2.0e-5)
+and 3.5e-5 and 2.8e-5 at `1e-5` (3.5 h): the case survives on the oracle too. The
+device's runs take 5–7 s; its larger errors are its discretisation of the moments
+(class T), inside the envelopes by a factor of twenty.
+
+**Agreement with the oracle** (fixed schedule): the envelope-plasma capillary 4.4e-7
+after eight steps, against a plasma effect of order one on the same field; the device's
+envelope sources against the oracle's on a mid-run field, drive identical and loss
+4.2e-7; the device rate's energy-weighted bias 1e-7 relative.
+
+**Indicative timings** (the MacBook Pro M5 Max under load, same process, median of three, ten fixed
+steps after two):
+
+| case | `native` / `mlx` time |
+|---|---|
+| envelope plasma capillary, one mode, 300 fs | 7.8 |
+| the same, four modes | 7.6 |
+| the same, eight modes on 1 ps | 4.6 |
+| batched projection against per-stream, field plasma, one mode | 1.18 |
+| the same, four and eight modes | 1.05, 1.01 |
+
+**On a quiet machine.** The same-process A/B of every phase's cases, repeated on the
+MacBook Pro M5 Max (18 CPU cores, 40-core GPU) with nothing else running (six alternating rounds, the first dropped,
+median per fixed step; `native` at its default thread budget; the spread of `native`
+under 2 %, of `mlx` up to 27 % on the smallest, launch-bound cases):
+
+| case | `native` ms | `mlx` ms | `native` / `mlx` |
+|---|---|---|---|
+| GNLSE with Raman, 2^14 | 4.34 | 2.53 | 1.7 |
+| GNLSE with Raman, 2^16 | 12.0 | 3.51 | 3.4 |
+| GNLSE with Raman, 2^18 | 41.0 | 7.79 | 5.3 |
+| Ar capillary, field plasma, one mode, 300 fs | 2.17 | 4.26 | 0.51 |
+| the same, four modes | 3.09 | 4.49 | 0.69 |
+| the same, eight modes on 1 ps | 16.2 | 14.4 | 1.12 |
+| Ar capillary, envelope plasma, one mode, 300 fs | 33.9 | 4.20 | 8.1 |
+| the same, four modes | 34.5 | 4.28 | 8.1 |
+| the same, eight modes on 1 ps | 16.0 | 4.58 | 3.5 |
+| radial Kerr beam, 64 nodes | 2.56 | 2.45 | 1.05 |
+| radial Kerr beam, 256 nodes | 14.9 | 5.13 | 2.9 |
+| Cartesian Kerr beam, 64 × 64 | 26.2 | 13.5 | 1.9 |
+| Cartesian Kerr beam, 128 × 128 | 243 | 127 | 1.9 |
+| radial argon filament, 64 nodes | 7.34 | 4.15 | 1.8 |
+| the same, 128 nodes | 11.6 | 4.65 | 2.5 |
+| the same, 256 nodes | 28.5 | 8.84 | 3.2 |
+
+They agree with the loaded machine's indicative ratios to within their spread. The
+standard suite's harness (SEP 30) has no `mlx` cases yet; adding them is on the
+roadmap.
+
+**Measured kernels (§11).** Phases 2–3 showed the small plasma capillaries bound by
+launches. The projections, a third of such a stage, are batched (above); the rest of
+the stage is a few dozen elementwise passes and two scans per channel. A fused stage
+kernel is the next step and is on the roadmap; the envelope plasma, the one pass whose
+work justified a kernel, is one.
+
+**Adams (Q2).** Phase 1's study did not admit Adams by §7.3's rule (on `argon` at
+`1e-5` its field error is three times Runge–Kutta's and outside the envelope), and
+binary64 Adams has the same errors at the same tolerances, so the excess is the method's
+truncation, not the precision. Adams stays refused under single precision and
+`RungeKutta()` stays the default; whether a rule comparing binary32 Adams with binary64
+Adams should decide it is the maintainer's open decision, on the roadmap.
+
+**Q7 answered.** The pull request's first CI run recorded that the hosted macOS
+runner (macos-15, arm64) exposes Metal to MLX, so the `mlx` tests run on a GPU in CI.
+Its GPU computes float32 products in float32 even with TF32 enabled, so the TF32
+refusal test skips there.
+
+**Open, moved to the roadmap**: `mlx` cases in the standard benchmark suite (SEP 30);
+the Adams rule; a fused stage kernel; single-precision and mixed modes of `native` and
+`numba_cpu`.
+
+**Deviations.** None from Part I. The binary32 exponent refusal is new; it applies §4.3's
+range rule to the propagator.
+
 ## Part III — History
 
-- 2026-10-23: Drafted, after an indicative synthetic MLX measurement on an Apple-silicon laptop.
+- 2026-10-23: Drafted, after an indicative synthetic MLX measurement on a MacBook Pro M5 Max.
   The maintainer chose the routes (capillary fibre runs, radial and Cartesian free
   space; not the general modal route), batches only through the existing interface,
   MLX as an optional extra, and a `numpy_ref` single-precision oracle.
@@ -1007,6 +1485,16 @@ phase 2–4 measurements settle within those decisions.
 - 2026-10-23: Revised after the reviews (Opus 5.5): the maintainer's decisions on
   R3, R6, R8 and R11 and the response to every point are below; Part I rewrites
   §4.3 and §7 and adds §4.4, §5.1–5.3, the arithmetic policy of §6.3 and Q12–Q14.
+- 2026-10-24: Accepted by John Travers and set In progress. §11 now follows the
+  project's rule of one branch and one pull request per SEP, opened at Final, in place
+  of a merge per phase. ADR-054 is written (§9). Single precision on `numba_cpu` and
+  `native` is out of scope (§2), so Final needs agreement with the oracle on every
+  backend that admits single precision, not parity across all three backends.
+- 2026-10-24 to 2026-10-25: Phases 1–4 implemented and reported in Part II (Opus 5.5,
+  with John Travers reviewing after phases 1, 2 and 3).
+- 2026-10-25: Set Final with phase 4; the open questions are on the roadmap. Its
+  decision record, written as ADR-052, is renumbered ADR-054: ADR-052 and ADR-053 were
+  taken by the thread budget and the CI lanes, which reached `main` first.
 
 ### AI review — 2026-10-23 — GPT-6
 
@@ -1210,7 +1698,7 @@ were resolved technically in the response below.
   verdicts, floor rule and Adams rule of §7.3.
 - **R8:** `mlx` refuses envelope-grid plasma until phase 4, which qualifies a device
   formulation; field-grid plasma stays in phase 2.
-- **R11 (the normative pages):** a new ADR-052, written at acceptance, makes single
+- **R11 (the normative pages):** a new ADR-054, written at acceptance, makes single
   precision an opt-in exception to "Double precision throughout" and records the
   `mlx` route's relation to ADR-020.
 
@@ -1302,6 +1790,6 @@ is unchanged throughout: every new form belongs to the single-precision path.
   by backend and phase with its refusals (GNLSE and solid-core runs admitted with the
   fibre route; the dispersive electronic response refused; the z table on `numpy_ref`
   only). §8 names the normative pages to amend (architecture.md §1 and §9, conventions.md
-  §6, kernel-contract.md), and §9 drafts ADR-052. §2 now records the synthetic
+  §6, kernel-contract.md), and §9 drafts ADR-054. §2 now records the synthetic
   benchmark's setup, including that every reported row ran with `MLX_ENABLE_TF32=0`, and
   keeps it indicative until §7.4's measurements replace it.

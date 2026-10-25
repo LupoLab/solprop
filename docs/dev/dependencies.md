@@ -47,6 +47,16 @@ loaded native build identity are recorded separately with every run. A device bu
 (CUDA or HIP) is selected explicitly through `TDSEExecution.device` and checked against
 the build's execution space, with no fallback.
 
+## The Apple-GPU backend (`mlx` extra)
+
+MLX (`mlx`, MIT licence, compatible with GPL-3.0-or-later) is the optional extra of the
+`mlx` backend ([SEP 33](seps/archive/sep-0033-single-precision-mlx.md)), declared with the marker
+`sys_platform == "darwin" and platform_machine == "arm64"` and pinned to a tested minor
+version, `mlx>=0.32.4,<0.33`; the macOS floor is MLX's wheels'. A pin is raised only in
+a pull request that runs the GPU lane and the arithmetic probes (Q9). Nothing outside
+`solprop.backends.mlx_gpu` imports it; availability is probed with
+`importlib.util.find_spec`.
+
 ## The native backend package
 
 `solprop-native` is the repository's second distribution, built from `native/` and

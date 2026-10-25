@@ -72,7 +72,7 @@ def test_radial_interface_caches_and_saves_geometry(case, backend, request):
     # Preserve the compact pulse specification; serializing the built transverse
     # volume here would duplicate the input and make Cartesian metadata enormous.
     assert metadata.configuration["initial"] is pulse
-    assert metadata.schema_version == 24
+    assert metadata.schema_version == 25
     assert metadata.simulation_kind == "radial"
     assert metadata.spatial is not None
     assert metadata.spatial["stored_field_units"] == "V m"

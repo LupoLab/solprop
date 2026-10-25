@@ -27,7 +27,11 @@ Exact comparison remains right for structural contracts (class P): lossless stor
 integer accounting, identity metadata, hard masks and explicitly exact no-ops.
 
 ``u`` is the unit roundoff ``2**-53`` and ``EPS = 2 u`` NumPy's machine epsilon; the
-two are not interchangeable (SEP 25 section 4.1). The established ladder of
+two are not interchangeable (SEP 25 section 4.1). Every formula takes its roundoff as a
+parameter, binary64's by default, so that SEP 33's binary32 bounds are the same formulas
+evaluated at :data:`UNIT_ROUNDOFF_32` (or :data:`EPS_32`) rather than binary64 bounds
+scaled: ``gamma_k``'s denominator matters at binary32, and each formula refuses a
+roundoff outside its domain (``k u < 1``). The established ladder of
 ``docs/dev/accuracy.md`` section 7 is written in ``EPS``: :func:`gamma`,
 :func:`fft_bound` and :func:`scan_bound` keep its constants, which were fixed before
 the first device result. The CPU rows retain their established bounds; the Kokkos
@@ -46,21 +50,29 @@ EPS = np.finfo(float).eps
 UNIT_ROUNDOFF = 2.0**-53
 """The unit roundoff ``u`` of binary64 round-to-nearest arithmetic."""
 
+UNIT_ROUNDOFF_32 = 2.0**-24
+"""The unit roundoff of binary32 round-to-nearest arithmetic (SEP 33)."""
 
-def gamma(operations: int) -> float:
+EPS_32 = 2.0**-23
+"""Binary32's machine epsilon, ``2 u``: the ladder's unit at binary32 (SEP 33)."""
+
+
+def gamma(operations: int, eps: float = EPS) -> float:
     """Return the ladder's ``k eps / (1 - k eps)``: twice Higham's gamma, in ``EPS``."""
-    scaled = operations * EPS
+    scaled = operations * eps
+    if scaled >= 1.0:
+        raise ValueError(f"{operations} operations are beyond gamma's range at {eps}")
     return scaled / (1.0 - scaled)
 
 
-def fft_bound(samples: int) -> float:
+def fft_bound(samples: int, eps: float = EPS) -> float:
     """Bound one FFT round trip and its associated pointwise operations."""
-    return 512 * EPS * math.ceil(math.log2(samples))
+    return 512 * eps * math.ceil(math.log2(samples))
 
 
-def scan_bound(samples: int) -> float:
+def scan_bound(samples: int, eps: float = EPS) -> float:
     """Bound the complete fixed-geometry deterministic plasma scan chain."""
-    return 192 * EPS * math.ceil(math.log2(samples))
+    return 192 * eps * math.ceil(math.log2(samples))
 
 
 def rate_log_sensitivity(rate, value: float, field_range: tuple[float, float]) -> float:
@@ -169,20 +181,20 @@ def step_evaluations(problem) -> float:
     return float(np.sum(np.abs(predictor)) + np.sum(np.abs(corrector)))
 
 
-def higham_gamma(depth: int) -> float:
+def higham_gamma(depth: int, u: float = UNIT_ROUNDOFF) -> float:
     """Return Higham's ``gamma_k = k u / (1 - k u)`` for an addition depth `depth`.
 
     A sum of fixed inputs evaluated by any tree of depth ``k`` is within
     ``gamma_k sum |x_i|`` of the exact sum (SEP 25 section 4.1); a real dot product of
     length ``n`` within ``gamma_n sum |a_i b_i|``.
     """
-    scaled = depth * UNIT_ROUNDOFF
+    scaled = depth * u
     if scaled >= 1.0:
-        raise ValueError(f"depth {depth} is beyond gamma's range")
+        raise ValueError(f"depth {depth} is beyond gamma's range at u = {u}")
     return scaled / (1.0 - scaled)
 
 
-def prefix_bound(increments, depth: int, uncertainty=None):
+def prefix_bound(increments, depth: int, uncertainty=None, u: float = UNIT_ROUNDOFF):
     """Return the absolute rounding bound of every prefix of a scan, elementwise.
 
     ``gamma_D sum_{i<=j} |x_i|`` for a scan of addition depth `depth` over already
@@ -191,15 +203,15 @@ def prefix_bound(increments, depth: int, uncertainty=None):
     chunked scan of chunk length ``m`` and offset depth ``d`` has ``D = m + d + 1``.
     """
     magnitude = np.cumsum(np.abs(increments), axis=-1)
-    bound = higham_gamma(depth) * magnitude
+    bound = higham_gamma(depth, u) * magnitude
     if uncertainty is not None:
-        bound = bound + (1.0 + higham_gamma(depth)) * np.cumsum(
+        bound = bound + (1.0 + higham_gamma(depth, u)) * np.cumsum(
             np.abs(uncertainty), axis=-1
         )
     return bound
 
 
-def stencil_bound(taps, values):
+def stencil_bound(taps, values, u: float = UNIT_ROUNDOFF):
     """Return the rounding bound of a symmetric stencil applied along the last axis.
 
     For ``y_n = c_0 x_n + sum_k c_k (x_{n-k} + x_{n+k})`` the paired evaluation is
@@ -216,7 +228,7 @@ def stencil_bound(taps, values):
         shifted[..., k:] += magnitude[..., :-k]
         shifted[..., :-k] += magnitude[..., k:]
         total = total + abs(taps[k]) * shifted
-    return higham_gamma(2 * radius + 2) * total
+    return higham_gamma(2 * radius + 2, u) * total
 
 
 def propagation_growth(lipschitz: float, distance: float) -> float:
@@ -230,14 +242,19 @@ def propagation_growth(lipschitz: float, distance: float) -> float:
     return math.exp(lipschitz * distance)
 
 
-def step_budget(operations: float, steps: int, growth: float = 1.0) -> float:
+def step_budget(
+    operations: float, steps: int, growth: float = 1.0, u: float = UNIT_ROUNDOFF
+) -> float:
     """Return a relative budget of ``steps`` steps of ``operations`` roundings each.
 
     ``growth * steps * operations * u``: each step contributes its operation count of
     unit roundoffs relative to the state's scale, carried by `growth`
     (:func:`propagation_growth`). The count is the case's own, stated with its margin.
     """
-    return growth * steps * operations * UNIT_ROUNDOFF
+    budget = growth * steps * operations * u
+    if steps * operations * u >= 1.0:
+        raise ValueError(f"{steps} steps of {operations} roundings exceed u = {u}")
+    return budget
 
 
 @dataclass(frozen=True)

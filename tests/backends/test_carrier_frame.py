@@ -331,6 +331,8 @@ def test_the_refusals_name_the_policy_and_the_route():
     for kind in ("free", "radial", "slab"):
         spatial = _carrier_refusal("scalar", "numpy_ref", everything, kind)
         assert spatial is not None and f"free-space route ('{kind}'" in spatial
+    single = _carrier_refusal("scalar", "numpy_ref", everything, None, single=True)
+    assert single is not None and "not qualified in single precision" in single
     # Off, or delivered on a guided route: nothing to refuse.
     assert _carrier_refusal("off", "numba_cpu", frozenset(), "free") is None
     assert _carrier_refusal("scalar", "numpy_ref", everything, None) is None

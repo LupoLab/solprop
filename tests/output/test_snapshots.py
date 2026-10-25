@@ -167,7 +167,9 @@ def test_elapsed_requests_and_explicit_retry_are_coalesced(working, monkeypatch)
         output, None, next_save_index=0, require_history=False, persist=lambda: None
     )
     assert controller.last_result is None
-    now += 10
+    # Past the interval, not on it: from a real monotonic origin, (now + 10) - now can
+    # round to just below 10 and leave the request not yet due.
+    now += 11
     controller._service(
         output, None, next_save_index=0, require_history=False, persist=lambda: None
     )
