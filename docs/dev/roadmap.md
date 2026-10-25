@@ -111,6 +111,12 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   route, the planar kind, coupled flows, TDSE responses and noise models are refused
   under single precision; those, and single-precision and mixed modes of `native` and
   `numba_cpu`, remain open below.
+- [SEP 35 — A carrier frame for the exponential Adams history](seps/sep-0035-carrier-frame-exponential-adams.md):
+  the default `Multistep` interpolates its source history with the carrier's phase
+  removed and integrates the remainder against shifted $\varphi$-functions, so field
+  grids in dense gases no longer pay for resolving the carrier rotation. Exact for any
+  shift; state, history, error estimate and resume unchanged. All three backends, then
+  qualification on the suite's field-grid cases; the third-harmonic band's shift is open.
 
 The informal items below record work not fully covered by these proposals. When adding
 or revising a SEP, remove an informal item only if the proposal covers it in full;
