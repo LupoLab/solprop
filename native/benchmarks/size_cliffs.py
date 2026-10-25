@@ -29,7 +29,7 @@ import math
 import sys
 import time
 import warnings
-from typing import Any
+from typing import Any, cast
 
 FACTORS = (1.0, 1.125, 1.25, 1.375, 1.5, 1.75, 2.0)
 LENGTH = 1.5
@@ -77,7 +77,8 @@ def timed(
         start = time.perf_counter()
         output = built.run(progress="none")
         wall = time.perf_counter() - start
-    evaluations = int((output.outcome.execution or {})["source_evaluations"])
+    execution = cast("dict[str, int]", output.outcome.execution or {})
+    evaluations = int(execution["source_evaluations"])
     output.close()
     return int(built.grid.n_t), evaluations, wall
 

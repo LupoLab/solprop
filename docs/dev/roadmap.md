@@ -508,7 +508,7 @@ any of the first ten items.
     1 % (on Apple silicon it is faster); find the cause;
   - the taper, short-line and planar controls;
   - the stage and FFT starts on macOS, kept at 8,192 and 32,768 while Linux uses 4,096
-    and 16,384 ([smooth grid sizes](benchmarks.md#smooth-size-cliffs)): on Apple
+    and 16,384 ([smooth grid sizes](benchmarks.md#smooth-grid-sizes)): on Apple
     silicon the serial stage is faster even at 8,196 elements, so sweep the crossover
     there on a quiet machine (`native/benchmarks/size_cliffs.py` and the SSFS and
     reduced comb-to-continuum cases) and set its own values.
