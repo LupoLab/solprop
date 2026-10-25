@@ -7,8 +7,8 @@
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-10-25); Opus 5.5 (2026-10-25, revision after review) |
 | **Status** | Draft |
-| **Review status** | In review |
-| **Reviewers** | GPT-6 (AI) |
+| **Review status** | Reviewed |
+| **Reviewers** | GPT-6 (AI); John Travers (human) |
 | **Type** | Feature |
 | **Created** | 2026-10-25 |
 | **Resolution** | — |
@@ -1418,8 +1418,10 @@ as written on 2026-10-25 (Part III).
   Q12); all six await the maintainers' confirmation.
 - 2026-10-25: John Travers confirmed the revised Q1, Q4, Q7 and Q9 and the proposed Q11
   and Q12 as written; recorded in §12. Every question of §12 is now decided, leaving
-  only what the phases measure. Review status remains `In review`, awaiting a human
-  review.
+  only what the phases measure.
+- 2026-10-25: John Travers confirmed that he has read the proposal and requested that
+  his human review be recorded. Review status is `Reviewed`; proposal status remains
+  `Draft`.
 
 ### AI review — 2026-10-25
 
