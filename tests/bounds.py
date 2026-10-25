@@ -348,3 +348,89 @@ def assert_work_within(actual: int, expected: int, *, factor: float, what: str =
 
 Bound = Callable[..., float]
 """A bound function, for parametrised tests that carry one per case."""
+
+
+PHI_ULPS = 256
+"""Unit roundoffs of the phi functions' natural scale ``exp(max(Re x, 0)) / r!``.
+
+The witnesses of ``tests/backends/test_exponential_weights.py`` hold both algorithms of
+:func:`solprop.backends.exponential.phi_functions` within 256 ulp of that scale."""
+
+
+def carrier_increment_budget(  # noqa: PLR0913 - the increment's operands
+    coefficients, moments, samples, nodes, shift, shifted, *, phase_rounding=0.0
+):
+    """Bound the rounding of one carrier-frame increment ``sum_k M_k sum_j c_jk G_j``.
+
+    SEP 35's step adds three operations to the exponential increment (section 6.2):
+    the rotation ``G_j = exp(sigma (1 - theta_j)) F_j``, the subtraction
+    ``x' = x - sigma`` before the moments, and the shift's own phase, read from the
+    exponent. Elementwise, with ``u`` the unit roundoff and ``n`` the nodes:
+
+    - a rotated sample is within ``|F_j| r_j``,
+      ``r_j = (u |sigma| + d) |1 - theta_j| + 6 u``: the argument's product, a complex
+      exponential (three correctly rounded real functions) and the multiply, plus the
+      shift's phase uncertainty ``d`` (`phase_rounding`);
+    - a coefficient sum ``S_k`` within ``sum_j |c_jk| |F_j| (r_j + gamma_n + n^2 u)``,
+      the last term the Lagrange coefficients' own formation;
+    - a moment ``M_k = k! phi_{k+1}(x')`` within its evaluation's ``PHI_ULPS`` of the
+      natural scale ``E / (k + 1)``, ``E = exp(max(Re x', 0))``, plus its argument's
+      ``u |x'| + d`` carried by ``|M_k'| <= E / (k + 1)``;
+    - the outer sum within ``gamma_n sum_k |M_k| |S_k|``.
+
+    The rotation's unit modulus keeps ``|G_j| = |F_j|``, so the interpolation's
+    conditioning is the unshifted formulation's; an imaginary shift never amplifies.
+    Two implementations of the same step differ by at most twice the bound.
+
+    Parameters
+    ----------
+    coefficients : array_like
+        ``c_jk``, shape ``(n_nodes, n_k)``.
+    moments : array_like
+        ``M_k`` at ``x'``, shape ``(n_k, *shape)``.
+    samples : array_like
+        ``F_j``, shape ``(n_nodes, *shape)``.
+    nodes : array_like
+        ``theta_j``, shape ``(n_nodes,)``.
+    shift : array_like
+        ``sigma``, broadcasting against an element.
+    shifted : array_like
+        ``x'``, shape ``shape``.
+    phase_rounding : float or array_like, optional
+        An absolute bound on the shift's phase as the backend forms it; 0 when the
+        exponent is given exactly.
+
+    Returns
+    -------
+    numpy.ndarray
+        The absolute bound per element, shape ``shape``.
+    """
+    coefficients = np.abs(np.asarray(coefficients, dtype=np.complex128))
+    moments = np.abs(np.asarray(moments))
+    samples = np.abs(np.asarray(samples))
+    nodes = np.asarray(nodes, dtype=np.float64)
+    shift = np.abs(np.asarray(shift))
+    shifted = np.asarray(shifted)
+    n_nodes, n_k = coefficients.shape
+    u = UNIT_ROUNDOFF
+    extra = (1,) * (samples.ndim - 1)
+    spans = np.abs(1.0 - nodes).reshape((n_nodes, *extra))
+    rotation = (u * shift + phase_rounding) * spans + 6 * u
+    scale = np.exp(np.maximum(np.real(shifted), 0.0))
+    argument = u * np.abs(shifted) + phase_rounding
+    total = np.zeros(samples.shape[1:])
+    for k in range(n_k):
+        weights = coefficients[:, k].reshape((n_nodes, *extra))
+        magnitude = np.sum(weights * samples, axis=0)
+        sum_error = np.sum(
+            weights * samples * (rotation + higham_gamma(n_nodes) + n_nodes**2 * u),
+            axis=0,
+        )
+        moment_error = (PHI_ULPS * u + argument) * scale / (k + 1)
+        total = (
+            total
+            + moments[k] * sum_error
+            + moment_error * magnitude
+            + higham_gamma(n_k) * moments[k] * magnitude
+        )
+    return total

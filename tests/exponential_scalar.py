@@ -18,6 +18,11 @@ in either formulation of SEP 16 section 4.2:
   reference flow's frame), ``"untransported"`` (interpolated with the source) or
   ``"chord"`` (omitted, the excluded control).
 
+Either exponential treatment can take SEP 35's carrier frame: the step interpolates
+``G_j = exp(sigma (1 - theta_j)) F_j`` with ``sigma = i Im(h B_n)``, the bin's own chord
+phase, and integrates it against the weights at ``h B_n - sigma``; the transported
+compensation is unchanged and the untransported one is rotated as the samples.
+
 Starting values are exact, so every error is the recurrence's. The weights come from
 the production algebra (:func:`solprop.stepper.multistep.integrated_weights` and
 :func:`solprop.backends.exponential.exponential_weights`); the recurrence itself is
@@ -57,15 +62,19 @@ class ScalarProblem:
     exact: Callable[[float], complex]
 
 
-def march(
+def march(  # noqa: PLR0913 - the reference march's whole configuration
     problem: ScalarProblem,
     length: float,
     steps: int,
     order: int,
     formulation: str,
     compensation: str = "transported",
+    *,
+    shift: bool = False,
 ) -> float:
     """March ``steps`` equal steps of PEC ``order``/``order + 1``; return the error.
+
+    ``shift`` applies the carrier frame to the exponential formulation.
 
     Returns
     -------
@@ -101,7 +110,14 @@ def march(
             )
         else:
             reference = (problem.phase(z + h) - problem.phase(z)) / h
-            frame = _Frame(problem, z, h, reference, compensation)
+            frame = _Frame(
+                problem,
+                z,
+                h,
+                reference,
+                compensation,
+                1j * (h * reference).imag * shift,
+            )
             predicted = flow * u + frame.increment(predictor_nodes, history)
             new = problem.source(z + h, predicted)
             u_next = flow * u + frame.increment(
@@ -138,18 +154,20 @@ class _Frame:
     h: float
     reference: complex
     compensation: str
+    shift: complex = 0j
 
     def increment(self, nodes: np.ndarray, history: _History) -> complex:
         """Return ``h sum_j w_j F_j`` plus the step's compensation."""
-        h, reference = self.h, self.reference
-        exponential = exponential_weights(nodes, h * reference)
-        total = h * np.dot(exponential, history.sources)
+        h, reference, shift = self.h, self.reference, self.shift
+        exponential = exponential_weights(nodes, h * reference - shift)
+        factors = np.exp(shift * (1.0 - np.asarray(nodes)))
+        total = h * np.dot(exponential, factors * np.asarray(history.sources))
         terms = [
             (self.problem.rate(zj) - reference) * sj
             for zj, sj in zip(history.positions, history.states, strict=True)
         ]
         if self.compensation == "untransported":
-            total += h * np.dot(exponential, terms)
+            total += h * np.dot(exponential, factors * np.asarray(terms))
         elif self.compensation == "transported":
             adams = integrated_weights(nodes)
             total += h * sum(

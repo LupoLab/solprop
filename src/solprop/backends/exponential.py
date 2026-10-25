@@ -391,7 +391,7 @@ class CarrierReference:
 
     def shift(
         self, exponent: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
-    ) -> Complex[np.ndarray, "n_batch 1 1 n_shift"]:
+    ) -> Complex[np.ndarray, "n_batch 1 1 #n_omega"]:
         """Return each batch member's shift for a trial's exponent.
 
         Parameters
@@ -478,9 +478,7 @@ def carrier_reference(
             None,
             "an envelope grid without the third harmonic removes beta_0: sigma = 0",
         )
-    # argmin returns the first of equal distances: the lower index of the frequency
-    # axis's own order.
-    nearest = int(np.argmin(np.abs(grids.omega - grids.omega0)))
+    nearest = _nearest_bin(grids.omega, grids.omega0)
     if not bool(grids.active_mask[nearest]):
         return CarrierReference(
             policy,
@@ -510,6 +508,66 @@ def carrier_reference(
     )
 
 
+def _nearest_bin(omega: Float[np.ndarray, " n_omega"], omega0: float) -> int:
+    """Return the bin nearest `omega0`, ties going to the lower index.
+
+    Parameters
+    ----------
+    omega : numpy.ndarray
+        The frequency axis, rad/s, in the grid's own order.
+    omega0 : float
+        The reference frequency, rad/s.
+
+    Returns
+    -------
+    int
+        The bin.
+    """
+    # argmin returns the first of equal distances: the lower index of the axis's order.
+    return int(np.argmin(np.abs(omega - omega0)))
+
+
+def _carrier_refusal(
+    policy: CarrierFrame, backend: str, delivered: frozenset[str], geometry: str | None
+) -> str | None:
+    """Return why `backend` cannot step a carrier frame, or ``None`` when it can.
+
+    Parameters
+    ----------
+    policy : {'off', 'scalar', 'harmonic'}
+        The policy asked for.
+    backend : str
+        The backend's name, for the message.
+    delivered : frozenset of str
+        The policies the backend steps.
+    geometry : str or None
+        The spatial geometry's kind; ``None`` on a guided route.
+
+    Returns
+    -------
+    str or None
+        The refusal.
+    """
+    if policy == "off":
+        return None
+    if policy not in delivered:
+        gate = (
+            "; the harmonic shift runs on numpy_ref only until it passes SEP 35's gate"
+            if policy == "harmonic"
+            else ""
+        )
+        return (
+            f"{backend}: Multistep(carrier_frame={policy!r}) is not delivered on this "
+            f"backend{gate}; pass carrier_frame='off' or use numpy_ref"
+        )
+    if geometry is not None:
+        return (
+            f"{backend}: Multistep(carrier_frame={policy!r}) is not yet qualified on "
+            f"a free-space route ({geometry!r} geometry); pass carrier_frame='off'"
+        )
+    return None
+
+
 def refuse_carrier_frame(
     problem: KernelProblem,
     backend: str,
@@ -533,24 +591,14 @@ def refuse_carrier_frame(
         Naming the policy and what does not deliver it.
     """
     method = problem.stepper.integrator
-    if not isinstance(method, Multistep) or method.carrier_frame == "off":
+    if not isinstance(method, Multistep):
         return
-    policy = method.carrier_frame
-    if policy not in delivered:
-        gate = (
-            "; the harmonic shift runs on numpy_ref only until it passes SEP 35's gate"
-            if policy == "harmonic"
-            else ""
-        )
-        msg = (
-            f"{backend}: Multistep(carrier_frame={policy!r}) is not delivered on this "
-            f"backend{gate}; pass carrier_frame='off' or use numpy_ref"
-        )
-        raise BackendError(msg)
     geometry = problem.transform.geometry
-    if geometry is not None:
-        msg = (
-            f"{backend}: Multistep(carrier_frame={policy!r}) is not yet qualified on "
-            f"a free-space route ({geometry.kind!r} geometry); pass carrier_frame='off'"
-        )
-        raise BackendError(msg)
+    refusal = _carrier_refusal(
+        method.carrier_frame,
+        backend,
+        delivered,
+        None if geometry is None else geometry.kind,
+    )
+    if refusal is not None:
+        raise BackendError(refusal)

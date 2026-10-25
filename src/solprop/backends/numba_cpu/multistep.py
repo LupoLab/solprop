@@ -1428,7 +1428,7 @@ class NumbaCoupledExponentialKernels(
         block: CoupledBlock,
         dz: float,
         *,
-        shift: _State | None = None,
+        shift: Complex[np.ndarray, "#n_batch 1 1 #n_omega"] | None = None,
     ) -> Any:
         """Return a coupled trial's flow and moments, the route's bins compiled.
 

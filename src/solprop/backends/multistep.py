@@ -109,6 +109,8 @@ logger = logging.getLogger(__name__)
 
 _State = Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
 _StoreRows = Complex[np.ndarray, "n_slots n_batch n_modes n_pol n_omega"]
+_Shift = Complex[np.ndarray, "#n_batch 1 1 #n_omega"]
+"""A carrier frame's shift: one per batch member, or per bin too (SEP 35)."""
 
 
 @dataclass
@@ -716,7 +718,7 @@ def coupled_moments(  # noqa: PLR0913 - the optional evaluators and shift are ke
     *,
     eigen: Callable[..., None] = _eigen_functions,
     diagonal: Callable[[np.ndarray, int], np.ndarray] | None = None,
-    carrier: _State | None = None,
+    carrier: _Shift | None = None,
 ) -> _MatrixMoments:
     """Return a coupled trial's flow and moments ``k! phi_{k+1}(h B)``, ``k < count``.
 
@@ -1255,7 +1257,7 @@ class CoupledExponentialKernels(ExponentialKernels):
         block: CoupledBlock,
         dz: float,
         *,
-        shift: _State | None = None,
+        shift: _Shift | None = None,
     ) -> _MatrixMoments:
         """Return a coupled trial's flow and moments (:func:`coupled_moments`).
 
@@ -1557,7 +1559,7 @@ class _Compensation:
         if residual is not None:
             self.endpoint = self.endpoint + residual
 
-    def rotate(self, shift: _State) -> None:
+    def rotate(self, shift: _Shift) -> None:
         """Rotate the untransported witness's terms by a trial's carrier shift.
 
         The transported treatment's formula is unchanged under a carrier frame (SEP 35
@@ -2709,7 +2711,7 @@ def _rotated(
     store: Complex[np.ndarray, "n_slots n_batch n_modes n_pol n_omega"],
     slots: np.ndarray,
     nodes: list[float],
-    shift: _State,
+    shift: _Shift,
 ) -> Complex[np.ndarray, "n_used n_batch n_modes n_pol n_omega"]:
     """Return the history rows a trial reads, rotated into its carrier frame.
 
