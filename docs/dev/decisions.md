@@ -1163,7 +1163,7 @@ Withdrawn (development-process record, not a design decision).
   layer; before the first public release a resume-compatibility policy is decided
   (roadmap, *Release preparation*).
 
-## ADR-052 — Single precision as an opt-in arithmetic, validated against its oracle
+## ADR-054 — Single precision as an opt-in arithmetic, validated against its oracle
 
 - **Status:** accepted; amends [architecture.md §1](architecture.md) ("Double precision
   throughout") and records an exception to ADR-020 for the `mlx` route

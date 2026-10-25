@@ -217,6 +217,17 @@ def metal_available() -> bool:
     """
     if not _satisfied(BACKENDS["mlx"]):
         return False
+    return _metal_device()  # pragma: no cover - needs MLX, macOS on Apple silicon
+
+
+def _metal_device() -> bool:  # pragma: no cover - needs MLX, macOS on Apple silicon
+    """Return whether MLX reports a Metal device, MLX being installed.
+
+    Returns
+    -------
+    bool
+        ``mlx.core.metal.is_available()``.
+    """
     import mlx.core as mx  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
 
     import solprop.backends.mlx_gpu  # noqa: F401, PLC0415 - sets MLX_ENABLE_TF32 first
@@ -509,7 +520,7 @@ def select_batch(owners: Sequence[Backend]) -> BatchBackend:
         )
 
         return NumpyBatchBackend(cast(Sequence[NumpyRefBackend], owners))
-    if name == "mlx":
+    if name == "mlx":  # pragma: no cover - needs MLX, macOS on Apple silicon
         from solprop.backends.mlx_gpu.backend import (  # noqa: PLC0415 - lazy backend
             MlxBackend,
         )
@@ -635,7 +646,7 @@ def _construct(
             Backend,
             NativeBackend(problem, grid=grid, modes=modes, profiles=profiles),
         )
-    if name == "mlx":
+    if name == "mlx":  # pragma: no cover - needs MLX, macOS on Apple silicon
         from solprop.backends.mlx_gpu.backend import MlxBackend  # noqa: PLC0415
 
         return MlxBackend(problem, grid=grid, modes=modes, profiles=profiles)

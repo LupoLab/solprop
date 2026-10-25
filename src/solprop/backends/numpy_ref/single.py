@@ -7,9 +7,9 @@
 :class:`NumpySingleBackend` is
 :class:`~solprop.backends.numpy_ref.backend.NumpyRefBackend` with the propagated state,
 the stage values, every transform and the responses held in IEEE binary32, under the
-contract of ``docs/dev/seps/archive/sep-0033-single-precision-mlx.md`` section 4.2. It is the
-target the ``mlx`` backend is compared against, so it keeps the reference's
-one-function-per-pass shape and states every order it sums in.
+contract of ``docs/dev/seps/archive/sep-0033-single-precision-mlx.md`` section
+4.2. It is the target the ``mlx`` backend is compared against, so it keeps the
+reference's one-function-per-pass shape and states every order it sums in.
 
 What is binary32 and what is not:
 
@@ -837,7 +837,7 @@ def single_sources(  # noqa: PLR0913 - the fused pass takes what the responses n
             )
         elif stage is ResponseStage.PLASMA_CURRENT:
             physical = np.ldexp(field_t, k) if field_t.dtype.kind == "f" else None
-            if physical is None:
+            if physical is None:  # pragma: no cover - validation refuses it first
                 raise BackendError("the field-grid plasma needs a real field")
             channels = responses.plasma_channels
             if multiple:
@@ -864,7 +864,7 @@ def single_sources(  # noqa: PLR0913 - the fused pass takes what the responses n
             )
         elif stage in _ELSEWHERE:
             continue
-        else:
+        else:  # pragma: no cover - validation refuses these routes first
             msg = f"the single-precision path does not run the {stage.name} stage"
             raise BackendError(msg)
     windowed = (total * t_window).astype(field_t.dtype, copy=False)
@@ -1015,7 +1015,7 @@ def raman_single(
     n_nodes, n_pol, n_to = field_t.shape
     if n_pol == 2:
         return _vector_raman_single(field_t, spectrum, factor, kind=kind, thg=thg)
-    if n_pol != 1:
+    if n_pol != 1:  # pragma: no cover - translation shapes the field
         raise BackendError("Raman needs one or two physical components")
     drive = np.zeros((n_nodes, 2 * n_to), dtype=np.float32)
     for node in range(n_nodes):
@@ -1060,7 +1060,10 @@ def _vector_raman_single(
         If the kernel spectra have the wrong shape.
     """
     n_to = field_t.shape[-1]
-    if spectrum.ndim != 2 or spectrum.shape not in ((1, n_to + 1), (2, n_to + 1)):
+    shapes = ((1, n_to + 1), (2, n_to + 1))
+    if (
+        spectrum.ndim != 2 or spectrum.shape not in shapes
+    ):  # pragma: no cover - translated
         raise BackendError("vector Raman needs one or two tensor kernel spectra")
     values = field_t
     if kind == "field" and not thg:

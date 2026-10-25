@@ -1243,7 +1243,9 @@ class KernelProblem:
         TranslationError
             Naming the refused route, response or statistic.
         """
-        if not isinstance(self.precision, Precision):
+        if not isinstance(
+            self.precision, Precision
+        ):  # pragma: no cover - refused by the annotation where it is checked
             raise TranslationError("precision must be a Precision record")
         if not self.precision.single:
             return

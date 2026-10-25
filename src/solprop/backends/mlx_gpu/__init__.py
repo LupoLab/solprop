@@ -6,7 +6,7 @@
 
 Registered as ``"mlx"`` and installed with the ``mlx`` extra on macOS on Apple silicon.
 It runs ``precision="single"`` problems only, validated against
-:mod:`solprop.backends.numpy_ref.single`, its oracle (ADR-052). The package is named
+:mod:`solprop.backends.numpy_ref.single`, its oracle (ADR-054). The package is named
 ``mlx_gpu`` so that it does not shadow the ``mlx`` library inside it.
 
 Importing it sets ``MLX_ENABLE_TF32=0`` when the variable is unset, so that MLX computes

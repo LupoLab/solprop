@@ -20,12 +20,21 @@ from typing import cast
 
 import numpy as np
 import pytest
+from scipy import signal
 
 from bounds import EPS_32, UNIT_ROUNDOFF_32, assert_within, higham_gamma, prefix_bound
-from solprop.backends.memory import estimate_memory
+from solprop.backends import registry
+from solprop.backends.memory import (
+    MLX_GRAPH_BUDGET,
+    estimate_memory,
+    mlx_bounded,
+    mlx_graph_bytes,
+    mlx_stage_bytes,
+)
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.backends.numpy_ref.single import (
     NumpySingleBackend,
+    analytic_single,
     plasma_current_single,
     raman_single,
     running_integral,
@@ -41,11 +50,13 @@ from solprop.backends.registry import (
 from solprop.boundaries import absorber
 from solprop.constants import EPS0
 from solprop.driver import Simulation, prop_gnlse
+from solprop.driver import simulation as simulation_module
 from solprop.driver.simulation import SimulationSettings
 from solprop.exceptions import (
     BackendError,
     ConvergenceError,
     DriverError,
+    ExponentBudgetWarning,
     TranslationError,
 )
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
@@ -57,10 +68,16 @@ from solprop.physdata import gamma3
 from solprop.physdata.selection import MaterialSelection
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
+from solprop.stats import StatsSpec
 from solprop.stepper import LowStorageRungeKutta, PIController, RungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
-from solprop.translate.precision import PrecisionName, combine, precision_named
+from solprop.translate.precision import (
+    PrecisionName,
+    combine,
+    precision_named,
+    study_admission,
+)
 from vector_raman_cases import vector_problem
 
 U32 = UNIT_ROUNDOFF_32
@@ -74,7 +91,7 @@ def gnlse(  # noqa: PLR0913 - the case's own knobs
     gamma: float = 0.11,
     power: float = 100.0,
     raman: bool = True,
-    integrator: RungeKutta | LowStorageRungeKutta | None = None,
+    integrator: RungeKutta | LowStorageRungeKutta | Multistep | None = None,
     beta0: float = 0.0,
     taper: bool = False,
 ) -> Simulation:
@@ -104,7 +121,9 @@ def gnlse(  # noqa: PLR0913 - the case's own knobs
     )
 
 
-def capillary(precision: str, gas: str = "Ar", **overrides) -> Simulation:
+def capillary(
+    precision: str, gas: str | dict[str, float] = "Ar", **overrides
+) -> Simulation:
     """Return a short field-grid capillary, ionising in argon, on 16 fixed steps.
 
     The split-step collar is unconditionally stable, so the steps need not stay inside
@@ -218,6 +237,16 @@ def test_a_step_whose_inverse_propagator_overflows_binary32_is_refused():
     schedule = FixedSchedule.uniform(0.0, length, length / 4)
     capillary("double", length=length, schedule=schedule).translate()
     with pytest.raises(TranslationError, match=r"past binary32's range exp\(88\.72\)"):
+        capillary("single", length=length, schedule=schedule).translate()
+
+
+def test_a_step_within_a_tenth_of_binary32s_range_is_warned_of():
+    """Seven steps of the same capillary: |Re dPhi| = 86, between 79.8 and 88.72."""
+    length = 0.001
+    schedule = FixedSchedule.uniform(0.0, length, length / 7)
+    with pytest.warns(
+        ExponentBudgetWarning, match="within a tenth of binary32's range"
+    ):
         capillary("single", length=length, schedule=schedule).translate()
 
 
@@ -495,10 +524,22 @@ def test_a_radial_plasma_beam_agrees_with_binary64_within_its_bound():
     assert_within(fields["single"], fields["double"], bound)
 
 
-@pytest.mark.parametrize("family", ["envelope", "field"])
-def test_tensor_raman_on_two_components_agrees_with_binary64(family):
-    """Both helicities and an oblique delayed probe through H2's tensor ladder."""
-    problem, grid, modes = vector_problem(family=family, steps=8)
+@pytest.mark.parametrize(
+    ("family", "material"),
+    [
+        ("envelope", "H2"),
+        ("field", "H2"),
+        ("field_real", "H2"),
+        ("envelope", "CH4"),
+    ],
+)
+def test_tensor_raman_on_two_components_agrees_with_binary64(family, material):
+    """Both helicities and an oblique delayed probe through H2's tensor ladder.
+
+    The real field grid keeps the harmonic in the drive; methane, a spherical top, has
+    the isotropic kernel alone.
+    """
+    problem, grid, modes = vector_problem(family=family, material=material, steps=8)
     fields = {}
     cases: tuple[tuple[PrecisionName, type[NumpyRefBackend]], ...] = (
         ("double", NumpyRefBackend),
@@ -706,3 +747,230 @@ def test_the_memory_estimate_counts_binary32_buffers():
     single = estimate_memory(gnlse("single").translate(), "numpy_ref")
     double = estimate_memory(gnlse("double").translate(), "numpy_ref")
     assert single.groups["base"] < double.groups["base"]
+
+
+# The oracle's own branches: routes, switches and the host side's helpers.
+
+
+def test_the_single_oracle_refuses_a_double_problem():
+    problem = gnlse("double").translate()
+    with pytest.raises(BackendError, match="needs a single problem"):
+        NumpySingleBackend(problem)
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(
+            lambda p: capillary(p, modes=4, length=0.002, energy=20e-6), id="multimode"
+        ),
+        pytest.param(
+            lambda p: capillary(p, envelope=True, plasma=False), id="envelope"
+        ),
+        pytest.param(
+            lambda p: spatial_kerr("radial", p, absorbed=True), id="radial-collars"
+        ),
+        pytest.param(
+            lambda p: capillary(p, envelope=True, plasma=False, thg=True),
+            id="envelope-harmonic",
+        ),
+        pytest.param(lambda p: capillary(p, gas={"Ar": 0.5, "He": 0.5}), id="mixture"),
+        pytest.param(
+            lambda p: capillary(
+                p, gas="N2", thg=True, wavelength_limits=(200e-9, 3e-6)
+            ),
+            id="field-raman",
+        ),
+    ],
+)
+def test_more_routes_agree_with_binary64_within_their_bounds(build):
+    """The embedded quadrature, the envelope's harmonic carrier, the radial absorber,
+    a two-species plasma and the field grid's Raman drive with its harmonic.
+
+    Each takes a path of the oracle the cases above do not.
+    """
+    single, double = finish(build("single")), finish(build("double"))
+    assert_within(single, double, step_bound_oracle(16, 13 + 32))
+
+
+def test_the_statistics_are_taken_from_the_widened_state():
+    with ExitStack() as cleanup:
+        single = loaded(capillary("single"), cleanup)
+        double = loaded(capillary("double"), cleanup)
+        for backend in (single, double):
+            backend.propagate_to(0.001)
+        spec = StatsSpec(names=("energy", "electron_density"))
+        ours, theirs = single.stats(spec), double.stats(spec)
+    assert set(ours) == set(theirs)
+    assert_within(np.asarray(ours["energy"]), np.asarray(theirs["energy"]), 1e-5)
+
+
+def test_the_binary32_exponent_switch_rounds_the_exponent_first():
+    """The study's variant: the exponent rounded to binary32 before the exponential."""
+    with ExitStack() as cleanup:
+        backend = cast(NumpySingleBackend, loaded(gnlse("single"), cleanup))
+        backend.binary32_exponent = True
+        backend.propagate_to(0.01)
+        field = backend.observe().field
+    assert field is not None and np.all(np.isfinite(field))
+
+
+def test_a_non_finite_state_after_a_step_is_refused():
+    with ExitStack() as cleanup:
+        backend = cast(NumpySingleBackend, loaded(gnlse("single"), cleanup))
+        state = np.full(backend._problem.shape, np.nan, dtype=np.complex64)
+        with pytest.raises(ConvergenceError, match="not finite after a step"):
+            backend._finish(state, 1e-3)
+
+
+def test_a_weighted_controller_divides_by_its_bins():
+    """A per-bin weight makes the controller's scale an array, applied in binary32."""
+    n_omega = gnlse("single").translate().shape[-1]
+    simulation = gnlse("single", steps=None)
+    simulation.settings = dataclasses.replace(
+        simulation.settings,
+        controller=PIController(rtol=1e-5, atol=1e-6, weights=np.ones(n_omega)),
+    )
+    field = finish(simulation)
+    assert np.all(np.isfinite(field))
+
+
+def gradient(precision: str) -> Simulation:
+    """Return an argon capillary on a pressure gradient, Kerr only, adaptive Adams."""
+    return Simulation.from_capillary(
+        50e-6,
+        0.004,
+        "Ar",
+        (1.0, 0.5),
+        lambda0=800e-9,
+        wavelength_limits=(300e-9, 3e-6),
+        trange=300e-15,
+        fwhm=10e-15,
+        energy=20e-6,
+        plasma=False,
+        n_save=2,
+        backend="numpy_ref",
+        precision=precision,  # pyright: ignore[reportArgumentType]
+        integrator=Multistep(),
+        rtol=1e-6,
+    )
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(
+            lambda p: gnlse(p, steps=None, integrator=Multistep()), id="constant"
+        ),
+        pytest.param(gradient, id="gradient"),
+    ],
+)
+def test_adams_runs_in_binary32_under_the_study_admission(build):
+    """The study's private route (Q2): the flow, its moments and the prediction rounded.
+
+    Adams is refused publicly; the study measures it. Its binary32 result agrees with
+    its binary64 one to the tolerance's truncation; on a gradient the operator is an
+    expansion and the predictor carries its compensation.
+    """
+    with study_admission():
+        single, double = finish(build("single")), finish(build("double"))
+    assert_within(single, double, 1e-4)
+
+
+def test_the_intermediate_ranges_record_each_pass():
+    """The study's range record: the field, the polarisation and the current."""
+    with ExitStack() as cleanup:
+        backend = cast(NumpySingleBackend, loaded(capillary("single"), cleanup))
+        backend.intermediate_ranges = {}
+        backend.propagate_to(0.0005)
+        ranges = backend.intermediate_ranges
+    assert {"field", "polarisation", "current"} <= set(ranges)
+    assert all(0 < low <= high for low, high in ranges.values())
+
+
+def test_a_zero_launch_records_no_range():
+    with ExitStack() as cleanup:
+        backend = cast(NumpySingleBackend, loaded(gnlse("single"), cleanup))
+        backend.set_initial(np.zeros(backend._problem.shape, dtype=np.complex128), None)
+        backend.intermediate_ranges = {}
+        backend.propagate_to(0.005)
+        assert backend.intermediate_ranges == {}
+
+
+def test_the_envelope_plasma_runs_in_binary32_on_the_oracle():
+    """Two steps of a 1 mm envelope-plasma capillary on 256 samples, both precisions."""
+    length = 0.001
+
+    def build(precision: str) -> Simulation:
+        return capillary(
+            precision,
+            envelope=True,
+            plasma=True,
+            length=length,
+            trange=150e-15,
+            wavelength_limits=(300e-9, 2e-6),
+            schedule=FixedSchedule.uniform(0.0, length, length / 8),
+        )
+
+    with ExitStack() as cleanup:
+        single, double = (loaded(build(p), cleanup) for p in ("single", "double"))
+        for backend in (single, double):
+            backend.propagate_to(length / 4)
+        fields = [backend.observe().field for backend in (single, double)]
+    assert fields[0] is not None and fields[1] is not None
+    assert_within(fields[0], fields[1], 1e-5)
+
+
+def test_without_mlx_single_precision_lists_the_oracle_only(monkeypatch):
+    real = registry._satisfied
+    monkeypatch.setattr(
+        registry,
+        "_satisfied",
+        lambda entry: entry is not registry.BACKENDS["mlx"] and real(entry),
+    )
+    assert available("single") == ("numpy_ref",)
+    assert not registry.metal_available()
+    assert registry.statistics_refusal("mlx", ["beam_spectrum"]) is None
+
+
+def test_auto_resolves_to_mlx_where_metal_is_present(monkeypatch):
+    monkeypatch.setattr(simulation_module, "metal_available", lambda: True)
+    assert simulation_module._single_backend("auto") == "mlx"
+    assert simulation_module._single_backend("numpy_ref") == "numpy_ref"
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(lambda: gnlse("single"), id="gnlse"),
+        pytest.param(lambda: capillary("single"), id="plasma"),
+        pytest.param(lambda: capillary("single", modes=4), id="multimode"),
+        pytest.param(
+            lambda: spatial_kerr("radial", "single", absorbed=True), id="radial"
+        ),
+        pytest.param(lambda: spatial_kerr("cartesian", "single"), id="cartesian"),
+        pytest.param(
+            lambda: capillary("single", envelope=True, plasma=True), id="envelope"
+        ),
+    ],
+)
+def test_the_mlx_estimate_adds_its_device_rows(build):
+    """The device's rows are counted without MLX installed: they are arithmetic."""
+    problem = build().translate()
+    host = estimate_memory(problem, "numpy_ref").total
+    device = estimate_memory(problem, "mlx").total
+    assert device > host
+    assert mlx_graph_bytes(problem) > 0 and mlx_stage_bytes(problem) > 0
+
+
+def test_a_step_graph_past_the_budget_is_evaluated_stage_by_stage():
+    assert mlx_bounded(7, MLX_GRAPH_BUDGET)
+    assert not mlx_bounded(7, 1)
+
+
+@pytest.mark.parametrize("n", [255, 256])
+def test_the_binary32_analytic_signal_is_the_hilbert_transforms(n):
+    """Odd and even lengths: the one-sided weights of :func:`scipy.signal.hilbert`."""
+    values = np.random.default_rng(n).standard_normal(n).astype(np.float32)
+    expected = signal.hilbert(values.astype(np.float64))
+    assert_within(analytic_single(values), expected, 64 * U32)

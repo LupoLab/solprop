@@ -93,7 +93,7 @@ what a later native single-precision mode would need too.
 **In scope.**
 - The precision setting: `SimulationSettings.precision` and the keyword interfaces,
   `KernelProblem.precision`, the shared single-precision admission (defaults and
-  refusals), the recorded configuration and ADR-052 (§9).
+  refusals), the recorded configuration and ADR-054 (§9).
 - The single-precision contract (§4.2): what is binary32, what is formed in binary64,
   how every narrowed buffer is kept in range (§4.3), and the tolerance floor.
 - `numpy_ref`'s single-precision path on the capabilities of §5.1, as the oracle.
@@ -514,7 +514,7 @@ function, never through a public interface.
 - **Configuration, metadata and resume** as §5.3.
 - **Memory.** `estimate_memory` takes the element sizes from the precision, and a
   backend may add its runtime's own terms (§6.3).
-- **ADR-052** (§9), and the normative pages it amends (§8).
+- **ADR-054** (§9), and the normative pages it amends (§8).
 
 #### 6.2 `numpy_ref`
 
@@ -801,14 +801,14 @@ they inform its advice and are not merge gates.
   `mlx` entry, its installation and `MLX_ENABLE_TF32`.
 - The normative pages, amended when phase 1 changes their contracts:
   [architecture.md §1](../../architecture.md) ("Double precision throughout" becomes
-  double precision by default, single precision opt-in under ADR-052) and §9 (the `mlx`
+  double precision by default, single precision opt-in under ADR-054) and §9 (the `mlx`
   backend); [conventions.md §6](../../conventions.md) (the kernel state is complex128, or
   complex64 under single precision, held at the run's scale); and
   [kernel-contract.md](../../kernel-contract.md) (the precision field, and that table
   dtypes are binary64 at the seam and narrowed by backends).
 - [backends.md](../../backends.md): a section on `mlx`, a column in §9 *What runs where*,
   and §11's limits; [testing.md](../../testing.md) §3: the binary32 bounds and their limits
-  of use; [decisions.md](../../decisions.md): ADR-052.
+  of use; [decisions.md](../../decisions.md): ADR-054.
 - Docstrings for `precision` on every interface that takes it.
 - A worked example comparing single and double precision on one capillary and one
   radial case, run by hand with `poe docs-examples`.
@@ -824,7 +824,7 @@ they inform its advice and are not merge gates.
   resumed.
 - **Outputs.** No change to the saved arrays. Storing fields in binary32 would halve
   file sizes and is deferred (Q6).
-- **ADR-052 — Single precision as an opt-in arithmetic, validated against its oracle.**
+- **ADR-054 — Single precision as an opt-in arithmetic, validated against its oracle.**
   Written at acceptance. It amends [architecture.md §1](../../architecture.md)'s "Double
   precision throughout": binary64 stays the default and the only arithmetic of
   `numba_cpu` and `native`; binary32 is an explicit per-run choice under SEP 33's
@@ -852,7 +852,7 @@ they inform its advice and are not merge gates.
   measurements stand against JAX as a CPU backend. PyTorch's MPS device covers complex
   arithmetic and FFTs only partially. MLX is Apple's own, supports complex64 transforms
   and custom Metal kernels, and is used here only for Apple GPUs, where no other
-  backend runs, so ADR-002's CPU comparison does not apply; ADR-052 records how the
+  backend runs, so ADR-002's CPU comparison does not apply; ADR-054 records how the
   route relates to ADR-020.
 - **A mixed mode first** (binary32 source, binary64 state) on `native`. Better accuracy
   for the same transform cost on CPUs and reduced-binary64 NVIDIA GPUs, but impossible
@@ -969,7 +969,7 @@ phase 2–4 measurements settle within those decisions.
   admission rules of §7.3, recorded before any comparison.
 - **Q13 — Envelope plasma on `mlx`. Decided:** refused in phases 2–3; a device
   formulation qualified as a discretisation in phase 4.
-- **Q14 — ADR-052. Decided:** written at acceptance (§9).
+- **Q14 — ADR-054. Decided:** written at acceptance (§9).
 
 ### 13. References
 
@@ -1067,7 +1067,7 @@ recorded here and on the manual page.
   `tests/translate/test_precision.py` and `tests/backends/test_single_precision.py`
   (class R on every route and response family, class P scaling and reload, the review's
   counterexamples, refusals, guards, failure on every march, memory).
-- ADR-052; architecture.md §1, conventions.md §6, kernel-contract.md, backends.md (§2,
+- ADR-054; architecture.md §1, conventions.md §6, kernel-contract.md, backends.md (§2,
   §9, §11), testing.md §3; the manual page *Single precision*; the changelog.
 
 **How the contract is implemented on the oracle** (implementation choices within §4.2,
@@ -1452,12 +1452,14 @@ range rule to the propagator.
   §4.3 and §7 and adds §4.4, §5.1–5.3, the arithmetic policy of §6.3 and Q12–Q14.
 - 2026-10-24: Accepted by John Travers and set In progress. §11 now follows the
   project's rule of one branch and one pull request per SEP, opened at Final, in place
-  of a merge per phase. ADR-052 is written (§9). Single precision on `numba_cpu` and
+  of a merge per phase. ADR-054 is written (§9). Single precision on `numba_cpu` and
   `native` is out of scope (§2), so Final needs agreement with the oracle on every
   backend that admits single precision, not parity across all three backends.
 - 2026-10-24 to 2026-10-25: Phases 1–4 implemented and reported in Part II (Opus 5.5,
   with John Travers reviewing after phases 1, 2 and 3).
-- 2026-10-25: Set Final with phase 4; the open questions are on the roadmap.
+- 2026-10-25: Set Final with phase 4; the open questions are on the roadmap. Its
+  decision record, written as ADR-052, is renumbered ADR-054: ADR-052 and ADR-053 were
+  taken by the thread budget and the CI lanes, which reached `main` first.
 
 ### AI review — 2026-10-23 — GPT-6
 
@@ -1661,7 +1663,7 @@ were resolved technically in the response below.
   verdicts, floor rule and Adams rule of §7.3.
 - **R8:** `mlx` refuses envelope-grid plasma until phase 4, which qualifies a device
   formulation; field-grid plasma stays in phase 2.
-- **R11 (the normative pages):** a new ADR-052, written at acceptance, makes single
+- **R11 (the normative pages):** a new ADR-054, written at acceptance, makes single
   precision an opt-in exception to "Double precision throughout" and records the
   `mlx` route's relation to ADR-020.
 
@@ -1753,6 +1755,6 @@ is unchanged throughout: every new form belongs to the single-precision path.
   by backend and phase with its refusals (GNLSE and solid-core runs admitted with the
   fibre route; the dispersive electronic response refused; the z table on `numpy_ref`
   only). §8 names the normative pages to amend (architecture.md §1 and §9, conventions.md
-  §6, kernel-contract.md), and §9 drafts ADR-052. §2 now records the synthetic
+  §6, kernel-contract.md), and §9 drafts ADR-054. §2 now records the synthetic
   benchmark's setup, including that every reported row ran with `MLX_ENABLE_TF32=0`, and
   keeps it indicative until §7.4's measurements replace it.

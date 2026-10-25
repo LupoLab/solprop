@@ -73,7 +73,7 @@ instead of a tier marker:
 | default | `uv run poe test` | fast **and** medium, compiled kernels, random order (`pytest-randomly`), warnings as errors, doctests included, under xdist with every thread pool at one thread per worker. Step 8 of `poe check`. Plain `uv run pytest` runs the same selection serially (`addopts` carries no `-n`), for one file or test and for debugging. |
 | medium alone | `uv run poe test-medium` | the medium tier, timed against its budget |
 | slow | `uv run poe test-slow` | the slow tier under xdist, one worker per core, `--dist loadgroup`, every thread pool pinned to one thread per worker |
-| coverage | `uv run poe cov` | interpreted CPU kernel bodies, then the compiled fast and medium tiers, both under xdist with one thread per worker; 100 % of the package (`coverage-cpu.ini`) |
+| coverage | `uv run poe cov` | interpreted CPU kernel bodies, then the compiled fast and medium tiers, both under xdist with one thread per worker; 100 % of the package but the `mlx` backend, which needs macOS on Apple silicon and is tested in the macOS lane (`coverage-cpu.ini`) |
 | gpu | `uv run pytest -m gpu` | needs a card |
 | benchmark | by hand, per docstring; `uv run poe bench` for `benchmarks/` | see [benchmarks.md](benchmarks.md) |
 

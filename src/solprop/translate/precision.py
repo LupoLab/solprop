@@ -8,9 +8,9 @@ A run is ``"double"`` (binary64, the default and the only arithmetic of ``numba_
 and ``native``) or ``"single"``: the propagated state, the stage values, every transform
 and the responses in IEEE binary32, with the controller, every host scalar and the
 linear propagator's exponent in binary64
-(``docs/dev/seps/archive/sep-0033-single-precision-mlx.md`` section 4.2, ADR-052). This module
-holds what every backend that admits single precision shares, so that they compute the
-same exponents and refuse the same things:
+(``docs/dev/seps/archive/sep-0033-single-precision-mlx.md`` section 4.2, ADR-054).
+This module holds what every backend that admits single precision shares, so that
+they compute the same exponents and refuse the same things:
 
 * :class:`Precision`, the record a :class:`~solprop.translate.problem.KernelProblem`
   carries, with named fields so that a later mixed mode (a binary32 source beside a
@@ -119,7 +119,8 @@ class Precision:
             If either field is not a public value, or the two differ.
         """
         names = get_args(PrecisionName)
-        if self.state not in names or self.source not in names:
+        bad = self.state not in names or self.source not in names
+        if bad:  # pragma: no cover - refused by the annotation where it is checked
             msg = (
                 f"precision fields must each be one of {names}, got state="
                 f"{self.state!r}, source={self.source!r}"
@@ -212,10 +213,10 @@ def precision_named(name: PrecisionName | Precision) -> Precision:
         return name
     if name == "double":
         return DOUBLE
-    if name == "single":
-        return SINGLE
-    msg = f"precision must be 'double' or 'single', got {name!r}"
-    raise TranslationError(msg)
+    if name != "single":  # pragma: no cover - refused by the annotation where checked
+        msg = f"precision must be 'double' or 'single', got {name!r}"
+        raise TranslationError(msg)
+    return SINGLE
 
 
 _STUDY: ContextVar[bool] = ContextVar("solprop_precision_study", default=False)

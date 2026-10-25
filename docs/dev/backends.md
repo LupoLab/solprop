@@ -361,7 +361,7 @@ that kernel matches the line's Lorentzian to 1e-5; the soliton self-frequency sh
 Gordon's rate to 2.4 % at T₀ = 800 fs; and the photon number of a lossless GNLSE run with
 the shock term and Raman on is conserved exactly while the energy falls by 7.2e-6.
 
-**Single precision** ([SEP 33](seps/archive/sep-0033-single-precision-mlx.md), ADR-052). A
+**Single precision** ([SEP 33](seps/archive/sep-0033-single-precision-mlx.md), ADR-054). A
 problem whose `precision` is single is executed by `NumpySingleBackend`
 (`backends/numpy_ref/single.py`), which the registry constructs for `numpy_ref`: the
 reference's passes and step loop in binary32, through hooks of the reference that leave

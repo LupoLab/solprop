@@ -46,19 +46,30 @@ def test_the_public_values_name_equal_fields_and_a_mixed_record_is_refused():
 
 
 def test_admission_refuses_by_name_and_the_study_reaches_adams():
-    admit = {"backend": "numpy_ref", "adams": False, "rtol": 1e-6, "schedule": False}
-    admit_precision(SINGLE, **admit)
-    admit_precision(DOUBLE, **(admit | {"backend": "native", "rtol": 1e-12}))
+    def admit(
+        precision: Precision,
+        backend: str = "numpy_ref",
+        *,
+        adams: bool = False,
+        rtol: float = 1e-6,
+        schedule: bool = False,
+    ) -> None:
+        admit_precision(
+            precision, backend=backend, adams=adams, rtol=rtol, schedule=schedule
+        )
+
+    admit(SINGLE)
+    admit(DOUBLE, "native", rtol=1e-12)
     with pytest.raises(TranslationError, match=r"numba_cpu.*binary64 only"):
-        admit_precision(SINGLE, **(admit | {"backend": "numba_cpu"}))
+        admit(SINGLE, "numba_cpu")
     with pytest.raises(TranslationError, match="floor 1e-06"):
-        admit_precision(SINGLE, **(admit | {"rtol": 1e-7}))
+        admit(SINGLE, rtol=1e-7)
     # A replayed schedule reads no tolerance.
-    admit_precision(SINGLE, **(admit | {"rtol": 1e-12, "schedule": True}))
+    admit(SINGLE, rtol=1e-12, schedule=True)
     with pytest.raises(TranslationError, match="Adams integrator"):
-        admit_precision(SINGLE, **(admit | {"adams": True}))
+        admit(SINGLE, adams=True)
     with study_admission():
-        admit_precision(SINGLE, **(admit | {"adams": True}))
+        admit(SINGLE, adams=True)
     assert SINGLE_RTOL_FLOOR == 1e-6
 
 
@@ -152,3 +163,17 @@ def test_a_sum_of_squares_that_overflows_binary32_is_scaled_first():
     subnormal = np.full(8, 1e-40, dtype=np.float32)
     assert scaled_square_sum(subnormal) > 0.0
     assert TINY32 > 1e-40
+
+
+def test_a_record_names_its_shared_value_and_passes_through():
+    assert SINGLE.name == "single"
+    assert precision_named(SINGLE) is SINGLE
+
+
+def test_an_empty_launch_has_no_peak():
+    assert launch_peak(np.zeros((1, 1, 1, 0), dtype=np.complex128), "envelope") == 0.0
+
+
+def test_a_coefficient_past_binary64s_range_is_refused():
+    with pytest.raises(TranslationError, match="overflows binary64"):
+        _ = combine(1.0, exponent=2000).value

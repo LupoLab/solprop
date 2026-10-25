@@ -829,10 +829,10 @@ def _precision(name: PrecisionName) -> Precision:
     DriverError
         If `name` is not a public value.
     """
-    try:
-        return precision_named(name)
-    except TranslationError as error:
-        raise DriverError(str(error)) from error
+    if name not in ("double", "single"):  # pragma: no cover - refused by its annotation
+        msg = f"precision must be 'double' or 'single', got {name!r}"
+        raise DriverError(msg)
+    return precision_named(name)
 
 
 def _single_backend(backend: str) -> str:
