@@ -248,8 +248,8 @@ The first public release. It contains:
 
 - **Third harmonic on an envelope grid.** With `thg=True` the envelope frame measured
   its group delay from the carrier, which also removed a constant phase
-  $\beta_1\omega_0 z$ that the harmonic term does not share. The third harmonic was
-  driven with a spurious phase mismatch of $2\beta_1\omega_0$ (about $10^7$ rad/m in a
+  β₁ω₀z that the harmonic term does not share. The third harmonic was
+  driven with a spurious phase mismatch of 2β₁ω₀ (about 1e7 rad/m in a
   gas) and came out orders of magnitude too weak, with very small steps. A frame that
   keeps the carrier phase is now a pure delay on both grids
   (`solprop.linear.frame_origin`), and envelope runs with the harmonic agree with
