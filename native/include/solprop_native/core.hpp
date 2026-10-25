@@ -482,6 +482,16 @@ struct ExponentialWeights {
   // samples' normalised positions.
   double dense_weight[adams_max_samples + 1]{};
   double dense_theta[adams_max_samples + 1]{};
+  // A scalar carrier frame (solprop SEP 35): sigma = i shift. The moments are those
+  // of x - sigma, and history row t (the t-th of `slot`) is read rotated by
+  // factor[t] = exp(sigma (1 - theta_t)); the new source's factor is one.
+  bool shifted{};
+  double shift{};
+  // exp(-sigma), formed once a trial.
+  double unshift_re{1.0};
+  double unshift_im{};
+  double factor_re[adams_max_samples]{};
+  double factor_im[adams_max_samples]{};
 };
 
 /** Small host bundle for all stages and the whole-step propagator. */

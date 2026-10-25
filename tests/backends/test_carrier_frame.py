@@ -352,13 +352,15 @@ def test_numba_cpu_refuses_the_harmonic_shift_by_name():
 
 
 @pytest.mark.skipif("native" not in available(), reason="native is not installed")
-def test_native_refuses_a_shift_by_name():
+def test_native_refuses_the_harmonic_shift_by_name():
+    # Phase 3 delivers the scalar shift on native CPU builds; the harmonic one waits
+    # for its gate, and a device build for its own qualification.
     from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
         NativeBackend,
     )
 
-    simulation = capillary(SCALAR)
-    with pytest.raises(BackendError, match=r"native: Multistep\(carrier_frame="):
+    simulation = capillary(HARMONIC)
+    with pytest.raises(BackendError, match=r"native.*: Multistep\(carrier_frame="):
         NativeBackend(
             simulation.translate(), grid=simulation.grid, modes=simulation.modes
         )
@@ -890,7 +892,7 @@ def test_a_custom_frame_changes_only_how_much_rotation_is_removed():
 
 @functools.cache
 def gradient(integrator, rtol: float) -> Simulation:
-    """Return a 3 mm hydrogen gradient, 40 to 20 bar: a varying operator."""
+    """Return a 3 mm hydrogen gradient, 40 to 20 bar, weak collar: varying operator."""
     grid = FieldGrid.from_limits(WINDOW, 800e-9, (200e-9, 2e-6), 200e-15)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", SolpropWarning)
@@ -912,6 +914,7 @@ def gradient(integrator, rtol: float) -> Simulation:
             integrator=integrator,
             raman=False,
             plasma=False,
+            absorber=absorber(grid, boundary_length=1.0),
         )
 
 
@@ -1179,6 +1182,12 @@ def test_the_moments_at_the_reference_bin_take_the_near_branch():
 
 COMPILED: dict[str, type] = {"numba_cpu": NumbaCpuBackend}
 """The compiled backends that deliver the scalar shift."""
+if "native" in available():
+    from solprop_native import (  # pyright: ignore[reportMissingImports]
+        NativeBackend as _NativeBackend,
+    )
+
+    COMPILED["native"] = _NativeBackend
 
 
 def one_trial_inputs(seed=35):
@@ -1251,10 +1260,12 @@ def test_the_compiled_passes_follow_the_reference_within_the_budget():
     assert np.max(np.abs(unrotated - predicted[1])) > 1e3 * np.max(budget)
 
 
-@pytest.mark.parametrize("backend_name", sorted(COMPILED))
-def test_a_compiled_backend_steps_the_frame_exactly(backend_name):
+def test_numba_cpu_steps_the_frame_exactly():
     # The manufactured carrier-following source through the compiled march: exact to
-    # rounding, dense planes and the cap included, in the reference's calls.
+    # rounding, dense planes and the cap included, in the reference's calls. (The
+    # native engine evaluates its source itself, so a host substitute cannot reach it;
+    # its dense planes are compared with the reference's below.)
+    backend_name = "numba_cpu"
     simulation = capillary(SCALAR)
     source = manufactured(simulation.translate())
     expected = march(simulation, source)
@@ -1309,3 +1320,81 @@ def test_a_compiled_backend_follows_the_reference_beside_a_coupled_flow(
     assert run.ledger.total == reference.ledger.total
     scale = np.max(np.abs(expected))
     np.testing.assert_allclose(found, expected, rtol=0, atol=1e-11 * scale)
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize("backend_name", sorted(COMPILED))
+def test_a_compiled_backend_interpolates_planes_as_the_reference_does(backend_name):
+    # Dense planes inside steps (section 4.1's formula with the accepted step's
+    # sigma, held across later trials): the same adaptive run on both backends takes
+    # the same steps here, so each plane differs by rounding; a wrong prefactor or an
+    # unrotated sample would differ by the step's carrier phase, order one.
+    simulation = capillary(
+        SCALAR,
+        WINDOW,
+        rtol=1e-8,
+        energy=2e-6,
+        n_save=6,
+        interpolate=True,
+        collar="weak",
+    )
+    expected = march(simulation)
+    found = march(simulation, backend_class=COMPILED[backend_name])
+    assert found.march.ledger.dense_observations > 0
+    assert np.array_equal(found.steps, expected.steps) or len(found.steps) == len(
+        expected.steps
+    )
+    for one, other in zip(found.fields, expected.fields, strict=True):
+        assert_within(
+            one, other, len(expected.steps) * 512 * EPS, what=f"{backend_name} plane"
+        )
+
+
+@pytest.mark.parametrize("backend_name", ["numpy_ref", *sorted(COMPILED)])
+@pytest.mark.parametrize("operator", ["constant", "gradient"])
+def test_the_chord_is_the_engine_s_exponent_at_the_reference(backend_name, operator):
+    # Section 6.1: the host's one-element chord, which the cap reads and the native
+    # engine takes its shift from, against the backend's own exponent, a constant
+    # operator's and a gas gradient's expansion: to rounding of the exponent.
+    backends = {"numpy_ref": NumpyRefBackend, **COMPILED}
+    simulation = capillary(SCALAR) if operator == "constant" else gradient(SCALAR, 1e-8)
+    problem = simulation.translate()
+    reference = carrier_reference(problem, SCALAR)
+    assert reference is not None and reference.chord is not None
+    assert reference.bin is not None
+    backend = backends[backend_name](
+        problem, grid=simulation.grid, modes=simulation.modes
+    )
+    try:
+        for z1, z2 in ((0.0, 1e-4), (1e-3, 1.7e-3)):
+            full = backend._delta_phi(backend._stage_scalars(z1, z2))
+            expected = np.asarray(full)[:, 0, 0, reference.bin]
+            found = reference.chord.exponent(z1, z2)
+            # The same representation evaluated at one element: a few roundings of the
+            # exponent (an expansion's combination, a constant's product).
+            bound = 64 * EPS * (1 + np.abs(expected))
+            assert np.all(np.abs(found - expected) <= bound), (found, expected)
+    finally:
+        backend.close()
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize("backend_name", sorted(COMPILED))
+def test_a_compiled_backend_follows_the_reference_on_a_gradient(backend_name):
+    # The transported compensation beside the shift (section 4.5), on the reference's
+    # own accepted steps at a fixed order: rounding alone, 512 eps a step.
+    method = Multistep(variable_order=False, carrier_frame="scalar")
+    simulation = gradient(method, 1e-8)
+    adaptive = march(simulation)
+    assert adaptive.march._engine.compensated
+    steps = adaptive.steps.copy()
+    steps[-1] = WINDOW - float(np.sum(steps[:-1]))
+    schedule = FixedSchedule(steps)
+    expected = march(simulation, schedule=schedule)
+    found = march(simulation, schedule=schedule, backend_class=COMPILED[backend_name])
+    assert_within(
+        found.fields[-1],
+        expected.fields[-1],
+        len(steps) * 512 * EPS,
+        what=f"{backend_name} against numpy_ref on a gradient",
+    )

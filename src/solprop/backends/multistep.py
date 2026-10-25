@@ -3341,7 +3341,8 @@ class AdamsMarch:
 
         Under a carrier frame no step covers more than :data:`CARRIER_PHASE_CAP` of
         carrier phase (SEP 35 section 6.4), measured by one chord of the reference
-        bin's exponent over the proposal, the largest over the batch. Applied before
+        element's operator over the proposal (:class:`CarrierChord`), the largest over
+        the batch. Applied before
         the landing rule, so a shortened step is not a landing; a fixed schedule's
         replay is not capped.
 
@@ -3361,10 +3362,10 @@ class AdamsMarch:
         backend = self._backend
         z = backend._z
         # Measured over the part of the proposal inside the run, where the operator's
-        # representation is defined; the landing rule clips the rest.
+        # representation is defined; the landing rule clips the rest. One scalar per
+        # member, from the reference element's own representation.
         end = min(z + proposal, backend._problem.stepper.z_end)
-        exponent = np.asarray(backend._delta_phi(backend._stage_scalars(z, end)))
-        phase = carrier.phase(exponent)
+        phase = carrier.chord_phase(z, end)
         if phase <= CARRIER_PHASE_CAP:
             return proposal
         return (end - z) * (CARRIER_PHASE_CAP / phase)

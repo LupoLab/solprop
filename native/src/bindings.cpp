@@ -632,6 +632,27 @@ native::ExponentialWeights exponential_weights(const IndexInput slots,
   return weights;
 }
 
+// A scalar carrier frame's shift and rotations (solprop SEP 35), packed by solprop's
+// adapter as (Im sigma, Re f_0, Im f_0, ..., Re f_{n-1}, Im f_{n-1}) over the `rows`
+// history rows a formula reads; empty for none.
+void carrier_frame(native::ExponentialWeights& weights, const RealInput carrier,
+                   const std::size_t rows) {
+  const auto values = real_vector(carrier);
+  if (values.empty())
+    return;
+  if (rows > native::adams_max_samples || values.size() != 1 + 2 * rows)
+    throw std::invalid_argument(
+        "the carrier frame's rotations have inconsistent extents");
+  weights.shifted = true;
+  weights.shift = values[0];
+  weights.unshift_re = std::cos(values[0]);
+  weights.unshift_im = -std::sin(values[0]);
+  for (std::size_t t = 0; t < rows; ++t) {
+    weights.factor_re[t] = values[1 + 2 * t];
+    weights.factor_im[t] = values[2 + 2 * t];
+  }
+}
+
 // History rows alone, as a transport or a dense copy names them.
 native::AdamsWeights adams_rows(const IndexInput slots) {
   native::AdamsWeights weights;
@@ -1790,8 +1811,9 @@ NB_MODULE(_core, module_) {
              const RealInput sample_preionisation, const RealInput sample_raman_rates,
              const nb::dict sample_material, const RealInput spans,
              const RealInput comp_predictor, const RealInput comp_corrector,
-             const RealInput comp_rows, const RealInput rate) {
+             const RealInput comp_rows, const RealInput rate, const RealInput carrier) {
             auto weights = exponential_weights(slots, predictor, corrector, rows);
+            carrier_frame(weights, carrier, weights.width - 1);
             const auto rate_weights = real_vector(rate);
             // A varying operator's compensation tables (solprop's
             // backends.multistep.compensation_tables); empty for a constant one.
@@ -1843,7 +1865,7 @@ NB_MODULE(_core, module_) {
           "sample_preionisation"_a.noconvert(), "sample_raman_rates"_a.noconvert(),
           "sample_material"_a, "spans"_a.noconvert(), "comp_predictor"_a.noconvert(),
           "comp_corrector"_a.noconvert(), "comp_rows"_a.noconvert(),
-          "rate"_a.noconvert())
+          "rate"_a.noconvert(), "carrier"_a.noconvert())
       .def(
           "adams_exponential_accept",
           [](BoundState& self, const double dz, const std::size_t free,
@@ -1858,7 +1880,7 @@ NB_MODULE(_core, module_) {
           "adams_exponential_observe",
           [](BoundState& self, const double xi, const double dz,
              const RealInput coefficients, const RealInput dense_weight,
-             const RealInput dense_theta) {
+             const RealInput dense_theta, const RealInput carrier) {
             native::ExponentialWeights weights;
             const auto weight_values = real_vector(dense_weight);
             const auto theta_values = real_vector(dense_theta);
@@ -1879,11 +1901,13 @@ NB_MODULE(_core, module_) {
             for (std::size_t j = 0; j < count; ++j)
               for (std::size_t k = 0; k < count; ++k)
                 weights.corrector[j][k] = values[j * count + k];
+            // The accepted step's carrier frame, its history rows after the endpoint.
+            carrier_frame(weights, carrier, count == 0 ? 0 : count - 1);
             const nb::gil_scoped_release release;
             self.adams_state().adams_exponential_observe(xi, dz, weights);
           },
           "xi"_a, "dz"_a, "coefficients"_a.noconvert(), "dense_weight"_a.noconvert(),
-          "dense_theta"_a.noconvert())
+          "dense_theta"_a.noconvert(), "carrier"_a.noconvert())
       .def(
           "set_flow_actions",
           [](BoundState& self, const ComplexInput forward, const ComplexInput inverse,

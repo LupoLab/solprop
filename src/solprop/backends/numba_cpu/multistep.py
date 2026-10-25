@@ -402,13 +402,15 @@ def make_passes(*, parallel: bool) -> AdamsPasses:  # noqa: PLR0915 - seven kern
             Whether a carrier frame shifts the moments (SEP 35).
         shifts : numpy.ndarray
             ``sigma`` per row, read when `shifted` holds: the moments are then those
-            of ``x - sigma``, each with its own exponential, and the flow stays
+            of ``x - sigma``, whose exponential is ``exp(x) exp(-sigma)`` (one product
+            rather than a second exponential, a few ulp), and the flow stays
             ``exp(x)``.
         """
         n_rows, n_omega = exponent.shape
         for row in rows_of(n_rows):
             out = np.empty(count + 1, dtype=np.complex128)
             old = np.empty(count + 1, dtype=np.complex128)
+            unshift = np.exp(-shifts[row]) if shifted else 1.0 + 0.0j
             for j in range(n_omega):
                 x = exponent[row, j]
                 flow[row, j] = np.exp(x)
@@ -416,7 +418,7 @@ def make_passes(*, parallel: bool) -> AdamsPasses:  # noqa: PLR0915 - seven kern
                     residual = x - shifts[row]
                     _phi(
                         residual,
-                        np.exp(residual),
+                        flow[row, j] * unshift,
                         count,
                         reciprocal,
                         inverse_terms,

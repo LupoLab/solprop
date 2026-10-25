@@ -40,6 +40,7 @@ References
        209 (2010), section 2. doi:10.1017/S0962492910000048
 """
 
+import dataclasses
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -55,6 +56,9 @@ from solprop.stepper.multistep import (
     Multistep,
     lagrange_coefficients,
 )
+from solprop.translate.chebyshev import PiecewiseChebyshev
+from solprop.translate.expansion import ParameterExpansion
+from solprop.translate.linop import LinearOperator
 from solprop.translate.problem import KernelProblem
 
 __all__ = [
@@ -63,7 +67,9 @@ __all__ = [
     "HARMONIC_BOUNDARY",
     "MAX_PHI_ORDER",
     "PHI_JOIN",
+    "CarrierChord",
     "CarrierReference",
+    "carrier_chord",
     "carrier_reference",
     "exponential_weights",
     "phi_functions",
@@ -347,6 +353,89 @@ def refuse_formulation(problem: KernelProblem, backend: str) -> None:
 
 
 @dataclass(frozen=True)
+class CarrierChord:
+    """The reference element's cumulative operator alone (SEP 35 sections 6.1, 6.4).
+
+    The operator's own representation restricted to column 0, polarisation 0 and the
+    reference bin, every batch member kept: its chord over a step is the reference
+    element's exponent, to rounding the one the backend forms, at one scalar per
+    member. The step cap reads it for every proposal, and a backend that forms its
+    exponent elsewhere (the native engine, on a device too) takes its shift from it
+    with nothing read back.
+
+    Attributes
+    ----------
+    constant : numpy.ndarray or None
+        ``D`` at the element, 1/m, shape ``(n_batch_c,)``, for a constant operator.
+    expansion : solprop.translate.expansion.ParameterExpansion or None
+        The expansion with its terms at the element, for an expansion.
+    table : solprop.translate.chebyshev.PiecewiseChebyshev or None
+        The z table at the element, for a table.
+    """
+
+    constant: Complex[np.ndarray, " n_batch_c"] | None = None
+    expansion: ParameterExpansion | None = None
+    table: PiecewiseChebyshev | None = None
+
+    def exponent(self, z1: float, z2: float) -> Complex[np.ndarray, " n_batch_c"]:
+        """Return ``Phi(z2) - Phi(z1)`` at the element, per batch member.
+
+        Parameters
+        ----------
+        z1, z2 : float
+            Positions in m, inside the operator's span.
+
+        Returns
+        -------
+        numpy.ndarray
+            Dimensionless, shape ``(n_batch_c,)``.
+        """
+        if self.constant is not None:
+            return self.constant * (z2 - z1)
+        if self.expansion is not None:
+            return np.asarray(self.expansion.delta(z1, z2), dtype=np.complex128)
+        assert self.table is not None
+        return np.asarray(self.table(z2) - self.table(z1), dtype=np.complex128)
+
+
+def carrier_chord(linear: LinearOperator, index: int) -> CarrierChord | None:
+    """Return the reference element's operator alone, or ``None`` for a separable one.
+
+    Parameters
+    ----------
+    linear : solprop.translate.linop.LinearOperator
+        The cumulative operator.
+    index : int
+        The reference bin.
+
+    Returns
+    -------
+    CarrierChord or None
+        ``None`` for the separable (spatial) representation, which the carrier frame
+        refuses.
+    """
+
+    def element(values: np.ndarray) -> np.ndarray:
+        """Return ``values[..., b, 0, 0, index]`` over its leading axes and batch."""
+        column = min(index, values.shape[-1] - 1)
+        return np.ascontiguousarray(values[..., 0, 0, column])
+
+    if linear.phi_constant is not None:
+        return CarrierChord(constant=element(linear.phi_constant))
+    if linear.phi_expansion is not None:
+        expansion = linear.phi_expansion
+        return CarrierChord(
+            expansion=dataclasses.replace(expansion, terms=element(expansion.terms))
+        )
+    if linear.phi_coefficients is not None:
+        table = linear.polynomial
+        return CarrierChord(
+            table=dataclasses.replace(table, coefficients=element(table.coefficients))
+        )
+    return None
+
+
+@dataclass(frozen=True)
 class CarrierReference:
     """Where a run's carrier frame takes its shift, fixed for the run (SEP 35 6.1).
 
@@ -370,6 +459,9 @@ class CarrierReference:
         above :data:`HARMONIC_BOUNDARY` ``omega_0``, 1 below. ``None`` for ``"scalar"``.
     reason : str
         How the reference was chosen, or why the policy is inert, for the run's log.
+    chord : CarrierChord or None, optional
+        The reference element's operator alone (:func:`carrier_chord`), for the step
+        cap and a backend that forms its shift on the host; ``None`` when inert.
     """
 
     policy: CarrierFrame
@@ -377,6 +469,7 @@ class CarrierReference:
     omega: float | None
     multiplier: Float[np.ndarray, " n_omega"] | None
     reason: str
+    chord: CarrierChord | None = None
 
     @property
     def active(self) -> bool:
@@ -439,6 +532,32 @@ class CarrierReference:
         if self.bin is None:
             return 0.0
         return float(np.max(np.abs(np.imag(exponent[:, 0, 0, self.bin]))))
+
+    def chord_phase(self, z1: float, z2: float) -> float:
+        """Return the largest carrier phase over the batch from the chord alone.
+
+        Parameters
+        ----------
+        z1, z2 : float
+            The proposed step's ends, m.
+
+        Returns
+        -------
+        float
+            ``max_b |Im (Phi(z2) - Phi(z1))|`` at the reference element, rad; 0 when
+            the policy is inert.
+
+        Raises
+        ------
+        BackendError
+            If the reference has no chord (a separable operator).
+        """
+        if self.bin is None:
+            return 0.0
+        if self.chord is None:
+            msg = "the carrier frame's reference has no chord on this operator"
+            raise BackendError(msg)
+        return float(np.max(np.abs(np.imag(self.chord.exponent(z1, z2)))))
 
 
 def carrier_reference(
@@ -505,6 +624,7 @@ def carrier_reference(
             if policy == "harmonic"
             else ""
         ),
+        carrier_chord(problem.linear, nearest),
     )
 
 
