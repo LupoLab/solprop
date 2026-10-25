@@ -1268,3 +1268,38 @@ Withdrawn (development-process record, not a design decision).
   and responses that have not been qualified in binary32, and noise models, are refused
   under single precision by name. The survival record and the tolerance floor are
   published with the user guide.
+
+## ADR-055 — Reduced precision on the native backend: a mixed mode, and binary64 where the contract or the profiles call for it
+
+- **Status:** accepted; extends ADR-054 and amends its statement that binary64 is the
+  only arithmetic of `native`
+  ([SEP 36](seps/sep-0036-native-reduced-precision.md))
+- **Context:** NVIDIA GPUs with a reduced binary64 rate, such as the A40, run binary64
+  transforms 6–9× and matrix products 16–40× slower than binary32. Every native target,
+  unlike Apple GPUs, also has binary64, at a cost that depends on the target and the
+  pass. Noise-seeded ensembles, the throughput workload on such GPUs, are refused under
+  single precision because binary32 rounding of the state can approach the quantum seed.
+- **Decision:** `native` admits SEP 33's `precision="single"`, validated against the
+  same `numpy_ref` oracle, with its binary32 exponential range-reduced in binary64 in
+  both its real part and its phase. A third value, `precision="mixed"`, keeps everything
+  that touches the propagated state in binary64. That covers the state and every row
+  stored in the interaction variable, the propagators, the once-per-step boundary
+  treatments, and the norms and statistics. The source evaluation is binary32: the
+  transforms, the responses with their own scans, the in-stage absorber terms, and the
+  matrix products. `numpy_ref` gains a mixed path as that mode's oracle. A backend may
+  compute in more precision than its mode's contract requires, provided its comparison
+  bounds hold, and per-target profiles decide where. Noise models are admitted under
+  mixed precision only, each on what its qualification study passes. `mlx` refuses
+  mixed precision, and `numba_cpu` refuses both reduced modes.
+- **Why:** mixed precision keeps binary32's gain on the transforms and matrix products,
+  removes single precision's coherent propagator drift and damping limit, and lowers
+  the error floor to binary32's rounding times a step's nonlinear phase. That is what
+  noise ensembles need. ADR-020 is followed: each mode is qualified on CPU before its
+  device lanes.
+- **Consequences:** the precision setting takes three values, in every run's hashed
+  configuration. Native's kernels are templated on a precision policy, and its build
+  records the precisions it compiled. The mixed mode's tolerance floor, its Adams
+  admission and its noise admission are set by SEP 36's studies, against criteria fixed
+  before them. Reduced-precision matrix products (TF32, `xf32` and coarser) are refused
+  by explicit math modes and probes.
+

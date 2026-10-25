@@ -6,12 +6,12 @@
 | **Title** | Single and mixed precision on the native backend |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-10-25); Opus 5.5 (2026-10-25, revision after review) |
-| **Status** | Draft |
+| **Status** | Accepted |
 | **Review status** | Reviewed |
 | **Reviewers** | GPT-6 (AI); John Travers (human) |
 | **Type** | Feature |
 | **Created** | 2026-10-25 |
-| **Resolution** | — |
+| **Resolution** | Accepted 2026-10-25 by John Travers after his human review, the GPT-6 AI review and the revision answering it, recorded in Part III ([LupoLab/solprop#27](https://github.com/LupoLab/solprop/pull/27)). |
 | **Requires** | [SEP 33](archive/sep-0033-single-precision-mlx.md) (the precision setting, the binary32 contract, its oracle and survival record); [SEP 25](archive/sep-0025-rounding-level-reproducibility.md) (the floating-point policy and the bound classes); [SEP 29](archive/sep-0029-compiled-backend-distribution.md) (the native backend in solprop and its wheels); [SEP 30](archive/sep-0030-standard-benchmark-suite.md) (the benchmark suite) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
@@ -1422,6 +1422,8 @@ as written on 2026-10-25 (Part III).
 - 2026-10-25: John Travers confirmed that he has read the proposal and requested that
   his human review be recorded. Review status is `Reviewed`; proposal status remains
   `Draft`.
+- 2026-10-25: Accepted by John Travers. Part I is frozen. The decision record of §9 is
+  written as ADR-055.
 
 ### AI review — 2026-10-25
 
