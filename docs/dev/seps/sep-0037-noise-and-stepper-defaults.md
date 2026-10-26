@@ -7,8 +7,8 @@
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-10-26) |
 | **Status** | Draft |
-| **Review status** | Not reviewed |
-| **Reviewers** | — |
+| **Review status** | Reviewed |
+| **Reviewers** | John Travers (human); GPT-6 (AI) |
 | **Type** | Change |
 | **Created** | 2026-10-26 |
 | **Resolution** | — |
@@ -558,3 +558,316 @@ Phases 3 to 6 retire fallbacks one by one. Each removes its route from the fallb
   quantum reference for spontaneous modulational instability. The tolerance targets
   follow production practice. Q1 and Q8 are new, and the factor of two in parametric
   seeding is recorded as deferred physics.
+
+### Human review — 2026-10-26
+
+John Travers confirmed that he has read the proposal and that his human review is
+complete. Recorded at his request; no acceptance decision or resolution of the AI
+findings below is inferred from that confirmation.
+
+### AI review — 2026-10-26
+
+Reviewer: GPT-6 (AI). Reviewed all of Part I at PR #30, revision `653ac95`, against
+the current implementation, conventions, SEP 0 and the sources identified below.
+**Recommendation: revise before acceptance.** The motivation for measured defaults is
+sound, but the reservoir argument, observable definitions and qualification contract
+need correction or decisions. `Reviewed` records completed reviews, not acceptance.
+Part I and Part II are unchanged. All R1–R14 below remain open for the drafting
+agent's response and the maintainer's decision.
+
+#### Findings and questions
+
+1. **R1 — P1: The claimed reservoir distinction does not follow from the equations
+   (§§2, 4.1, 10).** The change of variables works for *any* deterministic nonlinear
+   functional when the draw solves the full homogeneous linear equation. In particular,
+   a delayed Raman response or nonlinear plasma absorption inside $\hat N$ does not
+   invalidate it. With unitary $\hat D$, the two reconstructed fields remain identical
+   even when that nonlinear response is dissipative. The Raman probe below confirms
+   this in the existing implementation. Conversely, write $\hat D=\hat D_u+\hat D_r$
+   and $N'=\hat D_u N$. The reconstructed modified field $\chi=\psi+N$ obeys
+   $\chi'=\hat D\chi+\hat N(\chi)-\hat D_rN$. The last term is a forcing correlated
+   with the *same initial draw*, not newly sampled reservoir fluctuations. For pure
+   loss with power coefficient $\alpha$, its forcing covariance is proportional to
+   $\alpha^2\langle N(z)N(z')^*\rangle/4$, not to a delta function in $z-z'$.
+   Drummond–Corney [3], section VI.C (arXiv equations 75–77), specifies the latter for
+   gain/loss and Raman noise. This does not preclude matching particular observables:
+   the corrected readout in R3 gives the exact mean $G-1$ for constant scalar gain
+   from vacuum. It is not a general reservoir replacement. For example, follow that
+   gain by a passive attenuator of power transmission $\eta$, attenuating $\psi$
+   while retaining the same unattenuated $N$, with $\langle|N|^2\rangle=1$.
+   The corrected readout becomes
+   $[1+\sqrt{\eta}(\sqrt G-1)]^2-1$, whereas the amplified spontaneous photons must
+   become $\eta(G-1)$. With $G=4$ and $\eta=1/4$, these are 1.25 and 0.75 photons.
+   This is an analytic counterexample to the general claim, not a solprop amplifier
+   simulation. **Recommendation:** state the actual algebraic condition
+   for equivalence, distinguish physical reservoirs from their deterministic response,
+   and describe the current modified model as an approximation with qualified scope.
+   A constant restored floor alone cannot establish fluctuation–dissipation accuracy.
+   What reservoir observables, beyond that floor, justify choosing this default?
+
+2. **R2 — P1: Separate the cited models from solprop's variant (§§4.1, 8, 10).**
+   Chen–Wise [5], equations 2a–2c, keeps only terms first order in the noise and
+   separates emission gain from net gain. Solprop evaluates the full nonlinear
+   response of $\psi+N$. Keeping the full response is mathematically justified for
+   the exact change of variables in R1; this finding does not recommend replacing it
+   with the paper's truncated expansion. The differences include the nonlinear
+   expansion and gain treatment, as well as phase transport and the draw distribution;
+   the paper's results cannot qualify this variant by attribution alone. Also, a
+   truncated-Wigner
+   treatment is not generally exact for nonlinear quantum propagation: [3], section VI,
+   explicitly drops higher derivative terms at large photon number. **Recommendation:**
+   enumerate these differences, identify which reference results actually apply, and
+   limit the exact half-photon statement to the linearised Bogoliubov problem with the
+   correct observable ordering. Keep a full reservoir model as separate physics work.
+
+3. **R3 — P1: Define the measured field before specifying spectra, coherence and
+   conservation (§§4.1–4.2, 5.3, 7).** The saved modified field is $\psi$, whereas the
+   identity concerns $\chi=\psi+N$. The current `processing.fields.get_spectrum` reads
+   the saved field through `processing.axes._plane_field`; it does not automatically
+   add back the noise. Subtracting a noise *amplitude* also does not subtract a photon
+   background from an intensity: the interference term remains. For a linearised
+   sideband $\chi_s=\mu N_s+\nu N_i^*$ and transported background $uN_s$, with
+   independent input phases and $|u|=1$, the two predictions are
+
+   $$\langle|\chi_s|^2\rangle=(|\mu|^2+|\nu|^2)n_0,\qquad
+   \langle|\psi_s|^2\rangle=(|\mu-u|^2+|\nu|^2)n_0.$$
+
+   Thus $1+2|\nu|^2$ is the target for the reconstructed field, not the saved modified
+   spectrum, when $n_0=1$. At the entrance these are already $n_0$ and zero.
+   [Chen–Wise v5, Appendix 2, equation A8](https://arxiv.org/html/2410.20567v5)
+   explicitly prescribes $|\psi+N|^2-|N|^2$ for the constant-gain example. With
+   $\psi=(\sqrt G-1)N$, its ensemble mean is $n_0(G-1)$, giving the correct
+   spontaneous mean for $n_0=1$ even at low gain. That estimator must be distinguished
+   from both the raw saved spectrum and the classical MI target containing the seed;
+   for vacuum MI, the symmetrically ordered half-photon calculation instead subtracts
+   one half from the mean reconstructed intensity. Likewise,
+   $\int|\psi|^2dt$ need not be conserved in a lossless Kerr run; the probe below has
+   a relative change of $1.75\times10^{-7}$ while the full-field energy changes only
+   at rounding level. **Recommendation:** name the field and its power/flux metric for
+   every observable, specify any reconstruction API and its Fourier convention, and
+   derive the appropriate conservation test. The quantum result $|\nu|^2$, the
+   classical one-photon result and any normally ordered estimator are distinct targets.
+   For the MI reference, also supply its SI scaling, pump frame, undepleted-pump range
+   and the finite $K\to0$ limit; a lossy pump needs a separately derived reference.
+
+4. **R4 — P1: An exact continuous identity is not an adaptive rounding contract
+   (§§3.4, 4.2, 7; Q1).** `numpy_ref.passes.error_norm` scales by the propagated
+   state, which is $\chi$ for input noise and $\psi$ for modified noise. Its denominators
+   can differ, so acceptance, step sizes and Adams order/history can differ. Equal step
+   counts in one example are evidence about that example, not a consequence of the
+   identity. Further, a physically lossless fibre still has numerical absorption by
+   default; the spectral collar is part of the linear exponent and is omitted from
+   the draw's transport. **Recommendation:** establish a rounding comparison with
+   matched methods, prescribed steps and Adams histories/orders, constant metrics and
+   disabled absorbers. Derive its budget from operations, transforms and conditioning,
+   not step count alone. Test independent adaptive runs against a converged reference
+   with an accuracy envelope, as SEP 25 requires. Add separate boundary tests rather
+   than calling a default-collar run lossless. The small RK probe is not qualification
+   of the other routes, Adams formulations or compiled backends.
+
+5. **R5 — P1: Phase-only transport does not preserve photons in a changing metric
+   (§§3.3, 4.1, 6–7).** Conventions §4 divides a modal draw by $\sqrt{w(0)}$, with
+   $w=\operatorname{Re}n_\mathrm{eff}$, while observations multiply by $\sqrt{w(z)}$.
+   Transporting that internal draw only by phase therefore gives a restored energy
+   per bin of $\hbar\omega\,w(z)/w(0)$, not $\hbar\omega$, even in a lossless guide.
+   The real normalisation term $-\tfrac12\log[w(z)/w(0)]$ is not physical absorption.
+   A varying radial admittance has the corresponding issue. This case is not confined
+   to the coupled-flow refusal. **Recommendation:** explicitly distinguish metric
+   transport from dissipation, add varying-index/admittance cases to phase 0, and
+   decide whether this SEP changes that transport or restricts its default/claims.
+   A physical photon-floor assertion needs the local flux metric, not just an unchanged
+   internal modulus.
+
+6. **R6 — P1: Specify a composable stochastic transport before lifting coupled-flow
+   refusals (§6, phase 5).** The unitary polar factor of a nonunitary propagator
+   generally does not compose: $U(F_2F_1)\ne U(F_2)U(F_1)$. A rule that takes a polar
+   factor per numerical step can therefore change the noise when the step schedule,
+   a save plane or a restart changes. For example, the passive contractions
+   $F_1=\operatorname{diag}(1,1/2)$ and
+   $F_2=\left(\begin{smallmatrix}3/4&1/4\\1/4&3/4\end{smallmatrix}\right)$
+   each have unitary polar factor $I$, but the factor of $F_2F_1$ differs from $I$
+   by 0.1564 in Frobenius norm (a direct two-by-two numerical check).
+   Preserving a total noise norm does not establish
+   the correct correlations or the covariance in a nonorthogonal power metric.
+   **Recommendation:** derive the transport in a declared physical basis, specify
+   its dependence on the continuous path and any reservoir approximation, and test
+   composition, subdivision, basis changes and restart covariance. Retain the refusal
+   until that derivation exists; if reservoir increments are needed, acknowledge the
+   new physics rather than treating this as merely missing plumbing.
+
+7. **R7 — P1: A coupled or interior launch must preserve the noise decomposition
+   (§6, phase 3; Q6).** Restoring $N$ into a source plane and then drawing a new
+   modified seed at the receiving launch adds a second background to the next
+   nonlinear evaluation. Restarting the shifted field with a new independent seed
+   instead loses the existing correlations. Merely saying that the draw starts at
+   $z>0$ does not define a continuation. `Simulation.with_input(Launch)` currently
+   clears implicit noise specifically to avoid a second floor. **Recommendation:**
+   define whether a plane carries the full field, the shifted field plus its draw, or
+   an explicitly converted representation; preserve the same draw and its phase origin
+   through identity coupling and continuation. Test a split run at multiple positions
+   against the unsplit run, plus lossy coupling and regridding under the chosen model.
+   Audit the saved-output and seam changes this requires: §6 cannot yet promise an
+   unchanged `SCHEMA_VERSION`, or an output change limited to a fallback note.
+
+8. **R8 — P2: The fallback contract is incomplete and can silently change the
+   experiment (§§5.1, 5.4, 6; Q2).** Changing only `precision`, interpolation or the
+   response can turn default noise off; changing a backend must not do so. A metadata
+   note is not visible in a run with progress disabled, and the start summary this
+   depends on is expressly outside the SEP. With an explicitly supplied `seed` but
+   omitted `noise`, a fallback must not silently discard the user's seeding intent.
+   Field-plane extraction happens after propagation, so the source cannot resolve a
+   different default based on an unknown future use. **Recommendation:** prefer an
+   actionable refusal requiring explicit `noise=None` on unsupported configurations;
+   no published compatibility constraint is cited here. If fallback is chosen,
+   specify requested and resolved model, reason, seed handling and durable metadata,
+   and make its user notification a delivery prerequisite. Test omission, explicit
+   `None`, explicit models and supplied seeds at each entry point; never catch a
+   backend construction error and reinterpret it as unsupported noise.
+
+9. **R9 — P1: Fix a convergence protocol before selecting defaults (§§5.3, 7,
+   phases 0–1; Q3–Q4).** Naming the Dudley–Genty–Coen review [1] does not select a
+   unique simulation: the exact parameters, figure/case, grid, length, responses,
+   spectral region and observable are needed. A relative tolerance on coherence is
+   ill-defined near zero, and relative spectral error is ill-defined in empty bins.
+   Comparing independent seed ensembles can hide integration bias inside sampling
+   error; a one-standard-error pass threshold would also fail frequently by chance.
+   **Recommendation:** declare paired seed sets, a refined deterministic reference for
+   each seed, three refinement levels, held-out ensemble members, signal floors,
+   absolute coherence and suitable spectral error measures, and an explicit confidence
+   rule. Choose observable-specific accuracy budgets before the measurement, with
+   the same protocol across interfaces, and separate integration, grid, model and
+   Monte Carlo errors. Validate reused schedules across seeds, not only the seed that
+   discovered them. Use bounded windows/stored witnesses for tests and timings; put
+   any necessary full supercontinuum study in a permitted gallery workflow.
+
+10. **R10 — P2: The norm ratio is a heuristic, not a step-cost criterion (§§3.4,
+    4.3, 5.4, 6; Q5).** Pure linear propagation can be integrated exponentially without
+    additional source error at any $r/\mathrm{rtol}$. Conversely, an initially tiny
+    perturbation can grow into a resolved instability. The controller uses its chosen
+    band and the internal state norm, not generally a whole-band physical-energy norm;
+    spatial measures, varying indices, mode and polarisation counts matter. The
+    quoted capillary estimate $10^{-4}$ also exceeds its quoted $10^{-6}$ tolerance
+    despite the reported small step-count change. **Recommendation:** label $r$ as an
+    initial size diagnostic with stated assumptions, and measure the actual controller
+    norm if it is printed. Do not trigger a warning or infer zero cost from this
+    ratio alone. Supply the revision, backend, seeds, grids, measured windows, norm
+    definitions, wall-time samples and uncertainty behind §3.4 before using it to
+    choose a default. Accepted steps alone do not establish runtime, especially once
+    the modified-noise statistics path disables the Numba stash.
+
+11. **R11 — P1: Planar noise requires a transverse normalisation decision (§§3.3,
+    6, phase 4).** An energy per unit width is in J/m, while a photon's energy is in
+    J. A slab metric alone cannot turn one into the other. The existing `LineGrid`
+    manual explicitly chooses one photon per column and bin *per metre of y*; that is
+    a declared convention, not a width-independent quantum vacuum prescription.
+    **Recommendation:** decide whether planar noise adopts that same convention or
+    introduces a finite quantisation/effective width, derive its amplitude and units,
+    and document what changing that width does to fluctuations. Test a matching line
+    or finite-width reference with the same measure. Keep the refusal until that
+    choice is made; do not classify the missing physical measure as purely mechanical.
+
+12. **R12 — P2: TDSE/PPT agreement is not an independent noise qualification
+    (§6, phase 6).** The two responses can have different spectra, memory and
+    ionisation, so "within the response difference" supplies no defined bound. Noise
+    also broadens the atomic drive and may probe frequencies beyond the response's
+    qualified window. **Recommendation:** name the TDSE limits and observables that
+    are checked independently (zero drive, weak-field response and a deterministic
+    perturbed-drive reference), specify bandwidth and convergence budgets, and retain
+    the common supplied realisation through the atomic source. Treat PPT as a
+    comparison in a stated shared regime, with a quantified model discrepancy, rather
+    than the acceptance oracle. If that cannot be specified now, defer this lift.
+
+13. **R13 — P2: Resolve the API and acceptance boundary before implementation
+    (§§5.2–5.3, 6, 11).** `prop_radial`, `prop_free` and `prop_planar` take a caller's
+    `SimulationSettings`, whose controller is currently required; defaulting the
+    tolerances needs a public signature/precedence design. The scope includes planar
+    and general modal constructors, but the proposed tolerance list does not cover
+    them explicitly. Phase 0 says to revise before review, while the concrete
+    integrator/tolerance table is postponed to phase 1 after acceptance would freeze
+    Part I. Phase 3's "independently mergeable" also needs reconciliation with SEP 0's
+    single implementation PR. **Recommendation:** complete phase 0, record the default
+    matrix and the rules for omitted settings versus explicit controllers, and request
+    a response review before acceptance. Alternatively freeze a fully specified
+    selection rule with approval gates. Keep all implementation phases on the one
+    branch/PR, or explicitly split the later physics proposals and retain their
+    roadmap work. Reassess schema impacts after R5–R7 and R11 have decisions.
+
+14. **R14 — P2: A Gaussian draw is a separate model choice, not just a seed
+    migration (§§4.1, 9; Q8).** Fixed modulus and circular Gaussian draws share second
+    moments but have different fourth moments: for mean occupation $n_0$,
+    $\langle|N|^4\rangle=n_0^2$ and $2n_0^2$, respectively. That changes nonlinear
+    statistics as well as individual realisations. The relevant basis matters:
+    for $c=\sum_k u_kN_k$, independent equal-occupation phase draws and
+    $\sum_k|u_k|^2=1$ give
+    $\langle|c|^4\rangle=n_0^2(2-\sum_k|u_k|^4)$.
+    A single amplified temporal mode can combine many spectral bins and approach
+    Gaussian statistics; it is not necessarily a single fixed-modulus draw.
+    Determine the projections onto the actual gain modes before inferring an error
+    in pulse-energy tails from the spectral-bin fourth moment. Changing the draw
+    also changes the existing exact-per-bin photon test and the declared-basis
+    sampling contract.
+    **Recommendation:** retain the current distribution for a defaults-only change,
+    with its limitations stated, or explicitly extend the scope and qualify both the
+    distribution and the observables. In the latter case record the distribution and
+    its version, preserve old-file/restart interpretation, and test moments, tails,
+    transformed covariance and sampling uncertainty. A seed alone must not be claimed
+    to guarantee bitwise reproducibility across backends or adaptive histories (SEP 25).
+
+#### Recommendations on the existing open questions
+
+These are reviewer recommendations, not maintainer resolutions.
+
+| Question | Context and recommendation |
+|---|---|
+| Q1 — identity | Make the corrected identity a phase-0 prerequisite. The short RK probe passes, including Raman; all routes, grids, Adams formulations and backends still need the R4 qualification. |
+| Q2 — refusal or fallback | Prefer refusal requiring explicit `noise=None`; otherwise require the complete, visible resolution contract in R8. |
+| Q3 — integrators | Treat RK for GNLSE and Multistep for modal/spatial routes as candidates only. Choose the table from matched-accuracy runtime evidence and define settings precedence (R9–R10, R13). |
+| Q4 — accuracy targets | Use observable-specific budgets with one common convergence/confidence protocol. Fix the budgets, floors and case definitions before selecting tolerances (R9). |
+| Q5 — norm warning | Print an optional size diagnostic; do not warn solely because $r>\mathrm{rtol}$ (R10). |
+| Q6 — coupled source | Do not change a source's default based on future extraction. Preserve the refusal until the decomposition is transported; an interim input-noise source must be explicit (R7–R8). |
+| Q7 — reservoir physics | Yes: a later proposal should derive the half-photon/Gaussian and reservoir terms, their ordering corrections and qualified regime. Do not call the current default a substitute for it (R1–R2). |
+| Q8 — Gaussian amplitude | Defer for this defaults change unless the maintainer explicitly wants the broader stochastic-model change and its qualification in scope (R14). |
+
+Further decisions raised by this review are the observable/reconstruction contract
+(R3), the treatment of changing power metrics and coupled transport (R5–R7), the
+physical transverse width of planar noise (R11), and the scope of TDSE qualification
+(R12). Their recommendations are recorded beside each finding.
+
+#### Follow-up checks — 2026-10-26
+
+Further derivation and source checks refine R1–R3 and R14 without changing the
+recommendation to revise before acceptance. The full nonlinear response preserves
+the stated change of variables; the published corrected estimator recovers the
+constant-gain mean but fails the gain-then-loss counterexample under persistent-seed
+transport; and Gaussianity must be assessed in the measured mode. These are review
+clarifications, not resolutions of the proposal's open questions.
+
+#### Evidence and limits of this review
+
+- Inspected the driver defaults, noise drawing and phase transport, nonlinear stage
+  injection, error-norm scaling, output/processing accessors, launch handling,
+  refusal checks, the conventions and SEP process. No implementation was changed.
+- Ran four short NumPy-reference GNLSE simulations: input and modified noise, each
+  with Raman off and on, using RK, ten uniform steps over $10^{-3}$ m, 128 temporal
+  samples, seed 37, $\gamma=0.1$ W$^{-1}$m$^{-1}$, $\beta_2=-2\times10^{-26}$ s²/m,
+  800 nm carrier, 600–1200 nm limits, a 200 fs requested window, 30 fs Gaussian pulse,
+  $10^{-14}$ J energy, shock off and both absorber rates zero. The relative field
+  defect $\|\chi-(\psi+N)\|/\|\chi\|$ over saved planes was
+  $1.19\times10^{-16}$ without Raman and $1.35\times10^{-16}$ with it. Full-field
+  energy drift was at most $6.7\times10^{-16}$; shifted-field drift was
+  $1.75\times10^{-7}$ and $1.54\times10^{-7}$ respectively. These are counterexample
+  probes, not a tolerance calibration, benchmark or cross-backend qualification.
+- Checked the relevant equations in
+  [Chen–Wise, arXiv:2410.20567v2](https://arxiv.org/html/2410.20567v2),
+  [v5, including Appendix 2's readout](https://arxiv.org/html/2410.20567v5), and
+  [Drummond–Corney, arXiv:quant-ph/9912095v2](https://arxiv.org/html/quant-ph/9912095v2),
+  and the linearised MI discussion in
+  [Brainis–Amans–Massar, arXiv:quant-ph/0412096](https://arxiv.org/html/quant-ph/0412096).
+  The remaining cited papers were not independently checked in full. The draft's
+  performance tables, production-practice tolerances, full supercontinuum ensembles,
+  all-route identity and proposed refusal lifts were not reproduced or qualified.
+- Independently derived the scalar gain/attenuation example in R1 and checked its
+  arithmetic. Derived R14's projected fourth moment by pairing the independent
+  phases; an exact finite phase quadrature reproduces $1$, $3/2$ and $7/4$ for
+  one, two and four equally weighted bins with $n_0=1$. These are analytic checks,
+  not qualification of a particular transient Raman mode or its output statistics.
