@@ -292,6 +292,12 @@ The first public release. It contains:
   `spec_range`, in m, Hz or rad/s as `axis` says, like the processing accessors;
   `wavelength_range` and `solprop.plotting.style.spectral_limits` are gone, and
   `wavelength_to_axis` converts a wavelength range to any axis.
+- **Bandpass windows on any spectral axis.** A `bandpass=` pair is still a wavelength
+  range, m; `solprop.processing.Passband(limits, axis, width)` gives the band in m, Hz or
+  rad/s, so a low-pass band can start at zero frequency, and
+  `bandpass(grid, limits, axis=...)` builds the same window. The builder's first
+  argument is renamed from `wavelength_limits` to `limits`. The edge width is in rad/s
+  on every axis.
 - **Third harmonic on an envelope grid.** With `thg=True` the envelope frame measured
   its group delay from the carrier, which also removed a constant phase
   β₁ω₀z that the harmonic term does not share. The third harmonic was

@@ -126,8 +126,9 @@ def prop_2d(  # noqa: PLR0913 - the two axes, the two ranges and the colour scal
         Which modes to draw.
     oversampling : int
         Time-domain resampling factor of the temporal panel.
-    bandpass : tuple of float, numpy.ndarray or None
-        Wavelength limits, m, of a window applied to the temporal panel.
+    bandpass : tuple of float, Passband, numpy.ndarray or None
+        Wavelength limits, m, or a :class:`~solprop.processing.spectra.Passband` on any
+        axis, of a window applied to the temporal panel.
     cmap : str, matplotlib.colors.Colormap or None
         Colour map of both panels.
 
@@ -227,8 +228,9 @@ def time_1d(  # noqa: PLR0913 - the planes, the quantity, the window and the axi
         Time-domain resampling factor.
     trange : tuple of float
         Time limits, s.
-    bandpass : tuple of float, numpy.ndarray or None
-        Wavelength limits, m, of a window applied before the transform.
+    bandpass : tuple of float, Passband, numpy.ndarray or None
+        Wavelength limits, m, or a :class:`~solprop.processing.spectra.Passband` on any
+        axis, of a window applied before the transform.
     widths : bool
         Whether to append each trace's width at half maximum to its legend entry.
     ax : matplotlib.axes.Axes or None
@@ -419,9 +421,10 @@ def energy(
         An opened output handler.
     modes : int, sequence of int, 'sum' or None
         Which modes to draw.
-    bandpass : tuple of float, numpy.ndarray or None
-        Wavelength limits, m, of a window applied before the measurement, which is how
-        the energy in one spectral region is followed along z.
+    bandpass : tuple of float, Passband, numpy.ndarray or None
+        Wavelength limits, m, or a :class:`~solprop.processing.spectra.Passband` on any
+        axis, of a window applied before the measurement, which is how the energy in one
+        spectral region is followed along z.
     ax : matplotlib.axes.Axes or None
         Axis to draw into; a new figure is made when none is given.
 

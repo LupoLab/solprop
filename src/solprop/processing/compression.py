@@ -530,7 +530,7 @@ def _pulse_of(  # noqa: PLR0913 - the two input forms and the selection common t
         Plane of the output to take.
     modes : int, sequence of int or None
         Modes to work on.
-    bandpass : tuple of float, numpy.ndarray or None
+    bandpass : tuple of float, Passband, numpy.ndarray or None
         Window applied to the spectrum first.
     oversampling : int
         Time-domain resampling factor.
@@ -638,7 +638,7 @@ def transform_limit(  # noqa: PLR0913 - the two input forms and the selection
         Index of the plane, negative from the end.
     modes : int, sequence of int or None, optional
         Modes whose summed power is measured.
-    bandpass : tuple of float, numpy.ndarray or None, optional
+    bandpass : tuple of float, Passband, numpy.ndarray or None, optional
         Window applied to the spectrum first.
     oversampling : int, optional
         Time-domain resampling factor.
@@ -789,7 +789,7 @@ def compress_taylor(  # noqa: PLR0913 - the input forms, the selection and the s
         Index of the plane, negative from the end.
     modes : int, sequence of int or None, optional
         Modes whose summed power is maximised.
-    bandpass : tuple of float, numpy.ndarray or None, optional
+    bandpass : tuple of float, Passband, numpy.ndarray or None, optional
         Window applied to the spectrum first.
     bound_factor : float, optional
         Width of the search box in units of the Gaussian estimate, > 0.
@@ -933,7 +933,7 @@ def compress_material(  # noqa: PLR0913 - the input forms, the medium and the se
         Index of the plane, negative from the end.
     modes : int, sequence of int or None, optional
         Modes whose summed power is maximised.
-    bandpass : tuple of float, numpy.ndarray or None, optional
+    bandpass : tuple of float, Passband, numpy.ndarray or None, optional
         Window applied to the spectrum first.
     oversampling : int, optional
         Time-domain resampling factor of every power evaluated.
@@ -1073,7 +1073,7 @@ def compress_mirrors(  # noqa: PLR0913 - the input forms, the mirror, the wedge 
         Index of the plane, negative from the end.
     modes : int, sequence of int or None, optional
         Modes whose summed power is maximised.
-    bandpass : tuple of float, numpy.ndarray or None, optional
+    bandpass : tuple of float, Passband, numpy.ndarray or None, optional
         Window applied to the spectrum first.
     oversampling : int, optional
         Time-domain resampling factor of every power evaluated.
@@ -1299,7 +1299,7 @@ def _pair_pulse(  # noqa: PLR0913 - the shared input forms and fixed selection
         Saved plane index, negative from the end.
     modes : int, sequence of int or None
         Modes whose orthogonal powers are summed.
-    bandpass : tuple of float, numpy.ndarray or None
+    bandpass : tuple of float, Passband, numpy.ndarray or None
         Additional fixed spectral window.
     oversampling : int
         Positive temporal resampling factor.
@@ -1573,7 +1573,7 @@ def compress_gratings(  # noqa: PLR0913 - physical settings, input forms and sel
         Output plane index, negative from the end.
     modes : int, sequence of int or None, optional
         Modes whose powers are summed; all by default, including both polarisations.
-    bandpass : tuple of float, numpy.ndarray or None, optional
+    bandpass : tuple of float, Passband, numpy.ndarray or None, optional
         Additional fixed spectral window, as in the existing compressors.
     oversampling : int, optional
         Positive integer temporal resampling factor for every trial, two by default.
@@ -1667,7 +1667,7 @@ def compress_prisms(  # noqa: PLR0913 - physical settings, input forms and selec
         Output plane index, negative from the end.
     modes : int, sequence of int or None, optional
         Modes whose powers are summed; all by default, including both polarisations.
-    bandpass : tuple of float, numpy.ndarray or None, optional
+    bandpass : tuple of float, Passband, numpy.ndarray or None, optional
         Additional fixed spectral window, applied before all reported pulse metrics.
     oversampling : int, optional
         Positive integer temporal resampling factor for every trial, two by default.

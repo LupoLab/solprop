@@ -224,9 +224,10 @@ def energy(
         Position of the plane wanted, m.
     modes : int, sequence of int, 'sum' or None
         Which modes to report; ``'sum'`` adds their energies.
-    bandpass : tuple of float, numpy.ndarray or None
-        Wavelength limits, m, of an explicit window applied before the measurement, or
-        a ready-made window on the stored axis.
+    bandpass : tuple of float, Passband, numpy.ndarray or None
+        Wavelength limits, m, or a :class:`~solprop.processing.spectra.Passband` on any
+        axis, of an explicit window applied before the measurement, or a ready-made
+        window on the stored axis.
 
     Returns
     -------
@@ -300,9 +301,10 @@ def peak_power(
         Position of the plane wanted, m.
     modes : int, sequence of int, 'sum' or None
         Which modes to report.
-    bandpass : tuple of float, numpy.ndarray or None
-        Wavelength limits, m, of an explicit window applied before the measurement, or
-        a ready-made window on the stored axis.
+    bandpass : tuple of float, Passband, numpy.ndarray or None
+        Wavelength limits, m, or a :class:`~solprop.processing.spectra.Passband` on any
+        axis, of an explicit window applied before the measurement, or a ready-made
+        window on the stored axis.
     oversampling : int
         Factor by which to resample the time axis before taking the maximum.
 
@@ -377,9 +379,10 @@ def fwhm_t(
         Position of the plane wanted, m.
     modes : int, sequence of int, 'sum' or None
         Which modes to report; ``'sum'`` measures the width of their total power.
-    bandpass : tuple of float, numpy.ndarray or None
-        Wavelength limits, m, of an explicit window applied before the measurement, or
-        a ready-made window on the stored axis.
+    bandpass : tuple of float, Passband, numpy.ndarray or None
+        Wavelength limits, m, or a :class:`~solprop.processing.spectra.Passband` on any
+        axis, of an explicit window applied before the measurement, or a ready-made
+        window on the stored axis.
     outer : bool
         Whether to span every satellite rather than the central feature alone.
 
@@ -476,9 +479,10 @@ def time_bandwidth(
         Position of the plane wanted, m.
     modes : int, sequence of int, 'sum' or None
         Which modes to report.
-    bandpass : tuple of float, numpy.ndarray or None
-        Wavelength limits, m, of an explicit window applied before the temporal width,
-        or a ready-made window on the stored axis.
+    bandpass : tuple of float, Passband, numpy.ndarray or None
+        Wavelength limits, m, or a :class:`~solprop.processing.spectra.Passband` on any
+        axis, of an explicit window applied before the temporal width, or a ready-made
+        window on the stored axis.
 
     Returns
     -------
@@ -525,9 +529,10 @@ def arrival_time(
         Position of the plane wanted, m.
     modes : int, sequence of int, 'sum' or None
         Which modes to report.
-    bandpass : tuple of float, numpy.ndarray or None
-        Wavelength limits, m, of an explicit window applied before the measurement, or
-        a ready-made window on the stored axis.
+    bandpass : tuple of float, Passband, numpy.ndarray or None
+        Wavelength limits, m, or a :class:`~solprop.processing.spectra.Passband` on any
+        axis, of an explicit window applied before the measurement, or a ready-made
+        window on the stored axis.
     method : {'moment', 'peak'}
         Which definition to use.
 
@@ -581,9 +586,10 @@ def field_autocorrelation(
         Position of the plane wanted, m.
     modes : int, sequence of int, 'sum' or None
         Which modes to report; ``'sum'`` adds their autocorrelations.
-    bandpass : tuple of float, numpy.ndarray or None
-        Wavelength limits, m, of an explicit window applied before the transform, or a
-        ready-made window on the stored axis.
+    bandpass : tuple of float, Passband, numpy.ndarray or None
+        Wavelength limits, m, or a :class:`~solprop.processing.spectra.Passband` on any
+        axis, of an explicit window applied before the transform, or a ready-made window
+        on the stored axis.
 
     Returns
     -------
@@ -637,9 +643,10 @@ def intensity_autocorrelation(
         Position of the plane wanted, m.
     modes : int, sequence of int, 'sum' or None
         Which modes to report.
-    bandpass : tuple of float, numpy.ndarray or None
-        Wavelength limits, m, of an explicit window applied before the transform, or a
-        ready-made window on the stored axis.
+    bandpass : tuple of float, Passband, numpy.ndarray or None
+        Wavelength limits, m, or a :class:`~solprop.processing.spectra.Passband` on any
+        axis, of an explicit window applied before the transform, or a ready-made window
+        on the stored axis.
 
     Returns
     -------
@@ -685,9 +692,10 @@ def coherence_time(
         Position of the plane wanted, m.
     modes : int, sequence of int, 'sum' or None
         Which modes to report.
-    bandpass : tuple of float, numpy.ndarray or None
-        Wavelength limits, m, of an explicit window applied before the transform, or a
-        ready-made window on the stored axis.
+    bandpass : tuple of float, Passband, numpy.ndarray or None
+        Wavelength limits, m, or a :class:`~solprop.processing.spectra.Passband` on any
+        axis, of an explicit window applied before the transform, or a ready-made window
+        on the stored axis.
 
     Returns
     -------
@@ -789,9 +797,10 @@ def _planes(
         Plane index, negative from the end, or ``None``.
     z : float or None
         Plane position, m, or ``None``.
-    bandpass : tuple of float, numpy.ndarray or None
-        Wavelength limits, m, of an explicit window applied to every plane, or a
-        ready-made window on the stored axis.
+    bandpass : tuple of float, Passband, numpy.ndarray or None
+        Wavelength limits, m, or a :class:`~solprop.processing.spectra.Passband` on any
+        axis, of an explicit window applied to every plane, or a ready-made window on
+        the stored axis.
 
     Returns
     -------
