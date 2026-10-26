@@ -49,6 +49,31 @@ public:
     const bool contiguous =
         (axis == -1 || axis == 1) && input.stride(1) == 1 && output.stride(1) == 1;
 #if defined(SOLPROP_NATIVE_RAMAN_ACCELERATE)
+    // The Accelerate provider is binary64's: binary32 views take Kokkos-FFT (single-
+    // precision FFTW) below (solprop SEP 36 section 6.3).
+    using InputValue = typename Input::non_const_value_type;
+    constexpr bool binary64_views = std::is_same_v<InputValue, double> ||
+                                    std::is_same_v<InputValue, Kokkos::complex<double>>;
+    if constexpr (binary64_views)
+      if (accelerate_eligible(execution, input, output, direction, axis))
+        return;
+#endif
+    // Every FFTW fallback must honour the planner effort, including the long
+    // doubled rows used when the Accelerate provider is disabled. The shared
+    // helper retains serial-only measured planning unless explicitly overridden.
+    if (contiguous)
+      seed_row_fft_wisdom(execution, input, output, direction);
+#endif
+    fallback_ = std::make_unique<Fallback>(execution, input, output, direction, axis);
+  }
+
+private:
+#if defined(SOLPROP_NATIVE_RAMAN_ACCELERATE)
+  // Plan the Accelerate provider where it is eligible and faster; returns whether it
+  // was planned.
+  bool accelerate_eligible(const Execution& execution, const Input& input,
+                           const Output& output, const KokkosFFT::Direction direction,
+                           const int axis) {
     constexpr bool forward =
         std::is_same_v<typename Input::non_const_value_type, double>;
     const auto samples = forward ? input.extent(1) : output.extent(1);
@@ -76,18 +101,13 @@ public:
           reinterpret_cast<double*>(output.data()), samples, input.extent(0),
           input.stride(0) * (forward ? 1 : 2), output.stride(0) * (forward ? 2 : 1),
           forward, execution.concurrency());
-      return;
+      return true;
     }
-#endif
-    // Every FFTW fallback must honour the planner effort, including the long
-    // doubled rows used when the Accelerate provider is disabled. The shared
-    // helper retains serial-only measured planning unless explicitly overridden.
-    if (contiguous)
-      seed_row_fft_wisdom(execution, input, output, direction);
-#endif
-    fallback_ = std::make_unique<Fallback>(execution, input, output, direction, axis);
+    return false;
   }
+#endif
 
+public:
   void execute(const Input& input, const Output& output,
                const KokkosFFT::Normalization normalization) const {
 #if defined(SOLPROP_NATIVE_RAMAN_ACCELERATE)

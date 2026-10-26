@@ -136,8 +136,8 @@ void portable_team_trapezoid_scan(const ExecutionSpace& execution_space,
               const auto sample = static_cast<std::size_t>(team_sample);
               if (sample != 0) {
                 // nvcc requires first captures outside constexpr-if branches.
-                const double previous = values(row, sample - 1);
-                const double current = values(row, sample);
+                const auto previous = static_cast<double>(values(row, sample - 1));
+                const auto current = static_cast<double>(values(row, sample));
                 const double interval = spacing;
                 if constexpr (Envelope)
                   update += interval * (0.5 * previous + 0.5 * current);
@@ -162,15 +162,16 @@ inline constexpr int band_max_half = static_cast<int>(plasma_max_taps) - 1;
 /** Samples one staged tile's scratch holds: the tile and the widest halo. */
 inline constexpr int band_staging_extent = band_staging_tile + 2 * band_max_half;
 
-/** A staged band filter's tile in a team's scratch. */
-template <class ScratchSpace>
+/** A staged band filter's tile in a team's scratch, of the rows' precision. */
+template <class ScratchSpace, class Real = double>
 using BandTile =
-    Kokkos::View<double*, ScratchSpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>>;
+    Kokkos::View<Real*, ScratchSpace, Kokkos::MemoryTraits<Kokkos::Unmanaged>>;
 
 /** Team-scratch bytes the band filters need per team: none for direct reads. */
-template <bool Staged, class ExecutionSpace> std::size_t band_staging_bytes() {
+template <bool Staged, class ExecutionSpace, class Real = double>
+std::size_t band_staging_bytes() {
   if constexpr (Staged)
-    return BandTile<typename ExecutionSpace::scratch_memory_space>::shmem_size(
+    return BandTile<typename ExecutionSpace::scratch_memory_space, Real>::shmem_size(
         static_cast<std::size_t>(band_staging_extent));
   else
     return 0;
@@ -183,10 +184,10 @@ template <bool Staged, class ExecutionSpace> std::size_t band_staging_bytes() {
  * Every view built on `team.team_scratch(0)` takes fresh scratch, so a kernel that
  * filters several rows builds its tile once and passes it to each `team_band_filter`.
  */
-template <bool Staged, class TeamMember>
-KOKKOS_INLINE_FUNCTION BandTile<typename TeamMember::scratch_memory_space>
+template <bool Staged, class TeamMember, class Real = double>
+KOKKOS_INLINE_FUNCTION BandTile<typename TeamMember::scratch_memory_space, Real>
 band_tile(const TeamMember& team) {
-  using Tile = BandTile<typename TeamMember::scratch_memory_space>;
+  using Tile = BandTile<typename TeamMember::scratch_memory_space, Real>;
   if constexpr (Staged)
     return Tile(team.team_scratch(0), static_cast<std::size_t>(band_staging_extent));
   else
@@ -203,24 +204,27 @@ band_tile(const TeamMember& team) {
  * reads y_i. Its rounding is within gamma_{2K+2} of `|c_0 y_n| + sum_k |c_k| (|y_{n-k}|
  * + |y_{n+k}|)` for interior samples, and the reflections add their own two roundings.
  */
-template <class Sample>
-KOKKOS_INLINE_FUNCTION double band_filter_at(const Sample& sample, const int index,
-                                             const int samples, const double* taps,
-                                             const int half) {
+//
+// The filter runs in its taps' precision, `Real`: binary32 under a binary32 source,
+// the taps rounded once (solprop SEP 36; `solprop.backends.numpy_ref.single`).
+template <class Sample, class Real>
+KOKKOS_INLINE_FUNCTION Real band_filter_at(const Sample& sample, const int index,
+                                           const int samples, const Real* taps,
+                                           const int half) {
   const int last = samples - 1;
   if (index >= half && index + half <= last) {
-    double total = taps[0] * sample(index);
+    Real total = taps[0] * sample(index);
     for (int k = 1; k <= half; ++k)
       total += taps[k] * (sample(index - k) + sample(index + k));
     return total;
   }
-  double total = taps[0] * sample(index);
+  Real total = taps[0] * sample(index);
   for (int k = 1; k <= half; ++k) {
     const int low = index - k;
     const int high = index + k;
-    const double before = low >= 0 ? sample(low) : 2.0 * sample(0) - sample(-low);
-    const double after =
-        high <= last ? sample(high) : 2.0 * sample(last) - sample(2 * last - high);
+    const Real before = low >= 0 ? sample(low) : Real(2) * sample(0) - sample(-low);
+    const Real after =
+        high <= last ? sample(high) : Real(2) * sample(last) - sample(2 * last - high);
     total += taps[k] * (before + after);
   }
   return total;
@@ -261,11 +265,12 @@ KOKKOS_INLINE_FUNCTION BandWindow band_support(const int live_first,
  * thread-local copy of the K + 1 taps. `begin` and `stop` limit the samples written
  * (the whole row by default); the halo reads stay within the row.
  */
-template <bool Staged, class TeamMember, class Tile, class Source, class Target>
+template <bool Staged, class TeamMember, class Tile, class Source, class Target,
+          class Real>
 KOKKOS_INLINE_FUNCTION void
 team_band_filter(const TeamMember& team, const Tile& tile, const Source& source,
                  const std::size_t source_row, const Target& target,
-                 const std::size_t target_row, const int samples, const double* taps,
+                 const std::size_t target_row, const int samples, const Real* taps,
                  const int half, const int begin = 0, const int stop = -1) {
   const int finish = stop < 0 ? samples : stop;
   if constexpr (Staged) {
@@ -321,8 +326,10 @@ team_trapezoid_prefix(const TeamMember& team, const Values& values,
                         [&](const int sample, double& update, const bool final) {
                           const auto index = static_cast<std::size_t>(sample);
                           if (index != 0) {
-                            const double current = values(row, index);
-                            const double previous = values(row, index - 1);
+                            const auto current =
+                                static_cast<double>(values(row, index));
+                            const auto previous =
+                                static_cast<double>(values(row, index - 1));
                             update += spacing * (current + previous) / 2.0;
                           }
                           if (final)
@@ -348,9 +355,10 @@ team_trapezoid_window(const TeamMember& team, const Values& values,
                       const double spacing, const Store& store) {
   const int first = window.first;
   const int end = Kokkos::min(window.last + 2, samples);
+  // A binary32 row is summed in binary64, a reduction (solprop SEP 36 section 4.5).
   const auto value = [&](const int index) {
     return index >= first && index <= window.last
-               ? values(row, static_cast<std::size_t>(index))
+               ? static_cast<double>(values(row, static_cast<std::size_t>(index)))
                : 0.0;
   };
   double total = 0.0;

@@ -150,6 +150,18 @@ native::TableKind table_kind(const std::string& name) {
 native::Problem problem_from(const nb::dict& values) {
   native::Problem result;
   try {
+    // solprop SEP 36: the problem's precision and, under single precision, its launch
+    // scale's exponent; a problem without them is binary64.
+    if (values.contains("precision")) {
+      const auto precision = nb::cast<std::string>(values["precision"]);
+      if (precision == "single")
+        result.precision = native::PrecisionName::single;
+      else if (precision != "double")
+        throw std::invalid_argument("the native backend's precision must be "
+                                    "\"double\" or \"single\", not \"" +
+                                    precision + "\"");
+      result.scale_exponent = nb::cast<int>(values["scale_exponent"]);
+    }
     if (values.contains("n_x")) {
       result.n_x = nb::cast<std::size_t>(values["n_x"]);
       result.n_y = nb::cast<std::size_t>(values["n_y"]);

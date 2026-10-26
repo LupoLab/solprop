@@ -192,9 +192,48 @@ template <class Policy> struct Roles {
 #if !defined(SOLPROP_NATIVE_PRECISION_DOUBLE) || !SOLPROP_NATIVE_PRECISION_DOUBLE
 #error "solprop-native: every build instantiates the Double precision policy"
 #endif
-#if defined(SOLPROP_NATIVE_PRECISION_SINGLE) || defined(SOLPROP_NATIVE_PRECISION_MIXED)
-#error                                                                                 \
-    "solprop-native: the Single and Mixed policies are not built yet (solprop SEP 36)"
+#if defined(SOLPROP_NATIVE_PRECISION_MIXED)
+#error "solprop-native: the Mixed policy is not built yet (solprop SEP 36)"
 #endif
+
+#if defined(SOLPROP_NATIVE_PRECISION_SINGLE) && SOLPROP_NATIVE_PRECISION_SINGLE
+#define SOLPROP_NATIVE_SINGLE_BUILT 1
+#else
+#define SOLPROP_NATIVE_SINGLE_BUILT 0
+#endif
+
+/** Whether this build instantiated `Policy` (`SOLPROP_NATIVE_PRECISIONS`). */
+template <class Policy>
+inline constexpr bool precision_built_v = std::is_same_v<Policy, Double>
+#if SOLPROP_NATIVE_SINGLE_BUILT
+                                          || std::is_same_v<Policy, Single>
+#endif
+    ;
+
+/*
+ * `Kokkos::complex`'s operators promote a binary32 operand silently when the other is
+ * binary64, which would compute a binary32 pass in binary64 without a diagnostic. In
+ * this namespace those mixed operations do not compile: a pass converts an operand
+ * explicitly where its role allows it (solprop SEP 36 section 6.3). Scalars mixing the
+ * two formats are caught by `-Wdouble-promotion` in the binary32 translation units.
+ */
+#define SOLPROP_NATIVE_DELETE_MIXED(op)                                                \
+  Kokkos::complex<double> operator op(const Kokkos::complex<float>&,                   \
+                                      const Kokkos::complex<double>&) = delete;        \
+  Kokkos::complex<double> operator op(const Kokkos::complex<double>&,                  \
+                                      const Kokkos::complex<float>&) = delete;         \
+  Kokkos::complex<double> operator op(const Kokkos::complex<float>&, const double&) =  \
+      delete;                                                                          \
+  Kokkos::complex<double> operator op(const double&, const Kokkos::complex<float>&) =  \
+      delete;                                                                          \
+  Kokkos::complex<double> operator op(const Kokkos::complex<double>&, const float&) =  \
+      delete;                                                                          \
+  Kokkos::complex<double> operator op(const float&, const Kokkos::complex<double>&) =  \
+      delete;
+SOLPROP_NATIVE_DELETE_MIXED(+)
+SOLPROP_NATIVE_DELETE_MIXED(-)
+SOLPROP_NATIVE_DELETE_MIXED(*)
+SOLPROP_NATIVE_DELETE_MIXED(/)
+#undef SOLPROP_NATIVE_DELETE_MIXED
 
 } // namespace solprop_native

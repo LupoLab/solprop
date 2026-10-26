@@ -39,10 +39,16 @@ void seed_row_fft_wisdom(const Execution& execution, const Input& input,
   const auto effort = fftw_planner_effort();
   if (effort == FFTW_ESTIMATE)
     return;
+  using InputValue = typename Input::non_const_value_type;
+  using OutputValue = typename Output::non_const_value_type;
+  // Binary32 views plan with single-precision FFTW (`fftwf_`), whose wisdom
+  // Kokkos-FFT's binary32 plans consume (solprop SEP 36 section 6.3).
+  constexpr bool single = std::is_same_v<InputValue, float> ||
+                          std::is_same_v<InputValue, Kokkos::complex<float>>;
   constexpr bool real_input =
-      std::is_same_v<typename Input::non_const_value_type, double>;
+      std::is_same_v<InputValue, double> || std::is_same_v<InputValue, float>;
   constexpr bool real_output =
-      std::is_same_v<typename Output::non_const_value_type, double>;
+      std::is_same_v<OutputValue, double> || std::is_same_v<OutputValue, float>;
   const int samples =
       static_cast<int>(real_output ? output.extent(1) : input.extent(1));
   // Leave noncanonical geometry to Kokkos-FFT's own validation and planner.
@@ -56,28 +62,55 @@ void seed_row_fft_wisdom(const Execution& execution, const Input& input,
   const int rows = static_cast<int>(input.extent(0));
   const int input_width = static_cast<int>(input.extent(1));
   const int output_width = static_cast<int>(output.extent(1));
-  fftw_init_threads();
-  fftw_plan_with_nthreads(execution.concurrency());
-  fftw_plan seeded = nullptr;
-  if constexpr (real_input)
-    seeded = fftw_plan_many_dft_r2c(1, &samples, rows, input.data(), &input_width, 1,
-                                    input_width,
-                                    reinterpret_cast<fftw_complex*>(output.data()),
-                                    &output_width, 1, output_width, effort);
-  else if constexpr (real_output)
-    seeded = fftw_plan_many_dft_c2r(
-        1, &samples, rows, reinterpret_cast<fftw_complex*>(input.data()), &input_width,
-        1, input_width, output.data(), &output_width, 1, output_width, effort);
-  else
-    seeded = fftw_plan_many_dft(
-        1, &samples, rows, reinterpret_cast<fftw_complex*>(input.data()), &input_width,
-        1, input_width, reinterpret_cast<fftw_complex*>(output.data()), &output_width,
-        1, output_width,
-        direction == KokkosFFT::Direction::forward ? FFTW_FORWARD : FFTW_BACKWARD,
-        effort);
-  if (seeded == nullptr)
-    throw std::runtime_error("FFTW could not plan a contiguous row transform");
-  fftw_destroy_plan(seeded);
+  if constexpr (single) {
+    fftwf_init_threads();
+    fftwf_plan_with_nthreads(execution.concurrency());
+    fftwf_plan seeded = nullptr;
+    if constexpr (real_input)
+      seeded = fftwf_plan_many_dft_r2c(1, &samples, rows, input.data(), &input_width, 1,
+                                       input_width,
+                                       reinterpret_cast<fftwf_complex*>(output.data()),
+                                       &output_width, 1, output_width, effort);
+    else if constexpr (real_output)
+      seeded = fftwf_plan_many_dft_c2r(1, &samples, rows,
+                                       reinterpret_cast<fftwf_complex*>(input.data()),
+                                       &input_width, 1, input_width, output.data(),
+                                       &output_width, 1, output_width, effort);
+    else
+      seeded = fftwf_plan_many_dft(
+          1, &samples, rows, reinterpret_cast<fftwf_complex*>(input.data()),
+          &input_width, 1, input_width, reinterpret_cast<fftwf_complex*>(output.data()),
+          &output_width, 1, output_width,
+          direction == KokkosFFT::Direction::forward ? FFTW_FORWARD : FFTW_BACKWARD,
+          effort);
+    if (seeded == nullptr)
+      throw std::runtime_error("FFTW could not plan a contiguous row transform");
+    fftwf_destroy_plan(seeded);
+  } else {
+    fftw_init_threads();
+    fftw_plan_with_nthreads(execution.concurrency());
+    fftw_plan seeded = nullptr;
+    if constexpr (real_input)
+      seeded = fftw_plan_many_dft_r2c(1, &samples, rows, input.data(), &input_width, 1,
+                                      input_width,
+                                      reinterpret_cast<fftw_complex*>(output.data()),
+                                      &output_width, 1, output_width, effort);
+    else if constexpr (real_output)
+      seeded = fftw_plan_many_dft_c2r(1, &samples, rows,
+                                      reinterpret_cast<fftw_complex*>(input.data()),
+                                      &input_width, 1, input_width, output.data(),
+                                      &output_width, 1, output_width, effort);
+    else
+      seeded = fftw_plan_many_dft(
+          1, &samples, rows, reinterpret_cast<fftw_complex*>(input.data()),
+          &input_width, 1, input_width, reinterpret_cast<fftw_complex*>(output.data()),
+          &output_width, 1, output_width,
+          direction == KokkosFFT::Direction::forward ? FFTW_FORWARD : FFTW_BACKWARD,
+          effort);
+    if (seeded == nullptr)
+      throw std::runtime_error("FFTW could not plan a contiguous row transform");
+    fftw_destroy_plan(seeded);
+  }
 }
 
 } // namespace solprop_native

@@ -333,18 +333,35 @@ option(SOLPROP_NATIVE_BAND_STAGING
        ${SOLPROP_NATIVE_BAND_STAGING_DEFAULT})
 
 # The precision policies the native core instantiates (solprop SEP 36 section 6.3,
-# include/solprop_native/precision.hpp). Binary64 is the default arithmetic, so every
-# build instantiates `double`; `single` and `mixed` are refused until they are built.
-set(SOLPROP_NATIVE_PRECISIONS "double" CACHE STRING
-    "Semicolon-separated precision policies to instantiate: double (required)")
+# include/solprop_native/precision.hpp), each in its own translation unit. Binary64 is
+# the default arithmetic, so every build instantiates `double`. `single` is built on
+# CPU builds by default; a device build's binary32 paths are qualified in SEP 36's
+# phase 4, so it builds `double` alone until then. `mixed` is refused until it is built.
+if(SOLPROP_NATIVE_ENABLE_CUDA OR SOLPROP_NATIVE_ENABLE_HIP)
+  set(SOLPROP_NATIVE_PRECISIONS_DEFAULT "double")
+else()
+  set(SOLPROP_NATIVE_PRECISIONS_DEFAULT "double;single")
+endif()
+set(SOLPROP_NATIVE_PRECISIONS "${SOLPROP_NATIVE_PRECISIONS_DEFAULT}" CACHE STRING
+    "Semicolon-separated precision policies to instantiate: double (required), single")
 set(SOLPROP_NATIVE_PRECISION_DEFINITIONS)
+set(SOLPROP_NATIVE_PRECISION_SOURCES)
 foreach(SOLPROP_NATIVE_PRECISION IN LISTS SOLPROP_NATIVE_PRECISIONS)
   if(SOLPROP_NATIVE_PRECISION STREQUAL "double")
     list(APPEND SOLPROP_NATIVE_PRECISION_DEFINITIONS SOLPROP_NATIVE_PRECISION_DOUBLE=1)
-  elseif(SOLPROP_NATIVE_PRECISION MATCHES "^(single|mixed)$")
+  elseif(SOLPROP_NATIVE_PRECISION STREQUAL "single")
+    if(SOLPROP_NATIVE_ENABLE_CUDA OR SOLPROP_NATIVE_ENABLE_HIP)
+      message(FATAL_ERROR
+        "SOLPROP_NATIVE_PRECISIONS: the single precision policy runs on CPU builds "
+        "only until its device paths are qualified (solprop SEP 36 phase 4); use "
+        "\"double\".")
+    endif()
+    list(APPEND SOLPROP_NATIVE_PRECISION_DEFINITIONS SOLPROP_NATIVE_PRECISION_SINGLE=1)
+    list(APPEND SOLPROP_NATIVE_PRECISION_SOURCES src/general_single.cpp)
+  elseif(SOLPROP_NATIVE_PRECISION STREQUAL "mixed")
     message(FATAL_ERROR
-      "SOLPROP_NATIVE_PRECISIONS: the ${SOLPROP_NATIVE_PRECISION} precision policy "
-      "is not built yet (solprop SEP 36); use \"double\".")
+      "SOLPROP_NATIVE_PRECISIONS: the mixed precision policy is not built yet "
+      "(solprop SEP 36); use \"double\" and \"single\".")
   else()
     message(FATAL_ERROR
       "SOLPROP_NATIVE_PRECISIONS must list double, single or mixed; got "
@@ -352,6 +369,7 @@ foreach(SOLPROP_NATIVE_PRECISION IN LISTS SOLPROP_NATIVE_PRECISIONS)
   endif()
 endforeach()
 list(REMOVE_DUPLICATES SOLPROP_NATIVE_PRECISION_DEFINITIONS)
+list(REMOVE_DUPLICATES SOLPROP_NATIVE_PRECISION_SOURCES)
 if(NOT "SOLPROP_NATIVE_PRECISION_DOUBLE=1" IN_LIST SOLPROP_NATIVE_PRECISION_DEFINITIONS)
   message(FATAL_ERROR
     "SOLPROP_NATIVE_PRECISIONS must include double, the default arithmetic; got "
@@ -859,7 +877,14 @@ if(SOLPROP_NATIVE_ENABLE_COVERAGE)
 endif()
 
 add_library(solprop_native_core STATIC src/core.cpp src/general.cpp
+  ${SOLPROP_NATIVE_PRECISION_SOURCES}
   src/general_modal.cpp src/coupled_flow.cpp src/dispersive.cpp src/far_field.cpp)
+# A binary32 pass computes in binary32: any binary64 promotion in the single-precision
+# translation unit is an error (solprop SEP 36 section 6.3).
+if(SOLPROP_NATIVE_PRECISION_SOURCES)
+  set_source_files_properties(${SOLPROP_NATIVE_PRECISION_SOURCES} PROPERTIES
+    COMPILE_OPTIONS "-Wdouble-promotion")
+endif()
 target_include_directories(solprop_native_core PUBLIC
   "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>"
 )
