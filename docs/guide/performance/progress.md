@@ -21,7 +21,8 @@ explains backend and memory choices.
 | redirected (`2> run.log`), piped (`\| tee`), a batch scheduler, `pytest`'s capture | {py:class}`~solprop.log.LogReporter` | the three kinds of `INFO` line below, and never a carriage return |
 
 So nothing is *printed* unless a bar is drawn, and a bar is drawn only where a person is
-watching. The bar is the periodic line's content in another form: the fraction and the
+watching; a bar also prints the run's [summary](#what-a-run-says-before-it-starts) above
+it and the closing line below it. The bar is the periodic line's content in another form: the fraction and the
 position against the extent (or the steps against a replayed schedule's count), the
 elapsed time, and in the postfix the attempted and rejected steps, the current step and
 the ETA with the window it came from --
@@ -74,6 +75,66 @@ and leaves the other two; `progress_period` is a keyword of
 {py:meth}`~solprop.driver.simulation.Simulation.run` and of every `prop_*` function, and
 there is no environment variable. The **closing** line summarises the run.
 
+### What a run says before it starts
+
+Every run -- `prop_gnlse`, `prop_capillary`, `prop_waveguide`, the free-space routes,
+{py:meth}`~solprop.driver.simulation.Simulation.run` -- opens with one block saying what
+it is about to compute, so that a default you did not choose is visible before the run
+spends any time on it. A mode-averaged argon capillary with a gradient fill, shot noise
+and plasma, and a GNLSE fibre, on a terminal:
+
+```text
+Starting propagation from z = 0 m to 10 mm
+  backend:        numba_cpu
+  threads:        1 kernel, 1 FFTW; budget 18 (affinity)
+  precision:      double
+  grid:           field, 4096 points, window 683.1 fs, band 150 nm to 4 um
+  representation: mode-averaged, one mode, scalar
+  medium:         Ar, 293.15 K, core radius 125 um
+  pressure:       PressureGradient(1 bar to 0.7002 bar over 10 mm, 2 points)
+  responses:      Kerr, third harmonic
+                  plasma (Ar), rate optmat recommended
+                  Raman off
+  shot noise:     input model, seed 7
+  integrator:     Multistep, variable order up to 5, exponential formulation
+  propagator:     recompute
+  tolerances:     rtol 1e-06, atol 1e-10, dz_max 5 mm
+  absorber:       temporal, nonlinear scheme
+  save planes:    2 after the entrance, 5 mm to 10 mm
+  output:         HDF5Output run.h5
+  start:          new run
+finished at z = 1.000000e-02 m: 229 steps (2 rejected) in 1.16 s, achieved/requested tolerance ratio 8.414e-01
+
+Starting propagation from z = 0 m to 50 mm
+  ...
+  representation: GNLSE, one mode, scalar
+  medium:         fibre, gamma 0.11 /W/m
+  responses:      Kerr
+                  Raman off
+  shot noise:     off
+  ...
+```
+
+Raman is always named, `off` when the run has none, with the fraction held back from the
+Kerr term when it is on; shot noise is always named, with its model and seed or `off`.
+`start` says `new run` or where a resume continues from. The block is built from the
+translated problem and the run's metadata
+({py:func}`~solprop.driver.summary.run_summary`), so it describes the run as it will
+actually be stepped, and it follows `progress=` exactly as the progress lines do:
+
+| `progress=` | the summary and the closing line |
+|---|---|
+| a bar (`"auto"` where a person is watching, or `"bar"`) | written to the bar's stream, standard error; if logging is configured with a console handler they are logged instead, so they appear once |
+| `"log"` (`"auto"` everywhere else) | logged at `INFO` on `solprop.log`, seen once logging is configured |
+| `"none"` | nothing |
+
+A run into a plane store (memory or HDF5) also keeps it, as the annotation
+{py:data}`~solprop.driver.summary.RUN_SUMMARY_ANNOTATION`
+(`handler.annotations["run_summary"]`): a list of `{"title", "rows"}`, to which a resume
+adds its own. It is a description for a person; a program should read the run's
+[metadata](../results/provenance.md), which holds all of it. The points of a
+[scan](../workflows/scans.md) run with `progress="none"` and show no summary.
+
 ### The ETA, and why it says where it came from
 
 `ETA 0:00:05 (from the last 0:00:02)` is the estimate **and the window it was taken
@@ -119,8 +180,10 @@ step from inside the backend's own loop, `plane(z, summary)` once per saved plan
 rest stay no-ops. A fifth call, `interrupted(z, error)`, reaches a reporter that has it
 ({py:class}`~solprop.log.InterruptibleReporter`; `NullReporter` supplies a no-op) when
 the loop raises, `KeyboardInterrupt` included, before the error propagates -- it is how
-the bar gives the terminal back. A reporter written to the four calls alone is still
-complete and is simply not told.
+the bar gives the terminal back. A sixth, `summary(text)`
+({py:class}`~solprop.log.SummarisingReporter`; `NullReporter` supplies a no-op), is
+handed the start-of-run block before the first step. A reporter written to the four
+calls alone is still complete and is simply not told.
 
 ```{code-block} python
 from solprop.log import NullReporter

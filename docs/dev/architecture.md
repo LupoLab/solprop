@@ -697,7 +697,11 @@ otherwise Numba CPU (ADR-029); the installed native build determines its executi
 `logger.isEnabledFor(logging.DEBUG)` when formatting costs anything. Nothing logs inside
 compiled kernels or per-stage code. Progress is reported by the driver through one
 `ProgressReporter` protocol (`solprop/log.py`): `started` once, `step` from inside the step
-loop on every attempted step, `plane` per save plane and `finished` at the end. The default
+loop on every attempted step, `plane` per save plane and `finished` at the end. Before the
+first step `run_problem` builds the run's summary from the kernel problem, the run's
+metadata and the backend's execution record (`driver/summary.py`) and hands it to a
+reporter that implements `summary` (`SummarisingReporter`); a plane store keeps it as a
+post-run-style annotation, outside the record and its hash. The default
 `LogReporter` turns those into three kinds of INFO line -- a periodic one on a wall-clock
 period (`progress_period`, 10 s, `0` to disable) carrying position, counts, current step,
 elapsed and an ETA; one per plane with the step count and mean h; and a closing one with the
@@ -708,7 +712,9 @@ kernel -- the default is instead a `BarReporter`: a `LogReporter` whose
 periodic event redraws a `tqdm` bar carrying the same content and the same measured ETA,
 with the plane line demoted to `DEBUG`; redirected or captured output always gets the
 lines. A reporter that implements `interrupted` (`InterruptibleReporter`) is told when
-the loop raises, before the error propagates, so a bar can give the terminal back.
+the loop raises, before the error propagates, so a bar can give the terminal back. A bar
+writes the summary and the closing line to its stream unless a console handler would
+print them, because without a handler a record reaches nobody.
 
 ## 15. Extension points
 

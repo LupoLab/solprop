@@ -31,6 +31,7 @@ from solprop.log import (
     NullReporter,
     PlaneSummary,
     ProgressReporter,
+    SummarisingReporter,
     configure_logging,
     default_progress,
     default_reporter,
@@ -744,3 +745,81 @@ def test_reporter_cleanup_survives_bar_construction_failure(monkeypatch, ending)
         reporter.interrupted(0.0, RuntimeError("setup failed"))
         assert "setup failed" in messages[-1]
     assert reporter.bar is None
+
+
+# ------------------------------------------------------------------- the run summary
+
+
+def test_every_reporter_here_takes_the_summary():
+    for reporter in (NullReporter(), LogReporter(), BarReporter(file=io.StringIO())):
+        assert isinstance(reporter, SummarisingReporter)
+
+
+def test_the_line_reporter_logs_the_summary_as_one_record(lines):
+    reporter, messages, _ = lines()
+    reporter.summary("Starting propagation\n  shot noise: off")
+    assert messages == ["Starting propagation\n  shot noise: off"]
+
+
+def test_a_bar_shows_the_summary_and_the_closing_line_when_no_console_would():
+    reporter, stream, messages, clock = bar(period=0.5)
+    reporter.summary("Starting propagation\n  shot noise: off")
+    assert stream.getvalue() == "Starting propagation\n  shot noise: off\n"
+    assert messages == ["Starting propagation\n  shot noise: off"]
+    reporter.started(0.0, 1.0, 1)
+    drive(reporter, clock, steps=4)
+    reporter.finished(1.0)
+    closing = stream.getvalue().split("\n")[-2]
+    assert closing.startswith("finished at z = ")
+    assert messages[-1] == closing
+
+
+def test_a_bar_leaves_the_summary_to_a_console_handler_so_it_appears_once():
+    stream = io.StringIO()
+    package = logging.getLogger("solprop")
+    console = logging.StreamHandler(stream)
+    package.addHandler(console)
+    level = package.level
+    package.setLevel(logging.INFO)
+    try:
+        reporter = BarReporter(file=stream, ncols=80, ascii=True, clock=Clock())
+        reporter.summary("Starting propagation")
+        reporter.started(0.0, 1.0, 1)
+        reporter.finished(0.5)
+        assert stream.getvalue().count("Starting propagation\n") == 1
+        assert stream.getvalue().count("finished at z = ") == 1
+    finally:
+        package.removeHandler(console)
+        package.setLevel(level)
+
+
+def test_a_console_handler_that_would_drop_the_record_does_not_count():
+    stream = io.StringIO()
+    logger = logging.getLogger("solprop.test_bar_quiet_console")
+    logger.handlers.clear()
+    logger.propagate = False
+    console = logging.StreamHandler(stream)
+    console.setLevel(logging.ERROR)
+    logger.addHandler(console)
+    logger.setLevel(logging.WARNING)
+    # Below the logger's level, and then below the handler's: shown by the bar both
+    # times, because the console would print neither.
+    BarReporter(file=stream, logger=logger, clock=Clock()).summary("Starting")
+    logger.setLevel(logging.INFO)
+    BarReporter(file=stream, logger=logger, clock=Clock()).summary("Starting again")
+    assert stream.getvalue() == "Starting\nStarting again\n"
+
+
+def test_a_bar_without_echo_only_logs():
+    reporter, stream, messages, _ = bar(period=0.5, echo=False)
+    reporter.summary("Starting propagation")
+    assert stream.getvalue() == ""
+    assert messages == ["Starting propagation"]
+
+
+def test_an_echoed_line_goes_to_standard_error_without_a_stream(capsys):
+    logger = logging.getLogger("solprop.test_bar_stderr")
+    logger.propagate = False
+    reporter = BarReporter(logger=logger, clock=Clock())
+    reporter.summary("Starting propagation")
+    assert capsys.readouterr().err == "Starting propagation\n"

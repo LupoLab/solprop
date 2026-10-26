@@ -67,8 +67,14 @@ pytestmark = [
 ]
 """The wall cases' deliberate warnings (``tests/driver/test_coherent_capillary.py``)."""
 
-UNCOMPARED = {"meta/json", "meta/outcome", "step_history/wall_time"}
-"""Metadata and outcome are checked separately; the wall clock is not reproducible."""
+UNCOMPARED = {
+    "meta/json",
+    "meta/outcome",
+    "meta/annotations/run_summary",
+    "step_history/wall_time",
+}
+"""Metadata and outcome are checked separately; the wall clock is not reproducible,
+and a resumed file's start-of-run summaries record its two starts."""
 
 
 def stored(path) -> dict[str, np.ndarray]:

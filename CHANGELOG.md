@@ -281,12 +281,25 @@ The first public release. It contains:
   - Soliton and dispersive-wave design tools.
   - Pulse compressors: Taylor phase, chirped mirrors, materials, gratings and prisms.
   - An interactive session through `import solprop.sol as sol`.
+- **A summary at the start of every run.** Before its first step a run shows what it
+  is about to compute: the backend, its threads and precision, the grid, the
+  representation, the medium and fill, the responses (Raman named whether on or off,
+  with the fraction held back from Kerr), the shot noise with its model and seed or
+  `off`, the integrator, tolerances and step bound, the absorber, the save planes, the
+  output and whether the run is a resume. It goes through the progress reporter, so it
+  follows `progress=`: a bar writes it, and the closing line, on its stream (once, if a
+  console log handler would print them already), `"log"` logs them at `INFO`, and
+  `"none"` shows nothing. Plane stores keep it as the `run_summary` annotation
+  (`solprop.driver.summary`; a reporter receives it through the optional
+  `SummarisingReporter.summary` call).
 - **Documentation.** An introduction with executable lessons, a user guide, a
   long-form primer on the physics and numerics, focused tutorials and worked examples,
   the API reference, and a developer's guide with the design records (SEPs and ADRs).
 
 ### Fixed
 
+- **The noise row of a printed `Simulation`** named the realisation's class; it now
+  gives its model and seed.
 - **Spectral ranges of the plots in the units of their axis.** `prop_2d`, `spec_1d` and
   `spectrogram` took their spectral window only as `wavelength_range`, so a frequency
   axis could not be given a range in hertz, nor one starting at zero. They now take
