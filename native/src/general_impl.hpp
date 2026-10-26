@@ -8382,8 +8382,8 @@ void GeneralWorkspace<Policy>::response_impl(const std::size_t stage,
   const auto rate_intervals = problem_.rate_intervals;
   const auto n_stages = problem_.n_stages;
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-  // The device's one-team-per-node form is binary64 code; a binary32 source takes the
-  // generic column below until SEP 36's phase 4 qualifies a device form.
+  // The device's one-team-per-node form in binary64; a binary32 source's follows it.
+  // A mixture of channels takes the generic column below.
   if constexpr (binary64 && !Multiple) {
     using TeamPolicy = Kokkos::TeamPolicy<ExecutionSpace>;
     using TeamMember = TeamPolicy::member_type;
@@ -8660,6 +8660,212 @@ void GeneralWorkspace<Policy>::response_impl(const std::size_t stage,
             }
           });
     }
+    return;
+  }
+  // The device's team form under a binary32 source (solprop SEP 36 section 4.2): one
+  // team per node, its threads over the samples, in the generic column's arithmetic
+  // sample by sample. The pointwise terms are the column's; the plasma's running
+  // integrals are team scans accumulated in binary64 (the reduction role, section
+  // 4.5) over the binary32 samples, each prefix rounded once where a population or a
+  // current is formed, as the column rounds its serial binary64 sums. A device never
+  // folds a single node (`folds_single_node`), so both transform scales are one.
+  if constexpr (!binary64 && !Multiple) {
+    using TeamPolicy = Kokkos::TeamPolicy<ExecutionSpace>;
+    using TeamMember = TeamPolicy::member_type;
+    const auto team_samples = static_cast<int>(n_to);
+    const TeamPolicy policy(response_space_for(node_count),
+                            static_cast<int>(node_count),
+                            static_cast<int>(response_team_size()));
+    const auto kerr_factor = stage_kerr_factor_;
+    const auto self_weight = static_cast<SourceReal>(self_factor);
+    const auto conjugate_weight = static_cast<SourceReal>(conjugate_factor);
+    const auto scale = static_cast<SourceReal>(source_scale_);
+    const auto inverse_scale = static_cast<SourceReal>(inverse_source_scale_);
+    Kokkos::parallel_for(
+        Plasma ? "solprop_native.response.device_reduced_plasma"
+               : "solprop_native.response.device_reduced_pointwise",
+        policy, KOKKOS_LAMBDA(const TeamMember& team) {
+          capture_anchor(node_real, node_complex, out_real, out_complex, held_current,
+                         raman_drive, raman_drives, window, carrier, rate_coefficients,
+                         stash, plasma_rate, plasma_exposure, current_integrand,
+                         density, preionisation, charge_mass_ratio,
+                         ionisation_potential, dt, log_field_min, d_log_field,
+                         field_min, field_max, rate_max, rate_intervals, n_stages, n_to,
+                         first_node, stage, kerr_factor, self_weight, conjugate_weight,
+                         harmonic_factor, scale, inverse_scale, team_samples);
+          const auto node = static_cast<std::size_t>(team.league_rank());
+          const std::size_t base = node * Components;
+          // The node's field sample as the column reads it: a real row's value, or an
+          // analytic or envelope row's complex value.
+          const auto value_at = [&](const std::size_t row, const std::size_t time) {
+            if constexpr (Family == FieldFamily::field_real)
+              return SourceComplex(node_real(row, time), SourceReal(0));
+            else
+              return SourceComplex(node_complex(row, time));
+          };
+          if constexpr (Plasma) {
+            // The physical field `s E` the plasma reads, its magnitude and its rate,
+            // the rate's table lookup binary64 and rounded once.
+            const auto field_of = [&](const std::size_t row, const std::size_t time) {
+              return scale * value_at(row, time).real();
+            };
+            const auto magnitude_of = [&](const std::size_t time) {
+              const SourceReal first_field = field_of(base, time);
+              if constexpr (Components == 2)
+                return Kokkos::hypot(first_field, field_of(base + 1, time));
+              else
+                return Kokkos::abs(first_field);
+            };
+            const auto population_of = [&](const std::size_t time) {
+              return stable_population(plasma_exposure(node, time),
+                                       preionisation(stage));
+            };
+            const auto weight_scale =
+                static_cast<SourceReal>(density(stage) * charge_mass_ratio);
+            const auto work_scale =
+                static_cast<SourceReal>(density(stage) * ionisation_potential);
+            Kokkos::parallel_for(
+                Kokkos::TeamThreadRange(team, team_samples), [&](const int index) {
+                  const auto time = static_cast<std::size_t>(index);
+                  plasma_rate(node, time) = static_cast<SourceReal>(
+                      ionisation_rate(static_cast<double>(magnitude_of(time)),
+                                      rate_coefficients, log_field_min, d_log_field,
+                                      field_min, field_max, rate_max, rate_intervals));
+                });
+            team.team_barrier();
+            Kokkos::parallel_scan(
+                Kokkos::TeamThreadRange(team, team_samples),
+                [&](const int index, double& update, const bool final) {
+                  const auto time = static_cast<std::size_t>(index);
+                  if (time != 0)
+                    update +=
+                        trapezoid(static_cast<double>(plasma_rate(node, time)),
+                                  static_cast<double>(plasma_rate(node, time - 1)), dt);
+                  if (final)
+                    plasma_exposure(node, time) = static_cast<SourceReal>(update);
+                });
+            team.team_barrier();
+            for (std::size_t component = 0; component < Components; ++component) {
+              const auto row = base + component;
+              Kokkos::parallel_for(Kokkos::TeamThreadRange(team, team_samples),
+                                   [&](const int index) {
+                                     const auto time = static_cast<std::size_t>(index);
+                                     current_integrand(row, time) =
+                                         (weight_scale * population_of(time).fraction) *
+                                         field_of(row, time);
+                                   });
+              team.team_barrier();
+              Kokkos::parallel_scan(
+                  Kokkos::TeamThreadRange(team, team_samples),
+                  [&](const int index, double& update, const bool final) {
+                    const auto time = static_cast<std::size_t>(index);
+                    if (time != 0)
+                      update += trapezoid(
+                          static_cast<double>(current_integrand(row, time)),
+                          static_cast<double>(current_integrand(row, time - 1)), dt);
+                    if (final) {
+                      const SourceReal magnitude = magnitude_of(time);
+                      const SourceReal squared = magnitude * magnitude;
+                      const SourceReal work =
+                          work_scale *
+                          (plasma_rate(node, time) * population_of(time).survival);
+                      const SourceReal guard =
+                          work > SourceReal(0) && squared > SourceReal(0)
+                              ? work / squared
+                              : SourceReal(0);
+                      held_current(row, time) = (static_cast<SourceReal>(update) +
+                                                 guard * field_of(row, time)) *
+                                                inverse_scale;
+                    }
+                  });
+              team.team_barrier();
+            }
+            if constexpr (Stash) {
+              if (!stash.empty() && stage + 1 == n_stages) {
+                SourceReal largest{};
+                Kokkos::parallel_reduce(
+                    Kokkos::TeamThreadRange(team, team_samples),
+                    [&](const int index, SourceReal& update) {
+                      const SourceReal rate =
+                          plasma_rate(node, static_cast<std::size_t>(index));
+                      if (rate > update)
+                        update = rate;
+                    },
+                    Kokkos::Max<SourceReal>(largest));
+                Kokkos::single(Kokkos::PerTeam(team), [&]() {
+                  stash(first_node + node, 0) =
+                      static_cast<double>(population_of(n_to - 1).fraction);
+                  stash(first_node + node, 1) = static_cast<double>(largest);
+                });
+              }
+            }
+          }
+          const SourceReal factor = kerr_factor(stage);
+          Kokkos::parallel_for(
+              Kokkos::TeamThreadRange(team, team_samples), [&](const int index) {
+                const auto time = static_cast<std::size_t>(index);
+                const SourceComplex first_value = value_at(base, time);
+                SourceComplex second_value{};
+                if constexpr (Components == 2)
+                  second_value = value_at(base + 1, time);
+                const SourceReal modulus =
+                    squared_abs(first_value) +
+                    (Components == 2 ? squared_abs(second_value) : SourceReal(0));
+                const SourceComplex square =
+                    first_value * first_value +
+                    (Components == 2 ? second_value * second_value : SourceComplex{});
+                SourceComplex first{};
+                SourceComplex second{};
+                if constexpr (Nonlinear) {
+                  if constexpr (Family == FieldFamily::field_real) {
+                    first += SourceComplex(factor * modulus * first_value.real(),
+                                           SourceReal(0));
+                    if constexpr (Components == 2)
+                      second += SourceComplex(factor * modulus * second_value.real(),
+                                              SourceReal(0));
+                  } else {
+                    const auto analytic = [&](const SourceComplex value) {
+                      const SourceReal weighted_real = conjugate_weight * square.real();
+                      const SourceReal weighted_imag = conjugate_weight * square.imag();
+                      const SourceReal weighted_self = self_weight * modulus;
+                      SourceComplex result(factor * (weighted_self * value.real() +
+                                                     (weighted_real * value.real() +
+                                                      weighted_imag * value.imag())),
+                                           factor * (weighted_self * value.imag() +
+                                                     (weighted_imag * value.real() -
+                                                      weighted_real * value.imag())));
+                      if constexpr (Harmonic)
+                        result += (static_cast<SourceReal>(static_cast<double>(factor) *
+                                                           harmonic_factor) *
+                                   carrier(time)) *
+                                  square * value;
+                      return result;
+                    };
+                    first += analytic(first_value);
+                    if constexpr (Components == 2)
+                      second += analytic(second_value);
+                  }
+                }
+                if constexpr (Raman)
+                  write_raman_drive<Components, RamanThg>(
+                      raman_drive, node, time, first_value, second_value, raman_drives);
+                if constexpr (Family != FieldFamily::envelope) {
+                  out_real(base, time) =
+                      Raman ? first.real()
+                            : SourceReal(1) * (first.real() * window(time));
+                  if constexpr (Components == 2)
+                    out_real(base + 1, time) =
+                        Raman ? second.real()
+                              : SourceReal(1) * (second.real() * window(time));
+                } else {
+                  out_complex(base, time) =
+                      Raman ? first : SourceReal(1) * (first * window(time));
+                  if constexpr (Components == 2)
+                    out_complex(base + 1, time) =
+                        Raman ? second : SourceReal(1) * (second * window(time));
+                }
+              });
+        });
     return;
   }
 #endif
