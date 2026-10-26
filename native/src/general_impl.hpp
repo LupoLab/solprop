@@ -1829,12 +1829,11 @@ public:
         state_scale_ = source_scale_;
         inverse_state_scale_ = inverse_source_scale_;
       }
-      // The tiled band column is the device form, qualified with the device paths.
-      if (band_tiled_ && problem_.plasma && problem_.plasma_band)
-        throw std::invalid_argument(
-            "the native backend does not run the tiled band column under single "
-            "precision (solprop SEP 36 phase 4); leave SOLPROP_NATIVE_BAND_TILES "
-            "unset");
+      // A reduced policy's band rule runs the team column on every target, a device's
+      // included (SEP 36 phase 4): the tiled column is binary64's device form and is
+      // not templated, so the process's tiling choice (SOLPROP_NATIVE_BAND_TILES, on
+      // by default on a device) applies to binary64 states alone.
+      band_tiled_ = false;
     }
     execution_space_ =
         kernel_pool_.get(CpuOperation::stage, problem_.n_columns() * problem_.n_omega);
