@@ -495,7 +495,9 @@ range.
   the binary64 library and rounds each once, as the oracle does. The relative error is
   at most $3\,u_{32}$, the rounding is unbiased, and on the CPU the drift and the Kerr
   error now match the oracle's (−1.40 against −1.44 × 10⁻⁵ over 1000 steps; 1.7 against
-  1.9 × 10⁻⁵). The binary64 functions cost a few binary64 operations per bin and stage.
+  1.9 × 10⁻⁵). On the A40 the 2500-step argon run's field error fell from
+  $2.0 \times 10^{-3}$ to $9.9 \times 10^{-5}$ on a fixed schedule, and its Kerr-only error
+  from $2.4 \times 10^{-3}$ to $9.8 \times 10^{-5}$. The binary64 functions cost a few binary64 operations per bin and stage.
   That is small beside a step's transforms, even at the A40's binary64 rate. A C++ test
   measures the mean modulus bias in the execution space the build runs on, and a
   Python test compares the drift with the oracle's over 1000 steps.
