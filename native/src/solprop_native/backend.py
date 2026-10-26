@@ -2372,8 +2372,10 @@ refuses it here by name.
 def _refuse_reduced(problem: KernelProblem) -> None:
     """Refuse, by name, a reduced-precision problem this build does not run (SEP 36).
 
-    Single and mixed precision run on a CPU build that compiled them. The routes no
-    backend runs in binary32 are refused by the problem's own validation first.
+    Single and mixed precision run on a CPU build that compiled them, on every route
+    SEP 36 admits (section 5.1). The routes no backend runs in binary32 are refused by
+    the problem's own validation first; the slab kind, which the oracles run, is
+    binary64 code on native.
     """
     name = problem.precision.name
     info = build_info()
@@ -2391,17 +2393,11 @@ def _refuse_reduced(problem: KernelProblem) -> None:
             "CPU build), or use backend='numpy_ref'"
         )
     geometry = problem.transform.geometry
-    if geometry is not None and geometry.kind not in ("radial", "free"):
+    if geometry is not None and geometry.kind == "slab":
         raise BackendError(
-            f"solprop-native does not yet run the {geometry.kind} route under "
-            f"precision={name!r} (solprop SEP 36 phase 3); use backend='numpy_ref', "
-            "the oracle, or precision='double'"
-        )
-    if problem.responses.envelope_plasma is not None:
-        raise BackendError(
-            "solprop-native does not yet run the envelope-grid plasma under "
-            f"precision={name!r} (solprop SEP 36 phase 3); use backend='numpy_ref', "
-            "the oracle, or precision='double'"
+            f"solprop-native runs the slab kind in binary64 only, not under "
+            f"precision={name!r}; use backend='numpy_ref', the oracle, or "
+            "precision='double'"
         )
 
 
@@ -2419,6 +2415,10 @@ _NARROWED_TABLES = (
     ("absorber_fine", "temporal_rate"),
     ("spatial_absorber_matrix", "spatial_absorber"),
     ("carrier", "carrier"),
+    # The envelope plasma's spectral factors, which native narrows beside the oracle's
+    # tables (its own binary64 assembly, SEP 36 section 4.5).
+    ("envelope_drude_factor", "envelope_drude_factor"),
+    ("envelope_loss_factor", "envelope_loss_factor"),
 )
 
 

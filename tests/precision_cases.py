@@ -225,3 +225,17 @@ def plasma_beam(
         pulse,
         settings=settings,
     )
+
+
+def envelope_plasma(precision: str, *, steps: int = 8) -> Simulation:
+    """Return a 1 mm envelope-plasma capillary on 256 samples, `steps` uniform steps."""
+    length = 0.001
+    return capillary(
+        precision,
+        envelope=True,
+        plasma=True,
+        length=length,
+        trange=150e-15,
+        wavelength_limits=(300e-9, 2e-6),
+        schedule=FixedSchedule.uniform(0.0, length, length / steps),
+    )

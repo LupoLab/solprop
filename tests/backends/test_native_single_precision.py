@@ -25,7 +25,7 @@ import numpy as np
 import pytest
 
 from bounds import EPS_32, UNIT_ROUNDOFF_32, assert_within, higham_gamma
-from precision_cases import capillary, gnlse, plasma_beam, spatial_kerr
+from precision_cases import capillary, envelope_plasma, gnlse, plasma_beam, spatial_kerr
 from solprop.backends.memory import estimate_memory
 from solprop.backends.protocol import Backend
 from solprop.backends.reduced import LaunchScale
@@ -605,10 +605,34 @@ def test_the_spatial_statistics_are_binary64_reductions_of_the_state(route):
         )
 
 
-def test_the_envelope_plasma_is_refused_until_built():
-    build = capillary("single", envelope=True, plasma=True)
-    with pytest.raises(BackendError, match="phase 3"):
-        select("native", build.translate())
+def test_the_envelope_plasma_agrees_within_its_class_t_envelope():
+    """SEP 36 section 6.5: the cycle moments on a binary32 quadrature, binary64 sums.
+
+    Neither the oracle's binary64 moments of the narrowed field nor native's binary32
+    quadrature is a matched sequence of the other (section 4.5), so the comparison is
+    the class T envelope SEP 33's oracle test fixed for this case, two of eight steps:
+    native against binary64 and against the oracle, the populations' statistics too.
+    """
+    length = 0.001
+    spec = StatsSpec(names=("energy", "electron_density"))
+    fields, stats = {}, {}
+    for precision, name in (("single", "native"), ("single", "numpy_ref"),
+                            ("double", "native")):  # fmt: skip
+        with ExitStack() as cleanup:
+            backend = loaded(envelope_plasma(precision), name, cleanup)
+            backend.propagate_to(length / 4)
+            fields[precision, name] = backend.observe().require_field().copy()
+            stats[precision, name] = backend.stats(spec)
+    native = fields["single", "native"]
+    assert_within(native, fields["double", "native"], 1e-5)
+    assert_within(native, fields["single", "numpy_ref"], 1e-5)
+    for key in ("energy", "electron_density"):
+        assert_within(
+            np.asarray(stats["single", "native"][key]),
+            np.asarray(stats["double", "native"][key]),
+            1e-5,
+            what=key,
+        )
 
 
 def test_a_build_without_single_precision_refuses_it_by_name(monkeypatch):

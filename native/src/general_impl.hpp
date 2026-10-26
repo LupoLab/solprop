@@ -636,8 +636,9 @@ KOKKOS_INLINE_FUNCTION double physical_value(const double scale, const Real valu
   }
 }
 
-/** A state-role value as the physical binary64 value: widened exactly and, held at
- * a scale `s` (single precision), multiplied by it exactly; unchanged in binary64. */
+/** A value held at a scale `s` (a binary32 state, or a reduced policy's source) as the
+ * physical binary64 value: widened and multiplied by `s`, both exactly; a binary64
+ * value is unchanged, its scale one. */
 template <class Real>
 KOKKOS_INLINE_FUNCTION Complex physical_state(const double scale,
                                               const Kokkos::complex<Real> value) {
@@ -1691,14 +1692,6 @@ template <class Policy> void require_policy_route(const Problem& problem) {
       refuse("the dispersive Kerr response");
     if (problem.slab_geometry())
       refuse("the slab kind");
-    // SEP 36 phase 3: the spatial routes and the envelope-grid plasma.
-    const auto later = [](const char* route) {
-      throw std::invalid_argument(std::string("the native backend does not yet run ") +
-                                  route + " under the " + Policy::name +
-                                  " precision policy (solprop SEP 36 phase 3)");
-    };
-    if (problem.envelope_plasma)
-      later("the envelope-grid plasma");
     // A noise model runs on a binary64 state: under mixed precision as solprop admits
     // it (SEP 36 phase 5 and its study), never under single precision.
     if (problem.modified_noise && std::is_same_v<Policy, Single>)
@@ -7545,9 +7538,8 @@ void GeneralWorkspace<Policy>::separable_core(const std::size_t stage,
       Kokkos::Profiling::pushRegion("solprop_native.free.response");
       if (!alone)
         response(stage, chunk.first_node, chunk.nodes);
-      if constexpr (binary64)
-        if (problem_.envelope_plasma)
-          envelope_response(stage, chunk.first_node, chunk.nodes, &chunk);
+      if (problem_.envelope_plasma)
+        envelope_response(stage, chunk.first_node, chunk.nodes, &chunk);
       if (problem_.raman)
         convolve_raman(stage, chunk.nodes);
       if (dispersive != nullptr)
@@ -7600,9 +7592,8 @@ void GeneralWorkspace<Policy>::separable_core(const std::size_t stage,
     // The response's spectrum joins the chunk's, before the envelope currents'.
     if (responds)
       dispersive->combine();
-    if constexpr (binary64)
-      if (material && problem_.envelope_plasma)
-        envelope_transform();
+    if (material && problem_.envelope_plasma)
+      envelope_transform();
     if (material && held_plasma())
       held_transform();
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
@@ -7913,9 +7904,8 @@ bool GeneralWorkspace<Policy>::modal_core(const std::size_t stage) {
       held_response(stage, first_node, node_count);
     if (stage_projects && !folded && !held_radial())
       project(first_node, node_count, first_chunk);
-    if constexpr (binary64)
-      if (problem_.envelope_plasma)
-        envelope_response(stage, first_node, node_count);
+    if (problem_.envelope_plasma)
+      envelope_response(stage, first_node, node_count);
     first_chunk = false;
     ++chunk;
   }
@@ -7953,9 +7943,8 @@ bool GeneralWorkspace<Policy>::modal_core(const std::size_t stage) {
       KokkosFFT::execute(*absorber_real_plan_, absorber_real_, absorber_spectrum_,
                          KokkosFFT::Normalization::none);
   }
-  if constexpr (binary64)
-    if (problem_.envelope_plasma)
-      envelope_transform();
+  if (problem_.envelope_plasma)
+    envelope_transform();
   if (held_plasma() && !held_radial())
     held_transform();
   if (defer_quadrature_ && project_coarse_)
@@ -10103,28 +10092,59 @@ void GeneralWorkspace<Policy>::envelope_cycle(const std::size_t channel,
   const auto failures = envelope_failures_;
   const auto n_pol = problem_.effective_node_pol();
   const auto n_to = problem_.n_to;
-  Kokkos::parallel_for(
-      "solprop_native.envelope.cycle_moments",
-      Range2(response_space_for(node_count), {0, 0}, {node_count, n_to}),
-      KOKKOS_LAMBDA(const std::size_t node, const std::size_t time) {
-        const auto axes =
-            envelope_axes(field(node * n_pol, time),
-                          n_pol == 2 ? field(node * n_pol + 1, time) : Complex{});
-        const auto rate_at = [&](const double value) {
-          return ionisation_rate(value, coefficients, parameters(channel, 0),
-                                 parameters(channel, 1), parameters(channel, 2),
-                                 parameters(channel, 3), parameters(channel, 4),
-                                 static_cast<std::size_t>(parameters(channel, 5)),
-                                 static_cast<std::size_t>(parameters(channel, 6)));
-        };
-        const auto pair =
-            envelope_moments(axes.major, axes.ratio, parameters(channel, 2),
-                             parameters(channel, 3), rate_at, nodes, weights);
-        moments(0, node, time) = pair.cosine;
-        moments(1, node, time) = pair.sine;
-        rates(node, time) = pair.cosine + axes.ratio * axes.ratio * pair.sine;
-        failures(node * n_to + time) = pair.failed ? 1 : 0;
-      });
+  if constexpr (binary64) {
+    Kokkos::parallel_for(
+        "solprop_native.envelope.cycle_moments",
+        Range2(response_space_for(node_count), {0, 0}, {node_count, n_to}),
+        KOKKOS_LAMBDA(const std::size_t node, const std::size_t time) {
+          const auto axes =
+              envelope_axes(field(node * n_pol, time),
+                            n_pol == 2 ? field(node * n_pol + 1, time) : Complex{});
+          const auto rate_at = [&](const double value) {
+            return ionisation_rate(value, coefficients, parameters(channel, 0),
+                                   parameters(channel, 1), parameters(channel, 2),
+                                   parameters(channel, 3), parameters(channel, 4),
+                                   static_cast<std::size_t>(parameters(channel, 5)),
+                                   static_cast<std::size_t>(parameters(channel, 6)));
+          };
+          const auto pair =
+              envelope_moments(axes.major, axes.ratio, parameters(channel, 2),
+                               parameters(channel, 3), rate_at, nodes, weights);
+          moments(0, node, time) = pair.cosine;
+          moments(1, node, time) = pair.sine;
+          rates(node, time) = pair.cosine + axes.ratio * axes.ratio * pair.sine;
+          failures(node * n_to + time) = pair.failed ? 1 : 0;
+        });
+  } else {
+    // Under a reduced policy (solprop SEP 36 section 6.5): each sample's ellipse from
+    // the physical field `s E`, widened exactly and decomposed in binary64 once per
+    // sample; the moments on the binary32 quadrature with binary64 sums.
+    const double scale = source_scale_;
+    Kokkos::parallel_for(
+        "solprop_native.envelope.cycle_moments",
+        Range2(response_space_for(node_count), {0, 0}, {node_count, n_to}),
+        KOKKOS_LAMBDA(const std::size_t node, const std::size_t time) {
+          const Complex first = scale * Complex(field(node * n_pol, time));
+          const Complex second =
+              n_pol == 2 ? scale * Complex(field(node * n_pol + 1, time)) : Complex{};
+          const auto axes = envelope_axes(first, second);
+          const auto rate_at = [&](const double value) {
+            return ionisation_rate(value, coefficients, parameters(channel, 0),
+                                   parameters(channel, 1), parameters(channel, 2),
+                                   parameters(channel, 3), parameters(channel, 4),
+                                   static_cast<std::size_t>(parameters(channel, 5)),
+                                   static_cast<std::size_t>(parameters(channel, 6)));
+          };
+          const auto pair = envelope_moments_binary32(
+              axes.major, axes.ratio, parameters(channel, 2), parameters(channel, 3),
+              parameters(channel, 4), rate_at, nodes, weights);
+          moments(0, node, time) = pair.cosine;
+          moments(1, node, time) = pair.sine;
+          rates(node, time) = static_cast<SourceReal>(
+              pair.cosine + axes.ratio * axes.ratio * pair.sine);
+          failures(node * n_to + time) = pair.failed ? 1 : 0;
+        });
+  }
   const auto status = envelope_status_;
   std::size_t no_failure = 0;
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
@@ -10198,8 +10218,9 @@ void GeneralWorkspace<Policy>::envelope_population(const std::size_t channel,
         KOKKOS_LAMBDA(const std::size_t node) {
           double peak = 0.0;
           for (std::size_t time = 0; time < n_to; ++time)
-            peak = Kokkos::max(peak, rates(node, time));
-          statistics(first_node + node, 2 * channel) = exposure(node, n_to - 1);
+            peak = Kokkos::max(peak, static_cast<double>(rates(node, time)));
+          statistics(first_node + node, 2 * channel) =
+              static_cast<double>(exposure(node, n_to - 1));
           statistics(first_node + node, 2 * channel + 1) = peak;
         });
     return;
@@ -10213,25 +10234,37 @@ void GeneralWorkspace<Policy>::envelope_population(const std::size_t channel,
   const auto drive = envelope_streams_[0].node;
   const auto loss = envelope_streams_[1].node;
   const auto n_pol = problem_.effective_node_pol();
+  // Under a reduced policy the sample's populations, ellipse and currents are binary64
+  // from the physical field `s E` (one evaluation per sample, SEP 36 section 6.5), and
+  // each current is divided by `s` and rounded once into the source's stream.
+  const double scale = source_scale_;
+  const double inverse_scale = inverse_source_scale_;
   Kokkos::parallel_for(
       "solprop_native.envelope.currents",
       Range2(response_space_for(node_count), {0, 0}, {node_count, n_to}),
       KOKKOS_LAMBDA(const std::size_t node, const std::size_t time) {
         const double initial = initials(stage, channel);
-        const double fraction = envelope_fraction(exposure(node, time), initial);
-        const double survival = (1.0 - initial) * Kokkos::exp(-exposure(node, time));
+        const auto exposed = static_cast<double>(exposure(node, time));
+        const double fraction = envelope_fraction(exposed, initial);
+        const double survival = (1.0 - initial) * Kokkos::exp(-exposed);
         const double density = densities(stage, channel);
-        const auto axes =
-            envelope_axes(field(node * n_pol, time),
-                          n_pol == 2 ? field(node * n_pol + 1, time) : Complex{});
+        const Complex first = physical_state(scale, field(node * n_pol, time));
+        const Complex second =
+            n_pol == 2 ? physical_state(scale, field(node * n_pol + 1, time))
+                       : Complex{};
+        const auto axes = envelope_axes(first, second);
         const auto current =
             envelope_loss(axes, moments(0, node, time), moments(1, node, time),
                           parameters(channel, 8) * density * survival);
         const double drude = parameters(channel, 7) * density * fraction;
         for (std::size_t pol = 0; pol < n_pol; ++pol) {
           const auto row = node * n_pol + pol;
-          const auto drive_value = window(time) * drude * field(row, time);
-          const auto loss_value = window(time) * current[pol];
+          const auto window_value = static_cast<double>(window(time));
+          const auto drive_value = static_cast<SourceComplex>(
+              window_value * drude * physical_state(scale, field(row, time)) *
+              inverse_scale);
+          const auto loss_value =
+              static_cast<SourceComplex>(window_value * current[pol] * inverse_scale);
           if (channel == 0) {
             drive(row, time) = drive_value;
             loss(row, time) = loss_value;
@@ -10253,12 +10286,16 @@ void GeneralWorkspace<Policy>::envelope_response(const std::size_t stage,
   for (auto& stream : envelope_streams_) {
     if (problem_.slab_geometry()) {
       // As the polarisation: the chunk's y rows, zero beyond a final partial chunk.
-      Kokkos::deep_copy(response_space_for(node_count), stream.projected, Complex{});
-      slab_project(*chunk, &stream);
+      // The slab kind: a binary64 route (refused under a reduced policy).
+      if constexpr (binary64) {
+        Kokkos::deep_copy(response_space_for(node_count), stream.projected, Complex{});
+        slab_project(*chunk, &stream);
+      }
     } else if (problem_.free_geometry()) {
       // The persistent maximum-chunk plan transforms zero padding in a final
       // partial chunk; only its actual rows are ever copied to the spatial FFT.
-      Kokkos::deep_copy(response_space_for(node_count), stream.projected, Complex{});
+      Kokkos::deep_copy(response_space_for(node_count), stream.projected,
+                        SourceComplex{});
       const auto rows =
           std::make_pair(std::size_t{0}, node_count * problem_.effective_node_pol());
       Kokkos::deep_copy(response_space_for(node_count),
@@ -10989,16 +11026,15 @@ void GeneralWorkspace<Policy>::scan_plasma_statistics(const std::size_t first_no
                                                       const RealView2& output,
                                                       const bool diagnose,
                                                       const double preionisation) {
-  if constexpr (binary64)
-    if (problem_.envelope_plasma) {
-      if (diagnose)
-        throw std::invalid_argument("the plasma integration diagnostics read the "
-                                    "field-grid plasma column, and this problem "
-                                    "carries none");
-      for (std::size_t channel = 0; channel < problem_.n_channels; ++channel)
-        envelope_population(channel, 0, first_node, node_count, output);
-      return;
-    }
+  if (problem_.envelope_plasma) {
+    if (diagnose)
+      throw std::invalid_argument("the plasma integration diagnostics read the "
+                                  "field-grid plasma column, and this problem "
+                                  "carries none");
+    for (std::size_t channel = 0; channel < problem_.n_channels; ++channel)
+      envelope_population(channel, 0, first_node, node_count, output);
+    return;
+  }
   // solprop SEP 18: the band rule's statistics, and every problem's run diagnostics,
   // come from the band scan; the trapezoid's own scan below is unchanged.
   if (problem_.plasma_band || diagnose) {

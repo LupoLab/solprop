@@ -8,6 +8,7 @@
 #include <Kokkos_Core.hpp>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -153,7 +154,87 @@ void zero_subnormal_and_unresolved_cases() {
   EXPECT_EQ(actual(0, 4), 1.0);
 }
 
+// A rate with the table's cutoffs: zero below `low`, the ceiling above `high`.
+struct CutRate {
+  double low{}, high{};
+  KOKKOS_INLINE_FUNCTION double operator()(const double field) const {
+    if (field < low)
+      return 0.0;
+    const double held = field > high ? high : field;
+    return held * held * held * held;
+  }
+};
+
+// solprop SEP 36 section 6.5: the binary32 quadrature with binary64 sums against the
+// binary64 one, on the polynomial rules and across the table's cutoffs, and its
+// refinement failure where the rules disagree.
+void binary32_moments_match_binary64() {
+  const auto rules = polynomial_rules();
+  const auto& nodes = rules[0];
+  const auto& weights = rules[1];
+  const auto failing = polynomial_rules(true);
+  const auto& bad_nodes = failing[0];
+  const auto& bad_weights = failing[1];
+  // (major, ratio, low cut, high cut): uncut ellipses, and ones whose cut angles fall
+  // inside the quadrant, one each side and both.
+  constexpr std::array<std::array<double, 4>, 7> cases{{{2.0, 0.0, 0.0, 100.0},
+                                                        {2.0, 0.35, 0.0, 100.0},
+                                                        {2.0, 0.999, 0.0, 100.0},
+                                                        {2.0, 0.35, 1.0, 100.0},
+                                                        {2.0, 0.35, 0.0, 1.5},
+                                                        {2.0, 0.35, 1.0, 1.5},
+                                                        {2.0, 0.6, 1.3, 1.7}}};
+  RuleView input("envelope_test.binary32_input", cases.size(), 4);
+  auto host_input = Kokkos::create_mirror_view(input);
+  for (std::size_t index = 0; index < cases.size(); ++index)
+    for (std::size_t column = 0; column < 4; ++column)
+      host_input(index, column) = cases[index][column];
+  Kokkos::deep_copy(input, host_input);
+  RuleView output("envelope_test.binary32_output", cases.size(), 7);
+  Kokkos::parallel_for(
+      "envelope_test.binary32",
+      Kokkos::RangePolicy<native::ExecutionSpace>(native::ExecutionSpace{}, 0,
+                                                  cases.size()),
+      KOKKOS_LAMBDA(const std::size_t index) {
+        const double major = input(index, 0), ratio = input(index, 1);
+        const double low = input(index, 2), high = input(index, 3);
+        const CutRate rate{low, high};
+        const auto wide =
+            native::envelope_moments(major, ratio, low, high, rate, nodes, weights);
+        const auto narrow = native::envelope_moments_binary32(
+            major, ratio, low, high, rate(high), rate, nodes, weights);
+        const auto unresolved = native::envelope_moments_binary32(
+            major, ratio, low, high, rate(high), rate, bad_nodes, bad_weights);
+        output(index, 0) = wide.cosine;
+        output(index, 1) = wide.sine;
+        output(index, 2) = narrow.cosine;
+        output(index, 3) = narrow.sine;
+        output(index, 4) = (wide.failed ? 1.0 : 0.0) + (narrow.failed ? 2.0 : 0.0);
+        output(index, 5) = unresolved.failed ? 1.0 : 0.0;
+        output(index, 6) = ratio;
+      });
+  const auto actual = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, output);
+  // Each binary32 term carries a few u32 (angle, cosine, product, rate rounding); the
+  // binary64 sums add nothing comparable, and the levels agree within 2e-6.
+  constexpr double tolerance = 1e-5;
+  for (std::size_t index = 0; index < cases.size(); ++index) {
+    EXPECT_EQ(actual(index, 4), 0.0) << index;
+    EXPECT_NEAR(actual(index, 2), actual(index, 0), tolerance * actual(index, 0))
+        << index;
+    EXPECT_NEAR(actual(index, 3), actual(index, 1),
+                tolerance * std::max(actual(index, 1), actual(index, 0)))
+        << index;
+    // Inconsistent rules never converge, whatever the cuts (a circle needs no rule).
+    if (actual(index, 6) != 1.0)
+      EXPECT_EQ(actual(index, 5), 1.0) << index;
+  }
+}
+
 // CUDA extended lambdas require a publicly accessible enclosing function.
+TEST(EnvelopePlasma, Binary32MomentsMatchBinary64AcrossTheCutoffs) {
+  binary32_moments_match_binary64();
+}
+
 TEST(EnvelopePlasma, PolynomialMomentsAndDirectionalWorkOnExecutionSpace) {
   polynomial_moments_and_directional_work();
 }
