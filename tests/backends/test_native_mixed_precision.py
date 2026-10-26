@@ -14,6 +14,7 @@ reference before any comparison. The linear-part witnesses hold the source-free 
 to binary64 bounds, and the targeted tests reproduce SEP 33's on native.
 """
 
+import dataclasses
 import math
 from collections.abc import Callable, Sequence
 from contextlib import ExitStack
@@ -24,7 +25,7 @@ import numpy as np
 import pytest
 
 from backends.test_mixed_precision import INFORMATIVE, bound_of, ionising, vacuum
-from bounds import EPS, assert_within
+from bounds import EPS, EPS_32, UNIT_ROUNDOFF_32, assert_within
 from precision_cases import capillary, envelope_plasma, gnlse, plasma_beam, spatial_kerr
 from solprop.backends.driver import StepDriver
 from solprop.backends.protocol import Backend
@@ -38,7 +39,8 @@ from solprop.stepper import LowStorageRungeKutta, RungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.linop import delta_phi
-from solprop.translate.precision import PrecisionName, study_admission
+from solprop.translate.precision import PrecisionName, precision_named, study_admission
+from vector_raman_cases import vector_problem
 
 pytestmark = pytest.mark.skipif(
     "mixed" not in native_precisions(), reason="no native build runs mixed precision"
@@ -141,6 +143,31 @@ def test_an_in_stage_temporal_collar_agrees_with_the_oracle():
         return vacuum(precision, "nonlinear")
 
     against_oracle(build, bound_of(build, kappa=1.0))
+
+
+@pytest.mark.parametrize(
+    ("family", "material"),
+    [("envelope", "H2"), ("field", "H2"), ("field_real", "H2"), ("envelope", "CH4")],
+)
+def test_tensor_raman_agrees_with_the_oracle(family, material):
+    """Both helicities through H2's tensor ladder, and methane's isotropic kernel.
+
+    Bounded by SEP 33's binary32 bound of eight steps on each side, which holds the
+    mixed path's binary32 source and leaves its binary64 state's rounding out.
+    """
+    problem, grid, modes = vector_problem(family=family, material=material, steps=8)
+    case = dataclasses.replace(problem, precision=precision_named("mixed"))
+    fields = {}
+    for name in ("native", "numpy_ref"):
+        with ExitStack() as cleanup:
+            backend = select(name, case, grid=grid, modes=modes)
+            cleanup.callback(backend.close)
+            backend.set_initial(case.initial.field0, None)
+            backend.propagate_to(float(case.stepper.save_planes[-1]))
+            fields[name] = backend.observe().require_field().copy()
+    depth = math.ceil(math.log2(2 * grid.n_t)) + 4
+    bound = 8 * (2 * UNIT_ROUNDOFF_32 + 7 * 16 * EPS_32 * depth)
+    assert_within(fields["native"], fields["numpy_ref"], two_sides(bound))
 
 
 def test_a_batch_member_is_its_solo_run():
@@ -400,6 +427,44 @@ def test_the_ledger_keeps_the_stored_rows_binary64_and_halves_the_source(build):
         assert 2 * mixed[row] == double[row], row
     totals = {p: sum(ledger.values()) for p, ledger in ledgers.items()}
     assert totals["single"] < totals["mixed"] < totals["double"]
+
+
+def ledger_total(simulation: Simulation) -> tuple[int, dict[str, int]]:
+    """Return a native state's ledger total, its planners' heap growth left out."""
+    with ExitStack() as cleanup:
+        ledger = loaded(simulation, "native", cleanup).memory_ledger()
+    ledger.pop("fft_plan_heap_growth", None)
+    return sum(ledger.values()), ledger
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(lambda p: spatial_kerr("radial", p), id="radial"),
+        pytest.param(lambda p: spatial_kerr("cartesian", p), id="cartesian"),
+        pytest.param(lambda p: spatial_kerr("line", p), id="line"),
+    ],
+)
+def test_the_spatial_ledgers_order_the_modes(build):
+    """The spatial routes' node chunks and transforms are the source's (6.7)."""
+    totals = {p: ledger_total(build(p))[0] for p in ("double", "single", "mixed")}
+    assert totals["single"] < totals["mixed"] < totals["double"]
+
+
+def test_the_cartesian_split_step_holds_a_binary64_transverse_volume():
+    """Mixed's collar transforms the binary64 state in a volume of its own (4.2)."""
+
+    def build(p: str, scheme: str) -> Simulation:
+        return spatial_kerr(
+            "cartesian", p, absorbed=True, scheme=scheme, window_factor=0.0
+        )
+
+    split = ledger_total(build("mixed", "split_step"))[1]["transverse_scratch"]
+    in_stage = ledger_total(build("mixed", "nonlinear"))[1]["transverse_scratch"]
+    double = ledger_total(build("double", "split_step"))[1]["transverse_scratch"]
+    # The binary32 source volume, half binary64's, and beside it one of binary64.
+    assert 2 * in_stage == double
+    assert split == in_stage + double
 
 
 def test_the_envelope_plasma_agrees_within_its_class_t_envelope():
