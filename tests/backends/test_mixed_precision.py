@@ -889,3 +889,27 @@ def test_an_adams_snapshot_round_trip_is_exact():
         assert np.array_equal(again.rows[name], rows), name
         if np.iscomplexobj(rows):
             assert rows.dtype == np.complex128, name
+
+
+def test_a_binary64_runs_steps_replay_as_a_matched_discrete_pair():
+    """SEP 36 section 7.3, criterion 1: the binary64 run's accepted steps, replayed.
+
+    Replayed in binary64 the schedule repeats the adaptive run exactly; replayed in
+    mixed precision it makes the same truncation errors, so the difference is the
+    mixed bound's alone.
+    """
+    adaptive = gnlse("double", steps=None).run()
+    schedule = FixedSchedule.from_history(
+        adaptive["step_history/z"],
+        adaptive["step_history/h"],
+        adaptive["step_history/accepted"],
+    )
+
+    def build(p: str) -> Simulation:
+        simulation = gnlse(p, steps=None)
+        settings = dataclasses.replace(simulation.settings, schedule=schedule)
+        simulation.settings = settings
+        return simulation
+
+    assert np.array_equal(finish(build("double")), finish(gnlse("double", steps=None)))
+    compare(build, bound_of(build))
