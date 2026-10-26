@@ -1894,9 +1894,9 @@ same node, replacing the phase 1 records made elsewhere.
   binary64.
 - The band-rule plasma of the reduced policies takes the team column everywhere.
 
-**Verification on the A40.**
+**Verification on the A40** (the branch at 25e1173, built with all three policies in 462 s).
 
-- *Tests:* ctest passes; native's GPU tests 31; the API contract 45; the reduced
+- *Tests:* ctest passes; native's GPU tests 31; the API contract 45 (17 skipped); the reduced
   GPU lane (`test_native_reduced_gpu.py`, class R against the oracles on the device)
   123; the reduced arithmetic module 25, including the TF32 negative test (cuBLAS in
   TF32 mode fails the GEMM probe, 2 tests) and a subnormal surviving a device pass.
@@ -1905,8 +1905,8 @@ same node, replacing the phase 1 records made elsewhere.
 
   | case | mode | field | bands | energy | peak | ionised / width | verdict |
   |---|---|---|---|---|---|---|---|
-  | `ctc`, 0.05 m | single | 6.8e-4 | 3.4e-6 | 9.6e-7 | 3.7e-6 | — | within |
-  | `argon` | single | 1.8e-4 | 2.7e-4 | 4.0e-6 | 9.7e-5 | 5.4e-5 | within |
+  | `ctc`, 0.05 m | single | 8.2e-4 | 2.7e-6 | 6.8e-7 | 2.8e-5 | — | within |
+  | `argon` | single | 9.0e-5 | 8.6e-5 | 2.5e-6 | 5.6e-5 | 1.4e-5 | within |
   | `radial_filament` | single | 2.4e-6 | 1.5e-6 | 4.9e-8 | 1.2e-5 | 1.8e-6 | within |
   | `rdw` | mixed | 9.2e-7 | 1.2e-5 | 2.1e-7 | 3.8e-7 | 5.4e-6 | within |
   | `argon` | mixed | 3.5e-5 | 2.6e-5 | 1.2e-6 | 3.1e-6 | 3.4e-5 | within |
@@ -1971,7 +1971,7 @@ model; a noise ensemble adds one binary64 addition per sample at the entrance. T
 reading is the maintainers' to decide.
 
 **`ctc` and the oracle's transforms.** `ctc` at 0.05 m (H2, 40 bar, noise-free
-stimulated Raman scattering) is within its envelope on the A40 (6.8×10⁻⁴), but native
+stimulated Raman scattering) is within its envelope on the A40 (8.2×10⁻⁴), but native
 single reaches 1.2×10⁻³ on a Zen 3 CPU, just outside, against 4.3×10⁻⁵ for the
 `numpy_ref` oracle, although its bands, energy and peak are within 1.3×10⁻⁴. Native
 mixed reaches 1.16×10⁻³ on the same schedule, against the oracle's 1.2×10⁻⁴; `ctc` is
@@ -2028,7 +2028,7 @@ the profiles on an AMD GPU wait on a budget agreed with the maintainers (Q9).
   steps). On the CPU the drift and the
   Kerr error now match the oracle's (−1.40 against −1.44 × 10⁻⁵ over 1000 steps; 1.7
   against 1.9 × 10⁻⁵), and on the A40 the `argon` field error fell to
-  $1.8 \times 10^{-4}$ (table above). A C++ test measures the mean modulus bias in the
+  $9.0 \times 10^{-5}$ (table above). A C++ test measures the mean modulus bias in the
   execution space the build runs on (limit $0.02\,u_{32}$; CUDA's functions fail it),
   and a Python test compares the drift with the oracle's over 1000 steps. The cost is
   the binary64 transcendentals per bin and stage, which single now shares with mixed
