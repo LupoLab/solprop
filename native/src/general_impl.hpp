@@ -613,6 +613,41 @@ KOKKOS_INLINE_FUNCTION double wide_squared_abs(const Kokkos::complex<Real> value
   return real * real + imag * imag;
 }
 
+/**
+ * Capture variables in an extended device lambda ahead of an `if constexpr`.
+ *
+ * nvcc refuses an extended `__host__ __device__` lambda whose first use of a captured
+ * variable lies inside an `if constexpr` branch, the discarded branch included. A
+ * lambda that reads a variable only inside a policy branch names it here first.
+ */
+template <class... Captured>
+KOKKOS_INLINE_FUNCTION constexpr void capture_ahead(const Captured&... /*captured*/) {}
+
+/** A source-role value as the physical binary64 value `s v` (exact; `s` is one in
+ * binary64, where the value passes through unchanged). */
+template <class Real>
+KOKKOS_INLINE_FUNCTION double physical_value(const double scale, const Real value) {
+  if constexpr (std::is_same_v<Real, double>) {
+    static_cast<void>(scale);
+    return value;
+  } else {
+    return scale * static_cast<double>(value);
+  }
+}
+
+/** A state-role bin's physical power, a binary64 reduction term: the square modulus
+ * of the exactly widened value times the square of the scale (SEP 33 section 4.5). */
+template <class Real>
+KOKKOS_INLINE_FUNCTION double physical_power(const double scale_squared,
+                                             const Kokkos::complex<Real> value) {
+  if constexpr (std::is_same_v<Real, double>) {
+    static_cast<void>(scale_squared);
+    return squared_abs(value);
+  } else {
+    return scale_squared * wide_squared_abs(value);
+  }
+}
+
 template <class Real>
 KOKKOS_INLINE_FUNCTION Real trapezoid(const Real current, const Real previous,
                                       const Real dt) {
@@ -4945,6 +4980,7 @@ void GeneralWorkspace<Policy>::low_storage_modal_input(const std::size_t pass) {
   cartesian_for(
       "solprop_native.low_storage.modal_input", execution_space_, problem_.n_columns(),
       n, KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
+        capture_ahead(terms, row);
         StateComplex value = source(column, index);
         if constexpr (binary64)
           if (terms.add_noise) {
@@ -8499,6 +8535,7 @@ void GeneralWorkspace<Policy>::response_impl(const std::size_t stage,
         const auto complex_target = target_complex.data();
         const auto window_data = window.data();
         SourceReal pointwise_factor{};
+        capture_ahead(kerr_coefficient, kerr_density, kerr_factor, stage);
         if constexpr (binary64)
           pointwise_factor = Plasma ? 0.0 : kerr_coefficient * kerr_density(stage);
         else
@@ -9784,6 +9821,7 @@ void GeneralWorkspace<Policy>::finish_raman(const std::size_t stage,
           const SourceReal v = drives == 3 ? convolved(row + 1, time) : SourceReal{};
           const SourceReal w = drives == 3 ? convolved(row + 2, time) : SourceReal{};
           SourceReal factor{};
+          capture_ahead(epsilon0, density, raman_factor, stage);
           if constexpr (binary64)
             factor = epsilon0 * density(stage);
           else
@@ -10663,6 +10701,7 @@ void GeneralWorkspace<Policy>::fill_statistics_time(const bool windowed,
           return;
         const double analytic_scale =
             envelope || index == 0 || index + 1 == n ? 1.0 : 2.0;
+        capture_ahead(spectrum, current, n_t, scale);
         if constexpr (binary64)
           spectrum(column, index) =
               analytic_scale / static_cast<double>(n_t) * current(column, index);
@@ -10755,14 +10794,6 @@ void GeneralWorkspace<Policy>::scan_plasma_statistics(const std::size_t first_no
   // The trapezoid's statistics read the field widened to binary64, the physical
   // field `s E` under a binary32 source (solprop SEP 33 section 4.5).
   const double scale = state_scale_;
-  const auto physical = [scale](const SourceReal value) {
-    if constexpr (binary64) {
-      static_cast<void>(scale);
-      return value;
-    } else {
-      return scale * static_cast<double>(value);
-    }
-  };
   const auto node_real = node_real_;
   const auto node_complex = node_complex_;
   const bool real_family = problem_.family == FieldFamily::field_real;
@@ -10788,14 +10819,15 @@ void GeneralWorkspace<Policy>::scan_plasma_statistics(const std::size_t first_no
           for (std::size_t channel = 0; channel < channels; ++channel) {
             double exposure = 0.0, previous_rate = 0.0, largest_rate = 0.0;
             for (std::size_t time = 0; time < n_to; ++time) {
-              const double first =
-                  physical(real_family ? node_real(node * n_pol, time)
-                                       : node_complex(node * n_pol, time).real());
+              const double first = physical_value(
+                  scale, real_family ? node_real(node * n_pol, time)
+                                     : node_complex(node * n_pol, time).real());
               const double second =
                   n_pol == 2
-                      ? physical(real_family
-                                     ? node_real(node * n_pol + 1, time)
-                                     : node_complex(node * n_pol + 1, time).real())
+                      ? physical_value(
+                            scale, real_family
+                                       ? node_real(node * n_pol + 1, time)
+                                       : node_complex(node * n_pol + 1, time).real())
                       : 0.0;
               const double magnitude =
                   n_pol == 2 ? Kokkos::hypot(first, second) : Kokkos::abs(first);
@@ -10880,12 +10912,15 @@ void GeneralWorkspace<Policy>::scan_plasma_statistics(const std::size_t first_no
         double previous_rate = 0.0;
         double largest_rate = 0.0;
         for (std::size_t time = 0; time < n_to; ++time) {
-          const double first = physical(real_family ? node_real(base, time)
-                                                    : node_complex(base, time).real());
+          const double first =
+              physical_value(scale, real_family ? node_real(base, time)
+                                                : node_complex(base, time).real());
           const double second =
-              n_pol == 2 ? physical(real_family ? node_real(base + 1, time)
-                                                : node_complex(base + 1, time).real())
-                         : 0.0;
+              n_pol == 2
+                  ? physical_value(scale, real_family
+                                              ? node_real(base + 1, time)
+                                              : node_complex(base + 1, time).real())
+                  : 0.0;
           const double magnitude =
               n_pol == 2 ? Kokkos::hypot(first, second) : Kokkos::abs(first);
           const double rate =
@@ -10937,12 +10972,7 @@ auto GeneralWorkspace<Policy>::statistics(
   // the physical value's (solprop SEP 33 section 4.5).
   const double scale_squared = state_scale_ * state_scale_;
   const auto power_of = KOKKOS_LAMBDA(const StateComplex value) {
-    if constexpr (binary64) {
-      static_cast<void>(scale_squared);
-      return squared_abs(value);
-    } else {
-      return scale_squared * wide_squared_abs(value);
-    }
+    return physical_power(scale_squared, value);
   };
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");
@@ -12228,6 +12258,7 @@ void GeneralWorkspace<Policy>::split_columns(const double dz, std::size_t active
         "solprop_native.absorber.split_apply_complex",
         Range2(execution_space_, {0, 0}, {active_rows, problem_.n_t}),
         KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
+          capture_ahead(time, rate, dz);
           if constexpr (binary64) {
             time(column, index) *= Kokkos::exp(-0.5 * rate(index) * dz);
           } else {
@@ -12253,6 +12284,7 @@ void GeneralWorkspace<Policy>::split_columns(const double dz, std::size_t active
         "solprop_native.absorber.split_apply_real",
         Range2(execution_space_, {0, 0}, {active_rows, problem_.n_t}),
         KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
+          capture_ahead(time, rate, dz);
           if constexpr (binary64)
             time(column, index) *= Kokkos::exp(-0.5 * rate(index) * dz);
           else
