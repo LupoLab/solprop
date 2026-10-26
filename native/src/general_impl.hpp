@@ -9687,7 +9687,8 @@ void GeneralWorkspace<Policy>::team_band_statistics(const std::size_t first_node
       const auto field_at = [&](const std::size_t row, const std::size_t time) {
         const SourceReal value =
             real_family ? node_real(row, time) : node_complex(row, time).real();
-        if constexpr (wide)
+        // Not the local `wide`: a device lambda would capture it in this condition.
+        if constexpr (Diagnose && !binary64)
           return physical_value(wide_scale, value);
         else if constexpr (binary64)
           return value;
@@ -11519,7 +11520,7 @@ auto GeneralWorkspace<Policy>::statistics(
             KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
               const double analytic_scale =
                   analytic && index > 0 && 2 * crop(index) < n_to ? 2.0 : 1.0;
-              capture_anchor(narrowing);
+              capture_anchor(fine, crop, current, inverse_n_to, narrowing);
               if constexpr (StageTerms<Policy>::mixed_roles)
                 fine(column, crop(index)) = static_cast<SourceComplex>(
                     current(column, index) *
