@@ -224,7 +224,7 @@ def test_schema_mismatch_names_both_versions(
     # The two independently qualified schema-18 branches are not the combined seam.
     problem, _ = phase_a_case
     spoiled = dataclasses.replace(problem, schema_version=declared)
-    with pytest.raises(BackendError, match=rf"version 36.*version {declared}"):
+    with pytest.raises(BackendError, match=rf"version 37.*version {declared}"):
         check_build(spoiled)
 
 

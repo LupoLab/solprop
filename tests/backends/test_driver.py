@@ -1041,9 +1041,10 @@ def test_the_surface_a_backend_subclasses_is_frozen(driver):
     Version 35 adds the problem's plane measure ``flux`` (SEP 34), without changing
     these driver or stage signatures.
     Version 36 adds the problem's ``precision`` (SEP 33), without changing these
-    driver or stage signatures.
+    driver or stage signatures. Version 37 admits its mixed value (SEP 36), without
+    changing them either.
     """
-    assert SCHEMA_VERSION == 36, "the seam changed: rewrite the literals of this test"
+    assert SCHEMA_VERSION == 37, "the seam changed: rewrite the literals of this test"
     for name, signature in {
         "observe_members": (
             "(self) -> tuple[solprop.backends.protocol.Observation, ...]"
