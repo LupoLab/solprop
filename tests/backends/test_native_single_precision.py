@@ -27,13 +27,19 @@ from bounds import EPS_32, UNIT_ROUNDOFF_32, assert_within, higham_gamma
 from precision_cases import capillary, gnlse, plasma_beam, spatial_kerr
 from solprop.backends.protocol import Backend
 from solprop.backends.registry import available, native_precisions, select, select_batch
+from solprop.constants import EPS0
 from solprop.driver import Simulation, prop_gnlse
-from solprop.exceptions import BackendError, ConvergenceError, DriverError
+from solprop.exceptions import (
+    BackendError,
+    ConvergenceError,
+    DriverError,
+    TranslationError,
+)
 from solprop.stats import StatsSpec
 from solprop.stepper import LowStorageRungeKutta, PIController, RungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
-from solprop.translate.precision import precision_named
+from solprop.translate.precision import combine, precision_named
 from vector_raman_cases import vector_problem
 
 pytestmark = pytest.mark.skipif(
@@ -411,3 +417,65 @@ def test_the_adams_march_is_refused_under_single_precision():
             pulseshape="sech", precision="single", backend="native",
             integrator=Multistep(),
         )  # fmt: skip
+
+
+def _coefficient_cases() -> list[tuple[list[float], int]]:
+    """Factors and exponents over binary64, binary32's edges and the physical scales."""
+    rng = np.random.default_rng(36)
+    cases: list[tuple[list[float], int]] = [
+        ([], 0),
+        ([0.0, 3.0e25], 40),
+        ([-0.0, 1.0], 0),
+        ([-2.5e-22, 2.4e25], 30),
+        ([EPS0, 2.4e25], -164),
+        ([1.0e300, 1.0e300], 0),
+        ([1.0e-300, 1.0e-300], 0),
+        ([1.0], 2_000),
+        ([1.0], -2_000),
+    ]
+    tiny, huge = float(np.finfo(np.float32).tiny), float(np.finfo(np.float32).max)
+    for edge in (tiny, huge):
+        for ulps in range(-3, 4):
+            cases.append(([math.ldexp(1.0, 0) + ulps * 2.0**-52, edge], 0))
+            cases.append(([float(np.nextafter(edge, 0.0)) * (1 + ulps * 2.0**-30)], 0))
+    for _ in range(400):
+        count = int(rng.integers(1, 3))
+        factors = [
+            float(rng.choice([-1.0, 1.0]) * 10.0 ** rng.uniform(-60.0, 60.0))
+            for _ in range(count)
+        ]
+        cases.append((factors, int(rng.integers(-160, 161))))
+    return cases
+
+
+def test_native_coefficients_are_the_oracles_bit_for_bit():
+    """Class P: native forms every Kerr and Raman coefficient as solprop's ``combine``.
+
+    ``combine(...).binary32()`` rounds once from the same binary64 mantissa and
+    exponent, so native and the oracle apply the same scalars, and refuse the same
+    coefficients with the same ``TranslationError``.
+    """
+    import solprop_native._core as core  # noqa: PLC0415  # pyright: ignore[reportPrivateUsage]
+
+    refused = 0
+    for factors, exponent in _coefficient_cases():
+        try:
+            # The oracle's narrowing warns on its way to an overflow refusal.
+            with np.errstate(over="ignore"):
+                expected: float | str = combine(*factors, exponent=exponent).binary32()
+        except TranslationError as error:
+            expected = str(error)
+        try:
+            found: float | str = core.combined_binary32(factors, exponent)
+        except TranslationError as error:
+            found = str(error)
+        if isinstance(expected, str):
+            refused += 1
+            assert found == expected, (factors, exponent)
+        else:
+            assert isinstance(found, float), (factors, exponent, found)
+            assert np.float32(found).tobytes() == np.float32(expected).tobytes(), (
+                factors,
+                exponent,
+            )
+    assert refused > 10

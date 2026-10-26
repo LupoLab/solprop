@@ -8,6 +8,7 @@
 // `GeneralBatchWorkspace` with their kernels, templated on a precision policy and
 // included by one translation unit per policy (general.cpp, general_single.cpp).
 
+#include "solprop_native/coefficient.hpp"
 #include "solprop_native/core.hpp"
 #include "solprop_native/coupled_flow.hpp"
 #include "solprop_native/dispersive.hpp"
@@ -1609,39 +1610,6 @@ template <class Policy> struct StageTerms {
 
 } // namespace
 
-// Refuse, by name, a route that SEP 33 and SEP 36 keep binary64 under a reduced
-// policy: those routes' classes are binary64 code (precision.hpp).
-/**
- * A scalar coefficient of a binary32 pass, combined in binary64 and rounded once
- * (solprop SEP 33 section 4.3, rule 4): `solprop.translate.precision.combine` and
- * `Coefficient.binary32`, operation for operation, so that native and the oracle
- * round the same value. Each factor is split into its mantissa and exponent, the
- * mantissas multiplied and renormalised and the exponents added as integers.
- */
-inline float combined_binary32(const std::initializer_list<double> factors,
-                               const int exponent, const char* what) {
-  double mantissa = 1.0;
-  int total = exponent;
-  for (const double factor : factors) {
-    int power = 0;
-    const double part = std::frexp(factor, &power);
-    mantissa *= part;
-    total += power;
-    if (mantissa == 0.0)
-      return 0.0F;
-    mantissa = std::frexp(mantissa, &power);
-    total += power;
-  }
-  const double value = std::ldexp(mantissa, total);
-  const auto narrowed = static_cast<float>(value);
-  if (!std::isfinite(narrowed) ||
-      (value != 0.0 && std::abs(narrowed) < std::numeric_limits<float>::min()))
-    throw std::invalid_argument(std::string("the combined coefficient of ") + what +
-                                " leaves binary32's normal range (solprop SEP 33 "
-                                "section 4.3)");
-  return narrowed;
-}
-
 // The bytes of views, each counted by its own element's size (solprop SEP 36 section
 // 6.7: a binary32 role's buffers are half a binary64 one's).
 template <class... Views> std::size_t bytes_of(const Views&... views) {
@@ -1649,6 +1617,8 @@ template <class... Views> std::size_t bytes_of(const Views&... views) {
           (views.size() * sizeof(typename Views::non_const_value_type)));
 }
 
+// Refuse, by name, a route that SEP 33 and SEP 36 keep binary64 under a reduced
+// policy: those routes' classes are binary64 code (precision.hpp).
 template <class Policy> void require_policy_route(const Problem& problem) {
   if constexpr (!is_binary64_policy_v<Policy>) {
     const auto refuse = [](const char* route) {
@@ -4101,7 +4071,7 @@ void GeneralWorkspace<Policy>::upload_trial(const TrialScalars& scalars) {
     for (std::size_t stage = 0; stage < stages; ++stage)
       kerr[stage] = static_cast<double>(
           combined_binary32({problem_.kerr_coefficient, kerr_density[stage]},
-                            2 * problem_.scale_exponent, "the Kerr term"));
+                            2 * problem_.scale_exponent));
     copy_vector(execution_space_, stage_kerr_factor_, kerr);
     if (problem_.raman) {
       host_raman_density_.assign(stages, 1.0);
@@ -4274,9 +4244,9 @@ template <class Policy> void GeneralWorkspace<Policy>::narrow_raman_kernel() {
 // combined on the host and rounded once (`solprop.backends.reduced.raman_factor`).
 template <class Policy>
 void GeneralWorkspace<Policy>::set_raman_factor(const std::size_t stage) {
-  const auto factor = combined_binary32(
-      {problem_.raman_epsilon0, host_raman_density_.at(stage)},
-      2 * problem_.scale_exponent + raman_kernel_exponent_, "the Raman term");
+  const auto factor =
+      combined_binary32({problem_.raman_epsilon0, host_raman_density_.at(stage)},
+                        2 * problem_.scale_exponent + raman_kernel_exponent_);
   Kokkos::deep_copy(raman_scale_space_, Kokkos::subview(stage_raman_factor_, stage),
                     static_cast<SourceReal>(factor));
 }

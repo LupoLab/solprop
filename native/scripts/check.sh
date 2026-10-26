@@ -33,6 +33,7 @@ fi
 cpp_sources=(
   benchmarks/cpu_timer.cpp
   include/solprop_native/chebyshev.hpp
+  include/solprop_native/coefficient.hpp
   include/solprop_native/core.hpp
   include/solprop_native/coupled_flow.hpp
   include/solprop_native/dispersive.hpp

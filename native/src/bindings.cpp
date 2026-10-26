@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "helpers.hpp"
+#include "solprop_native/coefficient.hpp"
 #include "solprop_native/core.hpp"
 
 #include <Kokkos_Core.hpp>
@@ -37,6 +38,7 @@
 #include <complex>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -1425,6 +1427,26 @@ NB_MODULE(_core, module_) {
       "values"_a, "warm"_a, "pairs"_a);
   module_.def("reference_stream_copies", &native::reference_stream_copies, "elements"_a,
               "warm"_a, "repeats"_a);
+  // A coefficient out of binary32's range is refused as solprop's TranslationError,
+  // with the single-precision oracle's message (solprop SEP 33 section 4.3).
+  nb::register_exception_translator([](const std::exception_ptr& error, void*) {
+    try {
+      std::rethrow_exception(error);
+    } catch (const native::CoefficientRangeError& refusal) {
+      const nb::object type =
+          nb::module_::import_("solprop.exceptions").attr("TranslationError");
+      PyErr_SetString(type.ptr(), refusal.what());
+    }
+  });
+  // The coefficient a binary32 pass applies, for the comparison with solprop's
+  // `combine(...).binary32()` (solprop SEP 36, class P).
+  module_.def(
+      "combined_binary32",
+      [](const std::vector<double>& factors, const int exponent) {
+        return native::combined_binary32(factors.data(),
+                                         factors.data() + factors.size(), exponent);
+      },
+      "factors"_a, "exponent"_a);
   module_.def("shutdown_runtime", &shutdown_kokkos);
   module_.def("build_record", &build_record);
   native::bindings::bind_helpers(module_);
