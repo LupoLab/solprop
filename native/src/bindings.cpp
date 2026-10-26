@@ -152,15 +152,17 @@ native::TableKind table_kind(const std::string& name) {
 native::Problem problem_from(const nb::dict& values) {
   native::Problem result;
   try {
-    // solprop SEP 36: the problem's precision and, under single precision, its launch
-    // scale's exponent; a problem without them is binary64.
+    // solprop SEP 36: the problem's precision and, under a reduced precision, its
+    // launch scale's exponent; a problem without them is binary64.
     if (values.contains("precision")) {
       const auto precision = nb::cast<std::string>(values["precision"]);
       if (precision == "single")
         result.precision = native::PrecisionName::single;
+      else if (precision == "mixed")
+        result.precision = native::PrecisionName::mixed;
       else if (precision != "double")
         throw std::invalid_argument("the native backend's precision must be "
-                                    "\"double\" or \"single\", not \"" +
+                                    "\"double\", \"single\" or \"mixed\", not \"" +
                                     precision + "\"");
       result.scale_exponent = nb::cast<int>(values["scale_exponent"]);
     }
@@ -1325,12 +1327,15 @@ nb::dict build_record() {
       static_cast<bool>(SOLPROP_NATIVE_COVERAGE_INSTRUMENTED);
   result["coverage_source_hash"] = SOLPROP_NATIVE_COVERAGE_SOURCE_HASH;
   // The precision policies this build runs, comma-separated (solprop SEP 36,
-  // SOLPROP_NATIVE_PRECISIONS); a device build's compile-only single is not one.
-#if SOLPROP_NATIVE_SINGLE_BUILT && !SOLPROP_NATIVE_SINGLE_COMPILE_ONLY
-  result["precisions"] = "double,single";
-#else
-  result["precisions"] = "double";
-#endif
+  // SOLPROP_NATIVE_PRECISIONS); a device build's compile-only policies are not ones.
+  {
+    std::string precisions = "double";
+    if (SOLPROP_NATIVE_SINGLE_BUILT && !SOLPROP_NATIVE_REDUCED_COMPILE_ONLY)
+      precisions += ",single";
+    if (SOLPROP_NATIVE_MIXED_BUILT && !SOLPROP_NATIVE_REDUCED_COMPILE_ONLY)
+      precisions += ",mixed";
+    result["precisions"] = precisions;
+  }
   result["fft_normalization"] = "none (explicit inverse scaling)";
 #if defined(KOKKOS_ENABLE_CUDA)
   result["fft_planner"] = "Kokkos-FFT persistent Plan / cuFFT";

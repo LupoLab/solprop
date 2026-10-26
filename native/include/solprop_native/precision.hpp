@@ -192,23 +192,26 @@ template <class Policy> struct Roles {
 #if !defined(SOLPROP_NATIVE_PRECISION_DOUBLE) || !SOLPROP_NATIVE_PRECISION_DOUBLE
 #error "solprop-native: every build instantiates the Double precision policy"
 #endif
-#if defined(SOLPROP_NATIVE_PRECISION_MIXED)
-#error "solprop-native: the Mixed policy is not built yet (solprop SEP 36)"
-#endif
-
 #if defined(SOLPROP_NATIVE_PRECISION_SINGLE) && SOLPROP_NATIVE_PRECISION_SINGLE
 #define SOLPROP_NATIVE_SINGLE_BUILT 1
 #else
 #define SOLPROP_NATIVE_SINGLE_BUILT 0
 #endif
-
-/* A device build compiles `Single` for SEP 36's phase-4 compiler work without running
- * it (`SOLPROP_NATIVE_DEVICE_SINGLE_COMPILE_ONLY`): its states refuse it by name. */
-#if !defined(SOLPROP_NATIVE_SINGLE_COMPILE_ONLY)
-#define SOLPROP_NATIVE_SINGLE_COMPILE_ONLY 0
+#if defined(SOLPROP_NATIVE_PRECISION_MIXED) && SOLPROP_NATIVE_PRECISION_MIXED
+#define SOLPROP_NATIVE_MIXED_BUILT 1
+#else
+#define SOLPROP_NATIVE_MIXED_BUILT 0
 #endif
-#if SOLPROP_NATIVE_SINGLE_COMPILE_ONLY && !SOLPROP_NATIVE_SINGLE_BUILT
-#error "solprop-native: a compile-only single precision needs the Single policy built"
+
+/* A device build compiles the reduced policies for SEP 36's phase-4 compiler work
+ * without running them (`SOLPROP_NATIVE_DEVICE_REDUCED_COMPILE_ONLY`): its states
+ * refuse them by name. */
+#if !defined(SOLPROP_NATIVE_REDUCED_COMPILE_ONLY)
+#define SOLPROP_NATIVE_REDUCED_COMPILE_ONLY 0
+#endif
+#if SOLPROP_NATIVE_REDUCED_COMPILE_ONLY && !SOLPROP_NATIVE_SINGLE_BUILT &&             \
+    !SOLPROP_NATIVE_MIXED_BUILT
+#error "solprop-native: a compile-only reduced precision needs a reduced policy built"
 #endif
 
 /** Whether this build instantiated `Policy` (`SOLPROP_NATIVE_PRECISIONS`). */
@@ -216,6 +219,9 @@ template <class Policy>
 inline constexpr bool precision_built_v = std::is_same_v<Policy, Double>
 #if SOLPROP_NATIVE_SINGLE_BUILT
                                           || std::is_same_v<Policy, Single>
+#endif
+#if SOLPROP_NATIVE_MIXED_BUILT
+                                          || std::is_same_v<Policy, Mixed>
 #endif
     ;
 

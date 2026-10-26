@@ -197,9 +197,9 @@ shared stage and Adams code takes this backend's Chebyshev and basis helpers
 (``NativeBackend.helpers``); it is checked explicitly too. Schema 35 (solprop SEP 34)
 adds ``KernelProblem.flux``, the plane measure every spatial field statistic reads:
 this backend measures energy, spectra and local flux by it natively. Schema 36 (solprop
-SEP 33) adds ``KernelProblem.precision``: a build that compiled single precision
-(solprop SEP 36, ``BuildInfo.precisions``) runs a single-precision problem on the fibre
-route, and every build refuses mixed precision by name.
+SEP 33) adds ``KernelProblem.precision``: a build that compiled single or mixed
+precision (solprop SEP 36, ``BuildInfo.precisions``) runs such a problem, and refuses
+by name a precision it did not compile.
 
 solprop freezes this surface under its ``SCHEMA_VERSION`` (the test in its
 ``tests/backends/test_driver.py``); :func:`check_build` looks each member up so a
@@ -463,9 +463,9 @@ class BuildInfo:
     fast_math_enabled, optimization_policy
         Optimization switches and the human-readable compiled policy.
     precisions
-        The precision policies the build compiled (solprop SEP 36), ``("double",)``
-        or ``("double", "single")``; the seam's arrays are complex128 under every
-        one.
+        The precision policies the build runs (solprop SEP 36): ``"double"`` first,
+        then ``"single"`` and ``"mixed"`` where compiled, as on a CPU build by default;
+        the seam's arrays are complex128 under every one.
     layout
         Field layout.
     python_version, numpy_version, platform_machine

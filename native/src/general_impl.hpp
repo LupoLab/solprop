@@ -1386,6 +1386,12 @@ template <class Policy> struct StageTerms {
   std::size_t gap_ranges = 0;
   std::size_t n = 0, n_phi = 0, n_stages = 0, n_prefactor = 0, n_to = 0;
   double inverse_n_to = 0.0, general_pad = 0.0;
+  // A binary64 state's narrowing to the source's scale and the pull-back's widening
+  // to the state's (solprop SEP 36 section 4.2): `1 / s` and `s` under Mixed, whose
+  // state is physical; one under Double and Single.
+  double narrowing = 1.0, widening = 1.0;
+  static constexpr bool mixed_roles =
+      std::is_same_v<StateReal, double> && std::is_same_v<SourceReal, float>;
   bool add_noise = false, analytic = false, general = false, flow = false;
   bool carried = false, keep_lab = false, zero_response = false;
   bool in_stage_absorber = false;
@@ -1459,13 +1465,19 @@ template <class Policy> struct StageTerms {
 
   // The stage input's sample on the fine grid: the pad's scale (`1/n_to`, doubled on
   // an analytic field's positive frequencies) times the value, a power of two rounded
-  // once to the source's precision (solprop SEP 36 section 4.2, step 2).
+  // once to the source's precision (solprop SEP 36 section 4.2, step 2). Under Mixed
+  // the binary64 value is divided by `s` with the pad's scale, exactly, and rounded
+  // once: `fl32(y / s)` times a power of two.
   KOKKOS_INLINE_FUNCTION SourceComplex narrowed_input(const std::size_t index,
                                                       const StateComplex value) const {
     const double analytic_scale =
         analytic && index > 0 && 2 * crop(index) < n_to ? 2.0 : 1.0;
-    return static_cast<SourceReal>(analytic_scale * inverse_n_to) *
-           static_cast<SourceComplex>(value);
+    if constexpr (mixed_roles)
+      return static_cast<SourceComplex>(value *
+                                        (analytic_scale * inverse_n_to * narrowing));
+    else
+      return static_cast<SourceReal>(analytic_scale * inverse_n_to) *
+             static_cast<SourceComplex>(value);
   }
 
   // The combination of stage `stage` at one bin, from the stage's phase increment.
@@ -1499,7 +1511,10 @@ template <class Policy> struct StageTerms {
                        stages(previous, column, index);
       value = propagator * (current(column, index) + step * accumulated);
     }
-    if constexpr (is_binary64_policy_v<Policy>)
+    // The modified noise model's realisation, phase-transported, joins the binary64
+    // stage input before its narrowing (solprop SEP 36 section 4.4): a binary64 state
+    // alone carries it, single precision refusing noise.
+    if constexpr (std::is_same_v<StateReal, double>)
       if (add_noise) {
         const Complex phase_at = noise_phase(stage, column, index);
         value += noise(column, index) *
@@ -1575,7 +1590,11 @@ template <class Policy> struct StageTerms {
         static_cast<TableComplex>(prefactor) * window(index) * response;
     if (in_stage_absorber && active(index) != 0U)
       value += absorber(column, crop(index));
-    return static_cast<StateComplex>(value);
+    // Widened exactly; under Mixed made physical, times `s`, exactly (step 4).
+    if constexpr (mixed_roles)
+      return static_cast<StateComplex>(value) * widening;
+    else
+      return static_cast<StateComplex>(value);
   }
 
   // The finish of stage `stage` at one bin, with the inverse propagator its
@@ -1645,10 +1664,13 @@ template <class Policy> void require_policy_route(const Problem& problem) {
       later("radial free space");
     if (problem.envelope_plasma)
       later("the envelope-grid plasma");
-    if (problem.modified_noise)
+    // A noise model runs on a binary64 state: under mixed precision as solprop admits
+    // it (SEP 36 phase 5 and its study), never under single precision.
+    if (problem.modified_noise && std::is_same_v<Policy, Single>)
       refuse("a noise model");
-    if (static_cast<int>(problem.precision == PrecisionName::single) !=
-        static_cast<int>(std::is_same_v<Policy, Single>))
+    const auto expected =
+        std::is_same_v<Policy, Single> ? PrecisionName::single : PrecisionName::mixed;
+    if (problem.precision != expected)
       throw std::logic_error("a native state's policy differs from its problem's");
   } else {
     static_cast<void>(problem);
@@ -1698,6 +1720,8 @@ public:
   // Whether every role is binary64: the routes refused under a reduced policy exist
   // under this policy alone, behind `if constexpr (binary64)`.
   static constexpr bool binary64 = is_binary64_policy_v<Policy>;
+  // Whether the state and every stored row are binary64: under Double and Mixed.
+  static constexpr bool state64 = std::is_same_v<typename Policy::state, double>;
   // Each role's scalar and complex value, for the arithmetic of a pass.
   using StateReal = Policy::state;
   using SourceReal = Policy::source;
@@ -1766,8 +1790,14 @@ public:
     require_general_problem(problem_);
     require_policy_route<Policy>(problem_);
     if constexpr (!binary64) {
-      state_scale_ = std::ldexp(1.0, problem_.scale_exponent);
-      inverse_state_scale_ = std::ldexp(1.0, -problem_.scale_exponent);
+      source_scale_ = std::ldexp(1.0, problem_.scale_exponent);
+      inverse_source_scale_ = std::ldexp(1.0, -problem_.scale_exponent);
+      // A binary32 state is held at the source's scale; a binary64 state (mixed
+      // precision) is physical, and its one narrowing divides by `s` (SEP 36 4.2).
+      if constexpr (!state64) {
+        state_scale_ = source_scale_;
+        inverse_state_scale_ = inverse_source_scale_;
+      }
       // The tiled band column is the device form, qualified with the device paths.
       if (band_tiled_ && problem_.plasma && problem_.plasma_band)
         throw std::invalid_argument(
@@ -2168,12 +2198,13 @@ public:
   [[nodiscard]] const ExecutionSpace& fft_space_for(std::size_t samples);
 
   // From the host's state into the workspace's, and back (solprop SEP 33 section 4.3):
-  // under a reduced policy the state is held as `a / s`, `s = 2^k` the launch's
+  // under single precision the state is held as `a / s`, `s = 2^k` the launch's
   // scale, divided exactly and rounded once on the way in, widened and multiplied
-  // exactly on the way out; under Double both are copies.
+  // exactly on the way out; under Double and Mixed, whose state is binary64 and
+  // physical, both are copies.
   template <class View>
   void load_scaled(const View& destination, const std::vector<Complex>& source) const {
-    if constexpr (binary64) {
+    if constexpr (state64) {
       copy_vector(execution_space_, destination, source);
     } else {
       std::vector<Complex> scaled(source.size());
@@ -2183,15 +2214,26 @@ public:
     }
   }
   template <class Value> [[nodiscard]] Complex widened(const Value value) const {
-    if constexpr (binary64)
-      return value;
+    if constexpr (state64)
+      return Complex(value);
     else
       return state_scale_ * Complex(value);
   }
+  // A source value widened and made physical: times the source's scale.
+  template <class Value> [[nodiscard]] Complex widened_source(const Value value) const {
+    if constexpr (binary64)
+      return value;
+    else
+      return source_scale_ * Complex(value);
+  }
 
   Problem problem_;
-  // `s` and `1 / s` of a reduced policy's state; one under Double.
+  // `s` and `1 / s` of a binary32 state (single precision); one under Double and Mixed,
+  // whose binary64 state is physical.
   double state_scale_ = 1.0, inverse_state_scale_ = 1.0;
+  // `s` and `1 / s` of a reduced policy's binary32 source, `s = 2^k` the launch's scale
+  // (SEP 33 section 4.3); one under Double.
+  double source_scale_ = 1.0, inverse_source_scale_ = 1.0;
   CpuExecutionPool kernel_pool_{CpuPool::kernels};
   CpuExecutionPool fft_pool_{CpuPool::fft};
   CpuExecutionPool raman_pool_{CpuPool::raman_fft};
@@ -2755,8 +2797,10 @@ std::size_t GeneralWorkspace<Policy>::response_team_size() const noexcept {
 template <class Policy> GeneralWorkspace<Policy>* engine_of(const GeneralState& state) {
   if constexpr (std::is_same_v<Policy, Double>)
     return state.workspace_.get();
-  else
+  else if constexpr (std::is_same_v<Policy, Single>)
     return state.single_.get();
+  else
+    return state.mixed_.get();
 }
 
 template <class Policy> class GeneralBatchWorkspace {
@@ -3922,7 +3966,9 @@ void GeneralWorkspace<Policy>::set_initial(const std::vector<Complex>& field,
     if (!problem_.modified_noise)
       throw std::invalid_argument(
           "a native noise field is valid only for modified noise");
-    copy_vector(execution_space_, noise_, noise);
+    // Held at the state's scale, as the state is (exact): under mixed precision the
+    // realisation joins the binary64 stage input before its narrowing (SEP 36 4.4).
+    load_scaled(noise_, noise);
     has_noise_ = true;
   }
   mask(current_);
@@ -4956,7 +5002,7 @@ void GeneralWorkspace<Policy>::low_storage_modal_input(const std::size_t pass) {
       n, KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
         capture_anchor(terms, row);
         StateComplex value = source(column, index);
-        if constexpr (binary64)
+        if constexpr (std::is_same_v<StateReal, double>)
           if (terms.add_noise) {
             const Complex phase_at = terms.noise_phase(row, column, index);
             value += terms.noise(column, index) * Complex(Kokkos::cos(phase_at.imag()),
@@ -7469,6 +7515,8 @@ auto GeneralWorkspace<Policy>::stage_terms(const std::size_t stage) const
   terms.stage_phase = stage_phase_;
   terms.stage_inverse = stage_inverse_;
   terms.noise = noise_;
+  terms.narrowing = state_scale_ * inverse_source_scale_;
+  terms.widening = source_scale_ * inverse_state_scale_;
   if constexpr (binary64) {
     terms.flow = static_cast<bool>(flow_);
     terms.carried = terms.flow && !flow_->identity(stage);
@@ -8459,8 +8507,8 @@ void GeneralWorkspace<Policy>::response_impl(const std::size_t stage,
   const auto kerr_factor = stage_kerr_factor_;
   const auto self_weight = static_cast<SourceReal>(self_factor);
   const auto conjugate_weight = static_cast<SourceReal>(conjugate_factor);
-  const auto scale = static_cast<SourceReal>(state_scale_);
-  const auto inverse_scale = static_cast<SourceReal>(inverse_state_scale_);
+  const auto scale = static_cast<SourceReal>(source_scale_);
+  const auto inverse_scale = static_cast<SourceReal>(inverse_source_scale_);
   Kokkos::parallel_for(
       "solprop_native.response.column",
       Kokkos::RangePolicy<ExecutionSpace>(response_space_for(node_count), 0,
@@ -8957,8 +9005,8 @@ void GeneralWorkspace<Policy>::team_band_plasma_column(const std::size_t stage,
   // exact power of two, its densities folded into binary32 coefficients and its
   // populations in SEP 33's stable forms, and its current divided by `s`
   // (`solprop.backends.numpy_ref.single.plasma_current_single`).
-  const auto scale = static_cast<SourceReal>(state_scale_);
-  const auto inverse_scale = static_cast<SourceReal>(inverse_state_scale_);
+  const auto scale = static_cast<SourceReal>(source_scale_);
+  const auto inverse_scale = static_cast<SourceReal>(inverse_source_scale_);
   const auto column = KOKKOS_LAMBDA(const TeamMember& team) {
     // CUDA extended-lambda restriction 12 requires the first capture outside
     // if-constexpr blocks.
@@ -9620,8 +9668,8 @@ void GeneralWorkspace<Policy>::team_band_statistics(const std::size_t first_node
   const std::size_t last = problem_.n_to - 1;
   const std::size_t league = band_league(node_count);
   // Under a binary32 source the scan reads the physical field `s E` (solprop SEP 33).
-  const auto scale = static_cast<SourceReal>(state_scale_);
-  const double wide_scale = state_scale_;
+  const auto scale = static_cast<SourceReal>(source_scale_);
+  const double wide_scale = source_scale_;
   const auto scan = KOKKOS_LAMBDA(const TeamMember& team) {
     capture_anchor(node_real, node_complex, real_family, rates, filtered, exposures,
                    taps_view, diagnostics, coefficients, parameters,
@@ -10811,7 +10859,7 @@ void GeneralWorkspace<Policy>::scan_plasma_statistics(const std::size_t first_no
   }
   // The trapezoid's statistics read the field widened to binary64, the physical
   // field `s E` under a binary32 source (solprop SEP 33 section 4.5).
-  const double scale = state_scale_;
+  const double scale = source_scale_;
   const auto node_real = node_real_;
   const auto node_complex = node_complex_;
   const bool real_family = problem_.family == FieldFamily::field_real;
@@ -11463,15 +11511,23 @@ auto GeneralWorkspace<Policy>::statistics(
         const auto inverse_n_to = 1.0 / static_cast<double>(problem_.n_to);
         const auto n_to = problem_.n_to;
         const bool analytic = problem_.family == FieldFamily::field_analytic;
+        // The state's narrowing to the source's scale, as a stage's (`narrowed_input`).
+        const double narrowing = state_scale_ * inverse_source_scale_;
         Kokkos::parallel_for(
             "solprop_native.plasma.statistics_pad",
             Range2(execution_space_, {0, 0}, {problem_.n_columns(), problem_.n_omega}),
             KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
               const double analytic_scale =
                   analytic && index > 0 && 2 * crop(index) < n_to ? 2.0 : 1.0;
-              fine(column, crop(index)) =
-                  static_cast<SourceReal>(analytic_scale * inverse_n_to) *
-                  static_cast<SourceComplex>(current(column, index));
+              capture_anchor(narrowing);
+              if constexpr (StageTerms<Policy>::mixed_roles)
+                fine(column, crop(index)) = static_cast<SourceComplex>(
+                    current(column, index) *
+                    (analytic_scale * inverse_n_to * narrowing));
+              else
+                fine(column, crop(index)) =
+                    static_cast<SourceReal>(analytic_scale * inverse_n_to) *
+                    static_cast<SourceComplex>(current(column, index));
             });
         if (problem_.family == FieldFamily::field_real)
           KokkosFFT::execute(*inverse_real_plan_, fine_spectrum_, modal_real_,
@@ -12464,7 +12520,7 @@ auto GeneralWorkspace<Policy>::projected_to_host(const bool coarse)
   } else {
     std::vector<Complex> result(host.size());
     for (std::size_t index = 0; index < host.size(); ++index)
-      result[index] = widened(host.data()[index]);
+      result[index] = widened_source(host.data()[index]);
     return result;
   }
 }

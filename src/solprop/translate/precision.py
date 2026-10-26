@@ -102,15 +102,14 @@ section 4.2). The survival study raises it by the rule of SEP 36 section 7.3.
 
 REDUCED_PRECISION_BACKENDS: dict[str, tuple[str, ...]] = {
     "single": ("numpy_ref", "mlx", "native"),
-    "mixed": ("numpy_ref",),
+    "mixed": ("numpy_ref", "native"),
 }
 """The backends that admit each reduced precision.
 
 ``numpy_ref`` is the oracle of both (SEP 33 phase 1, SEP 36 phase 1) and ``mlx`` the
 Apple-GPU backend of single precision; Apple GPUs have no binary64, so it refuses
-``"mixed"``. ``native`` admits single precision (SEP 36 phase 2), refusing it by name
-when its build did not compile it, and joins ``"mixed"`` in phase 3; ``numba_cpu``
-refuses both.
+``"mixed"``. ``native`` admits both (SEP 36 phases 2 and 3), refusing either by name
+when its build did not compile it; ``numba_cpu`` refuses both.
 """
 
 
