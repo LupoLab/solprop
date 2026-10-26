@@ -628,10 +628,12 @@ template <class Real> struct StablePopulation {
   Real fraction, survival;
 };
 // The preionisation `p` is a binary64 host scalar: `1 - p` is formed in binary64 and
-// rounded once, as the oracle forms it.
+// rounded once, as the oracle forms it. Strict, as every ionised fraction is (SEP 25
+// section 4.2, `fp.hpp`).
 template <class Real>
-KOKKOS_INLINE_FUNCTION StablePopulation<Real>
+SOLPROP_NATIVE_STRICT_FUNCTION KOKKOS_INLINE_FUNCTION StablePopulation<Real>
 stable_population(const Real exposure, const double preionisation) {
+  SOLPROP_NATIVE_STRICT_BLOCK
   const auto keep = static_cast<Real>(1.0 - preionisation);
   return {static_cast<Real>(preionisation) + keep * -Kokkos::expm1(-exposure),
           keep * Kokkos::exp(-exposure)};
@@ -3905,7 +3907,7 @@ void GeneralWorkspace<Policy>::set_initial(const std::vector<Complex>& field,
   load_scaled(current_, field);
   if (noise.empty()) {
     if (problem_.modified_noise)
-      Kokkos::deep_copy(execution_space_, noise_, Complex{});
+      Kokkos::deep_copy(execution_space_, noise_, StateComplex{});
     has_noise_ = false;
   } else {
     if (!problem_.modified_noise)
@@ -6933,14 +6935,16 @@ template <class Policy> void GeneralWorkspace<Policy>::reuse_fsal() {
   const auto solution = solution_;
   const auto error = error_;
   const auto whole = whole_propagator_;
-  const double solution_weight = problem_.solution_weights[0];
-  const double error_weight = problem_.error_weights[0];
+  // The tableau's weights are binary64 host scalars, rounded once to the state's
+  // precision as the stage finish rounds them.
+  const auto solution_weight = static_cast<StateReal>(problem_.solution_weights[0]);
+  const auto error_weight = static_cast<StateReal>(problem_.error_weights[0]);
   const auto n = problem_.n_omega;
   Kokkos::parallel_for(
       "solprop_native.stage.reuse_fsal",
       Range2(execution_space_, {0, 0}, {problem_.n_columns(), n}),
       KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
-        const Complex value = recycled(column, index);
+        const StateComplex value = recycled(column, index);
         stages(0, column, index) = value;
         solution(column, index) = solution_weight * value;
         error(column, index) = error_weight * value;

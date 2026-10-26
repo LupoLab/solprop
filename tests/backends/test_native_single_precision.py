@@ -30,7 +30,7 @@ from solprop.backends.registry import available, native_precisions, select, sele
 from solprop.driver import Simulation, prop_gnlse
 from solprop.exceptions import BackendError, ConvergenceError, DriverError
 from solprop.stats import StatsSpec
-from solprop.stepper import LowStorageRungeKutta, RungeKutta
+from solprop.stepper import LowStorageRungeKutta, PIController, RungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.precision import precision_named
@@ -144,6 +144,27 @@ def test_native_agrees_with_the_oracle_within_both_sides_bounds(build, bound):
     native = finish(build("single"), "native")
     oracle = finish(build("single"), "numpy_ref")
     assert_within(native, oracle, two_sides(bound))
+
+
+@pytest.mark.parametrize("weighted", [False, True])
+def test_an_adaptive_run_keeps_its_accuracy_envelope(weighted):
+    """The controller reads binary64 norms of the scaled state against ``atol / s``.
+
+    Adaptive runs take their own steps, so native and the binary64 reference are
+    compared within an accuracy envelope (SEP 25), ten times the relative tolerance,
+    not a rounding bound; the per-bin weights take the weighted controller's path.
+    """
+    reference = finish(gnlse("double", steps=None), "numpy_ref")
+    simulation = gnlse("single", steps=None)
+    rtol = simulation.settings.controller.rtol
+    if weighted:
+        n_omega = gnlse("single").translate().shape[-1]
+        rtol = 1e-5
+        simulation.settings = dataclasses.replace(
+            simulation.settings,
+            controller=PIController(rtol=rtol, atol=1e-6, weights=np.ones(n_omega)),
+        )
+    assert_within(finish(simulation, "native"), reference, 10 * rtol)
 
 
 @pytest.mark.parametrize(
