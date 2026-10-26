@@ -160,7 +160,7 @@ def run_summary(  # noqa: PLR0913 - the run's parts, each a distinct object
     ...                    density=1.0, shock=False, prefactor_index=1.0)
     >>> summary = run_summary(problem, metadata_for(problem, grid), backend="numpy_ref",
     ...                       execution={}, output=MemoryOutput())
-    >>> dict(summary.rows)["noise"]
+    >>> dict(summary.rows)["shot noise"]
     'off'
     """
     planes = np.asarray(problem.stepper.save_planes, dtype=np.float64)

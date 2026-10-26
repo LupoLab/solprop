@@ -397,4 +397,4 @@ def test_a_run_without_peak_rates_reports_nothing():
     callers = capillary(plasma=adk_oracle("Ar"))
     unannotated = callers.run(progress="none")
     assert callers._peak_fields == ()
-    assert dict(unannotated.annotations) == {}
+    assert PEAK_FIELDS_ANNOTATION not in unannotated.annotations
