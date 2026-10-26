@@ -28,15 +28,11 @@ from time import perf_counter
 import matplotlib.pyplot as plt
 import numpy as np
 
-from solprop.driver import Simulation, SimulationSettings
+from solprop.driver import Simulation
 from solprop.grid import FieldGrid
-from solprop.modes import MarcatiliMode
-from solprop.nonlinear import responses_for
 from solprop.physdata import Mixture
 from solprop.processing import species_ionisation, species_ionisation_energy
-from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec
-from solprop.stepper import PIController
 
 # %%
 # One material declaration feeds the linear operator and every nonlinear channel.
@@ -48,35 +44,34 @@ mixture = Mixture.air(6.0, temperature=300.0)
 # resolves their local contribution without enlarging the coarse spectral state;
 # sampling and step convergence remain separate checks.
 grid = FieldGrid.from_limits(0.225, 800e-9, (300e-9, 2e-6), 200e-15, ffac=24.0)
-mode = MarcatiliMode(15e-6, mixture=mixture, loss=True, cladding=1.45)
-responses = responses_for(
+simulation = Simulation.from_capillary(
+    15e-6,
+    grid.length,
     mixture,
+    grid=grid,
+    lambda0=800e-9,
+    fwhm=30e-15,
+    energy=2.2e-6,
+    mode_average=True,
+    cladding=1.45,
     plasma={"N2": True, "O2": True},
     raman=("N2",),
     thg=False,
-    lambda0=800e-9,
-)
-simulation = Simulation(
-    grid,
-    mode,
-    responses,
-    GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=2.2e-6),
-    settings=SimulationSettings(
-        controller=PIController(rtol=1e-5, atol=1e-12),
-        save_planes=np.linspace(0.0, grid.length, 21)[1:],
-        dz_init=1e-5,
-        dz_max=2e-3,
-        ionisation_field_range=(1e7, 1e12),
-        stats=StatsSpec(
-            names=(
-                "energy",
-                "species_ionisation",
-                "species_electron_density",
-                "species_peak_ionisation_rate",
-                "species_density",
-                "species_ionisation_energy",
-            )
-        ),
+    rtol=1e-5,
+    atol=1e-12,
+    save_planes=np.linspace(0.0, grid.length, 21)[1:],
+    dz_init=1e-5,
+    dz_max=2e-3,
+    ionisation_field_range=(1e7, 1e12),
+    stats=StatsSpec(
+        names=(
+            "energy",
+            "species_ionisation",
+            "species_electron_density",
+            "species_peak_ionisation_rate",
+            "species_density",
+            "species_ionisation_energy",
+        )
     ),
 )
 run = simulation.run()
