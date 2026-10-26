@@ -36,13 +36,14 @@
 namespace solprop_native {
 
 namespace propagator_detail {
-// `ln 2` in two parts, the first with 32 significant bits: `m` times it is exact for
-// every `|m| <= 2^21`.
+// `ln 2` in two parts, the first with 29 significant bits: `m` times it is exact for
+// every `|m| <= 2^24`, far beyond the `|m| <= 1478` that `|x| <= 1024` reaches.
 inline constexpr double ln2_hi = 0x1.62e42ffp-1;
 inline constexpr double ln2_lo = -0x1.718432a1b0e26p-35;
 inline constexpr double inverse_ln2 = 0x1.71547652b82fep+0;
-// `2 pi` in three parts, the first two with 24 significant bits: `q` times each is
-// exact for `|q| <= 2^28`, which covers `|theta| <= 2^30`.
+// `2 pi` in three parts, the first two with 25 significant bits: `q` times each is
+// exact for `|q| <= 2^28`, which covers `|theta| <= 2^30`. The three sum to `2 pi`
+// within 5e-32 relative, so `q` times their error stays below 1e-22 rad.
 inline constexpr double two_pi_1 = 0x1.921fb6p+2;
 inline constexpr double two_pi_2 = -0x1.777a5cp-23;
 inline constexpr double two_pi_3 = -0x1.ee59d9cceba40p-48;
