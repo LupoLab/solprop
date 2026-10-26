@@ -480,27 +480,6 @@ range.
   MLX's double-float kernel (SEP 33) reduces both parts too. This makes explicit what
   "binary64-accurate, then rounded" requires of any binary32 evaluation.
 
-  **Amended in phase 5 (2026-10-26): the binary64 functions, rounded once.** The
-  range-reduced binary32 functions meet the bound but not unbiasedness. On the A40,
-  CUDA's `sinf` and `cosf` make the squared modulus $\cos^2\rho + \sin^2\rho$ average
-  $1 + 0.30\,u_{32}$ over the phases, where the CPU libraries' and the rounded binary64
-  values average 1. The propagator multiplies the state once per step, so that bias is
-  an energy drift linear in the step count, and Kerr phase turns it into a field error
-  that grows faster than the step count. In the argon survival case (2500 steps) native
-  single on the A40 reached a field error of $1.6 \times 10^{-3}$ and an ionised-fraction
-  error of $1.4 \times 10^{-3}$, against $1.3 \times 10^{-4}$ and $5 \times 10^{-5}$ on
-  the CPU. The CPU form drifted too, by about $+0.25\,u_{32}$ per step against the
-  oracle's $-0.24\,u_{32}$, and its Kerr-only error after 1000 steps was four times the
-  oracle's. Native single therefore evaluates $e^{x}$, $\cos\theta$ and $\sin\theta$ with
-  the binary64 library and rounds each once, as the oracle does. The relative error is
-  at most $3\,u_{32}$, the rounding is unbiased, and on the CPU the drift and the Kerr
-  error now match the oracle's (−1.40 against −1.44 × 10⁻⁵ over 1000 steps; 1.7 against
-  1.9 × 10⁻⁵). On the A40 the 2500-step argon run's field error fell from
-  $2.0 \times 10^{-3}$ to $9.9 \times 10^{-5}$ on a fixed schedule, and its Kerr-only error
-  from $2.4 \times 10^{-3}$ to $9.8 \times 10^{-5}$. The binary64 functions cost a few binary64 operations per bin and stage.
-  That is small beside a step's transforms, even at the A40's binary64 rate. A C++ test
-  measures the mean modulus bias in the execution space the build runs on, and a
-  Python test compares the drift with the oracle's over 1000 steps.
 - **Mixed.** The propagator multiplies a binary64 state, so a binary32 propagator would
   bring back SEP 33's coherent drift, $c\,M\,u_{32}$. It is formed and kept in binary64
   by the library's binary64 functions, as in the binary64 path. Its cost on
@@ -1697,8 +1676,8 @@ candidate tolerance on `rdw` and `argon`). Phase 2 proceeds.
 - The §4.3 binary32 exponential (`propagator.hpp`): `exp(x) = 2^m e^r` with a two-part
   `ln 2` (head of 29 significant bits), the phase reduced by a three-part `2π` (heads of
   25 bits) for `|θ| <= 2^30` and by the binary64 library above, then `expf`, `sinf` and
-  `cosf`; the inverse shares the phasor with its own modulus. (Replaced in phase 5 by the binary64
-  functions rounded once, after the A40's biased `sinf` and `cosf`; see §4.3.) The constants were checked
+  `cosf`; the inverse shares the phasor with its own modulus. (Replaced in phase 4 by the binary64
+  functions rounded once, after the A40's biased `sinf` and `cosf`; see the phase 4 report.) The constants were checked
   against 300-bit references (the `ln 2` split within 2e-27, the `2π` split within
   5e-32). C++ tests check the 10 `u32` bound over both ranges' ends, the −80.000003
   witness, phases past `2^30`, the inverse and the modulus drift over 10⁴ steps.
@@ -1893,6 +1872,119 @@ binary64 running integrals at the oracle's binary32 rate, which is conservative.
 **Deviations.** None from Part I. The envelope-plasma case of the coherent study ran
 here, as the phase 1 amendment provides; its binary64 reference ran on `native` on the
 same node, replacing the phase 1 records made elsewhere.
+
+### Phase 4 — report (2026-10-26; the NVIDIA half)
+
+**Delivered on CUDA.** Both reduced modes run on the CUDA build (`AMPERE86`, the
+`cuda-ampere` preset), qualified on an NVIDIA A40.
+
+- The device builds instantiate all three policies. cuBLAS runs in its pedantic math
+  mode, set on Kokkos Kernels' handle, and rocBLAS in its default mode. A GEMM probe
+  (threshold $2^{-17}$) and a transform probe run at construction, and the build record
+  carries `fft_binary32_library` and `gemm_probe_error`. A CMake guard refuses
+  flush-to-zero and fast-math flags.
+- Binary32 sources get a device team form: one team per node, with threads over the
+  samples. It covers the pointwise Kerr, harmonic and Raman drive, and the trapezoid
+  plasma, whose two running integrals are team scans in binary64 over binary32 samples
+  (§4.2's reduction role). Until then they ran the host column on the device, one thread
+  per node marching over every sample. That made A40 single and mixed throughput flat
+  at about $1.7 \times 10^{6}$ samples·steps/s from $2^{13}$ to $2^{18}$ samples, a
+  tenth of binary64's. Multiple-channel mixtures stay on the host column, as under
+  binary64.
+- The band-rule plasma of the reduced policies takes the team column everywhere.
+
+**Verification on the A40.**
+
+- *Tests:* ctest passes; native's GPU tests 31; the API contract 45; the reduced
+  GPU lane (`test_native_reduced_gpu.py`, class R against the oracles on the device)
+  123; the reduced arithmetic module 25, including the TF32 negative test (cuBLAS in
+  TF32 mode fails the GEMM probe, 2 tests) and a subnormal surviving a device pass.
+- *The confirmation cases of §7.3*, against their binary64 references, judged by SEP
+  33's envelopes:
+
+  | case | mode | field | bands | energy | peak | ionised / width | verdict |
+  |---|---|---|---|---|---|---|---|
+  | `ctc`, 0.05 m | single | 6.8e-4 | 3.4e-6 | 9.6e-7 | 3.7e-6 | — | within |
+  | `argon` | single | 1.8e-4 | 2.7e-4 | 4.0e-6 | 9.7e-5 | 5.4e-5 | within |
+  | `radial_filament` | single | 2.4e-6 | 1.5e-6 | 4.9e-8 | 1.2e-5 | 1.8e-6 | within |
+  | `rdw` | mixed | 9.2e-7 | 1.2e-5 | 2.1e-7 | 3.8e-7 | 5.4e-6 | within |
+  | `argon` | mixed | 3.5e-5 | 2.6e-5 | 1.2e-6 | 3.1e-6 | 3.4e-5 | within |
+
+  Binary64 on the A40 at the same tolerance is within too (`rdw` 7.9e-8, `argon`
+  1.1e-5 field).
+- *Throughput* (§6.6; the soliton fibre with Raman, 64 fixed steps, samples·steps/s;
+  the lockstep batch of 8; concurrent processes on one GPU):
+
+  | samples | mode | solo | batch × 8 | best of 2, 4, 8 processes |
+  |---|---|---|---|---|
+  | $2^{14}$ | single | 2.7e7 | 4.2e7 | 2.3e7 |
+  | $2^{14}$ | mixed | 2.6e7 | 4.1e7 | 2.2e7 |
+  | $2^{14}$ | binary64 | 8.9e6 | 1.0e7 | 8.6e6 |
+  | $2^{15}$ | single | 3.8e7 | 5.9e7 | 3.4e7 |
+  | $2^{15}$ | mixed | 3.4e7 | 5.3e7 | 3.1e7 |
+  | $2^{15}$ | binary64 | 1.2e7 | 1.3e7 | 1.1e7 |
+  | $2^{18}$ | single | 6.4e7 | 1.1e8 | 6.1e7 |
+  | $2^{18}$ | mixed | 5.6e7 | 9.6e7 | 5.2e7 |
+  | $2^{18}$ | binary64 | 1.6e7 | 1.8e7 | 1.5e7 |
+
+  At $2^{18}$ single is 4.0 times binary64's solo throughput and mixed 3.5 times.
+  Concurrent processes never beat the lockstep batch, so the guide advises batches for
+  ensembles on one GPU.
+- *Per-pass profile* (nsys, $2^{16}$ samples, 16 steps, share of GPU time):
+
+  | pass | single | mixed | binary64 |
+  |---|---|---|---|
+  | accepted update and error norm | 36.6 % (407 µs) | 38.7 % (480 µs) | 10.9 % (482 µs) |
+  | response | 27.1 % (50 µs) | 24.4 % (50 µs) | 66.3 % (483 µs) |
+  | stage entry (propagator and stage combination) | 19.7 % (36 µs) | 20.9 % (43 µs) | 6.1 % (44 µs) |
+  | transforms | 8.7 % (4.0 µs) | 8.0 % (4.1 µs) | 14.3 % (26 µs) |
+  | projection, synthesis, scaling, finish | 6.9 % | 6.6 % | 2.0 % |
+
+  A single-node fibre gives the accepted update and the binary64 response one team, so
+  one of the A40's 84 multiprocessors does their binary64 arithmetic. That costs about
+  0.48 ms per call in every mode. It is the largest remaining cost of the reduced
+  modes, and of binary64's response; it predates this SEP.
+
+PENDING-PROPAGATOR
+
+**The Q8 rule** (§6.6), on mixed precision, the noise study's mode. The best way at
+$2^{14}$ and $2^{15}$ samples is the lockstep batch: 4.1×10⁷ and 5.3×10⁷
+samples·steps/s. Against the batch at $2^{18}$ (9.6×10⁷) these are 0.43 and 0.56;
+against a solo run at $2^{18}$ (5.6×10⁷), 0.73 and 0.95. The rule's "the same case at
+$2^{18}$" does not say which, so $2^{14}$ falls short of half under the first reading
+and passes under the second, and $2^{15}$ passes under both. These runs carry no noise
+model; a noise ensemble adds one binary64 addition per sample at the entrance. The
+reading is the maintainers' to decide.
+
+PENDING-CTC
+
+**Not done: the AMD half.** The HIP build compiles all three policies, but no CDNA 3 GPU
+has been rented, so §7.3's confirmations, the probes' negative tests, the throughput and
+the profiles on an AMD GPU wait on a budget agreed with the maintainers (Q9).
+
+**Deviations.**
+
+- *The binary32 propagator (§4.3).* The range-reduced binary32 functions meet the
+  bound but are biased. On the A40, CUDA's `sinf` and `cosf` make the squared modulus
+  $\cos^2\rho + \sin^2\rho$ average $1 + 0.30\,u_{32}$ over the phases, where the CPU
+  libraries' and the rounded binary64 values average 1. The propagator multiplies the
+  state once per step, so that bias is an energy drift linear in the step count, and
+  Kerr phase turns it into a field error that grows faster than the step count. In the
+  `argon` case (2500 steps) native single on the A40 reached a field error of
+  $1.6 \times 10^{-3}$ and an ionised-fraction error of $1.4 \times 10^{-3}$, outside
+  the envelopes, against $1.3 \times 10^{-4}$ and $5 \times 10^{-5}$ on the CPU. The CPU
+  form drifted too, by about $+0.25\,u_{32}$ per step against the oracle's
+  $-0.24\,u_{32}$, and its Kerr-only error after 1000 steps was four times the
+  oracle's. Native single therefore evaluates $e^{x}$, $\cos\theta$ and $\sin\theta$
+  with the binary64 library and rounds each once, as the oracle does: the relative
+  error is at most $3\,u_{32}$ and the rounding unbiased. On the CPU the drift and the
+  Kerr error now match the oracle's (−1.40 against −1.44 × 10⁻⁵ over 1000 steps; 1.7
+  against 1.9 × 10⁻⁵), and on the A40 the `argon` field error fell to
+  $1.8 \times 10^{-4}$ (table above). A C++ test measures the mean modulus bias in the
+  execution space the build runs on (limit $0.02\,u_{32}$; CUDA's functions fail it),
+  and a Python test compares the drift with the oracle's over 1000 steps. The cost is
+  the binary64 transcendentals per bin and stage, which single now shares with mixed
+  (stage entry 36 µs against 23 µs before, at $2^{16}$ on the A40).
 
 ## Part III — History
 
