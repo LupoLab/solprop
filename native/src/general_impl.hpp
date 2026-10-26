@@ -3649,8 +3649,8 @@ template <class Policy> void GeneralWorkspace<Policy>::upload() {
 // FFTW's factorisation can change with the width; comparisons use solprop's SEP 25
 // transform/propagation rounding budgets rather than bitwise agreement.
 template <class Policy>
-const ExecutionSpace&
-GeneralWorkspace<Policy>::fft_space_for(const std::size_t samples) {
+auto GeneralWorkspace<Policy>::fft_space_for(const std::size_t samples)
+    -> const ExecutionSpace& {
   return fft_pool_.get(CpuOperation::fft, samples);
 }
 
@@ -4302,8 +4302,8 @@ void GeneralWorkspace<Policy>::prepare_trial(const double dz,
 }
 
 template <class Policy>
-std::vector<double> GeneralWorkspace<Policy>::trial_step(const double dz,
-                                                         const TrialScalars& scalars) {
+auto GeneralWorkspace<Policy>::trial_step(const double dz, const TrialScalars& scalars)
+    -> std::vector<double> {
   prepare_trial(dz, scalars);
   const auto current = current_;
   auto carried = current_;
@@ -4351,9 +4351,9 @@ std::vector<double> GeneralWorkspace<Policy>::trial_step(const double dz,
 // `advanced_`, which only the Runge-Kutta accept writes, while the input takes its
 // place.
 template <class Policy>
-std::vector<Complex>
-GeneralWorkspace<Policy>::adams_source(const std::vector<Complex>& input,
-                                       const TrialScalars& scalars) {
+auto GeneralWorkspace<Policy>::adams_source(const std::vector<Complex>& input,
+                                            const TrialScalars& scalars)
+    -> std::vector<Complex> {
   require_open();
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");
@@ -4978,7 +4978,7 @@ template <class Policy> void GeneralWorkspace<Policy>::hold_plane() {
 }
 
 template <class Policy>
-std::vector<Complex> GeneralWorkspace<Policy>::held_to_host() const {
+auto GeneralWorkspace<Policy>::held_to_host() const -> std::vector<Complex> {
   require_open();
   if (!held_ready_)
     throw std::logic_error("no field-free plane is held");
@@ -5321,9 +5321,11 @@ struct AdamsDefectNorms {
 } // namespace
 
 template <class Policy>
-std::vector<double> GeneralWorkspace<Policy>::adams_fused_trial(
-    const double dz, const AdamsWeights& weights, const std::vector<double>& divisor,
-    const TrialScalars& scalars) {
+auto GeneralWorkspace<Policy>::adams_fused_trial(const double dz,
+                                                 const AdamsWeights& weights,
+                                                 const std::vector<double>& divisor,
+                                                 const TrialScalars& scalars)
+    -> std::vector<double> {
   require_adams();
   if (flow_)
     throw std::logic_error("the Adams source is evaluated without a coupled flow");
@@ -5471,7 +5473,8 @@ template <class Policy> void GeneralWorkspace<Policy>::adams_restore() {
 // by element, with no arithmetic.
 
 template <class Policy>
-ComplexView3 GeneralWorkspace<Policy>::adams_row_view(const std::string& name) const {
+auto GeneralWorkspace<Policy>::adams_row_view(const std::string& name) const
+    -> ComplexView3 {
   require_adams();
   ComplexView3 view;
   if (name == "store")
@@ -5490,7 +5493,7 @@ ComplexView3 GeneralWorkspace<Policy>::adams_row_view(const std::string& name) c
 }
 
 template <class Policy>
-std::vector<std::string> GeneralWorkspace<Policy>::adams_row_names() const {
+auto GeneralWorkspace<Policy>::adams_row_names() const -> std::vector<std::string> {
   require_adams();
   std::vector<std::string> names{"store"};
   if (adams_states_.extent(0) != 0)
@@ -5501,15 +5504,15 @@ std::vector<std::string> GeneralWorkspace<Policy>::adams_row_names() const {
 }
 
 template <class Policy>
-std::array<std::size_t, 3>
-GeneralWorkspace<Policy>::adams_row_extents(const std::string& name) const {
+auto GeneralWorkspace<Policy>::adams_row_extents(const std::string& name) const
+    -> std::array<std::size_t, 3> {
   const auto view = adams_row_view(name);
   return {view.extent(0), view.extent(1), view.extent(2)};
 }
 
 template <class Policy>
-std::vector<Complex>
-GeneralWorkspace<Policy>::adams_rows_to_host(const std::string& name) const {
+auto GeneralWorkspace<Policy>::adams_rows_to_host(const std::string& name) const
+    -> std::vector<Complex> {
   std::vector<std::complex<double>> values(adams_row_view(name).size());
   adams_rows_to_host(name, values.data(), values.size());
   return {values.begin(), values.end()};
@@ -5658,9 +5661,9 @@ void GeneralWorkspace<Policy>::table_rate(const std::size_t slot, const double z
 }
 
 template <class Policy>
-std::vector<Complex>
-GeneralWorkspace<Policy>::table_terms_to_host(const TableKind kind,
-                                              const std::size_t slot) const {
+auto GeneralWorkspace<Policy>::table_terms_to_host(const TableKind kind,
+                                                   const std::size_t slot) const
+    -> std::vector<Complex> {
   require_open();
   const auto& terms = kind == TableKind::prefactor ? prefactor_terms_ : phi_terms_;
   if (slot >= terms.extent(0))
@@ -5679,8 +5682,8 @@ GeneralWorkspace<Policy>::table_terms_to_host(const TableKind kind,
 // The stage kernels' own phase sum (`StageTerms::phase_sum`) over the Phi terms for one
 // row of weights, into a fresh host array: a diagnostic, outside any trial.
 template <class Policy>
-std::vector<Complex>
-GeneralWorkspace<Policy>::phase_sum_to_host(const std::vector<double>& weights) {
+auto GeneralWorkspace<Policy>::phase_sum_to_host(const std::vector<double>& weights)
+    -> std::vector<Complex> {
   require_open();
   if (problem_.separable_geometry())
     throw std::logic_error("a separable operator has no Phi terms");
@@ -6172,10 +6175,11 @@ adams_observed_compensation(const ExponentialWeights& weights, const std::size_t
 }
 
 template <class Policy>
-std::vector<double> GeneralWorkspace<Policy>::adams_exponential_trial(
+auto GeneralWorkspace<Policy>::adams_exponential_trial(
     const double dz, const ExponentialWeights& weights,
     const std::vector<double>& divisor, const TrialScalars& step,
-    const TrialScalars& sample, const std::vector<double>& rate) {
+    const TrialScalars& sample, const std::vector<double>& rate)
+    -> std::vector<double> {
   require_adams();
   if (weights.compensated && adams_states_.extent(0) == 0)
     throw std::logic_error("the Adams history carries no compensation");
@@ -6914,7 +6918,8 @@ void GeneralWorkspace<Policy>::adams_exponential_observe(
   execution_space_.fence("solprop_native Adams observation boundary");
 }
 
-template <class Policy> std::vector<double> GeneralWorkspace<Policy>::collect_trial() {
+template <class Policy>
+auto GeneralWorkspace<Policy>::collect_trial() -> std::vector<double> {
   batch_prepared_ = false;
   // A coupled flow's last stage is carried back by the step's own inverse action, so
   // it is not the next step's first stage; solprop's reference takes no FSAL there.
@@ -6952,8 +6957,8 @@ template <class Policy> void GeneralWorkspace<Policy>::reuse_fsal() {
 }
 
 template <class Policy>
-TransverseChunk GeneralWorkspace<Policy>::transverse_chunk(
-    const std::size_t first_unit) const noexcept {
+auto GeneralWorkspace<Policy>::transverse_chunk(
+    const std::size_t first_unit) const noexcept -> TransverseChunk {
   const auto units =
       std::min(transverse_units_per_chunk(), transverse_units() - first_unit);
   if (problem_.slab_geometry())
@@ -7425,8 +7430,8 @@ void GeneralWorkspace<Policy>::separable_core(const std::size_t stage,
 
 // The fine bins outside the crop as runs `(first bin, length)` in bin order.
 template <class Policy>
-std::vector<std::pair<std::size_t, std::size_t>>
-GeneralWorkspace<Policy>::fine_gap_runs() const {
+auto GeneralWorkspace<Policy>::fine_gap_runs() const
+    -> std::vector<std::pair<std::size_t, std::size_t>> {
   std::vector<bool> filled(fine_spectrum_size(), false);
   for (const auto index : problem_.crop_index)
     filled[index] = true;
@@ -7443,8 +7448,8 @@ GeneralWorkspace<Policy>::fine_gap_runs() const {
 }
 
 template <class Policy>
-StageTerms<Policy>
-GeneralWorkspace<Policy>::stage_terms(const std::size_t stage) const {
+auto GeneralWorkspace<Policy>::stage_terms(const std::size_t stage) const
+    -> StageTerms<Policy> {
   StageTerms<Policy> terms;
   terms.current = current_;
   terms.fine = fine_spectrum_;
@@ -8840,9 +8845,9 @@ std::size_t GeneralWorkspace<Policy>::band_league(const std::size_t node_count) 
 
 template <class Policy>
 template <class Functor>
-Kokkos::TeamPolicy<ExecutionSpace>
-GeneralWorkspace<Policy>::band_team_policy(const std::size_t node_count,
-                                           const Functor& functor) const {
+auto GeneralWorkspace<Policy>::band_team_policy(const std::size_t node_count,
+                                                const Functor& functor) const
+    -> Kokkos::TeamPolicy<ExecutionSpace> {
   using Team = Kokkos::TeamPolicy<ExecutionSpace>;
   constexpr auto policy_limit =
       static_cast<std::size_t>(std::numeric_limits<int>::max());
@@ -9244,9 +9249,10 @@ template <bool Multiple> struct BandRate {
 
 template <class Policy>
 template <class Functor>
-Kokkos::TeamPolicy<ExecutionSpace>
-GeneralWorkspace<Policy>::tiled_band_policy(const std::size_t rows, const bool scratch,
-                                            const Functor& functor) const {
+auto GeneralWorkspace<Policy>::tiled_band_policy(const std::size_t rows,
+                                                 const bool scratch,
+                                                 const Functor& functor) const
+    -> Kokkos::TeamPolicy<ExecutionSpace> {
   using Team = Kokkos::TeamPolicy<ExecutionSpace>;
   constexpr auto policy_limit =
       static_cast<std::size_t>(std::numeric_limits<int>::max());
@@ -10561,8 +10567,8 @@ void GeneralWorkspace<Policy>::set_flow_actions(
 }
 
 template <class Policy>
-std::vector<Complex>
-GeneralWorkspace<Policy>::flow_actions_to_host(const bool inverse) const {
+auto GeneralWorkspace<Policy>::flow_actions_to_host(const bool inverse) const
+    -> std::vector<Complex> {
   require_open();
   if (!flow_)
     throw std::logic_error("this state carries no coupled flow");
@@ -10570,9 +10576,10 @@ GeneralWorkspace<Policy>::flow_actions_to_host(const bool inverse) const {
 }
 
 template <class Policy>
-std::vector<double>
-GeneralWorkspace<Policy>::form_flow_actions(const std::size_t section, const double dz,
-                                            const std::vector<double>& fractions) {
+auto GeneralWorkspace<Policy>::form_flow_actions(const std::size_t section,
+                                                 const double dz,
+                                                 const std::vector<double>& fractions)
+    -> std::vector<double> {
   require_open();
   if (!flow_)
     throw std::logic_error("this state carries no coupled flow");
@@ -10580,8 +10587,8 @@ GeneralWorkspace<Policy>::form_flow_actions(const std::size_t section, const dou
 }
 
 template <class Policy>
-std::vector<double>
-GeneralWorkspace<Policy>::weighted_error(const std::vector<double>& scale) {
+auto GeneralWorkspace<Policy>::weighted_error(const std::vector<double>& scale)
+    -> std::vector<double> {
   require_open();
   if (!problem_.weighted_controller)
     throw std::logic_error("this state has no weighted controller workspace");
@@ -10897,12 +10904,12 @@ void GeneralWorkspace<Policy>::scan_plasma_statistics(const std::size_t first_no
 }
 
 template <class Policy>
-std::vector<double> GeneralWorkspace<Policy>::statistics(
+auto GeneralWorkspace<Policy>::statistics(
     const std::uint64_t flags, const std::vector<double>& windows,
     const std::vector<double>& on_axis, const double density, const double taper,
     const double preionisation, const double intensity_factor,
     const std::vector<double>& channel_preionisation,
-    const std::vector<double>& power_weight) {
+    const std::vector<double>& power_weight) -> std::vector<double> {
   require_open();
   const auto& selected_weight =
       power_weight.empty() ? problem_.power_weight : power_weight;
@@ -11746,10 +11753,13 @@ void GeneralWorkspace<Policy>::separable_time_statistics(
 }
 
 template <class Policy>
-std::vector<double> GeneralWorkspace<Policy>::aperture_statistics(
-    const std::uint64_t flags, const std::vector<double>& apertures,
-    const int profile_code, const int exponent, const std::vector<double>& regions,
-    const double intensity_factor) {
+auto GeneralWorkspace<Policy>::aperture_statistics(const std::uint64_t flags,
+                                                   const std::vector<double>& apertures,
+                                                   const int profile_code,
+                                                   const int exponent,
+                                                   const std::vector<double>& regions,
+                                                   const double intensity_factor)
+    -> std::vector<double> {
   require_open();
   if (!initialized_ || !far_field_)
     throw std::logic_error(
@@ -11764,8 +11774,10 @@ std::vector<double> GeneralWorkspace<Policy>::aperture_statistics(
 }
 
 template <class Policy>
-std::vector<double> GeneralWorkspace<Policy>::spatial_statistics(
-    const std::uint64_t flags, const double intensity_factor, const double z) {
+auto GeneralWorkspace<Policy>::spatial_statistics(const std::uint64_t flags,
+                                                  const double intensity_factor,
+                                                  const double z)
+    -> std::vector<double> {
   require_open();
   if (!initialized_ || spatial_spectral_weights_.empty())
     throw std::logic_error(
@@ -12343,7 +12355,7 @@ void GeneralWorkspace<Policy>::split_step(const double dz, const StateView2& adv
 }
 
 template <class Policy>
-std::vector<Complex> GeneralWorkspace<Policy>::field_to_host() const {
+auto GeneralWorkspace<Policy>::field_to_host() const -> std::vector<Complex> {
   require_open();
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");
@@ -12357,8 +12369,8 @@ std::vector<Complex> GeneralWorkspace<Policy>::field_to_host() const {
 }
 
 template <class Policy>
-std::vector<Complex>
-GeneralWorkspace<Policy>::stage_to_host(const std::size_t stage) const {
+auto GeneralWorkspace<Policy>::stage_to_host(const std::size_t stage) const
+    -> std::vector<Complex> {
   require_open();
   if (!stages_ready_)
     throw std::logic_error("no trial stages have been evaluated");
@@ -12375,7 +12387,8 @@ GeneralWorkspace<Policy>::stage_to_host(const std::size_t stage) const {
 }
 
 template <class Policy>
-std::vector<Complex> GeneralWorkspace<Policy>::projected_to_host(const bool coarse) {
+auto GeneralWorkspace<Policy>::projected_to_host(const bool coarse)
+    -> std::vector<Complex> {
   require_open();
   if (!stages_ready_)
     throw std::logic_error("no trial stages have been evaluated");
@@ -12400,7 +12413,7 @@ std::vector<Complex> GeneralWorkspace<Policy>::projected_to_host(const bool coar
 }
 
 template <class Policy>
-std::map<std::string, bool> GeneralWorkspace<Policy>::dispersive_path() const {
+auto GeneralWorkspace<Policy>::dispersive_path() const -> std::map<std::string, bool> {
   if (separable_dispersive_)
     return {{"alone", separable_dispersive_->alone()},
             {"in_place", separable_dispersive_->in_place()},
@@ -12416,7 +12429,8 @@ std::map<std::string, bool> GeneralWorkspace<Policy>::dispersive_path() const {
 }
 
 template <class Policy>
-std::map<std::string, std::size_t> GeneralWorkspace<Policy>::memory_ledger() const {
+auto GeneralWorkspace<Policy>::memory_ledger() const
+    -> std::map<std::string, std::size_t> {
   auto ledger =
       general_ ? general_->memory_ledger() : GeneralModalSource::empty_ledger();
   ledger.merge(flow_ ? flow_->memory_ledger() : CoupledFlowAction::empty_ledger());
@@ -12430,8 +12444,8 @@ std::map<std::string, std::size_t> GeneralWorkspace<Policy>::memory_ledger() con
 }
 
 template <class Policy>
-std::map<std::string, std::size_t>
-GeneralWorkspace<Policy>::base_memory_ledger() const {
+auto GeneralWorkspace<Policy>::base_memory_ledger() const
+    -> std::map<std::string, std::size_t> {
   const auto complex_bytes = sizeof(Complex);
   const auto real_bytes = sizeof(double);
   const auto byte_bytes = sizeof(unsigned char);

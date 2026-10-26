@@ -1085,7 +1085,7 @@ template <class Policy> void Workspace<Policy>::split_step(const double dz) {
 }
 
 template <class Policy>
-std::map<std::string, std::size_t> Workspace<Policy>::memory_ledger() const {
+auto Workspace<Policy>::memory_ledger() const -> std::map<std::string, std::size_t> {
   const std::size_t complex_bytes = sizeof(Complex);
   const std::size_t real_bytes = sizeof(double);
   const std::size_t fine_time =
