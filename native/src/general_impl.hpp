@@ -1605,6 +1605,13 @@ inline float combined_binary32(const std::initializer_list<double> factors,
   return narrowed;
 }
 
+// The bytes of views, each counted by its own element's size (solprop SEP 36 section
+// 6.7: a binary32 role's buffers are half a binary64 one's).
+template <class... Views> std::size_t bytes_of(const Views&... views) {
+  return (std::size_t{0} + ... +
+          (views.size() * sizeof(typename Views::non_const_value_type)));
+}
+
 template <class Policy> void require_policy_route(const Problem& problem) {
   if constexpr (!is_binary64_policy_v<Policy>) {
     const auto refuse = [](const char* route) {
@@ -12425,79 +12432,68 @@ GeneralWorkspace<Policy>::base_memory_ledger() const {
   const auto real_bytes = sizeof(double);
   const auto byte_bytes = sizeof(unsigned char);
   const auto index_bytes = sizeof(std::size_t);
-  const auto field = problem_.n_columns() * problem_.n_omega * complex_bytes;
-  const auto modal =
-      modal_real_.size() * real_bytes + modal_complex_.size() * complex_bytes;
+  const auto field = problem_.n_columns() * problem_.n_omega * sizeof(StateComplex);
+  const auto modal = bytes_of(modal_real_) + bytes_of(modal_complex_);
   // Aliased views (free space, SEP 28) own no storage of their own.
-  const auto node = separable_aliased_ ? 0
-                                       : node_real_.size() * real_bytes +
-                                             node_complex_.size() * complex_bytes;
-  const auto polarisation = separable_aliased_
-                                ? 0
-                                : polarisation_real_.size() * real_bytes +
-                                      polarisation_complex_.size() * complex_bytes;
-  const auto projected =
-      projected_real_.size() * real_bytes + projected_complex_.size() * complex_bytes;
+  const auto node =
+      separable_aliased_ ? 0 : bytes_of(node_real_) + bytes_of(node_complex_);
+  const auto polarisation = separable_aliased_ ? 0
+                                               : bytes_of(polarisation_real_) +
+                                                     bytes_of(polarisation_complex_);
+  const auto projected = bytes_of(projected_real_) + bytes_of(projected_complex_);
   return {
       {"held_current_host_derivative",
        problem_.time_window_derivative.capacity() * real_bytes},
-      {"held_current", held_current_.size() * real_bytes},
+      {"held_current", bytes_of(held_current_)},
       {"held_current_gj", held_streams_[0].bytes()},
       {"held_current_edge", held_streams_[1].bytes()},
       {"held_current_nonplasma", held_streams_[2].bytes()},
-      {"held_current_projection", held_projection_.size() * real_bytes},
+      {"held_current_projection", bytes_of(held_projection_)},
       {"held_current_radial_spectra",
-       (held_nodal_spectrum_.size() + held_projected_spectrum_.size()) * complex_bytes},
-      {"held_current_tables",
-       (held_derivative_.size() + held_inverse_.size()) * real_bytes},
+       bytes_of(held_nodal_spectrum_, held_projected_spectrum_)},
+      {"held_current_tables", bytes_of(held_derivative_, held_inverse_)},
       {"envelope_drude_stream", envelope_streams_[0].bytes()},
       {"envelope_loss_stream", envelope_streams_[1].bytes()},
       {"envelope_cycles",
-       (envelope_rule_nodes_.size() + envelope_rule_weights_.size() +
-        envelope_moments_.size() + envelope_rates_.size() + envelope_exposure_.size()) *
-           real_bytes},
-      {"envelope_factors", envelope_drude_factor_.size() * real_bytes +
-                               envelope_loss_factor_.size() * complex_bytes},
+       bytes_of(envelope_rule_nodes_, envelope_rule_weights_, envelope_moments_,
+                envelope_rates_, envelope_exposure_)},
+      {"envelope_factors",
+       bytes_of(envelope_drude_factor_) + bytes_of(envelope_loss_factor_)},
       {"envelope_status", (envelope_failures_.size() + envelope_status_.size() +
                            envelope_host_status_.size()) *
                               index_bytes},
-      {"radial_blas_buffers",
-       (radial_blas_input_.size() + radial_blas_output_.size()) * real_bytes},
+      {"radial_blas_buffers", bytes_of(radial_blas_input_, radial_blas_output_)},
       {"state", field},
-      {"advanced", advanced_.size() * complex_bytes},
-      {"stages", stages_.size() * complex_bytes},
-      {"accumulator_solution", solution_.size() * complex_bytes},
-      {"accumulator_error", error_.size() * complex_bytes},
-      {"weighted_residual", residual_.size() * complex_bytes},
-      {"recycled_stage", recycled_.size() * complex_bytes},
+      {"advanced", bytes_of(advanced_)},
+      {"stages", bytes_of(stages_)},
+      {"accumulator_solution", bytes_of(solution_)},
+      {"accumulator_error", bytes_of(error_)},
+      {"weighted_residual", bytes_of(residual_)},
+      {"recycled_stage", bytes_of(recycled_)},
       {"noise", problem_.modified_noise ? field : 0},
       // The Runge-Kutta march's whole-step propagator, or the low-storage march's
       // table or step pair (solprop's `propagators` row).
-      {"propagators",
-       (whole_propagator_.size() + low_storage_flows_.size()) * complex_bytes},
-      {"register_accumulator", register_accumulator_.size() * complex_bytes},
-      {"register_stage", register_stage_.size() * complex_bytes},
-      {"held_plane", held_plane_.size() * complex_bytes},
-      {"stage_phase", stage_phase_.size() * complex_bytes},
-      {"stage_inverse", stage_inverse_.size() * complex_bytes},
-      {"fine_spectrum", fine_spectrum_.size() * complex_bytes},
+      {"propagators", bytes_of(whole_propagator_, low_storage_flows_)},
+      {"register_accumulator", bytes_of(register_accumulator_)},
+      {"register_stage", bytes_of(register_stage_)},
+      {"held_plane", bytes_of(held_plane_)},
+      {"stage_phase", bytes_of(stage_phase_)},
+      {"stage_inverse", bytes_of(stage_inverse_)},
+      {"fine_spectrum", bytes_of(fine_spectrum_)},
       {"fine_gaps", (fine_gaps_.size() + separable_gaps_.size()) * index_bytes},
       {"modal_time", modal},
       {"node_field", node},
       {"node_polarisation", polarisation},
       {"projected", projected},
       {"projected_coarse", problem_.projection_coarse_matrix.empty() ? 0 : projected},
-      {"projected_spectrum", projected_spectrum_.size() * complex_bytes},
-      {"projected_coarse_spectrum", projected_coarse_spectrum_.size() * complex_bytes},
-      {"absorber_spectrum", absorber_spectrum_.size() * complex_bytes},
-      {"absorber_time",
-       absorber_complex_.size() * complex_bytes + absorber_real_.size() * real_bytes},
-      {"split_absorber_spectrum", coarse_spectrum_.size() * complex_bytes},
-      {"split_absorber_time", coarse_time_complex_.size() * complex_bytes +
-                                  coarse_time_real_.size() * real_bytes},
-      {"transform_matrices",
-       (synthesis_.size() + projection_.size() + projection_coarse_.size()) *
-           real_bytes},
+      {"projected_spectrum", bytes_of(projected_spectrum_)},
+      {"projected_coarse_spectrum", bytes_of(projected_coarse_spectrum_)},
+      {"absorber_spectrum", bytes_of(absorber_spectrum_)},
+      {"absorber_time", bytes_of(absorber_complex_) + bytes_of(absorber_real_)},
+      {"split_absorber_spectrum", bytes_of(coarse_spectrum_)},
+      {"split_absorber_time",
+       bytes_of(coarse_time_complex_) + bytes_of(coarse_time_real_)},
+      {"transform_matrices", bytes_of(synthesis_, projection_, projection_coarse_)},
       // The native problem owns host copies as well as the execution-space views.
       // Count retained vector capacity, including construction-only coefficients.
       {"host_problem_arrays",
@@ -12545,124 +12541,106 @@ GeneralWorkspace<Policy>::base_memory_ledger() const {
            (problem_.active_mask.capacity() + problem_.norm_mask.capacity()) *
                byte_bytes},
       {"scaled_transform_matrices",
-       (scaled_synthesis_.size() + scaled_projection_.size() +
-        scaled_projection_coarse_.size() + scaled_projection_stacked_.size()) *
-               real_bytes +
-           (scaled_synthesis_complex_.size() + scaled_projection_complex_.size() +
-            scaled_projection_coarse_complex_.size() +
-            scaled_projection_stacked_complex_.size()) *
-               complex_bytes},
-      {"stacked_projection", projected_stacked_real_.size() * real_bytes +
-                                 projected_stacked_complex_.size() * complex_bytes},
+       bytes_of(scaled_synthesis_, scaled_projection_, scaled_projection_coarse_,
+                scaled_projection_stacked_) +
+           bytes_of(scaled_synthesis_complex_, scaled_projection_complex_,
+                    scaled_projection_coarse_complex_,
+                    scaled_projection_stacked_complex_)},
+      {"stacked_projection",
+       bytes_of(projected_stacked_real_) + bytes_of(projected_stacked_complex_)},
       {"chunk_transform_buffers",
-       (chunk_synthesis_.size() + tail_synthesis_.size() + chunk_projection_.size() +
-        tail_projection_.size() + chunk_projection_stacked_.size() +
-        tail_projection_stacked_.size()) *
-               real_bytes +
-           (chunk_synthesis_complex_.size() + tail_synthesis_complex_.size() +
-            chunk_projection_complex_.size() + tail_projection_complex_.size() +
-            chunk_projection_stacked_complex_.size() +
-            tail_projection_stacked_complex_.size()) *
-               complex_bytes},
-      {"transverse_scratch", transverse_.size() * complex_bytes},
+       bytes_of(chunk_synthesis_, tail_synthesis_, chunk_projection_, tail_projection_,
+                chunk_projection_stacked_, tail_projection_stacked_) +
+           bytes_of(chunk_synthesis_complex_, tail_synthesis_complex_,
+                    chunk_projection_complex_, tail_projection_complex_,
+                    chunk_projection_stacked_complex_,
+                    tail_projection_stacked_complex_)},
+      {"transverse_scratch", bytes_of(transverse_)},
       {"spatial_coefficients",
-       (spatial_.square.size() + spatial_.square_low.size() +
-        spatial_.numerator.size() + spatial_.clamped.size() + spatial_.kappa.size()) *
-               complex_bytes +
-           (spatial_.transverse.size() + spatial_.transverse_low.size() +
-            spatial_.frame.size() + spatial_.spectral_rate.size() +
-            spatial_.absorber.size() + spatial_.transverse_rate.size()) *
-               real_bytes},
+       bytes_of(spatial_.square, spatial_.square_low, spatial_.numerator,
+                spatial_.clamped, spatial_.kappa) +
+           bytes_of(spatial_.transverse, spatial_.transverse_low, spatial_.frame,
+                    spatial_.spectral_rate, spatial_.absorber,
+                    spatial_.transverse_rate)},
       {"adams_history",
-       (adams_store_.size() + adams_slopes_.size() + adams_moments_.size() +
-        adams_source_.size() + adams_propagator_.size() + adams_exponent_.size() +
-        adams_saved_.size() + adams_held_.size() + adams_dense_start_.size() +
-        adams_dense_end_.size() + adams_dense_exponent_.size() + adams_states_.size() +
-        adams_rates_.size() + adams_carried_.size() + adams_dense_terms_.size() +
-        adams_lab_.size() + adams_endpoint_.size() + adams_endpoint_rate_.size() +
-        adams_block_.size() + adams_applied_.size() + adams_end_applied_.size()) *
-               complex_bytes +
+       bytes_of(adams_store_, adams_slopes_, adams_moments_, adams_source_,
+                adams_propagator_, adams_exponent_, adams_saved_, adams_held_,
+                adams_dense_start_, adams_dense_end_, adams_dense_exponent_,
+                adams_states_, adams_rates_, adams_carried_, adams_dense_terms_,
+                adams_lab_, adams_endpoint_, adams_endpoint_rate_, adams_block_,
+                adams_applied_, adams_end_applied_) +
            (adams_divisor_.size() + adams_rate_weights_.size() +
             adams_end_weights_.size() + adams_scale_weights_.size() +
             (adams_magnitude_sum_.data() != nullptr ? 1 : 0)) *
                real_bytes},
-      {"fixed_phi_terms", phi_terms_.size() * complex_bytes},
-      {"fixed_prefactor_terms", prefactor_terms_.size() * complex_bytes},
+      {"fixed_phi_terms", bytes_of(phi_terms_)},
+      {"fixed_prefactor_terms", bytes_of(prefactor_terms_)},
       {"z_tables", phi_table_.bytes() + prefactor_table_.bytes() + rate_table_.bytes()},
       // solprop SEP 34: a radial run's plane-measure squares and its material table
       // (a separable run's alias its operator's), and the magnetic closure's
       // transverse volume of a separable run's local flux statistics.
-      {"flux_coefficients",
-       problem_.separable_geometry()
-           ? 0
-           : (flux_.square.size() + flux_.square_low.size()) * complex_bytes +
-                 (flux_.transverse.size() + flux_.transverse_low.size()) * real_bytes},
+      {"flux_coefficients", problem_.separable_geometry()
+                                ? 0
+                                : bytes_of(flux_.square, flux_.square_low) +
+                                      bytes_of(flux_.transverse, flux_.transverse_low)},
       {"flux_table", flux_table_.bytes()},
-      {"flux_closure_transverse", flux_transverse_.size() * complex_bytes},
-      {"tableau", tableau_.size() * real_bytes},
-      {"stage_scalars",
-       (stage_phi_delta_.size() + stage_phi_at_.size() + stage_prefactor_.size() +
-        stage_density_.size() + stage_taper_.size() + stage_preionisation_.size()) *
-           real_bytes},
+      {"flux_closure_transverse", bytes_of(flux_transverse_)},
+      {"tableau", bytes_of(tableau_)},
+      {"stage_scalars", bytes_of(stage_phi_delta_, stage_phi_at_, stage_prefactor_,
+                                 stage_density_, stage_taper_, stage_preionisation_)},
       {"crop_index", crop_index_.size() * index_bytes},
       {"masks", (active_mask_.size() + norm_mask_.size()) * byte_bytes},
-      {"windows", (omega_window_.size() + time_window_.size()) * real_bytes},
-      {"spatial_statistics_geometry", spatial_spectral_weights_.size() * real_bytes +
-                                          spatial_on_axis_.size() * complex_bytes},
-      {"spatial_statistics_partials", spatial_statistics_partials_.size() * real_bytes},
+      {"windows", bytes_of(omega_window_, time_window_)},
+      {"spatial_statistics_geometry",
+       bytes_of(spatial_spectral_weights_) + bytes_of(spatial_on_axis_)},
+      {"spatial_statistics_partials", bytes_of(spatial_statistics_partials_)},
       {"far_field_partials", far_field_ ? far_field_->partial_bytes() : 0},
       {"far_field_tables", far_field_ ? far_field_->table_bytes() : 0},
-      {"statistics_frequency_axis", omega_.size() * real_bytes},
-      {"carrier", carrier_.size() * complex_bytes},
-      {"node_raman_drive", node_raman_drive_.size() * real_bytes},
-      {"node_raman_spectrum", node_raman_spectrum_.size() * complex_bytes},
-      {"node_raman_convolved", node_raman_convolved_.size() * real_bytes},
-      {"raman_undamped", raman_undamped_.size() * real_bytes},
-      {"raman_tensor_weights", raman_tensor_weights_.size() * real_bytes},
-      {"raman_kernel_time", raman_kernel_time_.size() * real_bytes},
-      {"raman_kernel_spectrum", raman_kernel_spectrum_.size() * complex_bytes},
-      {"stage_raman_rates", stage_raman_rates_.size() * real_bytes},
-      {"absorber_rates",
-       (absorber_fine_.size() + absorber_coarse_.size()) * real_bytes},
-      {"spatial_absorber_matrix", spatial_absorber_real_.size() * real_bytes +
-                                      spatial_absorber_complex_.size() * complex_bytes},
-      {"plasma_rate_table", rate_coefficients_.size() * real_bytes},
-      {"channel_parameters", channel_parameters_.size() * real_bytes},
-      {"channel_rate_tables", channel_coefficients_.size() * real_bytes},
-      {"channel_scratch", channel_scratch_.size() * real_bytes},
+      {"statistics_frequency_axis", bytes_of(omega_)},
+      {"carrier", bytes_of(carrier_)},
+      {"node_raman_drive", bytes_of(node_raman_drive_)},
+      {"node_raman_spectrum", bytes_of(node_raman_spectrum_)},
+      {"node_raman_convolved", bytes_of(node_raman_convolved_)},
+      {"raman_undamped", bytes_of(raman_undamped_)},
+      {"raman_tensor_weights", bytes_of(raman_tensor_weights_)},
+      {"raman_kernel_time", bytes_of(raman_kernel_time_)},
+      {"raman_kernel_spectrum",
+       bytes_of(raman_kernel_spectrum_, raman_kernel_narrowed_)},
+      {"stage_raman_rates", bytes_of(stage_raman_rates_)},
+      {"absorber_rates", bytes_of(absorber_fine_, absorber_coarse_)},
+      {"spatial_absorber_matrix",
+       bytes_of(spatial_absorber_real_) + bytes_of(spatial_absorber_complex_)},
+      {"plasma_rate_table", bytes_of(rate_coefficients_)},
+      {"channel_parameters", bytes_of(channel_parameters_)},
+      {"channel_rate_tables", bytes_of(channel_coefficients_)},
+      {"channel_scratch", bytes_of(channel_scratch_)},
       {"material_stage_values",
-       (stage_kerr_density_.size() + stage_plasma_density_.size() +
-        stage_raman_density_.size() + stage_channel_density_.size() +
-        stage_channel_preionisation_.size()) *
-           real_bytes},
+       bytes_of(stage_kerr_density_, stage_plasma_density_, stage_raman_density_,
+                stage_channel_density_, stage_channel_preionisation_,
+                stage_kerr_factor_, stage_raman_factor_)},
       {"raman_component_values",
        (stage_raman_densities_.size() + raman_row_component_.size() +
         raman_component_fraction_.size() + cached_raman_densities_.capacity()) *
            real_bytes},
-      {"plasma_stash", (stash_candidate_.size() + stash_current_.size()) * real_bytes},
-      {"plasma_statistics_scratch", plasma_statistics_scratch_.size() * real_bytes},
-      {"plasma_integration_diagnostics",
-       (plasma_taps_.size() + plasma_diagnostics_.size()) * real_bytes},
-      {"plasma_device_scan",
-       (plasma_rate_.size() + plasma_exposure_.size() + plasma_fraction_.size() +
-        plasma_current_integrand_.size() + plasma_free_current_.size() +
-        plasma_outer_current_.size() + band_tile_totals_.size()) *
-           real_bytes},
+      {"plasma_stash", bytes_of(stash_candidate_, stash_current_)},
+      {"plasma_statistics_scratch", bytes_of(plasma_statistics_scratch_)},
+      {"plasma_integration_diagnostics", bytes_of(plasma_taps_, plasma_diagnostics_)},
+      {"plasma_device_scan", bytes_of(plasma_rate_, plasma_exposure_, plasma_fraction_,
+                                      plasma_current_integrand_, plasma_free_current_,
+                                      plasma_outer_current_, band_tile_totals_)},
       {"error_partials", 3 * problem_.n_columns() * real_bytes},
       {"quadrature_partials", problem_.projection_coarse_matrix.empty()
                                   ? 0
                                   : 2 * problem_.n_columns() * real_bytes},
-      {"weighted_control",
-       (weighted_scale_.size() + weighted_partials_.size()) * real_bytes},
-      {"statistics_spectrum", statistics_spectrum_.size() * complex_bytes},
-      {"statistics_time", statistics_time_.size() * complex_bytes},
-      {"statistics_weighted_time", statistics_weighted_time_.size() * complex_bytes},
-      {"statistics_power_weight", statistics_power_weight_.size() * sizeof(double)},
-      {"statistics_power", statistics_power_.size() * real_bytes},
-      {"statistics_flux_magnitude", statistics_magnitude_.size() * real_bytes},
-      {"statistics_outputs", (statistics_total_power_.size() +
-                              statistics_on_axis_.size() + statistics_packed_.size()) *
-                                 real_bytes},
+      {"weighted_control", bytes_of(weighted_scale_, weighted_partials_)},
+      {"statistics_spectrum", bytes_of(statistics_spectrum_)},
+      {"statistics_time", bytes_of(statistics_time_)},
+      {"statistics_weighted_time", bytes_of(statistics_weighted_time_)},
+      {"statistics_power_weight", bytes_of(statistics_power_weight_)},
+      {"statistics_power", bytes_of(statistics_power_)},
+      {"statistics_flux_magnitude", bytes_of(statistics_magnitude_)},
+      {"statistics_outputs",
+       bytes_of(statistics_total_power_, statistics_on_axis_, statistics_packed_)},
       {"fft_plan_heap_growth", plan_heap_growth_},
       {"fft_plan_device_growth", plan_device_growth_},
   };

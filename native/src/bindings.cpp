@@ -1322,7 +1322,13 @@ nb::dict build_record() {
   result["coverage_instrumented"] =
       static_cast<bool>(SOLPROP_NATIVE_COVERAGE_INSTRUMENTED);
   result["coverage_source_hash"] = SOLPROP_NATIVE_COVERAGE_SOURCE_HASH;
-  result["precision"] = "complex128";
+  // The precision policies this build compiled, comma-separated (solprop SEP 36,
+  // SOLPROP_NATIVE_PRECISIONS).
+#if SOLPROP_NATIVE_SINGLE_BUILT
+  result["precisions"] = "double,single";
+#else
+  result["precisions"] = "double";
+#endif
   result["fft_normalization"] = "none (explicit inverse scaling)";
 #if defined(KOKKOS_ENABLE_CUDA)
   result["fft_planner"] = "Kokkos-FFT persistent Plan / cuFFT";

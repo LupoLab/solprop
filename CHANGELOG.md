@@ -176,7 +176,7 @@ The first public release. It contains:
   responses in binary32, with the controller and the propagator's exponent in binary64,
   every narrowed table at its own power-of-two exponent and the state at an exact scale.
   `numpy_ref` runs it as the single-precision reference (oracle) on the fibre, radial and
-  Cartesian routes; `numba_cpu` and `native` refuse it. Its default `rtol` is the
+  Cartesian routes; `numba_cpu` refuses it. Its default `rtol` is the
   floor `1e-6`, below which an explicit tolerance is refused, and its default integrator
   `RungeKutta()`; noise models and the Adams integrator are refused. A
   [survival record](https://solprop.readthedocs.io/en/latest/guide/performance/single-precision.html)
@@ -192,6 +192,18 @@ The first public release. It contains:
   - Under single precision a replayed step (or an adaptive floor) whose propagator
     exponent passes binary32's range, `exp(88.7)`, is refused at translation, and one
     within a tenth of it is warned of.
+  - The `native` backend runs single precision on the CPU fibre route
+    ([SEP 36](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0036-native-reduced-precision.html),
+    in progress): mode-averaged and multimode, field and envelope grids, Kerr, Raman
+    (scalar and tensor), the field-grid plasma, both absorber schemes, the Runge-Kutta
+    and low-storage marches and lockstep batches, validated against the reference
+    backend's single-precision path. Its propagators are evaluated in binary32 from a
+    binary64 argument reduced in binary64 first, within `10 u32`. A build compiles the
+    precision policies of `SOLPROP_NATIVE_PRECISIONS` (`double;single` on a CPU build)
+    and records them in `BuildInfo.precisions`, which replaces `BuildInfo.precision`;
+    `backend="auto"` chooses it under `precision="single"` where MLX is not available.
+    The spatial routes and the envelope-grid plasma are refused by name until SEP 36's
+    next phase.
 - **Mixed precision**
   ([SEP 36](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0036-native-reduced-precision.html),
   in progress). `precision="mixed"` keeps the state, every stored stage and history row,

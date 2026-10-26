@@ -48,6 +48,7 @@ from solprop.backends.numpy_ref.general_modal import (
 )
 from solprop.backends.numpy_ref.passes import plasma_integration_statistics
 from solprop.backends.populations import axis_refusal, population_statistics
+from solprop.backends.reduced import LaunchScale, check_range
 from solprop.backends.spatial import (
     AXIS_SPECTRUM_ONLY,
     FarFieldTables,
@@ -262,10 +263,16 @@ class NativeBackend(StepDriver[_core.State]):
         # solprop SEP 23: the far-field tables are formed once, which refuses a
         # geometry the far-field statistics do not admit before anything is built.
         self._far_field = FarFieldTables(problem)
-        self._native_state = _core.State(
-            _native_problem(problem, self._terms, self._flow, self._z_tables)
-            | _low_storage_payload(problem, device=_on_device())
-        )
+        payload = _native_problem(
+            problem, self._terms, self._flow, self._z_tables
+        ) | _low_storage_payload(problem, device=_on_device())
+        # solprop SEP 36: a single-precision state is held at the launch's scale `s`
+        # in the native core; its absolute tolerance is divided by `s` here.
+        launch = LaunchScale.of(problem) if problem.precision.reduced else None
+        self._scale = 1.0 if launch is None else launch.scale
+        self._scale_exponent = None if launch is None else launch.exponent
+        self._last_dz = math.nan
+        self._native_state = _core.State(payload | _precision_payload(problem, payload))
         if self._z_tables is not None:
             self._z_tables.upload(self._native_state)
         _upload_flux_table(self._native_state, problem)
@@ -286,6 +293,18 @@ class NativeBackend(StepDriver[_core.State]):
         # engine `_low_storage_engine` returns, built over the native state above.
         if isinstance(integrator, LowStorageRungeKutta):
             self._low_storage = LowStorageMarch(self, integrator)
+
+    @property
+    def _norm_controller(self) -> PIController:
+        """Return the controller with its absolute tolerance divided by ``s``.
+
+        Under single precision the native state is held as ``a / s`` (SEP 33 section
+        4.3), so its norms are the scaled state's and the tolerance is scaled to match.
+        """
+        controller = self._problem.stepper.controller
+        if self._scale == 1.0:
+            return controller
+        return dataclasses.replace(controller, atol=controller.atol / self._scale)
 
     def _apply_mask(self, state: ComplexArray) -> _core.State:
         self._last_loaded = np.ascontiguousarray(state.reshape(-1))
@@ -585,6 +604,7 @@ class NativeBackend(StepDriver[_core.State]):
         return source
 
     def _trial_step(self, z: float, dz: float) -> tuple[float, _core.State]:
+        self._last_dz = dz
         partials = self._prepare_trial(z, dz)
         return self._score_trial(partials), self._native_state
 
@@ -826,12 +846,28 @@ class NativeBackend(StepDriver[_core.State]):
             )
         return {"flow_section": section, "flow_weights": weights}
 
+    def _require_finite(self, squared: float, dz: float) -> None:
+        """Refuse a single-precision step whose state is not finite (SEP 33).
+
+        The step's squared state norm is read with every step on both marches, so the
+        check costs nothing; a binary64 run keeps its own behaviour.
+        """
+        if self._scale_exponent is None or math.isfinite(squared):
+            return
+        msg = (
+            f"solprop-native: the single-precision state is not finite after a step of "
+            f"{dz:.4g} m from z = {self._z:.6g} m: the field has diverged or left "
+            "binary32's range"
+        )
+        raise ConvergenceError(msg)
+
     def _score_trial(self, partials: RealArray) -> float:
         """Reduce one member's partials in the established singleton order."""
+        self._require_finite(float(np.asarray(partials[1]).sum()), self._last_dz)
         old = math.sqrt(float(np.asarray(partials[0], dtype=np.float64).sum()))
         new = math.sqrt(float(np.asarray(partials[1], dtype=np.float64).sum()))
         residual = math.sqrt(float(np.asarray(partials[2], dtype=np.float64).sum()))
-        scale = self._problem.stepper.controller.scale(old, new)
+        scale = self._norm_controller.scale(old, new)
         if isinstance(scale, np.ndarray):
             native_scale = np.ascontiguousarray(scale, dtype=np.float64)
             weighted = self._native_state.weighted_error(native_scale)
@@ -2000,6 +2036,7 @@ class _ResidentLowStorage:
             )
         if rebuild:
             self._table_step = key
+        backend._require_finite(float(squared), dz)  # pyright: ignore[reportPrivateUsage]
         return float(squared)
 
 
@@ -2253,11 +2290,7 @@ def _refuse_unsupported(problem: KernelProblem) -> None:
             f"{problem.schema_version}"
         )
     if problem.precision.reduced:
-        name = problem.precision.name
-        raise BackendError(
-            f"solprop-native computes in binary64 only and refuses precision={name!r} "
-            "(solprop SEP 36 adds it); use backend='numpy_ref', the oracle"
-        )
+        _refuse_reduced(problem)
     if problem.tdse is not None:
         raise BackendError(
             "solprop-native does not execute TDSEGasResponse (solprop SEP 12); "
@@ -2326,6 +2359,88 @@ The constant Schur section and the frozen-residual varying flow. The commutator-
 CF4 flow is solprop's reference backend's alone, and solprop's shared admission list
 refuses it here by name.
 """
+
+
+def _refuse_reduced(problem: KernelProblem) -> None:
+    """Refuse, by name, a reduced-precision problem this build does not run (SEP 36).
+
+    Single precision runs on the fibre route of a build that compiled it (phase 2); the
+    spatial routes and the envelope-grid plasma follow in phase 3, as does mixed
+    precision. The routes no backend runs in binary32 are refused by the problem's own
+    validation first.
+    """
+    name = problem.precision.name
+    if name != "single":
+        raise BackendError(
+            f"solprop-native refuses precision={name!r} until solprop SEP 36's phase 3 "
+            "builds it; use backend='numpy_ref', the oracle, or precision='double'"
+        )
+    if "single" not in build_info().precisions:
+        raise BackendError(
+            "this solprop-native build compiled binary64 alone and refuses "
+            "precision='single'; rebuild it with SOLPROP_NATIVE_PRECISIONS="
+            "'double;single' (the default of a CPU build), or use backend='numpy_ref'"
+        )
+    geometry = problem.transform.geometry
+    if geometry is not None:
+        raise BackendError(
+            f"solprop-native does not yet run the {geometry.kind} route under "
+            "precision='single' (solprop SEP 36 phase 3); use backend='numpy_ref', the "
+            "oracle, or precision='double'"
+        )
+    if problem.responses.envelope_plasma is not None:
+        raise BackendError(
+            "solprop-native does not yet run the envelope-grid plasma under "
+            "precision='single' (solprop SEP 36 phase 3); use backend='numpy_ref', the "
+            "oracle, or precision='double'"
+        )
+
+
+# The tables the single-precision oracle narrows once, with the names it refuses them
+# by (`solprop.backends.numpy_ref.single.NumpySingleBackend._upload`): the native core
+# rounds each once at upload, and refuses here, before anything is built, the tables
+# that would lose range (SEP 33 section 4.3).
+_NARROWED_TABLES = (
+    ("synthesis_matrix", "synthesis"),
+    ("projection_matrix", "projection"),
+    ("projection_coarse_matrix", "embedded"),
+    ("time_window", "t_window"),
+    ("time_window_derivative", "t_window_derivative"),
+    ("omega_window", "omega_window"),
+    ("absorber_fine", "temporal_rate"),
+    ("spatial_absorber_matrix", "spatial_absorber"),
+    ("carrier", "carrier"),
+)
+
+
+def _precision_payload(
+    problem: KernelProblem, payload: Mapping[str, object]
+) -> dict[str, object]:
+    """Return the problem's precision and launch scale for the native core.
+
+    Under single precision every narrowed table's range is checked first, as the oracle
+    checks it, and the prefactor terms (evaluated per stage in binary64 and rounded
+    once natively) are checked term by term.
+
+    Raises
+    ------
+    solprop.exceptions.BackendError
+        If a table would lose range on narrowing.
+    """
+    if not problem.precision.reduced:
+        return {"precision": "double", "scale_exponent": 0}
+    for key, name in _NARROWED_TABLES:
+        values = np.asarray(payload.get(key, np.empty(0)))
+        if values.size:
+            check_range(values, f"the {name} table")
+    prefactor = np.asarray(payload["prefactor_terms"])
+    if prefactor.size:
+        check_range(prefactor, "the prefactor terms")
+    omega = problem.grids.omega[problem.grids.active_mask]
+    if problem.responses.population_channels and omega.size:
+        check_range(1.0 / omega, "the held_current table")
+    launch = LaunchScale.of(problem)
+    return {"precision": problem.precision.name, "scale_exponent": launch.exponent}
 
 
 def _refuse_native_route(problem: KernelProblem) -> None:

@@ -105,16 +105,18 @@ def test_single_precision_takes_its_defaults_and_refuses_what_it_does_not_run():
             pulseshape="sech", precision="single",
         )  # fmt: skip
 
-    # "auto" is the GPU backend where MLX and a Metal device are present, and refused
+    # "auto" is the GPU backend where MLX and a Metal device are present, the native
+    # backend where its build runs single precision (SEP 36 phase 2), and refused
     # otherwise: never a binary64 backend, never the oracle (Q8).
     if metal_available():
         assert automatic().settings.backend == "mlx"
+    elif "single" in registry.native_precisions():
+        assert automatic().settings.backend == "native"
     else:
         with pytest.raises(DriverError, match="backend='auto'"):
             automatic()
-    for backend in ("numba_cpu", "native"):
-        with pytest.raises(DriverError, match="refuses precision='single'"):
-            dataclasses.replace(settings, backend=backend)
+    with pytest.raises(DriverError, match="refuses precision='single'"):
+        dataclasses.replace(settings, backend="numba_cpu")
     with pytest.raises(DriverError, match="Adams integrator"):
         dataclasses.replace(settings, integrator=Multistep())
     with pytest.raises(DriverError, match="floor"):
@@ -123,14 +125,17 @@ def test_single_precision_takes_its_defaults_and_refuses_what_it_does_not_run():
         )
 
 
-@pytest.mark.parametrize("name", ["numba_cpu", "native"])
-def test_the_compiled_backends_refuse_a_single_precision_problem(name):
-    """The refusal is the backend's own too, not only the settings' (SEP 33 5.2)."""
-    if name not in available():
-        pytest.skip(f"{name} is not installed")
+def test_the_compiled_backends_refuse_a_single_precision_problem():
+    """The refusal is the backend's own too, not only the settings' (SEP 33 5.2).
+
+    The native backend runs single precision where its build compiled it (SEP 36
+    phase 2; its refusals are ``test_native_single_precision.py``'s).
+    """
+    if "numba_cpu" not in available():
+        pytest.skip("numba_cpu is not installed")
     problem = gnlse("single").translate()
     with pytest.raises(BackendError, match="binary64 only"):
-        select(name, problem)
+        select("numba_cpu", problem)
 
 
 def test_a_step_whose_inverse_propagator_overflows_binary32_is_refused():
@@ -730,14 +735,17 @@ def test_the_envelope_plasma_runs_in_binary32_on_the_oracle():
     assert_within(fields[0], fields[1], 1e-5)
 
 
-def test_without_mlx_single_precision_lists_the_oracle_only(monkeypatch):
+def test_without_mlx_single_precision_lists_the_cpu_backends_only(monkeypatch):
     real = registry._satisfied
     monkeypatch.setattr(
         registry,
         "_satisfied",
         lambda entry: entry is not registry.BACKENDS["mlx"] and real(entry),
     )
-    assert available("single") == ("numpy_ref",)
+    # The oracle, and the native backend where it is installed (whose build refuses
+    # single precision by name when it did not compile it).
+    native = ("native",) if "native" in available() else ()
+    assert available("single") == ("numpy_ref", *native)
     assert not registry.metal_available()
     assert registry.statistics_refusal("mlx", ["beam_spectrum"]) is None
 

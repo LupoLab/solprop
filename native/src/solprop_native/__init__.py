@@ -197,8 +197,9 @@ shared stage and Adams code takes this backend's Chebyshev and basis helpers
 (``NativeBackend.helpers``); it is checked explicitly too. Schema 35 (solprop SEP 34)
 adds ``KernelProblem.flux``, the plane measure every spatial field statistic reads:
 this backend measures energy, spectra and local flux by it natively. Schema 36 (solprop
-SEP 33) adds ``KernelProblem.precision``: this backend computes in binary64 only and
-refuses a single-precision problem by name.
+SEP 33) adds ``KernelProblem.precision``: a build that compiled single precision
+(solprop SEP 36, ``BuildInfo.precisions``) runs a single-precision problem on the fibre
+route, and every build refuses mixed precision by name.
 
 solprop freezes this surface under its ``SCHEMA_VERSION`` (the test in its
 ``tests/backends/test_driver.py``); :func:`check_build` looks each member up so a
@@ -461,8 +462,12 @@ class BuildInfo:
     native_arch_enabled, aggressive_vectorization_enabled, ipo_enabled,
     fast_math_enabled, optimization_policy
         Optimization switches and the human-readable compiled policy.
-    precision, layout
-        Numerical scalar and field layout.
+    precisions
+        The precision policies the build compiled (solprop SEP 36), ``("double",)``
+        or ``("double", "single")``; the seam's arrays are complex128 under every
+        one.
+    layout
+        Field layout.
     python_version, numpy_version, platform_machine
         Host Python environment.
     """
@@ -536,7 +541,7 @@ class BuildInfo:
     ipo_enabled: bool
     fast_math_enabled: bool
     optimization_policy: str
-    precision: str
+    precisions: tuple[str, ...]
     layout: str
     python_version: str
     numpy_version: str
@@ -642,7 +647,7 @@ def build_info() -> BuildInfo:
         ipo_enabled=bool(record["ipo_enabled"]),
         fast_math_enabled=bool(record["fast_math_enabled"]),
         optimization_policy=str(record["optimization_policy"]),
-        precision=str(record["precision"]),
+        precisions=tuple(str(record["precisions"]).split(",")),
         layout=str(record["layout"]),
         python_version=platform.python_version(),
         numpy_version=np.__version__,
