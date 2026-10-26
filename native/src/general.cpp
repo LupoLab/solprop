@@ -199,6 +199,9 @@ void GeneralState::adams_exponential_observe(const double xi, const double dz,
 std::vector<double> GeneralState::weighted_error(const std::vector<double>& scale) {
   return SOLPROP_NATIVE_EACH(weighted_error(scale));
 }
+std::vector<double> GeneralState::last_stage_norms() {
+  return SOLPROP_NATIVE_EACH(last_stage_norms());
+}
 void GeneralState::set_flow_actions(const std::vector<Complex>& forward,
                                     const std::vector<Complex>& inverse,
                                     const std::vector<unsigned char>& identity) {

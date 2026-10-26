@@ -6,6 +6,8 @@
 
 #include <gtest/gtest.h>
 
+#include <Kokkos_Core.hpp>
+
 #include <cfloat>
 #include <cmath>
 #include <complex>
@@ -136,4 +138,39 @@ TEST(Propagator, ModulusDriftOverManyConstantStepsIsOfOrderStepsTimesUnit) {
                                       static_cast<double>(value.imag()));
     EXPECT_LE(std::abs(modulus - 1.0), 2.0 * steps * u32) << "theta = " << theta;
   }
+}
+
+// Named, not anonymous: an extended device lambda needs an enclosing function with
+// external linkage under nvcc.
+namespace solprop_native_test {
+// The mean of |p|^2 - 1 over `count` phases evenly spread over (-scale pi, scale pi],
+// for the binary32 propagator formed in the default execution space (a device on a
+// device build), in units of u32.
+double device_modulus_bias(const int count, const double scale) {
+  double total = 0.0;
+  const double pi = std::acos(-1.0);
+  Kokkos::parallel_reduce(
+      "solprop_native.test.propagator_bias",
+      Kokkos::RangePolicy<Kokkos::DefaultExecutionSpace>(0, count),
+      KOKKOS_LAMBDA(const int index, double& update) {
+        const double theta = scale * (-pi + 2.0 * pi * (index + 0.5) / count);
+        const auto value = native::propagator_exp<float>({0.0, theta});
+        const auto real = static_cast<double>(value.real());
+        const auto imag = static_cast<double>(value.imag());
+        update += real * real + imag * imag - 1.0;
+      },
+      total);
+  return total / count / u32;
+}
+} // namespace solprop_native_test
+
+TEST(Propagator, TheBinaryThirtyTwoModulusIsUnbiasedWhereItRuns) {
+  // A propagator multiplies the state once per step, so a mean bias of its squared
+  // modulus is an energy drift linear in the step count, which Kerr phase turns into
+  // a coherent field error (CUDA's sinf and cosf averaged +0.30 u32 on an A40). Rounded
+  // binary64 values average zero: over 2^22 phases the mean's spread is about
+  // 2^-11 u32, so 0.02 u32 is many standard deviations from both.
+  for (const double scale : {1.0, 1e4})
+    EXPECT_LE(std::abs(solprop_native_test::device_modulus_bias(1 << 22, scale)), 0.02)
+        << "phases up to " << scale << " pi";
 }

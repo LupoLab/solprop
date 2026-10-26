@@ -373,6 +373,54 @@ def test_the_propagator_drift_is_linear_in_the_step_count():
         assert_within(actual, exact, 12 * steps * U32, what=f"{steps} steps")
 
 
+def argon(precision: str, backend: str, energy: float) -> Simulation:
+    """A 0.4 m argon capillary without plasma on the survival study's 2500-step grid."""
+    return Simulation.from_capillary(
+        13e-6, 0.4, "Ar", 1.7, lambda0=800e-9, fwhm=30e-15, energy=energy,
+        loss=False, trange=400e-15, wavelength_limits=(300e-9, 4e-6), modes=1,
+        precision=precision, backend=backend, integrator=RungeKutta(),  # pyright: ignore[reportArgumentType]
+        schedule=FixedSchedule.uniform(0.0, 0.4, 0.4 / 2500, save_planes=[0.4]),
+        save_planes=[0.4], plasma=False,
+    )  # fmt: skip
+
+
+def test_the_propagator_is_as_unbiased_as_the_oracles_over_many_steps():
+    """A mean bias of the propagator's modulus is an energy drift linear in the steps.
+
+    A thousand steps of a lossless capillary: in the linear regime the energy drift per
+    step is the oracle's (whose propagator is the binary64 value rounded once) within
+    0.1 u32, and with Kerr phase, which turns a drift into a field error growing faster
+    than the step count, native is within twice the oracle's error. CUDA's ``sinf`` and
+    ``cosf`` averaged ``+0.30 u32`` in the squared modulus and failed both by a factor
+    of five and more (SEP 36 section 4.3).
+    """
+    steps, dz = 1000, 0.4 / 2500
+    drift, error = {}, {}
+    for energy in (3e-12, 3e-6):
+        fields = {}
+        for precision, name in (
+            ("double", "native"),
+            ("single", "native"),
+            ("single", "numpy_ref"),
+        ):
+            with ExitStack() as cleanup:
+                backend = loaded(argon(precision, name, energy), name, cleanup)
+                start = backend.observe().require_field().copy()
+                backend.propagate_to(steps * dz)
+                end = backend.observe().require_field().copy()
+            fields[precision, name] = end
+            if energy == 3e-12:
+                drift[name] = np.sum(np.abs(end) ** 2) / np.sum(np.abs(start) ** 2) - 1
+        reference = fields["double", "native"]
+        for name in ("native", "numpy_ref"):
+            error[energy, name] = float(
+                np.linalg.norm(fields["single", name] - reference)
+                / np.linalg.norm(reference)
+            )
+    assert abs(drift["native"] - drift["numpy_ref"]) <= 0.1 * steps * U32, drift
+    assert error[3e-6, "native"] <= 2.0 * error[3e-6, "numpy_ref"], error
+
+
 @pytest.mark.parametrize("march", ["adaptive", "replayed", "low_storage"])
 def test_a_non_finite_state_stops_every_march(march):
     simulation = {

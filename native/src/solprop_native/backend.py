@@ -274,6 +274,7 @@ class NativeBackend(StepDriver[_core.State]):
         self._scale = launch.scale if launch is not None and held else 1.0
         self._scale_exponent = None if launch is None else launch.exponent
         self._last_dz = math.nan
+        self._trial_old_norm: float | None = None
         try:
             self._native_state = _core.State(
                 payload | _precision_payload(problem, payload)
@@ -875,6 +876,8 @@ class NativeBackend(StepDriver[_core.State]):
         """Reduce one member's partials in the established singleton order."""
         self._require_finite(float(np.asarray(partials[1]).sum()), self._last_dz)
         old = math.sqrt(float(np.asarray(partials[0], dtype=np.float64).sum()))
+        # The anchor's norm, which the rounding-margin indicator divides by.
+        self._trial_old_norm = old
         new = math.sqrt(float(np.asarray(partials[1], dtype=np.float64).sum()))
         residual = math.sqrt(float(np.asarray(partials[2], dtype=np.float64).sum()))
         scale = self._norm_controller.scale(old, new)
@@ -883,6 +886,21 @@ class NativeBackend(StepDriver[_core.State]):
             weighted = self._native_state.weighted_error(native_scale)
             return math.sqrt(float(np.asarray(weighted).sum()))
         return residual / float(scale)
+
+    def _step_phase(self, dz: float) -> float | None:
+        # The indicator's phase (solprop SEP 36 section 5): the last stage's in-band
+        # norm, one extra reduction per accepted step of a run that records it, over
+        # the anchor's norm from the same trial's partials. The Adams and low-storage
+        # marches keep no Runge-Kutta stages and supply none.
+        if self._adams is not None or self._low_storage is not None:
+            return None
+        old, self._trial_old_norm = self._trial_old_norm, None
+        if old is None:
+            return None
+        if old == 0.0:
+            return math.nan
+        stage = float(np.asarray(self._native_state.last_stage_norms()).sum())
+        return dz * math.sqrt(stage) / old
 
     def _finish(self, state: _core.State, dz: float) -> _core.State:
         if state is not self._native_state:

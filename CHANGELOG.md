@@ -179,7 +179,7 @@ The first public release. It contains:
   Cartesian routes; `numba_cpu` refuses it. Its default `rtol` is the
   floor `1e-6`, below which an explicit tolerance is refused, and its default integrator
   `RungeKutta()`; noise models and the Adams integrator are refused. A
-  [survival record](https://solprop.readthedocs.io/en/latest/guide/performance/single-precision.html)
+  [survival record](https://solprop.readthedocs.io/en/latest/guide/performance/reduced-precision.html)
   states which problems keep their accuracy. Every run records its precision in its
   configuration, so a resume in another precision is refused.
   - The `mlx` backend (`pip install solprop[mlx]`, macOS on Apple silicon) runs
@@ -198,9 +198,12 @@ The first public release. It contains:
     grids), the radial, Cartesian and line free-space routes, Kerr, Raman (scalar and
     tensor), the field-grid and envelope-grid plasma, both absorber schemes, the
     Runge-Kutta and low-storage marches and lockstep batches, validated against the
-    reference backend's single-precision path. Its propagators are evaluated in binary32
-    from a binary64 argument reduced in binary64 first, within `10 u32`; its statistics
-    are binary64 reductions of the physical state. A build compiles the precision
+    reference backend's single-precision path. Its propagators are the binary64
+    functions rounded once, unbiased (binary32 `sinf` and `cosf` on one GPU library
+    biased the modulus by `+0.3 u32` per step, an energy drift that Kerr phase turned
+    into a coherent field error); its statistics are binary64 reductions of the physical
+    state. GPU builds run both reduced precisions, with their matrix products set to
+    strict binary32 and probed at construction, and the source one team per node. A build compiles the precision
     policies of `SOLPROP_NATIVE_PRECISIONS` (`double;single;mixed` on a CPU build) and
     records them in `BuildInfo.precisions`, which replaces `BuildInfo.precision`;
     `backend="auto"` chooses it under `precision="single"` where MLX is not available.
@@ -219,6 +222,11 @@ The first public release. It contains:
   models and the Adams integrator are refused until the survival studies admit them.
   `backend="auto"` resolves a reduced precision to `native` when its build compiles the
   mode (kernel schema 37, output schema 26).
+  A noise-seeded mixed run records a heuristic rounding margin in its execution
+  metadata (`rounding_margin`), and the noise study's tools are public:
+  `processing.coherence.band_coherence` and `spectral_bands`, and
+  `FixedSchedule.from_history`, which replays a run's accepted steps. The user guide's
+  *Single precision* page is now *Reduced precision*.
 - **The native backend.**
   - Native CPU optimisation: a coherent NEON FFTW build for Apple silicon, long-row
     Raman planning with a compact FFTW/vDSP selection rule, and deferred embedded

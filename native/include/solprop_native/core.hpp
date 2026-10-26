@@ -646,6 +646,8 @@ public:
   [[nodiscard]] std::vector<Complex>
   phase_sum_to_host(const std::vector<double>& weights);
   [[nodiscard]] std::vector<double> weighted_error(const std::vector<double>& scale);
+  /** The last trial's last stage, its in-band squared norm per column (SEP 36). */
+  [[nodiscard]] std::vector<double> last_stage_norms();
   /** Load a coupled flow's actions; see `CoupledFlowAction::set_actions`. */
   void set_flow_actions(const std::vector<Complex>& forward,
                         const std::vector<Complex>& inverse,

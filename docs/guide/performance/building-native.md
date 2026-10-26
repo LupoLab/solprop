@@ -28,7 +28,7 @@ the arithmetic is double precision throughout, and no build enables fast-math.
 | C++20 compiler, CUDA | GCC 14 or newer as the host compiler, with `nvcc` from CUDA 12.8 or newer (qualified on CUDA 13) |
 | C++20 compiler, HIP | ROCm's Clang (`hipcc` or `amdclang++`) |
 | OpenMP (CPU builds) | the compiler's runtime; on macOS Homebrew's `libomp` |
-| FFT (CPU builds) | FFTW 3 with its threaded libraries, in double and single precision (or MKL's FFTW interface) |
+| FFT (CPU builds) | FFTW 3 with its threaded libraries, in double and single precision (or MKL's FFTW interface): the single-precision libraries (`libfftw3f` and `libfftw3f_omp` or `libfftw3f_threads`) are the transforms of [single and mixed precision](reduced-precision.md); an FFTW built from source needs a second configuration with `--enable-float` |
 | BLAS (CPU builds) | optional but recommended: Accelerate (macOS), OpenBLAS, MKL or another LP64 BLAS |
 | GPU libraries | cuFFT and cuBLAS (CUDA), or rocFFT and rocBLAS (HIP) |
 | network | configuring fetches the pinned dependencies below from GitHub (see [offline builds](#offline-builds)) |
@@ -184,13 +184,15 @@ object suitable for a run log:
 - **execution:** `execution_space`, `host_execution_space`, `device_backend`,
   `device_arch`, `device_count`, `openmp_enabled`, `openmp_library`;
 - **FFT:** `fft_backend`, `fft_planner`, `fft_normalization`, `fft_library`,
-  `raman_fft_option`, `raman_fft_library`;
+  `fft_binary32_library` (the binary32 transform the reduced precisions load: FFTW's
+  `fftwf_execute`, cuFFT or rocFFT), `raman_fft_option`, `raman_fft_library`;
 - **threads:** `requested_threads`, `runtime_threads`, `thread_count`, `fftw_threads`,
   `raman_fft_threads`, `raman_tail_fft_threads`, `threaded_fft_min_samples`
   ([Performance tuning](tuning.md#the-native-backends-pools));
 - **compilation:** `compiler`, `compiler_family`, `compiler_flags`, `cxx_standard`,
   `build_type`, `native_arch_enabled`, `aggressive_vectorization_enabled`,
-  `ipo_enabled`, `fast_math_enabled`, `optimization_policy`, `precision`, `layout`;
+  `ipo_enabled`, `fast_math_enabled`, `optimization_policy`, `precisions` (the
+  compiled precision policies, `SOLPROP_NATIVE_PRECISIONS`), `layout`;
 - **host:** `python_version`, `numpy_version`, `platform_machine`.
 
 The library paths (`fft_library`, `blas_library`, `openmp_library`) are the files
@@ -205,7 +207,8 @@ hand through `CXXFLAGS` appear in `compiler_flags`.
 `check_build(problem=None)` raises `solprop.exceptions.BackendError` when the installed
 solprop lacks a driver member or bundle field the build relies on (it names them);
 when `problem` declares a different kernel-contract schema; when the build enables
-fast-math; when the execution-space record is inconsistent; when a GPU build sees no
+fast-math; when the build compiled a reduced precision but loads no binary32
+transform; when the execution-space record is inconsistent; when a GPU build sees no
 device; when the GEMM provider is unknown or its BLAS is missing or unidentified; when
 a reference build carries a vendor BLAS or machine-specific code, or a distribution
 build carries native code or no BLAS; and when a GPU build's BLAS is not the device's.
@@ -341,7 +344,7 @@ The options are read by `native/CMakeLists.txt` and `native/cmake/HostLibraries.
 | `SOLPROP_NATIVE_DEVICE_TEAM_SIZE` | `256` | the maximum GPU response and scan team width: 64, 128, 256, 512 or 1024 (the `cuda` presets use 512) |
 | `SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE` | `512` | the GPU deterministic-reduction block width: 64, 128, 256, 512 or 1024 |
 | `SOLPROP_NATIVE_BAND_STAGING` | `ON` for HIP, else `OFF` | how the field plasma column's band rule reads its halo: `ON` stages each band filter's input row in team scratch, a tile of 1,024 samples at a time, instead of reading it directly from the row. The arithmetic is the same; each default is the faster on its vendor's devices |
-| `SOLPROP_NATIVE_PRECISIONS` | `double;single;mixed` | the precision policies the native core instantiates, a `;`-separated list, each in its own translation unit and recorded in `BuildInfo.precisions`. Every build includes `double` |
+| `SOLPROP_NATIVE_PRECISIONS` | `double;single;mixed` | the precision policies the native core instantiates, a `;`-separated list, each in its own translation unit and recorded in `BuildInfo.precisions`, on CPU and GPU builds alike. Every build includes `double`; leaving `single` or `mixed` out shortens the build and shrinks the extension (on a CPU build, about 6, 10 and 14 MB for one, two and three policies), and the backend then refuses that precision by name ([reduced precision](reduced-precision.md)) |
 
 **BLAS and dense transforms**
 
@@ -386,6 +389,7 @@ OpenBLAS is.
 `native/CMakePresets.json` defines development builds, all with `BUILD_TESTING=ON`:
 `cpu-debug`, `cpu-tidy` and `cpu-sanitize` (reference profile, Debug), `cpu-benchmark`
 (local, Release, IPO and benchmarks), the CUDA builds `cuda` (hybrid GEMM with cuBLAS),
+`cuda-ampere` (the same for an Ampere `sm_86` GPU such as the A40, `AMPERE86`),
 `cuda-tpl`, `cuda-native` and `cuda-custom` (the other GEMM providers, for comparison),
 and `hip`. The presets do not choose a compiler: pass `-DCMAKE_CXX_COMPILER=...` (on
 macOS, Homebrew's `clang++`) and `-DPython_EXECUTABLE=...`.
@@ -505,6 +509,26 @@ uv pip install --python /path/to/env/bin/python . ./native
 If the ROCm installation lacks `clang-scan-deps`, add `-DCMAKE_CXX_SCAN_FOR_MODULES=OFF`
 (the package uses no C++ modules). The `hip` preset configures the same build for
 development.
+
+### Reduced precision on a GPU
+
+A GPU build compiles single and mixed precision by default (`SOLPROP_NATIVE_PRECISIONS`)
+and uses the device's binary32 transforms and matrix products for them. Two vendor
+modes would break their accuracy and are refused:
+
+- **TF32 and `xf32` matrix products.** cuBLAS may compute binary32 products in TF32, and
+  rocBLAS in `xf32`, with unit roundoffs of $2^{-11}$ and coarser. Under a reduced
+  precision the backend sets the strict math mode on the handle its products use
+  (`CUBLAS_PEDANTIC_MATH`, or rocBLAS's default mode), then multiplies small Gaussian
+  factors through every product family the run issues against a binary64 reference.
+  An error above $2^{-17}$ refuses the run with the error and the family; with CUDA,
+  `NVIDIA_TF32_OVERRIDE=0` is one remedy. The largest error is recorded in the run's
+  execution metadata as `gemm_probe_error`.
+- **Flushing subnormals.** The build refuses `-ftz=true`, `--use_fast_math` and
+  `-fgpu-flush-denormals-to-zero` in its compiler flags; binary32 keeps its subnormals.
+
+Binary64 runs on a GPU build are unchanged by either. The `cuda-ampere` preset is the
+build the reduced modes are qualified with on an NVIDIA A40.
 
 ### After a GPU build
 

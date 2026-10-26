@@ -13,7 +13,7 @@ configuration; a faster backend does not select a different physical model.
 | `numpy_ref` | plain NumPy, the **reference**: every other backend is tested against it | checking a result; the few representations only it runs (`CoherentWall(method="cf4")`, with `integrator=RungeKutta()`); small problems where compiling costs more than running |
 | `numba_cpu` | compiled kernels shipped with solprop, with its own thread pools | the default when the native backend is not installed; problems the native backend refuses; many single-threaded scan workers |
 | `native` | the [native backend](native.md), the optional solprop-native distribution built from the repository's `native/` directory: OpenMP, FFTW and a vendor BLAS on a CPU, or CUDA/HIP on a GPU | the default when installed, and usually the fastest for large runs, the general modal route, moving solid guides and the coherent wall |
-| `mlx` | the Apple-silicon GPU through Apple's MLX, in **single precision only** ([single precision](single-precision.md)); the `mlx` extra, macOS on Apple silicon | `precision="single"` capillary and fibre runs on a Mac, where it is the `"auto"` choice; it refuses `precision="double"` |
+| `mlx` | the Apple-silicon GPU through Apple's MLX, in **single precision only** ([reduced precision](reduced-precision.md)); the `mlx` extra, macOS on Apple silicon | `precision="single"` capillary and fibre runs on a Mac, where it is the `"auto"` choice; it refuses `precision="double"` |
 
 `backend="auto"`, the default of every entry point, is `"native"` when `solprop_native`
 is installed and `"numba_cpu"` otherwise; under `precision="single"` it is `"mlx"` when
@@ -119,7 +119,7 @@ or its numerical accuracy.
 Apple silicon, and with it the `mlx` backend
 ([SEP 33](../../dev/seps/archive/sep-0033-single-precision-mlx.md)). Apple GPUs have no binary64
 arithmetic, so it runs `precision="single"` only, under the contract and with the
-accuracy record of [single precision](single-precision.md); it is validated against the
+accuracy record of [reduced precision](reduced-precision.md); it is validated against the
 reference backend's single-precision path. It runs the capillary and fibre routes
 (mode-averaged and multimode, field and envelope grids, Kerr, Raman, field-grid plasma,
 both absorber schemes, Runge–Kutta and the low-storage march, lockstep batches) and

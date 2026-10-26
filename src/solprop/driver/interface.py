@@ -571,7 +571,7 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         :func:`solprop.backends.registry.available` lists what can be used.
     precision : {'double', 'single', 'mixed'}, optional
         The arithmetic the run is held in (SEP 33, SEP 36,
-        ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is
+        ``docs/guide/performance/reduced-precision.md``). ``"double"``, the default, is
         binary64 throughout. ``"single"`` holds the state and the source evaluation in
         binary32; ``"mixed"`` holds the state and every stored row in binary64 and the
         source evaluation in binary32. Each takes `rtol` by default at the larger of
@@ -1011,7 +1011,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         and otherwise use Numba CPU. Import or construction errors do not fall back.
     precision : {'double', 'single', 'mixed'}, optional
         The arithmetic the run is held in (SEP 33, SEP 36,
-        ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is
+        ``docs/guide/performance/reduced-precision.md``). ``"double"``, the default, is
         binary64 throughout. ``"single"`` holds the state and the source evaluation in
         binary32; ``"mixed"`` holds the state and every stored row in binary64 and the
         source evaluation in binary32. Each takes `rtol` by default at the larger of
@@ -1470,7 +1470,7 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         and otherwise use Numba CPU. Import or construction errors do not fall back.
     precision : {'double', 'single', 'mixed'}, optional
         The arithmetic the run is held in (SEP 33, SEP 36,
-        ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is
+        ``docs/guide/performance/reduced-precision.md``). ``"double"``, the default, is
         binary64 throughout. ``"single"`` holds the state and the source evaluation in
         binary32; ``"mixed"`` holds the state and every stored row in binary64 and the
         source evaluation in binary32. Each takes `rtol` by default at the larger of

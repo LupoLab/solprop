@@ -14,6 +14,7 @@ from solprop.backends.batch import LockstepRunner, _refuse_invalid_norm
 from solprop.backends.driver import StepDriver
 from solprop.backends.numpy_ref import passes
 from solprop.backends.numpy_ref.backend import NumpyRefBackend
+from solprop.backends.rounding_margin import step_phase
 from solprop.exceptions import BackendError
 
 __all__ = ["NumpyBatchBackend"]
@@ -160,6 +161,15 @@ class NumpyBatchBackend(LockstepRunner):
             for i, member in enumerate(members)
         )
         _refuse_invalid_norm(self._member_norms, "reference")
+        for i, member in enumerate(members):
+            if member._margin is not None and member._margin.active:
+                # Each member's own indicator phase (SEP 36 section 5).
+                member._trial_phase = step_phase(
+                    state[i : i + 1],
+                    stages[-1][i : i + 1],
+                    dz,
+                    member._problem.grids.norm_mask,
+                )
         return max(self._member_norms), tuple(
             advanced[i : i + 1] for i in range(len(members))
         )

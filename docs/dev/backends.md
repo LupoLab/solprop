@@ -377,8 +377,9 @@ stable population forms and blocked running integrals
 squares against `atol / s`; and checks after every trial that the state and stages stayed
 complex64 and after every step that the state is finite. The ionisation rate's table
 lookup, the envelope-grid plasma's cycle moments and the statistics are evaluated in
-binary64 from the binary32 field, which is what the oracle defines. `numba_cpu` and
-`native` refuse a single-precision problem by name.
+binary64 from the binary32 field, which is what the oracle defines. `numba_cpu` refuses
+a single-precision problem by name; `native` runs it (SEP 36) when its build compiled
+the policy.
 
 **Mixed precision** ([SEP 36](seps/sep-0036-native-reduced-precision.md), ADR-055). A
 problem whose `precision` is mixed is executed by `NumpyMixedBackend`
@@ -395,6 +396,19 @@ binary64 inverse propagator, and stored in complex128. Every stored row -- Runge
 stages, low-storage registers, the Adams history, dense-output rows -- is therefore
 binary64 and no step's damping is restricted. Dtype guards refuse a binary32 array in a
 stored row and a binary64 array inside the source by name.
+
+**The rounding-margin indicator** (SEP 36 section 5,
+`backends/rounding_margin.py`). A mixed run with a noise model keeps
+`StepDriver._margin`: each accepted Runge–Kutta step adds `phi^2`, `phi = dz
+||k_last|| / ||A||` in the controller's in-band L2 (`_step_phase`: `numpy_ref` forms it
+from the trial's last stage and anchor, `native` from one extra in-band reduction of its
+last stage row, `last_stage_norms`, over the trial's old-norm partial), and `observe`
+records `sigma_r`, the seed's `sigma_q` and their ratio in dB per saved plane. The record
+sits in `metadata()["rounding_margin"]`, so the execution record of every checkpoint
+carries the running sum; `Simulation` restores it on a resume
+(`restore_rounding_margin`) and `set_initial` resets it. The low-storage and Adams
+marches supply no last stage: the record then says the values are absent and why, as it
+does for a mixed run without a noise model.
 
 **Selection.** `backends/registry.py`: `available()` detects with
 `importlib.util.find_spec` and never caches; `select(name, problem, *, grid, modes,
@@ -1799,8 +1813,8 @@ that execution space.
 | field-free observation (`observe(field=False)`), the runner, a transverse collar's rate and a set evanescent rate on the separable element | yes | yes | yes (field-free observation needs no native change; the rate is one view in `SpatialCoefficients`) | compiles; not qualified |
 | materials from optmat: gas Raman leaves of many rows on gradients, rate tables, optmat walls, the silica bundles | yes | yes | yes | not qualified |
 | coupling between runs (`field_plane`, `regrid`, `couple`, `Outcouple`, `transport`, `with_input`; SEP 31) | host-side: any source and receiving backend | host-side | host-side | receiving runs not qualified |
-| single precision (`precision="single"`, SEP 33): fibre, radial and Cartesian routes, Kerr, Raman, field and envelope plasma, both absorber schemes, Runge–Kutta and the low-storage march, fixed-schedule batches | the oracle | refused | refused | refused; `mlx` runs every route but the envelope-grid plasma (below) |
-| mixed precision (`precision="mixed"`, SEP 36): the same capabilities, with no damping limit; Adams and noise through the study's private admission only | the oracle | refused | refused | refused; `mlx` refuses it (no binary64 on Apple GPUs) |
+| single precision (`precision="single"`, SEP 33, SEP 36): fibre, radial and Cartesian routes, Kerr, Raman, field and envelope plasma, both absorber schemes, Runge–Kutta and the low-storage march, fixed-schedule batches | the oracle | refused | yes, class R against the oracle (SEP 36 phases 2–3), when `SOLPROP_NATIVE_PRECISIONS` compiled it | yes: qualified on an A40 (CUDA, SEP 36 phase 4), compiled for HIP; matrix products in strict binary32 and probed; `mlx` also runs every route |
+| mixed precision (`precision="mixed"`, SEP 36): the same capabilities, with no damping limit; Adams and noise through the study's private admission only | the oracle | refused | yes, class R against the oracle (phase 3), when compiled | yes: qualified on an A40, compiled for HIP; `mlx` refuses it (no binary64 on Apple GPUs) |
 
 **Materials from optmat** ([SEP 3](seps/archive/sep-0003-optmat-materials.md), a run under
 `MaterialSelection`) reach the backends as the arrays any other run carries: index and
@@ -1850,14 +1864,15 @@ Which backend and build to choose for a run is the user guide's
 ## 11. Current limits
 
 - `"cf4"` coupled-flow sections run only on `numpy_ref`.
-- Single precision runs on `numpy_ref`, its oracle, and on `mlx` (the fibre, radial and
-  Cartesian routes); it
+- Single precision runs on `numpy_ref`, its oracle, on `native` (CPU and GPU builds that
+  compile it) and on `mlx` (the fibre, radial and Cartesian routes); it
   refuses the general modal route, the hybrid planar kind, coupled flows, TDSE responses,
   the dispersive electronic response, the far-field statistics, noise models, the Adams
   integrator and an adaptive `rtol` below `1e-6`.
-- Mixed precision runs on `numpy_ref`, its oracle, only (SEP 36 phase 1); it refuses the
-  same routes and responses as single precision, noise models and the Adams integrator
-  until SEP 36's studies admit them, and an adaptive `rtol` below `1e-8`.
+- Mixed precision runs on `numpy_ref`, its oracle, and on `native` (CPU and GPU builds
+  that compile it); it refuses the same routes and responses as single precision, noise
+  models and the Adams integrator until SEP 36's studies admit them, and an adaptive
+  `rtol` below `1e-8`.
 - The dispersive electronic response runs on `numpy_ref`, `numba_cpu` and `native` on
   every route; on a device it is qualified on one AMD Instinct generation (HIP) and one
   NVIDIA Hopper device (CUDA); a polynomial mixture costs one group per distinct leg

@@ -45,10 +45,14 @@ def gnlse(  # noqa: PLR0913 - the case's own knobs
     taper: bool = False,
     betas: list[float] | None = None,
     shock: bool = True,
+    noise: str | None = None,
+    seed: int | None = None,
+    backend: str = "numpy_ref",
 ) -> Simulation:
     """Return a 1024-bin soliton fibre, replayed on a uniform schedule by default.
 
-    `betas` replaces the dispersion (from ``beta0``), `shock` the self-steepening.
+    `betas` replaces the dispersion (from ``beta0``), `shock` the self-steepening,
+    `noise` and `seed` seed it with a noise model.
     """
     schedule = (
         None
@@ -66,8 +70,10 @@ def gnlse(  # noqa: PLR0913 - the case's own knobs
         peak_power=power,
         pulseshape="sech",
         save_planes=[length],
-        backend="numpy_ref",
+        backend=backend,
         precision=precision,  # pyright: ignore[reportArgumentType]
+        noise=noise,  # pyright: ignore[reportArgumentType]
+        seed=seed,
         schedule=schedule,
         integrator=RungeKutta() if integrator is None else integrator,
         raman=raman,

@@ -244,7 +244,7 @@ can therefore qualify noise where single cannot (§4.4).
   through hooks of the reference (`_upload`, `_propagator`, `_rounded`, `_error_norm`,
   `_finish`, `_envelope_sources` and others). ADR-054 records single precision as an
   opt-in arithmetic validated against its oracle. The manual page
-  [Single precision](../../guide/performance/single-precision.md) carries the survival
+  [Reduced precision](../../guide/performance/reduced-precision.md) carries the survival
   record.
 - **What SEP 33 measured** (its Part II):
   - Every survival case survives in binary32 at the floor except the reduced
@@ -479,6 +479,28 @@ range.
   the accurate form adds a few binary64 operations per bin and is timed in phase 2.
   MLX's double-float kernel (SEP 33) reduces both parts too. This makes explicit what
   "binary64-accurate, then rounded" requires of any binary32 evaluation.
+
+  **Amended in phase 5 (2026-10-26): the binary64 functions, rounded once.** The
+  range-reduced binary32 functions meet the bound but not unbiasedness. On the A40,
+  CUDA's `sinf` and `cosf` make the squared modulus $\cos^2\rho + \sin^2\rho$ average
+  $1 + 0.30\,u_{32}$ over the phases, where the CPU libraries' and the rounded binary64
+  values average 1. The propagator multiplies the state once per step, so that bias is
+  an energy drift linear in the step count, and Kerr phase turns it into a field error
+  that grows faster than the step count. In the argon survival case (2500 steps) native
+  single on the A40 reached a field error of $1.6 \times 10^{-3}$ and an ionised-fraction
+  error of $1.4 \times 10^{-3}$, against $1.3 \times 10^{-4}$ and $5 \times 10^{-5}$ on
+  the CPU. The CPU form drifted too, by about $+0.25\,u_{32}$ per step against the
+  oracle's $-0.24\,u_{32}$, and its Kerr-only error after 1000 steps was four times the
+  oracle's. Native single therefore evaluates $e^{x}$, $\cos\theta$ and $\sin\theta$ with
+  the binary64 library and rounds each once, as the oracle does. The relative error is
+  at most $3\,u_{32}$, the rounding is unbiased, and on the CPU the drift and the Kerr
+  error now match the oracle's (−1.40 against −1.44 × 10⁻⁵ over 1000 steps; 1.7 against
+  1.9 × 10⁻⁵). On the A40 the 2500-step argon run's field error fell from
+  $2.0 \times 10^{-3}$ to $9.9 \times 10^{-5}$ on a fixed schedule, and its Kerr-only error
+  from $2.4 \times 10^{-3}$ to $9.8 \times 10^{-5}$. The binary64 functions cost a few binary64 operations per bin and stage.
+  That is small beside a step's transforms, even at the A40's binary64 rate. A C++ test
+  measures the mean modulus bias in the execution space the build runs on, and a
+  Python test compares the drift with the oracle's over 1000 steps.
 - **Mixed.** The propagator multiplies a binary64 state, so a binary32 propagator would
   bring back SEP 33's coherent drift, $c\,M\,u_{32}$. It is formed and kept in binary64
   by the library's binary64 functions, as in the binary64 path. Its cost on
@@ -1675,7 +1697,8 @@ candidate tolerance on `rdw` and `argon`). Phase 2 proceeds.
 - The §4.3 binary32 exponential (`propagator.hpp`): `exp(x) = 2^m e^r` with a two-part
   `ln 2` (head of 29 significant bits), the phase reduced by a three-part `2π` (heads of
   25 bits) for `|θ| <= 2^30` and by the binary64 library above, then `expf`, `sinf` and
-  `cosf`; the inverse shares the phasor with its own modulus. The constants were checked
+  `cosf`; the inverse shares the phasor with its own modulus. (Replaced in phase 5 by the binary64
+  functions rounded once, after the A40's biased `sinf` and `cosf`; see §4.3.) The constants were checked
   against 300-bit references (the `ln 2` split within 2e-27, the `2π` split within
   5e-32). C++ tests check the 10 `u32` bound over both ranges' ends, the −80.000003
   witness, phases past `2^30`, the inverse and the modulus drift over 10⁴ steps.

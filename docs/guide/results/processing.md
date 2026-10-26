@@ -400,6 +400,14 @@ than $N^2$ slices. Identical realisations give exactly one; independent ones giv
 the mean. The diagonal $i = j$ is excluded deliberately: keeping the self-terms in the
 numerator would give $1/N$ rather than zero for a fully incoherent ensemble.
 
+{py:func}`~solprop.processing.coherence.band_coherence` reduces the coherence to one
+number per band, to compare two ensembles band by band: the occupied span of a reference
+ensemble's mean spectrum is cut into 32 equal bands
+({py:func}`~solprop.processing.coherence.spectral_bands`), and each band's coherence is
+its bins' $g_{12}$ weighted by that mean spectrum. Bands below −30 dB of the strongest
+band are not scored. Because the reference chooses the bands and the weights, two
+ensembles judged against one reference are averaged over the same bins in the same way.
+
 ## A worked example
 
 ```{code-block} python

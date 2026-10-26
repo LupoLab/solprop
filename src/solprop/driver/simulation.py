@@ -535,7 +535,7 @@ class SimulationSettings(Displayed):
         An installed backend's import or construction errors never trigger a fallback.
     precision : {'double', 'single', 'mixed'}
         The arithmetic the run is held in (SEP 33, SEP 36,
-        ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is
+        ``docs/guide/performance/reduced-precision.md``). ``"double"``, the default, is
         binary64 throughout and changes nothing.
         ``"single"`` holds the state, the stages, the transforms and the responses in
         binary32, with the controller and every host scalar in binary64. ``"mixed"``
@@ -2908,6 +2908,11 @@ class Simulation(Displayed):
             backend.restore_call_ledgers(
                 state.outcome.logical_calls, state.outcome.atomic_calls
             )
+            # A mixed run's rounding-margin sum continues from the interrupted run's
+            # record at this position (SEP 36 section 5).
+            restore_margin = getattr(backend, "restore_rounding_margin", None)
+            if restore_margin is not None:
+                restore_margin(state.outcome.execution)
         self._continue_march(backend, state)
         return next_plane
 

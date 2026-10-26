@@ -56,6 +56,35 @@ generator applied to its state), so a snapshot of it continues only on the nativ
 backend, and a host engine's snapshot of it only on `numpy_ref` or `numba_cpu`; a
 mismatch starts the history afresh and says why. Other histories cross between backends.
 
+**Single and mixed precision** ([reduced precision](reduced-precision.md),
+[SEP 36](../../dev/seps/sep-0036-native-reduced-precision.md)) run on the native backend's
+CPU and GPU builds, on the routes that page lists, when the build compiled them. A
+build compiles the precision policies of `SOLPROP_NATIVE_PRECISIONS`
+([building it](building-native.md#option-reference)): `double;single;mixed` by default,
+each in its own translation unit, so a build that leaves a reduced mode out is smaller
+and refuses that mode by name. `solprop_native.build_info().precisions` lists what the
+installed build compiled, and `backend="auto"` chooses `native` for a reduced precision
+only when it is there (single precision prefers `mlx` where MLX and a Metal GPU are
+present). Under either reduced mode a GPU build:
+
+- **runs its matrix products in strict binary32.** cuBLAS may compute binary32 products
+  in TF32 and rocBLAS in `xf32`, whose roundings ($2^{-11}$ and coarser) are far above
+  every accuracy envelope. At construction the backend sets the strict mode on the
+  handle its matrix products use (`CUBLAS_PEDANTIC_MATH` on CUDA, rocBLAS's default math
+  mode on HIP), then **probes** each family of products the run issues (real and
+  complex, each transpose and layout, the full and the tail node chunk) against a
+  binary64 reference. A product whose relative error exceeds $2^{-17}$ refuses the run,
+  reporting the error and the product family; with CUDA, `NVIDIA_TF32_OVERRIDE=0` in the
+  environment is one remedy. The probe's largest error is recorded in the run's
+  execution metadata (`gemm_probe_error`).
+- **keeps subnormals.** No build flushes binary32 subnormals to zero; the build refuses
+  the flags that would (`-ftz=true`, `--use_fast_math`, `-fgpu-flush-denormals-to-zero`).
+- **evaluates the source one team per node**, its threads over the time samples, with the
+  plasma's running integrals as binary64 scans over the binary32 samples.
+
+The binary32 transforms are FFTW's single-precision library on a CPU (`fftw3f`, named in
+the build record as `fft_binary32_library`), cuFFT and rocFFT on GPUs.
+
 Separately, the `cf4` section method of a coupled flow (`CoherentWall(method="cf4")`)
 runs on `numpy_ref` only, with the Runge–Kutta march; neither compiled backend runs it.
 The planar guide resolved in y is built into the GPU builds but has not been qualified
