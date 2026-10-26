@@ -46,6 +46,7 @@ cpp_sources=(
   include/solprop_native/lagrange_basis.hpp
   include/solprop_native/plasma.hpp
   include/solprop_native/precision.hpp
+  include/solprop_native/propagator.hpp
   include/solprop_native/slab.hpp
   include/solprop_native/z_table.hpp
   src/bindings.cpp
@@ -72,6 +73,7 @@ cpp_sources=(
   tests/native/test_general_modal.cpp
   tests/native/test_helpers.cpp
   tests/native/test_precision.cpp
+  tests/native/test_propagator.cpp
   tests/native/test_z_table.cpp
 )
 
