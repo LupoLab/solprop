@@ -98,6 +98,13 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
   data and integration questions must be settled before acceptance; shared-level
   ladders, vector saturation and repeated-window histories remain future work.
+- [SEP 37 — Shot noise on by default, and an integrator and tolerances chosen for each interface](seps/sep-0037-noise-and-stepper-defaults.md):
+  `noise="modified"` as the default wherever it can be carried, a measured default
+  integrator and default tolerances for each `prop_*` interface, and lifting every
+  noise refusal that is not grounded in physics: interpolated planes, field planes,
+  interior launches, the planar draw, coupled flows and the TDSE response. It opens
+  with an exploration phase. Noise under single precision, truncated-Wigner vacuum
+  and Raman Langevin noise remain outside it.
 
 The informal items below record work not fully covered by these proposals. When adding
 or revising a SEP, remove an informal item only if the proposal covers it in full;
@@ -352,7 +359,8 @@ the wall as `HE_1m` modes do.
 **Planar guides resolved in y, beyond one family.** The hybrid planar route (slab modes in
 x, an FFT in y) carries one polarisation family with a constant gap and constant media. Both
 families together, a gap or medium varying along z, and a settled normalisation for a noise
-draw on the planar grid (refused at translation today) are open.
+draw on the planar grid (refused at translation today) are open; [SEP 37](seps/sep-0037-noise-and-stepper-defaults.md) (phase 4)
+proposes the noise draw.
 
 **Single-azimuthal-order radial free space.** A full radial and azimuthal expansion is not
 built: it needs one Hankel transform per order, on radial nodes the orders do not share,
@@ -423,7 +431,8 @@ dense-gas propagation.
 partly linear in each weak bin's own field and rotates with its free phase, which the
 exponential formulation interpolates in the laboratory frame. Until a
 developed noisy window, such as the CtC comb, measures it, the manual prefers
-`Multistep(formulation="interaction")` beside that noise.
+`Multistep(formulation="interaction")` beside that noise. [SEP 37](seps/sep-0037-noise-and-stepper-defaults.md) (phases 0 and 1)
+measures both formulations with noise on every interface.
 
 **Qualifying the TDSE response.** The helium TDSE response
 ([SEP 12](seps/archive/sep-0012-tdse-nonlinear-response.md),
@@ -493,7 +502,8 @@ number is refused rather than recorded and ignored.
 **Noise and batches beside a coupled flow.** A noise model beside a coupled flow (a wall
 or the taper coupling) is refused, because a draw's transport through the flow is not
 measured; so is a coupled flow in a lockstep batch. Both need a derivation and a test
-before they can be admitted.
+before they can be admitted. [SEP 37](seps/sep-0037-noise-and-stepper-defaults.md) (phase 5) proposes the noise half; batches beside a
+coupled flow remain here.
 
 **Independent spatial references for the vector and graded-index routes.** The scalar bore
 and taper are checked against an independent finite-element solve. The vector wall is
@@ -1016,7 +1026,7 @@ weight under `"quadrature"` ([SEP 31](seps/archive/sep-0031-simulation-coupling.
 **Field planes from modified-noise runs.** `processing.field_plane` refuses every plane of
 a run with `noise="modified"`, whose saved field leaves the one-photon background to the
 auxiliary `noise_phase`. Reconstructing that phase into the plane, following the
-documented saved-field meaning, would lift the refusal
+documented saved-field meaning, would lift the refusal; [SEP 37](seps/sep-0037-noise-and-stepper-defaults.md) (phase 3) proposes it
 ([SEP 31](seps/archive/sep-0031-simulation-coupling.md), decision A2; [coupling simulations](../guide/workflows/coupling.md)).
 
 **Far-field detection beyond SEP 23.** The far-field statistics
