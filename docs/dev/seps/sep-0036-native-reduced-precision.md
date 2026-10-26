@@ -1645,6 +1645,120 @@ Runge–Kutta at the same tolerance (SEP 33's form), in place of binary64 Adams,
 the rest of §7.3's rule (within every envelope, at most twice in every metric, at each
 candidate tolerance on `rdw` and `argon`). Phase 2 proceeds.
 
+### Phase 2 — report (2026-10-26)
+
+**Delivered.**
+
+- `native/include/solprop_native/precision.hpp`: the policies `Double`, `Single` and
+  `Mixed` (§6.3) with role-typed views per policy (`StateView*`, `SourceView*`,
+  `TableView*`, `ReductionView*`, `PropagatorView*`, 1–3-D, real and complex) replacing
+  the per-file aliases of `core.hpp`, `general.cpp`, `core.cpp`, `dispersive.cpp`,
+  `general_modal.cpp` and `coupled_flow.cpp`. A sixth role, **argument**, is binary64
+  under every policy and not a policy parameter: the propagator's argument, the
+  operator terms, the Adams exponents, the tableau and per-stage scalars, the Raman rates
+  and tensor weights, the spatial and flux coefficients and the z tables (§4.3, §4.5).
+  Each buffer's role is listed in comment tables beside the policies and the workspace.
+  The binary64 seam types moved there from `core.hpp`.
+- `Workspace<Policy>` (the single-column fibre route) and `GeneralWorkspace<Policy>`,
+  `GeneralBatchWorkspace<Policy>` and the envelope and field-current streams are class
+  templates, their definitions in `general_impl.hpp` and one translation unit per policy
+  (`general.cpp`, `general_single.cpp`; `general_mixed.cpp` in phase 3). The routes both
+  reduced modes refuse (general modal, coupled flow, dispersive Kerr, far-field
+  statistics, the slab kind) keep binary64 types and exist in the `Double` instantiation
+  only; `require_policy_route<Policy>` refuses them by name otherwise.
+- `fp.hpp`'s strict helpers are templates on the real type; a binary32 helper inlined
+  into a protected block stays strict (tested).
+- `SOLPROP_NATIVE_PRECISIONS` (default `double;single` on CPU in this phase; device
+  builds default to `double` until phase 4, with
+  `SOLPROP_NATIVE_DEVICE_REDUCED_COMPILE_ONLY` to compile the reduced translation units
+  while the runtime refuses them). A list without `double` is refused.
+- The §4.3 binary32 exponential (`propagator.hpp`): `exp(x) = 2^m e^r` with a two-part
+  `ln 2` (head of 29 significant bits), the phase reduced by a three-part `2π` (heads of
+  25 bits) for `|θ| <= 2^30` and by the binary64 library above, then `expf`, `sinf` and
+  `cosf`; the inverse shares the phasor with its own modulus. The constants were checked
+  against 300-bit references (the `ln 2` split within 2e-27, the `2π` split within
+  5e-32). C++ tests check the 10 `u32` bound over both ranges' ends, the −80.000003
+  witness, phases past `2^30`, the inverse and the modulus drift over 10⁴ steps.
+- Single precision on the CPU fibre route (§5.1): mode-averaged and multimode, field
+  and envelope grids, Kerr, Raman (scalar and tensor), the field-grid plasma with SEP 33's
+  stable populations, both absorber schemes, Runge–Kutta and the low-storage march,
+  lockstep batches. The state is held at the launch scale; the tables are narrowed on
+  the host by `solprop.backends.reduced` (the module phase 2 moved SEP 33's host range
+  work into, shared by `numpy_ref`, `mlx` and `native`), and the per-stage Kerr and Raman
+  coefficients are bit-identical to `combine(...).binary32()` (class P over 452 cases,
+  `_core.combined_binary32`); out-of-range coefficients and tables are refused with the
+  oracle's messages. Kokkos-FFT plans single-precision FFTW for binary32 views, the
+  wisdom seeder has its `fftwf_` branch, and the optional Accelerate Raman provider stays
+  binary64's (binary32 views take Kokkos-FFT). `KokkosBlas::gemm` runs binary32;
+  `native_order_gemm` stays binary64-only.
+- Python: `native` admits `"single"` when its build compiled it (`BuildInfo.precisions`
+  replaces `precision`; `registry.native_precisions` reads it) and refuses it by name,
+  saying how to build one, otherwise; `REDUCED_PRECISION_BACKENDS["single"]` includes
+  `native`; the ledger counts element sizes.
+
+**§4.5 choices kept in binary64 under single precision on native:** the argument role
+(above); norms and statistics' reductions; and the plasma-integration diagnostics
+(`plasma_integration_diagnostics`), whose band scan uses binary64 rows and taps, reads
+the physical field and is allocated only when the diagnostics are requested — binary32
+rows would put a floor near 10⁻⁷ on the work-defect diagnostic. The statistics still
+synthesise the field in binary32: the electron density and undershoot carry about 10⁻⁶
+of transform rounding against the oracle's binary64 synthesis, within the plasma
+bounds.
+
+**Verification.**
+
+- *The `Double` instantiation is unchanged.* The native suites pass unchanged. The
+  SEP 30 core set A/B on a 2× EPYC 7763 node (16 threads, interleaved, four rounds):
+  geometric mean 0.9997, every field identical to the bit but `kerr_beam_384`'s
+  (5×10⁻¹⁹). One case, `radial_filament_256` with Adams, read 1.14 there and 1.31–1.42 in
+  a rerun on another node, with each arm's rounds varying 0.5–2.4× on an otherwise idle
+  node; a single-thread rerun with both builds on node-local disk, six rounds, gives
+  0.995 (Adams) and 1.008 (Runge–Kutta) with stable rounds. The multi-thread variance is
+  the cluster filesystem's and the node's, not the build's.
+- *Tests* (a 2× AMD EPYC 7763 cluster node, GCC 16.2, the `LOCAL` profile, `double;single`): the 93
+  solprop test modules that run the native backend, 3282 passed and 13 skipped; native's
+  own Python tests, 389 passed and 6 skipped; the C++ tests (with the new precision, fp
+  and propagator tests) pass. `tests/backends/test_native_single_precision.py` (49):
+  class R native single against `numpy_ref` single on fixed schedules for every phase-2
+  capability, bounds summing both sides; the class P power-of-two scaling, the vanished
+  molecular kernel, plasma populations, the propagator drift, failure injection on every
+  march, resume across backends in the same precision (class T) and refusal across
+  precisions, batches, memory and table refusals.
+- *Devices.* The A40 (CUDA 12.8.1, `AMPERE86`, GCC 14.4 host, `-Werror`) builds the
+  templated binary64 code and passes native's 31 GPU tests and 142 of 143 solprop tests
+  (below); with the compile-only flag it also compiles the single and mixed translation
+  units. nvcc's front end found what the CPU compilers did not: an out-of-class template
+  member definition whose return type it mis-compares (fixed by trailing return types
+  throughout), and device lambdas that first capture a variable inside an `if constexpr`
+  branch, including through a discarded branch (fixed by naming the captures before the
+  branch); a lint for the latter now runs beside a check that forces every device branch
+  on for a host syntax check.
+- *Q5, size and compile time* (the same node, GCC 16, `LOCAL`): adding `single` grows the
+  extension from 7.35 MB to 12.01 MB (+63 %), compressed in the wheel from 2.36 MB to
+  3.54 MB (+50 %); the build takes 98 s against 79 s on 16 cores. The extension is 17 %
+  of the released Linux wheel (13.99 MB, with OpenBLAS), 58 % of the macOS wheel
+  (3.69 MB) and 86 % of the Windows wheel (4.85 MB) at main's head, so `single` projects
+  to +8 %, +29 % and +43 %. Phase 3 measures `mixed` beside it; Q5's 60 % rule is decided
+  there.
+
+**Findings for later phases.**
+
+- A process's first binary32 Raman run can differ from later identical runs by about
+  4×10⁻⁹ relative: its Kokkos-FFT plan is made before FFTW's process wisdom holds the
+  measured plans later runs reuse. Under SEP 25 there is no bitwise requirement; the
+  bitwise class P tests warm up first.
+- `fft_plan_heap_growth` in the ledger depends on what the process planned before; the
+  ledger comparisons leave it out.
+- `test_the_march_agrees_across_thread_counts` asserts the host thread count and is not
+  guarded for device builds; it fails on any CUDA build (not this SEP's change).
+- Native single against `mlx` (a consistency check, not a gate) is not yet run.
+- The build check's `cufftExecC2C` probe and the device forms of the reduced modes are
+  phase 4's.
+
+**Deviations.** None from Part I. The `argument` role is an implementation detail of
+§4.3 and §4.5 (binary64 in every mode). The device builds' default stays `double` until
+phase 4 qualifies the reduced modes there.
+
 ## Part III — History
 
 - 2026-10-25: Drafted (Opus 5.5), after an indicative A40 measurement of transforms,
