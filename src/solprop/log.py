@@ -46,6 +46,7 @@ __all__ = [
     "ProgressChoice",
     "ProgressReporter",
     "ProgressStatus",
+    "SummarisingReporter",
     "configure_logging",
     "default_progress",
     "default_reporter",
@@ -438,6 +439,33 @@ class InterruptibleReporter(ProgressReporter, Protocol):
         """
 
 
+@runtime_checkable
+class SummarisingReporter(ProgressReporter, Protocol):
+    """A reporter that also shows the summary a run gives before its first step.
+
+    The driver calls :meth:`summary` once, before the run's first step, with the block
+    of :func:`solprop.driver.summary.run_summary`: the backend, the grid, the
+    representation, the medium, the responses, the shot noise, the integrator and its
+    tolerances, the save planes, the output and whether the run is a resume.
+    :class:`NullReporter` implements it as a no-op; a reporter written to the four
+    basic calls alone is not shown it.
+
+    Examples
+    --------
+    >>> isinstance(NullReporter(), SummarisingReporter)
+    True
+    """
+
+    def summary(self, text: str) -> None:
+        """Show what the run is about to compute.
+
+        Parameters
+        ----------
+        text : str
+            The summary block, one line per row, without a trailing newline.
+        """
+
+
 class NullReporter:
     """A reporter that does nothing, and the base class for one that does something.
 
@@ -451,6 +479,15 @@ class NullReporter:
     >>> isinstance(Bar(), ProgressReporter)
     True
     """
+
+    def summary(self, text: str) -> None:
+        """Ignore the event.
+
+        Parameters
+        ----------
+        text : str
+            See :meth:`SummarisingReporter.summary`.
+        """
 
     def started(self, z_start: float, z_end: float, n_planes: int) -> None:
         """Ignore the event.
@@ -509,7 +546,8 @@ class NullReporter:
 class LogReporter:
     """Report progress as log records: a periodic line, one per plane, one at the end.
 
-    Three kinds of line, all at ``level`` (``INFO`` by default) on this module's logger.
+    Three kinds of line, all at ``level`` (``INFO`` by default) on this module's logger,
+    after the run's **summary** (:meth:`summary`), one record logged at the same level.
     A **periodic** line, at most one per ``period`` seconds however fast the steps
     come, says where the run is and when it expects to finish. A **plane** line says
     what the last save plane cost. The **closing** line says what the run achieved
@@ -666,6 +704,16 @@ class LogReporter:
         """
         return self._median_error(1)
 
+    def summary(self, text: str) -> None:
+        """Log the run's summary as one record.
+
+        Parameters
+        ----------
+        text : str
+            See :meth:`SummarisingReporter.summary`.
+        """
+        self._say(self._level, "%s", text)
+
     def started(self, z_start: float, z_end: float, n_planes: int) -> None:
         """Take the run's extent and start the clock.
 
@@ -769,7 +817,7 @@ class LogReporter:
             if math.isnan(error)
             else f", ETA error {100.0 * error:.1f} % over {lines} lines"
         )
-        self._logger.log(
+        self._say(
             self._level,
             "finished at z = %.6e m: %d steps (%d rejected) in %.2f s, achieved/"
             "requested tolerance ratio %s%s",
@@ -794,7 +842,8 @@ class LogReporter:
         if self._t0 is not None:
             self._elapsed_final = self._clock() - self._t0
         self._z = max(self._z, float(z))
-        self._logger.warning(
+        self._say(
+            logging.WARNING,
             "stopped at z = %.6e m by %s after %d steps (%d rejected), %s elapsed: %s",
             self._z,
             type(error).__name__,
@@ -803,6 +852,20 @@ class LogReporter:
             format_duration(self._elapsed_final or 0.0),
             error,
         )
+
+    def _say(self, level: int, message: str, *args: object) -> None:
+        """Log one of the lines a person reads whole: the summary and the closing one.
+
+        Parameters
+        ----------
+        level : int
+            The record's level.
+        message : str
+            The ``%``-format of the record.
+        *args : object
+            Its arguments.
+        """
+        self._logger.log(level, message, *args)
 
     def _median_error(self, index: int) -> float:
         """Return the median absolute relative error of one of the two estimators.
@@ -1072,6 +1135,12 @@ class BarReporter(LogReporter):
     bar's console while it is up go above it (``_BarHandler``), and the handlers are
     put back when the bar closes -- also when the run is interrupted.
 
+    **The summary and the closing line are shown, not only logged.** A bar is drawn
+    where a person is watching, and the package installs no handler, so a record alone
+    would reach nobody: each of the two is written to the bar's stream as well, unless a
+    console handler on the package logger would print it there already
+    (:func:`configure_logging`), in which case it is only logged and appears once.
+
     ``tqdm.auto`` draws an ``ipywidgets`` widget in a notebook that has the package
     and a text bar otherwise; ``ipywidgets`` is optional and not a dependency.
     ``step`` never calls into tqdm: the redraw happens on the period, so the
@@ -1105,6 +1174,10 @@ class BarReporter(LogReporter):
         Level of the closing line; the plane line is ``DEBUG`` regardless.
     estimated : bool, optional
         See :class:`LogReporter`.
+    echo : bool, optional
+        Whether the summary and the closing line are written to the stream when no
+        console handler shows them. A parent drawing a bar over something other than
+        one run -- a scan's points -- turns it off.
 
     Raises
     ------
@@ -1137,6 +1210,7 @@ class BarReporter(LogReporter):
         n_steps: int | None = None,
         level: int = logging.INFO,
         estimated: bool = True,
+        echo: bool = True,
     ) -> None:
         if not (math.isfinite(period) and period > 0.0):
             raise ValueError(
@@ -1152,6 +1226,7 @@ class BarReporter(LogReporter):
             estimated=estimated,
         )
         self._plane_level = logging.DEBUG
+        self._echo = echo
         self._file = file
         self._position = position
         self._leave = leave
@@ -1278,6 +1353,56 @@ class BarReporter(LogReporter):
             refresh=False,
         )
         self._bar.refresh()
+
+    def _say(self, level: int, message: str, *args: object) -> None:
+        """Log a line a person reads whole, and write it out when nothing else would.
+
+        Parameters
+        ----------
+        level : int
+            The record's level.
+        message : str
+            The ``%``-format of the record.
+        *args : object
+            Its arguments.
+        """
+        super()._say(level, message, *args)
+        if self._echo and not self._console_shows(level):
+            stream: Any = sys.stderr if self._file is None else self._file
+            stream.write(f"{message % args}\n")
+            stream.flush()
+
+    def _console_shows(self, level: int) -> bool:
+        """Return whether a console handler already prints a record of this level.
+
+        Parameters
+        ----------
+        level : int
+            The record's level.
+
+        Returns
+        -------
+        bool
+            Whether the logger is enabled for it and a handler on its path, at or
+            below that level, writes to standard output or error or to the bar's own
+            stream.
+        """
+        if not self._logger.isEnabledFor(level):
+            return False
+        consoles = [sys.stdout, sys.stderr, self._file]
+        logger: logging.Logger | None = self._logger
+        while logger is not None:
+            for handler in logger.handlers:
+                stream = getattr(handler, "stream", getattr(handler, "_stream", None))
+                if (
+                    handler.level <= level
+                    and not isinstance(handler, logging.FileHandler)
+                    and stream is not None
+                    and any(stream is console for console in consoles)
+                ):
+                    return True
+            logger = logger.parent if logger.propagate else None
+        return False
 
     def _redirect_logging(self, tqdm: Any) -> None:
         """Stand a bar-aware handler in for each console handler, for the bar's life.
