@@ -38,7 +38,8 @@ an exploration phase (phase 0) that reads the design record behind each choice a
 measures what the new defaults cost before anything changes. Success is judged in four
 ways:
 
-- the modified model agrees with an exact reference where one exists;
+- the modified model passes an exact identity with the input model where no reservoir
+  acts, and an exact quantum reference for spontaneous modulational instability;
 - the chosen integrators win their work–precision comparisons, with noise on and off;
 - the tolerances meet their targets;
 - each lifted refusal is qualified like any other route.
@@ -49,10 +50,18 @@ ways:
 noise. Nothing is printed, and the run record says so only on inspection. Spontaneous
 processes then do not start: modulational instability, Raman from noise and the
 shot-to-shot incoherence of a supercontinuum. Coherent dynamics seeded by the pulse
-itself look cleaner than they would in an experiment. The noise guide calls the modified
-model the one to use "when the seeding is distributed", which covers most
-supercontinuum and gas-filled hollow-core work. Luna.jl, whose interface solprop's keyword
-surface follows, has shot noise on by default with the modified model.
+itself look cleaner than they would in an experiment. Luna.jl, whose interface solprop's
+keyword surface follows, has shot noise on by default with the modified model.
+
+**The modified model is the principled default** (§4.1). Without a reservoir, that is
+with a lossless, gainless linear operator, it is the input model written in shifted
+coordinates. The two are one equation and cannot make different predictions; the
+modified field simply leaves out the seed's floor. Where a reservoir acts, they differ,
+and the modified model is the right one: linear loss, Raman scattering, gain and plasma
+absorption all couple the field to a reservoir. A seed placed at the input is
+attenuated by those losses below the vacuum level it stands for, and it puts a
+one-photon floor under the whole spectrum. The modified seed is held at the vacuum level
+and seeds afresh wherever the reservoir acts.
 
 **One default integrator does not suit every interface.** `Multistep()` became the
 default everywhere with SEP 16 (ADR-045). The evidence was strongest where the source is
@@ -66,12 +75,21 @@ interface is chosen by the user and fixes the equation solved.
 
 **The default tolerances are only partly explained.** `prop_gnlse` asks for
 `rtol = 1e-8` and `atol = 1e-14` √W. Those were set with the first driver, and no
-reason was recorded; they suit high-fidelity soliton evolution, and the soliton
-tutorial asks for `1e-9` to show a recurrence to about $10^{-9}$. `prop_capillary` and
-`prop_waveguide` ask for `1e-6` and `1e-10` √W, the values Luna.jl documents, and the
-docstring justifies the looser value by the cost of a modal step. `prop_radial` and
-`prop_free` have no default tolerance at all: their `SimulationSettings` take a
-controller from the caller.
+reason was recorded. They suit high-fidelity soliton evolution: the soliton tutorial
+asks for `1e-9` to show a recurrence to about $10^{-9}$. But noiseless soliton
+recurrence is an occasional study, and a user who wants it can ask for a tight
+tolerance. The GNLSE is used mostly for supercontinuum, where a looser tolerance is
+enough, and that tolerance should be judged by a convergence test on the canonical
+supercontinuum parameters of Dudley, Genty and Coen [1].
+
+`prop_capillary` and `prop_waveguide` ask for `1e-6` and `1e-10` √W, the values Luna.jl
+documents; the docstring justifies the looser value by the cost of a modal step.
+Production practice is looser still: `rtol = 1e-5` is common for general use, and runs
+with the TDSE response use `1e-3` to `3e-3`. `1e-6` is kept only if a stated
+convergence test supports it.
+
+`prop_radial` and `prop_free` have no default tolerance at all: their
+`SimulationSettings` take a controller from the caller.
 
 **In scope:**
 - the defaults of `prop_gnlse`, `prop_capillary`, `prop_waveguide`, `prop_radial`,
@@ -83,9 +101,9 @@ controller from the caller.
 - the manual's account of noise, cost and stepper choice.
 
 **Out of scope:**
-- **New noise physics.** No truncated-Wigner vacuum, no Raman Langevin noise and no
-  technical (pump) noise. §10 records why, and §12 asks whether a later SEP should take
-  them up.
+- **New noise physics.** No half-photon (truncated-Wigner) vacuum, no Langevin terms
+  for Raman or loss, no thermal phonon occupation and no technical (pump) noise. §4.1
+  says what each would change, and §12 asks whether a later SEP should take them up.
 - **Noise under single precision.** It is refused for an accuracy reason, not a missing
   implementation (§3.3), and belongs to the precision work.
 - **Start-of-run diagnostics.** These print the noise model, integrator and tolerances
@@ -162,7 +180,8 @@ differently:
 
 - **The noise model makes no difference to the cost**, contrary to the manual's "about
   eight times" for the modified model alone. That figure was quoted from Luna.jl and not
-  reproduced in solprop.
+  reproduced in solprop. This case has no reservoir, so the two models are the same
+  equation (§4.1); equal step counts are what the theory predicts.
 - **`atol` makes no difference.** Running from `1e-14` to `1e-6` √W left the step
   counts unchanged.
 - **The noise's size relative to the field is what matters.** Scaling the draw by $s$
@@ -192,45 +211,84 @@ come from one case on one machine. Phase 0 repeats them on the standard suite.
 
 #### 4.1 What the two models represent
 
-Both models are the semiclassical one-photon-per-mode seeding of the supercontinuum
-literature [1, 2]: a classical field whose ensemble over random phases stands in for
-vacuum fluctuations. Neither is a quantum model. The truncated-Wigner vacuum [3]
-assigns half a photon per mode with a Gaussian amplitude, and adds Langevin terms for
-loss and the Raman response.
+**Where one photon per mode comes from.** The seed is not the vacuum itself. In the
+symmetrically ordered (Wigner) picture that a classical field simulation implicitly
+uses, the vacuum carries half a photon per mode [3]. One photon per mode is the
+equivalent input noise of a phase-insensitive amplifier. Smith showed that the
+spontaneous Raman or Brillouin emission along a fibre, summed and amplified by the gain
+remaining after each point, is the same, at high gain, as injecting one photon per mode
+at the input and propagating only the stimulated equations [4]. The supercontinuum
+literature adopted this seed with a random phase on every spectral bin [1, 2].
 
-**Input noise** propagates the seed with the field. It is dispersed, amplified and
-attenuated. Under loss the seed decays below the vacuum level it stands for. In a
-quantum treatment, loss couples the field to a reservoir whose vacuum re-enters the
-mode (fluctuation–dissipation), so the noise floor does not decay.
+**Two kinds of process.** A phase-sensitive (parametric) process such as modulational
+instability or four-wave mixing is unitary. It has no reservoir, and the vacuum enters
+once, at the input. A phase-insensitive process (Raman gain, amplified spontaneous
+emission, linear loss, plasma absorption) couples the field to a reservoir. By the
+fluctuation–dissipation theorem, that reservoir feeds fluctuations in continuously.
 
-**Modified noise** keeps the seed at one photon per mode at every $z$ and lets only the
-unitary phase act on it. It is the classical analogue of that re-entering vacuum. Two
-consequences follow:
-- the seeding stays correct over a lossy guide;
-- a background propagated from $z = 0$ cannot drive four-wave mixing that the physics
-  does not have.
+**The modified model** moves the seed $N_0$ out of the initial condition and into the
+nonlinear and gain operators [5]. As first published it held the seed fixed in $z$. In
+a dispersive medium that is wrong, because the seed and the field it seeds drift out
+of phase. solprop's form advances the seed by the unitary part of the linear operator,
+$N(z) = N_0\,e^{i\,\mathrm{Im}\,\Phi(\omega, z)}$ (ADR-008), and passes the full field
+$y + N$ to the nonlinear response.
 
-That is the case for making it the default. The case has two weak points, which phase 0
-must address:
-- the model's origin is credited to Chen and Wise, for a gain medium without
-  dispersion, but solprop has not traced it to a publication;
-- the size of the dispersive correction that ADR-008 adopted was reported elsewhere and
-  has not been reproduced in solprop.
+**Without a reservoir, the two models are one equation.** Let $\chi$ be the input
+model's field, with
+$\partial_z \chi = \hat D\chi + \hat N(\chi)$ and $\chi(0) = y_0 + N_0$, where $\hat D$ is
+linear and unitary and $\hat N$ is any nonlinear operator: Kerr, shock, Raman's real
+part. Define $\psi = \chi - N(z)$, with $\partial_z N = \hat D N$. Then, by linearity of
+$\hat D$,
 
-#### 4.2 An exact reference
+$$ \partial_z \psi = \hat D \psi + \hat N(\psi + N), \qquad \psi(0) = y_0 , $$
 
-In a lossless medium with anomalous dispersion, spontaneous modulational instability
-from vacuum has a closed form in the linearised (Bogoliubov) approximation. A
-continuous wave of power $P_0$ seeds sidebands at $\pm\Omega$ with gain
-$g(\Omega) = |\beta_2\Omega|\sqrt{\Omega_c^2 - \Omega^2}$, where
-$\Omega_c^2 = 4\gamma P_0/|\beta_2|$ [4]. The quantum treatment of the same linearised
-equations fixes the sideband photon number grown from vacuum, as a function of
-$\Omega$ and $z$. Phase 0 derives that expression, or cites it from a primary source,
-before it is used as a tolerance. The comparison asks
-how close each classical prescription comes to that expectation, per frequency and
-along $z$, with and without dispersion and with and without loss. It answers whether
-`modified` is the more principled default by measurement, not by argument.
+which is the modified model. The identity holds to all orders in the seed, not only to
+linear order. The modified field contains only light that has interacted. Its spectrum
+has no floor, and the background is restored on reading, from the stored noise phase.
 
+**With a reservoir, the two differ, and the modified model is the physical one.** If
+$\hat D$ includes loss, the modified seed keeps its modulus, by the
+fluctuation–dissipation argument above, and the shift acquires a term that re-injects
+vacuum at the loss rate. A seed propagated from the input is instead attenuated below
+the vacuum. Under gain, the seed's growth belongs to the source term, not to the seed.
+A Raman response is lossy on the anti-Stokes side and supplies its own spontaneous
+Stokes scattering, and so is a reservoir in the same sense. So is plasma absorption.
+This is why the modified model is not just a presentation of the input model: it adds
+physics wherever a reservoir acts, and it changes nothing where none does.
+
+**What neither model gets right.** One photon per mode is the high-gain shortcut for
+phase-insensitive processes. For a parametric process the exact seed is half a photon,
+so both models overestimate spontaneous parametric power by a factor of two at high
+gain [3, 6]. Because modulational instability enters a supercontinuum logarithmically,
+this shifts its development length by about $\ln 2/(2\gamma P_0)$, a few per cent of
+$L_\mathrm{MI}$. The scheme that is exact for both kinds of process is half a photon at
+the input, plus a symmetrically ordered Langevin term for every reservoir: Raman
+(with its thermal occupation $n_\mathrm{th}$, which is large for the rotational shifts
+of nitrogen) and loss [3]. That is new physics, outside this SEP. Separately, solprop's
+draw has a fixed modulus and a random phase. A circular Gaussian amplitude has the same
+second moments, but it is the correct choice where single-mode intensity statistics
+matter, as in transient Raman initiation, whose seed occupies about one temporal mode
+(§12, Q8).
+
+#### 4.2 Exact references
+
+**The identity.** In a run with no reservoir (Kerr, no loss, no Raman), an `input` run
+must equal the `modified` run with the transported seed added back, to rounding, for
+every seed. That is an exact test of solprop's implementation of ADR-008, including how
+the full field reaches the nonlinear response inside each stage.
+
+**Spontaneous modulational instability from vacuum.** Linearise the normalised NLSE
+$i\partial_z\psi + \tfrac12\partial_\tau^2\psi + |\psi|^2\psi = 0$ about a continuous wave of
+power $P$. The sideband pair at $\pm\Omega$ then undergoes a Bogoliubov transformation
+with $D = \Omega^2/2 - P$ and $K = \sqrt{P^2 - D^2}$, and the spontaneous sideband photon
+number after a length $L$ is exactly
+
+$$ \langle n \rangle = |\nu|^2 = \frac{P^2}{K^2}\sinh^2 KL $$
+
+[6, 7]. A classical seed of $n_0$ photons per mode, propagated by the same linearised
+equation, gives $(|\mu|^2 + |\nu|^2)\,n_0 = (1 + 2|\nu|^2)\,n_0$. With $n_0 = 1$ that is the
+target for both solprop models, per frequency across the gain band and along $z$. The
+same comparison with a lossy linear operator then separates the two models.
 #### 4.3 Why noise costs steps
 
 A step controller holds the embedded difference below $\mathrm{rtol}\,\lVert y\rVert + \mathrm{atol}$
@@ -285,15 +343,26 @@ switched on. A user who wants the other method passes `integrator=` as today.
 
 #### 5.3 Tolerances
 
-Each interface's default `rtol` and `atol` is set by a stated target: a global error on a
-named observable of a canonical case, for example the output spectral energy density on
-the in-band mask. The target is stated in the docstring, so the default can be checked.
-`prop_radial` and `prop_free` gain defaults, so that their settings no longer need a
-controller. §12 asks whether one target can serve every interface. It also asks whether
-a run with noise should have its own default, which would make the tolerance depend on
-a setting. The author's rule excludes dependence on the physics, and noise is a setting
-of the run rather than physics, so the question stays open.
+Each interface's default `rtol` and `atol` is set by a stated convergence test on a
+canonical case of that interface, and the test is named in the docstring, so the
+default can be checked.
 
+- **`prop_gnlse`**: the supercontinuum of Dudley, Genty and Coen [1]. The default is
+  the loosest `rtol` at which the mean output spectrum and the coherence $|g_{12}|$ of a
+  seeded ensemble have converged to a stated fraction. It is expected to be looser than
+  today's `1e-8`. A noiseless soliton-recurrence study asks for its own, tighter value,
+  and the manual says so.
+- **`prop_capillary` and `prop_waveguide`**: the same test on the standard suite's
+  capillary cases. `1e-6` stays if the test supports it. Common practice, `1e-5`, is
+  measured beside it.
+- **`prop_radial` and `prop_free`** gain defaults by the same test on their canonical
+  cases, so that their settings no longer need a controller.
+- **A response does not set a default.** The TDSE response is usually run at `1e-3` to
+  `3e-3`, but a default that changed with the response switched on would break the
+  rule of §5.2. The manual records the practice instead.
+
+`atol` is set with `rtol`. §3.4 shows it does not affect noisy runs; it matters for weak
+fields.
 #### 5.4 What the user sees
 
 The start-of-run summary, which is separate work, prints the resolved noise model and
@@ -333,11 +402,15 @@ with that cost known and printed. It is not hidden.
 
 ### 7. Verification and validation
 
+- **The identity** (§4.2). On Kerr-only, lossless cases of `prop_gnlse`,
+  `prop_capillary` and `prop_free`, and on every backend, an `input` run equals the
+  `modified` run plus the transported seed. The bound is rounding, scaled by the step
+  count.
 - **The models against the exact reference** (§4.2). Use a lossless anomalous-dispersion
-  continuous wave, then the same with loss. Compare the sideband photon number per
-  frequency against the Bogoliubov expectation along $z$, for `input` and `modified`. The
-  tolerance is set by the ensemble size: the standard error of the mean photon number
-  over the seeds.
+  continuous wave. Compare the sideband photon number per frequency against
+  $1 + 2|\nu|^2$ along $z$, for `input` and `modified`. The tolerance is set by the
+  ensemble size: the standard error of the mean photon number over the seeds. Then add
+  loss and check that the models separate as §4.1 predicts.
 - **The noise floor under loss.** On a lossy guide with no pulse, the modified floor stays
   at one photon per mode and the input floor decays at the loss rate. The check is
   exact, to round-off.
@@ -349,15 +422,20 @@ with that cost known and printed. It is not hidden.
 - **Tolerances.** For each interface's canonical case, map `rtol` to the global error on
   the target observable, and record the chosen default and its measured error.
 - **Each lifted refusal**, as in the table of §6.
-- **Ensemble statistics.** On a modulational-instability ensemble, check that the
-  coherence $|g_{12}|$ and the mean spectrum converge in `rtol`. Then state the loosest
-  `rtol` that keeps them within a stated fraction.
+- **Ensemble statistics.** On the canonical supercontinuum [1] and a capillary
+  ensemble, check that the coherence $|g_{12}|$ and the mean spectrum converge in `rtol`.
+  Then state the loosest `rtol` that keeps them within a stated fraction (§5.3).
+- **Conservation.** In lossless runs, the drift of $\int |y|^2\,d\tau$ with noise on is a
+  cheap discriminator between a correct and an inconsistent seed treatment. Record it
+  beside each comparison.
 
 ### 8. Documentation
 
-- [Shot noise](../../guide/media/noise.md): the default, the cost measured in solprop
-  in place of the quoted factor of eight, the share-of-norm rule of §4.3, and the result
-  of §4.2.
+- [Shot noise](../../guide/media/noise.md): the default; the model's origin [4, 5] in
+  place of "not traced"; the equivalence without a reservoir and the difference with
+  one (§4.1); the cost measured in solprop in place of the quoted factor of eight; the
+  share-of-norm rule of §4.3; the results of §4.2; and what neither model does (the
+  factor of two in parametric seeding, thermal Raman occupation).
 - [Choosing a stepper](../../guide/numerics/choosing-a-stepper.md): the table of
   defaults for each interface and the evidence behind it.
 - [Fixed schedules](../../guide/numerics/fixed-schedules.md) and ADR-008: calibrate an
@@ -389,12 +467,14 @@ with that cost known and printed. It is not hidden.
 
 - **Keep `None` and document it.** This is the status quo, and it is how the gap went
   unnoticed. It is rejected because noise is part of the physics being modelled.
-- **`input` as the default.** It costs the same (§3.4), and its seed decays under loss.
-  Phase 0 may still prefer it if §4.2 shows the modified model to be worse in lossless
-  propagation.
-- **A truncated-Wigner vacuum** (half a photon, Gaussian amplitude, Langevin terms). This
-  is the principled quantum-statistical model [3], but it is new physics and its Raman
-  Langevin term is a project of its own. It is left for a later SEP (§12).
+- **`input` as the default.** Without a reservoir it is the same equation as the
+  modified model and costs the same (§3.4, §4.1). With a reservoir it is the less
+  physical of the two: its seed decays under loss, and it leaves a floor under the
+  whole spectrum. Rejected.
+- **A truncated-Wigner vacuum** (half a photon, Gaussian amplitude, Langevin terms for
+  each reservoir). This is the scheme that is exact for parametric and
+  phase-insensitive seeding alike [3], but it is new physics, and its Raman Langevin
+  term is a project of its own. It is left for a later SEP (§12, Q7).
 - **A default integrator that depends on the physics switched on.** It was rejected by
   the author as fragile: a keyword elsewhere in a script would change the method.
 - **An error norm that ignores the noise.** It cannot be built under the input model,
@@ -404,9 +484,10 @@ with that cost known and printed. It is not hidden.
 
 0. **Exploration and the record.** No code change. Read the archived SEPs, ADRs, the
    noise and stepper guides and the history behind each default and each refusal of
-   §3.3, and record what each was based on. Trace the modified model's origin. Derive or
-   cite §4.2's reference. Repeat §3.4 on the standard suite for every interface, with
-   noise on and off, and with both integrators and formulations. Report, and revise
+   §3.3, and record what each was based on. Run the identity of §4.2 on the existing
+   implementation (Q1). Repeat §3.4 on the standard suite for every interface, with
+   noise on and off, and with both integrators and formulations, and run the
+   supercontinuum convergence test of §5.3 at today's tolerances. Report, and revise
    Part I before review.
 1. **Integrators and tolerances for each interface.** Set the defaults and their
    docstrings, and update the stepper table and the examples' re-runs. Verify with the
@@ -426,22 +507,26 @@ Phases 3 to 6 retire fallbacks one by one. Each removes its route from the fallb
 
 ### 12. Open questions
 
-- **Q1.** Is `modified` the right default, or should phase 0's comparison (§4.2) prefer
-  `input` in lossless propagation? Decided by phase 0's measurement.
+- **Q1.** Does solprop's modified model pass the identity of §4.2 on every route and
+  backend, including how the seed reaches each stage of `Multistep()`, whose source
+  history is sampled at the stages? Phase 0, then phase 2.
 - **Q2.** On a route that still refuses noise, should the default fall back to none with
   a note (§5.1), or refuse and ask for `noise=None`? A refusal is honest, but it breaks
   every default run on those routes until phases 3 to 6 land.
 - **Q3.** The integrator table for each interface. Phase 1.
-- **Q4.** One accuracy target for every interface's tolerance, or one for each? And
-  should a noisy run get its own default `rtol`, given §3.4's 1 % noise-part error at
-  `1e-6`? Phases 0 and 1.
+- **Q4.** The convergence target behind each interface's tolerance (§5.3): one
+  fraction for every interface, or one for each? Phases 0 and 1.
 - **Q5.** Should a run whose seed share $r$ (§4.3) exceeds its `rtol` warn, or only
   print it? Phase 2.
 - **Q6.** Is a coupled stage's source run a special case, defaulting to `input` until
   phase 3 lifts the field-plane refusal? Phase 2.
-- **Q7.** Should a later SEP take up a truncated-Wigner vacuum and Raman Langevin noise?
-  Deferred past this SEP.
-
+- **Q7.** Should a later SEP take up the half-photon vacuum with Langevin terms for
+  Raman (including its thermal occupation) and loss, which fixes the factor of two in
+  parametric seeding (§4.1)? Deferred past this SEP.
+- **Q8.** Should the draw's amplitude become a circular Gaussian, with the same second
+  moments, so that single-mode statistics such as transient Raman initiation come out
+  right (§4.1)? It changes every seeded realisation, so if it is wanted, it belongs in
+  phase 2, with the default.
 ### 13. References
 
 1. J. M. Dudley, G. Genty and S. Coen, "Supercontinuum generation in photonic crystal
@@ -451,10 +536,25 @@ Phases 3 to 6 retire fallbacks one by one. Each removes its route from the fallb
    (2020). doi:10.1038/s41598-020-61847-w
 3. P. D. Drummond and J. F. Corney, "Quantum noise in optical fibers. I. Stochastic
    equations," *J. Opt. Soc. Am. B* **18**, 139 (2001). doi:10.1364/JOSAB.18.000139
-4. G. P. Agrawal, *Nonlinear Fiber Optics*, 6th ed. (Academic Press, 2019), chapter 5.
+4. R. G. Smith, "Optical power handling capacity of low loss optical fibers as
+   determined by stimulated Raman and Brillouin scattering," *Appl. Opt.* **11**, 2489
+   (1972), appendix A. doi:10.1364/AO.11.002489
+5. Y.-H. Chen and F. Wise, "A simple accurate way to model noise-seeded ultrafast
+   nonlinear processes," arXiv:2410.20567 (2024). doi:10.48550/arXiv.2410.20567
+6. M. J. Potasek and B. Yurke, "Squeezed-light generation in a medium governed by the
+   nonlinear Schrödinger equation," *Phys. Rev. A* **35**, 3974 (1987).
+   doi:10.1103/PhysRevA.35.3974
+7. E. Brainis, D. Amans and S. Massar, "Scalar and vector modulation instabilities
+   induced by vacuum fluctuations in fibers: numerical study," *Phys. Rev. A* **71**,
+   023808 (2005). doi:10.1103/PhysRevA.71.023808
 
 ## Part II — Implementation record
 
 ## Part III — History
 
 - 2026-10-26: Drafted, with the preliminary measurements of §3.4.
+- 2026-10-26: Revised after the author's comments. §4 now rests on the modified model's
+  origin and its exact equivalence to the input model without a reservoir, with a
+  quantum reference for spontaneous modulational instability. The tolerance targets
+  follow production practice. Q1 and Q8 are new, and the factor of two in parametric
+  seeding is recorded as deferred physics.
