@@ -110,7 +110,7 @@ Spectral and temporal evolution
     figures = prop_2d(
         run,
         "wavelength",
-        wavelength_range=(200e-9, 1.2e-6),
+        spec_range=(200e-9, 1.2e-6),
         trange=(-100e-15, 200e-15),
         db_min=-40,
     )
@@ -143,7 +143,7 @@ time at both ends.
 
     fig, (left, right) = plt.subplots(1, 2, figsize=(10.0, 3.6))
     time_1d(run, z=[0.0, 1.0], trange=(-100e-15, 200e-15), ax=left)
-    spec_1d(run, z=[0.0, 1.0], ax=right, wavelength_range=(200e-9, 350e-9), log=False)
+    spec_1d(run, z=[0.0, 1.0], ax=right, spec_range=(200e-9, 350e-9), log=False)
     fig.tight_layout()
 
 
@@ -200,7 +200,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    7 s; backend native
+    3 s; backend native
 
 
 
@@ -208,7 +208,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 6.540 seconds)
+   **Total running time of the script:** (0 minutes 3.309 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_04_cross_phase_modulation.py:

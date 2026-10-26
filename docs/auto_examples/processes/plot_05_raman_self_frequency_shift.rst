@@ -58,13 +58,13 @@ The :doc:`Raman guide </guide/media/raman>` explains the delayed response,
 line widths and time-window requirements. Compare the blue-shifting mechanism
 in :doc:`plot_06_ionisation_blue_shift`.
 
-.. GENERATED FROM PYTHON SOURCE LINES 44-47
+.. GENERATED FROM PYTHON SOURCE LINES 48-51
 
 The run
 -------
 Molecular hydrogen carries its rotational and vibrational Raman response by default.
 
-.. GENERATED FROM PYTHON SOURCE LINES 47-75
+.. GENERATED FROM PYTHON SOURCE LINES 51-79
 
 .. code-block:: Python
 
@@ -103,12 +103,12 @@ Molecular hydrogen carries its rotational and vibrational Raman response by defa
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 76-78
+.. GENERATED FROM PYTHON SOURCE LINES 80-82
 
 Spectral and temporal evolution
 -------------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 78-89
+.. GENERATED FROM PYTHON SOURCE LINES 82-93
 
 .. code-block:: Python
 
@@ -116,7 +116,7 @@ Spectral and temporal evolution
     figures = prop_2d(
         run,
         "wavelength",
-        wavelength_range=(400e-9, 3e-6),
+        spec_range=(400e-9, 3e-6),
         trange=(-200e-15, 1.7e-12),
         db_min=-40,
     )
@@ -135,7 +135,7 @@ Spectral and temporal evolution
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 90-96
+.. GENERATED FROM PYTHON SOURCE LINES 94-100
 
 The shift
 ---------
@@ -144,7 +144,7 @@ longest-wavelength spectral peak that reaches at least 30 % of the red side's
 maximum (with a prominence of 10 % of it). The tallest red-side peak is not the
 soliton at the exit: a cluster near 1.33 um outgrows it there.
 
-.. GENERATED FROM PYTHON SOURCE LINES 96-127
+.. GENERATED FROM PYTHON SOURCE LINES 100-131
 
 .. code-block:: Python
 
@@ -168,7 +168,7 @@ soliton at the exit: a cluster near 1.33 um outgrows it there.
     left.plot(z, peak * 1e9)
     left.set_xlabel("z (m)")
     left.set_ylabel("soliton peak (nm)")
-    spec_1d(run, z=[0.0, 2.0], ax=right, wavelength_range=(700e-9, 2.5e-6))
+    spec_1d(run, z=[0.0, 2.0], ax=right, spec_range=(700e-9, 2.5e-6))
     fig.tight_layout()
     print(
         f"soliton peak at the exit: {peak[-1] * 1e9:.0f} nm; "
@@ -209,12 +209,12 @@ soliton at the exit: a cluster near 1.33 um outgrows it there.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 128-130
+.. GENERATED FROM PYTHON SOURCE LINES 132-134
 
 Runtime and reproducibility
 ----------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 130-132
+.. GENERATED FROM PYTHON SOURCE LINES 134-136
 
 .. code-block:: Python
 
@@ -228,7 +228,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    167 s; backend native
+    113 s; backend native
 
 
 
@@ -236,7 +236,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (2 minutes 47.334 seconds)
+   **Total running time of the script:** (1 minutes 52.536 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_05_raman_self_frequency_shift.py:

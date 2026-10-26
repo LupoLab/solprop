@@ -259,7 +259,7 @@ at the 1e-4 level.
     figures = prop_2d(
         gradient,
         "wavelength",
-        wavelength_range=(90e-9, 1.4e-6),
+        spec_range=(90e-9, 1.4e-6),
         trange=(-30e-15, 30e-15),
         db_min=-40,
         modes="sum",
@@ -538,7 +538,7 @@ Fourteen complete two-metre runs of four coupled modes.
 
  .. code-block:: none
 
-    130 s; backend native, 18 threads
+    181 s; backend native, 18 threads
 
 
 
@@ -555,7 +555,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (2 minutes 10.469 seconds)
+   **Total running time of the script:** (3 minutes 0.627 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_01_gradient_compressor.py:
