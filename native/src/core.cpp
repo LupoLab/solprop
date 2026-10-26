@@ -318,18 +318,18 @@ void require_problem(const Problem& problem) {
 template <class Policy> class Workspace {
 public:
   using RolesType = Roles<Policy>;
-  using StateView = typename RolesType::StateView;
-  using StateView2 = typename RolesType::StateView2;
-  using StateRealView = typename RolesType::StateRealView;
-  using PropagatorView = typename RolesType::PropagatorView;
-  using ArgumentView2 = typename RolesType::ArgumentView2;
-  using ArgumentRealView = typename RolesType::ArgumentRealView;
-  using SourceView = typename RolesType::SourceView;
-  using SourceRealView = typename RolesType::SourceRealView;
-  using TableView = typename RolesType::TableView;
-  using TableView2 = typename RolesType::TableView2;
-  using TableRealView = typename RolesType::TableRealView;
-  using ReductionRealView = typename RolesType::ReductionRealView;
+  using StateView = RolesType::StateView;
+  using StateView2 = RolesType::StateView2;
+  using StateRealView = RolesType::StateRealView;
+  using PropagatorView = RolesType::PropagatorView;
+  using ArgumentView2 = RolesType::ArgumentView2;
+  using ArgumentRealView = RolesType::ArgumentRealView;
+  using SourceView = RolesType::SourceView;
+  using SourceRealView = RolesType::SourceRealView;
+  using TableView = RolesType::TableView;
+  using TableView2 = RolesType::TableView2;
+  using TableRealView = RolesType::TableRealView;
+  using ReductionRealView = RolesType::ReductionRealView;
   using SourceComplexPlan = KokkosFFT::Plan<ExecutionSpace, SourceView, SourceView>;
   using SourceForwardRealPlan =
       KokkosFFT::Plan<ExecutionSpace, SourceRealView, SourceView>;

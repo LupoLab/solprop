@@ -143,42 +143,42 @@ template <class Policy> struct Roles {
   using Propagator = ScalarViews<typename Policy::propagator>;
   using Argument = Binary64;
 
-  using StateComplex = typename State::Complex;
-  using StateView = typename State::ComplexView;
-  using StateView2 = typename State::ComplexView2;
-  using StateView3 = typename State::ComplexView3;
-  using StateRealView = typename State::RealView;
-  using StateRealView2 = typename State::RealView2;
+  using StateComplex = State::Complex;
+  using StateView = State::ComplexView;
+  using StateView2 = State::ComplexView2;
+  using StateView3 = State::ComplexView3;
+  using StateRealView = State::RealView;
+  using StateRealView2 = State::RealView2;
 
-  using SourceComplex = typename Source::Complex;
-  using SourceView = typename Source::ComplexView;
-  using SourceView2 = typename Source::ComplexView2;
-  using SourceView3 = typename Source::ComplexView3;
-  using SourceRealView = typename Source::RealView;
-  using SourceRealView2 = typename Source::RealView2;
-  using SourceRealView3 = typename Source::RealView3;
+  using SourceComplex = Source::Complex;
+  using SourceView = Source::ComplexView;
+  using SourceView2 = Source::ComplexView2;
+  using SourceView3 = Source::ComplexView3;
+  using SourceRealView = Source::RealView;
+  using SourceRealView2 = Source::RealView2;
+  using SourceRealView3 = Source::RealView3;
 
-  using TableComplex = typename Table::Complex;
-  using TableView = typename Table::ComplexView;
-  using TableView2 = typename Table::ComplexView2;
-  using TableView3 = typename Table::ComplexView3;
-  using TableRealView = typename Table::RealView;
-  using TableRealView2 = typename Table::RealView2;
-  using TableRealView3 = typename Table::RealView3;
+  using TableComplex = Table::Complex;
+  using TableView = Table::ComplexView;
+  using TableView2 = Table::ComplexView2;
+  using TableView3 = Table::ComplexView3;
+  using TableRealView = Table::RealView;
+  using TableRealView2 = Table::RealView2;
+  using TableRealView3 = Table::RealView3;
 
-  using ReductionComplex = typename Reduction::Complex;
-  using ReductionView = typename Reduction::ComplexView;
-  using ReductionView2 = typename Reduction::ComplexView2;
-  using ReductionView3 = typename Reduction::ComplexView3;
-  using ReductionRealView = typename Reduction::RealView;
-  using ReductionRealView2 = typename Reduction::RealView2;
-  using ReductionRealView3 = typename Reduction::RealView3;
-  using ReductionScalarView = typename Reduction::RealScalarView;
+  using ReductionComplex = Reduction::Complex;
+  using ReductionView = Reduction::ComplexView;
+  using ReductionView2 = Reduction::ComplexView2;
+  using ReductionView3 = Reduction::ComplexView3;
+  using ReductionRealView = Reduction::RealView;
+  using ReductionRealView2 = Reduction::RealView2;
+  using ReductionRealView3 = Reduction::RealView3;
+  using ReductionScalarView = Reduction::RealScalarView;
 
-  using PropagatorComplex = typename Propagator::Complex;
-  using PropagatorView = typename Propagator::ComplexView;
-  using PropagatorView2 = typename Propagator::ComplexView2;
-  using PropagatorView3 = typename Propagator::ComplexView3;
+  using PropagatorComplex = Propagator::Complex;
+  using PropagatorView = Propagator::ComplexView;
+  using PropagatorView2 = Propagator::ComplexView2;
+  using PropagatorView3 = Propagator::ComplexView3;
 
   using ArgumentView = Argument::ComplexView;
   using ArgumentView2 = Argument::ComplexView2;

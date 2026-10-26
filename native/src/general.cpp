@@ -222,7 +222,7 @@ write_raman_drive(const RealView2& drive, const std::size_t node,
 // quadrature. Sharing the latter would mix currents between partial chunks.
 // Every buffer and plan of a stream is the source's (solprop SEP 36).
 template <class Policy> struct BasicEnvelopeStream {
-  using SourceView2 = typename Roles<Policy>::SourceView2;
+  using SourceView2 = Roles<Policy>::SourceView2;
   using Plan = KokkosFFT::Plan<ExecutionSpace, SourceView2, SourceView2>;
   SourceView2 node, projected, coarse, stacked, spectrum, coarse_spectrum;
   std::unique_ptr<Plan> forward, coarse_forward;
@@ -235,8 +235,8 @@ template <class Policy> struct BasicEnvelopeStream {
 
 // Real current products own their projections, including an embedded quadrature.
 template <class Policy> struct BasicFieldCurrentStream {
-  using SourceView2 = typename Roles<Policy>::SourceView2;
-  using SourceRealView2 = typename Roles<Policy>::SourceRealView2;
+  using SourceView2 = Roles<Policy>::SourceView2;
+  using SourceRealView2 = Roles<Policy>::SourceRealView2;
   using Plan = KokkosFFT::Plan<ExecutionSpace, SourceRealView2, SourceView2>;
   SourceRealView2 node, projected, coarse, stacked;
   SourceView2 spectrum, coarse_spectrum;
@@ -1538,33 +1538,33 @@ template <class Policy> void require_policy_route(const Problem& problem) {
 template <class Policy> class GeneralWorkspace {
 public:
   using RolesType = Roles<Policy>;
-  using StateView2 = typename RolesType::StateView2;
-  using StateView3 = typename RolesType::StateView3;
-  using StateRealView = typename RolesType::StateRealView;
-  using StateRealView2 = typename RolesType::StateRealView2;
-  using PropagatorView2 = typename RolesType::PropagatorView2;
-  using PropagatorView3 = typename RolesType::PropagatorView3;
-  using ArgumentView2 = typename RolesType::ArgumentView2;
-  using ArgumentView3 = typename RolesType::ArgumentView3;
-  using ArgumentRealView = typename RolesType::ArgumentRealView;
-  using ArgumentRealView2 = typename RolesType::ArgumentRealView2;
-  using SourceView2 = typename RolesType::SourceView2;
-  using SourceView3 = typename RolesType::SourceView3;
-  using SourceRealView2 = typename RolesType::SourceRealView2;
-  using SourceRealView3 = typename RolesType::SourceRealView3;
-  using TableView = typename RolesType::TableView;
-  using TableView2 = typename RolesType::TableView2;
-  using TableView3 = typename RolesType::TableView3;
-  using TableRealView = typename RolesType::TableRealView;
-  using TableRealView2 = typename RolesType::TableRealView2;
-  using TableRealView3 = typename RolesType::TableRealView3;
-  using ReductionView = typename RolesType::ReductionView;
-  using ReductionView2 = typename RolesType::ReductionView2;
-  using ReductionView3 = typename RolesType::ReductionView3;
-  using ReductionRealView = typename RolesType::ReductionRealView;
-  using ReductionRealView2 = typename RolesType::ReductionRealView2;
-  using ReductionRealView3 = typename RolesType::ReductionRealView3;
-  using ReductionScalarView = typename RolesType::ReductionScalarView;
+  using StateView2 = RolesType::StateView2;
+  using StateView3 = RolesType::StateView3;
+  using StateRealView = RolesType::StateRealView;
+  using StateRealView2 = RolesType::StateRealView2;
+  using PropagatorView2 = RolesType::PropagatorView2;
+  using PropagatorView3 = RolesType::PropagatorView3;
+  using ArgumentView2 = RolesType::ArgumentView2;
+  using ArgumentView3 = RolesType::ArgumentView3;
+  using ArgumentRealView = RolesType::ArgumentRealView;
+  using ArgumentRealView2 = RolesType::ArgumentRealView2;
+  using SourceView2 = RolesType::SourceView2;
+  using SourceView3 = RolesType::SourceView3;
+  using SourceRealView2 = RolesType::SourceRealView2;
+  using SourceRealView3 = RolesType::SourceRealView3;
+  using TableView = RolesType::TableView;
+  using TableView2 = RolesType::TableView2;
+  using TableView3 = RolesType::TableView3;
+  using TableRealView = RolesType::TableRealView;
+  using TableRealView2 = RolesType::TableRealView2;
+  using TableRealView3 = RolesType::TableRealView3;
+  using ReductionView = RolesType::ReductionView;
+  using ReductionView2 = RolesType::ReductionView2;
+  using ReductionView3 = RolesType::ReductionView3;
+  using ReductionRealView = RolesType::ReductionRealView;
+  using ReductionRealView2 = RolesType::ReductionRealView2;
+  using ReductionRealView3 = RolesType::ReductionRealView3;
+  using ReductionScalarView = RolesType::ReductionScalarView;
   using SourceComplexPlan = KokkosFFT::Plan<ExecutionSpace, SourceView2, SourceView2>;
   using SourceForwardRealPlan =
       KokkosFFT::Plan<ExecutionSpace, SourceRealView2, SourceView2>;

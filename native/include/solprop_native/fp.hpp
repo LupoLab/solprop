@@ -72,9 +72,8 @@ template <class T> struct Identity {
   using type = T;
 };
 // A parameter of this type takes no part in deducing `Real`.
-template <class Real> using Same = typename Identity<Real>::type;
-template <class Real>
-using SameComplex = typename Identity<Kokkos::complex<Real>>::type;
+template <class Real> using Same = Identity<Real>::type;
+template <class Real> using SameComplex = Identity<Kokkos::complex<Real>>::type;
 } // namespace fp_detail
 
 /** `a + b`, each part rounded once. */
