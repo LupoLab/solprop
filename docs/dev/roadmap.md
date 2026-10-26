@@ -31,6 +31,14 @@ being implemented.
   identifies a new material contract. Ne/Xe, mixtures, mode-averaged and multimode
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
+- [SEP 37 — Shot noise on by default, and an integrator and tolerances chosen for each interface](seps/sep-0037-noise-and-stepper-defaults.md):
+  `noise="input"` as the default, with a recorded and printed fallback where noise
+  cannot be carried, a default integrator and default tolerances for each `prop_*`
+  interface chosen by a fixed rule and convergence protocol, and input noise beside the
+  TDSE response, coupled flows and explicit interior launches. The modified model's
+  own limits, planar noise, noise under single precision and new noise physics remain
+  outside it. The modified model is kept as it is until SEP 7 settles whether gain media
+  need its noise-injection path; its removal is decided then.
 
 ## Draft enhancement proposals
 
@@ -98,14 +106,6 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
   data and integration questions must be settled before acceptance; shared-level
   ladders, vector saturation and repeated-window histories remain future work.
-- [SEP 37 — Shot noise on by default, and an integrator and tolerances chosen for each interface](seps/sep-0037-noise-and-stepper-defaults.md):
-  `noise="input"` as the default, with a recorded and printed fallback where noise
-  cannot be carried, a default integrator and default tolerances for each `prop_*`
-  interface chosen by a fixed rule and convergence protocol, and input noise beside the
-  TDSE response, coupled flows and explicit interior launches. The modified model's
-  own limits, planar noise, noise under single precision and new noise physics remain
-  outside it. The modified model is kept as it is until SEP 7 settles whether gain media
-  need its noise-injection path; its removal is decided then.
 
 The informal items below record work not fully covered by these proposals. When adding
 or revising a SEP, remove an informal item only if the proposal covers it in full;

@@ -6,12 +6,12 @@
 | **Title** | Shot noise on by default, and an integrator and tolerances chosen for each interface |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-10-26); Opus 5.5 (2026-10-26, revision after review) |
-| **Status** | Draft |
+| **Status** | Accepted |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); GPT-6 (AI) |
 | **Type** | Change |
 | **Created** | 2026-10-26 |
-| **Resolution** | — |
+| **Resolution** | Accepted 2026-10-26 by John Travers, with the 10 % tie margin of §5.2, after his human review, the GPT-6 AI review and the response to it, with decisions D1–D7 recorded in Part III ([LupoLab/solprop#30](https://github.com/LupoLab/solprop/pull/30)). |
 | **Requires** | [SEP 16](archive/sep-0016-unified-multistep.md) (the multistep family and its work–precision qualification); [SEP 30](archive/sep-0030-standard-benchmark-suite.md) (the benchmark suite); [SEP 31](archive/sep-0031-simulation-coupling.md) (field planes and coupled stages) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
@@ -577,6 +577,8 @@ destination:
 - 2026-10-26: Added the floor-subtracted spectrum (§5.5, D6).
 - 2026-10-26: Recorded that the modified model is kept, with no new work, until SEP 7
   settles whether gain media need its injection path (D7).
+- 2026-10-26: Accepted by John Travers, with the 10 % tie margin of §5.2. Part I is
+  frozen from this revision.
 
 ### Human review — 2026-10-26
 
