@@ -76,7 +76,8 @@ def test_admission_refuses_by_name_and_the_study_reaches_adams():
     admit(DOUBLE, "native", rtol=1e-12)
     with pytest.raises(TranslationError, match=r"numba_cpu.*precision='single'"):
         admit(SINGLE, "numba_cpu")
-    for backend in ("numba_cpu", "native", "mlx"):
+    admit(MIXED, "native", rtol=1e-8)
+    for backend in ("numba_cpu", "mlx"):
         with pytest.raises(TranslationError, match="refuses precision='mixed'"):
             admit(MIXED, backend)
     with pytest.raises(TranslationError, match="floor 1e-06"):

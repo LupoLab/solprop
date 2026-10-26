@@ -192,25 +192,28 @@ The first public release. It contains:
   - Under single precision a replayed step (or an adaptive floor) whose propagator
     exponent passes binary32's range, `exp(88.7)`, is refused at translation, and one
     within a tenth of it is warned of.
-  - The `native` backend runs single precision on the CPU fibre route
+  - The `native` backend runs single precision on the CPU
     ([SEP 36](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0036-native-reduced-precision.html),
-    in progress): mode-averaged and multimode, field and envelope grids, Kerr, Raman
-    (scalar and tensor), the field-grid plasma, both absorber schemes, the Runge-Kutta
-    and low-storage marches and lockstep batches, validated against the reference
-    backend's single-precision path. Its propagators are evaluated in binary32 from a
-    binary64 argument reduced in binary64 first, within `10 u32`. A build compiles the
-    precision policies of `SOLPROP_NATIVE_PRECISIONS` (`double;single` on a CPU build)
-    and records them in `BuildInfo.precisions`, which replaces `BuildInfo.precision`;
+    in progress): the fibre route (mode-averaged and multimode, field and envelope
+    grids), the radial, Cartesian and line free-space routes, Kerr, Raman (scalar and
+    tensor), the field-grid and envelope-grid plasma, both absorber schemes, the
+    Runge-Kutta and low-storage marches and lockstep batches, validated against the
+    reference backend's single-precision path. Its propagators are evaluated in binary32
+    from a binary64 argument reduced in binary64 first, within `10 u32`; its statistics
+    are binary64 reductions of the physical state. A build compiles the precision
+    policies of `SOLPROP_NATIVE_PRECISIONS` (`double;single;mixed` on a CPU build) and
+    records them in `BuildInfo.precisions`, which replaces `BuildInfo.precision`;
     `backend="auto"` chooses it under `precision="single"` where MLX is not available.
-    The spatial routes and the envelope-grid plasma are refused by name until SEP 36's
-    next phase.
+    The slab kind and the far-field statistics stay binary64.
 - **Mixed precision**
   ([SEP 36](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0036-native-reduced-precision.html),
   in progress). `precision="mixed"` keeps the state, every stored stage and history row,
   the propagators, the boundary treatments and the norms in binary64, and evaluates the
   source (its transforms, responses and in-stage collars) in binary32. `numpy_ref` runs
   it as the mixed-precision reference (oracle) on single precision's routes, with no
-  damping limit; `numba_cpu`, `native` and `mlx` refuse it. Its default `rtol` is the
+  damping limit, and the `native` backend on the same routes on the CPU, its state
+  physical and its source at the launch's scale, the split-step collar's transforms in
+  binary64; `numba_cpu` and `mlx` refuse it. Its default `rtol` is the
   larger of each interface's binary64 default and the floor `1e-8`, below which an
   explicit tolerance is refused, and its default integrator `RungeKutta()`; noise
   models and the Adams integrator are refused until the survival studies admit them.
