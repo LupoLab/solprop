@@ -98,6 +98,8 @@ interface and the interface fixes the equation solved.
 - the defaults of every `prop_*` interface and of the `Simulation.from_*` constructors
   behind them: noise model, integrator and formulation, `rtol` and `atol`;
 - the input-noise refusals that are not grounded in physics or numerics (§3.3);
+- a floor-subtracted spectrum in processing, which gives an input run the clean
+  spectrum of the modified model's readout (§5.5);
 - seeds for the test suite and the worked examples;
 - the manual's account of noise, cost and stepper choice.
 
@@ -231,8 +233,17 @@ on every spectral bin [1, 2].
   at the vacuum level. Spontaneous processes far into a lossy guide are then under-seeded
   by about the guide's power transmission up to that point.
 - **The floor.** The seed sits as a one-photon floor under the whole spectrum.
+- **Thermal seeding.** Spontaneous Raman scattering at a shift $\Omega$ is seeded at
+  $n_\mathrm{th}(\Omega) + 1$ photons on the Stokes side and $n_\mathrm{th}$ on the
+  anti-Stokes side, with $n_\mathrm{th} = 1/(e^{\hbar\Omega/k_BT} - 1)$ [3]. For vibrational
+  shifts (tens of THz) $n_\mathrm{th}$ is negligible, but for the rotational lines of
+  nitrogen at room temperature (0.36–5 THz) it is about 1 to 17. One photon per mode
+  then under-seeds rotational Raman by up to an order of magnitude, and seeds its
+  anti-Stokes side where thermal phonons would. Neither noise model in solprop includes
+  this; a Raman Langevin term with the thermal factor would.
 - **Statistics.** The fixed-modulus draw has the right second moments but not the
-  fourth moments of a vacuum mode.
+  fourth moments of a vacuum mode. A gain mode that spans many spectral bins sums many
+  independent phases and approaches Gaussian statistics anyway.
 
 These limits are known and bounded. Each is either small where the model is used or
 visible to the user. Fixing them needs the half-photon vacuum with a Langevin term for
@@ -383,6 +394,25 @@ seed, any fallback and its reason, the integrator and the tolerances. It is a
 prerequisite of phase 2: the noise default does not land before the summary does. The
 seed share $r$ of §4.3 may be printed as a size diagnostic, but nothing warns on it.
 
+#### 5.5 A floor-subtracted spectrum
+
+`processing.get_spectral_density` and `processing.get_spectrum` gain a keyword
+`noise_floor`, either `"keep"` (the default) or `"subtract"`. `"subtract"` removes the
+injected seed's energy, exactly one photon per active bin and channel, from the spectral
+energy density, using the route's own photon measure, the one `noise.photons_per_bin`
+inverts.
+
+- **The equivalence.** The draw has a fixed modulus, so this is exact for one
+  realisation. Where the linear operator only changes the phase, the subtracted spectrum
+  of an input run equals the modified model's corrected readout $|\psi + N|^2 - |N|^2$
+  for the same draw.
+- **What it is not.** It is not a photon-number estimator under loss. There the input
+  seed has decayed, and the subtraction removes more than remains.
+- **Signs and refusals.** Values near the floor can be negative, by the interference
+  term and the seed's decay. The keyword returns them signed, and the plotting helpers
+  mask non-positive values on a logarithmic axis. It refuses a run without noise, and a
+  modified run, whose saved field holds no seed.
+
 ### 6. Implementation strategies
 
 **The default and its resolution** are driver settings, in `solprop.driver.interface`
@@ -410,6 +440,9 @@ The modified model keeps all its refusals.
   the fallback routes and the interior launch, and check the stored record and the
   printed summary.
 - **Lifted refusals**, as in the table of §6.
+- **The floor-subtracted spectrum.** It equals the modified readout of the same draw to
+  rounding, in a lossless Kerr and Raman case. It removes exactly one photon per bin from
+  an unpropagated noisy input, leaving the pulse's spectrum. It refuses as §5.5 states.
 - **Integrators and tolerances**, by the rules of §5.2 and §5.3.
 - **Examples.** Re-run every worked example whose result changes under the new
   defaults, with a fixed seed.
@@ -425,6 +458,7 @@ The modified model keeps all its refusals.
     it equals the input model and where it differs, its readout and its refusals
     (§4.2);
   - the cost as measured in solprop, in place of the quoted factor of eight;
+  - the floor-subtracted spectrum and what it is not (§5.5);
   - what neither model does.
 - [Choosing a stepper](../../guide/numerics/choosing-a-stepper.md): the default for
   each interface and the evidence behind it.
@@ -486,7 +520,7 @@ reported on its own.
    noise record, the docstrings and the noise guide. Seed the tests and examples, and
    pin the noiseless references. This phase follows the start-of-run summary.
 3. **Input noise on the TDSE, coupled-flow and interior-launch routes**, with the checks
-   of §6.
+   of §6, and the floor-subtracted spectrum of §5.5.
 
 ### 12. Open questions
 
@@ -534,6 +568,7 @@ destination:
   is now `input`, with the modified model kept as an option. The refusal lifts cover
   input noise only, the fallback contract is complete, and the integrator rule and
   tolerance protocol are fixed. The response to every finding is at the end of Part III.
+- 2026-10-26: Added the floor-subtracted spectrum (§5.5, D6).
 
 ### Human review — 2026-10-26
 
@@ -872,6 +907,8 @@ provably better and not worse elsewhere, is an improvement.
   qualification-scope choice: the atom is driven only inside its gated, edge-free
   window (SEP 26), and the seed's band is the grid's, which the propagated pulse fills
   anyway. The checks are those of §6.
+- **D6.** The maintainer asked for a floor-subtracted spectrum, which keeps the one
+  benefit of the modified model's readout that costs nothing (§5.5).
 
 ### Response to review — 2026-10-26
 
