@@ -59,6 +59,7 @@ from solprop.backends.numpy_ref.tdse import (
     project_atomic_sources,
 )
 from solprop.backends.populations import axis_refusal, population_statistics
+from solprop.backends.rounding_margin import step_phase
 from solprop.backends.spatial import (
     FarFieldTables,
     collect_spatial,
@@ -400,6 +401,24 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         return envelope_populations(
             nodes, envelope, initials, self._problem.grids.dt_fine
         )
+
+    def _step_phase(self, dz: float) -> float | None:
+        """Return the last scored trial's nonlinear phase, for the indicator.
+
+        Parameters
+        ----------
+        dz : float
+            The step's length, m; the phase was formed with it.
+
+        Returns
+        -------
+        float or None
+            The phase the Runge-Kutta trial formed, or ``None`` when no trial formed
+            one (the low-storage and Adams marches).
+        """
+        del dz
+        phase, self._trial_phase = self._trial_phase, None
+        return phase
 
     def _error_norm(
         self,
@@ -1514,6 +1533,12 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             error = passes.accumulate(error, stage, float(tableau.error_weights[index]))
         # Kept for the continuous extension of an accepted step (SEP 14 phase 3).
         self._last_stages = stages
+        if self._margin is not None and self._margin.active:
+            # The rounding-margin indicator's phase, in the controller's norm, from
+            # the anchor and the last stage (SEP 36 section 5).
+            self._trial_phase = step_phase(
+                state, stages[-1], dz, self._problem.grids.norm_mask
+            )
         propagator = self._propagator(exponents(1.0, step))
         whole = actions(1.0)[0]
         advanced = passes.accept_step(

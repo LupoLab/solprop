@@ -38,6 +38,7 @@ template std::vector<Complex>
 GeneralWorkspace<Single>::phase_sum_to_host(const std::vector<double>&);
 template std::vector<double>
 GeneralWorkspace<Single>::weighted_error(const std::vector<double>&);
+template std::vector<double> GeneralWorkspace<Single>::last_stage_norms();
 template void GeneralWorkspace<Single>::prepare_raman(const std::vector<double>&,
                                                       const std::vector<double>&);
 template std::vector<double> GeneralWorkspace<Single>::statistics(

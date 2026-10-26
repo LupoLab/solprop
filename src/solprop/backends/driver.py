@@ -41,6 +41,7 @@ from solprop.backends.protocol import (
     StepStats,
     StepSummary,
 )
+from solprop.backends.rounding_margin import RoundingMargin
 from solprop.backends.spatial import collar_field_fraction
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.grid import TimeGrid
@@ -364,6 +365,22 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._logger = logging.getLogger(type(self).__module__)
         self._state: _StateT | None = None
         self._noise: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"] | None = None
+        # The rounding-margin indicator of a noise-seeded mixed run (SEP 36 section
+        # 5), with the realisation its seed amplitude is read from.
+        self._margin: RoundingMargin | None = (
+            RoundingMargin(
+                None
+                if problem.initial.noise_model != "none"
+                else "the run has no noise model"
+            )
+            if problem.precision.name == "mixed"
+            else None
+        )
+        self._margin_seed: (
+            Complex[np.ndarray, "n_batch n_modes n_pol n_omega"] | None
+        ) = None
+        # The last scored trial's phase, where a backend forms it there.
+        self._trial_phase: float | None = None
         self._z = 0.0
         self._proposal = problem.stepper.dz_init
         self._schedule_index = 0
@@ -891,7 +908,29 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             record["source_evaluations"] = self._rk_source_evaluations
         if self._collar_skipped:
             record["collar_diagnostic_skipped"] = self._collar_skipped
+        if self._margin is not None:
+            record["rounding_margin"] = self._margin.record()
         return record
+
+    def restore_rounding_margin(self, execution: Mapping[str, object]) -> None:
+        """Continue the rounding-margin indicator's running sum on a resume.
+
+        Called after :meth:`set_initial` at the resume position, with the interrupted
+        run's execution record. A record without the sum at that position leaves the
+        indicator absent for the rest of the run, with the reason (SEP 36 section 5).
+
+        Parameters
+        ----------
+        execution : collections.abc.Mapping
+            The interrupted run's last execution record (:meth:`metadata`).
+        """
+        if self._margin is None:
+            return
+        saved = execution.get("rounding_margin")
+        self._margin.restore(
+            cast("Mapping[str, object]", saved) if isinstance(saved, Mapping) else {},
+            self._z,
+        )
 
     def march_snapshot(self) -> MarchSnapshot | None:
         """Return the Adams march's state at the accepted position, for a resume.
@@ -1203,6 +1242,10 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._state = self._apply_mask(values)
         self._noise = drawn if model == "modified" else None
         self._z = position
+        if self._margin is not None:
+            # A load is a new run, or a reused runner's next one (SEP 22 section 4.7).
+            self._margin.reset(position)
+            self._margin_seed = drawn
         self._proposal = self._problem.stepper.dz_init
         self._schedule_index = self._schedule_index_at(position)
         self._accepted_norms = []
@@ -1398,6 +1441,12 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             n_rejected=history.n_rejected,
             step_stats=self._drain_step_stats(),
         )
+        if self._margin is not None and self._margin.active:
+            self._margin.plane(
+                self._z,
+                plane.field if plane.field is not None else self._observed_field(state),
+                self._margin_seed,
+            )
         geometry = self._problem.transform.geometry
         if geometry is not None and plane.field is None:
             self._skip_collar_diagnostic()
@@ -1889,7 +1938,30 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._history.append((z, dz, norm, accepted, time.perf_counter() - self._clock))
         self._progress.step(z, dz, accepted)
         if accepted:
+            if self._margin is not None and self._margin.active:
+                self._margin.accept(self._step_phase(dz), z)
             self._on_accepted_step()
+
+    def _step_phase(self, dz: float) -> float | None:
+        """Return the accepted step's nonlinear phase ``dz ||k_last|| / ||A||``.
+
+        Read by the rounding-margin indicator (SEP 36 section 5) right after the step
+        was recorded, from the trial just scored: the last stage value and the anchor
+        state, in the norm the controller uses. ``nan`` for a zero state norm.
+
+        Parameters
+        ----------
+        dz : float
+            The step's length, m.
+
+        Returns
+        -------
+        float or None
+            The phase, or ``None`` where the march does not supply it. The default
+            supplies none.
+        """
+        del dz
+        return None
 
     # --- noise ---------------------------------------------------------------------
 

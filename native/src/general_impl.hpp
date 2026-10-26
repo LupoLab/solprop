@@ -1980,6 +1980,7 @@ public:
   std::vector<Complex> table_terms_to_host(TableKind kind, std::size_t slot) const;
   std::vector<Complex> phase_sum_to_host(const std::vector<double>& weights);
   std::vector<double> weighted_error(const std::vector<double>& scale);
+  std::vector<double> last_stage_norms();
   void set_flow_actions(const std::vector<Complex>& forward,
                         const std::vector<Complex>& inverse,
                         const std::vector<unsigned char>& identity);
@@ -2457,6 +2458,9 @@ public:
   SourceRealView2 plasma_current_integrand_, plasma_free_current_;
   SourceRealView2 plasma_outer_current_;
   ReductionRealView weighted_scale_, weighted_partials_;
+  // The last stage's in-band squared norm per column, for solprop's rounding-margin
+  // indicator (SEP 36 section 5); allocated by its first use.
+  ReductionRealView stage_norm_partials_;
   ReductionRealView spatial_spectral_weights_;
   ReductionView spatial_on_axis_;
   ReductionRealView2 spatial_statistics_partials_;
@@ -10967,6 +10971,57 @@ auto GeneralWorkspace<Policy>::weighted_error(const std::vector<double>& scale)
   return result;
 }
 
+// The in-band squared norm of the last scored trial's last stage value, per column, a
+// binary64 sum of the widened values: solprop's rounding-margin indicator reads it with
+// the old state norm of the same trial's partials (SEP 36 section 5). Paid once per
+// accepted step, and only by a run that records the indicator.
+template <class Policy>
+auto GeneralWorkspace<Policy>::last_stage_norms() -> std::vector<double> {
+  require_open();
+  if (problem_.low_storage || stages_.extent(0) == 0)
+    throw std::logic_error("this state holds no Runge-Kutta stages");
+  if (stage_norm_partials_.extent(0) != problem_.n_columns())
+    stage_norm_partials_ = ReductionRealView("solprop_native.step.stage_norm_partials",
+                                             problem_.n_columns());
+  const auto stages = stages_;
+  const auto last = problem_.n_stages - 1;
+  const auto in_norm = norm_mask_;
+  const auto partials = stage_norm_partials_;
+  const auto n = problem_.n_omega;
+  using TeamPolicy = Kokkos::TeamPolicy<ExecutionSpace>;
+  using TeamMember = TeamPolicy::member_type;
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  const int team_size = SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE;
+#else
+  const int team_size =
+      host_reduction_team_size(execution_space_, problem_.n_columns(), n);
+#endif
+  const TeamPolicy policy(execution_space_, static_cast<int>(problem_.n_columns()),
+                          team_size);
+  Kokkos::parallel_for(
+      "solprop_native.step.stage_norm_partials", policy,
+      KOKKOS_LAMBDA(const TeamMember& team) {
+        const auto column = static_cast<std::size_t>(team.league_rank());
+        double sum = 0.0;
+        Kokkos::parallel_reduce(
+            Kokkos::TeamThreadRange(team, static_cast<int>(n)),
+            [&](const int index_value, double& update) {
+              const auto index = static_cast<std::size_t>(index_value);
+              if (in_norm(index) == 0U)
+                return;
+              update += wide_squared_abs(stages(last, column, index));
+            },
+            sum);
+        Kokkos::single(Kokkos::PerTeam(team), [&] { partials(column) = sum; });
+      });
+  execution_space_.fence("solprop_native stage-norm boundary");
+  const auto host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, partials);
+  std::vector<double> result(problem_.n_columns());
+  for (std::size_t column = 0; column < result.size(); ++column)
+    result[column] = host(column);
+  return result;
+}
+
 template <class Policy>
 void GeneralWorkspace<Policy>::fill_statistics_time(const bool windowed,
                                                     const double lower,
@@ -13023,6 +13078,7 @@ auto GeneralWorkspace<Policy>::base_memory_ledger() const
                                   ? 0
                                   : 2 * problem_.n_columns() * real_bytes},
       {"weighted_control", bytes_of(weighted_scale_, weighted_partials_)},
+      {"stage_norm_partials", bytes_of(stage_norm_partials_)},
       {"statistics_spectrum", bytes_of(statistics_spectrum_)},
       {"statistics_time", bytes_of(statistics_time_)},
       {"statistics_weighted_time", bytes_of(statistics_weighted_time_)},
@@ -13224,6 +13280,7 @@ template <class Policy> void GeneralWorkspace<Policy>::close() noexcept {
   quadrature_partials_ = {};
   weighted_scale_ = {};
   weighted_partials_ = {};
+  stage_norm_partials_ = {};
   stash_candidate_ = {};
   stash_current_ = {};
   statistics_power_ = {};

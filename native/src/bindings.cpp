@@ -786,6 +786,12 @@ public:
       throw std::logic_error("weighted error requires the general native state");
     return general_state_->weighted_error(scale);
   }
+  std::vector<double> last_stage_norms() {
+    require_open();
+    if (!general_state_)
+      throw std::logic_error("the last stage's norm requires the general native state");
+    return general_state_->last_stage_norms();
+  }
   void prepare_raman(const std::vector<double>& rates,
                      const std::vector<double>& densities) {
     require_open();
@@ -2029,6 +2035,15 @@ NB_MODULE(_core, module_) {
             return real_output(std::move(partials), 1);
           },
           "scale"_a.noconvert())
+      .def("last_stage_norms",
+           [](BoundState& self) {
+             std::vector<double> partials;
+             {
+               const nb::gil_scoped_release release;
+               partials = self.last_stage_norms();
+             }
+             return real_output(std::move(partials), 1);
+           })
       .def(
           "spatial_statistics",
           [](BoundState& self, const std::uint64_t flags, const double intensity_factor,

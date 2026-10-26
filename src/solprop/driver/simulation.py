@@ -2908,6 +2908,11 @@ class Simulation(Displayed):
             backend.restore_call_ledgers(
                 state.outcome.logical_calls, state.outcome.atomic_calls
             )
+            # A mixed run's rounding-margin sum continues from the interrupted run's
+            # record at this position (SEP 36 section 5).
+            restore_margin = getattr(backend, "restore_rounding_margin", None)
+            if restore_margin is not None:
+                restore_margin(state.outcome.execution)
         self._continue_march(backend, state)
         return next_plane
 
