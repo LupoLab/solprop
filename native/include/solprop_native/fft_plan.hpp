@@ -39,8 +39,8 @@ void seed_row_fft_wisdom(const Execution& execution, const Input& input,
   const auto effort = fftw_planner_effort();
   if (effort == FFTW_ESTIMATE)
     return;
-  using InputValue = typename Input::non_const_value_type;
-  using OutputValue = typename Output::non_const_value_type;
+  using InputValue = Input::non_const_value_type;
+  using OutputValue = Output::non_const_value_type;
   // Binary32 views plan with single-precision FFTW (`fftwf_`), whose wisdom
   // Kokkos-FFT's binary32 plans consume (solprop SEP 36 section 6.3).
   constexpr bool single = std::is_same_v<InputValue, float> ||

@@ -725,7 +725,7 @@ void copy_vector(const ExecutionSpace& execution_space, const View& destination,
   auto* data = mirror.data();
   // A binary32 view takes each binary64 value rounded once (solprop SEP 36): the
   // conversion is the narrowing, written out.
-  using Target = typename View::non_const_value_type;
+  using Target = View::non_const_value_type;
   for (std::size_t index = 0; index < source.size(); ++index)
     data[index] = static_cast<Target>(source[index]);
   Kokkos::deep_copy(execution_space, destination, mirror);
@@ -1225,7 +1225,7 @@ void accept_update(const ExecutionSpace& execution, const std::size_t count,
                    const std::size_t n, const double dz_wide, const Columns& columns,
                    const char* label) {
   using StateComplex = Kokkos::complex<typename Policy::state>;
-  const auto dz = static_cast<typename Policy::state>(dz_wide);
+  const auto dz = static_cast<Policy::state>(dz_wide);
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   using ReductionPolicy = Kokkos::TeamPolicy<ExecutionSpace>;
   using ReductionMember = ReductionPolicy::member_type;
@@ -1330,24 +1330,24 @@ constexpr std::size_t stage_block = 64;
 // same traversal when nothing lies between them (solprop SEP 25 section 6.7): both
 // are pointwise over the bins, and the combination reads only its own bin's stages.
 template <class Policy> struct StageTerms {
-  using StateReal = typename Policy::state;
-  using SourceReal = typename Policy::source;
-  using TableReal = typename Policy::table;
-  using PropagatorReal = typename Policy::propagator;
+  using StateReal = Policy::state;
+  using SourceReal = Policy::source;
+  using TableReal = Policy::table;
+  using PropagatorReal = Policy::propagator;
   using StateComplex = Kokkos::complex<StateReal>;
   using SourceComplex = Kokkos::complex<SourceReal>;
   using TableComplex = Kokkos::complex<TableReal>;
   using R = Roles<Policy>;
-  typename R::StateView2 current, solution, error, noise;
-  typename R::SourceView2 fine, projected, absorber;
-  typename R::PropagatorView2 whole, stage_inverse;
-  typename R::ArgumentView2 stage_phase;
+  R::StateView2 current, solution, error, noise;
+  R::SourceView2 fine, projected, absorber;
+  R::PropagatorView2 whole, stage_inverse;
+  R::ArgumentView2 stage_phase;
   // A coupled flow's and the general route's rows: binary64 routes alone.
   ComplexView2 flow_input, flow_lab, flow_drive, general_scaled, general_source;
-  typename R::StateView3 stages;
-  typename R::ArgumentView3 phi_terms, prefactor_terms;
-  typename R::ArgumentRealView tableau, phi_delta, phi_at, prefactor_weights;
-  typename R::TableRealView window;
+  R::StateView3 stages;
+  R::ArgumentView3 phi_terms, prefactor_terms;
+  R::ArgumentRealView tableau, phi_delta, phi_at, prefactor_weights;
+  R::TableRealView window;
   IndexView crop, gaps;
   ByteView active;
   std::size_t gap_ranges = 0;
@@ -1697,11 +1697,11 @@ public:
   // under this policy alone, behind `if constexpr (binary64)`.
   static constexpr bool binary64 = is_binary64_policy_v<Policy>;
   // Each role's scalar and complex value, for the arithmetic of a pass.
-  using StateReal = typename Policy::state;
-  using SourceReal = typename Policy::source;
-  using TableReal = typename Policy::table;
-  using ReductionReal = typename Policy::reduction;
-  using PropagatorReal = typename Policy::propagator;
+  using StateReal = Policy::state;
+  using SourceReal = Policy::source;
+  using TableReal = Policy::table;
+  using ReductionReal = Policy::reduction;
+  using PropagatorReal = Policy::propagator;
   using StateComplex = Kokkos::complex<StateReal>;
   using SourceComplex = Kokkos::complex<SourceReal>;
   using TableComplex = Kokkos::complex<TableReal>;
@@ -4452,7 +4452,7 @@ low_storage_fold(const int stage, const int mode, const double step,
                  const StateComplex source, StateComplex& state,
                  StateComplex& accumulator, StateComplex& stage_register,
                  const StateComplex first, const StateComplex second) {
-  using Real = typename StateComplex::value_type;
+  using Real = StateComplex::value_type;
   const auto sixth = static_cast<Real>(step / 6.0);
   const auto third = static_cast<Real>(step / 3.0);
   const auto half = static_cast<Real>(0.5 * step);

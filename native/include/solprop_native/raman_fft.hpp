@@ -51,7 +51,7 @@ public:
 #if defined(SOLPROP_NATIVE_RAMAN_ACCELERATE)
     // The Accelerate provider is binary64's: binary32 views take Kokkos-FFT (single-
     // precision FFTW) below (solprop SEP 36 section 6.3).
-    using InputValue = typename Input::non_const_value_type;
+    using InputValue = Input::non_const_value_type;
     constexpr bool binary64_views = std::is_same_v<InputValue, double> ||
                                     std::is_same_v<InputValue, Kokkos::complex<double>>;
     if constexpr (binary64_views)
