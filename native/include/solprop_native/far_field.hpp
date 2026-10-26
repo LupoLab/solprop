@@ -194,7 +194,7 @@ KOKKOS_INLINE_FUNCTION bool far_field_member(const double k_x, const double k_y,
  */
 class FarFieldPass {
 public:
-  using ComplexView2 = Kokkos::View<Complex**, Layout, MemorySpace>;
+  using ComplexView2 = Binary64::ComplexView2;
   using ByteView = Kokkos::View<unsigned char*, Layout, MemorySpace>;
 
   /** What the pass reads besides the state: the geometry's weights and on-axis

@@ -255,7 +255,7 @@ void dispersive_mixture_rows(
  */
 class DispersiveWeights {
 public:
-  using RealView2 = Kokkos::View<double**, Layout, MemorySpace>;
+  using RealView2 = Binary64::RealView2;
   using IndexView = Kokkos::View<std::size_t*, Layout, MemorySpace>;
 
   DispersiveWeights(const Problem& problem, const ExecutionSpace& kernels);
@@ -329,8 +329,8 @@ private:
  */
 class DispersiveResponse {
 public:
-  using ComplexView2 = Kokkos::View<Complex**, Layout, MemorySpace>;
-  using RealView2 = Kokkos::View<double**, Layout, MemorySpace>;
+  using ComplexView2 = Binary64::ComplexView2;
+  using RealView2 = Binary64::RealView2;
 
   /** The engine's views the response reads, writes or borrows. */
   struct StageViews {
@@ -467,8 +467,8 @@ private:
  */
 class SeparableDispersive {
 public:
-  using ComplexView2 = Kokkos::View<Complex**, Layout, MemorySpace>;
-  using RealView2 = Kokkos::View<double**, Layout, MemorySpace>;
+  using ComplexView2 = Binary64::ComplexView2;
+  using RealView2 = Binary64::RealView2;
 
   /** The engine's views the response reads, writes or borrows. */
   struct StageViews {
@@ -580,8 +580,8 @@ private:
  */
 class GeneralDispersive {
 public:
-  using ComplexView2 = Kokkos::View<Complex**, Layout, MemorySpace>;
-  using RealView2 = Kokkos::View<double**, Layout, MemorySpace>;
+  using ComplexView2 = Binary64::ComplexView2;
+  using RealView2 = Binary64::RealView2;
   using IndexView = Kokkos::View<std::size_t*, Layout, MemorySpace>;
 
   /** The route's chunk buffers: the synthesised spectrum, its signal, the source. */

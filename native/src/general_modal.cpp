@@ -18,9 +18,6 @@
 namespace solprop_native {
 namespace {
 
-using ComplexView2 = GeneralModalSource::ComplexView2;
-using RealView2 = GeneralModalSource::RealView2;
-
 constexpr std::size_t max_components = 3;
 
 // Unroll the loop that follows completely, on GCC. A sample's contraction over a

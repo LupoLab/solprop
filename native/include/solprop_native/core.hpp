@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include "solprop_native/precision.hpp"
+
 #include <Kokkos_Complex.hpp>
 #include <Kokkos_Core.hpp>
 
@@ -19,9 +21,6 @@
 
 namespace solprop_native {
 
-using ExecutionSpace = Kokkos::DefaultExecutionSpace;
-using MemorySpace = ExecutionSpace::memory_space;
-using Layout = Kokkos::LayoutRight;
 /** A two-dimensional range whose last index runs fastest, as `Layout` stores it.
 
     Kokkos's CUDA and HIP default runs the first index fastest, which puts adjacent
@@ -29,11 +28,8 @@ using Layout = Kokkos::LayoutRight;
     this order. */
 using Range2 = Kokkos::MDRangePolicy<
     ExecutionSpace, Kokkos::Rank<2, Kokkos::Iterate::Right, Kokkos::Iterate::Right>>;
-using Complex = Kokkos::complex<double>;
-using ComplexView = Kokkos::View<Complex*, Layout, MemorySpace>;
-using ConstComplexView = Kokkos::View<const Complex*, Layout, MemorySpace>;
-using RealView = Kokkos::View<double*, Layout, MemorySpace>;
-using ConstRealView = Kokkos::View<const double*, Layout, MemorySpace>;
+// The binary64 seam types (`Complex`, `ComplexView`, ...) and the precision policies
+// with their role-typed views are in precision.hpp (solprop SEP 36).
 
 /** Signal exhaustion of the validated angular rule before source assembly. */
 class EnvelopeConvergenceError : public std::runtime_error {
@@ -510,9 +506,9 @@ struct TrialScalars {
 enum class TableKind { phi, prefactor, rate, flux };
 
 /** Execution-space views, FFT plans, and scratch owned by one State. */
-class Workspace;
-class GeneralWorkspace;
-class GeneralBatchWorkspace;
+template <class Policy> class Workspace;
+template <class Policy> class GeneralWorkspace;
+template <class Policy> class GeneralBatchWorkspace;
 
 /** Persistent single-column execution-space state, plans, and scratch storage. */
 class State {
@@ -541,7 +537,7 @@ public:
   void close() noexcept;
 
 private:
-  std::unique_ptr<Workspace> workspace_;
+  std::unique_ptr<Workspace<Double>> workspace_;
 };
 
 /** Multicolumn general state with batched FFTs and chunked node transforms. */
@@ -703,8 +699,8 @@ public:
   void close() noexcept;
 
 private:
-  friend class GeneralBatchWorkspace;
-  std::unique_ptr<GeneralWorkspace> workspace_;
+  template <class Policy> friend class GeneralBatchWorkspace;
+  std::unique_ptr<GeneralWorkspace<Double>> workspace_;
 };
 
 /** Shared update dispatch over independently owned native parameter workspaces. */
@@ -722,7 +718,7 @@ public:
   void close() noexcept;
 
 private:
-  std::unique_ptr<GeneralBatchWorkspace> workspace_;
+  std::unique_ptr<GeneralBatchWorkspace<Double>> workspace_;
 };
 
 void fft(const ExecutionSpace& execution_space, ComplexView input, ComplexView output);

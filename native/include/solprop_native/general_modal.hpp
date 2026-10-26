@@ -84,8 +84,8 @@ KOKKOS_INLINE_FUNCTION double general_doubling(const std::size_t fine,
  */
 class GeneralModalSource {
 public:
-  using ComplexView2 = Kokkos::View<Complex**, Layout, MemorySpace>;
-  using RealView2 = Kokkos::View<double**, Layout, MemorySpace>;
+  using ComplexView2 = Binary64::ComplexView2;
+  using RealView2 = Binary64::RealView2;
   using IndexView = Kokkos::View<std::size_t*, Layout, MemorySpace>;
 
   /**
