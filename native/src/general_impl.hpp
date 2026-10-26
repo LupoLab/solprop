@@ -2095,7 +2095,9 @@ public:
   // The band column's teams: on a device one per node, as wide as the build's team and
   // the kernel's resources allow; on the host the threads shared between the nodes.
   // Each team walks the nodes `slot, slot + league, ...` with its slot's rows.
-  template <class Functor>
+  // `Real` is the staged rows' element: the source's, or binary64 for the binary32
+  // policy's run diagnostics.
+  template <class Functor, class Real = SourceReal>
   [[nodiscard]] Kokkos::TeamPolicy<ExecutionSpace>
   band_team_policy(std::size_t node_count, const Functor& functor) const;
   [[nodiscard]] std::size_t band_league(std::size_t node_count) const;
@@ -2374,6 +2376,11 @@ public:
   // under the trapezoid) and the run diagnostics' six parts per node.
   TableRealView plasma_taps_;
   ReductionRealView2 plasma_diagnostics_;
+  // Under a binary32 policy the run diagnostics' scan rows and taps, in binary64 as
+  // the oracle forms them from the widened state (solprop SEP 33 section 4.5),
+  // allocated at the first diagnosed statistics.
+  ReductionRealView2 diagnostic_rate_, diagnostic_filtered_, diagnostic_exposure_;
+  ReductionRealView diagnostic_taps_;
   // The band column's scratch rows per kind: one per concurrently running team.
   std::size_t band_slots_{};
   // Whether the band rule runs the tiled column (`tiled_band_plasma_column`), its
@@ -8850,7 +8857,7 @@ std::size_t GeneralWorkspace<Policy>::band_league(const std::size_t node_count) 
 }
 
 template <class Policy>
-template <class Functor>
+template <class Functor, class Real>
 auto GeneralWorkspace<Policy>::band_team_policy(const std::size_t node_count,
                                                 const Functor& functor) const
     -> Kokkos::TeamPolicy<ExecutionSpace> {
@@ -8861,7 +8868,7 @@ auto GeneralWorkspace<Policy>::band_team_policy(const std::size_t node_count,
     throw std::length_error("band team column extent exceeds signed 32-bit range");
   const auto league = static_cast<int>(band_league(node_count));
   const auto scratch =
-      Kokkos::PerTeam(band_staging_bytes<band_staging, ExecutionSpace, SourceReal>());
+      Kokkos::PerTeam(band_staging_bytes<band_staging, ExecutionSpace, Real>());
   // The widest team this kernel can launch with its scratch: a device's registers per
   // thread can hold the band column below the configured width.
   Team probe(response_space_for(node_count), league, 1);
@@ -9543,13 +9550,55 @@ void GeneralWorkspace<Policy>::team_band_statistics(const std::size_t first_node
                                                     const RealView2& output,
                                                     const double preionisation) {
   using TeamMember = Kokkos::TeamPolicy<ExecutionSpace>::member_type;
+  // Under a binary32 policy the run diagnostics scan binary64 rows of the physical
+  // field, as the oracle forms them from the widened state (solprop SEP 33 section
+  // 4.5): binary32 rows would floor the work defect `|paid - freed|` at their rounding.
+  constexpr bool wide = Diagnose && !binary64;
+  using RowReal = std::conditional_t<wide, double, SourceReal>;
+  if constexpr (wide) {
+    if (diagnostic_rate_.extent(0) != band_slots_ ||
+        diagnostic_rate_.extent(1) != problem_.n_to) {
+      require_allocation(
+          checked_product(3 * band_slots_, problem_.n_to, "diagnostic rows"),
+          sizeof(double), "diagnostic-row bytes");
+      diagnostic_rate_ = ReductionRealView2("solprop_native.plasma.diagnostic_rate",
+                                            band_slots_, problem_.n_to);
+      diagnostic_filtered_ = ReductionRealView2(
+          "solprop_native.plasma.diagnostic_filtered", band_slots_, problem_.n_to);
+      diagnostic_exposure_ = ReductionRealView2(
+          "solprop_native.plasma.diagnostic_exposure", band_slots_, problem_.n_to);
+      diagnostic_taps_ = ReductionRealView("solprop_native.plasma.diagnostic_taps",
+                                           problem_.plasma_taps.size());
+      copy_vector(execution_space_, diagnostic_taps_, problem_.plasma_taps);
+    }
+  }
   const auto node_real = node_real_;
   const auto node_complex = node_complex_;
   const bool real_family = problem_.family == FieldFamily::field_real;
-  const auto rates = plasma_rate_;
-  const auto filtered = plasma_fraction_;
-  const auto exposures = plasma_exposure_;
-  const auto taps_view = plasma_taps_;
+  const auto rates = [this] {
+    if constexpr (wide)
+      return diagnostic_rate_;
+    else
+      return plasma_rate_;
+  }();
+  const auto filtered = [this] {
+    if constexpr (wide)
+      return diagnostic_filtered_;
+    else
+      return plasma_fraction_;
+  }();
+  const auto exposures = [this] {
+    if constexpr (wide)
+      return diagnostic_exposure_;
+    else
+      return plasma_exposure_;
+  }();
+  const auto taps_view = [this] {
+    if constexpr (wide)
+      return diagnostic_taps_;
+    else
+      return plasma_taps_;
+  }();
   const auto diagnostics = plasma_diagnostics_;
   const auto coefficients = rate_coefficients_;
   const auto parameters = channel_parameters_;
@@ -9572,24 +9621,27 @@ void GeneralWorkspace<Policy>::team_band_statistics(const std::size_t first_node
   const std::size_t league = band_league(node_count);
   // Under a binary32 source the scan reads the physical field `s E` (solprop SEP 33).
   const auto scale = static_cast<SourceReal>(state_scale_);
+  const double wide_scale = state_scale_;
   const auto scan = KOKKOS_LAMBDA(const TeamMember& team) {
     capture_anchor(node_real, node_complex, real_family, rates, filtered, exposures,
                    taps_view, diagnostics, coefficients, parameters,
                    channel_coefficients, channel_preionisation, channels, multiple,
                    n_pol, samples, intervals, dt, log_field_min, d_log_field, field_min,
                    field_max, rate_max, half, reach, last, first_node, output,
-                   preionisation, league, scale);
+                   preionisation, league, scale, wide_scale);
     const auto slot = static_cast<std::size_t>(team.league_rank());
-    SourceReal taps[plasma_max_taps] = {};
+    RowReal taps[plasma_max_taps] = {};
     for (int k = 0; k <= half; ++k)
-      taps[k] = taps_view(static_cast<std::size_t>(k));
-    const auto tile = band_tile<band_staging, TeamMember, SourceReal>(team);
+      taps[k] = static_cast<RowReal>(taps_view(static_cast<std::size_t>(k)));
+    const auto tile = band_tile<band_staging, TeamMember, RowReal>(team);
     for (std::size_t node = slot; node < node_count; node += league) {
       const auto base = node * n_pol;
       const auto field_at = [&](const std::size_t row, const std::size_t time) {
         const SourceReal value =
             real_family ? node_real(row, time) : node_complex(row, time).real();
-        if constexpr (binary64)
+        if constexpr (wide)
+          return physical_value(wide_scale, value);
+        else if constexpr (binary64)
           return value;
         else
           return scale * value;
@@ -9601,11 +9653,11 @@ void GeneralWorkspace<Policy>::team_band_statistics(const std::size_t first_node
         Kokkos::parallel_for(
             Kokkos::TeamThreadRange(team, samples), [&](const int sample) {
               const auto time = static_cast<std::size_t>(sample);
-              const SourceReal first = field_at(base, time);
+              const RowReal first = field_at(base, time);
               const auto magnitude = static_cast<double>(
                   n_pol == 2 ? Kokkos::hypot(first, field_at(base + 1, time))
                              : Kokkos::abs(first));
-              rates(slot, time) = static_cast<SourceReal>(
+              rates(slot, time) = static_cast<RowReal>(
                   multiple
                       ? ionisation_rate(
                             magnitude, channel_coefficients, parameters(channel, 0),
@@ -9623,17 +9675,17 @@ void GeneralWorkspace<Policy>::team_band_statistics(const std::size_t first_node
         team_trapezoid_prefix(team, filtered, slot, samples, dt,
                               [&](const int sample, const double prefix) {
                                 exposures(slot, static_cast<std::size_t>(sample)) =
-                                    static_cast<SourceReal>(prefix);
+                                    static_cast<RowReal>(prefix);
                               });
-        SourceReal largest_value{};
+        RowReal largest_value{};
         Kokkos::parallel_reduce(
             Kokkos::TeamThreadRange(team, samples),
-            [&](const int sample, SourceReal& update) {
-              const SourceReal rate = rates(slot, static_cast<std::size_t>(sample));
+            [&](const int sample, RowReal& update) {
+              const RowReal rate = rates(slot, static_cast<std::size_t>(sample));
               if (rate > update)
                 update = rate;
             },
-            Kokkos::Max<SourceReal>(largest_value));
+            Kokkos::Max<RowReal>(largest_value));
         const auto largest = static_cast<double>(largest_value);
         const auto exposure = static_cast<double>(exposures(slot, last));
         Kokkos::single(Kokkos::PerTeam(team), [&] {
@@ -9715,7 +9767,8 @@ void GeneralWorkspace<Policy>::team_band_statistics(const std::size_t first_node
     }
   };
   Kokkos::parallel_for("solprop_native.plasma.team_band_statistics",
-                       band_team_policy(node_count, scan), scan);
+                       band_team_policy<decltype(scan), RowReal>(node_count, scan),
+                       scan);
 }
 
 template <class Policy>
@@ -10750,11 +10803,7 @@ void GeneralWorkspace<Policy>::scan_plasma_statistics(const std::size_t first_no
   // come from the band scan; the trapezoid's own scan below is unchanged.
   if (problem_.plasma_band || diagnose) {
     if (diagnose) {
-      if constexpr (binary64)
-        team_band_statistics<true>(first_node, node_count, output, preionisation);
-      else
-        throw std::invalid_argument("the native backend does not form the plasma "
-                                    "integration diagnostics under single precision");
+      team_band_statistics<true>(first_node, node_count, output, preionisation);
     } else {
       team_band_statistics<false>(first_node, node_count, output, preionisation);
     }
@@ -12650,7 +12699,9 @@ auto GeneralWorkspace<Policy>::base_memory_ledger() const
            real_bytes},
       {"plasma_stash", bytes_of(stash_candidate_, stash_current_)},
       {"plasma_statistics_scratch", bytes_of(plasma_statistics_scratch_)},
-      {"plasma_integration_diagnostics", bytes_of(plasma_taps_, plasma_diagnostics_)},
+      {"plasma_integration_diagnostics",
+       bytes_of(plasma_taps_, plasma_diagnostics_, diagnostic_rate_,
+                diagnostic_filtered_, diagnostic_exposure_, diagnostic_taps_)},
       {"plasma_device_scan", bytes_of(plasma_rate_, plasma_exposure_, plasma_fraction_,
                                       plasma_current_integrand_, plasma_free_current_,
                                       plasma_outer_current_, band_tile_totals_)},
@@ -12895,6 +12946,10 @@ template <class Policy> void GeneralWorkspace<Policy>::close() noexcept {
   channel_scratch_ = {};
   plasma_taps_ = {};
   plasma_diagnostics_ = {};
+  diagnostic_rate_ = {};
+  diagnostic_filtered_ = {};
+  diagnostic_exposure_ = {};
+  diagnostic_taps_ = {};
   stage_channel_density_ = {};
   stage_channel_preionisation_ = {};
   stage_kerr_density_ = {};

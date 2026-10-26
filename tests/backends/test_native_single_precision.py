@@ -35,7 +35,7 @@ from solprop.exceptions import (
     DriverError,
     TranslationError,
 )
-from solprop.stats import StatsSpec
+from solprop.stats import PLASMA_INTEGRATION_STATISTICS, StatsSpec
 from solprop.stepper import LowStorageRungeKutta, PIController, RungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
@@ -296,6 +296,38 @@ def test_the_plasma_populations_agree_with_the_oracle():
             two_sides(plasma_bound(16, 13)),
             what=key,
         )
+
+
+def test_the_plasma_integration_diagnostics_are_formed_in_binary64():
+    """SEP 18's run diagnostics scan binary64 rows of the physical field (SEP 33 4.5).
+
+    The undershoot and the boundary level are compared with the oracle's as the
+    populations are. The work defect ``|paid - freed|`` is a difference of nearly
+    equal integrals, so it is compared with native's binary64 run instead: binary32
+    rows would floor it at their rounding, about ``u32`` times the paid work, far above
+    the run's own defect.
+    """
+    spec = StatsSpec(names=PLASMA_INTEGRATION_STATISTICS)
+    results = {}
+    runs = (("single", "native"), ("single", "numpy_ref"), ("double", "native"))
+    for precision, name in runs:
+        with ExitStack() as cleanup:
+            backend = loaded(capillary(precision), name, cleanup)
+            backend.propagate_to(0.004)
+            results[precision, name] = {
+                key: np.asarray(value) for key, value in backend.stats(spec).items()
+            }
+    native, oracle = results["single", "native"], results["single", "numpy_ref"]
+    bound = two_sides(plasma_bound(16, 13))
+    undershoot = native["plasma_undershoot"], oracle["plasma_undershoot"]
+    assert_within(*undershoot, bound, what="plasma_undershoot")
+    # The pulse leaves no fraction at the window's edges: a zero level, in both.
+    assert not np.any(oracle["plasma_boundary_level"])
+    assert not np.any(native["plasma_boundary_level"])
+    defect = native["plasma_work_defect"]
+    reference = results["double", "native"]["plasma_work_defect"]
+    assert np.all(reference > 0.0)
+    assert_within(defect, reference, 1e-2, what="plasma_work_defect")
 
 
 def test_the_propagator_drift_is_linear_in_the_step_count():
