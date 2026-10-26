@@ -47,26 +47,23 @@ from this hydrogen calculation.
 # %%
 # Set up and run the model
 # ------------------------
-# ``Simulation.from_capillary`` assembles the material and pulse choices. We then
-# remove its transverse quadrature and request the mode-averaged statistics before
-# translating or running. ``modes=1`` on its own would select a resolved single
-# mode, which is a different nonlinear approximation.
+# ``prop_capillary`` assembles the material and pulse choices, and
+# ``mode_average=True`` selects mode averaging. ``modes=1`` on its own, the default,
+# would select a resolved single mode, which is a different nonlinear approximation.
 
 import time
 import warnings
-from dataclasses import replace
 
 import matplotlib.pyplot as plt
 
-from solprop.driver import Simulation
+from solprop.driver import prop_capillary
 from solprop.exceptions import MaterialRangeWarning
 from solprop.plotting import prop_2d, spec_1d
-from solprop.stats import default_spec
 
 started = time.perf_counter()
 with warnings.catch_warnings():
     warnings.simplefilter("ignore", MaterialRangeWarning)
-    simulation = Simulation.from_capillary(
+    run = prop_capillary(
         16e-6,
         0.4,
         "H2",
@@ -82,15 +79,9 @@ with warnings.catch_warnings():
         noise="input",
         seed=0,
         n_save=201,
+        mode_average=True,
+        progress="none",
     )
-    simulation.settings = replace(
-        simulation.settings,
-        quadrature=None,
-        components=None,
-        stats=default_spec("mode_averaged"),
-    )
-    assert simulation.translate().flags.mode_averaged
-    run = simulation.run(progress="none")
 assert run.metadata.simulation_kind == "mode_averaged"
 assert run.metadata.quadrature is None
 print(f"{run.metadata.simulation_kind}, z = {run['z'][-1]:.2f} m; seed 0")

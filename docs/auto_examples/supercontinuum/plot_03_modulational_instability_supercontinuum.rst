@@ -61,35 +61,32 @@ for the noise convention and estimator see :doc:`/guide/media/noise` and
 :doc:`/introduction/lessons/plot_01_rdw` follows a shorter pulse whose broadening is
 organised by self-compression and dispersive-wave emission.
 
-.. GENERATED FROM PYTHON SOURCE LINES 51-60
+.. GENERATED FROM PYTHON SOURCE LINES 51-59
 
 The ensemble
 ------------
 Each shot is the same run with a different realisation of the quantum shot noise:
 one photon per active spectral bin, with a random phase, added to the input spectrum
 (``noise="input"``), drawn from the generator seeded by ``seed``.
-Clearing the transverse quadrature selects mode averaging. Merely setting
-``modes=1`` would retain a resolved single-mode calculation. The assertions check
-both the translated problem and the saved metadata so the approximation is
-recorded with the result.
+``mode_average=True`` selects mode averaging; ``modes=1`` alone, the default, would
+retain a resolved single-mode calculation. The assertions check the saved metadata
+so the approximation is recorded with the result.
 
-.. GENERATED FROM PYTHON SOURCE LINES 60-112
+.. GENERATED FROM PYTHON SOURCE LINES 59-103
 
 .. code-block:: Python
 
 
     import time
     import warnings
-    from dataclasses import replace
 
     import matplotlib.pyplot as plt
     import numpy as np
 
     from solprop.constants import C
-    from solprop.driver import Simulation
+    from solprop.driver import prop_capillary
     from solprop.exceptions import MaterialRangeWarning
     from solprop.processing import g12_of, get_spectral_density
-    from solprop.stats import default_spec
 
     SHOTS = 8
     """The size of the ensemble."""
@@ -99,7 +96,7 @@ recorded with the result.
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
         for seed in range(SHOTS):
-            simulation = Simulation.from_capillary(
+            run = prop_capillary(
                 16e-6,
                 0.4,
                 "Ar",
@@ -115,15 +112,9 @@ recorded with the result.
                 noise="input",
                 seed=seed,
                 n_save=101,
+                mode_average=True,
+                progress="none",
             )
-            simulation.settings = replace(
-                simulation.settings,
-                quadrature=None,
-                components=None,
-                stats=default_spec("mode_averaged"),
-            )
-            assert simulation.translate().flags.mode_averaged
-            run = simulation.run(progress="none")
             assert run.metadata.simulation_kind == "mode_averaged"
             assert run.metadata.quadrature is None
             runs.append(run)
@@ -149,13 +140,13 @@ recorded with the result.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 113-116
+.. GENERATED FROM PYTHON SOURCE LINES 104-107
 
 The averaged spectrum along the fibre
 -------------------------------------
 The spectral energy density averaged over the ensemble, in decibels below its peak.
 
-.. GENERATED FROM PYTHON SOURCE LINES 116-145
+.. GENERATED FROM PYTHON SOURCE LINES 107-136
 
 .. code-block:: Python
 
@@ -200,7 +191,7 @@ The spectral energy density averaged over the ensemble, in decibels below its pe
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 146-153
+.. GENERATED FROM PYTHON SOURCE LINES 137-144
 
 Noise and coherence at the exit
 -------------------------------
@@ -210,7 +201,7 @@ its mean, shot to shot; and the first-order coherence
 :math:`|g_{12}^{(1)}(\lambda)|` of the ensemble's complex spectra (0 for
 independent fields, 1 for identical ones).
 
-.. GENERATED FROM PYTHON SOURCE LINES 153-192
+.. GENERATED FROM PYTHON SOURCE LINES 144-183
 
 .. code-block:: Python
 
@@ -265,7 +256,7 @@ independent fields, 1 for identical ones).
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 193-205
+.. GENERATED FROM PYTHON SOURCE LINES 184-196
 
 In this 0.4 m calculation, broadening becomes pronounced around 0.2 m on the
 displayed 40 dB scale. The exit spectrum spans the visible and near infrared,
@@ -280,7 +271,7 @@ Repeat with more seeds before using these curves as quantitative ensemble
 statistics. Check temporal sampling and band limits independently of the
 propagation tolerance; see :doc:`/guide/setup/grids`.
 
-.. GENERATED FROM PYTHON SOURCE LINES 205-210
+.. GENERATED FROM PYTHON SOURCE LINES 196-201
 
 .. code-block:: Python
 
@@ -297,7 +288,7 @@ propagation tolerance; see :doc:`/guide/setup/grids`.
 
  .. code-block:: none
 
-    620 s for 8 shots; backend native
+    716 s for 8 shots; backend native
 
 
 
@@ -305,7 +296,7 @@ propagation tolerance; see :doc:`/guide/setup/grids`.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (10 minutes 19.772 seconds)
+   **Total running time of the script:** (11 minutes 56.193 seconds)
 
 
 .. _sphx_glr_download_auto_examples_supercontinuum_plot_03_modulational_instability_supercontinuum.py:

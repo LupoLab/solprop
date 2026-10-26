@@ -203,6 +203,7 @@ GAS_KEYWORDS = {
     "preionisation": 0.1,
     "plasma_integration": "band",
     "raman": True,
+    "mode_average": True,
     "n_r": 16,
     "n_theta": 9,
     "radial_rule": "gauss",
