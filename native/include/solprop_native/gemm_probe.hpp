@@ -11,6 +11,10 @@
 #include <Kokkos_Core.hpp>
 
 #if defined(SOLPROP_NATIVE_TPL_BLAS_CUBLAS) || defined(SOLPROP_NATIVE_TPL_BLAS_ROCBLAS)
+// The configuration first: it defines the TPL switches the handle header reads.
+#include <KokkosKernels_config.h>
+// Kokkos Kernels' process-wide vendor handles (`CudaBlasSingleton`,
+// `RocBlasSingleton`), on which its TPL layer issues every product.
 #include <KokkosBlas_tpl_spec.hpp>
 #endif
 
