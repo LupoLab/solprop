@@ -145,7 +145,8 @@ void portable_team_trapezoid_scan(const ExecutionSpace& execution_space,
                   update += interval * (previous + current) / 2.0;
               }
               if (final)
-                prefixes(row, sample) = update;
+                prefixes(row, sample) =
+                    static_cast<OutputView::non_const_value_type>(update);
             });
       });
 }

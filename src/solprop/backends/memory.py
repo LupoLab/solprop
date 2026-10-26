@@ -466,12 +466,24 @@ def mixed_precision_rows(
     Returns
     -------
     dict
-        The rows, bytes, with ``single_tables`` and ``mixed_narrowed_input`` added.
+        The rows, bytes, with ``single_tables`` and ``mixed_narrowed_input`` added,
+        and on free space with a split-step collar ``mixed_split_transverse``: the
+        collar transforms the binary64 state in its own binary64 transverse volume
+        beside the source's binary32 one (section 4.2).
     """
     kept = _BINARY64_ROWS | _STATE_ROWS
     mixed = {name: size if name in kept else size // 2 for name, size in rows.items()}
     mixed["single_tables"] = _narrowed_table_bytes(problem)
     mixed["mixed_narrowed_input"] = 8 * math.prod(problem.shape)
+    geometry = problem.transform.geometry
+    responses = problem.responses
+    if (
+        geometry is not None
+        and geometry.kind == "free"
+        and responses.temporal_absorber is not None
+        and responses.absorber_scheme == "split_step"
+    ):
+        mixed["mixed_split_transverse"] = 16 * math.prod(problem.shape[1:])
     return mixed
 
 

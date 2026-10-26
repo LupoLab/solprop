@@ -193,15 +193,17 @@ inline constexpr std::size_t plasma_max_taps = 9;
 inline constexpr std::size_t plasma_diagnostic_parts = 6;
 
 /** Fixed, Python-free problem data uploaded once by a native state. */
-/** A problem's arithmetic (solprop SEP 33, SEP 36): binary64, or SEP 33's single. */
-enum class PrecisionName { double_precision, single };
+/** A problem's arithmetic (solprop SEP 33, SEP 36): binary64, SEP 33's single, or
+ * SEP 36's mixed (a binary64 state with a binary32 source). */
+enum class PrecisionName { double_precision, single, mixed };
 
 struct Problem {
   // The precision policy the state runs under (solprop SEP 36); a single-precision
   // problem's tables are binary64 here and narrowed once at upload.
   PrecisionName precision{PrecisionName::double_precision};
-  // A single-precision state's launch scale exponent `k`, `s = 2^k` (solprop SEP 33
-  // section 4.3): the state is held as `a / s`.
+  // A reduced-precision state's launch scale exponent `k`, `s = 2^k` (solprop SEP 33
+  // section 4.3): the state is held as `a / s`, in binary32 under single precision and
+  // in binary64 under mixed, where the source's input is its one narrowing.
   int scale_exponent{};
   std::size_t n_x{}, n_y{};
   std::vector<Complex> spatial_k_squared, spatial_k_squared_low, spatial_numerator,
@@ -715,12 +717,13 @@ private:
   template <class Policy>
   friend GeneralWorkspace<Policy>* engine_of(const GeneralState& state);
   friend class GeneralBatch;
-  // Whether a workspace is held (one of the two, by the problem's precision).
+  // Whether a workspace is held (one of the three, by the problem's precision).
   [[nodiscard]] bool engaged() const noexcept;
   // The binary64 workspace, or a refusal naming `what` under single precision.
   [[nodiscard]] GeneralWorkspace<Double>* binary64(const char* what) const;
   std::unique_ptr<GeneralWorkspace<Double>> workspace_;
   std::unique_ptr<GeneralWorkspace<Single>> single_;
+  std::unique_ptr<GeneralWorkspace<Mixed>> mixed_;
 };
 
 /** Shared update dispatch over independently owned native parameter workspaces. */
@@ -740,6 +743,7 @@ public:
 private:
   std::unique_ptr<GeneralBatchWorkspace<Double>> workspace_;
   std::unique_ptr<GeneralBatchWorkspace<Single>> single_;
+  std::unique_ptr<GeneralBatchWorkspace<Mixed>> mixed_;
 };
 
 void fft(const ExecutionSpace& execution_space, ComplexView input, ComplexView output);

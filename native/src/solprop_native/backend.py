@@ -266,10 +266,12 @@ class NativeBackend(StepDriver[_core.State]):
         payload = _native_problem(
             problem, self._terms, self._flow, self._z_tables
         ) | _low_storage_payload(problem, device=_on_device())
-        # solprop SEP 36: a single-precision state is held at the launch's scale `s`
-        # in the native core; its absolute tolerance is divided by `s` here.
+        # solprop SEP 36: a reduced precision's source works at the launch's scale `s`.
+        # A single-precision state is held at it too, so its absolute tolerance is
+        # divided by `s` here; a mixed-precision state is binary64 and physical.
         launch = LaunchScale.of(problem) if problem.precision.reduced else None
-        self._scale = 1.0 if launch is None else launch.scale
+        held = launch is not None and problem.precision.state == "single"
+        self._scale = launch.scale if launch is not None and held else 1.0
         self._scale_exponent = None if launch is None else launch.exponent
         self._last_dz = math.nan
         self._native_state = _core.State(payload | _precision_payload(problem, payload))
@@ -847,15 +849,16 @@ class NativeBackend(StepDriver[_core.State]):
         return {"flow_section": section, "flow_weights": weights}
 
     def _require_finite(self, squared: float, dz: float) -> None:
-        """Refuse a single-precision step whose state is not finite (SEP 33).
+        """Refuse a reduced-precision step whose state is not finite (SEP 33, SEP 36).
 
         The step's squared state norm is read with every step on both marches, so the
         check costs nothing; a binary64 run keeps its own behaviour.
         """
         if self._scale_exponent is None or math.isfinite(squared):
             return
+        name = self._problem.precision.name
         msg = (
-            f"solprop-native: the single-precision state is not finite after a step of "
+            f"solprop-native: the {name}-precision state is not finite after a step of "
             f"{dz:.4g} m from z = {self._z:.6g} m: the field has diverged or left "
             "binary32's range"
         )
@@ -1150,6 +1153,11 @@ class NativeBackend(StepDriver[_core.State]):
             if geometry.kind == "free"
             else names & set(FAR_FIELD_STATISTICS)
         )
+        if self._problem.precision.reduced:
+            # The far-field pass is binary64 code; under a reduced precision the
+            # on-axis spectrum is the binary64 reduction of the physical state that
+            # the radial route forms (SEP 36 section 4.5).
+            folded = folded - {"on_axis_spectrum"}
         values: dict[str, np.ndarray] = {}
         if folded:
             values.update(self._far_field_statistics(folded, spec))
@@ -2364,43 +2372,32 @@ refuses it here by name.
 def _refuse_reduced(problem: KernelProblem) -> None:
     """Refuse, by name, a reduced-precision problem this build does not run (SEP 36).
 
-    Single precision runs on the fibre route of a build that compiled it (phase 2); the
-    spatial routes and the envelope-grid plasma follow in phase 3, as does mixed
-    precision. The routes no backend runs in binary32 are refused by the problem's own
-    validation first.
+    Single and mixed precision run on a CPU build that compiled them, on every route
+    SEP 36 admits (section 5.1). The routes no backend runs in binary32 are refused by
+    the problem's own validation first; the slab kind, which the oracles run, is
+    binary64 code on native.
     """
     name = problem.precision.name
-    if name != "single":
-        raise BackendError(
-            f"solprop-native refuses precision={name!r} until solprop SEP 36's phase 3 "
-            "builds it; use backend='numpy_ref', the oracle, or precision='double'"
-        )
     info = build_info()
-    if "single" not in info.precisions and info.device_backend != "none":
+    if name not in info.precisions and info.device_backend != "none":
         raise BackendError(
             f"this solprop-native {info.device_backend} build refuses "
-            "precision='single' until solprop SEP 36's phase 4 qualifies a device's "
-            "binary32 paths; use "
+            f"precision={name!r} until solprop SEP 36's phase 4 qualifies a device's "
+            "reduced-precision paths; use "
             "backend='numpy_ref', a CPU build of solprop-native, or precision='double'"
         )
-    if "single" not in info.precisions:
+    if name not in info.precisions:
         raise BackendError(
-            "this solprop-native build compiled binary64 alone and refuses "
-            "precision='single'; rebuild it with SOLPROP_NATIVE_PRECISIONS="
-            "'double;single' (the default of a CPU build), or use backend='numpy_ref'"
+            f"this solprop-native build did not compile precision={name!r}; rebuild "
+            "it with SOLPROP_NATIVE_PRECISIONS='double;single;mixed' (the default of a "
+            "CPU build), or use backend='numpy_ref'"
         )
     geometry = problem.transform.geometry
-    if geometry is not None:
+    if geometry is not None and geometry.kind == "slab":
         raise BackendError(
-            f"solprop-native does not yet run the {geometry.kind} route under "
-            "precision='single' (solprop SEP 36 phase 3); use backend='numpy_ref', the "
-            "oracle, or precision='double'"
-        )
-    if problem.responses.envelope_plasma is not None:
-        raise BackendError(
-            "solprop-native does not yet run the envelope-grid plasma under "
-            "precision='single' (solprop SEP 36 phase 3); use backend='numpy_ref', the "
-            "oracle, or precision='double'"
+            f"solprop-native runs the slab kind in binary64 only, not under "
+            f"precision={name!r}; use backend='numpy_ref', the oracle, or "
+            "precision='double'"
         )
 
 
@@ -2418,6 +2415,10 @@ _NARROWED_TABLES = (
     ("absorber_fine", "temporal_rate"),
     ("spatial_absorber_matrix", "spatial_absorber"),
     ("carrier", "carrier"),
+    # The envelope plasma's spectral factors, which native narrows beside the oracle's
+    # tables (its own binary64 assembly, SEP 36 section 4.5).
+    ("envelope_drude_factor", "envelope_drude_factor"),
+    ("envelope_loss_factor", "envelope_loss_factor"),
 )
 
 

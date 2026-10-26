@@ -58,6 +58,7 @@ cpp_sources=(
   src/far_field.cpp
   src/general.cpp
   src/general_impl.hpp
+  src/general_mixed.cpp
   src/general_single.cpp
   src/general_modal.cpp
   src/helpers.cpp

@@ -43,6 +43,8 @@ template void GeneralWorkspace<Single>::prepare_raman(const std::vector<double>&
 template std::vector<double> GeneralWorkspace<Single>::statistics(
     std::uint64_t, const std::vector<double>&, const std::vector<double>&, double,
     double, double, double, const std::vector<double>&, const std::vector<double>&);
+template std::vector<double>
+GeneralWorkspace<Single>::spatial_statistics(std::uint64_t, double, double);
 template void GeneralWorkspace<Single>::finish(double);
 template void GeneralWorkspace<Single>::promote_fsal();
 template void GeneralWorkspace<Single>::clear_fsal();

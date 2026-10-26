@@ -51,6 +51,7 @@ from solprop.backends.protocol import Backend
 from solprop.backends.registry import available, select, select_batch
 from solprop.boundaries import absorber
 from solprop.driver import Simulation, prop_gnlse
+from solprop.driver import simulation as simulation_module
 from solprop.exceptions import (
     BackendError,
     ConvergenceError,
@@ -259,7 +260,7 @@ def test_mixed_precision_takes_its_defaults_and_refuses_what_it_does_not_run():
     assert settings.controller.rtol == 1e-8
     assert capillary("mixed").settings.controller.rtol == 1e-6
     assert simulation.translate().precision is MIXED
-    for backend in ("numba_cpu", "native", "mlx"):
+    for backend in ("numba_cpu", "mlx"):
         with pytest.raises(DriverError, match="refuses precision='mixed'"):
             dataclasses.replace(settings, backend=backend)
     with pytest.raises(DriverError, match="Adams integrator"):
@@ -268,11 +269,19 @@ def test_mixed_precision_takes_its_defaults_and_refuses_what_it_does_not_run():
         dataclasses.replace(
             settings, controller=dataclasses.replace(settings.controller, rtol=1e-9)
         )
-    assert available("mixed") == ("numpy_ref",)
+    # The oracle, and the native backend where it is installed (whose build refuses
+    # mixed precision by name when it did not compile it).
+    native = ("native",) if "native" in available() else ()
+    assert available("mixed") == ("numpy_ref", *native)
 
 
-def test_auto_is_refused_without_a_native_build_that_runs_mixed():
-    """``auto`` never resolves to the oracle, and native has no mixed build yet."""
+def test_auto_resolves_to_native_or_is_refused_for_mixed(monkeypatch):
+    """``auto`` never resolves to the oracle: native where its build runs mixed."""
+    monkeypatch.setattr(
+        simulation_module, "native_precisions", lambda: ("double", "single", "mixed")
+    )
+    assert simulation_module._reduced_backend("auto", "mixed") == "native"
+    monkeypatch.setattr(simulation_module, "native_precisions", lambda: ("double",))
     with pytest.raises(DriverError, match="native extra"):
         Simulation.from_gnlse(
             0.11, 0.05, [0.0, 0.0, -1e-26], lambda0=835e-9, trange=1e-12,
@@ -281,7 +290,7 @@ def test_auto_is_refused_without_a_native_build_that_runs_mixed():
         )  # fmt: skip
 
 
-@pytest.mark.parametrize("name", ["numba_cpu", "native"])
+@pytest.mark.parametrize("name", ["numba_cpu"])
 def test_the_compiled_backends_refuse_a_mixed_problem(name):
     """The refusal is the backend's own too, not only the settings' (SEP 36 5)."""
     if name not in available():

@@ -16,7 +16,7 @@ and the routes phase 3 adds are refused by name.
 import dataclasses
 import math
 import warnings
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextlib import ExitStack
 from typing import cast
 
@@ -25,7 +25,7 @@ import numpy as np
 import pytest
 
 from bounds import EPS_32, UNIT_ROUNDOFF_32, assert_within, higham_gamma
-from precision_cases import capillary, gnlse, plasma_beam, spatial_kerr
+from precision_cases import capillary, envelope_plasma, gnlse, plasma_beam, spatial_kerr
 from solprop.backends.memory import estimate_memory
 from solprop.backends.protocol import Backend
 from solprop.backends.reduced import LaunchScale
@@ -505,22 +505,134 @@ def test_the_memory_ledger_counts_binary32_buffers():
 # Refusals: what phase 3 adds, and a build without single precision.
 
 
+def spatial_depth(build: Callable[[str], Simulation], transverse: int) -> int:
+    """The temporal transform's depth plus the route's transverse one."""
+    return math.ceil(math.log2(build("double").grid.n_t)) + transverse
+
+
 @pytest.mark.parametrize(
-    "build",
+    ("build", "transverse"),
     [
-        pytest.param(lambda: spatial_kerr("radial", "single"), id="radial"),
-        pytest.param(lambda: spatial_kerr("cartesian", "single"), id="cartesian"),
-        pytest.param(lambda: spatial_kerr("line", "single"), id="line"),
-        pytest.param(lambda: plasma_beam("single"), id="radial-plasma"),
+        pytest.param(lambda p: spatial_kerr("radial", p), 32, id="radial"),
         pytest.param(
-            lambda: capillary("single", envelope=True, plasma=True),
-            id="envelope-plasma",
+            lambda p: spatial_kerr("radial", p, absorbed=True), 32, id="radial-collars"
+        ),
+        pytest.param(lambda p: spatial_kerr("cartesian", p), 8, id="cartesian"),
+        pytest.param(lambda p: spatial_kerr("line", p), 4, id="line"),
+        pytest.param(
+            lambda p: spatial_kerr("cartesian", p, absorbed=True),
+            8,
+            id="cartesian-collars",
+        ),
+        pytest.param(
+            lambda p: spatial_kerr(
+                "cartesian", p, absorbed=True, scheme="split_step", window_factor=0.0
+            ),
+            8,
+            id="cartesian-split-step",
+        ),
+        pytest.param(
+            lambda p: spatial_kerr("cartesian", p, integrator=LowStorageRungeKutta()),
+            8,
+            id="cartesian-low-storage",
+        ),
+        pytest.param(
+            lambda p: spatial_kerr(
+                "cartesian", p, absorbed=True, integrator=LowStorageRungeKutta()
+            ),
+            8,
+            id="cartesian-low-storage-collars",
         ),
     ],
 )
-def test_the_phase_three_routes_are_refused_by_name(build):
-    with pytest.raises(BackendError, match="phase 3"):
-        select("native", build().translate())
+def test_the_spatial_routes_agree_with_the_oracle(build, transverse):
+    """Ten steps of a self-focusing Kerr beam; a transverse transform per stage.
+
+    The radial route's Hankel GEMM over ``n_r`` nodes and the free-space routes'
+    transforms add their depth to the temporal transform's (SEP 33's oracle bound).
+    """
+    bound = two_sides(step_bound(10, spatial_depth(build, transverse)))
+    native = finish(build("single"), "native")
+    assert_within(native, finish(build("single"), "numpy_ref"), bound)
+
+
+@pytest.mark.parametrize("route", ["radial", "cartesian"])
+def test_a_plasma_beam_agrees_with_the_oracle(route):
+    """The spatial routes' plasma (the held current on nodes), ten steps."""
+
+    def build(p: str) -> Simulation:
+        return plasma_beam(p, route=route)
+
+    bound = two_sides(plasma_bound(10, spatial_depth(build, 32)))
+    native = finish(build("single"), "native")
+    assert_within(native, finish(build("single"), "numpy_ref"), bound)
+
+
+SPATIAL_STATISTICS = (
+    "energy",
+    "on_axis_intensity",
+    "peak_intensity",
+    "on_axis_spectrum",
+    "beam_radius",
+    "fwhm_r",
+)
+
+
+@pytest.mark.parametrize("route", ["radial", "cartesian", "line"])
+def test_the_spatial_statistics_are_binary64_reductions_of_the_state(route):
+    """Each statistic reads the physical state widened to binary64 (SEP 36 4.5).
+
+    The oracle reads its own state the same way; the two states are within the class
+    R bound of the fields, and a statistic quadratic in the field within twice it.
+    """
+    spec = StatsSpec(names=SPATIAL_STATISTICS)
+    results = {}
+    for name in ("native", "numpy_ref"):
+        with ExitStack() as cleanup:
+            backend = loaded(spatial_kerr(route, "single"), name, cleanup)
+            backend.propagate_to(0.05)
+            results[name] = backend.stats(spec)
+    transverse = {"radial": 32, "cartesian": 8, "line": 4}[route]
+    bound = 2 * two_sides(step_bound(5, spatial_depth(
+        lambda p: spatial_kerr(route, p), transverse
+    )))  # fmt: skip
+    for key in SPATIAL_STATISTICS:
+        assert_within(
+            np.asarray(results["native"][key], dtype=np.float64),
+            np.asarray(results["numpy_ref"][key], dtype=np.float64),
+            bound,
+            what=key,
+        )
+
+
+def test_the_envelope_plasma_agrees_within_its_class_t_envelope():
+    """SEP 36 section 6.5: the cycle moments on a binary32 quadrature, binary64 sums.
+
+    Neither the oracle's binary64 moments of the narrowed field nor native's binary32
+    quadrature is a matched sequence of the other (section 4.5), so the comparison is
+    the class T envelope SEP 33's oracle test fixed for this case, two of eight steps:
+    native against binary64 and against the oracle, the populations' statistics too.
+    """
+    length = 0.001
+    spec = StatsSpec(names=("energy", "electron_density"))
+    fields, stats = {}, {}
+    for precision, name in (("single", "native"), ("single", "numpy_ref"),
+                            ("double", "native")):  # fmt: skip
+        with ExitStack() as cleanup:
+            backend = loaded(envelope_plasma(precision), name, cleanup)
+            backend.propagate_to(length / 4)
+            fields[precision, name] = backend.observe().require_field().copy()
+            stats[precision, name] = backend.stats(spec)
+    native = fields["single", "native"]
+    assert_within(native, fields["double", "native"], 1e-5)
+    assert_within(native, fields["single", "numpy_ref"], 1e-5)
+    for key in ("energy", "electron_density"):
+        assert_within(
+            np.asarray(stats["single", "native"][key]),
+            np.asarray(stats["double", "native"][key]),
+            1e-5,
+            what=key,
+        )
 
 
 def test_a_build_without_single_precision_refuses_it_by_name(monkeypatch):

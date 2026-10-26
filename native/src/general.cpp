@@ -8,45 +8,77 @@ namespace solprop_native {
 
 // The Double policy is instantiated here; each further policy this build selects
 // (`SOLPROP_NATIVE_PRECISIONS`, precision.hpp) in its own translation unit
-// (general_single.cpp), which instantiates the members a state of that policy runs.
+// (general_single.cpp, general_mixed.cpp), which instantiates the members a state of
+// that policy runs.
 template class GeneralWorkspace<Double>;
 template class GeneralBatchWorkspace<Double>;
 #if SOLPROP_NATIVE_SINGLE_BUILT
 extern template class GeneralWorkspace<Single>;
 extern template class GeneralBatchWorkspace<Single>;
+#define SOLPROP_NATIVE_IF_SINGLE(call) single_ ? single_->call:
+#else
+#define SOLPROP_NATIVE_IF_SINGLE(call)
+#endif
+#if SOLPROP_NATIVE_MIXED_BUILT
+extern template class GeneralWorkspace<Mixed>;
+extern template class GeneralBatchWorkspace<Mixed>;
+#define SOLPROP_NATIVE_IF_MIXED(call) mixed_ ? mixed_->call:
+#else
+#define SOLPROP_NATIVE_IF_MIXED(call)
 #endif
 
 // A state runs on the workspace of its problem's policy; a call names it once.
-#if SOLPROP_NATIVE_SINGLE_BUILT
-#define SOLPROP_NATIVE_EACH(call) (single_ ? single_->call : workspace_->call)
-#else
-#define SOLPROP_NATIVE_EACH(call) (workspace_->call)
-#endif
+#define SOLPROP_NATIVE_EACH(call)                                                      \
+  (SOLPROP_NATIVE_IF_SINGLE(call) SOLPROP_NATIVE_IF_MIXED(call) workspace_->call)
+
+// The Adams march runs on a binary64 state: Double's, or Mixed's with its binary32
+// source (solprop SEP 36 section 4.6); single precision refuses it.
+#define SOLPROP_NATIVE_ADAMS(call)                                                     \
+  (SOLPROP_NATIVE_IF_MIXED(call) binary64("the Adams march")->call)
+
+namespace {
+
+// A reduced policy this build compiled without running it, or did not compile.
+[[noreturn, maybe_unused]] void refuse_reduced(const char* name, const bool built) {
+  if (built)
+    throw std::invalid_argument(
+        std::string("this solprop-native device build compiles ") + name +
+        " precision without running it: a device's reduced paths are qualified in "
+        "solprop SEP 36's phase 4");
+  throw std::invalid_argument(std::string("this solprop-native build has no ") + name +
+                              " precision: build it with SOLPROP_NATIVE_PRECISIONS "
+                              "including \"" +
+                              name + "\" (solprop SEP 36)");
+}
+
+} // namespace
 
 GeneralState::GeneralState(Problem problem) {
   if (problem.precision == PrecisionName::single) {
-#if SOLPROP_NATIVE_SINGLE_COMPILE_ONLY
-    throw std::invalid_argument(
-        "this solprop-native device build compiles single precision without running "
-        "it: a device's binary32 paths are qualified in solprop SEP 36's phase 4");
-#elif SOLPROP_NATIVE_SINGLE_BUILT
+#if SOLPROP_NATIVE_SINGLE_BUILT && !SOLPROP_NATIVE_REDUCED_COMPILE_ONLY
     single_ = std::make_unique<GeneralWorkspace<Single>>(std::move(problem));
 #else
-    throw std::invalid_argument(
-        "this solprop-native build has no single precision: build it with "
-        "SOLPROP_NATIVE_PRECISIONS including \"single\" (solprop SEP 36)");
+    refuse_reduced("single", SOLPROP_NATIVE_SINGLE_BUILT != 0);
+#endif
+  } else if (problem.precision == PrecisionName::mixed) {
+#if SOLPROP_NATIVE_MIXED_BUILT && !SOLPROP_NATIVE_REDUCED_COMPILE_ONLY
+    mixed_ = std::make_unique<GeneralWorkspace<Mixed>>(std::move(problem));
+#else
+    refuse_reduced("mixed", SOLPROP_NATIVE_MIXED_BUILT != 0);
 #endif
   } else {
     workspace_ = std::make_unique<GeneralWorkspace<Double>>(std::move(problem));
   }
 }
 bool GeneralState::engaged() const noexcept {
-  return static_cast<bool>(workspace_) || static_cast<bool>(single_);
+  return static_cast<bool>(workspace_) || static_cast<bool>(single_) ||
+         static_cast<bool>(mixed_);
 }
 GeneralWorkspace<Double>* GeneralState::binary64(const char* what) const {
   if (!workspace_)
     throw std::invalid_argument(std::string("the native backend runs ") + what +
-                                " in binary64 only, not under single precision");
+                                " in binary64 only, not under " +
+                                (single_ ? "single" : "mixed") + " precision");
   return workspace_.get();
 }
 GeneralState::~GeneralState() { close(); }
@@ -63,10 +95,10 @@ void GeneralState::prepare_trial(const double dz, const TrialScalars& scalars) {
 }
 std::vector<Complex> GeneralState::adams_source(const std::vector<Complex>& input,
                                                 const TrialScalars& scalars) {
-  return binary64("the Adams march")->adams_source(input, scalars);
+  return SOLPROP_NATIVE_ADAMS(adams_source(input, scalars));
 }
 void GeneralState::adopt(const std::vector<Complex>& field, const double dz) {
-  binary64("the Adams march")->adopt(field, dz);
+  SOLPROP_NATIVE_ADAMS(adopt(field, dz));
 }
 double GeneralState::low_storage_step(const double dz, const TrialScalars& scalars,
                                       const bool rebuild_table) {
@@ -78,35 +110,35 @@ std::vector<Complex> GeneralState::held_to_host() const {
 }
 void GeneralState::adams_allocate(const std::size_t slots, const bool compensated,
                                   const bool interpolate) {
-  binary64("the Adams march")->adams_allocate(slots, compensated, interpolate);
+  SOLPROP_NATIVE_ADAMS(adams_allocate(slots, compensated, interpolate));
 }
 void GeneralState::adams_compensation_start(const std::size_t slot,
                                             const std::vector<double>& rate) {
-  binary64("the Adams march")->adams_compensation_start(slot, rate);
+  SOLPROP_NATIVE_ADAMS(adams_compensation_start(slot, rate));
 }
 void GeneralState::adams_start(const std::size_t slot, const TrialScalars& scalars) {
-  binary64("the Adams march")->adams_start(slot, scalars);
+  SOLPROP_NATIVE_ADAMS(adams_start(slot, scalars));
 }
 double GeneralState::adams_magnitude() {
-  return binary64("the Adams march")->adams_magnitude();
+  return SOLPROP_NATIVE_ADAMS(adams_magnitude());
 }
 void GeneralState::adams_scale(const double rtol, const double atol,
                                const std::vector<double>& weights) {
-  binary64("the Adams march")->adams_scale(rtol, atol, weights);
+  SOLPROP_NATIVE_ADAMS(adams_scale(rtol, atol, weights));
 }
 std::vector<double> GeneralState::adams_fused_trial(const double dz,
                                                     const AdamsWeights& weights,
                                                     const std::vector<double>& divisor,
                                                     const TrialScalars& scalars) {
-  return binary64("the Adams march")->adams_fused_trial(dz, weights, divisor, scalars);
+  return SOLPROP_NATIVE_ADAMS(adams_fused_trial(dz, weights, divisor, scalars));
 }
 void GeneralState::adams_fused_accept(const double dz, const AdamsWeights& keep,
                                       const std::size_t free,
                                       const AdamsWeights& dense) {
-  binary64("the Adams march")->adams_fused_accept(dz, keep, free, dense);
+  SOLPROP_NATIVE_ADAMS(adams_fused_accept(dz, keep, free, dense));
 }
-void GeneralState::adams_hold() { binary64("the Adams march")->adams_hold(); }
-void GeneralState::adams_restore() { binary64("the Adams march")->adams_restore(); }
+void GeneralState::adams_hold() { SOLPROP_NATIVE_ADAMS(adams_hold()); }
+void GeneralState::adams_restore() { SOLPROP_NATIVE_ADAMS(adams_restore()); }
 void GeneralState::table_upload(const TableKind kind, std::vector<double> edges,
                                 const double lower, const double upper,
                                 const std::complex<double>* coefficients,
@@ -132,42 +164,42 @@ GeneralState::phase_sum_to_host(const std::vector<double>& weights) {
   return SOLPROP_NATIVE_EACH(phase_sum_to_host(weights));
 }
 std::vector<std::string> GeneralState::adams_row_names() const {
-  return binary64("the Adams march")->adams_row_names();
+  return SOLPROP_NATIVE_ADAMS(adams_row_names());
 }
 std::array<std::size_t, 3>
 GeneralState::adams_row_extents(const std::string& name) const {
-  return binary64("the Adams march")->adams_row_extents(name);
+  return SOLPROP_NATIVE_ADAMS(adams_row_extents(name));
 }
 std::vector<Complex> GeneralState::adams_rows_to_host(const std::string& name) const {
-  return binary64("the Adams march")->adams_rows_to_host(name);
+  return SOLPROP_NATIVE_ADAMS(adams_rows_to_host(name));
 }
 void GeneralState::adams_rows_to_host(const std::string& name,
                                       std::complex<double>* destination,
                                       const std::size_t size) const {
-  binary64("the Adams march")->adams_rows_to_host(name, destination, size);
+  SOLPROP_NATIVE_ADAMS(adams_rows_to_host(name, destination, size));
 }
 void GeneralState::adams_rows_from_host(const std::string& name,
                                         const std::vector<Complex>& values) {
-  binary64("the Adams march")->adams_rows_from_host(name, values);
+  SOLPROP_NATIVE_ADAMS(adams_rows_from_host(name, values));
 }
 void GeneralState::adams_observe(const AdamsWeights& weights, const bool hermite,
                                  const TrialScalars& scalars) {
-  binary64("the Adams march")->adams_observe(weights, hermite, scalars);
+  SOLPROP_NATIVE_ADAMS(adams_observe(weights, hermite, scalars));
 }
 std::vector<double> GeneralState::adams_exponential_trial(
     const double dz, const ExponentialWeights& weights,
     const std::vector<double>& divisor, const TrialScalars& step,
     const TrialScalars& sample, const std::vector<double>& rate) {
-  return binary64("the Adams march")
-      ->adams_exponential_trial(dz, weights, divisor, step, sample, rate);
+  return SOLPROP_NATIVE_ADAMS(
+      adams_exponential_trial(dz, weights, divisor, step, sample, rate));
 }
 void GeneralState::adams_exponential_accept(const double dz, const std::size_t free,
                                             const AdamsWeights& dense) {
-  binary64("the Adams march")->adams_exponential_accept(dz, free, dense);
+  SOLPROP_NATIVE_ADAMS(adams_exponential_accept(dz, free, dense));
 }
 void GeneralState::adams_exponential_observe(const double xi, const double dz,
                                              const ExponentialWeights& weights) {
-  binary64("the Adams march")->adams_exponential_observe(xi, dz, weights);
+  SOLPROP_NATIVE_ADAMS(adams_exponential_observe(xi, dz, weights));
 }
 std::vector<double> GeneralState::weighted_error(const std::vector<double>& scale) {
   return SOLPROP_NATIVE_EACH(weighted_error(scale));
@@ -203,8 +235,7 @@ GeneralState::statistics(const std::uint64_t flags, const std::vector<double>& w
 std::vector<double> GeneralState::spatial_statistics(const std::uint64_t flags,
                                                      const double intensity_factor,
                                                      const double z) {
-  return binary64("the spatial statistics")
-      ->spatial_statistics(flags, intensity_factor, z);
+  return SOLPROP_NATIVE_EACH(spatial_statistics(flags, intensity_factor, z));
 }
 std::vector<double> GeneralState::aperture_statistics(
     const std::uint64_t flags, const std::vector<double>& apertures,
@@ -287,16 +318,23 @@ void GeneralState::close() noexcept {
   if (single_)
     single_->close();
 #endif
+#if SOLPROP_NATIVE_MIXED_BUILT
+  if (mixed_)
+    mixed_->close();
+#endif
 }
 
 GeneralBatch::GeneralBatch(std::vector<std::shared_ptr<GeneralState>> members) {
   // Members of one precision only (solprop SEP 36 section 6.6); the batch workspace
   // refuses a member of another.
-  const bool single =
-      !members.empty() && members.front() && members.front()->single_ != nullptr;
-  if (single) {
+  const auto* first = members.empty() ? nullptr : members.front().get();
+  if (first != nullptr && first->single_) {
 #if SOLPROP_NATIVE_SINGLE_BUILT
     single_ = std::make_unique<GeneralBatchWorkspace<Single>>(std::move(members));
+#endif
+  } else if (first != nullptr && first->mixed_) {
+#if SOLPROP_NATIVE_MIXED_BUILT
+    mixed_ = std::make_unique<GeneralBatchWorkspace<Mixed>>(std::move(members));
 #endif
   } else {
     workspace_ = std::make_unique<GeneralBatchWorkspace<Double>>(std::move(members));
@@ -315,5 +353,8 @@ CpuSizing GeneralBatch::execution_sizing() const {
 void GeneralBatch::close() noexcept { SOLPROP_NATIVE_EACH(close()); }
 
 #undef SOLPROP_NATIVE_EACH
+#undef SOLPROP_NATIVE_ADAMS
+#undef SOLPROP_NATIVE_IF_SINGLE
+#undef SOLPROP_NATIVE_IF_MIXED
 
 } // namespace solprop_native
