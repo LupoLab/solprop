@@ -17,6 +17,7 @@ frequency in radians per femtosecond, energy in microjoules, power auto-scaled.
 """
 
 from solprop.plotting.propagation import (
+    DEFAULT_SLICE_WAVELENGTH_RANGE,
     DEFAULT_TRANGE,
     DEFAULT_WAVELENGTH_RANGE,
     SLICE_QUANTITIES,
@@ -40,12 +41,13 @@ from solprop.plotting.style import (
     per_width,
     power_unit,
     spectral_display,
-    spectral_limits,
     subplot_grid,
+    wavelength_to_axis,
 )
 
 __all__ = [
     "CORNERS",
+    "DEFAULT_SLICE_WAVELENGTH_RANGE",
     "DEFAULT_TRANGE",
     "DEFAULT_WAVELENGTH_RANGE",
     "OTHER_STATISTICS",
@@ -65,9 +67,9 @@ __all__ = [
     "prop_2d",
     "spec_1d",
     "spectral_display",
-    "spectral_limits",
     "spectrogram",
     "stats",
     "subplot_grid",
     "time_1d",
+    "wavelength_to_axis",
 ]

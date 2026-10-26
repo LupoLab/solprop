@@ -245,7 +245,7 @@ print(f"{'quasi_static':14s} {flow['quasi_static']:.3g}")
 figures = prop_2d(
     walled,
     "wavelength",
-    wavelength_range=(90e-9, 1.4e-6),
+    spec_range=(90e-9, 1.4e-6),
     trange=(-30e-15, 30e-15),
     db_min=-40,
     modes="sum",

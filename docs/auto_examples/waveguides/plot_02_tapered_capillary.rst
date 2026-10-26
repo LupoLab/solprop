@@ -347,7 +347,7 @@ pulse compresses and the dispersive wave appears near 130 nm.
     figures = prop_2d(
         walled,
         "wavelength",
-        wavelength_range=(90e-9, 1.4e-6),
+        spec_range=(90e-9, 1.4e-6),
         trange=(-30e-15, 30e-15),
         db_min=-40,
         modes="sum",
@@ -584,7 +584,7 @@ Six complete one-metre runs of four coupled modes: three linear, three nonlinear
 
  .. code-block:: none
 
-    55 s; backend native, 18 threads
+    74 s; backend native, 18 threads
 
 
 
@@ -602,7 +602,7 @@ For a paced introduction to propagation, start with the
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 55.152 seconds)
+   **Total running time of the script:** (1 minutes 13.765 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_02_tapered_capillary.py:

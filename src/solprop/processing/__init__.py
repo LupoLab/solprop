@@ -72,6 +72,7 @@ from solprop.processing.planes import PLANE_TOLERANCE, field_plane
 from solprop.processing.spectra import (
     DEFAULT_BANDPASS_BINS,
     DEFAULT_BANDPASS_FRACTION,
+    Passband,
     bandpass,
     specres,
 )
@@ -106,6 +107,7 @@ __all__ = [
     "Compression",
     "FieldKind",
     "ModeSelection",
+    "Passband",
     "SpectralAxis",
     "TransverseUnits",
     "absorbed_spectral_energy",

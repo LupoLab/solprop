@@ -100,7 +100,7 @@ print(f"model: {run.metadata.simulation_kind}; backend: {run.metadata.backend.na
 figures = prop_2d(
     run,
     "wavelength",
-    wavelength_range=(100e-9, 1e-6),
+    spec_range=(100e-9, 1e-6),
     trange=(-20e-15, 20e-15),
     db_min=-30,
     modes="sum",

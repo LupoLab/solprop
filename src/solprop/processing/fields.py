@@ -291,9 +291,10 @@ def get_field(  # noqa: PLR0913 - a plane, a mode set, a representation and a wi
         Which modes to return. ``'sum'`` is refused: modal amplitudes are complex.
     oversampling : int
         Factor by which to resample the time axis, at least 1.
-    bandpass : tuple of float, numpy.ndarray or None
-        Wavelength limits, m, of an explicit Planck-tapered window applied to the
-        spectrum before the transform, or a ready-made window on the stored axis.
+    bandpass : tuple of float, Passband, numpy.ndarray or None
+        Wavelength limits, m, or a :class:`~solprop.processing.spectra.Passband` on any
+        axis, of an explicit Planck-tapered window applied to the spectrum before the
+        transform, or a ready-made window on the stored axis.
     convention : {'optics', 'fft'}
         Sign convention of the complex representations; ``'real'`` is convention-free.
     transfer : TransferFunction or None
@@ -382,9 +383,10 @@ def get_power(  # noqa: PLR0913 - a plane, a mode set, a window and an optical e
         Which modes to return; ``'sum'`` adds their powers.
     oversampling : int
         Factor by which to resample the time axis, at least 1.
-    bandpass : tuple of float, numpy.ndarray or None
-        Wavelength limits, m, of an explicit window applied before the transform, or a
-        ready-made window on the stored axis.
+    bandpass : tuple of float, Passband, numpy.ndarray or None
+        Wavelength limits, m, or a :class:`~solprop.processing.spectra.Passband` on any
+        axis, of an explicit window applied before the transform, or a ready-made window
+        on the stored axis.
     transfer : TransferFunction or None
         A linear optical element of :mod:`solprop.optics` applied to the spectrum before
         the transform -- a compressor, a window, a stretch of air -- in the optics
@@ -521,9 +523,10 @@ def _to_time(
         Stored spectrum, internal convention, shape ``(..., n_omega)``.
     oversampling : int
         Factor by which to resample the time axis, at least 1.
-    bandpass : tuple of float, numpy.ndarray or None
-        Wavelength limits, m, of an explicit window applied before the transform, or a
-        ready-made window on the stored axis.
+    bandpass : tuple of float, Passband, numpy.ndarray or None
+        Wavelength limits, m, or a :class:`~solprop.processing.spectra.Passband` on any
+        axis, of an explicit window applied before the transform, or a ready-made window
+        on the stored axis.
     transfer : TransferFunction or None
         An optics-convention element applied to the spectrum, after the band pass and
         the transform limit.
@@ -589,9 +592,10 @@ def _plane_amplitude(  # noqa: PLR0913 - the plane and everything done to its sp
         Plane position, m, or ``None``.
     oversampling : int
         Factor by which to resample the time axis, at least 1.
-    bandpass : tuple of float, numpy.ndarray or None
-        Wavelength limits, m, of an explicit window applied before the transform, or a
-        ready-made window on the stored axis.
+    bandpass : tuple of float, Passband, numpy.ndarray or None
+        Wavelength limits, m, or a :class:`~solprop.processing.spectra.Passband` on any
+        axis, of an explicit window applied before the transform, or a ready-made window
+        on the stored axis.
     transfer : TransferFunction or None
         An optics-convention element applied to the spectrum.
     transform_limit : bool

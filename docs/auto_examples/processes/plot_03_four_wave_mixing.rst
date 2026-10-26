@@ -135,7 +135,7 @@ Spectral and temporal evolution
     figures = prop_2d(
         run,
         "wavelength",
-        wavelength_range=(130e-9, 1.2e-6),
+        spec_range=(130e-9, 1.2e-6),
         trange=(-60e-15, 60e-15),
         db_min=-40,
     )
@@ -176,7 +176,7 @@ spectra.
     left.plot(z, idler_energy * 1e6)
     left.set_xlabel("z (m)")
     left.set_ylabel("150-170 nm energy (uJ)")
-    spec_1d(run, z=[0.0, 1.5], ax=right, wavelength_range=(130e-9, 1e-6))
+    spec_1d(run, z=[0.0, 1.5], ax=right, spec_range=(130e-9, 1e-6))
     fig.tight_layout()
 
     launched = float(np.sum(energy(run, plane=0)))
@@ -250,7 +250,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    9 s; backend native
+    4 s; backend native
 
 
 
@@ -258,7 +258,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 8.585 seconds)
+   **Total running time of the script:** (0 minutes 3.767 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_03_four_wave_mixing.py:

@@ -368,10 +368,27 @@ logarithmic plot, because that would change the data; clip them yourself when yo
 ## Bandpass windows
 
 {py:func}`~solprop.processing.spectra.bandpass` builds a Planck taper that is one inside a
-wavelength range and zero outside it, and **returns** it. The field accessors take it as
-the `bandpass` keyword, either as the pair of wavelengths or as the array itself, which is
-how a different edge from the default is asked for; `bandpass(grid, limits, width=...)`
-sets the edge width in rad/s.
+range and zero outside it, and **returns** it. The range is in wavelength unless `axis`
+says otherwise: `bandpass(grid, limits, axis="f")` takes hertz and `axis="omega"` rad/s,
+and a frequency band may start at zero, which no wavelength range can say.
+`bandpass(grid, limits, width=...)` sets the edge width, always in rad/s, because the
+taper is drawn on the angular-frequency grid.
+
+The field accessors, the compressors and the plots take the window as the `bandpass`
+keyword in three forms: a pair of numbers, which is always a wavelength range in metres;
+a {py:class}`~solprop.processing.spectra.Passband`, which carries its own axis and edge
+width; or the array itself, for a profile of your own or a window built once and reused.
+The units of a band are its own and never follow the axis a plot is drawn on, so the same
+call selects the same light however the result is displayed:
+
+```python
+from solprop.processing import Passband, energy
+from solprop.processing._examples import example_output
+
+output = example_output()
+red = energy(output, plane=-1, bandpass=Passband((0.0, 375e12), "f"))
+also_red = energy(output, plane=-1, bandpass=(800e-9, 4e-6))
+```
 
 Each edge lies **outside** the pass band, and by default it is the narrower of 64
 frequency bins ({py:data}`~solprop.processing.spectra.DEFAULT_BANDPASS_BINS`, Luna's

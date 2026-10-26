@@ -132,7 +132,7 @@ Spectral and temporal evolution
     figures = prop_2d(
         run,
         "wavelength",
-        wavelength_range=(200e-9, 2.6e-6),
+        spec_range=(200e-9, 2.6e-6),
         trange=(-1e-12, 1e-12),
         db_min=-40,
     )
@@ -167,7 +167,7 @@ well as their broadening: a logarithmic plot can make weak features prominent.
 
 
     fig, ax = plt.subplots(figsize=(7.0, 4.0))
-    spec_1d(run, z=[0.05, 0.1, 0.2, 0.4], ax=ax, wavelength_range=(200e-9, 2.6e-6))
+    spec_1d(run, z=[0.05, 0.1, 0.2, 0.4], ax=ax, spec_range=(200e-9, 2.6e-6))
     ax.set_title("Raman sidebands broaden and overlap along the fibre")
     fig.tight_layout()
 
@@ -220,7 +220,7 @@ ensemble. For sampling and material checks see :doc:`/guide/setup/grids` and
 
  .. code-block:: none
 
-    152 s; backend native
+    133 s; backend native
 
 
 
@@ -228,7 +228,7 @@ ensemble. For sampling and material checks see :doc:`/guide/setup/grids` and
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (2 minutes 32.458 seconds)
+   **Total running time of the script:** (2 minutes 13.327 seconds)
 
 
 .. _sphx_glr_download_auto_examples_supercontinuum_plot_04_raman_comb_supercontinuum.py:

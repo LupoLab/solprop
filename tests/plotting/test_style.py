@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
+from solprop.constants import C
 from solprop.exceptions import ProcessingError
 from solprop.output import MemoryOutput
 from solprop.output.schema import GridRecord, ModeRecord, RunMetadata, StepperRecord
@@ -93,13 +94,31 @@ def test_spectral_display_labels_each_abscissa(axis, label):
 
 
 @pytest.mark.parametrize("axis", ["wavelength", "f", "omega"])
-def test_spectral_limits_increase(axis):
-    low, high = style.spectral_limits(axis, (400e-9, 2e-6))
+def test_a_wavelength_range_converts_to_ascending_limits(axis):
+    low, high = style.wavelength_to_axis(axis, (400e-9, 2e-6))
     assert low < high
 
 
-def test_spectral_limits_of_a_wavelength_axis_are_the_range():
-    assert style.spectral_limits("wavelength", (2e-6, 400e-9)) == (400.0, 2000.0)
+def test_a_wavelength_range_on_a_wavelength_axis_is_itself():
+    assert style.wavelength_to_axis("wavelength", (2e-6, 400e-9)) == (400e-9, 2e-6)
+
+
+@pytest.mark.parametrize(("axis", "turn"), [("f", C), ("omega", 2.0 * np.pi * C)])
+def test_a_wavelength_range_converts_to_frequency(axis, turn):
+    low, high = style.wavelength_to_axis(axis, (400e-9, 2e-6))
+    assert low == pytest.approx(turn / 2e-6)
+    assert high == pytest.approx(turn / 400e-9)
+
+
+def test_a_given_spectral_range_is_used_as_it_is():
+    assert style._spec_range("f", (2e15, 0.0), (400e-9, 2e-6)) == (0.0, 2e15)
+
+
+def test_no_spectral_range_falls_back_to_the_wavelength_default():
+    default = (400e-9, 2e-6)
+    assert style._spec_range("omega", None, default) == style.wavelength_to_axis(
+        "omega", default
+    )
 
 
 @pytest.mark.parametrize("corner", ["ul", "ur", "ll", "lr"])

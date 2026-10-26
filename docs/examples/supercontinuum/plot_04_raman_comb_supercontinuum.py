@@ -93,7 +93,7 @@ print(f"{run.metadata.simulation_kind}, z = {run['z'][-1]:.2f} m; seed 0")
 figures = prop_2d(
     run,
     "wavelength",
-    wavelength_range=(200e-9, 2.6e-6),
+    spec_range=(200e-9, 2.6e-6),
     trange=(-1e-12, 1e-12),
     db_min=-40,
 )
@@ -110,7 +110,7 @@ figures[-1].tight_layout()
 # well as their broadening: a logarithmic plot can make weak features prominent.
 
 fig, ax = plt.subplots(figsize=(7.0, 4.0))
-spec_1d(run, z=[0.05, 0.1, 0.2, 0.4], ax=ax, wavelength_range=(200e-9, 2.6e-6))
+spec_1d(run, z=[0.05, 0.1, 0.2, 0.4], ax=ax, spec_range=(200e-9, 2.6e-6))
 ax.set_title("Raman sidebands broaden and overlap along the fibre")
 fig.tight_layout()
 
