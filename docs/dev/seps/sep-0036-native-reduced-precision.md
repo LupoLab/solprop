@@ -1957,7 +1957,36 @@ and passes under the second, and $2^{15}$ passes under both. These runs carry no
 model; a noise ensemble adds one binary64 addition per sample at the entrance. The
 reading is the maintainers' to decide.
 
-PENDING-CTC
+**`ctc` and the oracle's transforms.** `ctc` at 0.05 m (H2, 40 bar, noise-free
+stimulated Raman scattering) is within its envelope on the A40 (6.8×10⁻⁴), but native
+single reaches 1.2×10⁻³ on a Zen 3 CPU, just outside, against 4.3×10⁻⁵ for the
+`numpy_ref` oracle, although its bands, energy and peak are within 1.3×10⁻⁴. Native
+mixed reaches 1.16×10⁻³ on the same schedule, against the oracle's 1.2×10⁻⁴; `ctc` is
+not among mixed's confirmation cases, but phase 1 gave it a limit of 0.05 m.
+
+The cause is the oracle, not native. NumPy 2.5's float32 `np.fft.rfft` and `irfft`
+return complex64 but are accurate to binary64 bin by bin: on a test signal (a Gaussian
+of 10³ beside a line of 10⁻³) its error at the line is 3×10⁻⁹ of the line and at empty
+bins 10⁻¹⁶ of the maximum, against 1.4×10⁻⁴ and 8.5×10⁻⁹ for single-precision FFTW, the
+transform error of §4.2 (of order $u_{32}\log n$ of the input's norm in every bin). The
+oracle's Raman convolution (`passes.py`) uses `np.fft`, while its main transforms go
+through `scipy.fft`, which is binary32. The `ctc` Raman drive is a large constant plus a
+weak spectrum. Near the H2 Raman lines the true spectrum of the drive lies far below the
+binary32 transform's floor, the resonant kernel turns that floor into a Stokes and
+anti-Stokes seed, and the Raman gain amplifies it. Native's excess sits in the
+vibrational Stokes and anti-Stokes bands, 30 dB over the oracle's; the pump band
+agrees. With the oracle's float32 transforms routed through single-precision FFTW, its
+matched-discrete error at 0.05 m rises from about 10⁻⁴ to 6.0×10⁻⁴, against native's
+1.1×10⁻³, with the same growth rate, and native minus oracle is then the size of either,
+as two independent rounding seeds would be. Repeated oracle runs of this case vary
+between 6×10⁻⁵ and 1.8×10⁻⁴: rounding-seeded SRS is chaotic at this level.
+
+So SEP 33's survival record, and phase 1's mixed record, were measured on a Raman
+convolution more accurate than binary32, and they overstate survival for cases that
+amplify a rounding seed in a Raman band. No native change can recover it within §4.2's
+contract: the transforms are the libraries' binary32 sums. Whether the oracle's Raman
+transforms become true binary32, and `ctc`'s limits are re-measured, is the
+maintainers' decision (below).
 
 **Not done: the AMD half.** The HIP build compiles all three policies, but no CDNA 3 GPU
 has been rented, so §7.3's confirmations, the probes' negative tests, the throughput and
