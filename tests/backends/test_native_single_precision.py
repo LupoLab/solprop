@@ -493,6 +493,9 @@ def test_the_memory_ledger_counts_binary32_buffers():
                 gnlse(precision), "native", cleanup
             ).memory_ledger()
     single, double = ledgers["single"], ledgers["double"]
+    # The planners' measured heap growth depends on what the process planned before.
+    for ledger in (single, double):
+        ledger.pop("fft_plan_heap_growth", None)
     for row in ("state", "stages", "fine_spectrum", "projected_spectrum"):
         assert 2 * single[row] == double[row], row
     assert single["fixed_phi_terms"] == double["fixed_phi_terms"]
