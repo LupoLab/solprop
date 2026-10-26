@@ -51,6 +51,9 @@ test_single_diagnostics = (
     single.test_the_plasma_integration_diagnostics_are_formed_in_binary64
 )
 test_single_drift = single.test_the_propagator_drift_is_linear_in_the_step_count
+test_single_unbiased = (
+    single.test_the_propagator_is_as_unbiased_as_the_oracles_over_many_steps
+)
 test_single_non_finite = single.test_a_non_finite_state_stops_every_march
 test_single_spatial_routes = single.test_the_spatial_routes_agree_with_the_oracle
 test_single_plasma_beam = single.test_a_plasma_beam_agrees_with_the_oracle
