@@ -286,6 +286,12 @@ The first public release. It contains:
 
 ### Fixed
 
+- **Spectral ranges of the plots in the units of their axis.** `prop_2d`, `spec_1d` and
+  `spectrogram` took their spectral window only as `wavelength_range`, so a frequency
+  axis could not be given a range in hertz, nor one starting at zero. They now take
+  `spec_range`, in m, Hz or rad/s as `axis` says, like the processing accessors;
+  `wavelength_range` and `solprop.plotting.style.spectral_limits` are gone, and
+  `wavelength_to_axis` converts a wavelength range to any axis.
 - **Third harmonic on an envelope grid.** With `thg=True` the envelope frame measured
   its group delay from the carrier, which also removed a constant phase
   β₁ω₀z that the harmonic term does not share. The third harmonic was

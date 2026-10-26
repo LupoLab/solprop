@@ -88,7 +88,7 @@ run = prop_capillary(
 figures = prop_2d(
     run,
     "wavelength",
-    wavelength_range=(200e-9, 3e-6),
+    spec_range=(200e-9, 3e-6),
     trange=(-150e-15, 250e-15),
     db_min=-40,
 )
@@ -111,7 +111,7 @@ time_1d(
     run, trange=(-150e-15, 250e-15), ax=left, transfer=compressed.transfer, widths=False
 )
 left.legend(["output", "transform limit", "Taylor-compressed"], frameon=False)
-spec_1d(run, z=[0.0, 0.75], ax=right, wavelength_range=(300e-9, 2e-6))
+spec_1d(run, z=[0.0, 0.75], ax=right, spec_range=(300e-9, 2e-6))
 fig.tight_layout()
 
 before, after = compressed.fwhm_before * 1e15, compressed.fwhm_after * 1e15
