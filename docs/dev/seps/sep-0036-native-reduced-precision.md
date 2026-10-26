@@ -1759,6 +1759,118 @@ bounds.
 §4.3 and §4.5 (binary64 in every mode). The device builds' default stays `double` until
 phase 4 qualifies the reduced modes there.
 
+### Phase 3 — report (2026-10-26)
+
+**Delivered.** Native single and mixed precision run every CPU capability of §5.1.
+
+- *Single* on the radial, Cartesian and line routes and the envelope-grid plasma.
+- *Mixed* on every route: the `Mixed` policy (`general_mixed.cpp`), the default CPU
+  `SOLPROP_NATIVE_PRECISIONS` now `double;single;mixed`, and `native` in
+  `REDUCED_PRECISION_BACKENDS["mixed"]`. The state is held physical in binary64, as the
+  oracle holds it; only the source works at the launch scale, narrowed once as
+  `fl32(y · pad / s)` and widened exactly times `s` before the binary64 inverse
+  propagator (§4.2), so the Adams rows, snapshots, noise and tolerances cross the seam
+  in physical units and a snapshot round trip is class P.
+- The split-step collar on free space under mixed precision transforms the binary64
+  state in its own binary64 transverse volume with binary64 plans, allocated at planning
+  and counted in the ledger and `estimate_memory` (`mixed_split_transverse`).
+- The envelope-grid plasma (§6.5): the quadrature in binary32 (angles, `cos`/`sin`,
+  denominator, field), each node's rate a binary64 table lookup rounded once, the level
+  sums in binary64 with the 2×10⁻⁶ budget and 10⁻³⁰ floor, and SEP 33's MLX lessons (cut
+  angles formed in binary64, the first panel at the ceiling rate, the panel past the low
+  cut skipped, the field clamped between the cuts, refinement failures raised as
+  `ConvergenceError`). The currents are divided by `s` and rounded once.
+- Adams under mixed precision is the binary64 machinery with the binary32 source and a
+  binary64 history, reached only through the study's admission until phase 5; noise
+  under mixed precision is added in binary64 before narrowing, also behind the study's
+  admission.
+- Refused under both reduced modes, by name: the slab kind and the far-field
+  statistics (the far-field pass is not built under them).
+
+**§4.5 choices kept in binary64:** the spatial statistics read the physical state
+widened to binary64 (the radial route through a binary64 copy of the synthesis matrix,
+free space through the binary64 transverse volume; the on-axis spectrum on free grids
+then comes from the spatial pass); the envelope plasma's ellipse decomposition from the
+exactly widened field and its populations, once per sample.
+
+**Verification.**
+
+- *Tests* (the same cluster node, `double;single;mixed`): the native test modules and the
+  reduced-precision oracle modules, 534 passed; native's own tests, 389 passed and 6
+  skipped. `tests/backends/test_native_mixed_precision.py` (53): class R against
+  `numpy_ref` mixed with §7.1's bound summed over both sides, on the fibre (one and ten
+  steps, Kerr, taper, low-storage, four modes, envelope, harmonic), the field-grid plasma
+  (band and trapezoid rules, Raman, a mixture), tensor Raman, the radial, Cartesian and
+  line routes with and without collars, both filaments; the linear-part witnesses
+  (source-free and split-step within binary64 bounds, in-stage collars within the mixed
+  bound) on the fibre and Cartesian routes; the damped bin (`Re dPhi` = 150) and the
+  `s = 2**30` witness; class P scaling, reload and Adams snapshots; Adams and the
+  modified noise under the study's admission; failure injection on every march;
+  batches; ledgers; the envelope plasma within its class T envelope. The single module
+  adds the spatial routes and the envelope plasma.
+- *The A40* builds all three policies (443 s) and passes native's 31 GPU tests; the
+  reduced modes stay refused on the device until phase 4.
+- *The deferred coherent-case study* (`argon_envelope` over 0.1 m, the phase 1
+  amendment), on native in both precisions, every run on one node: the reference passed
+  its check (field 6.8×10⁻¹⁰). Mixed precision is within every envelope at `1e-8`,
+  `1e-7` and `1e-6` (field 1.6×10⁻⁶, 1.4×10⁻⁶, 2.4×10⁻⁶; ionised 1.6×10⁻⁶ at `1e-8`):
+  **survives**. Its precision part is flat across the tolerances (field 1.4–1.6×10⁻⁶),
+  as on every other case. It takes 1.28 times binary64's accepted steps at `1e-8` and
+  1.06 times at `1e-7`, so it joins `ctc` in the step clause and confirms the
+  provisional floor of `1e-7` over all eleven cases.
+- *Memory* (native ledgers, totals without the planners' heap growth; the estimate's
+  ratios beside them):
+
+  | case | double | single / double | mixed / double | estimate, mixed / double |
+  |---|---|---|---|---|
+  | fibre, 1024 bins | 0.73 MB | 0.71 | 0.87 | 0.90 |
+  | capillary with plasma | 7.5 MB | 0.53 | 0.55 | 0.78 |
+  | four-mode capillary | 11.0 MB | 0.55 | 0.60 | 0.81 |
+  | envelope plasma | 1.2 MB | 0.64 | 0.67 | 0.84 |
+  | radial Kerr, 32 nodes | 2.0 MB | 0.62 | 0.86 | 0.93 |
+  | radial filament | 9.2 MB | 0.59 | 0.70 | 0.89 |
+  | Cartesian 16 × 16 | 12.1 MB | 0.56 | 0.85 | 0.86 |
+  | Cartesian, split step | 13.1 MB | 0.55 | 0.90 | 0.92 |
+  | line | 0.8 MB | 0.57 | 0.86 | 0.86 |
+
+  These test cases are small; the source's share, which mixed precision halves, grows
+  with the transverse grid.
+- *CPU time per step* (2× AMD EPYC 7763, one NUMA domain, the three precisions
+  interleaved in one process after a warm-up, three windows each, median; departure from
+  binary64 at the end of the window in brackets; the node shared, so only the ratios are
+  meaningful):
+
+  | case | threads | binary64, ms | single | mixed |
+  |---|---|---|---|---|
+  | fibre, 2^14 bins | 1 | 9.41 | 1.31× (6.0×10⁻⁷) | 1.36× (3.4×10⁻⁸) |
+  | fibre, 2^16 bins | 1 | 39.3 | 1.29× | 1.30× |
+  | four-mode capillary | 1 | 4.46 | 1.37× (1.1×10⁻⁶) | 1.39× (1.6×10⁻⁸) |
+  | radial Kerr, 32 nodes | 1 | 1.79 | 1.10× | 1.15× |
+  | Cartesian 16 × 16 | 1 | 16.7 | 1.04× | 1.01× |
+  | fibre, 2^14 bins | 16 | 6.72 | 1.45× | 1.42× |
+  | fibre, 2^16 bins | 16 | 23.9 | 1.34× | 1.26× |
+  | four-mode capillary | 16 | 5.70 | 1.47× | 1.56× |
+  | radial Kerr, 32 nodes | 16 | 1.80 | 1.12× | 1.17× |
+  | Cartesian 16 × 16 | 16 | 8.75 | 1.74× | 1.54× |
+
+  The SEP 30 suite's records replace these in the final benchmarks (§7.4).
+- *Q5.* With the three policies the macOS extension grows from 6.26 MB to 13.66 MB
+  (+118 %; +60 % with single alone); the compile wall time is unchanged at 13–14 s on
+  eight cores, since each reduced translation unit compiles beside `general.cpp`.
+  Applied to main's released wheels (the extension 17 % of the Linux wheel, 58 % of the
+  macOS one, 86 % of the Windows one), all three policies project to about +20 %, +68 %
+  and +101 %: past Q5's 60 % on macOS and Windows, which would make the reduced modes an
+  option of source builds there. The wheels themselves are to be built and measured
+  before the rule is applied; the maintainers decide.
+
+**Findings for later phases.** The envelope plasma on the spatial routes runs the same
+code but has no test of its own yet. The oracle-comparison bounds charge native's
+binary64 running integrals at the oracle's binary32 rate, which is conservative.
+
+**Deviations.** None from Part I. The envelope-plasma case of the coherent study ran
+here, as the phase 1 amendment provides; its binary64 reference ran on `native` on the
+same node, replacing the phase 1 records made elsewhere.
+
 ## Part III — History
 
 - 2026-10-25: Drafted (Opus 5.5), after an indicative A40 measurement of transforms,
