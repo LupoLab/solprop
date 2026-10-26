@@ -45,6 +45,8 @@ template void GeneralWorkspace<Mixed>::prepare_raman(const std::vector<double>&,
 template std::vector<double> GeneralWorkspace<Mixed>::statistics(
     std::uint64_t, const std::vector<double>&, const std::vector<double>&, double,
     double, double, double, const std::vector<double>&, const std::vector<double>&);
+template std::vector<double>
+GeneralWorkspace<Mixed>::spatial_statistics(std::uint64_t, double, double);
 template void GeneralWorkspace<Mixed>::finish(double);
 template void GeneralWorkspace<Mixed>::promote_fsal();
 template void GeneralWorkspace<Mixed>::clear_fsal();

@@ -1153,6 +1153,11 @@ class NativeBackend(StepDriver[_core.State]):
             if geometry.kind == "free"
             else names & set(FAR_FIELD_STATISTICS)
         )
+        if self._problem.precision.reduced:
+            # The far-field pass is binary64 code; under a reduced precision the
+            # on-axis spectrum is the binary64 reduction of the physical state that
+            # the radial route forms (SEP 36 section 4.5).
+            folded = folded - {"on_axis_spectrum"}
         values: dict[str, np.ndarray] = {}
         if folded:
             values.update(self._far_field_statistics(folded, spec))
@@ -2386,7 +2391,7 @@ def _refuse_reduced(problem: KernelProblem) -> None:
             "CPU build), or use backend='numpy_ref'"
         )
     geometry = problem.transform.geometry
-    if geometry is not None:
+    if geometry is not None and geometry.kind not in ("radial", "free"):
         raise BackendError(
             f"solprop-native does not yet run the {geometry.kind} route under "
             f"precision={name!r} (solprop SEP 36 phase 3); use backend='numpy_ref', "

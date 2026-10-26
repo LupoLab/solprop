@@ -235,8 +235,7 @@ GeneralState::statistics(const std::uint64_t flags, const std::vector<double>& w
 std::vector<double> GeneralState::spatial_statistics(const std::uint64_t flags,
                                                      const double intensity_factor,
                                                      const double z) {
-  return binary64("the spatial statistics")
-      ->spatial_statistics(flags, intensity_factor, z);
+  return SOLPROP_NATIVE_EACH(spatial_statistics(flags, intensity_factor, z));
 }
 std::vector<double> GeneralState::aperture_statistics(
     const std::uint64_t flags, const std::vector<double>& apertures,

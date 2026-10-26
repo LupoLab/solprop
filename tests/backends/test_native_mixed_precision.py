@@ -25,7 +25,7 @@ import pytest
 
 from backends.test_mixed_precision import INFORMATIVE, bound_of, ionising, vacuum
 from bounds import EPS, assert_within
-from precision_cases import capillary, gnlse, spatial_kerr
+from precision_cases import capillary, gnlse, plasma_beam, spatial_kerr
 from solprop.backends.driver import StepDriver
 from solprop.backends.protocol import Backend
 from solprop.backends.reduced import LaunchScale
@@ -401,7 +401,96 @@ def test_the_ledger_keeps_the_stored_rows_binary64_and_halves_the_source(build):
     assert totals["single"] < totals["mixed"] < totals["double"]
 
 
-def test_spatial_routes_are_refused_until_built():
-    problem = spatial_kerr("radial", "mixed").translate()
+def test_the_envelope_plasma_is_refused_until_built():
+    problem = capillary("mixed", envelope=True, plasma=True).translate()
     with pytest.raises(BackendError, match="phase 3"):
         select("native", problem)
+
+
+# The spatial routes (SEP 36 section 5.1, phase 3).
+
+
+@pytest.mark.parametrize(
+    ("build", "transverse"),
+    [
+        pytest.param(lambda p: spatial_kerr("radial", p), 32, id="radial"),
+        pytest.param(lambda p: spatial_kerr("cartesian", p), 8, id="cartesian"),
+        pytest.param(lambda p: spatial_kerr("line", p), 4, id="line"),
+        pytest.param(
+            lambda p: spatial_kerr("cartesian", p, integrator=LowStorageRungeKutta()),
+            8,
+            id="cartesian-low-storage",
+        ),
+        pytest.param(
+            lambda p: plasma_beam(p, route="radial"), 32, id="radial-filament"
+        ),
+        pytest.param(
+            lambda p: plasma_beam(p, route="cartesian"), 8, id="cartesian-filament"
+        ),
+    ],
+)
+def test_the_spatial_routes_agree_with_the_oracle(build, transverse):
+    """The radial Hankel product over 32 nodes, the Cartesian and line transforms."""
+    against_oracle(build, bound_of(build, transverse=transverse))
+
+
+@pytest.mark.parametrize(
+    ("build", "transverse"),
+    [
+        pytest.param(
+            lambda p: spatial_kerr("radial", p, chi3=None, absorbed=True),
+            32,
+            id="radial",
+        ),
+        pytest.param(
+            lambda p: spatial_kerr("cartesian", p, chi3=None, absorbed=True),
+            8,
+            id="cartesian",
+        ),
+        pytest.param(
+            lambda p: spatial_kerr(
+                "cartesian",
+                p,
+                chi3=None,
+                absorbed=True,
+                integrator=LowStorageRungeKutta(),
+            ),
+            8,
+            id="cartesian-low-storage",
+        ),
+    ],
+)
+def test_in_stage_spatial_collars_agree_with_the_oracle(build, transverse):
+    """Spatial collars beside a weak temporal one, binary32 source terms (kappa 1)."""
+    against_oracle(build, bound_of(build, kappa=1.0, transverse=transverse))
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(lambda p: spatial_kerr("cartesian", p, chi3=None), id="cartesian"),
+        pytest.param(
+            lambda p: spatial_kerr(
+                "cartesian",
+                p,
+                chi3=None,
+                absorbed=True,
+                scheme="split_step",
+                window_factor=0.0,
+            ),
+            id="cartesian-split-step",
+        ),
+    ],
+)
+def test_a_source_free_cartesian_run_agrees_with_binary64_within_binary64_bounds(
+    build,
+):
+    """No source, or the split-step collar, whose transverse and temporal transforms
+    are binary64 under Mixed (its own binary64 volume, SEP 36 sections 4.2 and 6.7)."""
+    problem = build("mixed").translate()
+    assert problem.stepper.schedule is not None
+    steps = len(problem.stepper.schedule.steps)
+    depth = math.ceil(math.log2(problem.grids.n_to)) + 8
+    bound = steps * (2 * EPS + 4 * 16 * EPS * depth)
+    mixed, double = finish(build("mixed"), "native"), finish(build("double"), "native")
+    assert_within(mixed, double, bound)

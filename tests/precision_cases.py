@@ -134,13 +134,14 @@ def spatial_kerr(  # noqa: PLR0913 - the case's own knobs
     chi3: float | None = 1e-25,
     scheme: str = "nonlinear",
     window_factor: float = 0.1,
+    integrator: RungeKutta | LowStorageRungeKutta | None = None,
 ) -> Simulation:
     """Return a self-focusing Kerr beam on the radial or Cartesian route.
 
     `absorbed` adds the grid's collars: the transverse window's in-stage rate beside
     the temporal one, whose scheme is `scheme`. ``chi3=None`` leaves the beam without a
     response, propagating linearly; ``window_factor=0`` removes the Cartesian grid's
-    spatial collar.
+    spatial collar. `integrator` replaces the default ``RungeKutta()``.
     """
     length = 0.1
     grid = EnvelopeGrid.from_limits(
@@ -161,7 +162,7 @@ def spatial_kerr(  # noqa: PLR0913 - the case's own knobs
         dz_init=length / steps,
         schedule=FixedSchedule.uniform(0.0, length, length / steps),
         backend="numpy_ref",
-        integrator=RungeKutta(),
+        integrator=RungeKutta() if integrator is None else integrator,
         precision=precision,  # pyright: ignore[reportArgumentType]
         absorber=absorber(grid, boundary_length=100 * length) if absorbed else None,
         absorber_scheme=scheme,  # pyright: ignore[reportArgumentType]
