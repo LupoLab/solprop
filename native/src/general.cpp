@@ -25,7 +25,11 @@ extern template class GeneralBatchWorkspace<Single>;
 
 GeneralState::GeneralState(Problem problem) {
   if (problem.precision == PrecisionName::single) {
-#if SOLPROP_NATIVE_SINGLE_BUILT
+#if SOLPROP_NATIVE_SINGLE_COMPILE_ONLY
+    throw std::invalid_argument(
+        "this solprop-native device build compiles single precision without running "
+        "it: a device's binary32 paths are qualified in solprop SEP 36's phase 4");
+#elif SOLPROP_NATIVE_SINGLE_BUILT
     single_ = std::make_unique<GeneralWorkspace<Single>>(std::move(problem));
 #else
     throw std::invalid_argument(

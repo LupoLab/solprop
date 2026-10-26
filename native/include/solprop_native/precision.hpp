@@ -202,6 +202,15 @@ template <class Policy> struct Roles {
 #define SOLPROP_NATIVE_SINGLE_BUILT 0
 #endif
 
+/* A device build compiles `Single` for SEP 36's phase-4 compiler work without running
+ * it (`SOLPROP_NATIVE_DEVICE_SINGLE_COMPILE_ONLY`): its states refuse it by name. */
+#if !defined(SOLPROP_NATIVE_SINGLE_COMPILE_ONLY)
+#define SOLPROP_NATIVE_SINGLE_COMPILE_ONLY 0
+#endif
+#if SOLPROP_NATIVE_SINGLE_COMPILE_ONLY && !SOLPROP_NATIVE_SINGLE_BUILT
+#error "solprop-native: a compile-only single precision needs the Single policy built"
+#endif
+
 /** Whether this build instantiated `Policy` (`SOLPROP_NATIVE_PRECISIONS`). */
 template <class Policy>
 inline constexpr bool precision_built_v = std::is_same_v<Policy, Double>

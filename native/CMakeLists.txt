@@ -337,8 +337,21 @@ option(SOLPROP_NATIVE_BAND_STAGING
 # the default arithmetic, so every build instantiates `double`. `single` is built on
 # CPU builds by default; a device build's binary32 paths are qualified in SEP 36's
 # phase 4, so it builds `double` alone until then. `mixed` is refused until it is built.
+# SOLPROP_NATIVE_DEVICE_SINGLE_COMPILE_ONLY lets a device build compile `single`, for
+# phase 4's compiler work, while the runtime still refuses single precision by name.
+option(SOLPROP_NATIVE_DEVICE_SINGLE_COMPILE_ONLY
+       "On a device build, compile the single precision policy without running it"
+       OFF)
 if(SOLPROP_NATIVE_ENABLE_CUDA OR SOLPROP_NATIVE_ENABLE_HIP)
-  set(SOLPROP_NATIVE_PRECISIONS_DEFAULT "double")
+  if(SOLPROP_NATIVE_DEVICE_SINGLE_COMPILE_ONLY)
+    set(SOLPROP_NATIVE_PRECISIONS_DEFAULT "double;single")
+  else()
+    set(SOLPROP_NATIVE_PRECISIONS_DEFAULT "double")
+  endif()
+elseif(SOLPROP_NATIVE_DEVICE_SINGLE_COMPILE_ONLY)
+  message(FATAL_ERROR
+    "SOLPROP_NATIVE_DEVICE_SINGLE_COMPILE_ONLY applies to CUDA and HIP builds; a CPU "
+    "build runs the single precision policy.")
 else()
   set(SOLPROP_NATIVE_PRECISIONS_DEFAULT "double;single")
 endif()
@@ -351,10 +364,15 @@ foreach(SOLPROP_NATIVE_PRECISION IN LISTS SOLPROP_NATIVE_PRECISIONS)
     list(APPEND SOLPROP_NATIVE_PRECISION_DEFINITIONS SOLPROP_NATIVE_PRECISION_DOUBLE=1)
   elseif(SOLPROP_NATIVE_PRECISION STREQUAL "single")
     if(SOLPROP_NATIVE_ENABLE_CUDA OR SOLPROP_NATIVE_ENABLE_HIP)
-      message(FATAL_ERROR
-        "SOLPROP_NATIVE_PRECISIONS: the single precision policy runs on CPU builds "
-        "only until its device paths are qualified (solprop SEP 36 phase 4); use "
-        "\"double\".")
+      if(NOT SOLPROP_NATIVE_DEVICE_SINGLE_COMPILE_ONLY)
+        message(FATAL_ERROR
+          "SOLPROP_NATIVE_PRECISIONS: the single precision policy runs on CPU builds "
+          "only until its device paths are qualified (solprop SEP 36 phase 4); use "
+          "\"double\", or SOLPROP_NATIVE_DEVICE_SINGLE_COMPILE_ONLY=ON to compile it "
+          "without running it.")
+      endif()
+      list(APPEND SOLPROP_NATIVE_PRECISION_DEFINITIONS
+           SOLPROP_NATIVE_SINGLE_COMPILE_ONLY=1)
     endif()
     list(APPEND SOLPROP_NATIVE_PRECISION_DEFINITIONS SOLPROP_NATIVE_PRECISION_SINGLE=1)
     list(APPEND SOLPROP_NATIVE_PRECISION_SOURCES src/general_single.cpp)

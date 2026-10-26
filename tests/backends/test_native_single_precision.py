@@ -390,6 +390,19 @@ def test_a_build_without_single_precision_refuses_it_by_name(monkeypatch):
         select("native", gnlse("single").translate())
 
 
+def test_a_device_build_refuses_single_precision_until_phase_four(monkeypatch):
+    """A device build, compile-only single included, runs binary64 alone (SEP 36)."""
+    import solprop_native  # noqa: PLC0415
+    from solprop_native import backend as native_backend  # noqa: PLC0415
+
+    record = dataclasses.replace(
+        solprop_native.build_info(), precisions=("double",), device_backend="cuda"
+    )
+    monkeypatch.setattr(native_backend, "build_info", lambda: record)
+    with pytest.raises(BackendError, match=r"cuda build refuses .*phase 4"):
+        select("native", gnlse("single").translate())
+
+
 def test_the_adams_march_is_refused_under_single_precision():
     with pytest.raises(DriverError, match="Adams integrator"):
         Simulation.from_gnlse(

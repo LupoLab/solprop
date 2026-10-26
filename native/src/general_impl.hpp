@@ -4278,7 +4278,7 @@ void GeneralWorkspace<Policy>::set_raman_factor(const std::size_t stage) {
       {problem_.raman_epsilon0, host_raman_density_.at(stage)},
       2 * problem_.scale_exponent + raman_kernel_exponent_, "the Raman term");
   Kokkos::deep_copy(raman_scale_space_, Kokkos::subview(stage_raman_factor_, stage),
-                    factor);
+                    static_cast<SourceReal>(factor));
 }
 
 template <class Policy>

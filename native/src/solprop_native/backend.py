@@ -2375,7 +2375,15 @@ def _refuse_reduced(problem: KernelProblem) -> None:
             f"solprop-native refuses precision={name!r} until solprop SEP 36's phase 3 "
             "builds it; use backend='numpy_ref', the oracle, or precision='double'"
         )
-    if "single" not in build_info().precisions:
+    info = build_info()
+    if "single" not in info.precisions and info.device_backend != "none":
+        raise BackendError(
+            f"this solprop-native {info.device_backend} build refuses "
+            "precision='single' until solprop SEP 36's phase 4 qualifies a device's "
+            "binary32 paths; use "
+            "backend='numpy_ref', a CPU build of solprop-native, or precision='double'"
+        )
+    if "single" not in info.precisions:
         raise BackendError(
             "this solprop-native build compiled binary64 alone and refuses "
             "precision='single'; rebuild it with SOLPROP_NATIVE_PRECISIONS="

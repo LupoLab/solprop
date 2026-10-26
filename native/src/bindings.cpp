@@ -1322,9 +1322,9 @@ nb::dict build_record() {
   result["coverage_instrumented"] =
       static_cast<bool>(SOLPROP_NATIVE_COVERAGE_INSTRUMENTED);
   result["coverage_source_hash"] = SOLPROP_NATIVE_COVERAGE_SOURCE_HASH;
-  // The precision policies this build compiled, comma-separated (solprop SEP 36,
-  // SOLPROP_NATIVE_PRECISIONS).
-#if SOLPROP_NATIVE_SINGLE_BUILT
+  // The precision policies this build runs, comma-separated (solprop SEP 36,
+  // SOLPROP_NATIVE_PRECISIONS); a device build's compile-only single is not one.
+#if SOLPROP_NATIVE_SINGLE_BUILT && !SOLPROP_NATIVE_SINGLE_COMPILE_ONLY
   result["precisions"] = "double,single";
 #else
   result["precisions"] = "double";
