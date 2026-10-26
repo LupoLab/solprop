@@ -5,7 +5,7 @@
 | **SEP** | 37 |
 | **Title** | Shot noise on by default, and an integrator and tolerances chosen for each interface |
 | **Author** | John Travers |
-| **Drafting agent** | Opus 5.5 (2026-10-26) |
+| **Drafting agent** | Opus 5.5 (2026-10-26); Opus 5.5 (2026-10-26, revision after review) |
 | **Status** | Draft |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); GPT-6 (AI) |
@@ -20,95 +20,96 @@
 
 ## Part I — Proposal
 
+*Revised on 2026-10-26 after the GPT-6 AI review. The response to the review (Part
+III) says what changed for each finding; the maintainer's decisions are recorded
+there as D1–D5.*
+
 ### 1. Abstract
 
 Every solprop run is noiseless unless it asks for noise, every interface steps with
 `Multistep()` by default, and the default tolerances differ between interfaces for
-reasons that are only partly written down. This SEP proposes:
+reasons that are only partly written down. This SEP changes those defaults, using models
+and methods solprop already has. It is not a noise-physics project. It proposes:
 
-- `noise="modified"` as the default wherever the model can be carried;
-- a default integrator chosen for each `prop_*` interface on measured work–precision,
-  with no dependence on the physics a run switches on;
-- default tolerances for each interface, set by a stated accuracy target;
-- removal of every noise refusal that exists only because the transport was not built
-  or not measured.
+- **`noise="input"` as the default**: one photon per mode with a random phase, added to
+  the input field. This is the seed of the supercontinuum literature, and the one the
+  author's group has used for years. The modified model stays available, with its
+  limitations documented.
+- **A default integrator for each `prop_*` interface**, chosen by a rule fixed in this
+  SEP and never dependent on the physics a run switches on.
+- **Default tolerances for each interface**, set by a stated convergence protocol.
+- **Lifting the input-noise refusals that exist only because nobody built them**: the
+  TDSE response, coupled flows and explicit interior launches.
 
-Tests and worked examples fix their seeds, so they stay reproducible. The SEP opens with
-an exploration phase (phase 0) that reads the design record behind each choice and
-measures what the new defaults cost before anything changes. Success is judged in four
-ways:
+Where noise cannot be carried, a run that did not ask for noise falls back to none. The
+fallback is recorded and printed. Tests and worked examples fix their seeds.
 
-- the modified model passes an exact identity with the input model where no reservoir
-  acts, and an exact quantum reference for spontaneous modulational instability;
-- the chosen integrators win their work–precision comparisons, with noise on and off;
-- the tolerances meet their targets;
-- each lifted refusal is qualified like any other route.
+Success is judged in four ways:
+- the default resolves as specified at every entry point;
+- each lifted refusal passes its stated checks;
+- the chosen integrators win their comparison under the rule;
+- the tolerances meet the protocol's budgets.
 
 ### 2. Motivation and scope
 
 **A noiseless default hides itself.** A user who does not pass `noise=` gets no shot
 noise. Nothing is printed, and the run record says so only on inspection. Spontaneous
-processes then do not start: modulational instability, Raman from noise and the
-shot-to-shot incoherence of a supercontinuum. Coherent dynamics seeded by the pulse
-itself look cleaner than they would in an experiment. Luna.jl, whose interface solprop's
-keyword surface follows, has shot noise on by default with the modified model.
+processes then do not start: modulational instability, Raman scattering from noise and
+the shot-to-shot incoherence of a supercontinuum. Coherent dynamics seeded by the pulse
+itself look cleaner than they would in an experiment.
 
-**The modified model is the principled default** (§4.1). Without a reservoir, that is
-with a lossless, gainless linear operator, it is the input model written in shifted
-coordinates. The two are one equation and cannot make different predictions; the
-modified field simply leaves out the seed's floor. Where a reservoir acts, they differ,
-and the modified model is the right one: linear loss, Raman scattering, gain and plasma
-absorption all couple the field to a reservoir. A seed placed at the input is
-attenuated by those losses below the vacuum level it stands for, and it puts a
-one-photon floor under the whole spectrum. The modified seed is held at the vacuum level
-and seeds afresh wherever the reservoir acts.
+**The least bad model solprop knows how to implement is the input model.** It is what
+the literature uses [1, 2] and what the author's group has run for years. Its known
+limits are stated in §4.1. The modified model is not provably better (§4.2):
+- **With a unitary linear operator, the two models are the same equation.** That holds
+  whatever the nonlinear response is, Raman and plasma absorption included.
+- **They differ only where the linear operator is not unitary.** That means propagation
+  loss, which every default capillary run has, plus the absorbing collars and the
+  normalisation along a varying guide. There the modified model's extra term is not
+  reservoir noise, and it can be worse than the input model.
+- **Its saved field leaves out the seed.** That changes what a spectrum or a coherence
+  computed from the output means.
+
+So the input model is the default, and the modified model stays an option.
 
 **One default integrator does not suit every interface.** `Multistep()` became the
 default everywhere with SEP 16 (ADR-045). The evidence was strongest where the source is
 expensive: 5.5 to 5.8 times faster than IP-DOPRI5 on the full resonant-dispersive-wave
-capillary and 2 to 3 times on a soliton-to-continuum launch. The same record has
-IP-DOPRI5 ahead on the single-mode GNLSE window on `numba_cpu`, by 1.2 to 1.4 times.
-With shot noise in the field the gap on the GNLSE window widens to 3.6–4 times
-(preliminary, §3.4). A default that changes with the physics switched on would be
-fragile, and the author rejects it. A default for each interface is not, because an
-interface is chosen by the user and fixes the equation solved.
+capillary, and 2 to 3 times on a soliton-to-continuum launch. The same record has
+IP-DOPRI5 ahead on the single-mode GNLSE window on `numba_cpu`, by 1.2 to 1.4 times, and
+the preliminary measurements of §3.4 find RK further ahead once noise is on. A default
+that changed with the physics switched on would be fragile, and the author rejects it. A
+default for each interface is not fragile in that way, because the user chooses the
+interface and the interface fixes the equation solved.
 
-**The default tolerances are only partly explained.** `prop_gnlse` asks for
-`rtol = 1e-8` and `atol = 1e-14` √W. Those were set with the first driver, and no
-reason was recorded. They suit high-fidelity soliton evolution: the soliton tutorial
-asks for `1e-9` to show a recurrence to about $10^{-9}$. But noiseless soliton
-recurrence is an occasional study, and a user who wants it can ask for a tight
-tolerance. The GNLSE is used mostly for supercontinuum, where a looser tolerance is
-enough, and that tolerance should be judged by a convergence test on the canonical
-supercontinuum parameters of Dudley, Genty and Coen [1].
-
-`prop_capillary` and `prop_waveguide` ask for `1e-6` and `1e-10` √W, the values Luna.jl
-documents; the docstring justifies the looser value by the cost of a modal step.
-Production practice is looser still: `rtol = 1e-5` is common for general use, and runs
-with the TDSE response use `1e-3` to `3e-3`. `1e-6` is kept only if a stated
-convergence test supports it.
-
-`prop_radial` and `prop_free` have no default tolerance at all: their
-`SimulationSettings` take a controller from the caller.
+**The default tolerances are only partly explained.**
+- **`prop_gnlse`** asks for `rtol = 1e-8` and `atol = 1e-14` √W. These were set with the
+  first driver, and no reason was recorded. They suit noiseless soliton recurrence,
+  which is an occasional study; a user who wants it can ask for a tight tolerance. The
+  GNLSE is used mostly for supercontinuum, where a looser tolerance is enough.
+- **`prop_capillary` and `prop_waveguide`** ask for `1e-6` and `1e-10` √W, the values
+  Luna.jl documents. The docstring justifies them by the cost of a modal step.
+  Production practice is looser still: `rtol = 1e-5` is common, and runs with the TDSE
+  response use `1e-3` to `3e-3`.
+- **`prop_radial`, `prop_free` and `prop_planar`** have no default tolerance at all.
+  Their `SimulationSettings` require a controller from the caller.
 
 **In scope:**
-- the defaults of `prop_gnlse`, `prop_capillary`, `prop_waveguide`, `prop_radial`,
-  `prop_free` and `prop_planar`, and of the `Simulation.from_*` constructors behind them:
-  noise model, integrator and formulation, `rtol` and `atol`;
-- every place where a noise model is refused today (§3.3): a classification, and the
-  implementation or measurement that lifts each refusal not grounded in physics;
+- the defaults of every `prop_*` interface and of the `Simulation.from_*` constructors
+  behind them: noise model, integrator and formulation, `rtol` and `atol`;
+- the input-noise refusals that are not grounded in physics or numerics (§3.3);
 - seeds for the test suite and the worked examples;
 - the manual's account of noise, cost and stepper choice.
 
 **Out of scope:**
-- **New noise physics.** No half-photon (truncated-Wigner) vacuum, no Langevin terms
-  for Raman or loss, no thermal phonon occupation and no technical (pump) noise. §4.1
-  says what each would change, and §12 asks whether a later SEP should take them up.
-- **Noise under single precision.** It is refused for an accuracy reason, not a missing
-  implementation (§3.3), and belongs to the precision work.
-- **Start-of-run diagnostics.** These print the noise model, integrator and tolerances
-  when a run begins. That is separate work and needs no SEP, though this SEP relies on
-  it (§5.4).
+- **Changes to the modified model.** Its own refusals (interpolated planes, field
+  planes, coupled flows) stay, and so do its readout and its transport along a varying
+  guide. They are recorded on the roadmap.
+- **New noise physics.** No half-photon vacuum, no Langevin terms for loss or Raman,
+  no thermal phonon occupation, no Gaussian amplitude for the draw and no technical
+  (pump) noise.
+- **Noise on the hybrid planar grid**, which needs a transverse normalisation decision
+  first, and **noise under single precision**, which binary32 cannot hold (§3.3).
 - **Default changes elsewhere**, such as grids, save planes, absorbers or Raman.
 
 ### 3. Context
@@ -122,12 +123,16 @@ convergence test supports it.
 - one generator stream per seed.
 
 The same draw serves both models:
-- **input** adds it to the field at $z = 0$;
-- **modified** (ADR-008) injects it into the nonlinear operator at every stage, advanced
-  by the unitary part of the cumulative linear operator, $N(z) = N_0\,e^{i\,\mathrm{Im}\,\Phi}$.
+- **input** adds it to the field at the launch. It then propagates with the field under
+  the full linear and nonlinear operators.
+- **modified** (ADR-008) keeps the draw apart from the propagated field. It advances the
+  draw by the unitary part of the cumulative linear operator,
+  $N(z) = N_0\,e^{i\,\mathrm{Im}\,\Phi}$, and passes the full field $\psi + N$ to the
+  nonlinear response at every stage. The saved field is $\psi$, without the draw.
 
 The realisation and its seed are stored with the output. A `seed` of `None` draws from
-the operating system and records what it drew.
+the operating system and records what it drew. A seed fixes the realisation. It does not
+make adaptive runs on different backends agree bit for bit (SEP 25).
 
 #### 3.2 The defaults today
 
@@ -139,36 +144,36 @@ the operating system and records what it drew.
 | `prop_radial`, `prop_free` | `None` | `Multistep()` | caller's controller | caller's controller |
 | `prop_planar` | not carried | `Multistep()` | caller's controller | caller's controller |
 
-#### 3.3 Where a noise model is refused today
+#### 3.3 Where noise is refused today, and what this SEP does
 
-| Where | The reason given today | Class |
-|---|---|---|
-| `precision="single"` | binary32 rounding can reach a one-photon seed at high pulse energy (SEP 33) | accuracy limit |
-| the TDSE response | noise left out of the initial qualification (SEP 12) | not built |
-| an interior launch, `initial_z > 0` | none recorded | not built |
-| a coherent wall, the taper coupling, a split block, a moving solid guide | the draw's transport through a coupled, nonunitary flow is not measured ([roadmap](../roadmap.md)) | not built; needs a derivation |
-| the hybrid planar grid | no photon measure is declared for slab amplitudes ([roadmap](../roadmap.md)) | not built |
-| a general modal guide with a diagonal metric | no transport derived; nothing builds such a metric | not built, and moot |
-| interpolated save planes (`interpolate_planes=True`) with `modified` | the draw is added outside the interpolant (SEP 14 §5) | not built |
-| `processing.field_plane` of a `modified` run | the noise phase is not reconstructed into a plane (SEP 31, decision A2) | not built |
+| Where | Refuses | The reason given today | This SEP, for the input default |
+|---|---|---|---|
+| `precision="single"` | both models | binary32 rounding swamps a one-photon seed (SEP 33) | an accuracy limit: kept; the default falls back to none |
+| the TDSE response | both models | noise left out of the initial qualification (SEP 12) | a scope choice: lifted for `input` (§6) |
+| an interior launch, `initial_z > 0` | both models | none recorded | lifted for an explicit `input`; the default takes no new draw (§5.1) |
+| a coherent wall, the taper coupling, a split block, a moving solid guide | both models | the draw's transport through a nonunitary coupled flow is not measured | that question is the modified model's alone; lifted for `input` (§6) |
+| the hybrid planar grid | both models | no photon measure is declared for slab amplitudes | needs a normalisation decision: kept; the default falls back |
+| a general modal guide with a diagonal metric | both models | a one-photon draw is not defined in that basis; nothing builds one | kept; the default falls back |
+| interpolated save planes | `modified` | the draw is added outside the interpolant (SEP 14) | not affected by the input default |
+| `processing.field_plane` | `modified` | the noise phase is not reconstructed into a plane (SEP 31) | not affected by the input default |
 
-Only the single-precision refusal is grounded in physics or numerics. A binary32 state
-cannot hold a seed below its rounding level. Even that is conditional: it binds only
-when the seed is small against the pulse, at high energy. Every other refusal records
-work that was never done.
+Only the single-precision refusal rests on numerics. The planar and diagonal-metric
+refusals rest on a missing definition. The rest are scope choices or concern the
+modified model only.
 
 #### 3.4 Preliminary measurements
 
-These were taken while drafting, as same-process A/B runs on an Apple M5 Max laptop,
-counting accepted steps. Wall times are indicative only.
+These were taken while drafting, at commit `1d4f099`, on the native backend (what
+`backend="auto"` resolved to), on an Apple M5 Max laptop, with seed 1. They count
+accepted steps, and each wall time is a single sample. They are evidence about these
+cases, not a qualification, and phase 0 repeats them under §5.2's rule.
 
-**Capillary worked examples.** These cover SPM, soliton self-compression, four-wave
-mixing, XPM, ionisation blue shift and two supercontinuum ensembles (16–256 µm bores,
-µJ–mJ pulses). Each took the same number of steps, within 2 %, as written and with
-`noise="modified"` forced: for example 2476 against 2476, and 3761 against 3792.
+**Capillary worked examples** cover SPM, soliton self-compression, four-wave mixing,
+XPM, ionisation blue shift and two supercontinuum ensembles (16–256 µm bores, µJ–mJ
+pulses). Each took the same number of steps, within 2 %, with and without noise.
 
-**The N = 3 GNLSE soliton tutorial** (20 pJ, 100 fs, 500–2000 nm band) behaves very
-differently:
+**The N = 3 GNLSE soliton tutorial** (20 pJ, 100 fs, 500–2000 nm band, the tutorial's
+grid) behaves very differently:
 
 | Integrator, `rtol` | No noise | `input` | `modified` |
 |---|---|---|---|
@@ -178,18 +183,15 @@ differently:
 | `Multistep()`, 1e-6 | 467 | — | 18863 |
 | `RungeKutta()`, 1e-6 | 507 | — | 4193 |
 
-- **The noise model makes no difference to the cost**, contrary to the manual's "about
-  eight times" for the modified model alone. That figure was quoted from Luna.jl and not
-  reproduced in solprop. This case has no reservoir, so the two models are the same
-  equation (§4.1); equal step counts are what the theory predicts.
-- **`atol` makes no difference.** Running from `1e-14` to `1e-6` √W left the step
-  counts unchanged.
-- **The noise's size relative to the field is what matters.** Scaling the draw by $s$
-  brings the RK count from 21845 at $s = 1$ through 8153 and 2219 to 1816 at
-  $s = 10^{-6}$, against 1800 without noise. The draw is $7\times10^{-3}$ of the field's
-  norm here.
+- **The two models cost the same here.** The manual's "about eight times" for the
+  modified model alone was quoted from Luna.jl and is not reproduced in this case.
+- **`atol` made no difference.** Values from `1e-14` to `1e-6` √W left the counts
+  unchanged.
+- **Scaling the draw changes the cost.** Scaling it by $s$ took the RK count from 21845
+  at $s = 1$, through 8153 and 2219, to 1816 at $s = 10^{-6}$, against 1800 without
+  noise.
 
-**Accuracy** was measured against an RK reference at `rtol = 1e-11`, with the same draw.
+**Accuracy** was measured against an RK reference at `rtol = 1e-11` with the same draw.
 The noise part is the run's departure from the noiseless run.
 
 | Run | Steps | Field error | Error in the noise part |
@@ -202,331 +204,302 @@ The noise part is the run's departure from the noiseless run.
 | `Multistep()`, adaptive, 1e-6 | 18863 | 2e-4 | 3.2e-2 |
 | `Multistep()`, the noiseless run's schedule replayed | 1126 | 5e-3 | 0.78 |
 
-So the extra steps are needed. A schedule discovered without noise gets the noise part
-wrong, by 6 % on RK and 78 % on `Multistep()`. ADR-008's advice that ensembles replay
-fixed schedules therefore needs the schedule to be calibrated with noise. These numbers
-come from one case on one machine. Phase 0 repeats them on the standard suite.
+In this case the extra steps are needed: a schedule discovered without noise gets the
+noise part wrong. A replayed schedule for a noisy ensemble should therefore be
+calibrated with noise on, across more than the seed that discovered it.
 
 ### 4. Theory
 
-#### 4.1 What the two models represent
+#### 4.1 The input model and its known limits
 
-**Where one photon per mode comes from.** The seed is not the vacuum itself. In the
-symmetrically ordered (Wigner) picture that a classical field simulation implicitly
-uses, the vacuum carries half a photon per mode [3]. One photon per mode is the
-equivalent input noise of a phase-insensitive amplifier. Smith showed that the
-spontaneous Raman or Brillouin emission along a fibre, summed and amplified by the gain
-remaining after each point, is the same, at high gain, as injecting one photon per mode
-at the input and propagating only the stimulated equations [4]. The supercontinuum
-literature adopted this seed with a random phase on every spectral bin [1, 2].
+**Where one photon per mode comes from.** In the symmetrically ordered (Wigner) picture,
+which a classical field simulation implicitly uses, the vacuum carries half a photon
+per mode [3]. One photon per mode is instead the equivalent input noise of a
+phase-insensitive amplifier. Smith showed that the spontaneous Raman or Brillouin
+emission along a fibre, amplified by the gain remaining after each point, is the same at
+high gain as one photon per mode injected at the input and propagated by the stimulated
+equations alone [4]. The supercontinuum literature adopted this seed with a random phase
+on every spectral bin [1, 2].
 
-**Two kinds of process.** A phase-sensitive (parametric) process such as modulational
-instability or four-wave mixing is unitary. It has no reservoir, and the vacuum enters
-once, at the input. A phase-insensitive process (Raman gain, amplified spontaneous
-emission, linear loss, plasma absorption) couples the field to a reservoir. By the
-fluctuation–dissipation theorem, that reservoir feeds fluctuations in continuously.
+**What it gets wrong, and by how much:**
+- **Parametric processes.** For modulational instability and four-wave mixing, which
+  have no reservoir, the exact seed is half a photon. One photon overestimates
+  spontaneous parametric power by a factor of two at high gain [3, 6]. Modulational
+  instability enters a supercontinuum logarithmically, so this shifts its development
+  length by about $\ln 2/(2\gamma P_0)$, a few per cent of $L_\mathrm{MI}$.
+- **Linear loss.** Under linear loss, the seed decays with the field instead of staying
+  at the vacuum level. Spontaneous processes far into a lossy guide are then under-seeded
+  by about the guide's power transmission up to that point.
+- **The floor.** The seed sits as a one-photon floor under the whole spectrum.
+- **Statistics.** The fixed-modulus draw has the right second moments but not the
+  fourth moments of a vacuum mode.
 
-**The modified model** moves the seed $N_0$ out of the initial condition and into the
-nonlinear and gain operators [5]. As first published it held the seed fixed in $z$. In
-a dispersive medium that is wrong, because the seed and the field it seeds drift out
-of phase. solprop's form advances the seed by the unitary part of the linear operator,
-$N(z) = N_0\,e^{i\,\mathrm{Im}\,\Phi(\omega, z)}$ (ADR-008), and passes the full field
-$y + N$ to the nonlinear response.
+These limits are known and bounded. Each is either small where the model is used or
+visible to the user. Fixing them needs the half-photon vacuum with a Langevin term for
+each reservoir [3], which is new physics outside this SEP.
 
-**Without a reservoir, the two models are one equation.** Let $\chi$ be the input
-model's field, with
-$\partial_z \chi = \hat D\chi + \hat N(\chi)$ and $\chi(0) = y_0 + N_0$, where $\hat D$ is
-linear and unitary and $\hat N$ is any nonlinear operator: Kerr, shock, Raman's real
-part. Define $\psi = \chi - N(z)$, with $\partial_z N = \hat D N$. Then, by linearity of
-$\hat D$,
+#### 4.2 Why the modified model is not the default
 
-$$ \partial_z \psi = \hat D \psi + \hat N(\psi + N), \qquad \psi(0) = y_0 , $$
+Write the linear operator as $\hat D = \hat D_u + \hat D_r$, with $\hat D_u$ its unitary
+part. Let the modified draw obey $\partial_z N = \hat D_u N$, and let the modified field
+obey $\partial_z\psi = \hat D\psi + \hat N(\psi + N)$, for any deterministic nonlinear
+operator $\hat N$. Then the reconstructed field $\chi = \psi + N$ obeys
 
-which is the modified model. The identity holds to all orders in the seed, not only to
-linear order. The modified field contains only light that has interacted. Its spectrum
-has no floor, and the background is restored on reading, from the stored noise phase.
+$$ \partial_z \chi = \hat D\chi + \hat N(\chi) - \hat D_r N . $$
 
-**With a reservoir, the two differ, and the modified model is the physical one.** If
-$\hat D$ includes loss, the modified seed keeps its modulus, by the
-fluctuation–dissipation argument above, and the shift acquires a term that re-injects
-vacuum at the loss rate. A seed propagated from the input is instead attenuated below
-the vacuum. Under gain, the seed's growth belongs to the source term, not to the seed.
-A Raman response is lossy on the anti-Stokes side and supplies its own spontaneous
-Stokes scattering, and so is a reservoir in the same sense. So is plasma absorption.
-This is why the modified model is not just a presentation of the input model: it adds
-physics wherever a reservoir acts, and it changes nothing where none does.
+- **When $\hat D_r = 0$, $\chi$ is exactly the input model's field.** This holds to all
+  orders in the seed, whatever $\hat N$ contains, including a delayed Raman response
+  and plasma absorption. A short probe on `numpy_ref` reproduced this identity to
+  $10^{-16}$, with and without Raman (Part III).
+- **When $\hat D_r \neq 0$, the two differ by the forcing $-\hat D_r N$.** That covers
+  propagation loss, the absorbing collars and the real normalisation term along a
+  varying guide. The forcing is correlated with the original draw. It is not newly
+  sampled reservoir noise, and it does not follow the fluctuation–dissipation form of a
+  reservoir [3].
+- **It can be the worse of the two.** Take a gain $G$ followed by a passive transmission
+  $\eta$. The modified model's corrected readout gives $[1 + \sqrt\eta(\sqrt G - 1)]^2 - 1$
+  spontaneous photons, against the true $\eta(G - 1)$. With $G = 4$ and $\eta = 1/4$,
+  that is 1.25 photons against 0.75.
 
-**What neither model gets right.** One photon per mode is the high-gain shortcut for
-phase-insensitive processes. For a parametric process the exact seed is half a photon,
-so both models overestimate spontaneous parametric power by a factor of two at high
-gain [3, 6]. Because modulational instability enters a supercontinuum logarithmically,
-this shifts its development length by about $\ln 2/(2\gamma P_0)$, a few per cent of
-$L_\mathrm{MI}$. The scheme that is exact for both kinds of process is half a photon at
-the input, plus a symmetrically ordered Langevin term for every reservoir: Raman
-(with its thermal occupation $n_\mathrm{th}$, which is large for the rotational shifts
-of nitrogen) and loss [3]. That is new physics, outside this SEP. Separately, solprop's
-draw has a fixed modulus and a random phase. A circular Gaussian amplitude has the same
-second moments, but it is the correct choice where single-mode intensity statistics
-matter, as in transient Raman initiation, whose seed occupies about one temporal mode
-(§12, Q8).
+So the modified model equals the input model where the linear operator is unitary.
+Elsewhere it is an approximation of unqualified accuracy. That is not "provably better
+and not worse elsewhere", and it is not adopted as the default.
 
-#### 4.2 Exact references
+Its practical differences add to this. The saved field excludes the seed, and no
+processing function restores it, so spectra and coherence computed from the output
+describe $\psi$, not $\chi$. Several routes refuse it (§3.3). A draw held at constant
+internal modulus also gives a restored energy per bin of $\hbar\omega\,w(z)/w(0)$ along
+a varying guide, where $w$ is the power weight of the mode. All of these are documented
+and left on the roadmap.
 
-**The identity.** In a run with no reservoir (Kerr, no loss, no Raman), an `input` run
-must equal the `modified` run with the transported seed added back, to rounding, for
-every seed. That is an exact test of solprop's implementation of ADR-008, including how
-the full field reaches the nonlinear response inside each stage.
+solprop's modified model is also not the published one [5]. It evaluates the full
+nonlinear response of $\psi + N$ rather than the first-order expansion, it has no
+separate emission gain (solprop has no gain media), and it transports the draw by the
+dispersive phase rather than holding it fixed. The paper's results therefore qualify
+the published model, not solprop's variant.
 
-**Spontaneous modulational instability from vacuum.** Linearise the normalised NLSE
-$i\partial_z\psi + \tfrac12\partial_\tau^2\psi + |\psi|^2\psi = 0$ about a continuous wave of
-power $P$. The sideband pair at $\pm\Omega$ then undergoes a Bogoliubov transformation
-with $D = \Omega^2/2 - P$ and $K = \sqrt{P^2 - D^2}$, and the spontaneous sideband photon
-number after a length $L$ is exactly
+#### 4.3 What noise costs
 
-$$ \langle n \rangle = |\nu|^2 = \frac{P^2}{K^2}\sinh^2 KL $$
+The controller holds the embedded difference below $\mathrm{rtol}\,\lVert y\rVert + \mathrm{atol}$
+on its internal state norm. A seed of one photon per bin over $n$ active bins carries an
+energy of about $n\hbar\bar\omega$, against the pulse's $U$. Its initial share of the
+norm is then about
 
-[6, 7]. A classical seed of $n_0$ photons per mode, propagated by the same linearised
-equation, gives $(|\mu|^2 + |\nu|^2)\,n_0 = (1 + 2|\nu|^2)\,n_0$. With $n_0 = 1$ that is the
-target for both solprop models, per frequency across the gain band and along $z$. The
-same comparison with a lossy linear operator then separates the two models.
-#### 4.3 Why noise costs steps
+$$ r \approx \sqrt{n\hbar\bar\omega / U} , $$
 
-A step controller holds the embedded difference below $\mathrm{rtol}\,\lVert y\rVert + \mathrm{atol}$
-on the whole state. A seed of one photon per bin over $n$ active bins carries an energy
-of about $n\hbar\bar\omega$ against the pulse's $U$, so its share of the norm is
-
-$$ r \approx \sqrt{n\hbar\bar\omega / U} . $$
-
-For the 20 pJ soliton, $n \approx 10^4$ and $U/\hbar\bar\omega \approx 8\times10^7$,
-giving $r \approx 10^{-2}$, close to the measured $7\times10^{-3}$. For a µJ capillary
-pulse $r \approx 10^{-4}$, and for a mJ pulse $10^{-5}$.
-
-When $r \gtrsim \mathrm{rtol}$, the controller has to integrate the seed's own dynamics:
-its beat against the pulse at large detuning, and its parametric growth. That costs
-steps, whichever model carries the seed. When $r \ll \mathrm{rtol}$, the seed is below
-what the controller resolves and costs nothing. This explains both halves of §3.4. It
-also makes the cost of a noise default a matter of pulse energy against tolerance,
-which phase 0 measures.
+about $10^{-2}$ for the 20 pJ soliton and $10^{-4}$ to $10^{-5}$ for µJ–mJ capillary
+pulses. This is a size diagnostic, not a step-cost criterion. Linear propagation of the
+seed costs nothing under an exponential integrator at any $r$. A small seed can grow
+into a resolved instability. And the capillary runs above showed no cost even with
+$r$ above `rtol`. The cost of noise is measured, not predicted.
 
 ### 5. Proposed interface
 
 #### 5.1 Noise
 
-- **The default is `noise="modified"`** on every interface and constructor that carries
-  noise. `seed=None` keeps its meaning: draw from the operating system and record it.
-  `noise=None` stays available and switches noise off explicitly. `noise="input"` is
-  unchanged.
-- **A route that still refuses noise.** Until its refusal is lifted (§11), a run on such
-  a route that did not ask for noise falls back to none. It records that fallback in its
-  metadata and says so in the start-of-run summary. A run that asked for noise
-  explicitly is still refused, as today. The fallback needs a default value that a
-  caller cannot pass by mistake, a sentinel resolved per route. §12 asks whether a
-  refusal would be better than a fallback.
-- **Single precision** keeps refusing an explicit noise model. Under the default, it
-  falls back to none, with the note.
+- **The default is `noise="input"`** on every interface and constructor that carries
+  noise. `seed=None` keeps its meaning. `noise=None` switches noise off explicitly.
+  `noise="modified"` is unchanged, with its limits documented (§4.2).
+- **A route that cannot carry noise falls back.** These routes are single precision,
+  the hybrid planar grid and a general guide with a diagonal metric. A run on one of
+  them that omits `noise` resolves to no noise. The noise record stores the requested
+  model (`default`), the resolved model (`None`) and the reason. The start-of-run
+  summary prints the resolution, and `Output.metadata` carries it.
+- **Fallback limits.** The list of fallback routes is closed. A backend choice never
+  changes the resolution: a backend that cannot run a resolved model fails as today,
+  and that failure is never reinterpreted as unsupported noise. A run that passes
+  `seed=` without `noise=` on a fallback route is refused, because the seed states an
+  intent the fallback would discard.
+- **An interior launch** (`initial_z > 0`, an explicit spectrum) takes the spectrum as
+  given under the default, with no new draw. This is recorded as a resolution, because
+  the spectrum may already carry a realisation from an earlier run. An explicit
+  `noise="input"` adds one draw at `initial_z`.
+- **A coupled launch** from a field plane (`Simulation.with_input` with a `Launch`) keeps
+  today's behaviour: the plane carries whatever the source run carried, and no second
+  draw is added.
 
 ```text
 run = prop_capillary(150e-6, 1.0, "He", 0.5, lambda0=800e-9, energy=200e-6, fwhm=10e-15)
-run.metadata.noise          # NoiseRecord(model='modified', seed=<recorded entropy>)
-run = prop_capillary(..., noise=None)          # noiseless, as today's default
-run = prop_capillary(..., seed=20261026)       # reproducible
+run.metadata.noise          # model='input', seed=<recorded entropy>, requested='default'
+run = prop_capillary(..., noise=None)          # noiseless
+run = prop_capillary(..., seed=20261026)       # reproducible realisation
 ```
 
 #### 5.2 Integrators
 
-Each interface gets its own default, written in its docstring and in one table in
-[choosing a stepper](../../guide/numerics/choosing-a-stepper.md), and recorded in the run
-configuration as today. The table is phase 1's result. The expectation from §3.4 and
-ADR-045 is `RungeKutta()` for `prop_gnlse` and `Multistep()` for the modal and spatial
-interfaces, but each entry is measured, not assumed. Nothing depends on the responses
-switched on. A user who wants the other method passes `integrator=` as today.
+Each interface gets its own default, chosen in phase 0 by this rule:
+
+- **Cases:** the standard suite's core cases for that interface (SEP 30), on short
+  windows, each with noise on and off.
+- **Candidates:** `Multistep()` in both formulations and `RungeKutta()`.
+- **Selection:** take the candidate with the lowest median wall time at matched
+  accuracy under §5.3's protocol. Measure on one CPU thread and at the production
+  width, on the suite's declared machines.
+- **Ties:** a candidate within 10 % of the fastest counts as tied, and a tie keeps
+  today's default.
+
+The resulting table, with its evidence, goes into the phase 0 report. It takes effect
+only once the maintainer approves it there, which is this SEP's approval gate. The
+expectation is `RungeKutta()` for `prop_gnlse` and `Multistep()` for the modal and
+spatial interfaces. The default never depends on the responses switched on, and a user
+who wants another method passes `integrator=` as today.
 
 #### 5.3 Tolerances
 
-Each interface's default `rtol` and `atol` is set by a stated convergence test on a
-canonical case of that interface, and the test is named in the docstring, so the
-default can be checked.
+Each interface's default `rtol` is the loosest of three levels, a factor of ten apart,
+that meets the budgets below on that interface's canonical case:
 
-- **`prop_gnlse`**: the supercontinuum of Dudley, Genty and Coen [1]. The default is
-  the loosest `rtol` at which the mean output spectrum and the coherence $|g_{12}|$ of a
-  seeded ensemble have converged to a stated fraction. It is expected to be looser than
-  today's `1e-8`. A noiseless soliton-recurrence study asks for its own, tighter value,
-  and the manual says so.
-- **`prop_capillary` and `prop_waveguide`**: the same test on the standard suite's
-  capillary cases. `1e-6` stays if the test supports it. Common practice, `1e-5`, is
-  measured beside it.
-- **`prop_radial` and `prop_free`** gain defaults by the same test on their canonical
-  cases, so that their settings no longer need a controller.
-- **A response does not set a default.** The TDSE response is usually run at `1e-3` to
-  `3e-3`, but a default that changed with the response switched on would break the
-  rule of §5.2. The manual records the practice instead.
+- **Cases:**
+  - `prop_gnlse`: the standard suite's `gnlse_raman_shock`, which is the
+    supercontinuum of Dudley, Genty and Coen [1]: 15 cm, 10 kW, sech, $\beta_2$ to
+    $\beta_{10}$, Raman and shock.
+  - `prop_capillary` and `prop_waveguide`: one capillary case and one waveguide case of
+    the suite.
+  - `prop_radial`, `prop_free` and `prop_planar`: one case each from the suite.
+- **Protocol:**
+  - one set of seeds shared across every tolerance level (paired seeds);
+  - a reference for each seed at a tolerance a hundred times tighter than the
+    tightest level;
+  - comparisons on stored witnesses or short windows, so that no full-length run is
+    needed in tests.
+- **Budgets:**
+  - the ensemble-mean spectral energy density, in decibels, within 0.5 dB of the
+    reference wherever the reference is above −40 dB of its peak;
+  - the coherence $|g_{12}|$ within 0.02, absolute, over the same region;
+  - for a noiseless case, the same spectral budget on the single run.
 
-`atol` is set with `rtol`. §3.4 shows it does not affect noisy runs; it matters for weak
-fields.
+A noiseless soliton-recurrence study asks for its own tighter value, and the manual says
+so. A response does not set a default: the TDSE practice of `1e-3` to `3e-3` is
+recorded in the manual as a recommendation. `atol` is set with `rtol` on the same cases.
+
+For `prop_radial`, `prop_free` and `prop_planar`, `SimulationSettings` gains a default
+for its controller. An explicit controller always wins, and an omitted one takes the
+interface's default. The default records which applied.
+
 #### 5.4 What the user sees
 
-The start-of-run summary, which is separate work, prints the resolved noise model and
-seed, any fallback, the integrator and the tolerances. For a run with noise it also
-prints the seed's share of the field norm, $r$ in §4.3, so that a slow low-energy run
-explains itself.
+The start-of-run summary, delivered separately, prints the resolved noise model and
+seed, any fallback and its reason, the integrator and the tolerances. It is a
+prerequisite of phase 2: the noise default does not land before the summary does. The
+seed share $r$ of §4.3 may be printed as a size diagnostic, but nothing warns on it.
 
 ### 6. Implementation strategies
 
-**Layer.** The defaults are driver settings: `solprop.driver.interface` and
-`solprop.driver.simulation`. The kernel contract and `SCHEMA_VERSION` are unchanged,
-because the noise record and the integrator's representation are already in the
-output. The fallback note may need one field in the noise record. If it does, the output
-schema version changes, and phase 2 says so.
+**The default and its resolution** are driver settings, in `solprop.driver.interface`
+and `solprop.driver.simulation`. A sentinel default resolves per route, before
+translation, by the rules of §5.1. The noise record gains the requested model and the
+reason for any fallback, so the output schema version changes. Input noise is part of
+the initial state, so the kernel contract is unchanged, and so is every backend: no
+backend has an input-noise path of its own. The `numba_cpu` stash of the plasma
+statistics is disabled only under the modified model, so the default does not touch it.
 
-**Lifting the refusals** happens in the layers that refuse today. Each lift is its own
-phase with its own qualification (§11):
+**Lifting the input-noise refusals:**
 
-| Refusal | Work | Verification |
+| Refusal | Work | Checks |
 |---|---|---|
-| interpolated planes | add the draw at the interpolated position, as each stage does | landed and interpolated planes agree to the interpolant's error |
-| field planes | reconstruct the noise phase into the exchanged plane (SEP 31 A2) | a coupled pair with modified noise matches the uncoupled run |
-| interior launch | define what a launch at $z > 0$ carries: input noise is already in a coupled spectrum, and the modified draw starts at $z$ | an interior launch matches the same run from $z = 0$ to its tolerance |
-| planar grid | declare the photon measure of a slab amplitude per unit width | photon number per bin is one, as on the other grids |
-| coupled flows | derive the draw's transport through the nonunitary flow, probably its unitary polar factor, and measure it | the noise floor along a coupled guide stays at one photon per mode |
-| TDSE | admit noise in the atomic source and measure its cost | the TDSE response with noise matches the PPT run's noise statistics within the response difference |
+| the TDSE response | admit `input`, which only changes the drive field the atom sees | the drive at the entrance equals the pulse plus the draw, and the realisation is stored; the draw alone, with no pulse, gives the TDSE's weak-field (linear-susceptibility) response within its documented weak-field accuracy; the active band lies inside the response's declared window, as it must for the pulse alone |
+| coupled flows | admit `input`: the draw enters as part of the entrance state, in the channel basis, and the flow propagates it like any field | the entrance basis is orthonormal in true power, else the run is refused, as `check_noise_basis` does for general guides; one photon per channel and bin at the entrance; exit energy equals the noiseless run's plus the transmitted seed, within the flow's certificate |
+| explicit interior launch | add one draw at `initial_z` | photon number per bin at the launch is one; the default case takes no draw (§5.1) |
 
-**Backends.** The noise injection exists on `numpy_ref`, `numba_cpu` and the native
-backend. The lifts begin on `numpy_ref` and follow SEP 0's order. On `numba_cpu`, the
-plasma statistics' stash is disabled under `modified` (it reads the committed field),
-which becomes the default path. Phase 2 measures that cost and decides whether the stash
-should learn the noise.
-
-**Cost.** None on capillary-scale energies (§3.4). On low-energy GNLSE runs, 8 to 12
-times the noiseless step count with RK, more with `Multistep()`. The defaults are chosen
-with that cost known and printed. It is not hidden.
+The modified model keeps all its refusals.
 
 ### 7. Verification and validation
 
-- **The identity** (§4.2). On Kerr-only, lossless cases of `prop_gnlse`,
-  `prop_capillary` and `prop_free`, and on every backend, an `input` run equals the
-  `modified` run plus the transported seed. The bound is rounding, scaled by the step
-  count.
-- **The models against the exact reference** (§4.2). Use a lossless anomalous-dispersion
-  continuous wave. Compare the sideband photon number per frequency against
-  $1 + 2|\nu|^2$ along $z$, for `input` and `modified`. The tolerance is set by the
-  ensemble size: the standard error of the mean photon number over the seeds. Then add
-  loss and check that the models separate as §4.1 predicts.
-- **The noise floor under loss.** On a lossy guide with no pulse, the modified floor stays
-  at one photon per mode and the input floor decays at the loss rate. The check is
-  exact, to round-off.
-- **Work–precision for each interface.** Use the standard suite (SEP 30) on short
-  windows, with the core cases of each interface, with noise on and off. Compare
-  `Multistep()` in both formulations against `RungeKutta()`, at matched error on the
-  suite's observables and on the error in the noise part (§3.4). Run on one CPU thread
-  and at the production width.
-- **Tolerances.** For each interface's canonical case, map `rtol` to the global error on
-  the target observable, and record the chosen default and its measured error.
-- **Each lifted refusal**, as in the table of §6.
-- **Ensemble statistics.** On the canonical supercontinuum [1] and a capillary
-  ensemble, check that the coherence $|g_{12}|$ and the mean spectrum converge in `rtol`.
-  Then state the loosest `rtol` that keeps them within a stated fraction (§5.3).
-- **Conservation.** In lossless runs, the drift of $\int |y|^2\,d\tau$ with noise on is a
-  cheap discriminator between a correct and an inconsistent seed treatment. Record it
-  beside each comparison.
+- **Resolution.** At every entry point, test four cases: `noise` omitted, `noise=None`,
+  each explicit model, and `seed=` without `noise=`. Cover the routes that carry noise,
+  the fallback routes and the interior launch, and check the stored record and the
+  printed summary.
+- **Lifted refusals**, as in the table of §6.
+- **Integrators and tolerances**, by the rules of §5.2 and §5.3.
+- **Examples.** Re-run every worked example whose result changes under the new
+  defaults, with a fixed seed.
+- **The input model itself** is unchanged. Its existing tests (one photon per bin, phase
+  statistics) stand.
 
 ### 8. Documentation
 
-- [Shot noise](../../guide/media/noise.md): the default; the model's origin [4, 5] in
-  place of "not traced"; the equivalence without a reservoir and the difference with
-  one (§4.1); the cost measured in solprop in place of the quoted factor of eight; the
-  share-of-norm rule of §4.3; the results of §4.2; and what neither model does (the
-  factor of two in parametric seeding, thermal Raman occupation).
-- [Choosing a stepper](../../guide/numerics/choosing-a-stepper.md): the table of
-  defaults for each interface and the evidence behind it.
-- [Fixed schedules](../../guide/numerics/fixed-schedules.md) and ADR-008: calibrate an
-  ensemble's schedule with noise on.
+- [Shot noise](../../guide/media/noise.md):
+  - the default and the fallback rules;
+  - the input model's origin [4] and known limits (§4.1);
+  - an honest account of the modified model: its origin [5], solprop's variant, where
+    it equals the input model and where it differs, its readout and its refusals
+    (§4.2);
+  - the cost as measured in solprop, in place of the quoted factor of eight;
+  - what neither model does.
+- [Choosing a stepper](../../guide/numerics/choosing-a-stepper.md): the default for
+  each interface and the evidence behind it.
+- [Fixed schedules](../../guide/numerics/fixed-schedules.md): calibrate an ensemble's
+  schedule with noise on, across seeds.
 - The docstrings of every `prop_*` interface and `Simulation.from_*` constructor: noise,
-  integrator and tolerances, each with its reason.
+  integrator and tolerances, each with its reason, and the recommendations of §5.3.
 - The worked examples and tutorials: a fixed `seed` where noise is now on, and
   `noise=None` only where the lesson is noiseless.
 
 ### 9. Compatibility and impact
 
-- **Every default run becomes stochastic.** Two runs of the same script differ
-  realisation by realisation unless they fix `seed`. Users who compared outputs bitwise
-  must pass a seed, or `noise=None`.
-- **Existing results** change at the level of the noise for capillary-scale runs, and
-  more visibly where noise seeds a spontaneous process. Low-energy GNLSE runs become
-  slower (§3.4).
+- **Every default run becomes stochastic.** Two runs of the same script differ by
+  realisation unless they fix `seed`. Users who compared outputs must pass a seed, or
+  `noise=None`.
+- **Existing results** change at the level of the seed, and more visibly where noise
+  seeds a spontaneous process. Low-energy GNLSE runs become slower (§3.4).
 - **Tests.** About 65 test modules build runs without naming `noise`. Those comparing
-  against a deterministic reference pass `noise=None`. A few tests cover the default
-  itself.
-- **The output schema** changes only if the fallback note needs a field (§6).
-- **Luna.jl.** Shot noise on by default with the modified model is Luna.jl's own default,
-  so the differences page loses an entry. A different default integrator for each
-  interface has no Luna.jl counterpart and is recorded there.
+  against a deterministic reference pass `noise=None`, and a few tests cover the
+  default itself.
+- **The output schema version changes** for the extended noise record. Older files read
+  as before, with the requested model taken as the resolved one.
+- **Luna.jl** defaults to its modified model. solprop's default is the input model, and
+  the differences page records why (§4.2).
 - **Nothing is public yet**, so no deprecation path is needed. The changelog records the
   change.
 
 ### 10. Alternatives considered
 
 - **Keep `None` and document it.** This is the status quo, and it is how the gap went
-  unnoticed. It is rejected because noise is part of the physics being modelled.
-- **`input` as the default.** Without a reservoir it is the same equation as the
-  modified model and costs the same (§3.4, §4.1). With a reservoir it is the less
-  physical of the two: its seed decays under loss, and it leaves a floor under the
-  whole spectrum. Rejected.
-- **A truncated-Wigner vacuum** (half a photon, Gaussian amplitude, Langevin terms for
-  each reservoir). This is the scheme that is exact for parametric and
-  phase-insensitive seeding alike [3], but it is new physics, and its Raman Langevin
-  term is a project of its own. It is left for a later SEP (§12, Q7).
-- **A default integrator that depends on the physics switched on.** It was rejected by
-  the author as fragile: a keyword elsewhere in a script would change the method.
-- **An error norm that ignores the noise.** It cannot be built under the input model,
-  where the seed is part of the state, and §3.4 shows the noise part needs the steps.
+  unnoticed. Rejected, because noise is part of the physics being modelled.
+- **`modified` as the default.** It equals the input model where the linear operator is
+  unitary, and it is of unqualified accuracy elsewhere (§4.2). It also changes what the
+  saved field means, and it refuses more routes. Rejected for the default; it stays an
+  option.
+- **Refuse, rather than fall back, where noise cannot be carried.** This is the
+  reviewer's preference, and it is honest, but every default single-precision run would
+  then need `noise=None`. Rejected in favour of a closed, recorded and printed fallback
+  (D2).
+- **A half-photon vacuum with reservoir Langevin terms**, or a Gaussian draw. This is
+  the scheme that is exact for both kinds of seeding [3], but it is new physics, with a
+  qualification of its own. Left for a later proposal.
+- **An integrator that depends on the physics switched on.** Rejected by the author as
+  fragile.
 
 ### 11. Phases
 
-0. **Exploration and the record.** No code change. Read the archived SEPs, ADRs, the
-   noise and stepper guides and the history behind each default and each refusal of
-   §3.3, and record what each was based on. Run the identity of §4.2 on the existing
-   implementation (Q1). Repeat §3.4 on the standard suite for every interface, with
-   noise on and off, and with both integrators and formulations, and run the
-   supercontinuum convergence test of §5.3 at today's tolerances. Report, and revise
-   Part I before review.
-1. **Integrators and tolerances for each interface.** Set the defaults and their
-   docstrings, and update the stepper table and the examples' re-runs. Verify with the
-   work–precision and tolerance checks of §7.
-2. **The noise default.** Add the sentinel, the per-route fallback with its note, the
-   docstrings and the noise guide. Seed the tests and examples, and pin noiseless
-   references. Verify with §4.2's comparison and the loss check, then re-run the
-   examples.
-3. **Interpolated planes, field planes and interior launches with noise.** Each piece is
-   independently mergeable.
-4. **The planar draw.**
-5. **Noise through coupled flows:** the derivation, then the implementation and its
-   qualification.
-6. **Noise beside the TDSE response.**
+The phases are made on one branch, `feature/sep-0037-noise-and-stepper-defaults`, and
+land in one implementation pull request, as SEP 0 requires. Each phase is qualified and
+reported on its own.
 
-Phases 3 to 6 retire fallbacks one by one. Each removes its route from the fallback list.
+0. **Exploration and measurement.** Record what each default and refusal was based on.
+   Run §5.2's rule and §5.3's protocol on the stated cases, at today's defaults and at
+   the candidates. Report the integrator and tolerance tables for the maintainer's
+   approval.
+1. **Integrators and tolerances.** Set the approved defaults and their docstrings, add
+   the settings default and its precedence, and re-run the affected examples.
+2. **The noise default.** Add the sentinel, the resolution rules of §5.1, the extended
+   noise record, the docstrings and the noise guide. Seed the tests and examples, and
+   pin the noiseless references. This phase follows the start-of-run summary.
+3. **Input noise on the TDSE, coupled-flow and interior-launch routes**, with the checks
+   of §6.
 
 ### 12. Open questions
 
-- **Q1.** Does solprop's modified model pass the identity of §4.2 on every route and
-  backend, including how the seed reaches each stage of `Multistep()`, whose source
-  history is sampled at the stages? Phase 0, then phase 2.
-- **Q2.** On a route that still refuses noise, should the default fall back to none with
-  a note (§5.1), or refuse and ask for `noise=None`? A refusal is honest, but it breaks
-  every default run on those routes until phases 3 to 6 land.
-- **Q3.** The integrator table for each interface. Phase 1.
-- **Q4.** The convergence target behind each interface's tolerance (§5.3): one
-  fraction for every interface, or one for each? Phases 0 and 1.
-- **Q5.** Should a run whose seed share $r$ (§4.3) exceeds its `rtol` warn, or only
-  print it? Phase 2.
-- **Q6.** Is a coupled stage's source run a special case, defaulting to `input` until
-  phase 3 lifts the field-plane refusal? Phase 2.
-- **Q7.** Should a later SEP take up the half-photon vacuum with Langevin terms for
-  Raman (including its thermal occupation) and loss, which fixes the factor of two in
-  parametric seeding (§4.1)? Deferred past this SEP.
-- **Q8.** Should the draw's amplitude become a circular Gaussian, with the same second
-  moments, so that single-mode statistics such as transient Raman initiation come out
-  right (§4.1)? It changes every seeded realisation, so if it is wanted, it belongs in
-  phase 2, with the default.
+The review's questions are decided (D1–D5, Part III). Two remain, each with its
+destination:
+
+- **Q1.** Is the channel basis at the entrance of each coupled-flow route orthonormal in
+  true power, so that the input draw is one photon per channel there? Phase 3; a route
+  where it is not stays refused.
+- **Q2.** Does any standard-suite case for `prop_planar` exist on which to set its
+  tolerance? If not, phase 0 adds one or leaves `prop_planar` without a default.
+  Phase 0.
+
 ### 13. References
 
 1. J. M. Dudley, G. Genty and S. Coen, "Supercontinuum generation in photonic crystal
@@ -544,9 +517,6 @@ Phases 3 to 6 retire fallbacks one by one. Each removes its route from the fallb
 6. M. J. Potasek and B. Yurke, "Squeezed-light generation in a medium governed by the
    nonlinear Schrödinger equation," *Phys. Rev. A* **35**, 3974 (1987).
    doi:10.1103/PhysRevA.35.3974
-7. E. Brainis, D. Amans and S. Massar, "Scalar and vector modulation instabilities
-   induced by vacuum fluctuations in fibers: numerical study," *Phys. Rev. A* **71**,
-   023808 (2005). doi:10.1103/PhysRevA.71.023808
 
 ## Part II — Implementation record
 
@@ -558,6 +528,12 @@ Phases 3 to 6 retire fallbacks one by one. Each removes its route from the fallb
   quantum reference for spontaneous modulational instability. The tolerance targets
   follow production practice. Q1 and Q8 are new, and the factor of two in parametric
   seeding is recorded as deferred physics.
+
+- 2026-10-26: Human review by John Travers and AI review by GPT-6, recorded below.
+- 2026-10-26: Revised after the review and the maintainer's decisions D1–D5. The default
+  is now `input`, with the modified model kept as an option. The refusal lifts cover
+  input noise only, the fallback contract is complete, and the integrator rule and
+  tolerance protocol are fixed. The response to every finding is at the end of Part III.
 
 ### Human review — 2026-10-26
 
@@ -871,3 +847,85 @@ clarifications, not resolutions of the proposal's open questions.
   phases; an exact finite phase quadrature reproduces $1$, $3/2$ and $7/4$ for
   one, two and four equally weighted bins with $n_0=1$. These are analytic checks,
   not qualification of a particular transient Raman mode or its output statistics.
+
+### Maintainer decisions — 2026-10-26
+
+John Travers, on the review. His guidance: no research project; the least bad noise model
+solprop knows how to implement; `input` has been used for years, so it, or anything
+provably better and not worse elsewhere, is an improvement.
+
+- **D1 (R1–R3, R14; old Q1, Q7, Q8).** The default is `noise="input"`. The modified model
+  is not provably better, so it stays an option, with its limits documented. Its
+  readout, its transport along a varying guide, its coupled-flow transport, a
+  half-photon vacuum and a Gaussian draw are all outside this SEP.
+- **D2 (R8; old Q2, Q6).** Where noise cannot be carried, a run that omits `noise` falls
+  back to none, recorded and printed. The maintainer also asked why the TDSE should
+  refuse input noise at all, since it is only part of the input field. It need not:
+  that refusal is a scope choice of SEP 12 (D5).
+- **D3 (R9; old Q4).** The lean convergence protocol of §5.3: paired seeds, a tight
+  reference for each seed, three levels, 0.5 dB on the mean spectrum above −40 dB, 0.02
+  absolute on $|g_{12}|$, and the canonical cases named there. The maintainer approves
+  the resulting table in the phase 0 report.
+- **D4 (R11).** Planar noise stays refused. The default falls back on the planar grid,
+  and the roadmap item stays open.
+- **D5 (R12).** Input noise is admitted beside the TDSE response. The refusal was a
+  qualification-scope choice: the atom is driven only inside its gated, edge-free
+  window (SEP 26), and the seed's band is the grid's, which the propagated pulse fills
+  anyway. The checks are those of §6.
+
+### Response to review — 2026-10-26
+
+Drafting agent: Opus 5.5. Part I is revised throughout.
+
+- **R1 — accepted.** The reservoir claim was wrong. §4.2 now states the condition
+  exactly: the two models agree when the draw is transported by the full homogeneous
+  linear operator, whatever the nonlinear response is. They differ by $-\hat D_r N$
+  where the linear operator is non-unitary. That forcing is correlated with the
+  original draw, not reservoir noise, and the review's gain-then-loss counterexample is
+  quoted. This finding, with D1, is why the default is now `input`.
+- **R2 — accepted.** §4.2 lists how solprop's variant differs from the published model.
+  §4.1 limits the half-photon statement to the parametric (linearised) case, and the
+  reservoir model is left as separate work.
+- **R3 — accepted, and largely dissolved by D1.** The input model saves the full field,
+  so every existing observable keeps its meaning. §4.2 records that the modified
+  model's saved field excludes the seed and that processing does not restore it.
+  Reconstruction and the Bogoliubov comparison are no longer part of this SEP.
+- **R4 — accepted.** The exact identity is no longer a qualification contract. §3.4's
+  step counts are labelled as evidence about their cases, and the modified model is
+  unchanged by this SEP.
+- **R5 — accepted.** The restored energy $\hbar\omega\,w(z)/w(0)$ along a varying guide
+  is documented in §4.2 as a limit of the modified model. The input draw is part of the
+  state, so the full operator, including the normalisation term, carries it.
+- **R6 — accepted.** The modified model keeps its coupled-flow refusal. Under the input
+  model there is no transport question: the draw is part of the entrance state, and the
+  flow propagates it like any field. §6 lifts the refusal for `input` only, behind an
+  entrance-basis check (Q1).
+- **R7 — accepted.** §5.1 defines the launches. A coupled launch keeps today's
+  behaviour, with no second draw. An interior launch under the default takes its
+  spectrum as given, and an explicit `input` adds one draw. The schema change is now
+  stated (§6, §9).
+- **R8 — fallback kept (D2), with the full contract.** The list of fallback routes is
+  closed; backends never change the resolution; requested and resolved models and the
+  reason are stored; the summary prints them and is a prerequisite of phase 2; and
+  `seed=` without `noise=` is refused on fallback routes. The four-case test matrix is
+  in §7.
+- **R9 — accepted, in the lean form of D3.** §5.3 names the cases, the paired seeds,
+  the reference, the levels, the signal floor and absolute coherence. Witnesses and
+  short windows are used for tests. Monte Carlo error is controlled by the pairing
+  rather than a separate confidence rule, a simplification taken on purpose.
+- **R10 — accepted.** $r$ is labelled a size diagnostic (§4.3), with no warning. §3.4
+  now gives its provenance: the commit, backend, seed, grids and single wall samples.
+- **R11 — accepted; planar stays refused (D4).**
+- **R12 — accepted in part (D5).** PPT is no longer an oracle. The TDSE check is now the
+  weak-field response to the draw alone, plus drive equality and the band condition
+  (§6).
+- **R13 — accepted.** §5.2 freezes a selection rule, with a tie margin of 10 % (a
+  drafting choice for the maintainer's approval) and an approval gate in the phase 0
+  report. §5.3 adds the settings default and its precedence. §11 puts every phase on one
+  branch and one implementation pull request.
+- **R14 — accepted.** The draw's distribution is unchanged (D1), and its limit is stated
+  in §4.1.
+- **Reviewer's recommendations on Q1–Q8.** Followed for Q1 (no qualification contract),
+  Q3 (candidates only, chosen by rule), Q4 (one protocol), Q5 (diagnostic only), Q6 (no
+  default changed by future extraction), Q7 (a later proposal) and Q8 (deferred). Not
+  followed for Q2, by D2.
