@@ -5,7 +5,7 @@
 | **SEP** | 7 |
 | **Title** | Laser gain dynamics in solid-core fibres |
 | **Author** | John Travers |
-| **Drafting agent** | GPT-6 Astra |
+| **Drafting agent** | GPT-6 Astra; Opus 5.5 (2026-10-26, a note in §4.6) |
 | **Status** | Draft |
 | **Review status** | Not reviewed |
 | **Reviewers** | — |
@@ -482,8 +482,14 @@ pulse window. They do not model shot-to-shot noise or ASE–Kerr interactions in
 window. Stochastic field ASE would require a separately derived normalization, circular
 complex statistics, distributed increments proportional to $\sqrt{\Delta z}$,
 and consistent increments when a step is split or rejected. Adding input shot noise
-alone is not distributed spontaneous emission. Such stochastic work is deferred here;
-there is no claim of reproducing all stochastic figures in [1, 2].
+alone is not distributed spontaneous emission. Whichever form it takes, stochastic ASE
+needs the noise to see only the emission gain, not the net gain. Either the noise is
+injected separately and acted on by the emission part of the gain operator alone, as in
+the split of Chen and Wise (arXiv:2410.20567), which solprop's modified-noise injection
+path (ADR-008) could carry, or a gain Langevin term supplies the distributed
+spontaneous emission. [SEP 37](sep-0037-noise-and-stepper-defaults.md) keeps that
+injection path until this choice is made. Such stochastic work is deferred here; there
+is no claim of reproducing all stochastic figures in [1, 2].
 
 #### 4.7. Pulse windows and the population timeline
 
@@ -1097,3 +1103,5 @@ is an algebraic consistency check, not experimental evidence.
   a Yb/silica data dossier, coupled-state and timing requirements, and phased CPU
   qualification. Broadband transient closure and exact material selection remain
   explicit acceptance questions.
+- 2026-10-26: Added a note to §4.6 that stochastic ASE needs the noise to see only the
+  emission gain, through a separate injection path or a gain Langevin term (SEP 37).

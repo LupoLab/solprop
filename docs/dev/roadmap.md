@@ -104,7 +104,8 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   interface chosen by a fixed rule and convergence protocol, and input noise beside the
   TDSE response, coupled flows and explicit interior launches. The modified model's
   own limits, planar noise, noise under single precision and new noise physics remain
-  outside it.
+  outside it. The modified model is kept as it is until SEP 7 settles whether gain media
+  need its noise-injection path; its removal is decided then.
 
 The informal items below record work not fully covered by these proposals. When adding
 or revising a SEP, remove an informal item only if the proposal covers it in full;
@@ -257,6 +258,14 @@ of the noise amplitude over a 20 bar gradient. Transporting the draw with the po
 would remove the approximation.
 [SEP 16](seps/archive/sep-0016-unified-multistep.md) qualified modified-noise stepping while
 preserving the existing model; it did not remove this physical normalisation limitation.
+
+**The modified noise model's future.** With a unitary linear operator the modified model
+is the input model in shifted variables, and elsewhere it is an approximation of
+unqualified accuracy ([SEP 37](seps/sep-0037-noise-and-stepper-defaults.md), §4.2). It is
+kept as it is, with no new work. Whether it stays is decided with
+[SEP 7](seps/sep-0007-laser-gain-dynamics.md): amplified spontaneous emission needs the
+noise to see only the emission gain, which its separate injection path could carry. If
+gain media take a gain Langevin term instead, the modified model is removed.
 
 ## Waveguides and geometries
 

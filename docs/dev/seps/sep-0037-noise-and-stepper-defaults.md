@@ -104,9 +104,11 @@ interface and the interface fixes the equation solved.
 - the manual's account of noise, cost and stepper choice.
 
 **Out of scope:**
-- **Changes to the modified model.** Its own refusals (interpolated planes, field
-  planes, coupled flows) stay, and so do its readout and its transport along a varying
-  guide. They are recorded on the roadmap.
+- **Changes to the modified model.** It is kept as it is, with no new work. Its own
+  refusals (interpolated planes, field planes, coupled flows) stay, and so do its
+  readout and its transport along a varying guide; they are recorded on the roadmap.
+  Whether to keep or remove it is decided when [SEP 7](sep-0007-laser-gain-dynamics.md)
+  settles whether gain media need its separate noise-injection path (D7).
 - **New noise physics.** No half-photon vacuum, no Langevin terms for loss or Raman,
   no thermal phonon occupation, no Gaussian amplitude for the draw and no technical
   (pump) noise.
@@ -498,6 +500,10 @@ The modified model keeps all its refusals.
   reviewer's preference, and it is honest, but every default single-precision run would
   then need `noise=None`. Rejected in favour of a closed, recorded and printed fallback
   (D2).
+- **Removing the modified model now.** It adds little physics (§4.2), and it carries
+  refusals and a different saved field. But its separate injection path is what
+  amplified spontaneous emission in a gain medium would need, with the noise seeing only
+  the emission gain. The decision waits for SEP 7 (D7).
 - **A half-photon vacuum with reservoir Langevin terms**, or a Gaussian draw. This is
   the scheme that is exact for both kinds of seeding [3], but it is new physics, with a
   qualification of its own. Left for a later proposal.
@@ -569,6 +575,8 @@ destination:
   input noise only, the fallback contract is complete, and the integrator rule and
   tolerance protocol are fixed. The response to every finding is at the end of Part III.
 - 2026-10-26: Added the floor-subtracted spectrum (§5.5, D6).
+- 2026-10-26: Recorded that the modified model is kept, with no new work, until SEP 7
+  settles whether gain media need its injection path (D7).
 
 ### Human review — 2026-10-26
 
@@ -909,6 +917,10 @@ provably better and not worse elsewhere, is an improvement.
   anyway. The checks are those of §6.
 - **D6.** The maintainer asked for a floor-subtracted spectrum, which keeps the one
   benefit of the modified model's readout that costs nothing (§5.5).
+- **D7.** The modified model is kept as it is, with no new work. Whether to keep or
+  remove it is decided when SEP 7 settles whether gain media need its separate
+  noise-injection path: amplified spontaneous emission needs the noise to see only the
+  emission gain, as in Chen and Wise's split, or a gain Langevin term (§2, §10).
 
 ### Response to review — 2026-10-26
 
