@@ -13,6 +13,7 @@ The ledger tests stay with the CPU suites: a device's ledger adds its own rows.
 
 import pytest
 
+import backends.test_envelope_plasma_geometries as geometries
 import backends.test_native_mixed_precision as mixed
 import backends.test_native_reduced_arithmetic as arithmetic
 import backends.test_native_single_precision as single
@@ -90,4 +91,10 @@ test_mixed_spatial_routes = mixed.test_the_spatial_routes_agree_with_the_oracle
 test_mixed_spatial_collars = mixed.test_in_stage_spatial_collars_agree_with_the_oracle
 test_mixed_source_free_cartesian = (
     mixed.test_a_source_free_cartesian_run_agrees_with_binary64_within_binary64_bounds
+)
+
+# The envelope plasma on the spatial routes, both modes; its fixture comes with it.
+envelope_mixture = geometries.envelope_mixture
+test_envelope_spatial_routes = (
+    geometries.test_reduced_precision_envelope_populations_on_the_spatial_routes
 )
