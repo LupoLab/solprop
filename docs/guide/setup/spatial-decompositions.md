@@ -46,7 +46,7 @@ How each is reached, and where it runs:
 
 | decomposition | amplitude, energy | entry point | backends |
 |---|---|---|---|
-| [mode-averaged](#mode-averaged-one-field-and-one-area) | √W, J | `prop_gnlse`, `Simulation.from_gnlse` | all three |
+| [mode-averaged](#mode-averaged-one-field-and-one-area) | √W, J | `prop_gnlse`, `Simulation.from_gnlse`; `prop_capillary(mode_average=True)` | all three |
 | [capillary, radial](#capillary-modes-on-a-radial-rule) | √W, J | `prop_capillary(modes=N)`, `Simulation.from_capillary` | all three |
 | [capillary, full 2-D](#capillary-modes-on-the-full-cross-section) | √W, J | `prop_waveguide(modes, ..., gas=...)`, `Simulation.from_waveguide` | all three |
 | [coherent wall](#the-capillary-wall-two-ways) | √W, J | `prop_capillary(..., wall=CoherentWall())` | all three (CF4 on `numpy_ref` only) |
@@ -124,9 +124,11 @@ rate saw.
 **Entry points.** `prop_gnlse` and `Simulation.from_gnlse`, with $\beta(\omega)$ and
 $\gamma$ or $n_2$ declared, or `fibre=` a mode or a table ([the GNLSE](../waveguides/gnlse.md),
 [running a simulation](running.md)). A `Simulation` whose settings carry no quadrature
-builds the one-node transform for any single mode. **`prop_capillary(modes=1)` is not
-mode-averaged** in solprop: it resolves its one `HE_11` channel on the radial rule
-below, so its plasma sees the field on each ring.
+builds the one-node transform for any single mode, and `mode_average=True` selects it on
+the gas-filled routes (`prop_capillary`, `prop_waveguide` and their `Simulation`
+constructors). **`prop_capillary(modes=1)` is not mode-averaged** in solprop unless
+asked: it resolves its one `HE_11` channel on the radial rule below, so its plasma sees
+the field on each ring.
 
 ## Capillary modes on a radial rule
 

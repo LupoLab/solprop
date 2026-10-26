@@ -3625,6 +3625,7 @@ class Simulation(Displayed):
         phases: Sequence[float] | np.ndarray = (),
         pulses: Sequence[Pulse] | None = None,
         modes: int | Sequence[Mode] = 1,
+        mode_average: bool = False,
         lattice: TubeLattice | None = None,
         wall: CoherentWall | None = None,
         taper_coupling: bool = True,
@@ -3763,6 +3764,14 @@ class Simulation(Displayed):
             and a `model`, `loss` or `cladding` declared away from its default must be
             every mode's own, or the call is refused by name rather than the argument
             ignored.
+        mode_average : bool, optional
+            Propagate the one mode **mode-averaged**, as a uniform disc of its
+            effective area, instead of resolving it on the radial rule
+            (``docs/guide/waveguides/mode-averaging.md``). The plasma then sees the
+            area-mean field, below the on-axis one (``HE_11``'s axis intensity is
+            1.768 times ``P/A_eff``), and ``peak_intensity`` stays on the axis.
+            ``False``, the default, resolves the mode. Refused beside more than one
+            mode and beside `n_r`, `n_theta` or a `radial_rule`.
         lattice : TubeLattice or None, optional
             Tube geometry for an integer mode count, selecting Vincetti modes.
             Refused with supplied modes, which carry their own geometry, and with
@@ -3917,7 +3926,8 @@ class Simulation(Displayed):
         stats : solprop.stats.StatsSpec or None, optional
             Which statistics to record; ``None`` takes
             :func:`solprop.stats.default_spec` for a multimode run with the profiles,
-            plus every statistic only a backend can compute.
+            or for a mode-averaged one under `mode_average`, plus every statistic
+            only a backend can compute.
         node_budget : int, optional
             Bytes of node-chunk buffers the response pass may hold.
         backend : str, optional
@@ -4000,6 +4010,7 @@ class Simulation(Displayed):
             phases=phases,
             pulses=pulses,
             modes=modes,
+            mode_average=mode_average,
             lattice=lattice,
             wall=wall,
             taper_coupling=taper_coupling,
@@ -4086,6 +4097,7 @@ class Simulation(Displayed):
         | Sequence[str]
         | Mapping[str, bool | MolecularOptions]
         | None = None,
+        mode_average: bool = False,
         n_r: int | None = None,
         n_theta: int | None = None,
         radial_rule: RadialRule = "gauss_kronrod",
@@ -4327,6 +4339,15 @@ class Simulation(Displayed):
             without data; explicit labels or
             :class:`~solprop.physdata.raman_types.MolecularOptions` select components
             and terms, and a named unavailable model fails explicitly.
+        mode_average : bool, optional
+            Propagate the one mode **mode-averaged**, as a uniform disc of its
+            effective area, instead of resolving it on the transverse rule
+            (``docs/guide/waveguides/mode-averaging.md``). The plasma then sees the
+            area-mean field, below the on-axis one (``HE_11``'s axis intensity is
+            1.768 times ``P/A_eff``), and ``peak_intensity`` stays on the axis.
+            ``False``, the default, resolves the mode. Refused beside more than one
+            mode and beside `n_r`, `n_theta` or a `radial_rule`.
+            Refused beside `provider`.
         n_r : int or None, optional
             Radial nodes of the fixed rule, or the x-axis nodes of a Cartesian
             product or slab rule. ``None`` takes :func:`default_radial_order` of
@@ -4379,7 +4400,8 @@ class Simulation(Displayed):
         stats : solprop.stats.StatsSpec or None, optional
             Which statistics to record; ``None`` takes
             :func:`solprop.stats.default_spec` for a multimode run with the profiles,
-            plus every statistic only a backend can compute.
+            or for a mode-averaged one under `mode_average`, plus every statistic
+            only a backend can compute.
         node_budget : int, optional
             Bytes of node-chunk buffers the response pass may hold.
         backend : str, optional
@@ -4464,6 +4486,7 @@ class Simulation(Displayed):
                 preionisation=preionisation,
                 plasma_integration=plasma_integration,
                 raman=raman,
+                mode_average=mode_average,
                 n_r=n_r,
                 n_theta=n_theta,
                 radial_rule=radial_rule,
@@ -4514,6 +4537,7 @@ class Simulation(Displayed):
         return cls._from_hollow(
             radius=None,
             modes=modes,
+            mode_average=mode_average,
             waveguide=True,
             length=length,
             gas=gas,
@@ -4850,6 +4874,7 @@ class Simulation(Displayed):
         phases: Sequence[float] | np.ndarray = (),
         pulses: Sequence[Pulse] | None = None,
         modes: int | Sequence[Mode] = 1,
+        mode_average: bool = False,
         lattice: TubeLattice | None = None,
         wall: CoherentWall | None = None,
         taper_coupling: bool = True,
@@ -4987,6 +5012,14 @@ class Simulation(Displayed):
             for orthonormality. The own HE_1m set is synthesised along x; a supplied set
             resolves the transverse components its modes need -- E_x and E_y for TE_0m,
             TM_0m, EH, higher HE or rotated modes -- with or without a coherent wall.
+        mode_average : bool, optional
+            Propagate the one mode **mode-averaged**: a uniform disc of the mode's
+            effective area instead of a transverse rule
+            (``docs/guide/waveguides/mode-averaging.md``). The plasma then sees the
+            area-mean field, below the on-axis one (``HE_11``'s axis intensity is
+            1.768 times ``P/A_eff``), while ``peak_intensity`` stays on the axis.
+            ``False``, the default, resolves the mode on the radial rule. Refused
+            beside more than one mode and beside `n_r`, `n_theta` or a `radial_rule`.
         lattice : TubeLattice or None, optional
             Tube geometry for an integer mode count, selecting Vincetti modes.
             Refused with supplied modes, which carry their own geometry, and with
@@ -5138,7 +5171,8 @@ class Simulation(Displayed):
         stats : solprop.stats.StatsSpec or None, optional
             Which statistics to record; ``None`` takes
             :func:`solprop.stats.default_spec` for a multimode run with the profiles,
-            plus every statistic only a backend can compute.
+            or for a mode-averaged one under `mode_average`, plus every statistic
+            only a backend can compute.
         node_budget : int, optional
             Bytes of node-chunk buffers the response pass may hold.
         backend : str, optional
@@ -5283,7 +5317,11 @@ class Simulation(Displayed):
                 if isinstance(modes, int)
                 else cladding,
             )
-        rule = _capillary_quadrature(mode_set, n_r, n_theta, radial_rule=radial_rule)
+        rule = (
+            _no_quadrature(mode_set, n_r, n_theta, radial_rule=radial_rule)
+            if mode_average
+            else _capillary_quadrature(mode_set, n_r, n_theta, radial_rule=radial_rule)
+        )
         profiles = mixture_profiles(mixture)
         if waveguide:
             for mode in mode_set:
@@ -5400,7 +5438,9 @@ class Simulation(Displayed):
                 DEFAULT_ABSORBER_SCHEME if absorber_scheme is None else absorber_scheme
             ),
             quadrature=rule,
-            components=_hollow_components(supplied=not isinstance(modes, int)),
+            components=None
+            if rule is None
+            else _hollow_components(supplied=not isinstance(modes, int)),
             ionisation_field_range=field_range,
             node_budget=node_budget,
             stats=(
@@ -5412,14 +5452,20 @@ class Simulation(Displayed):
                         rule=rule,
                     )
                     if waveguide
-                    else _capillary_stats(with_plasma=ionising, mixture=mixture),
+                    else _capillary_stats(
+                        with_plasma=ionising, mixture=mixture, averaged=rule is None
+                    ),
                     responses,
                 )
                 if stats is None
                 else stats
             )
             if atomic is None or stats is not None
-            else _tdse_stats(_capillary_stats(with_plasma=False, mixture=mixture)),
+            else _tdse_stats(
+                _capillary_stats(
+                    with_plasma=False, mixture=mixture, averaged=rule is None
+                )
+            ),
             backend=backend,
             precision=precision,
             tdse_execution=None if atomic is None else atomic.execution,
@@ -8172,6 +8218,60 @@ def _capillary_quadrature(
     )
 
 
+def _no_quadrature(
+    modes: ModeCollection,
+    n_r: int | None,
+    n_theta: int | None,
+    *,
+    radial_rule: RadialRule,
+) -> None:
+    """Check a mode-averaged hollow run and return its absent transverse rule.
+
+    A mode-averaged run carries one mode as a uniform disc of its effective area, the
+    one-node transform (:func:`solprop.translate.modal.mode_averaged_transform`), so it
+    has no rule for the keywords that shape one to act on.
+
+    Parameters
+    ----------
+    modes : solprop.modes.collection.ModeCollection
+        The mode set, which must hold exactly one mode.
+    n_r : int or None
+        Radial nodes, which must not be given.
+    n_theta : int or None
+        Azimuthal nodes, which must not be given.
+    radial_rule : str
+        The radial rule family, which must be the default.
+
+    Raises
+    ------
+    DriverError
+        If the set has more than one mode or a rule keyword is given.
+    """
+    if len(modes) != 1:
+        msg = (
+            f"mode_average=True needs exactly one mode, and the set has {len(modes)}: "
+            "energy moving between modes is what a mode-averaged run cannot carry "
+            "(docs/guide/waveguides/mode-averaging.md)"
+        )
+        raise DriverError(msg)
+    given = [
+        name
+        for name, value, unset in (
+            ("n_r", n_r, None),
+            ("n_theta", n_theta, None),
+            ("radial_rule", radial_rule, "gauss_kronrod"),
+        )
+        if value != unset
+    ]
+    if given:
+        msg = (
+            f"{', '.join(given)} given beside mode_average=True: they shape a "
+            "transverse rule, and a mode-averaged run has none, its mode being a "
+            "uniform disc of the effective area"
+        )
+        raise DriverError(msg)
+
+
 def _capillary_responses(  # noqa: PLR0913 - the switches of the responses, one each
     gas: Gas | str,
     material: Species,
@@ -8630,7 +8730,9 @@ def _warn_tdse_cost(quadrature: TransverseQuadrature | None) -> None:
     )
 
 
-def _capillary_stats(*, with_plasma: bool, mixture: Mixture) -> StatsSpec:
+def _capillary_stats(
+    *, with_plasma: bool, mixture: Mixture, averaged: bool = False
+) -> StatsSpec:
     """Return the statistics a capillary run records unless told otherwise.
 
     The multimode defaults with the z-profiles, plus every statistic only a backend can
@@ -8645,6 +8747,10 @@ def _capillary_stats(*, with_plasma: bool, mixture: Mixture) -> StatsSpec:
     mixture : Mixture
         Ordered populations whose species statistics are included. Independent
         density paths have no total-pressure statistic.
+    averaged : bool, optional
+        Whether the run is mode-averaged: the mode-averaged defaults then replace the
+        multimode ones, and the quadrature estimate, which has no rule to read, is
+        left out.
 
     Returns
     -------
@@ -8654,9 +8760,12 @@ def _capillary_stats(*, with_plasma: bool, mixture: Mixture) -> StatsSpec:
     wanted = [
         name
         for name in BACKEND_STATISTICS
-        if with_plasma or name not in PLASMA_STATISTICS
+        if (with_plasma or name not in PLASMA_STATISTICS)
+        and not (averaged and name == "quadrature_error")
     ]
-    base = default_spec("multimode", with_profiles=True)
+    base = default_spec(
+        "mode_averaged" if averaged else "multimode", with_profiles=True
+    )
     wanted.extend(
         (
             "species_ionisation",
@@ -8686,6 +8795,7 @@ _GAS_KEYWORD_DEFAULTS: Mapping[str, object] = {
     "preionisation": None,
     "plasma_integration": None,
     "raman": None,
+    "mode_average": False,
     "n_r": None,
     "n_theta": None,
     "radial_rule": "gauss_kronrod",
@@ -8722,6 +8832,8 @@ _GAS_KEYWORD_REASONS: Mapping[str, str] = {
     "plasma_integration": "a general guide carries no plasma column to integrate",
     "raman": "a guide's delayed response is its material regions' own, the silica "
     "tensor Raman model",
+    "mode_average": "a general guide's channels are resolved on its own node rule; "
+    "mode averaging is the gas-filled route's",
     "n_r": "the transverse rule is the guide's own node rule, declared when the "
     "guide was built",
     "n_theta": "the transverse rule is the guide's own node rule, declared when "
@@ -9191,7 +9303,7 @@ def _capillary_input_peak(
     field0: Complex[np.ndarray, "n_modes n_pol n_omega"],
     modes: ModeCollection,
     grid: TimeGrid,
-    rule: TransverseQuadrature,
+    rule: TransverseQuadrature | None,
 ) -> tuple[float, float]:
     """Return the input's peak field, which sets the ionisation table's range.
 
@@ -9212,8 +9324,9 @@ def _capillary_input_peak(
         The mode set, whose profiles are evaluated on the axis and at the nodes.
     grid : solprop.grid.TimeGrid
         The grid the state is stored on.
-    rule : solprop.modes.quadrature.TransverseQuadrature
-        The run's transverse quadrature.
+    rule : solprop.modes.quadrature.TransverseQuadrature or None
+        The run's transverse quadrature; ``None`` for a mode-averaged run, whose
+        table the axis alone bounds: the area-mean field it samples lies below it.
 
     Returns
     -------
@@ -9225,7 +9338,9 @@ def _capillary_input_peak(
     limits = modes.dimlimits()[0]
     peak_power = 0.0
     circular = 0.0
-    for where in (on_axis_rule(limits), rule):
+    for where in (
+        (on_axis_rule(limits),) if rule is None else (on_axis_rule(limits), rule)
+    ):
         matrices = mode_matrix(modes.modes, where, 0.0, components=("x", "y"))
         rows = matrices.synthesis.reshape(matrices.n_nodes, matrices.n_pol, -1)
         # One node at a time: the field at every node and time together would be
@@ -9258,14 +9373,14 @@ class _InputPeak:
         The mode set.
     grid : solprop.grid.TimeGrid
         The grid the state is stored on.
-    rule : solprop.modes.quadrature.TransverseQuadrature
-        The run's transverse quadrature.
+    rule : solprop.modes.quadrature.TransverseQuadrature or None
+        The run's transverse quadrature; ``None`` for a mode-averaged run.
     """
 
     field0: Complex[np.ndarray, "n_modes n_pol n_omega"]
     modes: ModeCollection
     grid: TimeGrid
-    rule: TransverseQuadrature
+    rule: TransverseQuadrature | None
 
     def evaluate(self) -> tuple[float, float]:
         """Return the peak field in V/m and its circular share.
@@ -9644,7 +9759,7 @@ def _hollow_stats(
     with_plasma: bool,
     mixture: Mixture,
     profiles: Mapping[str, ZProfile],
-    rule: TransverseQuadrature,
+    rule: TransverseQuadrature | None,
 ) -> StatsSpec:
     """Keep capillary statistics where the supplied geometry defines them.
 
@@ -9656,18 +9771,20 @@ def _hollow_stats(
         Ordered material populations.
     profiles : mapping of str to ZProfile
         Available physical paths.
-    rule : solprop.modes.quadrature.TransverseQuadrature
+    rule : solprop.modes.quadrature.TransverseQuadrature or None
         The run's fixed transverse rule, whose embedded coarse rule the
-        quadrature alarm needs.
+        quadrature alarm needs; ``None`` for a mode-averaged run.
 
     Returns
     -------
     StatsSpec
         Statistics with unsupported geometry paths omitted.
     """
-    base = _capillary_stats(with_plasma=with_plasma, mixture=mixture)
+    base = _capillary_stats(
+        with_plasma=with_plasma, mixture=mixture, averaged=rule is None
+    )
     dropped = {name for name in ("core_radius",) if name not in profiles}
-    if not rule.kronrod:
+    if rule is not None and not rule.kronrod:
         # Without an embedded coarse rule the estimate is NaN at every plane, so
         # the statistic is dropped rather than recorded empty. A Cartesian
         # product rule has no Kronrod extension at all (quadrature_rule stores

@@ -15,7 +15,8 @@ The first public release. It contains:
   the generalised nonlinear Schrödinger equation (GNLSE), for the real electric field or
   a complex envelope, in waveguides and in free space.
 - **Waveguides.**
-  - Gas-filled hollow capillaries, mode-averaged or with resolved modes. Tapers,
+  - Gas-filled hollow capillaries, with resolved modes (the default) or mode-averaged
+    (`mode_average=True` on `prop_capillary` and `prop_waveguide`). Tapers,
     pressure gradients and gas flow are supported, as is a coherent wall that couples
     the modes.
   - Antiresonant hollow-core fibres (the Vincetti model).

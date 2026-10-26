@@ -53,23 +53,20 @@ organised by self-compression and dispersive-wave emission.
 # Each shot is the same run with a different realisation of the quantum shot noise:
 # one photon per active spectral bin, with a random phase, added to the input spectrum
 # (``noise="input"``), drawn from the generator seeded by ``seed``.
-# Clearing the transverse quadrature selects mode averaging. Merely setting
-# ``modes=1`` would retain a resolved single-mode calculation. The assertions check
-# both the translated problem and the saved metadata so the approximation is
-# recorded with the result.
+# ``mode_average=True`` selects mode averaging; ``modes=1`` alone, the default, would
+# retain a resolved single-mode calculation. The assertions check the saved metadata
+# so the approximation is recorded with the result.
 
 import time
 import warnings
-from dataclasses import replace
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 from solprop.constants import C
-from solprop.driver import Simulation
+from solprop.driver import prop_capillary
 from solprop.exceptions import MaterialRangeWarning
 from solprop.processing import g12_of, get_spectral_density
-from solprop.stats import default_spec
 
 SHOTS = 8
 """The size of the ensemble."""
@@ -79,7 +76,7 @@ runs = []
 with warnings.catch_warnings():
     warnings.simplefilter("ignore", MaterialRangeWarning)
     for seed in range(SHOTS):
-        simulation = Simulation.from_capillary(
+        run = prop_capillary(
             16e-6,
             0.4,
             "Ar",
@@ -95,15 +92,9 @@ with warnings.catch_warnings():
             noise="input",
             seed=seed,
             n_save=101,
+            mode_average=True,
+            progress="none",
         )
-        simulation.settings = replace(
-            simulation.settings,
-            quadrature=None,
-            components=None,
-            stats=default_spec("mode_averaged"),
-        )
-        assert simulation.translate().flags.mode_averaged
-        run = simulation.run(progress="none")
         assert run.metadata.simulation_kind == "mode_averaged"
         assert run.metadata.quadrature is None
         runs.append(run)

@@ -22,7 +22,7 @@ depends strongly on the local electric-field amplitude.
 A **resolved modal** calculation follows one or more guided modes and evaluates
 the nonlinear response across their combined transverse field. Even one resolved
 mode differs from mode averaging: `prop_capillary(modes=1)` resolves its profile
-on a transverse quadrature. Adding modes allows their amplitudes and phases to
+on a transverse quadrature, and `mode_average=True` replaces it by the effective area. Adding modes allows their amplitudes and phases to
 evolve and exchange energy.
 
 ```{figure} ../guide/figures/capillary_radial.svg
