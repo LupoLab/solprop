@@ -20,12 +20,15 @@ from collections.abc import Sequence
 from contextlib import ExitStack
 from typing import cast
 
+import h5py
 import numpy as np
 import pytest
 
 from bounds import EPS_32, UNIT_ROUNDOFF_32, assert_within, higham_gamma
 from precision_cases import capillary, gnlse, plasma_beam, spatial_kerr
+from solprop.backends.memory import estimate_memory
 from solprop.backends.protocol import Backend
+from solprop.backends.reduced import LaunchScale
 from solprop.backends.registry import available, native_precisions, select, select_batch
 from solprop.constants import EPS0
 from solprop.driver import Simulation, prop_gnlse
@@ -35,6 +38,7 @@ from solprop.exceptions import (
     DriverError,
     TranslationError,
 )
+from solprop.log import NullReporter
 from solprop.stats import PLASMA_INTEGRATION_STATISTICS, StatsSpec
 from solprop.stepper import LowStorageRungeKutta, PIController, RungeKutta
 from solprop.stepper.multistep import Multistep
@@ -221,6 +225,31 @@ def test_a_batch_refuses_members_of_two_precisions():
 # Class P: exact relations of the scaled state.
 
 
+@pytest.mark.parametrize("build", [gnlse, capillary], ids=["gnlse", "capillary"])
+def test_scaling_by_a_power_of_two_is_exact(build, monkeypatch):
+    """Runs at other launch scales differ by powers of two alone (SEP 33 section 4.3).
+
+    The state is held as ``a / s`` and every coefficient carries ``s``'s powers exactly,
+    so the observed planes are the same bits whatever ``s``. A first run plans its
+    transforms before FFTW's process-local wisdom holds the measured plans a later run
+    reuses, so it may round differently (SEP 25: no bitwise agreement across plans);
+    it runs first, and the scales are compared on the same plans.
+    """
+    from solprop_native import backend as native_backend  # noqa: PLC0415
+
+    simulation = build("single")
+    finish(simulation, "native")
+    natural = LaunchScale.of(simulation.translate())
+    results = []
+    for exponent in (natural.exponent, 0, 11):
+        pinned = LaunchScale(math.ldexp(1.0, exponent), exponent)
+        launch = type("Pinned", (), {"of": staticmethod(lambda _, s=pinned: s)})
+        monkeypatch.setattr(native_backend, "LaunchScale", launch)
+        results.append(finish(simulation, "native"))
+    assert np.array_equal(results[0], results[1])
+    assert np.array_equal(results[0], results[2])
+
+
 def test_the_state_is_held_at_the_launch_scale_and_observed_exactly():
     """The launch divided by ``s`` exactly and rounded once, and observed times ``s``.
 
@@ -378,6 +407,83 @@ def test_a_resume_in_the_other_precision_is_refused(tmp_path):
             )  # fmt: skip
 
 
+class _StoppedError(RuntimeError):
+    """What an interrupted run raises, standing in for a machine going away."""
+
+
+class _StopAfter(NullReporter):
+    """Stop a run once it has saved `after` planes."""
+
+    def __init__(self, after: int) -> None:
+        self.after = after
+        self.seen = 0
+
+    def plane(self, z, summary):
+        self.seen += 1
+        if self.seen >= self.after:
+            raise _StoppedError
+
+
+def _resumable(backend: str) -> Simulation:
+    """A single-precision soliton fibre on a replayed schedule with four planes."""
+    length = 0.02
+    planes = list(np.linspace(0.0, length, 5)[1:])
+    return Simulation.from_gnlse(
+        0.11, length, [0.0, 0.0, -1.183e-26, 8.1e-41], lambda0=835e-9,
+        wavelength_limits=(500e-9, 2e-6), trange=1e-12, width=50e-15,
+        peak_power=100.0, pulseshape="sech", save_planes=planes, backend=backend,
+        precision="single", integrator=RungeKutta(),
+        schedule=FixedSchedule.uniform(0.0, length, length / 16, save_planes=planes),
+    )  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ("first", "second"), [("numpy_ref", "native"), ("native", "numpy_ref")]
+)
+def test_a_run_continues_across_backends_in_the_same_precision(tmp_path, first, second):
+    """Class T: a file started on one backend resumes on the other, both binary32.
+
+    The resume key holds the problem and its precision, not the backend; the continued
+    run is the same replayed march, so it agrees with the uninterrupted run within the
+    bound between two binary32 runs of its sixteen steps.
+    """
+    whole, part = tmp_path / "whole.h5", tmp_path / "part.h5"
+    _resumable(first).run(whole, progress="none")
+    with pytest.raises(_StoppedError):
+        _resumable(first).run(part, progress=_StopAfter(2))
+    _resumable(second).run(part, resume=True, progress="none")
+    assert np.array_equal(_stored(whole, "z"), _stored(part, "z"))
+    bound = two_sides(step_bound(16, FIBRE))
+    assert_within(_stored(part, "field"), _stored(whole, "field"), bound)
+
+
+def _stored(path, key: str) -> np.ndarray:
+    """Return one stored array of a closed output file."""
+    with h5py.File(path, "r") as file:
+        dataset = file[key]
+        assert isinstance(dataset, h5py.Dataset)
+        return np.asarray(dataset[()])
+
+
+@pytest.mark.parametrize("build", [gnlse, capillary], ids=["gnlse", "capillary"])
+def test_single_precision_takes_less_memory_by_the_ledger_and_the_estimate(build):
+    """The buffers native allocates, and solprop's estimate of them, both shrink.
+
+    The FFT planners' measured heap growth is left out: it depends on what the
+    process planned before, not on the problem.
+    """
+    ledgers, estimates = {}, {}
+    for precision in ("single", "double"):
+        simulation = build(precision)
+        estimates[precision] = estimate_memory(simulation.translate(), "native").total
+        with ExitStack() as cleanup:
+            ledger = loaded(simulation, "native", cleanup).memory_ledger()
+        ledger.pop("fft_plan_heap_growth", None)
+        ledgers[precision] = sum(ledger.values())
+    assert ledgers["single"] < ledgers["double"]
+    assert estimates["single"] < estimates["double"]
+
+
 def test_the_memory_ledger_counts_binary32_buffers():
     """The state's rows are half binary64's; the operator's terms keep their size."""
     ledgers = {}
@@ -449,6 +555,25 @@ def test_the_adams_march_is_refused_under_single_precision():
             pulseshape="sech", precision="single", backend="native",
             integrator=Multistep(),
         )  # fmt: skip
+
+
+@pytest.mark.parametrize("values", [[1e-3, 1e-41], [1e39]], ids=["subnormal", "beyond"])
+def test_a_table_beyond_binary32_range_is_refused_as_the_oracle_refuses_it(values):
+    """Native checks each table the oracle narrows, by the oracle's name and words."""
+    from solprop_native import backend as native_backend  # noqa: PLC0415
+
+    from solprop.backends.numpy_ref.single import NumpySingleBackend  # noqa: PLC0415
+
+    problem = gnlse("single").translate()
+    table = np.asarray(values)
+    payload = {"prefactor_terms": np.empty(0), "time_window": table}
+    with pytest.raises(BackendError) as native:
+        native_backend._precision_payload(problem, payload)  # pyright: ignore[reportPrivateUsage]
+    with ExitStack() as cleanup:
+        oracle = cast(NumpySingleBackend, loaded(gnlse("single"), "numpy_ref", cleanup))
+        with pytest.raises(BackendError) as expected:
+            oracle._upload("t_window", table)  # pyright: ignore[reportPrivateUsage]
+    assert str(native.value) == str(expected.value)
 
 
 def _coefficient_cases() -> list[tuple[list[float], int]]:
