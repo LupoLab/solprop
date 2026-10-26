@@ -260,6 +260,10 @@ _MODAL = (
         (1, 5120, 10240),
         "benchmarks/cases.py:rdw with one resolved mode",
     ),
+    # Revision 2 (SEP 35 phase 4): a 2 ps window, as a production run of this pulse
+    # takes; revision 1's 1 ps crowded the 400 fs pulse. Its entrance re-piloted.
+    # Revision 3 (SEP 21, decision D2 and phase 2): the fundamental alone, on the
+    # widened auto-sized grid; it keeps revision 2's entrance edges.
     Case(
         "ctc_reduced",
         3,

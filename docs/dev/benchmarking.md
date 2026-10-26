@@ -88,7 +88,7 @@ uv run poe bench run --case argon_blueshift --track fixed-rk --threads 1
 | Additional case | Adaptive entrance interval | Fixed diagnostic |
 |---|---|---|
 | One resolved mode RDW | 0–39.1377 mm | Ten frozen pilot steps |
-| Reduced one-mode CtC, 2 ps | 0–1.31141 mm | Ten 120 micrometre steps |
+| Reduced one-mode CtC, 2 ps (revision 3) | 0–1.31141 mm | Ten 120 micrometre steps |
 | Resolved argon blueshift | 0–2.42717 mm | Ten frozen pilot steps |
 | Resolved hydrogen Raman, 6 ps | 0–13.2409 mm | Ten frozen pilot steps |
 | Averaged helium RDW | 0–39.3310 mm | Ten frozen pilot steps |

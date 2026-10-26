@@ -198,7 +198,8 @@ def test_selected_method_defaults():
 def test_the_representation_names_the_formulation():
     # A run's record hashes the representation (output schema 15): it names the
     # formulation whichever it is, and the comparison variants keep the interaction one.
-    assert repr(Multistep()).endswith("formulation='exponential')")
+    # Since SEP 35 it names the carrier frame too, the default "off" included.
+    assert repr(Multistep()).endswith("formulation='exponential', carrier_frame='off')")
     assert "formulation='interaction'" in repr(Multistep(formulation="interaction"))
     assert ComparisonMultistep(order=4).formulation == "interaction"
 

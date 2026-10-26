@@ -195,7 +195,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 36
+SCHEMA_VERSION = 37
 """Version of the kernel contract this module implements.
 
 Incremented on every change to the field list of ``docs/dev/kernel-contract.md``. A
@@ -429,6 +429,14 @@ Version 36 (SEP 33) adds ``precision``, the arithmetic the run is held in
 (:class:`solprop.translate.precision.Precision`). Every table stays binary64 at the
 seam; a backend that admits single precision narrows its tables on upload, and every
 other backend refuses a single-precision problem by name.
+
+Version 37 (SEP 35) gives ``StepperSettings.integrator`` a ``carrier_frame`` field,
+``"off"`` (the version-36 method bit for bit) or ``"scalar"`` (a ``"harmonic"`` value
+existed during SEP 35's development and was removed by its gate): the carrier phase the
+exponential formulation removes from its history inside each step. A backend that does
+not deliver the shift refuses it by name, and a build against an older version refuses
+the problem rather than step a requested shift unshifted; no ``KernelProblem`` field or
+stage bundle moves.
 """
 
 DEFAULT_COMPONENTS = ("x",)
@@ -1016,7 +1024,7 @@ class KernelProblem:
     ...     dz_max=0.1, dz_init=1e-3, shock=False, prefactor_index=1.0, density=1.0,
     ... )
     >>> problem.shape, problem.grid_kind, problem.schema_version
-    ((1, 1, 1, 3072), 'envelope', 36)
+    ((1, 1, 1, 3072), 'envelope', 37)
     """
 
     schema_version: int
@@ -5136,6 +5144,67 @@ def _walk_tables(problem: KernelProblem) -> list[tuple[str, PiecewiseChebyshev]]
     return [(name, table) for name, table in candidates if table is not None]
 
 
+def _even_chunk(count: int, limit: int) -> int:
+    """Return the smallest chunk that covers `count` items in as few passes as `limit`.
+
+    Parameters
+    ----------
+    count : int
+        Items to cover (positive).
+    limit : int
+        Largest admitted chunk (positive).
+
+    Returns
+    -------
+    int
+        ``ceil(count / ceil(count / limit))``, at most `limit` and `count`.
+
+    Examples
+    --------
+    >>> _even_chunk(33, 32), _even_chunk(33, 33), _even_chunk(100, 30)
+    (17, 33, 25)
+    """
+    passes = -(-count // limit)
+    return -(-count // passes)
+
+
+def _balanced_chunk(transform: Transform) -> Transform:
+    """Spread the nodes evenly over the passes the admitted chunk already needs.
+
+    The budget admissions each take ``budget // per_node``, which can leave a
+    last pass of a node or two: 33 RDW nodes under a limit of 32 ran a whole
+    32-node pass and then a one-node tail on one thread, about 1.6 times the cost
+    of one 33-node pass. The same number of passes of near-equal size (17 and 16)
+    never exceeds the admitted chunk, so every budget still holds. A planar chunk
+    of whole transverse rows stays whole rows; one shorter than a row is kept.
+
+    Parameters
+    ----------
+    transform : Transform
+        Transform with its admitted chunk.
+
+    Returns
+    -------
+    Transform
+        The transform, with the smallest chunk that needs no more passes.
+    """
+    row_nodes = (
+        transform.geometry.shape[0]
+        if transform.geometry is not None and transform.geometry.kind == "slab"
+        else 1
+    )
+    rows = transform.n_nodes // row_nodes
+    rows_per_chunk, partial = divmod(transform.node_chunk, row_nodes)
+    if partial or rows_per_chunk >= rows:
+        return transform
+    chunk = _even_chunk(rows, rows_per_chunk) * row_nodes
+    return (
+        transform
+        if chunk == transform.node_chunk
+        else replace(transform, node_chunk=chunk)
+    )
+
+
 def _envelope_chunk(
     transform: Transform, n_pol: int, n_to: int, budget: int, *, enabled: bool
 ) -> Transform:
@@ -6146,7 +6215,9 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         grid.n_to,
         node_budget,
     )
-    transform = _held_current_chunk(transform, compiled, n_pol, grid.n_to, node_budget)
+    transform = _balanced_chunk(
+        _held_current_chunk(transform, compiled, n_pol, grid.n_to, node_budget)
+    )
     initial = _power_initial(
         Initial(
             field0=state,
@@ -6251,7 +6322,7 @@ def debug_summary(problem: KernelProblem) -> str:
     ...     width=100e-15, peak_power=9.8, pulseshape="sech", n_save=3,
     ... )
     >>> print(debug_summary(simulation.translate()).splitlines()[0])
-    kernel problem schema 36: envelope grid, route modal
+    kernel problem schema 37: envelope grid, route modal
     """
     linear, transform = problem.linear, problem.transform
     tables, metric = transform.modal_tables, linear.modal_metric

@@ -5322,6 +5322,44 @@ KOKKOS_INLINE_FUNCTION double adams_factorial(const std::size_t k) {
   return value;
 }
 
+/**
+ * The phi-functions a trial's moments take: at x, or under a carrier frame at
+ * x - sigma with that argument's own exponential (solprop SEP 35 section 4.1). The
+ * flow stays exp(x), which the caller holds.
+ */
+KOKKOS_INLINE_FUNCTION void adams_moment_phi(const ExponentialWeights& weights,
+                                             const Complex x, const Complex exp_x,
+                                             const std::size_t order, Complex* out) {
+  if (!weights.shifted) {
+    adams_phi(x, exp_x, order, out);
+    return;
+  }
+  // exp(x - sigma) = exp(x) exp(-sigma): one product with the trial's exp(-sigma)
+  // rather than a second exponential per element (a few ulp, inside the moments'
+  // share of the rounding budget).
+  const Complex residual = x - Complex(0.0, weights.shift);
+  adams_phi(residual,
+            strict_mul(exp_x, Complex(weights.unshift_re, weights.unshift_im)), order,
+            out);
+}
+
+/**
+ * History row `t` of a trial (`weights.slot[t]`) at one element, rotated by a carrier
+ * frame's factor exp(sigma (1 - theta_t)) as it is read (solprop SEP 35 section 6.2):
+ * the store keeps the untransported samples.
+ */
+template <class Store>
+KOKKOS_INLINE_FUNCTION Complex adams_history(const Store& store,
+                                             const ExponentialWeights& weights,
+                                             const std::size_t t,
+                                             const std::size_t column,
+                                             const std::size_t index) {
+  const Complex value = store(weights.slot[t], column, index);
+  if (!weights.shifted)
+    return value;
+  return strict_mul(Complex(weights.factor_re[t], weights.factor_im[t]), value);
+}
+
 /** The squared scaled norms of up to three factored exponential defects. */
 struct ExponentialDefectNorms {
   using value_type = double[];
@@ -5352,8 +5390,9 @@ struct ExponentialDefectNorms {
       // A divided difference of the samples times one moment combination.
       Complex difference = strict_scale(weights.rows[row][0], source(column, index));
       for (std::size_t t = 1; t < weights.width; ++t)
-        difference = strict_accumulate(difference, weights.rows[row][t],
-                                       store(weights.slot[t - 1], column, index));
+        difference =
+            strict_accumulate(difference, weights.rows[row][t],
+                              adams_history(store, weights, t - 1, column, index));
       Complex weight{};
       for (std::size_t k = 0; k < weights.count; ++k)
         weight = strict_accumulate(weight, weights.rows[row][weights.width + k],
@@ -5419,7 +5458,7 @@ struct CoupledDefectNorms {
       Complex total = strict_scale(weights.rows[row][0], source(c, index));
       for (std::size_t t = 1; t < weights.width; ++t)
         total = strict_accumulate(total, weights.rows[row][t],
-                                  store(weights.slot[t - 1], c, index));
+                                  adams_history(store, weights, t - 1, c, index));
       return total;
     };
     for (size_type row = 0; row < value_count; ++row) {
@@ -5467,7 +5506,7 @@ struct CoupledDefectNorms {
     for (std::size_t i = 0; i < modes; ++i) {
       values[0][i] = source(i, index);
       for (std::size_t t = 1; t < weights.width; ++t)
-        values[t][i] = store(weights.slot[t - 1], i, index);
+        values[t][i] = adams_history(store, weights, t - 1, i, index);
     }
     Complex difference[adams_max_channels];
     for (size_type row = 0; row < value_count; ++row) {
@@ -5689,7 +5728,8 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
           if (coupled && slots(index) != 0)
             return;
           Complex phi[2 * adams_max_samples + 1];
-          adams_phi(exponent(column, index), flow(column, index), count, phi);
+          adams_moment_phi(weights, exponent(column, index), flow(column, index), count,
+                           phi);
           for (std::size_t k = 0; k < count; ++k)
             moments(k, column, index) = adams_factorial(k) * phi[k + 1];
         });
@@ -5729,7 +5769,9 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
           for (std::size_t m = 0; m < modes; ++m) {
             const Complex x = shift + dz * eigenvalues(section, bin, m);
             const Complex exp_x = exponential(x);
-            adams_phi(x, exp_x, count, phi);
+            // The flow is exp(h B); the moments are the shifted block's (solprop SEP
+            // 35 section 4.5): every eigenvalue moves by -sigma.
+            adams_moment_phi(weights, x, exp_x, count, phi);
             const Complex l = left(section, bin, i, m);
             const Complex r = right(section, bin, m, j);
             total[0] += l * exp_x * r;
@@ -5754,7 +5796,7 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
             const Complex x = shift + dz * eigenvalues(section, bin, m);
             const Complex exp_x = exponential(x);
             values[m][0] = exp_x;
-            adams_phi(x, exp_x, count, phi);
+            adams_moment_phi(weights, x, exp_x, count, phi);
             for (std::size_t k = 0; k < count; ++k)
               values[m][k + 1] = adams_factorial(k) * phi[k + 1];
           }
@@ -5902,7 +5944,7 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
           const Complex propagate = flow(column, index);
           Complex phi[2 * adams_max_samples + 1];
           const std::size_t formed = count > weights.order ? count : weights.order;
-          adams_phi(x, propagate, formed, phi);
+          adams_moment_phi(weights, x, propagate, formed, phi);
           for (std::size_t k = 0; k < count; ++k)
             moments(k, column, index) = adams_factorial(k) * phi[k + 1];
           const Complex accepted = current(column, index);
@@ -5911,8 +5953,8 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
           for (std::size_t k = 0; k < weights.order; ++k) {
             Complex combined{};
             for (std::size_t t = 0; t < weights.order; ++t)
-              combined +=
-                  weights.predictor[t][k] * store(weights.slot[t], column, index);
+              combined += weights.predictor[t][k] *
+                          adams_history(store, weights, t, column, index);
             const Complex moment = adams_factorial(k) * phi[k + 1];
             total += moment * combined;
           }
@@ -5935,7 +5977,7 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
           const auto combine = [&](const std::size_t c, Complex* out) {
             Complex samples[adams_max_samples];
             for (std::size_t t = 0; t < weights.order; ++t)
-              samples[t] = store(weights.slot[t], c, index);
+              samples[t] = adams_history(store, weights, t, c, index);
             for (std::size_t k = 0; k < weights.order; ++k) {
               Complex total{};
               for (std::size_t t = 0; t < weights.order; ++t)
@@ -5983,7 +6025,8 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
             for (std::size_t i = 0; i < modes; ++i) {
               Complex total{};
               for (std::size_t t = 0; t < weights.order; ++t)
-                total += weights.predictor[t][k] * store(weights.slot[t], i, index);
+                total += weights.predictor[t][k] *
+                         adams_history(store, weights, t, i, index);
               combined[k][i] = total;
             }
           for (std::size_t i = 0; i < modes; ++i) {
@@ -6100,8 +6143,8 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
           for (std::size_t k = 0; k < count; ++k) {
             Complex combined = weights.corrector[0][k] * g;
             for (std::size_t t = 1; t < weights.width; ++t)
-              combined +=
-                  weights.corrector[t][k] * store(weights.slot[t - 1], column, index);
+              combined += weights.corrector[t][k] *
+                          adams_history(store, weights, t - 1, column, index);
             total += moments(k, column, index) * combined;
           }
           Complex value = flow(column, index) * current(column, index) + dz * total;
@@ -6127,7 +6170,7 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
             const Complex g = stages(0, c, index);
             Complex samples[adams_max_samples];
             for (std::size_t t = 1; t < weights.width; ++t)
-              samples[t] = store(weights.slot[t - 1], c, index);
+              samples[t] = adams_history(store, weights, t - 1, c, index);
             for (std::size_t k = 0; k < count; ++k) {
               Complex total = weights.corrector[0][k] * g;
               for (std::size_t t = 1; t < weights.width; ++t)
@@ -6177,7 +6220,8 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
             for (std::size_t k = 0; k < count; ++k) {
               Complex total = weights.corrector[0][k] * g;
               for (std::size_t t = 1; t < weights.width; ++t)
-                total += weights.corrector[t][k] * store(weights.slot[t - 1], i, index);
+                total += weights.corrector[t][k] *
+                         adams_history(store, weights, t - 1, i, index);
               combined[k][i] = total;
             }
           }
@@ -6352,16 +6396,31 @@ void GeneralWorkspace::adams_exponential_observe(const double xi, const double d
         const Complex x = xi * exponent(column, index);
         const Complex e = exponential(x);
         Complex phi[2 * adams_max_samples + 1];
-        adams_phi(x, e, count, phi);
+        if (weights.shifted) {
+          // The accepted step's own sigma (solprop SEP 35 section 4.1): the moments at
+          // xi (x - sigma), its rotated samples, and exp(-sigma (1 - xi)) on the sum.
+          const Complex residual =
+              xi * (exponent(column, index) - Complex(0.0, weights.shift));
+          adams_phi(residual, exponential(residual), count, phi);
+        } else {
+          adams_phi(x, e, count, phi);
+        }
         Complex total{};
         double power = xi;
         for (std::size_t k = 0; k < count; ++k) {
           Complex combined{};
-          for (std::size_t t = 0; t < count; ++t)
-            combined += weights.corrector[t][k] * slopes(t, column, index);
+          for (std::size_t t = 0; t < count; ++t) {
+            Complex slope = slopes(t, column, index);
+            if (weights.shifted && t > 0)
+              slope = strict_mul(
+                  Complex(weights.factor_re[t - 1], weights.factor_im[t - 1]), slope);
+            combined += weights.corrector[t][k] * slope;
+          }
           total += (power * (adams_factorial(k) * phi[k + 1])) * combined;
           power *= xi;
         }
+        if (weights.shifted)
+          total = exponential(Complex(0.0, -weights.shift * (1.0 - xi))) * total;
         Complex value = e * start(column, index) + dz * total;
         if (compensated) {
           // e^{(xi - theta_j) x} carries each term; for the endpoint it is an inverse

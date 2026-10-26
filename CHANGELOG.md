@@ -40,6 +40,21 @@ The first public release. It contains:
   `SimulationSettings.adiabatic_accuracy`). `poynting_spectrum` is removed:
   `beam_spectrum` is the axial-flux spectrum. Kernel schema 35 (`flux`) and output
   schema 23 (`flux_model`, `flux_plan`).
+- **A carrier frame for the exponential Adams history**
+  ([SEP 35](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0035-carrier-frame-exponential-adams.html),
+  phases 1–4). `Multistep(carrier_frame="scalar")` interpolates, inside each step, the
+  source with the carrier's phase removed and integrates it against correspondingly
+  shifted moments, exactly for any shift, with each step capped at one radian of
+  carrier phase (`CARRIER_PHASE_CAP`); on field grids and envelope grids with the third
+  harmonic. On dense, multimode, Raman-active runs such as a comb-to-continuum
+  capillary it is the fastest method measured, about half the time of the default and
+  of IP-DOPRI5; elsewhere it saves less or nothing, and a weak band still forming is
+  less tightly controlled, so it is opt-in and `"off"` stays the default. The manual's
+  decision guide says when to use it. It runs on `numpy_ref`, `numba_cpu` and native
+  CPU builds; native device builds and the free-space routes refuse it by name. The
+  benchmark suite's `ctc_reduced` case moves to a 2 ps window (revision 2). Kernel schema 37 (`Multistep.carrier_frame`); every `Multistep`
+  representation names the policy, so a march snapshot taken before it restarts its
+  history.
 - **Incident beams into general modal guides**
   ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0031-simulation-coupling.html),
   phases 1 and 3). `from_waveguide(provider=..., incident=SpatialPulse(...),
@@ -290,3 +305,16 @@ The first public release. It contains:
   before it no empty piece in those columns, so `planes()` (and `to_file`) of any run
   with a periodic subset failed with "step statistics columns must have equal row
   counts". The HDF5 file was not affected.
+- **Native CPU cost cliffs at 2-3-5-smooth grid sizes.** Two causes made some smooth
+  sizes 1.6-1.8 times slower per source evaluation than the neighbouring power of two
+  on the native CPU backend. The node-chunk budget took `budget // per_node`, so 33
+  resolved-mode nodes under a limit of 32 ran a 32-node pass and then a one-node tail on
+  one thread; the nodes are now spread evenly over the same number of passes (17 and
+  16). And the threading thresholds for stage kernels (8192 elements) and modal FFTs
+  (32,768 samples) sat just above the four-mode RDW's sizes at n_t 4000, so its stage
+  and transforms ran serially; on Linux they are now 4096 and 16,384. On an 18-core
+  Cascade Lake socket the RDW case costs 1.32 ms per evaluation at n_t 4000 (was 2.47;
+  4096: 1.24-1.36) and 2.54 ms at 8640 (was 3.55; 8192: 2.28-2.31); on Zen 3 n_t 4000
+  is 24-27 % faster (`native/benchmarks/size_cliffs.py`). macOS keeps 8192 and 32,768:
+  on an Apple arm64 laptop the serial stage and transforms are the faster ones at those
+  sizes, and its node-chunk gain at n_t 8640 is 26 %.

@@ -42,7 +42,6 @@ being implemented.
   a general offset-grid API, independently asymmetric absorber ramps and implicit
   Runge–Kutta remain open.
 
-
 ## Draft enhancement proposals
 
 SEPs under discussion; their scope may change and implementation has not been accepted.
@@ -406,6 +405,18 @@ answer at ten steps whatever `rtol` ([the Adams methods](../guide/numerics/adams
 Sampling the residual without a source, as a cheap evaluation of the linear part
 alone, would put it under control.
 
+**The carrier frame's weak-band control and step floor.**
+[SEP 35](seps/archive/sep-0035-carrier-frame-exponential-adams.md)'s
+`carrier_frame="scalar"` gives a weakly populated, driven bin a residual rotation that the
+step-size norm, which the populated bins dominate, does not see: near the launch such a
+band came out a few hundred times less accurate at matched total-field error. Scoring a
+forming weak band in the norm, or a per-bin shift chosen by the source's own rotation
+rather than a frequency boundary, might keep the policy's calls and recover the bands.
+Two measured but unexplained costs belong with it: more calls where the in-stage collar
+binds the step (842 against the default's 754 on a short dense-gas window), and the cap's
+floor of about $|\kappa| L$ steps, not yet measured on a long, weakly nonlinear
+dense-gas propagation.
+
 **The exponential formulation beside the `modified` noise.** The noise's source is
 partly linear in each weak bin's own field and rotates with its free phase, which the
 exponential formulation interpolates in the laboratory frame. Until a
@@ -495,6 +506,12 @@ The [CPU performance record](cpu-performance.md) lists what has been tried, adop
 rejected on the compiled CPU backend, with its measurements; read it before taking up
 any of the first ten items.
 
+- **The Adams carrier frame on devices and on cheap sources**: native's
+  `carrier_frame="scalar"` kernels are written for host and device but refused on device
+  builds until a GPU segment runs their parity tests and ten-step timing; on CPU each step
+  costs 4–7 % more than the default's on a cheap source, which the per-history-row
+  rotation of the defect reducers could reduce
+  ([SEP 35](seps/archive/sep-0035-carrier-frame-exponential-adams.md)).
 - **BLAS threads in the Windows and manylinux recipes**: one OpenMP runtime for Kokkos,
   FFTW and OpenBLAS in the Windows wheel (set up in the wheels workflow, to be proved
   there and timed), the same check on the manylinux release recipe, and the Kokkos
@@ -504,7 +521,12 @@ any of the first ten items.
   within about 1 % of the pre-policy build on the 36-core Xeon (2026-10-22). Open items:
   - the scalar wall, 10 % slower there at the default width, against an A/A spread under
     1 % (on Apple silicon it is faster); find the cause;
-  - the taper, short-line and planar controls.
+  - the taper, short-line and planar controls;
+  - the stage and FFT starts on macOS, kept at 8,192 and 32,768 while Linux uses 4,096
+    and 16,384 ([smooth grid sizes](benchmarks.md#smooth-grid-sizes)): on Apple
+    silicon the serial stage is faster even at 8,196 elements, so sweep the crossover
+    there on a quiet machine (`native/benchmarks/size_cliffs.py` and the SSFS and
+    reduced comb-to-continuum cases) and set its own values.
 - **The multimode step at full width on Linux**: at 36 threads on the Xeon, general-modal
   RK is about 6 % slower than before the per-core changes (reduced comb-to-continuum is
   4 % faster). Estimate planning is as slow, so FFT plan selection is ruled out; find the

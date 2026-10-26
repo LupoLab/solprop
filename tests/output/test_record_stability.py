@@ -137,8 +137,20 @@ def split(kind: str):
         for key, value in metadata.configuration.items()
         if key != "precision"
     }
+    # SEP 35 names the carrier frame in every Multistep's representation, at its
+    # default too (no output layout change); the projection leaves the default out.
+    assert metadata.stepper is not None
+    assert metadata.stepper.method is not None
+    stepper = dataclasses.replace(
+        metadata.stepper,
+        method=metadata.stepper.method.replace(", carrier_frame='off'", ""),
+    )
     historical = dataclasses.replace(
-        metadata, schema_version=21, spatial=spatial, configuration=configuration
+        metadata,
+        schema_version=21,
+        spatial=spatial,
+        configuration=configuration,
+        stepper=stepper,
     )
     # SEP 21 records the absorber's spatial flag (output schema 26), and the runs that
     # declared none record the bare boundaries that stand for it; the schema-21

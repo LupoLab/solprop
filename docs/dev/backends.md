@@ -1516,7 +1516,7 @@ at most:
   the kernel's blocking and order are free. Vendor-BLAS and device builds use
   `KokkosBlas::gemm`.
 - **Small transforms on one FFTW thread.** A modal or spatial plan whose real side holds
-  fewer than **32 768** samples per execution (`default_threaded_fft_min_samples`;
+  fewer than **16 384** samples per execution (32 768 on macOS; `default_threaded_fft_min_samples`;
   `SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES` overrides it) is made on a one-thread
   execution instance, because below that a threaded FFTW plan only costs time: the
   threshold is a speed threshold. FFTW's planner may choose a transform's factorisation by
@@ -1775,6 +1775,7 @@ that execution space.
 | coupled flow: `"cf4"` sections | yes | refused | refused | refused |
 | the dispersive electronic response (`responses.dispersive_kerr`) | every route | every route | every route | qualified on one AMD Instinct device (HIP) and one NVIDIA Hopper device (CUDA) |
 | the low-call Adams integrator (`StepperSettings.integrator`), both formulations | yes | every route; beside a coupled flow the exponential formulation alone, on constant-Schur and frozen-residual sections | as `numba_cpu`, the history resident, beside a coupled flow too when every bin takes the flow's eigenbasis and it has at most 16 channels | qualified |
+| the Adams carrier frame (`Multistep(carrier_frame="scalar")`, SEP 35) | every guided route; free space refused | fused into the compiled passes | CPU builds, resident; device builds refused | refused by name |
 | the low-storage RK4IP march (`LowStorageRungeKutta`), replay-only | every diagonal-flow route | every diagonal-flow route, register kernels | every diagonal-flow route, a resident engine whose step is one native call | flows recomputed per element; qualified under HIP, not under CUDA |
 | moving solid guide (moving maps beside a frozen-residual flow) | yes | yes | yes | qualified |
 | fixed-schedule lockstep batches (no coupled flow) | fibre and general guides | fibre and general guides | fibre and general guides | fibre and general guides |
