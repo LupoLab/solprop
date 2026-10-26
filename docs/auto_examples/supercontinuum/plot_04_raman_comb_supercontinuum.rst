@@ -58,35 +58,32 @@ nitrogen-filled hollow-core anti-resonant fiber
 <https://arxiv.org/abs/2011.01656>`_; its gas and pump conditions differ
 from this hydrogen calculation.
 
-.. GENERATED FROM PYTHON SOURCE LINES 48-54
+.. GENERATED FROM PYTHON SOURCE LINES 48-53
 
 Set up and run the model
 ------------------------
-``Simulation.from_capillary`` assembles the material and pulse choices. We then
-remove its transverse quadrature and request the mode-averaged statistics before
-translating or running. ``modes=1`` on its own would select a resolved single
-mode, which is a different nonlinear approximation.
+``prop_capillary`` assembles the material and pulse choices, and
+``mode_average=True`` selects mode averaging. ``modes=1`` on its own, the default,
+would select a resolved single mode, which is a different nonlinear approximation.
 
-.. GENERATED FROM PYTHON SOURCE LINES 54-98
+.. GENERATED FROM PYTHON SOURCE LINES 53-89
 
 .. code-block:: Python
 
 
     import time
     import warnings
-    from dataclasses import replace
 
     import matplotlib.pyplot as plt
 
-    from solprop.driver import Simulation
+    from solprop.driver import prop_capillary
     from solprop.exceptions import MaterialRangeWarning
     from solprop.plotting import prop_2d, spec_1d
-    from solprop.stats import default_spec
 
     started = time.perf_counter()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
-        simulation = Simulation.from_capillary(
+        run = prop_capillary(
             16e-6,
             0.4,
             "H2",
@@ -102,15 +99,9 @@ mode, which is a different nonlinear approximation.
             noise="input",
             seed=0,
             n_save=201,
+            mode_average=True,
+            progress="none",
         )
-        simulation.settings = replace(
-            simulation.settings,
-            quadrature=None,
-            components=None,
-            stats=default_spec("mode_averaged"),
-        )
-        assert simulation.translate().flags.mode_averaged
-        run = simulation.run(progress="none")
     assert run.metadata.simulation_kind == "mode_averaged"
     assert run.metadata.quadrature is None
     print(f"{run.metadata.simulation_kind}, z = {run['z'][-1]:.2f} m; seed 0")
@@ -128,12 +119,12 @@ mode, which is a different nonlinear approximation.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 99-101
+.. GENERATED FROM PYTHON SOURCE LINES 90-92
 
 Spectral and temporal evolution
 -------------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 101-115
+.. GENERATED FROM PYTHON SOURCE LINES 92-106
 
 .. code-block:: Python
 
@@ -163,14 +154,14 @@ Spectral and temporal evolution
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 116-120
+.. GENERATED FROM PYTHON SOURCE LINES 107-111
 
 The comb and the continuum
 --------------------------
 The four positions lie within the 0.4 m calculation. Compare peak locations as
 well as their broadening: a logarithmic plot can make weak features prominent.
 
-.. GENERATED FROM PYTHON SOURCE LINES 120-129
+.. GENERATED FROM PYTHON SOURCE LINES 111-120
 
 .. code-block:: Python
 
@@ -201,7 +192,7 @@ well as their broadening: a logarithmic plot can make weak features prominent.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 130-141
+.. GENERATED FROM PYTHON SOURCE LINES 121-132
 
 The early slices retain conspicuous discrete peaks. By 0.4 m, broadened
 components overlap across much of the visible and near infrared, with weaker
@@ -215,7 +206,7 @@ A quantitative noise study needs repeated independent seeds, as in the MI
 ensemble. For sampling and material checks see :doc:`/guide/setup/grids` and
 :doc:`/guide/media/materials`.
 
-.. GENERATED FROM PYTHON SOURCE LINES 141-143
+.. GENERATED FROM PYTHON SOURCE LINES 132-134
 
 .. code-block:: Python
 
@@ -229,7 +220,7 @@ ensemble. For sampling and material checks see :doc:`/guide/setup/grids` and
 
  .. code-block:: none
 
-    158 s; backend native
+    133 s; backend native
 
 
 
@@ -237,7 +228,7 @@ ensemble. For sampling and material checks see :doc:`/guide/setup/grids` and
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (2 minutes 38.246 seconds)
+   **Total running time of the script:** (2 minutes 13.327 seconds)
 
 
 .. _sphx_glr_download_auto_examples_supercontinuum_plot_04_raman_comb_supercontinuum.py:

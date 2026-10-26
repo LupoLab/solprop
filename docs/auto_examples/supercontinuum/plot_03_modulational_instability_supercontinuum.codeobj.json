@@ -89,50 +89,6 @@
    "name": "int"
   }
  ],
- "Simulation.from_capillary": [
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "solprop.driver.simulation",
-   "module_short": "solprop.driver",
-   "name": "Simulation.from_capillary"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "solprop.driver",
-   "module_short": "solprop.driver",
-   "name": "Simulation.from_capillary"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "solprop",
-   "module_short": "solprop",
-   "name": "Simulation.from_capillary"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "solprop._display",
-   "module_short": "solprop._display",
-   "name": "Displayed.from_capillary"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "solprop",
-   "module_short": "solprop",
-   "name": "Displayed.from_capillary"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.driver.Simulation",
-   "module_short": "solprop.driver.Simulation",
-   "name": "from_capillary"
-  }
- ],
  "ax": [
   {
    "is_class": false,
@@ -1009,22 +965,6 @@
    "name": "ndarray"
   }
  ],
- "default_spec": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "function"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.stats",
-   "module_short": "solprop.stats",
-   "name": "default_spec"
-  }
- ],
  "density": [
   {
    "is_class": false,
@@ -1535,7 +1475,7 @@
    "name": "subplots"
   }
  ],
- "replace": [
+ "prop_capillary": [
   {
    "is_class": false,
    "is_explicit": false,
@@ -1546,9 +1486,9 @@
   {
    "is_class": false,
    "is_explicit": false,
-   "module": "dataclasses",
-   "module_short": "dataclasses",
-   "name": "replace"
+   "module": "solprop.driver",
+   "module_short": "solprop.driver",
+   "name": "prop_capillary"
   }
  ],
  "rin": [
@@ -1765,140 +1705,6 @@
    "module": "numpy",
    "module_short": "numpy",
    "name": "ndarray"
-  }
- ],
- "simulation": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.driver.simulation",
-   "module_short": "solprop.driver",
-   "name": "Simulation"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.driver",
-   "module_short": "solprop.driver",
-   "name": "Simulation"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop",
-   "module_short": "solprop",
-   "name": "Simulation"
-  }
- ],
- "simulation.run": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.driver.simulation",
-   "module_short": "solprop.driver",
-   "name": "Simulation.run"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.driver",
-   "module_short": "solprop.driver",
-   "name": "Simulation.run"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop",
-   "module_short": "solprop",
-   "name": "Simulation.run"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop._display",
-   "module_short": "solprop._display",
-   "name": "Displayed.run"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop",
-   "module_short": "solprop",
-   "name": "Displayed.run"
-  }
- ],
- "simulation.settings": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.driver.simulation",
-   "module_short": "solprop.driver",
-   "name": "Simulation.settings"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.driver",
-   "module_short": "solprop.driver",
-   "name": "Simulation.settings"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop",
-   "module_short": "solprop",
-   "name": "Simulation.settings"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop._display",
-   "module_short": "solprop._display",
-   "name": "Displayed.settings"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop",
-   "module_short": "solprop",
-   "name": "Displayed.settings"
-  }
- ],
- "simulation.translate": [
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.driver.simulation",
-   "module_short": "solprop.driver",
-   "name": "Simulation.translate"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.driver",
-   "module_short": "solprop.driver",
-   "name": "Simulation.translate"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop",
-   "module_short": "solprop",
-   "name": "Simulation.translate"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop._display",
-   "module_short": "solprop._display",
-   "name": "Displayed.translate"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop",
-   "module_short": "solprop",
-   "name": "Displayed.translate"
   }
  ],
  "spectra": [

@@ -714,6 +714,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
     phases: Sequence[float] | np.ndarray = (),
     pulses: Sequence[Pulse] | None = None,
     modes: int | Sequence[Mode] = 1,
+    mode_average: bool = False,
     lattice: TubeLattice | None = None,
     wall: CoherentWall | None = None,
     taper_coupling: bool = True,
@@ -773,9 +774,10 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
 
     What differs from :func:`prop_gnlse` is the physics, not the machinery: a **field**
     grid rather than an envelope one, a set of modes on a shared transverse quadrature
-    rather than one mode-averaged effective area, a gas whose **density varies along
-    z** and carries both the dispersion and the nonlinearity, and a plasma response
-    whose ionisation rate is tabulated once over the fields the run will reach.
+    rather than one mode-averaged effective area (unless `mode_average` asks for that
+    area), a gas whose **density varies along z** and carries both the dispersion and
+    the nonlinearity, and a plasma response whose ionisation rate is tabulated once
+    over the fields the run will reach.
 
     The step control is reached through `rtol`, `atol`, `dz_max` and `dz_init`, and
     the default step caps are relative to the capillary length rather than absolute.
@@ -851,6 +853,14 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         with their own tables. A supplied set carries its own geometry: `radius` must
         agree with every mode's core radius along the run, or the call is refused by
         name.
+    mode_average : bool, optional
+        Propagate the one mode **mode-averaged**, as a uniform disc of its effective
+        area, instead of resolving it on the transverse rule, as Luna.jl's default
+        does (``docs/guide/waveguides/mode-averaging.md``). The plasma then sees the
+        area-mean field, below the on-axis one (``HE_11``'s axis intensity is 1.768
+        times ``P/A_eff``), and ``peak_intensity`` stays on the axis. ``False``, the
+        default, resolves the mode. Refused beside more than one mode and beside
+        `n_r`, `n_theta` or a `radial_rule`.
     lattice : TubeLattice or None, optional
         Tube geometry for an integer mode count, selecting Vincetti modes.
         Refused with supplied modes, which carry their own geometry, and with
@@ -1114,6 +1124,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         phases=phases,
         pulses=pulses,
         modes=modes,
+        mode_average=mode_average,
         lattice=lattice,
         wall=wall,
         taper_coupling=taper_coupling,
@@ -1212,6 +1223,7 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
     preionisation: float | ZProfile | Mapping[str, float | ZProfile] | None = None,
     plasma_integration: IntegrationPolicy | None = None,
     raman: bool | Sequence[str] | Mapping[str, bool | MolecularOptions] | None = None,
+    mode_average: bool = False,
     n_r: int | None = None,
     n_theta: int | None = None,
     radial_rule: RadialRule = "gauss_kronrod",
@@ -1402,6 +1414,15 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         available models of a mixture and is refused by name for a single gas without
         data; explicit labels or :class:`~solprop.physdata.raman_types.MolecularOptions`
         select components and terms, and a named unavailable model fails explicitly.
+    mode_average : bool, optional
+        Propagate the one mode **mode-averaged**, as a uniform disc of its effective
+        area, instead of resolving it on the transverse rule, as Luna.jl's default
+        does (``docs/guide/waveguides/mode-averaging.md``). The plasma then sees the
+        area-mean field, below the on-axis one (``HE_11``'s axis intensity is 1.768
+        times ``P/A_eff``), and ``peak_intensity`` stays on the axis. ``False``, the
+        default, resolves the mode. Refused beside more than one mode and beside
+        `n_r`, `n_theta` or a `radial_rule`.
+        Refused beside `provider`.
     n_r : int or None, optional
         Radial nodes of the fixed rule, or the x-axis nodes of a Cartesian product
         or slab rule. ``None`` takes
@@ -1540,6 +1561,7 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         preionisation=preionisation,
         plasma_integration=plasma_integration,
         raman=raman,
+        mode_average=mode_average,
         n_r=n_r,
         n_theta=n_theta,
         radial_rule=radial_rule,

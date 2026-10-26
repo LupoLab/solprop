@@ -3,13 +3,13 @@
 Mode averaging follows one temporal amplitude while replacing the transverse
 nonlinear response by an effective-area model. Use it when one guided mode
 carries the pulse and a resolved response across the core is unnecessary. It is
-the spatial description used by the [GNLSE](gnlse.md) and can also be selected
-for a single capillary mode.
+the spatial description used by the [GNLSE](gnlse.md), and
+`prop_capillary(..., mode_average=True)` selects it for a single capillary mode.
 
 A **resolved single-mode** calculation is different: it retains one propagated
 amplitude but evaluates the response at multiple points across that mode.
-`prop_capillary(modes=1)` selects this resolved calculation. The distinction
-matters for ionisation and other strongly intensity-dependent responses.
+`prop_capillary(modes=1)`, the default, selects this resolved calculation. The
+distinction matters for ionisation and other strongly intensity-dependent responses.
 The [spatial introduction](../../introduction/spatial-description.md) compares
 both descriptions with multimode and free-space propagation.
 
@@ -40,17 +40,15 @@ another guided mode. Use a [multimode capillary](capillaries.md) or
 
 ## Select it explicitly
 
-The GNLSE entry point selects mode averaging automatically. For a capillary,
-construct a `Simulation` and remove the transverse quadrature. The statistics
-must also be selected for the mode-averaged representation:
+The GNLSE entry point selects mode averaging automatically. For a gas-filled
+capillary or a supplied gas-filled mode, pass `mode_average=True` to
+`prop_capillary` or `prop_waveguide`, or to `Simulation.from_capillary` or
+`Simulation.from_waveguide`:
 
 ```python
-from dataclasses import replace
+from solprop.driver import prop_capillary
 
-from solprop.driver import Simulation
-from solprop.stats import default_spec
-
-simulation = Simulation.from_capillary(
+output = prop_capillary(
     125e-6,
     1e-5,  # a short configuration check, in metres
     "Ar",
@@ -60,23 +58,25 @@ simulation = Simulation.from_capillary(
     trange=200e-15,
     fwhm=30e-15,
     energy=1e-9,
-    modes=1,
     plasma=False,
     raman=False,
     backend="numpy_ref",
+    mode_average=True,
 )
-simulation.settings = replace(
-    simulation.settings,
-    quadrature=None,
-    components=None,
-    stats=default_spec("mode_averaged"),
-)
-assert simulation.translate().flags.mode_averaged
+assert output.metadata.simulation_kind == "mode_averaged"
 ```
+
+The run carries one mode, so `modes` greater than one is refused, as are `n_r`,
+`n_theta` and `radial_rule`, which shape a transverse rule the run does not have.
+The default statistics are the capillary's own, plasma and species included, less
+the quadrature estimate. Everything else (a tapered bore, a pressure gradient, a
+tube lattice, an envelope grid) runs as it does resolved. Luna.jl makes the
+opposite default choice: its `prop_capillary` is mode-averaged unless it is given
+a mode count ([coming from Luna.jl](../workflows/luna.md)).
 
 The [MI ensemble](../../auto_examples/supercontinuum/plot_03_modulational_instability_supercontinuum.rst)
 and [comb-to-continuum example](../../auto_examples/supercontinuum/plot_04_raman_comb_supercontinuum.rst)
-use this configuration at full length, retaining plasma and, for hydrogen, Raman.
+use this switch at full length, retaining plasma and, for hydrogen, Raman.
 Their saved metadata identifies `simulation_kind="mode_averaged"` and records no
 transverse quadrature. Those examples illustrate the chosen approximation; they
 do not establish agreement with a spatially resolved plasma calculation.
