@@ -1946,7 +1946,20 @@ same node, replacing the phase 1 records made elsewhere.
   0.48 ms per call in every mode. It is the largest remaining cost of the reduced
   modes, and of binary64's response; it predates this SEP.
 
-PENDING-PROPAGATOR
+**The propagator's share (§6.4).** Timed on the A40 by a variant of the stage entry
+that skips the phase sum and the exponential (so the share includes forming the
+argument), on the fibre with Raman, 64 fixed steps, solo, median of five:
+
+| mode | $2^{16}$: full / without, ms | $2^{18}$: full / without, ms | share |
+|---|---|---|---|
+| mixed | 93.3 / 87.2 | 300.7 / 284.1 | 6.5 % / 5.5 % |
+| single | 86.8 / 78.2 | 265.0 / 242.4 | 9.9 % / 8.5 % |
+| binary64 | 294.4 / 287.5 | 1060.9 / 1046.7 | 2.3 % / 1.3 % |
+
+The share stays below the 15 % trigger in every mode at both sizes; the rest of the
+stage entry's 21 % is the stage combination. Neither remedy is adopted. Single's share
+includes the binary64 functions it now uses (deviations, below). The diagnostic variant
+is not kept.
 
 **The Q8 rule** (§6.6), on mixed precision, the noise study's mode. The best way at
 $2^{14}$ and $2^{15}$ samples is the lockstep batch: 4.1×10⁷ and 5.3×10⁷
