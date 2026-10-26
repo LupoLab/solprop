@@ -1705,7 +1705,12 @@ class Simulation(Displayed):
                     or ("the guide's regions" if self.general is not None else "none"),
                 ),
                 ("input", initial),
-                ("noise", "none" if self.noise is None else type(self.noise).__name__),
+                (
+                    "noise",
+                    "none"
+                    if self.noise is None
+                    else f"{self.noise.model} model, seed {self.noise.seed}",
+                ),
                 ("settings", str(self.settings)),
             ]
         )
