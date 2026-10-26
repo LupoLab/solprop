@@ -159,7 +159,7 @@ def report(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     parser.add_argument("--precision", default="single",
                         choices=("double", "single", "mixed"))  # fmt: skip
     parser.add_argument("--exponents", type=int, nargs="+", default=[13, 14, 15, 16])
