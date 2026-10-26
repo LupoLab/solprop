@@ -274,7 +274,14 @@ class NativeBackend(StepDriver[_core.State]):
         self._scale = launch.scale if launch is not None and held else 1.0
         self._scale_exponent = None if launch is None else launch.exponent
         self._last_dz = math.nan
-        self._native_state = _core.State(payload | _precision_payload(problem, payload))
+        try:
+            self._native_state = _core.State(
+                payload | _precision_payload(problem, payload)
+            )
+        except _core.GemmProbeError as error:
+            # solprop SEP 36 section 6.3: the vendor BLAS's binary32 products are not
+            # binary32 (TF32, xf32); the run is refused at construction.
+            raise BackendError(f"solprop-native: {error}") from error
         if self._z_tables is not None:
             self._z_tables.upload(self._native_state)
         _upload_flux_table(self._native_state, problem)
@@ -1382,6 +1389,9 @@ class NativeBackend(StepDriver[_core.State]):
         work = super().metadata()
         if self._adams is None and self._low_storage is None:
             work["source_evaluations"] = self._native_state.rk_source_evaluations
+        if self._problem.precision.reduced:
+            # SEP 36 section 6.3: the construction's largest GEMM probe error.
+            work["gemm_probe_error"] = self._native_state.gemm_probe_error
         return {
             **work,
             **facts.info,

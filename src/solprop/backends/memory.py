@@ -360,6 +360,7 @@ def estimate_memory(problem: KernelProblem, backend: str) -> MemoryEstimate:
         )
     groups["base"] = (
         sum(base.values())
+        + gemm_probe_memory(problem, name)
         + sum(dispersive_memory(problem, name).values())
         + sum(far_field_memory(problem, name).values())
         + sum(flux_closure_memory(problem, name).values())
@@ -382,6 +383,41 @@ def estimate_memory(problem: KernelProblem, backend: str) -> MemoryEstimate:
         not_counted=_NOT_COUNTED[name],
         resident=groups["general_reference"],
     )
+
+
+def gemm_probe_memory(problem: KernelProblem, backend: str) -> int:
+    """Return the bytes of native's GEMM probe under a reduced precision (SEP 36 6.3).
+
+    At construction the native backend multiplies binary32 Gaussian factors of each
+    product family the run issues (at most 64 rows and columns, the run's inner
+    dimension) and releases them before the march; the largest family's three buffers,
+    complex binary32, bound the peak. The separable routes and a single mode issue
+    none.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The problem.
+    backend : str
+        The resolved backend name.
+
+    Returns
+    -------
+    int
+        Bytes; zero off native, in binary64, or without products.
+    """
+    geometry = problem.transform.geometry
+    modes = problem.shape[1]
+    if (
+        backend != "native"
+        or not problem.precision.reduced
+        or modes < 2
+        or (geometry is not None and geometry.kind in ("free", "slab"))
+    ):
+        return 0
+    inner = max(modes, problem.transform.synthesis.shape[0])
+    side = 64
+    return 8 * (side * inner + inner * side + side * side)
 
 
 # The reference's rows that stay binary64 on the single-precision path: the exponents

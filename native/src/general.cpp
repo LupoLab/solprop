@@ -303,6 +303,9 @@ bool GeneralState::fsal_ready() const noexcept {
 std::size_t GeneralState::rk_source_evaluations() const noexcept {
   return engaged() ? SOLPROP_NATIVE_EACH(rk_source_evaluations()) : 0;
 }
+double GeneralState::gemm_probe_error() const noexcept {
+  return engaged() ? SOLPROP_NATIVE_EACH(gemm_probe_error()) : 0.0;
+}
 bool GeneralState::closed() const noexcept {
   return !engaged() || SOLPROP_NATIVE_EACH(closed());
 }

@@ -416,6 +416,18 @@ else()
   set(SOLPROP_NATIVE_DEVICE_ARCH "host")
 endif()
 string(TOUPPER "${CMAKE_BUILD_TYPE}" SOLPROP_NATIVE_BUILD_TYPE_UPPER)
+# No build flushes subnormals to zero: binary32 keeps them on every target (SEP 25,
+# solprop SEP 36 section 6.3), and a device's fast-math implies the flush.
+foreach(_flag_variable IN ITEMS CMAKE_CXX_FLAGS
+                                CMAKE_CXX_FLAGS_${SOLPROP_NATIVE_BUILD_TYPE_UPPER}
+                                CMAKE_CUDA_FLAGS CMAKE_HIP_FLAGS)
+  if("${${_flag_variable}}" MATCHES
+     "(^| )(-ftz=true|--ftz=true|-use_fast_math|--use_fast_math|-fgpu-flush-denormals-to-zero|-fcuda-flush-denormals-to-zero)( |$)")
+    message(FATAL_ERROR
+      "${_flag_variable} flushes binary32 subnormals to zero (${CMAKE_MATCH_2}); "
+      "solprop-native keeps them on every target")
+  endif()
+endforeach()
 set(SOLPROP_NATIVE_CONFIGURATION_FLAGS
     "${CMAKE_CXX_FLAGS_${SOLPROP_NATIVE_BUILD_TYPE_UPPER}}")
 string(CONCAT SOLPROP_NATIVE_COMPILER_FLAGS
