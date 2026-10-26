@@ -329,3 +329,41 @@ def test_envelope_population_scan_matches_independent_response(envelope_mixture)
         np.testing.assert_allclose(
             peaks[index, 0], np.max(oracle.ionisation_rate), rtol=2e-6, atol=1e-30
         )
+
+
+@pytest.mark.parametrize("precision", ["single", "mixed"])
+@pytest.mark.parametrize("geometry", ["radial", "free"])
+@pytest.mark.parametrize("n_pol", [1, 2])
+def test_reduced_precision_envelope_populations_on_the_spatial_routes(
+    envelope_mixture, geometry, n_pol, precision
+):
+    """Native's reduced envelope plasma on the radial and Cartesian chunks (SEP 36).
+
+    Two populations, partial node chunks: native's binary32 quadrature with binary64
+    sums against the oracle in the same precision and against native's binary64, in
+    the class T envelope of the fibre case (SEP 36 section 6.5).
+    """
+    from solprop.backends.registry import native_precisions, select  # noqa: PLC0415
+    from solprop.translate.precision import precision_named  # noqa: PLC0415
+
+    if precision not in native_precisions():
+        pytest.skip(f"no native build runs precision={precision!r}")
+    problem, grid = geometry_case(envelope_mixture, geometry, n_pol)
+    reduced = replace(problem, precision=precision_named(precision))
+    fields = {}
+    for label, case, name in (
+        ("native", reduced, "native"),
+        ("oracle", reduced, "numpy_ref"),
+        ("double", problem, "native"),
+    ):
+        backend = select(name, case, grid=grid)
+        try:
+            backend.set_initial(case.initial.field0, None)
+            backend.propagate_to(grid.length)
+            fields[label] = backend.observe().require_field().copy()
+        finally:
+            backend.close()
+    assert_within(fields["native"], fields["oracle"], 1e-5)
+    assert_within(fields["native"], fields["double"], 1e-5)
+    # The reduced source's rounding is there: the run is not binary64's.
+    assert not np.array_equal(fields["native"], fields["double"])
