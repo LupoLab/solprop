@@ -14,6 +14,8 @@ __all__ = [
     "AdiabaticTaperWarning",
     "ApertureEdgeWarning",
     "BackendError",
+    "BoundaryError",
+    "BoundaryWarning",
     "ConvergenceError",
     "CouplingError",
     "DiluteScalingWarning",
@@ -107,6 +109,13 @@ class DriverError(SolpropError, RuntimeError):
 
 class MemoryBudgetError(DriverError):
     """A run's estimated persistent memory exceeds its declared memory budget."""
+
+
+class BoundaryError(SolpropError, RuntimeError):
+    """Light reached the time window's edge beyond what the boundary check allows.
+
+    Raised by the boundary monitor (SEP 21), and for an invalid check.
+    """
 
 
 class GridError(SolpropError, ValueError):
@@ -281,6 +290,15 @@ class MemoryBudgetWarning(SolpropWarning):
 
 class GeneralModalBasisWarning(SolpropWarning):
     """A general modal basis leaves its budget somewhere the run's light can reach."""
+
+
+class BoundaryWarning(SolpropWarning):
+    """The time window's guards or collar hold more of the field than its budget allows.
+
+    Issued by the boundary monitor (SEP 21): at the launch, at the first committed step
+    whose guard occupancy exceeds the budget, and at the end of a run whose collar
+    removed more than the budget.
+    """
 
 
 class GasFlowWarning(SolpropWarning):

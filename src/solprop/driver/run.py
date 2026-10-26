@@ -56,6 +56,7 @@ from solprop.log import (
     ProgressReporter,
     resolve_reporter,
 )
+from solprop.monitor import BoundaryMonitor
 from solprop.output.capability import (
     capability_of,
     declared_capability,
@@ -274,6 +275,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
     field_planes: Sequence[int] = (),
     snapshots: SnapshotController | None = None,
     tdse_archive: TDSEArchiveWriter | None = None,
+    boundary_monitor: BoundaryMonitor | None = None,
 ) -> None:
     """Run one translated problem to its save planes, writing each one out.
 
@@ -351,6 +353,10 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         ``step_planes=1``, all fields and non-interpolated observations.
     tdse_archive : solprop.output.tdse_archive.TDSEArchiveWriter or None, optional
         Live archive to suspend and copy beside the optical writer.
+    boundary_monitor : solprop.monitor.BoundaryMonitor or None, optional
+        Watches the time window's edges (SEP 21): attached to the backend once its
+        launch is recorded, fed every committed step, and its record reported and
+        written into the execution record at the end. ``None`` watches nothing.
 
     Raises
     ------
@@ -472,6 +478,9 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
                     tdse_binding,
                     RunOutcome("running", reached),
                 )
+        attach = getattr(backend, "attach_monitor", None)
+        if boundary_monitor is not None and attach is not None:
+            attach(boundary_monitor)
         index = start_plane
         while index < planes.size:
             target = float(planes[index])
@@ -539,6 +548,8 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
             # A natural step can stop short of the requested plane (SEP 14).
             if math.isclose(summary.z, target, rel_tol=1e-12, abs_tol=0.0):
                 index += 1
+        if boundary_monitor is not None and attach is not None:
+            boundary_monitor.finish()
         with committing():
             _record_execution(
                 checkpoint_output,

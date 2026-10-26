@@ -55,6 +55,23 @@ The first public release. It contains:
   benchmark suite's `ctc_reduced` case moves to a 2 ps window (revision 2). Kernel schema 37 (`Multistep.carrier_frame`); every `Multistep`
   representation names the policy, so a march snapshot taken before it restarts its
   history.
+- **Time-window boundaries**
+  ([SEP 21](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0021-absorbing-boundaries.html),
+  phase 2, in progress). The temporal collar lies outside the requested window: grids
+  widen to `trange / (1 - 2 collar_fraction)`, with `collar_fraction` now 0.1, so the
+  whole request is flat; `collar_placement="inside"` rebuilds the former geometry.
+  Transform sizes default to `fft_size="auto"`, the cheapest 2-3-5-smooth size up to the
+  next power of two by a fitted FFT cost model (`grid.fft_cost`). GNLSE and spatial runs
+  get the default temporal and spectral collar, as capillary runs have (the real-space
+  transverse collar stays off unless an absorber is given: `Absorber.spatial`). Every
+  `prop_*` interface takes `absorber=False`, which switches both soft collars off and
+  keeps the hard band mask (`boundaries.no_absorber`), and `absorber_scheme=`. A boundary
+  monitor (`solprop.monitor`, `SimulationSettings.boundary_check`, on by default) watches
+  the window's guards at the launch and every committed step, warns
+  (`BoundaryWarning`) and then stops (`BoundaryError`) when light reaches the edge, and
+  records the energy the temporal collar removed. Output schema 26 (`Absorber.spatial`,
+  and the default collar of runs that declared none). The benchmark suite's cases take
+  the new defaults at new revisions.
 - **Incident beams into general modal guides**
   ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0031-simulation-coupling.html),
   phases 1 and 3). `from_waveguide(provider=..., incident=SpatialPulse(...),

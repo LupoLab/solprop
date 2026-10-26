@@ -662,6 +662,9 @@ def test_a_beam_the_channels_cannot_see_is_a_valid_zero_launch(incident_guide, g
     of the incident energy, since an energy is quadratic in the amplitude.
     """
     simulation = launched(incident_guide, grid, incident_beam(3e-6, (0.0, 1.0)))
+    # The subject is the zero launch; its rounding residue fills the whole window. The
+    # check is read at run time, so it can be switched off after translation.
+    simulation.settings = dataclasses.replace(simulation.settings, boundary_check=None)
     report = account(simulation)
     assert simulation.general is not None
     nodes = int(simulation.general.tables.electric.shape[1])
@@ -2589,7 +2592,10 @@ def test_fixed_steps_beyond_the_collar_are_refused_at_translation():
         simulation().run(progress="none")
     for settings in ({"absorber_scheme": "split_step"}, {"absorber": None}):
         stable = simulation()
-        stable.settings = dataclasses.replace(stable.settings, **settings)
+        # The subject is the collar's limit; the short window's light reaches its edge.
+        stable.settings = dataclasses.replace(
+            stable.settings, boundary_check=None, **settings
+        )
         output = stable.run(progress="none")
         assert isinstance(output, MemoryOutput)
         assert all(np.all(np.isfinite(kept(plane.field))) for plane in output.planes())

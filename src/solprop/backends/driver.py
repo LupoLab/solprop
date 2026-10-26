@@ -47,6 +47,7 @@ from solprop.grid import TimeGrid
 from solprop.log import NOT_ESTIMATED, NullReporter, ProgressReporter
 from solprop.modes.protocol import Mode
 from solprop.modes.quadrature import mode_matrix, on_axis_rule
+from solprop.monitor import BoundaryMonitor
 from solprop.noise import NoiseRealisation
 from solprop.output.schema import MarchSnapshot
 from solprop.profiles import ZProfile
@@ -891,6 +892,8 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             record["source_evaluations"] = self._rk_source_evaluations
         if self._collar_skipped:
             record["collar_diagnostic_skipped"] = self._collar_skipped
+        if self._monitor is not None:
+            record["boundary_monitor"] = self._monitor.summary()
         return record
 
     def march_snapshot(self) -> MarchSnapshot | None:
@@ -1847,6 +1850,24 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             return True
         return False
 
+    _monitor: BoundaryMonitor | None = None
+    """The run's boundary monitor (SEP 21), fed every committed step; ``None``."""
+
+    def attach_monitor(self, monitor: BoundaryMonitor) -> None:
+        """Watch the time window's edges from here on, starting with the current state.
+
+        The launch is recorded now; every committed step is then accounted at the
+        same point as the periodic statistics rows (:meth:`_take_step_stats`), on
+        every march, after the state is finished and the position advanced.
+
+        Parameters
+        ----------
+        monitor : solprop.monitor.BoundaryMonitor
+            A monitor with nothing recorded.
+        """
+        self._monitor = monitor
+        monitor.launch(self._observed_field(self._require_state()), self._z)
+
     def _take_step_stats(self) -> None:
         """Record one statistics row when this accepted step is the period-th.
 
@@ -1862,6 +1883,8 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         what that plane records; a second implementation of a statistic could drift
         from the first.
         """
+        if self._monitor is not None:
+            self._monitor.step(self._observed_field(self._require_state()), self._z)
         if self._row_spec is None:
             return
         self._accepted_steps += 1

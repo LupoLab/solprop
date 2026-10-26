@@ -9,6 +9,7 @@ selected backend's existing kernels for each member at each shared step. It does
 not amortise GPU kernel launches and is not a device-batching performance claim.
 """
 
+import copy
 from collections.abc import Sequence
 from contextlib import ExitStack
 from typing import cast
@@ -19,6 +20,7 @@ from jaxtyping import Complex
 from solprop.backends.driver import StepDriver, replay_tolerance
 from solprop.backends.protocol import Backend, Observation
 from solprop.exceptions import BackendError
+from solprop.monitor import BoundaryMonitor
 from solprop.stats import StatsSpec
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.problem import KernelProblem
@@ -233,6 +235,17 @@ class LockstepRunner(StepDriver[tuple[object, ...]]):
             member._schedule_index = self._schedule_index
             member._record(z, dz, own_norm, accepted)
             member._accepted_norms.append(own_norm)
+
+    def attach_monitor(self, monitor: BoundaryMonitor) -> None:
+        """Give every member its own copy of the boundary monitor (SEP 21).
+
+        Parameters
+        ----------
+        monitor : solprop.monitor.BoundaryMonitor
+            A monitor with nothing recorded, copied per member.
+        """
+        for member in self._members:
+            member.attach_monitor(copy.deepcopy(monitor))
 
     def _take_step_stats(self) -> None:
         """Collect periodic rows through each backend's storage hooks."""

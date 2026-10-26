@@ -362,6 +362,8 @@ def test_the_absorbed_power_predicts_the_energy_step_at_its_orders(grid, lossy_l
             save_planes=[step],
             dz_max=step,
             dz_init=step,
+            # The subject is the absorbed power; the random launch fills the window.
+            boundary_check=None,
             spec=StatsSpec(
                 names=("energy", "absorbed_power"),
                 periodic=("absorbed_power",),

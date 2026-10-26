@@ -237,6 +237,8 @@ def test_a_replayed_step_just_inside_the_budget_completes_finite():
     with warnings.catch_warnings():
         warnings.simplefilter("error", ExponentBudgetWarning)
         simulation = line(evanescent_rate=RATE, step=step, length=4 * step)
+    # The exponent budget is the subject; the beam reaches the window's edge.
+    simulation.settings = dataclasses.replace(simulation.settings, boundary_check=None)
     output = simulation.run(progress="none")
     assert np.all(np.isfinite(output["field"]))
 
@@ -416,6 +418,10 @@ def test_a_radial_step_inside_the_budget_completes_finite():
     with warnings.catch_warnings():
         warnings.simplefilter("error", ExponentBudgetWarning)
         simulation = radial(step=step, length=4 * step)
+        # The exponent budget is the subject; the beam reaches the window's edge.
+        simulation.settings = dataclasses.replace(
+            simulation.settings, boundary_check=None
+        )
         output = simulation.run(progress="none")
     assert np.all(np.isfinite(output["field"]))
 

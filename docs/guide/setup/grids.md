@@ -121,8 +121,9 @@ print(grid.n_t, grid.n_to, grid.n_omega)
 print(f"Time window: {grid.n_t * grid.dt * 1e15:.1f} fs")
 ```
 
-This grid has 4096 coarse time samples, 8192 fine time samples, and 2049 stored
-spectral samples. Its realised window is about 409.9 fs. The grid's length is a
+This grid has 5120 coarse time samples, 10240 fine time samples, and 2561 stored
+spectral samples. Its realised window is about 512.4 fs: the 400 fs request, which stays
+flat, and a temporal collar outside it at each end. The grid's length is a
 propagation parameter; constructing it does not run a simulation.
 
 (the-time-axis)=
@@ -140,10 +141,12 @@ Both time axes are centred on zero:
 
 $$t_n=\left(n-\frac{n_t}{2}\right)\delta t,\qquad n=0,\ldots,n_t-1.$$
 
-The sample count is even. Sizes are powers of two by default. With
-`fft_size="smooth"`, even numbers whose prime factors are 2, 3, and 5 are also
-available. For example, a requirement of 4100 samples rounds to 8192 with the
-power-of-two choice and 4320 with the smooth choice.
+The sample count is even. By default (`fft_size="auto"`) the fine size is the
+cheapest even number with prime factors 2, 3 and 5 between the requirement and the next
+power of two, by a transform-cost model fitted to measured FFT timings
+({py:func}`solprop.grid.fft_cost`); `fft_size="pow2"` takes the next power of two and
+`fft_size="smooth"` the next 2-3-5 size. For example, a requirement of 4100 samples
+rounds to 8192 with the power-of-two choice and 4320 with the smooth choice.
 
 ### Building a field grid
 
@@ -157,7 +160,8 @@ $\omega_{\max}^{\mathrm{win}}=1.1\omega_{\max}$.
    for a response without that content. The allowed minimum is 2; at that minimum
    the upper collar is truncated rather than fully represented.
 2. The fine size `n_to` is an allowed transform size at least
-   `trange/dt_fine`. The realised duration is $T=n_{to}\delta t_{\mathrm{fine}}$,
+   `trange/((1 - 2 f_c) dt_fine)`, the request widened to hold the temporal collar
+   outside it ($f_c$ below). The realised duration is $T=n_{to}\delta t_{\mathrm{fine}}$,
    and both grids have the same $\delta\omega=2\pi/T$.
 3. The coarse size `n_t` is the smallest even divisor of `n_to` that holds the
    required spectral bins through the upper collar. Its spectral size is
@@ -169,9 +173,9 @@ enlarges the fine size to a compatible multiple and recomputes the two sizes.
 The realised window can therefore grow by more than the initial FFT rounding.
 
 For the grid constructed above, the fine spacing is about 50.03 as. The requested
-400 fs window requires about 7994 fine samples, which rounds to 8192. There are
-1503 non-negative bins through the upper collar, so the coarse size rounds to
-4096 and the stored half-spectrum has 2049 bins.
+400 fs window, widened for its collar, requires about 9993 fine samples, which the cost
+model takes to 10240. The coarse size is the smallest even divisor of that holding the
+bins through the upper collar, 5120, and the stored half-spectrum has 2561 bins.
 
 :::{important}
 Changing `ffac` can change the whole grid: its fine spacing, rounded size,
@@ -250,22 +254,21 @@ $[\omega_{\max},1.1\omega_{\max}]$. A temporal collar absorbs light near each en
 of the time window. The [boundary model](../numerics/boundaries.md) explains how
 these profiles become absorption rates during propagation.
 
-The temporal profile is flat for $|t|\leq t_{\mathrm{flat}}$, where
-
-$$t_{\mathrm{flat}}=\min\left(\frac{\mathtt{trange}}{2},
-                   \frac{T}{2}(1-2f_c)\right),$$
-
-and $f_c=\mathtt{collar\_fraction}$ is 0.05 by default. Each collar therefore
-occupies at least that fraction of the realised window. It can extend inside the
-requested window when FFT rounding leaves insufficient room outside it. Inspect
-the collar, not just `trange`, when deciding whether a pulse has enough room.
+The temporal profile is flat over the whole request, $|t|\leq\mathtt{trange}/2$:
+the realised window is at least $\mathtt{trange}/(1-2f_c)$, with
+$f_c=\mathtt{collar\_fraction}$ 0.1 by default, so each collar occupies at least that
+fraction of it, outside the request. `collar_fraction=0` leaves no collar room;
+`collar_placement="inside"` rebuilds the geometry used before SEP 21, in which the
+collar could extend inside the request when FFT rounding left too little room. The
+[boundary model](../numerics/boundaries.md#geometry-and-the-collar-that-is-not-one) says
+why, and how a run watches its window's edges.
 
 ```{eval-rst}
 .. plot::
    :filename-prefix: grids-absorbing-collars
    :include-source: False
-   :alt: The spectral collar surrounding the requested band and the temporal collar surrounding the flat part of a 409.9 fs window.
-   :caption: The actual collar profiles of the grid constructed in this chapter. The spectral shading marks the requested band. In time, shading marks the flat region and dotted lines mark the requested ±200 fs limits; the guaranteed collar width makes the flat region slightly smaller.
+   :alt: The spectral collar surrounding the requested band and the temporal collar surrounding the flat part of a 512.4 fs window.
+   :caption: The actual collar profiles of the grid constructed in this chapter. The spectral shading marks the requested band. In time, shading marks the flat region and dotted lines mark the requested ±200 fs limits, which coincide with it: the collar lies outside the request.
 
    import matplotlib.pyplot as plt
    from solprop.grid import FieldGrid
@@ -277,7 +280,7 @@ the collar, not just `trange`, when deciding whether a pulse has enough room.
    left.axvline(grid.omega_max_window * 1e-15, color="0.4", lw=0.8, ls="--")
    left.set(xlim=(0, 1.15 * grid.omega_max_window * 1e-15), xlabel="angular frequency (rad/fs)", ylabel="spectral window", ylim=(-0.05, 1.1))
    right.plot(grid.t * 1e15, grid.t_window, color="#bd512c")
-   half_flat = min(200e-15, grid.n_t * grid.dt * 0.45)
+   half_flat = grid.t_collar.one_high
    right.axvspan(-half_flat * 1e15, half_flat * 1e15, color="#bd512c", alpha=0.12)
    for edge in (-200, 200):
        right.axvline(edge, color="0.4", lw=0.8, ls=":")

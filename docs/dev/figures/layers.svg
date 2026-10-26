@@ -115,17 +115,19 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="758.75" y="193.5" font-size="15" class="bold ink-p">linear.py</text>
 <rect x="853.0" y="171.5" width="127.25000000000001" height="35.0" rx="7" ry="7" class="fill-p" />
 <text x="863.0" y="193.5" font-size="15" class="bold ink-p">boundaries.py</text>
-<rect x="307.0" y="216.5" width="143.75" height="81.5" rx="7" ry="7" class="fill-p" />
-<text x="317.0" y="238.5" font-size="15" class="bold ink-p">polarisation.py</text>
-<rect x="460.75" y="216.5" width="94.25" height="81.5" rx="7" ry="7" class="fill-p" />
-<text x="470.75" y="238.5" font-size="15" class="bold ink-p">optics.py</text>
-<rect x="565.0" y="216.5" width="86.0" height="81.5" rx="7" ry="7" class="fill-p" />
-<text x="575.0" y="238.5" font-size="15" class="bold ink-p">tools.py</text>
-<rect x="661.0" y="216.5" width="224.60000000000002" height="81.5" rx="7" ry="7" class="fill-p" />
-<text x="671.0" y="238.5" font-size="15" class="bold ink-p">coupling/</text>
-<text x="671.0" y="254.0" font-size="12" class="dim">plane · port · remap · models</text>
-<text x="671.0" y="269.5" font-size="12" class="dim">coupler · outcouple · envelopes</text>
-<text x="671.0" y="285.0" font-size="12" class="dim">transport · elements</text>
+<rect x="307.0" y="216.5" width="102.5" height="81.5" rx="7" ry="7" class="fill-p" />
+<text x="317.0" y="238.5" font-size="15" class="bold ink-p">monitor.py</text>
+<rect x="419.5" y="216.5" width="143.75" height="81.5" rx="7" ry="7" class="fill-p" />
+<text x="429.5" y="238.5" font-size="15" class="bold ink-p">polarisation.py</text>
+<rect x="573.25" y="216.5" width="94.25" height="81.5" rx="7" ry="7" class="fill-p" />
+<text x="583.25" y="238.5" font-size="15" class="bold ink-p">optics.py</text>
+<rect x="677.5" y="216.5" width="86.0" height="81.5" rx="7" ry="7" class="fill-p" />
+<text x="687.5" y="238.5" font-size="15" class="bold ink-p">tools.py</text>
+<rect x="773.5" y="216.5" width="224.60000000000002" height="81.5" rx="7" ry="7" class="fill-p" />
+<text x="783.5" y="238.5" font-size="15" class="bold ink-p">coupling/</text>
+<text x="783.5" y="254.0" font-size="12" class="dim">plane · port · remap · models</text>
+<text x="783.5" y="269.5" font-size="12" class="dim">coupler · outcouple · envelopes</text>
+<text x="783.5" y="285.0" font-size="12" class="dim">transport · elements</text>
 <rect x="307.0" y="308.0" width="218.00000000000003" height="128.0" rx="7" ry="7" class="fill-p" />
 <text x="317.0" y="330.0" font-size="15" class="bold ink-p">physdata/</text>
 <text x="317.0" y="345.5" font-size="12" class="dim">sellmeier · equation_of_state</text>

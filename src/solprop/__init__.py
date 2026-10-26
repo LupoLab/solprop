@@ -48,6 +48,7 @@ _SUBMODULES: Final = (
     "linear",
     "log",
     "modes",
+    "monitor",
     "noise",
     "nonlinear",
     "optics",

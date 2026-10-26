@@ -307,7 +307,8 @@ def test_cartesian_material_loss_gain_and_evanescence(
         medium,
         [],
         initial,
-        settings=dataclasses.replace(settings, backend=backend),
+        # The subject is the exact linear flow; the random launch fills the window.
+        settings=dataclasses.replace(settings, backend=backend, boundary_check=None),
     )
     actual = simulation.run().fields("fft")[-1]
     measured = np.max(np.abs(actual - expected)) / np.max(np.abs(initial))

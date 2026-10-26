@@ -144,6 +144,7 @@ from solprop.modes.quadrature import (
 from solprop.modes.slab import PlanarGrid, SlabMode
 from solprop.modes.stepindex import StepIndexMode
 from solprop.modes.tabulated import IndexTable
+from solprop.monitor import BoundaryCheck, BoundaryMonitor
 from solprop.noise import (
     NoiseRealisation,
     input_noise,
@@ -397,6 +398,7 @@ _EXECUTION_SETTINGS = (
     "tdse_execution",
     "fields",
     "field_planes",
+    "boundary_check",
 )
 """The settings read when a run executes, not when it is translated."""
 
@@ -590,6 +592,12 @@ class SimulationSettings(Displayed):
         Explicit atomic runtime resources for a TDSE response. Requires an explicit
         ``backend="numpy_ref"`` and a Multistep integrator. Execution resources are
         outside the scientific resume identity; attempted-call budgets are cumulative.
+    boundary_check : solprop.monitor.BoundaryCheck or None
+        How the run watches its time window's edges (SEP 21): guard and collar
+        occupancy at the launch and every committed step, a warning and then a stop
+        when light reaches the edge, and the energy the temporal collar removed at the
+        end. The default :class:`~solprop.monitor.BoundaryCheck` warns at a field-error
+        budget of 1e-3 and stops at ten times it; ``None`` watches nothing.
 
     Raises
     ------
@@ -645,6 +653,9 @@ class SimulationSettings(Displayed):
     evanescent_rate: float | None = None
     transverse_absorber: TransverseCollar | None = None
     adiabatic_accuracy: AdiabaticAccuracy | None = None
+    boundary_check: BoundaryCheck | None = dataclasses.field(
+        default_factory=BoundaryCheck
+    )
 
     def _planes_text(self) -> str:
         """Return the save planes summarised, for printing.
@@ -1617,7 +1628,7 @@ class Simulation(Displayed):
         DriverError
             If the simulation has already been translated and the replacement changes
             a setting other than ``backend``, ``resume_history``, ``fields``,
-            ``field_planes`` or ``tdse_execution``, naming them.
+            ``field_planes``, ``tdse_execution`` or ``boundary_check``, naming them.
         """
         if self._problem is not None:
             changed = [
@@ -1633,8 +1644,9 @@ class Simulation(Displayed):
                     f"this Simulation is already translated, so a new "
                     f"{', '.join(changed)} would be ignored; set the settings before "
                     "the first translate() or run(), or build a new Simulation (only "
-                    "the backend, resume_history, fields, field_planes and TDSE "
-                    "execution resources may change after translation)"
+                    "the backend, resume_history, fields, field_planes, the TDSE "
+                    "execution resources and boundary_check may change after "
+                    "translation)"
                 )
                 raise DriverError(msg)
         if hasattr(self, "noise"):
@@ -2499,6 +2511,32 @@ class Simulation(Displayed):
             n_components=self.translate().transform.n_pol,
         )
 
+    def _boundary_monitor(self) -> BoundaryMonitor | None:
+        """Return the boundary monitor of a fresh run, or ``None`` without a check.
+
+        Returns
+        -------
+        solprop.monitor.BoundaryMonitor or None
+            Weights for this grid, its temporal collar and, on a radial run, the
+            Hankel quadrature of its columns.
+        """
+        check = self.settings.boundary_check
+        if check is None:
+            return None
+        boundary = self.settings.absorber
+        rate = (
+            None
+            if boundary is None or not np.any(boundary.temporal_rate)
+            else boundary.temporal_rate
+        )
+        space = self.spatial_grid
+        columns = (
+            np.asarray(space.hankel.spectral_weights, dtype=np.float64)
+            if isinstance(space, RadialGrid)
+            else None
+        )
+        return BoundaryMonitor.build(self.grid, rate, check, columns=columns)
+
     def run(  # noqa: PLR0913 - independent execution and output controls
         self,
         output: Output | Path | str | None = None,
@@ -2680,6 +2718,7 @@ class Simulation(Displayed):
                     field_planes=retention.field_planes,
                     snapshots=snapshots,
                     tdse_archive=archive,
+                    boundary_monitor=self._boundary_monitor(),
                 )
             except BaseException as error:
                 failure = error
@@ -5851,6 +5890,7 @@ class SimulationRunner(Displayed):
                 resume_history=settings.resume_history,
                 fields=retention.fields,
                 field_planes=retention.field_planes,
+                boundary_monitor=derived._boundary_monitor(),
             )
             derived._peak_fields = _peak_field_reports(
                 problem, handler, derived.responses

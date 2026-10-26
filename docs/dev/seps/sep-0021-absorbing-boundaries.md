@@ -2328,6 +2328,47 @@ diagnostics; transform-size cost; full-length timings.
 under the SEP's number. Phase 2 starts from the decisions above; the witnesses of §7
 (wrap, flux, floor law) are ready to become tests.
 
+### Phase 2 — progress (in progress)
+
+Recorded as slices land; the phase report follows at the end of the phase.
+
+- **Slice 1, keywords.** `absorber=False` and `absorber_scheme=` on every `prop_*`
+  interface; `boundaries.no_absorber` builds the hard mask alone. A scheme beside
+  `absorber=False`, or a keyword that contradicts a spatial run's settings, is refused.
+- **Slice 2, geometry and defaults (D1, D3, D6, D8, Q4, Q16).** Grids widen to
+  `trange / (1 - 2f)`, `f = 0.1`, so the collar lies outside the request;
+  `collar_placement="inside"` keeps the former geometry for frozen witnesses.
+  `fft_size="auto"` is the default: the cheapest 2-3-5-smooth fine size up to the next
+  power of two by a cost model fitted to the FFTW tables of finding 14 (each factor of
+  3 costs 1.05, each of 5 1.04; within 13-19 % of the best size for 90 % of requests,
+  against 1.53 at worst for the next smooth size). The coarse-divides-fine rule is kept
+  (Q23's second half stays open). GNLSE and spatial runs get the default collar (the
+  maintainer's decision of 2026-10-26); on spatial runs `Absorber.spatial=False` keeps
+  the real-space collar off, as it was without an absorber (D9). `absorber=False` builds
+  a grid with no collar room (Q16). Output schema 26. Short fixed schedules on the
+  newly collared routes are refused, as on capillary runs (maintainer's decision). The
+  benchmark suite's cases take the new defaults at new revisions; their accuracy
+  ceilings are carried over and must be requalified on the new grids.
+- **Slice 3, the boundary monitor (D5, D7).** `solprop.monitor`, on by default through
+  `SimulationSettings.boundary_check`.
+  - **Deviation: no kernel change.** The monitor reads the committed state through the
+    driver's existing host observation at the committed-endpoint point of §4.6
+    (`_take_step_stats`), on every march and backend, and is computed in NumPy. No
+    kernel schema bump; the cost is one inverse transform of the state per committed
+    step, which a backend-resident reduction could later remove.
+  - **Deviation: one quadrature for both schemes.** The removed fraction is the
+    trapezoid of the removal rate over committed steps under either scheme; the split's
+    exact discrete difference is not yet recorded. On a walking pulse fully absorbed
+    the trapezoid matches the run's own energy deficit to 5 % in the tests and to
+    2e-4 relative on a clear-but-dispersing pulse.
+  - **Not yet:** occupancies as saved-plane statistics (they are in the execution
+    record), and the energy-density proxy on spatial routes is the quadrature-weighted
+    field norm, not SEP 34's admittance-weighted flux.
+- **Observed:** on the capability capillary route an adaptive exponential Adams run
+  limited by the in-stage collar chooses steps that differ between backends by up to
+  2 % at rounding level, with fields equal to 6e-12; the test was pinned to the former
+  grid. A controller question near the collar's stability limit, recorded here.
+
 ## Part III — History
 
 - 2026-10-16: Drafted. The same day, John Travers resolved Q1–Q10 with the drafting agent,
