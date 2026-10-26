@@ -535,7 +535,7 @@ class SimulationSettings(Displayed):
         An installed backend's import or construction errors never trigger a fallback.
     precision : {'double', 'single', 'mixed'}
         The arithmetic the run is held in (SEP 33, SEP 36,
-        ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is
+        ``docs/guide/performance/reduced-precision.md``). ``"double"``, the default, is
         binary64 throughout and changes nothing.
         ``"single"`` holds the state, the stages, the transforms and the responses in
         binary32, with the controller and every host scalar in binary64. ``"mixed"``

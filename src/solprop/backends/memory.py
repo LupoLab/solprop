@@ -119,6 +119,7 @@ __all__ = [
     "estimate_memory",
     "far_field_memory",
     "flux_closure_memory",
+    "gemm_probe_memory",
     "held_current_memory",
     "ledger_groups",
     "low_storage_flow_scratch",

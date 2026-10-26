@@ -26,12 +26,12 @@ of each run's wall time is its set-up: the GPU run took about 0.6 times ``native
 binary64 time for the capillary and the same for the filament on a MacBook Pro M5
 Max, while
 the envelope plasma's step itself is several times faster on the GPU
-(:doc:`/guide/performance/single-precision`).
+(:doc:`/guide/performance/reduced-precision`).
 
 **What is approximate.** Single precision's tolerance floor is ``rtol = 1e-6`` (the
 default here); a problem that amplifies small perturbations strongly, such as a
 noise-free comb-to-continuum, reaches its accuracy over a shorter length, as the
-:doc:`survival record </guide/performance/single-precision>` states. Timings depend on
+:doc:`survival record </guide/performance/reduced-precision>` states. Timings depend on
 the machine and its load.
 """
 

@@ -16,7 +16,7 @@
 | **Supersedes** | — |
 | **Superseded-by** | — |
 | **Implementation** | John Travers with Opus 5.5 (AI); phases 1–4 on `feature/sep-0033-single-precision`, one pull request |
-| **Manual pages** | [Single precision](../../../guide/performance/single-precision.md); [Choosing a backend](../../../guide/performance/backends.md#the-apple-gpu-backend); the worked example [Single precision on an Apple GPU](../../../auto_examples/performance/plot_01_single_precision.rst) |
+| **Manual pages** | [Reduced precision](../../../guide/performance/reduced-precision.md); [Choosing a backend](../../../guide/performance/backends.md#the-apple-gpu-backend); the worked example [Single precision on an Apple GPU](../../../auto_examples/performance/plot_01_single_precision.rst) |
 
 ## Part I — Proposal
 
