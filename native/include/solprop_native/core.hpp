@@ -709,6 +709,8 @@ public:
   [[nodiscard]] std::size_t raman_kernel_transforms() const noexcept;
   [[nodiscard]] bool fsal_ready() const noexcept;
   [[nodiscard]] std::size_t rk_source_evaluations() const noexcept;
+  // The largest normwise error of the construction's GEMM probe; zero in binary64.
+  [[nodiscard]] double gemm_probe_error() const noexcept;
   [[nodiscard]] bool closed() const noexcept;
   void close() noexcept;
 

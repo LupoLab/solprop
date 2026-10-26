@@ -191,6 +191,13 @@ def test_build_info_is_frozen_and_complete() -> None:
     assert info.fft_planner.startswith("Kokkos-FFT persistent Plan")
     assert info.precisions[0] == "double"
     assert set(info.precisions) <= {"double", "single", "mixed"}
+    # The reduced precisions' binary32 transform is loaded (solprop SEP 36 6.3).
+    if set(info.precisions) - {"double"}:
+        assert info.fft_binary32_library
+    # No build flushes binary32 subnormals to zero (SEP 25, SEP 36 section 6.3).
+    for flag in ("-ftz=true", "--ftz=true", "-fgpu-flush-denormals-to-zero",
+                 "--use_fast_math", "-use_fast_math"):  # fmt: skip
+        assert flag not in cast(str, _core.build_record()["compiler_flags"])
     assert info.layout == "LayoutRight"
     assert info.fast_math_enabled is False
 

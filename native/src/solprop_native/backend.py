@@ -274,7 +274,14 @@ class NativeBackend(StepDriver[_core.State]):
         self._scale = launch.scale if launch is not None and held else 1.0
         self._scale_exponent = None if launch is None else launch.exponent
         self._last_dz = math.nan
-        self._native_state = _core.State(payload | _precision_payload(problem, payload))
+        try:
+            self._native_state = _core.State(
+                payload | _precision_payload(problem, payload)
+            )
+        except _core.GemmProbeError as error:
+            # solprop SEP 36 section 6.3: the vendor BLAS's binary32 products are not
+            # binary32 (TF32, xf32); the run is refused at construction.
+            raise BackendError(f"solprop-native: {error}") from error
         if self._z_tables is not None:
             self._z_tables.upload(self._native_state)
         _upload_flux_table(self._native_state, problem)
@@ -1382,6 +1389,9 @@ class NativeBackend(StepDriver[_core.State]):
         work = super().metadata()
         if self._adams is None and self._low_storage is None:
             work["source_evaluations"] = self._native_state.rk_source_evaluations
+        if self._problem.precision.reduced:
+            # SEP 36 section 6.3: the construction's largest GEMM probe error.
+            work["gemm_probe_error"] = self._native_state.gemm_probe_error
         return {
             **work,
             **facts.info,
@@ -2372,25 +2382,18 @@ refuses it here by name.
 def _refuse_reduced(problem: KernelProblem) -> None:
     """Refuse, by name, a reduced-precision problem this build does not run (SEP 36).
 
-    Single and mixed precision run on a CPU build that compiled them, on every route
+    Single and mixed precision run on a build that compiled them, on every route
     SEP 36 admits (section 5.1). The routes no backend runs in binary32 are refused by
     the problem's own validation first; the slab kind, which the oracles run, is
     binary64 code on native.
     """
     name = problem.precision.name
     info = build_info()
-    if name not in info.precisions and info.device_backend != "none":
-        raise BackendError(
-            f"this solprop-native {info.device_backend} build refuses "
-            f"precision={name!r} until solprop SEP 36's phase 4 qualifies a device's "
-            "reduced-precision paths; use "
-            "backend='numpy_ref', a CPU build of solprop-native, or precision='double'"
-        )
     if name not in info.precisions:
         raise BackendError(
             f"this solprop-native build did not compile precision={name!r}; rebuild "
-            "it with SOLPROP_NATIVE_PRECISIONS='double;single;mixed' (the default of a "
-            "CPU build), or use backend='numpy_ref'"
+            "it with SOLPROP_NATIVE_PRECISIONS='double;single;mixed' (the default), "
+            "or use backend='numpy_ref'"
         )
     geometry = problem.transform.geometry
     if geometry is not None and geometry.kind == "slab":

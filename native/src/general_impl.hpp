@@ -17,6 +17,7 @@
 #include "solprop_native/fft_plan.hpp"
 #include "solprop_native/fp.hpp"
 #include "solprop_native/gemm.hpp"
+#include "solprop_native/gemm_probe.hpp"
 #include "solprop_native/general_modal.hpp"
 #include "solprop_native/plasma.hpp"
 #include "solprop_native/propagator.hpp"
@@ -1828,12 +1829,11 @@ public:
         state_scale_ = source_scale_;
         inverse_state_scale_ = inverse_source_scale_;
       }
-      // The tiled band column is the device form, qualified with the device paths.
-      if (band_tiled_ && problem_.plasma && problem_.plasma_band)
-        throw std::invalid_argument(
-            "the native backend does not run the tiled band column under single "
-            "precision (solprop SEP 36 phase 4); leave SOLPROP_NATIVE_BAND_TILES "
-            "unset");
+      // A reduced policy's band rule runs the team column on every target, a device's
+      // included (SEP 36 phase 4): the tiled column is binary64's device form and is
+      // not templated, so the process's tiling choice (SOLPROP_NATIVE_BAND_TILES, on
+      // by default on a device) applies to binary64 states alone.
+      band_tiled_ = false;
     }
     execution_space_ =
         kernel_pool_.get(CpuOperation::stage, problem_.n_columns() * problem_.n_omega);
@@ -1889,8 +1889,39 @@ public:
     planning_seconds_ =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - started)
             .count();
+    // Under a reduced policy the vendor BLAS's math mode is set, then each product
+    // family the run issues is probed against binary64 (solprop SEP 36 section 6.3).
+    if constexpr (!binary64) {
+      set_blas_math_mode();
+      gemm_probe_error_ =
+          probe_gemm_families<SourceReal>(transform_execution_space_, gemm_families());
+    }
     execution_space_.fence("solprop_native construction");
   }
+
+  // The product families a reduced-precision run issues through `selected_gemm`: real
+  // and complex, each inner dimension the transforms use (the modes, a full node
+  // chunk's rows and the tail chunk's), at most 64 rows and columns. The separable
+  // routes and a single node's folded transform issue none.
+  [[nodiscard]] std::vector<GemmFamily> gemm_families() const {
+    std::vector<GemmFamily> families;
+    if (problem_.separable_geometry() || folds_single_node() || problem_.n_modes < 2)
+      return families;
+    const auto chunk = std::min(problem_.node_chunk, problem_.n_nodes);
+    const auto full = chunk * problem_.n_pol_transform;
+    const auto tail =
+        (problem_.n_nodes % problem_.node_chunk) * problem_.n_pol_transform;
+    std::vector<std::size_t> inner{problem_.n_modes, full};
+    if (tail != 0 && tail != full)
+      inner.push_back(tail);
+    const auto rows = std::min<std::size_t>(64, std::max(problem_.n_modes, full));
+    const auto columns = std::min<std::size_t>(64, problem_.n_to);
+    for (const auto k : inner)
+      for (const bool complex : {false, true})
+        families.push_back({complex, rows, k, columns});
+    return families;
+  }
+  [[nodiscard]] double gemm_probe_error() const noexcept { return gemm_probe_error_; }
 
   void set_initial(const std::vector<Complex>& field,
                    const std::vector<Complex>& noise);
@@ -2263,6 +2294,8 @@ public:
   // `s` and `1 / s` of a binary32 state (single precision); one under Double and Mixed,
   // whose binary64 state is physical.
   double state_scale_ = 1.0, inverse_state_scale_ = 1.0;
+  // The largest normwise error of the construction's GEMM probe (reduced policies).
+  double gemm_probe_error_ = 0.0;
   // `s` and `1 / s` of a reduced policy's binary32 source, `s = 2^k` the launch's scale
   // (SEP 33 section 4.3); one under Double.
   double source_scale_ = 1.0, inverse_source_scale_ = 1.0;

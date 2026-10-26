@@ -70,6 +70,7 @@ template std::size_t GeneralWorkspace<Mixed>::raman_kernel_transforms() const no
 template bool GeneralWorkspace<Mixed>::fsal_ready() const noexcept;
 template std::size_t GeneralWorkspace<Mixed>::rk_source_evaluations() const noexcept;
 template bool GeneralWorkspace<Mixed>::closed() const noexcept;
+template double GeneralWorkspace<Mixed>::gemm_probe_error() const noexcept;
 template void GeneralWorkspace<Mixed>::close() noexcept;
 template class GeneralBatchWorkspace<Mixed>;
 

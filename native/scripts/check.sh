@@ -38,9 +38,11 @@ cpp_sources=(
   include/solprop_native/coupled_flow.hpp
   include/solprop_native/dispersive.hpp
   include/solprop_native/envelope_plasma.hpp
+  include/solprop_native/fft_probe.hpp
   include/solprop_native/far_field.hpp
   include/solprop_native/fft_plan.hpp
   include/solprop_native/fp.hpp
+  include/solprop_native/gemm_probe.hpp
   include/solprop_native/general_modal.hpp
   include/solprop_native/raman_fft.hpp
   include/solprop_native/gemm.hpp

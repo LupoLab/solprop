@@ -406,6 +406,10 @@ class BuildInfo:
         Transform implementation and planning policy.
     fft_library, raman_fft_library, blas_library, openmp_library
         Loaded provider paths resolved through this extension; empty if absent.
+    fft_binary32_library
+        The loaded binary32 transform's provider (``cufftExecC2C``, rocFFT or
+        ``fftwf_execute``), which the reduced precisions use (solprop SEP 36); empty
+        if absent.
     compiler, compiler_family, compiler_flags, cxx_standard, build_type
         Project compilation record.
     coverage_instrumented
@@ -500,6 +504,7 @@ class BuildInfo:
     fft_planner: str
     fft_normalization: str
     fft_library: str
+    fft_binary32_library: str
     blas_library: str
     openmp_library: str
     compiler: str
@@ -604,6 +609,7 @@ def build_info() -> BuildInfo:
         fft_planner=str(record["fft_planner"]),
         fft_normalization=str(record["fft_normalization"]),
         fft_library=str(record["fft_library"]),
+        fft_binary32_library=str(record["fft_binary32_library"]),
         blas_library=str(record["blas_library"]),
         openmp_library=str(record["openmp_library"]),
         compiler=str(record["compiler"]),
@@ -687,6 +693,11 @@ def check_build(problem: object | None = None) -> None:
     _check_seam(info, BackendError)
     if info.fast_math_enabled:
         raise BackendError("solprop-native was built with forbidden fast-math")
+    if set(info.precisions) - {"double"} and not info.fft_binary32_library:
+        raise BackendError(
+            "solprop-native compiled a reduced precision but loads no binary32 "
+            f"transform for its {info.fft_backend} backend (solprop SEP 36)"
+        )
     if info.openmp_enabled and info.execution_space != "OpenMP":
         raise BackendError(
             "the build enables OpenMP but its Kokkos execution space is "

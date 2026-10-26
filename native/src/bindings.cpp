@@ -5,6 +5,8 @@
 #include "helpers.hpp"
 #include "solprop_native/coefficient.hpp"
 #include "solprop_native/core.hpp"
+#include "solprop_native/fft_probe.hpp"
+#include "solprop_native/gemm_probe.hpp"
 
 #include <Kokkos_Core.hpp>
 
@@ -939,6 +941,10 @@ public:
     return general_state_ ? general_state_->rk_source_evaluations()
                           : state_->rk_source_evaluations();
   }
+  double gemm_probe_error() const {
+    require_open();
+    return general_state_ ? general_state_->gemm_probe_error() : 0.0;
+  }
   double quadrature_error() const {
     require_open();
     return general_state_ ? general_state_->quadrature_error()
@@ -1245,6 +1251,8 @@ nb::dict build_record() {
 #if defined(KOKKOS_ENABLE_CUDA)
   result["fft_backend"] = "cuFFT";
   result["fft_library"] = loaded_library("cufftExecZ2Z");
+  // The reduced policies' binary32 transforms (solprop SEP 36 section 6.3).
+  result["fft_binary32_library"] = loaded_library("cufftExecC2C");
   result["blas_library"] = loaded_library("cublasDgemm_v2");
   result["device_backend"] = SOLPROP_NATIVE_DEVICE_BACKEND;
   result["device_arch"] = SOLPROP_NATIVE_DEVICE_ARCH;
@@ -1252,6 +1260,7 @@ nb::dict build_record() {
 #elif defined(KOKKOS_ENABLE_HIP)
   result["fft_backend"] = "rocFFT";
   result["fft_library"] = loaded_library("rocfft_execute");
+  result["fft_binary32_library"] = loaded_library("rocfft_execute");
   result["blas_library"] = loaded_library("rocblas_dgemm");
   result["device_backend"] = SOLPROP_NATIVE_DEVICE_BACKEND;
   result["device_arch"] = SOLPROP_NATIVE_DEVICE_ARCH;
@@ -1259,6 +1268,7 @@ nb::dict build_record() {
 #elif defined(KOKKOS_ENABLE_OPENMP)
   result["fft_backend"] = SOLPROP_NATIVE_HOST_FFT_BACKEND;
   result["fft_library"] = loaded_library("fftw_execute");
+  result["fft_binary32_library"] = loaded_library("fftwf_execute");
   result["blas_library"] = loaded_library(blas_symbol("dgemm_").c_str());
   result["device_backend"] = SOLPROP_NATIVE_DEVICE_BACKEND;
   result["device_arch"] = SOLPROP_NATIVE_DEVICE_ARCH;
@@ -1266,6 +1276,7 @@ nb::dict build_record() {
 #else
   result["fft_backend"] = SOLPROP_NATIVE_HOST_FFT_BACKEND;
   result["fft_library"] = loaded_library("fftw_execute");
+  result["fft_binary32_library"] = loaded_library("fftwf_execute");
   result["blas_library"] = loaded_library(blas_symbol("dgemm_").c_str());
   result["device_backend"] = SOLPROP_NATIVE_DEVICE_BACKEND;
   result["device_arch"] = SOLPROP_NATIVE_DEVICE_ARCH;
@@ -1327,12 +1338,12 @@ nb::dict build_record() {
       static_cast<bool>(SOLPROP_NATIVE_COVERAGE_INSTRUMENTED);
   result["coverage_source_hash"] = SOLPROP_NATIVE_COVERAGE_SOURCE_HASH;
   // The precision policies this build runs, comma-separated (solprop SEP 36,
-  // SOLPROP_NATIVE_PRECISIONS); a device build's compile-only policies are not ones.
+  // SOLPROP_NATIVE_PRECISIONS).
   {
     std::string precisions = "double";
-    if (SOLPROP_NATIVE_SINGLE_BUILT && !SOLPROP_NATIVE_REDUCED_COMPILE_ONLY)
+    if (SOLPROP_NATIVE_SINGLE_BUILT)
       precisions += ",single";
-    if (SOLPROP_NATIVE_MIXED_BUILT && !SOLPROP_NATIVE_REDUCED_COMPILE_ONLY)
+    if (SOLPROP_NATIVE_MIXED_BUILT)
       precisions += ",mixed";
     result["precisions"] = precisions;
   }
@@ -1397,6 +1408,7 @@ nb::dict build_record() {
 
 NB_MODULE(_core, module_) {
   nb::exception<native::EnvelopeConvergenceError>(module_, "EnvelopeConvergenceError");
+  nb::exception<native::GemmProbeError>(module_, "GemmProbeError");
   module_.doc() = "Private nanobind seam for solprop-native";
   module_.def("initialize_runtime", &initialize_kokkos, "threads"_a, "kernels"_a = 0,
               "fft"_a = 0, "raman_fft"_a = 0, "raman_tail_fft"_a = 0,
@@ -1432,6 +1444,21 @@ NB_MODULE(_core, module_) {
       "values"_a, "warm"_a, "pairs"_a);
   module_.def("reference_stream_copies", &native::reference_stream_copies, "elements"_a,
               "warm"_a, "repeats"_a);
+  // solprop SEP 36 section 6.3's transform characterisation: one binary32 round trip
+  // through the reduced policies' plans, the forward spectrum and the backward
+  // transform of it, unnormalised.
+  module_.def(
+      "binary32_round_trip",
+      [](const ComplexInput& values, const bool real) {
+        if (values.ndim() != 2)
+          throw std::invalid_argument("the transform's rows must be two-dimensional");
+        const auto rows = values.shape(0), n = values.shape(1);
+        const auto [forward, backward] =
+            native::binary32_round_trip(values.data(), rows, n, real);
+        return nb::make_tuple(complex_output(forward, {rows, real ? n / 2 + 1 : n}),
+                              complex_output(backward, {rows, n}));
+      },
+      "values"_a, "real"_a);
   // A coefficient out of binary32's range is refused as solprop's TranslationError,
   // with the single-precision oracle's message (solprop SEP 33 section 4.3).
   nb::register_exception_translator([](const std::exception_ptr& error, void*) {
@@ -1452,6 +1479,18 @@ NB_MODULE(_core, module_) {
                                          factors.data() + factors.size(), exponent);
       },
       "factors"_a, "exponent"_a);
+  // solprop SEP 36 section 6.3: the math mode reduced-precision workspaces set on the
+  // vendor BLAS handle, "pedantic" (the default) or, for the probe's negative test,
+  // "reduced" (TF32, xf32); and whether this build has a handle whose mode is set.
+  module_.def("set_blas_math_mode_selection", [](const std::string& mode) {
+    if (mode == "pedantic")
+      native::blas_math_mode_selection() = native::BlasMathMode::pedantic;
+    else if (mode == "reduced")
+      native::blas_math_mode_selection() = native::BlasMathMode::reduced;
+    else
+      throw std::invalid_argument("the BLAS math mode is \"pedantic\" or \"reduced\"");
+  });
+  module_.def("blas_math_mode_settable", &native::blas_math_mode_settable);
   module_.def("shutdown_runtime", &shutdown_kokkos);
   module_.def("build_record", &build_record);
   native::bindings::bind_helpers(module_);
@@ -2119,6 +2158,8 @@ NB_MODULE(_core, module_) {
       .def_prop_ro("fsal_ready", [](BoundState& self) { return self.fsal_ready(); })
       .def_prop_ro("rk_source_evaluations",
                    [](BoundState& self) { return self.rk_source_evaluations(); })
+      .def_prop_ro("gemm_probe_error",
+                   [](BoundState& self) { return self.gemm_probe_error(); })
       .def_prop_ro("quadrature_error",
                    [](BoundState& self) { return self.quadrature_error(); })
       .def("quadrature_peak", [](BoundState& self) { return self.quadrature_peak(); })

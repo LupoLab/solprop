@@ -108,6 +108,15 @@
       }
     },
     {
+      "name": "cuda-ampere",
+      "displayName": "NVIDIA CUDA hybrid production build for Ampere (sm_86)",
+      "inherits": "cuda",
+      "binaryDir": "${sourceDir}/build/presets/cuda-ampere",
+      "cacheVariables": {
+        "SOLPROP_NATIVE_CUDA_ARCH": "AMPERE86"
+      }
+    },
+    {
       "name": "hip",
       "displayName": "AMD HIP source-validation build",
       "generator": "Ninja",
@@ -136,6 +145,7 @@
     {"name": "cuda-native", "configurePreset": "cuda-native"},
     {"name": "cuda-tpl", "configurePreset": "cuda-tpl"},
     {"name": "cuda", "configurePreset": "cuda"},
+    {"name": "cuda-ampere", "configurePreset": "cuda-ampere"},
     {"name": "hip", "configurePreset": "hip"}
   ]
 }

@@ -69,6 +69,7 @@ template std::size_t GeneralWorkspace<Single>::raman_kernel_transforms() const n
 template bool GeneralWorkspace<Single>::fsal_ready() const noexcept;
 template std::size_t GeneralWorkspace<Single>::rk_source_evaluations() const noexcept;
 template bool GeneralWorkspace<Single>::closed() const noexcept;
+template double GeneralWorkspace<Single>::gemm_probe_error() const noexcept;
 template void GeneralWorkspace<Single>::close() noexcept;
 template class GeneralBatchWorkspace<Single>;
 

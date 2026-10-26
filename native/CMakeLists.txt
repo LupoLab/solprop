@@ -334,28 +334,9 @@ option(SOLPROP_NATIVE_BAND_STAGING
 
 # The precision policies the native core instantiates (solprop SEP 36 section 6.3,
 # include/solprop_native/precision.hpp), each in its own translation unit. Binary64 is
-# the default arithmetic, so every build instantiates `double`. `single` and `mixed`
-# are built on CPU builds by default; a device build's reduced paths are qualified in
-# SEP 36's phase 4, so it builds `double` alone until then.
-# SOLPROP_NATIVE_DEVICE_REDUCED_COMPILE_ONLY lets a device build compile `single` and
-# `mixed`, for phase 4's compiler work, while the runtime still refuses them by name.
-option(SOLPROP_NATIVE_DEVICE_REDUCED_COMPILE_ONLY
-       "On a device build, compile the single and mixed policies without running them"
-       OFF)
-if(SOLPROP_NATIVE_ENABLE_CUDA OR SOLPROP_NATIVE_ENABLE_HIP)
-  if(SOLPROP_NATIVE_DEVICE_REDUCED_COMPILE_ONLY)
-    set(SOLPROP_NATIVE_PRECISIONS_DEFAULT "double;single;mixed")
-  else()
-    set(SOLPROP_NATIVE_PRECISIONS_DEFAULT "double")
-  endif()
-elseif(SOLPROP_NATIVE_DEVICE_REDUCED_COMPILE_ONLY)
-  message(FATAL_ERROR
-    "SOLPROP_NATIVE_DEVICE_REDUCED_COMPILE_ONLY applies to CUDA and HIP builds; a CPU "
-    "build runs the single and mixed precision policies.")
-else()
-  set(SOLPROP_NATIVE_PRECISIONS_DEFAULT "double;single;mixed")
-endif()
-set(SOLPROP_NATIVE_PRECISIONS "${SOLPROP_NATIVE_PRECISIONS_DEFAULT}" CACHE STRING
+# the default arithmetic, so every build instantiates `double`; `single` and `mixed`
+# are built by default on CPU and device builds alike (SEP 36 phase 4).
+set(SOLPROP_NATIVE_PRECISIONS "double;single;mixed" CACHE STRING
     "Semicolon-separated precision policies to instantiate: double (required), single, mixed")
 set(SOLPROP_NATIVE_PRECISION_DEFINITIONS)
 set(SOLPROP_NATIVE_PRECISION_SOURCES)
@@ -364,17 +345,6 @@ foreach(SOLPROP_NATIVE_PRECISION IN LISTS SOLPROP_NATIVE_PRECISIONS)
     list(APPEND SOLPROP_NATIVE_PRECISION_DEFINITIONS SOLPROP_NATIVE_PRECISION_DOUBLE=1)
   elseif(SOLPROP_NATIVE_PRECISION STREQUAL "single" OR
          SOLPROP_NATIVE_PRECISION STREQUAL "mixed")
-    if(SOLPROP_NATIVE_ENABLE_CUDA OR SOLPROP_NATIVE_ENABLE_HIP)
-      if(NOT SOLPROP_NATIVE_DEVICE_REDUCED_COMPILE_ONLY)
-        message(FATAL_ERROR
-          "SOLPROP_NATIVE_PRECISIONS: the ${SOLPROP_NATIVE_PRECISION} precision policy "
-          "runs on CPU builds only until its device paths are qualified (solprop SEP 36 "
-          "phase 4); use \"double\", or SOLPROP_NATIVE_DEVICE_REDUCED_COMPILE_ONLY=ON "
-          "to compile it without running it.")
-      endif()
-      list(APPEND SOLPROP_NATIVE_PRECISION_DEFINITIONS
-           SOLPROP_NATIVE_REDUCED_COMPILE_ONLY=1)
-    endif()
     string(TOUPPER "${SOLPROP_NATIVE_PRECISION}" SOLPROP_NATIVE_PRECISION_UPPER)
     list(APPEND SOLPROP_NATIVE_PRECISION_DEFINITIONS
          SOLPROP_NATIVE_PRECISION_${SOLPROP_NATIVE_PRECISION_UPPER}=1)
@@ -446,6 +416,18 @@ else()
   set(SOLPROP_NATIVE_DEVICE_ARCH "host")
 endif()
 string(TOUPPER "${CMAKE_BUILD_TYPE}" SOLPROP_NATIVE_BUILD_TYPE_UPPER)
+# No build flushes subnormals to zero: binary32 keeps them on every target (SEP 25,
+# solprop SEP 36 section 6.3), and a device's fast-math implies the flush.
+foreach(_flag_variable IN ITEMS CMAKE_CXX_FLAGS
+                                CMAKE_CXX_FLAGS_${SOLPROP_NATIVE_BUILD_TYPE_UPPER}
+                                CMAKE_CUDA_FLAGS CMAKE_HIP_FLAGS)
+  if("${${_flag_variable}}" MATCHES
+     "(^| )(-ftz=true|--ftz=true|-use_fast_math|--use_fast_math|-fgpu-flush-denormals-to-zero|-fcuda-flush-denormals-to-zero)( |$)")
+    message(FATAL_ERROR
+      "${_flag_variable} flushes binary32 subnormals to zero (${CMAKE_MATCH_2}); "
+      "solprop-native keeps them on every target")
+  endif()
+endforeach()
 set(SOLPROP_NATIVE_CONFIGURATION_FLAGS
     "${CMAKE_CXX_FLAGS_${SOLPROP_NATIVE_BUILD_TYPE_UPPER}}")
 string(CONCAT SOLPROP_NATIVE_COMPILER_FLAGS
