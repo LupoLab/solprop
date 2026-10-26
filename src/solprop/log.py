@@ -486,7 +486,7 @@ class NullReporter:
         Parameters
         ----------
         text : str
-            See :meth:`SummarisingReporter.summary`.
+            See :meth:`solprop.log.SummarisingReporter.summary`.
         """
 
     def started(self, z_start: float, z_end: float, n_planes: int) -> None:
@@ -710,7 +710,7 @@ class LogReporter:
         Parameters
         ----------
         text : str
-            See :meth:`SummarisingReporter.summary`.
+            See :meth:`solprop.log.SummarisingReporter.summary`.
         """
         self._say(self._level, "%s", text)
 
