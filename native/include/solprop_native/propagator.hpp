@@ -14,36 +14,24 @@
  * section 4.3).
  *
  * The argument is binary64 under every policy, and so is the evaluation: the library's
- * `exp(x) (cos theta, sin theta)` in binary64, as every route has formed it, and in
- * binary32 the modulus and the phasor's two parts each rounded once from it. Their
- * errors are then round-to-nearest's, unbiased, and the propagator's relative error is
- * at most `3 u32` with the product's rounding.
+ * `exp(x) (cos theta, sin theta)` in binary64, as every route has formed it. In
+ * binary32 each component of that binary64 value is rounded once, as the oracle rounds
+ * `exp(dPhi)` (`solprop.backends.numpy_ref.single`): within `u32` per component, and
+ * unbiased.
  *
- * Rounding unbiased matters more than the bound: a unit-modulus propagator multiplies
- * the state once per step, so any mean bias of its squared modulus becomes an energy
- * drift linear in the step count, which Kerr phase turns into a field error growing
- * faster than linearly. CUDA's binary32 `sinf` and `cosf` are within 2 ulp but not
- * unbiased: on an A40, `cosf(r)^2 + sinf(r)^2 - 1` averages `+0.30 u32` over the phases
- * (the CPU libraries' and the rounded binary64 functions' average 0.00), which cost an
- * ionising argon capillary 25 times its CPU error in the ionised fraction after 2500
- * steps. The binary64 functions cost a few binary64 operations per bin and stage, far
- * below a step's transforms even on a GPU with a reduced binary64 rate.
+ * Rounding once matters more than the bound. A step multiplies each bin by its
+ * propagator, and on a constant operator by the same rounded value every step, so the
+ * propagator's own error adds coherently, step after step (SEP 33's `c M u32`), and a
+ * mean bias of its squared modulus is an energy drift; Kerr phase and Raman gain turn
+ * both into field errors growing faster than the step count. Two forms that meet a
+ * `10 u32` bound did worse than one rounding: binary32 `sinf` and `cosf` on CUDA
+ * (`cos^2 + sin^2 - 1` averages `+0.30 u32` on an A40), and rounding the modulus and
+ * the phasor separately before their binary32 product (two roundings per component:
+ * on a hydrogen capillary at a constant step the field's error grew by `0.5 u32` per
+ * step against the oracle's `0.3 u32`; with one rounding the two agree).
  */
 
 namespace solprop_native {
-
-namespace propagator_detail {
-/** `exp(x)` in binary32: the binary64 library's value, rounded once. */
-KOKKOS_INLINE_FUNCTION float modulus(const double x) {
-  return static_cast<float>(Kokkos::exp(x));
-}
-
-/** `(cos theta, sin theta)` in binary32: the binary64 library's, each rounded once. */
-KOKKOS_INLINE_FUNCTION Kokkos::complex<float> phasor(const double theta) {
-  return {static_cast<float>(Kokkos::cos(theta)),
-          static_cast<float>(Kokkos::sin(theta))};
-}
-} // namespace propagator_detail
 
 /** `exp(argument)` in the precision `Real`, from a binary64 argument. */
 template <class Real>
@@ -55,9 +43,8 @@ propagator_exp(const Kokkos::complex<double> argument) {
     return {magnitude * Kokkos::cos(argument.imag()),
             magnitude * Kokkos::sin(argument.imag())};
   } else {
-    const float magnitude = propagator_detail::modulus(argument.real());
-    const Kokkos::complex<float> unit = propagator_detail::phasor(argument.imag());
-    return {magnitude * unit.real(), magnitude * unit.imag()};
+    const auto wide = propagator_exp<double>(argument);
+    return {static_cast<float>(wide.real()), static_cast<float>(wide.imag())};
   }
 }
 
@@ -83,11 +70,11 @@ propagator_pair(const Kokkos::complex<double> argument) {
     return {{magnitude * cosine, magnitude * sine},
             {inverse_magnitude * cosine, -(inverse_magnitude * sine)}};
   } else {
-    const Kokkos::complex<float> unit = propagator_detail::phasor(argument.imag());
-    const float magnitude = propagator_detail::modulus(argument.real());
-    const float inverse_magnitude = propagator_detail::modulus(-argument.real());
-    return {{magnitude * unit.real(), magnitude * unit.imag()},
-            {inverse_magnitude * unit.real(), -(inverse_magnitude * unit.imag())}};
+    const auto wide = propagator_pair<double>(argument);
+    return {{static_cast<float>(wide.forward.real()),
+             static_cast<float>(wide.forward.imag())},
+            {static_cast<float>(wide.inverse.real()),
+             static_cast<float>(wide.inverse.imag())}};
   }
 }
 

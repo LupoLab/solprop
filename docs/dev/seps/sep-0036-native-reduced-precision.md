@@ -491,9 +491,12 @@ range.
   error of $1.4 \times 10^{-3}$, against $1.3 \times 10^{-4}$ and $5 \times 10^{-5}$ on
   the CPU. The CPU form drifted too, by about $+0.25\,u_{32}$ per step against the
   oracle's $-0.24\,u_{32}$, and its Kerr-only error after 1000 steps was four times the
-  oracle's. Native single therefore evaluates $e^{x}$, $\cos\theta$ and $\sin\theta$ with
-  the binary64 library and rounds each once, as the oracle does. The relative error is
-  at most $3\,u_{32}$, the rounding is unbiased, and on the CPU the drift and the Kerr
+  oracle's. Native single therefore forms $e^{x}(\cos\theta, \sin\theta)$ with the
+  binary64 library and rounds each component of that product once, as the oracle
+  rounds `exp(dPhi)`. (A first version rounded the modulus and the phasor separately and
+  then multiplied them in binary32; on a hydrogen capillary at a constant step its
+  propagated error grew by $0.5\,u_{32}$ per step against the oracle's $0.3$.) The
+  relative error is at most $u_{32}$ per component, the rounding is unbiased, and on the CPU the drift and the Kerr
   error now match the oracle's (−1.40 against −1.44 × 10⁻⁵ over 1000 steps; 1.7 against
   1.9 × 10⁻⁵). On the A40 the 2500-step argon run's field error fell from
   $2.0 \times 10^{-3}$ to $9.9 \times 10^{-5}$ on a fixed schedule, and its Kerr-only error
@@ -1698,7 +1701,8 @@ candidate tolerance on `rdw` and `argon`). Phase 2 proceeds.
   `ln 2` (head of 29 significant bits), the phase reduced by a three-part `2π` (heads of
   25 bits) for `|θ| <= 2^30` and by the binary64 library above, then `expf`, `sinf` and
   `cosf`; the inverse shares the phasor with its own modulus. (Replaced in phase 5 by the binary64
-  functions rounded once, after the A40's biased `sinf` and `cosf`; see §4.3.) The constants were checked
+  product rounded once per component, after the A40's biased `sinf` and `cosf`; see
+  §4.3.) The constants were checked
   against 300-bit references (the `ln 2` split within 2e-27, the `2π` split within
   5e-32). C++ tests check the 10 `u32` bound over both ranges' ends, the −80.000003
   witness, phases past `2^30`, the inverse and the modulus drift over 10⁴ steps.

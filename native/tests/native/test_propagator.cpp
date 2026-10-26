@@ -124,6 +124,23 @@ TEST(Propagator, BinarySixtyFourIsTheLibraryExpression) {
     }
 }
 
+TEST(Propagator, BinaryThirtyTwoIsTheBinary64ProductRoundedOncePerComponent) {
+  // The oracle's `exp(dPhi).astype(complex64)`: one rounding per component. Rounding
+  // the modulus and the phasor apart before a binary32 product doubled the coherent
+  // drift of a constant step.
+  for (const double x : moduli())
+    for (const double theta : phases()) {
+      const auto value = native::propagator_exp<float>({x, theta});
+      const auto wide = native::propagator_exp<double>({x, theta});
+      EXPECT_EQ(value.real(), static_cast<float>(wide.real()));
+      EXPECT_EQ(value.imag(), static_cast<float>(wide.imag()));
+      const auto pair = native::propagator_pair<float>({x, theta});
+      const auto wide_pair = native::propagator_pair<double>({x, theta});
+      EXPECT_EQ(pair.inverse.real(), static_cast<float>(wide_pair.inverse.real()));
+      EXPECT_EQ(pair.inverse.imag(), static_cast<float>(wide_pair.inverse.imag()));
+    }
+}
+
 TEST(Propagator, ModulusDriftOverManyConstantStepsIsOfOrderStepsTimesUnit) {
   // M constant unit-modulus steps multiplied in binary32: the modulus drifts by about
   // c M u32 (SEP 33 section 4.1, contribution 3), here with c = 2 for the product's

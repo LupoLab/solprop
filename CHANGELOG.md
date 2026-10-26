@@ -199,7 +199,7 @@ The first public release. It contains:
     tensor), the field-grid and envelope-grid plasma, both absorber schemes, the
     Runge-Kutta and low-storage marches and lockstep batches, validated against the
     reference backend's single-precision path. Its propagators are the binary64
-    functions rounded once, unbiased (binary32 `sinf` and `cosf` on one GPU library
+    propagator rounded once per component, unbiased (binary32 `sinf` and `cosf` on one GPU library
     biased the modulus by `+0.3 u32` per step, an energy drift that Kerr phase turned
     into a coherent field error); its statistics are binary64 reductions of the physical
     state. GPU builds run both reduced precisions, with their matrix products set to
