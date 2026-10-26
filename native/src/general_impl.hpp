@@ -160,6 +160,13 @@ void apply_generator(const ExecutionSpace& space, const std::size_t n,
 #endif
 }
 
+/**
+ * Capture variables in an extended device lambda ahead of a branch.
+ *
+ * nvcc refuses an extended `__host__ __device__` lambda whose first use of a captured
+ * variable lies inside an `if constexpr` branch, the discarded branch included. A
+ * lambda that reads a variable only inside such a branch names it here first.
+ */
 template <class... Ts> KOKKOS_INLINE_FUNCTION void capture_anchor(const Ts&...) {}
 
 // Net process allocator growth includes opaque vendor FFT plan/workspace
@@ -613,16 +620,6 @@ KOKKOS_INLINE_FUNCTION double wide_squared_abs(const Kokkos::complex<Real> value
   const auto imag = static_cast<double>(value.imag());
   return real * real + imag * imag;
 }
-
-/**
- * Capture variables in an extended device lambda ahead of an `if constexpr`.
- *
- * nvcc refuses an extended `__host__ __device__` lambda whose first use of a captured
- * variable lies inside an `if constexpr` branch, the discarded branch included. A
- * lambda that reads a variable only inside a policy branch names it here first.
- */
-template <class... Captured>
-KOKKOS_INLINE_FUNCTION constexpr void capture_ahead(const Captured&... /*captured*/) {}
 
 /** A source-role value as the physical binary64 value `s v` (exact; `s` is one in
  * binary64, where the value passes through unchanged). */
@@ -4950,7 +4947,7 @@ void GeneralWorkspace<Policy>::low_storage_modal_input(const std::size_t pass) {
   cartesian_for(
       "solprop_native.low_storage.modal_input", execution_space_, problem_.n_columns(),
       n, KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
-        capture_ahead(terms, row);
+        capture_anchor(terms, row);
         StateComplex value = source(column, index);
         if constexpr (binary64)
           if (terms.add_noise) {
@@ -8156,7 +8153,9 @@ void GeneralWorkspace<Policy>::response_impl(const std::size_t stage,
   const auto rate_intervals = problem_.rate_intervals;
   const auto n_stages = problem_.n_stages;
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-  if constexpr (!Multiple) {
+  // The device's one-team-per-node form is binary64 code; a binary32 source takes the
+  // generic column below until SEP 36's phase 4 qualifies a device form.
+  if constexpr (binary64 && !Multiple) {
     using TeamPolicy = Kokkos::TeamPolicy<ExecutionSpace>;
     using TeamMember = TeamPolicy::member_type;
     const auto league_size = static_cast<int>(node_count);
@@ -8505,7 +8504,7 @@ void GeneralWorkspace<Policy>::response_impl(const std::size_t stage,
         const auto complex_target = target_complex.data();
         const auto window_data = window.data();
         SourceReal pointwise_factor{};
-        capture_ahead(kerr_coefficient, kerr_density, kerr_factor, stage);
+        capture_anchor(kerr_coefficient, kerr_density, kerr_factor, stage);
         if constexpr (binary64)
           pointwise_factor = Plasma ? 0.0 : kerr_coefficient * kerr_density(stage);
         else
@@ -9791,7 +9790,7 @@ void GeneralWorkspace<Policy>::finish_raman(const std::size_t stage,
           const SourceReal v = drives == 3 ? convolved(row + 1, time) : SourceReal{};
           const SourceReal w = drives == 3 ? convolved(row + 2, time) : SourceReal{};
           SourceReal factor{};
-          capture_ahead(epsilon0, density, raman_factor, stage);
+          capture_anchor(epsilon0, density, raman_factor, stage);
           if constexpr (binary64)
             factor = epsilon0 * density(stage);
           else
@@ -10671,7 +10670,7 @@ void GeneralWorkspace<Policy>::fill_statistics_time(const bool windowed,
           return;
         const double analytic_scale =
             envelope || index == 0 || index + 1 == n ? 1.0 : 2.0;
-        capture_ahead(spectrum, current, n_t, scale);
+        capture_anchor(spectrum, current, n_t, scale);
         if constexpr (binary64)
           spectrum(column, index) =
               analytic_scale / static_cast<double>(n_t) * current(column, index);
@@ -10835,17 +10834,20 @@ void GeneralWorkspace<Policy>::scan_plasma_statistics(const std::size_t first_no
             Kokkos::TeamThreadRange(team, static_cast<int>(n_to)),
             [&](const int time_value) {
               const auto time = static_cast<std::size_t>(time_value);
-              const double first = (real_family ? node_real(base, time)
-                                                : node_complex(base, time).real());
+              const double first =
+                  physical_value(scale, real_family ? node_real(base, time)
+                                                    : node_complex(base, time).real());
               const double second =
-                  n_pol == 2 ? (real_family ? node_real(base + 1, time)
-                                            : node_complex(base + 1, time).real())
-                             : 0.0;
+                  n_pol == 2
+                      ? physical_value(scale, real_family
+                                                  ? node_real(base + 1, time)
+                                                  : node_complex(base + 1, time).real())
+                      : 0.0;
               const double magnitude =
                   n_pol == 2 ? Kokkos::hypot(first, second) : Kokkos::abs(first);
-              rates(node, time) =
+              rates(node, time) = static_cast<SourceReal>(
                   ionisation_rate(magnitude, coefficients, log_field_min, d_log_field,
-                                  field_min, field_max, rate_max, intervals);
+                                  field_min, field_max, rate_max, intervals));
             });
         team.team_barrier();
         Kokkos::parallel_scan(
@@ -10853,21 +10855,23 @@ void GeneralWorkspace<Policy>::scan_plasma_statistics(const std::size_t first_no
             [&](const int time_value, double& update, const bool final) {
               const auto time = static_cast<std::size_t>(time_value);
               if (time != 0)
-                update += trapezoid(rates(node, time), rates(node, time - 1), dt);
+                update += trapezoid(static_cast<double>(rates(node, time)),
+                                    static_cast<double>(rates(node, time - 1)), dt);
               if (final)
-                exposures(node, time) = update;
+                exposures(node, time) = static_cast<SourceReal>(update);
             });
         double largest_rate = 0.0;
         Kokkos::parallel_reduce(
             Kokkos::TeamThreadRange(team, static_cast<int>(n_to)),
             [&](const int time_value, double& largest) {
               const auto time = static_cast<std::size_t>(time_value);
-              if (rates(node, time) > largest)
-                largest = rates(node, time);
+              const auto rate = static_cast<double>(rates(node, time));
+              if (rate > largest)
+                largest = rate;
             },
             Kokkos::Max<double>(largest_rate));
         Kokkos::single(Kokkos::PerTeam(team), [&]() {
-          output(first_node + node, 0) = exposures(node, n_to - 1);
+          output(first_node + node, 0) = static_cast<double>(exposures(node, n_to - 1));
           output(first_node + node, 1) = largest_rate;
         });
       });
@@ -12080,9 +12084,11 @@ template <class Policy> void GeneralWorkspace<Policy>::score_quadrature() {
               for (std::size_t term = 0; term < n_prefactor; ++term)
                 prefactor += prefactor_weights(last * n_prefactor + term) *
                              prefactor_terms(term, column, index);
-              const Complex weight = prefactor * window(index);
-              const Complex fine_value = weight * fine(column, crop(index));
-              const Complex coarse_value = weight * coarse(column, crop(index));
+              // A reduction: the binary32 spectra are widened to binary64 (SEP 36).
+              const Complex weight = prefactor * static_cast<double>(window(index));
+              const Complex fine_value = weight * Complex(fine(column, crop(index)));
+              const Complex coarse_value =
+                  weight * Complex(coarse(column, crop(index)));
               update += squared_abs(coarse_value - fine_value);
             },
             difference_sum);
@@ -12094,8 +12100,8 @@ template <class Policy> void GeneralWorkspace<Policy>::score_quadrature() {
               for (std::size_t term = 0; term < n_prefactor; ++term)
                 prefactor += prefactor_weights(last * n_prefactor + term) *
                              prefactor_terms(term, column, index);
-              const Complex weight = prefactor * window(index);
-              update += squared_abs(weight * fine(column, crop(index)));
+              const Complex weight = prefactor * static_cast<double>(window(index));
+              update += squared_abs(weight * Complex(fine(column, crop(index))));
             },
             fine_sum);
         Kokkos::single(Kokkos::PerTeam(team), [&]() {
@@ -12228,7 +12234,7 @@ void GeneralWorkspace<Policy>::split_columns(const double dz, std::size_t active
         "solprop_native.absorber.split_apply_complex",
         Range2(execution_space_, {0, 0}, {active_rows, problem_.n_t}),
         KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
-          capture_ahead(time, rate, dz);
+          capture_anchor(time, rate, dz);
           if constexpr (binary64) {
             time(column, index) *= Kokkos::exp(-0.5 * rate(index) * dz);
           } else {
@@ -12254,7 +12260,7 @@ void GeneralWorkspace<Policy>::split_columns(const double dz, std::size_t active
         "solprop_native.absorber.split_apply_real",
         Range2(execution_space_, {0, 0}, {active_rows, problem_.n_t}),
         KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
-          capture_ahead(time, rate, dz);
+          capture_anchor(time, rate, dz);
           if constexpr (binary64)
             time(column, index) *= Kokkos::exp(-0.5 * rate(index) * dz);
           else
