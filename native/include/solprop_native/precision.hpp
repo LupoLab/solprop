@@ -203,17 +203,6 @@ template <class Policy> struct Roles {
 #define SOLPROP_NATIVE_MIXED_BUILT 0
 #endif
 
-/* A device build compiles the reduced policies for SEP 36's phase-4 compiler work
- * without running them (`SOLPROP_NATIVE_DEVICE_REDUCED_COMPILE_ONLY`): its states
- * refuse them by name. */
-#if !defined(SOLPROP_NATIVE_REDUCED_COMPILE_ONLY)
-#define SOLPROP_NATIVE_REDUCED_COMPILE_ONLY 0
-#endif
-#if SOLPROP_NATIVE_REDUCED_COMPILE_ONLY && !SOLPROP_NATIVE_SINGLE_BUILT &&             \
-    !SOLPROP_NATIVE_MIXED_BUILT
-#error "solprop-native: a compile-only reduced precision needs a reduced policy built"
-#endif
-
 /** Whether this build instantiated `Policy` (`SOLPROP_NATIVE_PRECISIONS`). */
 template <class Policy>
 inline constexpr bool precision_built_v = std::is_same_v<Policy, Double>

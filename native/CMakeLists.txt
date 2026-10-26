@@ -334,28 +334,9 @@ option(SOLPROP_NATIVE_BAND_STAGING
 
 # The precision policies the native core instantiates (solprop SEP 36 section 6.3,
 # include/solprop_native/precision.hpp), each in its own translation unit. Binary64 is
-# the default arithmetic, so every build instantiates `double`. `single` and `mixed`
-# are built on CPU builds by default; a device build's reduced paths are qualified in
-# SEP 36's phase 4, so it builds `double` alone until then.
-# SOLPROP_NATIVE_DEVICE_REDUCED_COMPILE_ONLY lets a device build compile `single` and
-# `mixed`, for phase 4's compiler work, while the runtime still refuses them by name.
-option(SOLPROP_NATIVE_DEVICE_REDUCED_COMPILE_ONLY
-       "On a device build, compile the single and mixed policies without running them"
-       OFF)
-if(SOLPROP_NATIVE_ENABLE_CUDA OR SOLPROP_NATIVE_ENABLE_HIP)
-  if(SOLPROP_NATIVE_DEVICE_REDUCED_COMPILE_ONLY)
-    set(SOLPROP_NATIVE_PRECISIONS_DEFAULT "double;single;mixed")
-  else()
-    set(SOLPROP_NATIVE_PRECISIONS_DEFAULT "double")
-  endif()
-elseif(SOLPROP_NATIVE_DEVICE_REDUCED_COMPILE_ONLY)
-  message(FATAL_ERROR
-    "SOLPROP_NATIVE_DEVICE_REDUCED_COMPILE_ONLY applies to CUDA and HIP builds; a CPU "
-    "build runs the single and mixed precision policies.")
-else()
-  set(SOLPROP_NATIVE_PRECISIONS_DEFAULT "double;single;mixed")
-endif()
-set(SOLPROP_NATIVE_PRECISIONS "${SOLPROP_NATIVE_PRECISIONS_DEFAULT}" CACHE STRING
+# the default arithmetic, so every build instantiates `double`; `single` and `mixed`
+# are built by default on CPU and device builds alike (SEP 36 phase 4).
+set(SOLPROP_NATIVE_PRECISIONS "double;single;mixed" CACHE STRING
     "Semicolon-separated precision policies to instantiate: double (required), single, mixed")
 set(SOLPROP_NATIVE_PRECISION_DEFINITIONS)
 set(SOLPROP_NATIVE_PRECISION_SOURCES)
@@ -364,17 +345,6 @@ foreach(SOLPROP_NATIVE_PRECISION IN LISTS SOLPROP_NATIVE_PRECISIONS)
     list(APPEND SOLPROP_NATIVE_PRECISION_DEFINITIONS SOLPROP_NATIVE_PRECISION_DOUBLE=1)
   elseif(SOLPROP_NATIVE_PRECISION STREQUAL "single" OR
          SOLPROP_NATIVE_PRECISION STREQUAL "mixed")
-    if(SOLPROP_NATIVE_ENABLE_CUDA OR SOLPROP_NATIVE_ENABLE_HIP)
-      if(NOT SOLPROP_NATIVE_DEVICE_REDUCED_COMPILE_ONLY)
-        message(FATAL_ERROR
-          "SOLPROP_NATIVE_PRECISIONS: the ${SOLPROP_NATIVE_PRECISION} precision policy "
-          "runs on CPU builds only until its device paths are qualified (solprop SEP 36 "
-          "phase 4); use \"double\", or SOLPROP_NATIVE_DEVICE_REDUCED_COMPILE_ONLY=ON "
-          "to compile it without running it.")
-      endif()
-      list(APPEND SOLPROP_NATIVE_PRECISION_DEFINITIONS
-           SOLPROP_NATIVE_REDUCED_COMPILE_ONLY=1)
-    endif()
     string(TOUPPER "${SOLPROP_NATIVE_PRECISION}" SOLPROP_NATIVE_PRECISION_UPPER)
     list(APPEND SOLPROP_NATIVE_PRECISION_DEFINITIONS
          SOLPROP_NATIVE_PRECISION_${SOLPROP_NATIVE_PRECISION_UPPER}=1)

@@ -2372,25 +2372,18 @@ refuses it here by name.
 def _refuse_reduced(problem: KernelProblem) -> None:
     """Refuse, by name, a reduced-precision problem this build does not run (SEP 36).
 
-    Single and mixed precision run on a CPU build that compiled them, on every route
+    Single and mixed precision run on a build that compiled them, on every route
     SEP 36 admits (section 5.1). The routes no backend runs in binary32 are refused by
     the problem's own validation first; the slab kind, which the oracles run, is
     binary64 code on native.
     """
     name = problem.precision.name
     info = build_info()
-    if name not in info.precisions and info.device_backend != "none":
-        raise BackendError(
-            f"this solprop-native {info.device_backend} build refuses "
-            f"precision={name!r} until solprop SEP 36's phase 4 qualifies a device's "
-            "reduced-precision paths; use "
-            "backend='numpy_ref', a CPU build of solprop-native, or precision='double'"
-        )
     if name not in info.precisions:
         raise BackendError(
             f"this solprop-native build did not compile precision={name!r}; rebuild "
-            "it with SOLPROP_NATIVE_PRECISIONS='double;single;mixed' (the default of a "
-            "CPU build), or use backend='numpy_ref'"
+            "it with SOLPROP_NATIVE_PRECISIONS='double;single;mixed' (the default), "
+            "or use backend='numpy_ref'"
         )
     geometry = problem.transform.geometry
     if geometry is not None and geometry.kind == "slab":

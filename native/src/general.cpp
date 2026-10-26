@@ -38,13 +38,8 @@ extern template class GeneralBatchWorkspace<Mixed>;
 
 namespace {
 
-// A reduced policy this build compiled without running it, or did not compile.
-[[noreturn, maybe_unused]] void refuse_reduced(const char* name, const bool built) {
-  if (built)
-    throw std::invalid_argument(
-        std::string("this solprop-native device build compiles ") + name +
-        " precision without running it: a device's reduced paths are qualified in "
-        "solprop SEP 36's phase 4");
+// A reduced policy this build did not compile.
+[[noreturn, maybe_unused]] void refuse_reduced(const char* name) {
   throw std::invalid_argument(std::string("this solprop-native build has no ") + name +
                               " precision: build it with SOLPROP_NATIVE_PRECISIONS "
                               "including \"" +
@@ -55,16 +50,16 @@ namespace {
 
 GeneralState::GeneralState(Problem problem) {
   if (problem.precision == PrecisionName::single) {
-#if SOLPROP_NATIVE_SINGLE_BUILT && !SOLPROP_NATIVE_REDUCED_COMPILE_ONLY
+#if SOLPROP_NATIVE_SINGLE_BUILT
     single_ = std::make_unique<GeneralWorkspace<Single>>(std::move(problem));
 #else
-    refuse_reduced("single", SOLPROP_NATIVE_SINGLE_BUILT != 0);
+    refuse_reduced("single");
 #endif
   } else if (problem.precision == PrecisionName::mixed) {
-#if SOLPROP_NATIVE_MIXED_BUILT && !SOLPROP_NATIVE_REDUCED_COMPILE_ONLY
+#if SOLPROP_NATIVE_MIXED_BUILT
     mixed_ = std::make_unique<GeneralWorkspace<Mixed>>(std::move(problem));
 #else
-    refuse_reduced("mixed", SOLPROP_NATIVE_MIXED_BUILT != 0);
+    refuse_reduced("mixed");
 #endif
   } else {
     workspace_ = std::make_unique<GeneralWorkspace<Double>>(std::move(problem));
