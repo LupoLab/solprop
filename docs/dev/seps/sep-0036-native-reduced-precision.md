@@ -1676,8 +1676,9 @@ candidate tolerance on `rdw` and `argon`). Phase 2 proceeds.
 - The §4.3 binary32 exponential (`propagator.hpp`): `exp(x) = 2^m e^r` with a two-part
   `ln 2` (head of 29 significant bits), the phase reduced by a three-part `2π` (heads of
   25 bits) for `|θ| <= 2^30` and by the binary64 library above, then `expf`, `sinf` and
-  `cosf`; the inverse shares the phasor with its own modulus. (Replaced in phase 4 by the binary64
-  functions rounded once, after the A40's biased `sinf` and `cosf`; see the phase 4 report.) The constants were checked
+  `cosf`; the inverse shares the phasor with its own modulus. (Replaced in phase 4 by the
+  binary64 product rounded once per component, after the A40's biased `sinf` and `cosf`;
+  see the phase 4 report.) The constants were checked
   against 300-bit references (the `ln 2` split within 2e-27, the `2π` split within
   5e-32). C++ tests check the 10 `u32` bound over both ranges' ends, the −80.000003
   witness, phases past `2^30`, the inverse and the modulus drift over 10⁴ steps.
@@ -1975,9 +1976,14 @@ the profiles on an AMD GPU wait on a budget agreed with the maintainers (Q9).
   the envelopes, against $1.3 \times 10^{-4}$ and $5 \times 10^{-5}$ on the CPU. The CPU
   form drifted too, by about $+0.25\,u_{32}$ per step against the oracle's
   $-0.24\,u_{32}$, and its Kerr-only error after 1000 steps was four times the
-  oracle's. Native single therefore evaluates $e^{x}$, $\cos\theta$ and $\sin\theta$
-  with the binary64 library and rounds each once, as the oracle does: the relative
-  error is at most $3\,u_{32}$ and the rounding unbiased. On the CPU the drift and the
+  oracle's. Native single therefore forms $e^{x}(\cos\theta, \sin\theta)$ with the
+  binary64 library and rounds each component of that product once, as the oracle rounds
+  `exp(dPhi)`: the error is at most $u_{32}$ per component and the rounding unbiased. A
+  first version (3bdff07) rounded the modulus and the phasor separately and multiplied
+  them in binary32; on a constant step that error repeats every step and adds coherently,
+  and on `ctc` it grew by $0.5\,u_{32}$ per step against the oracle's $0.3$. Rounding the
+  product once (9b02629) matches the oracle's growth (5.0 against $4.9\,u_{32}$ over 16
+  steps). On the CPU the drift and the
   Kerr error now match the oracle's (−1.40 against −1.44 × 10⁻⁵ over 1000 steps; 1.7
   against 1.9 × 10⁻⁵), and on the A40 the `argon` field error fell to
   $1.8 \times 10^{-4}$ (table above). A C++ test measures the mean modulus bias in the
