@@ -43,7 +43,9 @@ from solprop.processing.compression import (
 )
 from solprop.processing.fields import (
     FIELD_KINDS,
+    NOISE_FLOORS,
     FieldKind,
+    NoiseFloor,
     get_field,
     get_phase,
     get_power,
@@ -99,6 +101,7 @@ __all__ = [
     "DEFAULT_BANDPASS_BINS",
     "DEFAULT_BANDPASS_FRACTION",
     "FIELD_KINDS",
+    "NOISE_FLOORS",
     "PLANE_TOLERANCE",
     "SPECTRAL_AXES",
     "ArrivalMethod",
@@ -107,6 +110,7 @@ __all__ = [
     "Compression",
     "FieldKind",
     "ModeSelection",
+    "NoiseFloor",
     "Passband",
     "SpectralAxis",
     "TransverseUnits",
