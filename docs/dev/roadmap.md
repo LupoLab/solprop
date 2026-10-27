@@ -257,6 +257,18 @@ kept as it is, with no new work. Whether it stays is decided with
 noise to see only the emission gain, which its separate injection path could carry. If
 gain media take a gain Langevin term instead, the modified model is removed.
 
+**Vacuum noise under loss.** The input model puts one photon per mode in at the launch and
+never replenishes it, so every loss lowers the simulated floor below the vacuum: guide
+attenuation, the spectral band collar and the temporal collar of
+[SEP 21](seps/sep-0021-absorbing-boundaries.md), which also takes the seed from noise that
+walks through it, so frequencies walking more than half the window reach the pulse with a
+weakened seed. Fluctuation–dissipation calls for re-injecting vacuum noise where light is
+absorbed (a loss Langevin term; under the split collar scheme it can be added once per
+accepted step, outside the error-controlled stages). Until then the floor-subtracted
+density reads low where loss took the seed, and SEP 21's boundary monitor, which takes the
+floor from the launch, over-subtracts after loss and is less sensitive for weak launches in
+lossy guides (it never warns falsely). To be decided with the gain Langevin term above.
+
 ## Waveguides and geometries
 
 **Material absorption in step-index fibres.** The step-index eigenproblem takes the core

@@ -2321,7 +2321,10 @@ diagnostics; transform-size cost; full-length timings.
   1 kW to 10 mW peak no longer warn; a walking pulse well above the floor is still
   stopped; the removed fraction of a walking pulse agrees with the noiseless run's to
   2 %. Light reaching a guard below the floor's equilibrium share of it is not judged,
-  even where the collar has depleted the floor there.
+  even where the collar has depleted the floor there. The floor is taken from the
+  launch, so after loss the monitor over-subtracts and is less sensitive; the collar,
+  like any loss, also removes vacuum noise the input model never restores. Both go to
+  the roadmap item "Vacuum noise under loss" (maintainer, 2026-10-27).
 
 **Limitations.**
 
