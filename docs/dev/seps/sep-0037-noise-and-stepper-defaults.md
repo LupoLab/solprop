@@ -1099,7 +1099,15 @@ provably better and not worse elsewhere, is an improvement.
   approved. A Cartesian or line run (`prop_free`) takes adaptive `RungeKutta()` by
   default, since the Adams history's memory rules the multistep method out there, and no
   noise by default (`FREE_NOISE`), since such runs are slow and rarely about noise
-  sensitivity. Its tolerance is set by a measurement on the suite's free-space cases.
+  sensitivity. Its tolerance is set by a measurement on the suite's free-space cases:
+  `FREE_RTOL = 1e-4`, `FREE_ATOL = 0`. The suite's 5.5 µm window cannot set a tolerance,
+  so `kerr_beam_192` was run to 1 and 3 mm (near self-focusing at 3 mm),
+  `kerr_beam_384` to 1 mm and `line` to its full length. The spectral budget never
+  binds (worst 0.0017 dB at 1e-3, 3 mm), so the rule's literal answer is 1e-3; 1e-4 is
+  taken for a 2.5 times smaller field error (L2 6.6e-4 against 1.7e-3) at 18 % more
+  steps. Against the suite's 0.5 µm RK4IP schedule the adaptive march is 26 to 53 times
+  faster; against a fixed step matched to its error it is about 1.6 times slower and
+  takes about twice the memory. `atol` changed nothing.
   The documentation carries one table of every interface's defaults.
 - **D10 (2026-10-27).** The capillary steps by its representation: `RungeKutta()` at
   1e-5 (`SINGLE_MODE_RTOL`) for one resolved mode or a mode-averaged one, `Multistep()`

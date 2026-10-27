@@ -33,7 +33,7 @@ choose another.
 | `prop_capillary` with the TDSE response | `Multistep()` | 1e-6 | 1e-10 √W | none |
 | `prop_waveguide` | `RungeKutta()` | 1e-5 | 1e-10 √W | `"input"` |
 | `prop_radial` | `Multistep()` | 1e-5 | 0 | `"input"` |
-| `prop_free` (Cartesian, line) | `RungeKutta()` | 1e-5 | 0 | none |
+| `prop_free` (Cartesian, line) | `RungeKutta()` | 1e-4 | 0 | none |
 | `prop_planar` | `Multistep()` | 1e-5 | 0 | none (not carried) |
 
 Under `precision="single"` every interface takes `RungeKutta()` and no noise. The
@@ -56,7 +56,13 @@ The TDSE response runs only on `Multistep()`. The radial and
 planar defaults hold their methods, which are faster there than the Runge–Kutta march
 (by 1.4 to 2.4 times on the radial filament), and set a tolerance where the caller gave
 no controller. A free-space run takes the Runge–Kutta march: the Adams history's
-memory rules the multistep method out for a large transverse state.
+memory rules the multistep method out for a large transverse state. Its tolerance is
+looser because the spectrum never set it: on a Cartesian Kerr beam near self-focusing,
+every level from 1e-3 to 1e-6 kept the spectrum within 0.002 dB of a tight reference,
+and 1e-4 was taken for a field error 2.5 times smaller than at 1e-3. The adaptive march
+needs no step calibration, and on that beam it was 26 to 53 times faster than a
+0.5 µm fixed RK4IP schedule. A fixed `LowStorageRungeKutta()` step calibrated to the
+same error is cheaper still, by about 1.6 times, and uses about half the memory.
 
 The tolerances were set by a convergence test: the loosest of three levels a decade
 apart at which a seeded ensemble's mean spectrum stays within 0.5 dB, above −40 dB of

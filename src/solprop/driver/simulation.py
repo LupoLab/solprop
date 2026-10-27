@@ -391,11 +391,13 @@ Set by SEP 37's convergence protocol on the standard suite's ``radial_filament_2
 SPATIAL_ATOL = 0.0
 """Absolute tolerance of the same default controller: none, as the suite runs it."""
 
-FREE_RTOL = 1e-5
+FREE_RTOL = 1e-4
 """Relative tolerance of the controller a Cartesian or line run takes by default.
 
 With the default ``RungeKutta()`` (SEP 37): the Adams history's memory rules the
-multistep method out for a large transverse state. Applies only where the caller's
+multistep method out for a large transverse state. On a self-focusing Kerr beam the
+spectrum stays within 0.002 dB of a tight reference even at 1e-3; 1e-4 cuts the field
+error by 2.5 times for a sixth more steps. Applies only where the caller's
 :class:`SimulationSettings` gives no controller.
 """
 

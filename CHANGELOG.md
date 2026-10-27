@@ -169,7 +169,7 @@ The first public release. It contains:
     interaction-picture Runge–Kutta pair. A low-storage Runge–Kutta variant is
     included. Each interface has its own default integrator and tolerances, set by
     measurement (SEP 37): `RungeKutta()` for `prop_gnlse` (`rtol` 1e-7) and
-    `prop_waveguide` (1e-5) and `prop_free` (1e-5), `Multistep()` for
+    `prop_waveguide` (1e-5) and `prop_free` (1e-4), `Multistep()` for
     `prop_radial` and `prop_planar` (1e-5); `prop_capillary` takes `RungeKutta()` (1e-5)
     for one resolved mode or a mode-averaged one and `Multistep()` (1e-6) for two or
     more resolved modes or the TDSE response. The spatial
