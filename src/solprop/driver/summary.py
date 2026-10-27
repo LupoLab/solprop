@@ -24,14 +24,22 @@ from dataclasses import dataclass
 import numpy as np
 
 from solprop._display import Displayed, block, engineering, tail
+from solprop._host import machine
 from solprop._process import thread_budget
 from solprop.constants import C
+from solprop.log import format_duration
 from solprop.monitor import BoundaryCheck
 from solprop.output.schema import Output, RunMetadata
 from solprop.stepper.multistep import Multistep
 from solprop.translate.problem import KernelProblem
 
-__all__ = ["RUN_SUMMARY_ANNOTATION", "RunSummary", "run_summary"]
+__all__ = [
+    "RUN_SUMMARY_ANNOTATION",
+    "RunSummary",
+    "memory_size",
+    "resources",
+    "run_summary",
+]
 
 RUN_SUMMARY_ANNOTATION = "run_summary"
 """Name of the annotation holding the start-of-run summaries of a plane store.
@@ -176,6 +184,8 @@ def run_summary(  # noqa: PLR0913 - the run's parts, each a distinct object
     )
     configuration = metadata.configuration
     rows = (
+        ("solprop", _code(metadata)),
+        ("machine", _machine(machine())),
         ("backend", backend),
         ("threads", _threads(backend, execution)),
         ("precision", _precision(problem)),
@@ -198,6 +208,137 @@ def run_summary(  # noqa: PLR0913 - the run's parts, each a distinct object
         ("start", _start(start_plane, planes.size, z_start)),
     )
     return RunSummary(title, rows)
+
+
+def _code(metadata: RunMetadata) -> str:
+    """Describe the code that runs: the installed version or, in a checkout, the commit.
+
+    The installed version of a development checkout is the one it had when it was
+    installed, not the commit it now runs, so a checkout leads with its commit and
+    whether it was modified; the branch and the installed version follow, where a long
+    branch name may be cut.
+
+    Parameters
+    ----------
+    metadata : solprop.output.schema.RunMetadata
+        The run's record, whose ``versions`` and ``git`` were read when it was built.
+
+    Returns
+    -------
+    str
+        For example ``"0.1.0"`` or ``"commit 5e8f6884a1b2, modified (main, installed
+        as 0.1.dev3+g1a2b3c4)"``.
+    """
+    installed = str(metadata.versions.get("solprop", "unknown"))
+    git = metadata.git
+    if git is None:
+        return installed
+    modified = ", modified" if git.dirty else ""
+    return (
+        f"commit {git.commit[:12]}{modified} ({git.branch}, installed as {installed})"
+    )
+
+
+def _machine(record: Mapping[str, object]) -> str:
+    """Describe the machine: architecture, CPU, CPU counts, memory and system.
+
+    Parameters
+    ----------
+    record : collections.abc.Mapping
+        The machine, as the execution record's ``host`` holds it.
+
+    Returns
+    -------
+    str
+        For example ``"arm64, Apple M4 Max, 16 CPUs (16 usable), 64 GiB, Darwin
+        25.0.0"``; a part that could not be read is left out.
+    """
+    logical, usable = record.get("logical_cpus"), record.get("usable_cpus")
+    memory = record.get("memory_bytes")
+    parts = [
+        record.get("machine") or None,
+        record.get("cpu_model"),
+        None if logical is None else f"{logical} CPUs ({usable} usable)",
+        memory_size(memory) if isinstance(memory, int) else None,
+        f"{record.get('system', '')} {record.get('release', '')}".strip() or None,
+    ]
+    return ", ".join(str(part) for part in parts if part)
+
+
+def memory_size(size: float) -> str:
+    """Write a memory size in binary units, as a person reads it.
+
+    Parameters
+    ----------
+    size : float
+        Bytes.
+
+    Returns
+    -------
+    str
+        Three significant figures and the largest binary unit below the size.
+
+    Examples
+    --------
+    >>> from solprop.driver.summary import memory_size
+    >>> memory_size(137438953472), memory_size(30277632)
+    ('128 GiB', '28.9 MiB')
+    """
+    value, unit = float(size), "B"
+    for larger in ("KiB", "MiB", "GiB", "TiB"):
+        if value < 1024.0:
+            break
+        value, unit = value / 1024.0, larger
+    return f"{value:.3g} {unit}"
+
+
+def resources(spent: Mapping[str, float | int | None]) -> str:
+    """Describe what a run spent, as the line shown after its closing one.
+
+    Parameters
+    ----------
+    spent : collections.abc.Mapping
+        The run's ``wall_time_s``, ``cpu_time_s`` and ``peak_rss_bytes``, as the
+        execution record holds them.
+
+    Returns
+    -------
+    str
+        The run's wall and CPU time, and the process's peak resident memory where the
+        system reports it.
+
+    Examples
+    --------
+    >>> from solprop.driver.summary import resources
+    >>> resources({"wall_time_s": 192.4, "cpu_time_s": 2100.0,
+    ...            "peak_rss_bytes": 2254857830})
+    'resources: 0:03:12 wall, 0:35:00 CPU, process peak memory 2.1 GiB'
+    >>> resources({"wall_time_s": 0.132, "cpu_time_s": None, "peak_rss_bytes": None})
+    'resources: 0.132 s wall'
+    """
+    parts = [f"{_duration(float(spent['wall_time_s'] or 0.0))} wall"]
+    cpu, peak = spent.get("cpu_time_s"), spent.get("peak_rss_bytes")
+    if cpu is not None:
+        parts.append(f"{_duration(float(cpu))} CPU")
+    if peak is not None:
+        parts.append(f"process peak memory {memory_size(peak)}")
+    return "resources: " + ", ".join(parts)
+
+
+def _duration(seconds: float) -> str:
+    """Write a duration in seconds below a minute, else as ``H:MM:SS``.
+
+    Parameters
+    ----------
+    seconds : float
+        The duration, s.
+
+    Returns
+    -------
+    str
+        For example ``"0.132 s"`` or ``"0:03:12"``.
+    """
+    return f"{seconds:.3g} s" if seconds < 60.0 else format_duration(seconds)
 
 
 def _threads(backend: str, execution: Mapping[str, object]) -> str:

@@ -13,6 +13,7 @@ import subprocess
 from pathlib import Path
 
 from benchmarks.records import Record, SuiteError
+from solprop._host import _windows_model, lscpu_model
 
 __all__ = [
     "allocation_details",
@@ -89,42 +90,6 @@ def _command(arguments: list[str]) -> str | None:
     except OSError, subprocess.TimeoutExpired:
         return None
     return result.stdout if result.returncode == 0 else None
-
-
-def lscpu_model(output: str) -> str | None:
-    """Name an Arm or other CPU from ``lscpu``, e.g. ``ARM Neoverse-V2``.
-
-    Arm Linux kernels give ``/proc/cpuinfo`` no model name; ``lscpu`` decodes the
-    implementer and part numbers into a vendor and a core name.
-    """
-    fields = {
-        key.strip(): value.strip()
-        for key, _, value in (line.partition(":") for line in output.splitlines())
-        if value.strip()
-    }
-    model = fields.get("Model name")
-    if not model or model == "-":
-        return None
-    vendor = fields.get("Vendor ID", "")
-    # x86 vendor IDs (GenuineIntel, AuthenticAMD) are not names to prefix.
-    if not vendor or vendor.startswith(("Genuine", "Authentic")) or vendor in model:
-        return model
-    return f"{vendor} {model}"
-
-
-def _windows_model() -> str | None:
-    """Read the processor name Windows keeps in its registry."""
-    try:
-        import winreg  # noqa: PLC0415  # pyright: ignore[reportMissingModuleSource]
-
-        with winreg.OpenKey(  # pyright: ignore[reportAttributeAccessIssue]
-            winreg.HKEY_LOCAL_MACHINE,  # pyright: ignore[reportAttributeAccessIssue]
-            r"HARDWARE\DESCRIPTION\System\CentralProcessor\0",
-        ) as key:
-            value, _ = winreg.QueryValueEx(key, "ProcessorNameString")  # pyright: ignore[reportAttributeAccessIssue]
-    except ImportError, OSError:
-        return None
-    return str(value).strip() or None
 
 
 def hardware_details(allocation: tuple[int, ...]) -> Record:

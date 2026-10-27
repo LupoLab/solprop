@@ -341,7 +341,9 @@ The first public release. It contains:
   - Pulse compressors: Taylor phase, chirped mirrors, materials, gratings and prisms.
   - An interactive session through `import solprop.sol as sol`.
 - **A summary at the start of every run.** Before its first step a run shows what it
-  is about to compute: the backend, its threads and precision, the grid, the
+  is about to compute: the code (the installed version, or in a checkout the commit
+  and whether it was modified), the machine (architecture, CPU model, CPU counts,
+  memory, operating system), the backend, its threads and precision, the grid, the
   representation, the medium and fill, the responses (Raman named whether on or off,
   with the fraction held back from Kerr), the shot noise with its model and seed or
   `off`, the integrator, tolerances and step bound, the absorber, the save planes, the
@@ -350,7 +352,14 @@ The first public release. It contains:
   console log handler would print them already), `"log"` logs them at `INFO`, and
   `"none"` shows nothing. Plane stores keep it as the `run_summary` annotation
   (`solprop.driver.summary`; a reporter receives it through the optional
-  `SummarisingReporter.summary` call).
+  `SummarisingReporter.summary` call). After the closing line a `resources:` line gives
+  the run's wall and CPU time and the process's peak resident memory.
+- **Each execution records its machine and what it spent.** The execution record of an
+  HDF5 file (`outcome.execution`) holds `host` (architecture, CPU model, logical and
+  usable CPUs, physical memory, operating system and the Slurm job; never the host
+  name) and `resources` (wall time, CPU time, peak resident memory), rewritten at every
+  save plane so a run killed between planes keeps them, and kept per execution across
+  resumes. The probes cost one query per process and one `getrusage` call per plane.
 - **Performance tracking** for developers
   ([SEP 38](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0038-performance-tracking.html)):
   `python -m benchmarks track` times complete runs of about a dozen representative
