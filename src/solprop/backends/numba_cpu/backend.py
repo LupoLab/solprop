@@ -2951,6 +2951,11 @@ class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         band, as :func:`solprop.backends.numpy_ref.passes.absorber_term` is, into a
         buffer held for the run; nothing is allocated.
 
+        Parameters
+        ----------
+        may_quiet : bool, optional
+            Whether this stage honours the monitor's quiet collar.
+
         Returns
         -------
         numpy.ndarray

@@ -266,7 +266,18 @@ class BoundaryMonitor:
     def _power(
         self, field_spectrum: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
     ) -> Float[np.ndarray, " n_t"]:
-        """Return the time-domain energy density summed over everything but time."""
+        """Return the time-domain energy density summed over everything but time.
+
+        Parameters
+        ----------
+        field_spectrum : numpy.ndarray
+            A state, canonical layout, FFT convention.
+
+        Returns
+        -------
+        numpy.ndarray
+            ``P(t)`` on the coarse time axis, weighted by the columns' quadrature.
+        """
         samples = fourier.inverse(field_spectrum, kind=self.kind)
         density = np.abs(samples) ** 2
         if self.columns is not None:
@@ -278,8 +289,20 @@ class BoundaryMonitor:
     ) -> tuple[float, Float[np.ndarray, " 4"], Float[np.ndarray, " n_t"]]:
         """Return the total energy of one state, its four weighted energies and ``P``.
 
-        The first three are the energies in the low guard, the high guard and the
-        collar; the fourth is the collar's removal rate, energy per metre.
+        Parameters
+        ----------
+        field_spectrum : numpy.ndarray
+            A state, canonical layout, FFT convention.
+
+        Returns
+        -------
+        total : float
+            The state's energy in the proxy's units; zero for a state with none.
+        regions : numpy.ndarray
+            The energies in the low guard, the high guard and the collar, and the
+            collar's removal rate, energy per metre.
+        power : numpy.ndarray
+            ``P(t)``.
         """
         power = self._power(field_spectrum)
         total = float(power.sum())
@@ -294,6 +317,16 @@ class BoundaryMonitor:
         The removal rate subtracts the floor's expectation and keeps its sign: its
         integral along z averages the fluctuation out, which clipping would rectify
         into a spurious removal.
+
+        Parameters
+        ----------
+        regions : numpy.ndarray
+            A state's four weighted energies (:meth:`_regions`).
+
+        Returns
+        -------
+        numpy.ndarray
+            The same four, above the floor.
         """
         above = regions - self._floor_regions * np.array(
             [FLOOR_MARGIN, FLOOR_MARGIN, FLOOR_MARGIN, 1.0]
@@ -437,7 +470,11 @@ class BoundaryMonitor:
     def _settle(self, shares: Float[np.ndarray, " 4"] | None) -> None:
         """Set the check cadence and the collar's quiet flag from a checked state.
 
-        ``None`` is a state with no light to judge: quiet, and checked lazily.
+        Parameters
+        ----------
+        shares : numpy.ndarray or None
+            The state's shares above the floor, or ``None`` for a state with no light
+            to judge, which is quiet and checked lazily.
         """
         if shares is None:
             self._busy, self._quiet = False, True
@@ -475,7 +512,13 @@ class BoundaryMonitor:
 
     @property
     def stale(self) -> bool:
-        """Whether the last committed step went unchecked."""
+        """Whether the last committed step went unchecked.
+
+        Returns
+        -------
+        bool
+            True when :meth:`skip` was the last call.
+        """
         return self._stale
 
     @property
@@ -484,6 +527,11 @@ class BoundaryMonitor:
 
         As of the last check; while it holds, the collar's in-stage term may be left
         out of the next stages.
+
+        Returns
+        -------
+        bool
+            The flag.
         """
         return self._quiet
 
@@ -494,6 +542,13 @@ class BoundaryMonitor:
         step, so the power it took is ``P(t) (exp(alpha(t) h) - 1)`` of the power
         ``P`` it left; the floor's share is that of a uniform density. The band mask
         that follows the split is not counted.
+
+        Parameters
+        ----------
+        power : numpy.ndarray
+            ``P(t)`` of the committed state.
+        step : float
+            The step's length, m.
         """
         if not step > 0.0:
             return
@@ -504,7 +559,13 @@ class BoundaryMonitor:
         self._removed += (taken - floor) / self._launch
 
     def _plane_row(self, z: float) -> None:
-        """Append one saved plane's row and start the next plane's guard maxima."""
+        """Append one saved plane's row and start the next plane's guard maxima.
+
+        Parameters
+        ----------
+        z : float
+            The plane's position, m.
+        """
         row = self._planes
         if row["z"] and row["z"][-1] == z:
             return
@@ -549,6 +610,18 @@ class BoundaryMonitor:
         """
 
         def finite(value: float) -> float | None:
+            """Return `value`, or ``None`` when it was never measured (not finite).
+
+            Parameters
+            ----------
+            value : float
+                A recorded value.
+
+            Returns
+            -------
+            float or None
+                The value, or ``None``.
+            """
             return value if math.isfinite(value) else None
 
         return {

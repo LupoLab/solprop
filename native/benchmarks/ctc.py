@@ -20,7 +20,7 @@ import threading
 import time
 import warnings
 from dataclasses import replace
-from typing import Any, cast
+from typing import Any, TypedDict, cast
 
 from device_record import DeviceRecord, device_record
 
@@ -81,7 +81,17 @@ class Measurement(Result):
 # own materials. The full shape runs 0.3 m on six modes and a 4 ps, 170 nm-4 um grid;
 # the reduced one is the fundamental alone over 0.1 m on a 2 ps, 250 nm-2 um grid, five
 # times the pulse, which keeps the launch clear of the temporal collar.
-CASES = {
+class Shape(TypedDict):
+    """One CtC shape: its length, modes, band, window and save count."""
+
+    length: float
+    modes: int
+    wavelength_limits: tuple[float, float]
+    trange: float
+    n_save: int
+
+
+CASES: dict[str, Shape] = {
     "ctc_reduced": {
         "length": 0.1,
         "modes": 1,

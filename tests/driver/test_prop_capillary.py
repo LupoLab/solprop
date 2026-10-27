@@ -3136,8 +3136,9 @@ def ctc_run(
             rtol=LUNA_TOLERANCES["rtol"],
             atol=LUNA_TOLERANCES["atol"],
             backend=backend,
-            **witness_inputs(grid, case["modes"])
-            | ({"noise": None} if seed is None else {"noise": "input", "seed": seed}),
+            noise=None if seed is None else "input",
+            seed=seed,
+            **witness_inputs(grid, case["modes"]),
         )
         if luna_vibration:
             # Test-only matching of the archived witness's physical model, not

@@ -16,6 +16,7 @@ from __future__ import annotations
 import dataclasses
 import math
 import warnings
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -142,7 +143,7 @@ def test_every_saved_plane_has_a_row() -> None:
         run = walker(0.65 * TRANGE, check=relaxed).run(progress="none")
     assert isinstance(run, PlaneStore)
     assert run.outcome is not None and run.outcome.execution is not None
-    record = run.outcome.execution["boundary_monitor"]
+    record = cast("dict[str, Any]", run.outcome.execution["boundary_monitor"])
     rows = record["planes"]
     np.testing.assert_allclose(rows["z"], np.asarray(run["z"]))
     # The guards' maxima over the planes are the run's; removal only grows.
@@ -172,7 +173,8 @@ def test_a_launch_in_the_guard_warns() -> None:
     with pytest.warns(BoundaryWarning, match="launched field"):
         monitor.launch(spectrum, 0.0)
     launched = monitor.summary()["launch_guard_high"]
-    assert launched is not None and launched > 0.5
+    assert isinstance(launched, float)
+    assert launched > 0.5
 
 
 def test_the_removed_fraction_is_the_energy_the_run_lost() -> None:
@@ -294,7 +296,7 @@ def test_a_quiet_collar_is_left_out_without_changing_the_run(backend: str) -> No
         )
     a, b = _exit(watched), _exit(always)
     assert np.linalg.norm(a - b) <= 1e-9 * np.linalg.norm(b)
-    record = watched.outcome.execution["boundary_monitor"]
+    record = record_of(watched)
     # Every committed step is either checked or counted as skipped (the planes'
     # checks add to the checked ones).
     accepted = int(np.asarray(watched["step_history/accepted"], dtype=bool).sum())
