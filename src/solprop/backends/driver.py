@@ -1211,6 +1211,9 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             values = values + drawn
         self._state = self._apply_mask(values)
         self._noise = drawn if model == "modified" else None
+        # The input draw rides in the state; the boundary monitor reads it as the
+        # vacuum floor beneath the light it judges (SEP 21, Q24).
+        self._input_floor = drawn if model == "input" else None
         self._z = position
         self._proposal = self._problem.stepper.dz_init
         self._schedule_index = self._schedule_index_at(position)
@@ -1859,6 +1862,9 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
     _monitor: BoundaryMonitor | None = None
     """The run's boundary monitor (SEP 21), fed every committed step; ``None``."""
 
+    _input_floor: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"] | None = None
+    """The input-noise draw the launch carries, the monitor's floor; ``None``."""
+
     def attach_monitor(self, monitor: BoundaryMonitor) -> None:
         """Watch the time window's edges from here on, starting with the current state.
 
@@ -1872,7 +1878,11 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             A monitor with nothing recorded.
         """
         self._monitor = monitor
-        monitor.launch(self._observed_field(self._require_state()), self._z)
+        monitor.launch(
+            self._observed_field(self._require_state()),
+            self._z,
+            floor=self._input_floor,
+        )
 
     def _take_step_stats(self) -> None:
         """Record one statistics row when this accepted step is the period-th.

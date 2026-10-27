@@ -69,8 +69,8 @@ The first public release. It contains:
   keeps the hard band mask (`boundaries.no_absorber`), and `absorber_scheme=`. A boundary
   monitor (`solprop.monitor`, `SimulationSettings.boundary_check`, on by default) watches
   the window's guards at the launch and every committed step, warns
-  (`BoundaryWarning`) and then stops (`BoundaryError`) when light reaches the edge, and
-  records the energy the temporal collar removed. Output schema 27 (`Absorber.spatial`,
+  (`BoundaryWarning`) and then stops (`BoundaryError`) when light above the shot-noise
+  floor reaches the edge, and records the energy the temporal collar removed. Output schema 27 (`Absorber.spatial`,
   and the default collar of runs that declared none). The benchmark suite's cases take
   the new defaults at new revisions.
 - **Incident beams into general modal guides**

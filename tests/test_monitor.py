@@ -41,6 +41,8 @@ def walker(
     check: BoundaryCheck | None = None,
     backend: str = "numpy_ref",
     trange: float = TRANGE,
+    peak_power: float = 1.0,
+    noise: bool = False,
 ) -> Simulation:
     """Return a linear pulse whose group delay walks ``drift`` seconds over the fibre.
 
@@ -53,9 +55,11 @@ def walker(
     simulation = Simulation.from_gnlse(
         1e-30, LENGTH, [0.0, 0.0, BETA2], lambda0=1e-6, grid=grid,
         pulses=[GaussianPulse(
-            wavelength=2 * np.pi * C / (omega0 + offset), fwhm=200e-15, peak_power=1.0
+            wavelength=2 * np.pi * C / (omega0 + offset), fwhm=200e-15,
+            peak_power=peak_power,
         )],
-        noise=None, raman=False, shock=False, n_save=3, backend=backend,
+        noise="input" if noise else None, seed=7 if noise else None,
+        raman=False, shock=False, n_save=3, backend=backend,
     )  # fmt: skip
     import dataclasses  # noqa: PLC0415
 
@@ -176,6 +180,58 @@ def test_a_field_absorbed_to_nothing_is_not_judged() -> None:
     residue = np.full(grid.n_t, 1e-12, dtype=complex)
     monitor.step(np.fft.fft(residue)[None, None, None, :], 0.1)
     assert monitor.summary()["guard_low_max"] == 0.0
+
+
+def test_the_shot_noise_floor_is_not_read_as_light_at_the_edges() -> None:
+    # A weak pulse: one photon per mode puts about 1e-3 of the field's energy in the
+    # guards from the launch on, which the monitor judged as edge occupancy before
+    # it learned the floor (SEP 21, Q24).
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", BoundaryWarning)
+        run = walker(0.0, trange=3 * TRANGE, peak_power=1e-3, noise=True).run(
+            progress="none"
+        )
+    record = record_of(run)
+    assert record["noise_floor"] > 1e-4
+    assert record["raw_guard_max"] > 1e-5
+    assert record["guard_low_max"] == record["guard_high_max"] == 0.0
+    assert record["removed_fraction"] < 1e-6
+
+
+def test_light_above_the_floor_is_still_stopped_at_the_guard() -> None:
+    # The flow is linear, so a kilowatt walks as a watt does, a million times above
+    # the floor. (At a watt the light that reaches the guard, after the collar, is
+    # below the floor's own share of it, which the monitor rightly does not judge.)
+    with (
+        pytest.warns(BoundaryWarning, match="guard occupancy"),
+        pytest.raises(BoundaryError, match="guards"),
+    ):
+        walker(1.2 * TRANGE, peak_power=1e3, noise=True).run(progress="none")
+
+
+def test_with_noise_the_removed_fraction_is_still_the_signal_lost() -> None:
+    relaxed = BoundaryCheck(budget=1.0, stop_factor=1.0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        quiet = walker(0.65 * TRANGE, check=relaxed).run(progress="none")
+        noisy = walker(0.65 * TRANGE, check=relaxed, noise=True).run(progress="none")
+    assert record_of(noisy)["removed_fraction"] == pytest.approx(
+        record_of(quiet)["removed_fraction"], rel=0.02
+    )
+
+
+def test_a_launch_of_the_floor_alone_is_not_judged() -> None:
+    grid = EnvelopeGrid.from_limits(LENGTH, 1e-6, (0.8e-6, 1.25e-6), TRANGE)
+    rng = np.random.default_rng(3)
+    draw = np.exp(2j * np.pi * rng.random(grid.n_t))[None, None, None, :]
+    monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", BoundaryWarning)
+        monitor.launch(draw, 0.0, floor=draw)
+        monitor.step(draw, 0.1)
+    summary = monitor.summary()
+    assert summary["guard_low_max"] == summary["guard_high_max"] == 0.0
+    assert summary["noise_floor"] == pytest.approx(1.0)
 
 
 def test_the_check_may_change_after_translation() -> None:

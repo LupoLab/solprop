@@ -143,7 +143,8 @@ def test_gnlse_summary_names_the_fibre_and_says_noise_and_raman_are_off():
     assert table["shot noise"] == "off"
     # The GNLSE takes the routes' default collar, with its edges watched (SEP 21).
     assert table["absorber"] == (
-        "temporal, nonlinear scheme; edges watched (guards 0.05 of the window, budget 1e-03)"
+        "temporal, nonlinear scheme; "
+        "edges watched (guards 0.05 of the window, budget 1e-03)"
     )
     # The window holds the request and the collar outside it, on a smooth size.
     assert table["grid"].startswith("envelope, 768 points, window ")
@@ -172,7 +173,8 @@ def test_mode_averaged_capillary_with_noise_and_plasma():
         "Raman off",
     ]
     assert table["absorber"] == (
-        "temporal, nonlinear scheme; edges watched (guards 0.05 of the window, budget 1e-03)"
+        "temporal, nonlinear scheme; "
+        "edges watched (guards 0.05 of the window, budget 1e-03)"
     )
     assert table["integrator"].startswith("Multistep, variable order up to ")
     assert table["tolerances"].startswith("rtol 1e-06, atol ")

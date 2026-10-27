@@ -23,6 +23,7 @@ the same runs rather than assumed. The seed alone is the same draw beside a puls
 the seed's energy.
 """
 
+import dataclasses
 from typing import Any
 
 import numpy as np
@@ -101,13 +102,18 @@ def _taper(noise: str | None, energy: float, backend: str) -> Simulation:
 def _moving(noise: str | None, energy: float, backend: str) -> Simulation:
     # The general route has no split-step collar; a collar a thousand times longer
     # than the default keeps the explicit Runge-Kutta march stable at these steps.
-    return general_moving(
+    simulation = general_moving(
         noise,
         energy=energy,
         integrator=RungeKutta(),
         absorber=absorber(GRIN_GRID, boundary_length=1.0e3),
         **_fixed(LENGTH, backend),
     )
+    # The 100 fs window holds the band-limited pulse with 2e-3 of its energy in the
+    # guards from the launch on, which the boundary monitor would stop; the subject
+    # here is the draw's transport, not the window (SEP 21).
+    simulation.settings = dataclasses.replace(simulation.settings, boundary_check=None)
+    return simulation
 
 
 def _split(noise: str | None, energy: float, backend: str) -> Simulation:

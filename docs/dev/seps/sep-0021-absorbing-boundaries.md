@@ -2311,6 +2311,17 @@ diagnostics; transform-size cost; full-length timings.
 - **D12 — the floor-subtracted density under a collar (maintainer, 2026-10-27).**
   Documented, not corrected: the subtraction reads low by up to the absorbed fraction
   of one photon per bin where the collar took part of the vacuum floor.
+- **D13 — the monitor and the shot-noise floor (Q24; maintainer, 2026-10-27).** The
+  monitor judges above the floor: light that walks off below the vacuum level does not
+  matter. Implemented: the driver hands the monitor the input draw it added to the
+  launch; each region's energy less three times the floor's expected share
+  (`monitor.FLOOR_MARGIN`; the expectation alone for the removal rate, integrated with
+  its sign) is taken as a share of the whole field, so a noiseless run is judged as
+  before. The raw values are recorded beside. Measured: the N=3 soliton and pulses of
+  1 kW to 10 mW peak no longer warn; a walking pulse well above the floor is still
+  stopped; the removed fraction of a walking pulse agrees with the noiseless run's to
+  2 %. Light reaching a guard below the floor's equilibrium share of it is not judged,
+  even where the collar has depleted the floor there.
 
 **Limitations.**
 
@@ -2400,7 +2411,7 @@ Recorded as slices land; the phase report follows at the end of the phase.
     guards included. The N=3 soliton (about 100 W peak) warns twice from the noise
     alone: guard occupancy 2e-6 and a removed fraction of 3e-5, against 2e-19 and 1e-16
     noise-free. A 1 pJ pulse warns at launch and a 10 mW one is stopped. Three coupled
-    input-noise tests that launch the seed alone are stopped. Open: see Q24.
+    input-noise tests that launch the seed alone are stopped. Resolved by D13 (Q24).
   - **The floor-subtracted density** assumes the vacuum floor is conserved; the default
     collar absorbs part of it, so the subtraction is biased low by up to the absorbed
     fraction of one photon per bin. The identity test runs without a collar.

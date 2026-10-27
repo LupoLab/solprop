@@ -401,9 +401,21 @@ edge, the guards, and in the collar:
   warns when its square root exceeds the budget. Weak spectral features can matter at far
   smaller fractions than that: the record is there to read.
 
+**Above the shot-noise floor.** Input noise, on by default, puts one photon per mode across
+the whole window, guards and collar included. Light below that floor cannot be told from
+the vacuum, so the monitor judges what lies above it: from each region's energy it
+subtracts three times the floor's expected share (the floor is uniform in time on
+average, and three times its expectation clears its fluctuation in a narrow guard), and
+from the collar's removal rate the floor's expected removal. A weak launch is therefore
+not stopped for its own noise, while light well above the floor that reaches an edge
+still is. Light that arrives at an edge weaker than the vacuum's own share of it is not
+reported.
+
 What the monitor saw is kept in the run's execution record, under `boundary_monitor`: the
 launch occupancies, the largest guard and collar occupancies and where the guards peaked,
-and the removed fraction. `SimulationSettings(boundary_check=None)` watches nothing; a
+and the removed fraction, all above the floor; beside them the floor's share of the
+launch energy (`noise_floor`) and the whole field's largest guard share and removed
+fraction, floor included (`raw_guard_max`, `raw_removed_fraction`). `SimulationSettings(boundary_check=None)` watches nothing; a
 `BoundaryCheck` with a larger `budget` or `stop_factor` relaxes it.
 
 ## A worked example

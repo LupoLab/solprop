@@ -21,6 +21,16 @@ polarisations and transverse columns (with their quadrature weights), and forms:
 amplitudes, and on spatial routes the quadrature-weighted field norm rather than the
 admittance-weighted flux. The quantities are relative, so the proxy's scale cancels.
 
+**The shot-noise floor (Q24).** An input-noise launch carries one photon per mode
+across the whole window, guards and collar included. Light below that floor cannot be
+told from the vacuum, so the monitor judges what lies above it: from each region's
+energy it subtracts :data:`FLOOR_MARGIN` times the floor's expected share before
+taking that energy's share of the whole field (the floor is stationary, so its expected
+density is uniform in time; the removal rate subtracts the expectation alone). Without
+noise nothing is subtracted; with a weak launch the field is mostly floor and what lies
+above it is a small share. The raw values, of the whole field, are recorded beside the
+judged ones.
+
 Policy (D7): the square root of a guard occupancy above
 :attr:`BoundaryCheck.budget` warns, and above ``stop_factor`` times it stops the run;
 at the launch an occupancy above :attr:`BoundaryCheck.launch_threshold` warns. At the
@@ -48,6 +58,12 @@ __all__ = ["BoundaryCheck", "BoundaryMonitor"]
 _FLOOR = 1e-12
 """A state holding less than this share of the launch energy is not judged: its
 occupancies are of rounding residue, not of light (a zero launch, or one absorbed)."""
+
+FLOOR_MARGIN = 3.0
+"""How many times its expected energy the floor is allowed in a region before light is
+counted there. A region of ``n`` time samples holds the floor to a relative spread of
+about ``1/sqrt(n)``; three times the expectation keeps the narrowest guards in use (a
+few samples) from reading the floor's fluctuation as light."""
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +143,13 @@ class BoundaryMonitor:
     kind: GridKind
     columns: Float[np.ndarray, " n_columns"] | None = None
     _launch: float = field(default=math.nan, init=False)
+    _floor: float = field(default=0.0, init=False)
+    _floor_regions: Float[np.ndarray, " 4"] = field(
+        default_factory=lambda: np.zeros(4), init=False
+    )
+    _raw_guard_max: float = field(default=0.0, init=False)
+    _raw_removed: float = field(default=0.0, init=False)
+    _raw_last: tuple[float, float] | None = field(default=None, init=False)
     _last: tuple[float, float] | None = field(default=None, init=False)
     _removed: float = field(default=0.0, init=False)
     _guard_max: list[float] = field(default_factory=lambda: [0.0, 0.0], init=False)
@@ -200,20 +223,40 @@ class BoundaryMonitor:
             density = density * self.columns[None, :, None, None]
         return density.reshape(-1, density.shape[-1]).sum(axis=0)
 
-    def _shares(
+    def _regions(
         self, field_spectrum: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
     ) -> tuple[float, Float[np.ndarray, " 4"]]:
-        """Return the total and the four weighted shares of one state."""
+        """Return the total energy of one state and its four weighted energies.
+
+        The first three are the energies in the low guard, the high guard and the
+        collar; the fourth is the collar's removal rate, energy per metre.
+        """
         power = self._power(field_spectrum)
         total = float(power.sum())
         if total <= 0.0 or not math.isfinite(total):
             return 0.0, np.zeros(4)
-        return total, (self.weights @ power) / total
+        return total, self.weights @ power
+
+    def _above(self, regions: Float[np.ndarray, " 4"]) -> Float[np.ndarray, " 4"]:
+        """Return each region's energy above the shot-noise floor.
+
+        The occupancies must clear the floor's fluctuation and are clipped at zero.
+        The removal rate subtracts the floor's expectation and keeps its sign: its
+        integral along z averages the fluctuation out, which clipping would rectify
+        into a spurious removal.
+        """
+        above = regions - self._floor_regions * np.array(
+            [FLOOR_MARGIN, FLOOR_MARGIN, FLOOR_MARGIN, 1.0]
+        )
+        above[:3] = np.maximum(above[:3], 0.0)
+        return above
 
     def launch(
         self,
         field_spectrum: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
         z: float,
+        *,
+        floor: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"] | None = None,
     ) -> None:
         """Record the launch, and warn if it already fills a guard or the collar.
 
@@ -223,13 +266,27 @@ class BoundaryMonitor:
             The launched state, canonical layout, FFT convention.
         z : float
             Its position, m.
+        floor : numpy.ndarray or None, optional
+            The input-noise draw the launch carries, in the same layout and
+            convention; ``None`` without one. Its energy is the vacuum floor the
+            monitor judges above (Q24).
         """
-        total, shares = self._shares(field_spectrum)
+        if floor is not None:
+            self._floor = float(self._power(floor).sum())
+            # The floor is stationary: its expected density is uniform in time.
+            self._floor_regions = self._floor * self.weights.mean(axis=1)
+        total, regions = self._regions(field_spectrum)
         self._launch = total
+        if total <= 0.0:
+            self._last = (z, 0.0)
+            self._raw_last = (z, 0.0)
+            return
+        shares = self._above(regions) / total
         self._last = (z, float(shares[3]))
+        self._raw_last = (z, float(regions[3]) / total)
         self._launch_occupancy = (float(shares[0]), float(shares[1]), float(shares[2]))
         worst = max(self._launch_occupancy)
-        if total > 0.0 and worst > self.check.launch_threshold:
+        if worst > self.check.launch_threshold:
             self._warned = True
             warnings.warn(
                 f"the launched field already puts {worst:.2e} of its energy in the "
@@ -260,15 +317,26 @@ class BoundaryMonitor:
         BoundaryError
             When the square root of a guard occupancy exceeds ``stop_factor`` budgets.
         """
-        total, shares = self._shares(field_spectrum)
+        total, regions = self._regions(field_spectrum)
         self._steps += 1
         if not total > _FLOOR * self._launch:
             # Nothing was launched, or nothing is left: no light to judge.
             self._last = (z, 0.0)
+            self._raw_last = (z, 0.0)
             return
-        # The removal rate as a fraction of the launch energy per metre: the share is
-        # relative to the state's own energy, which the launch's rescales.
-        rate = float(shares[3]) * total / self._launch if self._launch > 0.0 else 0.0
+        # The whole field's record, floor included, kept beside the judged one.
+        raw_rate = float(regions[3]) / self._launch
+        if self._raw_last is not None:
+            previous_z, previous_rate = self._raw_last
+            self._raw_removed += 0.5 * (z - previous_z) * (previous_rate + raw_rate)
+        self._raw_last = (z, raw_rate)
+        self._raw_guard_max = max(
+            self._raw_guard_max, float(max(regions[0], regions[1])) / total
+        )
+        above = self._above(regions)
+        shares = above / total
+        # The removal rate as a fraction of the launch energy per metre.
+        rate = float(above[3]) / self._launch
         if self._last is not None:
             previous_z, previous_rate = self._last
             self._removed += 0.5 * (z - previous_z) * (previous_rate + rate)
@@ -306,9 +374,13 @@ class BoundaryMonitor:
         -------
         dict
             Launch occupancies, the largest guard and collar occupancies and where the
-            guards peaked, the removed fraction of the launch energy and the number of
-            committed steps accounted; ``None`` for what was never measured (a
-            launch the run resumed past, a guard nothing reached).
+            guards peaked, the removed fraction of the launched signal and the number
+            of committed steps accounted, all judged above the shot-noise floor;
+            ``None`` for what was never measured (a launch the run resumed past, a
+            guard nothing reached). Beside them, the floor's share of the launch
+            energy (``noise_floor``, zero without input noise), and the largest guard
+            share and the removed fraction of the whole field, floor included
+            (``raw_guard_max``, ``raw_removed_fraction``).
         """
 
         def finite(value: float) -> float | None:
@@ -323,8 +395,11 @@ class BoundaryMonitor:
             "guard_low_at": finite(self._guard_at[0]),
             "guard_high_at": finite(self._guard_at[1]),
             "collar_max": self._collar_max,
-            "removed_fraction": self._removed,
+            "removed_fraction": max(self._removed, 0.0),
             "steps": self._steps,
+            "noise_floor": self._floor / self._launch if self._launch > 0.0 else 0.0,
+            "raw_guard_max": self._raw_guard_max,
+            "raw_removed_fraction": self._raw_removed,
         }
 
     def finish(self) -> None:
@@ -332,7 +407,7 @@ class BoundaryMonitor:
 
         Logged always; warns when its square root exceeds the budget.
         """
-        removed = self._removed
+        removed = max(self._removed, 0.0)
         logger.info(
             "the temporal collar removed %.3e of the launch energy; the guards peaked "
             "at %.2e (low) and %.2e (high)",

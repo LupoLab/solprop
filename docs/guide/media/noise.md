@@ -181,7 +181,9 @@ which removes exactly one photon per active bin and channel. Because every bin's
 has a fixed modulus, for one realisation this equals the modified model's corrected
 readout $|\psi + N|^2 - |N|^2$ wherever the linear operator is unitary. Under loss the
 input seed has decayed, so the subtraction removes more than remains; values near the
-floor can be negative and are returned signed. It refuses a run without noise and a
+floor can be negative and are returned signed. The temporal collar is such a loss: it
+absorbs the part of the seed that drifts into it, so bins whose seed it took read low,
+by up to one photon each. It refuses a run without noise and a
 modified run, whose saved field holds no seed. See
 [processing](../results/processing.md#removing-the-noise-floor).
 
