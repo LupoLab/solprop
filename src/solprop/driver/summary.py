@@ -240,7 +240,7 @@ def _machine(record: Mapping[str, object]) -> str:
     Parameters
     ----------
     record : collections.abc.Mapping
-        What :func:`solprop._host.machine` returned.
+        The machine, as the execution record's ``host`` holds it.
 
     Returns
     -------
@@ -293,7 +293,8 @@ def resources(spent: Mapping[str, float | int | None]) -> str:
     Parameters
     ----------
     spent : collections.abc.Mapping
-        What :func:`solprop._host.usage` returned.
+        The run's ``wall_time_s``, ``cpu_time_s`` and ``peak_rss_bytes``, as the
+        execution record holds them.
 
     Returns
     -------
