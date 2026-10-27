@@ -442,7 +442,8 @@ fraction, floor included (`raw_guard_max`, `raw_removed_fraction`). Under `plane
 one row per saved plane: `z`, the collar occupancy there, each guard's largest occupancy
 since the previous plane, and the removed fraction so far. Under the in-stage scheme the
 removed fraction is integrated along z by the trapezoid; under `absorber_scheme="split_step"`
-each step's removal is read exactly from the state it leaves. `SimulationSettings(boundary_check=None)` watches nothing; a
+each step's removal is read exactly from the state it leaves. `SimulationSettings(boundary_check=None)`, or `boundary_check=None` on `prop_gnlse`,
+`prop_capillary` and `prop_waveguide`, watches nothing; a
 `BoundaryCheck` with a larger `budget` or `stop_factor` relaxes it.
 
 ## A worked example

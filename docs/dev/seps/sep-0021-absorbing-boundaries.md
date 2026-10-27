@@ -238,7 +238,7 @@ revision, including its in-repository native backend, that it actually uses.
 recorded on 2026-10-20 is satisfied: the plasma campaign uses the qualified held-current
 source and the free-space costs are measured after SEP 28's changes, with no
 remeasurement caveat for earlier baselines. Use the next free kernel and output schemas at landing, not numbers reserved
-by an older draft: SEP 31's frame follow-up and [SEP 33](sep-0033-single-precision-mlx.md)
+by an older draft: SEP 31's frame follow-up and [SEP 33](archive/sep-0033-single-precision-mlx.md)
 may take numbers first; output schema 24 is SEP 31's. If SEP 33 lands before phase 2, every new accumulator and
 reduction states its accumulation precision and is covered in binary32. This is an
 integration constraint, not a requirement to finish the escaped-field reconstruction

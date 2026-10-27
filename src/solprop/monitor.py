@@ -53,7 +53,16 @@ from solprop.exceptions import BoundaryError, BoundaryWarning
 from solprop.fourier import GridKind
 from solprop.grid import TimeGrid
 
-__all__ = ["BoundaryCheck", "BoundaryMonitor"]
+__all__ = [
+    "ACTIVE",
+    "CADENCE",
+    "CHECKS",
+    "DEFAULT_BOUNDARY_CHECK",
+    "FLOOR_MARGIN",
+    "QUIET",
+    "BoundaryCheck",
+    "BoundaryMonitor",
+]
 
 _FLOOR = 1e-12
 """A state holding less than this share of the launch energy is not judged: its
@@ -138,6 +147,10 @@ class BoundaryCheck:
         if self.stop_factor < 1.0:
             msg = f"stop_factor must be at least 1, got {self.stop_factor!r}"
             raise BoundaryError(msg)
+
+
+DEFAULT_BOUNDARY_CHECK = BoundaryCheck()
+"""The check a run takes unless its settings or an interface keyword say otherwise."""
 
 
 @dataclass

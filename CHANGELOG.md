@@ -70,7 +70,9 @@ The first public release. It contains:
   `None`, the route's choice. Every
   `prop_*` interface takes `absorber=False`, which switches both soft collars off and
   keeps the hard band mask (`boundaries.no_absorber`), and `absorber_scheme=`. A boundary
-  monitor (`solprop.monitor`, `SimulationSettings.boundary_check`, on by default) watches
+  monitor (`solprop.monitor`, `SimulationSettings.boundary_check` or the
+  `boundary_check=` keyword of `prop_gnlse`, `prop_capillary` and `prop_waveguide`, on by
+  default) watches
   the window's guards at the launch and every committed step, warns
   (`BoundaryWarning`) and then stops (`BoundaryError`) when light above the shot-noise
   floor reaches the edge, and records the energy the temporal collar removed (exactly

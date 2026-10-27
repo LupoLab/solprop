@@ -144,7 +144,7 @@ from solprop.modes.quadrature import (
 from solprop.modes.slab import PlanarGrid, SlabMode
 from solprop.modes.stepindex import StepIndexMode
 from solprop.modes.tabulated import IndexTable
-from solprop.monitor import BoundaryCheck, BoundaryMonitor
+from solprop.monitor import DEFAULT_BOUNDARY_CHECK, BoundaryCheck, BoundaryMonitor
 from solprop.noise import (
     NoiseRealisation,
     input_noise,
@@ -322,6 +322,7 @@ __all__ = [
     "SimulationRunner",
     "SimulationSettings",
     "check_derived_problem",
+    "default_collar",
     "default_field_range",
     "default_radial_order",
     "metadata_for",
@@ -744,9 +745,7 @@ class SimulationSettings(Displayed):
     evanescent_rate: float | None = None
     transverse_absorber: TransverseCollar | None = None
     adiabatic_accuracy: AdiabaticAccuracy | None = None
-    boundary_check: BoundaryCheck | None = dataclasses.field(
-        default_factory=BoundaryCheck
-    )
+    boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK
     _default_integrator: Multistep | RungeKutta | None = dataclasses.field(
         default=None, repr=False, compare=False
     )

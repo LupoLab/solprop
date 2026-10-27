@@ -18,6 +18,8 @@ as a declared transverse **field** that the route projects onto the channels and
 reports what it captured.
 """
 
+import dataclasses
+
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -111,7 +113,8 @@ print(f"imaging length  {length * 1e6:.2f} um")
 # %%
 # A continuous wave in both channels at once, propagated to that length in ten
 # steps. One coarse bin is exactly periodic on the time window, so the beat is
-# the two channels' relative phase and nothing else.
+# the two channels' relative phase and nothing else. A wave that fills the window
+# wants neither the temporal collar nor the watch on the window's edges.
 simulation = Simulation.from_waveguide(
     (),
     length,
@@ -126,7 +129,9 @@ simulation = Simulation.from_waveguide(
     dz_init=length / 10,
     backend="numpy_ref",
     noise=None,
+    absorber=False,
 )
+simulation.settings = dataclasses.replace(simulation.settings, boundary_check=None)
 launch = np.zeros((2, 1, grid.n_omega), dtype=complex)
 launch[:, 0, centre] = 1.0
 run = simulation.with_input(launch).run(progress="none")

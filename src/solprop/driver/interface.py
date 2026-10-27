@@ -53,6 +53,7 @@ from solprop.modes.protocol import Mode
 from solprop.modes.quadrature import RadialRule
 from solprop.modes.slab import PlanarGrid
 from solprop.modes.tabulated import IndexTable
+from solprop.monitor import DEFAULT_BOUNDARY_CHECK, BoundaryCheck
 from solprop.nonlinear.ionisation import IntegrationPolicy, IonisationRate
 from solprop.nonlinear.raman import MolecularOptions
 from solprop.nonlinear.tdse import TDSEExecution, TDSEGasResponse
@@ -383,6 +384,22 @@ def prop_planar(  # noqa: PLR0913 - the simulation interface and output controls
     )
 
 
+def _watch(simulation: Simulation, check: BoundaryCheck | None) -> None:
+    """Give `simulation` the edge watch an interface keyword asked for.
+
+    Parameters
+    ----------
+    simulation : Simulation
+        The built run; its check is an execution setting, so it may still change.
+    check : solprop.monitor.BoundaryCheck or None
+        The keyword's value; the default leaves the settings as they are.
+    """
+    if check is not DEFAULT_BOUNDARY_CHECK:
+        simulation.settings = dataclasses.replace(
+            simulation.settings, boundary_check=check
+        )
+
+
 def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
     gamma: float | None,
     length: float,
@@ -424,6 +441,7 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
     polarisation_taper: bool = False,
     absorber: Absorber | Literal[False] | None = None,
     absorber_scheme: AbsorberScheme | None = None,
+    boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
     output: Output | Path | str | None = None,
     snapshots: SnapshotController | None = None,
     backend: str = "auto",
@@ -603,6 +621,10 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
     absorber_scheme : {'nonlinear', 'split_step'} or None, optional
         How a temporal collar is applied (ADR-025); ``None`` is the default, inside
         every stage.
+    boundary_check : solprop.monitor.BoundaryCheck or None, optional
+        How the run watches its time window's edges (SEP 21): the default warns, then
+        stops, when light above the shot-noise floor reaches them; ``None`` watches
+        nothing, for a window kept narrow on purpose.
     output : solprop.output.schema.Output or pathlib.Path or str or None, optional
         Where the run goes: a handler, a path to stream an HDF5 file to, or ``None`` for
         a :class:`solprop.output.memory.MemoryOutput`.
@@ -732,6 +754,7 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         len(simulation.settings.save_planes),
         simulation.settings.backend,
     )
+    _watch(simulation, boundary_check)
     return simulation.run(
         output,
         snapshots=snapshots,
@@ -783,6 +806,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
     ionisation_field_range: tuple[float, float] | None = None,
     absorber: Absorber | Literal[False] | None = None,
     absorber_scheme: AbsorberScheme | None = None,
+    boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
     noise: NoiseSetting = "default",
     seed: int | None = None,
     rtol: float | None = None,
@@ -1019,6 +1043,10 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         default, or once per accepted step. The low-call Adams methods of
         SEP 13 step much further with ``'split_step'``, whose first-order
         splitting error stays inside the collar.
+    boundary_check : solprop.monitor.BoundaryCheck or None, optional
+        How the run watches its time window's edges (SEP 21): the default warns, then
+        stops, when light above the shot-noise floor reaches them; ``None`` watches
+        nothing, for a window kept narrow on purpose.
     noise : {'default', None, 'input', 'modified'}, optional
         Which shot-noise model to carry.
         ``"default"``, the default, resolves to ``"input"`` wherever the run can
@@ -1231,6 +1259,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         len(simulation.settings.save_planes),
         simulation.settings.backend,
     )
+    _watch(simulation, boundary_check)
     return simulation.run(
         output,
         snapshots=snapshots,
@@ -1283,6 +1312,7 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
     ionisation_field_range: tuple[float, float] | None = None,
     absorber: Absorber | Literal[False] | None = None,
     absorber_scheme: AbsorberScheme | None = None,
+    boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
     noise: NoiseSetting = "default",
     seed: int | None = None,
     rtol: float | None = None,
@@ -1506,6 +1536,10 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
     absorber_scheme : {'nonlinear', 'split_step'} or None, optional
         How the temporal collar is applied (ADR-025); ``None`` is the default,
         inside every stage.
+    boundary_check : solprop.monitor.BoundaryCheck or None, optional
+        How the run watches its time window's edges (SEP 21): the default warns, then
+        stops, when light above the shot-noise floor reaches them; ``None`` watches
+        nothing, for a window kept narrow on purpose.
     noise : {'default', None, 'input', 'modified'}, optional
         Which shot-noise model to carry.
         ``"default"``, the default, resolves to ``"input"`` wherever the run can
@@ -1661,6 +1695,7 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         len(simulation.settings.save_planes),
         simulation.settings.backend,
     )
+    _watch(simulation, boundary_check)
     return simulation.run(
         output,
         snapshots=snapshots,

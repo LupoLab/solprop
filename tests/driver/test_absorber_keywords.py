@@ -161,3 +161,26 @@ def test_spatial_defaults_leave_the_real_space_collar_off() -> None:
     assert settings.absorber.spatial is False
     given = _settings(grid, absorber=absorber(grid))
     assert _spatial_default(given, grid) is given
+
+
+def test_the_modal_interfaces_take_the_boundary_check() -> None:
+    """``boundary_check=None`` on ``prop_gnlse`` runs with nothing watched (SEP 21)."""
+    from solprop.driver import prop_gnlse  # noqa: PLC0415
+    from solprop.output.schema import PlaneStore  # noqa: PLC0415
+
+    run = prop_gnlse(
+        0.1, 0.01, [0.0, 0.0, -1e-26], lambda0=1e-6, fwhm=100e-15, peak_power=1.0,
+        trange=2e-12, wavelength_limits=(0.7e-6, 1.5e-6), noise=None, n_save=2,
+        progress="none", boundary_check=None, backend="numpy_ref",
+    )  # fmt: skip
+    assert isinstance(run, PlaneStore)
+    assert run.outcome is not None and run.outcome.execution is not None
+    assert "boundary_monitor" not in run.outcome.execution
+    watched = prop_gnlse(
+        0.1, 0.01, [0.0, 0.0, -1e-26], lambda0=1e-6, fwhm=100e-15, peak_power=1.0,
+        trange=2e-12, wavelength_limits=(0.7e-6, 1.5e-6), noise=None, n_save=2,
+        progress="none", backend="numpy_ref",
+    )  # fmt: skip
+    assert isinstance(watched, PlaneStore)
+    assert watched.outcome is not None and watched.outcome.execution is not None
+    assert "boundary_monitor" in watched.outcome.execution

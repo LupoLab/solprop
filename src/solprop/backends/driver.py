@@ -1874,7 +1874,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         """Watch the time window's edges from here on, starting with the current state.
 
         The launch is recorded now; every committed step is then accounted at the
-        same point as the periodic statistics rows (:meth:`_take_step_stats`), on
+        same point as the periodic statistics rows (``_take_step_stats``), on
         every march, after the state is finished and the position advanced.
 
         Parameters

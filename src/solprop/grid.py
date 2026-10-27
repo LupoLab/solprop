@@ -1112,7 +1112,7 @@ finding 14): within 10 per cent of the cheapest length for most requests.
 def fft_cost(n: int) -> float:
     """Return the modelled relative cost of a real transform of length `n`.
 
-    ``n log2 n``, times :data:`_RADIX_PENALTY` for each factor of 3 and of 5.
+    ``n log2 n``, times ``_RADIX_PENALTY`` for each factor of 3 and of 5.
 
     Parameters
     ----------
