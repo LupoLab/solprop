@@ -624,6 +624,21 @@ KOKKOS_INLINE_FUNCTION Complex propagator_exp(const Complex argument) {
   return {magnitude * cosine, magnitude * sine};
 }
 
+// `exponential`, or on a lossless problem (a signed-zero real part) the same value
+// with its magnitude `exp(+-0)`, exactly one, taken without the call. The cosine and
+// sine come from `cosine_sine`, so on the host it is `exponential` to the bit.
+template <bool Lossless>
+KOKKOS_INLINE_FUNCTION Complex entry_exponential(const Complex value) {
+  if constexpr (Lossless) {
+    double cosine = 0.0;
+    double sine = 0.0;
+    cosine_sine(value.imag(), cosine, sine);
+    return {cosine, sine};
+  } else {
+    return propagator_exp(value);
+  }
+}
+
 KOKKOS_INLINE_FUNCTION double squared_abs(const Complex value) {
   return value.real() * value.real() + value.imag() * value.imag();
 }
@@ -1360,6 +1375,9 @@ constexpr std::size_t stage_block = 64;
 // and accumulation). The entry kernel runs the finish of the stage before it in the
 // same traversal when nothing lies between them (solprop SEP 25 section 6.7): both
 // are pointwise over the bins, and the combination reads only its own bin's stages.
+// How a stage's entry forms its propagator pair (`StageTerms::combine`).
+enum class EntryPhase { general, lossless, repeated };
+
 struct StageTerms {
   ComplexView2 current, fine, whole, solution, error, stage_phase, stage_inverse, noise;
   ComplexView2 flow_input, flow_lab, flow_drive, general_scaled, general_source;
@@ -1447,8 +1465,13 @@ struct StageTerms {
   // parts are even and odd, so `exp(-phase)` is `e^{-a} (cos b, -sin b)` with its own
   // magnitude, never a reciprocal of the forward value, and is the finish's former
   // `exponential(-phase)` to the bit. A coupled flow's residual reads the phase.
-  // Returns the stage's forward propagator, which the device's last stage reuses for
-  // the whole step's when the two phases are equal.
+  // A lossless problem (`EntryPhase::lossless`: every Phi term's real part exactly
+  // zero, so the phase's is a signed zero) takes both magnitudes as `exp(+-0)`,
+  // exactly one, without the calls. A lossless stage whose phase weights equal the
+  // stage before's (`EntryPhase::repeated`) has that stage's inverse still in place,
+  // and its propagator is that inverse's conjugate, `(cos b, -(-sin b))`, to the bit.
+  // Returns the propagator.
+  template <EntryPhase Mode = EntryPhase::general>
   KOKKOS_INLINE_FUNCTION Complex combine(const std::size_t stage, const double dz,
                                          const double solution_weight,
                                          const double error_weight,
@@ -1456,23 +1479,21 @@ struct StageTerms {
                                          const std::size_t index,
                                          const Complex phase) const {
     const Complex phase_at = add_noise ? noise_phase(stage, column, index) : Complex{};
-    Complex propagator(1.0, 0.0);
-    Complex inverse(1.0, -0.0);
-#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
-    // A stage at the step's anchor has a zero phase: its propagators are exactly the
-    // library's values there, `(1, 0)` and `(1, -0)`, without the four evaluations.
-    if (phase.real() != 0.0 || phase.imag() != 0.0)
-#endif
-    {
+    Complex propagator;
+    if constexpr (Mode == EntryPhase::repeated) {
+      const Complex inverse = stage_inverse(column, index);
+      propagator = Complex(inverse.real(), -inverse.imag());
+    } else {
+      constexpr bool lossless = Mode == EntryPhase::lossless;
       double cosine = 0.0;
       double sine = 0.0;
       cosine_sine(phase.imag(), cosine, sine);
-      const double magnitude = Kokkos::exp(phase.real());
-      const double inverse_magnitude = Kokkos::exp(-phase.real());
+      const double magnitude = lossless ? 1.0 : Kokkos::exp(phase.real());
+      const double inverse_magnitude = lossless ? 1.0 : Kokkos::exp(-phase.real());
       propagator = Complex(magnitude * cosine, magnitude * sine);
-      inverse = Complex(inverse_magnitude * cosine, -(inverse_magnitude * sine));
+      stage_inverse(column, index) =
+          Complex(inverse_magnitude * cosine, -(inverse_magnitude * sine));
     }
-    stage_inverse(column, index) = inverse;
     if (flow)
       stage_phase(column, index) = phase;
     Complex value{};
@@ -1795,6 +1816,7 @@ public:
   StageTerms stage_terms(std::size_t stage) const;
   std::vector<std::pair<std::size_t, std::size_t>> fine_gap_runs() const;
   void stage_entry(std::size_t stage, double dz);
+  template <EntryPhase Mode> void stage_entry_with(std::size_t stage, double dz);
   void finish_or_defer(std::size_t stage);
   // Free space and the hybrid planar kind (`Problem::separable_geometry`).
   TransverseLayout transverse_layout() const noexcept {
@@ -1823,6 +1845,7 @@ public:
   void fill_statistics_closure();
   void evaluate_separable_stage(std::size_t stage, double dz);
   void seed_free_wisdom();
+  void seed_modal_wisdom();
   void separable_core(std::size_t stage, bool material);
   void separable_stage_input(std::size_t stage, double dz);
   void separable_load_current();
@@ -2031,6 +2054,14 @@ public:
   std::size_t plan_heap_growth_{}, plan_device_growth_{};
   double planning_seconds_{};
   double raman_planning_seconds_{};
+  // Every fixed Phi term is purely imaginary: the stage phases have no real part.
+  bool lossless_phase_ = false;
+  // Per stage of the current trial, whether its phase weights equal the stage
+  // before's, and whether the whole step's equal the last stage's (`upload_trial`);
+  // the last stage whose entry formed the pair in this trial.
+  std::vector<bool> phase_repeats_;
+  bool whole_repeats_ = false;
+  std::size_t entered_stage_ = std::numeric_limits<std::size_t>::max();
   std::size_t raman_kernel_transforms_{};
   bool raman_kernel_ready_{};
   std::vector<double> cached_raman_rates_, cached_raman_densities_;
@@ -3347,8 +3378,13 @@ void GeneralWorkspace::upload() {
   }
   copy_vector(execution_space_, carrier_, problem_.carrier);
   // A z table's slots start at zero (Kokkos initialises a view) until evaluated.
-  if (!problem_.phi_table)
+  lossless_phase_ = false;
+  if (!problem_.phi_table) {
     copy_vector(execution_space_, phi_terms_, problem_.phi_terms);
+    lossless_phase_ =
+        std::all_of(problem_.phi_terms.begin(), problem_.phi_terms.end(),
+                    [](const Complex& term) { return term.real() == 0.0; });
+  }
   if (!problem_.prefactor_table)
     copy_vector(execution_space_, prefactor_terms_, problem_.prefactor_terms);
   copy_vector(execution_space_, tableau_, problem_.tableau_matrix);
@@ -3415,6 +3451,33 @@ void GeneralWorkspace::seed_free_wisdom() {
     Kokkos::deep_copy(execution_space_, projected_complex_, Complex{});
     Kokkos::deep_copy(execution_space_, projected_spectrum_, Complex{});
   }
+}
+
+// Measured plans for the modal routes' temporal pair, the two transforms of every
+// source evaluation: Kokkos-FFT plans them at FFTW_ESTIMATE, which picks markedly
+// slower codelets for long rows (a 16384-sample envelope GNLSE ran its pair at about
+// twice the measured cost). The shared row helper keeps the serial-only default.
+void GeneralWorkspace::seed_modal_wisdom() {
+  if (problem_.family == FieldFamily::field_real) {
+    seed_row_fft_wisdom(fft_space_for(modal_real_.size()), fine_spectrum_, modal_real_,
+                        KokkosFFT::Direction::backward);
+    Kokkos::deep_copy(execution_space_, modal_real_, 0.0);
+  } else {
+    seed_row_fft_wisdom(fft_space_for(modal_complex_.size()), fine_spectrum_,
+                        modal_complex_, KokkosFFT::Direction::backward);
+    Kokkos::deep_copy(execution_space_, modal_complex_, Complex{});
+  }
+  if (problem_.family == FieldFamily::envelope) {
+    seed_row_fft_wisdom(fft_space_for(projected_complex_.size()), projected_complex_,
+                        projected_spectrum_, KokkosFFT::Direction::forward);
+    Kokkos::deep_copy(execution_space_, projected_complex_, Complex{});
+  } else {
+    seed_row_fft_wisdom(fft_space_for(projected_real_.size()), projected_real_,
+                        projected_spectrum_, KokkosFFT::Direction::forward);
+    Kokkos::deep_copy(execution_space_, projected_real_, 0.0);
+  }
+  Kokkos::deep_copy(execution_space_, fine_spectrum_, Complex{});
+  Kokkos::deep_copy(execution_space_, projected_spectrum_, Complex{});
 }
 #endif
 
@@ -3489,6 +3552,10 @@ void GeneralWorkspace::plan() {
             fft_space_for(stream.coarse.size()), stream.coarse, stream.coarse_spectrum,
             KokkosFFT::Direction::forward, axis);
     }
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+  if (!problem_.separable_geometry())
+    seed_modal_wisdom();
+#endif
   statistics_inverse_plan_ = std::make_unique<ComplexPlan>(
       fft_space_for(statistics_time_.size()), statistics_spectrum_, statistics_time_,
       KokkosFFT::Direction::backward, axis);
@@ -3737,6 +3804,19 @@ void GeneralWorkspace::upload_trial(const TrialScalars& scalars) {
                   staging.size(),
               staging.data());
   place(stage_phi_delta_, scalars.phi_delta);
+  // Rows of equal weights give bitwise equal phases (a zero weight's term is skipped).
+  const auto n_phi = problem_.n_phi_terms;
+  const auto same_row = [&](const std::size_t row) {
+    return std::equal(
+        scalars.phi_delta.begin() + static_cast<std::ptrdiff_t>(row * n_phi),
+        scalars.phi_delta.begin() + static_cast<std::ptrdiff_t>((row + 1) * n_phi),
+        scalars.phi_delta.begin() + static_cast<std::ptrdiff_t>((row - 1) * n_phi));
+  };
+  phase_repeats_.assign(problem_.n_stages, false);
+  for (std::size_t stage = 1; stage < problem_.n_stages; ++stage)
+    phase_repeats_[stage] = same_row(stage);
+  whole_repeats_ = problem_.n_stages > 0 && same_row(problem_.n_stages);
+  entered_stage_ = std::numeric_limits<std::size_t>::max();
   place(stage_phi_at_, scalars.phi_at);
   place(stage_prefactor_, scalars.prefactor);
   place(stage_density_, scalars.density);
@@ -7134,8 +7214,25 @@ StageTerms GeneralWorkspace::stage_terms(const std::size_t stage) const {
 // left one pending), the stage's phase increment and the whole step's at the last
 // stage, the combination, and the zero pad of the fine spectrum, in one traversal of
 // the bins. The finish and the combination are each the arithmetic of their own
-// kernels, so fusing them moves no rounding.
+// kernels, so fusing them moves no rounding. A lossless problem's kernel makes no
+// `exp` calls, and a lossless stage repeating the stage before's phase (the last two
+// stages of a FSAL tableau, and the whole step's at the last) reuses its pair
+// (`StageTerms::combine`), as numba_cpu's propagator cache does.
 void GeneralWorkspace::stage_entry(const std::size_t stage, const double dz) {
+  const bool repeated = lossless_phase_ && stage > 0 && entered_stage_ == stage - 1 &&
+                        phase_repeats_[stage];
+  entered_stage_ = stage;
+  if (repeated)
+    stage_entry_with<EntryPhase::repeated>(stage, dz);
+  else if (lossless_phase_)
+    stage_entry_with<EntryPhase::lossless>(stage, dz);
+  else
+    stage_entry_with<EntryPhase::general>(stage, dz);
+}
+
+template <EntryPhase Mode>
+void GeneralWorkspace::stage_entry_with(const std::size_t stage, const double dz) {
+  constexpr bool lossless = Mode != EntryPhase::general;
   const bool finish_previous = finish_pending_;
   finish_pending_ = false;
   if (finish_previous && (stage == 0 || pending_stage_ + 1 != stage))
@@ -7151,6 +7248,8 @@ void GeneralWorkspace::stage_entry(const std::size_t stage, const double dz) {
   const auto n_stages = problem_.n_stages;
   const auto gaps = problem_.separable_geometry() ? 0 : fine_spectrum_size() - n;
   const bool last = stage + 1 == n_stages;
+  // The whole step's propagator is the last stage's when their phases are equal.
+  const bool reuse_whole = last && lossless && whole_repeats_;
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   // On a device, one thread per bin: the host layout's blocks of 64 bins, each a work
   // item holding two 64-element arrays, gave a GPU a few dozen threads walking every
@@ -7162,13 +7261,16 @@ void GeneralWorkspace::stage_entry(const std::size_t stage, const double dz) {
         if (finish_previous)
           terms.finish(previous, previous_solution, previous_error, column, index);
         const Complex phase = terms.phase_sum(stage * n_phi, column, index);
-        const Complex forward = terms.combine(stage, dz, solution_weight, error_weight,
-                                              column, index, phase);
-        // The whole step's propagator; at a last stage whose node is the step's end
-        // (DOPRI5's) the phase sums are equal and the stage's propagator is it exactly.
-        if (last) {
+        const Complex propagator = terms.template combine<Mode>(
+            stage, dz, solution_weight, error_weight, column, index, phase);
+        if (reuse_whole) {
+          terms.whole(column, index) = propagator;
+        } else if (last) {
+          // At a last stage whose node is the step's end (DOPRI5's) the phase sums are
+          // equal on a lossy problem too, and the stage's propagator is the step's.
           const Complex whole = terms.phase_sum(n_stages * n_phi, column, index);
-          terms.whole(column, index) = whole == phase ? forward : propagator_exp(whole);
+          terms.whole(column, index) =
+              whole == phase ? propagator : entry_exponential<lossless>(whole);
         }
         for (std::size_t gap = index; gap < gaps; gap += n)
           terms.zero_gaps(column, gap, gap + 1);
@@ -7191,14 +7293,18 @@ void GeneralWorkspace::stage_entry(const std::size_t stage, const double dz) {
         double real[stage_block];
         double imag[stage_block];
         terms.phase_block(stage * n_phi, column, first, count, real, imag);
-        for (std::size_t bin = 0; bin < count; ++bin)
-          terms.combine(stage, dz, solution_weight, error_weight, column, first + bin,
-                        Complex(real[bin], imag[bin]));
-        if (last) {
+        for (std::size_t bin = 0; bin < count; ++bin) {
+          const Complex propagator = terms.template combine<Mode>(
+              stage, dz, solution_weight, error_weight, column, first + bin,
+              Complex(real[bin], imag[bin]));
+          if (reuse_whole)
+            terms.whole(column, first + bin) = propagator;
+        }
+        if (last && !reuse_whole) {
           terms.phase_block(n_stages * n_phi, column, first, count, real, imag);
           for (std::size_t bin = 0; bin < count; ++bin)
             terms.whole(column, first + bin) =
-                propagator_exp(Complex(real[bin], imag[bin]));
+                entry_exponential<lossless>(Complex(real[bin], imag[bin]));
         }
         terms.zero_gaps(column, block * gaps / blocks, (block + 1) * gaps / blocks);
       });
