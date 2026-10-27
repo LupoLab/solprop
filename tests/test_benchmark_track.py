@@ -15,6 +15,13 @@ from benchmarks.records import SuiteError, read_record
 from benchmarks.registry import CASES, select
 
 
+@pytest.fixture
+def sixteen_cpus(monkeypatch):
+    """Plan for a 16-CPU allocation, whatever this runner has."""
+    monkeypatch.setattr(system, "eligible_cpus", lambda: tuple(range(16)))
+
+
+@pytest.mark.usefixtures("sixteen_cpus")
 def test_the_default_plan_runs_each_case_at_its_declared_widths():
     rows, skipped = runner.plan_rows(select(), ("default",), None, 8)
     assert not skipped
@@ -32,6 +39,7 @@ def test_the_default_plan_runs_each_case_at_its_declared_widths():
     assert runner.estimate(rows, 3) is not None
 
 
+@pytest.mark.usefixtures("sixteen_cpus")
 def test_named_widths_and_steppers_apply_to_every_case_and_explain_skips():
     cases = (CASES["rdw"], CASES["kerr_beam_192"])
     rows, skipped = runner.plan_rows(cases, ("default", "rk"), "2", 4)
