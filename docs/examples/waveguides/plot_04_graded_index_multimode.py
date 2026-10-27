@@ -212,8 +212,9 @@ print(
 # the guide's contrast and the angular content of the beam and channels. The
 # recovered amplitudes are launched unscaled: the launched energy is the share of
 # the incident energy the channels capture, and anything they miss is lost at the
-# entrance. ``model_error=0.1`` admits this guide: the weak-guidance contrast,
-# 0.0095, must stay below an eighth of the budget, and the counted terms (printed
+# entrance. ``model_error=0.13`` admits this guide: the weak-guidance contrast,
+# 0.0095, and the closure of the paraxial magnetic field, 0.016 on this grid, must each
+# stay below an eighth of the budget, and the counted terms (printed
 # below) sum to about 0.02.
 #
 # Shot noise is added to the input (``noise="input"``, one photon per bin and
@@ -231,7 +232,7 @@ beam = SpatialPulse(
     ),
     WAIST,
 )
-coupling = CouplingModel("vector_paraxial", model_error=0.1)
+coupling = CouplingModel("vector_paraxial", model_error=0.13)
 
 
 def propagate(length, n_save):
