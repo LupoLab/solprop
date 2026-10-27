@@ -737,6 +737,10 @@ destination:
   settles whether gain media need its injection path (D7).
 - 2026-10-26: Accepted by John Travers, with the 10 % tie margin of §5.2. Part I is
   frozen from this revision.
+- 2026-10-27: The maintainer decided that a TDSE run carries no noise by default and
+  warns when noise is asked for (D8): its runs are expensive, never repeated as noise
+  ensembles, and mostly checked coherently. This is the one default that follows the
+  physics switched on, by his decision.
 - 2026-10-27: Phases 0 to 3 implemented on one branch (Part II). The integrator and
   tolerance tables are applied provisionally, pending the maintainer's approval; the
   capillary's integrator is held at `Multistep()` for his decision.
@@ -1080,6 +1084,9 @@ provably better and not worse elsewhere, is an improvement.
   anyway. The checks are those of §6.
 - **D6.** The maintainer asked for a floor-subtracted spectrum, which keeps the one
   benefit of the modified model's readout that costs nothing (§5.5).
+- **D8 (2026-10-27).** A TDSE run takes no noise by default and warns when noise is
+  asked for (`TDSE_NOISE`). TDSE runs are expensive, never repeated as noise
+  ensembles, and mostly checked coherently, so noise there is the exception.
 - **D7.** The modified model is kept as it is, with no new work. Whether to keep or
   remove it is decided when SEP 7 settles whether gain media need its separate
   noise-injection path: amplified spontaneous emission needs the noise to see only the

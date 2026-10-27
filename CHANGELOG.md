@@ -150,8 +150,9 @@ The first public release. It contains:
     one photon per mode with a random phase, added to the input field
     (`noise="input"`) and recorded with its seed and with how the model was chosen
     (`RunMetadata.noise_resolution`, output schema 26). `noise=None` switches it off,
-    and `noise="modified"` keeps the realisation apart from the field. Single precision
-    and the hybrid planar grid carry none and record why; an interior launch takes its
+    and `noise="modified"` keeps the realisation apart from the field. Single precision,
+    the hybrid planar grid and the TDSE response carry none by default and record why
+    (noise asked for beside the TDSE is warned on); an interior launch takes its
     spectrum as given unless `noise="input"` is passed. A floor-subtracted spectral
     density, `get_spectral_density(..., noise_floor="subtract")`, removes the seed's one
     photon per bin and channel as a signed density (`get_spectrum` takes only

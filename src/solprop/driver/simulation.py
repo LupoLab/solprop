@@ -306,6 +306,7 @@ __all__ = [
     "SINGLE_PRECISION_NOISE",
     "SPATIAL_ATOL",
     "SPATIAL_RTOL",
+    "TDSE_NOISE",
     "WAVEGUIDE_ATOL",
     "WAVEGUIDE_RTOL",
     "NoiseModel",
@@ -453,6 +454,12 @@ SINGLE_PRECISION_NOISE = (
 
 PLANAR_NOISE = "the hybrid planar grid carries no noise: no photon measure is declared"
 """Why a planar run carries no noise (SEP 37)."""
+
+TDSE_NOISE = (
+    "a TDSE run carries no noise by default: it is expensive, rarely repeated as an "
+    "ensemble, and its checks are coherent"
+)
+"""Why a default resolves to no noise beside the TDSE response (SEP 37)."""
 
 INTERIOR_LAUNCH_NOISE = (
     "an interior launch takes its spectrum as given, which may already carry a draw"
@@ -5610,7 +5617,9 @@ class Simulation(Displayed):
             precision=precision,
             tdse_execution=None if atomic is None else atomic.execution,
         )
-        noise_model, resolution = _resolve_noise(noise, seed, precision)
+        noise_model, resolution = _resolve_noise(
+            noise, seed, precision, tdse=atomic is not None
+        )
         simulation = cls(
             working,
             mode_set.modes,
@@ -7800,7 +7809,7 @@ def _interface_integrator(
 
 
 def _resolve_noise(
-    noise: str | None, seed: int | None, precision: str
+    noise: str | None, seed: int | None, precision: str, *, tdse: bool = False
 ) -> tuple[NoiseModel | None, NoiseResolution]:
     """Resolve a constructor's ``noise`` keyword into the model a run carries (SEP 37).
 
@@ -7822,11 +7831,20 @@ def _resolve_noise(
         The keyword ``seed`` as given.
     precision : {'double', 'single'}
         The run's arithmetic.
+    tdse : bool, optional
+        Whether the run carries the TDSE response, which takes no noise by default
+        and warns when noise is asked for: its runs are expensive, rarely repeated as
+        ensembles, and checked coherently.
 
     Returns
     -------
     tuple
         The model to draw, or ``None``, and the record of how it was chosen.
+
+    Warns
+    -----
+    SolpropWarning
+        When a TDSE run asks for a noise model explicitly.
 
     Raises
     ------
@@ -7842,18 +7860,32 @@ def _resolve_noise(
     True
     """
     if noise == "default":
-        if precision == "single":
+        fallback = (
+            SINGLE_PRECISION_NOISE
+            if precision == "single"
+            else TDSE_NOISE
+            if tdse
+            else None
+        )
+        if fallback is not None:
             if seed is not None:
                 msg = (
-                    "a noise seed was given, but single precision carries no noise by "
-                    "default: pass noise=None and drop the seed"
+                    f"a noise seed was given, but this run takes no noise by default "
+                    f"({fallback}): pass a noise model with the seed, or drop the seed"
                 )
                 raise DriverError(msg)
-            return None, NoiseResolution("default", None, SINGLE_PRECISION_NOISE)
+            return None, NoiseResolution("default", None, fallback)
         return "input", NoiseResolution("default", "input")
     if noise is None and seed is not None:
         msg = "a noise seed requires a noise model"
         raise DriverError(msg)
+    if tdse and noise is not None:
+        msg = (
+            f"noise={noise!r} beside the TDSE response: the atomic source is expensive "
+            "and a TDSE run is rarely repeated as a noise ensemble; pass noise=None "
+            "unless the noise is what this run is about"
+        )
+        warnings.warn(msg, SolpropWarning, stacklevel=4)
     # An unknown model passes through to be refused where it is drawn.
     return cast("NoiseModel | None", noise), NoiseResolution(noise, noise)
 

@@ -54,6 +54,7 @@ def test_the_default_resolves_to_input_noise_and_records_it():
 @pytest.mark.parametrize("model", ["input", "modified"])
 def test_an_explicit_model_is_recorded_as_requested(model):
     simulation = _gnlse(noise=model, seed=3)
+    assert simulation.noise is not None
     assert simulation.noise.model == model
     assert simulation.noise.seed == 3
     assert simulation.noise_resolution == NoiseResolution(model, model)
@@ -170,6 +171,7 @@ def test_an_explicit_input_draw_enters_an_interior_launch():
         noise=_gnlse(noise="input", seed=7).noise,
     )
     noisy = seeded.run(progress="none")
+    assert noisy.metadata is not None
     assert noisy.metadata.noise is not None
     first = np.asarray(noisy["field"][0]) - np.asarray(clean["field"][0])
     active = base.translate().grids.active_mask
@@ -181,5 +183,7 @@ def test_prop_gnlse_records_the_default():
     run = prop_gnlse(
         0.11, 0.01, [0.0, 0.0, -1.183e-26], progress="none", seed=1, **GNLSE
     )
-    assert run.metadata.noise is not None
-    assert run.metadata.noise_resolution == NoiseResolution("default", "input")
+    metadata = run.metadata
+    assert metadata is not None
+    assert metadata.noise is not None
+    assert metadata.noise_resolution == NoiseResolution("default", "input")

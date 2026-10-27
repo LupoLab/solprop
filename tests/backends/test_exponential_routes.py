@@ -14,6 +14,8 @@ runs check the linear flow, the separable and modal moments and the lifecycle on
 each route; the nonlinear integration is checked on the soliton and scalar problems.
 """
 
+from typing import cast
+
 import numpy as np
 import pytest
 
@@ -53,7 +55,9 @@ def translated(route: str, integrator, rtol: float):
     simulation.settings = type(settings)(
         **{
             **{name: getattr(settings, name) for name in settings.__dataclass_fields__},
-            "controller": PIController(rtol=rtol, atol=settings.controller.atol),
+            "controller": PIController(
+                rtol=rtol, atol=cast("PIController", settings.controller).atol
+            ),
             "integrator": integrator,
         }
     )

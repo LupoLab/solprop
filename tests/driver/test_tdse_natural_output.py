@@ -13,6 +13,7 @@ hundredth of the tolerance (SEP 25 section 4.4, ``tests/march_bounds.py``).
 """
 
 import warnings
+from typing import cast
 
 import numpy as np
 import pytest
@@ -30,6 +31,7 @@ from solprop.log import NullReporter
 from solprop.nonlinear.tdse import TDSEExecution
 from solprop.output.hdf5 import open_file, resume
 from solprop.stats import StatsSpec
+from solprop.stepper import PIController
 
 pytestmark = pytest.mark.medium
 
@@ -119,7 +121,7 @@ def assert_same_work(one, other):
 def reference_field(monkeypatch, tmp_path):
     """Return the final field of the case at a hundredth of its tolerance."""
     monkeypatch.setenv("SOLPROP_CACHE_DIR", str(tmp_path / "cache-reference"))
-    rtol = _simulation().settings.controller.rtol
+    rtol = cast("PIController", _simulation().settings.controller).rtol
     return _run(_simulation(rtol=rtol / TIGHTER)).fields(convention="fft")[-1]
 
 

@@ -192,7 +192,7 @@ def test_single_precision_takes_its_defaults_and_refuses_what_it_does_not_run():
     settings = simulation.settings
     assert settings.precision == "single"
     assert isinstance(settings.integrator, RungeKutta)
-    assert settings.controller.rtol == 1e-6
+    assert cast("PIController", settings.controller).rtol == 1e-6
     assert simulation.translate().precision.single
 
     def automatic() -> Simulation:
@@ -216,7 +216,10 @@ def test_single_precision_takes_its_defaults_and_refuses_what_it_does_not_run():
         dataclasses.replace(settings, integrator=Multistep())
     with pytest.raises(DriverError, match="floor"):
         dataclasses.replace(
-            settings, controller=dataclasses.replace(settings.controller, rtol=1e-8)
+            settings,
+            controller=dataclasses.replace(
+                cast("PIController", settings.controller), rtol=1e-8
+            ),
         )
 
 

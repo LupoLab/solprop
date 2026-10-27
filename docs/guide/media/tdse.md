@@ -235,7 +235,9 @@ The response is the complete electronic response of the fill, so `plasma`, `rama
 `thg`, `preionisation` and the other ionisation settings must be left unset, or the call
 is refused naming them. `backend="auto"` resolves to `"numpy_ref"`, the only backend that
 runs a TDSE response; the run needs the adaptive `Multistep()` integrator and a single
-scalar HE₁₁ mode. Input shot noise (`noise="input"`) is admitted: its draw is part of the
+scalar HE₁₁ mode. A TDSE run carries no shot noise by default: it is expensive, rarely
+repeated as a noise ensemble, and its checks are coherent. Input shot noise
+(`noise="input"`) can be asked for, with a warning; its draw is part of the
 launch, so the atom is driven by the pulse plus the draw, inside the same gated window
 and on the same active band, and the realisation is stored with the run like any other
 ([SEP 37](../../dev/seps/sep-0037-noise-and-stepper-defaults.md), section 6). One photon
