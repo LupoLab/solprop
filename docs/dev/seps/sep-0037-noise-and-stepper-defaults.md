@@ -15,7 +15,7 @@
 | **Requires** | [SEP 16](archive/sep-0016-unified-multistep.md) (the multistep family and its work–precision qualification); [SEP 30](archive/sep-0030-standard-benchmark-suite.md) (the benchmark suite); [SEP 31](archive/sep-0031-simulation-coupling.md) (field planes and coupled stages) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0037-noise-and-stepper-defaults`: phases 0–3 in progress |
+| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0037-noise-and-stepper-defaults` ([LupoLab/solprop#30](https://github.com/LupoLab/solprop/pull/30)): phases 0–3 implemented 2026-10-27; the phase 0 tables await the maintainer's approval |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -737,6 +737,9 @@ destination:
   settles whether gain media need its injection path (D7).
 - 2026-10-26: Accepted by John Travers, with the 10 % tie margin of §5.2. Part I is
   frozen from this revision.
+- 2026-10-27: Phases 0 to 3 implemented on one branch (Part II). The integrator and
+  tolerance tables are applied provisionally, pending the maintainer's approval; the
+  capillary's integrator is held at `Multistep()` for his decision.
 
 ### Human review — 2026-10-26
 
