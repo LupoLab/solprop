@@ -94,6 +94,37 @@ in `configuration["coupling"]`, which is inside it. Every other part is inside i
 `versions` names optmat's full version string beside solprop's, NumPy's, SciPy's,
 h5py's and Python's.
 
+## The machine and what a run spent
+
+The metadata says how the run started; the **execution record** says how each
+execution of it ran. An HDF5 file keeps it at `/meta/outcome`
+({py:class}`~solprop.output.schema.RunOutcome`, read as `stored.outcome`), and
+`outcome.execution` holds, beside the backend's own report (its pools and plans):
+
+- `host`: `system`, `release`, `machine` (the architecture), `cpu_model`,
+  `logical_cpus` (the machine's), `usable_cpus` (those the scheduler granted the
+  process), `memory_bytes` (physical) and, under Slurm, `slurm_job_id`. The host name
+  is not recorded.
+- `resources`: `wall_time_s` and `cpu_time_s` since the run started (CPU time is
+  every thread's), and `peak_rss_bytes`, the process's largest resident memory so far.
+  The peak is the process's: in a session that runs several cases it includes the
+  earlier ones, and a device's own memory is not in it. CPU time and the peak are
+  `None` on Windows.
+
+The record is rewritten at every save plane, so a run killed between planes keeps its
+time and memory up to its last plane. A resumed run's earlier executions stay in
+`outcome.previous_executions`, each with its own machine and resources, so a run
+continued on another machine says so. Gathering these costs one query of the machine
+per process and one `getrusage` call per save plane.
+
+```{code-block} python
+from solprop.output import open_file
+
+with open_file("run.h5") as stored:
+    execution = stored.outcome.execution
+    print(execution["host"]["cpu_model"], execution["resources"]["wall_time_s"])
+```
+
 ## The material manifest
 
 A run that takes a material from optmat -- a gas, an air composition or a solid,

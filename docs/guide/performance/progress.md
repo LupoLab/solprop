@@ -85,6 +85,8 @@ and plasma, and a GNLSE fibre, on a terminal:
 
 ```text
 Starting propagation from z = 0 m to 10 mm
+  solprop:        commit 2384dffe10ad, modified (main, installed as 0.0.1.dev240+gc0950602)
+  machine:        arm64, Apple M5 Max, 18 CPUs (18 usable), 128 GiB, Darwin 27.0.0
   backend:        numba_cpu
   threads:        1 kernel, 1 FFTW; budget 18 (affinity)
   precision:      double
@@ -104,6 +106,7 @@ Starting propagation from z = 0 m to 10 mm
   output:         HDF5Output run.h5
   start:          new run
 finished at z = 1.000000e-02 m: 229 steps (2 rejected) in 1.16 s, achieved/requested tolerance ratio 8.414e-01
+resources: 1.21 s wall, 1.19 s CPU, process peak memory 412 MiB
 
 Starting propagation from z = 0 m to 50 mm
   ...
@@ -114,6 +117,15 @@ Starting propagation from z = 0 m to 50 mm
   shot noise:     off
   ...
 ```
+
+`solprop` names the code: the installed version for a release, and in a development
+checkout the commit, whether the tree was modified, the branch and the version it was
+installed as, which is the commit of the last install and not necessarily the one
+running. `machine` names the hardware, without the host name. After the closing line,
+`resources` gives the run's wall and CPU time (every thread's, so their ratio is the
+parallel speed-up) and the process's peak resident memory, which in a session running
+several runs includes the earlier ones and on a device does not count device memory.
+The same values are in the file ([provenance](../results/provenance.md#the-machine-and-what-a-run-spent)).
 
 Raman is always named, `off` when the run has none, with the fraction held back from the
 Kerr term when it is on; shot noise is always named, with its model and seed or `off`.
@@ -182,7 +194,8 @@ rest stay no-ops. A fifth call, `interrupted(z, error)`, reaches a reporter that
 the loop raises, `KeyboardInterrupt` included, before the error propagates -- it is how
 the bar gives the terminal back. A sixth, `summary(text)`
 ({py:class}`~solprop.log.SummarisingReporter`; `NullReporter` supplies a no-op), is
-handed the start-of-run block before the first step. A reporter written to the four
+handed the start-of-run block before the first step, and the `resources` line after
+`finished`. A reporter written to the four
 calls alone is still complete and is simply not told.
 
 ```{code-block} python
