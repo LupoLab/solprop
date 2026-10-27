@@ -347,7 +347,7 @@ the taper's length, because the radius changes by the same amount whatever the
 length; the run prints it for the longest taper below. The two channels together
 keep the launched energy to about 1e-6 in every run.
 
-.. GENERATED FROM PYTHON SOURCE LINES 262-313
+.. GENERATED FROM PYTHON SOURCE LINES 262-315
 
 .. code-block:: Python
 
@@ -377,6 +377,7 @@ keep the launched energy to about 1e-6 in every run.
             dz_max=min(DZ_MAX, length / 10.0),
             n_save=41,
             progress="none",
+            noise=None,
         )
         linear_runs[length] = (guide, grid, run)
         z, fractions = channel_fractions(run)
@@ -396,6 +397,7 @@ keep the launched energy to about 1e-6 in every run.
         fwhm=100e-15,
         energy=1e-12,
         dz_max=DZ_MAX,
+        noise=None,
     ).translate()
     flow = problem.linear.coupled_flow
     assert flow is not None
@@ -411,19 +413,19 @@ keep the launched energy to about 1e-6 in every run.
  .. code-block:: none
 
     L =  0.05 mm: LP_02 holds 6.131e-02 at the exit (first order 6.267e-02); energy lost 8.1e-07
-    L =  0.10 mm: LP_02 holds 5.394e-02 at the exit (first order 5.517e-02); energy lost 8.2e-07
-    L =  0.20 mm: LP_02 holds 3.112e-02 at the exit (first order 3.192e-02); energy lost 8.5e-07
-    L =  0.50 mm: LP_02 holds 7.900e-04 at the exit (first order 7.597e-04); energy lost 1.1e-06
-    L =  1.00 mm: LP_02 holds 6.548e-04 at the exit (first order 6.496e-04); energy lost 1.1e-06
-    L =  2.00 mm: LP_02 holds 3.271e-04 at the exit (first order 3.272e-04); energy lost 8.3e-07
-    L =  5.00 mm: LP_02 holds 2.525e-05 at the exit (first order 2.520e-05); energy lost 1.2e-06
+    L =  0.10 mm: LP_02 holds 5.394e-02 at the exit (first order 5.517e-02); energy lost 8.1e-07
+    L =  0.20 mm: LP_02 holds 3.112e-02 at the exit (first order 3.192e-02); energy lost 8.1e-07
+    L =  0.50 mm: LP_02 holds 7.900e-04 at the exit (first order 7.597e-04); energy lost 8.1e-07
+    L =  1.00 mm: LP_02 holds 6.548e-04 at the exit (first order 6.496e-04); energy lost 8.1e-07
+    L =  2.00 mm: LP_02 holds 3.271e-04 at the exit (first order 3.272e-04); energy lost 8.2e-07
+    L =  5.00 mm: LP_02 holds 2.525e-05 at the exit (first order 2.520e-05); energy lost 5.7e-07
     L = 10.00 mm: LP_02 holds 1.307e-05 at the exit (first order 1.307e-05); energy lost 1.3e-06
     advisory step 0.130 mm against dz_max 0.120 mm
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 314-323
+.. GENERATED FROM PYTHON SOURCE LINES 316-325
 
 The conversion at the exit against the taper's length. The dots are the runs;
 the line is the first-order estimate, with its oscillation, and the dotted line
@@ -435,7 +437,7 @@ in this case: at zero length it gives :math:`(\int\Gamma_{21}dz)^2 =
 (\ln(w_1/w_0))^2` = 0.065 against the sudden limit's 0.059, and the runs lie
 between the two, approaching the splice.
 
-.. GENERATED FROM PYTHON SOURCE LINES 323-349
+.. GENERATED FROM PYTHON SOURCE LINES 325-351
 
 .. code-block:: Python
 
@@ -477,7 +479,7 @@ between the two, approaching the splice.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 350-362
+.. GENERATED FROM PYTHON SOURCE LINES 352-364
 
 An abrupt and a slow taper
 --------------------------
@@ -492,7 +494,7 @@ narrows: the power swings between nothing and :math:`4(a'/(4\sqrt{2\Delta}))^2`
 = 5e-5 once per beat length, and the exit, where the slope returns to zero,
 keeps what it finds there. Every point of the run is on the estimate.
 
-.. GENERATED FROM PYTHON SOURCE LINES 362-386
+.. GENERATED FROM PYTHON SOURCE LINES 364-388
 
 .. code-block:: Python
 
@@ -532,7 +534,7 @@ keeps what it finds there. Every point of the run is on the estimate.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 387-402
+.. GENERATED FROM PYTHON SOURCE LINES 389-404
 
 The fields
 ----------
@@ -550,7 +552,7 @@ less the 3 % the taper moved out of it;
 narrowing left behind (at the entrance it is empty and off the scale). The grey
 line is the core's edge; the fields have fallen by four decades well inside it.
 
-.. GENERATED FROM PYTHON SOURCE LINES 402-448
+.. GENERATED FROM PYTHON SOURCE LINES 404-450
 
 .. code-block:: Python
 
@@ -612,7 +614,7 @@ line is the core's edge; the fields have fallen by four decades well inside it.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 449-473
+.. GENERATED FROM PYTHON SOURCE LINES 451-475
 
 Self-phase modulation in a taper's waist
 ----------------------------------------
@@ -639,7 +641,7 @@ mid-taper value checks that on the real fibre. The peak power is 9 % of the
 critical power for self-focusing, :math:`P_{cr} = \lambda^2/(2\pi n_0 n_2)` in
 the Gaussian-beam estimate (printed), which matters below.
 
-.. GENERATED FROM PYTHON SOURCE LINES 473-564
+.. GENERATED FROM PYTHON SOURCE LINES 475-566
 
 .. code-block:: Python
 
@@ -696,7 +698,7 @@ the Gaussian-beam estimate (printed), which matters below.
         f"coefficient by {lens:.4f}"
     )
 
-    common = {"n_save": 31, "progress": "none", **PULSE}
+    common = {"n_save": 31, "progress": "none", "noise": None, **PULSE}  # a 1 pJ pulse
     moving = prop_waveguide(
         (),
         LENGTH,
@@ -750,7 +752,7 @@ the Gaussian-beam estimate (printed), which matters below.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 565-585
+.. GENERATED FROM PYTHON SOURCE LINES 567-587
 
 The spectral width of ``LP_01`` along the fibre. The rms width of a Gaussian
 pulse's spectrum grows with the peak nonlinear phase :math:`\phi` as
@@ -773,7 +775,7 @@ model with one field shape, however it moves along z, cannot. The width is
 taken on ``LP_01`` alone, since an rms width weights far wings by the square of
 their distance.
 
-.. GENERATED FROM PYTHON SOURCE LINES 585-619
+.. GENERATED FROM PYTHON SOURCE LINES 587-621
 
 .. code-block:: Python
 
@@ -836,7 +838,7 @@ their distance.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 620-629
+.. GENERATED FROM PYTHON SOURCE LINES 622-631
 
 The spectra at the exit, in decibels below the ``LP_01`` peak of each run, with
 the two-channel runs' ``LP_02`` dashed. The ``LP_01`` spectra of the taper's
@@ -848,7 +850,7 @@ own. The taper by itself converts 2.5e-5 at this length (above); the printed
 ``LP_02`` share is fifty times that, and nearly the same in the fibre that does
 not taper at all.
 
-.. GENERATED FROM PYTHON SOURCE LINES 629-657
+.. GENERATED FROM PYTHON SOURCE LINES 631-659
 
 .. code-block:: Python
 
@@ -894,18 +896,18 @@ not taper at all.
  .. code-block:: none
 
     moving guide: LP_02 holds 1.30e-03 of the energy at the exit
-    entrance radius: LP_02 holds 1.26e-03 of the energy at the exit
+    entrance radius: LP_02 holds 1.25e-03 of the energy at the exit
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 658-661
+.. GENERATED FROM PYTHON SOURCE LINES 660-663
 
 Runtime and reproducibility
 ---------------------------
 Twelve guides, eight linear runs on the moving guide and four nonlinear runs.
 
-.. GENERATED FROM PYTHON SOURCE LINES 661-668
+.. GENERATED FROM PYTHON SOURCE LINES 663-670
 
 .. code-block:: Python
 
@@ -924,12 +926,12 @@ Twelve guides, eight linear runs on the moving guide and four nonlinear runs.
 
  .. code-block:: none
 
-    195 s; backend native, 18 threads
+    909 s; backend native, 32 threads
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 669-675
+.. GENERATED FROM PYTHON SOURCE LINES 671-677
 
 Related reading
 ---------------
@@ -941,7 +943,7 @@ For a paced introduction to propagation, start with the
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (3 minutes 15.497 seconds)
+   **Total running time of the script:** (15 minutes 8.942 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_05_moving_solid_guide.py:

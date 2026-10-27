@@ -140,6 +140,10 @@ def propagate(radius, wall, backend="auto", energy=PUMP["energy"], taper_couplin
             lambda0=PUMP["lambda0"],
             fwhm=PUMP["fwhm"],
             energy=energy,
+            # The nanojoule runs compare linear transport, where a one-photon seed would
+            # be a visible share of the field; the pump runs carry the default noise.
+            noise=None if energy < 1e-6 else "input",
+            seed=None if energy < 1e-6 else 20261027,
         )
 
 

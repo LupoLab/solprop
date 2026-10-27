@@ -64,7 +64,7 @@ The run
 -------
 Molecular hydrogen carries its rotational and vibrational Raman response by default.
 
-.. GENERATED FROM PYTHON SOURCE LINES 51-79
+.. GENERATED FROM PYTHON SOURCE LINES 51-80
 
 .. code-block:: Python
 
@@ -94,6 +94,7 @@ Molecular hydrogen carries its rotational and vibrational Raman response by defa
         wavelength_limits=(400e-9, 4e-6),
         n_save=301,
         progress="none",
+        seed=20261027,
     )
 
 
@@ -103,12 +104,12 @@ Molecular hydrogen carries its rotational and vibrational Raman response by defa
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 80-82
+.. GENERATED FROM PYTHON SOURCE LINES 81-83
 
 Spectral and temporal evolution
 -------------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 82-93
+.. GENERATED FROM PYTHON SOURCE LINES 83-94
 
 .. code-block:: Python
 
@@ -135,7 +136,7 @@ Spectral and temporal evolution
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 94-100
+.. GENERATED FROM PYTHON SOURCE LINES 95-101
 
 The shift
 ---------
@@ -144,7 +145,7 @@ longest-wavelength spectral peak that reaches at least 30 % of the red side's
 maximum (with a prominence of 10 % of it). The tallest red-side peak is not the
 soliton at the exit: a cluster near 1.33 um outgrows it there.
 
-.. GENERATED FROM PYTHON SOURCE LINES 100-131
+.. GENERATED FROM PYTHON SOURCE LINES 101-132
 
 .. code-block:: Python
 
@@ -209,12 +210,12 @@ soliton at the exit: a cluster near 1.33 um outgrows it there.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 132-134
+.. GENERATED FROM PYTHON SOURCE LINES 133-135
 
 Runtime and reproducibility
 ----------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 134-136
+.. GENERATED FROM PYTHON SOURCE LINES 135-137
 
 .. code-block:: Python
 
@@ -228,7 +229,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    113 s; backend native
+    584 s; backend native
 
 
 
@@ -236,7 +237,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (1 minutes 52.536 seconds)
+   **Total running time of the script:** (9 minutes 43.903 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_05_raman_self_frequency_shift.py:

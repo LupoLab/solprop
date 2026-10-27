@@ -206,7 +206,7 @@ its own. The pulse enters the first channel of the set. ``TE_0m`` and ``TM_0m`` 
 not couple through the wall (the ``nu = 0`` block is diagonal in the two
 families), so the two families are two independent runs rather than one.
 
-.. GENERATED FROM PYTHON SOURCE LINES 166-240
+.. GENERATED FROM PYTHON SOURCE LINES 166-241
 
 .. code-block:: Python
 
@@ -238,6 +238,7 @@ families), so the two families are two independent runs rather than one.
                 # runs to several times that.
                 ionisation_field_range=(1e8, 5e11),
                 progress="none",
+                seed=20261027,
                 **PUMP,
             )
 
@@ -316,7 +317,7 @@ families), so the two families are two independent runs rather than one.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 241-251
+.. GENERATED FROM PYTHON SOURCE LINES 242-252
 
 The anisotropy converts HE_11 into EH_11
 ----------------------------------------
@@ -329,7 +330,7 @@ the boundary; the Kerr overlap can move energy between them, but only from a
 nonzero seed, which the launch does not contain. ``HE_12``, in the same family
 as the launch, fills through the Kerr overlap in both runs alike.
 
-.. GENERATED FROM PYTHON SOURCE LINES 251-290
+.. GENERATED FROM PYTHON SOURCE LINES 252-291
 
 .. code-block:: Python
 
@@ -386,18 +387,18 @@ as the launch, fills through the Kerr overlap in both runs alike.
  .. code-block:: none
 
     vector wall: HE_11 6.71e-01, HE_12 1.98e-02, EH_11 5.76e-07, EH_12 2.02e-07
-    no wall    : HE_11 6.58e-01, HE_12 1.95e-02, EH_11 6.96e-35, EH_12 2.58e-33
+    no wall    : HE_11 6.58e-01, HE_12 1.95e-02, EH_11 1.27e-12, EH_12 1.06e-12
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 291-294
+.. GENERATED FROM PYTHON SOURCE LINES 292-295
 
 Runtime and reproducibility
 ---------------------------
 Four complete one-metre runs of three or four coupled modes.
 
-.. GENERATED FROM PYTHON SOURCE LINES 294-301
+.. GENERATED FROM PYTHON SOURCE LINES 295-302
 
 .. code-block:: Python
 
@@ -416,12 +417,12 @@ Four complete one-metre runs of three or four coupled modes.
 
  .. code-block:: none
 
-    314 s; backend native, 4 threads
+    1670 s; backend native, 32 threads
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 302-308
+.. GENERATED FROM PYTHON SOURCE LINES 303-309
 
 Related reading
 ---------------
@@ -433,7 +434,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (5 minutes 13.941 seconds)
+   **Total running time of the script:** (27 minutes 49.828 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_03_vector_wall.py:

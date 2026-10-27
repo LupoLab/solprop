@@ -60,7 +60,7 @@ acting together with transverse self-focusing.
 The run
 -------
 
-.. GENERATED FROM PYTHON SOURCE LINES 47-74
+.. GENERATED FROM PYTHON SOURCE LINES 47-75
 
 .. code-block:: Python
 
@@ -89,6 +89,7 @@ The run
         wavelength_limits=(300e-9, 4e-6),
         n_save=301,
         progress="none",
+        seed=20261027,
     )
 
 
@@ -98,12 +99,12 @@ The run
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 75-77
+.. GENERATED FROM PYTHON SOURCE LINES 76-78
 
 Spectral and temporal evolution
 -------------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 77-88
+.. GENERATED FROM PYTHON SOURCE LINES 78-89
 
 .. code-block:: Python
 
@@ -130,12 +131,12 @@ Spectral and temporal evolution
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 89-91
+.. GENERATED FROM PYTHON SOURCE LINES 90-92
 
 The output, and the plasma
 --------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 91-112
+.. GENERATED FROM PYTHON SOURCE LINES 92-113
 
 .. code-block:: Python
 
@@ -191,12 +192,12 @@ The output, and the plasma
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 113-115
+.. GENERATED FROM PYTHON SOURCE LINES 114-116
 
 Runtime and reproducibility
 ----------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 115-117
+.. GENERATED FROM PYTHON SOURCE LINES 116-118
 
 .. code-block:: Python
 
@@ -210,7 +211,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    16 s; backend native
+    45 s; backend native
 
 
 
@@ -218,7 +219,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 15.793 seconds)
+   **Total running time of the script:** (0 minutes 44.530 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_06_ionisation_blue_shift.py:

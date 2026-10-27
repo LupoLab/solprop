@@ -191,6 +191,7 @@ def propagate(modes, wall):
             # runs to several times that.
             ionisation_field_range=(1e8, 5e11),
             progress="none",
+            seed=20261027,
             **PUMP,
         )
 

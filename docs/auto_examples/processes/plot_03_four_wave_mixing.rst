@@ -71,7 +71,7 @@ explains the carrier-coefficient approximation used here.
 The run
 -------
 
-.. GENERATED FROM PYTHON SOURCE LINES 58-92
+.. GENERATED FROM PYTHON SOURCE LINES 58-93
 
 .. code-block:: Python
 
@@ -107,6 +107,7 @@ The run
             wavelength_limits=(120e-9, 3e-6),
             n_save=301,
             progress="none",
+            seed=20261027,
         )
 
 
@@ -122,12 +123,12 @@ The run
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 93-95
+.. GENERATED FROM PYTHON SOURCE LINES 94-96
 
 Spectral and temporal evolution
 -------------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 95-106
+.. GENERATED FROM PYTHON SOURCE LINES 96-107
 
 .. code-block:: Python
 
@@ -154,14 +155,14 @@ Spectral and temporal evolution
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 107-111
+.. GENERATED FROM PYTHON SOURCE LINES 108-112
 
 The idler
 ---------
 The energy in a band around the idler along the fibre, and the input and output
 spectra.
 
-.. GENERATED FROM PYTHON SOURCE LINES 111-132
+.. GENERATED FROM PYTHON SOURCE LINES 112-133
 
 .. code-block:: Python
 
@@ -204,13 +205,13 @@ spectra.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 133-136
+.. GENERATED FROM PYTHON SOURCE LINES 134-137
 
 The two input pulses in time, as launched. Their coherent power beats at the
 difference frequency. The width of one beat is not the 35 fs duration of either
 input pulse, so the automatic single-peak width label is disabled.
 
-.. GENERATED FROM PYTHON SOURCE LINES 136-141
+.. GENERATED FROM PYTHON SOURCE LINES 137-142
 
 .. code-block:: Python
 
@@ -231,12 +232,12 @@ input pulse, so the automatic single-peak width label is disabled.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 142-144
+.. GENERATED FROM PYTHON SOURCE LINES 143-145
 
 Runtime and reproducibility
 ----------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 144-146
+.. GENERATED FROM PYTHON SOURCE LINES 145-147
 
 .. code-block:: Python
 
@@ -250,7 +251,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    4 s; backend native
+    11 s; backend native
 
 
 
@@ -258,7 +259,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 3.767 seconds)
+   **Total running time of the script:** (0 minutes 10.824 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_03_four_wave_mixing.py:

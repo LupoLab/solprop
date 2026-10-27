@@ -147,7 +147,7 @@ Each response over pressures around the linear phase matching, a metre of fibre,
 10 uJ in each of a 30 fs pump and seed. Recorded for each run: the signal's energy
 along the fibre and the pump's.
 
-.. GENERATED FROM PYTHON SOURCE LINES 115-206
+.. GENERATED FROM PYTHON SOURCE LINES 115-207
 
 .. code-block:: Python
 
@@ -174,6 +174,7 @@ along the fibre and the pump's.
                 n_save=n_save,
                 materials=MaterialSelection(electronic=policy),
                 progress="none",
+                seed=20261027,
             )
 
 
@@ -282,7 +283,7 @@ along the fibre and the pump's.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 207-223
+.. GENERATED FROM PYTHON SOURCE LINES 208-224
 
 The dashed line is the linear phase matching. Every response converts best a little
 below it, where the nonlinear phases are balanced by a waveguide contribution that is
@@ -301,7 +302,7 @@ The signal's and the pump's energies along the fibre, and the conversion in phot
 the signal photons made per pump photon launched. Each signal photon costs two pump
 photons, so the conversion can at most reach one half.
 
-.. GENERATED FROM PYTHON SOURCE LINES 223-246
+.. GENERATED FROM PYTHON SOURCE LINES 224-247
 
 .. code-block:: Python
 
@@ -348,7 +349,7 @@ photons, so the conversion can at most reach one half.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 247-258
+.. GENERATED FROM PYTHON SOURCE LINES 248-259
 
 The signal turns over after about half a metre, when three quarters of the pump
 band's energy has gone and a fifth of the pump's photons have become signal photons,
@@ -362,7 +363,7 @@ pressure, and at that pressure expect more signal than the gas gives.
 Runtime and reproducibility
 ----------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 258-260
+.. GENERATED FROM PYTHON SOURCE LINES 259-261
 
 .. code-block:: Python
 
@@ -376,7 +377,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    194 s; backend native
+    1202 s; backend native
 
 
 
@@ -384,7 +385,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (3 minutes 13.816 seconds)
+   **Total running time of the script:** (20 minutes 2.181 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_08_duv_fwm_dispersive_kerr.py:

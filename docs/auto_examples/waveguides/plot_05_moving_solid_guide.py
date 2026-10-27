@@ -285,6 +285,7 @@ for length in lengths:
         dz_max=min(DZ_MAX, length / 10.0),
         n_save=41,
         progress="none",
+        noise=None,
     )
     linear_runs[length] = (guide, grid, run)
     z, fractions = channel_fractions(run)
@@ -304,6 +305,7 @@ problem = Simulation.from_waveguide(
     fwhm=100e-15,
     energy=1e-12,
     dz_max=DZ_MAX,
+    noise=None,
 ).translate()
 flow = problem.linear.coupled_flow
 assert flow is not None
@@ -523,7 +525,7 @@ print(
     f"coefficient by {lens:.4f}"
 )
 
-common = {"n_save": 31, "progress": "none", **PULSE}
+common = {"n_save": 31, "progress": "none", "noise": None, **PULSE}  # a 1 pJ pulse
 moving = prop_waveguide(
     (),
     LENGTH,
