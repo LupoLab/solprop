@@ -28,7 +28,7 @@ from solprop.output.schema import SCHEMA_VERSION, serialise
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import ApertureSet, StatsSpec
-from solprop.stepper import PIController
+from solprop.stepper import Multistep, PIController
 from test_display import without_optmat_release
 
 STORED = Path(__file__).with_suffix("")
@@ -104,6 +104,9 @@ def build(kind: str) -> Simulation:
             n_save=3,
             backend="numpy_ref",
             noise=None,
+            # The record was taken under the GNLSE defaults before SEP 37.
+            integrator=Multistep(),
+            rtol=1e-8,
         )
     return spatial(kind)
 

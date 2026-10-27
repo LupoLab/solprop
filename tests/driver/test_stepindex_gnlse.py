@@ -17,7 +17,7 @@ from solprop.nonlinear.gnlse import problem_from
 from solprop.output.memory import MemoryOutput
 from solprop.physdata import fused_silica
 from solprop.pulses import SechPulse
-from solprop.stepper import PIController
+from solprop.stepper import Multistep, PIController
 
 # The `stepsimplecmp.jl` example's physical settings, reduced to a 1 ps window
 # (1024 samples) and no shot noise. Two centimetres in the medium
@@ -134,6 +134,7 @@ def interface_run(fibre, backend="numpy_ref"):
         backend=backend,
         progress="none",
         noise=None,
+        integrator=Multistep(),
     ).fields("fft")
 
 

@@ -44,7 +44,7 @@ from solprop.exceptions import (
 )
 from solprop.grid import FieldGrid
 from solprop.output.hdf5 import open_file
-from solprop.stepper import RungeKutta
+from solprop.stepper import Multistep, RungeKutta
 
 
 @pytest.fixture
@@ -122,7 +122,7 @@ def test_admit_memory_passes_a_run_within_its_budget(build_simulation):
 
 
 def test_admit_memory_refuses_by_name(build_simulation):
-    problem = build_simulation().translate()
+    problem = build_simulation(integrator=Multistep()).translate()
     total = estimate_memory(problem, "numba_cpu").total
     with pytest.raises(MemoryBudgetError) as refused:
         admit_memory(problem, "numba_cpu", total - 1)
@@ -135,21 +135,23 @@ def test_admit_memory_refuses_by_name(build_simulation):
 
 
 def test_admit_memory_warns_when_the_declaration_asks(build_simulation):
-    problem = build_simulation().translate()
+    problem = build_simulation(integrator=Multistep()).translate()
     with pytest.warns(MemoryBudgetWarning, match="over the budget of 1.00 KiB"):
         admission = admit_memory(problem, "numpy_ref", "warn:1 KiB")
     assert admission.budget.action == "warn"
 
 
 def test_admit_memory_logs_the_estimate_at_debug(build_simulation, caplog):
-    problem = build_simulation().translate()
+    problem = build_simulation(integrator=Multistep()).translate()
     with caplog.at_level("DEBUG", logger="solprop.driver.memory"):
         admit_memory(problem, "numpy_ref", "none")
     assert "against a budget of none (keyword)" in caplog.text
 
 
 def test_admit_memory_checks_nothing_when_declared_none(build_simulation):
-    admission = admit_memory(build_simulation().translate(), "numpy_ref", "none")
+    admission = admit_memory(
+        build_simulation(integrator=Multistep()).translate(), "numpy_ref", "none"
+    )
     assert admission.record()["budget"] is None
 
 
@@ -183,7 +185,7 @@ def test_an_adams_history_that_does_not_fit_the_machine_is_refused(
 ):
     # The undeclared machine budget only warns, but a run that fits but for the Adams
     # history is refused, naming the Runge-Kutta march, which fits.
-    problem = build_simulation().translate()
+    problem = build_simulation(integrator=Multistep()).translate()
     _, history, limit = _history_limit(problem)
     monkeypatch.setattr(pool, "_memory_limit", lambda: limit / (1 - DEFAULT_HEADROOM))
     with pytest.raises(MemoryBudgetError) as refused:
@@ -200,7 +202,7 @@ def test_an_adams_history_that_does_not_fit_the_machine_is_refused(
 def test_a_run_over_the_machine_without_its_history_is_only_warned_on(
     build_simulation, monkeypatch, no_declaration
 ):
-    problem = build_simulation().translate()
+    problem = build_simulation(integrator=Multistep()).translate()
     estimate, history, _ = _history_limit(problem)
     limit = estimate.total - history - 1
     monkeypatch.setattr(pool, "_memory_limit", lambda: limit / (1 - DEFAULT_HEADROOM))
@@ -209,7 +211,7 @@ def test_a_run_over_the_machine_without_its_history_is_only_warned_on(
 
 
 def test_a_declared_warning_budget_is_not_turned_into_a_refusal(build_simulation):
-    problem = build_simulation().translate()
+    problem = build_simulation(integrator=Multistep()).translate()
     _, _, limit = _history_limit(problem)
     with pytest.warns(MemoryBudgetWarning, match="adams_history"):
         admit_memory(problem, "numpy_ref", f"warn:{limit}")
@@ -218,7 +220,7 @@ def test_a_declared_warning_budget_is_not_turned_into_a_refusal(build_simulation
 def test_an_adams_history_over_the_device_is_refused(build_simulation, monkeypatch):
     # The accelerator's free memory, less the headroom, is checked under any declared
     # budget but "none" and "warn:".
-    problem = build_simulation().translate()
+    problem = build_simulation(integrator=Multistep()).translate()
     _, _, limit = _history_limit(problem)
     free = math.ceil(limit / (1 - DEFAULT_HEADROOM))
     monkeypatch.setattr(memory_module, "available_device_memory", lambda _: free)
@@ -253,7 +255,9 @@ def test_format_bytes_uses_binary_units(size, text):
 def test_simulation_run_refuses_before_writing_anything(build_simulation, tmp_path):
     path = tmp_path / "refused.h5"
     with pytest.raises(MemoryBudgetError, match="over the budget"):
-        build_simulation().run(path, progress="none", memory_budget="1 kB")
+        build_simulation(integrator=Multistep()).run(
+            path, progress="none", memory_budget="1 kB"
+        )
     assert not path.exists()
 
 
@@ -261,7 +265,7 @@ def test_simulation_run_refuses_before_writing_anything(build_simulation, tmp_pa
 def test_simulation_run_records_its_admission(
     build_simulation, tmp_path, no_declaration
 ):
-    simulation = build_simulation(backend="numpy_ref")
+    simulation = build_simulation(backend="numpy_ref", integrator=Multistep())
     path = tmp_path / "admitted.h5"
     simulation.run(path, progress="none")
     with open_file(path) as stored:
@@ -287,7 +291,7 @@ def test_simulation_run_records_its_admission(
 @pytest.mark.medium
 def test_simulation_run_warns_and_still_runs(build_simulation):
     with pytest.warns(MemoryBudgetWarning):
-        handler = build_simulation(backend="numpy_ref").run(
+        handler = build_simulation(backend="numpy_ref", integrator=Multistep()).run(
             progress="none", memory_budget="warn:1 kB"
         )
     assert handler.n_saved == 4
@@ -346,7 +350,7 @@ def test_a_large_guide_is_refused_before_its_reference_is_built(guide):
                 provider=guide,
                 grid=grid,
                 memory_budget="8 GiB",
-                **{"noise": None, **GUIDE_RUN},
+                **{"integrator": Multistep(), **({"noise": None, **GUIDE_RUN})},
             )
         _, peak = tracemalloc.get_traced_memory()
     finally:
@@ -370,7 +374,7 @@ def test_a_guide_over_a_warning_budget_is_warned_on_and_built(guide, no_declarat
             provider=guide,
             grid=grin_grid(),
             memory_budget="warn: 1 kB",
-            **{"noise": None, **GUIDE_RUN},
+            **{"integrator": Multistep(), **({"noise": None, **GUIDE_RUN})},
         )
     assert simulation.general is not None
 
@@ -379,5 +383,12 @@ def test_a_memory_budget_without_a_guide_is_refused_by_name():
     """The gas-filled route builds no reference at construction, so it has no use."""
     with pytest.raises(DriverError, match="memory_budget= belongs to the general"):
         Simulation.from_waveguide(
-            [], 1e-3, "He", 1.0, lambda0=800e-9, memory_budget="1 GiB", noise=None
+            [],
+            1e-3,
+            "He",
+            1.0,
+            lambda0=800e-9,
+            memory_budget="1 GiB",
+            noise=None,
+            integrator=Multistep(),
         )
