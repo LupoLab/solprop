@@ -350,10 +350,10 @@ CAPILLARY_RTOL = 1e-6
 """Relative tolerance a capillary run asks for unless told otherwise.
 
 The default of :meth:`Simulation.from_capillary` and
-:func:`~solprop.driver.prop_capillary` with their default ``Multistep()``. SEP 37's
-convergence protocol on the standard suite's ``rdw`` case passes it, and a noisy
-comb-to-continuum check needs it with this integrator (``1e-5`` fails the coherence
-budget there). It is a starting point, not a
+:func:`~solprop.driver.interface.prop_capillary` with their default ``Multistep()``.
+SEP 37's convergence protocol on the standard suite's ``rdw`` case passes it, and a
+noisy comb-to-continuum check needs it with this integrator (``1e-5`` fails the
+coherence budget there). It is a starting point, not a
 guarantee: a production run should calibrate it (``docs/dev/stepper.md`` section 3).
 """
 
@@ -361,8 +361,9 @@ WAVEGUIDE_RTOL = 1e-5
 """Relative tolerance a modal waveguide run asks for unless told otherwise.
 
 The default of :meth:`Simulation.from_waveguide` and
-:func:`~solprop.driver.prop_waveguide` with their default ``RungeKutta()``, set by SEP
-37's convergence protocol on the standard suite's ``grin_nonlinear`` window. A starting
+:func:`~solprop.driver.interface.prop_waveguide` with their default ``RungeKutta()``,
+set by SEP 37's convergence protocol on the standard suite's ``grin_nonlinear``
+window. A starting
 point, not a guarantee: a production run should calibrate it.
 """
 
@@ -7776,8 +7777,9 @@ def _interface_integrator(
     """Return the default integrator of the GNLSE and waveguide interfaces (SEP 37).
 
     ``RungeKutta()`` where the caller named none: SEP 37's matched-accuracy rule chose
-    it for :func:`~solprop.driver.prop_gnlse` and :func:`~solprop.driver.prop_waveguide`
-    among the integrators every route of each interface admits. Single precision keeps
+    it for :func:`~solprop.driver.interface.prop_gnlse` and
+    :func:`~solprop.driver.interface.prop_waveguide` among the integrators every route
+    of each interface admits. Single precision keeps
     its own default, which is the same march. A named integrator is returned unchanged.
 
     Parameters

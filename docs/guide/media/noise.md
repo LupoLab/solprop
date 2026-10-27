@@ -176,7 +176,7 @@ with noise on, across more than one seed.
 
 ### The floor-subtracted spectrum
 
-{py:func}`~solprop.processing.get_spectral_density` takes `noise_floor="subtract"`,
+{py:func}`~solprop.processing.fields.get_spectral_density` takes `noise_floor="subtract"`,
 which removes exactly one photon per active bin and channel. Because every bin's seed
 has a fixed modulus, for one realisation this equals the modified model's corrected
 readout $|\psi + N|^2 - |N|^2$ wherever the linear operator is unitary. Under loss the
