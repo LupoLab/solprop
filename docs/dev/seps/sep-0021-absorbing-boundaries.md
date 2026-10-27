@@ -2436,8 +2436,37 @@ Recorded as slices land; the phase report follows at the end of the phase.
   - **The floor-subtracted density** assumes the vacuum floor is conserved; the default
     collar absorbs part of it, so the subtraction is biased low by up to the absorbed
     fraction of one photon per bin. The identity test runs without a collar.
+- **A/B against main (2026-10-27).** The tracking cases with their defaults (noise
+  on), native backend, on 16 cores of one memory domain of an AMD EPYC 7763 node:
+  main against this branch before D14, three rounds of two repeats, at each case's
+  declared widths; the `kerr_beam` cases were left out (their builders then
+  differed). Time ratio, this branch over main, median over rounds (all rounds within
+  1 % at one thread unless noted):
+
+  | case | points (coarse) | accepted steps | 1 thread | 16 threads |
+  |---|---|---|---|---|
+  | GNLSE soliton | 4096 to 3072 | 8065 to 1893 | 0.20 | 0.29 |
+  | GRIN nonlinear | 2048 to 1536 | 198 | | 0.62 |
+  | argon blueshift, resolved / averaged / envelope | 4096 to 3200 (envelope 2048 to 1728) | unchanged | 0.81 / 0.83 / 0.84 | 0.76 / 0.83 / 0.84 |
+  | CtC | 8192 to 10240 | 15104 to 15062 | | 0.86 |
+  | hydrogen Raman, averaged | 4096 to 4608 | unchanged | 1.08 | 1.09 |
+  | helium RDW, averaged | 4096 to 5120 | 1445 to 1434 | 1.16 | 1.16 |
+  | GNLSE Raman/shock | 16384 | 10913 to 10677 | 1.16 | 1.19 |
+  | RDW | 4096 to 5120 | 1801 to 1817 | 1.23 | 1.23 |
+  | radial filament, 256 | 1024 to 864 | 132 to 265 | 1.32 | 1.11 (0.96 to 1.62) |
+
+  The wider windows cost what their sizes say (RDW, helium RDW, hydrogen Raman); the
+  smooth sizes save elsewhere (argon, GRIN). The radial filament's steps were the
+  in-stage collar's, which D14 removes. The GNLSE soliton's are the shot noise's: the
+  collar absorbs the vacuum noise that otherwise walks through the soliton and drives
+  the step size (without noise it takes 691), and the tracking case is noiseless from
+  revision 2. On Raman/shock, which main ran without a collar, the in-stage collar
+  costs about 9 % per step and the monitor's host transform about 6 % (native backend).
+  CtC's steps cost 17.5 ms against 20.4 ms on a grid 25 % larger, which the sizes do
+  not explain; not yet investigated. Records with the development records
+  (`results/ab/summary-sep21.json`).
 - **The collar scheme on the spatial routes (2026-10-27).** The A/B against main
-  (below) found the radial filament taking twice the steps (132 to 265) under the
+  (above) found the radial filament taking twice the steps (132 to 265) under the
   default collar that phase 2 gave the spatial routes; the in-stage collar caused it.
   On six spatial cases of the tracking registry, built by their own builders, each
   scheme was scored against a no-collar window 2.5 times the request at a tenth of the
