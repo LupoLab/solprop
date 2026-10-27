@@ -35,7 +35,6 @@ from solprop.driver.simulation import (
     NoiseSetting,
     Simulation,
     SimulationSettings,
-    _replaced,
 )
 from solprop.exceptions import DriverError
 from solprop.gasflow import VacuumEnd
@@ -1739,4 +1738,4 @@ def _with_boundary(
             )
             raise DriverError(msg)
         changes["absorber_scheme"] = scheme
-    return _replaced(settings, **changes) if changes else settings
+    return dataclasses.replace(settings, **changes) if changes else settings
