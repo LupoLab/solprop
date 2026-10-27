@@ -2034,6 +2034,32 @@ the profiles on an AMD GPU wait on a budget agreed with the maintainers (Q9).
   the binary64 transcendentals per bin and stage, which single now shares with mixed
   (stage entry 36 µs against 23 µs before, at $2^{16}$ on the A40).
 
+### `ctc` on the binary32-transform oracle (2026-10-27)
+
+After the maintainers' first decision below, the oracle's binary32 transforms sum in
+binary32 (`numpy_ref.transforms`: `scipy.fft` for a binary32 operand, `numpy.fft`
+unchanged for binary64). `ctc` was measured again over its three lengths, against the
+same binary64 references, on one Zen 3 node (field error; SEP 33's envelope 10⁻³):
+
+| case | oracle, single (1e-6) | oracle, mixed (1e-7) | native, single | native, mixed |
+|---|---|---|---|---|
+| `ctc`, 0.1 m | 1.6e-3 | 2.6e-3 | 1.4e-2 | 2.2e-2 |
+| `ctc`, 0.05 m | 2.5e-4 | 1.8e-4 | 1.4e-3 | 1.5e-3 |
+| `ctc`, 0.025 m | 2.6e-6 | 1.6e-6 | 2.2e-5 | 2.1e-5 |
+
+Bands, energy and peak stay within their envelopes wherever the field does. The oracle's
+`ctc` error at 0.05 m rose from 4.3×10⁻⁵ to 2.5×10⁻⁴, as expected of a transform floor
+that now seeds the Stokes bands. Native stays about six times above it: SciPy's binary32
+sums round more accurately than FFTW's, and stimulated Raman scattering amplifies the
+difference exponentially. The limit is therefore taken from native, the backend users
+run: **`ctc` survives to 0.025 m under both single and mixed precision**, half of SEP
+33's 0.05 m and of phase 1's mixed limit. Mixed precision does not lengthen it, since
+its source, and so the transform floor that seeds the Stokes bands, is binary32 (§4.4
+listed `ctc` as "to measure" for this reason). The limit concerns noise-free Raman
+generation seeded by rounding; under SEP 37's default input noise the quantum seed
+dominates, and `ctc_noise` judges that case in phase 5. MLX's binary32 transforms have
+not been measured on this case.
+
 ### Main merged, and SEP 37's defaults (2026-10-27)
 
 The branch took main with SEP 35 (the Adams carrier frame), SEP 37 (noise on by default;
