@@ -2365,8 +2365,9 @@ single-precision path (one pull request after the withdrawal):
 - the device accepted update, error norms and response spread over many teams for a run
   with few nodes, and a cheaper device stage entry (one `sincos`, none at zero phase, the
   last stage's propagator reused); on the A40 a one-mode fibre's binary64 step took 4.1
-  times less GPU time and 5.3 times the throughput at $2^{18}$ samples, while radial
-  runs and small capillaries, bound by launches and the host, did not change;
+  times less GPU time and 5.3 times the throughput at $2^{18}$ samples, and 5.6 times
+  the throughput on an AMD Instinct MI325X, while radial runs and small capillaries,
+  bound by launches and the host, did not change;
 - `numpy_ref`'s binary32 transforms summing in binary32: SEP 33's oracle had used NumPy's
   float32 transforms, which are binary64 rounded once. On the corrected oracle the
   comb-to-continuum case still survives over 0.05 m (field 2.5×10⁻⁴; 1.6×10⁻³ at
