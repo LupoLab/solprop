@@ -406,6 +406,21 @@ guiding profiles and for polarisation effects in graded-index fibres.
 
 ## Numerics
 
+**The escaped field.** [SEP 21](seps/sep-0021-absorbing-boundaries.md) (§4.7, D17) left
+out a record of the light that leaves the time window through the collar, so a narrow run
+could report what walked out (a spectrum per edge) without a wider one. Two records are
+candidates: a surface-flux reconstruction from just inside the collar, after tSURFF, and
+the amplitude the collar removes, propagated linearly. Neither is qualified for this
+nonlocal, band-limited problem; the measurement (SEP 21's phase 0b: commutator tails, the
+surface gap, the error budget and the memory and transform cost) comes first, and the
+record must separate the vacuum floor the collar absorbs.
+
+**The split collar while quiet.** SEP 21 leaves a quiet in-stage collar out of the stages
+(D15), but the split scheme's pass still runs every step: on the tracking suite's fixed-step
+Kerr beam it costs 28 % per step. Skipping the pass while the monitor finds the collar
+quiet needs the switch in every backend's step finish, the native separable and modal
+engines included.
+
 **The boundary monitor's flux on spatial routes.** [SEP 21](seps/sep-0021-absorbing-boundaries.md)'s
 monitor measures a spatial run's guard and collar occupancies with the quadrature-weighted
 field norm rather than [SEP 34](seps/archive/sep-0034-medium-flux.md)'s admittance-weighted

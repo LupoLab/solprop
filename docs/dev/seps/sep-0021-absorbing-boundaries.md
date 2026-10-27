@@ -2353,6 +2353,12 @@ diagnostics; transform-size cost; full-length timings.
   the roadmap. For paraxial beams the admittance is about the index, which the shares
   cancel, and weighting the field in time would hold another half of the state (about
   0.45 GB on a 256 by 256 Cartesian beam) and add a product per check.
+- **D17 — phases 0b and 3 are deferred (maintainer, 2026-10-27).** The escaped-field
+  record (§4.7, phase 3) and the measurement that qualifies it (phase 0b, R5, Q11, Q12)
+  move to the roadmap, and the SEP closes on phase 2. Nothing in phase 2 depends on
+  them; the monitor's record (how much left, where and when) and a wider window cover
+  what they would add for most runs, and the record would now also have to separate
+  the vacuum floor that the collar absorbs (D13, "Vacuum noise under loss").
 
 **Limitations.**
 
