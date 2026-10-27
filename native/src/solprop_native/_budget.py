@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import functools
 import os
+import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -93,6 +95,72 @@ def _read_cgroup_cpus(root: Path) -> int | None:
     return min(quotas) if quotas else None
 
 
+def cores_in_masks(masks: Sequence[int], cpus: Sequence[int]) -> int:
+    """Count the cores, given as CPU bitmasks, that hold any of ``cpus``."""
+    wanted = sum(1 << cpu for cpu in cpus)
+    return sum(1 for mask in masks if mask & wanted)
+
+
+def _linux_cores(cpus: Sequence[int], root: Path) -> int | None:
+    pairs = set()
+    for cpu in cpus:
+        topology = root / f"cpu{cpu}" / "topology"
+        try:
+            pairs.add(
+                (
+                    (topology / "physical_package_id").read_text(encoding="utf-8"),
+                    (topology / "core_id").read_text(encoding="utf-8"),
+                )
+            )
+        except OSError:
+            return None
+    return len(pairs) or None
+
+
+def _windows_cores(cpus: Sequence[int]) -> int | None:  # pragma: no cover - Windows
+    import ctypes
+
+    class _Information(ctypes.Structure):
+        # SYSTEM_LOGICAL_PROCESSOR_INFORMATION: the mask, the relationship and a
+        # 16-byte union that is aligned to 8.
+        _fields_ = (
+            ("mask", ctypes.c_size_t),
+            ("relationship", ctypes.c_int),
+            ("union", ctypes.c_ulonglong * 2),
+        )
+
+    try:
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        query = kernel32.GetLogicalProcessorInformation
+        size = ctypes.c_ulong(0)
+        query(None, ctypes.byref(size))
+        table = (_Information * (size.value // ctypes.sizeof(_Information)))()
+        if not query(table, ctypes.byref(size)):
+            return None
+    except AttributeError, OSError:
+        return None
+    # Relationship 0 is RelationProcessorCore: one entry per physical core.
+    masks = [entry.mask for entry in table if entry.relationship == 0]
+    return cores_in_masks(masks, cpus) or None
+
+
+def physical_cores(
+    cpus: Sequence[int], root: Path = Path("/sys/devices/system/cpu")
+) -> int | None:
+    """Count the physical cores that hold ``cpus``, or ``None`` where unknown.
+
+    Two hardware threads of one core share its arithmetic units, and solprop's kernels
+    keep those busy, so a second thread per core adds contention, not speed. Linux
+    reads each CPU's package and core from ``root``; Windows asks the kernel. macOS on
+    Apple silicon has one thread per core, so the CPUs are the cores.
+    """
+    if sys.platform.startswith("linux"):
+        return _linux_cores(cpus, root)
+    if sys.platform == "win32":
+        return _windows_cores(cpus)
+    return None
+
+
 def thread_count(name: str) -> int | None:
     """Read a positive thread count from the environment, ``None`` when unset."""
     value = os.environ.get(name, "").strip()
@@ -118,19 +186,23 @@ def oversubscribing() -> bool:
     return value == "1"
 
 
-def thread_budget(cpus: int) -> ThreadBudget:
-    """Return the budget: the smallest of the CPUs, the quota and ``SOLPROP_THREADS``.
+def thread_budget(cpus: int, cores: int | None = None) -> ThreadBudget:
+    """Return the budget: the smallest of the CPUs, their cores, the quota and
+    ``SOLPROP_THREADS``.
 
-    ``cpus`` is the process's affinity mask as counted before Kokkos started. The same
-    budget as solprop's (and so the same ``thread_budget`` in every backend's
-    metadata); ``SOLPROP_NATIVE_THREADS`` is an explicit count within it
-    (:func:`native_threads`).
+    ``cpus`` is the process's affinity mask as counted before Kokkos started, and
+    ``cores`` the physical cores that hold them (:func:`physical_cores`), which count
+    only when ``SOLPROP_THREADS`` is unset. The same budget as solprop's (and so the
+    same ``thread_budget`` in every backend's metadata); ``SOLPROP_NATIVE_THREADS`` is
+    an explicit count within it (:func:`native_threads`).
     """
     limits = [(max(1, cpus), "affinity")]
+    requested = thread_count("SOLPROP_THREADS")
+    if requested is None and cores is not None:
+        limits.append((cores, "physical cores"))
     quota = cgroup_cpus()
     if quota is not None:
         limits.append((quota, "cgroup quota"))
-    requested = thread_count("SOLPROP_THREADS")
     if requested is not None:
         limits.append((requested, "SOLPROP_THREADS"))
     threads, source = min(limits, key=lambda limit: limit[0])

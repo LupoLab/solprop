@@ -87,6 +87,10 @@ Accelerate exposes no thread control at all, and is recorded as `uncontrolled`.
 
 - its CPU affinity mask, the CPUs it may run on (narrowed by `taskset`, `numactl` or a
   batch scheduler's allocation);
+- the physical cores that hold those CPUs, unless `SOLPROP_THREADS` is set: a core's
+  second hardware thread shares its arithmetic units, and on 36 cores of two Intel Xeon
+  Gold 6240 one thread per core ran every benchmark case 6 to 31 % faster than two
+  (read on Linux and Windows; Apple silicon has one thread per core);
 - the tightest Linux control-group CPU quota on its path (containers), rounded **down**:
   a quota limits CPU time, and a team of threads that exceeds it is throttled whole, so
   a quota of 1.5 CPUs runs one thread;
@@ -109,7 +113,7 @@ Each pool can be fixed from the environment:
 
 | variable | pool | default |
 |---|---|---|
-| `SOLPROP_THREADS` | the process's thread budget, which every pool below (and the native backend's) stays within | the affinity mask and quota alone |
+| `SOLPROP_THREADS` | the process's thread budget, which every pool below (and the native backend's) stays within; it may exceed the physical cores, up to the CPUs | the affinity mask, its physical cores and the quota |
 | `SOLPROP_OVERSUBSCRIBE` | `1` lets an explicit count exceed the CPUs and the quota | `0` |
 | `SOLPROP_NUMBA_THREADS` | Numba kernel threads | all available CPUs above the size threshold, else 1 |
 | `SOLPROP_NUMBA_REGIME` | `small` (serial node loop) or `large` (parallel node loop) | chosen from the size threshold |
@@ -147,7 +151,7 @@ copy of GNU OpenMP. If that runtime's idle threads spin, they take the cores the
 kernels need between transforms. On 8 cores of an x86-64 server that made a four-mode capillary step
 five times slower whenever FFTW had more than one thread. `numba_cpu` therefore imports
 pyFFTW with `OMP_WAIT_POLICY=passive` set for that runtime alone, and the environment is
-restored straight away, so other OpenMP runtimes still read yours. This is skipped if
+restored straight away (the native backend's own choice, above, is the one that stays). This is skipped if
 you have set `OMP_WAIT_POLICY` or `GOMP_SPINCOUNT`, because then your choice applies,
 and `active` brings the slowdown back. It is also skipped when your script imported
 `pyfftw` before solprop. The run's metadata records what applied as `fftw_wait_policy`.
@@ -290,13 +294,28 @@ The native CPU backend runs on OpenMP, whose standard variables apply:
   for one run on a multi-socket machine. Kokkos prints a notice when `OMP_PROC_BIND` is
   unset; `OMP_PROC_BIND=false` silences it without pinning. With a build whose FFTW
   uses pthreads rather than OpenMP, prefer `OMP_PROC_BIND=false`.
-- `OMP_WAIT_POLICY` decides what idle threads do between parallel regions. `active`
-  keeps them spinning, which helps the many short kernels of small problems on a
-  dedicated machine; `passive` lets them sleep, which is much better on a shared or busy
-  machine, when a threaded BLAS needs the same cores, or with several processes per
-  node — an idle pool that spins can cost a large factor on a machine that is also doing
-  other work. LLVM's OpenMP runtime (used on macOS) also honours `KMP_BLOCKTIME`, the
-  time a thread spins before sleeping; do not set it for GNU OpenMP.
+- `OMP_WAIT_POLICY` decides what idle threads do between parallel regions: `active`
+  keeps them spinning, `passive` lets them sleep at once. **The native backend chooses
+  for you** when none of `OMP_WAIT_POLICY`, `GOMP_SPINCOUNT` and `KMP_BLOCKTIME` is set.
+  It runs several thread teams in turn (Kokkos', the threaded FFTs', the BLAS's), and
+  when its threads fill the CPUs one team's spinning threads take the cores the next
+  needs: on 16 cores of an AMD EPYC 7763 the runtime's own waiting made the four-mode
+  capillary 25 times slower (334 s against 13.5 s). So the import sets
+  `OMP_WAIT_POLICY=passive`. The setting stays in the environment, so worker processes
+  wait alike, and the run's metadata records what applied as `openmp_wait_policy`.
+  Where hardware threads are spare and nothing else will use them, spinning is faster:
+  on 36 cores of two Intel Xeon Gold 6240 (72 hardware threads), with the whole machine
+  to itself, `OMP_WAIT_POLICY=active` ran the supercontinuum in 49 s against 94 s and
+  the capillary in 9.7 s against 14.7 s. It is not the default because the runtime
+  reads the policy once, at start-up, and work that arrives on the machine later takes
+  those spare threads; set it for a run on a machine it has to itself. LLVM's OpenMP runtime (used on macOS) also
+  honours `KMP_BLOCKTIME`, the time a thread spins before sleeping; do not set it for
+  GNU OpenMP.
+- On a machine your run has to itself, also pinning the threads helps: with idle
+  threads sleeping, `OMP_PROC_BIND=close OMP_PLACES=cores` made the capillary and
+  filament cases 6 to 30 % faster on the EPYC allocation above. Leave it unset where
+  several processes share a machine, since each would pin its threads to the same
+  first cores.
 
 ## BLAS and vendor libraries
 

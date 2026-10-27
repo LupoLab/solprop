@@ -256,6 +256,7 @@ def test_no_control_groups_means_no_quota(tmp_path):
 )
 def test_the_budget_is_the_tightest_limit(monkeypatch, cpus, quota, variable, expected):
     monkeypatch.setattr(_process, "allowed_cpus", lambda: tuple(range(cpus)))
+    monkeypatch.setattr(_process, "physical_cores", lambda cpus: None)
     monkeypatch.setattr(_process, "cgroup_cpus", lambda: quota)
     if variable is None:
         monkeypatch.delenv("SOLPROP_THREADS", raising=False)
@@ -296,17 +297,19 @@ def test_the_native_copy_reads_control_groups_alike(
     assert native_budget.cgroup_cpus(root) == _process.cgroup_cpus(root) == expected
 
 
+@pytest.mark.parametrize("cores", [None, 6])
 @pytest.mark.parametrize("quota", [None, 3])
 @pytest.mark.parametrize("variable", [None, "2", "64"])
 @pytest.mark.parametrize("oversubscribe", [None, "0", "1"])
 def test_the_native_copy_sets_the_same_budget(
-    monkeypatch, native_budget, quota, variable, oversubscribe
+    monkeypatch, native_budget, cores, quota, variable, oversubscribe
 ):
     """Both backends read the same budget, and clamp an explicit count alike.
 
     So ``thread_budget`` means the same in every backend's metadata.
     """
     monkeypatch.setattr(_process, "allowed_cpus", lambda: tuple(range(8)))
+    monkeypatch.setattr(_process, "physical_cores", lambda cpus: cores)
     monkeypatch.setattr(_process, "cgroup_cpus", lambda: quota)
     monkeypatch.setattr(native_budget, "cgroup_cpus", lambda: quota)
     monkeypatch.delenv("SOLPROP_NATIVE_THREADS", raising=False)
@@ -318,7 +321,7 @@ def test_the_native_copy_sets_the_same_budget(
             monkeypatch.delenv(name, raising=False)
         else:
             monkeypatch.setenv(name, value)
-    ours, theirs = _process.thread_budget(), native_budget.thread_budget(8)
+    ours, theirs = _process.thread_budget(), native_budget.thread_budget(8, cores)
     fields = ("threads", "source", "oversubscribe", "requested")
     assert [getattr(theirs, f) for f in fields] == [getattr(ours, f) for f in fields]
     for count in (1, 4, 16):
@@ -399,3 +402,102 @@ def test_oversubscribe_is_zero_or_one(monkeypatch, native_budget, value):
         _process.oversubscribing()
     with pytest.raises(ValueError, match="SOLPROP_OVERSUBSCRIBE"):
         native_budget.oversubscribing()
+
+
+def _topology(root, cpus):
+    """Write a sysfs CPU tree: ``cpus`` maps each CPU to its (package, core)."""
+    for cpu, (package, core) in cpus.items():
+        directory = root / f"cpu{cpu}" / "topology"
+        directory.mkdir(parents=True)
+        (directory / "physical_package_id").write_text(f"{package}\n")
+        (directory / "core_id").write_text(f"{core}\n")
+    return root
+
+
+# Two packages of two cores, two hardware threads each: CPUs 0-3 are the first thread
+# of each core and 4-7 the second, as Linux numbers them.
+SMT = {cpu: (cpu % 4 // 2, cpu % 2) for cpu in range(8)}
+
+
+@pytest.mark.parametrize(
+    ("cpus", "expected"),
+    [
+        (range(8), 4),
+        (range(4), 4),
+        ((0, 4), 1),
+        ((0, 1, 4, 5), 2),
+        ((0, 2), 2),  # core 0 of each package: the same core number, two cores
+        ((0, 9), None),  # a CPU with no topology: unknown, so no limit
+    ],
+)
+def test_physical_cores_count_package_and_core_pairs(
+    tmp_path, native_budget, monkeypatch, cpus, expected
+):
+    root = _topology(tmp_path, SMT)
+    for module in (_process, native_budget):
+        monkeypatch.setattr(module.sys, "platform", "linux")
+        assert module.physical_cores(tuple(cpus), root) == expected
+
+
+def test_windows_cores_count_the_masks_holding_the_cpus(native_budget):
+    masks = [0b0001_0001, 0b0010_0010, 0b0100_0100, 0b1000_1000]
+    for module in (_process, native_budget):
+        assert module.cores_in_masks(masks, range(8)) == 4
+        assert module.cores_in_masks(masks, (0, 4, 1)) == 2
+        assert module.cores_in_masks(masks, ()) == 0
+
+
+@pytest.mark.parametrize(
+    ("variable", "expected"),
+    [
+        (None, _process.ThreadBudget(4, "physical cores")),
+        # Asking for threads lifts the core limit, not the CPUs' or the quota's.
+        ("6", _process.ThreadBudget(6, "SOLPROP_THREADS")),
+        ("64", _process.ThreadBudget(8, "affinity")),
+    ],
+)
+def test_the_budget_counts_physical_cores_unless_threads_are_asked_for(
+    monkeypatch, variable, expected
+):
+    monkeypatch.setattr(_process, "allowed_cpus", lambda: tuple(range(8)))
+    monkeypatch.setattr(_process, "physical_cores", lambda cpus: 4)
+    monkeypatch.setattr(_process, "cgroup_cpus", lambda: None)
+    if variable is None:
+        monkeypatch.delenv("SOLPROP_THREADS", raising=False)
+    else:
+        monkeypatch.setenv("SOLPROP_THREADS", variable)
+    budget = _process.thread_budget()
+    assert (budget.threads, budget.source) == (expected.threads, expected.source)
+
+
+@pytest.fixture
+def native_wait():
+    """The native package's wait-policy module, loaded without starting its core."""
+    path = NATIVE_BUDGET.with_name("_wait.py")
+    spec = importlib.util.spec_from_file_location("_native_wait", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_native_threads_sleep_at_once(native_wait):
+    environ: dict[str, str] = {}
+    assert native_wait.wait_policy(environ) == "passive"
+    assert environ == {"OMP_WAIT_POLICY": "passive"}
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("OMP_WAIT_POLICY", "active"),
+        ("GOMP_SPINCOUNT", "10000"),
+        ("KMP_BLOCKTIME", "200"),
+    ],
+)
+def test_a_wait_policy_the_user_chose_is_kept(native_wait, name, value):
+    environ = {name: value}
+    assert native_wait.wait_policy(environ) == f"environment: {name}={value}"
+    assert environ == {name: value}
+    # A blank variable is unset.
+    assert native_wait.wait_policy({name: " "}) == "passive"
