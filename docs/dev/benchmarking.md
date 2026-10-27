@@ -67,7 +67,9 @@ same steps; the summary says so when they do not.
 tolerance or integrator, so it runs with its interface's defaults
 ([SEP 37](seps/archive/sep-0037-noise-and-stepper-defaults.md)). A changed default therefore
 shows in the history as a new integrator or tolerance on that row. Every noisy launch
-fixes the same seed, so its repeats and its releases are comparable. The Kerr beams
+fixes the same seed, so its repeats and its releases are comparable. The N = 3 soliton
+is the one noiseless case: a soliton-recurrence study runs without noise, and SEP 37
+measured a seed multiplying its steps by 65. The Kerr beams
 run their declared fixed RK4IP schedule.
 
 **Steppers.** `--stepper` takes `default`, `multistep`, `multistep-interaction` or `rk`,

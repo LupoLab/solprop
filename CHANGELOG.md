@@ -173,7 +173,8 @@ The first public release. It contains:
     `prop_radial` and `prop_planar` (1e-5) and `prop_capillary` (1e-6). The spatial
     interfaces apply their tolerance when `SimulationSettings` give no controller, which
     is now optional, and a free-space run that names no integrator takes
-    `RungeKutta()`. The choosing-a-stepper page tabulates every default.
+    `RungeKutta()`, including when its settings are a `dataclasses.replace` copy of
+    settings that named none. The choosing-a-stepper page tabulates every default.
   - The linear propagation is integrated exactly, and absorbing boundaries act as rates.
   - Fixed and adaptive schedules.
   - Bounded, rounding-level reproducibility across backends.

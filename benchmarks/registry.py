@@ -5,9 +5,9 @@
 """Declare immutable benchmark workloads without importing their builders.
 
 Every case is a complete guide run with its interface's default integrator and
-tolerances (SEP 37), a fixed noise seed and the native backend unless asked
-otherwise (SEP 38). The ``tracking`` set is what ``python -m benchmarks track``
-times by default; every other case runs only when named.
+tolerances (SEP 37), a fixed noise seed (the N = 3 soliton runs noiseless) and the
+native backend unless asked otherwise (SEP 38). The ``tracking`` set is what
+``python -m benchmarks track`` times by default; every other case runs only when named.
 """
 
 from __future__ import annotations
@@ -160,13 +160,14 @@ _TRACKED = (
     ),
     Case(
         "gnlse_soliton",
-        1,
+        2,
         ("tracking", "mode-averaged"),
         "prop_gnlse",
         "gnlse",
         1.3278075458959397,
         (1, 4096, 4096),
-        "docs/introduction/tutorials/plot_02_soliton.py; one soliton period",
+        "docs/introduction/tutorials/plot_02_soliton.py; one soliton period, noiseless",
+        # Measured at revision 1, with noise: an upper bound until it is remeasured.
         cost=(12.6, 8.5),
     ),
     Case(

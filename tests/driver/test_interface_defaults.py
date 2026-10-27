@@ -4,6 +4,8 @@
 
 """Each interface's default integrator, tolerances and TDSE noise (SEP 37 phase 1)."""
 
+import dataclasses
+
 import pytest
 
 from driver.test_tdse_entry import _capillary, _sae
@@ -87,7 +89,7 @@ def test_the_waveguide_takes_the_runge_kutta_march_and_its_tolerance():
     assert controller.rtol == WAVEGUIDE_RTOL == 1e-5
 
 
-def _spatial(space, controller=None, integrator=None, noise=None):
+def _spatial(space, controller=None, integrator=None, noise=None, copied=False):
     grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
     settings = SimulationSettings(
         controller,
@@ -96,6 +98,8 @@ def _spatial(space, controller=None, integrator=None, noise=None):
         dz_init=grid.length,
         integrator=integrator,
     )
+    if copied:
+        settings = dataclasses.replace(settings, ionisation_field_range=(1e7, 1e11))
     arguments = (
         SpatialMedium(),
         [],
@@ -129,6 +133,22 @@ def test_a_free_space_run_takes_the_runge_kutta_march_and_no_noise():
     assert quiet.noise_resolution == NoiseResolution("default", None, FREE_NOISE)
     radial = _spatial(RadialGrid(6e-4, 16), noise="default")
     assert radial.noise_resolution == NoiseResolution("default", "input")
+
+
+def test_a_copy_of_the_settings_still_names_no_integrator():
+    # dataclasses.replace passes the resolved default back in; the copy must still
+    # read as unnamed, or a free-space run would keep the Multistep default.
+    space = FreeGrid(3e-4, 8, 3e-4, 8)
+    copied = _spatial(space, copied=True)
+    assert isinstance(copied.settings.integrator, RungeKutta)
+    named = _spatial(space, integrator=Multistep(), copied=True)
+    assert isinstance(named.settings.integrator, Multistep)
+    settings = SimulationSettings(save_planes=[1.0], dz_max=1.0, dz_init=1e-3)
+    assert not dataclasses.replace(settings, step_planes=2).integrator_named
+    assert dataclasses.replace(settings, integrator=Multistep()).integrator_named
+    single = dataclasses.replace(settings, precision="single", backend="numpy_ref")
+    assert isinstance(single.integrator, RungeKutta)
+    assert not single.integrator_named
 
 
 def test_a_simulation_built_directly_needs_a_controller():

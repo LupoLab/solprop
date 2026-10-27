@@ -732,8 +732,13 @@ class SimulationSettings(Displayed):
     evanescent_rate: float | None = None
     transverse_absorber: TransverseCollar | None = None
     adiabatic_accuracy: AdiabaticAccuracy | None = None
-    # Whether the caller named the integrator, set per instance in __post_init__. Not
-    # a field, so that a copy built from the fields keeps working.
+    _default_integrator: Multistep | RungeKutta | None = dataclasses.field(
+        default=None, repr=False, compare=False
+    )
+    """The default the settings chose for an unnamed integrator. A copy made with
+    :func:`dataclasses.replace` carries it with the integrator, so the copy still knows
+    the caller named none; any other integrator counts as named."""
+    # Whether the caller named the integrator, set per instance in __post_init__.
     integrator_named = False
 
     def _planes_text(self) -> str:
@@ -826,11 +831,18 @@ class SimulationSettings(Displayed):
             raise DriverError(refusal)
         object.__setattr__(self, "field_planes", tuple(self.field_planes))
         precision = _precision(self.precision)
-        object.__setattr__(self, "integrator_named", self.integrator is not None)
-        if self.integrator is None:
-            object.__setattr__(
-                self, "integrator", RungeKutta() if precision.single else Multistep()
-            )
+        carried = (
+            self.integrator is not None and self.integrator is self._default_integrator
+        )
+        object.__setattr__(
+            self, "integrator_named", self.integrator is not None and not carried
+        )
+        if not self.integrator_named:
+            default = RungeKutta() if precision.single else Multistep()
+            if carried and type(self.integrator) is type(default):
+                default = self.integrator
+            object.__setattr__(self, "integrator", default)
+            object.__setattr__(self, "_default_integrator", default)
         if precision.single:
             object.__setattr__(self, "backend", _single_backend(self.backend))
         if self.fields == "planes" and self.step_planes:
@@ -1746,6 +1758,7 @@ class Simulation(Displayed):
                 one.name
                 for one in dataclasses.fields(SimulationSettings)
                 if one.name not in _EXECUTION_SETTINGS
+                and not one.name.startswith("_")
                 and not _same_setting(
                     getattr(self._settings, one.name), getattr(settings, one.name)
                 )

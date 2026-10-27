@@ -61,7 +61,7 @@ def test_repeats_restart_from_the_launch_and_take_the_same_steps(tmp_path):
 @pytest.mark.medium
 def test_repeats_of_an_input_noise_run_reach_the_same_field():
     # The tracked default noise: each repeat restarts from the same seeded launch.
-    configuration = CASES["gnlse_soliton"].configuration(
+    configuration = CASES["gnlse_raman_shock"].configuration(
         "default", 1, "numpy_ref", 0.002
     )
     result = measure(configuration, 2, None)
