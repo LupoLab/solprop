@@ -461,6 +461,7 @@ def fibre(radius):
         fwhm=100e-15,
         energy=1e-12,
         n_save=2,
+        noise=None,  # a 1 pJ splice: the lesson is the coupling, not the noise
     )
 
 

@@ -2236,7 +2236,7 @@ def witness_run(
         n_save=case["n_save"] if planes is None else planes,
         rtol=rtol,
         atol=LUNA_TOLERANCES["atol"],
-        **{"noise": None, **chosen},
+        **chosen,
         **(stated | overrides),
     )
 

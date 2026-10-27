@@ -130,6 +130,7 @@ def weak_band(schedule):
         peak_power=9 * 11.83e-27 / (0.11 * 1e-26),
         pulseshape="sech",
         n_save=2,
+        noise=None,  # a noiseless soliton: the calibration is about the stepper
         schedule=schedule,
         integrator=LowStorageRungeKutta(),
         dz_max=schedule.max_step,
