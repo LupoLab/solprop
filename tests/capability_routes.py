@@ -131,17 +131,17 @@ def capillary_gradient(noise: str | None) -> Simulation:
     return _capillary(noise, pressure=(1.0, 0.1))
 
 
-def capillary_wall(noise: str | None) -> Simulation:
+def capillary_wall(noise: str | None, **overrides: Any) -> Simulation:
     """Return three modes beside the coherent wall: a constant coupled flow."""
-    return _capillary(noise, modes=3, wall=CoherentWall())
+    return _capillary(noise, modes=3, wall=CoherentWall(), **overrides)
 
 
-def capillary_taper(noise: str | None) -> Simulation:
+def capillary_taper(noise: str | None, **overrides: Any) -> Simulation:
     """Return three modes along a radius taper with its default taper coupling."""
     radius = PiecewiseLinear.from_stages(
         (0.0, 0.3 * LENGTH, 0.7 * LENGTH, LENGTH), [100e-6, 100e-6, 80e-6, 80e-6]
     )
-    return _capillary(noise, modes=3, radius=radius)
+    return _capillary(noise, modes=3, radius=radius, **overrides)
 
 
 GENERAL_GRID = FieldGrid.from_limits(LENGTH, 835e-9, (815e-9, 860e-9), 60e-15)
@@ -200,7 +200,7 @@ GRIN_GRID = FieldGrid.from_limits(LENGTH, 1.03e-6, (1.0e-6, 1.06e-6), 100e-15)
 """The moving graded-index guide's grid."""
 
 
-def general_moving(noise: str | None) -> Simulation:
+def general_moving(noise: str | None, **overrides: Any) -> Simulation:
     """Return a linearly tapering graded-index guide: moving maps, a coupled flow."""
     provider = GradedIndexProvider(
         permittivity=PowerLawPermittivity(IndexMaterial(1.45), 0.005),
@@ -221,17 +221,16 @@ def general_moving(noise: str | None) -> Simulation:
         nodes=provider.node_rule(float(knots[0]), 0.0, n_r=2),
         sections=1,
     )
-    return Simulation.from_waveguide(
-        (),
-        LENGTH,
-        provider=guide,
-        grid=GRIN_GRID,
-        lambda0=1.03e-6,
-        fwhm=60e-15,
-        energy=1e-12,
-        noise=noise,  # pyright: ignore[reportArgumentType]
-        seed=None if noise is None else SEED,
+    arguments = {
+        "lambda0": 1.03e-6,
+        "fwhm": 60e-15,
+        "energy": 1e-12,
+        "noise": noise,
+        "seed": None if noise is None else SEED,
         **_run_keywords(),
+    } | overrides
+    return Simulation.from_waveguide(
+        (), LENGTH, provider=guide, grid=GRIN_GRID, **arguments
     )
 
 

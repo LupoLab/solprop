@@ -312,10 +312,13 @@ def test_a_lockstep_batch_refuses_a_moving_guide(kinked_problem):
     member.close()
 
 
-def test_a_noise_model_is_refused_beside_a_moving_guide(kinked):
-    """A shot-noise draw's transport through the moving flow is not measured."""
-    with pytest.raises((DriverError, TranslationError), match="noise"):
-        build(kinked, grin_grid(), noise="input", seed=3).translate()
+def test_the_modified_noise_model_is_refused_beside_a_moving_guide(kinked):
+    """A kept-apart draw's transport through the moving flow is not measured.
+
+    The input draw is admitted (``tests/driver/test_coupled_input_noise.py``).
+    """
+    with pytest.raises(TranslationError, match="refuses the 'modified' noise model"):
+        build(kinked, grin_grid(), noise="modified", seed=3).translate()
 
 
 def test_a_fixed_schedule_straddling_the_kink_is_refused(kinked):

@@ -508,11 +508,12 @@ would need an error allocation over the table's frequency interpolation, the tra
 rule and the step, and named physical observables to allocate against; until then a
 number is refused rather than recorded and ignored.
 
-**Noise and batches beside a coupled flow.** A noise model beside a coupled flow (a wall
-or the taper coupling) is refused, because a draw's transport through the flow is not
-measured; so is a coupled flow in a lockstep batch. Both need a derivation and a test
-before they can be admitted. [SEP 37](seps/sep-0037-noise-and-stepper-defaults.md) (phase 3) proposes input noise beside a coupled
-flow; the modified noise and batches beside one remain here.
+**Modified noise and batches beside a coupled flow.** The `modified` noise model
+beside a coupled flow (a wall, the taper coupling, a split block or a moving guide) is
+refused, because its kept-apart draw's transport through the flow is not measured; so
+is a coupled flow in a lockstep batch. Both need a derivation and a test before they
+can be admitted. [SEP 37](seps/sep-0037-noise-and-stepper-defaults.md) (phase 3)
+admitted the `input` model there, whose draw is part of the launch.
 
 **Independent spatial references for the vector and graded-index routes.** The scalar bore
 and taper are checked against an independent finite-element solve. The vector wall is
