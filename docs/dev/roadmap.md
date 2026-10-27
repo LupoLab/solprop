@@ -406,6 +406,12 @@ guiding profiles and for polarisation effects in graded-index fibres.
 
 ## Numerics
 
+**The coarse-divides-fine size rule.** A grid's coarse transform size must divide its fine
+one, so the realised size is not monotone in the requested window: a slightly larger
+request can land on a smaller, cheaper pair, or a smaller one on a dearer pair. The
+sizes stay correct, so [SEP 21](seps/sep-0021-absorbing-boundaries.md) kept the rule (D11);
+choosing the pair jointly by the FFT cost model, or relaxing the rule, is left for later.
+
 **Multistep integration with general varying noncommuting coupled flows.**
 [SEP 16](seps/archive/sep-0016-unified-multistep.md) covered diagonal and separable operators,
 adiabatic tapers and the constant-Schur and frozen-residual coupled sections, which
