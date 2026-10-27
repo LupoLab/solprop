@@ -191,7 +191,7 @@ def test_the_contract_document_lists_every_flag(soliton):
 
 def test_the_document_is_the_version_the_module_writes():
     """A bump of one without the other is exactly what the contract test is for."""
-    assert SCHEMA_VERSION == 37
+    assert SCHEMA_VERSION == 38
     assert soliton_schema_version_row().startswith("incremented on every change")
     assert f"current version is **{SCHEMA_VERSION}**" in CONTRACT.read_text(
         encoding="utf-8"
@@ -1312,6 +1312,7 @@ def radial_problem():
             dz_init=2.5e-4,
             backend="numpy_ref",
         ),
+        noise=None,
     )
     return simulation.translate()
 

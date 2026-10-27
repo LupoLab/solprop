@@ -61,6 +61,22 @@ map goes above it.
 The `bandpass` reaches the temporal panel only: a window drawn on the spectrum it is
 displayed beside would be circular.
 
+The spectral window `spec_range` is in the SI units of the abscissa, as everywhere in
+{py:mod}`solprop.processing`: metres on `"wavelength"`, hertz on `"f"` and rad/s on
+`"omega"`, so a frequency map can start at zero, which no wavelength range can say. The
+same holds for `spec_1d` and `spectrogram`. Left out, it is a fixed wavelength range
+converted to the abscissa; {py:func}`~solprop.plotting.style.wavelength_to_axis` makes
+that conversion for anyone who thinks in wavelength:
+
+```python
+from solprop.plotting import prop_2d, wavelength_to_axis
+from solprop.processing._examples import example_output
+
+output = example_output()
+prop_2d(output, "f", spec_range=(0.0, 2e15))
+prop_2d(output, "omega", spec_range=wavelength_to_axis("omega", (600e-9, 1100e-9)))
+```
+
 ```{eval-rst}
 .. plot::
    :filename-prefix: plotting-prop-2d
@@ -70,7 +86,7 @@ displayed beside would be circular.
    from solprop.plotting import prop_2d
    from solprop.processing._examples import example_output
 
-   figure = prop_2d(example_output(), "wavelength", wavelength_range=(600e-9, 1100e-9),
+   figure = prop_2d(example_output(), "wavelength", spec_range=(600e-9, 1100e-9),
                     trange=(-100e-15, 100e-15))[0]
    figure.set_size_inches(9.5, 3.4)
    figure.tight_layout()
@@ -98,7 +114,7 @@ over six decades.
    output = example_output()
    figure, (left, right) = plt.subplots(1, 2, figsize=(9.5, 3.4))
    time_1d(output, [0.0, 0.1], trange=(-120e-15, 120e-15), ax=left)
-   spec_1d(output, [0.0, 0.1], wavelength_range=(600e-9, 1100e-9), ax=right)
+   spec_1d(output, [0.0, 0.1], spec_range=(600e-9, 1100e-9), ax=right)
    figure.tight_layout()
 ```
 
@@ -182,7 +198,7 @@ does not.
        output,
        trange=(-1.2e-12, 1.2e-12),
        gate_fwhm=200e-15,
-       wavelength_range=(700e-9, 950e-9),
+       spec_range=(700e-9, 950e-9),
    )
    figure.set_size_inches(6.4, 3.6)
    figure.tight_layout()
@@ -207,8 +223,8 @@ does not.
      - The factor and the label that put a power between one and a thousand.
    * - :py:func:`~solprop.plotting.style.spectral_display`
      - The factor and the axis label of a spectral abscissa.
-   * - :py:func:`~solprop.plotting.style.spectral_limits`
-     - A wavelength range as limits on any of the three abscissae.
+   * - :py:func:`~solprop.plotting.style.wavelength_to_axis`
+     - A wavelength range as SI limits on any of the three abscissae.
    * - :py:func:`~solprop.plotting.style.corner_text`
      - A panel label in a corner, in axis coordinates.
    * - :py:func:`~solprop.plotting.style.fwhm_arrows`

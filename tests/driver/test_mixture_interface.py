@@ -55,19 +55,22 @@ def construct(mixture, grid, **options):
         mixture,
         **(
             {
-                "lambda0": 800e-9,
-                "grid": grid,
-                "thg": False,
-                "fwhm": 10e-15,
-                "energy": 1e-9,
-                "n_r": 8,
-                "n_save": 2,
-                "plasma": {mixture.labels[0]: AnalyticRate()},
-                "loss": False,
-                "cladding": 1.45,
-                "ionisation_field_range": (1e7, 1e11),
+                "noise": None,
+                **{
+                    "lambda0": 800e-9,
+                    "grid": grid,
+                    "thg": False,
+                    "fwhm": 10e-15,
+                    "energy": 1e-9,
+                    "n_r": 8,
+                    "n_save": 2,
+                    "plasma": {mixture.labels[0]: AnalyticRate()},
+                    "loss": False,
+                    "cladding": 1.45,
+                    "ionisation_field_range": (1e7, 1e11),
+                }
+                | options,
             }
-            | options
         ),
     )
 
@@ -94,6 +97,7 @@ def test_mixture_optics_conflict_is_explicit(material_grid, fractions):
             energy=1e-9,
             plasma=False,
             susceptibility=gamma("He"),
+            noise=None,
         )
 
 
@@ -283,6 +287,7 @@ def test_fraction_mapping_uses_total_pressure(material_grid):
             n_save=2,
             loss=False,
             cladding=1.45,
+            noise=None,
         )
         simulation.translate()
     assert isinstance(simulation.modes[0], MarcatiliMode)
@@ -330,6 +335,7 @@ def test_public_propagation_accepts_mixture_and_periodic_species(
         # Adams history (7.0e-7 m); split off, it is integrated exactly.
         absorber_scheme="split_step",
         schedule=FixedSchedule(np.full(40, grid.length / 40)),
+        noise=None,
     )
     assert output["stats/species_ionisation"].shape[1] == 2
     assert output["stats/species_density"].shape == (2, 2)

@@ -46,6 +46,7 @@ result = prop_free(
     [KerrResponse(gamma3("Ar", wavelength=800e-9), thg=False)],
     SpatialPulse(GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1.5e-9), 2e-3),
     settings=settings,
+    noise=None,
 )
 # The fluence is the time-integrated axial flux, measured in the argon at the exit.
 exit_plane = SpatialFlux.resolve(grid, space, argon, z=length)

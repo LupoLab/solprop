@@ -28,7 +28,7 @@ from solprop.output.schema import SCHEMA_VERSION, serialise
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import ApertureSet, StatsSpec
-from solprop.stepper import PIController
+from solprop.stepper import Multistep, PIController
 from test_display import without_optmat_release
 
 STORED = Path(__file__).with_suffix("")
@@ -66,6 +66,9 @@ def spatial(kind: str) -> Simulation:
         dz_init=1e-4,
         absorber=boundary,
         backend="numpy_ref",
+        # The records were taken on the Adams march, the free-space default before
+        # SEP 37 made it the Runge-Kutta one.
+        integrator=Multistep(),
     )
     responses = [KerrResponse(1e-22, thg=False)]
     if kind == "radial":
@@ -76,6 +79,7 @@ def spatial(kind: str) -> Simulation:
             responses,
             pulse,
             settings=settings,
+            noise=None,
         )
     return Simulation.from_free(
         grid,
@@ -84,6 +88,7 @@ def spatial(kind: str) -> Simulation:
         responses,
         pulse,
         settings=settings,
+        noise=None,
     )
 
 
@@ -101,13 +106,17 @@ def build(kind: str) -> Simulation:
             pulseshape="sech",
             n_save=3,
             backend="numpy_ref",
+            noise=None,
+            # The record was taken under the GNLSE defaults before SEP 37.
+            integrator=Multistep(),
+            rtol=1e-8,
         )
     return spatial(kind)
 
 
 def split(kind: str):
     metadata = build(kind).metadata()
-    assert metadata.schema_version == SCHEMA_VERSION == 26
+    assert metadata.schema_version == SCHEMA_VERSION == 27
     # SEP 27 changes the global resume boundary, not these non-plasma records.
     # SEP 34 adds the plane measure to the spatial record (output schema 23); the
     # schema-21 projection leaves it out, and everything else must be unchanged.
@@ -127,8 +136,20 @@ def split(kind: str):
         for key, value in metadata.configuration.items()
         if key != "precision"
     }
+    # SEP 35 names the carrier frame in every Multistep's representation, at its
+    # default too (no output layout change); the projection leaves the default out.
+    assert metadata.stepper is not None
+    assert metadata.stepper.method is not None
+    stepper = dataclasses.replace(
+        metadata.stepper,
+        method=metadata.stepper.method.replace(", carrier_frame='off'", ""),
+    )
     historical = dataclasses.replace(
-        metadata, schema_version=21, spatial=spatial, configuration=configuration
+        metadata,
+        schema_version=21,
+        spatial=spatial,
+        configuration=configuration,
+        stepper=stepper,
     )
     return record_skeleton(without_optmat_release(historical.hashed()))
 

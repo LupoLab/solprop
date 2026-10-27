@@ -115,6 +115,7 @@ run = sol.prop_capillary(
     energy=pulse["energy"],
     n_save=41,
     progress="none",
+    seed=20261027,
 )
 print(run)
 
@@ -122,7 +123,7 @@ print(run)
 # The propagation maps: the spectrum broadens symmetrically and the pulse stretches, as
 # self-phase modulation in normal dispersion does.
 
-figures = sol.prop_2d(run, "wavelength", wavelength_range=(500e-9, 1.2e-6), db_min=-30)
+figures = sol.prop_2d(run, "wavelength", spec_range=(500e-9, 1.2e-6), db_min=-30)
 
 # %%
 # Compress

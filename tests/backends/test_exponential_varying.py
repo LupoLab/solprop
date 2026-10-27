@@ -69,7 +69,9 @@ def gradient(
     } | overrides
     radius = settings.pop("radius", 100e-6)
     pressure = settings.pop("pressure", (2.0, 0.5))
-    return Simulation.from_capillary(radius, LENGTH, "He", pressure, **settings)
+    return Simulation.from_capillary(
+        radius, LENGTH, "He", pressure, **{"noise": None, **settings}
+    )
 
 
 def march(simulation, backend_class=NumpyRefBackend, *, compensation=None, plane=-1):

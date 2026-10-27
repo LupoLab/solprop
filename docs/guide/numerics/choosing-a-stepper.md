@@ -1,7 +1,7 @@
 # Choosing a stepper
 
 solprop has three integrators, chosen with `integrator=`; this page is their overview.
-`Multistep()`, the default, is an exponential Adams method: one source evaluation per
+`Multistep()` is an exponential Adams method: one source evaluation per
 accepted step, a history of the last few, and an order it chooses between one and five
 ([the Adams integrator](adams.md)). `RungeKutta()` is the interaction-picture
 Dormand–Prince 5(4) pair: six evaluations with FSAL reuse, seven otherwise,
@@ -16,10 +16,72 @@ three copies of the state, with no error estimate ([below](#the-low-storage-marc
 This page sets out what decides between them, what was measured, and how to recognise
 a problem that wants another one.
 
+## The defaults
+
+Each interface has its own default integrator and tolerances, chosen by
+[SEP 37](../../dev/seps/archive/sep-0037-noise-and-stepper-defaults.md)'s rule: the fastest
+method at matched accuracy on the benchmark suite's cases for that interface, with noise
+on and off, among the methods every route of the interface admits. A default never
+depends on the physics a run switches on; pass `integrator=`, `rtol=` or `atol=` to
+choose another.
+
+| Interface | Integrator | `rtol` | `atol` | Shot noise |
+|---|---|---|---|---|
+| `prop_gnlse` | `RungeKutta()` | 1e-7 | 1e-14 √W | `"input"` |
+| `prop_capillary` | `Multistep()` | 1e-6 | 1e-10 √W | `"input"` |
+| `prop_capillary` with the TDSE response | `Multistep()` | 1e-6 | 1e-10 √W | none |
+| `prop_waveguide` | `RungeKutta()` | 1e-5 | 1e-10 √W | `"input"` |
+| `prop_radial` | `Multistep()` | 1e-5 | 0 | `"input"` |
+| `prop_free` (Cartesian, line) | `RungeKutta()` | 1e-4 | 0 | none |
+| `prop_planar` | `Multistep()` | 1e-5 | 0 | none (not carried) |
+
+Under `precision="single"` every interface takes `RungeKutta()` and no noise. The
+spatial interfaces' tolerances apply where their `SimulationSettings` give no
+controller; a free-space run that names no integrator takes `RungeKutta()`. A default
+noise that resolves to none says why in the run record and the start-of-run summary,
+and asking for noise beside the TDSE response is warned on: TDSE and Cartesian runs
+are slow and rarely about noise sensitivity.
+
+On the GNLSE, the Runge–Kutta march is 2.5 to 4.8 times faster than the exponential
+Adams method at matched accuracy, more with noise. On the waveguide route it is 4 times
+faster; the interaction-formulation Adams method is faster still there but refuses the
+coupled flows some waveguide routes carry. On the capillary the Adams method is the
+default for every representation. With several resolved modes the source beats at the
+modes' phase mismatches: the interaction-picture march has to resolve that beat within
+its steps (going from one resolved mode to four multiplies its steps by 3.7 on the RDW
+capillary), while the exponential Adams method carries it in its propagator and is
+about three times faster. With one mode, or a mode-averaged one, the Adams method at
+1e-6 was 1.2 to 1.75 times faster than the Runge–Kutta march at 1e-5 on the Kerr-only
+worked examples, and more accurate (on self-phase modulation in argon, a field error of
+4e-5 against 3e-4). It spends one response evaluation per step where the Runge–Kutta
+march spends six, so an expensive response widens the gap. The dispersive Kerr
+policies (`MaterialSelection(electronic="symmetric-kerr")` or `"gas-polynomial"`) cost
+more per evaluation than the carrier Kerr default: on a single-mode argon
+four-wave-mixing scan with them, the Adams method was 3.6 times faster. On a long run
+with Raman or plasma, `RungeKutta()` is the faster choice: 3.6 times on the Raman
+self-frequency-shift example and 2.1 times on the ionisation blueshift example. The
+TDSE response runs only on `Multistep()`. The radial and
+planar defaults hold their methods, which are faster there than the Runge–Kutta march
+(by 1.4 to 2.4 times on the radial filament), and set a tolerance where the caller gave
+no controller. A free-space run takes the Runge–Kutta march: the Adams history's
+memory rules the multistep method out for a large transverse state. Its tolerance is
+looser because the spectrum never set it: on a Cartesian Kerr beam near self-focusing,
+every level from 1e-3 to 1e-6 kept the spectrum within 0.002 dB of a tight reference,
+and 1e-4 was taken for a field error 2.5 times smaller than at 1e-3. The adaptive march
+needs no step calibration, and on that beam it was 26 to 53 times faster than a
+0.5 µm fixed RK4IP schedule. A fixed `LowStorageRungeKutta()` step calibrated to the
+same error is cheaper still, by about 1.6 times, and uses about half the memory.
+
+The tolerances were set by a convergence test: the loosest of three levels a decade
+apart at which a seeded ensemble's mean spectrum stays within 0.5 dB, above −40 dB of
+its peak, and its coherence within 0.02 of a reference a hundred times tighter. A
+noiseless soliton recurrence wants a tighter `rtol`; a TDSE run is usually run at
+`1e-3` to `3e-3`.
+
 ## The short answer
 
-Keep the default for almost everything, and in particular wherever a source
-evaluation is the expensive part of a step: several modes, ionisation and plasma,
+Beyond the defaults above, prefer `Multistep()` wherever a source evaluation is the
+expensive part of a step: several modes, ionisation and plasma,
 Raman, a spatial state (radial, Cartesian, line or planar), a gas gradient or a taper,
 a time-dependent Schrödinger equation. There it takes two to fourteen times fewer calls
 than the Runge–Kutta march and, measured, up to six times less time.
@@ -27,9 +89,9 @@ than the Runge–Kutta march and, measured, up to six times less time.
 Choose `integrator=RungeKutta()` when
 
 - **the source is cheap and the state small** — a single-mode envelope (GNLSE)
-  supercontinuum: the Adams method still takes three to four times fewer calls, but a
-  call costs less than a Runge–Kutta step's own linear work, and the Runge–Kutta march
-  is 1.2 to 1.4 times faster on `numba_cpu` (level on native CPU);
+  supercontinuum, where it is `prop_gnlse`'s default: the Adams method still takes
+  fewer calls, but a call costs less than a Runge–Kutta step's own linear work, and
+  with shot noise the Adams history resolves the seed's dynamics in many more steps;
 - **the state is too large for the Adams history** ([large problems](#large-problems-memory));
 - **an explicitly integrated damping term binds the step**: a strong in-stage collar the
   field reaches, or a replayed schedule whose steps are long against it — the Adams
@@ -47,6 +109,24 @@ calibrate on the observable that matters ([the low-storage march](#the-low-stora
 Within `Multistep()`, the interaction formulation (`formulation="interaction"`) is the
 alternative where the source is linear in each weak bin's own field, as beside the
 `modified` noise ([which formulation suits which source](adams.md#the-exponential-formulation)).
+
+**Dense gases on field grids.** On a field grid (or an envelope grid with the third
+harmonic) in a dense gas the carrier phase turns thousands of radians per metre, and
+the default `Multistep()` spends steps following it; at a loose tolerance it can also
+accumulate a large error over many honestly estimated steps (0.97 on an argon capillary
+at `rtol = 1e-3`, against 0.07 for `RungeKutta()`; [limitations](adams.md#limitations)).
+There:
+
+- for a dense, multimode, Raman-active run such as a comb-to-continuum capillary, use
+  `Multistep(carrier_frame="scalar")`: the fastest method measured, about half the
+  default's and IP-DOPRI5's time;
+- for a single-mode dense-gas run (an argon blue shift, a soliton self-frequency
+  shift), use `Multistep(formulation="interaction")`;
+- at a loose tolerance, `RungeKutta()` or `rtol <= 1e-4` with the default.
+
+[When to use the carrier frame](adams.md#the-carrier-frame) gives the measurements and
+its caveats: a weak band that is still forming, and a floor of about $|\kappa| L$
+steps.
 
 ## What decides
 
@@ -310,4 +390,5 @@ A planar guide: two slab modes. {download}`CSV <../figures/stepper-gallery/plana
 ```
 
 The qualification on this page was proposed and carried out by
-[SEP 16](../../dev/seps/archive/sep-0016-unified-multistep.md).
+[SEP 16](../../dev/seps/archive/sep-0016-unified-multistep.md); the dense-gas advice
+comes from [SEP 35](../../dev/seps/archive/sep-0035-carrier-frame-exponential-adams.md).

@@ -1,32 +1,23 @@
 # Benchmarks
 
 How solprop's performance is measured and judged, and what the measurements so far
-indicate. A performance claim names its measured window, build, machine and result;
-the rules below say how to take it. The numbers in the last two sections are indicative:
-each was measured once, on one machine, for one change. Re-measure with the standard
-suite before relying on any of them.
+indicate. A performance claim names what it measured, the build, the machine and the
+result; the rules below say how to take it. The numbers in the indicative sections are
+indicative: each was measured once, on one machine, for one change. Re-measure before
+relying on any of them.
 
 ## Where things are
 
-- **The standard benchmark suite** is `benchmarks/`
-  ([SEP 30](seps/archive/sep-0030-standard-benchmark-suite.md)), run with
-  `uv run poe bench` (`python -m benchmarks`). It measures bounded windows of
-  full-resolution problems in fresh processes and reports warm time, startup time,
-  peak memory and numerical check status. Its default is a quick Kokkos CPU run of the
-  four core cases (four-mode RDW, six-mode comb-to-continuum, a 384² Kerr beam and a
-  256-node radial filament); further sets cover modal capillaries, mode-averaged and
-  GNLSE cases, free space, coherent walls, tapers, the general modal route and
-  particular backend paths. Quick mode takes one sample and gives no verdict; standard
-  mode takes paired, shuffled fresh-process samples at one thread and at the machine's
-  declared production width and applies the adoption rule below. Cases are versioned
-  by their workload, so a changed definition is a new revision and is never compared
-  with the old one. [Running the benchmark suite](benchmarking.md) is the manual: case
-  sets, timing boundaries, collection, numerical qualification, native coverage and
-  export.
-- **Results stay local.** Runs, machine profiles, references and coverage reports go to
-  the ignored `.benchmarks/suite/` directory; no generated timing, reference or
-  coverage report is committed. `poe bench export` writes a sanitised snapshot when
-  one is wanted for a report.
+- **The benchmarks** are `benchmarks/`
+  ([SEP 38](seps/archive/sep-0038-performance-tracking.md)), run with `uv run poe bench`
+  (`python -m benchmarks`). `track` times complete runs of the tracking set (about a
+  dozen representative workloads, with each interface's default integrator and
+  tolerances) at one thread and the production width, in about an hour per machine;
+  `ab` compares two builds while a change is made. [Running the benchmarks](benchmarking.md)
+  is the manual.
+- **The history** is `benchmarks/history/`: one CSV per hardware set, named by its CPU
+  model and core count, with a few rows per release. `python -m benchmarks history`
+  summarises it. Full run bundles stay in the ignored `.benchmarks/` directory.
 - **[CPU performance: what was tried](cpu-performance.md)** records the compiled CPU
   backend's performance experiments: what was adopted, measured and rejected, and what
   remains open. Read it before repeating an experiment.
@@ -50,31 +41,26 @@ suite before relying on any of them.
   denominator counting as unresolved. Small regressions on individual cases, or at one
   thread, are accepted when the aggregate improves; they stay visible in the table and
   do not veto the change. Numerical bounds are never relaxed to make a change pass.
-  The standard suite's comparison adds its clean-pair, repeatability and qualified
-  reference requirements
-  ([collection and comparison](benchmarking.md#collection-recovery-and-comparison)).
+  The A/A spread of the same comparison says how large a difference has to be to count
+  ([comparing two builds](benchmarking.md#comparing-two-builds-while-iterating)).
 
 (benchmark-windows)=
-## Measurement windows
+## What is timed
 
-Timing is measured on short windows, not on complete propagations: a complete
-comb-to-continuum run takes hours, and its cost is the window's times a step count the
-window already predicts.
-
-- A timing window is about ten accepted steps of the adaptive run, frozen from an
-  untimed pilot so that every repeat takes the same prescribed steps, or a fibre
-  short enough that a complete run takes seconds.
-- Report the window that was measured: its z extent, accepted steps, what the timed
-  region includes (propagation, observation and public statistics) and excludes
-  (translation, backend construction, HDF5), and the A/A resolution indicator of the
-  alternating pairs. Do not extrapolate a window to a complete-run cost.
-- A later state of a long propagation is timed by replaying a saved witness into a
-  short window, not by regenerating the propagation.
-- Compare two source trees with alternating fresh-process pairs (A/B/A/B…), and report the
-  A/A spread beside the ratio; a difference inside the spread is not a result.
-
-The suite's windows and what its timers include are listed under
-[timing boundaries and accounting](benchmarking.md#timing-boundaries-and-accounting).
+- **Release tracking times complete runs.** The tracking set's cases are complete
+  guides at production sizes, with the library's defaults, so the history says how long
+  the usual simulations take now. Construction, translation and backend construction
+  are timed separately; an untimed warm-up builds plans first
+  ([what is timed](benchmarking.md#what-is-timed)).
+- **A change in progress may time less.** `ab --length` runs part of each guide from
+  the entrance, which is fine for comparing two builds on the same work. Report the
+  fraction run, and do not extrapolate an entrance window to a complete-run cost: the
+  expensive part of a propagation (compression, ionisation, the Raman shift) often comes
+  late.
+- **A later state of a long propagation** is timed by replaying a saved witness into a
+  short run, not by regenerating the propagation.
+- **Compare two source trees with alternating pairs** (A/B/A/B…), and report the A/A
+  spread beside the ratio; a difference inside the spread is not a result.
 
 (benchmark-reporting)=
 ## Reporting a performance claim
@@ -82,8 +68,8 @@ The suite's windows and what its timers include are listed under
 **The machine record.** Every measurement carries the CPU (or device) model, core count,
 memory, operating system, Python and dependency versions (including the Kokkos build and
 its profile), thread counts, FFTW plan flags and wisdom state, the source revision and
-whether the tree was dirty, and the load before and after. The suite's machine profile
-and run manifest record these; a hand-run measurement states them. Results are compared
+whether the tree was dirty, and the load before and after. A tracking run's plan and
+results record these; a hand-run measurement states them. Results are compared
 only within one machine.
 
 **A quiet machine.** Absolute numbers are taken on a dedicated workstation or an
@@ -94,7 +80,7 @@ baseline runs beside every ratio; a difference inside it is not a result.
 **What goes in a pull request.** The measured window and what it includes, the build and
 machine record, the per-case table with medians and spreads, the declared aggregate and
 its verdict, and any case that regressed. Concise evidence belongs in the change
-description; raw runs stay local or go into an exported snapshot.
+description; raw runs stay local.
 
 **Numba's on-disk cache.** Clear it
 (`find src -name '__pycache__' -type d -prune -exec rm -rf {} +`) before timing in a
@@ -177,9 +163,9 @@ against the previous default build on the large windows (best of complete paired
 | small cases (eight case/track configurations), geometric mean | 2.00× faster | 2.06× faster |
 | averaged helium RDW | same within noise | same within noise |
 | resolved blueshift | 2.0–2.6× faster | 1.8–2.4× faster |
-| reduced comb-to-continuum | 2.8–3.1× faster | 2.4–3.6× faster |
+| reduced comb-to-continuum (revision 1, 1 ps) | 2.8–3.1× faster | 2.4–3.6× faster |
 | RDW ten-step window | 1.81× faster | 2.33× faster |
-| reduced comb-to-continuum ten-step window | 3.18× faster | 3.85× faster |
+| reduced comb-to-continuum ten-step window (revision 1, 1 ps) | 3.18× faster | 3.85× faster |
 | full comb-to-continuum ten-step window | 7.9 % faster | 2.7 % faster, noisy |
 | general modal | 4–11 % faster | same, noisy |
 | Cartesian and radial filaments | same within noise | within 5 %, noisy |
@@ -191,6 +177,35 @@ response chunk followed by a full-width FFT needs both at full width, and a seri
 coupled-flow matrix function on the scalar wall took about 20 times its threaded kernel's
 time; both were corrected before the comparison above. "Noisy" rows did not meet the
 predeclared stability check; taper, short-line and planar controls were not requalified.
+
+(smooth-size-cliffs)=
+### Smooth grid sizes
+
+`native/benchmarks/size_cliffs.py` times the four-mode RDW capillary per source
+evaluation (short and long capped Runge-Kutta windows, their difference) on 2-3-5-smooth
+and power-of-two grids, and flags a size whose cost per sample exceeds its nearest power
+of two's by more than 25 %. Two size boundaries made cliffs: the stage threshold (8192
+elements, just above n_t 4000's 8004-element stage, whose entry kernel then took 708 us
+serially against 59 us at full width) with the FFT threshold (32,768 samples, above its
+32,000-sample batch), and a node budget that left 33 nodes as a 32-node pass and a serial
+one-node tail at n_t 8640. With the thresholds at 4096 and 16,384 and the nodes spread
+evenly over the passes, on one 18-core socket of a Xeon Gold 6240 (GCC 16, FFTW 3.3.11,
+ms per evaluation, two rounds each):
+
+| n_t | 4000 | 4096 | 4500 | 5000 | 6000 | 7200 | 8000 | 8192 | 8640 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| before | 2.45–2.47 | 1.24–1.36 | 1.49–1.56 | 1.54–1.57 | 1.86–1.87 | 2.21–2.26 | 2.38–2.39 | 2.29–2.30 | 3.52–3.55 |
+| after | 1.32 | 1.27–1.36 | 1.53–1.54 | 1.57–1.61 | 1.83–1.87 | 2.17–2.26 | 2.38–2.40 | 2.28–2.31 | 2.54–2.58 |
+
+At a stage threshold of 1024 a 1351-element SSFS stage regressed (1.2 to 1.7 ms); the
+reduced comb-to-continuum and SSFS cases did not move at 4096. On a dual EPYC 7643 (Zen 3,
+idle node, pinned) the same change made n_t 4000 24-27 % faster at 12 and 24 threads
+(2.36-2.42 to 1.74-1.82 ms), and the even chunks made n_t 8640 4-13 % faster; other sizes
+moved within 5 %. On an 18-core Apple arm64 laptop, in contrast, n_t 4000 went from 0.88
+to 1.04 ms (level with 4096), and even 4096's threaded stage is dearer than 4000's serial
+one: the crossover there lies above 8192. macOS therefore keeps the stage and FFT
+starts at 8192 and 32,768; its own crossover still needs a sweep on a quiet machine. Its
+node-chunk gain stands (n_t 8640: 2.35 to 1.73 ms).
 
 (radial-chunk-dispatch)=
 ### Radial analytic chunk dispatch
@@ -324,6 +339,26 @@ dense 81 + 3 products ([algorithms.md](algorithms.md)), on a two-channel step-in
 (288 nodes, 256 samples) at one thread: the respond kernel alone 2.5 times faster on
 `numba_cpu`; a ten-step window 1.45 times faster on `numba_cpu` and 1.35 times on Kokkos
 CPU. The gain shrinks as channels are added.
+
+### Adams carrier frame per step
+
+The scalar carrier frame ([SEP 35](seps/archive/sep-0035-carrier-frame-exponential-adams.md))
+adds, per trial, a shifted argument and one complex product per element in the moments
+pass and one complex product per history row read. Ten replayed steps of a 2 mm,
+40 bar hydrogen capillary (16 µm, 515 nm, 2 ps window, 4097 bins, one mode, a weak
+collar), the stepping alone timed, one thread, median ratio of nine same-process
+interleaved pairs on an Apple M5 Max, a machine in ordinary use (labelled A/B, not an
+absolute timing):
+
+| source | `numba_cpu` off → scalar | ratio | native CPU off → scalar | ratio |
+|---|---|---|---|---|
+| Kerr only | 11.9 → 12.4 ms | 1.042 [1.019, 1.096] | 9.2 → 9.7 ms | 1.057 [1.036, 1.066] |
+| Kerr and Raman | 121.5 → 121.9 ms | 1.007 [0.995, 1.017] | 95.4 → 95.8 ms | 1.006 [0.997, 1.009] |
+
+Forming `exp(x - sigma)` as `exp(x) exp(-sigma)` instead of a second exponential took
+native's Kerr-only ratio from 1.076 to 1.057. The per-step cost is a few per cent where
+the source is cheap and negligible where it is not; the policy's case rests on the calls
+it saves, which SEP 35's phase 4 measures at matched error.
 
 (resident-adams-memory)=
 ### Resident Adams storage

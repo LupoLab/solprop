@@ -52,7 +52,7 @@ def _case(
         adiabatic_accuracy=accuracy,
     )
     return Simulation.from_radial(
-        grid, RadialGrid(6e-4, 16), medium, [], pulse, settings=settings
+        grid, RadialGrid(6e-4, 16), medium, [], pulse, settings=settings, noise=None
     )
 
 

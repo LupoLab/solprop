@@ -51,8 +51,8 @@ __all__ = [
     "per_width",
     "power_unit",
     "spectral_display",
-    "spectral_limits",
     "subplot_grid",
+    "wavelength_to_axis",
 ]
 
 Z_TO_CM = 1e2
@@ -309,36 +309,87 @@ def spectral_display(axis: SpectralAxis) -> tuple[float, str]:
     return 1e-15, "Angular frequency (rad/fs)"
 
 
-def spectral_limits(
+def wavelength_to_axis(
     axis: SpectralAxis, wavelength_range: tuple[float, float]
 ) -> tuple[float, float]:
-    """Return the limits of a spectral axis, in display units, from a wavelength range.
+    """Return a wavelength range on a spectral abscissa, in SI units.
+
+    For a plot asked for on a frequency axis by someone who thinks in wavelength: the
+    result is what the plots' ``spec_range`` takes.
 
     Parameters
     ----------
     axis : {'wavelength', 'f', 'omega'}
         The abscissa.
     wavelength_range : tuple of float
-        The range to show, m, in either order.
+        The range, m, in either order.
 
     Returns
     -------
     tuple of float
-        The lower and upper limits in the units of :func:`spectral_display`.
+        The lower and upper limits in m, Hz or rad/s.
 
     Examples
     --------
-    >>> from solprop.plotting.style import spectral_limits
-    >>> spectral_limits("wavelength", (400e-9, 2e-6))
-    (400.0, 2000.0)
+    >>> from solprop.plotting.style import wavelength_to_axis
+    >>> low, high = wavelength_to_axis("f", (400e-9, 2e-6))
+    >>> f"{low:.4g} Hz, {high:.4g} Hz"
+    '1.499e+14 Hz, 7.495e+14 Hz'
     """
-    factor, _ = spectral_display(axis)
+    _check_choice(axis, SPECTRAL_AXES, "axis")
     low, high = min(wavelength_range), max(wavelength_range)
     if axis == "wavelength":
-        return factor * low, factor * high
+        return low, high
     turn = 2.0 * np.pi * C if axis == "omega" else C
     # Wavelength and frequency run in opposite directions, so the limits swap.
-    return factor * turn / high, factor * turn / low
+    return float(turn / high), float(turn / low)
+
+
+def _spec_range(
+    axis: SpectralAxis,
+    spec_range: tuple[float, float] | None,
+    default: tuple[float, float],
+) -> tuple[float, float]:
+    """Return the spectral range of a plot, in SI units of its abscissa, ascending.
+
+    Parameters
+    ----------
+    axis : {'wavelength', 'f', 'omega'}
+        The abscissa.
+    spec_range : tuple of float or None
+        The range asked for, in m, Hz or rad/s as ``axis`` says, in either order.
+    default : tuple of float
+        The wavelength range, m, to show when none was asked for.
+
+    Returns
+    -------
+    tuple of float
+        The lower and upper limits in the units of ``axis``.
+    """
+    if spec_range is None:
+        return wavelength_to_axis(axis, default)
+    return float(min(spec_range)), float(max(spec_range))
+
+
+def _display_limits(
+    axis: SpectralAxis, spec_range: tuple[float, float]
+) -> tuple[float, float]:
+    """Return SI limits on a spectral abscissa in the display units of the figure.
+
+    Parameters
+    ----------
+    axis : {'wavelength', 'f', 'omega'}
+        The abscissa.
+    spec_range : tuple of float
+        The ascending limits, in m, Hz or rad/s.
+
+    Returns
+    -------
+    tuple of float
+        The limits in the units of :func:`spectral_display`.
+    """
+    factor, _ = spectral_display(axis)
+    return float(factor * spec_range[0]), float(factor * spec_range[1])
 
 
 def corner_text(

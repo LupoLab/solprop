@@ -135,6 +135,7 @@ def fwm_run(policy, pressure, n_save):
             n_save=n_save,
             materials=MaterialSelection(electronic=policy),
             progress="none",
+            seed=20261027,
         )
 
 

@@ -379,6 +379,7 @@ def problem():
         peak_power=9.8,
         pulseshape="sech",
         n_save=5,
+        noise=None,
     )
     return simulation.translate()
 
@@ -469,6 +470,7 @@ def test_a_run_in_memory_records_its_output_in_the_admission(tmp_path):
         pulseshape="sech",
         n_save=3,
         backend="numpy_ref",
+        noise=None,
     )
     handler = simulation.run(MemoryOutput(), progress="none", memory_budget="none")
     assert handler.metadata is not None

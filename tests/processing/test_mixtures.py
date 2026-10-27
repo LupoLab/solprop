@@ -90,6 +90,7 @@ def case(request):
                 (),
                 SpatialPulse(pulse, 80e-6),
                 settings=settings,
+                noise=None,
             )
         else:
             simulation = Simulation.from_free(
@@ -99,6 +100,7 @@ def case(request):
                 (),
                 SpatialPulse(pulse, 80e-6),
                 settings=settings,
+                noise=None,
             )
     translated = simulation.translate()
     return simulation, translated
@@ -196,7 +198,7 @@ def test_saved_record_contains_ordered_species_and_complete_optics(case, outputs
     simulation, _ = case
     memory, reloaded = outputs
     for output in (memory, reloaded):
-        assert output.metadata.schema_version == 26
+        assert output.metadata.schema_version == 27
         material = output.metadata.configuration["medium"]
         assert material["labels"] == ["population-0", "population-1"]
         assert (
@@ -333,6 +335,7 @@ def test_coarse_radial_fluence_matches_direct_bessel_synthesis():
             dz_init=1e-5,
             dz_max=1e-4,
         ),
+        noise=None,
     )
     output = MemoryOutput()
     output.open(simulation.metadata())
@@ -434,6 +437,7 @@ def test_tapered_multimode_fluence_matches_hand_node_sum(envelope):
         # No coupled flow is built on an envelope grid, so the envelope case takes
         # the adiabatic route by name.
         taper_coupling=not envelope,
+        noise=None,
     )
     # A two-channel taper, which carries the taper coupling on the field grid; the
     # fluence reduction under test reads the transform, not the flow.
@@ -490,6 +494,7 @@ def test_the_recorded_power_weight_is_factored_and_survives_the_file(tmp_path):
             plasma=False,
             n_r=8,
             n_save=n_save,
+            noise=None,
         )
     problem = simulation.translate()
     record = simulation.metadata().configuration["mixture_processing"]

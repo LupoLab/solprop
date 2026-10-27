@@ -832,6 +832,7 @@ def test_the_beam_fibre_reference_takes_the_overlap_couple_computes():
         lambda0=BEAM_WAVELENGTH,
         wavelength_limits=(900e-9, 1300e-9),
         trange=400e-15,
+        noise=None,
     )
     port = simulation.input_port()
     grid = port.grid
@@ -1177,6 +1178,7 @@ def facet_port(contrast, v_centre):
         dz_max=5e-5,
         dz_init=5e-5,
         n_save=2,
+        noise=None,
     )
     return simulation.input_port(), radius, (core, core, cladding)
 

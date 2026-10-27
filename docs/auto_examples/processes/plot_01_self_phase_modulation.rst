@@ -67,12 +67,12 @@ For the response and phase conventions see :doc:`/guide/media/nonlinear`.
 The :doc:`offline-compression guide </guide/workflows/compression>` explains
 what phase-only optimisation can recover from the broadened spectrum.
 
-.. GENERATED FROM PYTHON SOURCE LINES 53-55
+.. GENERATED FROM PYTHON SOURCE LINES 57-59
 
 The run
 -------
 
-.. GENERATED FROM PYTHON SOURCE LINES 55-80
+.. GENERATED FROM PYTHON SOURCE LINES 59-85
 
 .. code-block:: Python
 
@@ -99,6 +99,7 @@ The run
         wavelength_limits=(200e-9, 4e-6),
         n_save=301,
         progress="none",
+        seed=20261027,
     )
 
 
@@ -108,12 +109,12 @@ The run
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 81-83
+.. GENERATED FROM PYTHON SOURCE LINES 86-88
 
 Spectral and temporal evolution
 -------------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 83-94
+.. GENERATED FROM PYTHON SOURCE LINES 88-99
 
 .. code-block:: Python
 
@@ -121,7 +122,7 @@ Spectral and temporal evolution
     figures = prop_2d(
         run,
         "wavelength",
-        wavelength_range=(200e-9, 3e-6),
+        spec_range=(200e-9, 3e-6),
         trange=(-150e-15, 250e-15),
         db_min=-40,
     )
@@ -140,7 +141,7 @@ Spectral and temporal evolution
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 95-101
+.. GENERATED FROM PYTHON SOURCE LINES 100-106
 
 The output, and what a compressor makes of it
 ---------------------------------------------
@@ -149,7 +150,7 @@ pulse after the best Taylor-phase compression (group-delay dispersion and
 third-order dispersion) of the output spectrum. On the right, the input and output
 spectra.
 
-.. GENERATED FROM PYTHON SOURCE LINES 101-121
+.. GENERATED FROM PYTHON SOURCE LINES 106-126
 
 .. code-block:: Python
 
@@ -162,7 +163,7 @@ spectra.
         run, trange=(-150e-15, 250e-15), ax=left, transfer=compressed.transfer, widths=False
     )
     left.legend(["output", "transform limit", "Taylor-compressed"], frameon=False)
-    spec_1d(run, z=[0.0, 0.75], ax=right, wavelength_range=(300e-9, 2e-6))
+    spec_1d(run, z=[0.0, 0.75], ax=right, spec_range=(300e-9, 2e-6))
     fig.tight_layout()
 
     before, after = compressed.fwhm_before * 1e15, compressed.fwhm_after * 1e15
@@ -192,17 +193,17 @@ spectra.
       duration:   132.4 fs before, 1.951 fs after, 1.554 fs at the transform limit
       peak power: 1.547 GW before, 85.52 GW after, 127.4 GW at the limit
       quality:    0.6715 of the transform-limited peak power
-      search:     converged: Optimization terminated successfully. (2645 evaluations)
+      search:     converged: Optimization terminated successfully. (2705 evaluations)
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 122-124
+.. GENERATED FROM PYTHON SOURCE LINES 127-129
 
 Runtime and reproducibility
 ----------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 124-126
+.. GENERATED FROM PYTHON SOURCE LINES 129-131
 
 .. code-block:: Python
 
@@ -216,7 +217,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    5 s; backend native
+    21 s; backend native
 
 
 
@@ -224,7 +225,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 4.505 seconds)
+   **Total running time of the script:** (0 minutes 20.533 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_01_self_phase_modulation.py:

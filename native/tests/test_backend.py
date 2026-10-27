@@ -216,7 +216,7 @@ def test_the_solprop_version_is_recorded_and_never_compared(
 
 
 @pytest.mark.parametrize(
-    "declared", [2, 18, 19, 20, 21, 22, 23, 24, 26, 27, 28, 29, 30, 31, 32, 34, 35]
+    "declared", [2, 18, 19, 20, 21, 22, 23, 24, 26, 27, 28, 29, 30, 31, 32, 34, 35, 36]
 )
 def test_schema_mismatch_names_both_versions(
     phase_a_case: PhaseACase, declared: int
@@ -679,7 +679,7 @@ def test_metadata_and_memory_ledger_are_self_consistent(
     n = problem.shape[-1]
     stages = problem.stepper.tableau.n_stages
     assert metadata["backend"] == "native"
-    assert metadata["schema_version"] == 37
+    assert metadata["schema_version"] == 38
     assert cast(float, metadata["planning_seconds"]) >= 0.0
     # A one-mode envelope at one node. A host build folds its one-element transforms
     # into the response column (solprop SEP 25), whatever the GEMM policy. A device
@@ -1028,6 +1028,7 @@ def test_the_plasma_stash_is_off_under_the_split_step_absorber() -> None:
                 names=("peak_ionisation_rate",), periodic=("peak_ionisation_rate",)
             ),
             backend="numpy_ref",
+            noise=None,
         )
         simulation.settings = dataclasses.replace(
             simulation.settings, absorber_scheme=scheme

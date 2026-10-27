@@ -57,7 +57,9 @@ def settings(**changes):
 
 
 def declared(modes, **changes):
-    return Simulation.from_waveguide(modes, 0.001, "Ar", 5.0, **settings(**changes))
+    return Simulation.from_waveguide(
+        modes, 0.001, "Ar", 5.0, **{"noise": None, **settings(**changes)}
+    )
 
 
 @pytest.mark.medium
@@ -82,7 +84,12 @@ def test_waveguide_rectangular_backends_records_and_mixture_update():
         # No range warning: optmat's models are qualified here (SEP 3, Phase 4a).
         with nullcontext():
             output = prop_waveguide(
-                [mode], 0.001, "Ar", 5.0, **settings(backend=backend), progress="none"
+                [mode],
+                0.001,
+                "Ar",
+                5.0,
+                **{"noise": None, **settings(backend=backend)},
+                progress="none",
             )
         outputs.append(output["field"])
         assert output.metadata is not None
@@ -160,9 +167,11 @@ def test_waveguide_capillary_construction_and_run_agree():
         integrator=FIXED_ORDER,
     )
     capillary = Simulation.from_capillary(
-        125e-6, 0.001, "Ar", 5.0, modes=[mode], **options
+        125e-6, 0.001, "Ar", 5.0, modes=[mode], **{"noise": None, **options}
     )
-    waveguide = Simulation.from_waveguide([mode], 0.001, "Ar", 5.0, **options)
+    waveguide = Simulation.from_waveguide(
+        [mode], 0.001, "Ar", 5.0, **{"noise": None, **options}
+    )
     # Ten steps of 0.1 mm are past the in-stage collar's explicit limit; split off,
     # it is integrated exactly.
     for one in (capillary, waveguide):
@@ -186,9 +195,11 @@ def test_waveguide_capillary_construction_and_run_agree():
     # the two entries build by different helpers, and the profile paths.
     default = settings(n_theta=None)
     capillary = Simulation.from_capillary(
-        125e-6, 0.001, "Ar", 5.0, modes=[mode], **default
+        125e-6, 0.001, "Ar", 5.0, modes=[mode], **{"noise": None, **default}
     )
-    waveguide = Simulation.from_waveguide([mode], 0.001, "Ar", 5.0, **default)
+    waveguide = Simulation.from_waveguide(
+        [mode], 0.001, "Ar", 5.0, **{"noise": None, **default}
+    )
     assert capillary.settings.stats is not None
     assert waveguide.settings.stats is not None
     # Field by field, because StatsSpec carries an array and == is ambiguous.
@@ -211,7 +222,9 @@ def test_waveguide_refuses_empty_non_gas_and_nonorthogonal_sets():
         declared([])
     # The capillary entry keeps its own wording and its own exception class.
     with pytest.raises(DriverError, match="a capillary mode set needs at least one"):
-        Simulation.from_capillary(125e-6, 0.001, "Ar", 5.0, modes=[], **settings())
+        Simulation.from_capillary(
+            125e-6, 0.001, "Ar", 5.0, modes=[], **{"noise": None, **settings()}
+        )
     with pytest.raises(DriverError, match=r"prop_gnlse\(fibre="):
         declared([StepIndexMode(1.25e-6, profile_wavelength=835e-9)])
     # The hint is the step-index route only; anything else gets the plain refusal.
@@ -219,7 +232,7 @@ def test_waveguide_refuses_empty_non_gas_and_nonorthogonal_sets():
     supplied = SpecifiedMode.from_index_table(table, aeff=1e-10)
     with pytest.raises(DriverError, match="cannot replace its material") as refusal:
         Simulation.from_capillary(
-            125e-6, 0.001, "Ar", 5.0, modes=[supplied], **settings()
+            125e-6, 0.001, "Ar", 5.0, modes=[supplied], **{"noise": None, **settings()}
         )
     assert "prop_gnlse" not in str(refusal.value)
     mode = RectMode(50e-6, 10e-6)
@@ -247,7 +260,12 @@ def test_capillary_refuses_a_declaration_a_supplied_set_would_ignore():
 
     def build(radius, modes, **changes):
         return Simulation.from_capillary(
-            radius, 0.001, "Ar", 5.0, modes=modes, **settings(n_theta=None, **changes)
+            radius,
+            0.001,
+            "Ar",
+            5.0,
+            modes=modes,
+            **{"noise": None, **settings(n_theta=None, **changes)},
         )
 
     bore = [MarcatiliMode(125e-6, m=index) for index in (1, 2)]
@@ -287,7 +305,11 @@ def test_waveguide_cartesian_defaults_reach_the_aliasing_bound():
         mode = RectMode(50e-6, 10e-6, n=n, m=m, cladding=aluminium())
         assert mode.azimuthal_order == order
         simulation = Simulation.from_waveguide(
-            [mode], 0.001, "Ar", 5.0, **settings(n_r=None, n_theta=None)
+            [mode],
+            0.001,
+            "Ar",
+            5.0,
+            **{"noise": None, **settings(n_r=None, n_theta=None)},
         )
         rule = simulation.settings.quadrature
         assert rule is not None and rule.kind == "cartesian"
@@ -301,7 +323,9 @@ def test_waveguide_mixture_and_geometry_paths_are_rebound():
     path = Linear(50e-6, 45e-6, 0.001)
     mode = RectMode(path, path, cladding=aluminium())
     mixture = Mixture.fill({"He": 0.25, "Ar": 0.75}, 5.0)
-    simulation = Simulation.from_waveguide([mode], 0.001, mixture, **settings())
+    simulation = Simulation.from_waveguide(
+        [mode], 0.001, mixture, **{"noise": None, **settings()}
+    )
     assert "half_width_x" in simulation.profiles
     assert "half_width_y" in simulation.profiles
     assert isinstance(simulation.modes[0], RectMode)
@@ -311,4 +335,6 @@ def test_waveguide_mixture_and_geometry_paths_are_rebound():
         problem = simulation.translate()
     assert problem.transform.n_modes == 1
     with pytest.raises(DriverError, match="requires supplied"):
-        Simulation._from_hollow(None, 0.001, "Ar", 5.0, waveguide=True, **settings())
+        Simulation._from_hollow(
+            None, 0.001, "Ar", 5.0, waveguide=True, **{"noise": None, **settings()}
+        )

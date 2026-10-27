@@ -75,7 +75,7 @@ def column_run(backend, *, collar, schedule, rtol=1e-6):
         transverse_absorber=collar,
     )
     simulation = Simulation.from_free(
-        grid, space, SpatialMedium(), [], pulse, settings=settings
+        grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
     )
     output = simulation.run(progress="none")
     assert isinstance(output, PlaneStore)
@@ -170,6 +170,7 @@ def collared_problem(steps):
             transverse_absorber=TransverseCollar(2e4, fraction=0.3),
             evanescent_rate=5e3,
         ),
+        noise=None,
     )
     return grid, space, simulation.translate(), length
 
@@ -235,6 +236,7 @@ def aliased_run(collar):
             backend="numpy_ref",
             transverse_absorber=collar,
         ),
+        noise=None,
     )
     output = simulation.run(progress="none")
     assert isinstance(output, PlaneStore)

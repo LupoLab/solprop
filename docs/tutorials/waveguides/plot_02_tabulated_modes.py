@@ -183,6 +183,7 @@ simulation = Simulation.from_capillary(
     schedule=FixedSchedule.uniform(0.0, length, length / 64),
     absorber_scheme="split_step",
     stats=StatsSpec(names=("energy",)),
+    noise=None,
 )
 active = simulation.grid.omega[simulation.grid.active_mask]
 assert table.omega[0] < active.min() < active.max() < table.omega[-1]
@@ -228,6 +229,7 @@ solid_output = prop_gnlse(
     shock=False,
     n_save=2,
     progress=NullReporter(),
+    noise=None,
 )
 assert np.all(np.isfinite(solid_output["field"]))
 print(f"Tabulated examples completed in {perf_counter() - started:.2f} s")

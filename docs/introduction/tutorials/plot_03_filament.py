@@ -105,7 +105,7 @@ settings = SimulationSettings(
     ionisation_field_range=(1e8, 1e11),
 )
 simulation = Simulation.from_radial(
-    grid, space, medium, responses, pulse, settings=settings
+    grid, space, medium, responses, pulse, settings=settings, seed=20261027
 )
 run = simulation.run(progress="none")
 

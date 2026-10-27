@@ -82,6 +82,7 @@ def replayed(schedule, mode="auto"):
         [KerrResponse(chi3, thg=False)],
         start,
         settings=settings,
+        noise=None,
     )
     return result.fields("fft")[1]
 

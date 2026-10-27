@@ -252,6 +252,7 @@ def _free(responses, materials=None) -> Any:
         pulse,
         settings=settings,
         materials=materials,
+        noise=None,
     )
 
 
@@ -296,6 +297,7 @@ def _n2o_capillary(selection):
         n_r=8,
         n_save=2,
         materials=selection,
+        noise=None,
     )
 
 

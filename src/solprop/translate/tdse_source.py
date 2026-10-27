@@ -112,7 +112,7 @@ def admit_tdse(  # noqa: PLR0913 - admission checks the declared route together.
     shape: tuple[int, int, int, int],
     quadrature: TransverseQuadrature | None,
     integrator: Multistep | LowStorageRungeKutta | None,
-    has_noise: bool,
+    modified_noise: bool,
     shock: bool,
     prefactor_index: float | None,
     interpolate_planes: bool = False,
@@ -133,8 +133,12 @@ def admit_tdse(  # noqa: PLR0913 - admission checks the declared route together.
         Declared transverse integration rule.
     integrator : Multistep or LowStorageRungeKutta or None
         The run's integrator; TDSE requires an Adams method.
-    has_noise : bool
-        Whether any shot-noise model is present.
+    modified_noise : bool
+        Whether the ``'modified'`` shot-noise model is present. Its draw is kept apart
+        from the field and added at every stage, which the atom's drive does not
+        carry, so it is refused. The ``'input'`` draw is part of the launch: the atom
+        sees it inside the field it is driven by, and it is admitted (SEP 37,
+        section 6).
     shock : bool
         Whether the full frequency-dependent polarisation numerator is retained.
     prefactor_index : float or None
@@ -178,8 +182,11 @@ def admit_tdse(  # noqa: PLR0913 - admission checks the declared route together.
         raise TranslationError(
             "TDSE requires landed save planes; set interpolate_planes=False"
         )
-    if has_noise:
-        raise TranslationError("TDSE requires noise=None")
+    if modified_noise:
+        raise TranslationError(
+            "TDSE refuses the 'modified' noise model, whose draw is kept apart from "
+            "the field the atom is driven by; use noise='input' or noise=None"
+        )
     if not shock or prefactor_index is not None:
         raise TranslationError(
             "TDSE requires physical frequency-dependent normalisation"

@@ -350,9 +350,9 @@ frozen-section flow. The model, its validation and its limits are in
 [moving modal bases](moving-modal.md#a-guide-whose-geometry-moves-along-z).
 It runs on all three backends, `numpy_ref`, `numba_cpu` and `native` (CPU and GPU builds).
 A strong taper couples strongly: the run's advisory step warns when the steps are too
-long, and `sections=` shortens the frozen sections. Beside a moving guide a noise model,
-a lockstep batch, a CF4 flow and a fixed schedule that straddles a kink of the path are
-refused. The
+long, and `sections=` shortens the frozen sections. Beside a moving guide the
+`modified` noise model, a lockstep batch, a CF4 flow and a fixed schedule that straddles
+a kink of the path are refused. The
 [tapered graded-index worked example](../../auto_examples/waveguides/plot_05_moving_solid_guide.rst)
 runs eight tapers from abrupt to adiabatic against a first-order coupled-mode estimate
 and Love's criterion, rebuilds the fields at the entrance and the waist, and puts a
@@ -384,8 +384,8 @@ The ones a user meets first:
   for its harmonic;
 * the per-channel power statistics (`energy`, `peak_power`, ...), replaced by
   `physical_energy` and `analytic_flux` ([reading the output](../results/reading-output.md));
-* on a moving guide, a noise model, a lockstep batch, a CF4 flow or a fixed schedule
-  that straddles a kink (above).
+* on a moving guide, the `modified` noise model, a lockstep batch, a CF4 flow or a fixed
+  schedule that straddles a kink (above).
 
 The incident-beam launch into a fibre and its coupling budget were proposed and carried
 out by [SEP 31](../../dev/seps/archive/sep-0031-simulation-coupling.md).

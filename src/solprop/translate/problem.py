@@ -195,7 +195,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 37
+SCHEMA_VERSION = 38
 """Version of the kernel contract this module implements.
 
 Incremented on every change to the field list of ``docs/dev/kernel-contract.md``. A
@@ -430,7 +430,15 @@ Version 36 (SEP 33) adds ``precision``, the arithmetic the run is held in
 seam; a backend that admits single precision narrows its tables on upload, and every
 other backend refuses a single-precision problem by name.
 
-Version 37 (SEP 36) admits ``precision`` with a binary64 state beside a binary32 source,
+Version 37 (SEP 35) gives ``StepperSettings.integrator`` a ``carrier_frame`` field,
+``"off"`` (the version-36 method bit for bit) or ``"scalar"`` (a ``"harmonic"`` value
+existed during SEP 35's development and was removed by its gate): the carrier phase the
+exponential formulation removes from its history inside each step. A backend that does
+not deliver the shift refuses it by name, and a build against an older version refuses
+the problem rather than step a requested shift unshifted; no ``KernelProblem`` field or
+stage bundle moves.
+
+Version 38 (SEP 36) admits ``precision`` with a binary64 state beside a binary32 source,
 the ``"mixed"`` mode. No field moves; a backend that does not run it refuses it by name.
 """
 
@@ -1374,7 +1382,9 @@ class KernelProblem:
             or self.transform.modal_tables is not None
             or self.transform.n_pol != 1
             or self.flags.mode_averaged
-            or self.flags.has_noise
+            # The input draw is part of the launch and drives the atom with it; the
+            # modified one is kept apart and is not (SEP 37, section 6).
+            or self.initial.noise_model == "modified"
             or self.flags.has_plasma
             or self.flags.has_raman
             or not isinstance(method, Multistep)
@@ -2490,6 +2500,23 @@ index and has no meaning for a basis that carries its own flux metric.
 """
 
 
+_INPUT_NOISE_ADMITTED = (
+    "The 'input' model is admitted: its draw is part of the entrance state, in the "
+    "channel basis, which is orthonormal in true power on every coupled-flow route, "
+    "and the flow propagates it like any field"
+)
+"""The clause every coupled-flow refusal of the modified noise model ends with.
+
+SEP 37 section 6. The input draw is one photon per channel and bin only in a basis
+orthonormal in true power. The capillary's ``HE_1m`` set (and the vector wall's
+``TE_0m``/``TM_0m`` families) are real Bessel profiles, orthogonal on the core and
+each normalised to its own power by
+:meth:`solprop.modes.capillary.MarcatiliMode.normalisation`. A general modal guide's
+basis is gated by :func:`solprop.translate.general.check_noise_basis` before any flow
+is built, at the entrance of a moving guide as everywhere else.
+"""
+
+
 @dataclass(frozen=True)
 class _Assembly:
     """The arguments of :func:`assemble` that choosing a route needs, in one record.
@@ -2522,6 +2549,7 @@ class _Assembly:
     evanescent_rate: float | None = None
     transverse_absorber: TransverseCollar | None = None
     adiabatic_accuracy: AdiabaticAccuracy | None = None
+    noise_model: NoiseModel = "none"
 
 
 def _check_operator_settings(
@@ -2942,16 +2970,16 @@ def _general_flow(
     Raises
     ------
     TranslationError
-        If the run declares a noise model, if the block's exponent over ``dz_max``
-        exceeds :data:`MAX_GENERAL_FLOW_EXPONENT`, or on anything
+        If the run declares the ``'modified'`` noise model, if the block's exponent
+        over ``dz_max`` exceeds :data:`MAX_GENERAL_FLOW_EXPONENT`, or on anything
         ``constant_schur_flow`` refuses.
     """
-    if build.has_noise:
+    if build.noise_model == "modified":
         msg = (
-            "a split block's coupled flow refuses a noise model: a one-photon-per-bin "
-            "draw is transported by the unitary phase of a diagonal flow, "
-            "and the transport of a draw through a nonunitary coupled flow is not "
-            "measured in this package; the backend refuses it too"
+            "a split block's coupled flow refuses the 'modified' noise model: its "
+            "draw is transported by the unitary phase of a diagonal flow, and the "
+            "transport of a draw through a nonunitary coupled flow is not measured "
+            "in this package; the backend refuses it too. " + _INPUT_NOISE_ADMITTED
         )
         raise TranslationError(msg)
     exponent = float(build.dz_max) * float(np.max(abs(coupled)))
@@ -3340,15 +3368,15 @@ def _moving_flow(
     Raises
     ------
     TranslationError
-        If the run declares a noise model, or on anything the flow refuses.
+        If the run declares the ``'modified'`` noise model, or on anything the flow
+        refuses.
     """
-    if build.has_noise:
+    if build.noise_model == "modified":
         msg = (
-            "a moving guide's coupled flow refuses a noise model: a "
-            "one-photon-per-bin draw is transported by the unitary phase of a "
-            "diagonal flow, and its transport through a moving guide's "
-            "coupled flow is not measured in this package; the backend refuses it "
-            "too"
+            "a moving guide's coupled flow refuses the 'modified' noise model: its "
+            "draw is transported by the unitary phase of a diagonal flow, and its "
+            "transport through a moving guide's coupled flow is not measured in "
+            "this package; the backend refuses it too. " + _INPUT_NOISE_ADMITTED
         )
         raise TranslationError(msg)
     assert route.moving_generator is not None
@@ -4008,8 +4036,8 @@ def _check_taper_route(build: _Assembly, grid: TimeGrid) -> None:
     Raises
     ------
     TranslationError
-        For an envelope grid, a second field component or a noise model, naming the
-        opt-out.
+        For an envelope grid, a second field component or the ``'modified'`` noise
+        model, naming the opt-out.
     """
     if grid.kind != "field":
         msg = (
@@ -4028,13 +4056,13 @@ def _check_taper_route(build: _Assembly, grid: TimeGrid) -> None:
             "taper_coupling=False for the adiabatic route"
         )
         raise TranslationError(msg)
-    if build.has_noise:
+    if build.noise_model == "modified":
         msg = (
-            "the taper coupling of a multimode capillary refuses a noise model: a "
-            "one-photon-per-bin draw is transported by the unitary phase of a "
-            "diagonal flow, and its transport through a coupled flow is "
-            "not measured in this package. Pass taper_coupling=False for the "
-            "adiabatic route, whose diagonal flow carries the draw"
+            "the taper coupling of a multimode capillary refuses the 'modified' "
+            "noise model: its draw is transported by the unitary phase of a "
+            "diagonal flow, and its transport through a coupled flow is not "
+            "measured in this package. Pass taper_coupling=False for the adiabatic "
+            "route, whose diagonal flow carries the draw. " + _INPUT_NOISE_ADMITTED
         )
         raise TranslationError(msg)
 
@@ -4775,12 +4803,12 @@ def _check_wall_route(build: _Assembly) -> None:
             "are channels of the mode set, one component each"
         )
         raise TranslationError(msg)
-    if build.has_noise:
+    if build.noise_model == "modified":
         msg = (
-            "a coherent wall block refuses a noise model: a one-photon-per-bin draw "
-            "is transported by the unitary phase of a diagonal flow, and "
-            "the transport of a draw through a nonunitary coupled flow is not "
-            "measured in this package"
+            "a coherent wall block refuses the 'modified' noise model: its draw is "
+            "transported by the unitary phase of a diagonal flow, and the transport "
+            "of a draw through a nonunitary coupled flow is not measured in this "
+            "package. " + _INPUT_NOISE_ADMITTED
         )
         raise TranslationError(msg)
 
@@ -5151,6 +5179,67 @@ def _walk_tables(problem: KernelProblem) -> list[tuple[str, PiecewiseChebyshev]]
             for j, table in enumerate(term.decay_rates)
         )
     return [(name, table) for name, table in candidates if table is not None]
+
+
+def _even_chunk(count: int, limit: int) -> int:
+    """Return the smallest chunk that covers `count` items in as few passes as `limit`.
+
+    Parameters
+    ----------
+    count : int
+        Items to cover (positive).
+    limit : int
+        Largest admitted chunk (positive).
+
+    Returns
+    -------
+    int
+        ``ceil(count / ceil(count / limit))``, at most `limit` and `count`.
+
+    Examples
+    --------
+    >>> _even_chunk(33, 32), _even_chunk(33, 33), _even_chunk(100, 30)
+    (17, 33, 25)
+    """
+    passes = -(-count // limit)
+    return -(-count // passes)
+
+
+def _balanced_chunk(transform: Transform) -> Transform:
+    """Spread the nodes evenly over the passes the admitted chunk already needs.
+
+    The budget admissions each take ``budget // per_node``, which can leave a
+    last pass of a node or two: 33 RDW nodes under a limit of 32 ran a whole
+    32-node pass and then a one-node tail on one thread, about 1.6 times the cost
+    of one 33-node pass. The same number of passes of near-equal size (17 and 16)
+    never exceeds the admitted chunk, so every budget still holds. A planar chunk
+    of whole transverse rows stays whole rows; one shorter than a row is kept.
+
+    Parameters
+    ----------
+    transform : Transform
+        Transform with its admitted chunk.
+
+    Returns
+    -------
+    Transform
+        The transform, with the smallest chunk that needs no more passes.
+    """
+    row_nodes = (
+        transform.geometry.shape[0]
+        if transform.geometry is not None and transform.geometry.kind == "slab"
+        else 1
+    )
+    rows = transform.n_nodes // row_nodes
+    rows_per_chunk, partial = divmod(transform.node_chunk, row_nodes)
+    if partial or rows_per_chunk >= rows:
+        return transform
+    chunk = _even_chunk(rows, rows_per_chunk) * row_nodes
+    return (
+        transform
+        if chunk == transform.node_chunk
+        else replace(transform, node_chunk=chunk)
+    )
 
 
 def _envelope_chunk(
@@ -6004,7 +6093,7 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         quadrature=quadrature,
         integrator=integrator,
         interpolate_planes=interpolate_planes,
-        has_noise=noise is not None,
+        modified_noise=noise is not None and noise.model == "modified",
         shock=shock,
         prefactor_index=prefactor_index,
     )
@@ -6071,6 +6160,7 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         tol=tol,
         node_budget=node_budget,
         has_noise=noise is not None,
+        noise_model="none" if noise is None else noise.model,
         dz_max=dz_max,
         reuse=reuse,
         kinks=response_kinks(
@@ -6163,7 +6253,9 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         grid.n_to,
         node_budget,
     )
-    transform = _held_current_chunk(transform, compiled, n_pol, grid.n_to, node_budget)
+    transform = _balanced_chunk(
+        _held_current_chunk(transform, compiled, n_pol, grid.n_to, node_budget)
+    )
     initial = _power_initial(
         Initial(
             field0=state,

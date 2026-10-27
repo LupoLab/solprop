@@ -471,6 +471,7 @@ def test_a_coherent_wall_flow_beside_the_response_matches_the_reference(policy):
                     plasma=False,
                     raman=False,
                     materials=MaterialSelection(electronic=electronic),
+                    noise=None,
                 ),
             )
         fields[name] = output.planes()[-1].field

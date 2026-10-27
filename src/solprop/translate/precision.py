@@ -11,7 +11,7 @@ A run is ``"double"`` (binary64, the default and the only arithmetic of ``numba_
   transform and the responses in IEEE binary32, with the controller, every host scalar
   and the linear propagator's exponent in binary64
   (``docs/dev/seps/archive/sep-0033-single-precision-mlx.md`` section 4.2);
-* ``"mixed"`` (SEP 36, ADR-055) holds everything that touches the propagated state in
+* ``"mixed"`` (SEP 36, ADR-057) holds everything that touches the propagated state in
   binary64 -- the state, every row stored in the interaction variable, the
   propagators, the once-per-step boundary treatments and the norms -- and evaluates
   the source in binary32: the transforms, the responses with their running integrals,

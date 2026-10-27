@@ -26,6 +26,7 @@ EXCLUDED = {
         # Constants and the styling helpers the plots are built from: for someone
         # writing a plot, who imports them from their home.
         "CORNERS",
+        "DEFAULT_SLICE_WAVELENGTH_RANGE",
         "DEFAULT_TRANGE",
         "DEFAULT_WAVELENGTH_RANGE",
         "OTHER_STATISTICS",
@@ -42,8 +43,8 @@ EXCLUDED = {
         "per_width",
         "power_unit",
         "spectral_display",
-        "spectral_limits",
         "subplot_grid",
+        "wavelength_to_axis",
     },
     "processing": {
         # Constants, type aliases and the axis bookkeeping behind the accessors.
@@ -52,11 +53,13 @@ EXCLUDED = {
         "DEFAULT_BANDPASS_BINS",
         "DEFAULT_BANDPASS_FRACTION",
         "FIELD_KINDS",
+        "NOISE_FLOORS",
         "SPECTRAL_AXES",
         "ArrivalMethod",
         "Band",
         "FieldKind",
         "ModeSelection",
+        "NoiseFloor",
         "SpectralAxis",
         "band_mask",
         "grid_from_record",

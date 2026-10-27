@@ -61,6 +61,19 @@ def test_prop_2d_labels_each_spectral_axis(single, axis, label):
     assert figures[0].axes[0].get_xlabel() == label
 
 
+def test_prop_2d_takes_a_frequency_range_in_hertz(single):
+    figures = propagation.prop_2d(single, "f", spec_range=(0.0, 2e15))
+    assert figures[0].axes[0].get_xlim() == pytest.approx((0.0, 2.0))
+
+
+def test_prop_2d_shows_the_default_wavelength_range_on_any_axis(single):
+    figures = propagation.prop_2d(single, "f")
+    expected = style.wavelength_to_axis("f", propagation.DEFAULT_WAVELENGTH_RANGE)
+    assert figures[0].axes[0].get_xlim() == pytest.approx(
+        (expected[0] * 1e-15, expected[1] * 1e-15)
+    )
+
+
 def test_prop_2d_puts_the_peak_at_zero_decibels(single):
     figures = propagation.prop_2d(single)
     mesh = figures[0].axes[0].collections[0]
@@ -166,6 +179,11 @@ def test_spec_1d_draws_each_spectral_axis(single, axis):
     figure = propagation.spec_1d(single, 0.0, axis)
     low, high = figure.axes[0].get_xlim()
     assert low < high
+
+
+def test_spec_1d_takes_an_angular_frequency_range_in_rad_per_second(single):
+    figure = propagation.spec_1d(single, 0.0, "omega", spec_range=(1e15, 4e15))
+    assert figure.axes[0].get_xlim() == pytest.approx((1.0, 4.0))
 
 
 def test_spec_1d_accepts_a_resolution_and_an_axis(single):

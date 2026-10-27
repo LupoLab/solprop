@@ -428,7 +428,7 @@ run's ``physical_energy`` reads at the entrance.
       contrast:       9.500e-03 (model) weak-guidance screen Delta over the guide's regions
       closure:        4.617e-03 (map) H_t = Y0 z x E_t against provider H, field error 2....
       angular:        0.000e+00 (map) retained target subspace: cone-rule allocation (1 -...
-      envelope:       n/a (model) no recorded pair envelope: omitted facet reflection is ...
+      envelope:       n/a (model) no recorded pair envelope for this provider (only a ste...
       passivity:      1.107e-03 (field) apparent gain within the model's defects, reporte...
       exterior:       zero
     incident 159.67 nJ, launched 159.67 nJ (0.99998 of the incident energy), captured not defined (vector_paraxial recovers coordinates with the flux pairing F; F and the incident measure M0 are not one positive metric, so no orthogonal remainder is a physical loss (section 4.3))
@@ -517,7 +517,7 @@ normal dispersion broadens it.
     figures = prop_2d(
         run,
         "wavelength",
-        wavelength_range=(500e-9, 1.8e-6),
+        spec_range=(500e-9, 1.8e-6),
         trange=(-1e-12, 1e-12),
         db_min=-80,
         modes="sum",
@@ -665,7 +665,7 @@ the slow drift is what the nonlinearity moves over centimetres.
 
  .. code-block:: none
 
-    physical energy: 159.67 nJ in, 159.68 nJ out
+    physical energy: 159.67 nJ in, 159.67 nJ out
     entrance: LP0,1 9.33e-01, LP0,2 6.25e-02, LP0,3 4.13e-03, LP0,4 2.75e-04
     exit    : LP0,1 9.28e-01, LP0,2 6.95e-02, LP0,3 2.46e-03, LP0,4 1.10e-04
 
@@ -735,7 +735,7 @@ A ten-centimetre and a 4.5 mm run of four channels on the general modal route.
 
  .. code-block:: none
 
-    623 s; backend native, 18 threads
+    1687 s; backend native, 32 threads
 
 
 
@@ -752,7 +752,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (10 minutes 22.839 seconds)
+   **Total running time of the script:** (28 minutes 7.020 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_04_graded_index_multimode.py:

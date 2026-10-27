@@ -201,6 +201,7 @@ def simulation_for(spatial_grid, **changes):
         [KerrResponse(chi3_from_n2(N2, INDEX), thg=False)],
         launch(spatial_grid),
         settings=settings_for(**changes),
+        noise=None,
     )
 
 

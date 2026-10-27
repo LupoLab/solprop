@@ -1185,13 +1185,15 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         operator and the prefactor are exactly zero outside it, so out-of-band content
         would neither propagate nor decay and would sit in the error norm for the whole
         run. The traditional ``input`` noise model adds its realisation to the
-        state here and never again; the ``modified`` model keeps it apart and adds it at
-        every stage, so the propagating field never carries it.
+        state at the run's launch position and never again; the ``modified`` model keeps
+        it apart and adds it at every stage, so the propagating field never carries it.
 
-        A positive `z` is a **resume**: the state came back from a save plane the run
-        already reached, so it already carries whatever the ``input`` model added at the
-        entrance and must not be given a second realisation, and a replayed schedule
-        continues from the edge that plane sits on. The controller starts afresh from
+        A `z` past the launch is a **resume**: the state came back from a save plane the
+        run already reached, so it already carries whatever the ``input`` model added at
+        the launch and must not be given a second realisation, and a replayed schedule
+        continues from the edge that plane sits on. The launch is the entrance unless
+        the run starts inside the guide (SEP 37: an interior launch with ``input`` noise
+        takes its draw there). The controller starts afresh from
         ``dz_init`` either way (``docs/dev/stepper.md`` section 3).
 
         Everything else a march reads is restored too, so that a backend loaded again
@@ -1237,7 +1239,11 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         position = self._checked_position(float(z))
         drawn = self._noise_field(noise)
         model = self._problem.initial.noise_model
-        if model == "input" and drawn is not None and position == 0.0:
+        if (
+            model == "input"
+            and drawn is not None
+            and position == self._problem.initial.z
+        ):
             values = values + drawn
         self._state = self._apply_mask(values)
         self._noise = drawn if model == "modified" else None

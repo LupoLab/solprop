@@ -78,7 +78,7 @@ The taper is a :class:`~solprop.profiles.PiecewiseLinear` profile of the core
 radius. Its corners are where the linear operator's intervals begin and end, and
 the adaptive stepper lands on each of them.
 
-.. GENERATED FROM PYTHON SOURCE LINES 65-152
+.. GENERATED FROM PYTHON SOURCE LINES 65-156
 
 .. code-block:: Python
 
@@ -160,6 +160,10 @@ the adaptive stepper lands on each of them.
                 lambda0=PUMP["lambda0"],
                 fwhm=PUMP["fwhm"],
                 energy=energy,
+                # The nanojoule runs compare linear transport, where a one-photon seed would
+                # be a visible share of the field; the pump runs carry the default noise.
+                noise=None if energy < 1e-6 else "input",
+                seed=None if energy < 1e-6 else 20261027,
             )
 
 
@@ -176,7 +180,7 @@ the adaptive stepper lands on each of them.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 153-161
+.. GENERATED FROM PYTHON SOURCE LINES 157-165
 
 The linear conversion
 ---------------------
@@ -187,7 +191,7 @@ table, which every CPU backend runs (the native backend evaluates it in its own
 kernels at each step's positions), so the default backend runs it too. The coupled
 runs, with or without the wall, carry the taper in the coupled flow instead.
 
-.. GENERATED FROM PYTHON SOURCE LINES 161-217
+.. GENERATED FROM PYTHON SOURCE LINES 165-221
 
 .. code-block:: Python
 
@@ -273,13 +277,13 @@ runs, with or without the wall, carry the taper in the coupled flow instead.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 218-221
+.. GENERATED FROM PYTHON SOURCE LINES 222-225
 
 The nonlinear runs
 ------------------
 The same fibre at 150 uJ, with and without the wall, and the straight bore.
 
-.. GENERATED FROM PYTHON SOURCE LINES 221-229
+.. GENERATED FROM PYTHON SOURCE LINES 225-233
 
 .. code-block:: Python
 
@@ -298,14 +302,14 @@ The same fibre at 150 uJ, with and without the wall, and the straight bore.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 230-234
+.. GENERATED FROM PYTHON SOURCE LINES 234-238
 
 What the record says about the flow: how many frozen sections the run was cut
 into, the Chebyshev degree along z the wall's generator was resolved at, whether
 the connection was carried (it is, because the radius varies), the advisory step,
 and the worst of the three validity ratios over the whole run.
 
-.. GENERATED FROM PYTHON SOURCE LINES 234-240
+.. GENERATED FROM PYTHON SOURCE LINES 238-244
 
 .. code-block:: Python
 
@@ -333,13 +337,13 @@ and the worst of the three validity ratios over the whole run.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 241-244
+.. GENERATED FROM PYTHON SOURCE LINES 245-248
 
 The walled taper's propagation map, summed over the modes. The spectrum broadens
 slowly along the straight section and explodes at the end of the taper, where the
 pulse compresses and the dispersive wave appears near 130 nm.
 
-.. GENERATED FROM PYTHON SOURCE LINES 244-256
+.. GENERATED FROM PYTHON SOURCE LINES 248-260
 
 .. code-block:: Python
 
@@ -347,7 +351,7 @@ pulse compresses and the dispersive wave appears near 130 nm.
     figures = prop_2d(
         walled,
         "wavelength",
-        wavelength_range=(90e-9, 1.4e-6),
+        spec_range=(90e-9, 1.4e-6),
         trange=(-30e-15, 30e-15),
         db_min=-40,
         modes="sum",
@@ -367,14 +371,14 @@ pulse compresses and the dispersive wave appears near 130 nm.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 257-261
+.. GENERATED FROM PYTHON SOURCE LINES 261-265
 
 Compression along the fibre
 ---------------------------
 The peak of the total power: the taper compresses the pulse earlier than the
 straight bore does, because it squeezes the same energy into a smaller area.
 
-.. GENERATED FROM PYTHON SOURCE LINES 261-281
+.. GENERATED FROM PYTHON SOURCE LINES 265-285
 
 .. code-block:: Python
 
@@ -418,7 +422,7 @@ straight bore does, because it squeezes the same energy into a smaller area.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 282-290
+.. GENERATED FROM PYTHON SOURCE LINES 286-294
 
 Mode conversion at full energy
 ------------------------------
@@ -429,7 +433,7 @@ moves more; against that, the taper's own conversion -- the linear figure above 
 is visible only in ``HE_14``, which the wall and the connection hold an order of
 magnitude above the adiabatic run before the taper and through it.
 
-.. GENERATED FROM PYTHON SOURCE LINES 290-313
+.. GENERATED FROM PYTHON SOURCE LINES 294-317
 
 .. code-block:: Python
 
@@ -468,13 +472,13 @@ magnitude above the adiabatic run before the taper and through it.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 314-317
+.. GENERATED FROM PYTHON SOURCE LINES 318-321
 
 The same numbers at two places: just after the transition (z = 0.71 m), before
 the pulse has compressed, where the difference is the connection alone, and at
 the exit.
 
-.. GENERATED FROM PYTHON SOURCE LINES 317-328
+.. GENERATED FROM PYTHON SOURCE LINES 321-332
 
 .. code-block:: Python
 
@@ -505,7 +509,7 @@ the exit.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 329-334
+.. GENERATED FROM PYTHON SOURCE LINES 333-338
 
 The dispersive wave
 -------------------
@@ -513,7 +517,7 @@ The exit spectra, summed over the modes. The narrower core pushes the dispersive
 wave further into the ultraviolet than the straight bore does, and the energy in
 the ultraviolet band is printed below.
 
-.. GENERATED FROM PYTHON SOURCE LINES 334-356
+.. GENERATED FROM PYTHON SOURCE LINES 338-360
 
 .. code-block:: Python
 
@@ -559,13 +563,13 @@ the ultraviolet band is printed below.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 357-360
+.. GENERATED FROM PYTHON SOURCE LINES 361-364
 
 Runtime and reproducibility
 ---------------------------
 Six complete one-metre runs of four coupled modes: three linear, three nonlinear.
 
-.. GENERATED FROM PYTHON SOURCE LINES 360-367
+.. GENERATED FROM PYTHON SOURCE LINES 364-371
 
 .. code-block:: Python
 
@@ -584,12 +588,12 @@ Six complete one-metre runs of four coupled modes: three linear, three nonlinear
 
  .. code-block:: none
 
-    55 s; backend native, 18 threads
+    154 s; backend native, 32 threads
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 368-375
+.. GENERATED FROM PYTHON SOURCE LINES 372-379
 
 Related reading
 ---------------
@@ -602,7 +606,7 @@ For a paced introduction to propagation, start with the
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 55.152 seconds)
+   **Total running time of the script:** (2 minutes 34.028 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_02_tapered_capillary.py:

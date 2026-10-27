@@ -112,6 +112,7 @@ def run(**choices):
             n_save=2,
             backend="numpy_ref",
             progress=None,
+            seed=20261027,
             **choices,
         )
 

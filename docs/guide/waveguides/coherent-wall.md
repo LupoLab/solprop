@@ -71,10 +71,14 @@ it.
 The condensation is onto the *complete* set of $J_0$ radial orders, so the block needs the
 contiguous set $\mathrm{HE}_{11}$ to $\mathrm{HE}_{1N}$ — `modes=N` on the capillary route
 builds exactly that — sharing one polarisation angle, one capillary model and one
-declared guide. A sparse set, a mixed family, two polarisations, a
-noise model and a fused batch are refused by name, each at the layer that owns the
-refusal. All three backends execute the block — `numpy_ref`, `numba_cpu` and `native`, on
-the CPU and on the qualified GPU builds ([the native backend](../performance/native.md)) —
+declared guide. A sparse set, a mixed family, two polarisations, the
+`modified` noise model and a fused batch are refused by name, each at the layer that
+owns the refusal. The `input` noise model is admitted
+([SEP 37](../../dev/seps/archive/sep-0037-noise-and-stepper-defaults.md), section 6): its
+draw is part of the launch, one photon per channel and bin in the $\mathrm{HE}_{1m}$
+set, which is orthonormal in true power (real Bessel profiles, orthogonal on the core,
+each normalised to its own power), and the block propagates it like any field. All
+three backends execute the block — `numpy_ref`, `numba_cpu` and `native`, on the CPU and on the qualified GPU builds ([the native backend](../performance/native.md)) —
 except that `method="cf4"` runs on `numpy_ref` alone. The **vector** boundary response
 [chapter](vector-wall.md) covers the additional families and is declared instead of it rather than
 beside it.

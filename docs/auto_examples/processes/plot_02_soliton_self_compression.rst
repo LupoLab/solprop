@@ -68,7 +68,7 @@ guide.
 The run
 -------
 
-.. GENERATED FROM PYTHON SOURCE LINES 55-80
+.. GENERATED FROM PYTHON SOURCE LINES 55-81
 
 .. code-block:: Python
 
@@ -95,6 +95,7 @@ The run
         wavelength_limits=(130e-9, 4e-6),
         n_save=301,
         progress="none",
+        seed=20261027,
     )
 
 
@@ -104,12 +105,12 @@ The run
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 81-83
+.. GENERATED FROM PYTHON SOURCE LINES 82-84
 
 Spectral and temporal evolution
 -------------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 83-94
+.. GENERATED FROM PYTHON SOURCE LINES 84-95
 
 .. code-block:: Python
 
@@ -117,7 +118,7 @@ Spectral and temporal evolution
     figures = prop_2d(
         run,
         "wavelength",
-        wavelength_range=(150e-9, 3e-6),
+        spec_range=(150e-9, 3e-6),
         trange=(-30e-15, 30e-15),
         db_min=-40,
     )
@@ -136,13 +137,13 @@ Spectral and temporal evolution
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 95-98
+.. GENERATED FROM PYTHON SOURCE LINES 96-99
 
 Maximum compression
 -------------------
 The plane of highest peak power, and the pulse there against the input.
 
-.. GENERATED FROM PYTHON SOURCE LINES 98-117
+.. GENERATED FROM PYTHON SOURCE LINES 99-118
 
 .. code-block:: Python
 
@@ -158,7 +159,7 @@ The plane of highest peak power, and the pulse there against the input.
 
     fig, (left, right) = plt.subplots(1, 2, figsize=(10.0, 3.6))
     time_1d(run, z=[0.0, float(z[best])], trange=(-30e-15, 30e-15), ax=left)
-    spec_1d(run, z=[0.0, float(z[best]), 3.0], ax=right, wavelength_range=(150e-9, 1.5e-6))
+    spec_1d(run, z=[0.0, float(z[best]), 3.0], ax=right, spec_range=(150e-9, 1.5e-6))
     fig.tight_layout()
 
     uv = bandpass(grid_of(run), (200e-9, 320e-9))
@@ -184,12 +185,12 @@ The plane of highest peak power, and the pulse there against the input.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 118-120
+.. GENERATED FROM PYTHON SOURCE LINES 119-121
 
 Runtime and reproducibility
 ----------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 120-122
+.. GENERATED FROM PYTHON SOURCE LINES 121-123
 
 .. code-block:: Python
 
@@ -203,7 +204,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    10 s; backend native
+    15 s; backend native
 
 
 
@@ -211,7 +212,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 9.533 seconds)
+   **Total running time of the script:** (0 minutes 15.175 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_02_soliton_self_compression.py:

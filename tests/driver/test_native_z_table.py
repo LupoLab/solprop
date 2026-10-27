@@ -123,6 +123,7 @@ def test_a_multimode_taper_without_its_coupling(integrator):
         integrator=integrator,
         absorber_scheme="split_step",
         backend="numpy_ref",
+        noise=None,
     )
     assert simulation.translate().linear.phi_representation == "table"
     assert_native_matches(simulation)
@@ -159,6 +160,7 @@ def test_a_radial_run_through_three_independent_species(integrator):
             integrator=integrator,
             backend="numpy_ref",
         ),
+        noise=None,
     )
     problem = simulation.translate()
     assert problem.linear.phi_representation == "table"
@@ -249,6 +251,7 @@ DENSE = pytest.mark.parametrize(
 def walk_off(backend, integrator, rtol=1e-8, **options):
     """Return the moving-dispersion fibre of a nanojoule, adaptive unless scheduled."""
     grid = EnvelopeGrid.from_limits(FIBRE_LENGTH, 835e-9, (600e-9, 1300e-9), 2e-12)
+    options.setdefault("noise", None)
     return Simulation.from_gnlse(
         0.1,
         FIBRE_LENGTH,

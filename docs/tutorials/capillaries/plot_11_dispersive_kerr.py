@@ -200,6 +200,7 @@ def fwm_run(policy):
             backend="numba_cpu",
             materials=MaterialSelection(electronic=policy),
             progress="none",
+            seed=20261027,
         )
 
 
@@ -299,6 +300,7 @@ def rdw_run(policy):
             backend="numba_cpu",
             materials=MaterialSelection(electronic=policy),
             progress="none",
+            seed=20261027,
         )
 
 

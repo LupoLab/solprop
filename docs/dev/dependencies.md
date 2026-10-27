@@ -78,8 +78,8 @@ solprop-native has no runtime dependency on solprop.
 
 ## Development
 
-The standard benchmark controller uses **psutil ≥ 7.1.0** for process ownership,
-CPU counters, memory admission and sampled RSS. This floor includes the macOS C
+The benchmark controller uses **psutil ≥ 7.1.0** for the CPU allocation, core
+count, memory size and the busy-machine reading. This floor includes the macOS C
 safety fixes and Windows ARM64 wheels recorded in the
 [upstream 7.1.0 changelog](https://github.com/giampaolo/psutil/blob/master/docs/changelog.rst).
 Collection records the installed version. Unsupported or sandbox-denied counters

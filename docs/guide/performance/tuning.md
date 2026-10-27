@@ -87,6 +87,10 @@ Accelerate exposes no thread control at all, and is recorded as `uncontrolled`.
 
 - its CPU affinity mask, the CPUs it may run on (narrowed by `taskset`, `numactl` or a
   batch scheduler's allocation);
+- the physical cores that hold those CPUs, unless `SOLPROP_THREADS` is set: a core's
+  second hardware thread shares its arithmetic units, and on 36 cores of two Intel Xeon
+  Gold 6240 one thread per core ran every benchmark case 6 to 31 % faster than two
+  (read on Linux and Windows; Apple silicon has one thread per core);
 - the tightest Linux control-group CPU quota on its path (containers), rounded **down**:
   a quota limits CPU time, and a team of threads that exceeds it is throttled whole, so
   a quota of 1.5 CPUs runs one thread;
@@ -109,7 +113,7 @@ Each pool can be fixed from the environment:
 
 | variable | pool | default |
 |---|---|---|
-| `SOLPROP_THREADS` | the process's thread budget, which every pool below (and the native backend's) stays within | the affinity mask and quota alone |
+| `SOLPROP_THREADS` | the process's thread budget, which every pool below (and the native backend's) stays within; it may exceed the physical cores, up to the CPUs | the affinity mask, its physical cores and the quota |
 | `SOLPROP_OVERSUBSCRIBE` | `1` lets an explicit count exceed the CPUs and the quota | `0` |
 | `SOLPROP_NUMBA_THREADS` | Numba kernel threads | all available CPUs above the size threshold, else 1 |
 | `SOLPROP_NUMBA_REGIME` | `small` (serial node loop) or `large` (parallel node loop) | chosen from the size threshold |
@@ -147,7 +151,7 @@ copy of GNU OpenMP. If that runtime's idle threads spin, they take the cores the
 kernels need between transforms. On 8 cores of an x86-64 server that made a four-mode capillary step
 five times slower whenever FFTW had more than one thread. `numba_cpu` therefore imports
 pyFFTW with `OMP_WAIT_POLICY=passive` set for that runtime alone, and the environment is
-restored straight away, so other OpenMP runtimes still read yours. This is skipped if
+restored straight away (the native backend's own choice, above, is the one that stays). This is skipped if
 you have set `OMP_WAIT_POLICY` or `GOMP_SPINCOUNT`, because then your choice applies,
 and `active` brings the slowdown back. It is also skipped when your script imported
 `pyfftw` before solprop. The run's metadata records what applied as `fftw_wait_policy`.
@@ -197,7 +201,7 @@ imported:
 | `SOLPROP_NATIVE_FFT_THREADS` | FFTW threads for the modal and spatial transforms | sized per plan, up to the cap |
 | `SOLPROP_NATIVE_RAMAN_FFT_THREADS` | threads for the Raman convolution transforms of complete node chunks | sized per plan, up to the cap |
 | `SOLPROP_NATIVE_RAMAN_TAIL_FFT_THREADS` | threads for the Raman transforms of the last, partial node chunk | sized from active rows, up to the cap |
-| `SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES` | the real-side samples per execution from which a modal or spatial FFT plan is threaded | 32,768 |
+| `SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES` | the real-side samples per execution from which a modal or spatial FFT plan is threaded | 16,384 (32,768 on macOS) |
 | `SOLPROP_NATIVE_BAND_TILES` | the field plasma column's band form: unset for the build's own (tiled on a GPU, a team per node on a CPU), `0` for the team column, a positive `N` for the tiled column with host teams of `N` threads | unset |
 
 The four pool variables are optional positive integers, clamped to the cap; an invalid
@@ -214,20 +218,22 @@ and fused batch updates use their own work sizes. Vendor BLAS pools retain their
 process-start settings. Non-OpenMP host builds preserve their execution-space policy;
 `build_info().cpu_size_policy_enabled` reports whether operation widths are supported.
 
-The thresholds below are shared across CPU hosts; `C` is the clamped capacity of the
+The thresholds below are shared across CPU hosts, except that macOS keeps higher stage
+and FFT starts (8,192 and 32,768), where a short serial loop is still the faster one;
+`C` is the clamped capacity of the
 relevant pool, and sizes count work in the operation itself, not bytes. Between the two
 thresholds an operation uses `min(4, C)` threads; equal thresholds give only serial or
 full-width execution.
 
 | operation | work used for sizing | threading starts | full pool starts |
 |---|---|---:|---:|
-| stage, update and reduction | elements in the field or fused batch | 8,192 | 8,192 |
+| stage, update and reduction | elements in the field or fused batch | 4,096 (8,192 on macOS) | as threading |
 | packing and temporal copies | entries actually copied | 65,536 | 65,536 |
 | nonlinear response | active columns × components × fine samples | 32,768 | 196,608, or 65,536 fine samples per column, or 40 component columns |
 | native/custom GEMM | output rows × inner dimension × samples | 1,048,576 | 1,048,576 |
 | general modal synthesis/projection | active nodes × components × spectral samples × modes | 65,536 | 65,536 |
 | coupled matrix functions | active spectral bins × modes³ | 32,768 | 32,768 |
-| modal/spatial FFT | real-side samples in the actual batch | 32,768 (`SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES`) | 131,072 |
+| modal/spatial FFT | real-side samples in the actual batch | 16,384, 32,768 on macOS (`SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES`) | 131,072 |
 | Raman FFT | real-side samples in the actual batch | 65,536 | 262,144 |
 
 A response column is one active node and one component; its column-length and
@@ -288,13 +294,28 @@ The native CPU backend runs on OpenMP, whose standard variables apply:
   for one run on a multi-socket machine. Kokkos prints a notice when `OMP_PROC_BIND` is
   unset; `OMP_PROC_BIND=false` silences it without pinning. With a build whose FFTW
   uses pthreads rather than OpenMP, prefer `OMP_PROC_BIND=false`.
-- `OMP_WAIT_POLICY` decides what idle threads do between parallel regions. `active`
-  keeps them spinning, which helps the many short kernels of small problems on a
-  dedicated machine; `passive` lets them sleep, which is much better on a shared or busy
-  machine, when a threaded BLAS needs the same cores, or with several processes per
-  node — an idle pool that spins can cost a large factor on a machine that is also doing
-  other work. LLVM's OpenMP runtime (used on macOS) also honours `KMP_BLOCKTIME`, the
-  time a thread spins before sleeping; do not set it for GNU OpenMP.
+- `OMP_WAIT_POLICY` decides what idle threads do between parallel regions: `active`
+  keeps them spinning, `passive` lets them sleep at once. **The native backend chooses
+  for you** when none of `OMP_WAIT_POLICY`, `GOMP_SPINCOUNT` and `KMP_BLOCKTIME` is set.
+  It runs several thread teams in turn (Kokkos', the threaded FFTs', the BLAS's), and
+  when its threads fill the CPUs one team's spinning threads take the cores the next
+  needs: on 16 cores of an AMD EPYC 7763 the runtime's own waiting made the four-mode
+  capillary 25 times slower (334 s against 13.5 s). So the import sets
+  `OMP_WAIT_POLICY=passive`. The setting stays in the environment, so worker processes
+  wait alike, and the run's metadata records what applied as `openmp_wait_policy`.
+  Where hardware threads are spare and nothing else will use them, spinning is faster:
+  on 36 cores of two Intel Xeon Gold 6240 (72 hardware threads), with the whole machine
+  to itself, `OMP_WAIT_POLICY=active` ran the supercontinuum in 49 s against 94 s and
+  the capillary in 9.7 s against 14.7 s. It is not the default because the runtime
+  reads the policy once, at start-up, and work that arrives on the machine later takes
+  those spare threads; set it for a run on a machine it has to itself. LLVM's OpenMP runtime (used on macOS) also
+  honours `KMP_BLOCKTIME`, the time a thread spins before sleeping; do not set it for
+  GNU OpenMP.
+- On a machine your run has to itself, also pinning the threads helps: with idle
+  threads sleeping, `OMP_PROC_BIND=close OMP_PLACES=cores` made the capillary and
+  filament cases 6 to 30 % faster on the EPYC allocation above. Leave it unset where
+  several processes share a machine, since each would pin its threads to the same
+  first cores.
 
 ## BLAS and vendor libraries
 

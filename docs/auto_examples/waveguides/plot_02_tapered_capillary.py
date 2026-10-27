@@ -140,6 +140,10 @@ def propagate(radius, wall, backend="auto", energy=PUMP["energy"], taper_couplin
             lambda0=PUMP["lambda0"],
             fwhm=PUMP["fwhm"],
             energy=energy,
+            # The nanojoule runs compare linear transport, where a one-photon seed would
+            # be a visible share of the field; the pump runs carry the default noise.
+            noise=None if energy < 1e-6 else "input",
+            seed=None if energy < 1e-6 else 20261027,
         )
 
 
@@ -245,7 +249,7 @@ print(f"{'quasi_static':14s} {flow['quasi_static']:.3g}")
 figures = prop_2d(
     walled,
     "wavelength",
-    wavelength_range=(90e-9, 1.4e-6),
+    spec_range=(90e-9, 1.4e-6),
     trange=(-30e-15, 30e-15),
     db_min=-40,
     modes="sum",

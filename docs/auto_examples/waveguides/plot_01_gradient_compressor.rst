@@ -187,7 +187,7 @@ Nothing else is chosen: Kerr, third-harmonic generation and photoionisation
 (optmat's recommended rate for helium) are on by default, and the backend is the
 default ``"auto"``, which is the native build where one is installed.
 
-.. GENERATED FROM PYTHON SOURCE LINES 136-167
+.. GENERATED FROM PYTHON SOURCE LINES 136-168
 
 .. code-block:: Python
 
@@ -214,6 +214,7 @@ default ``"auto"``, which is the native build where one is installed.
                 dz_max=5e-3,
                 n_save=201,
                 progress="none",
+                seed=20261027,
                 **PUMP,
             )
 
@@ -241,7 +242,7 @@ default ``"auto"``, which is the native build where one is installed.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 168-175
+.. GENERATED FROM PYTHON SOURCE LINES 169-176
 
 The gradient run, as a propagation map: the spectrum along the fibre on the left,
 in decibels below its peak and summed over the four modes, and the power in time
@@ -251,7 +252,7 @@ pump's **third harmonic**, which the real-field Kerr term generates; it is
 strongest in the higher modes, where it is closer to phase matching, and it stays
 at the 1e-4 level.
 
-.. GENERATED FROM PYTHON SOURCE LINES 175-187
+.. GENERATED FROM PYTHON SOURCE LINES 176-188
 
 .. code-block:: Python
 
@@ -259,7 +260,7 @@ at the 1e-4 level.
     figures = prop_2d(
         gradient,
         "wavelength",
-        wavelength_range=(90e-9, 1.4e-6),
+        spec_range=(90e-9, 1.4e-6),
         trange=(-30e-15, 30e-15),
         db_min=-40,
         modes="sum",
@@ -279,7 +280,7 @@ at the 1e-4 level.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 188-197
+.. GENERATED FROM PYTHON SOURCE LINES 189-198
 
 Compression along the fibre
 ---------------------------
@@ -291,7 +292,7 @@ the constant fill is still compressing when the fibre ends. The ripple on the
 peak power is the beat between ``HE_11`` and the small part of the pulse in the
 higher modes.
 
-.. GENERATED FROM PYTHON SOURCE LINES 197-223
+.. GENERATED FROM PYTHON SOURCE LINES 198-224
 
 .. code-block:: Python
 
@@ -340,7 +341,7 @@ higher modes.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 224-229
+.. GENERATED FROM PYTHON SOURCE LINES 225-230
 
 The exit pulse
 --------------
@@ -348,7 +349,7 @@ The power in time at the exit of each fibre, beside the input: both deliver a
 single dominant peak about 2 fs wide on a small pedestal, the pedestal being the
 part of the pulse self-phase modulation did not bring into phase.
 
-.. GENERATED FROM PYTHON SOURCE LINES 229-242
+.. GENERATED FROM PYTHON SOURCE LINES 230-243
 
 .. code-block:: Python
 
@@ -377,14 +378,14 @@ part of the pulse self-phase modulation did not bring into phase.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 243-247
+.. GENERATED FROM PYTHON SOURCE LINES 244-248
 
 ``time_1d`` draws the same exit pulse for each mode, with its width marked: the
 compressed pulse is almost entirely in ``HE_11``; the higher modes hold the part
 of it that the Kerr overlap between the modes moved there, three orders of
 magnitude weaker.
 
-.. GENERATED FROM PYTHON SOURCE LINES 247-252
+.. GENERATED FROM PYTHON SOURCE LINES 248-253
 
 .. code-block:: Python
 
@@ -405,7 +406,7 @@ magnitude weaker.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 253-258
+.. GENERATED FROM PYTHON SOURCE LINES 254-259
 
 Where the energy went
 ---------------------
@@ -413,7 +414,7 @@ The energy in each mode at the exit, and in the ultraviolet band. The
 ultraviolet is counted with a band-pass,
 :func:`solprop.processing.spectra.bandpass`, on the run's own grid.
 
-.. GENERATED FROM PYTHON SOURCE LINES 258-267
+.. GENERATED FROM PYTHON SOURCE LINES 259-268
 
 .. code-block:: Python
 
@@ -442,7 +443,7 @@ ultraviolet is counted with a band-pass,
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 268-276
+.. GENERATED FROM PYTHON SOURCE LINES 269-277
 
 Choosing the entrance pressure
 ------------------------------
@@ -453,7 +454,7 @@ axis (a gradient's mean is two thirds of its entrance pressure). Too little gas
 and the pulse has not finished compressing at the exit; too much and it has
 compressed, fissioned and broadened again before it leaves.
 
-.. GENERATED FROM PYTHON SOURCE LINES 276-303
+.. GENERATED FROM PYTHON SOURCE LINES 277-304
 
 .. code-block:: Python
 
@@ -513,13 +514,13 @@ compressed, fissioned and broadened again before it leaves.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 304-307
+.. GENERATED FROM PYTHON SOURCE LINES 305-308
 
 Runtime and reproducibility
 ---------------------------
 Fourteen complete two-metre runs of four coupled modes.
 
-.. GENERATED FROM PYTHON SOURCE LINES 307-314
+.. GENERATED FROM PYTHON SOURCE LINES 308-315
 
 .. code-block:: Python
 
@@ -538,12 +539,12 @@ Fourteen complete two-metre runs of four coupled modes.
 
  .. code-block:: none
 
-    130 s; backend native, 18 threads
+    394 s; backend native, 32 threads
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 315-321
+.. GENERATED FROM PYTHON SOURCE LINES 316-322
 
 Related reading
 ---------------
@@ -555,7 +556,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (2 minutes 10.469 seconds)
+   **Total running time of the script:** (6 minutes 34.463 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_01_gradient_compressor.py:

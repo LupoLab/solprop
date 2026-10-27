@@ -383,6 +383,7 @@ def capillary_simulation(radial_rule, n_r):
             backend="numpy_ref",
             n_r=n_r,
             radial_rule=radial_rule,
+            noise=None,
         )
 
 

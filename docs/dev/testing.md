@@ -63,8 +63,8 @@ instead of a tier marker:
 - `benchmark` is run by **no lane at all**. It is where a study goes whose numbers are
   recorded in its docstring and on which nothing in the default configuration depends —
   the full-size CtC case, the gigabyte Φ table, the polarisation taper's recurrence
-  floor. Each says in its own docstring how to run it by hand; the benchmark suite
-  (`poe bench`) is a separate program and does not reach them.
+  floor. Each says in its own docstring how to run it by hand; the benchmarks
+  (`poe bench`) are a separate program and do not reach them.
 
 ### The lanes
 

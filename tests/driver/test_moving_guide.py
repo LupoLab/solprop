@@ -145,14 +145,17 @@ def build(guide, grid, *, steps=STEPS, length=LENGTH, **overrides):
         grid=grid,
         **(
             {
-                "save_planes": [length],
-                "dz_max": length / steps,
-                "dz_init": length / steps,
-                "schedule": FixedSchedule(np.full(steps, length / steps)),
-                "backend": "numpy_ref",
+                "noise": None,
+                **{
+                    "save_planes": [length],
+                    "dz_max": length / steps,
+                    "dz_init": length / steps,
+                    "schedule": FixedSchedule(np.full(steps, length / steps)),
+                    "backend": "numpy_ref",
+                }
+                | GRIN_PULSE
+                | overrides,
             }
-            | GRIN_PULSE
-            | overrides
         ),
     )
 
@@ -312,10 +315,13 @@ def test_a_lockstep_batch_refuses_a_moving_guide(kinked_problem):
     member.close()
 
 
-def test_a_noise_model_is_refused_beside_a_moving_guide(kinked):
-    """A shot-noise draw's transport through the moving flow is not measured."""
-    with pytest.raises((DriverError, TranslationError), match="noise"):
-        build(kinked, grin_grid(), noise="input", seed=3).translate()
+def test_the_modified_noise_model_is_refused_beside_a_moving_guide(kinked):
+    """A kept-apart draw's transport through the moving flow is not measured.
+
+    The input draw is admitted (``tests/driver/test_coupled_input_noise.py``).
+    """
+    with pytest.raises(TranslationError, match="refuses the 'modified' noise model"):
+        build(kinked, grin_grid(), noise="modified", seed=3).translate()
 
 
 def test_a_fixed_schedule_straddling_the_kink_is_refused(kinked):
@@ -383,7 +389,7 @@ def test_a_moving_guide_s_channels_are_the_guide_s_own_and_a_mode_set_is_refused
             provider=kinked,
             grid=grid,
             save_planes=[LENGTH],
-            **GRIN_PULSE,
+            **{"noise": None, **GRIN_PULSE},
         )
 
 
@@ -645,6 +651,7 @@ def _step_run(guide, steps, index, launch=None):
         dz_init=LENGTH / steps,
         schedule=FixedSchedule(np.full(steps, LENGTH / steps)),
         integrator=RungeKutta(),
+        noise=None,
     )
     simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
     problem = simulation.translate()
@@ -961,7 +968,14 @@ def test_one_step_index_channel_agrees_with_the_specified_mode_path(record_prope
             LENGTH,
             provider=guide_for(profile, kerr=kerr),
             grid=field_grid,
-            **({key: value for key, value in common.items() if key != "progress"}),
+            **(
+                {
+                    "noise": None,
+                    **{
+                        key: value for key, value in common.items() if key != "progress"
+                    },
+                }
+            ),
         )
         simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
         return analytic_field(
@@ -986,7 +1000,7 @@ def test_one_step_index_channel_agrees_with_the_specified_mode_path(record_prope
                 grid=envelope_grid,
                 fibre=mode,
                 shock=True,
-                **common,
+                **{"noise": None, **common},
             ),
         )
         return analytic_field(
@@ -1140,7 +1154,7 @@ def kinked_run(kinked):
         dz_init=LENGTH / STEPS,
         schedule=FixedSchedule(np.full(STEPS, LENGTH / STEPS)),
         backend="numpy_ref",
-        **GRIN_PULSE,
+        **{"noise": None, **GRIN_PULSE},
     )
     # As `kinked_problem`: ten 1e-4 m steps are beyond the default collar's explicit
     # stability, and the collar is not what is under test.
@@ -1418,6 +1432,7 @@ def test_prop_gnlse_assembles_its_gamma_from_the_pump_s_area(kinked):
         energy=GRIN_PULSE["energy"],
         lambda0=wavelength,
         backend="numpy_ref",
+        noise=None,
     )
     mapping = simulation.configuration["gnlse"]
     assert isinstance(mapping, GnlseProblem)

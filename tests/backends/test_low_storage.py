@@ -1145,6 +1145,7 @@ def test_the_run_writes_no_checkpoint_from_a_step_in_flight(tmp_path, caplog):
             backend="numpy_ref",
             dz_max=schedule.max_step,
             dz_init=schedule.max_step,
+            noise=None,
         )
 
     uninterrupted = simulation().run(progress="none")
@@ -1219,6 +1220,7 @@ def held_soliton(fields="all"):
         backend="numpy_ref",
         dz_max=schedule.max_step,
         dz_init=schedule.max_step,
+        noise=None,
     )
     if fields != "all":
         simulation.settings = dataclasses.replace(
@@ -1675,6 +1677,7 @@ def test_the_run_records_the_march_and_no_estimate(caplog, backend):
         backend=backend,
         dz_max=schedule.max_step,
         dz_init=schedule.max_step,
+        noise=None,
     )
     assert simulation.settings.backend == resolve_name(backend)
     # The package logger's own level too: a doctest may have left it raised.
@@ -1937,6 +1940,7 @@ def test_a_failure_record_that_cannot_be_written_keeps_the_original_error(caplog
         backend="numpy_ref",
         dz_max=schedule.max_step,
         dz_init=schedule.max_step,
+        noise=None,
     )
     original = NumpyRefBackend._adams_lab_source
     count = [0]

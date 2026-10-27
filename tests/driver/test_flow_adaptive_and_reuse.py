@@ -309,7 +309,7 @@ def moving():
         schedule=FixedSchedule(np.full(STEPS, length / STEPS)),
         integrator=FIXED_ORDER,
         backend="numpy_ref",
-        **GRIN_PULSE,
+        **{"noise": None, **GRIN_PULSE},
     )
     built.settings = dataclasses.replace(built.settings, absorber=None)
     return built, length

@@ -758,7 +758,7 @@ def execute_scan(  # noqa: PLR0913 - delegated public controls
     started = time.perf_counter()
     try:
         if progress == "bar" or (progress == "auto" and is_interactive()):
-            bar = BarReporter(position=0, leave=True)
+            bar = BarReporter(position=0, leave=True, echo=False)
             bar.started(0.0, float(max(1, len(scan))), len(scan))
         for result in executor.run(jobs, work):
             # Re-deriving a committed point can fail without that point being any

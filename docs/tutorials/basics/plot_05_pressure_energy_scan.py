@@ -55,6 +55,7 @@ def base() -> Simulation:
         thg=False,
         n_save=3,
         backend="numpy_ref",
+        seed=20261027,
     )
     simulation.translate()
     return simulation

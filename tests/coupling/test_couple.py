@@ -723,7 +723,7 @@ def step_index(radius, contrast, wavelength=1064e-9, core=1.45, grid=None):
         fwhm=100e-15,
         energy=1e-12,
         n_save=2,
-        **grid,
+        **{"noise": None, **grid},
     )
 
 
@@ -1111,6 +1111,7 @@ def test_a_source_path_certificate_is_carried_beside_the_coupling(port):
             dz_init=2e-4,
             backend="numpy_ref",
         ),
+        noise=None,
     )
     flux = gradient.translate().flux
     assert flux is not None and flux.admission is not None

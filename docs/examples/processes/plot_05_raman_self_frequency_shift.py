@@ -74,6 +74,7 @@ run = prop_capillary(
     wavelength_limits=(400e-9, 4e-6),
     n_save=301,
     progress="none",
+    seed=20261027,
 )
 
 # %%
@@ -83,7 +84,7 @@ run = prop_capillary(
 figures = prop_2d(
     run,
     "wavelength",
-    wavelength_range=(400e-9, 3e-6),
+    spec_range=(400e-9, 3e-6),
     trange=(-200e-15, 1.7e-12),
     db_min=-40,
 )
@@ -117,7 +118,7 @@ fig, (left, right) = plt.subplots(1, 2, figsize=(10.0, 3.6))
 left.plot(z, peak * 1e9)
 left.set_xlabel("z (m)")
 left.set_ylabel("soliton peak (nm)")
-spec_1d(run, z=[0.0, 2.0], ax=right, wavelength_range=(700e-9, 2.5e-6))
+spec_1d(run, z=[0.0, 2.0], ax=right, spec_range=(700e-9, 2.5e-6))
 fig.tight_layout()
 print(
     f"soliton peak at the exit: {peak[-1] * 1e9:.0f} nm; "

@@ -28,6 +28,7 @@ stepper, the output files and the backends; they differ in what a *mode* is.
 | route | entry point | a mode is | use it for |
 |---|---|---|---|
 | mode-averaged GNLSE | `prop_gnlse` | an effective area and a dispersion, or a declared $\gamma$ | a single-mode fibre or a single mode of anything, fast; an envelope |
+| mode-averaged gas-filled mode | `prop_capillary(..., mode_average=True)`, `prop_waveguide(..., mode_average=True)` | one gas-filled mode's effective area and dispersion, with the gas's density, Kerr, Raman and plasma | a quick single-mode capillary run, or a comparison with Luna.jl's default |
 | capillary / supplied gas-filled modes | `prop_capillary`, `prop_waveguide(modes, ..., gas=...)` | a transverse scalar profile of a gas-filled hollow guide on a shared quadrature | gas-filled capillaries, antiresonant fibres, rectangular guides, hollow planar (slab) guides per unit width, tabulated modes |
 | planar guide resolved in y | `prop_planar(grid, PlanarGrid(modes, radius_y, n_y), ...)` | a slab mode in x on every sample of a periodic y axis | planar compressors with a beam of finite height: self-focusing and modulational instability in y; energies in J |
 | coherent wall | `prop_capillary(..., wall=CoherentWall(...))` | the capillary's `HE_1m` channels (or one azimuthal order's two families) coupled through the glass | multimode capillaries whose higher modes carry energy, straight, tapered or in a pressure gradient |
@@ -57,8 +58,8 @@ figures in their chapters ([solid-core fibres](../waveguides/solid-fibres.md),
 expansion, boundary and limits, are on
 [spatial decompositions](spatial-decompositions.md).
 
-**Mode-averaged** (`prop_gnlse`, or a single-mode `Simulation` with no transverse
-quadrature): the mode is
+**Mode-averaged** (`prop_gnlse`, or `prop_capillary(..., mode_average=True)` for a
+gas-filled mode): the mode is
 replaced by a uniform disc of the same effective area.
 
 ```{figure} ../figures/mode_averaged.svg
@@ -177,7 +178,8 @@ repeatability tests pass on a data-centre NVIDIA GPU (CUDA) and an AMD Instinct 
 | a line free space uniform in y (`LineGrid`, per metre of y) | yes | yes | yes | qualified (CUDA) |
 | a planar guide resolved in y (`PlanarGrid`) | yes | yes | yes | not qualified |
 | a frequency-dependent electronic response, `MaterialSelection(electronic="symmetric-kerr")` or `"gas-polynomial"` ([model](../media/dispersive-kerr.md)), on every route but the GNLSE | yes | yes | yes | qualified |
-| a noise model beside a coupled flow; a coupled flow in a lockstep batch | refused | refused | refused | refused |
+| the `input` noise model beside a coupled flow (a coherent wall, the taper coupling, a split block, a moving guide) | yes | yes | admitted, not yet qualified | not qualified |
+| the `modified` noise model beside a coupled flow; a coupled flow in a lockstep batch | refused | refused | refused | refused |
 
 `backend="auto"`, the default, is `native` where it is installed and `numba_cpu`
 otherwise, and it **never falls back**: a problem the native backend refuses is refused, by name,

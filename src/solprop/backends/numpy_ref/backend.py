@@ -32,7 +32,7 @@ from jaxtyping import Bool, Complex, Float, Inexact, Num
 
 from solprop._helpers import PLAIN
 from solprop.backends.driver import StepDriver, refuse_general_leaves
-from solprop.backends.exponential import refuse_formulation
+from solprop.backends.exponential import refuse_carrier_frame, refuse_formulation
 from solprop.backends.low_storage import LowStorageMarch
 from solprop.backends.memory import adams_memory, reference_base_memory
 from solprop.backends.numpy_ref import passes
@@ -2846,6 +2846,8 @@ def _refuse_adams(problem: KernelProblem) -> None:
         )
         raise BackendError(msg)
     refuse_formulation(problem, "numpy_ref")
+    # SEP 35: the scalar shift, on the guided routes.
+    refuse_carrier_frame(problem, "numpy_ref", delivered=frozenset({"scalar"}))
 
 
 def _refuse_unsupported(problem: KernelProblem) -> None:

@@ -92,6 +92,7 @@ __all__ = [
     "MarchSnapshot",
     "ModeRecord",
     "NoiseRecord",
+    "NoiseResolution",
     "Output",
     "PlaneLayout",
     "PlaneStore",
@@ -113,7 +114,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 26
+SCHEMA_VERSION = 27
 """Version of the record layout; incremented whenever a stored field changes meaning.
 
 Version 9 adds the SEP 13 stepping method. Independent version-10 branches added
@@ -181,9 +182,14 @@ cannot be exchanged.
 
 Version 25 (SEP 33) records every run's ``precision`` in its hashed configuration,
 ``"double"`` included, so a resume in the other precision is refused through the hash.
-The saved arrays are binary64 either way.
+The saved arrays are binary64 either way. Version 26 (SEP 37) records how the run's
+noise model was resolved (``RunMetadata.noise_resolution``): the model the caller
+asked for, ``"default"`` when the keyword was omitted, the model the run carries, and
+why a default fell back to none. It sits beside the hash, not in it, because the
+resolved model is already there through the noise record. A record older than 26 has
+none.
 
-Version 26 (SEP 36) admits ``"mixed"`` as the configuration's ``precision``: a binary64
+Version 27 (SEP 36) admits ``"mixed"`` as the configuration's ``precision``: a binary64
 state beside a binary32 source. The saved arrays are binary64 in every mode.
 """
 
@@ -1191,6 +1197,33 @@ class NoiseRecord:
             seed=realisation.seed,
             spectrum=realisation.spectrum,
         )
+
+
+@dataclass(frozen=True)
+class NoiseResolution:
+    """How a run's noise model was chosen: what was asked for, what it carries, and why.
+
+    Attributes
+    ----------
+    requested : {'default', 'input', 'modified'} or None
+        The model the caller asked for: ``"default"`` when the keyword was omitted,
+        ``None`` when noise was switched off explicitly.
+    resolved : {'input', 'modified'} or None
+        The model the run carries, or ``None`` for a noiseless run.
+    reason : str or None
+        Why a default resolved to no noise, for example that single precision carries
+        none; ``None`` otherwise.
+
+    Examples
+    --------
+    >>> from solprop.output.schema import NoiseResolution
+    >>> NoiseResolution("default", "input")
+    NoiseResolution(requested='default', resolved='input', reason=None)
+    """
+
+    requested: str | None
+    resolved: str | None
+    reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -2503,6 +2536,9 @@ class RunMetadata(Displayed):
         The solver settings and the schedule taken.
     noise : NoiseRecord or None
         The shot-noise realisation, or ``None`` for a noiseless run.
+    noise_resolution : NoiseResolution or None
+        How the noise model was chosen (schema 26): the requested and the resolved
+        model and any fallback's reason. Outside the hash; ``None`` when not recorded.
     backend : BackendRecord or None
         What executed the run, written by the driver from the backend's own
         ``metadata()``; ``None`` for a record built before a backend existed. Outside
@@ -2613,6 +2649,7 @@ class RunMetadata(Displayed):
     tdse: Mapping[str, object] | None = None
     quadrature: Mapping[str, object] | None = None
     reference: Mapping[str, object] | None = None
+    noise_resolution: NoiseResolution | None = None
     # The two development branches both used schema 10. Preserve presence, not a
     # cached digest: changing a loaded scientific value must still change its hash.
     _stored_launch_fields: tuple[str, ...] | None = dataclasses.field(
@@ -2992,6 +3029,10 @@ class RunMetadata(Displayed):
             # Derived from the hashed problem, so stored beside the key, not in it: a
             # resume on another build may evaluate the frame to a different last bit.
             document["reference"] = serialise(self.reference)
+        if self.schema_version >= 26:
+            # How the model was chosen, beside the key: the resolved model is in the
+            # hashed noise record already, and a request is not part of the physics.
+            document["noise_resolution"] = serialise(self.noise_resolution)
         document["spectral_convention"] = self.spectral_convention
         document["field_layout"] = self.field_layout
         document["backend"] = serialise(self.backend)
@@ -3038,6 +3079,7 @@ class RunMetadata(Displayed):
             raise OutputError(msg) from error
         try:
             noise = document["noise"]
+            resolution = document.get("noise_resolution")
             git = document["git"]
             backend = document["backend"]
             return cls(
@@ -3061,6 +3103,9 @@ class RunMetadata(Displayed):
                 tdse=document.get("tdse"),
                 quadrature=document.get("quadrature"),
                 reference=document.get("reference"),
+                noise_resolution=None
+                if resolution is None
+                else _rebuild(NoiseResolution, resolution),
                 _stored_launch_fields=tuple(
                     key for key in ("initial_z", "tdse") if key in document
                 ),

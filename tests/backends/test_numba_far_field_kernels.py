@@ -166,6 +166,7 @@ def problem_of(grid, space, field, spec, *, medium=None, collar=None):
             stats=spec,
             transverse_absorber=collar,
         ),
+        noise=None,
     )
     return simulation.translate()
 
@@ -723,6 +724,7 @@ def test_the_pass_refuses_what_it_cannot_form():
             absorber=None,
             backend="numba_cpu",
         ),
+        noise=None,
     ).translate()
     with pytest.raises(BackendError, match="Cartesian or line"):
         FarFieldPass(radial, parallel=False)

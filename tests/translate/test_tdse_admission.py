@@ -190,15 +190,36 @@ def test_seam_rejects_a_changed_current_sign_or_crop_factor(admitted, scale):
         dataclasses.replace(admitted, current_numerator=changed).validate()
 
 
-@pytest.mark.parametrize(
-    "flag", ["has_noise", "has_plasma", "has_raman", "mode_averaged"]
-)
+@pytest.mark.parametrize("flag", ["has_plasma", "has_raman", "mode_averaged"])
 def test_seam_rejects_unsupported_flags_before_atomic_setup(admitted, flag):
     damaged = dataclasses.replace(
         admitted, flags=dataclasses.replace(admitted.flags, **{flag: True})
     )
     with pytest.raises(TranslationError, match="scalar resolved modal Adams"):
         damaged.validate()
+
+
+@pytest.mark.parametrize("model", ["input", "modified"])
+def test_seam_admits_the_input_draw_and_rejects_the_modified_one(admitted, model):
+    """The input draw is part of the launch that drives the atom (SEP 37, section 6).
+
+    The modified draw is kept apart from the field and added at every stage, so the
+    atom would be driven by a field without it; that seam is refused by name.
+    """
+    noisy = dataclasses.replace(
+        admitted,
+        initial=dataclasses.replace(
+            admitted.initial,
+            noise0=np.zeros_like(admitted.initial.field0),
+            noise_model=model,
+        ),
+        flags=dataclasses.replace(admitted.flags, has_noise=True),
+    )
+    if model == "input":
+        noisy.validate()
+        return
+    with pytest.raises(TranslationError, match="scalar resolved modal Adams"):
+        noisy.validate()
 
 
 @pytest.mark.parametrize("interpolate", [False, True], ids=["no-adams", "dense"])
@@ -276,7 +297,7 @@ def test_optmat_closure_refuses_an_absent_compiled_cubic(admitted, declaration):
         ({"quadrature": None}, "radial quadrature"),
         ({"integrator": None}, "Multistep"),
         ({"interpolate_planes": True}, "landed"),
-        ({"has_noise": True}, "noise=None"),
+        ({"modified_noise": True}, "refuses the 'modified' noise model"),
         ({"shock": False}, "normalisation"),
         ({"prefactor_index": 1.0}, "normalisation"),
     ],
@@ -292,7 +313,7 @@ def test_unsupported_physical_routes_fail_before_operator_setup(
         "shape": (1, 1, 1, grid.n_omega),
         "quadrature": transverse_quadrature([mode], n_r=4),
         "integrator": Multistep(formulation="interaction"),
-        "has_noise": False,
+        "modified_noise": False,
         "shock": True,
         "prefactor_index": None,
     }
@@ -346,7 +367,7 @@ def test_admission_preserves_the_selected_cubic_ownership(declaration, model):
         shape=(1, 1, 1, grid.n_omega),
         quadrature=transverse_quadrature([mode], n_r=4),
         integrator=Multistep(formulation="interaction"),
-        has_noise=False,
+        modified_noise=False,
         shock=True,
         prefactor_index=None,
     )

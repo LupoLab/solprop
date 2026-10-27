@@ -40,8 +40,10 @@ References
        209 (2010), section 2. doi:10.1017/S0962492910000048
 """
 
+import dataclasses
 import math
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 import numpy as np
 from jaxtyping import Complex, Float, Inexact
@@ -50,9 +52,13 @@ from solprop._helpers import NUMBA, Helpers
 from solprop.exceptions import BackendError, StepperError
 from solprop.stepper.multistep import (
     MAX_ADAMS_ORDER,
+    CarrierFrame,
     Multistep,
     lagrange_coefficients,
 )
+from solprop.translate.chebyshev import PiecewiseChebyshev
+from solprop.translate.expansion import ParameterExpansion
+from solprop.translate.linop import LinearOperator
 from solprop.translate.problem import KernelProblem
 
 __all__ = [
@@ -60,8 +66,13 @@ __all__ = [
     "EXPONENTIAL_REPRESENTATIONS",
     "MAX_PHI_ORDER",
     "PHI_JOIN",
+    "CarrierChord",
+    "CarrierReference",
+    "carrier_chord",
+    "carrier_reference",
     "exponential_weights",
     "phi_functions",
+    "refuse_carrier_frame",
     "refuse_formulation",
 ]
 
@@ -330,3 +341,374 @@ def refuse_formulation(problem: KernelProblem, backend: str) -> None:
             "march"
         )
         raise BackendError(msg)
+
+
+@dataclass(frozen=True)
+class CarrierChord:
+    """The reference element's cumulative operator alone (SEP 35 sections 6.1, 6.4).
+
+    The operator's own representation restricted to column 0, polarisation 0 and the
+    reference bin, every batch member kept: its chord over a step is the reference
+    element's exponent, to rounding the one the backend forms, at one scalar per
+    member. The step cap reads it for every proposal, and a backend that forms its
+    exponent elsewhere (the native engine, on a device too) takes its shift from it
+    with nothing read back.
+
+    Attributes
+    ----------
+    constant : numpy.ndarray or None
+        ``D`` at the element, 1/m, shape ``(n_batch_c,)``, for a constant operator.
+    expansion : solprop.translate.expansion.ParameterExpansion or None
+        The expansion with its terms at the element, for an expansion.
+    table : solprop.translate.chebyshev.PiecewiseChebyshev or None
+        The z table at the element, for a table.
+    """
+
+    constant: Complex[np.ndarray, " n_batch_c"] | None = None
+    expansion: ParameterExpansion | None = None
+    table: PiecewiseChebyshev | None = None
+
+    def exponent(self, z1: float, z2: float) -> Complex[np.ndarray, " n_batch_c"]:
+        """Return ``Phi(z2) - Phi(z1)`` at the element, per batch member.
+
+        Parameters
+        ----------
+        z1, z2 : float
+            Positions in m, inside the operator's span.
+
+        Returns
+        -------
+        numpy.ndarray
+            Dimensionless, shape ``(n_batch_c,)``.
+        """
+        if self.constant is not None:
+            return self.constant * (z2 - z1)
+        if self.expansion is not None:
+            return np.asarray(self.expansion.delta(z1, z2), dtype=np.complex128)
+        assert self.table is not None
+        return np.asarray(self.table(z2) - self.table(z1), dtype=np.complex128)
+
+
+def carrier_chord(linear: LinearOperator, index: int) -> CarrierChord | None:
+    """Return the reference element's operator alone, or ``None`` for a separable one.
+
+    Parameters
+    ----------
+    linear : solprop.translate.linop.LinearOperator
+        The cumulative operator.
+    index : int
+        The reference bin.
+
+    Returns
+    -------
+    CarrierChord or None
+        ``None`` for the separable (spatial) representation, which the carrier frame
+        refuses.
+    """
+
+    def element(values: np.ndarray) -> np.ndarray:
+        """Return ``values[..., b, 0, 0, index]`` over its leading axes and batch.
+
+        Parameters
+        ----------
+        values : numpy.ndarray
+            A representation's array, its last four axes the state's layout.
+
+        Returns
+        -------
+        numpy.ndarray
+            Column 0, polarisation 0 and the reference bin, every leading axis kept.
+        """
+        column = min(index, values.shape[-1] - 1)
+        return np.ascontiguousarray(values[..., 0, 0, column])
+
+    if linear.phi_constant is not None:
+        return CarrierChord(constant=element(linear.phi_constant))
+    if linear.phi_expansion is not None:
+        expansion = linear.phi_expansion
+        return CarrierChord(
+            expansion=dataclasses.replace(expansion, terms=element(expansion.terms))
+        )
+    if linear.phi_coefficients is not None:
+        table = linear.polynomial
+        return CarrierChord(
+            table=dataclasses.replace(table, coefficients=element(table.coefficients))
+        )
+    return None
+
+
+@dataclass(frozen=True)
+class CarrierReference:
+    """Where a run's carrier frame takes its shift, fixed for the run (SEP 35 6.1).
+
+    The shift of batch member ``b`` is ``sigma_b = i Im x[b, 0, 0, bin]``, ``x`` the
+    trial's own exponent ``Phi(z + h) - Phi(z)``: column 0 is the frame's mode
+    (``build_phi`` fixes the frame on the first mode; a coupled route's carrier is the
+    same in every channel), polarisation 0. The change of variable is exact for any
+    shift, so the choice of bin only changes how smooth the interpolated source is.
+
+    Attributes
+    ----------
+    policy : {'scalar'}
+        The policy asked for (:data:`solprop.stepper.multistep.CarrierFrame`).
+    bin : int or None
+        The active bin nearest the reference frequency, ties to the lower index;
+        ``None`` where the policy is inert (``sigma = 0`` for the run).
+    omega : float or None
+        That bin's angular frequency, rad/s; ``None`` with `bin`.
+    reason : str
+        How the reference was chosen, or why the policy is inert, for the run's log.
+    chord : CarrierChord or None, optional
+        The reference element's operator alone (:func:`carrier_chord`), for the step
+        cap and a backend that forms its shift on the host; ``None`` when inert.
+    """
+
+    policy: CarrierFrame
+    bin: int | None
+    omega: float | None
+    reason: str
+    chord: CarrierChord | None = None
+
+    @property
+    def active(self) -> bool:
+        """Return whether the shift can be nonzero.
+
+        Returns
+        -------
+        bool
+            ``False`` when the run takes ``sigma = 0``, the present arithmetic exactly.
+        """
+        return self.bin is not None
+
+    def shift(
+        self, exponent: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
+    ) -> Complex[np.ndarray, "n_batch 1 1 1"]:
+        """Return each batch member's shift for a trial's exponent.
+
+        Parameters
+        ----------
+        exponent : numpy.ndarray
+            ``x = Phi(z + h) - Phi(z)``, in the canonical layout.
+
+        Returns
+        -------
+        numpy.ndarray
+            Purely imaginary, shape ``(n_batch, 1, 1, 1)``, broadcasting against the
+            state.
+
+        Raises
+        ------
+        BackendError
+            If the policy is inert: such a run takes the unshifted arithmetic.
+        """
+        if self.bin is None:
+            msg = f"the carrier frame is inert for this run: {self.reason}"
+            raise BackendError(msg)
+        # The real part (loss) is never shifted (SEP 35 section 10).
+        phase = np.imag(exponent[:, 0, 0, self.bin]).reshape((-1, 1, 1, 1))
+        return 1j * phase
+
+    def phase(
+        self, exponent: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
+    ) -> float:
+        """Return the largest carrier phase over the batch, for the step cap.
+
+        Parameters
+        ----------
+        exponent : numpy.ndarray
+            ``x`` over a proposed step.
+
+        Returns
+        -------
+        float
+            ``max_b |Im x[b, 0, 0, bin]|``, rad; 0 when the policy is inert.
+        """
+        if self.bin is None:
+            return 0.0
+        return float(np.max(np.abs(np.imag(exponent[:, 0, 0, self.bin]))))
+
+    def chord_phase(self, z1: float, z2: float) -> float:
+        """Return the largest carrier phase over the batch from the chord alone.
+
+        Parameters
+        ----------
+        z1, z2 : float
+            The proposed step's ends, m.
+
+        Returns
+        -------
+        float
+            ``max_b |Im (Phi(z2) - Phi(z1))|`` at the reference element, rad; 0 when
+            the policy is inert.
+
+        Raises
+        ------
+        BackendError
+            If the reference has no chord (a separable operator).
+        """
+        if self.bin is None:
+            return 0.0
+        if self.chord is None:
+            msg = "the carrier frame's reference has no chord on this operator"
+            raise BackendError(msg)
+        return float(np.max(np.abs(np.imag(self.chord.exponent(z1, z2)))))
+
+
+def carrier_reference(
+    problem: KernelProblem, method: Multistep
+) -> CarrierReference | None:
+    """Return where a run's carrier frame takes its shift, or ``None`` when off.
+
+    The reference rule of SEP 35 section 6.1. An envelope grid without the third
+    harmonic subtracts ``beta_0``, so its shift would be the table's rounding: the
+    policy is inert there and the run is the present arithmetic exactly. An envelope
+    grid with the third harmonic keeps the carrier phase whole, its operator is the
+    field grid's, and it is treated as one. The reference frequency is the grids'
+    ``omega0``; a custom frame with another reference changes only how much of the
+    rotation the shift removes, never the step's exactness.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The problem.
+    method : solprop.stepper.multistep.Multistep
+        The method.
+
+    Returns
+    -------
+    CarrierReference or None
+        ``None`` for ``carrier_frame="off"`` or the interaction formulation.
+    """
+    policy = method.carrier_frame
+    if policy == "off" or method.formulation != "exponential":
+        return None
+    grids = problem.grids
+    if problem.grid_kind == "envelope" and grids.carrier_2w0 is None:
+        return CarrierReference(
+            policy,
+            None,
+            None,
+            "an envelope grid without the third harmonic removes beta_0: sigma = 0",
+        )
+    nearest = _nearest_bin(grids.omega, grids.omega0)
+    if not bool(grids.active_mask[nearest]):
+        return CarrierReference(
+            policy,
+            None,
+            None,
+            f"the bin nearest the reference frequency ({nearest}) is inactive: "
+            "sigma = 0",
+        )
+    omega = float(grids.omega[nearest])
+    return CarrierReference(
+        policy,
+        nearest,
+        omega,
+        f"reference bin {nearest} at {omega:.6e} rad/s",
+        carrier_chord(problem.linear, nearest),
+    )
+
+
+def _nearest_bin(omega: Float[np.ndarray, " n_omega"], omega0: float) -> int:
+    """Return the bin nearest `omega0`, ties going to the lower index.
+
+    Parameters
+    ----------
+    omega : numpy.ndarray
+        The frequency axis, rad/s, in the grid's own order.
+    omega0 : float
+        The reference frequency, rad/s.
+
+    Returns
+    -------
+    int
+        The bin.
+    """
+    # argmin returns the first of equal distances: the lower index of the axis's order.
+    return int(np.argmin(np.abs(omega - omega0)))
+
+
+def _carrier_refusal(
+    policy: CarrierFrame,
+    backend: str,
+    delivered: frozenset[str],
+    geometry: str | None,
+    *,
+    single: bool = False,
+) -> str | None:
+    """Return why `backend` cannot step a carrier frame, or ``None`` when it can.
+
+    Parameters
+    ----------
+    policy : {'off', 'scalar'}
+        The policy asked for.
+    backend : str
+        The backend's name, for the message.
+    delivered : frozenset of str
+        The policies the backend steps.
+    geometry : str or None
+        The spatial geometry's kind; ``None`` on a guided route.
+    single : bool, optional
+        Whether the run is held in single precision (SEP 33), where the shift was not
+        qualified.
+
+    Returns
+    -------
+    str or None
+        The refusal.
+    """
+    if policy == "off":
+        return None
+    if policy not in delivered:
+        return (
+            f"{backend}: Multistep(carrier_frame={policy!r}) is not delivered on this "
+            "backend; pass carrier_frame='off'"
+        )
+    if geometry is not None:
+        return (
+            f"{backend}: Multistep(carrier_frame={policy!r}) is not yet qualified on "
+            f"a free-space route ({geometry!r} geometry); pass carrier_frame='off'"
+        )
+    if single:
+        return (
+            f"{backend}: Multistep(carrier_frame={policy!r}) is not qualified in "
+            "single precision; pass carrier_frame='off' or precision='double'"
+        )
+    return None
+
+
+def refuse_carrier_frame(
+    problem: KernelProblem,
+    backend: str,
+    *,
+    delivered: frozenset[str] = frozenset(),
+) -> None:
+    """Refuse a carrier frame where it is not yet delivered (SEP 35 section 5).
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The problem.
+    backend : str
+        The backend's name, for the message.
+    delivered : frozenset of str, optional
+        The policies this backend steps; none by default.
+
+    Raises
+    ------
+    BackendError
+        Naming the policy and what does not deliver it.
+    """
+    method = problem.stepper.integrator
+    if not isinstance(method, Multistep):
+        return
+    geometry = problem.transform.geometry
+    refusal = _carrier_refusal(
+        method.carrier_frame,
+        backend,
+        delivered,
+        None if geometry is None else geometry.kind,
+        single=problem.precision.single,
+    )
+    if refusal is not None:
+        raise BackendError(refusal)

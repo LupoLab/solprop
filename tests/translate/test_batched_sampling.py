@@ -322,7 +322,7 @@ def _capillary(**changes):
             parameters.pop("length"),
             parameters.pop("gas"),
             parameters.pop("pressure"),
-            **parameters,
+            **{"noise": None, **parameters},
         )
 
 

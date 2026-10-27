@@ -32,11 +32,20 @@ time divided by the native backend's: above 1, the native backend is faster.
       to every logical CPU.
 - **Accelerate on macOS.** It matched or beat both OpenBLAS variants and native GEMM,
   except at one thread on the TE/TM wall, where it is the fastest option.
-- **NEON FFTW on Apple silicon**, in both precisions, with the Arm cycle counter,
-  M1 distribution baseline and existing deployment target. FFTW and Kokkos share
-  one OpenMP runtime. This enables FFTW's explicit codelets; compiler vectorisation
-  alone does not select them. The [build recipe](../guide/performance/building-native.md)
-  keeps x86 SIMD and Linux Arm settings unchanged.
+- **NEON FFTW on both Arm wheels**, in both precisions, with the Arm cycle counter.
+  On Apple silicon it keeps the M1 baseline and deployment target, and FFTW and Kokkos
+  share one OpenMP runtime. This enables FFTW's explicit codelets; compiler
+  vectorisation alone does not select them
+  ([build recipe](../guide/performance/building-native.md)).
+  - Linux aarch64 (the manylinux wheel, Neoverse N1 baseline), measured on 16-core
+    Google Axion (Neoverse V2) and Ampere Altra (Neoverse N1) machines. FFTW's own
+    benchmark, 1 thread: 1.16–1.18× faster in double precision and 1.9× in single
+    (geometric means over 22 one- and two-dimensional problems); at 16 threads
+    1.07× and 1.2×.
+  - solprop A/B, same wheels otherwise, five FFT-heavy cases with both steppers: no
+    case slower beyond its round-to-round range, and a geometric-mean time of 0.95
+    (V2) and 0.96 (N1) at 1 thread, 0.96 and 0.98 at 16 threads. The Raman and RK
+    GNLSE cases gained most (8–14 %); radial filamentation is unchanged.
 - **x86-64-v3 distribution baseline.** An x86-64-v2 build's median cost against
   x86-64-v3 was within about 2 % on a 32-core AVX-512 server (six pairs, seven
   configurations) and 4 % on an 18-core-per-socket AVX-512 server, on the benchmark core.

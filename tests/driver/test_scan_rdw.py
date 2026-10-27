@@ -50,6 +50,7 @@ def build_rdw(point, rtol=WAVEGUIDE_RTOL):
             backend="numba_cpu",
             rtol=rtol,
             stats=StatsSpec(names=("energy", "peak_power")),
+            noise=None,
         )
         simulation.translate()
     return simulation

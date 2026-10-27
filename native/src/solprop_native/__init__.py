@@ -24,8 +24,9 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ._budget import native_threads, thread_budget
+from ._budget import native_threads, physical_cores, thread_budget
 from ._cpu import check_cpu_baseline
+from ._wait import wait_policy
 
 if platform.system() == "Darwin" and "pyfftw" in sys.modules:
     raise RuntimeError(
@@ -43,11 +44,18 @@ PROCESS_CPUS: tuple[int, ...] = (
     tuple(sorted(os.sched_getaffinity(0))) if sys.platform == "linux" else ()
 )
 
-# The process's thread budget (solprop ADR-052): the smallest of those CPUs, its
-# control groups' quota and SOLPROP_THREADS, as solprop reads it. The Kokkos pool is
-# SOLPROP_NATIVE_THREADS within it, or all of it.
-THREAD_BUDGET = thread_budget(len(PROCESS_CPUS) or os.process_cpu_count() or 1)
+# The process's thread budget (solprop ADR-052): the smallest of those CPUs, their
+# physical cores, its control groups' quota and SOLPROP_THREADS, as solprop reads it.
+# The Kokkos pool is SOLPROP_NATIVE_THREADS within it, or all of it.
+_CPUS = len(PROCESS_CPUS) or os.process_cpu_count() or 1
+THREAD_BUDGET = thread_budget(
+    _CPUS, physical_cores(PROCESS_CPUS or tuple(range(_CPUS)))
+)
 _REQUESTED_THREADS = native_threads(THREAD_BUDGET)
+
+# How the OpenMP runtime's idle threads wait: they sleep at once unless the user chose
+# otherwise. The runtime reads this when the core loads it, just below.
+WAIT_POLICY = wait_policy()
 
 from . import _core  # noqa: E402  (only after the processor check)
 
@@ -199,7 +207,10 @@ adds ``KernelProblem.flux``, the plane measure every spatial field statistic rea
 this backend measures energy, spectra and local flux by it natively. Schema 36 (solprop
 SEP 33) adds ``KernelProblem.precision``: a build that compiled single or mixed
 precision (solprop SEP 36, ``BuildInfo.precisions``) runs such a problem, and refuses
-by name a precision it did not compile.
+by name a precision it did not compile. Schema 37 (solprop SEP 35) adds
+``Multistep.carrier_frame``: CPU builds step the scalar shift in the resident engine;
+device builds refuse it by name until they are qualified. Schema 38 (solprop SEP 36)
+admits the mixed precision.
 
 solprop freezes this surface under its ``SCHEMA_VERSION`` (the test in its
 ``tests/backends/test_driver.py``); :func:`check_build` looks each member up so a

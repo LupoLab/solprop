@@ -15,7 +15,8 @@ The first public release. It contains:
   the generalised nonlinear Schrödinger equation (GNLSE), for the real electric field or
   a complex envelope, in waveguides and in free space.
 - **Waveguides.**
-  - Gas-filled hollow capillaries, mode-averaged or with resolved modes. Tapers,
+  - Gas-filled hollow capillaries, with resolved modes (the default) or mode-averaged
+    (`mode_average=True` on `prop_capillary` and `prop_waveguide`). Tapers,
     pressure gradients and gas flow are supported, as is a coherent wall that couples
     the modes.
   - Antiresonant hollow-core fibres (the Vincetti model).
@@ -40,6 +41,21 @@ The first public release. It contains:
   `SimulationSettings.adiabatic_accuracy`). `poynting_spectrum` is removed:
   `beam_spectrum` is the axial-flux spectrum. Kernel schema 35 (`flux`) and output
   schema 23 (`flux_model`, `flux_plan`).
+- **A carrier frame for the exponential Adams history**
+  ([SEP 35](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0035-carrier-frame-exponential-adams.html),
+  phases 1–4). `Multistep(carrier_frame="scalar")` interpolates, inside each step, the
+  source with the carrier's phase removed and integrates it against correspondingly
+  shifted moments, exactly for any shift, with each step capped at one radian of
+  carrier phase (`CARRIER_PHASE_CAP`); on field grids and envelope grids with the third
+  harmonic. On dense, multimode, Raman-active runs such as a comb-to-continuum
+  capillary it is the fastest method measured, about half the time of the default and
+  of IP-DOPRI5; elsewhere it saves less or nothing, and a weak band still forming is
+  less tightly controlled, so it is opt-in and `"off"` stays the default. The manual's
+  decision guide says when to use it. It runs on `numpy_ref`, `numba_cpu` and native
+  CPU builds; native device builds and the free-space routes refuse it by name. The
+  benchmark suite's `ctc_reduced` case moves to a 2 ps window (revision 2). Kernel schema 37 (`Multistep.carrier_frame`); every `Multistep`
+  representation names the policy, so a march snapshot taken before it restarts its
+  history.
 - **Incident beams into general modal guides**
   ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0031-simulation-coupling.html),
   phases 1 and 3). `from_waveguide(provider=..., incident=SpatialPulse(...),
@@ -129,13 +145,35 @@ The first public release. It contains:
   - Photoionisation with atomic and molecular rate models, and plasma on field and
     envelope grids.
   - Rotational and vibrational Raman responses, scalar and vector.
-  - Quantum shot noise.
+  - Quantum shot noise, on by default
+    ([SEP 37](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0037-noise-and-stepper-defaults.html)):
+    one photon per mode with a random phase, added to the input field
+    (`noise="input"`) and recorded with its seed and with how the model was chosen
+    (`RunMetadata.noise_resolution`, output schema 26). `noise=None` switches it off,
+    and `noise="modified"` keeps the realisation apart from the field. Single precision,
+    the hybrid planar grid, the TDSE response and the Cartesian and line grids carry none
+    by default and record why
+    (noise asked for beside the TDSE is warned on); an interior launch takes its
+    spectrum as given unless `noise="input"` is passed. A floor-subtracted spectral
+    density, `get_spectral_density(..., noise_floor="subtract")`, removes the seed's one
+    photon per bin and channel as a signed density (`get_spectrum` takes only
+    `"keep"`; `plotting.spec_1d` and `prop_2d` pass it through, and `spec_1d` masks
+    non-positive values on a logarithmic axis). Input noise is carried beside a coherent
+    wall, the taper coupling, a split block, a moving solid guide and the TDSE response,
+    whose refusals now name only the modified model; `translate.tdse_source.admit_tdse`
+    takes `modified_noise` in place of `has_noise`.
   - An optional helium TDSE atomic response for research. Its native backend is not
     yet publicly available.
 - **Numerics.**
-  - Two adaptive integrators: a low-call exponential Adams method (the default) and an
-    embedded interaction-picture Runge–Kutta pair. A low-storage Runge–Kutta variant is
-    included.
+  - Two adaptive integrators: a low-call exponential Adams method and an embedded
+    interaction-picture Runge–Kutta pair. A low-storage Runge–Kutta variant is
+    included. Each interface has its own default integrator and tolerances, set by
+    measurement (SEP 37): `RungeKutta()` for `prop_gnlse` (`rtol` 1e-7) and
+    `prop_waveguide` (1e-5) and `prop_free` (1e-4), `Multistep()` for
+    `prop_radial` and `prop_planar` (1e-5) and `prop_capillary` (1e-6). The spatial
+    interfaces apply their tolerance when `SimulationSettings` give no controller, which
+    is now optional, and a free-space run that names no integrator takes
+    `RungeKutta()`. The choosing-a-stepper page tabulates every default.
   - The linear propagation is integrated exactly, and absorbing boundaries act as rates.
   - Fixed and adaptive schedules.
   - Bounded, rounding-level reproducibility across backends.
@@ -154,14 +192,20 @@ The first public release. It contains:
     there
     ([SEP 29](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0029-compiled-backend-distribution.html)).
   - One thread budget per process (ADR-052): the smallest of its CPU affinity mask, the
-    tightest control-group CPU quota on its path (versions 1 and 2, rounded down) and
-    `SOLPROP_THREADS`. Every pool of both CPU backends is sized within it, explicit
+    physical cores that hold it (one thread per core; `SOLPROP_THREADS` may ask for
+    more), the tightest control-group CPU quota on its path (versions 1 and 2, rounded
+    down) and `SOLPROP_THREADS`. Every pool of both CPU backends is sized within it, explicit
     counts included; `numba_cpu`'s kernels are also held to `NUMBA_NUM_THREADS`, so a
     large problem no longer fails at construction when that is below the CPUs, and the
     native backend no longer takes every CPU of the machine. `SOLPROP_OVERSUBSCRIBE=1`
     lets an explicit count exceed the CPUs for thread-count tests. The budget and its
     source are recorded in run metadata; the `Pool` and Slurm scan executors set
     `SOLPROP_THREADS` per worker instead of forcing every pool to the worker's count.
+  - The native CPU backend's idle OpenMP threads sleep at once (ADR-056): with the
+    runtime's own spin, a four-mode capillary ran 25 times slower on a 16-core
+    allocation. A wait policy you set is kept, and `OMP_WAIT_POLICY=active` is faster
+    on a machine a run has to itself with spare hardware threads; the run's metadata
+    records what applied.
   - Each backend is tested against the reference implementation within derived error
     bounds.
   - A short start-up: a run on the native backend imports neither Numba nor
@@ -228,7 +272,8 @@ The first public release. It contains:
   `FixedSchedule.from_history`, which replays a run's accepted steps. The user guide's
   *Single precision* page is now *Reduced precision*.
 - **The native backend.**
-  - Native CPU optimisation: a coherent NEON FFTW build for Apple silicon, long-row
+  - Native CPU optimisation: a coherent NEON FFTW build for Apple silicon and Linux
+    aarch64 (the wheels' smoke test requires it on Arm), long-row
     Raman planning with a compact FFTW/vDSP selection rule, and deferred embedded
     transverse diagnostics for ordinary DOPRI5 modal trials. Accelerate BLAS, kernel
     schema 35, frontend signatures, protected arithmetic and state layouts are
@@ -298,12 +343,46 @@ The first public release. It contains:
   - Soliton and dispersive-wave design tools.
   - Pulse compressors: Taylor phase, chirped mirrors, materials, gratings and prisms.
   - An interactive session through `import solprop.sol as sol`.
+- **A summary at the start of every run.** Before its first step a run shows what it
+  is about to compute: the backend, its threads and precision, the grid, the
+  representation, the medium and fill, the responses (Raman named whether on or off,
+  with the fraction held back from Kerr), the shot noise with its model and seed or
+  `off`, the integrator, tolerances and step bound, the absorber, the save planes, the
+  output and whether the run is a resume. It goes through the progress reporter, so it
+  follows `progress=`: a bar writes it, and the closing line, on its stream (once, if a
+  console log handler would print them already), `"log"` logs them at `INFO`, and
+  `"none"` shows nothing. Plane stores keep it as the `run_summary` annotation
+  (`solprop.driver.summary`; a reporter receives it through the optional
+  `SummarisingReporter.summary` call).
+- **Performance tracking** for developers
+  ([SEP 38](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0038-performance-tracking.html)):
+  `python -m benchmarks track` times complete runs of about a dozen representative
+  workloads, each with its interface's default integrator and tolerances, at one
+  thread and the production width in about an hour per machine, and records them in
+  `benchmarks/history/` by hardware; `--device` runs the same cases on a native GPU
+  build. It replaces SEP 30's standard suite, whose
+  reference qualification, native coverage and export are removed; `ab` compares two
+  builds on the same worker.
 - **Documentation.** An introduction with executable lessons, a user guide, a
   long-form primer on the physics and numerics, focused tutorials and worked examples,
   the API reference, and a developer's guide with the design records (SEPs and ADRs).
 
 ### Fixed
 
+- **The noise row of a printed `Simulation`** named the realisation's class; it now
+  gives its model and seed.
+- **Spectral ranges of the plots in the units of their axis.** `prop_2d`, `spec_1d` and
+  `spectrogram` took their spectral window only as `wavelength_range`, so a frequency
+  axis could not be given a range in hertz, nor one starting at zero. They now take
+  `spec_range`, in m, Hz or rad/s as `axis` says, like the processing accessors;
+  `wavelength_range` and `solprop.plotting.style.spectral_limits` are gone, and
+  `wavelength_to_axis` converts a wavelength range to any axis.
+- **Bandpass windows on any spectral axis.** A `bandpass=` pair is still a wavelength
+  range, m; `solprop.processing.Passband(limits, axis, width)` gives the band in m, Hz or
+  rad/s, so a low-pass band can start at zero frequency, and
+  `bandpass(grid, limits, axis=...)` builds the same window. The builder's first
+  argument is renamed from `wavelength_limits` to `limits`. The edge width is in rad/s
+  on every axis.
 - **Third harmonic on an envelope grid.** With `thg=True` the envelope frame measured
   its group delay from the carrier, which also removed a constant phase
   β₁ω₀z that the harmonic term does not share. The third harmonic was
@@ -317,3 +396,16 @@ The first public release. It contains:
   before it no empty piece in those columns, so `planes()` (and `to_file`) of any run
   with a periodic subset failed with "step statistics columns must have equal row
   counts". The HDF5 file was not affected.
+- **Native CPU cost cliffs at 2-3-5-smooth grid sizes.** Two causes made some smooth
+  sizes 1.6-1.8 times slower per source evaluation than the neighbouring power of two
+  on the native CPU backend. The node-chunk budget took `budget // per_node`, so 33
+  resolved-mode nodes under a limit of 32 ran a 32-node pass and then a one-node tail on
+  one thread; the nodes are now spread evenly over the same number of passes (17 and
+  16). And the threading thresholds for stage kernels (8192 elements) and modal FFTs
+  (32,768 samples) sat just above the four-mode RDW's sizes at n_t 4000, so its stage
+  and transforms ran serially; on Linux they are now 4096 and 16,384. On an 18-core
+  Cascade Lake socket the RDW case costs 1.32 ms per evaluation at n_t 4000 (was 2.47;
+  4096: 1.24-1.36) and 2.54 ms at 8640 (was 3.55; 8192: 2.28-2.31); on Zen 3 n_t 4000
+  is 24-27 % faster (`native/benchmarks/size_cliffs.py`). macOS keeps 8192 and 32,768:
+  on an Apple arm64 laptop the serial stage and transforms are the faster ones at those
+  sizes, and its node-chunk gain at n_t 8640 is 26 %.

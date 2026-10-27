@@ -88,7 +88,9 @@ def _simulation(basis=None, *, limit=1000, **changes):
     values.update(changes)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
-        return Simulation.from_capillary(256e-6, _LENGTH, "He", 0.1, **values)
+        return Simulation.from_capillary(
+            256e-6, _LENGTH, "He", 0.1, **{"noise": None, **values}
+        )
 
 
 def _run(simulation, output=None, **kwargs) -> Any:
@@ -110,7 +112,7 @@ def test_hacc_run_records_model_window_consistency_and_ledger(fake, cache, windo
     simulation = _simulation(atomic_window=window)
     output = _run(simulation)
     assert output.metadata is not None
-    assert output.metadata.schema_version == SCHEMA_VERSION == 26
+    assert output.metadata.schema_version == SCHEMA_VERSION == 27
     descriptor = json.loads(plain(output.metadata.tdse)["configuration_json"])
     assert descriptor["schema"] == "solprop.tdse-descriptor.v5"
     assert descriptor["response"]["model"] == "hacc"

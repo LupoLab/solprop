@@ -9,6 +9,8 @@ from solprop.constants import C
 from solprop.exceptions import ProcessingError
 from solprop.grid import EnvelopeGrid
 from solprop.processing import spectra
+from solprop.processing._examples import example_output
+from solprop.processing.time import energy
 
 
 def gaussian(x, centre, width):
@@ -93,6 +95,62 @@ def test_bandpass_refuses_a_non_positive_wavelength(grid, limits):
 def test_bandpass_refuses_a_non_positive_width(grid):
     with pytest.raises(ProcessingError, match="width must be positive"):
         spectra.bandpass(grid, (700e-9, 900e-9), width=0.0)
+
+
+@pytest.mark.parametrize(("axis", "turn"), [("f", C), ("omega", 2 * np.pi * C)])
+def test_a_frequency_band_is_the_same_window_as_its_wavelengths(grid, axis, turn):
+    in_wavelength = spectra.bandpass(grid, (700e-9, 900e-9))
+    on_axis = spectra.bandpass(grid, (turn / 900e-9, turn / 700e-9), axis=axis)
+    np.testing.assert_allclose(on_axis, in_wavelength, atol=1e-12)
+
+
+def test_a_frequency_band_may_start_at_zero(grid):
+    window = spectra.bandpass(grid, (0.0, C / 800e-9), axis="f")
+    red = (grid.omega > 0.0) & (grid.omega < 2 * np.pi * C / 900e-9)
+    blue = grid.omega > 2 * np.pi * C / 600e-9
+    assert np.any(red)
+    assert np.all(window[red] == 1.0)
+    assert np.all(window[blue] == 0.0)
+
+
+def test_bandpass_refuses_a_negative_frequency(grid):
+    with pytest.raises(ProcessingError, match="must not be negative"):
+        spectra.bandpass(grid, (-1e14, 1e15), axis="f")
+
+
+def test_a_passband_builds_the_window_of_its_axis_and_width(grid):
+    band = spectra.Passband((1e14, 4e14), "f", width=8 * grid.d_omega)
+    np.testing.assert_array_equal(
+        spectra._as_window(grid, band),
+        spectra.bandpass(grid, (1e14, 4e14), axis="f", width=8 * grid.d_omega),
+    )
+
+
+def test_a_passband_defaults_to_wavelength(grid):
+    np.testing.assert_array_equal(
+        spectra._as_window(grid, spectra.Passband((700e-9, 900e-9))),
+        spectra._as_window(grid, (700e-9, 900e-9)),
+    )
+
+
+@pytest.mark.parametrize(
+    ("limits", "axis", "match"),
+    [
+        ((0.0, 900e-9), "wavelength", "must be positive"),
+        ((-1.0, 1e15), "omega", "must not be negative"),
+    ],
+)
+def test_a_passband_refuses_what_names_no_light(limits, axis, match):
+    with pytest.raises(ProcessingError, match=match):
+        spectra.Passband(limits, axis)
+
+
+def test_an_accessor_takes_a_passband():
+    output = example_output()
+    band = spectra.Passband((0.0, C / 800e-9), "f")
+    red = float(energy(output, plane=0, bandpass=band))
+    total = float(energy(output, plane=0))
+    assert 0.0 < red < total
 
 
 def test_specres_preserves_the_integral():

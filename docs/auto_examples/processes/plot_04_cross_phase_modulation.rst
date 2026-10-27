@@ -58,7 +58,7 @@ electronic coefficient across widely separated colours.
 The run
 -------
 
-.. GENERATED FROM PYTHON SOURCE LINES 45-73
+.. GENERATED FROM PYTHON SOURCE LINES 45-74
 
 .. code-block:: Python
 
@@ -88,6 +88,7 @@ The run
         wavelength_limits=(200e-9, 3e-6),
         n_save=301,
         progress="none",
+        seed=20261027,
     )
 
 
@@ -97,12 +98,12 @@ The run
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 74-76
+.. GENERATED FROM PYTHON SOURCE LINES 75-77
 
 Spectral and temporal evolution
 -------------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 76-87
+.. GENERATED FROM PYTHON SOURCE LINES 77-88
 
 .. code-block:: Python
 
@@ -110,7 +111,7 @@ Spectral and temporal evolution
     figures = prop_2d(
         run,
         "wavelength",
-        wavelength_range=(200e-9, 1.2e-6),
+        spec_range=(200e-9, 1.2e-6),
         trange=(-100e-15, 200e-15),
         db_min=-40,
     )
@@ -129,21 +130,21 @@ Spectral and temporal evolution
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 88-92
+.. GENERATED FROM PYTHON SOURCE LINES 89-93
 
 The seed's spectrum
 -------------------
 The ultraviolet part of the spectrum at the entrance and the exit, and the pulses in
 time at both ends.
 
-.. GENERATED FROM PYTHON SOURCE LINES 92-115
+.. GENERATED FROM PYTHON SOURCE LINES 93-116
 
 .. code-block:: Python
 
 
     fig, (left, right) = plt.subplots(1, 2, figsize=(10.0, 3.6))
     time_1d(run, z=[0.0, 1.0], trange=(-100e-15, 200e-15), ax=left)
-    spec_1d(run, z=[0.0, 1.0], ax=right, wavelength_range=(200e-9, 350e-9), log=False)
+    spec_1d(run, z=[0.0, 1.0], ax=right, spec_range=(200e-9, 350e-9), log=False)
     fig.tight_layout()
 
 
@@ -181,12 +182,12 @@ time at both ends.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 116-118
+.. GENERATED FROM PYTHON SOURCE LINES 117-119
 
 Runtime and reproducibility
 ----------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 118-120
+.. GENERATED FROM PYTHON SOURCE LINES 119-121
 
 .. code-block:: Python
 
@@ -200,7 +201,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    7 s; backend native
+    10 s; backend native
 
 
 
@@ -208,7 +209,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 6.540 seconds)
+   **Total running time of the script:** (0 minutes 9.624 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_04_cross_phase_modulation.py:

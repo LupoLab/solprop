@@ -85,7 +85,7 @@ The runs
 The run of the dispersive-wave example, with the electronic policy and the mode count
 as the only arguments. Every run takes the default backend.
 
-.. GENERATED FROM PYTHON SOURCE LINES 72-140
+.. GENERATED FROM PYTHON SOURCE LINES 72-141
 
 .. code-block:: Python
 
@@ -133,6 +133,7 @@ as the only arguments. Every run takes the default backend.
             n_save=151,
             materials=MaterialSelection(electronic=policy),
             progress="none",
+            seed=20261027,
         )
 
 
@@ -164,7 +165,7 @@ as the only arguments. Every run takes the default backend.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 141-147
+.. GENERATED FROM PYTHON SOURCE LINES 142-148
 
 The regions
 -----------
@@ -173,7 +174,7 @@ leg within helium's data), bounded (beyond the leg bound, inside the band edge) 
 best effort (beyond the band edge). Here the band runs to 82 nm, so all three occur,
 and the dispersive wave's band straddles the last two.
 
-.. GENERATED FROM PYTHON SOURCE LINES 147-154
+.. GENERATED FROM PYTHON SOURCE LINES 148-155
 
 .. code-block:: Python
 
@@ -199,7 +200,7 @@ and the dispersive wave's band straddles the last two.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 155-160
+.. GENERATED FROM PYTHON SOURCE LINES 156-161
 
 The dispersive wave and the pump
 --------------------------------
@@ -207,7 +208,7 @@ The energy of the 100-150 nm band along the fibre, the peak power of the pump, a
 exit spectrum below 400 nm with the bounded (light) and best-effort (dark) bands
 shaded; four modes, summed.
 
-.. GENERATED FROM PYTHON SOURCE LINES 160-213
+.. GENERATED FROM PYTHON SOURCE LINES 161-214
 
 .. code-block:: Python
 
@@ -284,7 +285,7 @@ shaded; four modes, summed.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 214-227
+.. GENERATED FROM PYTHON SOURCE LINES 215-228
 
 The pump's peak power oscillates along the second half of the fibre with a period of
 about 7 cm, in step under every policy, and is a few per cent lower under the
@@ -300,7 +301,7 @@ cent of the polynomial even here.
 The whole exit spectrum, on a logarithmic wavelength axis: away from the vacuum
 ultraviolet the three are hard to tell apart.
 
-.. GENERATED FROM PYTHON SOURCE LINES 227-247
+.. GENERATED FROM PYTHON SOURCE LINES 228-248
 
 .. code-block:: Python
 
@@ -336,7 +337,7 @@ ultraviolet the three are hard to tell apart.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 248-253
+.. GENERATED FROM PYTHON SOURCE LINES 249-254
 
 The sensitivity by mode count
 -----------------------------
@@ -344,7 +345,7 @@ The same three policies with one and two modes. The mode set changes the soliton
 dynamics, and with them how much the exit band depends on the vacuum-ultraviolet
 coefficients.
 
-.. GENERATED FROM PYTHON SOURCE LINES 253-285
+.. GENERATED FROM PYTHON SOURCE LINES 254-286
 
 .. code-block:: Python
 
@@ -401,7 +402,7 @@ coefficients.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 286-296
+.. GENERATED FROM PYTHON SOURCE LINES 287-297
 
 With two and four modes the dispersive responses give the band about 30 % more
 energy than the carrier policy; with one, about 55 % more. The two-mode reduced case
@@ -414,7 +415,7 @@ Where the plasma comes in
 With plasma on, the dispersive runs' lower peak power went with less energy lost
 (above). The same two policies without plasma, four modes:
 
-.. GENERATED FROM PYTHON SOURCE LINES 296-307
+.. GENERATED FROM PYTHON SOURCE LINES 297-308
 
 .. code-block:: Python
 
@@ -443,7 +444,7 @@ With plasma on, the dispersive runs' lower peak power went with less energy lost
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 308-315
+.. GENERATED FROM PYTHON SOURCE LINES 309-316
 
 Without plasma the dispersive response's peak power is lower again, by 8 %, its
 dispersive wave a fifth stronger, and the energy leaving the fibre the same. So the
@@ -453,7 +454,7 @@ pump keeps about 13 uJ more to the exit.
 Runtime and reproducibility
 ----------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 315-317
+.. GENERATED FROM PYTHON SOURCE LINES 316-318
 
 .. code-block:: Python
 
@@ -467,7 +468,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    53 s; backend native
+    517 s; backend native
 
 
 
@@ -475,7 +476,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 52.868 seconds)
+   **Total running time of the script:** (8 minutes 37.296 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_07_rdw_dispersive_kerr.py:

@@ -87,6 +87,7 @@ with warnings.catch_warnings():
         wavelength_limits=(120e-9, 3e-6),
         n_save=301,
         progress="none",
+        seed=20261027,
     )
 
 # %%
@@ -96,7 +97,7 @@ with warnings.catch_warnings():
 figures = prop_2d(
     run,
     "wavelength",
-    wavelength_range=(130e-9, 1.2e-6),
+    spec_range=(130e-9, 1.2e-6),
     trange=(-60e-15, 60e-15),
     db_min=-40,
 )
@@ -119,7 +120,7 @@ fig, (left, right) = plt.subplots(1, 2, figsize=(10.0, 3.6))
 left.plot(z, idler_energy * 1e6)
 left.set_xlabel("z (m)")
 left.set_ylabel("150-170 nm energy (uJ)")
-spec_1d(run, z=[0.0, 1.5], ax=right, wavelength_range=(130e-9, 1e-6))
+spec_1d(run, z=[0.0, 1.5], ax=right, spec_range=(130e-9, 1e-6))
 fig.tight_layout()
 
 launched = float(np.sum(energy(run, plane=0)))

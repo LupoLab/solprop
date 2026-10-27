@@ -10,7 +10,9 @@ loss on a constant operator; a driven bin with ``|Im D| h`` from 0.6 to 10; vary
 operators over at least a thousand steps, source-free and driven, with relative
 variation of ``D`` from 1e-3 to one half and loss, comparing the transported and
 untransported compensations with the uncompensated chord as a control; and a weak bin
-whose source rotates with its own free phase, as a noise-linear term does.
+whose source rotates with its own free phase, as a noise-linear term does. SEP 35's
+carrier frame adds a varying carrier and a source that cancels the operator's
+variation, so that the source's and the compensation's defects cancel.
 """
 
 import math
@@ -181,3 +183,50 @@ def test_a_source_rotating_with_the_free_phase(formulation):
         assert errors[0] > 1e3 * max(
             march(problem, 1.0, 1600, 4, "interaction"), np.finfo(float).eps
         )
+
+
+@pytest.mark.parametrize("compensation", ["transported", "untransported"])
+@pytest.mark.parametrize("order", [2, 4])
+def test_the_carrier_frame_follows_a_varying_carrier(compensation, order):
+    # SEP 35 section 4.5: a source rotating with a varying carrier, D = i (w0 + a z),
+    # leaves the chord's shift a residual phase a h^2 theta (1 - theta) / 2, which the
+    # polynomial resolves. w0 h runs from 20 to 5: far beyond what the unshifted
+    # history resolves (measured 2e-2 to 6e-2 unshifted, 840 to 2e8 times the
+    # shifted error), and three levels show the recurrence's order.
+    problem = chirped(2000.0, 20.0, 0.5, "rotating")
+    steps = (100, 200, 400)
+    shifted = [
+        march(problem, 1.0, n, order, "exponential", compensation, shift=True)
+        for n in steps
+    ]
+    unshifted = [
+        march(problem, 1.0, n, order, "exponential", compensation) for n in steps
+    ]
+    observed = [math.log2(shifted[i] / shifted[i + 1]) for i in range(2)]
+    # PEC q/(q+1) is order q + 1 globally; the same gate as the constant operator's.
+    assert all(order + 1 - 0.25 <= one <= order + 1 + 1.0 for one in observed), observed
+    assert all(error > 1e2 * one for error, one in zip(unshifted, shifted, strict=True))
+    assert shifted[-1] > 1e3 * np.finfo(float).eps
+
+
+def test_source_and_compensation_defects_cancel_under_the_carrier_frame():
+    # F(z, u) = -(D(z) - D(0)) u cancels the operator's variation: u = exp(D(0) z). The
+    # source and the transported compensation are each of order a z |u| and their
+    # defects cancel in the sum (SEP 35 section 4.5); the frame changes the source's
+    # samples and so how they cancel, not the result's order.
+    w0, a, alpha = 2000.0, 100.0, 0.5
+    start = 1j * w0 - alpha
+    problem = ScalarProblem(
+        lambda z: 1j * (w0 + a * z) - alpha,
+        lambda z: 1j * (w0 * z + a * z * z / 2) - alpha * z,
+        lambda z, u: -1j * a * z * u,
+        lambda z: np.exp(start * z),
+    )
+    steps = (400, 800, 1600)
+    errors = [march(problem, 1.0, n, 3, "exponential", shift=True) for n in steps]
+    observed = [math.log2(errors[i] / errors[i + 1]) for i in range(2)]
+    assert all(4 - 0.25 <= one <= 4 + 1.0 for one in observed), observed
+    # The unshifted march converges too (its compensation is the smooth part); the
+    # frame stays within an order of magnitude of it.
+    unshifted = march(problem, 1.0, steps[-1], 3, "exponential")
+    assert errors[-1] < 10 * unshifted

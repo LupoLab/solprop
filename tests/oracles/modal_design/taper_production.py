@@ -268,12 +268,15 @@ def production(case, count, per_straight, validity=None, **settings):
             raman=False,
             **(
                 {
-                    "schedule": fixed,
-                    "dz_max": step,
-                    "dz_init": step,
-                    "integrator": RungeKutta(),
+                    "noise": None,
+                    **{
+                        "schedule": fixed,
+                        "dz_max": step,
+                        "dz_init": step,
+                        "integrator": RungeKutta(),
+                    }
+                    | settings,
                 }
-                | settings
             ),
         )
         record = simulation.metadata().modal or {}

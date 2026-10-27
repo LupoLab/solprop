@@ -121,6 +121,7 @@ def simulation():
         # band rule, the default since, adds its taps to the record.
         integrator=RungeKutta(),
         plasma_integration="trapezoid",
+        noise=None,
     )
 
 
@@ -667,7 +668,7 @@ def test_the_run_record_is_what_it_was_before_the_printing(examples):
     for schema, literal in literals.items():
         # Keep the historical projection: schema 22 adds the held-current identity,
         # whose record and hash separation have their own held-source contract test,
-        # and schema 25 the precision, which its own resume test separates (SEP 33).
+        # and schema 26 the precision, which its own resume test separates (SEP 33).
         configuration = {
             key: value
             for key, value in metadata.configuration.items()
@@ -702,7 +703,7 @@ def test_the_run_record_names_its_power_convention(examples):
     # the spectral convention; a schema-5 record (which carries no material manifest)
     # reads back as the vacuum label.
     metadata = quiet(examples["Simulation"].metadata)
-    assert "optics spectra, poynting amplitudes, schema 26" in str(metadata)
+    assert "optics spectra, poynting amplitudes, schema 27" in str(metadata)
     older = replace(
         metadata, schema_version=5, quadrature=None, materials=MaterialManifest()
     )
@@ -992,7 +993,7 @@ def test_a_spatial_simulation_names_its_space():
         dz_init=grid.length,
     )
     simulation = Simulation.from_radial(
-        grid, space, SpatialMedium(), [], pulse, settings=settings
+        grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
     )
     assert "RadialGrid" in repr(simulation)
     assert "space:" in str(simulation)

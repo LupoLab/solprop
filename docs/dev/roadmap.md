@@ -39,7 +39,6 @@ being implemented.
   the A40, AMD Instinct GPUs and multi-core CPUs; `numba_cpu` and a fused batch axis
   stay open below.
 
-
 ## Draft enhancement proposals
 
 SEPs under discussion; their scope may change and implementation has not been accepted.
@@ -259,6 +258,14 @@ would remove the approximation.
 [SEP 16](seps/archive/sep-0016-unified-multistep.md) qualified modified-noise stepping while
 preserving the existing model; it did not remove this physical normalisation limitation.
 
+**The modified noise model's future.** With a unitary linear operator the modified model
+is the input model in shifted variables, and elsewhere it is an approximation of
+unqualified accuracy ([SEP 37](seps/archive/sep-0037-noise-and-stepper-defaults.md), §4.2). It is
+kept as it is, with no new work. Whether it stays is decided with
+[SEP 7](seps/sep-0007-laser-gain-dynamics.md): amplified spontaneous emission needs the
+noise to see only the emission gain, which its separate injection path could carry. If
+gain media take a gain Langevin term instead, the modified model is removed.
+
 ## Waveguides and geometries
 
 **Material absorption in step-index fibres.** The step-index eigenproblem takes the core
@@ -415,11 +422,25 @@ answer at ten steps whatever `rtol` ([the Adams methods](../guide/numerics/adams
 Sampling the residual without a source, as a cheap evaluation of the linear part
 alone, would put it under control.
 
+**The carrier frame's weak-band control and step floor.**
+[SEP 35](seps/archive/sep-0035-carrier-frame-exponential-adams.md)'s
+`carrier_frame="scalar"` gives a weakly populated, driven bin a residual rotation that the
+step-size norm, which the populated bins dominate, does not see: near the launch such a
+band came out a few hundred times less accurate at matched total-field error. Scoring a
+forming weak band in the norm, or a per-bin shift chosen by the source's own rotation
+rather than a frequency boundary, might keep the policy's calls and recover the bands.
+Two measured but unexplained costs belong with it: more calls where the in-stage collar
+binds the step (842 against the default's 754 on a short dense-gas window), and the cap's
+floor of about $|\kappa| L$ steps, not yet measured on a long, weakly nonlinear
+dense-gas propagation.
+
 **The exponential formulation beside the `modified` noise.** The noise's source is
 partly linear in each weak bin's own field and rotates with its free phase, which the
 exponential formulation interpolates in the laboratory frame. Until a
 developed noisy window, such as the CtC comb, measures it, the manual prefers
-`Multistep(formulation="interaction")` beside that noise.
+`Multistep(formulation="interaction")` beside that noise. [SEP 37](seps/archive/sep-0037-noise-and-stepper-defaults.md) (phase 0)
+measures both formulations with input noise on every interface; the modified case
+remains here.
 
 **Qualifying the TDSE response.** The helium TDSE response
 ([SEP 12](seps/archive/sep-0012-tdse-nonlinear-response.md),
@@ -434,7 +455,10 @@ on; numerical qualification over longer segments and other waveforms, then a
 full-length capillary demonstration with a worked example; and publication of the
 atomic provider, Pyroraptor ([dependencies](dependencies.md)), so that the response can
 be installed from a released package. Other gases, double ionisation and solver
-comparisons on the actual atomic source lie beyond these.
+comparisons on the actual atomic source lie beyond these. Input noise beside the response
+is admitted but off by default ([SEP 37](seps/archive/sep-0037-noise-and-stepper-defaults.md));
+its check is the weak-field response to the draw over a short segment. A full-length
+weak-field run against a pinned Pyroraptor release would qualify it.
 
 **A quadrature-error estimate on Cartesian waveguide runs.** A radial run scores its
 transverse quadrature against an embedded coarse rule and reports the difference as the
@@ -486,10 +510,14 @@ would need an error allocation over the table's frequency interpolation, the tra
 rule and the step, and named physical observables to allocate against; until then a
 number is refused rather than recorded and ignored.
 
-**Noise and batches beside a coupled flow.** A noise model beside a coupled flow (a wall
-or the taper coupling) is refused, because a draw's transport through the flow is not
-measured; so is a coupled flow in a lockstep batch. Both need a derivation and a test
-before they can be admitted.
+**Modified noise and batches beside a coupled flow.** The `modified` noise model
+beside a coupled flow (a wall, the taper coupling, a split block or a moving guide) is
+refused, because its kept-apart draw's transport through the flow is not measured; so
+is a coupled flow in a lockstep batch. Both need a derivation and a test before they
+can be admitted. [SEP 37](seps/archive/sep-0037-noise-and-stepper-defaults.md) (phase 3)
+admitted the `input` model there, whose draw is part of the launch. Its tests run on the
+reference and numba backends; the native backend beside a coupled flow with input noise
+is not yet qualified against them.
 
 **Independent spatial references for the vector and graded-index routes.** The scalar bore
 and taper are checked against an independent finite-element solve. The vector wall is
@@ -504,6 +532,12 @@ The [CPU performance record](cpu-performance.md) lists what has been tried, adop
 rejected on the compiled CPU backend, with its measurements; read it before taking up
 any of the first ten items.
 
+- **The Adams carrier frame on devices and on cheap sources**: native's
+  `carrier_frame="scalar"` kernels are written for host and device but refused on device
+  builds until a GPU segment runs their parity tests and ten-step timing; on CPU each step
+  costs 4–7 % more than the default's on a cheap source, which the per-history-row
+  rotation of the defect reducers could reduce
+  ([SEP 35](seps/archive/sep-0035-carrier-frame-exponential-adams.md)).
 - **BLAS threads in the Windows and manylinux recipes**: one OpenMP runtime for Kokkos,
   FFTW and OpenBLAS in the Windows wheel (set up in the wheels workflow, to be proved
   there and timed), the same check on the manylinux release recipe, and the Kokkos
@@ -513,7 +547,12 @@ any of the first ten items.
   within about 1 % of the pre-policy build on the 36-core Xeon (2026-10-22). Open items:
   - the scalar wall, 10 % slower there at the default width, against an A/A spread under
     1 % (on Apple silicon it is faster); find the cause;
-  - the taper, short-line and planar controls.
+  - the taper, short-line and planar controls;
+  - the stage and FFT starts on macOS, kept at 8,192 and 32,768 while Linux uses 4,096
+    and 16,384 ([smooth grid sizes](benchmarks.md#smooth-grid-sizes)): on Apple
+    silicon the serial stage is faster even at 8,196 elements, so sweep the crossover
+    there on a quiet machine (`native/benchmarks/size_cliffs.py` and the SSFS and
+    reduced comb-to-continuum cases) and set its own values.
 - **The multimode step at full width on Linux**: at 36 threads on the Xeon, general-modal
   RK is about 6 % slower than before the per-core changes (reduced comb-to-continuum is
   4 % faster). Estimate planning is as slow, so FFT plan selection is ruled out; find the
@@ -589,8 +628,8 @@ GPUs with slow double precision.
   Apple GPUs on the fibre, radial and Cartesian routes with every response but the
   refused ones. Its open questions: whether a rule comparing binary32 Adams with
   binary64 Adams should admit `Multistep()` under single precision (binary64 Adams has
-  the same errors at the tolerances the study used); `mlx` cases in the standard
-  benchmark suite (SEP 30); and a fused stage kernel for the launch-bound small plasma
+  the same errors at the tolerances the study used); `mlx` cases in the
+  benchmarks (SEP 38); and a fused stage kernel for the launch-bound small plasma
   capillaries. Open beyond it: single precision on
   `native` (proposed in [SEP 36](seps/sep-0036-native-reduced-precision.md), accepted)
   and `numba_cpu` (Kokkos, Kokkos Kernels and Kokkos-FFT support it on every
@@ -600,13 +639,12 @@ GPUs with slow double precision.
   would need a single-source C++ compiler for Metal (the runtime part is modest: 5 to
   10 thousand lines for each existing GPU backend).
 
-**Benchmark platform qualification beyond the initial CPU suite.**
-[SEP 30](seps/archive/sep-0030-standard-benchmark-suite.md) covers the standard suite, portable
-records and durable incremental exports, with CPU timing collections on macOS and
-Linux and an initial native coverage collection on macOS. Linux native coverage,
-Windows execution, cloud launch/collection recipes and GPU timing and coverage
-need separate qualification. Keep future platform results in distinct machine/build
-records; successful CPU coverage does not establish coverage of device code.
+**Benchmark platforms beyond CPU tracking.**
+[SEP 38](seps/archive/sep-0038-performance-tracking.md) (final) tracks native CPU and
+GPU runs per hardware set. The first history rows are recorded at the release commit on
+an Apple M5 Max, a 16-core AMD EPYC 7763 allocation and a cloud Arm Neoverse-V2
+instance, with Windows x86-64 occasionally; a GPU file, cloud launch recipes and an
+`mlx` backend in the tracking set remain to do.
 
 **Remaining benchmark references and estimates.** Complete independent reference
 checks for the 512-node radial filament, 128/256-square Cartesian filaments and

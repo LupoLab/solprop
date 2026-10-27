@@ -20,7 +20,12 @@ import numpy as np
 import numpy.typing as npt
 from solprop._helpers import Helpers
 from solprop.backends.driver import StepDriver
-from solprop.backends.exponential import refuse_formulation
+from solprop.backends.exponential import (
+    CarrierReference,
+    carrier_reference,
+    refuse_carrier_frame,
+    refuse_formulation,
+)
 from solprop.backends.low_storage import LowStorageMarch, schedule_key, table_steps
 from solprop.backends.memory import (
     LOCAL_FLUX_STATISTICS,
@@ -113,7 +118,7 @@ from solprop.translate.stage import (
 )
 from solprop.translate.tdse import TDSEPurpose
 
-from . import THREAD_BUDGET, _core, build_info, check_build
+from . import THREAD_BUDGET, WAIT_POLICY, _core, build_info, check_build
 from ._helpers import NATIVE
 
 type ComplexArray = npt.NDArray[np.complex128]
@@ -418,6 +423,7 @@ class NativeBackend(StepDriver[_core.State]):
             helpers=self.helpers,
             compensated=compensated,
             interpolate=self._problem.stepper.interpolate_planes,
+            carrier=carrier_reference(self._problem, method),
         )
         return self._resident
 
@@ -1416,6 +1422,7 @@ class NativeBackend(StepDriver[_core.State]):
             "solprop_version": facts.solprop_version,
             "thread_budget": THREAD_BUDGET.threads,
             "thread_budget_source": THREAD_BUDGET.source,
+            "openmp_wait_policy": WAIT_POLICY,
             "planning_seconds": self._native_state.planning_seconds,
             "raman_fft_provider": self._native_state.raman_fft_provider,
             "raman_fft_tasks": self._native_state.raman_fft_tasks,
@@ -1600,6 +1607,9 @@ class _ResidentAdams:
     interpolate: bool
     compensated: bool = False
     """Whether trials carry a varying operator's transported compensation."""
+    carrier: CarrierReference | None = None
+    """The run's carrier frame (solprop SEP 35): its shift is formed on the host from
+    the reference element's chord, one scalar a trial, and nothing is read back."""
     dense: None = None
     _trial: tuple[float, float, list[float], npt.NDArray[np.int64], int] | None = None
     _step: tuple[float, float, npt.NDArray[np.float64]] | None = None
@@ -1607,6 +1617,8 @@ class _ResidentAdams:
     _device_scale: bool = False
     _coefficients: npt.NDArray[np.float64] | None = None
     _dense_nodes: npt.NDArray[np.float64] | None = None
+    _trial_carrier: RealArray = dataclasses.field(default_factory=lambda: _NO_CARRIER)
+    _dense_carrier: RealArray = dataclasses.field(default_factory=lambda: _NO_CARRIER)
 
     def __post_init__(self) -> None:
         """Allocate the history's rows in the native state."""
@@ -1638,6 +1650,29 @@ class _ResidentAdams:
         """Forget the last accepted step and any trial in flight."""
         self._trial = None
         self._step = None
+        self._dense_carrier = _NO_CARRIER
+
+    def _carrier(self, z: float, dz: float, nodes: list[float], rows: int) -> RealArray:
+        """Return a trial's packed carrier frame, empty without one.
+
+        ``(Im sigma, Re f_0, Im f_0, ...)`` over the `rows` history rows the trial
+        reads, ``f_t = exp(sigma (1 - theta_t))``; ``sigma`` is the reference element's
+        chord over the step (solprop SEP 35 section 6.1), formed from the operator's
+        own representation, so a device build reads nothing back.
+        """
+        carrier = self.carrier
+        if carrier is None or not carrier.active:
+            return _NO_CARRIER
+        assert carrier.chord is not None
+        # One batch member per native state.
+        shift = float(np.imag(carrier.chord.exponent(z, z + dz))[0])
+        packed = np.empty(1 + 2 * rows, dtype=np.float64)
+        packed[0] = shift
+        # exp(i shift s) as NumPy's complex exponential forms it: exp(0) (cos + i sin).
+        spans = 1.0 - np.asarray(nodes[:rows], dtype=np.float64)
+        packed[1::2] = np.cos(shift * spans)
+        packed[2::2] = np.sin(shift * spans)
+        return packed
 
     def hold(self) -> object:
         """Keep the accepted state aside in the engine across a dense observation."""
@@ -1823,6 +1858,7 @@ class _ResidentAdams:
                 nodes, order, orders, helpers=self.helpers
             )
             rate = self.rate(z + dz, before=True)
+        carrier = self._carrier(z, dz, nodes, width - 1)
         with _envelope_errors():
             norms = self.native.adams_exponential_trial(
                 dz,
@@ -1840,8 +1876,10 @@ class _ResidentAdams:
                 np.ascontiguousarray(endpoint, dtype=np.float64),
                 np.ascontiguousarray(defects, dtype=np.float64).reshape(-1),
                 np.ascontiguousarray(rate, dtype=np.float64),
+                carrier,
             )
         self._trial = (z, dz, nodes, slots, order)
+        self._trial_carrier = carrier
         self._coefficients = corrector[: order + 1, : order + 1].copy()
         self._dense_nodes = np.array([1.0, *nodes[:order]])
         return np.asarray(norms, dtype=np.float64).reshape(-1)
@@ -1864,6 +1902,10 @@ class _ResidentAdams:
         coefficients = self._coefficients
         assert coefficients is not None
         self._step = (z, dz, coefficients) if interpolate else None
+        # The accepted step's shift and the rotations of the `order` history rows its
+        # interpolant reads, held across later trials and rejections.
+        trial = self._trial_carrier
+        self._dense_carrier = trial[: 1 + 2 * order] if trial.size else _NO_CARRIER
 
     def observe(self, position: float) -> object:
         """Interpolate the last accepted step natively into the engine's state."""
@@ -1886,6 +1928,7 @@ class _ResidentAdams:
                 np.ascontiguousarray(nodes, dtype=np.float64).reshape(-1),
                 np.ascontiguousarray(weights, dtype=np.float64),
                 np.ascontiguousarray(thetas, dtype=np.float64),
+                np.ascontiguousarray(self._dense_carrier),
             )
             return self.native
         theta = (position - z) / dz
@@ -1915,6 +1958,9 @@ class _ResidentAdams:
 
 _NO_DIVISOR = np.empty(0, dtype=np.float64)
 """The empty divisor that asks the native trial to form the scale itself."""
+
+_NO_CARRIER = np.empty(0, dtype=np.float64)
+"""The empty carrier frame: the native trial takes the unshifted arithmetic."""
 
 
 def _on_device() -> bool:
@@ -2317,6 +2363,14 @@ def _refuse_adams(problem: KernelProblem) -> None:
             "'exponential') or the Runge-Kutta march"
         )
     refuse_formulation(problem, "native")
+    # SEP 35 phase 3: the scalar shift on CPU builds; device builds wait for their
+    # qualification.
+    device = _on_device()
+    refuse_carrier_frame(
+        problem,
+        "native (device build)" if device else "native",
+        delivered=frozenset() if device else frozenset({"scalar"}),
+    )
 
 
 def _refuse_unsupported(problem: KernelProblem) -> None:

@@ -304,6 +304,7 @@ def capillary(composition: Mapping[str, float]) -> Simulation:
             raman=False,
             backend="numpy_ref",
             n_save=2,
+            noise=None,
         )
 
 

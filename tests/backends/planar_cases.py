@@ -88,6 +88,7 @@ def planar_case(name, *, steps=None, node_chunk=None):
         dz_init=LENGTH / steps,
         schedule=FixedSchedule(np.full(steps, LENGTH / steps)),
         backend="numpy_ref",
+        noise=None,
     )
     shares = gaussian_coupling(modes, 0.735 * HALF_GAP)
     pulse = simulation._field0[0]

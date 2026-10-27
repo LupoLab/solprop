@@ -120,6 +120,7 @@ def plasma(name: str) -> Simulation:
         plasma_integration="band" if name == "plasma_band" else "trapezoid",
         absorber_scheme="split_step",
         backend="numpy_ref",
+        seed=20261027,
     )
     if name != "ordinary_stats":
         simulation.settings = replace(
@@ -160,6 +161,7 @@ def dispersive() -> Simulation:
         trange=250e-15,
         materials=MaterialSelection(electronic="gas-polynomial"),
         backend="numpy_ref",
+        seed=20261027,
     )
 
 
@@ -202,6 +204,7 @@ def mixture_gradient() -> Simulation:
         energy=20e-6,
         n_r=8,
         backend="numpy_ref",
+        seed=20261027,
     )
 
 
@@ -223,6 +226,7 @@ def _dense_output() -> Simulation:
         dz_init=1e-4,
         dz_max=1.0,
         backend="numpy_ref",
+        seed=20261027,
     )
 
 

@@ -2061,7 +2061,7 @@ the profiles on an AMD GPU wait on a budget agreed with the maintainers (Q9).
   his human review be recorded. Review status is `Reviewed`; proposal status remains
   `Draft`.
 - 2026-10-25: Accepted by John Travers. Part I is frozen. The decision record of §9 is
-  written as ADR-055.
+  written as ADR-057.
 - 2026-10-25: Phase 1 implemented and reported (Part II). John Travers decided that
   phase 5's Adams rule (Q2) compares mixed Adams with mixed Runge–Kutta.
 
