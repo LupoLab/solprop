@@ -720,6 +720,7 @@ MODULES = {
                 "backend",
                 "batch",
                 "passes",
+                "transforms",
                 "single",
                 "admission",
                 "envelope_plasma",
