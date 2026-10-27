@@ -107,7 +107,9 @@ def _capillary(noise: str | None, **overrides: Any) -> Simulation:
     } | overrides
     radius = arguments.pop("radius", 100e-6)
     pressure = arguments.pop("pressure", 1.0)
-    return Simulation.from_capillary(radius, LENGTH, "He", pressure, **arguments)
+    return Simulation.from_capillary(
+        radius, LENGTH, "He", pressure, **{"noise": None, **arguments}
+    )
 
 
 def capillary_averaged(noise: str | None) -> Simulation:
@@ -230,7 +232,7 @@ def general_moving(noise: str | None, **overrides: Any) -> Simulation:
         **_run_keywords(),
     } | overrides
     return Simulation.from_waveguide(
-        (), LENGTH, provider=guide, grid=GRIN_GRID, **arguments
+        (), LENGTH, provider=guide, grid=GRIN_GRID, **{"noise": None, **arguments}
     )
 
 

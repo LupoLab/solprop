@@ -76,7 +76,7 @@ def selected():
 
 
 def test_the_current_schema_carries_the_manifest_through_memory_and_json(selected):
-    assert SCHEMA_VERSION == 25 == selected.schema_version
+    assert SCHEMA_VERSION == 26 == selected.schema_version
     memory = MemoryOutput()
     memory.open(selected)
     stored: Any = memory.metadata
@@ -208,7 +208,7 @@ def run_metadata(gas: str, materials: MaterialSelection, **changes: Any) -> Any:
         n_save=2,
         backend="numpy_ref",
         materials=materials,
-        **options,
+        **{"noise": None, **options},
     ).metadata()
 
 

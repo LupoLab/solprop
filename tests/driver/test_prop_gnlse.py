@@ -86,7 +86,7 @@ def cheap(**keywords):
         settings.pop("gamma"),
         settings.pop("length"),
         settings.pop("betas"),
-        **settings,
+        **{"noise": None, **settings},
     )
 
 
@@ -113,7 +113,7 @@ def cheap_bound(**keywords):
         settings.pop("gamma"),
         settings.pop("length"),
         settings.pop("betas"),
-        **settings,
+        **{"noise": None, **settings},
     )
     return simulation_bound(simulation)
 

@@ -134,7 +134,7 @@ def build(guide, grid, *, channel=0, length=GENERAL_Z_END, **overrides):
         save_planes=[length],
         dz_max=length / STEPS,
         dz_init=length / STEPS,
-        **(PULSE | overrides),
+        **({"noise": None, **PULSE | overrides}),
     )
 
 

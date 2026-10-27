@@ -70,7 +70,7 @@ def capillary(
         "backend": "numpy_ref",
         "materials": materials,
     } | changes
-    return Simulation.from_capillary(50e-6, LENGTH, gas, **options)
+    return Simulation.from_capillary(50e-6, LENGTH, gas, **{"noise": None, **options})
 
 
 def the_raman(simulation: Any) -> Any:

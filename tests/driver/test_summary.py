@@ -80,12 +80,16 @@ CAPILLARY = {
 
 def gnlse(**changes):
     """Return a GNLSE simulation of a centimetre of fibre."""
-    return Simulation.from_gnlse(0.11, 0.01, [0.0, 0.0, -1.183e-26], **GNLSE | changes)
+    return Simulation.from_gnlse(
+        0.11, 0.01, [0.0, 0.0, -1.183e-26], **{"noise": None, **GNLSE | changes}
+    )
 
 
 def capillary(pressure: Any = 1.0, gas: Any = "He", **changes):
     """Return a gas-filled capillary simulation a millimetre long."""
-    return Simulation.from_capillary(125e-6, 1e-3, gas, pressure, **CAPILLARY | changes)
+    return Simulation.from_capillary(
+        125e-6, 1e-3, gas, pressure, **{"noise": None, **CAPILLARY | changes}
+    )
 
 
 def summary_of(simulation, *, backend="numpy_ref", execution=None, **keywords):

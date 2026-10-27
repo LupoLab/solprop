@@ -188,8 +188,10 @@ def gnlse_runs(strand, area, n2):
         "progress": "none",
         "backend": "numpy_ref",
     }
-    linear = cast("MemoryOutput", prop_gnlse(0.0, LENGTH, **common))
-    nonlinear = cast("MemoryOutput", prop_gnlse(None, LENGTH, n2=n2, **common))
+    linear = cast("MemoryOutput", prop_gnlse(0.0, LENGTH, **{"noise": None, **common}))
+    nonlinear = cast(
+        "MemoryOutput", prop_gnlse(None, LENGTH, n2=n2, **{"noise": None, **common})
+    )
     return {
         name: (
             np.array(cast("np.ndarray", run.planes()[-1].field)[0, 0]),

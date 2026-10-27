@@ -144,7 +144,9 @@ def capillary(
         "schedule": FixedSchedule.uniform(0.0, length, length / 16),
         "absorber_scheme": "split_step",
     } | overrides
-    return Simulation.from_capillary(50e-6, length, gas, 1.0, **keywords)
+    return Simulation.from_capillary(
+        50e-6, length, gas, 1.0, **{"noise": None, **keywords}
+    )
 
 
 def loaded(simulation: Simulation, cleanup: ExitStack | None = None) -> Backend:
@@ -279,11 +281,13 @@ def test_a_resume_in_the_other_precision_is_refused(tmp_path):
             "width": 50e-15, "peak_power": 10.0, "pulseshape": "sech", "n_save": 2,
             "backend": "numpy_ref", "integrator": RungeKutta(), "progress": "none",
         }  # fmt: skip
-        prop_gnlse(0.11, 0.01, [0.0, 0.0, -1e-26], output=path, **keywords)
+        prop_gnlse(
+            0.11, 0.01, [0.0, 0.0, -1e-26], output=path, **{"noise": None, **keywords}
+        )
         with pytest.raises(Exception, match="precision"):
             prop_gnlse(
                 0.11, 0.01, [0.0, 0.0, -1e-26], output=path, resume=True,
-                precision="single", **keywords,
+                precision="single", **{"noise": None, **keywords},
             )  # fmt: skip
 
 

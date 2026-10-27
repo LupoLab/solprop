@@ -74,7 +74,9 @@ def _capillary(**changes):
     values.update(changes)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
-        return Simulation.from_capillary(256e-6, _LENGTH, "He", 0.1, **values)
+        return Simulation.from_capillary(
+            256e-6, _LENGTH, "He", 0.1, **{"noise": None, **values}
+        )
 
 
 def test_tdse_keyword_builds_the_one_response_run_in_one_step(caplog):

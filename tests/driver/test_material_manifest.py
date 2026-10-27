@@ -113,7 +113,10 @@ def capillary(
     """The capillary simulation of `capillary_options`, loosely typed for reading."""
     options = capillary_options(materials, **changes)
     return Simulation.from_capillary(
-        options.pop("radius"), options.pop("length"), options.pop("gas"), **options
+        options.pop("radius"),
+        options.pop("length"),
+        options.pop("gas"),
+        **{"noise": None, **options},
     )
 
 
@@ -173,7 +176,10 @@ def test_the_absent_keyword_is_the_default_selection():
     options = capillary_options(materials=SELECTION)
     del options["materials"]
     absent = Simulation.from_capillary(
-        options.pop("radius"), options.pop("length"), options.pop("gas"), **options
+        options.pop("radius"),
+        options.pop("length"),
+        options.pop("gas"),
+        **{"noise": None, **options},
     )
     assert (
         absent.metadata().configuration_hash()
@@ -245,10 +251,14 @@ def test_a_gnlse_run_records_its_selection_and_changes_nothing_else():
         0.01,
         [0.0, 0.0, -1.183e-26],
         materials=MaterialSelection(electronic="carrier-kerr"),
-        **options,
+        **{"noise": None, **options},
     )
     selected = Simulation.from_gnlse(
-        0.11, 0.01, [0.0, 0.0, -1.183e-26], materials=SELECTION, **options
+        0.11,
+        0.01,
+        [0.0, 0.0, -1.183e-26],
+        materials=SELECTION,
+        **{"noise": None, **options},
     )
     manifest = selected.metadata().materials
     assert not manifest.empty and manifest.records == ()
@@ -494,7 +504,9 @@ def test_a_waveguide_fill_resolves_and_its_supplied_modes_keep_their_cladding():
     options = capillary_options()
     for name in ("radius", "n_r", "gas", "pressure", "length"):
         options.pop(name)
-    simulation: Any = Simulation.from_waveguide(supplied, LENGTH, "Ar", 1.0, **options)
+    simulation: Any = Simulation.from_waveguide(
+        supplied, LENGTH, "Ar", 1.0, **{"noise": None, **options}
+    )
     assert simulation.modes[0].cladding is supplied[0].cladding
     assert isinstance(
         simulation.modes[0].mixture.components[0].species.susceptibility,
@@ -541,10 +553,10 @@ def test_ten_steps_write_the_manifest_and_a_changed_identity_is_refused(tmp_path
         options.pop("gas"),
         output=path,
         progress="none",
-        **options,
+        **{"noise": None, **options},
     )
     stored: Any = open_file(path).metadata
-    assert stored.schema_version == 25
+    assert stored.schema_version == 26
     assert names(stored.materials) == [
         "eos/Ar",
         "fit/Ar",

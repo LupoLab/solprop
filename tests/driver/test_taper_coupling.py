@@ -290,7 +290,9 @@ def test_a_supplied_set_couples_through_from_waveguide_and_a_provider_refuses_it
         "plasma": False,
         "raman": False,
     }
-    coupled = Simulation.from_waveguide(modes, LENGTH, "He", 1.0, **arguments)
+    coupled = Simulation.from_waveguide(
+        modes, LENGTH, "He", 1.0, **{"noise": None, **arguments}
+    )
     assert coupled.translate().linear.coupled_flow is not None
     adiabatic = Simulation.from_waveguide(
         modes,
@@ -298,7 +300,7 @@ def test_a_supplied_set_couples_through_from_waveguide_and_a_provider_refuses_it
         "He",
         1.0,
         taper_coupling=False,
-        **arguments,
+        **{"noise": None, **arguments},
     )
     assert adiabatic.translate().linear.coupled_flow is None
     with pytest.raises(DriverError, match="taper_coupling=False"):

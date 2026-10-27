@@ -259,7 +259,7 @@ def walk_off(backend, integrator, rtol=1e-8, **options):
         integrator=integrator,
         rtol=rtol,
         backend=backend,
-        **GRID,
+        **{"noise": None, **GRID},
         **(PULSE | {"energy": 1e-9}),
         **options,
     )

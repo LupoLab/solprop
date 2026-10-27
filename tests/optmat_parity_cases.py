@@ -166,7 +166,9 @@ def _capillary(
         "materials": SELECTION,
     } | changes
     pressure = options.pop("pressure")
-    return Simulation.from_capillary(50e-6, length, gas, pressure, **options)
+    return Simulation.from_capillary(
+        50e-6, length, gas, pressure, **{"noise": None, **options}
+    )
 
 
 def _gradient(fractions: dict[str, float], pressures, selection=SELECTION) -> Mixture:

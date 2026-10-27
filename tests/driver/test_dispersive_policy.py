@@ -51,7 +51,9 @@ def capillary(policy: str = "gas-polynomial", gas: Any = "Ar", **overrides: Any)
         "backend": "numpy_ref",
         "materials": MaterialSelection(electronic=policy),
     } | overrides
-    return Simulation.from_capillary(50e-6, LENGTH, gas, 1.0, **arguments)
+    return Simulation.from_capillary(
+        50e-6, LENGTH, gas, 1.0, **{"noise": None, **arguments}
+    )
 
 
 @pytest.mark.parametrize(

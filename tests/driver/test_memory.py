@@ -341,7 +341,12 @@ def test_a_large_guide_is_refused_before_its_reference_is_built(guide):
     try:
         with pytest.raises(MemoryBudgetError, match="before they are built"):
             Simulation.from_waveguide(
-                (), 1e-3, provider=guide, grid=grid, memory_budget="8 GiB", **GUIDE_RUN
+                (),
+                1e-3,
+                provider=guide,
+                grid=grid,
+                memory_budget="8 GiB",
+                **{"noise": None, **GUIDE_RUN},
             )
         _, peak = tracemalloc.get_traced_memory()
     finally:
@@ -365,7 +370,7 @@ def test_a_guide_over_a_warning_budget_is_warned_on_and_built(guide, no_declarat
             provider=guide,
             grid=grin_grid(),
             memory_budget="warn: 1 kB",
-            **GUIDE_RUN,
+            **{"noise": None, **GUIDE_RUN},
         )
     assert simulation.general is not None
 

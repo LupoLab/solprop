@@ -107,7 +107,7 @@ def test_public_interfaces_share_the_default_and_preserve_explicit_choices(
                 width=100e-15,
                 pulseshape="sech",
                 peak_power=1.0,
-                **keywords,
+                **{"noise": None, **keywords},
             )
         elif kind in {"capillary", "waveguide"}:
             interface = (
@@ -180,11 +180,13 @@ def test_auto_runs_a_z_table_taper_on_the_native_cpu_build():
             "dz_max": 2e-3,
             "n_save": 2,
         }
-        coupled = Simulation.from_capillary(taper, 1.0, "He", 1.5, **arguments)
+        coupled = Simulation.from_capillary(
+            taper, 1.0, "He", 1.5, **{"noise": None, **arguments}
+        )
         assert coupled.translate().device_ready
         assert coupled.translate().linear.coupled_flow is not None
         simulation = Simulation.from_capillary(
-            taper, 1.0, "He", 1.5, taper_coupling=False, **arguments
+            taper, 1.0, "He", 1.5, taper_coupling=False, **{"noise": None, **arguments}
         )
         problem = simulation.translate()
     assert problem.linear.phi_representation == "table"

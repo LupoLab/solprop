@@ -91,7 +91,9 @@ def capillary(
     } | overrides
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
-        return Simulation.from_capillary(75e-6, LENGTH, gas, 2.0, **arguments)
+        return Simulation.from_capillary(
+            75e-6, LENGTH, gas, 2.0, **{"noise": None, **arguments}
+        )
 
 
 def node_field(problem, bundle):

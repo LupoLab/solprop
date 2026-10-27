@@ -90,7 +90,11 @@ def _capillary(modes, **overrides):
     """Build the capillary entry's run of `modes`, a count or a supplied set."""
     return _weak_collar(
         Simulation.from_capillary(
-            RADIUS, LENGTH, "He", 1.0, **_keywords(modes=modes, **overrides)
+            RADIUS,
+            LENGTH,
+            "He",
+            1.0,
+            **{"noise": None, **_keywords(modes=modes, **overrides)},
         )
     )
 
@@ -104,7 +108,11 @@ def _field(entry, kind, backend):
     else:
         simulation = _weak_collar(
             Simulation.from_waveguide(
-                modes, LENGTH, "He", 1.0, **_keywords(backend=backend)
+                modes,
+                LENGTH,
+                "He",
+                1.0,
+                **{"noise": None, **_keywords(backend=backend)},
             )
         )
     return np.asarray(simulation.run()["field"])

@@ -211,7 +211,7 @@ def capillary(
         "He",
         pressure,
         wall=wall,
-        **arguments,
+        **{"noise": None, **arguments},
     )
 
 
@@ -251,7 +251,7 @@ def run_capillary(
             "He",
             1.0,
             wall=wall,
-            **arguments,
+            **{"noise": None, **arguments},
         ),
     )
 
@@ -494,7 +494,7 @@ def test_the_route_records_its_flow_on_the_schema_seven_identity():
     assert record["residual_norm_bound"] == 0.0
     assert record["radius"] == RADIUS
     assert 0.0 < float(cast("float", record["quasi_static"])) < 0.25
-    assert metadata.schema_version == 25
+    assert metadata.schema_version == 26
     assert capability_of(metadata) == "modal"
     assert "mean impedance coherent wall" in str(metadata)
     # Nothing that is not a scalar reaches the resume key.
@@ -1421,22 +1421,32 @@ GNLSE_FIBRE = (0.11, LEGACY_LENGTH, [0.0, 0.0, -1.183e-26])
 def legacy_capillary(backend):
     """Return a ten-step two-mode capillary run of the pre-wall route."""
     return prop_capillary(
-        125e-6, LEGACY_LENGTH, "He", 1.0, **legacy_capillary_keywords(backend)
+        125e-6,
+        LEGACY_LENGTH,
+        "He",
+        1.0,
+        **{"noise": None, **legacy_capillary_keywords(backend)},
     )
 
 
 def legacy_gnlse(backend):
     """Return a ten-step GNLSE run of the soliton case."""
-    return prop_gnlse(*GNLSE_FIBRE, **legacy_gnlse_keywords(backend))
+    return prop_gnlse(*GNLSE_FIBRE, **{"noise": None, **legacy_gnlse_keywords(backend)})
 
 
 def legacy_simulation(entry):
     """Return the simulation a legacy entry point runs, for its rounding budget."""
     if entry == "prop_capillary":
         return Simulation.from_capillary(
-            125e-6, LEGACY_LENGTH, "He", 1.0, **legacy_capillary_keywords("numpy_ref")
+            125e-6,
+            LEGACY_LENGTH,
+            "He",
+            1.0,
+            **{"noise": None, **legacy_capillary_keywords("numpy_ref")},
         )
-    return Simulation.from_gnlse(*GNLSE_FIBRE, **legacy_gnlse_keywords("numpy_ref"))
+    return Simulation.from_gnlse(
+        *GNLSE_FIBRE, **{"noise": None, **legacy_gnlse_keywords("numpy_ref")}
+    )
 
 
 @pytest.mark.medium
@@ -1555,7 +1565,7 @@ def varying(
         "He",
         pressure,
         wall=wall,
-        **arguments,
+        **{"noise": None, **arguments},
     )
 
 
@@ -2979,7 +2989,7 @@ def _vector_taper_run(**overrides) -> MemoryOutput:
         arguments["integrator"] = RungeKutta()
     return cast(
         "MemoryOutput",
-        prop_capillary(taper(), LENGTH, "He", 1.0, **arguments),
+        prop_capillary(taper(), LENGTH, "He", 1.0, **{"noise": None, **arguments}),
     )
 
 
@@ -3795,7 +3805,7 @@ def test_prop_capillary_runs_a_cf4_wall_end_to_end_and_records_its_guards():
             "He",
             1.0,
             wall=CF4_WALL,
-            **arguments,
+            **{"noise": None, **arguments},
         ),
     )
     frozen = cast(
@@ -3806,7 +3816,7 @@ def test_prop_capillary_runs_a_cf4_wall_end_to_end_and_records_its_guards():
             "He",
             1.0,
             wall=CoherentWall(),
-            **arguments,
+            **{"noise": None, **arguments},
         ),
     )
     written = walled.metadata

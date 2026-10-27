@@ -723,7 +723,7 @@ def step_index(radius, contrast, wavelength=1064e-9, core=1.45, grid=None):
         fwhm=100e-15,
         energy=1e-12,
         n_save=2,
-        **grid,
+        **{"noise": None, **grid},
     )
 
 

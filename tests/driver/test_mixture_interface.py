@@ -55,19 +55,22 @@ def construct(mixture, grid, **options):
         mixture,
         **(
             {
-                "lambda0": 800e-9,
-                "grid": grid,
-                "thg": False,
-                "fwhm": 10e-15,
-                "energy": 1e-9,
-                "n_r": 8,
-                "n_save": 2,
-                "plasma": {mixture.labels[0]: AnalyticRate()},
-                "loss": False,
-                "cladding": 1.45,
-                "ionisation_field_range": (1e7, 1e11),
+                "noise": None,
+                **{
+                    "lambda0": 800e-9,
+                    "grid": grid,
+                    "thg": False,
+                    "fwhm": 10e-15,
+                    "energy": 1e-9,
+                    "n_r": 8,
+                    "n_save": 2,
+                    "plasma": {mixture.labels[0]: AnalyticRate()},
+                    "loss": False,
+                    "cladding": 1.45,
+                    "ionisation_field_range": (1e7, 1e11),
+                }
+                | options,
             }
-            | options
         ),
     )
 

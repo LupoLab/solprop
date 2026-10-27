@@ -103,7 +103,9 @@ def capillary(
         **ENVELOPE_GRID,
         **changes,
     }
-    return Simulation.from_capillary(radius, length, "Ar", PRESSURE, **arguments)
+    return Simulation.from_capillary(
+        radius, length, "Ar", PRESSURE, **{"noise": None, **arguments}
+    )
 
 
 def assert_coupled(report: CouplingReport, received=None) -> None:

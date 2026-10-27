@@ -61,7 +61,7 @@ def _build(radius, pressure, vacuum_end, **overrides):
             energy=10e-6,
             wavelength_limits=(300e-9, 2e-6),
             trange=400e-15,
-            **extra,
+            **{"noise": None, **extra},
             **overrides,
         )
 

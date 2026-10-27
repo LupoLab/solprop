@@ -81,7 +81,7 @@ def ordinary(backend="numpy_ref", integrator=None, **keywords):
         step_planes=1,
         dz_init=1e-4,
         dz_max=1e-4,
-        **keywords,
+        **{"noise": None, **keywords},
     )
 
 

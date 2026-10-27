@@ -75,7 +75,7 @@ def build(pressure: float | tuple[float, float] = 0.0, length=0.01, **overrides)
         length,
         "Ar",
         pressure,
-        **(keywords(length, **overrides)),
+        **({"noise": None, **keywords(length, **overrides)}),
     )
 
 
@@ -254,7 +254,7 @@ def test_mixture_rebinding_preserves_subclass():
         15e-6,
         0.01,
         mixture,
-        **(keywords(lattice=None, modes=[original])),
+        **({"noise": None, **keywords(lattice=None, modes=[original])}),
     )
     assert isinstance(simulation.modes[0], VincettiMode)
     assert simulation.modes[0].mixture is mixture
@@ -331,7 +331,7 @@ def test_argon_kerr_readback_and_resume(tmp_path):
             length,
             "Ar",
             1.0,
-            **settings,
+            **{"noise": None, **settings},
             progress=NullReporter(),
         )
     path = tmp_path / "vincetti.h5"
@@ -342,7 +342,7 @@ def test_argon_kerr_readback_and_resume(tmp_path):
             length,
             "Ar",
             1.0,
-            **settings,
+            **{"noise": None, **settings},
             output=path,
             progress=Interrupt(),
         )
@@ -354,7 +354,7 @@ def test_argon_kerr_readback_and_resume(tmp_path):
             length,
             "Ar",
             1.0,
-            **settings,
+            **{"noise": None, **settings},
             output=path,
             resume=True,
             progress=NullReporter(),
@@ -373,7 +373,9 @@ def test_argon_kerr_readback_and_resume(tmp_path):
         peak = float(np.max(abs(whole["field"])))
         departure = float(np.max(abs(stored["field"] - whole["field"]))) / peak
         if continued:
-            simulation = Simulation.from_capillary(15e-6, length, "Ar", 1.0, **settings)
+            simulation = Simulation.from_capillary(
+                15e-6, length, "Ar", 1.0, **{"noise": None, **settings}
+            )
             assert_matched(
                 stored["field"], whole["field"], simulation_bound(simulation)
             )

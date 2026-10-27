@@ -145,14 +145,17 @@ def build(guide, grid, *, steps=STEPS, length=LENGTH, **overrides):
         grid=grid,
         **(
             {
-                "save_planes": [length],
-                "dz_max": length / steps,
-                "dz_init": length / steps,
-                "schedule": FixedSchedule(np.full(steps, length / steps)),
-                "backend": "numpy_ref",
+                "noise": None,
+                **{
+                    "save_planes": [length],
+                    "dz_max": length / steps,
+                    "dz_init": length / steps,
+                    "schedule": FixedSchedule(np.full(steps, length / steps)),
+                    "backend": "numpy_ref",
+                }
+                | GRIN_PULSE
+                | overrides,
             }
-            | GRIN_PULSE
-            | overrides
         ),
     )
 
@@ -386,7 +389,7 @@ def test_a_moving_guide_s_channels_are_the_guide_s_own_and_a_mode_set_is_refused
             provider=kinked,
             grid=grid,
             save_planes=[LENGTH],
-            **GRIN_PULSE,
+            **{"noise": None, **GRIN_PULSE},
         )
 
 
@@ -965,7 +968,14 @@ def test_one_step_index_channel_agrees_with_the_specified_mode_path(record_prope
             LENGTH,
             provider=guide_for(profile, kerr=kerr),
             grid=field_grid,
-            **({key: value for key, value in common.items() if key != "progress"}),
+            **(
+                {
+                    "noise": None,
+                    **{
+                        key: value for key, value in common.items() if key != "progress"
+                    },
+                }
+            ),
         )
         simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
         return analytic_field(
@@ -990,7 +1000,7 @@ def test_one_step_index_channel_agrees_with_the_specified_mode_path(record_prope
                 grid=envelope_grid,
                 fibre=mode,
                 shock=True,
-                **common,
+                **{"noise": None, **common},
             ),
         )
         return analytic_field(
@@ -1144,7 +1154,7 @@ def kinked_run(kinked):
         dz_init=LENGTH / STEPS,
         schedule=FixedSchedule(np.full(STEPS, LENGTH / STEPS)),
         backend="numpy_ref",
-        **GRIN_PULSE,
+        **{"noise": None, **GRIN_PULSE},
     )
     # As `kinked_problem`: ten 1e-4 m steps are beyond the default collar's explicit
     # stability, and the collar is not what is under test.

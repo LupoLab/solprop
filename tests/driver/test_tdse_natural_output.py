@@ -75,7 +75,12 @@ def _simulation(**changes):
         # A micrometre-long manufactured fill is far outside the laminar regime.
         warnings.simplefilter("ignore", GasFlowWarning)
         return Simulation.from_capillary(
-            256e-6, _LENGTH, "He", pressure, vacuum_end="floor", **values
+            256e-6,
+            _LENGTH,
+            "He",
+            pressure,
+            vacuum_end="floor",
+            **{"noise": None, **values},
         )
 
 

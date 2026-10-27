@@ -87,7 +87,7 @@ def capillary(materials: MaterialSelection | None = SELECTION, **changes: Any) -
         given.pop("radius"),
         given.pop("length"),
         given.pop("gas"),
-        **given,
+        **{"noise": None, **given},
     )
 
 

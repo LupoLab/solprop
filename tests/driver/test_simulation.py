@@ -266,7 +266,7 @@ def capillary(pressure=1.0, **overrides):
     """Build a small capillary simulation."""
     with quiet():
         return Simulation.from_capillary(
-            125e-6, 1e-3, "He", pressure, **(CAPILLARY | overrides)
+            125e-6, 1e-3, "He", pressure, **({"noise": None, **CAPILLARY | overrides})
         )
 
 

@@ -78,7 +78,7 @@ def test_gradient_runs_with_one_parameter_on_both_backends():
             "Ar",
             (1.0, 1.2),
             modes=[mode],
-            **(settings(backend="numpy_ref")),
+            **({"noise": None, **settings(backend="numpy_ref")}),
         )
         problem = simulation.translate()
         reference = simulation.run(progress=NullReporter())
@@ -88,7 +88,7 @@ def test_gradient_runs_with_one_parameter_on_both_backends():
             "Ar",
             (1.0, 1.2),
             modes=[mode],
-            **(settings(backend="numba_cpu")),
+            **({"noise": None, **settings(backend="numba_cpu")}),
             progress=NullReporter(),
         )
     assert problem.linear.phi_expansion is not None
@@ -119,7 +119,7 @@ def test_filled_table_runs_and_gradient_is_refused():
             "Ar",
             1.0,
             modes=[mode],
-            **(settings()),
+            **({"noise": None, **settings()}),
             progress=NullReporter(),
         )
     assert np.all(np.isfinite(output["field"]))
@@ -130,7 +130,7 @@ def test_filled_table_runs_and_gradient_is_refused():
             "Ar",
             (1.0, 1.2),
             modes=[mode],
-            **(settings()),
+            **({"noise": None, **settings()}),
         )
 
 
@@ -174,7 +174,7 @@ def test_mixture_rebinding_and_species_material_output(cls):
         0.001,
         mixture,
         modes=[mode],
-        **(settings()),
+        **({"noise": None, **settings()}),
     )
     metadata = simulation.metadata()
     assert "medium" in metadata.configuration
@@ -192,7 +192,7 @@ def test_mixed_set_uses_existing_orthonormality_guard():
         "Ar",
         1.0,
         modes=[table, second],
-        **(settings(trange=200e-15)),
+        **({"noise": None, **settings(trange=200e-15)}),
     )
     assert len(valid.modes) == 2
     # A tabulated HE11 beside an analytic one is the same channel twice, and a
@@ -204,7 +204,7 @@ def test_mixed_set_uses_existing_orthonormality_guard():
             "Ar",
             1.0,
             modes=[table, MarcatiliMode(15e-6)],
-            **(settings()),
+            **({"noise": None, **settings()}),
         )
     # The orthonormality gate is for a set that is not a repeat: a mode and a
     # partner turned by 0.3 rad are two channels whose overlap is cos(0.3).
@@ -215,5 +215,5 @@ def test_mixed_set_uses_existing_orthonormality_guard():
             "Ar",
             1.0,
             modes=[table, MarcatiliMode(15e-6).rotated(0.3)],
-            **(settings()),
+            **({"noise": None, **settings()}),
         )
