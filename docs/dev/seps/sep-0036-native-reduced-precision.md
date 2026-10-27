@@ -2162,6 +2162,54 @@ $2^{14}$ and $2^{15}$ samples in mixed precision (the lockstep batch, 4.69×10�
 a later SEP; it is listed on the roadmap. Concurrent processes never beat the lockstep
 batch, so the guide advises batches for an ensemble on one GPU.
 
+### Noise study: frozen cases (recorded 2026-10-27, before any candidate comparison)
+
+Approved by John Travers (checkpoint 4). Nothing below has been compared in mixed
+precision; the only runs made are binary64 pilots that fixed `scg_incoherent`'s pump
+(native, rtol 10⁻⁷, 16 seeds, input noise, 32 bands above −30 dB of the ensemble's
+mean spectrum):
+
+| pump FWHM | bands with $\lvert g_{12}\rvert < 0.5$ | mean band $\lvert g_{12}\rvert$ |
+|---|---|---|
+| 20 fs | 58 % | 0.48 |
+| 30 fs | 50 % | 0.53 |
+| 40 fs | 46 % | 0.55 |
+| 50 fs | 46 % | 0.53 |
+| 88 fs | 96 % | 0.12 |
+| 100–1000 fs | 100 % | 0.058–0.098 |
+
+At 50 fs, Part I's pump, the ensemble is only partly coherent on this metric; shorter
+pumps are no more coherent, since the −30 dB selection takes in incoherent wings at
+every pump. `scg_coherent` keeps Part I's definition: the criteria judge rounding
+against the seed whatever the coherence.
+
+**The cases.** Each takes SEP 38's definition (`benchmarks/builders.py`) where one
+exists, at its interface's defaults, with SEP 38's noise seed base:
+
+| id | definition | grid | length |
+|---|---|---|---|
+| `scg_coherent` | SEP 38's `gnlse_raman_shock` (Dudley, Genty and Coen: γ 0.11 W⁻¹m⁻¹, β₂…β₁₀ at 835 nm, Raman and shock, sech, 10 kW) with the pump at 50 fs FWHM | 400 nm–2 µm, 12.5 ps: $2^{14}$ samples | 0.15 m |
+| `scg_incoherent` | `gnlse_raman_shock` as SEP 38 defines it: the pump at 88.15 fs FWHM | the same | 0.15 m |
+| `rdw_noise` | SEP 38's `rdw`: He, 125 µm, 0.8 → 0 bar, 7.5 fs, 275 µJ, 800 nm, four modes | 90 nm–4 µm, 400 fs | 1.5 m |
+| `ctc_noise` | this SEP's `ctc` (H₂, 16 µm, 40 bar, 515 nm, 400 fs, 10 µJ, Raman at 294 K, one mode) | 250 nm–2 µm, 2 ps | 0.025 m, its limit on native (above) |
+| `radial_filament_noise` | SEP 38's `radial_filament_256`: Ar, 1 bar, 3 $P_\mathrm{cr}$, 30 fs, 100 µm, 256 radial nodes, plasma | 350 nm–2 µm, 250 fs | 0.03 m |
+
+**Settings common to every case.**
+- Backend `native` for both arms, on one build and one device.
+- Integrator `RungeKutta()` in both arms: mixed precision refuses Adams until phase 5's
+  own comparison (Q2), and the paired criteria need one integrator, so the binary64 arm
+  takes it too.
+- Tolerances: each interface's default raised to mixed precision's floor, identical in
+  both arms: `rtol` 10⁻⁷ for the GNLSE cases, 10⁻⁶ for the capillaries, 10⁻⁵ with no
+  `atol` for the radial route.
+- Noise `"input"` for every case; `"modified"` as well for `scg_coherent`,
+  `scg_incoherent` and `rdw_noise`.
+- Seeds: criterion 1 and criterion 2 use seeds 0–7; criterion 3 uses 0–63; each added
+  to SEP 38's seed base (20261027).
+- Saved planes: 16 equally spaced, beside the entrance; criterion 2's planes are the
+  binary64 run's quarter points.
+- Criteria, verdicts and the indicator's calibration as §7.3 records them.
+
 ## Part III — History
 
 - 2026-10-25: Drafted (Opus 5.5), after an indicative A40 measurement of transforms,
