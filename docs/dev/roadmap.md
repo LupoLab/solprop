@@ -1076,6 +1076,13 @@ as a documented rule from 1.0 on.
 
 ## Known issues
 
+**pytest capped below 9.2.** pytest 9.2 derives a node's id from a structured id, so
+pytest-xdist 3.8 can no longer append the `@group` suffix by which `--dist loadgroup`
+schedules: every `xdist_group`, the test suite's default module groups among them, is
+silently ignored, and module fixtures are built on several workers
+(`tests/test_distribution.py` fails). The dev group and the lowest-dependencies lane cap
+pytest below 9.2; lift the cap once a pytest-xdist release supports pytest 9.2.
+
 **Large-V step-index modes.** `StepIndexMode`'s characteristic equation and its derivatives
 use unscaled modified Bessel functions `kv`/`kvp`. At large cladding arguments both
 underflow to zero while their ratio is finite (at argument 1600, $K_0$ and $K_1$ are both
