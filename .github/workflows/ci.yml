@@ -427,7 +427,7 @@ jobs:
       - run: uv venv --python 3.14
       - run: uv pip install --resolution lowest-direct -e .
       - run: >-
-          uv pip install pytest pytest-xdist pytest-randomly pytest-regressions
+          uv pip install "pytest<9.2" pytest-xdist pytest-randomly pytest-regressions
           pytest-cov hypothesis beartype sympy psutil
       - run: uv pip list
       - run: .venv/bin/python -m pytest -n auto --dist loadgroup
