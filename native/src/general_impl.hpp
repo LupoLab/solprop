@@ -1693,11 +1693,12 @@ template <class Policy> struct StageTerms {
   // `exponential(-phase)` to the bit (`propagator_pair`). A coupled flow's residual
   // reads the phase. The tableau's entries and `dz` are binary64 host scalars, each
   // rounded once to the state's precision.
-  KOKKOS_INLINE_FUNCTION void combine(const std::size_t stage, const double dz,
-                                      const double solution_weight,
-                                      const double error_weight,
-                                      const std::size_t column, const std::size_t index,
-                                      const Complex phase) const {
+  // Returns the stage's forward propagator, which the device's last stage reuses
+  // for the whole step's when the two phases are equal.
+  KOKKOS_INLINE_FUNCTION Kokkos::complex<PropagatorReal>
+  combine(const std::size_t stage, const double dz, const double solution_weight,
+          const double error_weight, const std::size_t column, const std::size_t index,
+          const Complex phase) const {
     const auto pair = propagator_pair<PropagatorReal>(phase);
     const auto& propagator = pair.forward;
     stage_inverse(column, index) = pair.inverse;
@@ -1736,7 +1737,7 @@ template <class Policy> struct StageTerms {
             value * (general_pad * general_doubling(crop(index), n_to));
       if (zero_response && flow) {
         flow_drive(column, index) = Complex{};
-        return;
+        return propagator;
       }
     }
     if (zero_response) {
@@ -1750,6 +1751,7 @@ template <class Policy> struct StageTerms {
         error(column, index) += static_cast<StateReal>(error_weight) * StateComplex{};
       }
     }
+    return propagator;
   }
 
   // The fine bins no coarse bin fills, positions `[begin, end)` of this column's
@@ -8033,10 +8035,15 @@ void GeneralWorkspace<Policy>::stage_entry(const std::size_t stage, const double
         if (finish_previous)
           terms.finish(previous, previous_solution, previous_error, column, index);
         const Complex phase = terms.phase_sum(stage * n_phi, column, index);
-        if (last)
-          terms.whole(column, index) = propagator_exp<PropagatorReal>(
-              terms.phase_sum(n_stages * n_phi, column, index));
-        terms.combine(stage, dz, solution_weight, error_weight, column, index, phase);
+        const auto forward = terms.combine(stage, dz, solution_weight, error_weight,
+                                           column, index, phase);
+        // The whole step's propagator; at a last stage whose node is the step's end
+        // (DOPRI5's) the phase sums are equal and the stage's propagator is it exactly.
+        if (last) {
+          const Complex whole = terms.phase_sum(n_stages * n_phi, column, index);
+          terms.whole(column, index) =
+              whole == phase ? forward : propagator_exp<PropagatorReal>(whole);
+        }
         for (std::size_t gap = index; gap < gaps; gap += n)
           terms.zero_gaps(column, gap, gap + 1);
       });

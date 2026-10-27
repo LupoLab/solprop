@@ -33,6 +33,24 @@
 
 namespace solprop_native {
 
+namespace propagator_detail {
+/**
+ * `cos theta` and `sin theta` in binary64. On a device they are one `sincos` call,
+ * which shares the argument's reduction between the two (solprop SEP 36: on a GPU of
+ * reduced binary64 rate the stage propagators are about half of the stage entry); the
+ * host keeps the two library calls.
+ */
+KOKKOS_INLINE_FUNCTION void cosine_sine(const double theta, double& cosine,
+                                        double& sine) {
+#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
+  ::sincos(theta, &sine, &cosine);
+#else
+  cosine = Kokkos::cos(theta);
+  sine = Kokkos::sin(theta);
+#endif
+}
+} // namespace propagator_detail
+
 /** `exp(argument)` in the precision `Real`, from a binary64 argument. */
 template <class Real>
 KOKKOS_INLINE_FUNCTION Kokkos::complex<Real>
@@ -40,8 +58,10 @@ propagator_exp(const Kokkos::complex<double> argument) {
   static_assert(std::is_same_v<Real, double> || std::is_same_v<Real, float>);
   if constexpr (std::is_same_v<Real, double>) {
     const double magnitude = Kokkos::exp(argument.real());
-    return {magnitude * Kokkos::cos(argument.imag()),
-            magnitude * Kokkos::sin(argument.imag())};
+    double cosine = 0.0;
+    double sine = 0.0;
+    propagator_detail::cosine_sine(argument.imag(), cosine, sine);
+    return {magnitude * cosine, magnitude * sine};
   } else {
     const auto wide = propagator_exp<double>(argument);
     return {static_cast<float>(wide.real()), static_cast<float>(wide.imag())};
@@ -63,8 +83,15 @@ KOKKOS_INLINE_FUNCTION PropagatorPair<Real>
 propagator_pair(const Kokkos::complex<double> argument) {
   static_assert(std::is_same_v<Real, double> || std::is_same_v<Real, float>);
   if constexpr (std::is_same_v<Real, double>) {
-    const double cosine = Kokkos::cos(argument.imag());
-    const double sine = Kokkos::sin(argument.imag());
+#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
+    // A stage at the step's anchor has a zero phase: its propagators are exactly the
+    // library's values there, `(1, 0)` and `(1, -0)`, without the four evaluations.
+    if (argument.real() == 0.0 && argument.imag() == 0.0)
+      return {{1.0, 0.0}, {1.0, -0.0}};
+#endif
+    double cosine = 0.0;
+    double sine = 0.0;
+    propagator_detail::cosine_sine(argument.imag(), cosine, sine);
     const double magnitude = Kokkos::exp(argument.real());
     const double inverse_magnitude = Kokkos::exp(-argument.real());
     return {{magnitude * cosine, magnitude * sine},
