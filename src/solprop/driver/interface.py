@@ -31,7 +31,7 @@ from solprop.coupling.models import CouplingModel
 from solprop.driver.simulation import (
     DEFAULT_ATOL,
     WAVEGUIDE_ATOL,
-    NoiseModel,
+    NoiseSetting,
     Simulation,
     SimulationSettings,
 )
@@ -95,7 +95,7 @@ def prop_radial(  # noqa: PLR0913 - the simulation interface and output controls
     *,
     settings: SimulationSettings,
     frame: Frame | None = None,
-    noise: NoiseModel | None = None,
+    noise: NoiseSetting = "default",
     seed: int | None = None,
     output: Output | Path | str | None = None,
     snapshots: SnapshotController | None = None,
@@ -123,8 +123,10 @@ def prop_radial(  # noqa: PLR0913 - the simulation interface and output controls
         Step tolerances, save planes, statistics and backend.
     frame : solprop.linear.Frame or None, optional
         Moving frame; None uses the responses' THG choice.
-    noise : {None, 'input', 'modified'}, optional
+    noise : {'default', None, 'input', 'modified'}, optional
         One photon per spatial column, polarisation and active frequency bin.
+        ``"default"``, the default, resolves to ``"input"`` wherever the run can
+        carry noise, and records the resolution (SEP 37).
     seed : int or None, optional
         Noise seed, required to have a noise model when given.
     output : solprop.output.schema.Output or pathlib.Path or str or None, optional
@@ -184,7 +186,7 @@ def prop_free(  # noqa: PLR0913 - the simulation interface and output controls
     *,
     settings: SimulationSettings,
     frame: Frame | None = None,
-    noise: NoiseModel | None = None,
+    noise: NoiseSetting = "default",
     seed: int | None = None,
     output: Output | Path | str | None = None,
     snapshots: SnapshotController | None = None,
@@ -216,8 +218,10 @@ def prop_free(  # noqa: PLR0913 - the simulation interface and output controls
         Step tolerances, save planes, statistics and backend.
     frame : solprop.linear.Frame or None, optional
         Moving frame; None uses the responses' THG choice.
-    noise : {None, 'input', 'modified'}, optional
+    noise : {'default', None, 'input', 'modified'}, optional
         One photon per spatial column, polarisation and active frequency bin.
+        ``"default"``, the default, resolves to ``"input"`` wherever the run can
+        carry noise, and records the resolution (SEP 37).
     seed : int or None, optional
         Noise seed, required to have a noise model when given.
     output : solprop.output.schema.Output or pathlib.Path or str or None, optional
@@ -375,7 +379,7 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
     shock: bool = True,
     raman: bool = False,
     raman_fraction: float | None = None,
-    noise: NoiseModel | None = None,
+    noise: NoiseSetting = "default",
     seed: int | None = None,
     rtol: float | None = None,
     atol: float = DEFAULT_ATOL,
@@ -503,11 +507,13 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         default (SEP 3, D4) -- and 0 with it false. Given, it is held back whatever
         `raman` is, so a pair of runs with the same fraction that switches only
         `raman` isolates the delayed response.
-    noise : {None, 'input', 'modified'}, optional
+    noise : {'default', None, 'input', 'modified'}, optional
         Which shot-noise model to carry: ``'input'`` adds one photon per bin to the
         input field once, ``'modified'`` keeps the realisation apart and injects it at
         every stage, advanced by the unitary part of the linear operator
         (``docs/guide/media/noise.md``).
+        ``"default"``, the default, resolves to ``"input"`` wherever the run can
+        carry noise, and records the resolution (SEP 37).
     seed : int, optional
         Entropy of the generator the realisation is drawn from. Recorded in the output,
         so a run is reproducible; ``None`` draws from the operating system and records
@@ -735,7 +741,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
     ionisation_field_range: tuple[float, float] | None = None,
     absorber: Absorber | None = None,
     absorber_scheme: AbsorberScheme | None = None,
-    noise: NoiseModel | None = None,
+    noise: NoiseSetting = "default",
     seed: int | None = None,
     rtol: float | None = None,
     atol: float = WAVEGUIDE_ATOL,
@@ -969,8 +975,10 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         default, or once per accepted step. The low-call Adams methods of
         SEP 13 step much further with ``'split_step'``, whose first-order
         splitting error stays inside the collar.
-    noise : {None, 'input', 'modified'}, optional
+    noise : {'default', None, 'input', 'modified'}, optional
         Which shot-noise model to carry.
+        ``"default"``, the default, resolves to ``"input"`` wherever the run can
+        carry noise, and records the resolution (SEP 37).
     seed : int or None, optional
         Entropy of the noise generator.
     rtol : float or None, optional
@@ -1229,7 +1237,7 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
     radial_rule: RadialRule = "gauss_kronrod",
     ionisation_field_range: tuple[float, float] | None = None,
     absorber: Absorber | None = None,
-    noise: NoiseModel | None = None,
+    noise: NoiseSetting = "default",
     seed: int | None = None,
     rtol: float | None = None,
     atol: float = WAVEGUIDE_ATOL,
@@ -1447,8 +1455,10 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         :func:`solprop.driver.simulation.default_field_range`.
     absorber : solprop.boundaries.Absorber or None, optional
         The collar rates; ``None`` builds the default collar of the grid.
-    noise : {None, 'input', 'modified'}, optional
+    noise : {'default', None, 'input', 'modified'}, optional
         Which shot-noise model to carry.
+        ``"default"``, the default, resolves to ``"input"`` wherever the run can
+        carry noise, and records the resolution (SEP 37).
     seed : int or None, optional
         Entropy of the noise generator.
     rtol : float or None, optional

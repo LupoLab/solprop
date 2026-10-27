@@ -189,6 +189,7 @@ from solprop.output.schema import (
     GridRecord,
     ModeRecord,
     NoiseRecord,
+    NoiseResolution,
     Output,
     PlaneStore,
     RunMetadata,
@@ -295,13 +296,17 @@ __all__ = [
     "DEFAULT_ATOL",
     "DEFAULT_N_SAVE",
     "DEFAULT_RTOL",
+    "INTERIOR_LAUNCH_NOISE",
     "LOOSE_ADAMS_RTOL",
     "LOW_STORAGE_BACKENDS",
     "ORTHONORMALITY_TOLERANCE",
+    "PLANAR_NOISE",
     "PLASMA_STATISTICS",
+    "SINGLE_PRECISION_NOISE",
     "WAVEGUIDE_ATOL",
     "WAVEGUIDE_RTOL",
     "NoiseModel",
+    "NoiseSetting",
     "Simulation",
     "SimulationRunner",
     "SimulationSettings",
@@ -402,6 +407,27 @@ NoiseModel = Literal["input", "modified"]
 
 The two models are described in ``docs/guide/media/noise.md``.
 """
+
+NoiseSetting = Literal["default", "input", "modified"] | None
+"""What a constructor's ``noise`` keyword takes (SEP 37).
+
+A model, ``None`` for a noiseless run, or ``"default"``, the keyword's default, which
+resolves to ``"input"`` wherever the run can carry noise and to none where it cannot,
+recording which in the run's :class:`~solprop.output.schema.NoiseResolution`.
+"""
+
+SINGLE_PRECISION_NOISE = (
+    "single precision carries no noise: binary32 rounding swamps a one-photon seed"
+)
+"""Why a default resolves to no noise under ``precision="single"`` (SEP 37)."""
+
+PLANAR_NOISE = "the hybrid planar grid carries no noise: no photon measure is declared"
+"""Why a planar run carries no noise (SEP 37)."""
+
+INTERIOR_LAUNCH_NOISE = (
+    "an interior launch takes its spectrum as given, which may already carry a draw"
+)
+"""Why a default noise is dropped at an interior launch (SEP 37)."""
 
 
 @dataclass(frozen=True, eq=False)
@@ -1001,6 +1027,7 @@ def metadata_for(  # noqa: PLR0913 - the record's parts, each a distinct object
     materials: MaterialManifest | None = None,
     quadrature: TransverseQuadrature | None = None,
     frame: Frame | None = None,
+    noise_resolution: NoiseResolution | None = None,
 ) -> RunMetadata:
     """Build the record that says what produced a run, and whether it may be resumed.
 
@@ -1046,6 +1073,8 @@ def metadata_for(  # noqa: PLR0913 - the record's parts, each a distinct object
         The run's frame, whose reference frequency is the origin of the linear frame
         term on an envelope grid; ``None`` is the grid's co-moving frame. It enters
         the schema-24 plane-reference record, not the hash.
+    noise_resolution : solprop.output.schema.NoiseResolution or None, optional
+        How the noise model was chosen (output schema 26, SEP 37). Outside the hash.
 
     Returns
     -------
@@ -1183,6 +1212,7 @@ def metadata_for(  # noqa: PLR0913 - the record's parts, each a distinct object
         configuration=record,
         stepper=_stepper_record(settings),
         noise=None if noise is None else NoiseRecord.from_realisation(noise),
+        noise_resolution=noise_resolution,
         spatial=spatial_record,
         quadrature=None
         if quadrature is None or not modes
@@ -1433,6 +1463,9 @@ class Simulation(Displayed):
         step schedule.
     noise : solprop.noise.NoiseRealisation or None, optional
         A shot-noise realisation to carry along the run (``docs/guide/media/noise.md``).
+    noise_resolution : solprop.output.schema.NoiseResolution or None, optional
+        How the noise model was chosen, as the constructors record it (SEP 37); ``None``
+        records the realisation as asked for explicitly.
     profiles : collections.abc.Mapping, optional
         The z-profiles keyed by statistic name, for the ``density``, ``pressure`` and
         ``core_radius`` statistics. Passed to the backend, which computes them.
@@ -1517,6 +1550,7 @@ class Simulation(Displayed):
         settings: SimulationSettings,
         initial_z: float = 0.0,
         noise: NoiseRealisation | None = None,
+        noise_resolution: NoiseResolution | None = None,
         profiles: Mapping[str, ZProfile] | None = None,
         configuration: Mapping[str, object] | None = None,
         spatial_grid: RadialGrid | FreeGrid | PlanarGrid | None = None,
@@ -1552,6 +1586,14 @@ class Simulation(Displayed):
         self._problem: KernelProblem | None = None
         self.settings = settings
         self.noise = noise
+        self.noise_resolution = (
+            NoiseResolution(
+                None if noise is None else noise.model,
+                None if noise is None else noise.model,
+            )
+            if noise_resolution is None
+            else noise_resolution
+        )
         self.profiles = dict(profiles or {})
         self.configuration = dict(configuration or {})
         if (spatial_grid is None) != (medium is None):
@@ -1980,6 +2022,23 @@ class Simulation(Displayed):
                 )
             settings = dataclasses.replace(settings, save_planes=remaining)
         replacement_noise = self.noise if isinstance(noise, str) else noise
+        resolution = (
+            self.noise_resolution
+            if isinstance(noise, str)
+            else NoiseResolution(
+                None if noise is None else noise.model,
+                None if noise is None else noise.model,
+            )
+        )
+        if (
+            isinstance(noise, str)
+            and launch_z > 0
+            and self.noise_resolution.requested == "default"
+        ):
+            # SEP 37: a default draw is not added at an interior launch, whose given
+            # spectrum may already carry the realisation of an earlier run.
+            replacement_noise = None
+            resolution = NoiseResolution("default", None, INTERIOR_LAUNCH_NOISE)
         recorded = self._derived_configuration(initial, configuration, coupling)
         updated = Simulation(
             self._base_grid,
@@ -1989,6 +2048,7 @@ class Simulation(Displayed):
             settings=settings,
             initial_z=launch_z,
             noise=replacement_noise,
+            noise_resolution=resolution,
             profiles=self.profiles,
             configuration=recorded,
             spatial_grid=self.spatial_grid,
@@ -2246,6 +2306,7 @@ class Simulation(Displayed):
             settings=self.settings,
             initial_z=self.initial_z,
             noise=self.noise,
+            noise_resolution=self.noise_resolution,
             profiles=profiles,
             configuration=configuration,
             spatial_grid=self.spatial_grid,
@@ -2338,6 +2399,7 @@ class Simulation(Displayed):
                     materials=self.material_manifest(),
                     quadrature=self.settings.quadrature,
                     frame=self.frame,
+                    noise_resolution=self.noise_resolution,
                 )
         return self._metadata
 
@@ -2948,7 +3010,7 @@ class Simulation(Displayed):
         *,
         settings: SimulationSettings,
         frame: Frame | None = None,
-        noise: NoiseModel | None = None,
+        noise: NoiseSetting = "default",
         seed: int | None = None,
         materials: MaterialSelection | None = None,
     ) -> "Simulation":  # noqa: UP037 - runtime hook evaluates while class is defined
@@ -2972,8 +3034,10 @@ class Simulation(Displayed):
             Absolute tolerance has the input spectrum's units, V m.
         frame : solprop.linear.Frame or None, optional
             Moving frame. None uses the declared responses' THG choice.
-        noise : {None, 'input', 'modified'}, optional
+        noise : {'default', None, 'input', 'modified'}, optional
             One photon per transverse column, polarisation and active bin.
+            ``"default"``, the default, resolves to ``"input"`` wherever the run can
+            carry noise, and records the resolution (SEP 37).
         seed : int or None, optional
             Random generator seed; None draws and records system entropy.
         materials : solprop.physdata.selection.MaterialSelection or None, optional
@@ -3025,7 +3089,7 @@ class Simulation(Displayed):
         *,
         settings: SimulationSettings,
         frame: Frame | None = None,
-        noise: NoiseModel | None = None,
+        noise: NoiseSetting = "default",
         seed: int | None = None,
         materials: MaterialSelection | None = None,
     ) -> "Simulation":  # noqa: UP037 - runtime hook evaluates while class is defined
@@ -3054,8 +3118,10 @@ class Simulation(Displayed):
             Absolute tolerance has the input spectrum's units, V/m.
         frame : solprop.linear.Frame or None, optional
             Moving frame. None uses the declared responses' THG choice.
-        noise : {None, 'input', 'modified'}, optional
+        noise : {'default', None, 'input', 'modified'}, optional
             One photon per transverse column, polarisation and active bin.
+            ``"default"``, the default, resolves to ``"input"`` wherever the run can
+            carry noise, and records the resolution (SEP 37).
         seed : int or None, optional
             Random generator seed; None draws and records system entropy.
         materials : solprop.physdata.selection.MaterialSelection or None, optional
@@ -3196,6 +3262,7 @@ class Simulation(Displayed):
             responses,
             initial,
             settings=settings,
+            noise_resolution=NoiseResolution("default", None, PLANAR_NOISE),
             profiles={"density": medium.density},
             spatial_grid=space,
             medium=medium,
@@ -3223,7 +3290,7 @@ class Simulation(Displayed):
         *,
         settings: SimulationSettings,
         frame: Frame | None = None,
-        noise: NoiseModel | None = None,
+        noise: NoiseSetting = "default",
         seed: int | None = None,
         materials: MaterialSelection | None = None,
     ) -> "Simulation":  # noqa: UP037 - runtime hook evaluates while class is defined
@@ -3249,8 +3316,10 @@ class Simulation(Displayed):
             Absolute tolerance has the input spectrum's units.
         frame : solprop.linear.Frame or None, optional
             Moving frame. None uses the declared responses' THG choice.
-        noise : {None, 'input', 'modified'}, optional
+        noise : {'default', None, 'input', 'modified'}, optional
             One photon per transverse column, polarisation and active bin.
+            ``"default"``, the default, resolves to ``"input"`` wherever the run can
+            carry noise, and records the resolution (SEP 37).
         seed : int or None, optional
             Random generator seed; None draws and records system entropy.
         materials : solprop.physdata.selection.MaterialSelection or None, optional
@@ -3312,20 +3381,19 @@ class Simulation(Displayed):
         ):
             msg = "spatial input must have shape (n_columns, n_pol, n_omega)"
             raise DriverError(msg)
-        if noise is None and seed is not None:
-            msg = "a noise seed requires a noise model"
-            raise DriverError(msg)
+        noise_model, resolution = _resolve_noise(noise, seed, settings.precision)
         draw = (
             None
-            if noise is None
+            if noise_model is None
             else spatial_noise(
                 SpatialFlux.resolve(grid, space, medium, z=simulation.initial_z),
                 np.random.default_rng(seed),
-                model=noise,
+                model=noise_model,
                 n_pol=field.shape[1],
             )
         )
         simulation.noise = draw
+        simulation.noise_resolution = resolution
         _bind_spatial_rates(simulation, initial)
         return simulation
 
@@ -3357,7 +3425,7 @@ class Simulation(Displayed):
         shock: bool = True,
         raman: bool = False,
         raman_fraction: float | None = None,
-        noise: NoiseModel | None = None,
+        noise: NoiseSetting = "default",
         seed: int | None = None,
         rtol: float | None = None,
         atol: float = DEFAULT_ATOL,
@@ -3458,8 +3526,10 @@ class Simulation(Displayed):
             Share of ``gamma`` held back from the Kerr term, between 0 and 1. Omitted,
             the silica bundle's ``f_R`` with `raman` true and 0 with it false; given,
             held back either way.
-        noise : {None, 'input', 'modified'}, optional
+        noise : {'default', None, 'input', 'modified'}, optional
             Which shot-noise model to carry (``docs/guide/media/noise.md``).
+            ``"default"``, the default, resolves to ``"input"`` wherever the run can
+            carry noise, and records the resolution (SEP 37).
         seed : int, optional
             Entropy of the generator the realisation is drawn from, recorded in the
             output so a run is reproducible.
@@ -3592,13 +3662,15 @@ class Simulation(Displayed):
             backend=backend,
             precision=precision,
         )
+        noise_model, resolution = _resolve_noise(noise, seed, precision)
         return cls(
             working,
             mapping.mode,
             list(mapping.responses),
             pulse,
             settings=settings,
-            noise=_shot_noise(noise, working, seed),
+            noise=_shot_noise(noise_model, working, seed),
+            noise_resolution=resolution,
             configuration={
                 "gnlse": mapping,
                 "loss_db_per_m": 0.0 if loss_db_per_m is None else loss_db_per_m,
@@ -3657,7 +3729,7 @@ class Simulation(Displayed):
         ionisation_field_range: tuple[float, float] | None = None,
         absorber: Absorber | None = None,
         absorber_scheme: AbsorberScheme | None = None,
-        noise: NoiseModel | None = None,
+        noise: NoiseSetting = "default",
         seed: int | None = None,
         rtol: float | None = None,
         atol: float = WAVEGUIDE_ATOL,
@@ -3890,8 +3962,10 @@ class Simulation(Displayed):
             default, or once per accepted step. The low-call Adams methods of
             SEP 13 step much further with ``'split_step'``, whose first-order
             splitting error stays inside the collar.
-        noise : {None, 'input', 'modified'}, optional
+        noise : {'default', None, 'input', 'modified'}, optional
             Which shot-noise model to carry.
+            ``"default"``, the default, resolves to ``"input"`` wherever the run can
+            carry noise, and records the resolution (SEP 37).
         seed : int or None, optional
             Entropy of the noise generator.
         rtol : float or None, optional
@@ -4108,7 +4182,7 @@ class Simulation(Displayed):
         radial_rule: RadialRule = "gauss_kronrod",
         ionisation_field_range: tuple[float, float] | None = None,
         absorber: Absorber | None = None,
-        noise: NoiseModel | None = None,
+        noise: NoiseSetting = "default",
         seed: int | None = None,
         rtol: float | None = None,
         atol: float = WAVEGUIDE_ATOL,
@@ -4376,8 +4450,10 @@ class Simulation(Displayed):
             :func:`solprop.driver.simulation.default_field_range`.
         absorber : solprop.boundaries.Absorber or None, optional
             The collar rates; ``None`` builds the default collar of the grid.
-        noise : {None, 'input', 'modified'}, optional
+        noise : {'default', None, 'input', 'modified'}, optional
             Which shot-noise model to carry.
+            ``"default"``, the default, resolves to ``"input"`` wherever the run can
+            carry noise, and records the resolution (SEP 37).
         seed : int or None, optional
             Entropy of the noise generator.
         rtol : float or None, optional
@@ -4618,7 +4694,7 @@ class Simulation(Displayed):
         phases: Sequence[float] | np.ndarray,
         pulses: Sequence[Pulse] | None,
         absorber: Absorber | None,
-        noise: NoiseModel | None,
+        noise: NoiseSetting,
         seed: int | None,
         rtol: float | None,
         atol: float,
@@ -4670,8 +4746,10 @@ class Simulation(Displayed):
             The input pulse, as :func:`_shaped_pulse` takes it.
         absorber : solprop.boundaries.Absorber or None
             The collar rates; ``None`` builds the grid's default collar.
-        noise : {None, 'input', 'modified'}
+        noise : {'default', None, 'input', 'modified'}
             Which shot-noise model to carry (``docs/guide/media/noise.md``).
+            ``"default"``, the default, resolves to ``"input"`` wherever the run can
+            carry noise, and records the resolution (SEP 37).
         seed : int or None
             Entropy of the noise generator.
         rtol, atol, dz_max, dz_init, schedule, save_planes, n_save : object
@@ -4832,13 +4910,15 @@ class Simulation(Displayed):
             backend=backend,
             precision=precision,
         )
+        noise_model, resolution = _resolve_noise(noise, seed, precision)
         simulation = cls(
             working,
             channels,
             [],
             field0,
             settings=settings,
-            noise=_general_noise(noise, working, seed, provider),
+            noise=_general_noise(noise_model, working, seed, provider),
+            noise_resolution=resolution,
             configuration={
                 "waveguide": {
                     "modes": [ModeRecord.from_mode(mode) for mode in channels],
@@ -4856,7 +4936,7 @@ class Simulation(Displayed):
         return _incident_launch(simulation, beam, cast("CouplingModel", coupling))
 
     @classmethod
-    def _from_hollow(  # noqa: PLR0913 - the interface's keyword surface
+    def _from_hollow(  # noqa: PLR0913, PLR0915 - the interface's keyword surface
         cls,
         radius: float | ZProfile | None,
         length: float,
@@ -4906,7 +4986,7 @@ class Simulation(Displayed):
         ionisation_field_range: tuple[float, float] | None = None,
         absorber: Absorber | None = None,
         absorber_scheme: AbsorberScheme | None = None,
-        noise: NoiseModel | None = None,
+        noise: NoiseSetting = "default",
         seed: int | None = None,
         rtol: float | None = None,
         atol: float = WAVEGUIDE_ATOL,
@@ -5138,8 +5218,10 @@ class Simulation(Displayed):
             default, or once per accepted step. The low-call Adams methods of
             SEP 13 step much further with ``'split_step'``, whose first-order
             splitting error stays inside the collar.
-        noise : {None, 'input', 'modified'}, optional
+        noise : {'default', None, 'input', 'modified'}, optional
             Which shot-noise model to carry.
+            ``"default"``, the default, resolves to ``"input"`` wherever the run can
+            carry noise, and records the resolution (SEP 37).
         seed : int or None, optional
             Entropy of the noise generator.
         rtol : float or None, optional
@@ -5475,13 +5557,15 @@ class Simulation(Displayed):
             precision=precision,
             tdse_execution=None if atomic is None else atomic.execution,
         )
+        noise_model, resolution = _resolve_noise(noise, seed, precision)
         simulation = cls(
             working,
             mode_set.modes,
             responses,
             field0,
             settings=settings,
-            noise=_shot_noise(noise, working, seed, n_modes=len(mode_set)),
+            noise=_shot_noise(noise_model, working, seed, n_modes=len(mode_set)),
+            noise_resolution=resolution,
             profiles=profiles,
             wall=wall,
             taper_coupling=taper_coupling,
@@ -6580,9 +6664,12 @@ def _check_initial_position(
         or simulation.spatial_grid is not None
     ):
         raise DriverError("an interior launch requires an explicit modal spectrum")
-    if simulation.noise is not None or settings.schedule is not None:
+    if (
+        simulation.noise is not None and simulation.noise.model == "modified"
+    ) or settings.schedule is not None:
         raise DriverError(
-            "an interior launch requires noise=None and no fixed schedule"
+            "an interior launch refuses the modified noise model and a fixed schedule; "
+            "input noise takes its draw at the launch (SEP 37)"
         )
 
 
@@ -7596,6 +7683,65 @@ def _save_planes(
     return np.linspace(0.0, length, count)[1:]
 
 
+def _resolve_noise(
+    noise: str | None, seed: int | None, precision: str
+) -> tuple[NoiseModel | None, NoiseResolution]:
+    """Resolve a constructor's ``noise`` keyword into the model a run carries (SEP 37).
+
+    ``"default"`` resolves to ``"input"``, the one-photon-per-mode seed added to the
+    input field, except under single precision, whose binary32 rounding swamps the seed:
+    there it resolves to none and says why. A seed beside a default that resolves to
+    none is refused rather than silently dropped, and so is a seed beside
+    ``noise=None``. Any other value is passed through, and an unknown one is refused
+    where it is drawn.
+
+    The arguments are plain strings rather than :data:`NoiseSetting` for the reason
+    :func:`_shot_noise` gives.
+
+    Parameters
+    ----------
+    noise : {'default', None, 'input', 'modified'}
+        The keyword as given.
+    seed : int or None
+        The keyword ``seed`` as given.
+    precision : {'double', 'single'}
+        The run's arithmetic.
+
+    Returns
+    -------
+    tuple
+        The model to draw, or ``None``, and the record of how it was chosen.
+
+    Raises
+    ------
+    DriverError
+        If a seed is given and the run resolves to no noise.
+
+    Examples
+    --------
+    >>> from solprop.driver.simulation import _resolve_noise
+    >>> _resolve_noise("default", None, "double")
+    ('input', NoiseResolution(requested='default', resolved='input', reason=None))
+    >>> _resolve_noise("default", None, "single")[0] is None
+    True
+    """
+    if noise == "default":
+        if precision == "single":
+            if seed is not None:
+                msg = (
+                    "a noise seed was given, but single precision carries no noise by "
+                    "default: pass noise=None and drop the seed"
+                )
+                raise DriverError(msg)
+            return None, NoiseResolution("default", None, SINGLE_PRECISION_NOISE)
+        return "input", NoiseResolution("default", "input")
+    if noise is None and seed is not None:
+        msg = "a noise seed requires a noise model"
+        raise DriverError(msg)
+    # An unknown model passes through to be refused where it is drawn.
+    return cast("NoiseModel | None", noise), NoiseResolution(noise, noise)
+
+
 def _shot_noise(
     noise: str | None, grid: TimeGrid, seed: int | None, *, n_modes: int = 1
 ) -> NoiseRealisation | None:
@@ -7631,7 +7777,7 @@ def _shot_noise(
     if noise is None:
         return None
     if noise not in ("input", "modified"):
-        msg = f"noise must be None, 'input' or 'modified', got {noise!r}"
+        msg = f"noise must be 'default', None, 'input' or 'modified', got {noise!r}"
         raise DriverError(msg)
     generator = np.random.default_rng(seed)
     draw = input_noise if noise == "input" else modified_noise
