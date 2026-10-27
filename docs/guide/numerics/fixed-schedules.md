@@ -72,6 +72,12 @@ summarises it in {py:obj}`~solprop.stepper.controller.ControlRecord`; when
 and the driver warns. That is the fixed-mode counterpart of the `dz_min` error: neither
 mode fails silently.
 
+**Ensembles with noise.** Calibrate a schedule for a noisy ensemble with noise on, and
+check it on more than the seed that discovered it. A schedule discovered on a noiseless
+run integrates the seed's own dynamics poorly: on a 20 pJ fibre soliton it got the
+noise-driven part of the field wrong by 6 % with `RungeKutta()` and 78 % with
+`Multistep()` ([SEP 37](../../dev/seps/sep-0037-noise-and-stepper-defaults.md), §3.4).
+
 ## The low-storage march
 
 `integrator=LowStorageRungeKutta()` ([choosing a stepper](choosing-a-stepper.md#the-low-storage-march))

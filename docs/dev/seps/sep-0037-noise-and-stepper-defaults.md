@@ -560,6 +560,79 @@ destination:
 
 ## Part II — Implementation record
 
+### Phase 0 report — measurement
+
+- **Scope:** phase 0, 2026-10-26/27, Opus 5.5 (AI) worker for the lead. The source was
+  commit 71a671d, measured on an AMD EPYC 7763 (Zen 3) cluster node with the native
+  backend, LOCAL profile, GCC 16.2, FFTW 3.3.11 and OpenBLAS 0.3.34. Each arm took three
+  timing samples at 1 and at 16 threads, with node-local environments. It cost about 3.7 h
+  of wall time and 410 CPU-hours. The harness, the raw records and the full report are
+  kept with the project's development records.
+- **Cases:** the maintainer-approved tracking set:
+  - `gnlse_raman_shock`, `gnlse_soliton`;
+  - `rdw`, `he_rdw_averaged`, `argon_blueshift` (with its averaged and envelope
+    variants), `h2_raman_6ps_averaged`, `ctc`;
+  - `radial_filament_256`, `grin_nonlinear` (a 0.02 m window), `kerr_beam_192`,
+    `planar`.
+- **Integrator rule (§5.2):** the geometric mean over cases and noise arms of each
+  candidate's time over the fastest, with a 10 % tie margin.
+
+  | Interface | ms (exponential) | msi (interaction) | rk | Rule's choice |
+  |---|---|---|---|---|
+  | `prop_gnlse` (1 / 16 threads) | 2.48 / 4.84 | 2.01 / 3.33 | 1.00 / 1.00 | `RungeKutta()` |
+  | `prop_capillary` | 2.15 / 2.26 | 1.45 / 1.47 | 1.15 / 1.09 | split (see phase 1) |
+  | `prop_waveguide` | 4.7–7.4 | 1.00 | 1.26–1.29 | msi, inadmissible (see phase 1) |
+  | `prop_radial` | 1.00 | tie / 1.3 | — / 2.4 | `Multistep()` |
+  | `prop_planar` | tie | 1.00 / tie | — | `Multistep()` |
+
+  On the noisy `gnlse_raman_shock` case, RK at 1e-5 took 32 s against Multistep's 141 s
+  at 1e-6, at 1 thread. On the capillary, RK wins 8 of 14 rows at 1 thread and 11 of 14
+  at 16, but Multistep wins `rdw` (RK is 1.6–2.0× slower) and the noiseless `ctc`.
+- **Tolerance protocol (§5.3):**
+
+  | Interface | Case | Passing levels | Proposed |
+  |---|---|---|---|
+  | `prop_gnlse` | `gnlse_raman_shock`, RK, 16 seeds | 1e-7, 1e-8, 1e-9 (and 1e-6) | 1e-7 |
+  | `prop_capillary` | `rdw`, 16 seeds; noisy `ctc` check | RK 1e-5; ms needs 1e-6 (Δ\|g₁₂\| 0.043 at 1e-5) | 1e-6 with ms |
+  | `prop_waveguide` | `grin_nonlinear`, 4 seeds | 1e-5 | 1e-5 |
+  | `prop_radial` | `radial_filament_256`, 16 seeds | 1e-5 | 1e-5, atol 0 |
+  | `prop_planar` | `planar`, noiseless | 1e-5 | 1e-5, atol 0 |
+
+  `atol` was never binding: atol = 0 gave identical steps and errors on the GNLSE, `rdw`,
+  `ctc` and `grin_nonlinear`. Q2 is answered: `planar` serves.
+- **Not measured:** `kerr_beam_384` and noisy free space (`kerr_beam_192`'s steps do not
+  depend on `rtol` over its window, so free space gets no default); `grin_nonlinear`
+  beyond its window; the modified model; any machine but this one.
+- **Anomalies:** on most cases every candidate passes at the loosest level, 1e-4, so the
+  comparison there is not accuracy-limited. Noise changes the capillary step count only
+  on `ctc` (1.4–1.6×).
+
+### Phase 1 report — integrators and tolerances
+
+- **Scope:** phase 1, 2026-10-27, Opus 5.5 (AI) for John Travers. The defaults below
+  are **provisional, pending the maintainer's approval** of the phase 0 tables (§5.2's
+  approval gate).
+- **Delivered:** `src/solprop/driver/simulation.py`:
+  - `_interface_integrator` gives `RungeKutta()` to `from_gnlse` and `from_waveguide`;
+  - `DEFAULT_RTOL` is 1e-7, the new `CAPILLARY_RTOL` 1e-6, `WAVEGUIDE_RTOL` 1e-5,
+    and `SPATIAL_RTOL` 1e-5 with `SPATIAL_ATOL` 0;
+  - `SimulationSettings.controller` is optional, its other fields keyword-only, and
+    `_spatial_settings` fills the radial and planar default. Free space refuses a missing
+    controller, and a direct `Simulation` needs one.
+
+  The docstrings, the stepper guide's table, ADR-055 and the changelog follow.
+- **Deviations:**
+  - **Admissibility.** The rule now chooses among the methods every route of the
+    interface admits. The interaction-formulation Adams method won the waveguide case but
+    refuses the coupled flows of the split block and the moving guide, so the waveguide
+    default is RK, which is 4× faster than today's default there.
+  - **The capillary is held at `Multistep()` and 1e-6.** The rule's aggregate prefers RK
+    with 1e-5, but the evidence is split: Multistep wins `rdw` and the noiseless `ctc`,
+    the production workloads SEP 16 qualified it on. RK would also refuse default TDSE
+    runs and move most of the capillary test references. The maintainer decides this.
+- **Verification:** the default lane and the slow lane on the cluster node (below, at
+  Final), and the defaults checked by construction.
+
 ### Phase 2 report — the input-noise default
 
 - **Scope:** phase 2, 2026-10-27, Opus 5.5 (AI) for John Travers, branch

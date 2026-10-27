@@ -1,7 +1,7 @@
 # Choosing a stepper
 
 solprop has three integrators, chosen with `integrator=`; this page is their overview.
-`Multistep()`, the default, is an exponential Adams method: one source evaluation per
+`Multistep()` is an exponential Adams method: one source evaluation per
 accepted step, a history of the last few, and an order it chooses between one and five
 ([the Adams integrator](adams.md)). `RungeKutta()` is the interaction-picture
 Dormand–Prince 5(4) pair: six evaluations with FSAL reuse, seven otherwise,
@@ -16,10 +16,43 @@ three copies of the state, with no error estimate ([below](#the-low-storage-marc
 This page sets out what decides between them, what was measured, and how to recognise
 a problem that wants another one.
 
+## The defaults
+
+Each interface has its own default integrator and tolerances, chosen by
+[SEP 37](../../dev/seps/sep-0037-noise-and-stepper-defaults.md)'s rule: the fastest
+method at matched accuracy on the standard suite's cases for that interface, with noise
+on and off, among the methods every route of the interface admits. A default never
+depends on the physics a run switches on; pass `integrator=`, `rtol=` or `atol=` to
+choose another.
+
+| Interface | Integrator | `rtol` | `atol` |
+|---|---|---|---|
+| `prop_gnlse` | `RungeKutta()` | 1e-7 | 1e-14 √W |
+| `prop_capillary` | `Multistep()` | 1e-6 | 1e-10 √W |
+| `prop_waveguide` | `RungeKutta()` | 1e-5 | 1e-10 √W |
+| `prop_radial`, `prop_planar` | `Multistep()` | 1e-5 | 0 |
+| `prop_free` | `Multistep()` | the caller's controller | |
+
+On the GNLSE, the Runge–Kutta march is 2.5 to 4.8 times faster than the exponential
+Adams method at matched accuracy, more with noise. On the waveguide route it is 4 times
+faster; the interaction-formulation Adams method is faster still there but refuses the
+coupled flows some waveguide routes carry. On the capillary the evidence is split — the
+Runge–Kutta march wins most cases, the Adams method the resolved-mode RDW and the
+noiseless comb-to-continuum runs that dominate production — and the default stays the
+Adams method. A capillary run with the TDSE response needs `Multistep()`. The radial and
+planar defaults hold their methods and set a tolerance where the caller gave no
+controller; a free-space run has no measured default yet.
+
+The tolerances were set by a convergence test: the loosest of three levels a decade
+apart at which a seeded ensemble's mean spectrum stays within 0.5 dB, above −40 dB of
+its peak, and its coherence within 0.02 of a reference a hundred times tighter. A
+noiseless soliton recurrence wants a tighter `rtol`; a TDSE run is usually run at
+`1e-3` to `3e-3`.
+
 ## The short answer
 
-Keep the default for almost everything, and in particular wherever a source
-evaluation is the expensive part of a step: several modes, ionisation and plasma,
+Beyond the defaults above, prefer `Multistep()` wherever a source evaluation is the
+expensive part of a step: several modes, ionisation and plasma,
 Raman, a spatial state (radial, Cartesian, line or planar), a gas gradient or a taper,
 a time-dependent Schrödinger equation. There it takes two to fourteen times fewer calls
 than the Runge–Kutta march and, measured, up to six times less time.
@@ -27,9 +60,9 @@ than the Runge–Kutta march and, measured, up to six times less time.
 Choose `integrator=RungeKutta()` when
 
 - **the source is cheap and the state small** — a single-mode envelope (GNLSE)
-  supercontinuum: the Adams method still takes three to four times fewer calls, but a
-  call costs less than a Runge–Kutta step's own linear work, and the Runge–Kutta march
-  is 1.2 to 1.4 times faster on `numba_cpu` (level on native CPU);
+  supercontinuum, where it is `prop_gnlse`'s default: the Adams method still takes
+  fewer calls, but a call costs less than a Runge–Kutta step's own linear work, and
+  with shot noise the Adams history resolves the seed's dynamics in many more steps;
 - **the state is too large for the Adams history** ([large problems](#large-problems-memory));
 - **an explicitly integrated damping term binds the step**: a strong in-stage collar the
   field reaches, or a replayed schedule whose steps are long against it — the Adams

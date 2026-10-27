@@ -163,9 +163,13 @@ The first public release. It contains:
   - An optional helium TDSE atomic response for research. Its native backend is not
     yet publicly available.
 - **Numerics.**
-  - Two adaptive integrators: a low-call exponential Adams method (the default) and an
-    embedded interaction-picture Runge–Kutta pair. A low-storage Runge–Kutta variant is
-    included.
+  - Two adaptive integrators: a low-call exponential Adams method and an embedded
+    interaction-picture Runge–Kutta pair. A low-storage Runge–Kutta variant is
+    included. Each interface has its own default integrator and tolerances, set by
+    measurement (SEP 37): `RungeKutta()` for `prop_gnlse` (`rtol` 1e-7) and
+    `prop_waveguide` (1e-5), `Multistep()` for `prop_capillary` (1e-6) and the spatial
+    routes; `prop_radial` and `prop_planar` take `rtol` 1e-5 when their
+    `SimulationSettings` give no controller, which is now optional.
   - The linear propagation is integrated exactly, and absorbing boundaries act as rates.
   - Fixed and adaptive schedules.
   - Bounded, rounding-level reproducibility across backends.
