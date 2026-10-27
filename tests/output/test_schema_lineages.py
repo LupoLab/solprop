@@ -27,6 +27,8 @@ def test_independent_schema_lineages_preserve_hashes_and_field_presence(
     record.pop("quadrature")
     # Nor did schema 24's plane-reference record.
     record.pop("reference")
+    # Nor schema 26's noise resolution (SEP 37).
+    record.pop("noise_resolution")
     limits = record["stepper"]["limits"]
     if lineage == "sep12-10":
         for name in ("interval_cap", "auto_init", "interpolate_planes", "step_planes"):

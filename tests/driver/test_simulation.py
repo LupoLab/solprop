@@ -294,7 +294,7 @@ def test_a_capillary_configuration_hashes_the_same_way_in_a_new_process():
         "warnings.simplefilter('ignore', MaterialRangeWarning)\n"
         "from solprop.driver import Simulation\n"
         "simulation = Simulation.from_capillary(\n"
-        f"    125e-6, 1e-3, 'He', 1.0, **{CAPILLARY!r}\n"
+        f"    125e-6, 1e-3, 'He', 1.0, noise=None, **{CAPILLARY!r}\n"
         ")\n"
         "sys.stdout.write(simulation.metadata().configuration_hash())\n"
     )

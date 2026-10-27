@@ -111,9 +111,9 @@ def test_public_interfaces_share_the_default_and_preserve_explicit_choices(
             )
         elif kind in {"capillary", "waveguide"}:
             interface = (
-                partial(prop_capillary, 125e-6)
+                partial(prop_capillary, 125e-6, noise=None)
                 if kind == "capillary"
-                else partial(prop_waveguide, [MarcatiliMode(125e-6)])
+                else partial(prop_waveguide, [MarcatiliMode(125e-6)], noise=None)
             )
             result = interface(
                 0.001,
@@ -131,9 +131,11 @@ def test_public_interfaces_share_the_default_and_preserve_explicit_choices(
             )
         else:
             interface = (
-                partial(prop_radial, narrow_grid, RadialGrid(6e-4, 8))
+                partial(prop_radial, narrow_grid, RadialGrid(6e-4, 8), noise=None)
                 if kind == "radial"
-                else partial(prop_free, narrow_grid, FreeGrid(3e-4, 8, 3e-4, 8))
+                else partial(
+                    prop_free, narrow_grid, FreeGrid(3e-4, 8, 3e-4, 8), noise=None
+                )
             )
             pulse = SpatialPulse(
                 GaussianPulse(wavelength=835e-9, fwhm=30e-15, energy=1e-9), 60e-6

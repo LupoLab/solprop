@@ -118,6 +118,7 @@ def coupled(name: str) -> Simulation:
         plasma=False,
         raman=False,
         backend="numpy_ref",
+        seed=20261027,
     )
 
 
@@ -165,6 +166,7 @@ def step_index() -> Simulation:
         fwhm=50e-15,
         energy=1e-9,
         backend="numpy_ref",
+        seed=20261027,
     )
 
 
@@ -261,6 +263,7 @@ def grin(*, nonlinear: bool) -> Simulation:
         dz_max=length / 10,
         dz_init=length / 10,
         backend="numpy_ref",
+        seed=20261027,
     )
     launch = np.zeros((2, 1, grid.n_omega), dtype=complex)
     launch[:, 0, centre] = 1.0
@@ -313,6 +316,7 @@ def moving() -> Simulation:
         peak_power=4e5,
         dz_max=1.2e-4,
         backend="numpy_ref",
+        seed=20261027,
     )
 
 

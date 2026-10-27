@@ -580,18 +580,24 @@ def test_constructor_refuses_invalid_launch_before_translation(initial_z):
         )
 
 
-def test_interior_launch_refuses_noise_before_realisation():
+def test_interior_launch_refuses_modified_noise_before_realisation():
     simulation = tiny_simulation()
-    with pytest.raises(DriverError, match="noise=None"):
-        Simulation(
+
+    def launched(model):
+        return Simulation(
             simulation.grid,
             simulation.modes,
             simulation.responses,
             simulation._field0,
             settings=simulation.settings,
             initial_z=5e-6,
-            noise=NoiseRealisation(np.zeros_like(simulation._field0), 1, "input"),
+            noise=NoiseRealisation(np.zeros_like(simulation._field0), 1, model),
         )
+
+    with pytest.raises(DriverError, match="refuses the modified noise model"):
+        launched("modified")
+    # SEP 37: an explicit input draw enters at the launch.
+    assert launched("input").noise.model == "input"
 
 
 @pytest.mark.parametrize("case", ["outside", "field", "logical", "cap", "atomic"])
@@ -674,8 +680,10 @@ def test_tdse_settings_revalidation_refuses_unsupported_execution(
         simulation.responses = ()
         message = "requires a TDSEGasResponse"
     elif case == "noise":
-        simulation.noise = "input"
-        message = "noise=None"
+        simulation.noise = NoiseRealisation(
+            np.zeros_like(simulation._field0), 1, "modified"
+        )
+        message = "modified"
     elif case == "collar":
         settings = dataclasses.replace(settings, absorber_scheme="split_step")
         message = "in-stage temporal collar"

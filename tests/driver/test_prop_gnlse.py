@@ -785,7 +785,7 @@ omega = np.linspace(.3e15, 4.5e15, 200)
 table = IndexTable(omega, np.full(200, 1.45 + 1e-9j), area=np.full(200, 1e-10))
 simulation = Simulation.from_gnlse(None, .001, fibre=table, n2=1e-20,
     lambda0=835e-9, wavelength_limits=(500e-9, 2e-6), trange=1e-12,
-    fwhm=100e-15, energy=1e-12, n_save=2)
+    fwhm=100e-15, energy=1e-12, n_save=2, noise=None)
 print(simulation.metadata().configuration_hash())
 """
     if use_mode:
