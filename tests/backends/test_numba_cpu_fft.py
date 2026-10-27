@@ -151,6 +151,8 @@ def test_the_kernel_pool_is_capped_by_numbas_own_pool(monkeypatch):
 def test_solprop_threads_caps_every_pool(monkeypatch):
     """``SOLPROP_THREADS`` holds every pool, chosen or explicit, within the budget."""
     monkeypatch.setattr(_process, "allowed_cpus", lambda: tuple(range(64)))
+    # The fake CPUs are counted as cores, whatever this runner's hardware threads.
+    monkeypatch.setattr(_process, "physical_cores", lambda cpus: None)
     monkeypatch.setattr(_process, "cgroup_cpus", lambda: None)
     monkeypatch.setattr(numba_config, "NUMBA_NUM_THREADS", 64)
     monkeypatch.setenv("SOLPROP_THREADS", "3")
@@ -173,6 +175,8 @@ def test_solprop_threads_caps_every_pool(monkeypatch):
 def test_oversubscribing_lets_explicit_counts_pass_the_cpus(monkeypatch):
     """``SOLPROP_OVERSUBSCRIBE=1`` honours an explicit count above the CPUs."""
     monkeypatch.setattr(_process, "allowed_cpus", lambda: tuple(range(2)))
+    # The fake CPUs are counted as cores, whatever this runner's hardware threads.
+    monkeypatch.setattr(_process, "physical_cores", lambda cpus: None)
     monkeypatch.setattr(_process, "cgroup_cpus", lambda: None)
     monkeypatch.setattr(numba_config, "NUMBA_NUM_THREADS", 8)
     monkeypatch.delenv("SOLPROP_THREADS", raising=False)
