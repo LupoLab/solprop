@@ -2446,7 +2446,7 @@ Recorded as slices land; the phase report follows at the end of the phase.
   | case | points (coarse) | accepted steps | 1 thread | 16 threads |
   |---|---|---|---|---|
   | GNLSE soliton | 4096 to 3072 | 8065 to 1893 | 0.20 | 0.29 |
-  | GRIN nonlinear | 2048 to 1536 | 198 | | 0.62 |
+  | GRIN nonlinear | 4096 to 3072 | 198 | | 0.62 |
   | argon blueshift, resolved / averaged / envelope | 4096 to 3200 (envelope 2048 to 1728) | unchanged | 0.81 / 0.83 / 0.84 | 0.76 / 0.83 / 0.84 |
   | CtC | 8192 to 10240 | 15104 to 15062 | | 0.86 |
   | hydrogen Raman, averaged | 4096 to 4608 | unchanged | 1.08 | 1.09 |
