@@ -327,8 +327,15 @@ history, and its predictor-corrector estimate is unreliable there
 (``docs/guide/numerics/choosing-a-stepper.md``).
 """
 
-DEFAULT_RTOL = 1e-8
-"""Relative tolerance a GNLSE run asks for unless told otherwise."""
+DEFAULT_RTOL = 1e-7
+"""Relative tolerance a GNLSE run asks for unless told otherwise.
+
+Set by SEP 37's convergence protocol on the supercontinuum of Dudley, Genty and Coen
+(the standard suite's ``gnlse_raman_shock``): the loosest of three levels a decade apart
+at which the ensemble-mean spectrum stays within 0.5 dB above -40 dB of its peak and the
+coherence within 0.02, over paired seeds, with the default ``RungeKutta()``. A noiseless
+soliton-recurrence study asks for its own, tighter value.
+"""
 
 DEFAULT_ATOL = 1e-14
 """Absolute tolerance, in the square root of watts, of the same default."""
@@ -336,23 +343,42 @@ DEFAULT_ATOL = 1e-14
 DEFAULT_N_SAVE = 201
 """Planes a GNLSE run stores, counting the one at ``z = 0``."""
 
-WAVEGUIDE_RTOL = 1e-6
+CAPILLARY_RTOL = 1e-6
+"""Relative tolerance a capillary run asks for unless told otherwise.
+
+The default of :meth:`Simulation.from_capillary` and
+:func:`~solprop.driver.prop_capillary` with their default ``Multistep()``. SEP 37's
+convergence protocol on the standard suite's ``rdw`` case passes it, and a noisy
+comb-to-continuum check needs it with this integrator (``1e-5`` fails the coherence
+budget there). It is a starting point, not a
+guarantee: a production run should calibrate it (``docs/dev/stepper.md`` section 3).
+"""
+
+WAVEGUIDE_RTOL = 1e-5
 """Relative tolerance a modal waveguide run asks for unless told otherwise.
 
-The default of :meth:`Simulation.from_capillary`, :meth:`Simulation.from_waveguide` and
-the keyword interfaces built on them. It is looser than :data:`DEFAULT_RTOL`, the GNLSE
-default, because each step of a modal waveguide run -- a transverse transform and a
-response pass over the quadrature nodes at every stage -- costs far more than a GNLSE
-step. It is a starting point, not a guarantee: the map from this local tolerance to the
-error at the output is problem dependent, so a production run should calibrate it rather
-than assume (``docs/dev/stepper.md`` section 3).
+The default of :meth:`Simulation.from_waveguide` and
+:func:`~solprop.driver.prop_waveguide` with their default ``RungeKutta()``, set by SEP
+37's convergence protocol on the standard suite's ``grin_nonlinear`` window. A starting
+point, not a guarantee: a production run should calibrate it.
 """
+
+SPATIAL_RTOL = 1e-5
+"""Relative tolerance of the controller a radial or planar run takes by default.
+
+Set by SEP 37's convergence protocol on the standard suite's ``radial_filament_256`` and
+``planar`` cases. It applies only where the caller's
+:class:`SimulationSettings` gives no controller.
+"""
+
+SPATIAL_ATOL = 0.0
+"""Absolute tolerance of the same default controller: none, as the suite runs it."""
 
 WAVEGUIDE_ATOL = 1e-10
 """Absolute tolerance of a modal waveguide run, in sqrt(W).
 
-The companion of :data:`WAVEGUIDE_RTOL`, looser than :data:`DEFAULT_ATOL` for the same
-reason.
+The companion of :data:`CAPILLARY_RTOL` and :data:`WAVEGUIDE_RTOL`. It was never
+binding in SEP 37's measurements.
 """
 
 PLASMA_STATISTICS = ("electron_density", "peak_ionisation_rate")
@@ -440,9 +466,13 @@ class SimulationSettings(Displayed):
 
     Attributes
     ----------
-    controller : solprop.stepper.controller.PIController
+    controller : solprop.stepper.controller.PIController or None
         Tolerances, safety and gains; the tolerances and the norm choice live here and
-        nowhere else (``docs/dev/kernel-contract.md`` section 7).
+        nowhere else (``docs/dev/kernel-contract.md`` section 7). ``None``, the default,
+        takes the interface's own (SEP 37): :data:`SPATIAL_RTOL` and
+        :data:`SPATIAL_ATOL` for :meth:`Simulation.from_radial` and
+        :meth:`Simulation.from_planar`. An explicit controller always wins. The other
+        fields are keyword-only.
     save_planes : numpy.ndarray
         Positions to save at, m, increasing and positive, shape ``(n_z,)``. The plane at
         ``z = 0`` is saved as well and is not listed here. A sequence is adopted as a
@@ -635,7 +665,8 @@ class SimulationSettings(Displayed):
     ([0.5, 1.0], 'numpy_ref')
     """
 
-    controller: PIController
+    controller: PIController | None = None
+    _: dataclasses.KW_ONLY
     save_planes: Float[np.ndarray, " n_z"] | Sequence[float]
     dz_max: float
     dz_init: float
@@ -693,8 +724,14 @@ class SimulationSettings(Displayed):
             "SimulationSettings",
             [
                 ("", self._planes_text()),
-                ("rtol", f"{self.controller.rtol:g}"),
-                ("atol", f"{self.controller.atol:g}"),
+                *(
+                    [("", "interface default tolerances")]
+                    if self.controller is None
+                    else [
+                        ("rtol", f"{self.controller.rtol:g}"),
+                        ("atol", f"{self.controller.atol:g}"),
+                    ]
+                ),
                 ("backend", self.backend),
             ],
         )
@@ -712,7 +749,9 @@ class SimulationSettings(Displayed):
             ("save planes", self._planes_text()),
             (
                 "tolerances",
-                f"rtol {self.controller.rtol:g}, atol {self.controller.atol:g}",
+                "the interface's default"
+                if self.controller is None
+                else f"rtol {self.controller.rtol:g}, atol {self.controller.atol:g}",
             ),
             ("steps", f"{schedule}, dz_max {engineering(self.dz_max, 'm')}"),
             ("shock term", self.shock),
@@ -1585,6 +1624,13 @@ class Simulation(Displayed):
         self.initial_z = initial_z
         self._problem: KernelProblem | None = None
         self.settings = settings
+        if settings.controller is None:
+            msg = (
+                "settings.controller is None: Simulation.from_radial and "
+                "Simulation.from_planar supply their interface's default tolerance, "
+                "but a Simulation built directly needs a PIController"
+            )
+            raise DriverError(msg)
         self.noise = noise
         self.noise_resolution = (
             NoiseResolution(
@@ -1800,7 +1846,8 @@ class Simulation(Displayed):
                     list(self.responses),
                     self._field0,
                     initial_z=self.initial_z,
-                    controller=settings.controller,
+                    # Simulation.__init__ refuses a missing controller.
+                    controller=cast("PIController", settings.controller),
                     save_planes=settings.save_planes,
                     dz_max=settings.dz_max,
                     dz_init=settings.dz_init,
@@ -3261,7 +3308,7 @@ class Simulation(Displayed):
             (),
             responses,
             initial,
-            settings=settings,
+            settings=_spatial_settings(settings, "planar"),
             noise_resolution=NoiseResolution("default", None, PLANAR_NOISE),
             profiles={"density": medium.density},
             spatial_grid=space,
@@ -3364,7 +3411,9 @@ class Simulation(Displayed):
             (),
             responses,
             initial,
-            settings=settings,
+            settings=_spatial_settings(
+                settings, "radial" if isinstance(space, RadialGrid) else "free"
+            ),
             profiles=mixture_profiles(medium.material)
             if isinstance(medium.material, Mixture)
             else {"density": medium.density},
@@ -3547,10 +3596,10 @@ class Simulation(Displayed):
         integrator : Multistep, RungeKutta or LowStorageRungeKutta, optional
             The method that steps the run
             (``docs/guide/numerics/choosing-a-stepper.md``).
-            ``None``, the default, takes ``Multistep()``: the low-call exponential
-            Adams method, one response evaluation per step. ``RungeKutta()`` is the
-            interaction-picture DOPRI5 march, for a cheap response or a state too
-            large for the Adams history. ``LowStorageRungeKutta()`` replays
+            ``None``, the default, takes ``RungeKutta()``, the interaction-picture
+            DOPRI5 march, which SEP 37 measured fastest at matched accuracy on the
+            GNLSE. ``Multistep()`` is the low-call exponential Adams method, one
+            response evaluation per step. ``LowStorageRungeKutta()`` replays
             `schedule` in three registers (SEP 24).
         interpolate_planes : bool, optional
             Observe the save planes inside accepted steps instead of landing on them
@@ -3651,7 +3700,7 @@ class Simulation(Displayed):
             dz_init=length * 1e-4 if dz_init is None else dz_init,
             auto_init=dz_init is None,
             schedule=schedule,
-            integrator=integrator,
+            integrator=_interface_integrator(integrator, precision),
             interpolate_planes=interpolate_planes,
             step_planes=step_planes,
             density=1.0,
@@ -3969,7 +4018,7 @@ class Simulation(Displayed):
         seed : int or None, optional
             Entropy of the noise generator.
         rtol : float or None, optional
-            Relative step tolerance; the default is :data:`WAVEGUIDE_RTOL`, the modal
+            Relative step tolerance; the default is :data:`CAPILLARY_RTOL`, the
             waveguide default. Calibrate it for a production run
             (``docs/dev/stepper.md`` section 3).
         atol : float, optional
@@ -4112,7 +4161,7 @@ class Simulation(Displayed):
             absorber_scheme=absorber_scheme,
             noise=noise,
             seed=seed,
-            rtol=rtol,
+            rtol=CAPILLARY_RTOL if rtol is None and precision == "double" else rtol,
             atol=atol,
             dz_max=dz_max,
             dz_init=dz_init,
@@ -4471,9 +4520,9 @@ class Simulation(Displayed):
         integrator : Multistep, RungeKutta or LowStorageRungeKutta, optional
             The method that steps the run
             (``docs/guide/numerics/choosing-a-stepper.md``).
-            ``None``, the default, takes ``Multistep()``: the low-call exponential
-            Adams method. ``RungeKutta()`` is the interaction-picture DOPRI5 march.
-            ``LowStorageRungeKutta()`` replays `schedule` in three registers.
+            ``None``, the default, takes ``RungeKutta()``, the interaction-picture
+            DOPRI5 march (SEP 37). ``Multistep()`` is the low-call exponential Adams
+            method. ``LowStorageRungeKutta()`` replays `schedule` in three registers.
         save_planes : sequence of float or None, optional
             Positions to save at, m. Give this or `n_save`.
         n_save : int or None, optional
@@ -4580,7 +4629,7 @@ class Simulation(Displayed):
                 dz_max=dz_max,
                 dz_init=dz_init,
                 schedule=schedule,
-                integrator=integrator,
+                integrator=_interface_integrator(integrator, precision),
                 save_planes=save_planes,
                 n_save=n_save,
                 stats=stats,
@@ -4657,7 +4706,7 @@ class Simulation(Displayed):
             dz_max=dz_max,
             dz_init=dz_init,
             schedule=schedule,
-            integrator=integrator,
+            integrator=_interface_integrator(integrator, precision),
             save_planes=save_planes,
             n_save=n_save,
             stats=stats,
@@ -7681,6 +7730,68 @@ def _save_planes(
         )
         raise DriverError(msg)
     return np.linspace(0.0, length, count)[1:]
+
+
+def _spatial_settings(settings: SimulationSettings, route: str) -> SimulationSettings:
+    """Fill an omitted controller with the spatial interface's default (SEP 37).
+
+    Parameters
+    ----------
+    settings : SimulationSettings
+        The caller's settings.
+    route : {'radial', 'free', 'planar'}
+        The interface they are for.
+
+    Returns
+    -------
+    SimulationSettings
+        `settings`, with :data:`SPATIAL_RTOL` and :data:`SPATIAL_ATOL` where it gave no
+        controller.
+
+    Raises
+    ------
+    DriverError
+        If a free-space run gives no controller: its default tolerance has not been
+        measured.
+    """
+    if settings.controller is not None:
+        return settings
+    if route == "free":
+        msg = (
+            "a Cartesian or line run has no default tolerance yet (SEP 37 measured "
+            "none): give its SimulationSettings a controller=PIController(...)"
+        )
+        raise DriverError(msg)
+    return dataclasses.replace(
+        settings, controller=PIController(rtol=SPATIAL_RTOL, atol=SPATIAL_ATOL)
+    )
+
+
+def _interface_integrator(
+    integrator: Multistep | RungeKutta | LowStorageRungeKutta | None, precision: str
+) -> Multistep | RungeKutta | LowStorageRungeKutta | None:
+    """Return the default integrator of the GNLSE and waveguide interfaces (SEP 37).
+
+    ``RungeKutta()`` where the caller named none: SEP 37's matched-accuracy rule chose
+    it for :func:`~solprop.driver.prop_gnlse` and :func:`~solprop.driver.prop_waveguide`
+    among the integrators every route of each interface admits. Single precision keeps
+    its own default, which is the same march. A named integrator is returned unchanged.
+
+    Parameters
+    ----------
+    integrator : Multistep, RungeKutta, LowStorageRungeKutta or None
+        The keyword as given.
+    precision : {'double', 'single'}
+        The run's arithmetic.
+
+    Returns
+    -------
+    Multistep, RungeKutta, LowStorageRungeKutta or None
+        The integrator to put in the settings; ``None`` leaves single precision's.
+    """
+    if integrator is None and precision == "double":
+        return RungeKutta()
+    return integrator
 
 
 def _resolve_noise(
