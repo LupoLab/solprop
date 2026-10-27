@@ -165,8 +165,8 @@ def test_mode_averaged_capillary_with_noise_and_plasma():
         "Raman off",
     ]
     assert table["absorber"] == "temporal, nonlinear scheme"
-    assert table["integrator"] == "RungeKutta (DOPRI5)"
-    assert table["tolerances"].startswith("rtol 1e-05, atol ")
+    assert table["integrator"].startswith("Multistep, variable order up to ")
+    assert table["tolerances"].startswith("rtol 1e-06, atol ")
 
 
 def test_resolved_capillary_names_its_modal_integral_and_a_gradient_fill():

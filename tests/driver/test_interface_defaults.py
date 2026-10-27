@@ -14,7 +14,6 @@ from solprop.driver.simulation import (
     FREE_ATOL,
     FREE_NOISE,
     FREE_RTOL,
-    SINGLE_MODE_RTOL,
     SPATIAL_ATOL,
     SPATIAL_RTOL,
     TDSE_NOISE,
@@ -60,22 +59,22 @@ def _stepping(simulation):
     return type(simulation.settings.integrator), controller.rtol
 
 
-def test_the_capillary_steps_by_its_representation():
+def test_the_capillary_takes_the_adams_march_whatever_its_representation():
     averaged = Simulation.from_capillary(
         100e-6, 0.01, "He", 1.0, mode_average=True, **PULSE, **WINDOW
     )
-    assert _stepping(averaged) == (RungeKutta, SINGLE_MODE_RTOL)
+    assert _stepping(averaged) == (Multistep, CAPILLARY_RTOL)
     single = Simulation.from_capillary(100e-6, 0.01, "He", 1.0, **PULSE, **WINDOW)
-    assert _stepping(single) == (RungeKutta, SINGLE_MODE_RTOL)
+    assert _stepping(single) == (Multistep, CAPILLARY_RTOL)
     multimode = Simulation.from_capillary(
         100e-6, 0.01, "He", 1.0, modes=2, **PULSE, **WINDOW
     )
     assert _stepping(multimode) == (Multistep, CAPILLARY_RTOL)
     assert _stepping(_capillary(tdse=_sae())) == (Multistep, CAPILLARY_RTOL)
     named = Simulation.from_capillary(
-        100e-6, 0.01, "He", 1.0, integrator=Multistep(), rtol=1e-7, **PULSE, **WINDOW
+        100e-6, 0.01, "He", 1.0, integrator=RungeKutta(), rtol=1e-5, **PULSE, **WINDOW
     )
-    assert _stepping(named) == (Multistep, 1e-7)
+    assert _stepping(named) == (RungeKutta, 1e-5)
 
 
 def test_the_waveguide_takes_the_runge_kutta_march_and_its_tolerance():

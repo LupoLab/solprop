@@ -138,7 +138,6 @@ def test_without_the_cap_a_step_outgrows_the_table_s_intervals():
         rtol=1e-3,
         n_save=2,
         noise=None,
-        integrator=Multistep(),
         backend="numpy_ref",
     )
     problem = simulation.translate()

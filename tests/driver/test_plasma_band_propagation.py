@@ -37,7 +37,6 @@ from solprop.output.schema import serialise
 from solprop.profiles import Constant
 from solprop.pulses import GaussianPulse
 from solprop.stats import PLASMA_INTEGRATION_STATISTICS, StatsSpec
-from solprop.stepper import Multistep
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.plasma_integration import design_running_integral
 
@@ -129,9 +128,6 @@ def _run(gas, ffac, *, plasma, integration=None):
             modes=1,
             plasma=plasma,
             schedule=FixedSchedule.uniform(0.0, length, length / 10),
-            # The stored targets were measured on the Adams march at rtol 1e-6.
-            integrator=Multistep(),
-            rtol=1e-6,
             n_save=2,
             noise=None,
             absorber_scheme="split_step",
