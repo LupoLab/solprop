@@ -15,7 +15,7 @@
 | **Requires** | [SEP 37](sep-0037-noise-and-stepper-defaults.md) (the per-interface defaults the tracked cases run with) |
 | **Supersedes** | [SEP 30](archive/sep-0030-standard-benchmark-suite.md) |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0038-performance-tracking`, drafted together with its implementation, stacked on SEP 37's branch |
+| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0038-performance-tracking`, stacked on SEP 37's branch: phase 1 implemented and calibrated 2026-10-27; the first history rows wait for the release |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -144,33 +144,33 @@ python -m benchmarks history [SLUG] [--width W]
 #### 5.2 The tracking set
 
 The cases represent the main uses of solprop at the sizes they are used. Lengths are
-complete guides. Costs are SEP 37 phase 0's medians for complete runs on an AMD EPYC
-7763, at 1 and 16 threads, with that branch's defaults; "—" marks a width the case does
-not run at.
+complete guides. Costs are the medians of a complete `track` run (Part II, phase 1) on
+16 cores of an AMD EPYC 7763 node, at 1 and 16 threads, with SEP 37's defaults; "—"
+marks a width the case does not run at.
 
 | Case | Interface | Problem | Widths | Cost (s) |
 |---|---|---|---|---|
-| `gnlse_raman_shock` | `prop_gnlse` | Dudley–Genty–Coen supercontinuum, Raman and shock, 0.15 m [1] | 1, P | ~80 / ~30 |
-| `gnlse_soliton` | `prop_gnlse` | ideal N = 3 soliton over one soliton period | 1, P | ~8 / ~5 |
-| `rdw` | `prop_capillary` | He resonant dispersive wave, 4 resolved modes, 1.5 m, 0.8→0 bar gradient | 1, P | 19 / 10 |
+| `gnlse_raman_shock` | `prop_gnlse` | Dudley–Genty–Coen supercontinuum, Raman and shock, 0.15 m [1] | 1, P | 84 / 47 |
+| `gnlse_soliton` | `prop_gnlse` | ideal N = 3 soliton over one soliton period | 1, P | 13 / 8 |
+| `rdw` | `prop_capillary` | He resonant dispersive wave, 4 resolved modes, 1.5 m, 0.8→0 bar gradient | 1, P | 19 / 13 |
 | `he_rdw_averaged` | `prop_capillary` | the same, mode-averaged | 1, P | 3 / 3 |
-| `argon_blueshift` (rev. 2) | `prop_capillary` | Ar ionisation blueshift, 13 µm, 1.7 bar, 0.2 m, 1 resolved mode | 1, P | 67 / 34 |
+| `argon_blueshift` (rev. 2) | `prop_capillary` | Ar ionisation blueshift, 13 µm, 1.7 bar, 0.2 m, 1 resolved mode | 1, P | 66 / 36 |
 | `argon_blueshift_averaged` (rev. 2) | `prop_capillary` | the same, mode-averaged | 1, P | 15 / 15 |
 | `argon_blueshift_envelope` (new) | `prop_capillary` | `argon_blueshift` on the envelope grid | 1, P | 3 / 3 |
 | `h2_raman_averaged` (new) | `prop_capillary` | H2 soliton self-frequency shift, 10 bar, 0.4 m, mode-averaged | 1, P | 16 / 16 |
-| `ctc` (rev. 2) | `prop_capillary` | H2 comb-to-continuum, 3 modes, 40 bar, 0.13 m, 2 ps window | P | — / 290 |
-| `radial_filament_256` | `prop_radial` | Ar filament, 256 radial nodes, 3 cm | 1, P | ~10 / ~4 |
-| `grin_nonlinear` (rev. 2) | `prop_waveguide` | four-channel graded-index fibre, 2 cm | P | — / ~35 |
-| `kerr_beam_384` | `prop_free` | fused-silica Kerr beam, 384² transverse grid, fixed RK4IP | P | — / ~10 |
-| `kerr_beam_192` | `prop_free` | the same at 192², fixed RK4IP | 1 | ~10 / — |
+| `ctc` (rev. 2) | `prop_capillary` | H2 comb-to-continuum, 3 modes, 40 bar, 0.13 m, 2 ps window | P | — / 291 |
+| `radial_filament_256` | `prop_radial` | Ar filament, 256 radial nodes, 3 cm | 1, P | 16 / 6 |
+| `grin_nonlinear` (rev. 2) | `prop_waveguide` | four-channel graded-index fibre, 2 cm | P | — / 38 |
+| `kerr_beam_384` | `prop_free` | fused-silica Kerr beam, 384² transverse grid, fixed RK4IP | P | — / 134 |
+| `kerr_beam_192` | `prop_free` | the same at 192², fixed RK4IP | 1 | 37 / — |
 
-The sum is about 220 s at one thread and 460 s at 16 threads per pass. Three repeats, the
-warm-ups and construction bring it to about 40 minutes on that node; the target is under
-an hour on any machine in use. The Phase 2 calibration run fixes the final lengths.
+The sum is about 270 s at one thread and 620 s at 16 threads per pass. With three
+repeats, the warm-ups and construction, the run took about 50 minutes on that node; the
+target is under an hour on any machine in use.
 
 The three most expensive cases run at the production width only: `ctc` (about 600 s at
-one thread), the 2 cm GRIN window (about 100 s) and the 384² Kerr beam (about 90 s). The
-192² Kerr beam keeps a one-thread free-space row.
+one thread in SEP 37's phase 0), the 2 cm GRIN window (about 100 s) and the 384² Kerr
+beam. The 192² Kerr beam keeps a one-thread free-space row.
 
 Every case keeps its interface's default noise (`"input"` after SEP 37) with a fixed
 seed. Every other registered case stays runnable by name; none is in the default
@@ -270,6 +270,9 @@ is final.
 - Q1. If SEP 37's capillary default becomes `RungeKutta()` at 1e-5, the capillary costs
   fall; should the freed time go to a longer `ctc`, or should `ctc` run at one thread
   too?
+- Q3. The 384² Kerr beam costs 134 s per run at 16 threads on the EPYC node (25 GiB),
+  a fifth of the run's time for one free-space case. Keep it, or track the 192² beam at
+  both widths instead?
 - Q2. Should a cloud instance (for example AWS `c8a` or GCP `c4d`) be a standing
   history file, re-rented per release, or measured only when a hardware question arises?
 
@@ -279,6 +282,37 @@ is final.
    fiber," *Rev. Mod. Phys.* **78**, 1135 (2006). doi:10.1103/RevModPhys.78.1135
 
 ## Part II — Implementation record
+
+### Phase 1 report — the tracking command and its calibration
+
+- **Scope:** phases 1 and 2's calibration, 2026-10-27, Opus 5.5 (AI) for John Travers,
+  branch `feature/sep-0038-performance-tracking`, stacked on SEP 37's pull request
+  (its defaults are provisional until the maintainer approves them).
+- **Delivered:** `benchmarks/registry.py` (cases as complete guides, the `tracking`
+  set, widths, observation planes and costs), `builders.py` (interface calls on the
+  library's defaults with a fixed seed), `worker.py` (one configuration per process,
+  timed through `run_problem` after a warm-up), `runner.py`, `track.py`,
+  `history.py`, `ab.py` (with `--length`) and `__main__.py` (`list`, `track`, `ab`,
+  `history`); tests `tests/test_benchmark_{track,cases,ab,exercises,guides,telemetry}.py`;
+  the manual `docs/dev/benchmarking.md` and the rules in `docs/dev/benchmarks.md`.
+  Removed as §6 proposed, with their tests.
+- **Deviations:** the nonlinear GRIN case couples its launch at construction, which
+  translates it, so its save planes and any stepper override go to its constructor
+  (`benchmarks/guides.py`); a slow test covers it. The production width counts the
+  distinct cores of the allocation from the Linux topology, so an allocation of one
+  hardware thread per core counts every core.
+- **Calibration:** one complete default run on 16 cores (one NUMA domain) of an AMD EPYC
+  7763 cluster node, native backend (LOCAL profile, GCC 16.2, FFTW 3.3.11, OpenBLAS
+  0.3.34), three repeats: 22 configurations, about 50 minutes including construction.
+  The three repeats of every configuration took the same steps and agreed within 0.7 %,
+  except `gnlse_raman_shock` at 16 threads (2.2 %), `ctc` (1.4 %) and
+  `radial_filament_256` at 16 threads (26 %, a 6 s run on a node shared with other
+  jobs). The costs in §5.2 are this run's medians. The run bundle is kept with the
+  project's development records.
+- **Not run:** no history row was recorded: the defaults are provisional and the
+  branch is not merged, so the first rows wait for the release commit. The Apple M5
+  Max was not timed (it was busy).
+- **Open questions:** Q1–Q3 (§12).
 
 ## Part III — History
 

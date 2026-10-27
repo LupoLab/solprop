@@ -74,8 +74,9 @@ class Case:
         A fixed step in metres; the case then runs its declared fixed schedule and
         admits no stepper override.
     cost : tuple of float or None
-        Seconds per complete run at 1 and 16 threads on an AMD EPYC 7763 node with
-        SEP 37's defaults (its phase 0), for the plan's estimate; ``None`` if unknown.
+        Seconds per complete run at 1 and 16 threads on 16 cores of an AMD EPYC 7763
+        node, from SEP 38's calibration run, for the plan's estimate; ``None`` if
+        unknown.
     """
 
     name: str
@@ -148,7 +149,7 @@ _TRACKED = (
         0.15,
         (1, 16384, 16384),
         "Dudley, Genty and Coen, Rev. Mod. Phys. 78, 1135 (2006), section III",
-        cost=(80.0, 30.0),
+        cost=(84.5, 47.2),
     ),
     Case(
         "gnlse_soliton",
@@ -159,7 +160,7 @@ _TRACKED = (
         1.3278075458959397,
         (1, 4096, 4096),
         "docs/introduction/tutorials/plot_02_soliton.py; one soliton period",
-        cost=(8.0, 5.0),
+        cost=(12.6, 8.5),
     ),
     Case(
         "rdw",
@@ -170,7 +171,7 @@ _TRACKED = (
         1.5,
         (4, 4096, 8192),
         "He resonant dispersive wave, four resolved modes",
-        cost=(19.0, 10.0),
+        cost=(19.2, 12.6),
     ),
     Case(
         "he_rdw_averaged",
@@ -181,7 +182,7 @@ _TRACKED = (
         1.5,
         (1, 4096, 8192),
         "rdw on the mode-averaged route",
-        cost=(3.0, 3.0),
+        cost=(2.7, 2.7),
     ),
     # Revision 2 (SEP 38): 0.2 m and 160 nm-4 um, as SEP 37 phase 0 measured it;
     # revision 1 was the 0.4 m blue-shift example with a 300 nm edge.
@@ -194,7 +195,7 @@ _TRACKED = (
         0.2,
         (1, 4096, 8192),
         "docs/examples/processes/plot_06_ionisation_blue_shift.py, shortened",
-        cost=(67.0, 34.0),
+        cost=(65.8, 35.5),
     ),
     Case(
         "argon_blueshift_averaged",
@@ -205,7 +206,7 @@ _TRACKED = (
         0.2,
         (1, 4096, 8192),
         "argon_blueshift on the mode-averaged route",
-        cost=(15.0, 15.0),
+        cost=(15.2, 15.1),
     ),
     Case(
         "argon_blueshift_envelope",
@@ -216,7 +217,7 @@ _TRACKED = (
         0.2,
         (1, 2048, 2048),
         "argon_blueshift on the envelope grid",
-        cost=(3.2, 3.1),
+        cost=(3.3, 3.4),
     ),
     Case(
         "h2_raman_averaged",
@@ -227,7 +228,7 @@ _TRACKED = (
         0.4,
         (1, 4096, 8192),
         "docs/examples/processes/plot_05_raman_self_frequency_shift.py, 10 bar",
-        cost=(16.0, 16.0),
+        cost=(16.2, 16.2),
     ),
     # Revision 2 (SEP 38): three modes, 0.13 m, 2 ps and 220 nm-4 um, the
     # definition SEP 37 phase 0 measured; revision 1 had six modes over 0.2 m.
@@ -241,7 +242,7 @@ _TRACKED = (
         (3, 8192, 16384),
         "H2 comb-to-continuum, three modes",
         widths=("production",),
-        cost=(605.0, 290.0),
+        cost=(605.0, 291.5),
     ),
     Case(
         "radial_filament_256",
@@ -253,7 +254,7 @@ _TRACKED = (
         (256, 250),
         "Ar filament with plasma, 256 radial nodes",
         planes=4,
-        cost=(10.0, 4.0),
+        cost=(16.4, 6.1),
     ),
     # Revision 2 (SEP 38): a 2 cm guide, the window SEP 37 phase 0 measured;
     # revision 1 was the example's 0.1 m.
@@ -268,7 +269,7 @@ _TRACKED = (
         "docs/examples/waveguides/plot_04_graded_index_multimode.py, 2 cm",
         widths=("production",),
         planes=5,
-        cost=(102.0, 35.0),
+        cost=(102.0, 37.8),
     ),
     Case(
         "kerr_beam_384",
@@ -283,7 +284,7 @@ _TRACKED = (
         planes=1,
         fields="planes",
         step=0.5e-6,
-        cost=(91.0, 10.0),
+        cost=(None, 133.6),
     ),
     Case(
         "kerr_beam_192",
@@ -298,7 +299,7 @@ _TRACKED = (
         planes=1,
         fields="planes",
         step=0.5e-6,
-        cost=(10.0, None),
+        cost=(36.7, None),
     ),
 )
 
