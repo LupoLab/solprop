@@ -363,9 +363,12 @@ The first public release. It contains:
 - **A one-mode run on a GPU uses the whole device.** The accepted update, the error norms
   and the response used one team of threads per transverse node, so a fibre or a
   mode-averaged run kept one multiprocessor busy; they now spread over up to 256 teams,
-  and the stage entry evaluates one `sincos` and none at zero phase. On an NVIDIA A40 a
-  fibre with Raman at $2^{16}$ samples takes 4 times less GPU time per step. Runs with
-  many nodes (radial, Cartesian) are unchanged.
+  and the stage entry takes one `sincos` per propagator and reuses the last stage's for
+  the step where their phases agree. A fibre with Raman runs 2.5 times faster at $2^{16}$
+  samples and 5.6 times at $2^{18}$ on an AMD Instinct MI325X, and takes 4 times less GPU
+  time per step at $2^{16}$ on an NVIDIA A40; runs with many nodes (radial, Cartesian)
+  and short steps are unchanged. Device results move at rounding level, since the norms
+  and the plasma's running sums are summed in tiles.
 
 - **The noise row of a printed `Simulation`** named the realisation's class; it now
   gives its model and seed.
