@@ -2,11 +2,14 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Record allocations, thread policies and bounded contention observations."""
+"""Identify the hardware, set thread pools and observe contention.
+
+Nothing here records a host name: the hardware is named by its CPU model and the
+cores the run may use (SEP 38, section 5.3).
+"""
 
 from __future__ import annotations
 
-import dataclasses
 import os
 import platform
 import re
@@ -16,28 +19,30 @@ from pathlib import Path
 
 import psutil
 
-from benchmarks.records import (
-    Record,
-    SuiteError,
-    atomic_record,
-    identity,
-    read_record,
+from benchmarks.records import Record, SuiteError, identity
+from benchmarks.telemetry import (
+    allocation_details,
+    gpu_details,
+    hardware_details,
+    linux_topology,
 )
 
 __all__ = [
     "POOL_VARIABLES",
-    "Profile",
-    "admission",
+    "THREADING",
     "counters",
-    "effective_memory",
+    "device_slug",
     "eligible_cpus",
     "git_receipt",
     "guard",
+    "hardware",
     "interval",
-    "profile_for",
-    "save_profile",
+    "native_changed",
+    "numa_domains",
+    "physical_cores",
+    "slug",
     "thread_environment",
-    "topology",
+    "widths",
 ]
 
 POOL_VARIABLES = (
@@ -68,110 +73,212 @@ POOL_VARIABLES = (
     "KOKKOS_TOOLS_LIBS",
 )
 
+_RUNTIME_WAITING = {"GOMP_SPINCOUNT": "300000", "KMP_BLOCKTIME": "200"}
+"""GNU's and LLVM's own spin before an idle thread sleeps: 300,000 spins, 200 ms."""
+
+THREADING: dict[str, dict[str, str]] = {
+    # Unpinned, and idle threads sleep at once: robust on a shared machine.
+    "passive": {
+        "OMP_PROC_BIND": "false",
+        "OMP_WAIT_POLICY": "PASSIVE",
+        "KMP_BLOCKTIME": "0",
+        "GOMP_SPINCOUNT": "0",
+    },
+    # Pinned to neighbouring cores, and idle threads sleep at once.
+    "passive-bound": {
+        "OMP_PROC_BIND": "close",
+        "OMP_PLACES": "cores",
+        "OMP_WAIT_POLICY": "PASSIVE",
+        "KMP_BLOCKTIME": "0",
+        "GOMP_SPINCOUNT": "0",
+    },
+    # Unpinned, with each OpenMP runtime's own waiting (a short spin, then sleep),
+    # spelled out: the native backend makes idle threads sleep when nothing is set.
+    "default": {"OMP_PROC_BIND": "false", **_RUNTIME_WAITING},
+    # Unpinned, and idle threads spin between parallel regions.
+    "active": {"OMP_PROC_BIND": "false", "OMP_WAIT_POLICY": "ACTIVE"},
+    # Threads pinned to neighbouring cores, with the runtime's own waiting.
+    "bound": {"OMP_PROC_BIND": "close", "OMP_PLACES": "cores", **_RUNTIME_WAITING},
+    # Pinned, and spinning.
+    "bound-active": {
+        "OMP_PROC_BIND": "close",
+        "OMP_PLACES": "cores",
+        "OMP_WAIT_POLICY": "ACTIVE",
+    },
+}
+"""OpenMP placement and waiting policies a run may choose (SEP 38)."""
+
+_MODEL_NOISE = re.compile(
+    r"\((?:r|tm)\)|\bcpu\b|\bprocessor\b|\b\d+-core\b|@.*$", re.IGNORECASE
+)
+
 
 def eligible_cpus() -> tuple[int, ...]:
-    """Read the process allocation, never an OpenMP worker's narrowed placement."""
+    """Read the process's CPU allocation."""
     try:
         return tuple(psutil.Process().cpu_affinity())
     except AttributeError, psutil.Error:
         return tuple(range(os.process_cpu_count() or os.cpu_count() or 1))
 
 
-def topology() -> Record:
-    """Collect inexpensive portable hardware facts without a hostname."""
+def physical_cores() -> int:
+    """Count the physical cores in the allocation.
+
+    On Linux the distinct (socket, core) pairs of the allocated CPUs, so that an
+    allocation of one hardware thread per core counts every core; elsewhere the
+    allocation scaled by the machine's ratio of cores to hardware threads.
+    """
+    allocation = eligible_cpus()
+    if platform.system() == "Linux":
+        rows = linux_topology(Path("/sys/devices/system/cpu"), allocation)
+        pairs = {(row["socket"], row["core"]) for row in rows}
+        if rows and all(None not in pair for pair in pairs):
+            return len(pairs)
+    logical = psutil.cpu_count() or 1
+    physical = psutil.cpu_count(logical=False) or logical
+    return max(1, len(allocation) * physical // logical)
+
+
+def widths(value: str | None, production: int) -> tuple[int, ...]:
+    """Resolve ``1``, ``production`` and integers, in order and without repeats."""
+    if production < 1 or production > len(eligible_cpus()):
+        raise SuiteError("the production width must fit the CPU allocation")
+    resolved: list[int] = []
+    for token in (value or "1,production").split(","):
+        width = production if token.strip() == "production" else int(token)
+        if width < 1:
+            raise SuiteError("thread counts must be positive")
+        if width not in resolved:
+            resolved.append(width)
+    return tuple(resolved)
+
+
+def _instance_type() -> str | None:
+    """Read a cloud instance type from the Linux DMI table, where it names one."""
+    root = Path("/sys/class/dmi/id")
+    try:
+        vendor = (root / "sys_vendor").read_text(encoding="utf-8").strip()
+        product = (root / "product_name").read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if vendor.startswith("Amazon"):
+        return f"aws {product}"
+    return None
+
+
+def hardware(
+    production: int, instance_type: str | None = None, *, device: bool = False
+) -> Record:
+    """Describe the hardware without a host name, and derive its slug.
+
+    A `device` run is named by its GPU, which then sets the pace; the host CPU is
+    recorded beside it.
+    """
+    details = hardware_details(eligible_cpus())
+    model = details["cpu_model"] or platform.processor() or platform.machine()
+    cores = physical_cores()
+    instance = instance_type or _instance_type()
+    gpu = gpu_details() if device else {"gpu_model": None}
+    if device and not isinstance(gpu["gpu_model"], str):
+        raise SuiteError(f"cannot name the GPU: {gpu['gpu_model_reason']}")
     return {
-        "system": platform.system(),
-        "machine": platform.machine(),
-        "logical_cpus": psutil.cpu_count(),
-        "physical_cores": psutil.cpu_count(logical=False),
-        "allocation": list(eligible_cpus()),
+        "numa_domains": numa_domains(details["cpu_topology"]),
+        # The cores a run uses name the hardware set: on a cluster the CPU mask can
+        # show the whole node while the allocation is a part of it.
+        "slug": device_slug(gpu["gpu_model"], instance)
+        if isinstance(gpu["gpu_model"], str)
+        else slug(model, production, instance),
+        "cpu_model": model,
+        "gpu_model": gpu["gpu_model"],
+        "physical_cores": cores,
+        "logical_cpus": len(eligible_cpus()),
+        "production": production,
         "memory_bytes": psutil.virtual_memory().total,
-        "processor": platform.processor(),
-        "core_residency": None,
-        "core_residency_reason": "not measured by ordinary collection",
+        "system": platform.system(),
+        "release": platform.release(),
+        "machine": platform.machine(),
+        "instance_type": instance,
+        "allocation": allocation_details(),
     }
 
 
-@dataclasses.dataclass(frozen=True)
-class Profile:
-    """Freeze production width, allocation and policy before measurement."""
+def numa_domains(topology: list[Record] | None) -> int:
+    """Count the memory (NUMA) domains the allocated CPUs span; 1 where unknown.
 
-    alias: str
-    revision: int
-    production: int
-    allocation: tuple[int, ...]
-    topology_hash: str
-    policy: str = "budget"
-    explicit: bool = True
-
-    def __post_init__(self) -> None:
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", self.alias):
-            raise SuiteError("machine alias must be a public-safe identifier")
-        if self.production < 1 or self.production > len(self.allocation):
-            raise SuiteError("production width exceeds the declared CPU allocation")
-        if self.policy not in ("budget", "all-pools-N", "blas1", "as-installed"):
-            raise SuiteError(f"unsupported thread policy {self.policy}")
-
-    @property
-    def digest(self) -> str:
-        """Identify the full profile revision."""
-        return identity(dataclasses.asdict(self))
+    A 16-core allocation inside one domain and one spread over eight share a CPU
+    model and core count but not memory bandwidth, so rows compare by this too.
+    """
+    nodes = {node for row in topology or () for node in row.get("numa_nodes") or ()}
+    return max(1, len(nodes))
 
 
-def profile_for(path: Path | None, *, standard: bool) -> Profile:
-    """Load an explicit profile or make a clearly provisional quick profile."""
-    current = topology()
-    if path is not None:
-        values = read_record(path)
-        values["allocation"] = tuple(values["allocation"])
-        profile = Profile(**values)
-        if profile.topology_hash != identity(current):
-            raise SuiteError(
-                "machine topology/allocation differs from the saved profile"
-            )
-        if standard and not profile.explicit:
-            raise SuiteError(
-                "standard collection needs a profile with an explicit production width"
-            )
-        return profile
-    if standard:
-        raise SuiteError(
-            "standard collection requires --machine-profile with a production width"
+def native_changed(directory: Path, commit: str, revision: str) -> bool:
+    """Whether ``native/`` differs between a native build's commit and `revision`.
+
+    Its documentation and tests do not count; a commit Git cannot find does.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(directory),
+                "diff",
+                "--quiet",
+                commit,
+                revision,
+                "--",
+                "native",
+                ":(exclude,glob)native/**/*.md",
+                ":(exclude)native/tests",
+            ],
+            capture_output=True,
+            timeout=30,
+            check=False,
         )
-    # An unidentified machine is useful for quick diagnostics but cannot become
-    # an adoption baseline solely because another host has the same CPU model.
-    return Profile(
-        os.environ.get("SOLPROP_BENCH_MACHINE", "unidentified"),
-        1,
-        len(eligible_cpus()),
-        eligible_cpus(),
-        identity(current),
-        explicit=False,
-    )
+    except OSError, subprocess.TimeoutExpired:
+        return True
+    return result.returncode != 0
 
 
-def save_profile(
-    path: Path, alias: str, production: int, policy: str = "budget"
-) -> Profile:
-    """Write an explicit profile without replacing an earlier revision."""
-    profile = Profile(
-        alias, 1, production, eligible_cpus(), identity(topology()), policy
-    )
-    atomic_record(path, dataclasses.asdict(profile), immutable=True)
-    return profile
+def slug(model: str, cores: int, instance: str | None = None) -> str:
+    """Name a hardware set by CPU model and core count, e.g. ``apple-m5-max-18c``.
+
+    A cloud instance adds its family (``aws m8g.4xlarge`` gives ``-aws-m8g``): one
+    core design, such as Arm's Neoverse-V2, is sold in several clouds' instances.
+    """
+    if instance:
+        family = re.sub(r"[^a-z0-9]+", "-", instance.lower().split(".")[0]).strip("-")
+        return f"{slug(model, cores)}-{family}"
+    words = re.sub(r"[^a-z0-9]+", "-", _MODEL_NOISE.sub(" ", model).lower())
+    return f"{words.strip('-') or 'unknown-cpu'}-{cores}c"
+
+
+def device_slug(model: str, instance: str | None = None) -> str:
+    """Name a GPU hardware set by its model (``nvidia-a40``), plus any cloud family."""
+    words = re.sub(r"[^a-z0-9]+", "-", model.lower()).strip("-") or "unknown-gpu"
+    if instance:
+        family = re.sub(r"[^a-z0-9]+", "-", instance.lower().split(".")[0]).strip("-")
+        return f"{words}-{family}"
+    return words
 
 
 def thread_environment(
-    width: int, policy: str, incoming: dict[str, str]
+    width: int, incoming: dict[str, str], threading: str = "passive"
 ) -> dict[str, str]:
-    """Set pools before importing their libraries, retaining size-based choices."""
+    """Set every pool to `width`, and OpenMP's placement and waiting by `threading`.
+
+    The pools are set before their libraries are imported. `threading` is a key of
+    :data:`THREADING`; its OpenMP variables replace any the caller had.
+    """
     if width < 1:
         raise SuiteError("thread counts must be positive")
+    if threading not in THREADING:
+        raise SuiteError(f"unknown threading policy {threading}")
     environment = incoming.copy()
-    if policy == "as-installed":
-        return environment
     for key in POOL_VARIABLES:
-        if key not in ("SOLPROP_FFTW_PLAN", "KOKKOS_TOOLS_LIBS"):
+        # A Kokkos tool left in the shell would profile the timed runs.
+        if key != "SOLPROP_FFTW_PLAN":
             environment.pop(key, None)
     for key in (
         "SOLPROP_THREADS",
@@ -179,16 +286,13 @@ def thread_environment(
         "SOLPROP_NUMBA_THREADS",
         "NUMBA_NUM_THREADS",
         "OMP_NUM_THREADS",
-    ):
-        environment[key] = str(width)
-    for key in (
         "OPENBLAS_NUM_THREADS",
         "MKL_NUM_THREADS",
         "BLIS_NUM_THREADS",
         "VECLIB_MAXIMUM_THREADS",
     ):
-        environment[key] = str(1 if policy == "blas1" else width)
-    if width == 1 or policy == "all-pools-N":
+        environment[key] = str(width)
+    if width == 1:
         for key in (
             "SOLPROP_NATIVE_KERNEL_THREADS",
             "SOLPROP_NATIVE_FFT_THREADS",
@@ -198,83 +302,27 @@ def thread_environment(
             "SOLPROP_TRANSVERSE_FFTW_THREADS",
             "SOLPROP_BLAS_THREADS",
         ):
-            environment[key] = str(width)
-    if policy == "blas1":
-        environment["SOLPROP_BLAS_THREADS"] = "1"
-    environment.update(
-        OMP_PROC_BIND="false",
-        OMP_WAIT_POLICY="PASSIVE",
-        KMP_BLOCKTIME="0",
-        GOMP_SPINCOUNT="0",
-    )
+            environment[key] = "1"
+    environment.update(THREADING[threading])
     return environment
 
 
-def effective_memory() -> int:
-    """Constrain currently available RAM by a Linux cgroup when observable."""
-    available = int(psutil.virtual_memory().available)
-    # Unified cgroups: a container's current usage must be subtracted from its
-    # limit. The host's free memory alone is not its allocation.
-    for parent in (Path("/sys/fs/cgroup"),):
-        try:
-            limit = (parent / "memory.max").read_text(encoding="utf-8").strip()
-            used = int((parent / "memory.current").read_text(encoding="utf-8"))
-            if limit != "max":
-                available = min(available, max(0, int(limit) - used))
-        except OSError, ValueError:
-            pass
-    return available
-
-
-def admission(
-    estimate: int | None, limit: int | None, *, allow_unestimated: bool = False
-) -> Record:
-    """Refuse unknown or excessive allocations before expensive construction."""
-    available = effective_memory()
-    budget = min(int(0.8 * available), limit if limit is not None else available)
-    admitted = estimate is not None and estimate <= budget
-    if estimate is None and allow_unestimated and limit is not None:
-        admitted = limit <= int(0.8 * available)
-    return {
-        "admitted": admitted,
-        "estimate_bytes": estimate,
-        "limit_bytes": budget,
-        "available_bytes": available,
-        "reserve_fraction": 0.2,
-        "exploratory": estimate is None,
-        "reason": None
-        if admitted
-        else "unestimated"
-        if estimate is None
-        else "insufficient memory",
-    }
-
-
 def counters() -> Record:
-    """Read counters with explicit unknowns for unsupported OS observations."""
+    """Read CPU and swap counters, with explicit unknowns where unsupported."""
     times = psutil.cpu_times(percpu=True)
     busy = [float(item.user + item.system) for item in times]
     try:
         swap = psutil.swap_memory()
         swapping: int | None = int(swap.sin + swap.sout)
-        reason = None
         if os.name == "nt":
-            swapping, reason = None, "Windows does not expose swap I/O counters"
+            swapping = None
     except psutil.Error, OSError:
-        swapping, reason = None, "swap I/O counters unavailable"
-    return {
-        "time": time.monotonic(),
-        "busy": busy,
-        "swap_bytes": swapping,
-        "swap_reason": reason,
-        "available_bytes": effective_memory(),
-    }
+        swapping = None
+    return {"time": time.monotonic(), "busy": busy, "swap_bytes": swapping}
 
 
-def interval(
-    before: Record, after: Record, allocation: tuple[int, ...], own_cpu: float = 0.0
-) -> Record:
-    """Score external CPU use over an actual elapsed counter interval."""
+def interval(before: Record, after: Record, allocation: tuple[int, ...]) -> Record:
+    """Score other processes' CPU use over an elapsed counter interval."""
     elapsed = after["time"] - before["time"]
     valid = elapsed > 0 and all(index < len(after["busy"]) for index in allocation)
     deltas = (
@@ -283,57 +331,28 @@ def interval(
         else []
     )
     valid = valid and all(value >= 0 for value in deltas)
-    usage = (
-        max(0.0, sum(deltas) - own_cpu) / (elapsed * len(allocation)) if valid else None
-    )
+    usage = sum(deltas) / (elapsed * len(allocation)) if valid else None
     before_swap, after_swap = before["swap_bytes"], after["swap_bytes"]
     swap_delta = (
-        int(after_swap) - int(before_swap)
+        after_swap - before_swap
         if before_swap is not None and after_swap is not None
         else None
     )
-    confidence = (
-        "known" if valid and swap_delta is not None and swap_delta >= 0 else "unknown"
-    )
+    # Where swap traffic is not reported (Windows), CPU use alone decides.
+    known = usage is not None and (swap_delta is None or swap_delta >= 0)
     return {
         "external_cpu_fraction": usage,
         "swap_bytes": swap_delta,
-        "confidence": confidence,
-        "quiet": confidence == "known"
-        and usage is not None
-        and usage <= 0.1
-        and swap_delta == 0,
+        "confidence": "known" if known else "unknown",
+        "quiet": known and usage is not None and usage <= 0.1 and not swap_delta,
     }
 
 
-def guard(
-    allocation: tuple[int, ...], *, standard: bool, force: bool = False
-) -> Record:
-    """Take one quick interval or bounded standard counter intervals."""
-    if force:
-        return {"quiet": False, "confidence": "unknown", "forced": True, "seconds": 0.0}
-    started = time.monotonic()
-    observations: list[Record] = []
+def guard(allocation: tuple[int, ...]) -> Record:
+    """Take one one-second reading; it labels a busy machine and never waits."""
     before = counters()
-    for _ in range(5 if standard else 1):
-        time.sleep(1.0)
-        after = counters()
-        observations.append(interval(before, after, allocation))
-        before = after
-        if not standard or (
-            len(observations) >= 2 and all(row["quiet"] for row in observations[-2:])
-        ):
-            break
-    selected = observations[-2:] if standard else observations
-    return {
-        "quiet": all(row["quiet"] for row in selected),
-        "confidence": "known"
-        if all(row["confidence"] == "known" for row in selected)
-        else "unknown",
-        "seconds": time.monotonic() - started,
-        "intervals": observations,
-        "threshold_fraction": 0.1,
-    }
+    time.sleep(1.0)
+    return interval(before, counters(), allocation)
 
 
 def git_receipt(directory: Path) -> Record:
@@ -347,7 +366,12 @@ def git_receipt(directory: Path) -> Record:
     try:
         revision = git("rev-parse", "HEAD").decode().strip()
         changes = git("diff", "HEAD", "--binary")
-        untracked = git("ls-files", "--others", "--exclude-standard", "-z").split(b"\0")
+        # Untracked files count only where the timed code lives, so an editor's
+        # settings directory does not make every run dirty.
+        untracked = git(
+            "ls-files", "--others", "--exclude-standard", "-z", "--",
+            "src", "native", "benchmarks",
+        ).split(b"\0")  # fmt: skip
         from benchmarks.records import file_hash  # noqa: PLC0415
 
         fingerprints = {

@@ -53,7 +53,7 @@ rather than style, ask rather than guess.
 | Slow lane | `uv run poe test-slow` |
 | Coverage lane (100 % required) | `uv run poe cov` (kernel bodies interpreted first, remaining suite compiled) |
 | GPU tests | `uv run pytest -m gpu` (needs a GPU build of solprop-native and a device) |
-| Benchmarks | `uv run poe bench` (on an otherwise idle machine) |
+| Benchmarks | `uv run poe bench` plans; `uv run python -m benchmarks track` runs (on an otherwise idle machine) |
 | Build docs | `uv run poe docs` (never executes the worked examples) |
 | Run the worked examples | `uv run poe docs-examples [plot_NN_name]` (slow; commit `docs/auto_examples/`) |
 

@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
+from typing import Any
 
 import numpy as np
 from jaxtyping import Complex
@@ -170,12 +172,20 @@ def step_index() -> Simulation:
     )
 
 
-def grin(*, nonlinear: bool) -> Simulation:
+def grin(
+    *,
+    nonlinear: bool,
+    length: float = 0.1,
+    options: Mapping[str, Any] = MappingProxyType({}),
+) -> Simulation:
     """Preserve the linear lesson or the four-channel dispersive GRIN example.
 
     The nonlinear source describes the GPI model and its chosen Kerr coefficient
     alongside Krupa et al., doi:10.1103/PhysRevLett.116.183901. This extraction
     retains its four-channel truncation, not a mode-count convergence claim.
+    `length` shortens the nonlinear guide, which is uniform along z. Its launch is
+    coupled at construction, which translates the run, so `options` (save planes and
+    an integrator) go to the constructor rather than to the settings afterwards.
     """
     radius, contrast = (50e-6, 0.0095) if nonlinear else (25e-6, 0.005)
     wavelength = 1.064e-6 if nonlinear else 1.03e-6
@@ -200,7 +210,7 @@ def grin(*, nonlinear: bool) -> Simulation:
         core_responses=(MaterialKerr(n2=2.7e-20, at=wavelength),) if nonlinear else (),
     )
     grid = FieldGrid.from_limits(
-        0.1 if nonlinear else 1e-3,
+        length if nonlinear else 1e-3,
         wavelength,
         (450e-9, 1.8e-6) if nonlinear else (1e-6, 1.06e-6),
         1.2e-12 if nonlinear else 100e-15,
@@ -238,7 +248,7 @@ def grin(*, nonlinear: bool) -> Simulation:
         )
         return Simulation.from_waveguide(
             (),
-            0.1,
+            length,
             provider=guide,
             grid=grid,
             incident=beam,
@@ -248,6 +258,7 @@ def grin(*, nonlinear: bool) -> Simulation:
             seed=41,
             dz_max=period / 10,
             backend="numpy_ref",
+            **options,
         )
     q = float(grid.omega[centre]) / C * radius * 1.45
     beta = np.sqrt(q * q - 2 * q * np.sqrt(2 * contrast) * np.array([1, 3])) / radius
@@ -320,14 +331,24 @@ def moving() -> Simulation:
     )
 
 
-def advanced(name: str) -> Simulation:
-    """Select a declared guide before applying the suite's measurement settings."""
+def advanced(
+    name: str, length: float, options: Mapping[str, Any] = MappingProxyType({})
+) -> Simulation:
+    """Select a declared guide before applying the suite's measurement settings.
+
+    `length` is the registered guide length and `options` the run's save planes and
+    integrator; only the nonlinear GRIN guide, translated at construction, takes them.
+    """
     if name in ("scalar_wall", "vector_wall", "taper", "taper_wall"):
         return coupled(name)
     if name == "step_index_pair":
         return step_index()
     if name in ("grin_linear", "grin_nonlinear"):
-        return grin(nonlinear=name == "grin_nonlinear")
+        return (
+            grin(nonlinear=True, length=length, options=options)
+            if name == "grin_nonlinear"
+            else grin(nonlinear=False)
+        )
     if name == "moving_solid_guide":
         return moving()
     raise SuiteError(f"advanced guide builder not implemented for {name}")

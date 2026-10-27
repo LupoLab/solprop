@@ -38,7 +38,7 @@ sequence plus `poe test-slow` and the CPU coverage lane; keep the two identical.
 
 Other tasks: `poe test-medium` (the medium tier alone, timed against its budget),
 `poe test-slow`, `poe cov` (interpreted bodies, then the compiled suite), `poe bench`
-(the standard benchmark suite in `benchmarks/`, on a quiet machine;
+(the benchmark plan in `benchmarks/`; `track` runs it on a quiet machine;
 [manual](benchmarking.md)), `poe docs`, `poe docs-clean`, `poe figures` (redraw the
 committed structure and geometry SVGs) and `poe docs-examples` (execute the worked
 examples and refresh their committed output).

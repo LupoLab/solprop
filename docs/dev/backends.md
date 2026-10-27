@@ -1662,9 +1662,9 @@ L2 across a stage only if the working set is small.
 
 ## 7. Benchmarks
 
-`benchmarks/` holds the standard suite (see [benchmarks.md](benchmarks.md)): bounded windows
-of full-resolution problems, run in fresh processes, whose results stay on the machine that
-ran them. Every performance claim in this document must point at a measurement recorded
+`benchmarks/` holds the performance tracking suite (see [benchmarks.md](benchmarks.md)):
+complete runs of representative problems, each in its own process, recorded per hardware
+set in `benchmarks/history/`. Every performance claim in this document must point at a measurement recorded
 under [benchmarks.md](benchmarks.md#reporting-a-performance-claim)'s rules or be marked as
 an estimate.
 

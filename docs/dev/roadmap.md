@@ -618,8 +618,8 @@ GPUs with slow double precision.
   Apple GPUs on the fibre, radial and Cartesian routes with every response but the
   refused ones. Its open questions: whether a rule comparing binary32 Adams with
   binary64 Adams should admit `Multistep()` under single precision (binary64 Adams has
-  the same errors at the tolerances the study used); `mlx` cases in the standard
-  benchmark suite (SEP 30); and a fused stage kernel for the launch-bound small plasma
+  the same errors at the tolerances the study used); `mlx` cases in the
+  benchmarks (SEP 38); and a fused stage kernel for the launch-bound small plasma
   capillaries. Open beyond it: single precision on
   `native` and `numba_cpu` (Kokkos, Kokkos Kernels and Kokkos-FFT support it on every
   backend in use), on the routes SEP 33 refuses, and noise models under single
@@ -628,13 +628,12 @@ GPUs with slow double precision.
   would need a single-source C++ compiler for Metal (the runtime part is modest: 5 to
   10 thousand lines for each existing GPU backend).
 
-**Benchmark platform qualification beyond the initial CPU suite.**
-[SEP 30](seps/archive/sep-0030-standard-benchmark-suite.md) covers the standard suite, portable
-records and durable incremental exports, with CPU timing collections on macOS and
-Linux and an initial native coverage collection on macOS. Linux native coverage,
-Windows execution, cloud launch/collection recipes and GPU timing and coverage
-need separate qualification. Keep future platform results in distinct machine/build
-records; successful CPU coverage does not establish coverage of device code.
+**Benchmark platforms beyond CPU tracking.**
+[SEP 38](seps/archive/sep-0038-performance-tracking.md) (final) tracks native CPU and
+GPU runs per hardware set. The first history rows are recorded at the release commit on
+an Apple M5 Max, a 16-core AMD EPYC 7763 allocation and a cloud Arm Neoverse-V2
+instance, with Windows x86-64 occasionally; a GPU file, cloud launch recipes and an
+`mlx` backend in the tracking set remain to do.
 
 **Remaining benchmark references and estimates.** Complete independent reference
 checks for the 512-node radial filament, 128/256-square Cartesian filaments and
