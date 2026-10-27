@@ -1968,7 +1968,7 @@ against a solo run at $2^{18}$ (5.6×10⁷), 0.73 and 0.95. The rule's "the same
 $2^{18}$" does not say which, so $2^{14}$ falls short of half under the first reading
 and passes under the second, and $2^{15}$ passes under both. These runs carry no noise
 model; a noise ensemble adds one binary64 addition per sample at the entrance. The
-reading is the maintainers' to decide.
+reading was the maintainers' to decide (below).
 
 **`ctc` and the oracle's transforms.** `ctc` at 0.05 m (H2, 40 bar, noise-free
 stimulated Raman scattering) is within its envelope on the A40 (8.2×10⁻⁴), but native
@@ -1998,7 +1998,7 @@ So SEP 33's survival record, and phase 1's mixed record, were measured on a Rama
 convolution more accurate than binary32, and they overstate survival for cases that
 amplify a rounding seed in a Raman band. No native change can recover it within §4.2's
 contract: the transforms are the libraries' binary32 sums. Whether the oracle's Raman
-transforms become true binary32, and `ctc`'s limits are re-measured, is the
+transforms become true binary32, and `ctc`'s limits are re-measured, was the
 maintainers' decision (below).
 
 **Not done: the AMD half.** The HIP build compiles all three policies, but no CDNA 3 GPU
@@ -2033,6 +2033,51 @@ the profiles on an AMD GPU wait on a budget agreed with the maintainers (Q9).
   and a Python test compares the drift with the oracle's over 1000 steps. The cost is
   the binary64 transcendentals per bin and stage, which single now shares with mixed
   (stage entry 36 µs against 23 µs before, at $2^{16}$ on the A40).
+
+### Main merged, and SEP 37's defaults (2026-10-27)
+
+The branch took main with SEP 35 (the Adams carrier frame), SEP 37 (noise on by default;
+an integrator and tolerances for each interface), SEP 38 (performance tracking, which
+supersedes SEP 30's suite) and the start-of-run summary. SEP 35's carrier-frame kernels
+were carried into the policy-templated workspace. SEP 36 takes kernel schema 38 and
+output schema 27 (main took 37 and 26), and its ADR is ADR-057.
+
+- *Noise.* SEP 37's default model resolves to none under mixed precision, recorded and
+  printed as under single, until this SEP's noise study admits a model (§4.4).
+- *Integrators.* SEP 37 keeps `Multistep()` for the capillary and the radial and planar
+  routes. Mixed precision refuses Adams until phase 5 (Q2), so a mixed run there takes
+  `RungeKutta()`, which SEP 37 measured 1.2–3.6 times slower than `Multistep()` on
+  Kerr-only and four-wave-mixing capillary cases. Phase 5's Adams comparison decides it.
+- *Tolerances.* Every interface's default is its binary64 default raised to the mode's
+  floor (§5): the GNLSE's 1e-7 under mixed, the capillary's 1e-6 under both reduced
+  modes (a capillary under a reduced mode had fallen through to the waveguide's 1e-5).
+- *Benchmarks.* §7.4's records were to be made by SEP 30's harness, which SEP 38
+  replaces; they are made by SEP 38's `track` and `ab` with a precision option (a
+  deviation from §7.4).
+
+### Maintainer decisions after phase 4 (2026-10-27)
+
+John Travers accepted these recommendations:
+
+1. *`ctc` and the oracle.* The oracle's binary32 transforms become true binary32 sums,
+   so that it models the backends' rounding, and `ctc`'s limits under single and mixed
+   precision are measured again on it.
+2. *The multi-team accepted update.* The accepted update and the response are spread
+   over several teams per node on devices, inside this SEP: the one-team form costs
+   37–39 % of a reduced-precision step on the A40, and the policy-templated workspace
+   exists only on this branch.
+3. *Q8.* Decided after item 2, which removes the small runs' bottleneck, under the
+   stricter reading: against the best of the three ways at $2^{18}$.
+4. *The AMD half.* A rented MI325X, within US$25 for both of Q9's sessions.
+5. *The noise cases.* They take SEP 38's definitions at their interface defaults:
+   `scg_coherent` is `gnlse_raman_shock` (the same Dudley case), `scg_incoherent` the
+   same with a 100 fs pump, `rdw_noise` SEP 38's four-mode `rdw`, and
+   `radial_filament_noise` its `radial_filament_256`. `ctc_noise` waits for item 1.
+6. *Q5.* The wheels are built and measured before the rule is applied as written.
+7. *Noise under mixed.* The default falls back to none until the noise study admits a
+   model.
+8. *Benchmarks.* SEP 38's `track` and `ab` gain `--precision`, and phase 5's records
+   are made with them.
 
 ## Part III — History
 
