@@ -106,6 +106,10 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
   data and integration questions must be settled before acceptance; shared-level
   ladders, vector saturation and repeated-window histories remain future work.
+- [SEP 38 — Performance tracking: complete runs, about an hour per machine](seps/sep-0038-performance-tracking.md):
+  replaces SEP 30's standard suite with a release-tracking command that times
+  complete runs with the library's defaults and keeps a small history per hardware
+  set; drafted with its implementation.
 
 The informal items below record work not fully covered by these proposals. When adding
 or revising a SEP, remove an informal item only if the proposal covers it in full;
@@ -621,8 +625,8 @@ GPUs with slow double precision.
   Apple GPUs on the fibre, radial and Cartesian routes with every response but the
   refused ones. Its open questions: whether a rule comparing binary32 Adams with
   binary64 Adams should admit `Multistep()` under single precision (binary64 Adams has
-  the same errors at the tolerances the study used); `mlx` cases in the standard
-  benchmark suite (SEP 30); and a fused stage kernel for the launch-bound small plasma
+  the same errors at the tolerances the study used); `mlx` cases in the
+  benchmarks (SEP 38); and a fused stage kernel for the launch-bound small plasma
   capillaries. Open beyond it: single precision on
   `native` and `numba_cpu` (Kokkos, Kokkos Kernels and Kokkos-FFT support it on every
   backend in use), on the routes SEP 33 refuses, and noise models under single
@@ -631,13 +635,10 @@ GPUs with slow double precision.
   would need a single-source C++ compiler for Metal (the runtime part is modest: 5 to
   10 thousand lines for each existing GPU backend).
 
-**Benchmark platform qualification beyond the initial CPU suite.**
-[SEP 30](seps/archive/sep-0030-standard-benchmark-suite.md) covers the standard suite, portable
-records and durable incremental exports, with CPU timing collections on macOS and
-Linux and an initial native coverage collection on macOS. Linux native coverage,
-Windows execution, cloud launch/collection recipes and GPU timing and coverage
-need separate qualification. Keep future platform results in distinct machine/build
-records; successful CPU coverage does not establish coverage of device code.
+**Benchmark platforms beyond CPU tracking.**
+[SEP 38](seps/sep-0038-performance-tracking.md) tracks native CPU runs per hardware set.
+GPU tracking, Windows execution and cloud launch recipes need their own work; keep
+their results in distinct hardware records.
 
 **Remaining benchmark references and estimates.** Complete independent reference
 checks for the 512-node radial filament, 128/256-square Cartesian filaments and

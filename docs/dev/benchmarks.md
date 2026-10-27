@@ -1,32 +1,23 @@
 # Benchmarks
 
 How solprop's performance is measured and judged, and what the measurements so far
-indicate. A performance claim names its measured window, build, machine and result;
-the rules below say how to take it. The numbers in the last two sections are indicative:
-each was measured once, on one machine, for one change. Re-measure with the standard
-suite before relying on any of them.
+indicate. A performance claim names what it measured, the build, the machine and the
+result; the rules below say how to take it. The numbers in the indicative sections are
+indicative: each was measured once, on one machine, for one change. Re-measure before
+relying on any of them.
 
 ## Where things are
 
-- **The standard benchmark suite** is `benchmarks/`
-  ([SEP 30](seps/archive/sep-0030-standard-benchmark-suite.md)), run with
-  `uv run poe bench` (`python -m benchmarks`). It measures bounded windows of
-  full-resolution problems in fresh processes and reports warm time, startup time,
-  peak memory and numerical check status. Its default is a quick Kokkos CPU run of the
-  four core cases (four-mode RDW, six-mode comb-to-continuum, a 384² Kerr beam and a
-  256-node radial filament); further sets cover modal capillaries, mode-averaged and
-  GNLSE cases, free space, coherent walls, tapers, the general modal route and
-  particular backend paths. Quick mode takes one sample and gives no verdict; standard
-  mode takes paired, shuffled fresh-process samples at one thread and at the machine's
-  declared production width and applies the adoption rule below. Cases are versioned
-  by their workload, so a changed definition is a new revision and is never compared
-  with the old one. [Running the benchmark suite](benchmarking.md) is the manual: case
-  sets, timing boundaries, collection, numerical qualification, native coverage and
-  export.
-- **Results stay local.** Runs, machine profiles, references and coverage reports go to
-  the ignored `.benchmarks/suite/` directory; no generated timing, reference or
-  coverage report is committed. `poe bench export` writes a sanitised snapshot when
-  one is wanted for a report.
+- **The benchmarks** are `benchmarks/`
+  ([SEP 38](seps/sep-0038-performance-tracking.md)), run with `uv run poe bench`
+  (`python -m benchmarks`). `track` times complete runs of the tracking set (about a
+  dozen representative workloads, with each interface's default integrator and
+  tolerances) at one thread and the production width, in about an hour per machine;
+  `ab` compares two builds while a change is made. [Running the benchmarks](benchmarking.md)
+  is the manual.
+- **The history** is `benchmarks/history/`: one CSV per hardware set, named by its CPU
+  model and core count, with a few rows per release. `python -m benchmarks history`
+  summarises it. Full run bundles stay in the ignored `.benchmarks/` directory.
 - **[CPU performance: what was tried](cpu-performance.md)** records the compiled CPU
   backend's performance experiments: what was adopted, measured and rejected, and what
   remains open. Read it before repeating an experiment.
@@ -50,31 +41,26 @@ suite before relying on any of them.
   denominator counting as unresolved. Small regressions on individual cases, or at one
   thread, are accepted when the aggregate improves; they stay visible in the table and
   do not veto the change. Numerical bounds are never relaxed to make a change pass.
-  The standard suite's comparison adds its clean-pair, repeatability and qualified
-  reference requirements
-  ([collection and comparison](benchmarking.md#collection-recovery-and-comparison)).
+  The A/A spread of the same comparison says how large a difference has to be to count
+  ([comparing two builds](benchmarking.md#comparing-two-builds-while-iterating)).
 
 (benchmark-windows)=
-## Measurement windows
+## What is timed
 
-Timing is measured on short windows, not on complete propagations: a complete
-comb-to-continuum run takes hours, and its cost is the window's times a step count the
-window already predicts.
-
-- A timing window is about ten accepted steps of the adaptive run, frozen from an
-  untimed pilot so that every repeat takes the same prescribed steps, or a fibre
-  short enough that a complete run takes seconds.
-- Report the window that was measured: its z extent, accepted steps, what the timed
-  region includes (propagation, observation and public statistics) and excludes
-  (translation, backend construction, HDF5), and the A/A resolution indicator of the
-  alternating pairs. Do not extrapolate a window to a complete-run cost.
-- A later state of a long propagation is timed by replaying a saved witness into a
-  short window, not by regenerating the propagation.
-- Compare two source trees with alternating fresh-process pairs (A/B/A/B…), and report the
-  A/A spread beside the ratio; a difference inside the spread is not a result.
-
-The suite's windows and what its timers include are listed under
-[timing boundaries and accounting](benchmarking.md#timing-boundaries-and-accounting).
+- **Release tracking times complete runs.** The tracking set's cases are complete
+  guides at production sizes, with the library's defaults, so the history says how long
+  the usual simulations take now. Construction, translation and backend construction
+  are timed separately; an untimed warm-up builds plans first
+  ([what is timed](benchmarking.md#what-is-timed)).
+- **A change in progress may time less.** `ab --length` runs part of each guide from
+  the entrance, which is fine for comparing two builds on the same work. Report the
+  fraction run, and do not extrapolate an entrance window to a complete-run cost: the
+  expensive part of a propagation (compression, ionisation, the Raman shift) often comes
+  late.
+- **A later state of a long propagation** is timed by replaying a saved witness into a
+  short run, not by regenerating the propagation.
+- **Compare two source trees with alternating pairs** (A/B/A/B…), and report the A/A
+  spread beside the ratio; a difference inside the spread is not a result.
 
 (benchmark-reporting)=
 ## Reporting a performance claim
@@ -82,8 +68,8 @@ The suite's windows and what its timers include are listed under
 **The machine record.** Every measurement carries the CPU (or device) model, core count,
 memory, operating system, Python and dependency versions (including the Kokkos build and
 its profile), thread counts, FFTW plan flags and wisdom state, the source revision and
-whether the tree was dirty, and the load before and after. The suite's machine profile
-and run manifest record these; a hand-run measurement states them. Results are compared
+whether the tree was dirty, and the load before and after. A tracking run's plan and
+results record these; a hand-run measurement states them. Results are compared
 only within one machine.
 
 **A quiet machine.** Absolute numbers are taken on a dedicated workstation or an
