@@ -17,7 +17,7 @@ from pathlib import Path
 
 from benchmarks import history
 from benchmarks.records import LOCAL_ROOT, Record, SuiteError, atomic_record, now
-from benchmarks.registry import CASES, SETS, STEPPERS, select
+from benchmarks.registry import CASES, PRECISIONS, SETS, STEPPERS, select
 from benchmarks.runner import (
     ROOT,
     launch_worker,
@@ -44,6 +44,7 @@ __all__ = [
     "admissible",
     "history_rows",
     "imported_elsewhere",
+    "precisions",
     "refuse_partial",
     "selection_options",
     "show_results",
@@ -64,6 +65,12 @@ def selection_options(parser: argparse.ArgumentParser) -> None:
         default="default",
         help="default, multistep, multistep-interaction or rk; comma-separated to "
         "compare steppers in one run",
+    )
+    parser.add_argument(
+        "--precision",
+        default="double",
+        help="double, single or mixed (SEP 36); comma-separated to compare them in "
+        "one run",
     )
     parser.add_argument(
         "--threads", help="widths, e.g. 1,production; default: each case's own"
@@ -118,6 +125,14 @@ def steppers(value: str) -> tuple[str, ...]:
     return names
 
 
+def precisions(value: str) -> tuple[str, ...]:
+    """Parse a comma-separated precision list."""
+    names = tuple(dict.fromkeys(item.strip() for item in value.split(",")))
+    if unknown := [name for name in names if name not in PRECISIONS]:
+        raise SuiteError(f"unknown precision: {', '.join(unknown)}")
+    return names
+
+
 def summarise(
     row: Record, result: Record, busy: bool, threading: str = "passive"
 ) -> Record:
@@ -134,6 +149,7 @@ def summarise(
         "case": values["case"],
         "revision": values["revision"],
         "stepper": values["stepper"],
+        "precision": values.get("precision", "double"),
         "threads": "device" if device else values["threads"],
         "threading": threading,
         "status": result["status"],
@@ -230,6 +246,7 @@ def history_rows(
             "revision": row["revision"],
             "case_hash": CASES[row["case"]].digest[:12],
             "stepper": row["stepper"],
+            "precision": row.get("precision", "double"),
             "integrator": row["integrator"],
             "rtol": row["rtol"],
             "atol": row["atol"],
@@ -320,6 +337,7 @@ def track(args: argparse.Namespace) -> int:
         production,
         backend=args.backend,
         device=args.device,
+        precisions=precisions(args.precision),
     )
     if not rows:
         raise SuiteError("no configuration in the selection")

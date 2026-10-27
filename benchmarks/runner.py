@@ -9,6 +9,7 @@ Shared by ``track`` and ``ab``. Nothing here imports a scientific library.
 
 from __future__ import annotations
 
+import itertools
 import json
 import shutil
 import subprocess
@@ -16,7 +17,7 @@ import time
 from pathlib import Path
 
 from benchmarks.records import Record, SuiteError, atomic_record, canonical, file_hash
-from benchmarks.registry import Case
+from benchmarks.registry import REDUCED_BUILDERS, Case
 from benchmarks.system import POOL_VARIABLES, widths
 
 __all__ = [
@@ -68,31 +69,46 @@ def plan_rows(  # noqa: PLR0913
     backend: str = "native",
     fraction: float = 1.0,
     device: bool = False,
+    precisions: tuple[str, ...] = ("double",),
 ) -> tuple[list[Record], list[str]]:
     """Resolve configurations in run order; explain every one left out.
 
     Without `threads`, each case runs at its declared widths; with it, every case
     runs at the widths it names. On a `device`, each case runs once, with the
-    production width of host threads, and its CPU cost does not apply.
+    production width of host threads, and its CPU cost does not apply. Each
+    precision is a configuration of its own; a case that runs in double precision
+    only is left out of the others.
     """
     rows: list[Record] = []
     skipped: list[str] = []
     for case in cases:
         declared = "production" if device else ",".join(case.widths)
         for width in widths(threads or declared, production):
-            for stepper in steppers:
+            for stepper, precision in itertools.product(steppers, precisions):
                 if stepper not in case.steppers:
                     skipped.append(
                         f"{case.name} {stepper}: a fixed-step case runs its own "
                         "schedule only"
                     )
                     continue
+                if precision != "double" and case.builder not in REDUCED_BUILDERS:
+                    skipped.append(
+                        f"{case.name} {precision}: the case runs in double precision "
+                        "only"
+                    )
+                    continue
                 rows.append(
                     {
                         "id": f"{case.name}.{stepper}."
+                        + ("" if precision == "double" else f"{precision}.")
                         + ("device" if device else f"t{width}"),
                         "configuration": case.configuration(
-                            stepper, width, backend, fraction, device=device
+                            stepper,
+                            width,
+                            backend,
+                            fraction,
+                            device=device,
+                            precision=precision,
                         ),
                         "cost": None if device else case.cost[0 if width == 1 else 1],
                     }

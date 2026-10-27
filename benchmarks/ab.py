@@ -33,7 +33,7 @@ from benchmarks.runner import (
     receipt,
 )
 from benchmarks.system import eligible_cpus, guard, physical_cores, thread_environment
-from benchmarks.track import selection_options, steppers
+from benchmarks.track import precisions, selection_options, steppers
 
 __all__ = [
     "ARMS",
@@ -111,6 +111,7 @@ def summarise(rows: list[Record], samples: list[Record], fields: Path) -> list[R
                 "id": row["id"],
                 "case": values["case"],
                 "stepper": values["stepper"],
+                "precision": values.get("precision", "double"),
                 "threads": values["threads"],
                 "rounds": len(rounds),
                 "baseline_seconds": statistics.median(medians["baseline"].values())
@@ -188,6 +189,7 @@ def ab(args: argparse.Namespace) -> int:
         backend=args.backend,
         fraction=args.length,
         device=args.device,
+        precisions=precisions(args.precision),
     )
     for reason in skipped:
         print(f"skipped {reason}")

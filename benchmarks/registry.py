@@ -18,6 +18,8 @@ from benchmarks.records import Record, SuiteError, identity
 
 __all__ = [
     "CASES",
+    "PRECISIONS",
+    "REDUCED_BUILDERS",
     "SEED",
     "SETS",
     "STEPPERS",
@@ -36,6 +38,12 @@ SETS = (
     "backend-exercise",
 )
 TRACKING = "tracking"
+
+PRECISIONS = ("double", "single", "mixed")
+"""The arithmetic a configuration may run in (SEP 36); double is the default."""
+
+REDUCED_BUILDERS = ("capillary", "gnlse", "kerr", "spatial")
+"""Builders that pass a reduced precision to the interface (SEP 36)."""
 STEPPERS = ("default", "multistep", "multistep-interaction", "rk")
 WIDTHS = ("1", "production")
 SEED = 20261027
@@ -111,7 +119,7 @@ class Case:
             record.pop(key)
         return identity(record)
 
-    def configuration(
+    def configuration(  # noqa: PLR0913 - one measurement's every axis
         self,
         stepper: str,
         width: int,
@@ -120,14 +128,21 @@ class Case:
         warmup: float = 0.02,
         *,
         device: bool = False,
+        precision: str = "double",
     ) -> Record:
         """Resolve one measurement without constructing a scientific object.
 
         On a device build, `width` is the host's thread count and `device` says the
-        native backend must run on the accelerator.
+        native backend must run on the accelerator. `precision` is the run's
+        arithmetic (SEP 36), applied through the interface so that its defaults
+        follow; only the interface-built cases admit a reduced one.
         """
         if stepper not in self.steppers:
             raise SuiteError(f"{self.name} admits only {', '.join(self.steppers)}")
+        if precision not in PRECISIONS:
+            raise SuiteError(f"unknown precision: {precision}")
+        if precision != "double" and self.builder not in REDUCED_BUILDERS:
+            raise SuiteError(f"{self.name} runs in double precision only")
         if not 0 < fraction <= 1 or not 0 <= warmup < 1:
             raise SuiteError("length fraction must be in (0, 1], warm-up in [0, 1)")
         return {
@@ -135,6 +150,7 @@ class Case:
             "revision": self.revision,
             "case_hash": self.digest,
             "stepper": stepper,
+            "precision": precision,
             "threads": width,
             "backend": backend,
             "device": device,

@@ -43,6 +43,7 @@ COLUMNS = (
     "revision",
     "case_hash",
     "stepper",
+    "precision",
     "integrator",
     "rtol",
     "atol",
@@ -104,9 +105,8 @@ def comparable(row: Record) -> tuple[str, ...]:
     """Key the rows that measure the same thing on one hardware set.
 
     Two rows compare only with the same memory domains spanned, width, threading,
-    case definition,
-    stepper, resolved integrator, tolerances and noise model: a changed library
-    default is a new configuration, not a speed-up.
+    case definition, stepper, precision, resolved integrator, tolerances and noise
+    model: a changed library default is a new configuration, not a speed-up.
     """
     return tuple(
         str(row.get(key) or "")
@@ -117,6 +117,7 @@ def comparable(row: Record) -> tuple[str, ...]:
             "case",
             "revision",
             "stepper",
+            "precision",
             "integrator",
             "rtol",
             "atol",

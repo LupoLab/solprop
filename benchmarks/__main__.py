@@ -15,7 +15,13 @@ from benchmarks.records import SuiteError
 from benchmarks.registry import select
 from benchmarks.runner import plan_rows, show_plan
 from benchmarks.system import physical_cores
-from benchmarks.track import selection_options, steppers, track, track_options
+from benchmarks.track import (
+    precisions,
+    selection_options,
+    steppers,
+    track,
+    track_options,
+)
 
 __all__ = ["main", "parser_for"]
 
@@ -67,6 +73,7 @@ def main(argv: list[str] | None = None) -> int:
             args.threads,
             args.production or physical_cores(),
             backend=args.backend,
+            precisions=precisions(args.precision),
         )
         show_plan(rows, skipped, args.repeats)
         return 0
