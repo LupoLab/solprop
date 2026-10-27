@@ -18,11 +18,12 @@ from typing import TYPE_CHECKING, Any
 from benchmarks.records import Record, SuiteError
 from benchmarks.registry import CASES, SEED
 
-__all__ = ["build", "capillary", "gnlse", "integrator", "kerr", "spatial"]
+__all__ = ["build", "capillary", "gnlse", "integrator", "kerr", "seed", "spatial"]
 
 if TYPE_CHECKING:
     from solprop.driver import Simulation, SimulationSettings
     from solprop.stepper import Multistep, RungeKutta
+    from solprop.translate.precision import PrecisionName
 
 
 def integrator(stepper: str) -> Multistep | RungeKutta | None:
@@ -37,11 +38,22 @@ def integrator(stepper: str) -> Multistep | RungeKutta | None:
     }[stepper]
 
 
-def capillary(name: str) -> Simulation:
+def seed(precision: PrecisionName) -> int | None:
+    """Return :data:`~benchmarks.registry.SEED` where the default noise draws a model.
+
+    A reduced precision's default resolves to no noise until SEP 36 admits a model
+    under it, and a seed beside that fallback is refused (SEP 37).
+    """
+    from solprop.driver.simulation import _resolve_noise  # noqa: PLC0415
+
+    return SEED if _resolve_noise("default", None, precision)[0] is not None else None
+
+
+def capillary(name: str, precision: PrecisionName = "double") -> Simulation:
     """Build a capillary case on its resolved or mode-averaged route."""
     from solprop.stats import default_spec  # noqa: PLC0415
 
-    simulation = _resolved_capillary(name)
+    simulation = _resolved_capillary(name, precision)
     if name.endswith("_averaged"):
         # One resolved mode still integrates its transverse profile. The averaged
         # route uses its effective area and the matching ordinary statistics.
@@ -54,7 +66,7 @@ def capillary(name: str) -> Simulation:
     return simulation
 
 
-def _resolved_capillary(name: str) -> Simulation:
+def _resolved_capillary(name: str, precision: PrecisionName) -> Simulation:
     from solprop.driver import Simulation  # noqa: PLC0415 - worker-only imports
 
     if name.startswith("rdw") or name == "he_rdw_averaged":
@@ -69,7 +81,8 @@ def _resolved_capillary(name: str) -> Simulation:
             fwhm=7.5e-15,
             energy=275e-6,
             modes=4 if name == "rdw" else 1,
-            seed=SEED,
+            seed=seed(precision),
+            precision=precision,
         )
     if name == "ctc":
         return Simulation.from_capillary(
@@ -84,7 +97,8 @@ def _resolved_capillary(name: str) -> Simulation:
             energy=10e-6,
             modes=3,
             loss=0.0,
-            seed=SEED,
+            seed=seed(precision),
+            precision=precision,
         )
     if name == "ctc_reduced":
         return Simulation.from_capillary(
@@ -100,7 +114,8 @@ def _resolved_capillary(name: str) -> Simulation:
             modes=2,
             raman=True,
             temperature=294.0,
-            seed=SEED,
+            seed=seed(precision),
+            precision=precision,
         )
     if name.startswith("argon_blueshift"):
         return Simulation.from_capillary(
@@ -116,7 +131,8 @@ def _resolved_capillary(name: str) -> Simulation:
             wavelength_limits=(160e-9, 4e-6),
             modes=1,
             envelope=name == "argon_blueshift_envelope",
-            seed=SEED,
+            seed=seed(precision),
+            precision=precision,
         )
     if name == "h2_raman_averaged":
         return Simulation.from_capillary(
@@ -132,7 +148,8 @@ def _resolved_capillary(name: str) -> Simulation:
             trange=800e-15,
             wavelength_limits=(200e-9, 4e-6),
             modes=1,
-            seed=SEED,
+            seed=seed(precision),
+            precision=precision,
         )
     if name in ("h2_raman_6ps", "h2_raman_6ps_averaged"):
         return Simulation.from_capillary(
@@ -149,12 +166,13 @@ def _resolved_capillary(name: str) -> Simulation:
             trange=6e-12,
             wavelength_limits=(400e-9, 4e-6),
             modes=1,
-            seed=SEED,
+            seed=seed(precision),
+            precision=precision,
         )
     raise SuiteError(f"capillary builder not implemented for {name}")
 
 
-def gnlse(name: str) -> Simulation:
+def gnlse(name: str, precision: PrecisionName = "double") -> Simulation:
     """Extract the ideal soliton and the SEP 13 Raman/shock envelope inputs.
 
     Higher dispersion coefficients and the Raman/shock launch follow Dudley,
@@ -180,7 +198,8 @@ def gnlse(name: str) -> Simulation:
             pulseshape="sech",
             raman=False,
             shock=False,
-            seed=SEED,
+            seed=seed(precision),
+            precision=precision,
         )
     if name == "gnlse_raman_shock":
         return Simulation.from_gnlse(
@@ -207,7 +226,8 @@ def gnlse(name: str) -> Simulation:
             peak_power=10e3,
             raman=True,
             shock=True,
-            seed=SEED,
+            seed=seed(precision),
+            precision=precision,
         )
     raise SuiteError(f"GNLSE builder not implemented for {name}")
 
@@ -317,7 +337,7 @@ def spatial(name: str, settings: SimulationSettings) -> Simulation:
             responses,
             pulse,
             settings=settings,
-            seed=SEED,
+            seed=seed(settings.precision),
         )
     if name == "line" or name.startswith("cartesian_filament"):
         size = case.dimensions[0]
@@ -403,8 +423,10 @@ def build(configuration: Record) -> Simulation:
         "field_planes": (len(itinerary),) if fields == "planes" else (),
     }
     chosen = integrator(configuration["stepper"])
+    precision: PrecisionName = configuration.get("precision", "double")
     if case.builder in ("kerr", "spatial"):
         settings = SimulationSettings(
+            precision=precision,
             save_planes=itinerary,
             dz_max=case.length,
             dz_init=case.length * 1e-4,
@@ -446,9 +468,9 @@ def build(configuration: Record) -> Simulation:
             )
             return simulation
     elif case.builder == "capillary":
-        simulation = capillary(case.name)
+        simulation = capillary(case.name, precision)
     elif case.builder == "gnlse":
-        simulation = gnlse(case.name)
+        simulation = gnlse(case.name, precision)
     elif case.builder == "smoke":
         simulation = smoke()
     else:

@@ -80,6 +80,19 @@ uv run python -m benchmarks track --case rdw --case ctc --stepper default,rk
 An override replaces the integrator only; the tolerances stay the interface's. A
 fixed-step case admits `default` only, and the plan says which it skipped.
 
+**Precisions.** `--precision` takes `double` (the default), `single` or `mixed`
+([SEP 36](seps/sep-0036-native-reduced-precision.md)), or a comma-separated list. Each
+precision is a configuration of its own, passed to the interface so that its defaults
+follow: its integrator, its tolerance raised to the mode's floor, and its noise. Where
+a mode's default noise falls back to none, the case's seed is dropped, and the row
+records the noise the run carried, so compare rows of equal noise only. The capillary,
+GNLSE, Kerr-beam and spatial cases admit a reduced precision; the others run in double
+precision only, and the plan says which it skipped.
+
+```sh
+uv run python -m benchmarks track --case rdw --precision double,mixed
+```
+
 **Widths.** Without `--threads`, each case runs at its declared widths: one thread and
 the production width, or one of them for the most expensive cases. `--threads 1,8`
 names the widths for every selected case. The production width is the number of

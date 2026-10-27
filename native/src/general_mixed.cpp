@@ -16,6 +16,8 @@
 namespace solprop_native {
 
 template GeneralWorkspace<Mixed>::GeneralWorkspace(Problem problem);
+// Called by an inline member the binary64 unit compiles for every policy.
+template bool GeneralWorkspace<Mixed>::folds_single_node() const noexcept;
 template void GeneralWorkspace<Mixed>::set_initial(const std::vector<Complex>&,
                                                    const std::vector<Complex>&);
 template std::vector<double> GeneralWorkspace<Mixed>::trial_step(double,

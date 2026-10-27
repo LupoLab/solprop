@@ -97,8 +97,8 @@ private:
 
 // One frozen-residual weight row from the host into a View's row.
 template <class Row>
-void upload_weights(const ExecutionSpace& space, const Row& out,
-                    const std::vector<double>& weights) {
+[[maybe_unused]] void upload_weights(const ExecutionSpace& space, const Row& out,
+                                     const std::vector<double>& weights) {
   if (weights.size() < out.extent(0))
     throw std::invalid_argument("a coupled flow's weights are shorter than its terms");
   const Kokkos::View<const double*, Kokkos::HostSpace,
@@ -111,13 +111,12 @@ void upload_weights(const ExecutionSpace& space, const Row& out,
 // G_t u` on the block's bins and zero off them (the terms are zero off the scored
 // bins). A zero weight is skipped, which leaves every bit as the full sum has it.
 template <class Out>
-void apply_generator(const ExecutionSpace& space, const std::size_t n,
-                     const std::size_t modes,
-                     const Kokkos::View<std::size_t*, Layout, MemorySpace>& slots,
-                     const Kokkos::View<Complex****, Layout, MemorySpace>& terms,
-                     const Kokkos::View<double*, Layout, MemorySpace>& weights,
-                     const Kokkos::View<Complex**, Layout, MemorySpace>& input,
-                     const Out& out) {
+[[maybe_unused]] void apply_generator(
+    const ExecutionSpace& space, const std::size_t n, const std::size_t modes,
+    const Kokkos::View<std::size_t*, Layout, MemorySpace>& slots,
+    const Kokkos::View<Complex****, Layout, MemorySpace>& terms,
+    const Kokkos::View<double*, Layout, MemorySpace>& weights,
+    const Kokkos::View<Complex**, Layout, MemorySpace>& input, const Out& out) {
   const auto n_terms = weights.extent(0);
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   Kokkos::parallel_for(
