@@ -241,6 +241,7 @@ def test_the_driver_refuses_axis_statistics_before_saving_a_non_plasma_run():
         plasma=False,
         stats=AXIS,
         backend="numpy_ref",
+        noise=None,
     )
     with pytest.raises(DriverError, match="need a compiled plasma response"):
         simulation.run()
@@ -379,6 +380,7 @@ def envelope_run(radial_rule, n_r):
             absorber_scheme="split_step",
             stats=StatsSpec(names=names),
             backend="numpy_ref",
+            noise=None,
         )
         output = simulation.run()
     return {name: np.asarray(output[f"stats/{name}"]) for name in names}

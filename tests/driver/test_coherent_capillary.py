@@ -211,7 +211,7 @@ def capillary(
         "He",
         pressure,
         wall=wall,
-        **arguments,
+        **{"noise": None, **arguments},
     )
 
 
@@ -251,7 +251,7 @@ def run_capillary(
             "He",
             1.0,
             wall=wall,
-            **arguments,
+            **{"noise": None, **arguments},
         ),
     )
 
@@ -494,7 +494,7 @@ def test_the_route_records_its_flow_on_the_schema_seven_identity():
     assert record["residual_norm_bound"] == 0.0
     assert record["radius"] == RADIUS
     assert 0.0 < float(cast("float", record["quasi_static"])) < 0.25
-    assert metadata.schema_version == 25
+    assert metadata.schema_version == 26
     assert capability_of(metadata) == "modal"
     assert "mean impedance coherent wall" in str(metadata)
     # Nothing that is not a scalar reaches the resume key.
@@ -530,7 +530,7 @@ def test_a_run_without_a_wall_declares_no_flow_and_no_identity():
             },
             "HE_11 to HE_12",
         ),
-        ({"noise": "input", "seed": 3}, "refuses a noise model"),
+        ({"noise": "modified", "seed": 3}, "refuses the 'modified' noise model"),
     ],
 )
 def test_the_route_refuses_what_the_block_is_not_derived_for(overrides, expected):
@@ -666,6 +666,7 @@ def test_a_tube_lattice_is_refused_rather_than_given_the_bare_capillary_wall():
             wall=CoherentWall(),
             plasma=False,
             raman=False,
+            noise=None,
         )
     block = [
         VincettiMode(15e-6, "Ar", 10.0, lattice=lattice, m=index + 1)
@@ -798,8 +799,10 @@ def test_a_vector_state_or_a_noise_draw_refuses_a_wall_beside_it():
         _check_wall_route(replace(build, n_pol=2))
     # The TE/TM wall is named as the wall's impedances, not the state's axis.
     assert "not the state's polarisation axis" in str(refused.value)
-    with pytest.raises(TranslationError, match="refuses a noise model"):
-        _check_wall_route(replace(build, has_noise=True))
+    with pytest.raises(TranslationError, match="refuses the 'modified' noise"):
+        _check_wall_route(replace(build, has_noise=True, noise_model="modified"))
+    # The input draw is part of the entrance state, which the flow propagates.
+    _check_wall_route(replace(build, has_noise=True, noise_model="input"))
 
 
 def test_a_wall_declared_on_another_route_is_refused_by_name():
@@ -824,6 +827,7 @@ def test_a_wall_declared_on_another_route_is_refused_by_name():
             quadrature=None,
             prefactor_index=None,
         ),
+        noise=None,
     )
     spatial.wall = CoherentWall()
     with pytest.raises(TranslationError, match="a spatial geometry"):
@@ -841,6 +845,7 @@ def test_a_wall_declared_on_another_route_is_refused_by_name():
         save_planes=[GENERAL_Z_END / 10],
         dz_max=GENERAL_Z_END / 20,
         dz_init=GENERAL_Z_END / 20,
+        noise=None,
     )
     general.wall = CoherentWall()
     with pytest.raises(TranslationError, match="the general modal route"):
@@ -994,10 +999,12 @@ def test_the_reference_refuses_a_noise_draw_beside_a_flow():
         initial=replace(
             problem.initial,
             noise0=np.zeros_like(problem.initial.field0),
-            noise_model="input",
+            noise_model="modified",
         ),
     )
-    with pytest.raises(BackendError, match="no noise model beside a coupled flow"):
+    with pytest.raises(
+        BackendError, match="no 'modified' noise model beside a coupled flow"
+    ):
         NumpyRefBackend(noisy, grid=grid)
 
 
@@ -1343,6 +1350,7 @@ def test_the_flow_record_survives_a_file_and_a_resume_checks_it(tmp_path):
             schedule=FixedSchedule(np.full(STEPS, LENGTH / STEPS)),
             plasma=False,
             raman=False,
+            noise=None,
         ).run(path, resume=True)
 
 
@@ -1413,22 +1421,32 @@ GNLSE_FIBRE = (0.11, LEGACY_LENGTH, [0.0, 0.0, -1.183e-26])
 def legacy_capillary(backend):
     """Return a ten-step two-mode capillary run of the pre-wall route."""
     return prop_capillary(
-        125e-6, LEGACY_LENGTH, "He", 1.0, **legacy_capillary_keywords(backend)
+        125e-6,
+        LEGACY_LENGTH,
+        "He",
+        1.0,
+        **{"noise": None, **legacy_capillary_keywords(backend)},
     )
 
 
 def legacy_gnlse(backend):
     """Return a ten-step GNLSE run of the soliton case."""
-    return prop_gnlse(*GNLSE_FIBRE, **legacy_gnlse_keywords(backend))
+    return prop_gnlse(*GNLSE_FIBRE, **{"noise": None, **legacy_gnlse_keywords(backend)})
 
 
 def legacy_simulation(entry):
     """Return the simulation a legacy entry point runs, for its rounding budget."""
     if entry == "prop_capillary":
         return Simulation.from_capillary(
-            125e-6, LEGACY_LENGTH, "He", 1.0, **legacy_capillary_keywords("numpy_ref")
+            125e-6,
+            LEGACY_LENGTH,
+            "He",
+            1.0,
+            **{"noise": None, **legacy_capillary_keywords("numpy_ref")},
         )
-    return Simulation.from_gnlse(*GNLSE_FIBRE, **legacy_gnlse_keywords("numpy_ref"))
+    return Simulation.from_gnlse(
+        *GNLSE_FIBRE, **{"noise": None, **legacy_gnlse_keywords("numpy_ref")}
+    )
 
 
 @pytest.mark.medium
@@ -1547,7 +1565,7 @@ def varying(
         "He",
         pressure,
         wall=wall,
-        **arguments,
+        **{"noise": None, **arguments},
     )
 
 
@@ -2072,8 +2090,8 @@ def test_a_varying_wall_refuses_every_declaration_it_would_otherwise_override():
                 MarcatiliMode(shared, "He", 1.0, m=2, phi=0.3),
             ],
         ).translate()
-    with pytest.raises(TranslationError, match="refuses a noise model"):
-        varying(wall=CoherentWall(), noise="input", seed=1).translate()
+    with pytest.raises(TranslationError, match="refuses the 'modified' noise"):
+        varying(wall=CoherentWall(), noise="modified", seed=1).translate()
     with pytest.raises(DriverError, match="polarisation"):
         varying(wall=CoherentWall(), polarisation="linear").translate()
 
@@ -2229,6 +2247,7 @@ def test_prop_capillary_runs_a_varying_wall_end_to_end_and_records_its_flow():
             schedule=FixedSchedule(np.full(STEPS, LENGTH / STEPS)),
             plasma=False,
             raman=False,
+            noise=None,
         ),
     )
     written = walled.metadata
@@ -2262,6 +2281,7 @@ def test_prop_capillary_runs_a_varying_wall_end_to_end_and_records_its_flow():
             plasma=False,
             raman=False,
             taper_coupling=False,
+            noise=None,
         ),
     )
     wide = energy_loss(run_capillary(wall=CoherentWall(), modes=3))
@@ -2439,6 +2459,7 @@ def test_the_varying_wall_route_is_pinned_to_its_recorded_answer(ndarrays_regres
             integrator=FIXED_ORDER,
             plasma=False,
             raman=False,
+            noise=None,
         ),
     )
     field = handler.planes()[-1].field
@@ -2744,7 +2765,11 @@ def test_a_vector_wall_refuses_every_declaration_it_would_otherwise_override():
         ({"loss": False}, DriverError, "is the loss model"),
         ({"model": "reduced"}, DriverError, "one capillary model"),
         ({"lattice": TubeLattice(180e-9, 9e-6, 6)}, DriverError, "tube lattice"),
-        ({"noise": "input", "seed": 1}, TranslationError, "refuses a noise model"),
+        (
+            {"noise": "modified", "seed": 1},
+            TranslationError,
+            "refuses the 'modified' noise model",
+        ),
     ):
         with pytest.raises(error, match=message):
             run_capillary(wall=VECTOR_WALL, modes=modes, **overrides)
@@ -2964,7 +2989,7 @@ def _vector_taper_run(**overrides) -> MemoryOutput:
         arguments["integrator"] = RungeKutta()
     return cast(
         "MemoryOutput",
-        prop_capillary(taper(), LENGTH, "He", 1.0, **arguments),
+        prop_capillary(taper(), LENGTH, "He", 1.0, **{"noise": None, **arguments}),
     )
 
 
@@ -3032,6 +3057,7 @@ def test_prop_capillary_runs_a_vector_wall_on_a_taper_end_to_end_and_is_pinned(
                 integrator=FIXED_ORDER,
                 plasma=False,
                 raman=False,
+                noise=None,
             ),
         )
     )
@@ -3710,8 +3736,8 @@ def test_a_cf4_wall_refuses_every_declaration_the_frozen_one_refuses():
     backend's own `max_batch = 1` before a coupled flow is looked at, and a fixed
     schedule straddling the taper's corner by `flow_edge_slack`.
     """
-    with pytest.raises(TranslationError, match="refuses a noise model"):
-        varying(wall=CF4_WALL, noise="input", seed=1).translate()
+    with pytest.raises(TranslationError, match="refuses the 'modified' noise"):
+        varying(wall=CF4_WALL, noise="modified", seed=1).translate()
     with pytest.raises(DriverError, match="polarisation"):
         varying(wall=CF4_WALL, polarisation="linear").translate()
     with pytest.raises(DriverError, match="loss=False"):
@@ -3779,7 +3805,7 @@ def test_prop_capillary_runs_a_cf4_wall_end_to_end_and_records_its_guards():
             "He",
             1.0,
             wall=CF4_WALL,
-            **arguments,
+            **{"noise": None, **arguments},
         ),
     )
     frozen = cast(
@@ -3790,7 +3816,7 @@ def test_prop_capillary_runs_a_cf4_wall_end_to_end_and_records_its_guards():
             "He",
             1.0,
             wall=CoherentWall(),
-            **arguments,
+            **{"noise": None, **arguments},
         ),
     )
     written = walled.metadata
@@ -3909,6 +3935,7 @@ def _taper_note_bore(count: int) -> Simulation:
         backend="numpy_ref",
         dz_max=1e-4,
         dz_init=1e-4,
+        noise=None,
     )
 
 

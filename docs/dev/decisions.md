@@ -155,7 +155,7 @@ it is qualified, [backends.md](backends.md); for the current seam,
 
 ## ADR-008 — Modified shot noise, drawn once and advanced by the unitary linear flow
 
-- **Status:** accepted
+- **Status:** accepted; the input model is the default and this one an option (ADR-055)
 - **Context:** Luna's `:modified` noise held the noise field constant in z, which is wrong in
   a dispersive medium (1.4–6.6× per frequency for spontaneous MI; 50–80× in conservative
   propagation). Luna PR #440 advances it by the unitary part of the linear operator:
@@ -941,7 +941,8 @@ Withdrawn (development-process record, not a design decision).
   section edge is not a kink unless declared; a declared kink restarts the history.
 
 ## ADR-045 — `Multistep()` is the default integrator; `RungeKutta()` names the march
-- **Status:** accepted ([SEP 16](seps/archive/sep-0016-unified-multistep.md))
+- **Status:** accepted ([SEP 16](seps/archive/sep-0016-unified-multistep.md)); amended by
+  ADR-055, which gives `prop_gnlse` and `prop_waveguide` `RungeKutta()` by default
 - **Context:** the exponential formulation runs on every route and backend, devices
   included, and took the fewest calls on every case SEP 16 measured. With the
   error norm over the whole active band it was, at matched error on one CPU thread,
@@ -1268,3 +1269,35 @@ Withdrawn (development-process record, not a design decision).
   and responses that have not been qualified in binary32, and noise models, are refused
   under single precision by name. The survival record and the tolerance floor are
   published with the user guide.
+
+## ADR-055 — Noise on by default, and defaults chosen for each interface
+
+- **Status:** accepted ([SEP 37](seps/archive/sep-0037-noise-and-stepper-defaults.md)); amends
+  ADR-045 and ADR-008
+- **Context:** every run was noiseless unless it asked, every interface stepped with
+  `Multistep()`, and the default tolerances were partly unexplained. A one-photon
+  seed is part of the physics a run models; the integrator that is fastest at matched
+  accuracy depends on the interface, measured with noise on and off.
+- **Decision:**
+  - `noise="input"` is the default wherever the run can carry noise, and the resolution
+    is recorded (`RunMetadata.noise_resolution`, output schema 26). Single precision
+    and the planar grid fall back to none, recorded and printed; an interior launch
+    takes its spectrum as given. The modified model is an option: it equals the input
+    model where the linear operator is unitary and is an unqualified approximation
+    elsewhere. Whether it stays is decided with SEP 7.
+  - Each interface takes its own default integrator and tolerances by a fixed rule
+    (the fastest at matched accuracy among the methods every route of the interface
+    admits) and a convergence protocol. `prop_gnlse` takes `RungeKutta()` and `rtol`
+    1e-7; `prop_waveguide` takes `RungeKutta()` and 1e-5; `prop_capillary` keeps
+    `Multistep()` and 1e-6 for every representation; `prop_radial` and `prop_planar`
+    keep `Multistep()` and take 1e-5 with no `atol` where the caller gives no
+    controller; `prop_free` takes `RungeKutta()` and 1e-4 with no `atol`. A default never depends on the physics switched on, except the
+    TDSE's, by the maintainer's decision, and the free-space noise.
+- **Why:** the input model is the least bad noise model solprop implements, used by
+  the literature and the group for years; the defaults follow measurement, not habit.
+- **Consequences:**
+  - Every default run is stochastic unless it fixes `seed`. Tests and worked examples
+    fix theirs, or pass `noise=None` where their lesson is noiseless.
+  - Low-energy GNLSE runs take more steps with noise (the seed's dynamics are
+    resolved). Replayed schedules for noisy ensembles must be calibrated with noise on.
+

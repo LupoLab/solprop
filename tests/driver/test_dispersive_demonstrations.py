@@ -107,7 +107,9 @@ def run(case: str, policy: str, **overrides: Any):
     }
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
-        return prop_capillary(radius, length, gas, pressure, **keywords)
+        return prop_capillary(
+            radius, length, gas, pressure, **{"noise": None, **keywords}
+        )
 
 
 def exit_field(output) -> np.ndarray:

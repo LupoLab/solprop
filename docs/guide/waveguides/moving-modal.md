@@ -237,9 +237,9 @@ to the byte.
 
 **Refused, by name**: a snapshot position other than the entrance, `sections=` or
 `path_rtol=` beside a guide whose geometry does not move, an entrance rule the provider
-would not build again, a run longer than the declared path, a noise model, a lockstep
-batch, a fixed schedule that straddles a kink, a CF4 flow or no flow at all beside moving
-maps. Every backend executes the moving maps — `numpy_ref`, `numba_cpu` and `native` on
+would not build again, a run longer than the declared path, the `modified` noise model
+(the `input` draw is part of the launch and is admitted), a lockstep batch, a fixed
+schedule that straddles a kink, a CF4 flow or no flow at all beside moving maps. Every backend executes the moving maps — `numpy_ref`, `numba_cpu` and `native` on
 the CPU and on a GPU. A declared circular basis is honoured: the metric then stays
 the identity, the basis being unitary and the measured Gram departure unitarily
 invariant.

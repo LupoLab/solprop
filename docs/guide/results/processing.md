@@ -402,6 +402,63 @@ transmit mostly its own edges. With $f = 1/4$ the edges add at most a quarter of
 each still spans a quarter of it so the window stays smooth on the band's own scale, and
 every band wider than 256 bins keeps the 64-bin edge.
 
+## Removing the noise floor
+
+A run with input shot noise ([shot noise](../media/noise.md)) saves a field that carries
+its seed: one photon per active bin and channel, a floor of $\hbar\omega/\Delta\omega$
+under the whole spectrum. `get_spectral_density(..., noise_floor="subtract")` removes it
+([SEP 37](../../dev/seps/archive/sep-0037-noise-and-stepper-defaults.md), section 5.5). It
+subtracts the energy of the stored realisation, $|N_0|^2$ bin by bin and channel by
+channel in the route's own photon measure, before the polarisation components are summed
+and before any mode selection or smoothing:
+
+$$ S_\text{sub}(\omega) \;=\; |\tilde\chi(\omega)|^2 - |\tilde N_0(\omega)|^2 ,
+   \qquad \tilde\chi = \tilde\psi + \tilde N . $$
+
+The draw has a fixed modulus, so this is exact for the one realisation. Where the linear
+operator only changes the phase, $|\tilde N| = |\tilde N_0|$ at every position, and the
+subtracted density of an input run equals the modified model's corrected readout
+$|\tilde\psi + \tilde N|^2 - |\tilde N|^2$ for the same draw. What it is not:
+
+* **Not the pulse's own spectrum, bin by bin.** What remains is
+  $|\tilde\psi|^2 + 2\,\mathrm{Re}(\tilde\psi^*\tilde N)$, and the interference term is
+  as large as the seed for one realisation; it averages away over an ensemble.
+* **Not a photon-number estimator under loss.** There the seed has decayed with the
+  field, and the subtraction removes more than remains.
+
+The result is therefore signed, and values near the floor can be negative. They are
+returned as they are; {py:func}`~solprop.plotting.propagation.spec_1d` leaves the
+non-positive bins out of a logarithmic slice, and
+{py:func}`~solprop.plotting.propagation.prop_2d` draws them at the bottom of its colour
+scale. Both take the same keyword. A run without noise, and a `modified` run, whose
+saved field holds no seed, are refused by name.
+{py:func}`~solprop.processing.fields.get_spectrum` takes only `noise_floor="keep"`: the
+floor is a power, the seed sits in the saved amplitude coherently with the pulse, and no
+amplitude has the signed density as its modulus squared.
+
+```python
+from solprop.driver import prop_gnlse
+from solprop.processing import get_spectral_density
+
+noisy = prop_gnlse(
+    0.11,
+    0.01,
+    [0.0, 0.0, -1.183e-26],
+    lambda0=835e-9,
+    wavelength_limits=(500e-9, 2e-6),
+    trange=1e-12,
+    width=100e-15,
+    peak_power=9.8,
+    pulseshape="sech",
+    n_save=2,
+    seed=1,
+    progress="none",
+)
+wavelength, density = get_spectral_density(
+    noisy, "wavelength", plane=-1, noise_floor="subtract"
+)
+```
+
 ## Coherence across an ensemble
 
 {py:func}`~solprop.processing.coherence.g12` is the first-order coherence of Dudley and

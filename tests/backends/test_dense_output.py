@@ -279,7 +279,7 @@ def capillary(**extra):
         trange=100e-15,
         wavelength_limits=(200e-9, 2e-6),
         n_save=4,
-        **extra,
+        **{"noise": None, **extra},
     )
 
 

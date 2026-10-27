@@ -79,6 +79,7 @@ with warnings.catch_warnings():
         modes=2,
         n_save=51,
         progress="none",
+        seed=20261027,
     )
 
 print(f"{run['z'].size} planes, {run['field'].shape[1]} modes")

@@ -525,7 +525,10 @@ def _rate(rate: object) -> str:
 
 
 def _noise(metadata: RunMetadata) -> str:
-    """Describe the shot noise: its model and seed, or that there is none.
+    """Describe the shot noise: its model and seed, or that there is none, and why.
+
+    A model the run took by default says so, and a default that resolved to no noise
+    gives its reason (SEP 37), so that a noiseless run is never silently noiseless.
 
     Parameters
     ----------
@@ -535,13 +538,19 @@ def _noise(metadata: RunMetadata) -> str:
     Returns
     -------
     str
-        For example ``"input model, seed 3"`` or ``"off"``.
+        For example ``"input model (default), seed 3"``, ``"off"``, or
+        ``"off (default: single precision carries no noise: ...)"``.
     """
     noise = metadata.noise
+    resolution = metadata.noise_resolution
+    by_default = resolution is not None and resolution.requested == "default"
     if noise is None:
+        if by_default and resolution is not None and resolution.reason is not None:
+            return f"off (default: {resolution.reason})"
         return "off"
     seed = "not recoverable" if noise.seed is None else str(noise.seed)
-    return f"{noise.model} model, seed {seed}"
+    marker = " (default)" if by_default else ""
+    return f"{noise.model} model{marker}, seed {seed}"
 
 
 def _integrator(problem: KernelProblem) -> str:

@@ -150,6 +150,7 @@ def _four_modes_over_a_metre_and_a_half(trange, modes):
         energy=100e-6,
         modes=modes,
         n_save=3,
+        noise=None,
     )
 
 
@@ -198,7 +199,7 @@ def build(
 ):
     """Build the cheap capillary as a Simulation, without running it."""
     return Simulation.from_capillary(
-        radius, length, gas, pressure, **keywords(**overrides)
+        radius, length, gas, pressure, **{"noise": None, **keywords(**overrides)}
     )
 
 
@@ -211,7 +212,9 @@ def run(
     **overrides,
 ):
     """Run the cheap capillary through the whole interface."""
-    return prop_capillary(radius, length, gas, pressure, **keywords(**overrides))
+    return prop_capillary(
+        radius, length, gas, pressure, **{"noise": None, **keywords(**overrides)}
+    )
 
 
 # ------------------------------------------------------------------ the three fills
@@ -539,10 +542,10 @@ def ctc_build(length=SHORT, *, luna=False, **overrides):
                 plasma=(plasma := case.pop("plasma", luna_hydrogen_rate())),
                 # The witnesses were made by Luna's cumulative trapezoid (SEP 18).
                 plasma_integration=None if plasma is False else "trapezoid",
-                **case,
+                **{"noise": None, **case},
             )
         return Simulation.from_capillary(
-            radius, length, gas, pressure, n_save=2, **case
+            radius, length, gas, pressure, n_save=2, **{"noise": None, **case}
         )
 
 
@@ -1410,7 +1413,7 @@ def undepleted_solprop(*, kerr, energy):
         cladding=fused_silica(model="fit/SiO2"),
         temperature=293.15,
         loss=True,
-        **witness_inputs(grid, 2),
+        **{"noise": None, **witness_inputs(grid, 2)},
     )
     pulse = GaussianPulse(
         wavelength=OVERLAP_PROVENANCE["lambda0"], fwhm=UNDEPLETED["fwhm"], energy=energy
@@ -2851,7 +2854,7 @@ def fixed_ladder(counts, *, stop, band, pressure=None, **overrides):
             ),
             atol=LUNA_TOLERANCES["atol"],
             integrator=RungeKutta(),
-            **overrides,
+            **{"noise": None, **overrides},
         )
         levels.append(np.abs(output.fields("fft")[-1, :, 0, :]) ** 2)
     scale = float(np.linalg.norm(levels[-1][:, band]))
@@ -3125,7 +3128,7 @@ def ctc_run(case, tag, *, planes=None, backend=TEST_BACKEND, luna_vibration=Fals
             rtol=LUNA_TOLERANCES["rtol"],
             atol=LUNA_TOLERANCES["atol"],
             backend=backend,
-            **witness_inputs(grid, case["modes"]),
+            **{"noise": None, **witness_inputs(grid, case["modes"])},
         )
         if luna_vibration:
             # Test-only matching of the archived witness's physical model, not
@@ -3174,6 +3177,7 @@ def ctc_field_range(case):
             plasma_integration="trapezoid",
             temperature=CTC_WITNESS["temperature_k"],
             n_save=2,
+            noise=None,
         )
     return simulation.settings.ionisation_field_range
 
@@ -3547,6 +3551,7 @@ def ctc_memory_ledger(case):
             plasma_integration="trapezoid",
             temperature=CTC_WITNESS["temperature_k"],
             n_save=2,
+            noise=None,
         )
         problem = simulation.translate()
         backend = NumpyRefBackend(
@@ -3714,7 +3719,7 @@ def reduced_m2_simulation(**overrides):
             n_save=case["n_save"],
             rtol=LUNA_TOLERANCES["rtol"],
             atol=LUNA_TOLERANCES["atol"],
-            **(witness_inputs(grid, case["modes"]) | overrides),
+            **({"noise": None, **witness_inputs(grid, case["modes"]) | overrides}),
         )
 
 
@@ -4485,7 +4490,7 @@ def _flow_build(
 ):
     """Build the cheap capillary on any radius, fill or material, without running."""
     return Simulation.from_capillary(
-        radius, length, gas, pressure, **keywords(**overrides)
+        radius, length, gas, pressure, **{"noise": None, **keywords(**overrides)}
     )
 
 
@@ -4576,12 +4581,17 @@ def test_vacuum_end_is_refused_where_nothing_can_honour_it():
 def test_prop_waveguide_takes_the_bore_of_circular_modes():
     mode = MarcatiliMode(FLOW_TAPER, "He", 1.0)
     simulation = Simulation.from_waveguide(
-        [mode], FLOW_LENGTH, "He", (1.0, 0.0), **keywords()
+        [mode], FLOW_LENGTH, "He", (1.0, 0.0), **{"noise": None, **keywords()}
     )
     fill = simulation.profiles["pressure"]
     assert isinstance(fill, PressureGradient) and fill.radius is FLOW_TAPER
     floored = Simulation.from_waveguide(
-        [mode], FLOW_LENGTH, "He", (1.0, 0.0), vacuum_end="floor", **keywords()
+        [mode],
+        FLOW_LENGTH,
+        "He",
+        (1.0, 0.0),
+        vacuum_end="floor",
+        **{"noise": None, **keywords()},
     )
     fill = floored.profiles["pressure"]
     assert isinstance(fill, PressureGradient)
@@ -4593,7 +4603,11 @@ def test_a_rectangular_guide_keeps_the_uniform_law_and_says_so():
     mode = RectMode(widths, widths, "He", 1.0)
     with pytest.warns(GasFlowWarning, match="rectangular"):
         simulation = Simulation.from_waveguide(
-            [mode], FLOW_LENGTH, "He", (1.0, 0.1), **keywords(n_r=12, n_theta=12)
+            [mode],
+            FLOW_LENGTH,
+            "He",
+            (1.0, 0.1),
+            **{"noise": None, **keywords(n_r=12, n_theta=12)},
         )
     fill = simulation.profiles["pressure"]
     assert isinstance(fill, PressureGradient) and fill.radius is None
@@ -4606,13 +4620,19 @@ def test_a_rectangular_guide_under_a_constant_fill_does_not_warn():
     with warnings.catch_warnings():
         warnings.simplefilter("error", GasFlowWarning)
         Simulation.from_waveguide(
-            [mode], FLOW_LENGTH, "He", 1.0, **keywords(n_r=12, n_theta=12)
+            [mode],
+            FLOW_LENGTH,
+            "He",
+            1.0,
+            **{"noise": None, **keywords(n_r=12, n_theta=12)},
         )
 
 
 def test_an_empty_waveguide_mode_set_is_refused_before_the_fill_needs_it():
     with pytest.raises(DriverError, match="at least one mode"):
-        Simulation.from_waveguide([], FLOW_LENGTH, "He", (1.0, 0.0), **keywords())
+        Simulation.from_waveguide(
+            [], FLOW_LENGTH, "He", (1.0, 0.0), **{"noise": None, **keywords()}
+        )
 
 
 @pytest.mark.medium

@@ -1312,6 +1312,7 @@ def radial_problem():
             dz_init=2.5e-4,
             backend="numpy_ref",
         ),
+        noise=None,
     )
     return simulation.translate()
 

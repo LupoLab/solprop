@@ -74,6 +74,7 @@ def capillary(backend: str, *, dense: bool = False) -> Simulation:
         modes=2,
         plasma=False,
         backend=backend,
+        noise=None,
     )
     settings = simulation.settings
     simulation.settings = dataclasses.replace(
@@ -415,6 +416,7 @@ def test_a_runner_annotates_each_run_with_its_rates_peak_fields():
         n_save=2,
         rtol=1e-6,
         backend="numpy_ref",
+        noise=None,
     )
     with simulation.runner() as runner:
         output = stored(runner.run(simulation._field0, progress="none"))
@@ -442,6 +444,7 @@ def test_with_input_refuses_a_non_finite_realisation_and_keeps_a_pulse_recipe():
         n_save=2,
         plasma=False,
         backend="numpy_ref",
+        noise=None,
     )
     pulse = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=10e-6)
     derived = single.with_input(pulse)

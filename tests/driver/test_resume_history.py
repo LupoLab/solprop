@@ -55,11 +55,18 @@ AFRESH = "the Adams history starts afresh"
 
 
 def soliton(build_simulation, backend, resume_history=None, rtol=RTOL, **keywords):
-    """Return the soliton fibre, adaptive, on `backend`."""
+    """Return the soliton fibre, adaptive, on `backend`, on the Adams march."""
+    # The GNLSE's default is the Runge-Kutta march (SEP 37); this file is about the
+    # Adams history, so the soliton takes Multistep() unless a test names another.
+    keywords.setdefault("integrator", Multistep())
 
     def build():
         simulation = build_simulation(
-            length=LENGTH, n_save=N_SAVE, backend=backend, rtol=rtol, **keywords
+            length=LENGTH,
+            n_save=N_SAVE,
+            backend=backend,
+            rtol=rtol,
+            **{"integrator": Multistep(), **(keywords)},
         )
         simulation.settings = dataclasses.replace(
             simulation.settings, resume_history=resume_history
@@ -262,7 +269,9 @@ def test_the_snapshot_is_rewritten_in_place(build_simulation, tmp_path):
 
 
 def test_a_snapshot_from_another_run_is_not_continued(build_simulation):
-    simulation = build_simulation(length=LENGTH, n_save=N_SAVE, backend="numpy_ref")
+    simulation = build_simulation(
+        length=LENGTH, n_save=N_SAVE, backend="numpy_ref", integrator=Multistep()
+    )
     problem = simulation.translate()
     backend = NumpyRefBackend(problem, grid=simulation.grid)
     try:
@@ -462,7 +471,9 @@ def test_rows_that_do_not_fit_the_store_start_the_history_afresh(
 def test_rows_another_history_keeps_are_refused_by_name(build_simulation):
     # A plain history keeps only its samples; a snapshot carrying a compensated
     # history's states is another march's, and nothing of it is installed.
-    simulation = build_simulation(length=LENGTH, n_save=N_SAVE, backend="numpy_ref")
+    simulation = build_simulation(
+        length=LENGTH, n_save=N_SAVE, backend="numpy_ref", integrator=Multistep()
+    )
     problem = simulation.translate()
     backend = NumpyRefBackend(problem, grid=simulation.grid)
     try:
@@ -485,7 +496,9 @@ def test_rows_another_history_keeps_are_refused_by_name(build_simulation):
 def test_the_general_path_refuses_a_snapshot_it_cannot_install(build_simulation):
     # Called directly, a march that keeps no history store says so rather than
     # installing rows it has nowhere to put.
-    simulation = build_simulation(length=LENGTH, n_save=N_SAVE, backend="numpy_ref")
+    simulation = build_simulation(
+        length=LENGTH, n_save=N_SAVE, backend="numpy_ref", integrator=Multistep()
+    )
     problem = simulation.translate()
     general = build_simulation(
         length=LENGTH,
@@ -512,7 +525,9 @@ def test_the_general_path_refuses_a_snapshot_it_cannot_install(build_simulation)
 def test_a_backend_without_a_march_resumes_without_one(build_simulation, recwarn):
     # The driver continues a history only on a backend that offers the hooks; one
     # without them (any `Backend`, not only a step driver) simply loads the plane.
-    simulation = build_simulation(length=LENGTH, n_save=N_SAVE, backend="numpy_ref")
+    simulation = build_simulation(
+        length=LENGTH, n_save=N_SAVE, backend="numpy_ref", integrator=Multistep()
+    )
     # Unwrapped: the runtime type check would refuse a stand-in for either argument.
     continue_march = inspect.unwrap(Simulation._continue_march)
     continue_march(simulation, SimpleNamespace(), SimpleNamespace(march=march()))

@@ -100,7 +100,7 @@ def test_gnlse_kerr_coefficient_per_true_watt(fibre):
         raman=False,
         shock=False,
         backend="numpy_ref",
-        **({"fibre": mode, "n2": n2} if fibre else {}),
+        **({"noise": None, **({"fibre": mode, "n2": n2} if fibre else {})}),
     )
     problem = simulation.translate()
     measured, _ = true_watt_slope(problem, grid)

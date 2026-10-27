@@ -97,6 +97,7 @@ def _resolved_capillary(name: str) -> Simulation:
             rtol=1e-6,
             atol=1e-10,
             backend="numpy_ref",
+            seed=20261027,
         )
     if name in ("ctc", "ctc_reduced"):
         full = name == "ctc"
@@ -118,6 +119,7 @@ def _resolved_capillary(name: str) -> Simulation:
             rtol=1e-6,
             atol=1e-10,
             backend="numpy_ref",
+            seed=20261027,
         )
     if name in ("argon_blueshift", "argon_blueshift_averaged"):
         return Simulation.from_capillary(
@@ -135,6 +137,7 @@ def _resolved_capillary(name: str) -> Simulation:
             rtol=1e-6,
             atol=1e-10,
             backend="numpy_ref",
+            seed=20261027,
         )
     if name in ("h2_raman_6ps", "h2_raman_6ps_averaged"):
         return Simulation.from_capillary(
@@ -154,6 +157,7 @@ def _resolved_capillary(name: str) -> Simulation:
             rtol=1e-6,
             atol=1e-10,
             backend="numpy_ref",
+            seed=20261027,
         )
     raise SuiteError(f"capillary builder not implemented for {name}")
 
@@ -187,6 +191,7 @@ def gnlse(name: str) -> Simulation:
             rtol=1e-6,
             atol=1e-10,
             backend="numpy_ref",
+            seed=20261027,
         )
     if name == "gnlse_raman_shock":
         return Simulation.from_gnlse(
@@ -268,6 +273,7 @@ def kerr(name: str, settings: SimulationSettings) -> Simulation:
         [KerrResponse(chi3=2.2e-22 * MU0 * EPS0 * C**2, thg=False)],
         launch,
         settings=settings,
+        seed=20261027,
     )
 
 
@@ -324,6 +330,7 @@ def spatial(name: str, settings: SimulationSettings) -> Simulation:
             responses,
             pulse,
             settings=settings,
+            seed=20261027,
         )
     if name == "line" or name.startswith("cartesian_filament"):
         size = case.dimensions[0]
@@ -461,6 +468,7 @@ def build(configuration: Record) -> Simulation:
             raman=False,
             shock=False,
             n_save=2,
+            noise=None,
         )
         simulation.settings = dataclasses.replace(
             simulation.settings,

@@ -71,7 +71,7 @@ def test_prop_capillary_runs_a_path_per_species_and_the_density_follows_it(
         backend=backend,
         progress="none",
         output=tmp_path / "paths.h5",
-        **keywords(),
+        **{"noise": None, **keywords()},
     )
     with open_file(tmp_path / "paths.h5") as output:
         check_the_run(output)
@@ -102,14 +102,18 @@ def check_the_run(output):
 
 def test_one_path_for_every_species_and_a_single_gas_route():
     simulation = Simulation.from_capillary(
-        125e-6, LENGTH, "Ar", 1.0, **keywords(preionisation=RAMP)
+        125e-6, LENGTH, "Ar", 1.0, **{"noise": None, **keywords(preionisation=RAMP)}
     )
     (plasma,) = [one for one in simulation.responses if isinstance(one, PlasmaResponse)]
     assert plasma.preionisation is RAMP
     problem = simulation.translate()
     np.testing.assert_array_equal(problem.linear.hard_kinks, [0.3e-3, 0.6e-3, LENGTH])
     mixed = Simulation.from_capillary(
-        125e-6, LENGTH, {"Ar": 0.5, "He": 0.5}, 1.0, **keywords(preionisation=RAMP)
+        125e-6,
+        LENGTH,
+        {"Ar": 0.5, "He": 0.5},
+        1.0,
+        **{"noise": None, **keywords(preionisation=RAMP)},
     )
     assert {
         one.preionisation for one in mixed.responses if isinstance(one, PlasmaResponse)
@@ -118,7 +122,7 @@ def test_one_path_for_every_species_and_a_single_gas_route():
 
 def test_with_mixture_carries_a_path_into_the_responses():
     simulation = Simulation.from_capillary(
-        125e-6, LENGTH, {"Ar": 0.5, "He": 0.5}, 1.0, **keywords()
+        125e-6, LENGTH, {"Ar": 0.5, "He": 0.5}, 1.0, **{"noise": None, **keywords()}
     )
     mode = simulation.modes[0]
     assert isinstance(mode, MarcatiliMode)
@@ -161,11 +165,18 @@ def test_the_interface_refuses_a_path_outside_the_unit_interval_by_name():
             LENGTH,
             {"Ar": 0.5, "He": 0.5},
             1.0,
-            **keywords(preionisation={"Ar": Linear(0.5, 1.5, LENGTH)}),
+            **{
+                "noise": None,
+                **keywords(preionisation={"Ar": Linear(0.5, 1.5, LENGTH)}),
+            },
         )
     with pytest.raises(DriverError, match="unknown preionisation component labels"):
         Simulation.from_capillary(
-            125e-6, LENGTH, "Ar", 1.0, **keywords(preionisation={"Xe": RAMP})
+            125e-6,
+            LENGTH,
+            "Ar",
+            1.0,
+            **{"noise": None, **keywords(preionisation={"Xe": RAMP})},
         )
 
 
@@ -177,11 +188,15 @@ def test_a_single_gas_without_plasma_refuses_its_preionisation(declared):
             LENGTH,
             "Ar",
             1.0,
-            **keywords(plasma=False, preionisation=declared),
+            **{"noise": None, **keywords(plasma=False, preionisation=declared)},
         )
     # Zero declares nothing, and a run without plasma is still a run.
     assert Simulation.from_capillary(
-        125e-6, LENGTH, "Ar", 1.0, **keywords(plasma=False, preionisation=0.0)
+        125e-6,
+        LENGTH,
+        "Ar",
+        1.0,
+        **{"noise": None, **keywords(plasma=False, preionisation=0.0)},
     ).responses
 
 
@@ -192,7 +207,10 @@ def test_a_mixture_refuses_a_preionisation_on_a_species_without_plasma():
             LENGTH,
             {"Ar": 0.5, "He": 0.5},
             1.0,
-            **keywords(plasma={"Ar": True}, preionisation={"He": RAMP}),
+            **{
+                "noise": None,
+                **keywords(plasma={"Ar": True}, preionisation={"He": RAMP}),
+            },
         )
 
 
@@ -207,7 +225,7 @@ def test_an_envelope_run_refuses_a_preionisation_without_plasma(plasma, preionis
     del options["stats"]
     with pytest.raises(DriverError, match="which has no plasma response"):
         Simulation.from_capillary(
-            125e-6, LENGTH, {"Ar": 0.5, "He": 0.5}, 1.0, **options
+            125e-6, LENGTH, {"Ar": 0.5, "He": 0.5}, 1.0, **{"noise": None, **options}
         )
 
 
@@ -217,7 +235,7 @@ def test_with_mixture_refuses_a_path_on_a_species_without_plasma():
         LENGTH,
         {"Ar": 0.5, "He": 0.5},
         1.0,
-        **keywords(plasma={"Ar": True}, preionisation={"Ar": RAMP}),
+        **{"noise": None, **keywords(plasma={"Ar": True}, preionisation={"Ar": RAMP})},
     )
     mode = simulation.modes[0]
     assert isinstance(mode, MarcatiliMode)

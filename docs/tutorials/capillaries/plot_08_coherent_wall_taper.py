@@ -98,6 +98,7 @@ def run(wall, radius=taper, taper_coupling=True):
             plasma=False,
             raman=False,
             progress="none",
+            noise=None,
         )
 
 

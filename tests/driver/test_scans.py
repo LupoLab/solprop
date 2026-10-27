@@ -72,6 +72,7 @@ def build_point(point):
         ),
         integrator=FIXED_ORDER,
         backend="numpy_ref",
+        noise=None,
     )
 
 

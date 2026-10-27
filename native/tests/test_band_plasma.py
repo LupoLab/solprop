@@ -179,6 +179,7 @@ def modal(
             plasma_integration=integration,
             schedule=FixedSchedule.uniform(0.0, length, length / STEPS),
             absorber_scheme="split_step",
+            noise=None,
         )
         if averaged:
             simulation.settings = dataclasses.replace(

@@ -80,12 +80,16 @@ CAPILLARY = {
 
 def gnlse(**changes):
     """Return a GNLSE simulation of a centimetre of fibre."""
-    return Simulation.from_gnlse(0.11, 0.01, [0.0, 0.0, -1.183e-26], **GNLSE | changes)
+    return Simulation.from_gnlse(
+        0.11, 0.01, [0.0, 0.0, -1.183e-26], **{"noise": None, **GNLSE | changes}
+    )
 
 
 def capillary(pressure: Any = 1.0, gas: Any = "He", **changes):
     """Return a gas-filled capillary simulation a millimetre long."""
-    return Simulation.from_capillary(125e-6, 1e-3, gas, pressure, **CAPILLARY | changes)
+    return Simulation.from_capillary(
+        125e-6, 1e-3, gas, pressure, **{"noise": None, **CAPILLARY | changes}
+    )
 
 
 def summary_of(simulation, *, backend="numpy_ref", execution=None, **keywords):
@@ -205,7 +209,13 @@ def spatial_case(grid_kind="field"):
 def test_radial_cartesian_and_line_routes():
     grid, pulse, settings = spatial_case()
     radial = Simulation.from_radial(
-        grid, RadialGrid(6e-4, 32), SpatialMedium(), [], pulse, settings=settings
+        grid,
+        RadialGrid(6e-4, 32),
+        SpatialMedium(),
+        [],
+        pulse,
+        settings=settings,
+        noise=None,
     )
     assert rows(radial)["representation"] == "radial, 32 points, scalar"
     assert rows(radial)["medium"].startswith("SpatialMedium(")
@@ -216,6 +226,7 @@ def test_radial_cartesian_and_line_routes():
         [],
         pulse,
         settings=settings,
+        noise=None,
     )
     assert rows(free)["representation"] == "Cartesian 12x16, scalar"
     line = Simulation.from_free(
@@ -225,6 +236,7 @@ def test_radial_cartesian_and_line_routes():
         [],
         pulse,
         settings=settings,
+        noise=None,
     )
     assert rows(line)["representation"] == "Cartesian line, 64 points, scalar"
 
@@ -391,7 +403,13 @@ def test_representation_of_a_general_guide_and_of_two_polarisations():
     grid, pulse, settings = spatial_case()
     circular = dataclasses.replace(pulse, jones=(1.0 + 0.0j, 1.0j))
     radial = Simulation.from_radial(
-        grid, RadialGrid(6e-4, 16), SpatialMedium(), [], circular, settings=settings
+        grid,
+        RadialGrid(6e-4, 16),
+        SpatialMedium(),
+        [],
+        circular,
+        settings=settings,
+        noise=None,
     )
     assert rows(radial)["representation"] == "radial, 16 points, vector (x and y)"
 

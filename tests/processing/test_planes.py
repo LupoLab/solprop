@@ -52,7 +52,9 @@ def capillary(length=2e-3, n_save=3, **changes):
         "backend": "numpy_ref",
         **changes,
     }
-    return Simulation.from_capillary(100e-6, length, "Ar", 1.0, **arguments)
+    return Simulation.from_capillary(
+        100e-6, length, "Ar", 1.0, **{"noise": None, **arguments}
+    )
 
 
 def spatial(space, pressure: float | PressureGradient = 1.0):
@@ -69,8 +71,12 @@ def spatial(space, pressure: float | PressureGradient = 1.0):
     )
     medium = SpatialMedium("Ar", pressure)
     if isinstance(space, RadialGrid):
-        return Simulation.from_radial(grid, space, medium, [], pulse, settings=settings)
-    return Simulation.from_free(grid, space, medium, [], pulse, settings=settings)
+        return Simulation.from_radial(
+            grid, space, medium, [], pulse, settings=settings, noise=None
+        )
+    return Simulation.from_free(
+        grid, space, medium, [], pulse, settings=settings, noise=None
+    )
 
 
 @pytest.fixture(scope="module")
@@ -131,7 +137,7 @@ def test_the_record_survives_a_file(capillary_run, tmp_path):
     simulation.run(path, progress="none")
     with open_file(path) as stored:
         assert stored.metadata is not None and memory.metadata is not None
-        assert stored.metadata.schema_version == 25
+        assert stored.metadata.schema_version == 26
         assert stored.metadata.reference == memory.metadata.reference
         assert (
             stored.metadata.configuration_hash() == memory.metadata.configuration_hash()
@@ -238,6 +244,7 @@ def general_run():
         dz_init=length / 2,
         n_save=2,
         backend="numpy_ref",
+        noise=None,
     )
     return simulation, simulation.run(progress="none")
 

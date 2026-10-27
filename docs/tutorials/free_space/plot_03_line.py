@@ -83,6 +83,7 @@ for fraction, colour in ((1.0, "C0"), (0.5, "C1")):
         [KerrResponse(chi3, thg=False)],
         start,
         settings=settings,
+        noise=None,
     )
     first, last = result.fields("fft")
     before = spatial_intensity(first, flux)

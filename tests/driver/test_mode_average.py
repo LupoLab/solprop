@@ -55,7 +55,9 @@ def test_the_switch_is_the_run_without_the_quadrature():
     """The keyword's run is bitwise the hand-built averaged run, with more stats."""
     keywords = _keywords()
     progress = keywords.pop("progress")
-    by_hand = Simulation.from_capillary(RADIUS, LENGTH, "He", 2.0, **keywords)
+    by_hand = Simulation.from_capillary(
+        RADIUS, LENGTH, "He", 2.0, **{"noise": None, **keywords}
+    )
     by_hand.settings = replace(
         by_hand.settings,
         quadrature=None,
@@ -63,7 +65,9 @@ def test_the_switch_is_the_run_without_the_quadrature():
         stats=default_spec("mode_averaged"),
     )
     expected = by_hand.run(progress=progress)
-    output = prop_capillary(RADIUS, LENGTH, "He", 2.0, **_keywords(), mode_average=True)
+    output = prop_capillary(
+        RADIUS, LENGTH, "He", 2.0, **{"noise": None, **_keywords()}, mode_average=True
+    )
     assert output.metadata is not None
     assert output.metadata.simulation_kind == "mode_averaged"
     assert output.metadata.quadrature is None
@@ -88,7 +92,9 @@ def test_the_default_stays_resolved():
     """Without the switch, one mode is resolved on the radial rule."""
     keywords = _keywords()
     keywords.pop("progress")
-    simulation = Simulation.from_capillary(RADIUS, LENGTH, "He", 2.0, **keywords)
+    simulation = Simulation.from_capillary(
+        RADIUS, LENGTH, "He", 2.0, **{"noise": None, **keywords}
+    )
     assert simulation.settings.quadrature is not None
     assert not simulation.translate().flags.mode_averaged
 
@@ -114,7 +120,12 @@ def test_the_default_stays_resolved():
 def test_the_switch_runs_the_capillary_variants(radius, gas, extra):
     """A tapered bore, an envelope grid and a tube lattice run mode-averaged."""
     output = prop_capillary(
-        radius, LENGTH, gas, 2.0, **_keywords(**extra), mode_average=True
+        radius,
+        LENGTH,
+        gas,
+        2.0,
+        **{"noise": None, **_keywords(**extra)},
+        mode_average=True,
     )
     assert output.metadata is not None
     assert output.metadata.simulation_kind == "mode_averaged"
@@ -124,7 +135,12 @@ def test_the_switch_runs_the_capillary_variants(radius, gas, extra):
 def test_the_switch_runs_a_supplied_gas_mode():
     """`prop_waveguide` takes the switch for its supplied mode."""
     output = prop_waveguide(
-        [MarcatiliMode(RADIUS)], LENGTH, "He", 2.0, **_keywords(), mode_average=True
+        [MarcatiliMode(RADIUS)],
+        LENGTH,
+        "He",
+        2.0,
+        **{"noise": None, **_keywords()},
+        mode_average=True,
     )
     assert output.metadata is not None
     assert output.metadata.simulation_kind == "mode_averaged"
@@ -145,5 +161,11 @@ def test_the_switch_refuses_what_needs_a_rule(given, match):
     keywords.pop("progress")
     with pytest.raises(DriverError, match=match):
         Simulation.from_capillary(
-            RADIUS, LENGTH, "He", 2.0, **keywords, **given, mode_average=True
+            RADIUS,
+            LENGTH,
+            "He",
+            2.0,
+            **{"noise": None, **keywords},
+            **given,
+            mode_average=True,
         )

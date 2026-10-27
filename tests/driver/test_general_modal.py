@@ -90,7 +90,7 @@ from solprop.physdata.sellmeier import gamma as gas_susceptibility
 from solprop.processing import scans
 from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse
 from solprop.stats import StatsSpec, analytic_field, energy, physical_energy
-from solprop.stepper import FixedSchedule
+from solprop.stepper import FixedSchedule, Multistep
 from solprop.translate.coupled import metric_at
 from solprop.translate.general import (
     general_modal_route,
@@ -155,7 +155,7 @@ def build(guide, grid, **overrides):
         GENERAL_Z_END,
         provider=guide,
         grid=grid,
-        **(PULSE | RUN | overrides),
+        **({"integrator": Multistep(), **({"noise": None, **PULSE | RUN | overrides})}),
     )
 
 
@@ -183,7 +183,7 @@ def test_a_provider_builds_a_simulation_that_translates_to_the_general_route(
             GENERAL_Z_END,
             provider=guide,
             grid=grid,
-            **(PULSE | RUN),
+            **({"integrator": Multistep(), **({"noise": None, **PULSE | RUN})}),
         ).modes
         == simulation.modes
     )
@@ -263,9 +263,19 @@ def test_an_array_valued_gas_keyword_is_refused_by_name_and_not_by_a_crash():
 def test_the_gas_route_still_needs_a_gas_and_refuses_the_guide_keywords():
     """Without a provider: a gas is required and the guide's keywords are not."""
     with pytest.raises(DriverError, match="needs a gas fill"):
-        Simulation.from_waveguide((), GENERAL_Z_END, lambda0=835e-9)
+        Simulation.from_waveguide(
+            (), GENERAL_Z_END, lambda0=835e-9, noise=None, integrator=Multistep()
+        )
     with pytest.raises(DriverError, match="channel= belongs to the general"):
-        Simulation.from_waveguide((), GENERAL_Z_END, "He", lambda0=835e-9, channel=0)
+        Simulation.from_waveguide(
+            (),
+            GENERAL_Z_END,
+            "He",
+            lambda0=835e-9,
+            channel=0,
+            noise=None,
+            integrator=Multistep(),
+        )
     with pytest.raises(DriverError, match="observable_rtol= belongs to the general"):
         Simulation.from_waveguide(
             (),
@@ -273,6 +283,8 @@ def test_the_gas_route_still_needs_a_gas_and_refuses_the_guide_keywords():
             "He",
             lambda0=835e-9,
             observable_rtol=1e-6,
+            noise=None,
+            integrator=Multistep(),
         )
     with pytest.raises(DriverError, match="observable_atol= belongs to the general"):
         Simulation.from_waveguide(
@@ -281,6 +293,8 @@ def test_the_gas_route_still_needs_a_gas_and_refuses_the_guide_keywords():
             "He",
             lambda0=835e-9,
             observable_atol=1e-16,
+            noise=None,
+            integrator=Multistep(),
         )
     with pytest.raises(DriverError, match="kerr_form= belongs to the general"):
         Simulation.from_waveguide(
@@ -289,11 +303,20 @@ def test_the_gas_route_still_needs_a_gas_and_refuses_the_guide_keywords():
             "He",
             lambda0=835e-9,
             kerr_form="analytic",
+            noise=None,
+            integrator=Multistep(),
         )
     # The default is not a value the gas route has to refuse: it names no model of
     # its own, and `thg=` is where a gas-filled field run says the same thing.
     with pytest.raises(DriverError, match="needs a gas fill"):
-        Simulation.from_waveguide((), GENERAL_Z_END, lambda0=835e-9, kerr_form="real")
+        Simulation.from_waveguide(
+            (),
+            GENERAL_Z_END,
+            lambda0=835e-9,
+            kerr_form="real",
+            noise=None,
+            integrator=Multistep(),
+        )
 
 
 def test_modes_of_ones_own_are_refused_beside_a_guide(guide, grid):
@@ -304,7 +327,7 @@ def test_modes_of_ones_own_are_refused_beside_a_guide(guide, grid):
             GENERAL_Z_END,
             provider=guide,
             grid=grid,
-            **(PULSE | RUN),
+            **({"integrator": Multistep(), **({"noise": None, **PULSE | RUN})}),
         )
 
 
@@ -350,7 +373,7 @@ def test_the_route_constructors_refusals_reach_the_caller_as_driver_errors(grid)
             GENERAL_Z_END,
             provider=unsampled,
             grid=grid,
-            **(PULSE | RUN),
+            **({"integrator": Multistep(), **({"noise": None, **PULSE | RUN})}),
         )
     assert isinstance(caught.value.__cause__, TranslationError)
 
@@ -569,7 +592,7 @@ def launched(guide, grid, incident, **overrides):
         lambda0=PULSE["lambda0"],
         incident=incident,
         coupling=overrides.pop("coupling", INCIDENT_MODEL),
-        **(RUN | overrides),
+        **({"integrator": Multistep(), **({"noise": None, **RUN | overrides})}),
     )
 
 
@@ -735,7 +758,7 @@ def test_the_incident_launch_refuses_what_it_does_not_carry(
             pressure=1.0,
             grid=grid,
             incident=beam,
-            **PULSE,
+            **{"integrator": Multistep(), **({"noise": None, **PULSE})},
         )
     # A guide whose first region is not on the axis has no core to enter through.
     provider = incident_pair.field_provider
@@ -817,7 +840,7 @@ def test_a_poorly_captured_beam_launches_only_what_the_guide_takes(
             incident=beam,
             coupling=INCIDENT_MODEL,
             progress="none",
-            **RUN,
+            **{"integrator": Multistep(), **({"noise": None, **RUN})},
         ),
     )
     report = account(launched(incident_guide, grid, beam))
@@ -886,7 +909,7 @@ def test_a_multichannel_input_is_refused_by_the_launch(pair_guide, grid):
         GENERAL_Z_END,
         provider=pair_guide,
         grid=grid,
-        **(PULSE | RUN),
+        **({"integrator": Multistep(), **({"noise": None, **PULSE | RUN})}),
     ).with_input(both)
     # Both rows reach the seam, unchanged: the power weight is the constant one,
     # so `_power_initial` divides by exactly 1.0.
@@ -1076,6 +1099,8 @@ def ordinary_simulation(names):
         n_save=2,
         stats=StatsSpec(names=tuple(names)),
         backend="numpy_ref",
+        noise=None,
+        integrator=Multistep(),
     )
 
 
@@ -1163,7 +1188,7 @@ def test_an_hdf5_file_carries_the_labels_and_the_identities(guide, grid, tmp_pat
     simulation = build(guide, grid)
     simulation.run(path, progress="none")
     stored = resume(path).metadata
-    assert stored.schema_version == 25
+    assert stored.schema_version == 26
     assert stored.modal is not None
     assert dict(stored.modal)["basis"] == "general_modal"
     labels = [dict(one.label) for one in stored.modes if one.label is not None]
@@ -1197,7 +1222,7 @@ def batched_run(guide, grid, **overrides):
         GENERAL_Z_END,
         provider=guide,
         grid=grid,
-        **(settings | overrides),
+        **({"integrator": Multistep(), **({"noise": None, **settings | overrides})}),
     )
     # A run this short has a collar of 2.5e5 1/m, which an explicit Adams history
     # replays in-stage only below 0.7 um steps; nothing reaches it here, so it is
@@ -1551,7 +1576,7 @@ def run_general(weak, provider, *, changes=None, state=None):
                 provider=provider,
                 grid=weak["field_grid"],
                 progress="none",
-                **WEAK_COMMON,
+                **{"integrator": Multistep(), **({"noise": None, **WEAK_COMMON})},
             ),
         )
     simulation = Simulation.from_waveguide(
@@ -1559,7 +1584,7 @@ def run_general(weak, provider, *, changes=None, state=None):
         GENERAL_Z_END,
         provider=provider,
         grid=weak["field_grid"],
-        **WEAK_COMMON,
+        **{"integrator": Multistep(), **({"noise": None, **WEAK_COMMON})},
     )
     simulation.settings = dataclasses.replace(
         simulation.settings, **({"absorber": None} if changes is None else changes)
@@ -1921,7 +1946,7 @@ def test_a_weakly_guiding_channel_agrees_with_the_calibrated_gnlse(
             grid=envelope_grid,
             fibre=channel,
             shock=True,
-            **common,
+            **{"integrator": Multistep(), **({"noise": None, **common})},
         ),
     )
     straight, peak = straight_peak(general_linear, field_grid)
@@ -1944,7 +1969,7 @@ def test_a_weakly_guiding_channel_agrees_with_the_calibrated_gnlse(
             grid=envelope_grid,
             fibre=channel,
             shock=True,
-            **common,
+            **{"integrator": Multistep(), **({"noise": None, **common})},
         ),
     )
     turned = turned_by(general, straight, peak, field_grid)
@@ -1996,7 +2021,7 @@ def test_what_the_in_stage_collar_costs_the_same_comparison(weak, record_propert
             grid=envelope_grid,
             fibre=channel,
             shock=True,
-            **common,
+            **{"integrator": Multistep(), **({"noise": None, **common})},
         ),
     )
     gnlse_linear = cast(
@@ -2007,7 +2032,7 @@ def test_what_the_in_stage_collar_costs_the_same_comparison(weak, record_propert
             grid=envelope_grid,
             fibre=channel,
             shock=True,
-            **common,
+            **{"integrator": Multistep(), **({"noise": None, **common})},
         ),
     )
     envelope_straight, envelope_peak = straight_peak(gnlse_linear, envelope_grid)
@@ -2058,7 +2083,7 @@ def test_the_collar_and_not_the_route_sets_the_step_on_every_route():
             1.0,
             grid=grid,
             plasma=False,
-            **WEAK_COMMON,
+            **{"noise": None, **WEAK_COMMON},
         )
         if not collar:
             simulation.settings = dataclasses.replace(
@@ -2576,6 +2601,8 @@ def test_fixed_steps_beyond_the_collar_are_refused_at_translation():
             schedule=FixedSchedule(np.full(steps, length / steps)),
             n_save=2,
             backend="numpy_ref",
+            noise=None,
+            integrator=Multistep(),
         )
 
     with pytest.raises(TranslationError, match=r"stable .* only up to 6\.96\d*e-07 m"):

@@ -65,14 +65,14 @@ def test_radial_interface_caches_and_saves_geometry(case, backend, request):
     grid, space, pulse, settings = case
     settings = dataclasses.replace(settings, backend=backend)
     simulation = Simulation.from_radial(
-        grid, space, SpatialMedium(), [], pulse, settings=settings
+        grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
     )
     assert simulation.translate() is simulation.translate()
     metadata = simulation.metadata()
     # Preserve the compact pulse specification; serializing the built transverse
     # volume here would duplicate the input and make Cartesian metadata enormous.
     assert metadata.configuration["initial"] is pulse
-    assert metadata.schema_version == 25
+    assert metadata.schema_version == 26
     assert metadata.simulation_kind == "radial"
     assert metadata.spatial is not None
     assert metadata.spatial["stored_field_units"] == "V m"
@@ -81,7 +81,9 @@ def test_radial_interface_caches_and_saves_geometry(case, backend, request):
         RunMetadata.from_json(metadata.to_json()).configuration_hash()
         == metadata.configuration_hash()
     )
-    handler = prop_radial(grid, space, SpatialMedium(), [], pulse, settings=settings)
+    handler = prop_radial(
+        grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
+    )
     fields = handler.fields("fft")
     assert fields.shape == (2, space.n_r, 1, grid.n_omega)
     # Two energy reductions and a diagonal unitary propagation. The input is
@@ -195,7 +197,7 @@ def test_spatial_resume_refuses_geometry_changes(case, tmp_path):
     grid, space, pulse, settings = case
     settings = dataclasses.replace(settings, backend="numpy_ref")
     simulation = Simulation.from_radial(
-        grid, space, SpatialMedium(), [], pulse, settings=settings
+        grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
     )
     path = tmp_path / "radial.h5"
     simulation.run(path)
@@ -208,6 +210,7 @@ def test_spatial_resume_refuses_geometry_changes(case, tmp_path):
         [],
         pulse,
         settings=settings,
+        noise=None,
     )
     with pytest.raises(OutputError, match="spatial"):
         changed.run(path, resume=True)
@@ -219,7 +222,7 @@ def test_version_three_file_retains_its_original_hash_and_reads(case, tmp_path):
     # (the registry selection that once made such a run is deleted, SEP 3 Phase 4b),
     # so the legacy record is given the empty manifest directly.
     simulation = Simulation.from_radial(
-        grid, space, SpatialMedium(), [], pulse, settings=settings
+        grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
     )
     current = simulation.metadata()
     legacy = dataclasses.replace(
@@ -266,7 +269,14 @@ def test_radial_input_rejects_ambiguous_noise_and_shape(case):
     grid, space, pulse, settings = case
     with pytest.raises(DriverError, match="seed"):
         Simulation.from_radial(
-            grid, space, SpatialMedium(), [], pulse, settings=settings, seed=1
+            grid,
+            space,
+            SpatialMedium(),
+            [],
+            pulse,
+            settings=settings,
+            seed=1,
+            noise=None,
         )
     with pytest.raises(DriverError, match="shape"):
         Simulation.from_radial(
@@ -276,6 +286,7 @@ def test_radial_input_rejects_ambiguous_noise_and_shape(case):
             [],
             np.zeros((1, 1, grid.n_omega)),
             settings=settings,
+            noise=None,
         )
     with pytest.raises(NoiseError, match="n_pol"):
         spatial_noise(_vacuum(grid, space), np.random.default_rng(33), n_pol=3)

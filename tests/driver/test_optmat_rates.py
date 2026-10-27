@@ -87,7 +87,7 @@ def capillary(materials: MaterialSelection | None = SELECTION, **changes: Any) -
         given.pop("radius"),
         given.pop("length"),
         given.pop("gas"),
-        **given,
+        **{"noise": None, **given},
     )
 
 
@@ -261,11 +261,17 @@ def test_an_elliptical_free_space_input_warns_where_the_keldysh_parameter_is_lar
     medium = SpatialMedium("Ar", 1.0)
     circular = SpatialPulse(temporal, 80e-6, jones=(1.0, 1.0j))
     with pytest.warns(MaterialRangeWarning, match="not linearly polarised"):
-        Simulation.from_free(grid, space, medium, plasma, circular, settings=settings)
+        Simulation.from_free(
+            grid, space, medium, plasma, circular, settings=settings, noise=None
+        )
     linear = SpatialPulse(temporal, 80e-6, jones=(1.0, 0.0))
-    Simulation.from_free(grid, space, medium, plasma, linear, settings=settings)
+    Simulation.from_free(
+        grid, space, medium, plasma, linear, settings=settings, noise=None
+    )
     array = linear.build(grid, space, medium=medium)
-    Simulation.from_free(grid, space, medium, plasma, array, settings=settings)
+    Simulation.from_free(
+        grid, space, medium, plasma, array, settings=settings, noise=None
+    )
 
 
 def test_a_route_without_a_transverse_rule_is_not_checked():

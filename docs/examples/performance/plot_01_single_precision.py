@@ -75,6 +75,7 @@ def capillary(precision):
         n_save=101,
         precision=precision,
         progress="none",
+        noise=None,
     )
     return run, time.perf_counter() - started
 
@@ -171,6 +172,7 @@ for precision in ("double", "single"):
             ionisation_field_range=(1e7, 1e11),
             precision=precision,
         ),
+        noise=None,
     ).run()
     run = filaments[precision]
     print(

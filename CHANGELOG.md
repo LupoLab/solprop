@@ -145,13 +145,35 @@ The first public release. It contains:
   - Photoionisation with atomic and molecular rate models, and plasma on field and
     envelope grids.
   - Rotational and vibrational Raman responses, scalar and vector.
-  - Quantum shot noise.
+  - Quantum shot noise, on by default
+    ([SEP 37](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0037-noise-and-stepper-defaults.html)):
+    one photon per mode with a random phase, added to the input field
+    (`noise="input"`) and recorded with its seed and with how the model was chosen
+    (`RunMetadata.noise_resolution`, output schema 26). `noise=None` switches it off,
+    and `noise="modified"` keeps the realisation apart from the field. Single precision,
+    the hybrid planar grid, the TDSE response and the Cartesian and line grids carry none
+    by default and record why
+    (noise asked for beside the TDSE is warned on); an interior launch takes its
+    spectrum as given unless `noise="input"` is passed. A floor-subtracted spectral
+    density, `get_spectral_density(..., noise_floor="subtract")`, removes the seed's one
+    photon per bin and channel as a signed density (`get_spectrum` takes only
+    `"keep"`; `plotting.spec_1d` and `prop_2d` pass it through, and `spec_1d` masks
+    non-positive values on a logarithmic axis). Input noise is carried beside a coherent
+    wall, the taper coupling, a split block, a moving solid guide and the TDSE response,
+    whose refusals now name only the modified model; `translate.tdse_source.admit_tdse`
+    takes `modified_noise` in place of `has_noise`.
   - An optional helium TDSE atomic response for research. Its native backend is not
     yet publicly available.
 - **Numerics.**
-  - Two adaptive integrators: a low-call exponential Adams method (the default) and an
-    embedded interaction-picture Runge–Kutta pair. A low-storage Runge–Kutta variant is
-    included.
+  - Two adaptive integrators: a low-call exponential Adams method and an embedded
+    interaction-picture Runge–Kutta pair. A low-storage Runge–Kutta variant is
+    included. Each interface has its own default integrator and tolerances, set by
+    measurement (SEP 37): `RungeKutta()` for `prop_gnlse` (`rtol` 1e-7) and
+    `prop_waveguide` (1e-5) and `prop_free` (1e-4), `Multistep()` for
+    `prop_radial` and `prop_planar` (1e-5) and `prop_capillary` (1e-6). The spatial
+    interfaces apply their tolerance when `SimulationSettings` give no controller, which
+    is now optional, and a free-space run that names no integrator takes
+    `RungeKutta()`. The choosing-a-stepper page tabulates every default.
   - The linear propagation is integrated exactly, and absorbing boundaries act as rates.
   - Fixed and adaptive schedules.
   - Bounded, rounding-level reproducibility across backends.

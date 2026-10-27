@@ -74,6 +74,7 @@ run = prop_capillary(
     wavelength_limits=(400e-9, 4e-6),
     n_save=301,
     progress="none",
+    seed=20261027,
 )
 
 # %%

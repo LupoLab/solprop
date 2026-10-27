@@ -125,6 +125,7 @@ simulation = Simulation.from_waveguide(
     dz_max=length / 10,
     dz_init=length / 10,
     backend="numpy_ref",
+    noise=None,
 )
 launch = np.zeros((2, 1, grid.n_omega), dtype=complex)
 launch[:, 0, centre] = 1.0

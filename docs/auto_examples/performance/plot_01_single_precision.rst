@@ -54,7 +54,7 @@ the machine and its load.
 The capillary, in both precisions
 ---------------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 41-98
+.. GENERATED FROM PYTHON SOURCE LINES 41-99
 
 .. code-block:: Python
 
@@ -95,6 +95,7 @@ The capillary, in both precisions
             n_save=101,
             precision=precision,
             progress="none",
+            noise=None,
         )
         return run, time.perf_counter() - started
 
@@ -123,19 +124,19 @@ The capillary, in both precisions
 
  .. code-block:: none
 
-    double: 11.6 s on native
-    single: 6.5 s on mlx
+    double: 37.1 s on numba_cpu
+    single: 6.3 s on mlx
     field difference at the end 1.6e-05
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 99-101
+.. GENERATED FROM PYTHON SOURCE LINES 100-102
 
 The spectra and the plasma
 --------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 101-134
+.. GENERATED FROM PYTHON SOURCE LINES 102-135
 
 .. code-block:: Python
 
@@ -191,7 +192,7 @@ The spectra and the plasma
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 135-141
+.. GENERATED FROM PYTHON SOURCE LINES 136-142
 
 A radial filament, in both precisions
 -------------------------------------
@@ -200,7 +201,7 @@ A 30 fs pulse at three times the critical power for self-focusing, 3 cm in argon
 one bar, on 256 radial nodes in 2 mm and a field grid: Kerr self-focusing and the
 field-grid plasma on every node.
 
-.. GENERATED FROM PYTHON SOURCE LINES 141-202
+.. GENERATED FROM PYTHON SOURCE LINES 142-204
 
 .. code-block:: Python
 
@@ -237,6 +238,7 @@ field-grid plasma on every node.
                 ionisation_field_range=(1e7, 1e11),
                 precision=precision,
             ),
+            noise=None,
         ).run()
         run = filaments[precision]
         print(
@@ -278,8 +280,8 @@ field-grid plasma on every node.
 
  .. code-block:: none
 
-    double: 3.7 s on native
-    single: 2.7 s on mlx
+    double: 8.0 s on numba_cpu
+    single: 3.0 s on mlx
     field difference at 3 cm 1.7e-06
     double: peak intensity 1.7445e+14 W/cm^2, final FWHM radius 167.043 um
     single: peak intensity 1.7445e+14 W/cm^2, final FWHM radius 167.043 um
@@ -290,7 +292,7 @@ field-grid plasma on every node.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 24.806 seconds)
+   **Total running time of the script:** (0 minutes 54.580 seconds)
 
 
 .. _sphx_glr_download_auto_examples_performance_plot_01_single_precision.py:

@@ -120,7 +120,7 @@ def test_one_pulse_through_pulses_equals_the_scalar_keywords():
         "integrator": FIXED_ORDER,
     }
     scalar = prop_gnlse(
-        **GNLSE,
+        **{"noise": None, **GNLSE},
         width=28.4e-15,
         peak_power=100.0,
         pulseshape="sech",
@@ -128,7 +128,7 @@ def test_one_pulse_through_pulses_equals_the_scalar_keywords():
         **prescribed,
     )
     listed = prop_gnlse(
-        **GNLSE,
+        **{"noise": None, **GNLSE},
         pulses=[SechPulse(wavelength=835e-9, width=28.4e-15, peak_power=100.0)],
         shock=False,
         **prescribed,
@@ -146,7 +146,7 @@ def test_one_pulse_through_pulses_equals_the_scalar_keywords():
         peak_power=100.0,
         pulseshape="sech",
         shock=False,
-        **settings,
+        **{"noise": None, **settings},
         **prescribed,
     )
     assert_matched(listed["field"], scalar["field"], simulation_bound(simulation))
@@ -173,7 +173,7 @@ def test_pulses_beside_a_single_pulse_keyword_is_refused(extra):
             wavelength_limits=(500e-9, 2e-6),
             trange=1e-12,
             pulses=[PUMP],
-            **extra,
+            **{"noise": None, **extra},
         )
 
 
@@ -193,6 +193,7 @@ def test_a_two_colour_capillary_run_records_both_pulses():
         n_save=2,
         progress="none",
         backend="numpy_ref",
+        noise=None,
     )
     assert run.metadata is not None
     recorded = run.metadata.configuration["pulse"]

@@ -156,6 +156,7 @@ def propagate(pressure):
             dz_max=5e-3,
             n_save=201,
             progress="none",
+            seed=20261027,
             **PUMP,
         )
 

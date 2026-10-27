@@ -426,6 +426,7 @@ def test_the_chord_is_the_reference_element_on_every_representation():
             dz_init=1e-4,
             backend="numpy_ref",
         ),
+        noise=None,
     ).translate()
     assert free.linear.phi_representation == "separable"
     assert carrier_chord(free.linear, 0) is None

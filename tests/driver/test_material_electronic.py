@@ -57,7 +57,9 @@ def capillary(
         "backend": "numpy_ref",
         "materials": materials,
     } | changes
-    return Simulation.from_capillary(50e-6, LENGTH, gas, 1.0, **options)
+    return Simulation.from_capillary(
+        50e-6, LENGTH, gas, 1.0, **{"noise": None, **options}
+    )
 
 
 def kerr_terms(simulation):
@@ -151,7 +153,7 @@ def gnlse(**changes: Any) -> Any:
         options.pop("gamma", 0.11),
         1e-3,
         options.pop("betas", [0.0, 0.0, -1.183e-26]),
-        **options,
+        **{"noise": None, **options},
     )
 
 

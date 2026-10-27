@@ -420,7 +420,9 @@ def test_every_flow_the_reference_refuses_numba_refuses_in_the_same_words(cases,
             initial=replace(
                 problem.initial,
                 noise0=np.zeros_like(problem.initial.field0),
-                noise_model="input",
+                # Input noise is admitted beside a coupled flow (SEP 37); the
+                # modified model is still refused, by both backends alike.
+                noise_model="modified",
             ),
         ),
     }
@@ -708,6 +710,7 @@ def test_prop_capillary_runs_a_wall_on_numba_as_the_reference_does():
                     schedule=FixedSchedule(np.full(STEPS, LENGTH / STEPS)),
                     plasma=False,
                     raman=False,
+                    noise=None,
                 ),
             )
     simulation = build("scalar")

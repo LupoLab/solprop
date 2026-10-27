@@ -665,7 +665,7 @@ the slow drift is what the nonlinearity moves over centimetres.
 
  .. code-block:: none
 
-    physical energy: 159.67 nJ in, 159.68 nJ out
+    physical energy: 159.67 nJ in, 159.67 nJ out
     entrance: LP0,1 9.33e-01, LP0,2 6.25e-02, LP0,3 4.13e-03, LP0,4 2.75e-04
     exit    : LP0,1 9.28e-01, LP0,2 6.95e-02, LP0,3 2.46e-03, LP0,4 1.10e-04
 
@@ -735,7 +735,7 @@ A ten-centimetre and a 4.5 mm run of four channels on the general modal route.
 
  .. code-block:: none
 
-    745 s; backend native, 18 threads
+    1687 s; backend native, 32 threads
 
 
 
@@ -752,7 +752,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (12 minutes 25.146 seconds)
+   **Total running time of the script:** (28 minutes 7.020 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_04_graded_index_multimode.py:

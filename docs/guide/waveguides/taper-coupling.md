@@ -40,10 +40,12 @@ mode shape and needs none. `taper_coupling=False` on
 to the adiabatic route; beside a wall it is refused, because the wall carries the
 connection. The coupling is refused by name, with the opt-out named in the message, on
 an envelope grid (the coupled flow is tabulated on a field grid's increasing frequency
-axis), beside a second field component or a noise model, and for a radius profile
-without an analytic slope. The record's `modal.flow.model` is `"taper coupling"`, with
-the flow's certificate rows and no wall ratios, so a coupled run is not resumed as an
-adiabatic one.
+axis), beside a second field component or the `modified` noise model, and for a radius
+profile without an analytic slope. The `input` noise model is admitted: its draw is
+part of the launch, one photon per channel and bin in the entrance's
+$\mathrm{HE}_{1m}$ set, and the coupling propagates it like any field. The record's
+`modal.flow.model` is `"taper coupling"`, with the flow's certificate rows and no wall
+ratios, so a coupled run is not resumed as an adiabatic one.
 
 These comparisons illustrate the model's accuracy and the need to converge the retained mode set:
 

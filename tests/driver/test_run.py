@@ -458,6 +458,7 @@ def test_a_run_without_statistics_saves_planes_all_the_same(soliton):
         shock=False,
         n_save=2,
         stats=StatsSpec(),
+        noise=None,
     )
     handler = simulation.run()
     assert handler.n_saved == 2

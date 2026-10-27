@@ -121,7 +121,11 @@ def guide(grid):
 def build(guide, grid, **overrides):
     """Return a general modal simulation on this guide and grid."""
     return Simulation.from_waveguide(
-        (), GENERAL_Z_END, provider=guide, grid=grid, **(PULSE | RUN | overrides)
+        (),
+        GENERAL_Z_END,
+        provider=guide,
+        grid=grid,
+        **({"noise": None, **PULSE | RUN | overrides}),
     )
 
 
@@ -139,7 +143,7 @@ def written(guide, grid, tmp_path_factory):
 def test_the_record_carries_every_modal_identity(written, guide):
     """Labels, tables, metric, responses, guide, frame, band, noise and accessors."""
     stored = resume(written).metadata
-    assert stored.schema_version == SCHEMA_VERSION == 25
+    assert stored.schema_version == SCHEMA_VERSION == 26
     modal = stored.modal
     assert modal is not None
     assert set(modal) == {
@@ -274,7 +278,7 @@ def test_the_printed_block_prints_every_schema_seven_field_with_its_value(writte
         assert value in block, (line, value)
     # The long `model_id` itself is on the record, and not in the printed row.
     assert str(at(modal, "tables", "model_id")) not in block
-    assert "schema 25" in block
+    assert "schema 26" in block
     # Twelve rows for thirteen fields: the basis row carries `n_components` too.
     printed = {key for key, _ in stored._describe()[1]}
     assert len(printed & MODAL_ROWS) == len(MODAL_ROWS)
@@ -491,9 +495,10 @@ def test_a_schema_six_file_cannot_resume_any_schema_seven_run(tmp_path):
         pulseshape="sech",
         n_save=2,
         backend="numpy_ref",
+        noise=None,
     ).metadata()
     assert ordinary.modal is None
-    assert ordinary.schema_version == SCHEMA_VERSION == 25
+    assert ordinary.schema_version == SCHEMA_VERSION == 26
     with pytest.raises(OutputError, match=r"different run.*schema_version"):
         check_cache(path, ordinary)
     assert resume(path).metadata.configuration_hash() == SCHEMA_SIX_DIGEST
@@ -535,14 +540,17 @@ def scheduled(guide, grid):
         provider=guide,
         grid=grid,
         **(
-            PULSE
-            | RUN
-            | {
-                "save_planes": planes,
-                "schedule": FixedSchedule.uniform(
-                    0.0, length, length / 10, save_planes=planes
-                ),
-                "integrator": FIXED_ORDER,
+            {
+                "noise": None,
+                **PULSE
+                | RUN
+                | {
+                    "save_planes": planes,
+                    "schedule": FixedSchedule.uniform(
+                        0.0, length, length / 10, save_planes=planes
+                    ),
+                    "integrator": FIXED_ORDER,
+                },
             }
         ),
     )
@@ -718,7 +726,7 @@ def test_a_scan_point_writes_its_spool_and_reads_the_identity_back(
     results = capture.results()
     assert float(results["reduced/spooled_flux"]) > 0.0
     stored = resume(capture.custom_path).metadata
-    assert stored.schema_version == SCHEMA_VERSION == 25
+    assert stored.schema_version == SCHEMA_VERSION == 26
     assert stored.modal is not None
     assert at(stored.modal, "basis") == "general_modal"
     assert [one.label for one in stored.modes] != [None]

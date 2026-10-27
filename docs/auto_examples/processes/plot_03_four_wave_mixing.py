@@ -87,6 +87,7 @@ with warnings.catch_warnings():
         wavelength_limits=(120e-9, 3e-6),
         n_save=301,
         progress="none",
+        seed=20261027,
     )
 
 # %%

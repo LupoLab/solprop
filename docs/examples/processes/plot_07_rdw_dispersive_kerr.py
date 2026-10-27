@@ -113,6 +113,7 @@ def m2_run(policy, modes=4, plasma=None):
         n_save=151,
         materials=MaterialSelection(electronic=policy),
         progress="none",
+        seed=20261027,
     )
 
 

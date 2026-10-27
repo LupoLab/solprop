@@ -42,6 +42,7 @@ from solprop.plotting.style import (
 from solprop.processing import spectra, time
 from solprop.processing.axes import ModeSelection, SpectralAxis, _check_choice
 from solprop.processing.fields import (
+    NoiseFloor,
     get_field,
     get_power,
     get_spectral_density,
@@ -93,6 +94,7 @@ def prop_2d(  # noqa: PLR0913 - the two axes, the two ranges and the colour scal
     oversampling: int = 4,
     bandpass: spectra.Bandpass | None = None,
     cmap: str | Colormap | None = None,
+    noise_floor: NoiseFloor = "keep",
 ) -> list[Figure]:
     """Return the false-colour propagation maps of a run, one figure per mode.
 
@@ -131,6 +133,11 @@ def prop_2d(  # noqa: PLR0913 - the two axes, the two ranges and the colour scal
         axis, of a window applied to the temporal panel.
     cmap : str, matplotlib.colors.Colormap or None
         Colour map of both panels.
+    noise_floor : {'keep', 'subtract'}
+        Whether the spectral panel keeps or removes the input noise's seed
+        (:func:`~solprop.processing.fields.get_spectral_density`). A value at or below
+        zero, which the subtraction can leave, is drawn at the bottom of the colour
+        scale, as everything below ``db_min`` is.
 
     Returns
     -------
@@ -153,7 +160,12 @@ def prop_2d(  # noqa: PLR0913 - the two axes, the two ranges and the colour scal
     """
     limits = _spec_range(axis, spec_range, DEFAULT_WAVELENGTH_RANGE)
     x, density = get_spectral_density(
-        output, axis, modes=modes, spec_range=limits, resolution=resolution
+        output,
+        axis,
+        modes=modes,
+        spec_range=limits,
+        resolution=resolution,
+        noise_floor=noise_floor,
     )
     t, power = get_power(
         output, modes=modes, oversampling=oversampling, bandpass=bandpass
@@ -321,6 +333,7 @@ def spec_1d(  # noqa: PLR0913 - the planes, the abscissa, the range and the scal
     log_min: float = 1e-6,
     resolution: float | None = None,
     ax: Axes | None = None,
+    noise_floor: NoiseFloor = "keep",
 ) -> Figure:
     """Return spectral slices of a run at one or more positions.
 
@@ -346,6 +359,11 @@ def spec_1d(  # noqa: PLR0913 - the planes, the abscissa, the range and the scal
         Instrument resolution, in the units of ``axis``.
     ax : matplotlib.axes.Axes or None
         Axis to draw into; a new figure is made when none is given.
+    noise_floor : {'keep', 'subtract'}
+        Whether the slices keep or remove the input noise's seed
+        (:func:`~solprop.processing.fields.get_spectral_density`). On a logarithmic
+        ordinate a value at or below zero, which the subtraction can leave, is masked
+        rather than drawn.
 
     Returns
     -------
@@ -374,6 +392,7 @@ def spec_1d(  # noqa: PLR0913 - the planes, the abscissa, the range and the scal
             modes=modes,
             spec_range=limits,
             resolution=resolution,
+            noise_floor=noise_floor,
         )
         for index in planes
     ]
@@ -383,6 +402,11 @@ def spec_1d(  # noqa: PLR0913 - the planes, the abscissa, the range and the scal
     peak = max(float(np.max(density)) for _, density in traces)
     for index, (x, density), colour in zip(planes, traces, colours, strict=True):
         values = _with_mode_axis(density, leading=False)
+        if log:
+            # A logarithmic axis has no place for a value at or below zero, which a
+            # floor-subtracted density can hold; a gap says so where a clipped line
+            # would draw a false dip to the axis.
+            values = np.where(values > 0.0, values, np.nan)
         for mode, name in enumerate(labels):
             ax.plot(
                 x * factor,
