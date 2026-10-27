@@ -293,6 +293,7 @@ from solprop.translate.tdse_source import TDSE_UNAVAILABLE_STATISTICS
 
 __all__ = [
     "BACKEND_STATISTICS",
+    "CAPILLARY_RTOL",
     "DEFAULT_ATOL",
     "DEFAULT_N_SAVE",
     "DEFAULT_RTOL",
@@ -303,6 +304,8 @@ __all__ = [
     "PLANAR_NOISE",
     "PLASMA_STATISTICS",
     "SINGLE_PRECISION_NOISE",
+    "SPATIAL_ATOL",
+    "SPATIAL_RTOL",
     "WAVEGUIDE_ATOL",
     "WAVEGUIDE_RTOL",
     "NoiseModel",
