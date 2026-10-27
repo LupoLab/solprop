@@ -632,6 +632,13 @@ destination:
     runs and move most of the capillary test references. The maintainer decides this.
 - **Verification:** the default lane and the slow lane on the cluster node (below, at
   Final), and the defaults checked by construction.
+- **After the maintainer's review (D9, D10):**
+  - The capillary steps by its representation: `RungeKutta()` at 1e-5 for one resolved
+    mode or a mode-averaged one, `Multistep()` at 1e-6 for two or more resolved modes or
+    the TDSE response.
+  - `prop_free` takes adaptive `RungeKutta()`, a default controller (`FREE_RTOL`) and
+    no noise by default.
+  - A TDSE run takes no noise by default and warns when asked for it (D8).
 
 ### Phase 2 report — the input-noise default
 
@@ -1094,6 +1101,15 @@ provably better and not worse elsewhere, is an improvement.
   noise by default (`FREE_NOISE`), since such runs are slow and rarely about noise
   sensitivity. Its tolerance is set by a measurement on the suite's free-space cases.
   The documentation carries one table of every interface's defaults.
+- **D10 (2026-10-27).** The capillary steps by its representation: `RungeKutta()` at
+  1e-5 (`SINGLE_MODE_RTOL`) for one resolved mode or a mode-averaged one, `Multistep()`
+  at 1e-6 (`CAPILLARY_RTOL`) for two or more resolved modes or the TDSE response. The
+  RDW measurement showed why. Going from one resolved mode to four, the Runge–Kutta
+  march's steps grow 3.7 times (484 to 1778) and the Adams method's 1.2 times (1469 to
+  1802): the source beats at the modes' phase mismatches, which the interaction-picture
+  march resolves within its steps and the exponential Adams method carries in its
+  propagator. The noisy comb-to-continuum case, the only one that matters there, is
+  1.3 to 1.6 times slower with the Adams method; that is the accepted cost.
 - **D7.** The modified model is kept as it is, with no new work. Whether to keep or
   remove it is decided when SEP 7 settles whether gain media need its separate
   noise-injection path: amplified spontaneous emission needs the noise to see only the

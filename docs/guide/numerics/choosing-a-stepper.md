@@ -28,7 +28,9 @@ choose another.
 | Interface | Integrator | `rtol` | `atol` | Shot noise |
 |---|---|---|---|---|
 | `prop_gnlse` | `RungeKutta()` | 1e-7 | 1e-14 √W | `"input"` |
-| `prop_capillary` | `Multistep()` | 1e-6 | 1e-10 √W | `"input"`; none with the TDSE response |
+| `prop_capillary`, one resolved mode or mode-averaged | `RungeKutta()` | 1e-5 | 1e-10 √W | `"input"` |
+| `prop_capillary`, two or more resolved modes | `Multistep()` | 1e-6 | 1e-10 √W | `"input"` |
+| `prop_capillary` with the TDSE response | `Multistep()` | 1e-6 | 1e-10 √W | none |
 | `prop_waveguide` | `RungeKutta()` | 1e-5 | 1e-10 √W | `"input"` |
 | `prop_radial` | `Multistep()` | 1e-5 | 0 | `"input"` |
 | `prop_free` (Cartesian, line) | `RungeKutta()` | 1e-5 | 0 | none |
@@ -44,10 +46,13 @@ are slow and rarely about noise sensitivity.
 On the GNLSE, the Runge–Kutta march is 2.5 to 4.8 times faster than the exponential
 Adams method at matched accuracy, more with noise. On the waveguide route it is 4 times
 faster; the interaction-formulation Adams method is faster still there but refuses the
-coupled flows some waveguide routes carry. On the capillary the evidence is split — the
-Runge–Kutta march wins most cases, the Adams method the resolved-mode RDW and the
-noiseless comb-to-continuum runs that dominate production — and the default stays the
-Adams method. A capillary run with the TDSE response needs `Multistep()`. The radial and
+coupled flows some waveguide routes carry. On the capillary the representation decides.
+With one resolved mode, or a mode-averaged one, the Runge–Kutta march is 1.5 to 3.5 times
+faster. With several resolved modes the source beats at the modes' phase mismatches: the
+interaction-picture march has to resolve that beat within its steps (going from one
+resolved mode to four multiplies its steps by 3.7 on the RDW capillary), while the
+exponential Adams method carries it in its propagator and is about three times faster.
+The TDSE response runs only on `Multistep()`. The radial and
 planar defaults hold their methods, which are faster there than the Runge–Kutta march
 (by 1.4 to 2.4 times on the radial filament), and set a tolerance where the caller gave
 no controller. A free-space run takes the Runge–Kutta march: the Adams history's

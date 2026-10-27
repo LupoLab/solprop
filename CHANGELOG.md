@@ -170,7 +170,9 @@ The first public release. It contains:
     included. Each interface has its own default integrator and tolerances, set by
     measurement (SEP 37): `RungeKutta()` for `prop_gnlse` (`rtol` 1e-7) and
     `prop_waveguide` (1e-5) and `prop_free` (1e-5), `Multistep()` for
-    `prop_capillary` (1e-6), `prop_radial` and `prop_planar` (1e-5). The spatial
+    `prop_radial` and `prop_planar` (1e-5); `prop_capillary` takes `RungeKutta()` (1e-5)
+    for one resolved mode or a mode-averaged one and `Multistep()` (1e-6) for two or
+    more resolved modes or the TDSE response. The spatial
     interfaces apply their tolerance when `SimulationSettings` give no controller, which
     is now optional, and a free-space run that names no integrator takes
     `RungeKutta()`. The choosing-a-stepper page tabulates every default.
