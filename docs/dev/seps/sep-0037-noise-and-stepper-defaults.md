@@ -560,6 +560,90 @@ destination:
 
 ## Part II — Implementation record
 
+### Phase 2 report — the input-noise default
+
+- **Scope:** phase 2, 2026-10-27, Opus 5.5 (AI) for John Travers, branch
+  `feature/sep-0037-noise-and-stepper-defaults`.
+- **Delivered:**
+  - `src/solprop/driver/simulation.py`: `NoiseSetting` and the `"default"` keyword
+    default on every `Simulation.from_*` constructor; `_resolve_noise`, called where
+    each route draws; `Simulation.noise_resolution`, carried through `with_input` and
+    derived runs; the planar route's resolution; and `SINGLE_PRECISION_NOISE`,
+    `PLANAR_NOISE` and `INTERIOR_LAUNCH_NOISE`.
+  - `src/solprop/driver/interface.py`: the same default on every `prop_*` interface.
+  - `src/solprop/output/schema.py`: `NoiseResolution`, and
+    `RunMetadata.noise_resolution` at output schema 26, stored beside the hash.
+  - `src/solprop/driver/summary.py`: the noise row marks a default model and gives a
+    fallback's reason.
+  - `src/solprop/backends/driver.py`: the input draw is added at the run's launch
+    position rather than at z = 0.
+  - Tests: `tests/driver/test_noise_default.py`.
+  - Manual: `docs/guide/media/noise.md`, `interior-launch.md`, `coupling.md`, `luna.md`.
+  - Tutorials and worked examples now pass a fixed seed or `noise=None`.
+- **Deviations from the proposal:**
+  - The general guide's diagonal metric is not a fallback route. Nothing builds such a
+    metric, and its translation-time refusal stands.
+  - A seed beside `noise=None` is now refused on every route, as the spatial routes
+    already did.
+- **Decisions:**
+  - The resolution is a dataclass, not a free mapping.
+  - It stays out of the configuration hash, because the resolved model is already in
+    the hashed noise record.
+  - The direct `Simulation(...)` constructor, which takes a realisation rather than a
+    model, keeps `None` as its default.
+- **Verification:**
+  - The full default lane on DMOG (AMD EPYC 7763, 64 workers): 14851 passed. The one
+    failure is a numba licence cache-key test that passes on the Mac and fails only in
+    that environment.
+  - The source doctests pass.
+  - The test suite keeps its noiseless references explicit: about 380 driver calls in
+    `tests/` now say `noise=None`.
+- **Limitations:** the native backend is unchanged here (input noise enters through the
+  shared `set_initial`), and it was not built for these runs.
+
+### Phase 3 report — input noise on more routes, and the floor
+
+- **Scope:** phase 3, 2026-10-27, Opus 5.5 (AI) worker for the lead; merged into the
+  implementation branch.
+- **Delivered:**
+  - Input noise beside the coherent wall, the taper coupling, the split block and the
+    moving solid guide. The refusals in `translate/problem.py` and the shared backend
+    admission list now name only the modified model.
+  - Input noise beside the TDSE response (`translate/tdse_source.py`, the seam check
+    and the driver).
+  - An explicit input draw at an interior launch (phase 2's `set_initial` rule).
+  - `noise_floor` on `processing.get_spectral_density` and the plotting helpers.
+  - Tests: `tests/driver/test_coupled_input_noise.py`,
+    `tests/driver/test_tdse_input_noise.py` and `tests/processing/test_noise_floor.py`.
+- **Q1, answered:** every coupled route's entrance basis is orthonormal in true power:
+  - the capillary HE₁ₘ (and TE/TM) sets, by Bessel orthogonality and per-mode power
+    normalisation;
+  - the split block's dense metric, a declared unitary rotation of a
+    Poynting-normalised reference, which keeps the total per bin;
+  - the moving guide's identity metric, whose Gram departure is gated along the path.
+
+  No route needed a named refusal.
+- **Deviations:**
+  - The unpropagated-floor identity keeps its interference term $2\,\mathrm{Re}(\psi^*N)$,
+    which for one draw is as large as the seed.
+  - `get_spectrum` refuses `"subtract"`, since no amplitude has the signed density as its
+    modulus squared.
+- **Verification:**
+  - At the entrance, one photon per channel and bin to 3e-13 on all four coupled routes.
+  - The exit-energy identity to between 1.1e-6 and 5.8e-5 of the seed's exit energy (the
+    Kerr cross-phase on the seed).
+  - `numba_cpu` matches `numpy_ref` to 3e-15.
+  - TDSE: the drive equals the pulse plus the draw to 2e-16, and the draw alone is 3.5e-11
+    of the intensity at which the weak-field response is certified.
+  - The floor-subtracted density equals the modified readout to 1.2e-15.
+- **Limitations:**
+  - A full TDSE weak-field run through the real atomic engine was not made: it needs the
+    pinned Pyroraptor.
+  - The native backend admits input noise beside a coupled flow by the shared list but
+    was not run.
+  - The coupled routes' modal identity records still write no noise reference basis.
+
+
 ## Part III — History
 
 - 2026-10-26: Drafted, with the preliminary measurements of §3.4.
