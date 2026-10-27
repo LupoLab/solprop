@@ -1123,8 +1123,11 @@ TEST(GeneralState, MemoryLedgerMatchesConditionalAllocationFormulae) {
   // slot, at most one slot per thread (a trapezoid problem keeps no band rows).
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   const auto chunk_rows = problem.node_chunk * problem.effective_node_pol();
+  // With the trapezoid's binary64 tile totals, a row's tiles of 1,024 samples.
+  const auto tiles = (problem.n_to + 1023) / 1024;
   EXPECT_EQ(ledger.at("plasma_device_scan"),
-            (3 * problem.node_chunk * problem.n_to + 3 * chunk_rows * problem.n_to) *
+            (3 * problem.node_chunk * problem.n_to + 3 * chunk_rows * problem.n_to +
+             chunk_rows * tiles) *
                 real);
 #else
   // One slot per thread of the response operation's own width (problem-size policy).
