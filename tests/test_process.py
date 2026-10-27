@@ -501,3 +501,14 @@ def test_a_wait_policy_the_user_chose_is_kept(native_wait, name, value):
     assert environ == {name: value}
     # A blank variable is unset.
     assert native_wait.wait_policy({name: " "}) == "passive"
+
+
+@pytest.mark.parametrize(("platform", "expected"), [("win32", 3), ("darwin", None)])
+def test_physical_cores_ask_windows_and_trust_other_platforms(
+    native_budget, monkeypatch, platform, expected
+):
+    """Windows asks its processor table; Apple silicon has one thread per core."""
+    for module in (_process, native_budget):
+        monkeypatch.setattr(module.sys, "platform", platform)
+        monkeypatch.setattr(module, "_windows_cores", lambda cpus: 3)
+        assert module.physical_cores((0, 1, 2, 3)) == expected
