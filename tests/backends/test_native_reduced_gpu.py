@@ -82,9 +82,7 @@ test_mixed_scale_witness = (
     mixed.test_a_launch_scale_of_two_to_the_thirty_gives_the_physical_source
 )
 test_mixed_physical_state = mixed.test_the_state_is_physical_and_observed_exactly
-test_mixed_adams = (
-    mixed.test_an_adams_run_agrees_with_binary64_adams_under_the_study_admission
-)
+test_mixed_adams = mixed.test_an_adams_run_agrees_with_binary64_adams_and_the_oracle
 test_mixed_adams_snapshot = mixed.test_an_adams_snapshot_round_trip_is_exact
 test_mixed_non_finite = mixed.test_a_non_finite_state_stops_every_march
 test_mixed_envelope_plasma = (

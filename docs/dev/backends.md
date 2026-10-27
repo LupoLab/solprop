@@ -1815,7 +1815,7 @@ that execution space.
 | materials from optmat: gas Raman leaves of many rows on gradients, rate tables, optmat walls, the silica bundles | yes | yes | yes | not qualified |
 | coupling between runs (`field_plane`, `regrid`, `couple`, `Outcouple`, `transport`, `with_input`; SEP 31) | host-side: any source and receiving backend | host-side | host-side | receiving runs not qualified |
 | single precision (`precision="single"`, SEP 33, SEP 36): fibre, radial and Cartesian routes, Kerr, Raman, field and envelope plasma, both absorber schemes, Runge–Kutta and the low-storage march, fixed-schedule batches | the oracle | refused | yes, class R against the oracle (SEP 36 phases 2–3), when `SOLPROP_NATIVE_PRECISIONS` compiled it | yes: qualified on an A40 (CUDA, SEP 36 phase 4), compiled for HIP; matrix products in strict binary32 and probed; `mlx` also runs every route |
-| mixed precision (`precision="mixed"`, SEP 36): the same capabilities, with no damping limit; Adams and noise through the study's private admission only | the oracle | refused | yes, class R against the oracle (phase 3), when compiled | yes: qualified on an A40, compiled for HIP; `mlx` refuses it (no binary64 on Apple GPUs) |
+| mixed precision (`precision="mixed"`, SEP 36): the same capabilities, with no damping limit, and the Adams integrator (SEP 36 Q2); noise through the study's private admission only | the oracle | refused | yes, class R against the oracle (phase 3), when compiled | yes: qualified on an A40, compiled for HIP; `mlx` refuses it (no binary64 on Apple GPUs) |
 
 **Materials from optmat** ([SEP 3](seps/archive/sep-0003-optmat-materials.md), a run under
 `MaterialSelection`) reach the backends as the arrays any other run carries: index and

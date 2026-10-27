@@ -278,8 +278,8 @@ class NumpyMixedBackend(NumpySingleBackend):
     ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
         """Adopt an Adams step's binary64 state.
 
-        The Adams integrator runs under mixed precision only inside the survival study
-        until SEP 36 phase 5 admits it (Q2).
+        The Adams history is binary64 under mixed precision, as the state is (SEP 36
+        section 4.6; admitted in phase 5, Q2).
 
         Parameters
         ----------

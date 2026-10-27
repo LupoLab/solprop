@@ -322,9 +322,9 @@ def study_admission() -> Iterator[None]:
     """Admit, inside the block, what the survival study measures and the public refuses.
 
     The private, test-only route of SEP 33 section 5.2: the studies run the Adams
-    integrator under single and mixed precision through it, to measure whether Adams
-    can be admitted (SEP 33 Q2, SEP 36 Q2), and noise models under mixed precision
-    before SEP 36 phase 5 admits them. No public interface sets it.
+    integrator under single precision through it, to measure whether Adams can be
+    admitted (SEP 33 Q2), and noise models under mixed precision before SEP 36
+    phase 5 admits them. No public interface sets it.
 
     Yields
     ------
@@ -361,8 +361,9 @@ def admit_precision(
 
     SEP 33 section 5.2 and SEP 36 section 5. A binary64 run passes unchanged. A single-
     or mixed-precision run is refused on a backend that does not admit its mode
-    (:data:`REDUCED_PRECISION_BACKENDS`), with the Adams integrator until the survival
-    study admits it, and with an adaptive tolerance below the mode's floor
+    (:data:`REDUCED_PRECISION_BACKENDS`), a single-precision run with the Adams
+    integrator until the survival study admits it, and either with an adaptive
+    tolerance below the mode's floor
     (:func:`rtol_floor`). The routes and responses no backend runs in binary32 are
     refused by :meth:`~solprop.translate.problem.KernelProblem.validate`, where they
     are known.
@@ -402,11 +403,15 @@ def admit_precision(
             f"it are {', '.join(admitted)} (SEP 33, SEP 36)"
         )
         raise TranslationError(msg)
-    if adams and not _STUDY.get():
+    # Mixed precision admits Adams: its history is binary64, and against Runge-Kutta
+    # at one tolerance it is as accurate within the envelopes, faster on Kerr-driven
+    # capillaries and slower on ionising ones, as in binary64 (SEP 36 Part II, Q2).
+    if adams and name == "single" and not _STUDY.get():
         msg = (
             "the Adams integrator (Multistep) is not admitted under "
-            f"precision={name!r} until its {name}-precision survival is established; "
-            f"use integrator=RungeKutta(), the {name}-precision default"
+            "precision='single' until its single-precision survival is established; "
+            "use integrator=RungeKutta(), the single-precision default, or "
+            "precision='mixed'"
         )
         raise TranslationError(msg)
     floor = rtol_floor(precision)

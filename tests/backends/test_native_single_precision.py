@@ -166,7 +166,7 @@ def test_an_adaptive_run_keeps_its_accuracy_envelope(weighted):
     """
     reference = finish(gnlse("double", steps=None), "numpy_ref")
     simulation = gnlse("single", steps=None)
-    rtol = simulation.settings.controller.rtol
+    rtol = cast("PIController", simulation.settings.controller).rtol
     if weighted:
         n_omega = gnlse("single").translate().shape[-1]
         rtol = 1e-5

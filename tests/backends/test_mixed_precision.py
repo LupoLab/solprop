@@ -44,6 +44,7 @@ from precision_cases import (
     spatial_kerr,
 )
 from solprop.backends import memory
+from solprop.backends.driver import StepDriver
 from solprop.backends.memory import estimate_memory, mixed_precision_rows
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.backends.numpy_ref.mixed import NumpyMixedBackend
@@ -59,7 +60,7 @@ from solprop.exceptions import (
     TranslationError,
 )
 from solprop.stats import StatsSpec
-from solprop.stepper import DOPRI5, LowStorageRungeKutta, RungeKutta
+from solprop.stepper import DOPRI5, LowStorageRungeKutta, PIController, RungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.ionisation import RateTable
@@ -140,9 +141,9 @@ def reference(build: Build) -> Reference:
             anchors.append(float(np.linalg.norm(result)))
             return result
 
-        backend._nonlinear = recorded
-        backend._finish = kept
-        RateTable.__call__ = evaluated
+        setattr(backend, "_nonlinear", recorded)  # noqa: B010 - instance patching
+        setattr(backend, "_finish", kept)  # noqa: B010
+        setattr(RateTable, "__call__", evaluated)  # noqa: B010
         cleanup.callback(setattr, RateTable, "__call__", rate)
         backend.propagate_to(float(simulation.settings.save_planes[-1]))
     schedule = problem.stepper.schedule
@@ -257,17 +258,27 @@ def test_mixed_precision_takes_its_defaults_and_refuses_what_it_does_not_run():
     assert isinstance(settings.integrator, RungeKutta)
     # The larger of the interface's binary64 default and the floor 1e-8: 1e-7 for the
     # GNLSE (SEP 37), 1e-6 for a capillary (SEP 36 section 5).
-    assert settings.controller.rtol == 1e-7
-    assert capillary("mixed").settings.controller.rtol == 1e-6
+    assert cast("PIController", settings.controller).rtol == 1e-7
+    controller = capillary("mixed").settings.controller
+    assert cast("PIController", controller).rtol == 1e-6
     assert simulation.translate().precision is MIXED
     for backend in ("numba_cpu", "mlx"):
         with pytest.raises(DriverError, match="refuses precision='mixed'"):
             dataclasses.replace(settings, backend=backend)
-    with pytest.raises(DriverError, match="Adams integrator"):
-        dataclasses.replace(settings, integrator=Multistep())
+    # Adams is admitted (SEP 36 phase 5, Q2), and the binary64 default follows: the
+    # Runge-Kutta march for the GNLSE, Multistep() where binary64 takes it.
+    assert isinstance(
+        dataclasses.replace(settings, integrator=Multistep()).integrator, Multistep
+    )
+    assert isinstance(
+        dataclasses.replace(settings, integrator=None).integrator, Multistep
+    )
     with pytest.raises(DriverError, match="mixed-precision floor 1e-08"):
         dataclasses.replace(
-            settings, controller=dataclasses.replace(settings.controller, rtol=1e-9)
+            settings,
+            controller=dataclasses.replace(
+                cast("PIController", settings.controller), rtol=1e-9
+            ),
         )
     # The oracle, and the native backend where it is installed (whose build refuses
     # mixed precision by name when it did not compile it).
@@ -792,7 +803,7 @@ def test_a_binary32_array_in_a_stored_row_is_refused():
         def narrowed(lab, bundle, inverse, **keywords):
             return source(lab, bundle, inverse, **keywords).astype(np.complex64)
 
-        backend._nonlinear = narrowed
+        setattr(backend, "_nonlinear", narrowed)  # noqa: B010 - instance patching
         with pytest.raises(BackendError, match="binary32 array reached a row"):
             backend.propagate_to(0.05)
 
@@ -819,14 +830,13 @@ def test_a_binary32_stage_input_and_adams_state_are_refused():
         pytest.param(lambda p: gnlse(p, steps=None), id="runge-kutta"),
     ],
 )
-def test_adaptive_marches_run_under_the_study_admission(build):
-    """Adams is refused publicly; the study measures it (Q2) against binary64 Adams.
+def test_adaptive_marches_agree_with_binary64(build):
+    """Both adaptive marches, Adams admitted in phase 5 (Q2), against binary64's.
 
     At the mixed floor both reach the tolerance's truncation; the envelope is the
     class T one SEP 33 fixed for its own Adams measurement.
     """
-    with study_admission():
-        mixed, double = finish(build("mixed")), finish(build("double"))
+    mixed, double = finish(build("mixed")), finish(build("double"))
     assert_within(mixed, double, 1e-4)
 
 
@@ -870,17 +880,16 @@ def test_a_non_finite_source_stops_every_march(march):
 
 def test_an_adams_snapshot_round_trip_is_exact():
     """The state and the history rows are binary64: class P, no scaling (SEP 36 5)."""
-    with study_admission():
-        simulation = gnlse("mixed", steps=None, integrator=Multistep())
-        with ExitStack() as cleanup:
-            first = loaded(simulation, cleanup)
-            first.propagate_to(0.02)
-            snapshot = first.march_snapshot()
-            assert snapshot is not None
-            second = loaded(simulation, cleanup)
-            second.set_initial(snapshot.state, None, z=snapshot.z)
-            assert second.restore_march(snapshot) is None
-            again = second.march_snapshot()
+    simulation = gnlse("mixed", steps=None, integrator=Multistep())
+    with ExitStack() as cleanup:
+        first = cast(StepDriver, loaded(simulation, cleanup))
+        first.propagate_to(0.02)
+        snapshot = first.march_snapshot()
+        assert snapshot is not None
+        second = cast(StepDriver, loaded(simulation, cleanup))
+        second.set_initial(snapshot.state, None, z=snapshot.z)
+        assert second.restore_march(snapshot) is None
+        again = second.march_snapshot()
     assert again is not None
     assert snapshot.state.dtype == np.complex128
     assert np.array_equal(again.state, snapshot.state)

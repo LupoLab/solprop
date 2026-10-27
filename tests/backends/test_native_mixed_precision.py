@@ -313,33 +313,31 @@ def test_the_state_is_physical_and_observed_exactly():
         assert np.array_equal(backend.observe().require_field(), plane)
 
 
-def test_an_adams_run_agrees_with_binary64_adams_under_the_study_admission():
-    """Adams is refused publicly; the study measures it (Q2) like with like."""
+def test_an_adams_run_agrees_with_binary64_adams_and_the_oracle():
+    """Adams under mixed precision, admitted in phase 5 (Q2), like with like."""
 
     def build(p: str) -> Simulation:
         return gnlse(p, steps=None, integrator=Multistep())
 
-    with study_admission():
-        mixed = finish(build("mixed"), "native")
-        double = finish(build("double"), "native")
-        oracle = finish(build("mixed"), "numpy_ref")
+    mixed = finish(build("mixed"), "native")
+    double = finish(build("double"), "native")
+    oracle = finish(build("mixed"), "numpy_ref")
     assert_within(mixed, double, 1e-4)
     assert_within(mixed, oracle, 1e-4)
 
 
 def test_an_adams_snapshot_round_trip_is_exact():
     """The state and the history rows are binary64: class P, no scaling (SEP 36 5)."""
-    with study_admission():
-        simulation = gnlse("mixed", steps=None, integrator=Multistep())
-        with ExitStack() as cleanup:
-            first = cast(StepDriver, loaded(simulation, "native", cleanup))
-            first.propagate_to(0.02)
-            snapshot = first.march_snapshot()
-            assert snapshot is not None
-            second = cast(StepDriver, loaded(simulation, "native", cleanup))
-            second.set_initial(snapshot.state, None, z=snapshot.z)
-            assert second.restore_march(snapshot) is None
-            again = second.march_snapshot()
+    simulation = gnlse("mixed", steps=None, integrator=Multistep())
+    with ExitStack() as cleanup:
+        first = cast(StepDriver, loaded(simulation, "native", cleanup))
+        first.propagate_to(0.02)
+        snapshot = first.march_snapshot()
+        assert snapshot is not None
+        second = cast(StepDriver, loaded(simulation, "native", cleanup))
+        second.set_initial(snapshot.state, None, z=snapshot.z)
+        assert second.restore_march(snapshot) is None
+        again = second.march_snapshot()
     assert again is not None
     assert snapshot.state.dtype == np.complex128
     assert np.array_equal(again.state, snapshot.state)

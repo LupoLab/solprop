@@ -558,10 +558,10 @@ class SimulationSettings(Displayed):
         saves the requested planes only. Not in scans.
     integrator : Multistep, RungeKutta, LowStorageRungeKutta or None
         The method that steps the run (``docs/guide/numerics/choosing-a-stepper.md``).
-        ``None``, the default, takes ``Multistep()`` under double precision and
-        ``RungeKutta()`` under single precision, which refuses the Adams method until
-        its single-precision survival is established (SEP 33, Q2); the stored value
-        is the resolved method. ``Multistep()`` is the low-call exponential Adams
+        ``None``, the default, takes ``Multistep()`` under double and mixed precision
+        and ``RungeKutta()`` under single precision, which refuses the Adams method
+        until its single-precision survival is established (SEP 33, Q2); the stored
+        value is the resolved method. ``Multistep()`` is the low-call exponential Adams
         method, which
         ``numpy_ref``, ``numba_cpu`` and ``native`` execute for supported
         configurations;
@@ -851,7 +851,9 @@ class SimulationSettings(Displayed):
         object.__setattr__(self, "integrator_named", self.integrator is not None)
         if self.integrator is None:
             object.__setattr__(
-                self, "integrator", RungeKutta() if precision.reduced else Multistep()
+                self,
+                "integrator",
+                RungeKutta() if precision.name == "single" else Multistep(),
             )
         if precision.reduced:
             object.__setattr__(
@@ -7842,7 +7844,7 @@ def _spatial_settings(settings: SimulationSettings, route: str) -> SimulationSet
     if (
         route == "free"
         and not settings.integrator_named
-        and settings.precision == "double"
+        and settings.precision != "single"
     ):
         # The Adams history's memory rules the multistep method out for a large
         # transverse state: a free-space run takes the Runge-Kutta march (SEP 37).
@@ -7863,9 +7865,8 @@ def _interface_integrator(
     ``RungeKutta()`` where the caller named none: SEP 37's matched-accuracy rule chose
     it for :func:`~solprop.driver.interface.prop_gnlse` and
     :func:`~solprop.driver.interface.prop_waveguide` among the integrators every route
-    of each interface admits. Single and mixed precision keep
-    their own default, which is the same march. A named integrator is returned
-    unchanged.
+    of each interface admits; mixed precision takes it too. Single precision keeps its
+    own default, which is the same march. A named integrator is returned unchanged.
 
     Parameters
     ----------
@@ -7877,9 +7878,9 @@ def _interface_integrator(
     Returns
     -------
     Multistep, RungeKutta, LowStorageRungeKutta or None
-        The integrator to put in the settings; ``None`` leaves a reduced precision's.
+        The integrator to put in the settings; ``None`` leaves single precision's.
     """
-    if integrator is None and precision == "double":
+    if integrator is None and precision != "single":
         return RungeKutta()
     return integrator
 

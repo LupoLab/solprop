@@ -2234,6 +2234,16 @@ to `Multistep()` (the capillary, radial and planar routes under SEP 37) takes
 `RungeKutta()`. Adams is faster on `rdw` (1.4–1.9 times) and slower on `argon`
 (0.7–0.8 times).
 
+### Maintainer decision on Q2 (2026-10-27)
+
+John Travers, on the measurement above: mixed Adams is admitted. It is within every
+envelope at every tolerance, its exceedances of twice Runge–Kutta's error lie 30 to
+1000 times below the envelopes, and its trade with Runge–Kutta (faster on `rdw`,
+slower on `argon`) is the one binary64 shows. Under mixed precision each interface
+therefore keeps its binary64 default integrator (SEP 37), with its tolerance raised to
+the mixed floor, and the guide documents the trade. Single precision still refuses
+Adams (SEP 33 Q2).
+
 ## Part III — History
 
 - 2026-10-25: Drafted (Opus 5.5), after an indicative A40 measurement of transforms,

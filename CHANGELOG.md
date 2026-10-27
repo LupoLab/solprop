@@ -262,10 +262,11 @@ The first public release. It contains:
   physical and its source at the launch's scale, the split-step collar's transforms in
   binary64; `numba_cpu` and `mlx` refuse it. Its default `rtol` is the
   larger of each interface's binary64 default and the floor `1e-8`, below which an
-  explicit tolerance is refused, and its default integrator `RungeKutta()`; noise
-  models and the Adams integrator are refused until the survival studies admit them.
-  `backend="auto"` resolves a reduced precision to `native` when its build compiles the
-  mode (kernel schema 37, output schema 26).
+  explicit tolerance is refused, and its default integrator each interface's binary64
+  one: the Adams integrator is admitted, as accurate as Runge–Kutta within the
+  envelopes. Noise models are refused, and a default noise falls back to none, until
+  the noise study admits them. `backend="auto"` resolves a reduced precision to
+  `native` when its build compiles the mode (kernel schema 38, output schema 27).
   A noise-seeded mixed run records a heuristic rounding margin in its execution
   metadata (`rounding_margin`), and the noise study's tools are public:
   `processing.coherence.band_coherence` and `spectral_bands`, and

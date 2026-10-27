@@ -88,9 +88,12 @@ scaled by the step. Concretely:
   more steps than binary64 would.
 - **No damping limit.** The propagators are binary64, so mixed precision has no
   `exp(88.7)` limit on a step's exponent.
-- **The integrator.** The default is `RungeKutta()` and the low-storage march is
-  admitted. The Adams integrator, `Multistep()`, is refused until its mixed-precision
-  accuracy is measured.
+- **The integrator.** Each interface keeps its binary64 default: `Multistep()` for
+  the capillary and the radial and planar routes, `RungeKutta()` for the GNLSE, the
+  waveguide and free space. Both are admitted, as is the low-storage march. Against
+  Runge–Kutta at one tolerance, mixed Adams is as accurate within every envelope, faster
+  on a Kerr-driven capillary and slower on an ionising one, as in binary64; choose as
+  [choosing a stepper](../numerics/choosing-a-stepper.md) says.
 - **Noise.** Noise models are refused until the noise study (below) admits them.
 - **The backend.** `backend="auto"` resolves to `"native"` when its build compiled mixed
   precision, and is refused otherwise.
@@ -135,8 +138,8 @@ Single precision:
 | the general modal route, the hybrid planar kind, coupled flows, TDSE responses, the dispersive electronic response, the far-field statistics | refused | refused | refused | refused |
 
 Mixed precision covers the same capabilities, on `numpy_ref` and `native` (CPU and GPU)
-only, with no damping limit; `mlx` and `numba_cpu` refuse it. Its Adams integrator and
-noise models are refused until the studies of SEP 36's phase 5 admit them. The `native`
+only, with no damping limit, and also admits the Adams integrator; `mlx` and `numba_cpu`
+refuse it. Its noise models are refused until SEP 36's noise study admits them. The `native`
 GPU column is qualified on an NVIDIA A40 (CUDA); an AMD Instinct GPU (HIP) runs the same
 device code and is qualified separately.
 

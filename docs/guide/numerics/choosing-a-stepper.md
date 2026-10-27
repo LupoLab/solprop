@@ -35,7 +35,11 @@ choose another.
 | `prop_free` (Cartesian, line) | `RungeKutta()` | 1e-4 | 0 | none |
 | `prop_planar` | `Multistep()` | 1e-5 | 0 | none (not carried) |
 
-Under `precision="single"` every interface takes `RungeKutta()` and no noise. The
+Under `precision="single"` every interface takes `RungeKutta()` and no noise. Under
+`precision="mixed"` every interface keeps the integrator of this table and its
+tolerance raised to the mixed floor, `1e-8`; it carries no noise by default until a
+noise model is qualified under mixed precision
+([reduced precision](../performance/reduced-precision.md)). The
 spatial interfaces' tolerances apply where their `SimulationSettings` give no
 controller; a free-space run that names no integrator takes `RungeKutta()`. A default
 noise that resolves to none says why in the run record and the start-of-run summary,
