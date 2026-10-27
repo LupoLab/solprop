@@ -2323,6 +2323,13 @@ diagnostics; transform-size cost; full-length timings.
     measured per-platform cost model, and revisiting the divisor rule. The native slow
     sizes were a separate kernel threshold problem (finding 14). Destination: phase 2,
     with D1.
+24. **Q24: the guard monitor and the shot-noise floor (2026-10-27).** SEP 37 put one
+    photon per mode into every launch, and the monitor reads that floor as edge
+    occupancy and removal. Recommend judging every occupancy and the removed fraction
+    above the floor: subtract the expected floor energy of each region, which the noise
+    model gives exactly, from the measured energy, and the floor from the launch
+    energy, recording the raw values beside them. Light that reaches an edge above the
+    vacuum level is still caught.
 
 **Handoff.** The harness, raw records, tables and logs are with the development records
 under the SEP's number. Phase 2 starts from the decisions above; the witnesses of §7
@@ -2364,6 +2371,30 @@ Recorded as slices land; the phase report follows at the end of the phase.
   - **Not yet:** occupancies as saved-plane statistics (they are in the execution
     record), and the energy-density proxy on spatial routes is the quadrature-weighted
     field norm, not SEP 34's admittance-weighted flux.
+- **Requalification (2026-10-26).** All 34 cases of the SEP 30 suite on both adaptive
+  tracks, `numba_cpu`, one thread: every candidate error was within its carried-over
+  ceiling (largest 9.8e-7 against 1e-4; CtC 2.4e-7 against 1e-5), except
+  `grin_nonlinear`, whose tight run was refused by a harness that changed settings after
+  translation. SEP 38 then replaced the suite and removed reference qualification, so
+  the result is a record only; validation continues on SEP 38's tracking cases.
+- **Integration with SEPs 37 and 38 and the run summary (2026-10-27).** Output schema
+  27. The run-start summary's absorber row says whether the edges are watched. All
+  tracking cases build with the default collar except the fixed-step `kerr_beam` cases,
+  which run without collars and without collar room. The transform sizes of the
+  tracking cases change both ways: 4096 to 5120 points for RDW, 8192 to 10240 for CtC
+  and 16384 to 18432 for the 6 ps hydrogen Raman, but 4096 to 3072 for the GNLSE
+  soliton, 4096 to 3200 for the argon blueshift and 1024 to 864 for the spatial cases.
+  With SEP 37's Runge-Kutta defaults on GNLSE runs (rtol 1e-7) the in-stage collar does
+  not cap the step: the soliton and Raman/shock cases take the same accepted steps as
+  under the split scheme.
+  - **Conflict with default shot noise.** One photon per mode fills the whole window,
+    guards included. The N=3 soliton (about 100 W peak) warns twice from the noise
+    alone: guard occupancy 2e-6 and a removed fraction of 3e-5, against 2e-19 and 1e-16
+    noise-free. A 1 pJ pulse warns at launch and a 10 mW one is stopped. Three coupled
+    input-noise tests that launch the seed alone are stopped. Open: see Q24.
+  - **The floor-subtracted density** assumes the vacuum floor is conserved; the default
+    collar absorbs part of it, so the subtraction is biased low by up to the absorbed
+    fraction of one photon per bin. The identity test runs without a collar.
 - **Observed:** on the capability capillary route an adaptive exponential Adams run
   limited by the in-stage collar chooses steps that differ between backends by up to
   2 % at rounding level, with fields equal to 6e-12; the test was pinned to the former
