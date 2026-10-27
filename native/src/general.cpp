@@ -3695,11 +3695,10 @@ void GeneralWorkspace::upload_trial(const TrialScalars& scalars) {
   // Rows of equal weights give bitwise equal phases (a zero weight's term is skipped).
   const auto n_phi = problem_.n_phi_terms;
   const auto same_row = [&](const std::size_t row) {
-    return std::equal(scalars.phi_delta.begin() + static_cast<std::ptrdiff_t>(row * n_phi),
-                      scalars.phi_delta.begin() +
-                          static_cast<std::ptrdiff_t>((row + 1) * n_phi),
-                      scalars.phi_delta.begin() +
-                          static_cast<std::ptrdiff_t>((row - 1) * n_phi));
+    return std::equal(
+        scalars.phi_delta.begin() + static_cast<std::ptrdiff_t>(row * n_phi),
+        scalars.phi_delta.begin() + static_cast<std::ptrdiff_t>((row + 1) * n_phi),
+        scalars.phi_delta.begin() + static_cast<std::ptrdiff_t>((row - 1) * n_phi));
   };
   phase_repeats_.assign(problem_.n_stages, false);
   for (std::size_t stage = 1; stage < problem_.n_stages; ++stage)
@@ -7174,10 +7173,9 @@ void GeneralWorkspace::stage_entry_with(const std::size_t stage, const double dz
         double imag[stage_block];
         terms.phase_block(stage * n_phi, column, first, count, real, imag);
         for (std::size_t bin = 0; bin < count; ++bin) {
-          const Complex propagator =
-              terms.template combine<Mode>(stage, dz, solution_weight, error_weight,
-                                           column, first + bin,
-                                           Complex(real[bin], imag[bin]));
+          const Complex propagator = terms.template combine<Mode>(
+              stage, dz, solution_weight, error_weight, column, first + bin,
+              Complex(real[bin], imag[bin]));
           if (reuse_whole)
             terms.whole(column, first + bin) = propagator;
         }
