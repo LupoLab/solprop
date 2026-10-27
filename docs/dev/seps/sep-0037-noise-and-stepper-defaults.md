@@ -562,7 +562,7 @@ destination:
 
 ### Phase 0 report — measurement
 
-- **Scope:** phase 0, 2026-10-26/27, Opus 5.5 (AI) worker for the lead. The source was
+- **Scope:** phase 0, 2026-10-26/27, Opus 5.5 (AI) for John Travers. The source was
   commit 71a671d, measured on an AMD EPYC 7763 (Zen 3) cluster node with the native
   backend, LOCAL profile, GCC 16.2, FFTW 3.3.11 and OpenBLAS 0.3.34. Each arm took three
   timing samples at 1 and at 16 threads, with node-local environments. It cost about 3.7 h
@@ -665,8 +665,9 @@ destination:
   - The direct `Simulation(...)` constructor, which takes a realisation rather than a
     model, keeps `None` as its default.
 - **Verification:**
-  - The full default lane on DMOG (AMD EPYC 7763, 64 workers): 14851 passed. The one
-    failure is a numba licence cache-key test that passes on the Mac and fails only in
+  - The full default lane on an AMD EPYC 7763 cluster node (64 workers): 14851 passed.
+    The one failure is a numba licence cache-key test that passes on an Apple M5 Max
+    laptop and fails only in
     that environment.
   - The source doctests pass.
   - The test suite keeps its noiseless references explicit: about 380 driver calls in
@@ -676,7 +677,7 @@ destination:
 
 ### Phase 3 report — input noise on more routes, and the floor
 
-- **Scope:** phase 3, 2026-10-27, Opus 5.5 (AI) worker for the lead; merged into the
+- **Scope:** phase 3, 2026-10-27, Opus 5.5 (AI) for John Travers; merged into the
   implementation branch.
 - **Delivered:**
   - Input noise beside the coherent wall, the taper coupling, the split block and the
