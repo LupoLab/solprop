@@ -151,8 +151,11 @@ def hardware(production: int, instance_type: str | None = None) -> Record:
     details = hardware_details(eligible_cpus())
     model = details["cpu_model"] or platform.processor() or platform.machine()
     cores = physical_cores()
+    instance = instance_type or _instance_type()
     return {
-        "slug": slug(model, cores),
+        # The cores a run uses name the hardware set: on a cluster the CPU mask can
+        # show the whole node while the allocation is a part of it.
+        "slug": slug(model, production, instance),
         "cpu_model": model,
         "physical_cores": cores,
         "logical_cpus": len(eligible_cpus()),
@@ -161,13 +164,20 @@ def hardware(production: int, instance_type: str | None = None) -> Record:
         "system": platform.system(),
         "release": platform.release(),
         "machine": platform.machine(),
-        "instance_type": instance_type or _instance_type(),
+        "instance_type": instance,
         "allocation": allocation_details(),
     }
 
 
-def slug(model: str, cores: int) -> str:
-    """Name a hardware set by CPU model and core count, e.g. ``apple-m5-max-18c``."""
+def slug(model: str, cores: int, instance: str | None = None) -> str:
+    """Name a hardware set by CPU model and core count, e.g. ``apple-m5-max-18c``.
+
+    A cloud instance adds its family (``aws m8g.4xlarge`` gives ``-aws-m8g``): one
+    core design, such as Arm's Neoverse-V2, is sold in several clouds' instances.
+    """
+    if instance:
+        family = re.sub(r"[^a-z0-9]+", "-", instance.lower().split(".")[0]).strip("-")
+        return f"{slug(model, cores)}-{family}"
     words = re.sub(r"[^a-z0-9]+", "-", _MODEL_NOISE.sub(" ", model).lower())
     return f"{words.strip('-') or 'unknown-cpu'}-{cores}c"
 
@@ -186,7 +196,8 @@ def thread_environment(
         raise SuiteError(f"unknown threading policy {threading}")
     environment = incoming.copy()
     for key in POOL_VARIABLES:
-        if key not in ("SOLPROP_FFTW_PLAN", "KOKKOS_TOOLS_LIBS"):
+        # A Kokkos tool left in the shell would profile the timed runs.
+        if key != "SOLPROP_FFTW_PLAN":
             environment.pop(key, None)
     for key in (
         "SOLPROP_THREADS",
@@ -246,12 +257,13 @@ def interval(before: Record, after: Record, allocation: tuple[int, ...]) -> Reco
         if before_swap is not None and after_swap is not None
         else None
     )
-    known = usage is not None and swap_delta is not None and swap_delta >= 0
+    # Where swap traffic is not reported (Windows), CPU use alone decides.
+    known = usage is not None and (swap_delta is None or swap_delta >= 0)
     return {
         "external_cpu_fraction": usage,
         "swap_bytes": swap_delta,
         "confidence": "known" if known else "unknown",
-        "quiet": known and usage is not None and usage <= 0.1 and swap_delta == 0,
+        "quiet": known and usage is not None and usage <= 0.1 and not swap_delta,
     }
 
 
@@ -273,7 +285,12 @@ def git_receipt(directory: Path) -> Record:
     try:
         revision = git("rev-parse", "HEAD").decode().strip()
         changes = git("diff", "HEAD", "--binary")
-        untracked = git("ls-files", "--others", "--exclude-standard", "-z").split(b"\0")
+        # Untracked files count only where the timed code lives, so an editor's
+        # settings directory does not make every run dirty.
+        untracked = git(
+            "ls-files", "--others", "--exclude-standard", "-z", "--",
+            "src", "native", "benchmarks",
+        ).split(b"\0")  # fmt: skip
         from benchmarks.records import file_hash  # noqa: PLC0415
 
         fingerprints = {

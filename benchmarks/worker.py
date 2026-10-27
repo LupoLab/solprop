@@ -44,10 +44,16 @@ __all__ = [
     "measure",
     "runtime",
     "source_calls",
+    "timed_run",
 ]
 
 if TYPE_CHECKING:
+    import numpy as np
+
     from solprop.backends.protocol import Backend
+    from solprop.driver import Simulation
+    from solprop.output.schema import FieldRetention
+    from solprop.translate.problem import KernelProblem
 
 
 def emit(kind: str, **values: object) -> None:
@@ -160,6 +166,48 @@ def integrator_label(integrator: object) -> str:
     return name
 
 
+def timed_run(
+    simulation: Simulation,
+    problem: KernelProblem,
+    engine: Backend,
+    retention: FieldRetention,
+) -> tuple[Record, np.ndarray]:
+    """Time one complete run from the launch; return its counts and final field."""
+    import numpy as np  # noqa: PLC0415
+
+    from solprop.driver.run import run_problem  # noqa: PLC0415
+    from solprop.output import MemoryOutput  # noqa: PLC0415
+
+    engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
+    output = MemoryOutput()
+    before = source_calls(engine)
+    started = time.perf_counter_ns()
+    run_problem(
+        problem,
+        engine,
+        output,
+        metadata=simulation.metadata(),
+        stats_spec=problem.stats_spec,
+        progress="none",
+        resume_history=simulation.settings.resume_history,
+        fields=retention.fields,
+        field_planes=retention.field_planes,
+    )
+    seconds = (time.perf_counter_ns() - started) * 1e-9
+    after = source_calls(engine)
+    accepted = np.asarray(output["step_history/accepted"], dtype=bool)
+    record = {
+        "seconds": seconds,
+        "accepted": int(accepted.sum()),
+        "rejected": int((~accepted).sum()),
+        "source_evaluations": None
+        if before is None or after is None
+        else after - before,
+        "z": float(output["z"][-1]),
+    }
+    return record, output.plane_field(output.n_saved - 1, "fft")
+
+
 def measure(configuration: Record, repeats: int, fields: Path | None) -> Record:
     """Build once, warm up once, then time ``repeats`` complete runs.
 
@@ -173,8 +221,7 @@ def measure(configuration: Record, repeats: int, fields: Path | None) -> Record:
     from benchmarks.builders import build  # noqa: PLC0415
     from solprop.backends import select  # noqa: PLC0415
     from solprop.driver.executors.pool import peak_rss  # noqa: PLC0415
-    from solprop.driver.run import field_retention, run_problem  # noqa: PLC0415
-    from solprop.output import MemoryOutput  # noqa: PLC0415
+    from solprop.driver.run import field_retention  # noqa: PLC0415
     from solprop.output.schema import serialise  # noqa: PLC0415
 
     started = time.perf_counter()
@@ -193,48 +240,33 @@ def measure(configuration: Record, repeats: int, fields: Path | None) -> Record:
     retention = field_retention(
         problem, simulation.settings.fields, simulation.settings.field_planes
     )
-    metadata = simulation.metadata()
     controller = problem.stepper.controller
     try:
         started = time.perf_counter()
         engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
         if configuration["warmup"]:
             engine.propagate_to(configuration["warmup"] * configuration["stop"])
+        # Observe once, so that the observation path's first use is warm too.
+        engine.observe(field=True)
+        engine.stats(problem.stats_spec)
         warmup = time.perf_counter() - started
         repetitions = []
-        output = None
+        first = final = None
+        difference = 0.0
         for _ in range(repeats):
-            engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
-            output = MemoryOutput()
-            before = source_calls(engine)
-            started = time.perf_counter_ns()
-            run_problem(
-                problem,
-                engine,
-                output,
-                metadata=metadata,
-                stats_spec=problem.stats_spec,
-                progress="none",
-                resume_history=simulation.settings.resume_history,
-                fields=retention.fields,
-                field_planes=retention.field_planes,
-            )
-            seconds = (time.perf_counter_ns() - started) * 1e-9
-            after = source_calls(engine)
-            accepted = np.asarray(output["step_history/accepted"], dtype=bool)
-            repetitions.append(
-                {
-                    "seconds": seconds,
-                    "accepted": int(accepted.sum()),
-                    "rejected": int((~accepted).sum()),
-                    "source_evaluations": None
-                    if before is None or after is None
-                    else after - before,
-                    "z": float(output["z"][-1]),
-                }
-            )
-        assert output is not None
-        final = output.plane_field(output.n_saved - 1, "fft")
+            repetition, final = timed_run(simulation, problem, engine, retention)
+            repetitions.append(repetition)
+            # Every repeat restarts from the same launch and seed, so its final
+            # field may differ from the first repeat's by rounding only.
+            if first is None:
+                first = final
+            else:
+                scale = float(np.linalg.norm(first)) or 1.0
+                difference = max(
+                    difference, float(np.linalg.norm(final - first)) / scale
+                )
+        assert first is not None
+        final = first if final is None else final
         if fields is not None:
             fields.parent.mkdir(parents=True, exist_ok=True)
             np.save(fields, final, allow_pickle=False)
@@ -245,6 +277,7 @@ def measure(configuration: Record, repeats: int, fields: Path | None) -> Record:
             "repetitions": repetitions,
             "peak_rss_bytes": peak_rss(),
             "finite": bool(np.all(np.isfinite(final))),
+            "repeat_difference": difference,
             "integrator": integrator_label(problem.stepper.integrator),
             "rtol": controller.rtol,
             "atol": controller.atol,

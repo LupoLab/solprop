@@ -107,24 +107,33 @@ tens of per cent of the millisecond windows SEP 30 measured.
 whose thread pools are set in the environment before import. Peak resident memory is
 then the configuration's own.
 
+**Consistency.** A run's repeats restart from the same seeded launch, so they must take
+the same steps and reach the same final field to rounding (a relative L2 difference
+below 1e-9), and the native backend must run the threads it was given. A configuration
+that fails this is reported and kept out of the history.
+
 **Aggregate.** For one hardware set and width, the change between two runs is the
-geometric mean, over the cases both ran with the same case revision and resolved
-integrator, of the ratio of their medians. A changed default integrator is a different
-configuration, and is shown as such rather than averaged in.
+geometric mean, over the configurations both ran, of the ratio of their medians. Two
+rows are the same configuration only with the same threading policy, case revision,
+stepper, resolved integrator, tolerances and noise model: a changed default is a new
+configuration, shown as such rather than averaged in. Each run is compared with the
+first recorded and with the previous one, with the number of shared configurations.
 
 ### 5. Proposed interface
 
 #### 5.1 Commands
 
 ```text
-python -m benchmarks list    [--all] [--case NAME] [--stepper S] [--threads W]
-python -m benchmarks track   [--case NAME] [--all] [--stepper S] [--threads W]
-                             [--repeats 3] [--production N] [--instance-type TYPE]
-                             [--append-history] [--archive DIR] [--out DIR]
-python -m benchmarks ab      --baseline-python PY [--candidate-python PY]
-                             [--case NAME] [--stepper S] [--threads W]
-                             [--length FRACTION] [--rounds 3] [--repeats 3]
-python -m benchmarks history [SLUG] [--width W]
+python -m benchmarks list    [SELECTION]
+python -m benchmarks track   [SELECTION] [--dry-run] [--instance-type TYPE]
+                             [--append-history [--allow-dirty]] [--archive DIR]
+                             [--out DIR] [--timeout SECONDS]
+python -m benchmarks ab      --baseline-python PY [--candidate-python PY] [SELECTION]
+                             [--length FRACTION] [--rounds 3] [--out DIR] [--json]
+python -m benchmarks history [SLUG] [--threads W]
+
+SELECTION: [--case NAME]... [--set SET]... [--all] [--stepper S] [--threads W]
+           [--production N] [--backend B] [--repeats 3] [--threading POLICY]
 ```
 
 - `list` prints the plan and its estimated time; it imports no scientific library.
@@ -136,10 +145,21 @@ python -m benchmarks history [SLUG] [--width W]
   interface's. A case on a fixed schedule admits only `default`.
 - `--production` gives the production width; otherwise it is the number of physical
   cores in the process's CPU allocation.
-- `--append-history` adds the run to `benchmarks/history/<slug>.csv`. It refuses a
-  dirty source tree, an incomplete run and a non-native backend.
-- `history` prints, per width, one line per recorded run: date, version, commit, the
-  number of cases, and the geometric mean relative to the first recorded run.
+- `--threading` sets OpenMP's placement and waiting for every worker: `passive`
+  (unpinned; idle threads sleep at once), `default` (the runtime's own waiting),
+  `active` (idle threads spin), `bound` (pinned to neighbouring cores) or
+  `bound-active`. The policy is part of what history rows compare by; the default is
+  set by phase 2's measurement.
+- `--append-history` adds the run to `benchmarks/history/<slug>.csv`. It records only
+  the whole default plan with at least three repeats, on the native backend, every
+  configuration complete and consistent (§4), timing the checkout's own `src/` with a
+  native build of the same commit. It refuses uncommitted changes under `src/`,
+  `native/` or `benchmarks/` unless `--allow-dirty`, whose rows are marked dirty.
+- `history` prints, per width, one line per recorded run: date, version, the number of
+  configurations and of busy ones, and the change against the first and the previous
+  recorded runs with the number of configurations each compares.
+- Each worker's thread and OpenMP environment is saved beside its request; a Kokkos
+  tool library in the caller's environment is removed.
 
 #### 5.2 The tracking set
 
@@ -161,16 +181,18 @@ marks a width the case does not run at.
 | `ctc` (rev. 2) | `prop_capillary` | H2 comb-to-continuum, 3 modes, 40 bar, 0.13 m, 2 ps window | P | — / 291 |
 | `radial_filament_256` | `prop_radial` | Ar filament, 256 radial nodes, 3 cm | 1, P | 16 / 6 |
 | `grin_nonlinear` (rev. 2) | `prop_waveguide` | four-channel graded-index fibre, 2 cm | P | — / 38 |
-| `kerr_beam_384` | `prop_free` | fused-silica Kerr beam, 384² transverse grid, fixed RK4IP | P | — / 134 |
-| `kerr_beam_192` | `prop_free` | the same at 192², fixed RK4IP | 1 | 37 / — |
+| `kerr_beam_384` (rev. 2) | `prop_free` | fused-silica Kerr beam, 384² transverse grid, four fixed RK4IP steps | P | — / ~49 |
+| `kerr_beam_192` (rev. 2) | `prop_free` | the same at 192², four fixed RK4IP steps | 1 | ~13 / — |
 
-The sum is about 270 s at one thread and 620 s at 16 threads per pass. With three
-repeats, the warm-ups and construction, the run took about 50 minutes on that node; the
-target is under an hour on any machine in use.
+The sum is about 250 s at one thread and 530 s at 16 threads per pass. With three
+repeats, the warm-ups and construction, the run took about 50 minutes on that node
+before the Kerr beams were cut from eleven fixed steps to four (their cost per step is
+unchanged, so they track the same work); about 40 minutes now. The target is under an
+hour on any machine in use.
 
 The three most expensive cases run at the production width only: `ctc` (about 600 s at
 one thread in SEP 37's phase 0), the 2 cm GRIN window (about 100 s) and the 384² Kerr
-beam. The 192² Kerr beam keeps a one-thread free-space row.
+beam (25 GiB). The 192² Kerr beam keeps a one-thread free-space row.
 
 Every case keeps its interface's default noise (`"input"` after SEP 37) with a fixed
 seed. Every other registered case stays runnable by name; none is in the default
@@ -178,9 +200,15 @@ selection.
 
 #### 5.3 Hardware identity and history
 
-The **hardware slug** is the CPU model reduced to lower-case words, followed by the number
-of physical cores in the allocation, for example `apple-m5-max-18c` or
-`amd-epyc-7763-16c`. It names no host. A cloud instance type, from `--instance-type` or
+The **hardware slug** is the CPU model reduced to lower-case words, followed by the
+production width in cores and, on a cloud instance, its family, for example `apple-m5-max-18c`,
+`amd-epyc-7763-16c` or `arm-neoverse-v2-16c-aws-m8g`. It names no host. The model comes from
+`/proc/cpuinfo` on x86 Linux, `lscpu` on Arm Linux (whose `/proc/cpuinfo` names no
+model), `sysctl` on macOS and the registry on Windows.
+
+The standing history files are an Apple M5 Max, a 16-core allocation of an AMD EPYC
+7763 cluster node and a cloud Arm instance (Neoverse-V2, for example AWS Graviton4),
+with Windows x86-64 measured occasionally. GPU tracking is left to a later SEP. A cloud instance type, from `--instance-type` or
 the DMI product name on Linux, is recorded beside it but is not part of the slug.
 
 Each history row is one (run, case, stepper, width): date, solprop version, commit,
@@ -270,11 +298,9 @@ is final.
 - Q1. If SEP 37's capillary default becomes `RungeKutta()` at 1e-5, the capillary costs
   fall; should the freed time go to a longer `ctc`, or should `ctc` run at one thread
   too?
-- Q3. The 384² Kerr beam costs 134 s per run at 16 threads on the EPYC node (25 GiB),
-  a fifth of the run's time for one free-space case. Keep it, or track the 192² beam at
-  both widths instead?
-- Q2. Should a cloud instance (for example AWS `c8a` or GCP `c4d`) be a standing
-  history file, re-rented per release, or measured only when a hardware question arises?
+- Q2. Decided: a cloud Arm instance is a standing history file, re-rented per
+  release, and Windows x86-64 is measured occasionally (§5.3).
+- Q3. Decided: both Kerr beams stay, over four fixed steps instead of eleven.
 
 ### 13. References
 
@@ -317,4 +343,13 @@ is final.
 ## Part III — History
 
 - 2026-10-27: Drafted, together with its implementation on the same branch, as the
-  maintainer asked; it supersedes SEP 30 at Final.
+  maintainer asked; it supersedes SEP 30 at Final. This departs from SEP 0, which
+  implements a SEP after acceptance: the maintainer chose to draft, implement and
+  calibrate together, and to review the whole before acceptance.
+- 2026-10-27: Independent AI review of the draft and its code (Opus 5.5). Its findings
+  were fixed on the branch: history rows compare by tolerance and noise model too, a
+  run's repeats must agree in steps and final field, only a complete default run of
+  committed code with a matching native build is recorded, older history files gain
+  new columns, the slug counts the production width and names a cloud family, and the
+  busy flag judges by CPU use where swap is not reported. Its open questions went to
+  the maintainer.

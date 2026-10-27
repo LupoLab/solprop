@@ -27,7 +27,9 @@ COLUMNS = (
     "date",
     "solprop",
     "commit",
+    "dirty",
     "native",
+    "native_commit",
     "native_build",
     "slug",
     "cpu_model",
@@ -37,6 +39,7 @@ COLUMNS = (
     "threading",
     "case",
     "revision",
+    "case_hash",
     "stepper",
     "integrator",
     "rtol",
@@ -53,26 +56,38 @@ COLUMNS = (
     "construction_s",
     "busy",
 )
+"""History columns. New ones go anywhere; older files gain them, empty, on append."""
 
 
 def append(path: Path, rows: Sequence[Record]) -> None:
-    """Append rows, writing the header to a new file and refusing a changed one."""
+    """Append rows, giving an older file any columns it lacks.
+
+    A file whose header has a column this version does not know is refused: it
+    was written by a later version.
+    """
+    for row in rows:
+        if set(row) != set(COLUMNS):
+            raise SuiteError("a history row must give exactly the declared columns")
     path.parent.mkdir(parents=True, exist_ok=True)
-    new = not path.exists()
-    if not new:
+    existing: list[Record] = []
+    if path.exists():
         with path.open(encoding="utf-8", newline="") as stream:
-            header = next(csv.reader(stream), None)
-        if tuple(header or ()) != COLUMNS:
-            raise SuiteError(f"{path}: columns differ from this version's")
-    with path.open("a", encoding="utf-8", newline="") as stream:
+            reader = csv.DictReader(stream)
+            if unknown := set(reader.fieldnames or ()) - set(COLUMNS):
+                raise SuiteError(
+                    f"{path}: columns {', '.join(sorted(unknown))} are from a later "
+                    "version of the benchmarks"
+                )
+            if tuple(reader.fieldnames or ()) != COLUMNS:
+                existing = list(reader)
+    mode = "w" if existing or not path.exists() else "a"
+    with path.open(mode, encoding="utf-8", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=list(COLUMNS), lineterminator="\n")
-        if new:
+        if mode == "w":
             writer.writeheader()
-        for row in rows:
-            if set(row) != set(COLUMNS):
-                raise SuiteError("a history row must give exactly the declared columns")
+        for row in (*existing, *rows):
             writer.writerow(
-                {key: "" if row[key] is None else row[key] for key in COLUMNS}
+                {key: "" if row.get(key) is None else row[key] for key in COLUMNS}
             )
 
 
@@ -83,47 +98,71 @@ def read(path: Path) -> list[Record]:
 
 
 def comparable(row: Record) -> tuple[str, ...]:
-    """Key the rows that measure the same thing on one hardware set."""
-    return (
-        str(row["threads"]),
-        row["threading"],
-        row["case"],
-        str(row["revision"]),
-        row["stepper"],
-        row["integrator"],
+    """Key the rows that measure the same thing on one hardware set.
+
+    Two rows compare only with the same width, threading, case definition,
+    stepper, resolved integrator, tolerances and noise model: a changed library
+    default is a new configuration, not a speed-up.
+    """
+    return tuple(
+        str(row.get(key) or "")
+        for key in (
+            "threads",
+            "threading",
+            "case",
+            "revision",
+            "stepper",
+            "integrator",
+            "rtol",
+            "atol",
+            "noise",
+        )
     )
 
 
-def summary(rows: Sequence[Record]) -> list[Record]:
-    """Compare each recorded run with the first one, per width.
+def _ratio(
+    times: dict[tuple[str, ...], float], before: dict
+) -> tuple[int, float | None]:
+    shared = sorted(set(times) & set(before))
+    ratios = [times[key] / before[key] for key in shared]
+    mean = math.exp(statistics.fmean(map(math.log, ratios))) if ratios else None
+    return len(shared), mean
 
-    A run is the rows sharing a date and commit. Its change is the geometric mean,
-    over the configurations it shares with the first run at that width, of the
-    ratio of median times; below one is faster.
+
+def summary(rows: Sequence[Record]) -> list[Record]:
+    """Compare each recorded run with the first and with the previous, per width.
+
+    A run is the rows sharing a date and commit. Each change is the geometric
+    mean, over the configurations the two runs share, of the ratio of median
+    times; below one is faster. Busy rows count, and are counted.
     """
     runs: dict[tuple[str, str, str], dict[tuple[str, ...], float]] = {}
-    labels: dict[tuple[str, str, str], str] = {}
+    labels: dict[tuple[str, str, str], tuple[str, int]] = {}
     for row in rows:
         key = (str(row["threads"]), row["date"], row["commit"])
         runs.setdefault(key, {})[comparable(row)] = float(row["median_s"])
-        labels[key] = row["solprop"]
+        label, busy = labels.get(key, (row["solprop"], 0))
+        labels[key] = (label, busy + int(str(row.get("busy") or "0") == "1"))
     result = []
     first: dict[str, dict[tuple[str, ...], float]] = {}
+    previous: dict[str, dict[tuple[str, ...], float]] = {}
     for (threads, date, commit), times in runs.items():
-        reference = first.setdefault(threads, times)
-        shared = sorted(set(times) & set(reference))
-        ratios = [times[key] / reference[key] for key in shared]
+        shared_first, versus_first = _ratio(times, first.setdefault(threads, times))
+        shared_previous, versus_previous = _ratio(times, previous.get(threads, times))
+        previous[threads] = times
+        label, busy = labels[(threads, date, commit)]
         result.append(
             {
                 "threads": threads,
                 "date": date,
                 "commit": commit,
-                "solprop": labels[(threads, date, commit)],
+                "solprop": label,
                 "cases": len(times),
-                "shared": len(shared),
-                "ratio": math.exp(statistics.fmean(map(math.log, ratios)))
-                if ratios
-                else None,
+                "busy": busy,
+                "shared_first": shared_first,
+                "ratio_first": versus_first,
+                "shared_previous": shared_previous,
+                "ratio_previous": versus_previous,
             }
         )
     return result
@@ -132,13 +171,24 @@ def summary(rows: Sequence[Record]) -> list[Record]:
 def show(path: Path, threads: str | None = None) -> None:
     """Print one line per recorded run and width."""
     print(f"{path.stem}")
-    print(f"{'threads':>7}  {'date':25} {'solprop':26} {'cases':>5} {'vs first':>9}")
+    print(
+        f"{'threads':>7}  {'date':18} {'solprop':26} {'cases':>5} {'busy':>4} "
+        f"{'vs first':>13} {'vs previous':>13}"
+    )
     for row in summary(read(path)):
         if threads is not None and row["threads"] != threads:
             continue
-        ratio = "-" if row["ratio"] is None else f"{row['ratio']:.3f}"
+
+        def change(ratio: float | None, shared: int) -> str:
+            return "-" if ratio is None else f"{ratio:.3f} ({shared})"
+
         print(
-            f"{row['threads']:>7}  {row['date']:25} {row['solprop']:26} "
-            f"{row['cases']:>5} {ratio:>9}"
+            f"{row['threads']:>7}  {row['date']:18} {row['solprop']:26} "
+            f"{row['cases']:>5} {row['busy']:>4} "
+            f"{change(row['ratio_first'], row['shared_first']):>13} "
+            f"{change(row['ratio_previous'], row['shared_previous']):>13}"
         )
-    print("vs first: geometric mean of median-time ratios over shared cases.")
+    print(
+        "Changes are geometric means of median-time ratios (below 1: faster) over "
+        "the configurations both runs share, counted in brackets."
+    )

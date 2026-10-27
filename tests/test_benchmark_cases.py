@@ -47,8 +47,8 @@ def test_cases_run_with_the_interface_defaults_and_a_fixed_seed(name, integrator
     ],
 )
 def test_a_stepper_override_replaces_the_integrator_only(stepper, integrator):
-    default = build(configuration("rdw"))
-    chosen = build(configuration("rdw", stepper))
+    default = build(configuration("he_rdw_averaged"))
+    chosen = build(configuration("he_rdw_averaged", stepper))
     assert isinstance(chosen.settings.integrator, integrator)
     assert chosen.settings.controller is not None
     assert default.settings.controller is not None
@@ -156,3 +156,23 @@ def test_selection_and_builders_refuse_unknown_names():
         capillary("absent")
     with pytest.raises(SuiteError, match="not implemented"):
         gnlse("absent")
+
+
+def test_tracked_definitions_change_only_with_a_new_revision():
+    # A changed definition must raise its revision: rows compare within one. The
+    # digest covers the registry's declared fields; builder edits need the same.
+    assert [(case.name, case.revision, case.digest[:12]) for case in select()] == [
+        ("gnlse_raman_shock", 1, "b3f7fc864691"),
+        ("gnlse_soliton", 1, "c842ded9a2c7"),
+        ("rdw", 1, "883433a7ddb1"),
+        ("he_rdw_averaged", 1, "677a784eeb82"),
+        ("argon_blueshift", 2, "a080d3f0462f"),
+        ("argon_blueshift_averaged", 2, "66e834d1cf14"),
+        ("argon_blueshift_envelope", 1, "a11d59421661"),
+        ("h2_raman_averaged", 1, "7dbd829ef3bf"),
+        ("ctc", 2, "089a0f9e01e3"),
+        ("radial_filament_256", 1, "99fd7698eaaf"),
+        ("grin_nonlinear", 2, "b0e47fd41668"),
+        ("kerr_beam_384", 2, "44905b3e6d02"),
+        ("kerr_beam_192", 2, "726f5965e965"),
+    ]

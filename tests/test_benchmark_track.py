@@ -4,7 +4,9 @@
 
 """Exercise the tracking command's plan, hardware identity and history (SEP 38)."""
 
+import argparse
 import csv
+import importlib.util
 import socket
 import sys
 
@@ -73,9 +75,10 @@ def test_the_hardware_slug_names_the_cpu_model_and_cores(model, cores, expected)
 
 
 def test_the_hardware_record_names_no_host():
-    record = system.hardware(1, "aws c8a.4xlarge")
-    assert record["instance_type"] == "aws c8a.4xlarge"
-    assert record["slug"].endswith(f"-{system.physical_cores()}c")
+    record = system.hardware(1, "aws m8g.4xlarge")
+    assert record["instance_type"] == "aws m8g.4xlarge"
+    # The slug counts the cores the run uses, then names the instance family.
+    assert record["slug"].endswith("-1c-aws-m8g")
     text = repr(record).lower()
     assert socket.gethostname().split(".")[0].lower() not in text
 
@@ -96,6 +99,10 @@ def result_row(case="rdw", threads=1, median=2.0):
         "accepted": 100,
         "rejected": 2,
         "same_steps": True,
+        "repeat_difference": 0.0,
+        "native_threads": threads,
+        "consistent": True,
+        "solprop_path": str(runner.ROOT / "src" / "solprop" / "__init__.py"),
         "source_evaluations": 104,
         "peak_rss_gib": 0.5,
         "construction_s": 3.0,
@@ -139,18 +146,89 @@ def test_history_rows_append_read_and_summarise(tmp_path):
     assert rows[0]["native_build"] == "local"
     assert rows[0]["commit"] == "a" * 12
     summary = history.summary(rows)
-    assert [(row["threads"], row["ratio"]) for row in summary] == [
-        ("1", 1.0),
-        ("2", 1.0),
-        ("1", 0.5),
-        ("2", 0.5),
-    ]
-    with path.open("w", encoding="utf-8", newline="") as stream:
-        csv.writer(stream).writerow(["date"])
-    with pytest.raises(SuiteError, match="columns differ"):
-        history.append(path, first)
+    assert [
+        (row["threads"], row["ratio_first"], row["ratio_previous"]) for row in summary
+    ] == [("1", 1.0, 1.0), ("2", 1.0, 1.0), ("1", 0.5, 0.5), ("2", 0.5, 0.5)]
+    # A changed tolerance is a new configuration, not a speed-up.
+    changed = [{**row, "date": "2100-01-01T00:00Z", "rtol": "1e-05"} for row in later]
+    history.append(path, changed)
+    assert history.summary(history.read(path))[-1]["shared_previous"] == 0
     with pytest.raises(SuiteError, match="exactly the declared columns"):
         history.append(tmp_path / "new.csv", [{"date": "x"}])
+
+
+def test_older_history_files_gain_new_columns_and_newer_ones_are_refused(tmp_path):
+    path = tmp_path / "old.csv"
+    with path.open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(["date", "case", "median_s"])
+        writer.writerow(["2026-01-01T00:00Z", "rdw", "2.0"])
+    row: dict[str, object] = dict.fromkeys(history.COLUMNS, "x")
+    history.append(path, [row])
+    rows = history.read(path)
+    assert tuple(rows[0]) == history.COLUMNS
+    assert (rows[0]["case"], rows[0]["commit"]) == ("rdw", "")
+    with path.open("w", encoding="utf-8", newline="") as stream:
+        csv.writer(stream).writerow([*history.COLUMNS, "future"])
+    with pytest.raises(SuiteError, match="later version"):
+        history.append(path, [row])
+
+
+def namespace(**values):
+    defaults = {"backend": "native", "allow_dirty": False, "repeats": 3}
+    return argparse.Namespace(**(defaults | values))
+
+
+@pytest.mark.usefixtures("sixteen_cpus")
+def test_the_history_takes_only_a_complete_default_run_of_committed_code():
+    rows, _ = runner.plan_rows(select(), ("default",), None, 16)
+    clean = {"revision": "a" * 40, "dirty": False}
+    track.refuse_partial(namespace(), rows, 16, clean)
+    for args, source, message in (
+        (namespace(backend="numpy_ref"), clean, "native backend only"),
+        (namespace(), {"revision": None, "dirty": None}, "source state is unknown"),
+        (namespace(), {**clean, "dirty": True}, "uncommitted changes"),
+        (namespace(repeats=2), clean, "three repeats"),
+    ):
+        with pytest.raises(SuiteError, match=message):
+            track.refuse_partial(args, rows, 16, source)
+    track.refuse_partial(
+        namespace(allow_dirty=True), rows, 16, {**clean, "dirty": True}
+    )
+    with pytest.raises(SuiteError, match="whole default plan"):
+        track.refuse_partial(namespace(), rows[:-1], 16, clean)
+
+
+def test_inconsistent_or_foreign_runs_are_not_recorded():
+    good = [result_row()]
+    assert track.admissible(good) is None
+    assert "failed" in str(track.admissible([{**good[0], "status": "failed"}]))
+    assert "repeats" in str(track.admissible([{**good[0], "consistent": False}]))
+    source = {"revision": "a" * 40}
+    native = {"build_info": {"git_commit": "a" * 40}}
+    assert track.imported_elsewhere(good, native, source) is None
+    stale = {"build_info": {"git_commit": "b" * 40}}
+    assert "rebuild" in str(track.imported_elsewhere(good, stale, source))
+    elsewhere = [{**good[0], "solprop_path": "/elsewhere/solprop/__init__.py"}]
+    assert "outside" in str(track.imported_elsewhere(elsewhere, native, source))
+    row = {"id": "x", "configuration": CASES["rdw"].configuration("default", 4)}
+    receipt = {
+        "status": "ok",
+        "repetitions": [{"seconds": 1.0, "accepted": 5, "rejected": 0,
+                         "source_evaluations": 6, "z": 1.0}],
+        "repeat_difference": 0.0, "peak_rss_bytes": 1, "construction_seconds": 1.0,
+        "backend_seconds": 0.0, "warmup_seconds": 0.0, "integrator": "RungeKutta",
+        "rtol": 1e-6, "atol": 0.0, "noise": None, "finite": True,
+        "provenance": {"build_info": {"runtime_threads": 2}},
+    }  # fmt: skip
+    # The thread budget gave the native backend fewer threads than asked for.
+    assert not track.summarise(row, receipt, busy=False)["consistent"]
+
+
+def test_a_machine_without_swap_counters_is_judged_by_cpu_alone():
+    before = {"time": 0.0, "busy": [0.0], "swap_bytes": None}
+    after = {"time": 1.0, "busy": [0.05], "swap_bytes": None}
+    assert system.interval(before, after, (0,))["quiet"]
 
 
 def test_a_failed_worker_is_summarised_without_statistics():
@@ -246,3 +324,19 @@ def test_threading_policies_replace_the_callers_openmp_settings():
     assert "OMP_WAIT_POLICY" not in bound
     with pytest.raises(SuiteError, match="unknown threading"):
         system.thread_environment(4, incoming, "spin")
+
+
+@pytest.mark.medium
+@pytest.mark.skipif(
+    importlib.util.find_spec("solprop_native") is None,
+    reason="the native backend is not installed",
+)
+def test_a_native_tracking_run_records_its_build(tmp_path, monkeypatch):
+    monkeypatch.setattr(track, "guard", lambda *_args: {"quiet": True})
+    out = tmp_path / "native"
+    arguments = ["track", "--case", "smoke", "--threads", "1", "--repeats", "1"]
+    assert cli.main([*arguments, "--out", str(out)]) == 0
+    results = read_record(out / "results.json")
+    assert results["provenance"]["build_info"]["package_version"]
+    assert results["rows"][0]["native_threads"] == 1
+    assert (out / "raw" / "smoke.default.t1" / "environment.json").exists()

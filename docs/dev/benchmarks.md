@@ -80,7 +80,7 @@ baseline runs beside every ratio; a difference inside it is not a result.
 **What goes in a pull request.** The measured window and what it includes, the build and
 machine record, the per-case table with medians and spreads, the declared aggregate and
 its verdict, and any case that regressed. Concise evidence belongs in the change
-description; raw runs stay local or go into an exported snapshot.
+description; raw runs stay local.
 
 **Numba's on-disk cache.** Clear it
 (`find src -name '__pycache__' -type d -prune -exec rm -rf {} +`) before timing in a

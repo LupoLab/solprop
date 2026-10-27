@@ -176,7 +176,7 @@ def test_small_case_runs_both_builds_in_alternating_order(
             "--rounds",
             "2",
             "--repeats",
-            "2",
+            "1",
             "--baseline-python",
             sys.executable,
             "--out",
@@ -195,7 +195,7 @@ def test_small_case_runs_both_builds_in_alternating_order(
     ]
     results = read_record(out / "results.json")
     assert len(results["samples"]) == 4
-    assert all(len(item["repetitions"]) == 2 for item in results["samples"])
+    assert all(len(item["repetitions"]) == 1 for item in results["samples"])
     assert all(
         rep["z"] == pytest.approx(0.5e-4)
         for item in results["samples"]

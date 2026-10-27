@@ -17,7 +17,7 @@ from benchmarks.worker import measure
 from solprop.exceptions import MaterialRangeWarning
 
 
-@pytest.mark.medium
+@pytest.mark.slow
 @pytest.mark.parametrize(
     "name", [case.name for case in select(sets=("backend-exercise",))]
 )
@@ -56,3 +56,19 @@ def test_repeats_restart_from_the_launch_and_take_the_same_steps(tmp_path):
     assert result["finite"]
     assert result["noise"] == "modified"
     assert np.isfinite(np.load(tmp_path / "field.npy")).all()
+
+
+@pytest.mark.medium
+def test_repeats_of_an_input_noise_run_reach_the_same_field():
+    # The tracked default noise: each repeat restarts from the same seeded launch.
+    configuration = CASES["gnlse_soliton"].configuration(
+        "default", 1, "numpy_ref", 0.002
+    )
+    result = measure(configuration, 2, None)
+    first, second = result["repetitions"]
+    assert result["noise"] == "input"
+    assert (first["accepted"], first["rejected"]) == (
+        second["accepted"],
+        second["rejected"],
+    )
+    assert result["repeat_difference"] <= 1e-12

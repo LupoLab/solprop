@@ -17,7 +17,7 @@ from pathlib import Path
 
 from benchmarks.records import Record, SuiteError, atomic_record, canonical, file_hash
 from benchmarks.registry import Case
-from benchmarks.system import widths
+from benchmarks.system import POOL_VARIABLES, widths
 
 __all__ = [
     "ROOT",
@@ -136,6 +136,15 @@ def launch_worker(
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "request.json"
     atomic_record(path, request, immutable=True)
+    atomic_record(
+        directory / "environment.json",
+        {
+            key: value
+            for key, value in environment.items()
+            if key in POOL_VARIABLES or key.startswith(("SOLPROP_", "OMP_", "KMP_"))
+        },
+        immutable=True,
+    )
     started = time.perf_counter()
     with (
         (directory / "stdout.log").open("w", encoding="utf-8") as stdout,

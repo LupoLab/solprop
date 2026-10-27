@@ -17,7 +17,7 @@ from pathlib import Path
 
 from benchmarks import history
 from benchmarks.records import LOCAL_ROOT, Record, SuiteError, atomic_record, now
-from benchmarks.registry import SETS, STEPPERS, select
+from benchmarks.registry import CASES, SETS, STEPPERS, select
 from benchmarks.runner import (
     ROOT,
     launch_worker,
@@ -35,8 +35,15 @@ from benchmarks.system import (
     thread_environment,
 )
 
+REPEAT_TOLERANCE = 1e-9
+"""The relative L2 difference two repeats' final fields may have: rounding only."""
+
 __all__ = [
+    "REPEAT_TOLERANCE",
+    "admissible",
     "history_rows",
+    "imported_elsewhere",
+    "refuse_partial",
     "selection_options",
     "show_results",
     "steppers",
@@ -108,7 +115,11 @@ def steppers(value: str) -> tuple[str, ...]:
 def summarise(
     row: Record, result: Record, busy: bool, threading: str = "passive"
 ) -> Record:
-    """Reduce one worker's receipt to the tracked statistics."""
+    """Reduce one worker's receipt to the tracked statistics.
+
+    A row is consistent when its repeats took the same steps and reached the same
+    final field to rounding, and the native backend ran the threads it was given.
+    """
     values = row["configuration"]
     base = {
         "id": row["id"],
@@ -124,6 +135,9 @@ def summarise(
         return {**base, "error": result.get("error")}
     times = [item["seconds"] for item in result["repetitions"]]
     last = result["repetitions"][-1]
+    build = (result.get("provenance") or {}).get("build_info") or {}
+    native_threads = build.get("runtime_threads")
+    same_steps = len({(r["accepted"], r["rejected"]) for r in result["repetitions"]})
     return {
         **base,
         "median_s": statistics.median(times),
@@ -132,10 +146,12 @@ def summarise(
         "repeats": len(times),
         "accepted": last["accepted"],
         "rejected": last["rejected"],
-        "same_steps": len(
-            {(r["accepted"], r["rejected"]) for r in result["repetitions"]}
-        )
-        == 1,
+        "same_steps": same_steps == 1,
+        "repeat_difference": result["repeat_difference"],
+        "native_threads": native_threads,
+        "consistent": same_steps == 1
+        and result["repeat_difference"] <= REPEAT_TOLERANCE
+        and native_threads in (None, values["threads"]),
         "source_evaluations": last["source_evaluations"],
         "peak_rss_gib": result["peak_rss_bytes"] / 2**30,
         "construction_s": result["construction_seconds"] + result["backend_seconds"],
@@ -145,6 +161,7 @@ def summarise(
         "atol": result["atol"],
         "noise": result["noise"],
         "finite": result["finite"],
+        "solprop_path": (result.get("provenance") or {}).get("solprop_path"),
     }
 
 
@@ -165,7 +182,7 @@ def show_results(rows: list[Record]) -> None:
             f"{row['case']:26} {row['integrator']:28} {row['threads']:>3} "
             f"{row['median_s']:9.2f} {spread:8.1f} {row['accepted']:7d} "
             f"{row['peak_rss_gib']:6.2f}"
-            + ("" if row["same_steps"] else "  (steps differ between repeats)")
+            + ("" if row["consistent"] else "  (repeats or threads inconsistent)")
             + ("  (busy)" if row["busy"] else "")
         )
 
@@ -181,7 +198,9 @@ def history_rows(
             "date": date,
             "solprop": provenance["packages"]["solprop"],
             "commit": (source.get("revision") or "")[:12],
+            "dirty": int(bool(source.get("dirty"))),
             "native": build.get("package_version"),
+            "native_commit": (build.get("git_commit") or "")[:12] or None,
             "native_build": "; ".join(
                 str(build[key])
                 for key in ("build_profile", "compiler", "fft_backend", "blas_backend")
@@ -196,6 +215,7 @@ def history_rows(
             "threading": row["threading"],
             "case": row["case"],
             "revision": row["revision"],
+            "case_hash": CASES[row["case"]].digest[:12],
             "stepper": row["stepper"],
             "integrator": row["integrator"],
             "rtol": row["rtol"],
@@ -214,6 +234,55 @@ def history_rows(
         }
         for row in rows
     ]
+
+
+def refuse_partial(
+    args: argparse.Namespace, rows: list[Record], production: int, source: Record
+) -> None:
+    """Admit to the history only a complete default run of committed code."""
+    if args.backend != "native":
+        raise SuiteError("the history records the native backend only")
+    if source.get("dirty") is None:
+        raise SuiteError("the source state is unknown (no Git checkout or no git)")
+    if source["dirty"] and not args.allow_dirty:
+        raise SuiteError(
+            "uncommitted changes: commit them, or pass --allow-dirty to record "
+            "this run anyway (its rows are marked dirty)"
+        )
+    default, _ = plan_rows(select(), ("default",), None, production)
+    if [row["id"] for row in rows] != [row["id"] for row in default]:
+        raise SuiteError("the history records the whole default plan only")
+    if args.repeats < 3:
+        raise SuiteError("the history records runs of at least three repeats")
+
+
+def admissible(results: list[Record]) -> str | None:
+    """Say why a finished run may not enter the history, or ``None``."""
+    if any(row["status"] != "ok" or not row["finite"] for row in results):
+        return "a configuration failed"
+    if any(not row["consistent"] for row in results):
+        return "repeats took different steps or fields, or threads differed"
+    return None
+
+
+def imported_elsewhere(
+    results: list[Record], provenance: Record, source_state: Record
+) -> str | None:
+    """Say if the workers timed code other than this checkout's commit."""
+    commit = (provenance.get("build_info") or {}).get("git_commit")
+    if commit and commit != source_state.get("revision"):
+        return (
+            f"the native backend was built from {commit[:12]}, not this checkout's "
+            "commit; rebuild it (uv sync --extra native)"
+        )
+    source = ROOT / "src"
+    if any(
+        row["solprop_path"] is None
+        or not Path(row["solprop_path"]).is_relative_to(source)
+        for row in results
+    ):
+        return f"the workers imported solprop from outside {source}"
+    return None
 
 
 def track(args: argparse.Namespace) -> int:
@@ -236,13 +305,7 @@ def track(args: argparse.Namespace) -> int:
     machine = hardware(production, args.instance_type)
     source = git_receipt(ROOT)
     if args.append_history:
-        if args.backend != "native":
-            raise SuiteError("the history records the native backend only")
-        if source.get("dirty") and not args.allow_dirty:
-            raise SuiteError(
-                "uncommitted changes: commit them, or pass --allow-dirty to record "
-                "this run anyway"
-            )
+        refuse_partial(args, rows, production, source)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     output: Path = args.out or LOCAL_ROOT / "track" / f"{stamp}-{machine['slug']}"
     if output.exists() and any(output.iterdir()):
@@ -287,22 +350,26 @@ def track(args: argparse.Namespace) -> int:
             f"({elapsed:.0f} s with construction)" + (" busy" if busy else ""),
             flush=True,
         )
-    atomic_record(
-        output / "results.json",
-        {
-            "rows": results,
-            "provenance": provenance,
-            "collection_seconds": time.perf_counter() - started,
-        },
-    )
+        # Rewritten after every worker, so an interrupted run keeps what it did.
+        atomic_record(
+            output / "results.json",
+            {
+                "rows": results,
+                "provenance": provenance,
+                "collection_seconds": time.perf_counter() - started,
+                "complete": index + 1 == len(rows),
+            },
+        )
     show_results(results)
-    complete = all(row["status"] == "ok" and row["finite"] for row in results)
+    refusal = admissible(results)
+    complete = refusal is None
     print(
         f"Results: {output.resolve()} ({(time.perf_counter() - started) / 60:.0f} min)"
     )
     if args.append_history:
-        if not complete:
-            print("Not added to the history: a configuration failed.", file=sys.stderr)
+        refusal = refusal or imported_elsewhere(results, provenance, source)
+        if refusal is not None:
+            print(f"Not added to the history: {refusal}.", file=sys.stderr)
             return 1
         path = history.HISTORY / f"{machine['slug']}.csv"
         history.append(path, history_rows(results, machine, source, provenance))

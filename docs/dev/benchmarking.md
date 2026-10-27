@@ -37,7 +37,7 @@ node; other machines differ). With no selection it is the tracking set:
 | `ctc` | `prop_capillary` | H2 comb-to-continuum, three modes, 0.13 m | production |
 | `radial_filament_256` | `prop_radial` | Ar filament, 256 radial nodes, 3 cm | 1, production |
 | `grin_nonlinear` | `prop_waveguide` | four-channel graded-index fibre, 2 cm | production |
-| `kerr_beam_384` | `prop_free` | fused-silica Kerr beam, 384², fixed RK4IP steps | production |
+| `kerr_beam_384` | `prop_free` | fused-silica Kerr beam, 384², four fixed RK4IP steps | production |
 | `kerr_beam_192` | `prop_free` | the same at 192² | 1 |
 
 The definitions are in `benchmarks/registry.py` and `benchmarks/builders.py`. Every
@@ -87,6 +87,12 @@ names the widths for every selected case. The production width is the number of
 physical cores in the process's CPU allocation unless `--production` gives it; on a
 cluster, give it explicitly.
 
+**Threading.** `--threading` sets OpenMP's placement and waiting in every worker:
+`passive` (unpinned, idle threads sleep at once), `default` (the runtime's own short
+spin before sleeping), `active` (idle threads spin), `bound` (threads pinned to
+neighbouring cores) or `bound-active`. The policy is recorded with each row, and rows
+compare only within one policy.
+
 ## Recording a run
 
 ```sh
@@ -94,21 +100,38 @@ uv run python -m benchmarks track --append-history
 ```
 
 The run's bundle goes to `.benchmarks/track/<date>-<hardware>/` (git ignores it): the
-plan, each worker's request and logs, and `results.json`. `--archive DIR` copies the
+plan, each worker's request, environment and logs, and `results.json`, which is
+rewritten after every configuration so that an interrupted run keeps what it
+measured. `--archive DIR` copies the
 bundle to a directory outside the repository.
 
 `--append-history` adds one row per configuration to
-`benchmarks/history/<hardware>.csv`, which is committed. It refuses a run with a
-failed configuration, a backend other than native, and a source tree with uncommitted
-changes (unless `--allow-dirty`). The hardware name is the CPU model and the physical
-cores used, for example `apple-m5-max-18c` or `amd-epyc-7763-16c`; it never contains a
-host name. A cloud instance type, from `--instance-type` or the machine's DMI record,
-goes in its own column.
+`benchmarks/history/<hardware>.csv`, which is committed. It records only the whole
+default plan with at least three repeats, on the native backend, and only when:
+
+- every configuration finished, and its repeats took the same steps and reached the
+  same final field to rounding, with the native backend running the threads it was
+  given;
+- the workers imported solprop from this checkout's `src/` (run from the checkout's
+  own environment, `uv sync --extra native`, not an installed copy) with a native
+  build of the same commit;
+- nothing under `src/`, `native/` or `benchmarks/` is uncommitted, unless
+  `--allow-dirty`, whose rows are marked dirty.
+
+The hardware name is the CPU model and the production width, plus the instance family
+on a cloud machine, for example `apple-m5-max-18c`, `amd-epyc-7763-16c` or
+`arm-neoverse-v2-16c-aws-m8g`; it never contains a host name. Give a cloud machine's
+instance type with `--instance-type` where its DMI record does not name it (AWS's
+does).
 
 `python -m benchmarks history` prints, per hardware and width, one line per recorded
-run: its date, solprop version, case count, and the geometric mean of its median times
-over the first recorded run's, over the configurations both ran with the same case
-revision and integrator. Below one is faster.
+run: its date, solprop version, the configurations it ran and how many started on a
+busy machine, and its change against the first and the previous recorded runs. A
+change is the geometric mean of median-time ratios (below one is faster) over the
+configurations both runs share, counted in brackets. Two rows are the same
+configuration only with the same threading policy, case revision, stepper, resolved
+integrator, tolerances and noise model, so a changed library default starts a new
+series rather than reading as a speed-up.
 
 ## Comparing two builds while iterating
 
