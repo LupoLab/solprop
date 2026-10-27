@@ -20,7 +20,7 @@ from pathlib import Path
 import psutil
 
 from benchmarks.records import Record, SuiteError, identity
-from benchmarks.telemetry import allocation_details, hardware_details
+from benchmarks.telemetry import allocation_details, hardware_details, linux_topology
 
 __all__ = [
     "POOL_VARIABLES",
@@ -78,10 +78,21 @@ def eligible_cpus() -> tuple[int, ...]:
 
 
 def physical_cores() -> int:
-    """Count the physical cores in the allocation, assuming even SMT."""
+    """Count the physical cores in the allocation.
+
+    On Linux the distinct (socket, core) pairs of the allocated CPUs, so that an
+    allocation of one hardware thread per core counts every core; elsewhere the
+    allocation scaled by the machine's ratio of cores to hardware threads.
+    """
+    allocation = eligible_cpus()
+    if platform.system() == "Linux":
+        rows = linux_topology(Path("/sys/devices/system/cpu"), allocation)
+        pairs = {(row["socket"], row["core"]) for row in rows}
+        if rows and all(None not in pair for pair in pairs):
+            return len(pairs)
     logical = psutil.cpu_count() or 1
     physical = psutil.cpu_count(logical=False) or logical
-    return max(1, len(eligible_cpus()) * physical // logical)
+    return max(1, len(allocation) * physical // logical)
 
 
 def widths(value: str | None, production: int) -> tuple[int, ...]:
