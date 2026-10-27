@@ -532,6 +532,11 @@ The [CPU performance record](cpu-performance.md) lists what has been tried, adop
 rejected on the compiled CPU backend, with its measurements; read it before taking up
 any of the first ten items.
 
+- **A fused batch axis for small runs on a GPU**: SEP 36's Q8 rule found that on the
+  A40 a mixed-precision fibre ensemble of $2^{14}$–$2^{15}$-sample members reaches only
+  0.25–0.39 of the throughput of $2^{18}$-sample runs, even in the lockstep batch,
+  which fuses only the accepted update; a batch axis through the stage passes is
+  proposed as its own SEP ([SEP 36](seps/sep-0036-native-reduced-precision.md)).
 - **The Adams carrier frame on devices and on cheap sources**: native's
   `carrier_frame="scalar"` kernels are written for host and device but refused on device
   builds until a GPU segment runs their parity tests and ten-step timing; on CPU each step

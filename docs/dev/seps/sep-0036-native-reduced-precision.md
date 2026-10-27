@@ -2124,6 +2124,44 @@ John Travers accepted these recommendations:
 8. *Benchmarks.* SEP 38's `track` and `ab` gain `--precision`, and phase 5's records
    are made with them.
 
+### Multi-team device forms, and Q8 decided (2026-10-27)
+
+The maintainers' second decision, carried out. On a device the accepted update and its
+norm reductions, the weighted error and the last stage's norm split each column over up
+to 256 teams of at least 1,024 bins, with partial sums reduced on the host; a batch
+member keeps its own split, so it sums as its solo run does. The device response is a
+two-dimensional (node, time) range for the pointwise terms and, for the trapezoid
+plasma, a two-level scan over 1,024-sample tiles (binary64 tile totals, then each tile
+rescanned from its offset), in every policy. A C++ test checks the tiled scan exactly
+against a serial sum on the host and on the device.
+
+On the A40 (the fibre with Raman at $2^{16}$, 16 steps, GPU kernel time):
+
+| pass | single | mixed | binary64 |
+|---|---|---|---|
+| accepted update and norms | 13.0 → 0.66 ms | 15.4 → 0.74 ms | 15.4 → 0.75 ms |
+| response | 9.67 → 0.71 ms | 9.66 → 0.70 ms | 93.7 → 1.57 ms |
+| stage entry | 7.04 → 7.06 ms | 8.33 → 8.30 ms | 8.56 → 8.55 ms |
+| transforms | 3.09 → 3.08 ms | 3.16 → 3.16 ms | 20.3 → 20.3 ms |
+| other passes | 2.85 → 2.83 ms | 3.15 → 3.15 ms | 3.43 → 3.43 ms |
+| **total** | **35.7 → 14.3 ms** | **39.7 → 16.1 ms** | **141.4 → 34.6 ms** |
+
+Solo throughput at $2^{18}$ rose 3.0 times in single and mixed precision (to 1.91×10⁸
+and 1.66×10⁸ samples·steps/s) and 5.3 times in binary64 (to 8.42×10⁷), so mixed
+precision is now 2.0 times binary64 there, and 1.8 times at $2^{16}$. The A40 lane
+passes on the final build (ctest, native's 31 GPU tests, the API contract's 45, the
+reduced GPU lane's 123 with batch-against-solo and class R, the reduced arithmetic's 25
+with the TF32 negative test), and the seven confirmations are within their envelopes
+(`argon` single 9.0×10⁻⁵ in the field, mixed 3.5×10⁻⁵; `ctc` at 0.05 m single
+8.2×10⁻⁴). The stage entry is now the largest pass in the reduced modes (49–52 %).
+
+**Q8.** Under the stricter reading the maintainers chose, the best of the three ways at
+$2^{14}$ and $2^{15}$ samples in mixed precision (the lockstep batch, 4.69×10⁷ and
+7.24×10⁷ samples·steps/s) reaches 0.25 and 0.39 of the best at $2^{18}$ (the batch,
+1.85×10⁸). Both fall short of half, so by §6.6's rule a fused batch axis is proposed as
+a later SEP; it is listed on the roadmap. Concurrent processes never beat the lockstep
+batch, so the guide advises batches for an ensemble on one GPU.
+
 ## Part III — History
 
 - 2026-10-25: Drafted (Opus 5.5), after an indicative A40 measurement of transforms,
