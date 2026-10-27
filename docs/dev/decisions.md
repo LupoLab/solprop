@@ -1272,7 +1272,7 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-055 — Noise on by default, and defaults chosen for each interface
 
-- **Status:** accepted ([SEP 37](seps/sep-0037-noise-and-stepper-defaults.md)); amends
+- **Status:** accepted ([SEP 37](seps/archive/sep-0037-noise-and-stepper-defaults.md)); amends
   ADR-045 and ADR-008
 - **Context:** every run was noiseless unless it asked, every interface stepped with
   `Multistep()`, and the default tolerances were partly unexplained. A one-photon

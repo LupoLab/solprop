@@ -31,14 +31,6 @@ being implemented.
   identifies a new material contract. Ne/Xe, mixtures, mode-averaged and multimode
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
-- [SEP 37 — Shot noise on by default, and an integrator and tolerances chosen for each interface](seps/sep-0037-noise-and-stepper-defaults.md):
-  `noise="input"` as the default, with a recorded and printed fallback where noise
-  cannot be carried, a default integrator and default tolerances for each `prop_*`
-  interface chosen by a fixed rule and convergence protocol, and input noise beside the
-  TDSE response, coupled flows and explicit interior launches. The modified model's
-  own limits, planar noise, noise under single precision and new noise physics remain
-  outside it. The modified model is kept as it is until SEP 7 settles whether gain media
-  need its noise-injection path; its removal is decided then.
 
 ## Draft enhancement proposals
 
@@ -261,7 +253,7 @@ preserving the existing model; it did not remove this physical normalisation lim
 
 **The modified noise model's future.** With a unitary linear operator the modified model
 is the input model in shifted variables, and elsewhere it is an approximation of
-unqualified accuracy ([SEP 37](seps/sep-0037-noise-and-stepper-defaults.md), §4.2). It is
+unqualified accuracy ([SEP 37](seps/archive/sep-0037-noise-and-stepper-defaults.md), §4.2). It is
 kept as it is, with no new work. Whether it stays is decided with
 [SEP 7](seps/sep-0007-laser-gain-dynamics.md): amplified spontaneous emission needs the
 noise to see only the emission gain, which its separate injection path could carry. If
@@ -439,7 +431,7 @@ dense-gas propagation.
 partly linear in each weak bin's own field and rotates with its free phase, which the
 exponential formulation interpolates in the laboratory frame. Until a
 developed noisy window, such as the CtC comb, measures it, the manual prefers
-`Multistep(formulation="interaction")` beside that noise. [SEP 37](seps/sep-0037-noise-and-stepper-defaults.md) (phase 0)
+`Multistep(formulation="interaction")` beside that noise. [SEP 37](seps/archive/sep-0037-noise-and-stepper-defaults.md) (phase 0)
 measures both formulations with input noise on every interface; the modified case
 remains here.
 
@@ -457,7 +449,7 @@ full-length capillary demonstration with a worked example; and publication of th
 atomic provider, Pyroraptor ([dependencies](dependencies.md)), so that the response can
 be installed from a released package. Other gases, double ionisation and solver
 comparisons on the actual atomic source lie beyond these. Input noise beside the response
-is admitted but off by default ([SEP 37](seps/sep-0037-noise-and-stepper-defaults.md));
+is admitted but off by default ([SEP 37](seps/archive/sep-0037-noise-and-stepper-defaults.md));
 its check is the weak-field response to the draw over a short segment. A full-length
 weak-field run against a pinned Pyroraptor release would qualify it.
 
@@ -515,7 +507,7 @@ number is refused rather than recorded and ignored.
 beside a coupled flow (a wall, the taper coupling, a split block or a moving guide) is
 refused, because its kept-apart draw's transport through the flow is not measured; so
 is a coupled flow in a lockstep batch. Both need a derivation and a test before they
-can be admitted. [SEP 37](seps/sep-0037-noise-and-stepper-defaults.md) (phase 3)
+can be admitted. [SEP 37](seps/archive/sep-0037-noise-and-stepper-defaults.md) (phase 3)
 admitted the `input` model there, whose draw is part of the launch. Its tests run on the
 reference and numba backends; the native backend beside a coupled flow with input noise
 is not yet qualified against them.

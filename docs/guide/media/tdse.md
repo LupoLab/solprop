@@ -240,7 +240,7 @@ repeated as a noise ensemble, and its checks are coherent. Input shot noise
 (`noise="input"`) can be asked for, with a warning; its draw is part of the
 launch, so the atom is driven by the pulse plus the draw, inside the same gated window
 and on the same active band, and the realisation is stored with the run like any other
-([SEP 37](../../dev/seps/sep-0037-noise-and-stepper-defaults.md), section 6). One photon
+([SEP 37](../../dev/seps/archive/sep-0037-noise-and-stepper-defaults.md), section 6). One photon
 per bin drives the atom far below the weak-field consistency check's intensity, where
 its response is the certified linear one. `noise="modified"` is refused: its draw is
 kept apart from the field the atom is driven by. Each radial node is one atom in every call, so the node

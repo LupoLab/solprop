@@ -19,7 +19,7 @@ a problem that wants another one.
 ## The defaults
 
 Each interface has its own default integrator and tolerances, chosen by
-[SEP 37](../../dev/seps/sep-0037-noise-and-stepper-defaults.md)'s rule: the fastest
+[SEP 37](../../dev/seps/archive/sep-0037-noise-and-stepper-defaults.md)'s rule: the fastest
 method at matched accuracy on the standard suite's cases for that interface, with noise
 on and off, among the methods every route of the interface admits. A default never
 depends on the physics a run switches on; pass `integrator=`, `rtol=` or `atol=` to

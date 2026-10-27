@@ -6,17 +6,17 @@
 | **Title** | Shot noise on by default, and an integrator and tolerances chosen for each interface |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-10-26); Opus 5.5 (2026-10-26, revision after review) |
-| **Status** | In progress |
+| **Status** | Final |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); GPT-6 (AI) |
 | **Type** | Change |
 | **Created** | 2026-10-26 |
-| **Resolution** | Accepted 2026-10-26 by John Travers, with the 10 % tie margin of §5.2, after his human review, the GPT-6 AI review and the response to it, with decisions D1–D7 recorded in Part III ([LupoLab/solprop#30](https://github.com/LupoLab/solprop/pull/30)). |
-| **Requires** | [SEP 16](archive/sep-0016-unified-multistep.md) (the multistep family and its work–precision qualification); [SEP 30](archive/sep-0030-standard-benchmark-suite.md) (the benchmark suite); [SEP 31](archive/sep-0031-simulation-coupling.md) (field planes and coupled stages) |
+| **Resolution** | Accepted 2026-10-26 by John Travers, with the 10 % tie margin of §5.2, after his human review, the GPT-6 AI review and the response to it, with decisions D1–D7 recorded in Part III ([LupoLab/solprop#30](https://github.com/LupoLab/solprop/pull/30)). Final 2026-10-27 by John Travers after phases 0–3 and his decisions D8–D11 on the defaults (Part II, "Closing"). The proposal lands with its implementation's single pull request. |
+| **Requires** | [SEP 16](sep-0016-unified-multistep.md) (the multistep family and its work–precision qualification); [SEP 30](sep-0030-standard-benchmark-suite.md) (the benchmark suite); [SEP 31](sep-0031-simulation-coupling.md) (field planes and coupled stages) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0037-noise-and-stepper-defaults` ([LupoLab/solprop#30](https://github.com/LupoLab/solprop/pull/30)): phases 0–3 implemented 2026-10-27; the phase 0 tables await the maintainer's approval |
-| **Manual pages** | — |
+| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0037-noise-and-stepper-defaults` ([LupoLab/solprop#30](https://github.com/LupoLab/solprop/pull/30)): phases 0–3 implemented 2026-10-27, the defaults decided by D8–D11 |
+| **Manual pages** | [Noise](../../../guide/media/noise.md); [choosing a stepper: the defaults](../../../guide/numerics/choosing-a-stepper.md#the-defaults); [fixed schedules](../../../guide/numerics/fixed-schedules.md); [processing: the noise floor](../../../guide/results/processing.md) |
 
 ## Part I — Proposal
 
@@ -107,7 +107,7 @@ interface and the interface fixes the equation solved.
 - **Changes to the modified model.** It is kept as it is, with no new work. Its own
   refusals (interpolated planes, field planes, coupled flows) stay, and so do its
   readout and its transport along a varying guide; they are recorded on the roadmap.
-  Whether to keep or remove it is decided when [SEP 7](sep-0007-laser-gain-dynamics.md)
+  Whether to keep or remove it is decided when [SEP 7](../sep-0007-laser-gain-dynamics.md)
   settles whether gain media need its separate noise-injection path (D7).
 - **New noise physics.** No half-photon vacuum, no Langevin terms for loss or Raman,
   no thermal phonon occupation, no Gaussian amplitude for the draw and no technical
@@ -120,7 +120,7 @@ interface and the interface fixes the equation solved.
 
 #### 3.1 The noise models
 
-[Shot noise](../../guide/media/noise.md) describes the draw:
+[Shot noise](../../../guide/media/noise.md) describes the draw:
 - one photon per active bin, mode and polarisation, with a deterministic modulus and a
   uniform random phase;
 - masked to the active band on both grids;
@@ -453,7 +453,7 @@ The modified model keeps all its refusals.
 
 ### 8. Documentation
 
-- [Shot noise](../../guide/media/noise.md):
+- [Shot noise](../../../guide/media/noise.md):
   - the default and the fallback rules;
   - the input model's origin [4] and known limits (§4.1);
   - an honest account of the modified model: its origin [5], solprop's variant, where
@@ -462,9 +462,9 @@ The modified model keeps all its refusals.
   - the cost as measured in solprop, in place of the quoted factor of eight;
   - the floor-subtracted spectrum and what it is not (§5.5);
   - what neither model does.
-- [Choosing a stepper](../../guide/numerics/choosing-a-stepper.md): the default for
+- [Choosing a stepper](../../../guide/numerics/choosing-a-stepper.md): the default for
   each interface and the evidence behind it.
-- [Fixed schedules](../../guide/numerics/fixed-schedules.md): calibrate an ensemble's
+- [Fixed schedules](../../../guide/numerics/fixed-schedules.md): calibrate an ensemble's
   schedule with noise on, across seeds.
 - The docstrings of every `prop_*` interface and `Simulation.from_*` constructor: noise,
   integrator and tolerances, each with its reason, and the recommendations of §5.3.
@@ -723,6 +723,34 @@ destination:
     was not run.
   - The coupled routes' modal identity records still write no noise reference basis.
 
+
+### Closing
+
+- **Scope:** 2026-10-27, Opus 5.5 (AI) for John Travers, one branch and one pull
+  request ([LupoLab/solprop#30](https://github.com/LupoLab/solprop/pull/30)).
+- **The defaults as built** (the [defaults table](../../../guide/numerics/choosing-a-stepper.md#the-defaults)):
+
+  | Interface | Integrator | `rtol` | `atol` | Shot noise |
+  |---|---|---|---|---|
+  | `prop_gnlse` | `RungeKutta()` | 1e-7 | 1e-14 √W | `"input"` |
+  | `prop_capillary` | `Multistep()` | 1e-6 | 1e-10 √W | `"input"`; none with the TDSE response |
+  | `prop_waveguide` | `RungeKutta()` | 1e-5 | 1e-10 √W | `"input"` |
+  | `prop_radial` | `Multistep()` | 1e-5 | 0 | `"input"` |
+  | `prop_free` | `RungeKutta()` | 1e-4 | 0 | none |
+  | `prop_planar` | `Multistep()` | 1e-5 | 0 | none (not carried) |
+
+- **Noise:** the input model by default, with a recorded and printed fallback
+  (single precision, the planar grid, an interior launch under the default, the TDSE
+  response and Cartesian or line runs). Input noise is admitted beside coupled flows
+  and the TDSE response, with the draw's basis recorded on the coupled routes; the
+  modified model keeps its refusals there. `noise_floor="subtract"` gives the
+  floor-subtracted spectrum.
+- **Verification:** the default and slow lanes on the cluster node, the native suite,
+  the pull request's continuous integration, and the worked examples run under the
+  final capillary default.
+- **Follow-ups on the roadmap:** a full-length TDSE weak-field run against a pinned
+  Pyroraptor release; the native backend beside a coupled flow with input noise; the
+  modified model's future, decided with SEP 7.
 
 ## Part III — History
 
