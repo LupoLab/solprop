@@ -456,7 +456,10 @@ on; numerical qualification over longer segments and other waveforms, then a
 full-length capillary demonstration with a worked example; and publication of the
 atomic provider, Pyroraptor ([dependencies](dependencies.md)), so that the response can
 be installed from a released package. Other gases, double ionisation and solver
-comparisons on the actual atomic source lie beyond these.
+comparisons on the actual atomic source lie beyond these. Input noise beside the response
+is admitted but off by default ([SEP 37](seps/sep-0037-noise-and-stepper-defaults.md));
+its check is the weak-field response to the draw over a short segment. A full-length
+weak-field run against a pinned Pyroraptor release would qualify it.
 
 **A quadrature-error estimate on Cartesian waveguide runs.** A radial run scores its
 transverse quadrature against an embedded coarse rule and reports the difference as the
@@ -513,7 +516,9 @@ beside a coupled flow (a wall, the taper coupling, a split block or a moving gui
 refused, because its kept-apart draw's transport through the flow is not measured; so
 is a coupled flow in a lockstep batch. Both need a derivation and a test before they
 can be admitted. [SEP 37](seps/sep-0037-noise-and-stepper-defaults.md) (phase 3)
-admitted the `input` model there, whose draw is part of the launch.
+admitted the `input` model there, whose draw is part of the launch. Its tests run on the
+reference and numba backends; the native backend beside a coupled flow with input noise
+is not yet qualified against them.
 
 **Independent spatial references for the vector and graded-index routes.** The scalar bore
 and taper are checked against an independent finite-element solve. The vector wall is
