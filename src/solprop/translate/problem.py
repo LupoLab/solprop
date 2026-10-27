@@ -1365,7 +1365,9 @@ class KernelProblem:
             or self.transform.modal_tables is not None
             or self.transform.n_pol != 1
             or self.flags.mode_averaged
-            or self.flags.has_noise
+            # The input draw is part of the launch and drives the atom with it; the
+            # modified one is kept apart and is not (SEP 37, section 6).
+            or self.initial.noise_model == "modified"
             or self.flags.has_plasma
             or self.flags.has_raman
             or not isinstance(method, Multistep)
@@ -6074,7 +6076,7 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         quadrature=quadrature,
         integrator=integrator,
         interpolate_planes=interpolate_planes,
-        has_noise=noise is not None,
+        modified_noise=noise is not None and noise.model == "modified",
         shock=shock,
         prefactor_index=prefactor_index,
     )
