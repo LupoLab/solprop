@@ -373,10 +373,17 @@ def test_a_declared_block_whose_exponent_is_too_large_is_refused_by_name(
         build(rotated, grid).translate()
 
 
-def test_a_noise_model_is_refused_beside_a_coupled_flow(rotated, grid):
-    """ADR-008's draw is transported by a diagonal flow's unitary phase, not this."""
-    with pytest.raises(TranslationError, match="coupled flow refuses a noise model"):
-        build(rotated, grid, noise="input", seed=17).translate()
+def test_the_modified_noise_model_is_refused_beside_a_coupled_flow(rotated, grid):
+    """ADR-008's draw is transported by a diagonal flow's unitary phase, not this.
+
+    The input model is admitted: its draw is part of the entrance state
+    (``tests/driver/test_coupled_input_noise.py``).
+    """
+    with pytest.raises(
+        TranslationError, match="coupled flow refuses the 'modified' noise model"
+    ):
+        build(rotated, grid, noise="modified", seed=17).translate()
+    assert build(rotated, grid, noise="input", seed=17).translate() is not None
     # The backend names it too, for a problem that reaches it by hand: the
     # translation layer refuses first, so the draw is spoofed onto a clean problem.
     simulation = build(rotated, grid)
@@ -385,10 +392,12 @@ def test_a_noise_model_is_refused_beside_a_coupled_flow(rotated, grid):
     spoofed = replace(
         problem,
         initial=replace(
-            initial, noise_model="input", noise0=np.zeros_like(initial.field0)
+            initial, noise_model="modified", noise0=np.zeros_like(initial.field0)
         ),
     )
-    with pytest.raises(BackendError, match="noise model beside a coupled flow"):
+    with pytest.raises(
+        BackendError, match="'modified' noise model beside a coupled flow"
+    ):
         NumpyRefBackend(
             spoofed, grid=simulation.grid, modes=list(simulation.modes), profiles=None
         )

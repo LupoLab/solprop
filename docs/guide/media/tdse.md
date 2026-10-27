@@ -234,8 +234,14 @@ run = prop_capillary(
 The response is the complete electronic response of the fill, so `plasma`, `raman`,
 `thg`, `preionisation` and the other ionisation settings must be left unset, or the call
 is refused naming them. `backend="auto"` resolves to `"numpy_ref"`, the only backend that
-runs a TDSE response; the run needs the adaptive `Multistep()` integrator, a single
-scalar HE₁₁ mode and no noise. Each radial node is one atom in every call, so the node
+runs a TDSE response; the run needs the adaptive `Multistep()` integrator and a single
+scalar HE₁₁ mode. Input shot noise (`noise="input"`) is admitted: its draw is part of the
+launch, so the atom is driven by the pulse plus the draw, inside the same gated window
+and on the same active band, and the realisation is stored with the run like any other
+([SEP 37](../../dev/seps/sep-0037-noise-and-stepper-defaults.md), section 6). One photon
+per bin drives the atom far below the weak-field consistency check's intensity, where
+its response is the certified linear one. `noise="modified"` is refused: its draw is
+kept apart from the field the atom is driven by. Each radial node is one atom in every call, so the node
 count is the main cost: a rule other than a field-scale rule, the 33-node default
 included, raises one `TDSECostWarning` (see [radial nodes for expensive
 responses](../waveguides/radial-quadrature.md)). With `tdse=`, every accepted step is

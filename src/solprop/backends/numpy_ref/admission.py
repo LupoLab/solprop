@@ -327,12 +327,15 @@ def _refuse_flow_problem(problem: KernelProblem, *, backend: str) -> None:
             "(docs/dev/kernel-contract.md section 1)"
         )
         raise BackendError(msg)
-    if problem.initial.noise0 is not None:
+    # The input model's draw was added to the state when it was loaded, so the flow
+    # carries it as part of the field and nothing here sees it (SEP 37 section 6);
+    # only the modified model keeps a draw apart that a flow would have to transport.
+    if problem.initial.noise_model == "modified":
         msg = (
-            f"{backend} executes no noise model beside a coupled flow: the "
-            "one-photon-per-bin draw is advanced by the unitary phase of a diagonal "
-            "flow, and its transport through a nonunitary coupled flow is "
-            "not measured in this package"
+            f"{backend} executes no 'modified' noise model beside a coupled flow: "
+            "its one-photon-per-bin draw is advanced by the unitary phase of a "
+            "diagonal flow, and its transport through a nonunitary coupled flow is "
+            "not measured in this package; the 'input' model is admitted"
         )
         raise BackendError(msg)
     if linear.modal_metric is not None and problem.transform.modal_tables is None:

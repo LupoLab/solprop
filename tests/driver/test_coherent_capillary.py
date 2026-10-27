@@ -530,7 +530,7 @@ def test_a_run_without_a_wall_declares_no_flow_and_no_identity():
             },
             "HE_11 to HE_12",
         ),
-        ({"noise": "input", "seed": 3}, "refuses a noise model"),
+        ({"noise": "modified", "seed": 3}, "refuses the 'modified' noise model"),
     ],
 )
 def test_the_route_refuses_what_the_block_is_not_derived_for(overrides, expected):
@@ -798,8 +798,10 @@ def test_a_vector_state_or_a_noise_draw_refuses_a_wall_beside_it():
         _check_wall_route(replace(build, n_pol=2))
     # The TE/TM wall is named as the wall's impedances, not the state's axis.
     assert "not the state's polarisation axis" in str(refused.value)
-    with pytest.raises(TranslationError, match="refuses a noise model"):
-        _check_wall_route(replace(build, has_noise=True))
+    with pytest.raises(TranslationError, match="refuses the 'modified' noise"):
+        _check_wall_route(replace(build, has_noise=True, noise_model="modified"))
+    # The input draw is part of the entrance state, which the flow propagates.
+    _check_wall_route(replace(build, has_noise=True, noise_model="input"))
 
 
 def test_a_wall_declared_on_another_route_is_refused_by_name():
@@ -994,10 +996,12 @@ def test_the_reference_refuses_a_noise_draw_beside_a_flow():
         initial=replace(
             problem.initial,
             noise0=np.zeros_like(problem.initial.field0),
-            noise_model="input",
+            noise_model="modified",
         ),
     )
-    with pytest.raises(BackendError, match="no noise model beside a coupled flow"):
+    with pytest.raises(
+        BackendError, match="no 'modified' noise model beside a coupled flow"
+    ):
         NumpyRefBackend(noisy, grid=grid)
 
 
@@ -2072,8 +2076,8 @@ def test_a_varying_wall_refuses_every_declaration_it_would_otherwise_override():
                 MarcatiliMode(shared, "He", 1.0, m=2, phi=0.3),
             ],
         ).translate()
-    with pytest.raises(TranslationError, match="refuses a noise model"):
-        varying(wall=CoherentWall(), noise="input", seed=1).translate()
+    with pytest.raises(TranslationError, match="refuses the 'modified' noise"):
+        varying(wall=CoherentWall(), noise="modified", seed=1).translate()
     with pytest.raises(DriverError, match="polarisation"):
         varying(wall=CoherentWall(), polarisation="linear").translate()
 
@@ -2744,7 +2748,11 @@ def test_a_vector_wall_refuses_every_declaration_it_would_otherwise_override():
         ({"loss": False}, DriverError, "is the loss model"),
         ({"model": "reduced"}, DriverError, "one capillary model"),
         ({"lattice": TubeLattice(180e-9, 9e-6, 6)}, DriverError, "tube lattice"),
-        ({"noise": "input", "seed": 1}, TranslationError, "refuses a noise model"),
+        (
+            {"noise": "modified", "seed": 1},
+            TranslationError,
+            "refuses the 'modified' noise model",
+        ),
     ):
         with pytest.raises(error, match=message):
             run_capillary(wall=VECTOR_WALL, modes=modes, **overrides)
@@ -3710,8 +3718,8 @@ def test_a_cf4_wall_refuses_every_declaration_the_frozen_one_refuses():
     backend's own `max_batch = 1` before a coupled flow is looked at, and a fixed
     schedule straddling the taper's corner by `flow_edge_slack`.
     """
-    with pytest.raises(TranslationError, match="refuses a noise model"):
-        varying(wall=CF4_WALL, noise="input", seed=1).translate()
+    with pytest.raises(TranslationError, match="refuses the 'modified' noise"):
+        varying(wall=CF4_WALL, noise="modified", seed=1).translate()
     with pytest.raises(DriverError, match="polarisation"):
         varying(wall=CF4_WALL, polarisation="linear").translate()
     with pytest.raises(DriverError, match="loss=False"):

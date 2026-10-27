@@ -178,7 +178,8 @@ repeatability tests pass on a data-centre NVIDIA GPU (CUDA) and an AMD Instinct 
 | a line free space uniform in y (`LineGrid`, per metre of y) | yes | yes | yes | qualified (CUDA) |
 | a planar guide resolved in y (`PlanarGrid`) | yes | yes | yes | not qualified |
 | a frequency-dependent electronic response, `MaterialSelection(electronic="symmetric-kerr")` or `"gas-polynomial"` ([model](../media/dispersive-kerr.md)), on every route but the GNLSE | yes | yes | yes | qualified |
-| a noise model beside a coupled flow; a coupled flow in a lockstep batch | refused | refused | refused | refused |
+| the `input` noise model beside a coupled flow (a coherent wall, the taper coupling, a split block, a moving guide) | yes | yes | admitted, not yet qualified | not qualified |
+| the `modified` noise model beside a coupled flow; a coupled flow in a lockstep batch | refused | refused | refused | refused |
 
 `backend="auto"`, the default, is `native` where it is installed and `numba_cpu`
 otherwise, and it **never falls back**: a problem the native backend refuses is refused, by name,

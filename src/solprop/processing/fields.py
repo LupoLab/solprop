@@ -27,6 +27,11 @@ then includes the zero-frequency bin, where a wavelength is undefined.
 
 No window is ever applied implicitly. ``bandpass`` is a keyword, it is a wavelength
 range, and nothing happens without it.
+
+**The noise floor.** A run with input shot noise saves a field that carries its seed,
+one photon per active bin and channel. ``noise_floor="subtract"`` on
+:func:`get_spectral_density` removes exactly that seed's energy, bin by bin and channel
+by channel, and returns the signed remainder (SEP 37, section 5.5).
 """
 
 from typing import Literal
@@ -56,8 +61,10 @@ from solprop.processing.axes import (
 
 __all__ = [
     "FIELD_KINDS",
+    "NOISE_FLOORS",
     "FieldKind",
     "ModeSelection",
+    "NoiseFloor",
     "get_field",
     "get_phase",
     "get_power",
@@ -71,6 +78,12 @@ FieldKind = Literal["analytic", "real", "envelope"]
 
 FIELD_KINDS: tuple[FieldKind, ...] = ("analytic", "real", "envelope")
 """The analytic signal, the real field, and the analytic signal without its carrier."""
+
+NoiseFloor = Literal["keep", "subtract"]
+"""Whether a spectral density keeps or removes the input noise's one-photon seed."""
+
+NOISE_FLOORS: tuple[NoiseFloor, ...] = ("keep", "subtract")
+"""The saved density as it stands, and the density less the seed's energy."""
 
 
 def nearest_plane(output: Output, z: float) -> int:
@@ -103,7 +116,7 @@ def nearest_plane(output: Output, z: float) -> int:
     return _nearest_plane(output, z)
 
 
-def get_spectrum(
+def get_spectrum(  # noqa: PLR0913 - a plane, a mode set, a band, a convention, a floor
     output: Output,
     *,
     plane: int | None = None,
@@ -111,6 +124,7 @@ def get_spectrum(
     modes: ModeSelection = None,
     band: Band = "active",
     convention: Convention = "optics",
+    noise_floor: NoiseFloor = "keep",
 ) -> tuple[Float[np.ndarray, " n_x"], Complex[np.ndarray, "*shape n_x"]]:
     """Return the complex spectrum of one plane, or of every plane.
 
@@ -137,6 +151,13 @@ def get_spectrum(
         Which part of the stored axis to return.
     convention : {'optics', 'fft'}
         Sign convention of the returned spectrum.
+    noise_floor : {'keep'}
+        Only ``'keep'``. The noise floor is a power, one photon per bin, and an
+        amplitude has no part that is that power: the saved amplitude is the pulse and
+        the seed added coherently, and their interference is as large as the seed
+        itself, so no amplitude has the floor-subtracted density as its modulus
+        squared, which can be negative. ``'subtract'`` is refused and named;
+        :func:`get_spectral_density` subtracts it.
 
     Returns
     -------
@@ -150,6 +171,8 @@ def get_spectrum(
     ------
     solprop.exceptions.ModeError
         If ``modes='sum'``.
+    solprop.exceptions.ProcessingError
+        If ``noise_floor`` is not ``'keep'``.
 
     Examples
     --------
@@ -160,6 +183,14 @@ def get_spectrum(
     >>> spectrum.shape == omega.shape
     True
     """
+    _check_choice(noise_floor, NOISE_FLOORS, "noise_floor")
+    if noise_floor != "keep":
+        msg = (
+            "noise_floor='subtract' removes a power, one photon per bin, and a "
+            "spectrum is an amplitude, whose modulus squared cannot be negative; ask "
+            "get_spectral_density for the floor-subtracted density"
+        )
+        raise ProcessingError(msg)
     grid = grid_of(output)
     values = _plane_field(output, plane, z, convention=convention)
     values = values * _fft_norm(grid)
@@ -178,6 +209,7 @@ def get_spectral_density(  # noqa: PLR0913 - the abscissa and the smoothing on t
     band: Band = "active",
     spec_range: tuple[float, float] | None = None,
     resolution: float | None = None,
+    noise_floor: NoiseFloor = "keep",
 ) -> tuple[Float[np.ndarray, " n_x"], Float[np.ndarray, "*shape n_x"]]:
     """Return the spectral energy density of one plane, or of every plane.
 
@@ -207,13 +239,34 @@ def get_spectral_density(  # noqa: PLR0913 - the abscissa and the smoothing on t
         Instrument resolution, in the units of the abscissa, as a full width at half
         maximum. When given, the density is resampled onto a uniform axis and smoothed
         by :func:`solprop.processing.spectra.specres`.
+    noise_floor : {'keep', 'subtract'}
+        ``'keep'`` returns the saved density as it stands. ``'subtract'`` removes the
+        input noise's seed: the energy of the stored realisation, which is one photon
+        per active bin and channel in the route's own photon measure (the one
+        :func:`solprop.noise.photons_per_bin` inverts), before the polarisation
+        components are summed and any mode selection or smoothing. The draw has a
+        fixed modulus, so the subtraction is exact for the one realisation; where the
+        linear operator only changes the phase, it equals the modified model's
+        corrected readout ``|psi + N|^2 - |N|^2`` of the same draw. It is not a photon
+        estimator under loss, where the seed has decayed and more is removed than
+        remains. Values near the floor can be negative, by the interference of the
+        pulse with the seed and by its decay, and are returned signed. Refused for a
+        run without noise and for the ``'modified'`` model, whose saved field holds no
+        seed.
 
     Returns
     -------
     x : numpy.ndarray
         The abscissa, shape ``(n_x,)``, ascending.
     density : numpy.ndarray
-        The spectral energy density, J per unit of ``x``.
+        The spectral energy density, J per unit of ``x``; signed under
+        ``noise_floor='subtract'``.
+
+    Raises
+    ------
+    solprop.exceptions.ProcessingError
+        If ``noise_floor`` is not one of :data:`NOISE_FLOORS`, or is ``'subtract'``
+        for a run without input noise.
 
     Examples
     --------
@@ -224,9 +277,12 @@ def get_spectral_density(  # noqa: PLR0913 - the abscissa and the smoothing on t
     >>> bool(np.all(np.diff(wavelength) > 0))
     True
     """
+    _check_choice(noise_floor, NOISE_FLOORS, "noise_floor")
     grid = grid_of(output)
     values = _plane_field(output, plane, z, convention="optics")
     density = np.abs(values * _fft_norm(grid)) ** 2
+    if noise_floor == "subtract":
+        density = density - _seed_density(output, grid)
     density = np.sum(density, axis=-2, keepdims=True)
     density, kept = _apply_modes(density, modes, allow_sum=True)
     keep = _keep_index(grid, band)
@@ -474,6 +530,53 @@ def get_phase(
         output, plane=plane, z=z, modes=modes, band=band, convention="optics"
     )
     return omega, np.unwrap(np.angle(spectrum), axis=-1)
+
+
+def _seed_density(
+    output: Output, grid: TimeGrid
+) -> Float[np.ndarray, "n_modes n_pol n_omega"]:
+    """Return the input seed's spectral energy density, per channel and component.
+
+    The stored realisation is the draw the launch was given, in the saved field's own
+    units, so its density is the floor in the route's own photon measure:
+    ``hbar omega / d_omega`` in every active bin of a modal route in its own basis, the
+    redistributed share of a declared unitary basis, and the admittance-weighted
+    column measure of a spatial one. A modulus is convention-free, so the record's
+    internal convention needs no conjugation.
+
+    Parameters
+    ----------
+    output : solprop.output.schema.Output
+        An opened output handler.
+    grid : solprop.grid.TimeGrid
+        The run's grid.
+
+    Returns
+    -------
+    numpy.ndarray
+        The density in J/(rad/s), shape ``(n_modes, n_pol, n_omega)``.
+
+    Raises
+    ------
+    solprop.exceptions.ProcessingError
+        If the run carries no noise record, or one of the ``'modified'`` model.
+    """
+    metadata = output.metadata
+    record = None if metadata is None else metadata.noise
+    if record is None or record.model not in ("input", "modified"):
+        msg = (
+            "noise_floor='subtract' removes the input noise's seed, and this run "
+            "carries no noise: its density has no floor to subtract"
+        )
+        raise ProcessingError(msg)
+    if record.model == "modified":
+        msg = (
+            "noise_floor='subtract' removes the seed a saved field carries, and a "
+            "'modified' run's saved field holds none: its draw is kept apart from the "
+            "field and never saved in it"
+        )
+        raise ProcessingError(msg)
+    return np.abs(np.asarray(record.spectrum) * _fft_norm(grid)) ** 2
 
 
 def _fft_norm(grid: TimeGrid) -> float:

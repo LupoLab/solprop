@@ -258,11 +258,18 @@ def test_an_envelope_grid_beside_the_coupling_is_refused_naming_the_opt_out():
         ).translate()
 
 
-def test_a_noise_model_beside_the_coupling_is_refused_naming_the_opt_out():
-    """A draw through a coupled flow is not measured; the opt-out carries it."""
+def test_the_modified_noise_beside_the_coupling_is_refused_naming_the_opt_out():
+    """A kept-apart draw through a coupled flow is not measured; the opt-out carries it.
+
+    The input draw is part of the entrance state and rides the coupling
+    (``tests/driver/test_coupled_input_noise.py``).
+    """
     with pytest.raises(TranslationError, match="taper_coupling=False"):
-        lossless(noise="input", seed=1).translate()
-    assert lossless(noise="input", seed=1, taper_coupling=False).translate() is not None
+        lossless(noise="modified", seed=1).translate()
+    assert (
+        lossless(noise="modified", seed=1, taper_coupling=False).translate() is not None
+    )
+    assert lossless(noise="input", seed=1).translate() is not None
 
 
 def test_a_supplied_set_couples_through_from_waveguide_and_a_provider_refuses_it():

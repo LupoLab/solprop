@@ -7098,8 +7098,8 @@ def _check_tdse_execution(simulation: Simulation, settings: SimulationSettings) 
         raise DriverError(
             "TDSE requires explicit NumPy, Multistep and tdse_execution settings"
         )
-    if simulation.noise is not None:
-        raise DriverError("TDSE requires noise=None")
+    if simulation.noise is not None and simulation.noise.model == "modified":
+        raise DriverError("TDSE refuses noise='modified'; use 'input' or None")
     if settings.schedule is not None or settings.interpolate_planes:
         raise DriverError("TDSE requires adaptive Adams with landed save planes")
     if settings.absorber_scheme != "nonlinear":
