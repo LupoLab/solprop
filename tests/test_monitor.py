@@ -13,6 +13,7 @@ energy the run actually lost.
 
 from __future__ import annotations
 
+import dataclasses
 import math
 import warnings
 
@@ -81,6 +82,7 @@ def record_of(run: Output) -> dict[str, float]:
     return {
         name: math.nan if value is None else float(value)
         for name, value in record.items()
+        if name != "planes"
     }
 
 
@@ -114,6 +116,40 @@ def test_a_walking_pulse_is_stopped_at_the_guard() -> None:
         pytest.raises(BoundaryError, match="guards"),
     ):
         walker(1.2 * TRANGE).run(progress="none")
+
+
+def test_the_split_scheme_s_removal_is_read_exactly() -> None:
+    # Applied once per accepted step, the split's removal is read back from each
+    # committed state; it is the run's own energy deficit, not a quadrature of it.
+    relaxed = BoundaryCheck(budget=1.0, stop_factor=1.0)
+    simulation = walker(0.65 * TRANGE, check=relaxed)
+    simulation.settings = dataclasses.replace(
+        simulation.settings, absorber_scheme="split_step"
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        run = simulation.run(progress="none")
+    energy = np.asarray(run["stats/energy"])[:, 0, 0]
+    lost = 1.0 - energy[-1] / energy[0]
+    assert lost > 1e-3
+    assert record_of(run)["removed_fraction"] == pytest.approx(lost, rel=1e-3)
+
+
+def test_every_saved_plane_has_a_row() -> None:
+    relaxed = BoundaryCheck(budget=1.0, stop_factor=1.0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        run = walker(0.65 * TRANGE, check=relaxed).run(progress="none")
+    assert isinstance(run, PlaneStore)
+    assert run.outcome is not None and run.outcome.execution is not None
+    record = run.outcome.execution["boundary_monitor"]
+    rows = record["planes"]
+    np.testing.assert_allclose(rows["z"], np.asarray(run["z"]))
+    # The guards' maxima over the planes are the run's; removal only grows.
+    assert max(rows["guard_high"]) == record["guard_high_max"]
+    assert np.all(np.diff(rows["removed_fraction"]) >= 0.0)
+    assert rows["removed_fraction"][-1] == record["removed_fraction"]
+    assert rows["removed_fraction"][0] == 0.0
 
 
 def test_without_a_check_nothing_is_watched() -> None:

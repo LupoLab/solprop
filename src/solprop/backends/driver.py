@@ -1346,6 +1346,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             if isinstance(self._problem.stepper.integrator, LowStorageRungeKutta)
             else f"{record.tolerance_ratio:.3e}",
         )
+        self._monitor_plane()
         return StepSummary(
             z=self._z,
             n_steps=len(taken),
@@ -1883,6 +1884,11 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             self._z,
             floor=self._input_floor,
         )
+
+    def _monitor_plane(self) -> None:
+        """Close the boundary monitor's row for the plane just reached (SEP 21, D5)."""
+        if self._monitor is not None:
+            self._monitor.plane(self._z)
 
     def _take_step_stats(self) -> None:
         """Record one statistics row when this accepted step is the period-th.

@@ -247,6 +247,11 @@ class LockstepRunner(StepDriver[tuple[object, ...]]):
         for member in self._members:
             member.attach_monitor(copy.deepcopy(monitor))
 
+    def _monitor_plane(self) -> None:
+        """Close each member's boundary-monitor row for the plane just reached."""
+        for member in self._members:
+            member._monitor_plane()
+
     def _take_step_stats(self) -> None:
         """Collect periodic rows through each backend's storage hooks."""
         for member in self._members:

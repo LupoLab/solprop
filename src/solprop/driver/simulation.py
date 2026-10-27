@@ -2688,7 +2688,13 @@ class Simulation(Displayed):
             if isinstance(space, RadialGrid)
             else None
         )
-        return BoundaryMonitor.build(self.grid, rate, check, columns=columns)
+        return BoundaryMonitor.build(
+            self.grid,
+            rate,
+            check,
+            columns=columns,
+            split=rate is not None and self.settings.absorber_scheme == "split_step",
+        )
 
     def run(  # noqa: PLR0913 - independent execution and output controls
         self,

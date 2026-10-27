@@ -2386,13 +2386,23 @@ Recorded as slices land; the phase report follows at the end of the phase.
     (`_take_step_stats`), on every march and backend, and is computed in NumPy. No
     kernel schema bump; the cost is one inverse transform of the state per committed
     step, which a backend-resident reduction could later remove.
-  - **Deviation: one quadrature for both schemes.** The removed fraction is the
-    trapezoid of the removal rate over committed steps under either scheme; the split's
-    exact discrete difference is not yet recorded. On a walking pulse fully absorbed
-    the trapezoid matches the run's own energy deficit to 5 % in the tests and to
-    2e-4 relative on a clear-but-dispersing pulse.
-  - **Not yet:** occupancies as saved-plane statistics (they are in the execution
-    record), and the energy-density proxy on spatial routes is the quadrature-weighted
+  - **Removal by scheme (D5, 2026-10-27).** Under the in-stage scheme the removed
+    fraction is the trapezoid of the removal rate over committed steps: on a walking
+    pulse fully absorbed it matches the run's own energy deficit to 5 % in the tests,
+    and to 2e-4 relative on a clear-but-dispersing pulse. Under the split scheme each
+    step's removal is read exactly from its committed state,
+    `P(t) (exp(alpha(t) h) - 1)`, and matches the deficit to 1e-3; the band mask that
+    follows the split is not counted.
+  - **Deviation: per-plane rows in the execution record (2026-10-27).** §6 sketches
+    the occupancies as plane statistics (`run.statistics[...]`). The statistics
+    catalogue is chosen by the caller and computed by the backends, while the monitor
+    runs on the host whenever the check is on, so its rows stay in its own record:
+    `boundary_monitor["planes"]` holds, per saved plane from the launch on, `z`, the
+    collar occupancy there, each guard's largest occupancy since the previous plane
+    and the removed fraction so far. No output schema change. A resumed run's rows
+    start at the resumed plane. The spectral collar's removal (`U_omega`) is not
+    recorded.
+  - **Not yet:** the energy-density proxy on spatial routes is the quadrature-weighted
     field norm, not SEP 34's admittance-weighted flux.
 - **Requalification (2026-10-26).** All 34 cases of the SEP 30 suite on both adaptive
   tracks, `numba_cpu`, one thread: every candidate error was within its carried-over

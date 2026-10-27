@@ -415,7 +415,11 @@ What the monitor saw is kept in the run's execution record, under `boundary_moni
 launch occupancies, the largest guard and collar occupancies and where the guards peaked,
 and the removed fraction, all above the floor; beside them the floor's share of the
 launch energy (`noise_floor`) and the whole field's largest guard share and removed
-fraction, floor included (`raw_guard_max`, `raw_removed_fraction`). `SimulationSettings(boundary_check=None)` watches nothing; a
+fraction, floor included (`raw_guard_max`, `raw_removed_fraction`). Under `planes` it keeps
+one row per saved plane: `z`, the collar occupancy there, each guard's largest occupancy
+since the previous plane, and the removed fraction so far. Under the in-stage scheme the
+removed fraction is integrated along z by the trapezoid; under `absorber_scheme="split_step"`
+each step's removal is read exactly from the state it leaves. `SimulationSettings(boundary_check=None)` watches nothing; a
 `BoundaryCheck` with a larger `budget` or `stop_factor` relaxes it.
 
 ## A worked example

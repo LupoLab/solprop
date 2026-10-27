@@ -136,12 +136,17 @@ class BoundaryMonitor:
         The grid's spectral layout.
     columns : numpy.ndarray or None
         Quadrature weights of the transverse columns, or ``None`` for modal routes.
+    split : bool
+        Whether the temporal collar is applied once per accepted step (the
+        ``"split_step"`` scheme), whose removal is then read exactly from each
+        committed state rather than by the trapezoid (D5).
     """
 
     check: BoundaryCheck
     weights: Float[np.ndarray, "4 n_t"]
     kind: GridKind
     columns: Float[np.ndarray, " n_columns"] | None = None
+    split: bool = False
     _launch: float = field(default=math.nan, init=False)
     _floor: float = field(default=0.0, init=False)
     _floor_regions: Float[np.ndarray, " 4"] = field(
@@ -161,6 +166,21 @@ class BoundaryMonitor:
         default=(math.nan, math.nan, math.nan), init=False
     )
     _warned: bool = field(default=False, init=False)
+    _collar_now: float = field(default=0.0, init=False)
+    _since: list[float] = field(default_factory=lambda: [0.0, 0.0], init=False)
+    _planes: dict[str, list[float]] = field(
+        default_factory=lambda: {
+            name: []
+            for name in (
+                "z",
+                "collar_occupancy",
+                "guard_low",
+                "guard_high",
+                "removed_fraction",
+            )
+        },
+        init=False,
+    )
     _steps: int = field(default=0, init=False)
 
     @classmethod
@@ -171,6 +191,7 @@ class BoundaryMonitor:
         check: BoundaryCheck,
         *,
         columns: Float[np.ndarray, " n_columns"] | None = None,
+        split: bool = False,
     ) -> BoundaryMonitor:
         """Return a monitor for a grid and its temporal collar.
 
@@ -184,6 +205,8 @@ class BoundaryMonitor:
             The thresholds.
         columns : numpy.ndarray or None, optional
             Quadrature weights of a spatial run's transverse columns.
+        split : bool, optional
+            Whether the collar is applied by the ``"split_step"`` scheme.
 
         Returns
         -------
@@ -211,7 +234,7 @@ class BoundaryMonitor:
         )
         weights = np.stack([low, high, collar, rate])
         weights.setflags(write=False)
-        return cls(check, weights, grid.kind, columns)
+        return cls(check, weights, grid.kind, columns, split)
 
     def _power(
         self, field_spectrum: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
@@ -225,8 +248,8 @@ class BoundaryMonitor:
 
     def _regions(
         self, field_spectrum: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
-    ) -> tuple[float, Float[np.ndarray, " 4"]]:
-        """Return the total energy of one state and its four weighted energies.
+    ) -> tuple[float, Float[np.ndarray, " 4"], Float[np.ndarray, " n_t"]]:
+        """Return the total energy of one state, its four weighted energies and ``P``.
 
         The first three are the energies in the low guard, the high guard and the
         collar; the fourth is the collar's removal rate, energy per metre.
@@ -234,8 +257,8 @@ class BoundaryMonitor:
         power = self._power(field_spectrum)
         total = float(power.sum())
         if total <= 0.0 or not math.isfinite(total):
-            return 0.0, np.zeros(4)
-        return total, self.weights @ power
+            return 0.0, np.zeros(4), power
+        return total, self.weights @ power, power
 
     def _above(self, regions: Float[np.ndarray, " 4"]) -> Float[np.ndarray, " 4"]:
         """Return each region's energy above the shot-noise floor.
@@ -275,7 +298,7 @@ class BoundaryMonitor:
             self._floor = float(self._power(floor).sum())
             # The floor is stationary: its expected density is uniform in time.
             self._floor_regions = self._floor * self.weights.mean(axis=1)
-        total, regions = self._regions(field_spectrum)
+        total, regions, _ = self._regions(field_spectrum)
         self._launch = total
         if total <= 0.0:
             self._last = (z, 0.0)
@@ -285,6 +308,9 @@ class BoundaryMonitor:
         self._last = (z, float(shares[3]))
         self._raw_last = (z, float(regions[3]) / total)
         self._launch_occupancy = (float(shares[0]), float(shares[1]), float(shares[2]))
+        self._collar_now = float(shares[2])
+        self._since = [float(shares[0]), float(shares[1])]
+        self._plane_row(z)
         worst = max(self._launch_occupancy)
         if worst > self.check.launch_threshold:
             self._warned = True
@@ -317,16 +343,19 @@ class BoundaryMonitor:
         BoundaryError
             When the square root of a guard occupancy exceeds ``stop_factor`` budgets.
         """
-        total, regions = self._regions(field_spectrum)
+        total, regions, power = self._regions(field_spectrum)
         self._steps += 1
         if not total > _FLOOR * self._launch:
             # Nothing was launched, or nothing is left: no light to judge.
             self._last = (z, 0.0)
             self._raw_last = (z, 0.0)
+            self._collar_now = 0.0
             return
         # The whole field's record, floor included, kept beside the judged one.
         raw_rate = float(regions[3]) / self._launch
-        if self._raw_last is not None:
+        if self.split and self._raw_last is not None:
+            self._split_removal(power, z - self._raw_last[0])
+        elif self._raw_last is not None:
             previous_z, previous_rate = self._raw_last
             self._raw_removed += 0.5 * (z - previous_z) * (previous_rate + raw_rate)
         self._raw_last = (z, raw_rate)
@@ -337,12 +366,14 @@ class BoundaryMonitor:
         shares = above / total
         # The removal rate as a fraction of the launch energy per metre.
         rate = float(above[3]) / self._launch
-        if self._last is not None:
+        if self._last is not None and not self.split:
             previous_z, previous_rate = self._last
             self._removed += 0.5 * (z - previous_z) * (previous_rate + rate)
         self._last = (z, rate)
         self._collar_max = max(self._collar_max, float(shares[2]))
+        self._collar_now = float(shares[2])
         for edge in (0, 1):
+            self._since[edge] = max(self._since[edge], float(shares[edge]))
             if shares[edge] > self._guard_max[edge]:
                 self._guard_max[edge] = float(shares[edge])
                 self._guard_at[edge] = z
@@ -367,7 +398,49 @@ class BoundaryMonitor:
                 stacklevel=2,
             )
 
-    def summary(self) -> dict[str, float | None]:
+    def _split_removal(self, power: Float[np.ndarray, " n_t"], step: float) -> None:
+        """Add one split step's exact removal, read back from its committed state.
+
+        The split multiplies the field by ``exp(-alpha(t) h / 2)`` once per accepted
+        step, so the power it took is ``P(t) (exp(alpha(t) h) - 1)`` of the power
+        ``P`` it left; the floor's share is that of a uniform density. The band mask
+        that follows the split is not counted.
+        """
+        if not step > 0.0:
+            return
+        gain = np.expm1(self.weights[3] * step)
+        taken = float(power @ gain)
+        floor = self._floor / power.size * float(gain.sum())
+        self._raw_removed += taken / self._launch
+        self._removed += (taken - floor) / self._launch
+
+    def _plane_row(self, z: float) -> None:
+        """Append one saved plane's row and start the next plane's guard maxima."""
+        row = self._planes
+        if row["z"] and row["z"][-1] == z:
+            return
+        row["z"].append(z)
+        row["collar_occupancy"].append(self._collar_now)
+        row["guard_low"].append(self._since[0])
+        row["guard_high"].append(self._since[1])
+        row["removed_fraction"].append(max(self._removed, 0.0))
+        self._since = [0.0, 0.0]
+
+    def plane(self, z: float) -> None:
+        """Record the row of the saved plane the run has just reached.
+
+        The row holds the collar occupancy at the plane, each guard's largest
+        occupancy over the committed steps since the previous plane, and the removed
+        fraction so far, all above the shot-noise floor (SEP 21 section 6, D5).
+
+        Parameters
+        ----------
+        z : float
+            The plane's position, m.
+        """
+        self._plane_row(z)
+
+    def summary(self) -> dict[str, float | dict[str, list[float]] | None]:
         """Return the record of the run so far, for its execution record.
 
         Returns
@@ -380,7 +453,10 @@ class BoundaryMonitor:
             guard nothing reached). Beside them, the floor's share of the launch
             energy (``noise_floor``, zero without input noise), and the largest guard
             share and the removed fraction of the whole field, floor included
-            (``raw_guard_max``, ``raw_removed_fraction``).
+            (``raw_guard_max``, ``raw_removed_fraction``). Under ``planes``, one row
+            per saved plane from the launch on: ``z``, the ``collar_occupancy`` there,
+            each guard's largest occupancy since the previous plane (``guard_low``,
+            ``guard_high``) and the ``removed_fraction`` so far.
         """
 
         def finite(value: float) -> float | None:
@@ -400,6 +476,7 @@ class BoundaryMonitor:
             "noise_floor": self._floor / self._launch if self._launch > 0.0 else 0.0,
             "raw_guard_max": self._raw_guard_max,
             "raw_removed_fraction": self._raw_removed,
+            "planes": {name: list(values) for name, values in self._planes.items()},
         }
 
     def finish(self) -> None:
