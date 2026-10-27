@@ -76,7 +76,7 @@ mode fails silently.
 check it on more than the seed that discovered it. A schedule discovered on a noiseless
 run integrates the seed's own dynamics poorly: on a 20 pJ fibre soliton it got the
 noise-driven part of the field wrong by 6 % with `RungeKutta()` and 78 % with
-`Multistep()` ([SEP 37](../../dev/seps/sep-0037-noise-and-stepper-defaults.md), §3.4).
+`Multistep()` ([SEP 37](../../dev/seps/archive/sep-0037-noise-and-stepper-defaults.md), §3.4).
 
 ## The low-storage march
 

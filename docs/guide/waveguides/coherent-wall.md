@@ -74,7 +74,7 @@ builds exactly that — sharing one polarisation angle, one capillary model and 
 declared guide. A sparse set, a mixed family, two polarisations, the
 `modified` noise model and a fused batch are refused by name, each at the layer that
 owns the refusal. The `input` noise model is admitted
-([SEP 37](../../dev/seps/sep-0037-noise-and-stepper-defaults.md), section 6): its
+([SEP 37](../../dev/seps/archive/sep-0037-noise-and-stepper-defaults.md), section 6): its
 draw is part of the launch, one photon per channel and bin in the $\mathrm{HE}_{1m}$
 set, which is orthonormal in true power (real Bessel profiles, orthogonal on the core,
 each normalised to its own power), and the block propagates it like any field. All

@@ -191,8 +191,12 @@ In a run, choose the model with the driver's `noise` keyword and fix the realisa
 `seed`; `prop_gnlse`, `prop_capillary`, `prop_waveguide`, `prop_radial` and `prop_free`
 all take both. The keyword's default, `"default"`, resolves to `"input"` wherever the
 run can carry noise. Where it cannot, it resolves to none: under single precision, whose
-binary32 rounding swamps the seed, and on the hybrid planar grid, which declares no
-photon measure. An interior launch keeps a default draw off the spectrum it is given,
+binary32 rounding swamps the seed, on the hybrid planar grid, which declares no photon
+measure, beside the TDSE response, whose runs are expensive, rarely repeated as
+ensembles and checked coherently (an explicit noise model there is warned on), and on
+the Cartesian and line grids of `prop_free`, whose runs are slow and rarely about noise
+sensitivity. The [table of defaults](../numerics/choosing-a-stepper.md#the-defaults)
+lists each interface's noise, integrator and tolerances. An interior launch keeps a default draw off the spectrum it is given,
 which may already carry one, while an explicit `noise="input"` there adds the draw at the
 launch. `seed=` beside a default that resolves to none is refused. The realisation and
 its seed are stored in the output, with how the model was resolved

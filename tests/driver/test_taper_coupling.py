@@ -58,7 +58,7 @@ from solprop.modes.capillary import (
 from solprop.output.memory import MemoryOutput
 from solprop.physdata.mixtures import Mixture
 from solprop.profiles import FromCallable, Linear
-from solprop.stepper import FixedSchedule, Multistep, RungeKutta
+from solprop.stepper import FixedSchedule, Multistep, PIController, RungeKutta
 from solprop.translate.problem import TAPER_FLOW_CERTIFICATE, _walk_arrays, assemble
 
 pytestmark = [
@@ -200,7 +200,7 @@ def test_the_opt_out_is_the_adiabatic_route_without_a_warning():
         simulation.modes,
         list(simulation.responses),
         simulation._field0,
-        controller=simulation.settings.controller,
+        controller=cast("PIController", simulation.settings.controller),
         save_planes=simulation.settings.save_planes,
         dz_max=simulation.settings.dz_max,
         dz_init=simulation.settings.dz_init,
@@ -237,7 +237,7 @@ def test_a_wall_and_the_opt_out_are_refused_together():
             simulation.modes,
             list(simulation.responses),
             simulation._field0,
-            controller=simulation.settings.controller,
+            controller=cast("PIController", simulation.settings.controller),
             save_planes=simulation.settings.save_planes,
             dz_max=simulation.settings.dz_max,
             dz_init=simulation.settings.dz_init,
@@ -576,7 +576,7 @@ def test_a_second_field_component_beside_the_coupling_is_refused():
             simulation.modes,
             list(simulation.responses),
             field,
-            controller=simulation.settings.controller,
+            controller=cast("PIController", simulation.settings.controller),
             save_planes=simulation.settings.save_planes,
             dz_max=simulation.settings.dz_max,
             dz_init=simulation.settings.dz_init,

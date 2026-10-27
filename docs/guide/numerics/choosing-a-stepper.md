@@ -19,29 +19,58 @@ a problem that wants another one.
 ## The defaults
 
 Each interface has its own default integrator and tolerances, chosen by
-[SEP 37](../../dev/seps/sep-0037-noise-and-stepper-defaults.md)'s rule: the fastest
-method at matched accuracy on the standard suite's cases for that interface, with noise
+[SEP 37](../../dev/seps/archive/sep-0037-noise-and-stepper-defaults.md)'s rule: the fastest
+method at matched accuracy on the benchmark suite's cases for that interface, with noise
 on and off, among the methods every route of the interface admits. A default never
 depends on the physics a run switches on; pass `integrator=`, `rtol=` or `atol=` to
 choose another.
 
-| Interface | Integrator | `rtol` | `atol` |
-|---|---|---|---|
-| `prop_gnlse` | `RungeKutta()` | 1e-7 | 1e-14 √W |
-| `prop_capillary` | `Multistep()` | 1e-6 | 1e-10 √W |
-| `prop_waveguide` | `RungeKutta()` | 1e-5 | 1e-10 √W |
-| `prop_radial`, `prop_planar` | `Multistep()` | 1e-5 | 0 |
-| `prop_free` | `Multistep()` | the caller's controller | |
+| Interface | Integrator | `rtol` | `atol` | Shot noise |
+|---|---|---|---|---|
+| `prop_gnlse` | `RungeKutta()` | 1e-7 | 1e-14 √W | `"input"` |
+| `prop_capillary` | `Multistep()` | 1e-6 | 1e-10 √W | `"input"` |
+| `prop_capillary` with the TDSE response | `Multistep()` | 1e-6 | 1e-10 √W | none |
+| `prop_waveguide` | `RungeKutta()` | 1e-5 | 1e-10 √W | `"input"` |
+| `prop_radial` | `Multistep()` | 1e-5 | 0 | `"input"` |
+| `prop_free` (Cartesian, line) | `RungeKutta()` | 1e-4 | 0 | none |
+| `prop_planar` | `Multistep()` | 1e-5 | 0 | none (not carried) |
+
+Under `precision="single"` every interface takes `RungeKutta()` and no noise. The
+spatial interfaces' tolerances apply where their `SimulationSettings` give no
+controller; a free-space run that names no integrator takes `RungeKutta()`. A default
+noise that resolves to none says why in the run record and the start-of-run summary,
+and asking for noise beside the TDSE response is warned on: TDSE and Cartesian runs
+are slow and rarely about noise sensitivity.
 
 On the GNLSE, the Runge–Kutta march is 2.5 to 4.8 times faster than the exponential
 Adams method at matched accuracy, more with noise. On the waveguide route it is 4 times
 faster; the interaction-formulation Adams method is faster still there but refuses the
-coupled flows some waveguide routes carry. On the capillary the evidence is split — the
-Runge–Kutta march wins most cases, the Adams method the resolved-mode RDW and the
-noiseless comb-to-continuum runs that dominate production — and the default stays the
-Adams method. A capillary run with the TDSE response needs `Multistep()`. The radial and
-planar defaults hold their methods and set a tolerance where the caller gave no
-controller; a free-space run has no measured default yet.
+coupled flows some waveguide routes carry. On the capillary the Adams method is the
+default for every representation. With several resolved modes the source beats at the
+modes' phase mismatches: the interaction-picture march has to resolve that beat within
+its steps (going from one resolved mode to four multiplies its steps by 3.7 on the RDW
+capillary), while the exponential Adams method carries it in its propagator and is
+about three times faster. With one mode, or a mode-averaged one, the Adams method at
+1e-6 was 1.2 to 1.75 times faster than the Runge–Kutta march at 1e-5 on the Kerr-only
+worked examples, and more accurate (on self-phase modulation in argon, a field error of
+4e-5 against 3e-4). It spends one response evaluation per step where the Runge–Kutta
+march spends six, so an expensive response widens the gap. The dispersive Kerr
+policies (`MaterialSelection(electronic="symmetric-kerr")` or `"gas-polynomial"`) cost
+more per evaluation than the carrier Kerr default: on a single-mode argon
+four-wave-mixing scan with them, the Adams method was 3.6 times faster. On a long run
+with Raman or plasma, `RungeKutta()` is the faster choice: 3.6 times on the Raman
+self-frequency-shift example and 2.1 times on the ionisation blueshift example. The
+TDSE response runs only on `Multistep()`. The radial and
+planar defaults hold their methods, which are faster there than the Runge–Kutta march
+(by 1.4 to 2.4 times on the radial filament), and set a tolerance where the caller gave
+no controller. A free-space run takes the Runge–Kutta march: the Adams history's
+memory rules the multistep method out for a large transverse state. Its tolerance is
+looser because the spectrum never set it: on a Cartesian Kerr beam near self-focusing,
+every level from 1e-3 to 1e-6 kept the spectrum within 0.002 dB of a tight reference,
+and 1e-4 was taken for a field error 2.5 times smaller than at 1e-3. The adaptive march
+needs no step calibration, and on that beam it was 26 to 53 times faster than a
+0.5 µm fixed RK4IP schedule. A fixed `LowStorageRungeKutta()` step calibrated to the
+same error is cheaper still, by about 1.6 times, and uses about half the memory.
 
 The tolerances were set by a convergence test: the loosest of three levels a decade
 apart at which a seeded ensemble's mean spectrum stays within 0.5 dB, above −40 dB of

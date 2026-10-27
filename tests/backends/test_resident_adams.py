@@ -15,6 +15,7 @@ suites' (``test_exponential_routes.py``, ``test_compiled_multistep.py``).
 """
 
 import math
+from typing import cast
 
 import numpy as np
 import pytest
@@ -227,7 +228,8 @@ def test_a_separable_route_follows_the_host_engine(route, formulation, monkeypat
             },
             "integrator": integrator,
             "controller": PIController(
-                rtol=1e-8, atol=simulation.settings.controller.atol
+                rtol=1e-8,
+                atol=cast("PIController", simulation.settings.controller).atol,
             ),
         }
     )

@@ -597,7 +597,9 @@ def test_interior_launch_refuses_modified_noise_before_realisation():
     with pytest.raises(DriverError, match="refuses the modified noise model"):
         launched("modified")
     # SEP 37: an explicit input draw enters at the launch.
-    assert launched("input").noise.model == "input"
+    admitted = launched("input").noise
+    assert admitted is not None
+    assert admitted.model == "input"
 
 
 @pytest.mark.parametrize("case", ["outside", "field", "logical", "cap", "atomic"])

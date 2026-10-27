@@ -487,7 +487,7 @@ needs the noise to see only the emission gain, not the net gain. Either the nois
 injected separately and acted on by the emission part of the gain operator alone, as in
 the split of Chen and Wise (arXiv:2410.20567), which solprop's modified-noise injection
 path (ADR-008) could carry, or a gain Langevin term supplies the distributed
-spontaneous emission. [SEP 37](sep-0037-noise-and-stepper-defaults.md) keeps that
+spontaneous emission. [SEP 37](archive/sep-0037-noise-and-stepper-defaults.md) keeps that
 injection path until this choice is made. Such stochastic work is deferred here; there
 is no claim of reproducing all stochastic figures in [1, 2].
 

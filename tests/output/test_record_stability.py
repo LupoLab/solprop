@@ -66,6 +66,9 @@ def spatial(kind: str) -> Simulation:
         dz_init=1e-4,
         absorber=boundary,
         backend="numpy_ref",
+        # The records were taken on the Adams march, the free-space default before
+        # SEP 37 made it the Runge-Kutta one.
+        integrator=Multistep(),
     )
     responses = [KerrResponse(1e-22, thg=False)]
     if kind == "radial":

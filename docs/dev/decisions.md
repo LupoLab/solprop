@@ -1272,7 +1272,7 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-055 — Noise on by default, and defaults chosen for each interface
 
-- **Status:** accepted ([SEP 37](seps/sep-0037-noise-and-stepper-defaults.md)); amends
+- **Status:** accepted ([SEP 37](seps/archive/sep-0037-noise-and-stepper-defaults.md)); amends
   ADR-045 and ADR-008
 - **Context:** every run was noiseless unless it asked, every interface stepped with
   `Multistep()`, and the default tolerances were partly unexplained. A one-photon
@@ -1289,9 +1289,10 @@ Withdrawn (development-process record, not a design decision).
     (the fastest at matched accuracy among the methods every route of the interface
     admits) and a convergence protocol. `prop_gnlse` takes `RungeKutta()` and `rtol`
     1e-7; `prop_waveguide` takes `RungeKutta()` and 1e-5; `prop_capillary` keeps
-    `Multistep()` and 1e-6; `prop_radial` and `prop_planar` keep `Multistep()` and
-    take 1e-5 with no `atol` where the caller gives no controller. A default never
-    depends on the physics switched on.
+    `Multistep()` and 1e-6 for every representation; `prop_radial` and `prop_planar`
+    keep `Multistep()` and take 1e-5 with no `atol` where the caller gives no
+    controller; `prop_free` takes `RungeKutta()` and 1e-4 with no `atol`. A default never depends on the physics switched on, except the
+    TDSE's, by the maintainer's decision, and the free-space noise.
 - **Why:** the input model is the least bad noise model solprop implements, used by
   the literature and the group for years; the defaults follow measurement, not habit.
 - **Consequences:**

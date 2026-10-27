@@ -24,13 +24,6 @@ if TYPE_CHECKING:
     from solprop.driver import Simulation, SimulationSettings
     from solprop.stepper import Multistep, RungeKutta
 
-FREE_RTOL = 1e-6
-"""The controller tolerance of the Cartesian and line cases.
-
-Free space has no default tolerance (SEP 37 measured none), so these cases keep the
-value SEP 30 ran them at.
-"""
-
 
 def integrator(stepper: str) -> Multistep | RungeKutta | None:
     """Return the integrator a stepper override names; ``None`` keeps the default."""
@@ -266,7 +259,6 @@ def kerr(name: str, settings: SimulationSettings) -> Simulation:
         [KerrResponse(chi3=2.2e-22 * MU0 * EPS0 * C**2, thg=False)],
         launch,
         settings=settings,
-        seed=SEED,
     )
 
 
@@ -328,22 +320,12 @@ def spatial(name: str, settings: SimulationSettings) -> Simulation:
             seed=SEED,
         )
     if name == "line" or name.startswith("cartesian_filament"):
-        from solprop.stepper import PIController  # noqa: PLC0415
-
         size = case.dimensions[0]
         space = (
             LineGrid(1e-3, size) if name == "line" else FreeGrid(6e-4, size, 6e-4, size)
         )
         return Simulation.from_free(
-            grid,
-            space,
-            medium,
-            responses,
-            pulse,
-            settings=dataclasses.replace(
-                settings, controller=PIController(rtol=FREE_RTOL, atol=0.0)
-            ),
-            seed=SEED,
+            grid, space, medium, responses, pulse, settings=settings
         )
     raise SuiteError(f"spatial builder not implemented for {name}")
 
@@ -402,7 +384,7 @@ def build(configuration: Record) -> Simulation:
 
     The tolerances are left to the interface. A stepper override replaces only the
     integrator. A case with a fixed step runs its declared schedule with the
-    low-storage RK4IP march, as free space has no default tolerance.
+    low-storage RK4IP march.
     """
     import numpy as np  # noqa: PLC0415
 
@@ -433,12 +415,8 @@ def build(configuration: Record) -> Simulation:
             field_planes=observed["field_planes"],
         )
         if case.step is not None:
-            from solprop.stepper import PIController  # noqa: PLC0415
-
-            # The controller is required but unused by a fixed schedule.
             settings = dataclasses.replace(
                 settings,
-                controller=PIController(rtol=FREE_RTOL, atol=0.0),
                 integrator=LowStorageRungeKutta(scheme="rk4ip"),
                 schedule=FixedSchedule(
                     np.diff(np.linspace(0.0, stop, max(1, round(stop / case.step)) + 1))

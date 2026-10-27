@@ -65,11 +65,10 @@ same steps; the summary says so when they do not.
 
 **Library defaults.** A case is the interface call a user would write. It passes no
 tolerance or integrator, so it runs with its interface's defaults
-([SEP 37](seps/sep-0037-noise-and-stepper-defaults.md)). A changed default therefore
+([SEP 37](seps/archive/sep-0037-noise-and-stepper-defaults.md)). A changed default therefore
 shows in the history as a new integrator or tolerance on that row. Every noisy launch
-fixes the same seed, so its repeats and its releases are comparable. The free-space
-cases, whose interface has no default tolerance, keep their own controller; the Kerr
-beams run their declared fixed RK4IP schedule.
+fixes the same seed, so its repeats and its releases are comparable. The Kerr beams
+run their declared fixed RK4IP schedule.
 
 **Steppers.** `--stepper` takes `default`, `multistep`, `multistep-interaction` or `rk`,
 or a comma-separated list to compare steppers in one run:

@@ -297,6 +297,9 @@ __all__ = [
     "DEFAULT_ATOL",
     "DEFAULT_N_SAVE",
     "DEFAULT_RTOL",
+    "FREE_ATOL",
+    "FREE_NOISE",
+    "FREE_RTOL",
     "INTERIOR_LAUNCH_NOISE",
     "LOOSE_ADAMS_RTOL",
     "LOW_STORAGE_BACKENDS",
@@ -306,6 +309,7 @@ __all__ = [
     "SINGLE_PRECISION_NOISE",
     "SPATIAL_ATOL",
     "SPATIAL_RTOL",
+    "TDSE_NOISE",
     "WAVEGUIDE_ATOL",
     "WAVEGUIDE_RTOL",
     "NoiseModel",
@@ -334,10 +338,10 @@ DEFAULT_RTOL = 1e-7
 """Relative tolerance a GNLSE run asks for unless told otherwise.
 
 Set by SEP 37's convergence protocol on the supercontinuum of Dudley, Genty and Coen
-(the standard suite's ``gnlse_raman_shock``): the loosest of three levels a decade apart
-at which the ensemble-mean spectrum stays within 0.5 dB above -40 dB of its peak and the
-coherence within 0.02, over paired seeds, with the default ``RungeKutta()``. A noiseless
-soliton-recurrence study asks for its own, tighter value.
+(the benchmark suite's ``gnlse_raman_shock``): the loosest of three levels a decade
+apart at which the ensemble-mean spectrum stays within 0.5 dB above -40 dB of its peak
+and the coherence within 0.02, over paired seeds, with the default ``RungeKutta()``.
+A noiseless soliton-recurrence study asks for its own, tighter value.
 """
 
 DEFAULT_ATOL = 1e-14
@@ -351,7 +355,7 @@ CAPILLARY_RTOL = 1e-6
 
 The default of :meth:`Simulation.from_capillary` and
 :func:`~solprop.driver.interface.prop_capillary` with their default ``Multistep()``.
-SEP 37's convergence protocol on the standard suite's ``rdw`` case passes it, and a
+SEP 37's convergence protocol on the benchmark suite's ``rdw`` case passes it, and a
 noisy comb-to-continuum check needs it with this integrator (``1e-5`` fails the
 coherence budget there). It is a starting point, not a
 guarantee: a production run should calibrate it (``docs/dev/stepper.md`` section 3).
@@ -362,7 +366,7 @@ WAVEGUIDE_RTOL = 1e-5
 
 The default of :meth:`Simulation.from_waveguide` and
 :func:`~solprop.driver.interface.prop_waveguide` with their default ``RungeKutta()``,
-set by SEP 37's convergence protocol on the standard suite's ``grin_nonlinear``
+set by SEP 37's convergence protocol on the benchmark suite's ``grin_nonlinear``
 window. A starting
 point, not a guarantee: a production run should calibrate it.
 """
@@ -370,13 +374,26 @@ point, not a guarantee: a production run should calibrate it.
 SPATIAL_RTOL = 1e-5
 """Relative tolerance of the controller a radial or planar run takes by default.
 
-Set by SEP 37's convergence protocol on the standard suite's ``radial_filament_256`` and
-``planar`` cases. It applies only where the caller's
+Set by SEP 37's convergence protocol on the benchmark suite's ``radial_filament_256``
+and ``planar`` cases. It applies only where the caller's
 :class:`SimulationSettings` gives no controller.
 """
 
 SPATIAL_ATOL = 0.0
 """Absolute tolerance of the same default controller: none, as the suite runs it."""
+
+FREE_RTOL = 1e-4
+"""Relative tolerance of the controller a Cartesian or line run takes by default.
+
+With the default ``RungeKutta()`` (SEP 37): the Adams history's memory rules the
+multistep method out for a large transverse state. On a self-focusing Kerr beam the
+spectrum stays within 0.002 dB of a tight reference even at 1e-3; 1e-4 cuts the field
+error by 2.5 times for a sixth more steps. Applies only where the caller's
+:class:`SimulationSettings` gives no controller.
+"""
+
+FREE_ATOL = 0.0
+"""Absolute tolerance of the same default controller."""
 
 WAVEGUIDE_ATOL = 1e-10
 """Absolute tolerance of a modal waveguide run, in sqrt(W).
@@ -453,6 +470,18 @@ SINGLE_PRECISION_NOISE = (
 
 PLANAR_NOISE = "the hybrid planar grid carries no noise: no photon measure is declared"
 """Why a planar run carries no noise (SEP 37)."""
+
+FREE_NOISE = (
+    "a Cartesian or line run carries no noise by default: it is slow, and rarely about "
+    "noise sensitivity"
+)
+"""Why a default resolves to no noise on the free-space interface (SEP 37)."""
+
+TDSE_NOISE = (
+    "a TDSE run carries no noise by default: it is expensive, rarely repeated as an "
+    "ensemble, and its checks are coherent"
+)
+"""Why a default resolves to no noise beside the TDSE response (SEP 37)."""
 
 INTERIOR_LAUNCH_NOISE = (
     "an interior launch takes its spectrum as given, which may already carry a draw"
@@ -703,6 +732,9 @@ class SimulationSettings(Displayed):
     evanescent_rate: float | None = None
     transverse_absorber: TransverseCollar | None = None
     adiabatic_accuracy: AdiabaticAccuracy | None = None
+    # Whether the caller named the integrator, set per instance in __post_init__. Not
+    # a field, so that a copy built from the fields keeps working.
+    integrator_named = False
 
     def _planes_text(self) -> str:
         """Return the save planes summarised, for printing.
@@ -794,6 +826,7 @@ class SimulationSettings(Displayed):
             raise DriverError(refusal)
         object.__setattr__(self, "field_planes", tuple(self.field_planes))
         precision = _precision(self.precision)
+        object.__setattr__(self, "integrator_named", self.integrator is not None)
         if self.integrator is None:
             object.__setattr__(
                 self, "integrator", RungeKutta() if precision.single else Multistep()
@@ -2578,6 +2611,7 @@ class Simulation(Displayed):
                 active=self.grid.active_mask,
                 scored=problem.grids.inband_mask,
                 n_components=problem.transform.n_pol,
+                has_noise=self.noise is not None,
             )
         edges = np.asarray(flow.z_edges, dtype=float)
         with warnings.catch_warnings():
@@ -2612,6 +2646,7 @@ class Simulation(Displayed):
             kinks=self.translate().linear.hard_kinks,
             scored=self.translate().grids.inband_mask,
             n_components=self.translate().transform.n_pol,
+            has_noise=self.noise is not None,
         )
 
     def run(  # noqa: PLR0913 - independent execution and output controls
@@ -3434,7 +3469,12 @@ class Simulation(Displayed):
         ):
             msg = "spatial input must have shape (n_columns, n_pol, n_omega)"
             raise DriverError(msg)
-        noise_model, resolution = _resolve_noise(noise, seed, settings.precision)
+        noise_model, resolution = _resolve_noise(
+            noise,
+            seed,
+            settings.precision,
+            quiet=None if isinstance(space, RadialGrid) else FREE_NOISE,
+        )
         draw = (
             None
             if noise_model is None
@@ -4023,7 +4063,7 @@ class Simulation(Displayed):
             Entropy of the noise generator.
         rtol : float or None, optional
             Relative step tolerance; the default is :data:`CAPILLARY_RTOL`, the
-            waveguide default. Calibrate it for a production run
+            capillary default. Calibrate it for a production run
             (``docs/dev/stepper.md`` section 3).
         atol : float, optional
             Absolute step tolerance, in the square root of watts.
@@ -4039,7 +4079,8 @@ class Simulation(Displayed):
             ``None``, the default, takes ``Multistep()``: the low-call exponential
             Adams method, one response evaluation per step. ``RungeKutta()`` is the
             interaction-picture DOPRI5 march, for a cheap response or a state too
-            large for the Adams history. ``LowStorageRungeKutta()`` replays
+            large for the Adams history, and faster on a long run with Raman or
+            plasma (SEP 37). ``LowStorageRungeKutta()`` replays
             `schedule` in three registers (SEP 24).
         interpolate_planes : bool, optional
             Observe the save planes inside accepted steps instead of landing on them
@@ -4511,7 +4552,7 @@ class Simulation(Displayed):
             Entropy of the noise generator.
         rtol : float or None, optional
             Relative step tolerance; the default is :data:`WAVEGUIDE_RTOL`, the modal
-            waveguide default. Calibrate it for a production run
+            capillary default. Calibrate it for a production run
             (``docs/dev/stepper.md`` section 3).
         atol : float, optional
             Absolute step tolerance, in the square root of watts.
@@ -5279,7 +5320,7 @@ class Simulation(Displayed):
             Entropy of the noise generator.
         rtol : float or None, optional
             Relative step tolerance; the default is :data:`WAVEGUIDE_RTOL`, the modal
-            waveguide default. Calibrate it for a production run
+            capillary default. Calibrate it for a production run
             (``docs/dev/stepper.md`` section 3).
         atol : float, optional
             Absolute step tolerance, in the square root of watts.
@@ -5610,7 +5651,9 @@ class Simulation(Displayed):
             precision=precision,
             tdse_execution=None if atomic is None else atomic.execution,
         )
-        noise_model, resolution = _resolve_noise(noise, seed, precision)
+        noise_model, resolution = _resolve_noise(
+            noise, seed, precision, tdse=atomic is not None
+        )
         simulation = cls(
             working,
             mode_set.modes,
@@ -7749,26 +7792,25 @@ def _spatial_settings(settings: SimulationSettings, route: str) -> SimulationSet
     Returns
     -------
     SimulationSettings
-        `settings`, with :data:`SPATIAL_RTOL` and :data:`SPATIAL_ATOL` where it gave no
-        controller.
-
-    Raises
-    ------
-    DriverError
-        If a free-space run gives no controller: its default tolerance has not been
-        measured.
+        `settings`, with the interface's default controller where it gave none
+        (:data:`SPATIAL_RTOL` for radial and planar runs, :data:`FREE_RTOL` for
+        Cartesian and line ones) and, for a free-space run that named no integrator,
+        ``RungeKutta()``.
     """
+    if (
+        route == "free"
+        and not settings.integrator_named
+        and settings.precision == "double"
+    ):
+        # The Adams history's memory rules the multistep method out for a large
+        # transverse state: a free-space run takes the Runge-Kutta march (SEP 37).
+        settings = dataclasses.replace(settings, integrator=RungeKutta())
     if settings.controller is not None:
         return settings
-    if route == "free":
-        msg = (
-            "a Cartesian or line run has no default tolerance yet (SEP 37 measured "
-            "none): give its SimulationSettings a controller=PIController(...)"
-        )
-        raise DriverError(msg)
-    return dataclasses.replace(
-        settings, controller=PIController(rtol=SPATIAL_RTOL, atol=SPATIAL_ATOL)
+    rtol, atol = (
+        (FREE_RTOL, FREE_ATOL) if route == "free" else (SPATIAL_RTOL, SPATIAL_ATOL)
     )
+    return dataclasses.replace(settings, controller=PIController(rtol=rtol, atol=atol))
 
 
 def _interface_integrator(
@@ -7800,7 +7842,12 @@ def _interface_integrator(
 
 
 def _resolve_noise(
-    noise: str | None, seed: int | None, precision: str
+    noise: str | None,
+    seed: int | None,
+    precision: str,
+    *,
+    tdse: bool = False,
+    quiet: str | None = None,
 ) -> tuple[NoiseModel | None, NoiseResolution]:
     """Resolve a constructor's ``noise`` keyword into the model a run carries (SEP 37).
 
@@ -7822,11 +7869,23 @@ def _resolve_noise(
         The keyword ``seed`` as given.
     precision : {'double', 'single'}
         The run's arithmetic.
+    tdse : bool, optional
+        Whether the run carries the TDSE response, which takes no noise by default
+        and warns when noise is asked for: its runs are expensive, rarely repeated as
+        ensembles, and checked coherently.
+    quiet : str or None, optional
+        Why this interface takes no noise by default, as the free-space one does:
+        ``"default"`` then resolves to none, recorded with this reason.
 
     Returns
     -------
     tuple
         The model to draw, or ``None``, and the record of how it was chosen.
+
+    Warns
+    -----
+    SolpropWarning
+        When a TDSE run asks for a noise model explicitly.
 
     Raises
     ------
@@ -7842,18 +7901,32 @@ def _resolve_noise(
     True
     """
     if noise == "default":
-        if precision == "single":
+        fallback = (
+            SINGLE_PRECISION_NOISE
+            if precision == "single"
+            else TDSE_NOISE
+            if tdse
+            else quiet
+        )
+        if fallback is not None:
             if seed is not None:
                 msg = (
-                    "a noise seed was given, but single precision carries no noise by "
-                    "default: pass noise=None and drop the seed"
+                    f"a noise seed was given, but this run takes no noise by default "
+                    f"({fallback}): pass a noise model with the seed, or drop the seed"
                 )
                 raise DriverError(msg)
-            return None, NoiseResolution("default", None, SINGLE_PRECISION_NOISE)
+            return None, NoiseResolution("default", None, fallback)
         return "input", NoiseResolution("default", "input")
     if noise is None and seed is not None:
         msg = "a noise seed requires a noise model"
         raise DriverError(msg)
+    if tdse and noise is not None:
+        msg = (
+            f"noise={noise!r} beside the TDSE response: the atomic source is expensive "
+            "and a TDSE run is rarely repeated as a noise ensemble; pass noise=None "
+            "unless the noise is what this run is about"
+        )
+        warnings.warn(msg, SolpropWarning, stacklevel=4)
     # An unknown model passes through to be refused where it is drawn.
     return cast("NoiseModel | None", noise), NoiseResolution(noise, noise)
 

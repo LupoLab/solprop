@@ -1000,7 +1000,8 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         ``None``,
         the default, takes ``Multistep()``: the low-call exponential Adams method, one
         response evaluation per step. ``RungeKutta()`` is the interaction-picture
-        DOPRI5 march, for a cheap response or a state too large for the Adams history.
+        DOPRI5 march, for a cheap response or a state too large for the Adams history;
+        it is also faster on a long run with Raman or plasma (SEP 37).
         ``LowStorageRungeKutta()`` replays `schedule` in three registers (SEP 24).
     interpolate_planes : bool, optional
         Observe the save planes inside accepted steps instead of landing on them

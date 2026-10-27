@@ -407,7 +407,7 @@ every band wider than 256 bins keeps the 64-bin edge.
 A run with input shot noise ([shot noise](../media/noise.md)) saves a field that carries
 its seed: one photon per active bin and channel, a floor of $\hbar\omega/\Delta\omega$
 under the whole spectrum. `get_spectral_density(..., noise_floor="subtract")` removes it
-([SEP 37](../../dev/seps/sep-0037-noise-and-stepper-defaults.md), section 5.5). It
+([SEP 37](../../dev/seps/archive/sep-0037-noise-and-stepper-defaults.md), section 5.5). It
 subtracts the energy of the stored realisation, $|N_0|^2$ bin by bin and channel by
 channel in the route's own photon measure, before the polarisation components are summed
 and before any mode selection or smoothing:

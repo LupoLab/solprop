@@ -12,7 +12,7 @@
 | **Type** | Process |
 | **Created** | 2026-10-27 |
 | **Resolution** | — |
-| **Requires** | [SEP 37](sep-0037-noise-and-stepper-defaults.md) (the per-interface defaults the tracked cases run with) |
+| **Requires** | [SEP 37](archive/sep-0037-noise-and-stepper-defaults.md) (the per-interface defaults the tracked cases run with) |
 | **Supersedes** | [SEP 30](archive/sep-0030-standard-benchmark-suite.md) |
 | **Superseded-by** | — |
 | **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0038-performance-tracking`, stacked on SEP 37's branch: phase 1 implemented and calibrated 2026-10-27; the first history rows wait for the release |
@@ -80,7 +80,7 @@ The [benchmark rules](../benchmarks.md) and the
 (`publication.py`, `views.py`) and machine records (`system.py`, `telemetry.py`). The
 `ab` mode (`ab.py`, `ab_worker.py`) was added after SEP 30 to time two builds quickly.
 
-[SEP 37](sep-0037-noise-and-stepper-defaults.md) made input noise the default and chose
+[SEP 37](archive/sep-0037-noise-and-stepper-defaults.md) made input noise the default and chose
 an integrator and tolerances for each `prop_*` interface. Its phase 0 timed complete
 runs of the cases proposed here on an AMD EPYC 7763 node: these give the cost estimates
 below. With noise on by default, a timed case needs a fixed seed to be repeatable.
@@ -247,9 +247,8 @@ for both `track` and `ab` is smaller than adapting the standard worker, which is
 with references and reset witnesses.
 
 **Library defaults.** The builders stop passing tolerances and integrators. A case is
-the interface call a user would write, plus a seed and the backend. Where the interface
-has no default controller (free space) or the case builds a `Simulation` directly, the
-case declares its own, as now.
+the interface call a user would write, plus a seed and the backend. A case that builds
+a `Simulation` directly, or runs a fixed schedule, declares its own stepping.
 
 **Case revisions.** A case whose definition changes keeps its name and increments its
 revision; history rows carry the revision and are compared only within one. The
@@ -310,9 +309,8 @@ is final.
 
 ### 12. Open questions
 
-- Q1. If SEP 37's capillary default becomes `RungeKutta()` at 1e-5, the capillary costs
-  fall; should the freed time go to a longer `ctc`, or should `ctc` run at one thread
-  too?
+- Q1. Closed: SEP 37 kept the capillary default at `Multistep()` and 1e-6, the
+  calibrated configuration, so `ctc` and the capillary costs stand.
 - Q2. Decided: a cloud Arm instance is a standing history file, re-rented per
   release, and Windows x86-64 is measured occasionally (§5.3).
 - Q3. Decided: both Kerr beams stay, over four fixed steps instead of eleven.
@@ -327,8 +325,10 @@ is final.
 ### Phase 1 report — the tracking command and its calibration
 
 - **Scope:** phases 1 and 2's calibration, 2026-10-27, Opus 5.5 (AI) for John Travers,
-  branch `feature/sep-0038-performance-tracking`, stacked on SEP 37's pull request
-  (its defaults are provisional until the maintainer approves them).
+  branch `feature/sep-0038-performance-tracking`, then stacked on SEP 37's pull
+  request. SEP 37 has since reached Final with the calibrated capillary, GNLSE,
+  waveguide and spatial defaults unchanged; free space gained a default controller,
+  which the Cartesian and line cases now take.
 - **Delivered:** `benchmarks/registry.py` (cases as complete guides, the `tracking`
   set, widths, observation planes and costs), `builders.py` (interface calls on the
   library's defaults with a fixed seed), `worker.py` (one configuration per process,
@@ -353,7 +353,7 @@ is final.
 - **Not run:** no history row was recorded: the defaults are provisional and the
   branch is not merged, so the first rows wait for the release commit. The Apple M5
   Max was not timed (it was busy).
-- **Open questions:** Q1–Q3 (§12).
+- **Open questions:** none open (§12).
 
 ## Part III — History
 
