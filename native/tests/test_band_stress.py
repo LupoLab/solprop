@@ -135,6 +135,7 @@ def capillary(
             integrator=RungeKutta(),
             schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / steps),
             absorber_scheme="split_step",
+            noise=None,
         )
         # Mode-averaged: one node, so a host team of several threads splits each row.
         simulation.settings = dataclasses.replace(

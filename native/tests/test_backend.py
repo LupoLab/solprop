@@ -1028,6 +1028,7 @@ def test_the_plasma_stash_is_off_under_the_split_step_absorber() -> None:
                 names=("peak_ionisation_rate",), periodic=("peak_ionisation_rate",)
             ),
             backend="numpy_ref",
+            noise=None,
         )
         simulation.settings = dataclasses.replace(
             simulation.settings, absorber_scheme=scheme

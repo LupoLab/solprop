@@ -74,6 +74,7 @@ def capillary(
             n_save=2,
             envelope=envelope,
             thg=thg,
+            noise=None,
         )
         return simulation.translate()
 

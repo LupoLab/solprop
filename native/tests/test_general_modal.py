@@ -193,6 +193,7 @@ def _case(
             fwhm=20e-15,
             energy=2e-9,
             pulseshape="gauss",
+            noise=None,
         )
         # No collar: ten replayed steps are far beyond the in-stage collar's limit
         # under solprop's default Adams history, and the split-step scheme treats a
@@ -612,6 +613,7 @@ def _moving_grin() -> tuple[Simulation, KernelProblem]:
             fwhm=60e-15,
             energy=1e-8,
             pulseshape="gauss",
+            noise=None,
         )
         simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
         problem = simulation.translate()
