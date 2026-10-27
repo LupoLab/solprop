@@ -937,6 +937,13 @@ if(WIN32 AND SOLPROP_NATIVE_BLAS_STATIC)
     "LINKER:/EXPORT:openblas_get_num_threads"
     "LINKER:/EXPORT:openblas_set_num_threads")
 endif()
+option(SOLPROP_NATIVE_FFTW_STATIC
+  "FFTW is linked statically into the extension (the Windows wheel)" OFF)
+if(WIN32 AND SOLPROP_NATIVE_FFTW_STATIC)
+  # Likewise a static FFTW: the build record names the binary32 transform's provider
+  # through this export, which check_build requires of a reduced precision (SEP 36).
+  target_link_options(_core PRIVATE "LINKER:/EXPORT:fftwf_execute")
+endif()
 target_compile_definitions(_core PRIVATE
   SOLPROP_NATIVE_BACKEND_COMMIT="${SOLPROP_NATIVE_BACKEND_COMMIT}"
   SOLPROP_NATIVE_SOLPROP_BUILT_AGAINST="${SOLPROP_NATIVE_SOLPROP_BUILT_AGAINST}"

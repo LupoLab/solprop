@@ -92,7 +92,7 @@ repair-wheel-command = "delocate-wheel --require-archs {delocate_archs} --requir
 # copying libomp.dll into the wheel under a mangled name.
 [tool.cibuildwheel.windows]
 before-all = "pwsh -NoProfile -ExecutionPolicy Bypass -File {package}\\ci\\build-deps-windows.ps1 -Prefix C:\\solprop-deps"
-environment = { CMAKE_GENERATOR = "Ninja", CC = "clang", CXX = "clang++", CMAKE_ARGS = "-DSOLPROP_NATIVE_DISTRIBUTION_BLAS=OPENMP_OPENBLAS -DSOLPROP_NATIVE_OPENBLAS_ROOT=C:/solprop-deps/openblas -DFFTW_ROOT=C:/solprop-deps/fftw -DFFTW_DOUBLE_LIB=C:/solprop-deps/fftw/lib/fftw3.lib -DFFTW_FLOAT_LIB=C:/solprop-deps/fftw/lib/fftw3f.lib -DFFTW_DOUBLE_OPENMP_LIB=C:/solprop-deps/fftw/lib/fftw3_omp.lib -DFFTW_FLOAT_OPENMP_LIB=C:/solprop-deps/fftw/lib/fftw3f_omp.lib -DOpenMP_CXX_FLAGS=-fopenmp -DOpenMP_CXX_LIB_NAMES=libomp -DOpenMP_libomp_LIBRARY=C:/solprop-deps/libomp/lib/libomp.lib -DSOLPROP_NATIVE_BUNDLED_LICENCES=C:/solprop-deps/licences" }
+environment = { CMAKE_GENERATOR = "Ninja", CC = "clang", CXX = "clang++", CMAKE_ARGS = "-DSOLPROP_NATIVE_DISTRIBUTION_BLAS=OPENMP_OPENBLAS -DSOLPROP_NATIVE_OPENBLAS_ROOT=C:/solprop-deps/openblas -DFFTW_ROOT=C:/solprop-deps/fftw -DFFTW_DOUBLE_LIB=C:/solprop-deps/fftw/lib/fftw3.lib -DFFTW_FLOAT_LIB=C:/solprop-deps/fftw/lib/fftw3f.lib -DFFTW_DOUBLE_OPENMP_LIB=C:/solprop-deps/fftw/lib/fftw3_omp.lib -DFFTW_FLOAT_OPENMP_LIB=C:/solprop-deps/fftw/lib/fftw3f_omp.lib -DSOLPROP_NATIVE_FFTW_STATIC=ON -DOpenMP_CXX_FLAGS=-fopenmp -DOpenMP_CXX_LIB_NAMES=libomp -DOpenMP_libomp_LIBRARY=C:/solprop-deps/libomp/lib/libomp.lib -DSOLPROP_NATIVE_BUNDLED_LICENCES=C:/solprop-deps/licences" }
 repair-wheel-command = "delvewheel repair --add-path C:\\solprop-deps\\libomp\\bin -w {dest_dir} -v {wheel}"
 
 [tool.setuptools_scm]
