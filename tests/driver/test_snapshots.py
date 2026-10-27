@@ -11,6 +11,7 @@ import subprocess
 import sys
 import warnings
 from pathlib import Path
+from typing import cast
 
 import h5py
 import pytest
@@ -38,7 +39,7 @@ from solprop.output import (
 )
 from solprop.output import snapshots as module
 from solprop.output.schema import PlaneStore
-from solprop.stepper import Multistep, RungeKutta
+from solprop.stepper import Multistep, PIController, RungeKutta
 
 pytestmark = pytest.mark.medium
 
@@ -81,7 +82,7 @@ def ordinary(backend="numpy_ref", integrator=None, **keywords):
         step_planes=1,
         dz_init=1e-4,
         dz_max=1e-4,
-        **keywords,
+        **{"noise": None, **keywords},
     )
 
 
@@ -402,7 +403,11 @@ def test_snapshot_and_resumed_fields_meet_the_tighter_reference_envelope(
     fake, tmp_path
 ):
     baseline = _run(_simulation())
-    tighter = _run(_simulation(rtol=_simulation().settings.controller.rtol / TIGHTER))
+    tighter = _run(
+        _simulation(
+            rtol=cast("PIController", _simulation().settings.controller).rtol / TIGHTER
+        )
+    )
     controller = SnapshotController(tmp_path / "snapshots")
     output = _run(
         _simulation(),
@@ -460,7 +465,7 @@ def test_native_adams_snapshots_carry_the_resident_history(tmp_path, caplog):
         return ordinary("native", Multistep(), **keywords)
 
     baseline = _run(adams())
-    rtol = adams().settings.controller.rtol
+    rtol = cast("PIController", adams().settings.controller).rtol
     tighter = _run(adams(rtol=rtol / TIGHTER))
     controller = SnapshotController(tmp_path / "snapshots")
     _run(

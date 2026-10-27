@@ -108,13 +108,13 @@ def test_public_interfaces_share_the_default_and_preserve_explicit_choices(
                 width=100e-15,
                 pulseshape="sech",
                 peak_power=1.0,
-                **keywords,
+                **{"noise": None, **keywords},
             )
         elif kind in {"capillary", "waveguide"}:
             interface = (
-                partial(prop_capillary, 125e-6)
+                partial(prop_capillary, 125e-6, noise=None)
                 if kind == "capillary"
-                else partial(prop_waveguide, [MarcatiliMode(125e-6)])
+                else partial(prop_waveguide, [MarcatiliMode(125e-6)], noise=None)
             )
             result = interface(
                 0.001,
@@ -132,9 +132,11 @@ def test_public_interfaces_share_the_default_and_preserve_explicit_choices(
             )
         else:
             interface = (
-                partial(prop_radial, narrow_grid, RadialGrid(6e-4, 8))
+                partial(prop_radial, narrow_grid, RadialGrid(6e-4, 8), noise=None)
                 if kind == "radial"
-                else partial(prop_free, narrow_grid, FreeGrid(3e-4, 8, 3e-4, 8))
+                else partial(
+                    prop_free, narrow_grid, FreeGrid(3e-4, 8, 3e-4, 8), noise=None
+                )
             )
             pulse = SpatialPulse(
                 GaussianPulse(wavelength=835e-9, fwhm=30e-15, energy=1e-9), 60e-6
@@ -183,11 +185,13 @@ def test_auto_runs_a_z_table_taper_on_the_native_cpu_build():
             "dz_max": 2e-3,
             "n_save": 2,
         }
-        coupled = Simulation.from_capillary(taper, 1.0, "He", 1.5, **arguments)
+        coupled = Simulation.from_capillary(
+            taper, 1.0, "He", 1.5, **{"noise": None, **arguments}
+        )
         assert coupled.translate().device_ready
         assert coupled.translate().linear.coupled_flow is not None
         simulation = Simulation.from_capillary(
-            taper, 1.0, "He", 1.5, taper_coupling=False, **arguments
+            taper, 1.0, "He", 1.5, taper_coupling=False, **{"noise": None, **arguments}
         )
         problem = simulation.translate()
     assert problem.linear.phi_representation == "table"

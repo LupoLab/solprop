@@ -66,7 +66,7 @@ def radial_run():
     )
     medium = SpatialMedium("Ar", 1.0)
     simulation = Simulation.from_radial(
-        grid, RadialGrid(3e-4, 64), medium, [], pulse, settings=settings
+        grid, RadialGrid(3e-4, 64), medium, [], pulse, settings=settings, noise=None
     )
     return simulation, simulation.run(progress="none")
 

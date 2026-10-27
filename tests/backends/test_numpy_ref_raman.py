@@ -889,6 +889,7 @@ def test_the_soliton_self_frequency_shift_matches_gordons_rate(
         rtol=1e-9,
         atol=1e-22,
         backend=selected_backend_name,
+        noise=None,
     )
     z = handler["z"]
     centroid = handler["stats/omega0"][:, 0, 0]
@@ -923,6 +924,7 @@ def test_a_run_without_raman_does_not_shift_its_centroid(selected_backend_name):
         rtol=1e-9,
         atol=1e-22,
         backend=selected_backend_name,
+        noise=None,
     )
     centroid = handler["stats/omega0"][:, 0, 0]
     # Self-phase modulation broadens the spectrum symmetrically about the carrier, so
@@ -980,6 +982,7 @@ def test_the_shock_term_conserves_photon_number_and_raman_costs_energy(
         rtol=1e-12,
         atol=1e-26,
         backend=selected_backend_name,
+        noise=None,
     )
     photons, energy = photon_number_and_energy(handler, photon_grid)
     # Measured with Raman on: the photon number is conserved exactly -- 0.0, not merely

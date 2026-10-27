@@ -147,6 +147,7 @@ def test_batch_refuses_spatial_geometry_before_selecting_a_backend():
             shock=True,
             prefactor_index=None,
         ),
+        noise=None,
     )
     with pytest.raises(DriverError, match="fibre geometry"):
         list(compatible_groups([BatchMember(0, simulation)], 2))

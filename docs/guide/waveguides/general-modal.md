@@ -379,12 +379,13 @@ at the translation layer and in the backend.
 * An `n2` with no `at=` whose conversion to $\chi^{(3)}$ moves by more than one per cent
   across the band, and the real cubic on a grid with no room for its harmonic.
 * A nonunitary basis, or one acting outside a declared block; and beside a split block,
-  a noise model (its transport through a coupled flow is not measured), a lockstep batch
+  the `modified` noise model (its kept-apart draw's transport through a coupled flow is
+  not measured; the `input` draw is part of the launch and is admitted), a lockstep batch
   member (it applies neither half of the flow) and a block whose exponent exceeds
   `MAX_GENERAL_FLOW_EXPONENT`.
 * Beside a guide whose geometry moves: a snapshot position other than the entrance, a
-  run longer than the declared path, a noise model, a lockstep batch, a fixed schedule
-  that straddles a kink, and a CF4 flow or no flow at all beside the moving maps
+  run longer than the declared path, the `modified` noise model, a lockstep batch, a
+  fixed schedule that straddles a kink, and a CF4 flow or no flow at all beside the moving maps
   ([a guide whose geometry moves along z](moving-modal.md#a-guide-whose-geometry-moves-along-z)).
 * The scalar-route power names, `quadrature_error` and — beside a split block — `zdw`: a
   statistic the basis does not define is refused with its replacement where it has one,

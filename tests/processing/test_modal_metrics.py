@@ -131,7 +131,7 @@ def tables(guide, grid):
 def run(guide, grid):
     """One general modal run, in memory, with its two saved planes."""
     simulation = Simulation.from_waveguide(
-        (), GENERAL_Z_END, provider=guide, grid=grid, **(PULSE | RUN)
+        (), GENERAL_Z_END, provider=guide, grid=grid, **({"noise": None, **PULSE | RUN})
     )
     return cast("MemoryOutput", simulation.run(progress="none"))
 
@@ -356,7 +356,11 @@ def test_a_coordinate_intensity_is_not_the_physical_one(pair_guide, grid):
     """
     route = route_for(pair_guide, grid)
     simulation = Simulation.from_waveguide(
-        (), GENERAL_Z_END, provider=pair_guide, grid=grid, **(PULSE | RUN)
+        (),
+        GENERAL_Z_END,
+        provider=pair_guide,
+        grid=grid,
+        **({"noise": None, **PULSE | RUN}),
     )
     built = np.asarray(simulation.initial)
     # Both parities at once, at equal amplitude: a linearly polarised launch at
@@ -741,6 +745,7 @@ def test_both_cpu_backends_refuse_a_general_name_on_an_ordinary_run(backend):
         pulseshape="sech",
         n_save=2,
         backend=backend,
+        noise=None,
     )
     problem = simulation.translate()
     built = select(backend, problem, grid=simulation.grid)

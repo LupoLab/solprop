@@ -101,6 +101,7 @@ def line(
             backend="numpy_ref",
             **settings,
         ),
+        noise=None,
     )
 
 
@@ -177,6 +178,7 @@ def test_the_settings_are_refused_where_they_do_not_apply():
         width=100e-15,
         peak_power=9.8,
         pulseshape="sech",
+        noise=None,
     )
     for name, value in (
         ("evanescent_rate", 1e3),
@@ -384,6 +386,7 @@ def radial(
             evanescent_rate=RATE,
             **settings,
         ),
+        noise=None,
     )
 
 

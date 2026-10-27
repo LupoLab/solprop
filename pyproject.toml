@@ -285,7 +285,7 @@ docs-clean = "python -c \"import shutil; [shutil.rmtree(p, ignore_errors=True) f
 
 [tool.poe.tasks.bench]
 cmd = "python -m benchmarks"
-help = "Run the bounded core quick suite; pass list, run, compare or qualify options."
+help = "Plan the tracking run; pass track, ab, history or list options (SEP 38)."
 
 # The test lanes run under xdist: one worker per core, with `loadgroup` and a default
 # group per module assigned by tests/conftest.py. Module fixtures stay on one worker;

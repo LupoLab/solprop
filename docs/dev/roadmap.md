@@ -249,6 +249,14 @@ would remove the approximation.
 [SEP 16](seps/archive/sep-0016-unified-multistep.md) qualified modified-noise stepping while
 preserving the existing model; it did not remove this physical normalisation limitation.
 
+**The modified noise model's future.** With a unitary linear operator the modified model
+is the input model in shifted variables, and elsewhere it is an approximation of
+unqualified accuracy ([SEP 37](seps/archive/sep-0037-noise-and-stepper-defaults.md), §4.2). It is
+kept as it is, with no new work. Whether it stays is decided with
+[SEP 7](seps/sep-0007-laser-gain-dynamics.md): amplified spontaneous emission needs the
+noise to see only the emission gain, which its separate injection path could carry. If
+gain media take a gain Langevin term instead, the modified model is removed.
+
 ## Waveguides and geometries
 
 **Material absorption in step-index fibres.** The step-index eigenproblem takes the core
@@ -421,7 +429,9 @@ dense-gas propagation.
 partly linear in each weak bin's own field and rotates with its free phase, which the
 exponential formulation interpolates in the laboratory frame. Until a
 developed noisy window, such as the CtC comb, measures it, the manual prefers
-`Multistep(formulation="interaction")` beside that noise.
+`Multistep(formulation="interaction")` beside that noise. [SEP 37](seps/archive/sep-0037-noise-and-stepper-defaults.md) (phase 0)
+measures both formulations with input noise on every interface; the modified case
+remains here.
 
 **Qualifying the TDSE response.** The helium TDSE response
 ([SEP 12](seps/archive/sep-0012-tdse-nonlinear-response.md),
@@ -436,7 +446,10 @@ on; numerical qualification over longer segments and other waveforms, then a
 full-length capillary demonstration with a worked example; and publication of the
 atomic provider, Pyroraptor ([dependencies](dependencies.md)), so that the response can
 be installed from a released package. Other gases, double ionisation and solver
-comparisons on the actual atomic source lie beyond these.
+comparisons on the actual atomic source lie beyond these. Input noise beside the response
+is admitted but off by default ([SEP 37](seps/archive/sep-0037-noise-and-stepper-defaults.md));
+its check is the weak-field response to the draw over a short segment. A full-length
+weak-field run against a pinned Pyroraptor release would qualify it.
 
 **A quadrature-error estimate on Cartesian waveguide runs.** A radial run scores its
 transverse quadrature against an embedded coarse rule and reports the difference as the
@@ -488,10 +501,14 @@ would need an error allocation over the table's frequency interpolation, the tra
 rule and the step, and named physical observables to allocate against; until then a
 number is refused rather than recorded and ignored.
 
-**Noise and batches beside a coupled flow.** A noise model beside a coupled flow (a wall
-or the taper coupling) is refused, because a draw's transport through the flow is not
-measured; so is a coupled flow in a lockstep batch. Both need a derivation and a test
-before they can be admitted.
+**Modified noise and batches beside a coupled flow.** The `modified` noise model
+beside a coupled flow (a wall, the taper coupling, a split block or a moving guide) is
+refused, because its kept-apart draw's transport through the flow is not measured; so
+is a coupled flow in a lockstep batch. Both need a derivation and a test before they
+can be admitted. [SEP 37](seps/archive/sep-0037-noise-and-stepper-defaults.md) (phase 3)
+admitted the `input` model there, whose draw is part of the launch. Its tests run on the
+reference and numba backends; the native backend beside a coupled flow with input noise
+is not yet qualified against them.
 
 **Independent spatial references for the vector and graded-index routes.** The scalar bore
 and taper are checked against an independent finite-element solve. The vector wall is
@@ -599,8 +616,8 @@ GPUs with slow double precision.
   Apple GPUs on the fibre, radial and Cartesian routes with every response but the
   refused ones. Its open questions: whether a rule comparing binary32 Adams with
   binary64 Adams should admit `Multistep()` under single precision (binary64 Adams has
-  the same errors at the tolerances the study used); `mlx` cases in the standard
-  benchmark suite (SEP 30); and a fused stage kernel for the launch-bound small plasma
+  the same errors at the tolerances the study used); `mlx` cases in the
+  benchmarks (SEP 38); and a fused stage kernel for the launch-bound small plasma
   capillaries. Open beyond it: single precision on
   `native` and `numba_cpu` (Kokkos, Kokkos Kernels and Kokkos-FFT support it on every
   backend in use), on the routes SEP 33 refuses, and noise models under single
@@ -609,13 +626,12 @@ GPUs with slow double precision.
   would need a single-source C++ compiler for Metal (the runtime part is modest: 5 to
   10 thousand lines for each existing GPU backend).
 
-**Benchmark platform qualification beyond the initial CPU suite.**
-[SEP 30](seps/archive/sep-0030-standard-benchmark-suite.md) covers the standard suite, portable
-records and durable incremental exports, with CPU timing collections on macOS and
-Linux and an initial native coverage collection on macOS. Linux native coverage,
-Windows execution, cloud launch/collection recipes and GPU timing and coverage
-need separate qualification. Keep future platform results in distinct machine/build
-records; successful CPU coverage does not establish coverage of device code.
+**Benchmark platforms beyond CPU tracking.**
+[SEP 38](seps/archive/sep-0038-performance-tracking.md) (final) tracks native CPU and
+GPU runs per hardware set. The first history rows are recorded at the release commit on
+an Apple M5 Max, a 16-core AMD EPYC 7763 allocation and a cloud Arm Neoverse-V2
+instance, with Windows x86-64 occasionally; a GPU file, cloud launch recipes and an
+`mlx` backend in the tracking set remain to do.
 
 **Remaining benchmark references and estimates.** Complete independent reference
 checks for the 512-node radial filament, 128/256-square Cartesian filaments and

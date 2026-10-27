@@ -105,7 +105,7 @@ def build(*, backend="numpy_ref", waveguide=False, **overrides):
             8e-6,
             "Ar",
             1.0,
-            **options,
+            **{"noise": None, **options},
         )
     else:
         simulation = Simulation.from_capillary(
@@ -115,7 +115,7 @@ def build(*, backend="numpy_ref", waveguide=False, **overrides):
             1.0,
             loss=False,
             cladding=1.45,
-            **options,
+            **{"noise": None, **options},
         )
     # Keep four fixed steps inside the explicit collar's stability limit.
     simulation.settings = replace(
@@ -261,7 +261,7 @@ def test_envelope_hdf5_resume_and_reconstruction(
             budget = max(budget, fresh)
             np.testing.assert_allclose(actual, expected, rtol=0, atol=budget * scale)
         assert restored.metadata is not None
-        assert restored.metadata.schema_version == 26
+        assert restored.metadata.schema_version == 27
         assert restored.metadata.configuration["statistic_rate_conventions"] == {
             "peak_ionisation_rate": "cycle-averaged",
             "species_peak_ionisation_rate": "cycle-averaged",

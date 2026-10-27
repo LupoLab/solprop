@@ -32,49 +32,49 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from solprop.boundaries import absorber
-from solprop.driver import Simulation, SimulationSettings
+from solprop.driver import Simulation
 from solprop.grid import EnvelopeGrid, FieldGrid
-from solprop.modes import MarcatiliMode
-from solprop.nonlinear import EnvelopePlasmaResponse
 from solprop.nonlinear.optmat_rates import OptmatRate
-from solprop.nonlinear.responses import PlasmaResponse
 from solprop.processing import get_spectral_density, species_ionisation
-from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec
-from solprop.stepper import FixedSchedule, PIController
+from solprop.stepper import FixedSchedule
 
 started = perf_counter()
 length = 8e-6
-mode = MarcatiliMode(125e-6, "Ar", 1.0, cladding=1.45, loss=False)
-pulse = GaussianPulse(wavelength=800e-9, fwhm=60e-15, energy=1e-3)
 field_grid = FieldGrid.from_limits(length, 800e-9, (500e-9, 1.2e-6), 320e-15, ffac=16)
 envelope_grid = EnvelopeGrid.from_limits(length, 800e-9, (500e-9, 1.2e-6), 320e-15)
 rate = OptmatRate("Ar", 800e-9)
 runs = {}
-for label, grid, response in (
-    ("Carrier resolved", field_grid, PlasmaResponse("Ar", rate)),
-    ("Envelope", envelope_grid, EnvelopePlasmaResponse("Ar", rate)),
-):
-    simulation = Simulation(
-        grid,
-        mode,
-        [response],
-        pulse,
-        settings=SimulationSettings(
-            backend="numpy_ref",
-            controller=PIController(rtol=1e-6, atol=1e-14),
-            save_planes=np.linspace(length / 4, length, 4),
-            dz_init=length / 4,
-            dz_max=length / 4,
-            schedule=FixedSchedule.uniform(0.0, length, length / 4),
-            ionisation_field_range=(1e7, 1e11),
-            # The pulse fits far inside this collar. Its reference length keeps
-            # explicit collar damping stable over the four steps of this short slab.
-            absorber=absorber(grid, boundary_length=1e-3),
-            stats=StatsSpec(
-                names=("energy", "species_ionisation", "peak_ionisation_rate")
-            ),
-        ),
+for label, grid in (("Carrier resolved", field_grid), ("Envelope", envelope_grid)):
+    # The same rate object either way: the envelope grid takes the cycle-averaged
+    # population (EnvelopePlasmaResponse), the field grid the carrier-resolved one.
+    simulation = Simulation.from_capillary(
+        125e-6,
+        length,
+        "Ar",
+        1.0,
+        grid=grid,
+        envelope=grid is envelope_grid,
+        lambda0=800e-9,
+        fwhm=60e-15,
+        energy=1e-3,
+        mode_average=True,
+        cladding=1.45,
+        loss=False,
+        kerr=False,
+        plasma=rate,
+        backend="numpy_ref",
+        rtol=1e-6,
+        atol=1e-14,
+        save_planes=np.linspace(length / 4, length, 4),
+        dz_init=length / 4,
+        dz_max=length / 4,
+        schedule=FixedSchedule.uniform(0.0, length, length / 4),
+        ionisation_field_range=(1e7, 1e11),
+        # The pulse fits far inside this collar. Its reference length keeps
+        # explicit collar damping stable over the four steps of this short slab.
+        absorber=absorber(grid, boundary_length=1e-3),
+        stats=StatsSpec(names=("energy", "species_ionisation", "peak_ionisation_rate")),
     )
     runs[label] = simulation.run(progress="none")
 

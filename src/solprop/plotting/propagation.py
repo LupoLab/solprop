@@ -29,18 +29,20 @@ from solprop.plotting.style import (
     ENERGY_TO_UJ,
     T_TO_FS,
     Z_TO_CM,
+    _display_limits,
     _figure_of,
+    _spec_range,
     cmap_colours,
     field_modes,
     mode_labels,
     per_width,
     power_unit,
     spectral_display,
-    spectral_limits,
 )
 from solprop.processing import spectra, time
 from solprop.processing.axes import ModeSelection, SpectralAxis, _check_choice
 from solprop.processing.fields import (
+    NoiseFloor,
     get_field,
     get_power,
     get_spectral_density,
@@ -49,6 +51,7 @@ from solprop.processing.fields import (
 from solprop.processing.time import energy as pulse_energy
 
 __all__ = [
+    "DEFAULT_SLICE_WAVELENGTH_RANGE",
     "DEFAULT_TRANGE",
     "DEFAULT_WAVELENGTH_RANGE",
     "SLICE_QUANTITIES",
@@ -60,7 +63,10 @@ __all__ = [
 ]
 
 DEFAULT_WAVELENGTH_RANGE = (150e-9, 2e-6)
-"""Wavelength range of a propagation map, m."""
+"""Wavelength range of a propagation map when no ``spec_range`` is given, m."""
+
+DEFAULT_SLICE_WAVELENGTH_RANGE = (150e-9, 1.2e-6)
+"""Wavelength range of a spectral slice when no ``spec_range`` is given, m."""
 
 DEFAULT_TRANGE = (-50e-15, 50e-15)
 """Time range of a propagation map, s."""
@@ -80,7 +86,7 @@ def prop_2d(  # noqa: PLR0913 - the two axes, the two ranges and the colour scal
     output: Output,
     axis: SpectralAxis = "f",
     *,
-    wavelength_range: tuple[float, float] = DEFAULT_WAVELENGTH_RANGE,
+    spec_range: tuple[float, float] | None = None,
     trange: tuple[float, float] = DEFAULT_TRANGE,
     db_min: float = -60.0,
     resolution: float | None = None,
@@ -88,6 +94,7 @@ def prop_2d(  # noqa: PLR0913 - the two axes, the two ranges and the colour scal
     oversampling: int = 4,
     bandpass: spectra.Bandpass | None = None,
     cmap: str | Colormap | None = None,
+    noise_floor: NoiseFloor = "keep",
 ) -> list[Figure]:
     """Return the false-colour propagation maps of a run, one figure per mode.
 
@@ -107,8 +114,10 @@ def prop_2d(  # noqa: PLR0913 - the two axes, the two ranges and the colour scal
         An opened output handler.
     axis : {'f', 'wavelength', 'omega'}
         Spectral abscissa of the left panel.
-    wavelength_range : tuple of float
-        Spectral limits, m.
+    spec_range : tuple of float or None
+        Spectral limits in the units of ``axis``: m, Hz or rad/s. By default
+        :data:`DEFAULT_WAVELENGTH_RANGE` on that axis;
+        :func:`~solprop.plotting.style.wavelength_to_axis` converts a wavelength range.
     trange : tuple of float
         Time limits, s.
     db_min : float
@@ -119,10 +128,16 @@ def prop_2d(  # noqa: PLR0913 - the two axes, the two ranges and the colour scal
         Which modes to draw.
     oversampling : int
         Time-domain resampling factor of the temporal panel.
-    bandpass : tuple of float, numpy.ndarray or None
-        Wavelength limits, m, of a window applied to the temporal panel.
+    bandpass : tuple of float, Passband, numpy.ndarray or None
+        Wavelength limits, m, or a :class:`~solprop.processing.spectra.Passband` on any
+        axis, of a window applied to the temporal panel.
     cmap : str, matplotlib.colors.Colormap or None
         Colour map of both panels.
+    noise_floor : {'keep', 'subtract'}
+        Whether the spectral panel keeps or removes the input noise's seed
+        (:func:`~solprop.processing.fields.get_spectral_density`). A value at or below
+        zero, which the subtraction can leave, is drawn at the bottom of the colour
+        scale, as everything below ``db_min`` is.
 
     Returns
     -------
@@ -138,11 +153,19 @@ def prop_2d(  # noqa: PLR0913 - the two axes, the two ranges and the colour scal
     >>> figures = prop_2d(example_output())
     >>> len(figures), len(figures[0].axes)
     (1, 4)
+    >>> figures = prop_2d(example_output(), "f", spec_range=(0.0, 2e15))
+    >>> figures[0].axes[0].get_xlim() == (0.0, 2.0)
+    True
     >>> plt.close("all")
     """
-    limits = _si_range(axis, wavelength_range)
+    limits = _spec_range(axis, spec_range, DEFAULT_WAVELENGTH_RANGE)
     x, density = get_spectral_density(
-        output, axis, modes=modes, spec_range=limits, resolution=resolution
+        output,
+        axis,
+        modes=modes,
+        spec_range=limits,
+        resolution=resolution,
+        noise_floor=noise_floor,
     )
     t, power = get_power(
         output, modes=modes, oversampling=oversampling, bandpass=bandpass
@@ -171,7 +194,7 @@ def prop_2d(  # noqa: PLR0913 - the two axes, the two ranges and the colour scal
             cmap=cmap,
         )
         spectral.set_xlabel(label)
-        spectral.set_xlim(*spectral_limits(axis, wavelength_range))
+        spectral.set_xlim(*_display_limits(axis, limits))
         _temporal_map(
             temporal,
             t * T_TO_FS,
@@ -217,8 +240,9 @@ def time_1d(  # noqa: PLR0913 - the planes, the quantity, the window and the axi
         Time-domain resampling factor.
     trange : tuple of float
         Time limits, s.
-    bandpass : tuple of float, numpy.ndarray or None
-        Wavelength limits, m, of a window applied before the transform.
+    bandpass : tuple of float, Passband, numpy.ndarray or None
+        Wavelength limits, m, or a :class:`~solprop.processing.spectra.Passband` on any
+        axis, of a window applied before the transform.
     widths : bool
         Whether to append each trace's width at half maximum to its legend entry.
     ax : matplotlib.axes.Axes or None
@@ -304,11 +328,12 @@ def spec_1d(  # noqa: PLR0913 - the planes, the abscissa, the range and the scal
     axis: SpectralAxis = "wavelength",
     *,
     modes: ModeSelection = None,
-    wavelength_range: tuple[float, float] = (150e-9, 1.2e-6),
+    spec_range: tuple[float, float] | None = None,
     log: bool = True,
     log_min: float = 1e-6,
     resolution: float | None = None,
     ax: Axes | None = None,
+    noise_floor: NoiseFloor = "keep",
 ) -> Figure:
     """Return spectral slices of a run at one or more positions.
 
@@ -322,8 +347,10 @@ def spec_1d(  # noqa: PLR0913 - the planes, the abscissa, the range and the scal
         Spectral abscissa.
     modes : int, sequence of int, 'sum' or None
         Which modes to draw.
-    wavelength_range : tuple of float
-        Spectral limits, m.
+    spec_range : tuple of float or None
+        Spectral limits in the units of ``axis``: m, Hz or rad/s. By default
+        :data:`DEFAULT_SLICE_WAVELENGTH_RANGE` on that axis;
+        :func:`~solprop.plotting.style.wavelength_to_axis` converts a wavelength range.
     log : bool
         Whether to use a logarithmic ordinate.
     log_min : float
@@ -332,6 +359,11 @@ def spec_1d(  # noqa: PLR0913 - the planes, the abscissa, the range and the scal
         Instrument resolution, in the units of ``axis``.
     ax : matplotlib.axes.Axes or None
         Axis to draw into; a new figure is made when none is given.
+    noise_floor : {'keep', 'subtract'}
+        Whether the slices keep or remove the input noise's seed
+        (:func:`~solprop.processing.fields.get_spectral_density`). On a logarithmic
+        ordinate a value at or below zero, which the subtraction can leave, is masked
+        rather than drawn.
 
     Returns
     -------
@@ -350,7 +382,7 @@ def spec_1d(  # noqa: PLR0913 - the planes, the abscissa, the range and the scal
     """
     ax = _axis(ax, (8.5, 5.0))
     planes = _plane_indices(output, z)
-    limits = _si_range(axis, wavelength_range)
+    limits = _spec_range(axis, spec_range, DEFAULT_SLICE_WAVELENGTH_RANGE)
     factor, label = spectral_display(axis)
     traces = [
         get_spectral_density(
@@ -360,6 +392,7 @@ def spec_1d(  # noqa: PLR0913 - the planes, the abscissa, the range and the scal
             modes=modes,
             spec_range=limits,
             resolution=resolution,
+            noise_floor=noise_floor,
         )
         for index in planes
     ]
@@ -369,6 +402,11 @@ def spec_1d(  # noqa: PLR0913 - the planes, the abscissa, the range and the scal
     peak = max(float(np.max(density)) for _, density in traces)
     for index, (x, density), colour in zip(planes, traces, colours, strict=True):
         values = _with_mode_axis(density, leading=False)
+        if log:
+            # A logarithmic axis has no place for a value at or below zero, which a
+            # floor-subtracted density can hold; a gap says so where a clipped line
+            # would draw a false dip to the axis.
+            values = np.where(values > 0.0, values, np.nan)
         for mode, name in enumerate(labels):
             ax.plot(
                 x * factor,
@@ -380,7 +418,7 @@ def spec_1d(  # noqa: PLR0913 - the planes, the abscissa, the range and the scal
     if log:
         ax.set_yscale("log")
         ax.set_ylim(log_min * peak, 3.0 * peak)
-    ax.set_xlim(*spectral_limits(axis, wavelength_range))
+    ax.set_xlim(*_display_limits(axis, limits))
     ax.set_xlabel(label)
     ax.set_ylabel(_density_label(axis, per_width(output)))
     ax.legend(frameon=False)
@@ -407,9 +445,10 @@ def energy(
         An opened output handler.
     modes : int, sequence of int, 'sum' or None
         Which modes to draw.
-    bandpass : tuple of float, numpy.ndarray or None
-        Wavelength limits, m, of a window applied before the measurement, which is how
-        the energy in one spectral region is followed along z.
+    bandpass : tuple of float, Passband, numpy.ndarray or None
+        Wavelength limits, m, or a :class:`~solprop.processing.spectra.Passband` on any
+        axis, of a window applied before the measurement, which is how the energy in one
+        spectral region is followed along z.
     ax : matplotlib.axes.Axes or None
         Axis to draw into; a new figure is made when none is given.
 
@@ -475,28 +514,6 @@ def _axis(ax: Axes | None, figsize: tuple[float, float]) -> Axes:
     import matplotlib.pyplot as plt  # noqa: PLC0415 - pyplot loads on first plot
 
     return plt.subplots(figsize=figsize)[1]
-
-
-def _si_range(
-    axis: SpectralAxis, wavelength_range: tuple[float, float]
-) -> tuple[float, float]:
-    """Return a wavelength range on a spectral abscissa, in SI units.
-
-    Parameters
-    ----------
-    axis : {'wavelength', 'f', 'omega'}
-        The abscissa.
-    wavelength_range : tuple of float
-        The range, m.
-
-    Returns
-    -------
-    tuple of float
-        The range in m, Hz or rad/s.
-    """
-    factor, _ = spectral_display(axis)
-    low, high = spectral_limits(axis, wavelength_range)
-    return low / factor, high / factor
 
 
 def _with_mode_axis(

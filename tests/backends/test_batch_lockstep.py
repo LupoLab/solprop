@@ -25,6 +25,7 @@ from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.driver import Simulation
 from solprop.exceptions import BackendError
 from solprop.stats import StatsSpec
+from solprop.stepper import PIController
 from solprop.stepper.runge_kutta import RungeKutta
 from solprop.stepper.schedule import FixedSchedule
 
@@ -146,7 +147,7 @@ def test_lockstep_preserves_member_physics_noise_and_statistics(
                 one.settings = dataclasses.replace(
                     one.settings,
                     controller=dataclasses.replace(
-                        one.settings.controller,
+                        cast("PIController", one.settings.controller),
                         weights=np.linspace(0.5, 1.5, one.grid.n_omega),
                     ),
                 )
@@ -155,7 +156,7 @@ def test_lockstep_preserves_member_physics_noise_and_statistics(
         runner = runner_factory(members)
         cleanup.callback(runner.close)
         spec = simulations[0].translate().stats_spec
-        rtol = simulations[0].settings.controller.rtol
+        rtol = cast("PIController", simulations[0].settings.controller).rtol
         for target in (0.0, 0.0005, 0.001):
             runner.propagate_to(target)
             for owner in independent:

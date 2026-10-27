@@ -192,7 +192,7 @@ def capillary_case(*, wall, radius=RADIUS, pressure=1.0, modes=3, **overrides):
         "He",
         pressure,
         wall=wall,
-        **arguments,
+        **{"noise": None, **arguments},
     )
 
 
@@ -261,7 +261,7 @@ def split_simulation(**overrides):
         provider=guide,
         grid=grid,
         channel=0,
-        **arguments,
+        **{"noise": None, **arguments},
     )
 
 

@@ -74,7 +74,7 @@ One call builds everything, runs it and returns the result. Every material is
 optmat's recommended model, and the whole band lies inside the qualified ranges of
 the helium index and the silica wall, so the run raises no range notice.
 
-.. GENERATED FROM PYTHON SOURCE LINES 61-105
+.. GENERATED FROM PYTHON SOURCE LINES 61-106
 
 .. code-block:: Python
 
@@ -113,6 +113,7 @@ the helium index and the silica wall, so the run raises no range notice.
         wavelength_limits=(90e-9, 4e-6),
         n_save=301,
         progress="none",
+        seed=20261027,
     )
 
     z = np.asarray(run["z"])
@@ -136,14 +137,14 @@ the helium index and the silica wall, so the run raises no range notice.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 106-110
+.. GENERATED FROM PYTHON SOURCE LINES 107-111
 
 Spectral and temporal evolution
 -------------------------------
 The spectral energy density, summed over the modes, in decibels below its peak,
 and the instantaneous power in the frame moving with the pump.
 
-.. GENERATED FROM PYTHON SOURCE LINES 110-150
+.. GENERATED FROM PYTHON SOURCE LINES 111-151
 
 .. code-block:: Python
 
@@ -199,13 +200,13 @@ and the instantaneous power in the frame moving with the pump.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 151-154
+.. GENERATED FROM PYTHON SOURCE LINES 152-155
 
 The self-compressed pulse
 -------------------------
 The shortest pulse along the fibre, and where it happens.
 
-.. GENERATED FROM PYTHON SOURCE LINES 154-162
+.. GENERATED FROM PYTHON SOURCE LINES 155-163
 
 .. code-block:: Python
 
@@ -230,12 +231,12 @@ The shortest pulse along the fibre, and where it happens.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 163-165
+.. GENERATED FROM PYTHON SOURCE LINES 164-166
 
 Runtime and reproducibility
 ----------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 165-167
+.. GENERATED FROM PYTHON SOURCE LINES 166-168
 
 .. code-block:: Python
 
@@ -249,7 +250,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    8 s; backend native
+    27 s; backend native
 
 
 
@@ -257,7 +258,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 7.727 seconds)
+   **Total running time of the script:** (0 minutes 27.088 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_00_vuv_dispersive_wave.py:

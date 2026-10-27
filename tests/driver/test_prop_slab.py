@@ -153,7 +153,7 @@ def test_a_te_slab_run_accumulates_the_closed_form_b_integral():
         LENGTH,
         "Ar",
         1.0,
-        **(options()),
+        **({"noise": None, **options()}),
         progress="none",
     )
     t, envelope = get_field(output, kind="envelope")
@@ -194,7 +194,7 @@ def test_the_mode_averaged_slab_is_the_one_mode_run():
         LENGTH,
         "Ar",
         1.0,
-        **(options()),
+        **({"noise": None, **options()}),
     )
     single = simulation.run(progress="none")
     averaged = Simulation(
@@ -240,7 +240,7 @@ def test_a_projected_multimode_slab_agrees_on_every_backend(taper):
                 LENGTH,
                 "Ar",
                 1.0,
-                **(options(backend=backend)),
+                **({"noise": None, **options(backend=backend)}),
             )
         rule = simulation.settings.quadrature
         assert rule is not None and rule.kind == "slab" and rule.kronrod
@@ -280,7 +280,7 @@ def test_a_linear_taper_conserves_power_per_unit_width():
         LENGTH,
         "Ar",
         1.0,
-        **(options(energy=1e-12, schedule=None, rtol=1e-10)),
+        **({"noise": None, **options(energy=1e-12, schedule=None, rtol=1e-10)}),
         progress="none",
     )
     energy = output["stats/energy"].ravel()
@@ -299,7 +299,7 @@ def test_the_run_records_its_measure_and_labels_per_unit_width():
         LENGTH,
         "Ar",
         1.0,
-        **(options()),
+        **({"noise": None, **options()}),
         progress="none",
     )
     metadata = output.metadata
@@ -315,7 +315,7 @@ def test_the_run_records_its_measure_and_labels_per_unit_width():
     back = RunMetadata.from_json(metadata.to_json())
     assert back.transverse_measure == "per_unit_width"
     assert back.configuration_hash() == metadata.configuration_hash()
-    assert json.loads(metadata.to_json())["schema_version"] == 26
+    assert json.loads(metadata.to_json())["schema_version"] == 27
     units = transverse_units(output)
     assert (units.power, units.energy, units.intensity) == ("W/m", "J/m", "W/m^2")
     figures = stats(output)
@@ -344,7 +344,7 @@ def test_an_area_run_carries_no_measure_key():
         LENGTH,
         "Ar",
         1.0,
-        **(options(energy=1e-9)),
+        **({"noise": None, **options(energy=1e-9)}),
     )
     output = simulation.run(progress="none")
     assert output.metadata is not None
@@ -364,7 +364,7 @@ def test_a_slab_set_is_refused_where_it_cannot_go():
             LENGTH,
             "Ar",
             1.0,
-            **(options()),
+            **({"noise": None, **options()}),
         )
     with pytest.raises(DriverError, match="n_theta=8 was given for a slab set"):
         Simulation.from_waveguide(
@@ -372,7 +372,7 @@ def test_a_slab_set_is_refused_where_it_cannot_go():
             LENGTH,
             "Ar",
             1.0,
-            **(options(n_theta=8)),
+            **({"noise": None, **options(n_theta=8)}),
         )
     # The general route takes a guide's own channels; a planar MaterialRegion is
     # out of scope, so a slab set beside a provider is refused.
@@ -384,6 +384,7 @@ def test_a_slab_set_is_refused_where_it_cannot_go():
             provider=general_guide(grid=grid),
             lambda0=835e-9,
             grid=grid,
+            noise=None,
         )
 
 
@@ -395,7 +396,7 @@ def test_the_default_rule_reaches_the_node_bound():
             LENGTH,
             "Ar",
             1.0,
-            **(options(radial_rule="gauss")),
+            **({"noise": None, **options(radial_rule="gauss")}),
         )
     rule = simulation.settings.quadrature
     assert rule is not None and rule.kind == "slab" and not rule.full
@@ -429,6 +430,7 @@ def test_a_slab_fibre_through_prop_gnlse_records_per_unit_width():
         dz_max=LENGTH / STEPS,
         dz_init=LENGTH / STEPS,
         progress="none",
+        noise=None,
     )
     metadata = output.metadata
     assert metadata is not None and metadata.simulation_kind == "mode_averaged"
@@ -476,14 +478,17 @@ def test_a_slab_run_is_written_read_back_and_resumed(tmp_path):
             "Ar",
             1.0,
             **(
-                options(
-                    n_save=None,
-                    save_planes=planes,
-                    schedule=FixedSchedule.uniform(
-                        0.0, LENGTH, LENGTH / STEPS, save_planes=planes
+                {
+                    "noise": None,
+                    **options(
+                        n_save=None,
+                        save_planes=planes,
+                        schedule=FixedSchedule.uniform(
+                            0.0, LENGTH, LENGTH / STEPS, save_planes=planes
+                        ),
+                        integrator=FIXED_ORDER,
                     ),
-                    integrator=FIXED_ORDER,
-                )
+                }
             ),
         )
 
@@ -517,7 +522,7 @@ def test_a_slab_scan_records_its_field_units_per_unit_width(tmp_path):
             LENGTH,
             "Ar",
             float(point.values["pressure"]),
-            **(options(energy=1e-9)),
+            **({"noise": None, **options(energy=1e-9)}),
         )
 
     path = tmp_path / "scan.h5"
@@ -552,7 +557,7 @@ def test_a_varying_gap_beside_a_gradient_says_the_fill_ignores_it():
             LENGTH,
             "Ar",
             (1.0, 0.1),
-            **(options()),
+            **({"noise": None, **options()}),
         )
     with warnings.catch_warnings():
         warnings.simplefilter("error", GasFlowWarning)
@@ -561,12 +566,12 @@ def test_a_varying_gap_beside_a_gradient_says_the_fill_ignores_it():
             LENGTH,
             "Ar",
             1.0,
-            **(options()),
+            **({"noise": None, **options()}),
         )
         Simulation.from_waveguide(
             [SlabMode(HALF_GAP, cladding=1.45)],
             LENGTH,
             "Ar",
             (1.0, 0.1),
-            **(options()),
+            **({"noise": None, **options()}),
         )

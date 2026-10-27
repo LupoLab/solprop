@@ -66,6 +66,7 @@ with warnings.catch_warnings():
         schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / STEPS),
         integrator=RungeKutta(),
         backend="native",
+        noise=None,
     )
     problem = simulation.translate()
 

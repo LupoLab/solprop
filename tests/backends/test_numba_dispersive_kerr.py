@@ -107,7 +107,9 @@ def capillary(
     arguments |= overrides
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
-        return Simulation.from_capillary(75e-6, LENGTH, gas, 2.0, **arguments)
+        return Simulation.from_capillary(
+            75e-6, LENGTH, gas, 2.0, **{"noise": None, **arguments}
+        )
 
 
 def grid_for(envelope: bool) -> FieldGrid | EnvelopeGrid:
@@ -537,6 +539,7 @@ def test_a_mixture_of_varying_composition_matches_the_reference(evaluator):
             n_save=2,
             absorber_scheme="split_step",
             schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / STEPS),
+            noise=None,
         )
     problem = simulation.translate()
     start = scalars(problem, 0.0, 0.0).dispersive_kerr_densities

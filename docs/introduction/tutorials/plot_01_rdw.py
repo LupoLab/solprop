@@ -79,6 +79,7 @@ with warnings.catch_warnings():
         modes=2,
         n_save=51,
         progress="none",
+        seed=20261027,
     )
 
 print(f"{run['z'].size} planes, {run['field'].shape[1]} modes")
@@ -100,7 +101,7 @@ print(f"model: {run.metadata.simulation_kind}; backend: {run.metadata.backend.na
 figures = prop_2d(
     run,
     "wavelength",
-    wavelength_range=(100e-9, 1e-6),
+    spec_range=(100e-9, 1e-6),
     trange=(-20e-15, 20e-15),
     db_min=-30,
     modes="sum",

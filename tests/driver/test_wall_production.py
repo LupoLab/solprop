@@ -81,6 +81,7 @@ def pinned_final():
         dz_init=REFERENCE["dz"],
         schedule=FixedSchedule(np.full(REFERENCE["steps"], REFERENCE["dz"])),
         n_save=2,
+        noise=None,
     )
     problem = simulation.translate()
     launch = np.array(REFERENCE["launch"])

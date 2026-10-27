@@ -78,7 +78,14 @@ def test_free_interface_preserves_an_explicit_frame(free_case):
     grid, space, pulse, settings = free_case
     frame = dataclasses.replace(Frame.comoving(grid), beta0=0.0, beta1=0.0)
     simulation = Simulation.from_free(
-        grid, space, SpatialMedium(), [], pulse, settings=settings, frame=frame
+        grid,
+        space,
+        SpatialMedium(),
+        [],
+        pulse,
+        settings=settings,
+        frame=frame,
+        noise=None,
     )
     assert simulation.frame is frame
     problem = simulation.translate()
@@ -91,7 +98,7 @@ def test_free_interface_separable_flow_and_metadata(free_case, request, backend)
     grid, space, pulse, settings = free_case
     settings = dataclasses.replace(settings, backend=backend)
     simulation = Simulation.from_free(
-        grid, space, SpatialMedium(), [], pulse, settings=settings
+        grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
     )
     problem = simulation.translate()
     assert problem is simulation.translate()
@@ -110,7 +117,9 @@ def test_free_interface_separable_flow_and_metadata(free_case, request, backend)
     # additionally sums N columns and the temporal frequency bins.
     field_bound = gamma(64)
     energy_bound = gamma(32 * (space.n_columns + grid.n_omega))
-    output = prop_free(grid, space, SpatialMedium(), [], pulse, settings=settings)
+    output = prop_free(
+        grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
+    )
     start, finish = output.fields("fft")
     expected = start * np.exp(delta_phi(problem.linear, 0, grid.length))[0]
     defect = np.max(np.abs(finish - expected)) / np.max(np.abs(start))
@@ -232,7 +241,7 @@ def test_spatial_resume_refuses_geometry_changes(free_case, tmp_path):
     grid, space, pulse, settings = free_case
     settings = dataclasses.replace(settings, backend="numpy_ref")
     simulation = Simulation.from_free(
-        grid, space, SpatialMedium(), [], pulse, settings=settings
+        grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
     )
     path = tmp_path / "free.h5"
     simulation.run(path)
@@ -245,6 +254,7 @@ def test_spatial_resume_refuses_geometry_changes(free_case, tmp_path):
         [],
         pulse,
         settings=settings,
+        noise=None,
     )
     with pytest.raises(OutputError, match="spatial"):
         changed.run(path, resume=True)
@@ -260,6 +270,7 @@ def test_cartesian_refuses_varying_media_and_tabulation(free_case):
             [],
             pulse,
             settings=settings,
+            noise=None,
         )
     with pytest.raises(TranslationError, match="tabulate"):
         Simulation.from_free(
@@ -269,6 +280,7 @@ def test_cartesian_refuses_varying_media_and_tabulation(free_case):
             [],
             pulse,
             settings=dataclasses.replace(settings, propagator_mode="tabulate"),
+            noise=None,
         ).translate()
 
 
@@ -309,6 +321,7 @@ def test_cartesian_material_loss_gain_and_evanescence(
         initial,
         # The subject is the exact linear flow; the random launch fills the window.
         settings=dataclasses.replace(settings, backend=backend, boundary_check=None),
+        noise=None,
     )
     actual = simulation.run().fields("fft")[-1]
     measured = np.max(np.abs(actual - expected)) / np.max(np.abs(initial))
@@ -326,10 +339,10 @@ def test_cartesian_material_loss_gain_and_evanescence(
 def test_cartesian_resume_distinguishes_legacy_cutoff_arithmetic(free_case):
     grid, space, pulse, settings = free_case
     simulation = Simulation.from_free(
-        grid, space, SpatialMedium(), [], pulse, settings=settings
+        grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
     )
     current = simulation.metadata()
-    assert current.schema_version == 26
+    assert current.schema_version == 27
     assert current.configuration["spatial_arithmetic"] == "split-square-v1"
     legacy_configuration = dict(current.configuration)
     del legacy_configuration["spatial_arithmetic"]
@@ -391,6 +404,7 @@ def test_line_gaussian_diffracts_with_the_one_dimensional_closed_forms():
         [],
         pulse,
         settings=_line_settings(grid, 2 * rayleigh, planes),
+        noise=None,
     )
     assert output.metadata is not None
     assert output.metadata.transverse_measure == "per_unit_width"
@@ -442,6 +456,7 @@ def test_line_focal_witness_of_pr_416():
         [],
         SpatialPulse(temporal, waist, propz=-length),
         settings=_line_settings(grid, length, [length]),
+        noise=None,
     )
     launched, focus = output.fields("fft")
     intensity = spatial_intensity(focus, _vacuum(grid, space))
@@ -480,10 +495,10 @@ def test_line_equals_a_plane_uniform_in_y():
     responses = [KerrResponse(3e-26, thg=False)]
     settings = _line_settings(grid, length, [length], steps=10)
     along_line = prop_free(
-        grid, line, SpatialMedium(), responses, start, settings=settings
+        grid, line, SpatialMedium(), responses, start, settings=settings, noise=None
     )
     on_plane = prop_free(
-        grid, plane, SpatialMedium(), responses, uniform, settings=settings
+        grid, plane, SpatialMedium(), responses, uniform, settings=settings, noise=None
     )
     finish = along_line.fields("fft")[-1]
     assert np.max(np.abs(finish - start)) > 0.01 * np.max(np.abs(start))
@@ -546,6 +561,7 @@ def test_line_kerr_soliton_holds_at_its_power_per_metre(fraction):
         [KerrResponse(chi3, thg=False)],
         start,
         settings=_line_settings(grid, length, [length], steps=10),
+        noise=None,
     )
     final = spatial_intensity(output.fields("fft")[-1], _vacuum(grid, space))
     last = int(np.argmax(np.max(final, axis=0)))
@@ -571,7 +587,7 @@ def test_line_run_is_recorded_and_labelled_per_metre_of_y(tmp_path):
     )
     settings = _line_settings(grid, 1e-3, [1e-3])
     simulation = Simulation.from_free(
-        grid, line, SpatialMedium(), [], pulse, settings=settings
+        grid, line, SpatialMedium(), [], pulse, settings=settings, noise=None
     )
     metadata = simulation.metadata()
     assert metadata.simulation_kind == "free"
@@ -590,7 +606,7 @@ def test_line_run_is_recorded_and_labelled_per_metre_of_y(tmp_path):
     )
     plane = FreeGrid(3e-4, 16, 3e-4, 16, window_factor=0.1)
     area = Simulation.from_free(
-        grid, plane, SpatialMedium(), [], pulse, settings=settings
+        grid, plane, SpatialMedium(), [], pulse, settings=settings, noise=None
     )
     assert area.metadata().transverse_measure == "area"
     assert "transverse_measure" not in area.metadata().configuration
@@ -649,6 +665,7 @@ def test_line_refusals_name_the_line():
             [],
             pulse,
             settings=settings,
+            noise=None,
         )
     # A line is a free-space grid: modes uniform in y go through prop_waveguide.
     with pytest.raises(DriverError, match="empty mode sequence"):
@@ -679,6 +696,7 @@ def test_a_line_is_recorded_per_metre_of_y_without_from_free_s_key():
         [],
         pulse,
         settings=_line_settings(grid, 1e-3, [1e-3]),
+        noise=None,
     )
     simulation.configuration.pop("transverse_measure")
     assert "transverse_measure" not in simulation.configuration

@@ -69,6 +69,7 @@ run = prop_capillary(
     wavelength_limits=(300e-9, 4e-6),
     n_save=301,
     progress="none",
+    seed=20261027,
 )
 
 # %%
@@ -78,7 +79,7 @@ run = prop_capillary(
 figures = prop_2d(
     run,
     "wavelength",
-    wavelength_range=(300e-9, 1.6e-6),
+    spec_range=(300e-9, 1.6e-6),
     trange=(-125e-15, 50e-15),
     db_min=-40,
 )
@@ -91,7 +92,7 @@ figures[-1].tight_layout()
 
 fig, (left, right) = plt.subplots(1, 2, figsize=(10.0, 3.6))
 time_1d(run, z=[0.0, 0.4], trange=(-125e-15, 50e-15), ax=left)
-spec_1d(run, z=[0.0, 0.4], ax=right, wavelength_range=(300e-9, 1.6e-6))
+spec_1d(run, z=[0.0, 0.4], ax=right, spec_range=(300e-9, 1.6e-6))
 fig.tight_layout()
 
 z = np.asarray(run["z"])

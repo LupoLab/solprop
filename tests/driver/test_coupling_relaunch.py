@@ -57,7 +57,9 @@ def capillary(
         "rtol": rtol,
         **changes,
     }
-    return Simulation.from_capillary(radius, length, "Ar", 1.0, **arguments)
+    return Simulation.from_capillary(
+        radius, length, "Ar", 1.0, **{"noise": None, **arguments}
+    )
 
 
 @pytest.fixture(scope="module")
@@ -143,6 +145,7 @@ def radial(pressure=1.0, length=2e-3, backend="numpy_ref"):
         [],
         pulse,
         settings=settings,
+        noise=None,
     )
 
 

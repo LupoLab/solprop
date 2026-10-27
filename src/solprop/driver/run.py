@@ -16,11 +16,13 @@ sign convention on disk (``docs/dev/conventions.md`` section 2, boundary place 2
 plane is carried across as a :class:`solprop.output.schema.SavedPlane` in the internal
 FFT convention, with modal amplitudes converted to true-power units.
 
-Progress is reported through :class:`solprop.log.ProgressReporter` -- one call at the
-start, one per attempted step from inside the backend, one per save plane and one at the
-end. The protocol and the default :class:`solprop.log.LogReporter` live in
-:mod:`solprop.log`, and are re-exported here because this is where a run reaches them;
-nothing is printed, and :func:`solprop.log.configure_logging` is how a script sees it
+Progress is reported through :class:`solprop.log.ProgressReporter` -- the run's summary
+(:mod:`solprop.driver.summary`) before the first step, one call at the start, one per
+attempted step from inside the backend, one per save plane and one at the end. The
+protocol and the default :class:`solprop.log.LogReporter` live in :mod:`solprop.log`,
+and are re-exported here because this is where a run reaches them. A bar shows the
+summary and the closing line on its stream; the line reporter logs them, and
+:func:`solprop.log.configure_logging` is how a script sees those records
 (``docs/dev/architecture.md`` section 14).
 
 The manual page is ``docs/guide/setup/running.md``.
@@ -41,6 +43,7 @@ from solprop.backends.protocol import Backend, Observation
 from solprop.backends.protocol import StepHistory as BackendHistory
 from solprop.backends.registry import statistics_refusal
 from solprop.driver.memory import MemoryAdmission
+from solprop.driver.summary import RUN_SUMMARY_ANNOTATION, run_summary
 from solprop.exceptions import (
     DriverError,
     OutputError,
@@ -54,9 +57,10 @@ from solprop.log import (
     LogReporter,
     ProgressChoice,
     ProgressReporter,
+    SummarisingReporter,
     resolve_reporter,
 )
-from solprop.monitor import BoundaryMonitor
+from solprop.monitor import BoundaryCheck, BoundaryMonitor
 from solprop.output.capability import (
     capability_of,
     declared_capability,
@@ -70,6 +74,7 @@ from solprop.output.schema import (
     FieldRetention,
     FieldsChoice,
     Output,
+    PlaneStore,
     RunMetadata,
     RunOutcome,
     SavedPlane,
@@ -442,6 +447,15 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         reserve(planes.size + 1)
     _retain(output, retention, problem.shape[1:])
     reached, missing_current_save = _resume_position(output, checkpoint_output, problem)
+    _announce(
+        problem,
+        metadata,
+        backend,
+        output,
+        reporter,
+        (start_plane, reached),
+        boundary_check=None if boundary_monitor is None else boundary_monitor.check,
+    )
     keeper = _MarchKeeper(output, backend, resume_history)
     pending: SavedPlane | None = None
     pending_save_count = output.n_saved
@@ -595,6 +609,60 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         finally:
             if snapshots is not None and snapshots_started:
                 snapshots._finish()
+
+
+def _announce(  # noqa: PLR0913 - the run's parts, each a distinct object
+    problem: KernelProblem,
+    metadata: RunMetadata,
+    backend: Backend,
+    output: Output,
+    reporter: ProgressReporter,
+    start: tuple[int, float],
+    *,
+    boundary_check: BoundaryCheck | None = None,
+) -> None:
+    """Show the run's summary through the reporter and record it on a plane store.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The translated problem.
+    metadata : solprop.output.schema.RunMetadata
+        The run's record.
+    backend : solprop.backends.protocol.Backend
+        The backend about to step it.
+    output : solprop.output.schema.Output
+        The open handler.
+    reporter : solprop.log.ProgressReporter
+        Where progress goes; only a :class:`solprop.log.SummarisingReporter` is shown
+        the summary.
+    start : tuple of int and float
+        The first save plane beyond the loaded state, and the position the run starts
+        from, m.
+    boundary_check : solprop.monitor.BoundaryCheck or None, optional
+        The thresholds the window's edges are watched with, or ``None``.
+    """
+    start_plane, z_start = start
+    summary = run_summary(
+        problem,
+        metadata,
+        backend=backend.name,
+        execution=backend.metadata(),
+        output=output,
+        start_plane=start_plane,
+        z_start=z_start,
+        boundary_check=boundary_check,
+    )
+    if isinstance(reporter, SummarisingReporter):
+        reporter.summary(summary.text())
+    if isinstance(output, PlaneStore):
+        # An annotation stays outside the record and its hash, so a summary needs no
+        # schema of its own; a resume adds its continuation's to the list.
+        earlier = output.annotations.get(RUN_SUMMARY_ANNOTATION, [])
+        output.annotate(
+            RUN_SUMMARY_ANNOTATION,
+            [*cast("list[object]", earlier), summary.record()],
+        )
 
 
 def check_snapshot_request(

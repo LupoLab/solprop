@@ -155,7 +155,7 @@ it is qualified, [backends.md](backends.md); for the current seam,
 
 ## ADR-008 — Modified shot noise, drawn once and advanced by the unitary linear flow
 
-- **Status:** accepted
+- **Status:** accepted; the input model is the default and this one an option (ADR-055)
 - **Context:** Luna's `:modified` noise held the noise field constant in z, which is wrong in
   a dispersive medium (1.4–6.6× per frequency for spontaneous MI; 50–80× in conservative
   propagation). Luna PR #440 advances it by the unitary part of the linear operator:
@@ -941,7 +941,8 @@ Withdrawn (development-process record, not a design decision).
   section edge is not a kink unless declared; a declared kink restarts the history.
 
 ## ADR-045 — `Multistep()` is the default integrator; `RungeKutta()` names the march
-- **Status:** accepted ([SEP 16](seps/archive/sep-0016-unified-multistep.md))
+- **Status:** accepted ([SEP 16](seps/archive/sep-0016-unified-multistep.md)); amended by
+  ADR-055, which gives `prop_gnlse` and `prop_waveguide` `RungeKutta()` by default
 - **Context:** the exponential formulation runs on every route and backend, devices
   included, and took the fewest calls on every case SEP 16 measured. With the
   error norm over the whole active band it was, at matched error on one CPU thread,
@@ -1268,3 +1269,68 @@ Withdrawn (development-process record, not a design decision).
   and responses that have not been qualified in binary32, and noise models, are refused
   under single precision by name. The survival record and the tolerance floor are
   published with the user guide.
+
+## ADR-055 — Noise on by default, and defaults chosen for each interface
+
+- **Status:** accepted ([SEP 37](seps/archive/sep-0037-noise-and-stepper-defaults.md)); amends
+  ADR-045 and ADR-008
+- **Context:** every run was noiseless unless it asked, every interface stepped with
+  `Multistep()`, and the default tolerances were partly unexplained. A one-photon
+  seed is part of the physics a run models; the integrator that is fastest at matched
+  accuracy depends on the interface, measured with noise on and off.
+- **Decision:**
+  - `noise="input"` is the default wherever the run can carry noise, and the resolution
+    is recorded (`RunMetadata.noise_resolution`, output schema 26). Single precision
+    and the planar grid fall back to none, recorded and printed; an interior launch
+    takes its spectrum as given. The modified model is an option: it equals the input
+    model where the linear operator is unitary and is an unqualified approximation
+    elsewhere. Whether it stays is decided with SEP 7.
+  - Each interface takes its own default integrator and tolerances by a fixed rule
+    (the fastest at matched accuracy among the methods every route of the interface
+    admits) and a convergence protocol. `prop_gnlse` takes `RungeKutta()` and `rtol`
+    1e-7; `prop_waveguide` takes `RungeKutta()` and 1e-5; `prop_capillary` keeps
+    `Multistep()` and 1e-6 for every representation; `prop_radial` and `prop_planar`
+    keep `Multistep()` and take 1e-5 with no `atol` where the caller gives no
+    controller; `prop_free` takes `RungeKutta()` and 1e-4 with no `atol`. A default never depends on the physics switched on, except the
+    TDSE's, by the maintainer's decision, and the free-space noise.
+- **Why:** the input model is the least bad noise model solprop implements, used by
+  the literature and the group for years; the defaults follow measurement, not habit.
+- **Consequences:**
+  - Every default run is stochastic unless it fixes `seed`. Tests and worked examples
+    fix theirs, or pass `noise=None` where their lesson is noiseless.
+  - Low-energy GNLSE runs take more steps with noise (the seed's dynamics are
+    resolved). Replayed schedules for noisy ensembles must be calibrated with noise on.
+
+## ADR-056 — One thread per core, and idle native threads sleep at once
+
+- **Status:** accepted; amends ADR-052
+- **Context:** the thread budget counted CPUs, so on a machine with two hardware threads
+  per core a default run took two threads per core. The native backend left OpenMP's
+  waiting to the runtime, whose idle threads spin between parallel regions, and it runs
+  several thread teams in turn (Kokkos', the threaded FFTs', the BLAS's). Measured with
+  the tracking set (SEP 38): on 16 cores of an AMD EPYC 7763 the runtime's own waiting
+  ran the four-mode helium capillary in 334 s against 13.5 s with idle threads
+  sleeping, the argon blueshift in 432 s against 37.3 s and the radial filament in 72 s
+  against 5.9 s; even 10,000 spins cost them 1.4 to 3.3 times, while the single-team
+  supercontinuum gained 20 % from spinning. On 36 cores of two Intel Xeon Gold 6240 (72
+  hardware threads), with the machine to itself, one thread per core was 6 to 31 %
+  faster than two on every case, and at one thread per core the runtime's own waiting
+  was faster than sleeping on every case (the supercontinuum 49 s against 94 s). On an
+  Apple M5 Max the policy made no difference.
+- **Decision:** the budget also counts the physical cores that hold the allowed CPUs
+  (Linux topology, Windows' processor table), unless `SOLPROP_THREADS` is set, which may
+  then ask for up to the CPUs. The native import sets `OMP_WAIT_POLICY=passive` before
+  its runtime loads, unless the user set `OMP_WAIT_POLICY`, `GOMP_SPINCOUNT` or
+  `KMP_BLOCKTIME`. The choice stays in the environment and is recorded in the run's
+  metadata (`openmp_wait_policy`). Threads stay unpinned.
+- **Why:** sleeping is never catastrophic; spinning is, whenever the threads that spin
+  take cores another team needs. Spinning only from spare hardware threads was
+  considered and rejected: the runtime reads the policy once, at start-up, and work
+  that arrives on the machine later takes the spare threads. Pinning gained 6 to 30 %
+  on a dedicated allocation but would put several processes' threads on the same first
+  cores, so it stays the user's choice too.
+- **Consequences:** a hyperthreaded machine runs half the threads it did, faster. A run
+  on a machine it has to itself, with spare hardware threads, is up to 1.9 times faster
+  with `OMP_WAIT_POLICY=active`, and single-team problems such as the GNLSE gain from it
+  even without spare threads; the tuning guide says so. `numba_cpu` keeps its own
+  passive settings for pyFFTW's and Numba's runtimes.

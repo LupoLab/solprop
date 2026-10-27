@@ -65,6 +65,7 @@ def test_the_launch_and_the_log_weight_reconstruct_the_dispersion_problem(
             thg=False,
             loss=False,
             cladding=1.45,
+            noise=None,
         )
         problem = simulation.translate()
     assert simulation.settings.absorber is not None

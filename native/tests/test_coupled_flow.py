@@ -102,6 +102,7 @@ def simulation(*, radius: float | PiecewiseLinear, wall: CoherentWall) -> Simula
         schedule=FixedSchedule(np.full(STEPS, LENGTH / STEPS)),
         plasma=False,
         raman=False,
+        noise=None,
     )
 
 

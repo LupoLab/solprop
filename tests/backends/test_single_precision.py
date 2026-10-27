@@ -123,6 +123,7 @@ def gnlse(  # noqa: PLR0913 - the case's own knobs
         integrator=RungeKutta() if integrator is None else integrator,
         raman=raman,
         polarisation_taper=taper,
+        noise=None,
     )
 
 
@@ -148,7 +149,9 @@ def capillary(
         "schedule": FixedSchedule.uniform(0.0, length, length / 16),
         "absorber_scheme": "split_step",
     } | overrides
-    return Simulation.from_capillary(50e-6, length, gas, 1.0, **keywords)
+    return Simulation.from_capillary(
+        50e-6, length, gas, 1.0, **{"noise": None, **keywords}
+    )
 
 
 def loaded(simulation: Simulation, cleanup: ExitStack | None = None) -> Backend:
@@ -194,14 +197,14 @@ def test_single_precision_takes_its_defaults_and_refuses_what_it_does_not_run():
     settings = simulation.settings
     assert settings.precision == "single"
     assert isinstance(settings.integrator, RungeKutta)
-    assert settings.controller.rtol == 1e-6
+    assert cast("PIController", settings.controller).rtol == 1e-6
     assert simulation.translate().precision.single
 
     def automatic() -> Simulation:
         return Simulation.from_gnlse(
             0.11, 0.05, [0.0, 0.0, -1e-26], lambda0=835e-9, trange=1e-12,
             wavelength_limits=(500e-9, 2e-6), width=50e-15, peak_power=1.0,
-            pulseshape="sech", precision="single",
+            pulseshape="sech", precision="single", noise=None,
         )  # fmt: skip
 
     # "auto" is the GPU backend where MLX and a Metal device are present, and refused
@@ -218,7 +221,10 @@ def test_single_precision_takes_its_defaults_and_refuses_what_it_does_not_run():
         dataclasses.replace(settings, integrator=Multistep())
     with pytest.raises(DriverError, match="floor"):
         dataclasses.replace(
-            settings, controller=dataclasses.replace(settings.controller, rtol=1e-8)
+            settings,
+            controller=dataclasses.replace(
+                cast("PIController", settings.controller), rtol=1e-8
+            ),
         )
 
 
@@ -283,11 +289,13 @@ def test_a_resume_in_the_other_precision_is_refused(tmp_path):
             "width": 50e-15, "peak_power": 10.0, "pulseshape": "sech", "n_save": 2,
             "backend": "numpy_ref", "integrator": RungeKutta(), "progress": "none",
         }  # fmt: skip
-        prop_gnlse(0.11, 0.01, [0.0, 0.0, -1e-26], output=path, **keywords)
+        prop_gnlse(
+            0.11, 0.01, [0.0, 0.0, -1e-26], output=path, **{"noise": None, **keywords}
+        )
         with pytest.raises(Exception, match="precision"):
             prop_gnlse(
                 0.11, 0.01, [0.0, 0.0, -1e-26], output=path, resume=True,
-                precision="single", **keywords,
+                precision="single", **{"noise": None, **keywords},
             )  # fmt: skip
 
 
@@ -500,6 +508,7 @@ def plasma_beam(
             responses,
             pulse,
             settings=settings,
+            noise=None,
         )
     return Simulation.from_radial(
         grid,
@@ -508,6 +517,7 @@ def plasma_beam(
         responses,
         pulse,
         settings=settings,
+        noise=None,
     )
 
 
@@ -863,6 +873,7 @@ def gradient(precision: str) -> Simulation:
         precision=precision,  # pyright: ignore[reportArgumentType]
         integrator=Multistep(),
         rtol=1e-6,
+        noise=None,
     )
 
 

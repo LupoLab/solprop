@@ -90,8 +90,8 @@ also carries the medium. A hybrid planar run's planes are refused by name, and s
 the planes of a run with the modified noise model (`noise="modified"`): its saved field
 leaves the one-photon background to an auxiliary noise phase, which is not reconstructed
 into a plane, so the stored samples alone would drop it in the next stage. A source run
-meant for coupling uses `noise="input"`, whose background travels in the saved field,
-or `noise=None`.
+meant for coupling uses the default `noise="input"`, whose background travels in the
+saved field, or `noise=None`.
 
 ## Moving a plane between grids
 
@@ -461,6 +461,7 @@ def fibre(radius):
         fwhm=100e-15,
         energy=1e-12,
         n_save=2,
+        noise=None,  # a 1 pJ splice: the lesson is the coupling, not the noise
     )
 
 

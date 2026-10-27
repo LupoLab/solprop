@@ -790,6 +790,7 @@ MODULES = {
             (
                 "simulation",
                 "run",
+                "summary",
                 "interface",
                 "scaffold",
                 "mixtures",

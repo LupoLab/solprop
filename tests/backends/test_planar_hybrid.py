@@ -157,6 +157,7 @@ def modal_and_planar(family):
         dz_init=LENGTH / steps,
         schedule=FixedSchedule(np.full(steps, LENGTH / steps)),
         backend="numpy_ref",
+        noise=None,
     )
     simulation.settings = dataclasses.replace(
         simulation.settings, absorber_scheme=scheme
@@ -458,6 +459,7 @@ def test_the_kerr_phase_at_the_beam_centre_is_the_closed_form_b_integral():
         envelope=True,
         plasma=False,
         raman=False,
+        noise=None,
     ).responses
     assert [type(one) for one in responses] == [KerrResponse]
     settings = SimulationSettings(

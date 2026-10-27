@@ -6,12 +6,15 @@
 
 Two operations that belong to the spectrum rather than to the accessor that fetched it:
 smoothing a spectral energy density to the resolution of a real instrument, and building
-the Planck-tapered window of a wavelength bandpass.
+the Planck-tapered window of a bandpass.
 
-Neither is ever applied on its own. A window is a keyword, it is a wavelength range, and
-the array it produces is returned to the caller to multiply; no window adjusts its own
-limits as a side channel.
+Neither is ever applied on its own. A window is a keyword: a wavelength range, a
+:class:`Passband` on any spectral axis, or a ready-made array, and the array it produces
+is returned to the caller to multiply; no window adjusts its own limits as a side
+channel.
 """
+
+from dataclasses import dataclass
 
 import numpy as np
 from jaxtyping import Float
@@ -19,17 +22,64 @@ from jaxtyping import Float
 from solprop.constants import C
 from solprop.exceptions import ProcessingError
 from solprop.grid import TimeGrid, planck_taper
+from solprop.processing.axes import SPECTRAL_AXES, SpectralAxis, _check_choice
 
 __all__ = [
     "DEFAULT_BANDPASS_BINS",
     "DEFAULT_BANDPASS_FRACTION",
     "Bandpass",
+    "Passband",
     "bandpass",
     "specres",
 ]
 
-Bandpass = tuple[float, float] | Float[np.ndarray, " n_omega"]
-"""A wavelength range to taper between, or a ready-made window on the stored axis."""
+
+@dataclass(frozen=True)
+class Passband:
+    """A bandpass given on any spectral axis, for an accessor's ``bandpass`` keyword.
+
+    A bare pair of numbers is always a wavelength range; this says which axis its limits
+    are on, so that a band can be written in hertz or in rad/s, and a low-pass band can
+    start at zero frequency, which no wavelength can say.
+
+    Attributes
+    ----------
+    limits : tuple of float
+        The pass band, in m, Hz or rad/s as ``axis`` says, in either order.
+    axis : {'wavelength', 'f', 'omega'}
+        The axis of ``limits``.
+    width : float or None
+        Width of each taper edge, rad/s, whatever the axis: the taper is drawn on the
+        angular-frequency grid. ``None`` gives the default of :func:`bandpass`.
+
+    Raises
+    ------
+    solprop.exceptions.ProcessingError
+        If the axis is unknown, a wavelength limit is not positive, or a frequency limit
+        is negative.
+
+    Examples
+    --------
+    >>> from solprop.processing._examples import example_output
+    >>> from solprop.processing.spectra import Passband
+    >>> from solprop.processing.time import energy
+    >>> red = energy(example_output(), plane=0, bandpass=Passband((0.0, 375e12), "f"))
+    >>> 0.0 < float(red) < float(energy(example_output(), plane=0))
+    True
+    """
+
+    limits: tuple[float, float]
+    axis: SpectralAxis = "wavelength"
+    width: float | None = None
+
+    def __post_init__(self) -> None:
+        """Refuse an unknown axis, and limits that name no light on it."""
+        _check_choice(self.axis, SPECTRAL_AXES, "axis")
+        _check_limits(self.limits, self.axis)
+
+
+Bandpass = tuple[float, float] | Passband | Float[np.ndarray, " n_omega"]
+"""A wavelength range, a :class:`Passband` on any axis, or a ready-made window."""
 
 DEFAULT_BANDPASS_BINS = 64
 """Widest default bandpass edge, in frequency bins (Luna's ``winwidth = :auto``)."""
@@ -55,13 +105,14 @@ _FWHM_TO_SIGMA = 1.0 / (2.0 * np.sqrt(2.0 * np.log(2.0)))
 
 def bandpass(
     grid: TimeGrid,
-    wavelength_limits: tuple[float, float],
+    limits: tuple[float, float],
     *,
+    axis: SpectralAxis = "wavelength",
     width: float | None = None,
 ) -> Float[np.ndarray, " n_omega"]:
     """Return a Planck-tapered bandpass window on the stored frequency axis.
 
-    The window is one inside the wavelength range and zero
+    The window is one inside the range and zero
     outside it, joined on each side by a Planck taper of the given width in angular
     frequency. The default edge is the narrower of :data:`DEFAULT_BANDPASS_BINS` (64)
     bin spacings and :data:`DEFAULT_BANDPASS_FRACTION` (a quarter) of the pass band's
@@ -73,8 +124,10 @@ def bandpass(
     ----------
     grid : solprop.grid.TimeGrid
         The grid whose ``omega`` axis the window is built on.
-    wavelength_limits : tuple of float
-        The pass band, m, in either order.
+    limits : tuple of float
+        The pass band, in m, Hz or rad/s as ``axis`` says, in either order.
+    axis : {'wavelength', 'f', 'omega'}
+        The axis of ``limits``; wavelength by default.
     width : float or None
         Width of each taper edge, rad/s; ``None`` gives the smaller of 64 bin spacings
         and a quarter of the pass band's angular width.
@@ -87,8 +140,9 @@ def bandpass(
     Raises
     ------
     solprop.exceptions.ProcessingError
-        If a limit is not positive, or the width is not positive -- including the
-        default width of an empty pass band (equal limits).
+        If the axis is unknown, a wavelength limit is not positive, a frequency limit
+        is negative, or the width is not positive -- including the default width of an
+        empty pass band (equal limits).
 
     Examples
     --------
@@ -99,11 +153,18 @@ def bandpass(
     >>> window = bandpass(grid, (700e-9, 900e-9))
     >>> float(window.max()), float(window.min())
     (1.0, 0.0)
+    >>> from solprop.constants import C
+    >>> same = bandpass(grid, (C / 900e-9, C / 700e-9), axis="f")
+    >>> bool(np.allclose(window, same))
+    True
     """
-    if min(wavelength_limits) <= 0.0:
-        msg = f"wavelength limits must be positive, got {wavelength_limits!r}"
-        raise ProcessingError(msg)
-    edges = sorted(2.0 * np.pi * C / limit for limit in wavelength_limits)
+    _check_choice(axis, SPECTRAL_AXES, "axis")
+    _check_limits(limits, axis)
+    if axis == "wavelength":
+        edges = sorted(2.0 * np.pi * C / limit for limit in limits)
+    else:
+        turn = 2.0 * np.pi if axis == "f" else 1.0
+        edges = sorted(turn * limit for limit in limits)
     if width is None:
         width = min(
             DEFAULT_BANDPASS_BINS * grid.d_omega,
@@ -250,19 +311,44 @@ def _output_limits(
     return low, high
 
 
+def _check_limits(limits: tuple[float, float], axis: SpectralAxis) -> None:
+    """Refuse limits that name no light on their axis.
+
+    Parameters
+    ----------
+    limits : tuple of float
+        The pass band, in m, Hz or rad/s as ``axis`` says.
+    axis : {'wavelength', 'f', 'omega'}
+        The axis of ``limits``.
+
+    Raises
+    ------
+    solprop.exceptions.ProcessingError
+        If a wavelength limit is not positive, or a frequency limit is negative; zero
+        frequency is allowed, as the lower edge of a low-pass band.
+    """
+    if axis == "wavelength" and min(limits) <= 0.0:
+        msg = f"wavelength limits must be positive, got {limits!r}"
+        raise ProcessingError(msg)
+    if axis != "wavelength" and min(limits) < 0.0:
+        msg = f"frequency limits must not be negative, got {limits!r}"
+        raise ProcessingError(msg)
+
+
 def _as_window(grid: TimeGrid, spec: Bandpass) -> Float[np.ndarray, " n_omega"]:
     """Return the window an accessor's ``bandpass`` keyword asks for.
 
-    A pair of wavelengths is turned into a Planck taper of the default width; an array
-    is taken as it stands, which is how a caller uses a sharper edge than the default,
-    a different profile, or a window it built once and reuses.
+    A pair of wavelengths, or a :class:`Passband` on any axis, is turned into a Planck
+    taper; an array is taken as it stands, which is how a caller uses a different
+    profile, or a window it built once and reuses.
 
     Parameters
     ----------
     grid : solprop.grid.TimeGrid
         The grid whose ``omega`` axis the window lives on.
-    spec : tuple of float or numpy.ndarray
-        The pass band, m, or the window itself, shape ``(n_omega,)``.
+    spec : tuple of float, Passband or numpy.ndarray
+        The pass band in wavelength, m, the pass band on any axis, or the window
+        itself, shape ``(n_omega,)``.
 
     Returns
     -------
@@ -282,4 +368,6 @@ def _as_window(grid: TimeGrid, spec: Bandpass) -> Float[np.ndarray, " n_omega"]:
             )
             raise ProcessingError(msg)
         return spec
+    if isinstance(spec, Passband):
+        return bandpass(grid, spec.limits, axis=spec.axis, width=spec.width)
     return bandpass(grid, spec)

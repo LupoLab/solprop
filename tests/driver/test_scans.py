@@ -77,6 +77,7 @@ def build_point(point):
         ),
         integrator=FIXED_ORDER,
         backend="numpy_ref",
+        noise=None,
     )
 
 
@@ -556,6 +557,7 @@ def test_linux_allocation_uses_affinity_slurm_and_cgroup(tmp_path, monkeypatch):
         _process, "_own_cgroup_cpus", lambda: _process.cgroup_cpus(root)
     )
     monkeypatch.delenv("SOLPROP_THREADS", raising=False)
+    monkeypatch.setattr(_process, "physical_cores", lambda cpus: None)
     memory = tmp_path / "memory.max"
     memory.write_text(str(1024**3))
     missing = tmp_path / "missing"

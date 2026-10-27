@@ -13,6 +13,8 @@ rounding the routes' own parity allows. A separable route's exponent is formed b
 propagator kernel's element formula, which must be the host's volume to rounding.
 """
 
+from typing import cast
+
 import numpy as np
 import pytest
 
@@ -165,7 +167,9 @@ def _cartesian(formulation: str):
     simulation.settings = type(settings)(
         **{
             **{name: getattr(settings, name) for name in settings.__dataclass_fields__},
-            "controller": PIController(rtol=1e-8, atol=settings.controller.atol),
+            "controller": PIController(
+                rtol=1e-8, atol=cast("PIController", settings.controller).atol
+            ),
             "integrator": Multistep(formulation=formulation),  # pyright: ignore[reportArgumentType]
         }
     )

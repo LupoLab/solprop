@@ -60,7 +60,7 @@ def _case(
         absorber=bare_absorber(grid),
     )
     return Simulation.from_radial(
-        grid, RadialGrid(6e-4, 16), medium, [], pulse, settings=settings
+        grid, RadialGrid(6e-4, 16), medium, [], pulse, settings=settings, noise=None
     )
 
 

@@ -156,6 +156,7 @@ def propagate(pressure):
             dz_max=5e-3,
             n_save=201,
             progress="none",
+            seed=20261027,
             **PUMP,
         )
 
@@ -176,7 +177,7 @@ print(gradient)
 figures = prop_2d(
     gradient,
     "wavelength",
-    wavelength_range=(90e-9, 1.4e-6),
+    spec_range=(90e-9, 1.4e-6),
     trange=(-30e-15, 30e-15),
     db_min=-40,
     modes="sum",

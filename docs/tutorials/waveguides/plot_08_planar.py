@@ -95,6 +95,7 @@ simulation = Simulation.from_waveguide(
     dz_init=0.01,
     schedule=FixedSchedule(np.full(10, 0.01)),
     backend="numpy_ref",
+    noise=None,
 )
 # The driver places a pulse in the first mode; the projected launch is the same
 # pulse's spectrum shared among the modes by the Gaussian's overlaps.

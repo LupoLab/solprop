@@ -112,7 +112,7 @@ def assert_record_numbers(numbers, floors, stored: Path) -> None:
 
 
 def without_sep21_absorber(record: dict, *, bare: bool = False) -> dict:
-    """Return a hashed record as it was before output schema 26 (SEP 21).
+    """Return a hashed record as it was before output schema 27 (SEP 21).
 
     Schema 26 records ``Absorber.spatial``; the projection drops it. A run that declared
     no absorber recorded ``None`` before and now records the bare boundaries that stand

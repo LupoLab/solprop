@@ -58,7 +58,7 @@ In scripts and library code, import from the home modules listed below.
 | module | what it holds |
 |---|---|
 | {mod}`solprop.sol` | the interactive namespace |
-| {mod}`solprop.log` | logging and progress reporting (`configure_logging`) |
+| {mod}`solprop.log`, {mod}`solprop.driver.summary` | logging and progress reporting (`configure_logging`), and the summary a run shows before its first step |
 | {mod}`solprop.exceptions` | every error and warning solprop raises, under `SolpropError` and `SolpropWarning` |
 | {mod}`solprop.scan` | the command-line launcher of a scan script |
 

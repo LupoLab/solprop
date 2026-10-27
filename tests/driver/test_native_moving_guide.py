@@ -100,7 +100,7 @@ def _simulation(guide, grid, length=LENGTH, **pulse) -> Simulation:
             dz_init=length / STEPS,
             schedule=FixedSchedule(np.full(STEPS, length / STEPS)),
             backend="numpy_ref",
-            **pulse,
+            **{"noise": None, **pulse},
         )
         simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
         simulation.translate()
@@ -353,7 +353,7 @@ def test_auto_runs_a_moving_guide_on_native():
             dz_init=LENGTH / STEPS,
             rtol=1e-8,
             backend="auto",
-            **GRIN_PULSE,
+            **{"noise": None, **GRIN_PULSE},
         )
         # The bare guide, no absorber and so no window watch: the light reaches the
         # edge of this short window by design.

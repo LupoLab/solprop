@@ -77,7 +77,7 @@ def build(gas, temperature, *, radius=RADIUS, pressure=(0.5, 0.0), **overrides):
         pressure,
         temperature=temperature,
         schedule=FixedSchedule(np.full(STEPS, LENGTH / STEPS)),
-        **keywords(**overrides),
+        **{"noise": None, **keywords(**overrides)},
     )
     # A collar referred to a metre, weak enough for ten explicit millimetre steps
     # (ADR-025), as the tapered-gradient run of tests/driver/test_prop_capillary.py.
@@ -205,7 +205,7 @@ def test_three_populations_on_the_native_z_table_with_each_march(integrator):
 def test_the_run_records_the_temperature_path():
     metadata = build(PAIR, WARM).metadata()
     configuration = cast("dict", serialise(metadata.configuration))
-    assert metadata.schema_version == 26
+    assert metadata.schema_version == 27
     # The constructor's record keeps the path as the dataclass it is, and the
     # medium's record samples it with its breakpoints, as it does a density.
     assert configuration["capillary"]["temperature"] == {
@@ -283,6 +283,8 @@ def test_the_default_temperature_is_room_temperature():
 
 def test_from_waveguide_replaces_a_modes_temperature_path_with_its_own():
     mode = MarcatiliMode(RADIUS, "He", 1.0, temperature=WARM)
-    simulation = Simulation.from_waveguide([mode], LENGTH, "He", 1.0, **keywords(n_r=8))
+    simulation = Simulation.from_waveguide(
+        [mode], LENGTH, "He", 1.0, **{"noise": None, **keywords(n_r=8)}
+    )
     (rebound,) = simulation.modes
     assert getattr(rebound, "temperature", None) == ROOM_TEMPERATURE

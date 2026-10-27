@@ -298,8 +298,9 @@ which each channel follows its local mode and exchanges no power; it is refused 
 wall, which always carries the connection, and has no effect on one channel or a constant
 bore ([the taper coupling without a wall](../waveguides/taper-coupling.md#the-taper-coupling-without-a-wall)).
 Like the wall, the coupling is a coupled flow on a field grid with one field component,
-and it refuses an envelope grid and a noise model by name; `taper_coupling=False` is the
-route for either.
+and it refuses an envelope grid and the `modified` noise model by name;
+`taper_coupling=False` is the route for either. The `input` noise model is admitted: its
+draw is part of the launch, which the coupling propagates like any field.
 
 **A density that varies along the fibre.** `pressure` is a number, a pair
 `(p_in, p_out)` for the steady-flow gradient `p(z) = √(p₀² + z/L (p₁² − p₀²))`, or a pair

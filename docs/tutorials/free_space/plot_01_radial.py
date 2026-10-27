@@ -70,7 +70,7 @@ weak_launch = weak_pulse.build(grid, space, medium=SpatialMedium())
 entrance = SpatialFlux.resolve(grid, space, medium)
 weak_launch *= np.sqrt(2e-9 / spatial_energy(weak_launch, entrance))
 weak = Simulation.from_radial(
-    grid, space, medium, responses, weak_launch, settings=settings
+    grid, space, medium, responses, weak_launch, settings=settings, noise=None
 ).run()
 
 # %%
@@ -118,6 +118,7 @@ diagnostic = Simulation.from_radial(
     responses,
     diagnostic_pulse,
     settings=diagnostic_settings,
+    noise=None,
 ).run()
 print(f"Townes baseline: {power * 1e-9:.6g} GW; diagnostic: {peak_power * 1e-9:.6g} GW")
 print(f"P/Pcr = {ratio:.4f}")

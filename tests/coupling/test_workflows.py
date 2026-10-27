@@ -104,7 +104,9 @@ def capillary(
         **ENVELOPE_GRID,
         **changes,
     }
-    return Simulation.from_capillary(radius, length, "Ar", PRESSURE, **arguments)
+    return Simulation.from_capillary(
+        radius, length, "Ar", PRESSURE, **{"noise": None, **arguments}
+    )
 
 
 def assert_coupled(report: CouplingReport, received=None) -> None:
@@ -267,7 +269,13 @@ def test_a_kerr_prepared_radial_beam_into_a_capillary():
         ("kerr", [KerrResponse(gamma3("Ar", wavelength=800e-9), thg=False)]),
     ):
         gas = Simulation.from_radial(
-            grid, RadialGrid(4e-4, 96), ARGON, responses, pulse, settings=settings
+            grid,
+            RadialGrid(4e-4, 96),
+            ARGON,
+            responses,
+            pulse,
+            settings=settings,
+            noise=None,
         )
         plane = field_plane(gas.run(progress="none"), source=gas)
         coupled = couple(plane, port, model=SCALAR)
@@ -321,7 +329,13 @@ def test_a_field_grid_kerr_plasma_thg_entrance_is_transferred_with_its_harmonic(
     ]
     medium = SpatialMedium("Ar", 1.0)
     gas = Simulation.from_radial(
-        grid, RadialGrid(3e-4, 64), medium, responses, pulse, settings=settings
+        grid,
+        RadialGrid(3e-4, 64),
+        medium,
+        responses,
+        pulse,
+        settings=settings,
+        noise=None,
     )
     run = gas.run(progress="none")
     energy = np.asarray(run["stats/energy"])
@@ -450,6 +464,7 @@ def test_a_solid_fibre_into_another_fibre():
             n_save=2,
             backend=backend,
             absorber=False,
+            noise=None,
         )
 
     source = fibre(2.18e-6, "numba_cpu")
@@ -513,6 +528,7 @@ def test_a_gaussian_beam_into_a_solid_fibre():
         energy=1e-9,
         n_save=2,
         backend=RECEIVER,
+        noise=None,
     )
     port = target.input_port()
     waist = 2.6e-6

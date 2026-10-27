@@ -143,6 +143,7 @@ from solprop.plotting import stats as plot_stats
 from solprop.processing import (
     CepOptimum,
     Compression,
+    Passband,
     apply_transfer,
     arrival_time,
     bandpass,
@@ -270,6 +271,7 @@ __all__ = [
     "Multistep",
     "NonlinearPhase",
     "OptmatRate",
+    "Passband",
     "PathVariation",
     "PiecewiseLinear",
     "PlanarGrid",

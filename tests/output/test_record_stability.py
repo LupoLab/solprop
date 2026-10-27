@@ -34,7 +34,7 @@ from solprop.output.schema import SCHEMA_VERSION, serialise
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import ApertureSet, StatsSpec
-from solprop.stepper import PIController
+from solprop.stepper import Multistep, PIController
 from test_display import without_optmat_release
 
 STORED = Path(__file__).with_suffix("")
@@ -74,6 +74,9 @@ def spatial(kind: str) -> Simulation:
         dz_init=1e-4,
         absorber=boundary,
         backend="numpy_ref",
+        # The records were taken on the Adams march, the free-space default before
+        # SEP 37 made it the Runge-Kutta one.
+        integrator=Multistep(),
     )
     responses = [KerrResponse(1e-22, thg=False)]
     if kind == "radial":
@@ -84,6 +87,7 @@ def spatial(kind: str) -> Simulation:
             responses,
             pulse,
             settings=settings,
+            noise=None,
         )
     return Simulation.from_free(
         grid,
@@ -92,6 +96,7 @@ def spatial(kind: str) -> Simulation:
         responses,
         pulse,
         settings=settings,
+        noise=None,
     )
 
 
@@ -111,13 +116,17 @@ def build(kind: str) -> Simulation:
             n_save=3,
             backend="numpy_ref",
             absorber=False,
+            noise=None,
+            # The record was taken under the GNLSE defaults before SEP 37.
+            integrator=Multistep(),
+            rtol=1e-8,
         )
     return spatial(kind)
 
 
 def split(kind: str):
     metadata = build(kind).metadata()
-    assert metadata.schema_version == SCHEMA_VERSION == 26
+    assert metadata.schema_version == SCHEMA_VERSION == 27
     # SEP 27 changes the global resume boundary, not these non-plasma records.
     # SEP 34 adds the plane measure to the spatial record (output schema 23); the
     # schema-21 projection leaves it out, and everything else must be unchanged.
@@ -152,7 +161,7 @@ def split(kind: str):
         configuration=configuration,
         stepper=stepper,
     )
-    # SEP 21 records the absorber's spatial flag (output schema 26), and the runs that
+    # SEP 21 records the absorber's spatial flag (output schema 27), and the runs that
     # declared none record the bare boundaries that stand for it; the schema-21
     # projection takes both back.
     hashed = without_sep21_absorber(

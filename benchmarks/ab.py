@@ -2,24 +2,20 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Compare two builds quickly: one worker per build per round, cases built once."""
+"""Compare two builds quickly: alternating workers per configuration and round."""
 
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import os
 import random
 import statistics
-import subprocess
 import sys
 import time
 import uuid
 from pathlib import Path
 
-from benchmarks.collection import freeze_harness, prepared_python
-from benchmarks.planning import Selection, matrix
 from benchmarks.records import (
     LOCAL_ROOT,
     Record,
@@ -28,17 +24,23 @@ from benchmarks.records import (
     canonical,
     now,
 )
-from benchmarks.registry import SETS, TRACKS, select
-from benchmarks.system import admission, guard, profile_for, thread_environment
+from benchmarks.registry import select
+from benchmarks.runner import (
+    freeze_harness,
+    launch_worker,
+    plan_rows,
+    prepared_python,
+    receipt,
+)
+from benchmarks.system import eligible_cpus, guard, physical_cores, thread_environment
+from benchmarks.track import selection_options, steppers
 
 __all__ = [
     "ARMS",
     "ab",
     "ab_options",
-    "admitted",
     "arm_order",
     "field_difference",
-    "launch_worker",
     "show_summary",
     "summarise",
 ]
@@ -47,27 +49,21 @@ ARMS = ("baseline", "candidate")
 
 
 def ab_options(parser: argparse.ArgumentParser) -> None:
-    """Declare the exploratory A/B selection, builds, rounds and repetitions."""
-    parser.add_argument("--case", action="append", default=[])
-    parser.add_argument("--set", action="append", choices=SETS, default=[])
-    parser.add_argument("--all", action="store_true")
-    parser.add_argument(
-        "--backend", choices=("numpy_ref", "numba_cpu", "native"), default="native"
-    )
-    parser.add_argument("--threads")
-    parser.add_argument("--track", action="append", choices=TRACKS, default=[])
-    parser.add_argument("--machine-profile", type=Path)
-    parser.add_argument("--diagnostic", action="store_true")
+    """Declare the A/B selection, builds, length, rounds and repetitions."""
+    selection_options(parser)
     parser.add_argument("--baseline-python", required=True)
     parser.add_argument("--candidate-python", default=sys.executable)
-    parser.add_argument("--rounds", type=int, default=3)
     parser.add_argument(
-        "--repeats", type=int, default=5, help="timed windows per case per worker"
+        "--length",
+        type=float,
+        default=1.0,
+        help="fraction of each guide to run, for quick iteration",
     )
-    parser.add_argument("--seed", type=int, default=30)
+    parser.add_argument("--rounds", type=int, default=3)
+    parser.add_argument("--seed", type=int, default=30, help="shuffles the case order")
     parser.add_argument("--out", type=Path)
     parser.add_argument(
-        "--timeout", type=float, default=1800.0, help="worker limit, seconds"
+        "--timeout", type=float, default=3600.0, help="per-worker limit, seconds"
     )
     parser.add_argument("--json", action="store_true")
 
@@ -77,65 +73,8 @@ def arm_order(round_index: int) -> tuple[str, ...]:
     return ARMS if round_index % 2 == 0 else ARMS[::-1]
 
 
-def admitted(plan: Record) -> tuple[list[Record], list[str]]:
-    """Keep ready singleton rows that fit in memory; explain every other row."""
-    rows: list[Record] = []
-    skipped: list[str] = []
-    for row in plan["rows"]:
-        values = row["configuration"]
-        label = f"{values['case']} {values['track']} {values['threads']} threads"
-        if row["status"] != "ready":
-            skipped.append(f"{label}: {row['reason']}")
-        elif values["case"] == "batch":
-            skipped.append(f"{label}: the batch exercise needs the standard runner")
-        elif not (memory := admission(row["estimate_bytes"], None))["admitted"]:
-            skipped.append(f"{label}: {memory['reason']}")
-        else:
-            rows.append(row)
-    return rows, skipped
-
-
-def launch_worker(
-    python: str,
-    request: Record,
-    environment: dict[str, str],
-    directory: Path,
-    timeout: float,
-) -> list[Record]:
-    """Run one worker to completion and return its protocol events."""
-    directory.mkdir(parents=True, exist_ok=True)
-    path = directory / "request.json"
-    atomic_record(path, request, immutable=True)
-    harness = Path(request["harness_root"]).resolve()
-    with (
-        (directory / "stdout.log").open("w", encoding="utf-8") as stdout,
-        (directory / "stderr.log").open("w", encoding="utf-8") as stderr,
-    ):
-        try:
-            subprocess.run(
-                [python, "-m", "benchmarks.ab_worker", str(path.resolve())],
-                cwd=harness,
-                env={**environment, "PYTHONPATH": str(harness)},
-                stdout=stdout,
-                stderr=stderr,
-                timeout=timeout,
-                check=False,
-            )
-        except subprocess.TimeoutExpired:
-            stdout.write(canonical({"event": "failed", "error": "worker timeout"}))
-    events = []
-    for line in (directory / "stdout.log").read_text(encoding="utf-8").splitlines():
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(event, dict) and "event" in event:
-            events.append(event)
-    return events
-
-
 def field_difference(baseline: Path, candidate: Path) -> float | None:
-    """Return the relative L2 difference of two builds' retained fields."""
+    """Return the relative L2 difference of two builds' final fields."""
     if not (baseline.exists() and candidate.exists()):
         return None
     import numpy as np  # noqa: PLC0415 - only after both workers saved fields
@@ -171,7 +110,7 @@ def summarise(rows: list[Record], samples: list[Record], fields: Path) -> list[R
             {
                 "id": row["id"],
                 "case": values["case"],
-                "track": values["track"],
+                "stepper": values["stepper"],
                 "threads": values["threads"],
                 "rounds": len(rounds),
                 "baseline_seconds": statistics.median(medians["baseline"].values())
@@ -200,13 +139,13 @@ def summarise(rows: list[Record], samples: list[Record], fields: Path) -> list[R
 def show_summary(summary: list[Record]) -> None:
     """Print one line per configuration; the ratio is exploratory, not a verdict."""
     print(
-        f"\n{'case':22} {'track':20} {'N':>3} {'base / ms':>10} {'cand / ms':>10} "
-        f"{'ratio':>7} {'range':>15} {'field diff':>10} work"
+        f"\n{'case':26} {'stepper':12} {'N':>3} {'base / s':>9} {'cand / s':>9} "
+        f"{'ratio':>7} {'range':>13} {'field diff':>10} work"
     )
     for row in summary:
 
-        def ms(value: float | None) -> str:
-            return "-" if value is None else f"{1e3 * value:.3f}"
+        def seconds(value: float | None) -> str:
+            return "-" if value is None else f"{value:.3f}"
 
         ratio = "-" if row["ratio"] is None else f"{row['ratio']:.4f}"
         spread = (
@@ -218,9 +157,10 @@ def show_summary(summary: list[Record]) -> None:
             "-" if row["field_difference"] is None else f"{row['field_difference']:.1e}"
         )
         print(
-            f"{row['case']:22} {row['track']:20} {row['threads']:3} "
-            f"{ms(row['baseline_seconds']):>10} {ms(row['candidate_seconds']):>10} "
-            f"{ratio:>7} {spread:>15} {field:>10} "
+            f"{row['case']:26} {row['stepper']:12} {row['threads']:3} "
+            f"{seconds(row['baseline_seconds']):>9} "
+            f"{seconds(row['candidate_seconds']):>9} "
+            f"{ratio:>7} {spread:>13} {field:>10} "
             f"{'same' if row['same_work'] else 'differs'}"
         )
         for error in row["failures"]:
@@ -236,29 +176,23 @@ def show_summary(summary: list[Record]) -> None:
 
 
 def ab(args: argparse.Namespace) -> int:
-    """Collect and summarise a fast paired comparison of two prepared builds."""
+    """Collect and summarise a paired comparison of two prepared builds."""
     if args.rounds < 1 or args.repeats < 1 or args.timeout <= 0:
         raise SuiteError("rounds, repeats and timeout must be positive")
     started = time.perf_counter()
-    cases = select(tuple(args.case), tuple(args.set), all_cases=args.all)
-    profile = profile_for(args.machine_profile, standard=False)
-    plan = matrix(
-        cases,
-        profile,
-        Selection(
-            "quick",
-            args.backend,
-            args.threads,
-            tuple(args.track),
-            None,
-            args.diagnostic,
-        ),
+    rows, skipped = plan_rows(
+        select(tuple(args.case), tuple(args.set), all_cases=args.all),
+        steppers(args.stepper),
+        args.threads,
+        args.production or physical_cores(),
+        backend=args.backend,
+        fraction=args.length,
+        device=args.device,
     )
-    rows, skipped = admitted(plan)
     for reason in skipped:
         print(f"skipped {reason}")
     if not rows:
-        raise SuiteError("no admitted configuration in the selection")
+        raise SuiteError("no configuration in the selection")
     output: Path = args.out or LOCAL_ROOT / "ab" / uuid.uuid4().hex
     if output.exists() and any(output.iterdir()):
         raise SuiteError("output already exists; choose a new --out")
@@ -275,8 +209,9 @@ def ab(args: argparse.Namespace) -> int:
             "pythons": pythons,
             "rounds": args.rounds,
             "repeats": args.repeats,
+            "length": args.length,
+            "threading": args.threading,
             "seed": args.seed,
-            "profile": plan["profile"],
             "rows": rows,
             "skipped": skipped,
             "harness_files": freeze_harness(harness),
@@ -285,66 +220,47 @@ def ab(args: argparse.Namespace) -> int:
     )
     samples: list[Record] = []
     provenance: dict[str, list[Record]] = {arm: [] for arm in ARMS}
-    diagnostics: list[Record] = []
-    widths = list(dict.fromkeys(row["configuration"]["threads"] for row in rows))
+    allocation = eligible_cpus()
     for round_index in range(args.rounds):
         shuffled = list(rows)
         random.Random(args.seed + round_index).shuffle(shuffled)
-        for width in widths:
-            selected = [
-                row for row in shuffled if row["configuration"]["threads"] == width
-            ]
+        shuffled.sort(key=lambda row: row["configuration"]["threads"])
+        for row in shuffled:
+            width = row["configuration"]["threads"]
             for arm in arm_order(round_index):
-                quiet = guard(tuple(profile.allocation), standard=False)
-                request = {
-                    "rows": selected,
-                    "repeats": args.repeats,
-                    "harness_root": str(harness.resolve()),
-                    "fields": str((output / "fields" / arm).resolve())
-                    if round_index == 0
-                    else None,
-                }
-                launched = time.perf_counter()
-                events = launch_worker(
+                quiet = guard(allocation)["quiet"]
+                events, elapsed = launch_worker(
                     pythons[arm],
-                    request,
-                    thread_environment(width, profile.policy, dict(os.environ)),
-                    output / "raw" / f"r{round_index}-t{width}-{arm}",
+                    {
+                        "configuration": row["configuration"],
+                        "repeats": args.repeats,
+                        "fields": str(
+                            (output / "fields" / arm / f"{row['id']}.npy").resolve()
+                        )
+                        if round_index == 0
+                        else None,
+                    },
+                    thread_environment(width, dict(os.environ), args.threading),
+                    output / "raw" / f"r{round_index}-{arm}-{row['id']}",
                     args.timeout,
+                    harness,
                 )
-                elapsed = time.perf_counter() - launched
-                received = {e["id"]: e for e in events if e["event"] == "row"}
-                failure = next(
-                    (e["error"] for e in events if e["event"] == "failed"),
-                    "no receipt from the worker",
+                result = receipt(events)
+                if result.get("provenance"):
+                    provenance[arm].append(result["provenance"])
+                samples.append(
+                    {
+                        **{k: v for k, v in result.items() if k != "provenance"},
+                        "id": row["id"],
+                        "arm": arm,
+                        "round": round_index,
+                        "quiet": quiet,
+                    }
                 )
-                provenance[arm].extend(
-                    e["provenance"] for e in events if e["event"] == "provenance"
-                )
-                diagnostics.extend(
-                    {"arm": arm, "round": round_index, **item}
-                    for e in events
-                    if e["event"] == "diagnostics"
-                    for item in e["diagnostics"]
-                )
-                for row in selected:
-                    event = received.get(
-                        row["id"], {"status": "failed", "error": failure}
-                    )
-                    samples.append(
-                        {
-                            **{k: v for k, v in event.items() if k != "event"},
-                            "id": row["id"],
-                            "arm": arm,
-                            "round": round_index,
-                            "quiet": quiet["quiet"],
-                        }
-                    )
-                done = sum(row["id"] in received for row in selected)
                 print(
-                    f"round {round_index + 1}/{args.rounds}, {width} threads, "
-                    f"{arm}: {done}/{len(selected)} cases in {elapsed:.1f} s"
-                    + ("" if quiet["quiet"] else " (machine busy at launch)"),
+                    f"round {round_index + 1}/{args.rounds} {row['id']} {arm}: "
+                    f"{result['status']} in {elapsed:.1f} s"
+                    + ("" if quiet else " (machine busy at launch)"),
                     flush=True,
                 )
     summary = summarise(rows, samples, output / "fields")
@@ -354,7 +270,6 @@ def ab(args: argparse.Namespace) -> int:
             "samples": samples,
             "summary": summary,
             "provenance": provenance,
-            "diagnostics": diagnostics,
             "collection_seconds": time.perf_counter() - started,
             "busy_samples": sum(not item["quiet"] for item in samples),
         },

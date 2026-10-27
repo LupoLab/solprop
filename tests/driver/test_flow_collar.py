@@ -250,6 +250,7 @@ def _transient_case():
             backend="numpy_ref",
             plasma=False,
             raman=False,
+            noise=None,
         )
         return simulation.translate(), grid
 

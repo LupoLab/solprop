@@ -149,6 +149,7 @@ def run(wall, modes):
             plasma=False,
             raman=False,
             progress="none",
+            noise=None,
         )
 
 

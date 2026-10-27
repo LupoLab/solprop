@@ -102,7 +102,7 @@ def _radial(medium):
     grid = _grid()
     space = RadialGrid(6e-4, 16)
     simulation = Simulation.from_radial(
-        grid, space, medium, [], _pulse(60e-6), settings=_settings(LOCAL)
+        grid, space, medium, [], _pulse(60e-6), settings=_settings(LOCAL), noise=None
     )
     return grid, simulation.translate()
 
@@ -117,6 +117,7 @@ def _free(space):
         [],
         _pulse(60e-6, 3e-9 if isinstance(space, FreeGrid) else 1e-3),
         settings=_settings(names, apertures=HOLES, spectral_regions=HALVES),
+        noise=None,
     )
     return grid, simulation.translate()
 

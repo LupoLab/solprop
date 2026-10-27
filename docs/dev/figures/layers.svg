@@ -226,8 +226,8 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="404.75" y="1237.0" font-size="12" class="dim">batch</text>
 <rect x="609.55" y="1184.0" width="224.60000000000002" height="112.5" rx="7" ry="7" class="fill-d" />
 <text x="619.55" y="1206.0" font-size="15" class="bold ink-d">driver/</text>
-<text x="619.55" y="1221.5" font-size="12" class="dim">simulation · run · interface</text>
-<text x="619.55" y="1237.0" font-size="12" class="dim">scaffold · mixtures</text>
+<text x="619.55" y="1221.5" font-size="12" class="dim">simulation · run · summary</text>
+<text x="619.55" y="1237.0" font-size="12" class="dim">interface · scaffold · mixtures</text>
 <text x="619.55" y="1252.5" font-size="12" class="dim">material_output · tdse</text>
 <text x="619.55" y="1268.0" font-size="12" class="dim">tdse_consistency · scan · batch</text>
 <text x="619.55" y="1283.5" font-size="12" class="dim">memory</text>

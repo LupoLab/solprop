@@ -366,6 +366,7 @@ def free_energy_change(response: object, materials: MaterialSelection) -> float:
         SpatialPulse(GaussianPulse(wavelength=800e-9, fwhm=15e-15, energy=3e-6), 6e-5),
         settings=settings,
         materials=materials,
+        noise=None,
     )
     output = MemoryOutput()
     simulation.run(output)
@@ -847,6 +848,7 @@ def general_simulation(
         save_planes=[GENERAL_Z_END],
         dz_max=GENERAL_Z_END / steps,
         dz_init=GENERAL_Z_END / steps,
+        noise=None,
     )
 
 

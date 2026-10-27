@@ -58,7 +58,7 @@ from solprop.modes.capillary import (
 from solprop.output.memory import MemoryOutput
 from solprop.physdata.mixtures import Mixture
 from solprop.profiles import FromCallable, Linear
-from solprop.stepper import FixedSchedule, Multistep, RungeKutta
+from solprop.stepper import FixedSchedule, Multistep, PIController, RungeKutta
 from solprop.translate.problem import TAPER_FLOW_CERTIFICATE, _walk_arrays, assemble
 
 pytestmark = [
@@ -200,7 +200,7 @@ def test_the_opt_out_is_the_adiabatic_route_without_a_warning():
         simulation.modes,
         list(simulation.responses),
         simulation._field0,
-        controller=simulation.settings.controller,
+        controller=cast("PIController", simulation.settings.controller),
         save_planes=simulation.settings.save_planes,
         dz_max=simulation.settings.dz_max,
         dz_init=simulation.settings.dz_init,
@@ -237,7 +237,7 @@ def test_a_wall_and_the_opt_out_are_refused_together():
             simulation.modes,
             list(simulation.responses),
             simulation._field0,
-            controller=simulation.settings.controller,
+            controller=cast("PIController", simulation.settings.controller),
             save_planes=simulation.settings.save_planes,
             dz_max=simulation.settings.dz_max,
             dz_init=simulation.settings.dz_init,
@@ -258,11 +258,18 @@ def test_an_envelope_grid_beside_the_coupling_is_refused_naming_the_opt_out():
         ).translate()
 
 
-def test_a_noise_model_beside_the_coupling_is_refused_naming_the_opt_out():
-    """A draw through a coupled flow is not measured; the opt-out carries it."""
+def test_the_modified_noise_beside_the_coupling_is_refused_naming_the_opt_out():
+    """A kept-apart draw through a coupled flow is not measured; the opt-out carries it.
+
+    The input draw is part of the entrance state and rides the coupling
+    (``tests/driver/test_coupled_input_noise.py``).
+    """
     with pytest.raises(TranslationError, match="taper_coupling=False"):
-        lossless(noise="input", seed=1).translate()
-    assert lossless(noise="input", seed=1, taper_coupling=False).translate() is not None
+        lossless(noise="modified", seed=1).translate()
+    assert (
+        lossless(noise="modified", seed=1, taper_coupling=False).translate() is not None
+    )
+    assert lossless(noise="input", seed=1).translate() is not None
 
 
 def test_a_supplied_set_couples_through_from_waveguide_and_a_provider_refuses_it():
@@ -283,7 +290,9 @@ def test_a_supplied_set_couples_through_from_waveguide_and_a_provider_refuses_it
         "plasma": False,
         "raman": False,
     }
-    coupled = Simulation.from_waveguide(modes, LENGTH, "He", 1.0, **arguments)
+    coupled = Simulation.from_waveguide(
+        modes, LENGTH, "He", 1.0, **{"noise": None, **arguments}
+    )
     assert coupled.translate().linear.coupled_flow is not None
     adiabatic = Simulation.from_waveguide(
         modes,
@@ -291,7 +300,7 @@ def test_a_supplied_set_couples_through_from_waveguide_and_a_provider_refuses_it
         "He",
         1.0,
         taper_coupling=False,
-        **arguments,
+        **{"noise": None, **arguments},
     )
     assert adiabatic.translate().linear.coupled_flow is None
     with pytest.raises(DriverError, match="taper_coupling=False"):
@@ -301,6 +310,7 @@ def test_a_supplied_set_couples_through_from_waveguide_and_a_provider_refuses_it
             provider=split_guide(general_grid()),
             lambda0=835e-9,
             taper_coupling=False,
+            noise=None,
         )
 
 
@@ -358,6 +368,7 @@ def slow_taper(*, taper_coupling=True, steps=STEPS):
         dz_max=length / steps,
         dz_init=length / steps,
         taper_coupling=taper_coupling,
+        noise=None,
     )
 
 
@@ -565,7 +576,7 @@ def test_a_second_field_component_beside_the_coupling_is_refused():
             simulation.modes,
             list(simulation.responses),
             field,
-            controller=simulation.settings.controller,
+            controller=cast("PIController", simulation.settings.controller),
             save_planes=simulation.settings.save_planes,
             dz_max=simulation.settings.dz_max,
             dz_init=simulation.settings.dz_init,

@@ -21,7 +21,7 @@ from solprop.nonlinear.gnlse import SpecifiedMode, problem_from
 from solprop.output.memory import MemoryOutput
 from solprop.profiles import Constant, FromCallable, Linear, PiecewiseLinear
 from solprop.pulses import GaussianPulse
-from solprop.stepper import FixedSchedule
+from solprop.stepper import FixedSchedule, Multistep
 from solprop.translate.modal import _radius_kinks, mode_averaged_transform
 
 LENGTH = 1e-3
@@ -48,7 +48,12 @@ def fibre(area):
 
 
 def run(area, gamma=GAMMA, **keywords):
-    """Propagate the millimetre with no dispersion and no loss."""
+    """Propagate the millimetre with no dispersion and no loss, on the Adams march.
+
+    The landing and accuracy figures below were qualified on ``Multistep()``, the
+    GNLSE default before SEP 37 made it the Runge-Kutta march.
+    """
+    keywords.setdefault("integrator", Multistep())
     return prop_gnlse(
         gamma,
         LENGTH,

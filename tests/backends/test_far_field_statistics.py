@@ -91,6 +91,7 @@ def free_simulation(grid, space, launch, *, medium=None, spec=None, **settings):
         [],
         launch,
         settings=SimulationSettings(**options),
+        noise=None,
     )
 
 
@@ -413,6 +414,7 @@ def test_radial_and_planar_geometry_are_refused_before_any_step(grid):
             backend="numpy_ref",
             stats=spec,
         ),
+        noise=None,
     )
     with pytest.raises(OutputError, match="radial grid"):
         select("numpy_ref", radial.translate(), grid=grid)

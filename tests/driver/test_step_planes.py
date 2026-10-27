@@ -46,7 +46,7 @@ def soliton(**extra):
         pulseshape="sech",
         n_save=4,
         noise=None,
-        **{"rtol": RTOL, **extra},
+        **{"integrator": Multistep(), **({"rtol": RTOL, **extra})},
     )
 
 

@@ -345,7 +345,7 @@ z = np.asarray(run["z"])
 figures = prop_2d(
     run,
     "wavelength",
-    wavelength_range=(500e-9, 1.8e-6),
+    spec_range=(500e-9, 1.8e-6),
     trange=(-1e-12, 1e-12),
     db_min=-80,
     modes="sum",

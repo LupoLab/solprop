@@ -191,6 +191,7 @@ def test_grin_self_imaging(grid, linear_guide, imaging, record_property):
         rtol=1e-9,
         atol=1e-16,
         backend="numpy_ref",
+        noise=None,
     )
     state = np.zeros((2, 1, grid.n_omega), dtype=complex)
     state[:, 0, centre] = 1.0

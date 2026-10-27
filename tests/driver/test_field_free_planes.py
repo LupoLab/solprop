@@ -133,6 +133,7 @@ def low_storage(length: float = 0.02, steps: int = 8) -> Simulation:
         integrator=LowStorageRungeKutta(),
         dz_max=schedule.max_step,
         dz_init=schedule.max_step,
+        noise=None,
     )
 
 
@@ -173,7 +174,7 @@ def test_a_replayed_run_keeps_its_march_whatever_fields_it_keeps(backend, noise)
     full, planes, none = runs["all"], runs["planes"], runs["none"]
     assert np.array_equal(none["field_planes"], [])
     assert np.array_equal(planes["field_planes"], [0, len(PLANES)])
-    controller = simulation.settings.controller
+    controller = cast("PIController", simulation.settings.controller)
     for output in (planes, none):
         # A prescribed schedule is a structural contract: the same steps, in order.
         for column in ("z", "h", "accepted", "counts"):

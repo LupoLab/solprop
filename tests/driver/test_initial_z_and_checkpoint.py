@@ -77,6 +77,7 @@ def tiny_simulation(*, max_calls=None):
         integrator=Multistep(max_calls=max_calls),
         dz_init=1e-6,
         dz_max=1e-6,
+        noise=None,
     )
 
 
@@ -579,18 +580,26 @@ def test_constructor_refuses_invalid_launch_before_translation(initial_z):
         )
 
 
-def test_interior_launch_refuses_noise_before_realisation():
+def test_interior_launch_refuses_modified_noise_before_realisation():
     simulation = tiny_simulation()
-    with pytest.raises(DriverError, match="noise=None"):
-        Simulation(
+
+    def launched(model):
+        return Simulation(
             simulation.grid,
             simulation.modes,
             simulation.responses,
             simulation._field0,
             settings=simulation.settings,
             initial_z=5e-6,
-            noise=NoiseRealisation(np.zeros_like(simulation._field0), 1, "input"),
+            noise=NoiseRealisation(np.zeros_like(simulation._field0), 1, model),
         )
+
+    with pytest.raises(DriverError, match="refuses the modified noise model"):
+        launched("modified")
+    # SEP 37: an explicit input draw enters at the launch.
+    admitted = launched("input").noise
+    assert admitted is not None
+    assert admitted.model == "input"
 
 
 @pytest.mark.parametrize("case", ["outside", "field", "logical", "cap", "atomic"])
@@ -673,8 +682,10 @@ def test_tdse_settings_revalidation_refuses_unsupported_execution(
         simulation.responses = ()
         message = "requires a TDSEGasResponse"
     elif case == "noise":
-        simulation.noise = "input"
-        message = "noise=None"
+        simulation.noise = NoiseRealisation(
+            np.zeros_like(simulation._field0), 1, "modified"
+        )
+        message = "modified"
     elif case == "collar":
         settings = dataclasses.replace(settings, absorber_scheme="split_step")
         message = "in-stage temporal collar"
@@ -931,6 +942,7 @@ def test_spatial_resume_retains_physical_field_without_modal_normalisation(monke
             dz_init=1e-6,
             dz_max=grid.length,
         ),
+        noise=None,
     )
     problem = simulation.translate()
     backend = select("numpy_ref", problem, grid=grid, modes=simulation.modes)

@@ -12,17 +12,15 @@ import re
 import subprocess
 from pathlib import Path
 
-import psutil
-
 from benchmarks.records import Record, SuiteError
 
 __all__ = [
     "allocation_details",
     "cpu_list",
+    "gpu_model",
     "hardware_details",
     "linux_topology",
-    "numa_pages",
-    "process_binding",
+    "lscpu_model",
 ]
 
 
@@ -77,29 +75,73 @@ def linux_topology(root: Path, allocation: tuple[int, ...]) -> list[Record]:
     return result
 
 
+def _command(arguments: list[str]) -> str | None:
+    """Return a short query's standard output, or ``None`` if it fails."""
+    try:
+        result = subprocess.run(
+            arguments,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=5,
+            check=False,
+        )
+    except OSError, subprocess.TimeoutExpired:
+        return None
+    return result.stdout if result.returncode == 0 else None
+
+
+def lscpu_model(output: str) -> str | None:
+    """Name an Arm or other CPU from ``lscpu``, e.g. ``ARM Neoverse-V2``.
+
+    Arm Linux kernels give ``/proc/cpuinfo`` no model name; ``lscpu`` decodes the
+    implementer and part numbers into a vendor and a core name.
+    """
+    fields = {
+        key.strip(): value.strip()
+        for key, _, value in (line.partition(":") for line in output.splitlines())
+        if value.strip()
+    }
+    model = fields.get("Model name")
+    if not model or model == "-":
+        return None
+    vendor = fields.get("Vendor ID", "")
+    # x86 vendor IDs (GenuineIntel, AuthenticAMD) are not names to prefix.
+    if not vendor or vendor.startswith(("Genuine", "Authentic")) or vendor in model:
+        return model
+    return f"{vendor} {model}"
+
+
+def _windows_model() -> str | None:
+    """Read the processor name Windows keeps in its registry."""
+    try:
+        import winreg  # noqa: PLC0415  # pyright: ignore[reportMissingModuleSource]
+
+        with winreg.OpenKey(  # pyright: ignore[reportAttributeAccessIssue]
+            winreg.HKEY_LOCAL_MACHINE,  # pyright: ignore[reportAttributeAccessIssue]
+            r"HARDWARE\DESCRIPTION\System\CentralProcessor\0",
+        ) as key:
+            value, _ = winreg.QueryValueEx(key, "ProcessorNameString")  # pyright: ignore[reportAttributeAccessIssue]
+    except ImportError, OSError:
+        return None
+    return str(value).strip() or None
+
+
 def hardware_details(allocation: tuple[int, ...]) -> Record:
-    """Record richer static hardware without changing existing profile identities."""
+    """Record the CPU model and, on Linux, the per-CPU topology."""
     system = platform.system()
     model = None
     cores: list[Record] = []
     if system == "Linux":
         contents = _read(Path("/proc/cpuinfo")) or ""
         match = re.search(r"^model name\s*:\s*(.+)$", contents, re.MULTILINE)
-        model = match[1] if match else None
+        model = match[1] if match else lscpu_model(_command(["lscpu"]) or "")
         cores = linux_topology(Path("/sys/devices/system/cpu"), allocation)
     elif system == "Darwin":
-        try:
-            result = subprocess.run(
-                ["sysctl", "-n", "machdep.cpu.brand_string"],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                timeout=2,
-                check=False,
-            )
-            model = result.stdout.strip() if result.returncode == 0 else None
-        except OSError, subprocess.TimeoutExpired:
-            pass
+        output = _command(["sysctl", "-n", "machdep.cpu.brand_string"])
+        model = output.strip() if output else None
+    elif system == "Windows":
+        model = _windows_model()
     return {
         "cpu_model": model,
         "cpu_model_reason": None if model else "model query unavailable",
@@ -136,61 +178,32 @@ def allocation_details() -> Record:
     return result
 
 
-def numa_pages(contents: str) -> list[Record]:
-    """Aggregate resident mapping bytes by NUMA node, excluding mapping paths."""
-    totals: dict[int, int] = {}
-    for line in contents.splitlines():
-        size = re.search(r"\bkernelpagesize_kB=(\d+)\b", line)
-        if size is None:
-            continue
-        for node, count in re.findall(r"\bN(\d+)=(\d+)\b", line):
-            key = int(node)
-            totals[key] = totals.get(key, 0) + int(count) * int(size[1]) * 1024
-    return [
-        {"node": node, "resident_mapping_bytes": value}
-        for node, value in sorted(totals.items())
-    ]
+def gpu_model(nvidia: str | None, amd: str | None) -> str | None:
+    """Name the first visible GPU from ``nvidia-smi`` or ``rocm-smi`` output.
 
-
-def process_binding() -> Record:
-    """Inspect live thread affinities and NUMA placement after diagnostic work.
-
-    Allowed CPU sets do not establish execution residency. This deliberately
-    separate diagnostic neither samples inside kernels nor changes affinity.
+    `nvidia` is ``nvidia-smi --query-gpu=name --format=csv,noheader``; `amd` is
+    ``rocm-smi --showproductname --csv``, whose ``Card Series`` column names the part.
     """
-    try:
-        threads = psutil.Process().threads()
-    except psutil.Error:
-        threads = None
-    rows = []
-    for thread in threads or []:
-        affinity = None
-        reason = "per-thread affinity unavailable on this OS"
-        if hasattr(os, "sched_getaffinity"):
-            try:
-                affinity = sorted(os.sched_getaffinity(thread.id))
-                reason = None
-            except OSError:
-                reason = "thread exited or affinity query denied"
-        rows.append(
-            {
-                "thread_id": thread.id,
-                "user_seconds": thread.user_time,
-                "system_seconds": thread.system_time,
-                "allowed_cpus": affinity,
-                "affinity_reason": reason,
-            }
-        )
-    maps = _read(Path("/proc/self/numa_maps"))
-    placement = numa_pages(maps) if maps else []
+    for line in (nvidia or "").splitlines():
+        if line.strip():
+            return line.strip()
+    lines = [line for line in (amd or "").splitlines() if line.strip()]
+    if len(lines) > 1:
+        header = [cell.strip() for cell in lines[0].split(",")]
+        if "Card Series" in header:
+            value = lines[1].split(",")[header.index("Card Series")].strip()
+            if value:
+                return value if value.startswith("AMD") else f"AMD {value}"
+    return None
+
+
+def gpu_details() -> Record:
+    """Record the first visible GPU's model, or why it is unknown."""
+    model = gpu_model(
+        _command(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"]),
+        _command(["rocm-smi", "--showproductname", "--csv"]),
+    )
     return {
-        "allocation": allocation_details(),
-        "threads": rows,
-        "threads_reason": None
-        if threads is not None
-        else "thread inventory unavailable",
-        "numa": placement,
-        "numa_reason": None if placement else "NUMA mapping sizes unavailable",
-        "residency": None,
-        "residency_reason": "affinity is allowed placement, not sampled CPU residency",
+        "gpu_model": model,
+        "gpu_model_reason": None if model else "no nvidia-smi or rocm-smi answer",
     }

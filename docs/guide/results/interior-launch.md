@@ -9,8 +9,10 @@ described under [file continuation](run-access.md#writing-to-a-file-and-resuming
 
 An explicit modal spectrum can be launched at `initial_z`, in metres, while retaining
 the original guide length, absolute density and pressure profiles, propagation frame
-and coarse grid. The default is zero. A positive launch requires `noise=None`, no
-fixed schedule, and an array shaped `(n_modes, n_pol, n_omega)` in the internal FFT
+and coarse grid. The default is zero. A positive launch refuses the modified noise model
+and a fixed schedule. It takes its spectrum as given, so a run's default noise is not
+added there (the spectrum may already carry a realisation), while an explicit
+`noise="input"` adds one draw at the launch. It needs an array shaped `(n_modes, n_pol, n_omega)` in the internal FFT
 convention with true-power amplitudes. Every requested save must lie strictly beyond
 the launch, and the launch must precede the guide end.
 

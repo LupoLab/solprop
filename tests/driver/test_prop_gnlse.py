@@ -91,7 +91,7 @@ def cheap(**keywords):
         settings.pop("gamma"),
         settings.pop("length"),
         settings.pop("betas"),
-        **settings,
+        **{"noise": None, **settings},
     )
 
 
@@ -118,7 +118,7 @@ def cheap_bound(**keywords):
         settings.pop("gamma"),
         settings.pop("length"),
         settings.pop("betas"),
-        **settings,
+        **{"noise": None, **settings},
     )
     return simulation_bound(simulation)
 
@@ -203,6 +203,7 @@ def test_the_third_order_soliton_runs_the_same_through_the_interface(
         dz_init=soliton.period / MEDIUM_STEPS,
         n_save=2,
         backend=test_backend_name,
+        noise=None,
     )
     handler, stored, direct = interface_and_backend(simulation)
     assert_matched(stored, direct, simulation_bound(simulation))
@@ -250,6 +251,7 @@ def test_the_sixth_order_soliton_runs_the_same_through_the_interface(
         dz_init=stop / MEDIUM_STEPS,
         n_save=2,
         backend=test_backend_name,
+        noise=None,
     )
     handler, stored, direct = interface_and_backend(simulation)
     assert_matched(stored, direct, simulation_bound(simulation))
@@ -704,6 +706,7 @@ def test_supplied_mode_and_table_without_area_use_gamma():
             peak_power=9.8,
             pulseshape="sech",
             n_save=2,
+            noise=None,
         )
         mapped = simulation.configuration["gnlse"]
         assert isinstance(mapped, GnlseProblem)
@@ -787,6 +790,7 @@ def test_index_table_gnlse_metadata_hash_across_processes(use_mode):
                 fwhm=100e-15,
                 energy=1e-12,
                 n_save=2,
+                noise=None,
             )
             .metadata()
             .configuration_hash()
@@ -800,7 +804,7 @@ omega = np.linspace(.3e15, 4.5e15, 200)
 table = IndexTable(omega, np.full(200, 1.45 + 1e-9j), area=np.full(200, 1e-10))
 simulation = Simulation.from_gnlse(None, .001, fibre=table, n2=1e-20,
     lambda0=835e-9, wavelength_limits=(500e-9, 2e-6), trange=1e-12,
-    fwhm=100e-15, energy=1e-12, n_save=2)
+    fwhm=100e-15, energy=1e-12, n_save=2, noise=None)
 print(simulation.metadata().configuration_hash())
 """
     if use_mode:
@@ -864,6 +868,7 @@ def test_gnlse_mode_fill_is_only_a_linear_source():
         peak_power=9.8,
         pulseshape="sech",
         n_save=2,
+        noise=None,
     )
     mode = simulation.modes[0]
     assert isinstance(mode, SpecifiedMode)

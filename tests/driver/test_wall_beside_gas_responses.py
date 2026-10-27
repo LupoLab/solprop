@@ -123,14 +123,19 @@ def simulation(name, **overrides):
     with warnings.catch_warnings():
         for category in QUIET:
             warnings.simplefilter("ignore", category)
-        return Simulation.from_capillary(radius, LENGTH, GAS, 1.0, **keywords)
+        return Simulation.from_capillary(
+            radius, LENGTH, GAS, 1.0, **{"noise": None, **keywords}
+        )
 
 
 def entry_point(name, **overrides) -> MemoryOutput:
     """Run one case through ``prop_capillary`` and return the handler."""
     keywords = arguments(name, **overrides)
     radius = keywords.pop("radius")
-    return cast("MemoryOutput", prop_capillary(radius, LENGTH, GAS, 1.0, **keywords))
+    return cast(
+        "MemoryOutput",
+        prop_capillary(radius, LENGTH, GAS, 1.0, **{"noise": None, **keywords}),
+    )
 
 
 def launch_source(problem, grid) -> tuple[np.ndarray, float]:

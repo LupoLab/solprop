@@ -138,7 +138,7 @@ def test_direct_spatial_constructor_derives_a_default_frame(case):
 def test_spatial_metadata_requires_geometry_and_new_output_schema(case, changes):
     grid, space, pulse, settings = case
     metadata = Simulation.from_radial(
-        grid, space, SpatialMedium(), [], pulse, settings=settings
+        grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
     ).metadata()
     with pytest.raises(OutputError, match="schema 4"):
         dataclasses.replace(metadata, **changes)
@@ -170,7 +170,7 @@ def test_spatial_response_compilation_requires_a_translated_prefactor(case):
 def test_radial_transform_rejects_incompatible_scalar_map(case, change):
     grid, space, pulse, settings = case
     problem = Simulation.from_radial(
-        grid, space, SpatialMedium(), [], pulse, settings=settings
+        grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
     ).translate()
     transform = problem.transform
     options = (
@@ -189,7 +189,7 @@ def test_radial_transform_rejects_incompatible_scalar_map(case, change):
 def test_spatial_response_compilation_rejects_modal_averaging(case):
     grid, space, pulse, settings = case
     problem = Simulation.from_radial(
-        grid, space, SpatialMedium(), [], pulse, settings=settings
+        grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
     ).translate()
     with pytest.raises(TranslationError, match="mode_averaged=False"):
         compile_responses(
@@ -207,7 +207,7 @@ def test_radial_assembly_rejects_wrong_column_count(case):
     initial = pulse.build(grid, space, medium=SpatialMedium())[:-1]
     with pytest.raises(DriverError, match="spatial input"):
         Simulation.from_radial(
-            grid, space, SpatialMedium(), [], initial, settings=settings
+            grid, space, SpatialMedium(), [], initial, settings=settings, noise=None
         )
     with pytest.raises(TranslationError, match="spatial columns"):
         assemble(

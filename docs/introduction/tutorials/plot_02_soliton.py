@@ -86,6 +86,7 @@ output = prop_gnlse(
     rtol=1e-9,
     n_save=201,
     progress="none",
+    noise=None,
 )
 
 z = output["z"]

@@ -78,6 +78,7 @@ def problem_of(grid, space, field, spec, *, medium=None, collar=None):
             stats=spec,
             transverse_absorber=collar,
         ),
+        noise=None,
     )
     return simulation.translate()
 
@@ -470,6 +471,7 @@ def test_a_native_run_forms_the_statistics_at_planes_and_between_them():
                 integrator=RungeKutta(),
                 stats=spec,
             ),
+            noise=None,
         )
 
     outputs = {

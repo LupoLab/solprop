@@ -129,6 +129,8 @@ def build_simulation(soliton):
             "atol": 1e-18,
             "n_save": 4,
         } | keywords
-        return Simulation.from_gnlse(gamma, length, [0.0, 0.0, BETA2], **settings)
+        return Simulation.from_gnlse(
+            gamma, length, [0.0, 0.0, BETA2], **{"noise": None, **settings}
+        )
 
     return build

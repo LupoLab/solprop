@@ -207,6 +207,7 @@ output = prop_free(
     [KerrResponse(chi3_from_n2(N2, INDEX), thg=False)],
     launch,
     settings=settings,
+    noise=None,
 )
 z = np.asarray(output["z"])
 collected = np.asarray(output["stats/aperture_spectrum"])  # (n_z, 4, n_omega)

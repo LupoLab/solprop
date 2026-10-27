@@ -2345,7 +2345,7 @@ Recorded as slices land; the phase report follows at the end of the phase.
   (Q23's second half stays open). GNLSE and spatial runs get the default collar (the
   maintainer's decision of 2026-10-26); on spatial runs `Absorber.spatial=False` keeps
   the real-space collar off, as it was without an absorber (D9). `absorber=False` builds
-  a grid with no collar room (Q16). Output schema 26. Short fixed schedules on the
+  a grid with no collar room (Q16). Output schema 27 (26 went to SEP 37). Short fixed schedules on the
   newly collared routes are refused, as on capillary runs (maintainer's decision). The
   benchmark suite's cases take the new defaults at new revisions; their accuracy
   ceilings are carried over and must be requalified on the new grids.

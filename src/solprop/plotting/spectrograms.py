@@ -25,9 +25,10 @@ from solprop.output.schema import Output
 from solprop.plotting.propagation import DEFAULT_TRANGE, DEFAULT_WAVELENGTH_RANGE
 from solprop.plotting.style import (
     T_TO_FS,
+    _display_limits,
     _figure_of,
+    _spec_range,
     spectral_display,
-    spectral_limits,
 )
 from solprop.processing.axes import ModeSelection, SpectralAxis
 from solprop.processing.fields import get_field, nearest_plane
@@ -56,7 +57,7 @@ def spectrogram(  # noqa: PLR0913 - a plane, a mode, two axes and the colour sca
     trange: tuple[float, float] = DEFAULT_TRANGE,
     gate_fwhm: float | None = None,
     positions: int = DEFAULT_GATE_POSITIONS,
-    wavelength_range: tuple[float, float] = DEFAULT_WAVELENGTH_RANGE,
+    spec_range: tuple[float, float] | None = None,
     log: bool = False,
     db_min: float = -40.0,
     cmap: str | Colormap | None = None,
@@ -87,8 +88,10 @@ def spectrogram(  # noqa: PLR0913 - a plane, a mode, two axes and the colour sca
         Width of the gate, s; a twentieth of the time range by default.
     positions : int
         How many gate positions to place across the time range.
-    wavelength_range : tuple of float
-        Spectral limits, m.
+    spec_range : tuple of float or None
+        Spectral limits in the units of ``axis``: m, Hz or rad/s. By default
+        :data:`~solprop.plotting.propagation.DEFAULT_WAVELENGTH_RANGE` on that axis;
+        :func:`~solprop.plotting.style.wavelength_to_axis` converts a wavelength range.
     log : bool
         Whether to show decibels below the peak rather than a linear scale.
     db_min : float
@@ -153,7 +156,8 @@ def spectrogram(  # noqa: PLR0913 - a plane, a mode, two axes and the colour sca
     figure = _figure_of(ax)
     figure.colorbar(mesh, ax=ax).set_label(label)
     ax.set_xlim(trange[0] * T_TO_FS, trange[1] * T_TO_FS)
-    ax.set_ylim(*spectral_limits(axis, wavelength_range))
+    limits = _spec_range(axis, spec_range, DEFAULT_WAVELENGTH_RANGE)
+    ax.set_ylim(*_display_limits(axis, limits))
     ax.set_xlabel("Time (fs)")
     ax.set_ylabel(spectral_display(axis)[1])
     return figure

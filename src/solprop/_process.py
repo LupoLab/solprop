@@ -23,7 +23,7 @@ import contextlib
 import functools
 import os
 import sys
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -292,6 +292,129 @@ def _read_cgroup_cpus(root: Path) -> int | None:
     return min(quotas) if quotas else None
 
 
+def cores_in_masks(masks: Sequence[int], cpus: Sequence[int]) -> int:
+    """Count the cores, given as CPU bitmasks, that hold any of ``cpus``.
+
+    Parameters
+    ----------
+    masks : sequence of int
+        One bitmask per physical core: bit ``n`` set when CPU ``n`` is one of its
+        hardware threads.
+    cpus : sequence of int
+        The CPU indices the process may run on.
+
+    Returns
+    -------
+    int
+        The number of cores holding at least one of ``cpus``.
+    """
+    wanted = sum(1 << cpu for cpu in cpus)
+    return sum(1 for mask in masks if mask & wanted)
+
+
+def _linux_cores(cpus: Sequence[int], root: Path) -> int | None:
+    """Count the distinct (package, core) pairs of ``cpus`` in a sysfs CPU tree.
+
+    Parameters
+    ----------
+    cpus : sequence of int
+        The CPU indices the process may run on.
+    root : Path
+        The sysfs CPU directory, ``/sys/devices/system/cpu`` on a running system.
+
+    Returns
+    -------
+    int or None
+        The number of physical cores, or ``None`` if any CPU's topology is unreadable.
+    """
+    pairs: set[tuple[str, str]] = set()
+    for cpu in cpus:
+        topology = root / f"cpu{cpu}" / "topology"
+        try:
+            pairs.add(
+                (
+                    (topology / "physical_package_id").read_text(encoding="utf-8"),
+                    (topology / "core_id").read_text(encoding="utf-8"),
+                )
+            )
+        except OSError:
+            return None
+    return len(pairs) or None
+
+
+def _windows_cores(cpus: Sequence[int]) -> int | None:  # pragma: no cover - Windows
+    """Count the physical cores holding ``cpus`` from Windows' processor table.
+
+    Parameters
+    ----------
+    cpus : sequence of int
+        The CPU indices the process may run on (processor group 0).
+
+    Returns
+    -------
+    int or None
+        The number of physical cores, or ``None`` if the table cannot be read.
+    """
+    import ctypes  # noqa: PLC0415
+
+    class _Information(ctypes.Structure):
+        """One ``SYSTEM_LOGICAL_PROCESSOR_INFORMATION`` entry.
+
+        The mask, the relationship and a 16-byte union aligned to 8.
+        """
+
+        _fields_ = (
+            ("mask", ctypes.c_size_t),
+            ("relationship", ctypes.c_int),
+            ("union", ctypes.c_ulonglong * 2),
+        )
+
+    try:
+        # One calling convention on 64-bit Windows, so CDLL reaches kernel32 and is
+        # typed on every platform, unlike ``windll``.
+        query = ctypes.CDLL("kernel32").GetLogicalProcessorInformation
+        size = ctypes.c_ulong(0)
+        query(None, ctypes.byref(size))
+        table = (_Information * (size.value // ctypes.sizeof(_Information)))()
+        if not query(table, ctypes.byref(size)):
+            return None
+    except AttributeError, OSError:
+        return None
+    # Relationship 0 is RelationProcessorCore: one entry per physical core.
+    masks = [int(entry.mask) for entry in table if entry.relationship == 0]
+    return cores_in_masks(masks, cpus) or None
+
+
+def physical_cores(
+    cpus: Sequence[int], root: Path = Path("/sys/devices/system/cpu")
+) -> int | None:
+    """Count the physical cores that hold ``cpus``, or ``None`` where unknown.
+
+    Two hardware threads of one core share its arithmetic units, and solprop's kernels
+    keep those busy, so a second thread per core adds contention, not speed. Linux
+    reads each CPU's package and core from ``root``; Windows asks the kernel. macOS on
+    Apple silicon has one thread per core, so the CPUs are the cores.
+
+    Parameters
+    ----------
+    cpus : sequence of int
+        The CPU indices the process may run on.
+    root : Path, optional
+        The sysfs CPU directory, read on Linux.
+
+    Returns
+    -------
+    int or None
+        The number of physical cores, or ``None`` on other platforms or when the
+        topology cannot be read.
+    """
+    if sys.platform.startswith("linux"):
+        return _linux_cores(cpus, root)
+    if sys.platform == "win32":
+        return _windows_cores(cpus)
+    return None
+
+
 def thread_count(name: str) -> int | None:
     """Read a positive thread count from the environment.
 
@@ -328,9 +451,11 @@ def thread_budget() -> ThreadBudget:
     """Return how many threads this process may run at once (ADR-052).
 
     The smallest of the CPUs it may run on (:func:`allowed_cpus`: ``taskset``, a batch
-    scheduler's allocation), its control groups' CPU quota (:func:`cgroup_cpus`) and
-    ``SOLPROP_THREADS``. Every pool solprop sizes is held within it, and so is any
-    count asked for explicitly unless ``SOLPROP_OVERSUBSCRIBE=1``
+    scheduler's allocation), the physical cores that hold them
+    (:func:`physical_cores`, unless ``SOLPROP_THREADS`` is set), its control groups'
+    CPU quota (:func:`cgroup_cpus`) and ``SOLPROP_THREADS``. Every pool solprop sizes
+    is held within it, and so is any count asked for explicitly unless
+    ``SOLPROP_OVERSUBSCRIBE=1``
     (:meth:`ThreadBudget.explicit`); the pools take turns, so each may use the whole
     budget.
 
@@ -351,11 +476,14 @@ def thread_budget() -> ThreadBudget:
     >>> thread_budget().threads >= 1
     True
     """
-    limits = [(len(allowed_cpus()), "affinity")]
+    cpus = allowed_cpus()
+    limits = [(len(cpus), "affinity")]
+    requested = thread_count("SOLPROP_THREADS")
+    if requested is None and (cores := physical_cores(cpus)) is not None:
+        limits.append((cores, "physical cores"))
     quota = cgroup_cpus()
     if quota is not None:
         limits.append((quota, "cgroup quota"))
-    requested = thread_count("SOLPROP_THREADS")
     if requested is not None:
         limits.append((requested, "SOLPROP_THREADS"))
     threads, source = min(limits, key=lambda limit: limit[0])

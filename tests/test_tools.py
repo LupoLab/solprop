@@ -850,6 +850,7 @@ def test_the_predicted_peak_intensity_is_the_statistic_a_run_reports_at_its_entr
         pulseshape="sech",
         cladding=GLASS,
         plasma=False,
+        noise=None,
     )
     problem = quiet(simulation.translate)
     backend = NumpyRefBackend(
@@ -917,6 +918,7 @@ def test_the_tools_build_the_capillary_the_run_interface_builds():
         trange=200e-15,
         fwhm=30e-15,
         energy=1e-6,
+        noise=None,
     )
     omega = np.linspace(1.0e15, 4.0e15, 9)
     assert repr(params.mode) == repr(run.modes[0])
@@ -958,6 +960,7 @@ def selected_run(gas, pressure, limits, length=1e-3):
         n_save=2,
         backend="numpy_ref",
         materials=SELECTION,
+        noise=None,
     )
     output = quiet(simulation.run, progress="none")
     assert output.n_saved == 2

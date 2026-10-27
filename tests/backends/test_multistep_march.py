@@ -349,6 +349,7 @@ def test_capillary_constructor_takes_the_collar_scheme_and_integrator():
         wavelength_limits=(200e-9, 2e-6),
         absorber_scheme="split_step",
         integrator=method,
+        noise=None,
     )
     assert simulation.settings.absorber_scheme == "split_step"
     assert simulation.settings.integrator is method
@@ -371,6 +372,7 @@ def test_the_record_names_the_method_and_keys_on_it():
             wavelength_limits=(200e-9, 2e-6),
             integrator=integrator,
             backend="numpy_ref",
+            noise=None,
         )
         return simulation.metadata()
 
@@ -399,6 +401,7 @@ def test_an_interior_kink_restarts_the_history():
         integrator=Multistep(formulation="interaction"),
         n_save=2,
         rtol=1e-4,
+        noise=None,
     )
     problem = simulation.translate()
     assert 0.1 in problem.linear.hard_kinks

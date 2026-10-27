@@ -166,7 +166,9 @@ def _capillary(
         "materials": SELECTION,
     } | changes
     pressure = options.pop("pressure")
-    return Simulation.from_capillary(50e-6, length, gas, pressure, **options)
+    return Simulation.from_capillary(
+        50e-6, length, gas, pressure, **{"noise": None, **options}
+    )
 
 
 def _gradient(fractions: dict[str, float], pressures, selection=SELECTION) -> Mixture:
@@ -297,6 +299,7 @@ def _build(name: str, changes: dict[str, Any]) -> Case:  # noqa: PLR0911 - one b
             materials=SELECTION,
             # Ten replayed steps: no collar, as before the default one.
             absorber=False,
+            noise=None,
         )
         return _from_simulation(name, simulation)
     if name == "bundle_vector":

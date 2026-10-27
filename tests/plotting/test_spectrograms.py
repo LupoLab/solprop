@@ -32,6 +32,11 @@ def test_a_spectrogram_draws_each_spectral_axis(single, axis, label):
     assert spectrogram(single, 0.0, axis).axes[0].get_ylabel() == label
 
 
+def test_a_spectrogram_takes_a_frequency_range_in_hertz(single):
+    figure = spectrogram(single, 0.0, "f", spec_range=(0.0, 1e15))
+    assert figure.axes[0].get_ylim() == pytest.approx((0.0, 1.0))
+
+
 def test_a_spectrogram_puts_the_pulse_at_the_carrier(single):
     figure = spectrogram(single, 0.0, trange=(-100e-15, 100e-15))
     mesh = figure.axes[0].collections[0]
