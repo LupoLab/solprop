@@ -237,7 +237,7 @@ def usage(clock: RunClock) -> dict[str, float | int | None]:
         ``wall_time_s`` and ``cpu_time_s`` (every thread's user and system time) since
         the start, and ``peak_rss_bytes``, the **process's** largest resident memory so
         far: in a session running several runs it includes the earlier ones, and on a
-        device it does not count device memory. ``None`` where :mod:`resource` is
+        device it does not count device memory; ``None`` where :mod:`resource` is
         absent (Windows).
 
     Examples

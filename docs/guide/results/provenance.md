@@ -108,8 +108,8 @@ execution of it ran. An HDF5 file keeps it at `/meta/outcome`
 - `resources`: `wall_time_s` and `cpu_time_s` since the run started (CPU time is
   every thread's), and `peak_rss_bytes`, the process's largest resident memory so far.
   The peak is the process's: in a session that runs several cases it includes the
-  earlier ones, and a device's own memory is not in it. CPU time and the peak are
-  `None` on Windows.
+  earlier ones, and a device's own memory is not in it. On Windows the peak, like
+  the host's `memory_bytes`, is `None`.
 
 The record is rewritten at every save plane, so a run killed between planes keeps its
 time and memory up to its last plane. A resumed run's earlier executions stay in

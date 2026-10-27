@@ -23,7 +23,9 @@ def test_the_machine_record_is_plain_json_and_names_no_host():
         record
     )
     assert record["usable_cpus"] >= 1
-    assert isinstance(record["memory_bytes"], int) and record["memory_bytes"] > 2**20
+    # Windows has no sysconf, and its memory is not read.
+    memory = record["memory_bytes"]
+    assert memory is None if sys.platform == "win32" else memory > 2**20
     node = platform.node()
     assert not node or node not in json.dumps(record)
     # Asked once per process: the second call is the first's record.
@@ -94,9 +96,9 @@ def test_memory_that_cannot_be_read_is_none(monkeypatch):
     def refuse(name):
         raise ValueError(name)
 
-    monkeypatch.setattr(_host.os, "sysconf", refuse)
+    monkeypatch.setattr(_host.os, "sysconf", refuse, raising=False)
     assert _host._memory_bytes() is None
-    monkeypatch.setattr(_host.os, "sysconf", lambda name: -1)
+    monkeypatch.setattr(_host.os, "sysconf", lambda name: -1, raising=False)
     assert _host._memory_bytes() is None
 
 
@@ -108,6 +110,10 @@ def test_usage_counts_from_the_clock_and_reports_the_peak_in_bytes():
     assert 0.0 <= spent["wall_time_s"] < 60.0
     assert 0.0 <= spent["cpu_time_s"] < 60.0
     peak = spent["peak_rss_bytes"]
+    if sys.platform == "win32":
+        # No resource module: the peak is not read.
+        assert peak is None
+        return
     # The scale is right: the process holds the 64 MiB just touched, and no machine
     # this runs on has a terabyte resident.
     assert peak is not None and 64 * 2**20 <= peak < 2**40
