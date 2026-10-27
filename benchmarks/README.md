@@ -1,7 +1,7 @@
 # Benchmarks
 
 Release performance tracking
-([SEP 38](../docs/dev/seps/sep-0038-performance-tracking.md)); its manual is
+([SEP 38](../docs/dev/seps/archive/sep-0038-performance-tracking.md)); its manual is
 `docs/dev/benchmarking.md`. Run it on a quiet machine:
 
 ```bash

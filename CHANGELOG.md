@@ -315,7 +315,7 @@ The first public release. It contains:
   (`solprop.driver.summary`; a reporter receives it through the optional
   `SummarisingReporter.summary` call).
 - **Performance tracking** for developers
-  ([SEP 38](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0038-performance-tracking.html)):
+  ([SEP 38](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0038-performance-tracking.html)):
   `python -m benchmarks track` times complete runs of about a dozen representative
   workloads, each with its interface's default integrator and tolerances, at one
   thread and the production width in about an hour per machine, and records them in

@@ -9,7 +9,7 @@ relying on any of them.
 ## Where things are
 
 - **The benchmarks** are `benchmarks/`
-  ([SEP 38](seps/sep-0038-performance-tracking.md)), run with `uv run poe bench`
+  ([SEP 38](seps/archive/sep-0038-performance-tracking.md)), run with `uv run poe bench`
   (`python -m benchmarks`). `track` times complete runs of the tracking set (about a
   dozen representative workloads, with each interface's default integrator and
   tolerances) at one thread and the production width, in about an hour per machine;

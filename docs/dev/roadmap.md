@@ -98,10 +98,6 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
   data and integration questions must be settled before acceptance; shared-level
   ladders, vector saturation and repeated-window histories remain future work.
-- [SEP 38 — Performance tracking: complete runs, about an hour per machine](seps/sep-0038-performance-tracking.md):
-  replaces SEP 30's standard suite with a release-tracking command that times
-  complete runs with the library's defaults and keeps a small history per hardware
-  set; drafted with its implementation.
 
 The informal items below record work not fully covered by these proposals. When adding
 or revising a SEP, remove an informal item only if the proposal covers it in full;
@@ -633,9 +629,11 @@ GPUs with slow double precision.
   10 thousand lines for each existing GPU backend).
 
 **Benchmark platforms beyond CPU tracking.**
-[SEP 38](seps/sep-0038-performance-tracking.md) tracks native CPU runs per hardware set.
-GPU tracking, Windows execution and cloud launch recipes need their own work; keep
-their results in distinct hardware records.
+[SEP 38](seps/archive/sep-0038-performance-tracking.md) (final) tracks native CPU and
+GPU runs per hardware set. The first history rows are recorded at the release commit on
+an Apple M5 Max, a 16-core AMD EPYC 7763 allocation and a cloud Arm Neoverse-V2
+instance, with Windows x86-64 occasionally; a GPU file, cloud launch recipes and an
+`mlx` backend in the tracking set remain to do.
 
 **Remaining benchmark references and estimates.** Complete independent reference
 checks for the 512-node radial filament, 128/256-square Cartesian filaments and

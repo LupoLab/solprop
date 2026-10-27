@@ -3,7 +3,7 @@
 `benchmarks/` times **complete runs** of a small set of representative workloads. Each
 release adds a few lines per case to a history file kept per hardware set, so that
 regressions and improvements show from one release to the next. The design is
-[SEP 38](seps/sep-0038-performance-tracking.md), which replaced SEP 30's standard
+[SEP 38](seps/archive/sep-0038-performance-tracking.md), which replaced SEP 30's standard
 suite. The rules for a performance claim and the indicative results are in
 [Benchmarks](benchmarks.md); this page is the manual.
 

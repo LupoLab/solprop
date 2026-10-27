@@ -73,6 +73,9 @@ POOL_VARIABLES = (
     "KOKKOS_TOOLS_LIBS",
 )
 
+_RUNTIME_WAITING = {"GOMP_SPINCOUNT": "300000", "KMP_BLOCKTIME": "200"}
+"""GNU's and LLVM's own spin before an idle thread sleeps: 300,000 spins, 200 ms."""
+
 THREADING: dict[str, dict[str, str]] = {
     # Unpinned, and idle threads sleep at once: robust on a shared machine.
     "passive": {
@@ -89,12 +92,13 @@ THREADING: dict[str, dict[str, str]] = {
         "KMP_BLOCKTIME": "0",
         "GOMP_SPINCOUNT": "0",
     },
-    # Unpinned, with each OpenMP runtime's own waiting (a short spin, then sleep).
-    "default": {"OMP_PROC_BIND": "false"},
+    # Unpinned, with each OpenMP runtime's own waiting (a short spin, then sleep),
+    # spelled out: the native backend makes idle threads sleep when nothing is set.
+    "default": {"OMP_PROC_BIND": "false", **_RUNTIME_WAITING},
     # Unpinned, and idle threads spin between parallel regions.
     "active": {"OMP_PROC_BIND": "false", "OMP_WAIT_POLICY": "ACTIVE"},
     # Threads pinned to neighbouring cores, with the runtime's own waiting.
-    "bound": {"OMP_PROC_BIND": "close", "OMP_PLACES": "cores"},
+    "bound": {"OMP_PROC_BIND": "close", "OMP_PLACES": "cores", **_RUNTIME_WAITING},
     # Pinned, and spinning.
     "bound-active": {
         "OMP_PROC_BIND": "close",

@@ -328,6 +328,11 @@ def test_threading_policies_replace_the_callers_openmp_settings():
     bound = system.thread_environment(4, incoming, "bound")
     assert (bound["OMP_PROC_BIND"], bound["OMP_PLACES"]) == ("close", "cores")
     assert "OMP_WAIT_POLICY" not in bound
+    assert bound["GOMP_SPINCOUNT"] == "300000"
+    # Every policy names its waiting, so the native backend's own default never applies.
+    waiting = {"OMP_WAIT_POLICY", "GOMP_SPINCOUNT", "KMP_BLOCKTIME"}
+    for policy in system.THREADING:
+        assert waiting & set(system.thread_environment(4, {}, policy)), policy
     with pytest.raises(SuiteError, match="unknown threading"):
         system.thread_environment(4, incoming, "spin")
 

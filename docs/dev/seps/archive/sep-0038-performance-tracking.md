@@ -6,17 +6,17 @@
 | **Title** | Performance tracking: complete runs, about an hour per machine |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-10-27) |
-| **Status** | Draft |
-| **Review status** | Not reviewed |
-| **Reviewers** | — |
+| **Status** | Final |
+| **Review status** | Reviewed |
+| **Reviewers** | John Travers (human); Opus 5.5 (AI) |
 | **Type** | Process |
 | **Created** | 2026-10-27 |
-| **Resolution** | — |
-| **Requires** | [SEP 37](archive/sep-0037-noise-and-stepper-defaults.md) (the per-interface defaults the tracked cases run with) |
-| **Supersedes** | [SEP 30](archive/sep-0030-standard-benchmark-suite.md) |
+| **Resolution** | Accepted and Final 2026-10-27 by John Travers, after the independent AI review and his decisions on the Kerr beams, the standing hardware files, the memory domains, the native rebuild rule and device mode (Part III), with its implementation in one pull request ([LupoLab/solprop#32](https://github.com/LupoLab/solprop/pull/32)). |
+| **Requires** | [SEP 37](sep-0037-noise-and-stepper-defaults.md) (the per-interface defaults the tracked cases run with) |
+| **Supersedes** | [SEP 30](sep-0030-standard-benchmark-suite.md) |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0038-performance-tracking`, stacked on SEP 37's branch: phase 1 implemented and calibrated 2026-10-27; the first history rows wait for the release |
-| **Manual pages** | — |
+| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0038-performance-tracking` ([LupoLab/solprop#32](https://github.com/LupoLab/solprop/pull/32)): implemented and calibrated 2026-10-27, device mode run on an NVIDIA A40; the first history rows wait for the release |
+| **Manual pages** | [Running the benchmarks](../../benchmarking.md); [Benchmarks](../../benchmarks.md) |
 
 ## Part I — Proposal
 
@@ -65,13 +65,13 @@ them.
 - GPU qualification and tuning. `--device` (§5.1) times a native GPU build on the same
   cases, but which GPUs get a standing history file is the maintainer's choice;
 - statistical adoption verdicts. The history shows changes; the
-  [benchmark rules](../benchmarks.md) still say how a performance claim is judged;
+  [benchmark rules](../../benchmarks.md) still say how a performance claim is judged;
 - continuous integration. Shared CI runners are too noisy for timing.
 
 ### 3. Context
 
-The [benchmark rules](../benchmarks.md) and the
-[runner's manual](../benchmarking.md) describe SEP 30's suite. Its modules are under
+The [benchmark rules](../../benchmarks.md) and the
+[runner's manual](../../benchmarking.md) describe SEP 30's suite. Its modules are under
 `benchmarks/`: the registry (`registry.py`), case builders (`builders.py`,
 `exercises.py`, `guides.py`, `detectors.py`, `batching.py`), the controller and worker
 (`collection.py`, `worker.py`, `planning.py`), comparison and qualification
@@ -80,7 +80,7 @@ The [benchmark rules](../benchmarks.md) and the
 (`publication.py`, `views.py`) and machine records (`system.py`, `telemetry.py`). The
 `ab` mode (`ab.py`, `ab_worker.py`) was added after SEP 30 to time two builds quickly.
 
-[SEP 37](archive/sep-0037-noise-and-stepper-defaults.md) made input noise the default and chose
+[SEP 37](sep-0037-noise-and-stepper-defaults.md) made input noise the default and chose
 an integrator and tolerances for each `prop_*` interface. Its phase 0 timed complete
 runs of the cases proposed here on an AMD EPYC 7763 node: these give the cost estimates
 below. With noise on by default, a timed case needs a fixed seed to be repeatable.
@@ -152,8 +152,9 @@ SELECTION: [--case NAME]... [--set SET]... [--all] [--stepper S] [--threads W]
   (unpinned; idle threads sleep at once), `passive-bound` (pinned, sleeping at
   once), `default` (the runtime's own waiting),
   `active` (idle threads spin), `bound` (pinned to neighbouring cores) or
-  `bound-active`. The policy is part of what history rows compare by; the default is
-  set by phase 2's measurement.
+  `bound-active`. Every policy names its waiting, so a library default never decides
+  it. The policy is part of what history rows compare by; the default is `passive`,
+  from the measurement in Part II.
 - `--device` runs each case once on the GPU of a native CUDA or HIP build, with the
   production width of host threads. The worker refuses a device build without
   `--device` and a CPU build with it. A device row's width is `device`, the slug is
@@ -274,8 +275,8 @@ exercise (`batching.py`), whose lockstep route is covered by
 
 ### 8. Documentation
 
-Rewrite [Running the benchmark suite](../benchmarking.md) as the manual for `track`, `ab`
-and `history`. In [Benchmarks](../benchmarks.md), replace "Measurement windows" with
+Rewrite [Running the benchmark suite](../../benchmarking.md) as the manual for `track`, `ab`
+and `history`. In [Benchmarks](../../benchmarks.md), replace "Measurement windows" with
 the tracking protocol, keep the rules and the indicative results, and point to the
 history files. Update `benchmarks/README.md`, the `poe bench` task, `AGENTS.md` and the
 performance guide's link.
@@ -356,6 +357,29 @@ is final.
   Max was not timed (it was busy).
 - **Open questions:** none open (§12).
 
+### Closing — threading, device mode and Final
+
+- **Scope:** 2026-10-27, Opus 5.5 (AI) for John Travers, after SEP 37 reached Final
+  and the branch was merged with it and retargeted to `main`.
+- **Threading:** six OpenMP policies at 16 threads on 16 cores of the EPYC 7763
+  allocation, on six tracked cases. Letting idle threads spin, whether by the runtime's
+  own waiting or by an explicit spin of 10,000 or more, made the cases that run
+  several thread teams 1.4 to 37 times slower (`rdw` 334 s against 12.7 s with
+  `passive`); the single-team supercontinuum gained up to 20 %. Pinning with idle
+  threads sleeping (`passive-bound`) was 6 to 30 % faster than `passive` on the
+  multi-team cases, over two alternating runs each. `passive` stays the default: it
+  is the library's own default too (ADR-056, which this measurement informed), and
+  `passive-bound` is for a dedicated allocation. On 36 cores of two Intel Xeon Gold
+  6240, one thread per core beat two on every case by 6 to 31 %.
+- **Device mode:** `--device` was added and run end to end on an NVIDIA A40 (CUDA
+  12.8): all thirteen tracked cases in 19 minutes, every repeat bitwise identical, so
+  the repeat tolerance of §4 holds on the device unchanged.
+- **Free space after SEP 37:** free space gained a default controller and no noise by
+  default, so the Cartesian and line cases take the library's controller and pass no
+  seed; the tracked Kerr beams keep their fixed schedule.
+- **Not done:** no history row; the first rows are recorded at the release commit on
+  the standing machines (§5.3).
+
 ## Part III — History
 
 - 2026-10-27: Drafted, together with its implementation on the same branch, as the
@@ -373,3 +397,6 @@ is final.
 - 2026-10-27: At the maintainer's request, device mode (`--device`) was added before
   the first release instead of in a later SEP, so that a GPU history line can start
   with the first tagged release.
+- 2026-10-27: Final, by John Travers, with SEP 30 marked Superseded; the proposal and
+  its implementation land in one pull request
+  ([LupoLab/solprop#32](https://github.com/LupoLab/solprop/pull/32)).
