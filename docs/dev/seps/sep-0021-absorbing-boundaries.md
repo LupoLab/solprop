@@ -2519,7 +2519,7 @@ Recorded as slices land; the phase report follows at the end of the phase.
   2 % at rounding level, with fields equal to 6e-12; the test was pinned to the former
   grid. A controller question near the collar's stability limit, recorded here.
 
-### Phase 2 — report (draft, 2026-10-27)
+### Phase 2 — report (2026-10-27)
 
 **Built.** The keywords (`absorber=False`, `absorber_scheme=` on every `prop_*`); the
 collar outside the requested window on cost-chosen smooth sizes (D1, D3, D8, Q16); the
@@ -2548,19 +2548,24 @@ kernel schema is unchanged.
 windows cost what their sizes say (RDW +23 %, helium RDW +16 %, hydrogen Raman +8 %),
 the smooth sizes save elsewhere (argon -16 to -24 %, GRIN -38 %), and the two
 regressions it found, the radial filament's doubled steps and GNLSE Raman/shock's
-collar and monitor, are removed by D14 and D15. The confirming A/B on the final branch
-follows below. The spatial study (D14) and the GNLSE measurements (D15) give the
+collar and monitor, are removed by D14 and D15. A targeted A/B on the final branch
+(the same node type and settings, two rounds) confirms it: the radial filament runs at
+0.76 of main's time at one thread and 0.86 at sixteen, argon at 0.84 to 0.91, RDW at
+1.12 to 1.27 (its window). The fixed-step Kerr beam takes 1.5 times main's time: the
+collar is applied on it again (split, 28 % per step on the Mac) and its window is 28 %
+larger; the roadmap's "The split collar while quiet" would recover the first half. Its
+GNLSE Raman/shock rounds (1.01 to 1.40) shared their nodes with other work and are not
+quoted; on one machine, warm, the default costs what no collar does (D15). The spatial
+study (D14) and the GNLSE measurements (D15) give the
 accuracy evidence: the split scheme is as accurate as the in-stage collar or better
 on every spatial case, and the quiet collar leaves a clear run's field unchanged to
 1e-9 on every backend.
 
-**Not built (Part I's phases).** Phases 1 and 4, the implicit collar (D4). The escaped
-field record waits for phase 0b's R5 and phase 3.
-
-**For phase 0b.** The records of the absorbed field must separate the vacuum floor,
-as the monitor does (D13), and the collar takes floor energy as well as light (the
-roadmap's "Vacuum noise under loss"). A relaunched run starts its accumulators at
-zero (D10).
+**Not built (Part I's phases).** Phases 1 and 4, the implicit collar (D4); phases 0b
+and 3, the escaped field and its qualification (D17, the roadmap's "The escaped field").
+A record of the absorbed field will have to separate the vacuum floor, as the monitor
+does (D13), since the collar takes floor energy as well as light (the roadmap's "Vacuum
+noise under loss"); a relaunched run starts its accumulators at zero (D10).
 
 **Open.** Why CtC's step became cheaper on a larger grid (the A/B above) is not
 investigated. The worked examples are re-run on the final branch (below).
