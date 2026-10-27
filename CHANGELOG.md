@@ -339,11 +339,33 @@ The first public release. It contains:
   build. It replaces SEP 30's standard suite, whose
   reference qualification, native coverage and export are removed; `ab` compares two
   builds on the same worker.
+- **Ensemble and replay helpers.** `processing.coherence.band_coherence` and
+  `spectral_bands` reduce an ensemble's coherence to one value per spectral band, weighted
+  by a reference ensemble's mean spectrum, to compare two ensembles band by band;
+  `FixedSchedule.from_history` replays a run's accepted steps, so two arithmetics or
+  backends can be compared on the same discretisation.
 - **Documentation.** An introduction with executable lessons, a user guide, a
   long-form primer on the physics and numerics, focused tutorials and worked examples,
   the API reference, and a developer's guide with the design records (SEPs and ADRs).
 
 ### Fixed
+
+- **Single precision's reference transforms sum in binary32.** `numpy_ref`'s
+  single-precision path used NumPy's float32 transforms, which are binary64 rounded once,
+  and so was more accurate than the backends it checks. Its binary32 transforms now go to
+  `scipy.fft`; binary64 is unchanged bit for bit. The comb-to-continuum record keeps its
+  0.05 m limit on the corrected reference
+  ([SEP 36](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0036-native-reduced-precision.html), withdrawn).
+- **A single-precision capillary's default tolerance** is the capillary's `1e-6` again;
+  it had fallen through to the waveguide's `1e-5`.
+- **The release wheels' coexistence check** runs noiseless: under the default input noise
+  its repeated run drew a second realisation and failed.
+- **A one-mode run on a GPU uses the whole device.** The accepted update, the error norms
+  and the response used one team of threads per transverse node, so a fibre or a
+  mode-averaged run kept one multiprocessor busy; they now spread over up to 256 teams,
+  and the stage entry evaluates one `sincos` and none at zero phase. On an NVIDIA A40 a
+  fibre with Raman at $2^{16}$ samples takes 4 times less GPU time per step. Runs with
+  many nodes (radial, Cartesian) are unchanged.
 
 - **The noise row of a printed `Simulation`** named the realisation's class; it now
   gives its model and seed.
