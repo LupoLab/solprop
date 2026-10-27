@@ -2302,6 +2302,15 @@ diagnostics; transform-size cost; full-length timings.
   rule.
 - **D9 — spatial collars (R4).** Their geometry goes to the follow-up SEP of Q10; phase
   2 leaves spatial strength unchanged.
+- **D10 — accumulators across a relaunch (Q22; maintainer, 2026-10-27).** A run
+  relaunched from a saved plane starts its removal and guard totals at zero; the
+  parent's totals are an item of the chain's energy ledger.
+- **D11 — the divisor rule (Q23, second half; maintainer, 2026-10-27).** The rule that
+  the coarse size divides the fine one stays; the non-monotone sizes it causes go to
+  the roadmap.
+- **D12 — the floor-subtracted density under a collar (maintainer, 2026-10-27).**
+  Documented, not corrected: the subtraction reads low by up to the absorbed fraction
+  of one photon per bin where the collar took part of the vacuum floor.
 
 **Limitations.**
 
