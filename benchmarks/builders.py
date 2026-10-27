@@ -338,7 +338,7 @@ def spatial(name: str, settings: SimulationSettings) -> Simulation:
             LineGrid(1e-3, size) if name == "line" else FreeGrid(6e-4, size, 6e-4, size)
         )
         return Simulation.from_free(
-            grid, space, medium, responses, pulse, settings=settings, seed=20261027
+            grid, space, medium, responses, pulse, settings=settings
         )
     raise SuiteError(f"spatial builder not implemented for {name}")
 

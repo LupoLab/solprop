@@ -366,9 +366,9 @@ def test_the_record_names_the_method_and_keys_on_it():
         return simulation.metadata()
 
     runge_kutta = metadata(RungeKutta())
-    adams = metadata(None)
+    adams = metadata(Multistep())
     assert runge_kutta.stepper.method is None
-    # The default integrator, recorded with its formulation (output schema 15).
+    # The Adams integrator, recorded with its formulation (output schema 15).
     assert adams.stepper.method == repr(Multistep(formulation="exponential"))
     assert runge_kutta.configuration_hash() != adams.configuration_hash()
 

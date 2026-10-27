@@ -739,9 +739,9 @@ class SimulationSettings(Displayed):
     evanescent_rate: float | None = None
     transverse_absorber: TransverseCollar | None = None
     adiabatic_accuracy: AdiabaticAccuracy | None = None
-    integrator_named: bool = dataclasses.field(
-        default=False, init=False, repr=False, compare=False
-    )
+    # Whether the caller named the integrator, set per instance in __post_init__. Not
+    # a field, so that a copy built from the fields keeps working.
+    integrator_named = False
 
     def _planes_text(self) -> str:
         """Return the save planes summarised, for printing.
@@ -1753,7 +1753,6 @@ class Simulation(Displayed):
                 one.name
                 for one in dataclasses.fields(SimulationSettings)
                 if one.name not in _EXECUTION_SETTINGS
-                and one.init
                 and not _same_setting(
                     getattr(self._settings, one.name), getattr(settings, one.name)
                 )
