@@ -1874,7 +1874,7 @@ binary64 running integrals at the oracle's binary32 rate, which is conservative.
 here, as the phase 1 amendment provides; its binary64 reference ran on `native` on the
 same node, replacing the phase 1 records made elsewhere.
 
-### Phase 4 — report (2026-10-26; the NVIDIA half)
+### Phase 4 — report (2026-10-26 and 27)
 
 **Delivered on CUDA.** Both reduced modes run on the CUDA build (`AMPERE86`, the
 `cuda-ampere` preset), qualified on an NVIDIA A40.
@@ -1896,10 +1896,11 @@ same node, replacing the phase 1 records made elsewhere.
 
 **Verification on the A40** (the branch at 25e1173, built with all three policies in 462 s).
 
-- *Tests:* ctest passes; native's GPU tests 31; the API contract 45 (17 skipped); the reduced
-  GPU lane (`test_native_reduced_gpu.py`, class R against the oracles on the device)
-  123; the reduced arithmetic module 25, including the TF32 negative test (cuBLAS in
-  TF32 mode fails the GEMM probe, 2 tests) and a subnormal surviving a device pass.
+- *Tests:* ctest passes, including a binary32 subnormal surviving a device pass;
+  native's GPU tests 31; the API contract 45 (17 skipped); the reduced GPU lane
+  (`test_native_reduced_gpu.py`, class R against the oracles on the device) 123; the
+  reduced arithmetic module 25, and its TF32 negative test (cuBLAS in TF32 mode fails the
+  GEMM probe, 2 tests).
 - *The confirmation cases of §7.3*, against their binary64 references, judged by SEP
   33's envelopes:
 
@@ -2001,9 +2002,53 @@ contract: the transforms are the libraries' binary32 sums. Whether the oracle's 
 transforms become true binary32, and `ctc`'s limits are re-measured, was the
 maintainers' decision (below).
 
-**Not done: the AMD half.** The HIP build compiles all three policies, but no CDNA 3 GPU
-has been rented, so §7.3's confirmations, the probes' negative tests, the throughput and
-the profiles on an AMD GPU wait on a budget agreed with the maintainers (Q9).
+**The AMD half, and an H100 (2026-10-27).** Q9's first rental, an AMD Instinct MI325X
+(gfx942, ROCm 7.14, rocFFT and rocBLAS, a 64-core EPYC 9575F host), ran the branch's
+HIP build with all three policies; an NVIDIA H100 SXM (CUDA 13.0, a 104-core Xeon
+Platinum 8470 host) ran the CUDA build, so the qualification covers a GPU whose binary64
+is full rate. The pair cost US$3.67.
+
+- *Tests on both:* ctest passes, including a binary32 subnormal surviving a device
+  pass; native's GPU tests, 31 passed; the API contract, 45; the reduced GPU lane, 123
+  (class R against the oracles on the device, batch against solo); the reduced
+  arithmetic module, 25, and its two device checks (a reduced math mode on the vendor
+  handle, TF32 on cuBLAS and xf32 on rocBLAS, refused by the probe under both modes).
+- *The confirmations of §7.3,* field error against the binary64 references, all within
+  their envelopes:
+
+  | case | mode | MI325X | H100 | A40 |
+  |---|---|---|---|---|
+  | `ctc`, 0.05 m | single | 2.6e-4 | 9.2e-4 | 8.2e-4 |
+  | `argon` | single | 1.4e-4 | 1.3e-4 | 9.0e-5 |
+  | `radial_filament` | single | 2.3e-6 | 2.4e-6 | 2.4e-6 |
+  | `rdw` | mixed | 8.2e-7 | 9.3e-7 | 9.7e-7 |
+  | `argon` | mixed | 2.9e-5 | 3.7e-5 | 3.5e-5 |
+  | `rdw` | binary64 | 7.9e-8 | 7.9e-8 | 7.9e-8 |
+  | `argon` | binary64 | 5.4e-6 | 4.9e-6 | 4.5e-6 |
+
+- *Throughput* (the same fibre with Raman, 64 fixed steps, samples·steps/s, solo and
+  the lockstep batch of 8):
+
+  | samples | GPU | single | mixed | binary64 |
+  |---|---|---|---|---|
+  | $2^{16}$ | MI325X | 1.30e8 / 1.46e8 | 1.27e8 / 1.49e8 | 1.25e8 / 1.48e8 |
+  | $2^{16}$ | H100 | 1.70e8 / 2.11e8 | 1.73e8 / 2.14e8 | 1.66e8 / 2.04e8 |
+  | $2^{18}$ | MI325X | 3.99e8 / 4.66e8 | 4.00e8 / 4.37e8 | 3.71e8 / 4.37e8 |
+  | $2^{18}$ | H100 | 4.43e8 / 5.16e8 | 4.13e8 / 4.75e8 | 3.63e8 / 4.11e8 |
+
+  At $2^{18}$, single precision is 1.08 times binary64 on the MI325X and 1.22 times on
+  the H100, and mixed 1.08 and 1.14 times, against 2.3 and 2.0 on the A40. Both gain
+  less than 1.3 times on this route, which the guide says (§7.4). A step on these GPUs
+  is about 85 kernels of 3–9 µs; on the MI325X device-to-device copies take 18–21 % of
+  the GPU time (rocprofv3), so the step is bounded by launches and copies, not by
+  arithmetic, and binary64 runs at full rate. Below $2^{16}$ the step time barely
+  changes with size on either GPU.
+- *The stage entry's change* (one `sincos`, no evaluation at zero phase, the last stage's
+  propagator reused) shortens that pass by 6–7 % on the H100 and the whole step by
+  about 1 %: the transcendentals it removes are slow only where binary64 is.
+
+The second rental, after the admissions of phase 5, repeats the device lanes there
+(Q9).
 
 **Deviations.**
 
