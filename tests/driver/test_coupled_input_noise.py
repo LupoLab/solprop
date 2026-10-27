@@ -164,6 +164,11 @@ def test_input_noise_rides_a_coupled_flow_as_part_of_the_entrance_state(route):
     assert metadata is not None
     assert metadata.noise is not None
     assert metadata.noise.model == "input"
+    assert metadata.modal is not None
+    assert metadata.modal["noise_reference_basis"] == "orthonormal true power"
+    assert clean.metadata is not None
+    assert clean.metadata.modal is not None
+    assert clean.metadata.modal["noise_reference_basis"] is None
 
     # The entrance: the saved plane at z = 0 less the noiseless one is the draw.
     _, entrance_noisy = _energy(noisy, 0)

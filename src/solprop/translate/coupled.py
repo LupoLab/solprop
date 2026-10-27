@@ -2982,6 +2982,7 @@ def wall_identity(  # noqa: PLR0913 - the flow, its limits and the CF4 declarati
     kinks: Sequence[float] | Float[np.ndarray, " n_kinks"] = (),
     scored: Bool[np.ndarray, " n_omega"] | None = None,
     n_components: int = 1,
+    has_noise: bool = False,
 ) -> Mapping[str, JsonValue]:
     """Return the schema-7 modal identity of a capillary carrying a coherent wall.
 
@@ -3041,6 +3042,9 @@ def wall_identity(  # noqa: PLR0913 - the flow, its limits and the CF4 declarati
         The transverse components the synthesis resolves, 1 or 2: two for a supplied
         ``TE_0m``, ``TM_0m`` or ``EH`` set, one for the
         capillary's own ``HE_1m`` set.
+    has_noise : bool, optional
+        Whether the run carries an input-noise draw, which is made per channel in
+        the orthonormal true-power basis and recorded as such.
 
     Returns
     -------
@@ -3138,7 +3142,7 @@ def wall_identity(  # noqa: PLR0913 - the flow, its limits and the CF4 declarati
             quantised_measurement(limits.band[0]),
             quantised_measurement(limits.band[1]),
         ],
-        "noise_reference_basis": None,
+        "noise_reference_basis": "orthonormal true power" if has_noise else None,
         "accessors": [],
         "flow": record,
     }
@@ -3151,6 +3155,7 @@ def taper_identity(
     active: Bool[np.ndarray, " n_omega"],
     scored: Bool[np.ndarray, " n_omega"] | None = None,
     n_components: int = 1,
+    has_noise: bool = False,
 ) -> Mapping[str, JsonValue]:
     """Return the schema-7 modal identity of a capillary taper's coupling.
 
@@ -3177,6 +3182,9 @@ def taper_identity(
         (:func:`advisory_step`); ``None`` takes every bin.
     n_components : int, optional
         The transverse components the synthesis resolves.
+    has_noise : bool, optional
+        Whether the run carries an input-noise draw, recorded as
+        :func:`wall_identity` records it.
 
     Returns
     -------
@@ -3236,7 +3244,7 @@ def taper_identity(
             quantised_measurement(float(band[0])),
             quantised_measurement(float(band[-1])),
         ],
-        "noise_reference_basis": None,
+        "noise_reference_basis": "orthonormal true power" if has_noise else None,
         "accessors": [],
         "flow": record,
     }

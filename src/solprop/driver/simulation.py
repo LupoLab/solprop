@@ -2619,6 +2619,7 @@ class Simulation(Displayed):
                 active=self.grid.active_mask,
                 scored=problem.grids.inband_mask,
                 n_components=problem.transform.n_pol,
+                has_noise=self.noise is not None,
             )
         edges = np.asarray(flow.z_edges, dtype=float)
         with warnings.catch_warnings():
@@ -2653,6 +2654,7 @@ class Simulation(Displayed):
             kinks=self.translate().linear.hard_kinks,
             scored=self.translate().grids.inband_mask,
             n_components=self.translate().transform.n_pol,
+            has_noise=self.noise is not None,
         )
 
     def run(  # noqa: PLR0913 - independent execution and output controls
