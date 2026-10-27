@@ -1866,6 +1866,10 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
     _input_floor: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"] | None = None
     """The input-noise draw the launch carries, the monitor's floor; ``None``."""
 
+    _collar_quiet: bool = False
+    """Whether the monitor last found the collar quiet (:data:`solprop.monitor.QUIET`):
+    the modal stage then leaves the in-stage temporal collar term out (SEP 21)."""
+
     def attach_monitor(self, monitor: BoundaryMonitor) -> None:
         """Watch the time window's edges from here on, starting with the current state.
 
@@ -1884,11 +1888,45 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             self._z,
             floor=self._input_floor,
         )
+        self._set_collar_quiet(monitor.collar_quiet)
+
+    def _set_collar_quiet(self, quiet: bool) -> None:
+        """Say whether the collar is quiet.
+
+        The low-storage march keeps its collar, whatever the monitor says. A change
+        drops a reused first-same-as-last stage, which was evaluated under the other
+        setting (:meth:`_collar_changed`); a backend whose stages run elsewhere passes
+        the flag on there.
+
+        Parameters
+        ----------
+        quiet : bool
+            The monitor's verdict.
+        """
+        quiet = quiet and self._low_storage is None
+        if quiet != self._collar_quiet:
+            self._collar_quiet = quiet
+            self._collar_changed()
+
+    def _collar_changed(self) -> None:  # noqa: B027 - optional by design
+        """Drop whatever was evaluated under the other collar setting.
+
+        The default holds nothing; a backend that reuses the last stage of a step as
+        the first of the next forgets it here.
+        """
 
     def _monitor_plane(self) -> None:
-        """Close the boundary monitor's row for the plane just reached (SEP 21, D5)."""
-        if self._monitor is not None:
-            self._monitor.plane(self._z)
+        """Close the boundary monitor's row for the plane just reached (SEP 21, D5).
+
+        A plane's state is checked even when its last step was not.
+        """
+        monitor = self._monitor
+        if monitor is None:
+            return
+        if monitor.stale:
+            monitor.step(self._observed_field(self._require_state()), self._z)
+            self._set_collar_quiet(monitor.collar_quiet)
+        monitor.plane(self._z)
 
     def _take_step_stats(self) -> None:
         """Record one statistics row when this accepted step is the period-th.
@@ -1905,8 +1943,15 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         what that plane records; a second implementation of a statistic could drift
         from the first.
         """
-        if self._monitor is not None:
-            self._monitor.step(self._observed_field(self._require_state()), self._z)
+        monitor = self._monitor
+        if monitor is not None:
+            # A quiet window is checked every few steps, without reading the state
+            # in between (`solprop.monitor.CADENCE`).
+            if monitor.due(self._z):
+                monitor.step(self._observed_field(self._require_state()), self._z)
+                self._set_collar_quiet(monitor.collar_quiet)
+            else:
+                monitor.skip()
         if self._row_spec is None:
             return
         self._accepted_steps += 1

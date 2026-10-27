@@ -25,7 +25,7 @@ from solprop.constants import C
 from solprop.driver import Simulation
 from solprop.exceptions import BoundaryError, BoundaryWarning
 from solprop.grid import EnvelopeGrid
-from solprop.monitor import BoundaryCheck, BoundaryMonitor
+from solprop.monitor import CADENCE, CHECKS, BoundaryCheck, BoundaryMonitor
 from solprop.output.schema import Output, PlaneStore
 from solprop.pulses import GaussianPulse
 
@@ -268,6 +268,83 @@ def test_a_launch_of_the_floor_alone_is_not_judged() -> None:
     summary = monitor.summary()
     assert summary["guard_low_max"] == summary["guard_high_max"] == 0.0
     assert summary["noise_floor"] == pytest.approx(1.0)
+
+
+def _with_check(simulation: Simulation, check: BoundaryCheck | None) -> Simulation:
+    simulation.settings = dataclasses.replace(simulation.settings, boundary_check=check)
+    return simulation
+
+
+def _exit(run: Output) -> np.ndarray:
+    return np.asarray(run.fields("fft")[-1])
+
+
+@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+def test_a_quiet_collar_is_left_out_without_changing_the_run(backend: str) -> None:
+    # A pulse clear of the edges: the monitor finds the collar quiet, the stages leave
+    # its term out, and the field is the always-on collar's to far below the
+    # threshold's amplitude.
+    if backend not in available():
+        pytest.skip(f"{backend} is not installed")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        watched = walker(0.0, trange=3 * TRANGE, backend=backend).run(progress="none")
+        always = _with_check(walker(0.0, trange=3 * TRANGE, backend=backend), None).run(
+            progress="none"
+        )
+    a, b = _exit(watched), _exit(always)
+    assert np.linalg.norm(a - b) <= 1e-9 * np.linalg.norm(b)
+    record = watched.outcome.execution["boundary_monitor"]
+    # Every committed step is either checked or counted as skipped (the planes'
+    # checks add to the checked ones).
+    accepted = int(np.asarray(watched["step_history/accepted"], dtype=bool).sum())
+    assert record["steps"] + record["skipped"] >= accepted
+
+
+@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+def test_light_reaching_a_quiet_collar_switches_it_back_on(backend: str) -> None:
+    # A walking pulse: the collar is quiet at first and absorbs once light arrives,
+    # as the always-on collar does, to the threshold's amplitude.
+    if backend not in available():
+        pytest.skip(f"{backend} is not installed")
+    relaxed = BoundaryCheck(budget=1.0, stop_factor=1.0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        watched = walker(0.65 * TRANGE, check=relaxed, backend=backend).run(
+            progress="none"
+        )
+        always = _with_check(walker(0.65 * TRANGE, backend=backend), None).run(
+            progress="none"
+        )
+    energy = [np.asarray(run["stats/energy"])[-1, 0, 0] for run in (watched, always)]
+    launched = np.asarray(always["stats/energy"])[0, 0, 0]
+    assert energy[0] < 0.999 * launched
+    assert energy[0] == pytest.approx(energy[1], rel=1e-5)
+    a, b = _exit(watched), _exit(always)
+    assert np.linalg.norm(a - b) <= 1e-5 * np.linalg.norm(b)
+
+
+def test_a_check_is_due_every_step_while_light_is_near_an_edge() -> None:
+    grid = EnvelopeGrid.from_limits(LENGTH, 1e-6, (0.8e-6, 1.25e-6), TRANGE)
+    monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
+    centred = np.exp(-((grid.t / 50e-15) ** 2)).astype(complex)
+    edge = np.exp(-(((grid.t - 0.97 * grid.t.max()) / 30e-15) ** 2)).astype(complex)
+    spectrum = lambda samples: np.fft.fft(samples)[None, None, None, :]  # noqa: E731
+    monitor.launch(spectrum(centred), 0.0)
+    assert monitor.collar_quiet
+    due = [monitor.due(1e-4 * k) or monitor.skip() for k in range(1, CADENCE)]
+    assert not any(due)
+    assert monitor.due(1e-4 * CADENCE)
+    # However few the steps, a quiet window is checked every length / CHECKS.
+    monitor.step(spectrum(centred), 1e-4 * CADENCE)
+    assert not monitor.due(1e-4 * CADENCE + 0.5 * LENGTH / CHECKS)
+    assert monitor.due(1e-4 * CADENCE + LENGTH / CHECKS)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        with pytest.raises(BoundaryError):
+            monitor.step(spectrum(centred + edge), 0.1)
+    assert not monitor.collar_quiet
+    assert monitor.due(0.1)
 
 
 def test_the_check_may_change_after_translation() -> None:

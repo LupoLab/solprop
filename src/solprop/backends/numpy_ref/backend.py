@@ -1940,7 +1940,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 np.zeros_like(lab[0]),
                 self._tables.omega_window,
                 inverse_propagator,
-                self._absorber_term(alone),
+                self._absorber_term(alone, may_quiet=True),
             )
         modal_t = passes.to_time(lab[0], grids.crop_index, grids.n_to, kind=self._kind)
         geometry = self._problem.transform.geometry
@@ -1975,7 +1975,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             self._prefactor(bundle),
             self._tables.omega_window,
             inverse_propagator,
-            self._absorber_term(modal_t),
+            self._absorber_term(modal_t, may_quiet=True),
         )
 
     def _nonlinear_tdse(
@@ -2457,14 +2457,24 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         return result * inverse_propagator
 
     def _absorber_term(
-        self, modal_t: Inexact[np.ndarray, "n_modes n_pol n_to"]
+        self,
+        modal_t: Inexact[np.ndarray, "n_modes n_pol n_to"],
+        *,
+        may_quiet: bool = False,
     ) -> Complex[np.ndarray, "n_modes n_pol n_omega"] | None:
         """Return the in-stage absorber's contribution, or ``None`` in the other scheme.
+
+        On the modal stage (`may_quiet`) a temporal collar alone is left out while the
+        boundary monitor finds it quiet (SEP 21): the term is then below
+        :data:`solprop.monitor.QUIET`, and its transform is the stage's largest cost
+        after the response's.
 
         Parameters
         ----------
         modal_t : numpy.ndarray
             The lab-frame modal field on the fine time grid.
+        may_quiet : bool, optional
+            Whether this stage honours the monitor's quiet collar.
 
         Returns
         -------
@@ -2475,6 +2485,8 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         """
         rate = self._tables.temporal_rate
         if not self._in_stage_absorber:
+            return None
+        if may_quiet and self._collar_quiet and not self._spatial_absorber.size:
             return None
         grids = self._problem.grids
         term = np.zeros_like(modal_t)

@@ -881,6 +881,14 @@ class NativeBackend(StepDriver[_core.State]):
                 QUADRATURE_ALARM,
             )
 
+    def _collar_changed(self) -> None:
+        """Pass the boundary monitor's quiet collar to the native stage (SEP 21).
+
+        The reused stage was evaluated under the other setting, so it is dropped.
+        """
+        self._native_state.set_absorber_quiet(self._collar_quiet)
+        self._native_state.clear_fsal()
+
     def _observed_field(self, state: _core.State) -> ComplexArray:
         if state is not self._native_state:
             raise BackendError("the observed state does not belong to this backend")

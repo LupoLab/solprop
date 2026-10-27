@@ -406,6 +406,13 @@ guiding profiles and for polarisation effects in graded-index fibres.
 
 ## Numerics
 
+**The boundary monitor's flux on spatial routes.** [SEP 21](seps/sep-0021-absorbing-boundaries.md)'s
+monitor measures a spatial run's guard and collar occupancies with the quadrature-weighted
+field norm rather than [SEP 34](seps/archive/sep-0034-medium-flux.md)'s admittance-weighted
+flux (D16). For paraxial beams the two shares agree; a non-paraxial or strongly dispersive
+beam would weight its edges differently. A time-resolved flux needs the admittance applied
+per column and frequency before the inverse transform: another half of the state in memory.
+
 **The coarse-divides-fine size rule.** A grid's coarse transform size must divide its fine
 one, so the realised size is not monotone in the requested window: a slightly larger
 request can land on a smaller, cheaper pair, or a smaller one on a dearer pair. The

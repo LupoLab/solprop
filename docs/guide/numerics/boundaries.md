@@ -408,6 +408,18 @@ edge, the guards, and in the collar:
   warns when its square root exceeds the budget. Weak spectral features can matter at far
   smaller fractions than that: the record is there to read.
 
+**How often, and what it saves.** While some guard or the collar holds more than a tenth
+of the budget (as a field amplitude), every committed step is checked. While the edges
+are quiet, a step is checked every eighth step or after `length / 256` of the guide,
+whichever comes first, and the state of every saved plane is checked regardless. And
+while the collar holds less than `1e-12` of the field's energy above the shot-noise
+floor, the in-stage temporal collar's term, whose transform is a stage's largest cost
+after the response's, is left out of the stages until a check finds light in it again.
+On a GNLSE Raman/shock run whose pulse stays clear, the two bring the default collar's
+cost to that of no collar. The split scheme, the low-storage march, the general modal
+route, coupled flows and a real-space collar keep their collar at every step;
+`boundary_check=None` keeps it everywhere.
+
 **Above the shot-noise floor.** Input noise, on by default, puts one photon per mode across
 the whole window, guards and collar included. Light below that floor cannot be told from
 the vacuum, so the monitor judges what lies above it: from each region's energy it

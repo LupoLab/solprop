@@ -2333,6 +2333,26 @@ diagnostics; transform-size cost; full-length timings.
   study below. A fixed schedule on a spatial route now keeps its collar (the split is
   unconditionally stable), so the tracking suite's `kerr_beam` cases run the default
   collar on main's builder.
+- **D15 — the monitor's cadence and the quiet collar (maintainer, 2026-10-27; amends
+  D7's "every accepted step").** Every committed step is checked while a guard or the
+  collar holds more than (budget / 10)^2 above the floor; otherwise every eighth step
+  or every `length / 256`, whichever comes first, and every saved plane's state.
+  While the collar holds less than 1e-12 of the field's energy above the floor, the
+  modal stage leaves the in-stage temporal term out (`numpy_ref`, `numba_cpu` and both
+  native engines); the split scheme, the low-storage march, the general modal route,
+  coupled flows and a real-space collar keep it. The switch happens only below the
+  threshold, so neither the Adams history nor the reused Runge-Kutta stage needs a
+  restart. GNLSE Raman/shock (one thread, warm): native 4.25 ms per step with the
+  collar always on, 3.39 without a collar, 3.37 to 3.43 with both changes; numba 2.81,
+  2.27 and 2.23 to 2.41. The monitor's own cost fell from 2.3 s to 0.3 s of a 40 s
+  run (1339 checks of 10682 steps). Evidence for the cause: the in-stage term costs
+  one forward transform of the fine time grid per stage, and the split scheme one
+  extra source evaluation per step (7 against 6, the reused stage lost).
+- **D16 — the monitor's energy measure on spatial routes (maintainer, 2026-10-27).**
+  The quadrature-weighted field norm stays; SEP 34's admittance-weighted flux goes to
+  the roadmap. For paraxial beams the admittance is about the index, which the shares
+  cancel, and weighting the field in time would hold another half of the state (about
+  0.45 GB on a 256 by 256 Cartesian beam) and add a product per check.
 
 **Limitations.**
 
@@ -2410,8 +2430,8 @@ Recorded as slices land; the phase report follows at the end of the phase.
     and the removed fraction so far. No output schema change. A resumed run's rows
     start at the resumed plane. The spectral collar's removal (`U_omega`) is not
     recorded.
-  - **Not yet:** the energy-density proxy on spatial routes is the quadrature-weighted
-    field norm, not SEP 34's admittance-weighted flux.
+  - **Limitation (D16):** the energy-density proxy on spatial routes is the
+    quadrature-weighted field norm, not SEP 34's admittance-weighted flux.
 - **Requalification (2026-10-26).** All 34 cases of the SEP 30 suite on both adaptive
   tracks, `numba_cpu`, one thread: every candidate error was within its carried-over
   ceiling (largest 9.8e-7 against 1e-4; CtC 2.4e-7 against 1e-5), except

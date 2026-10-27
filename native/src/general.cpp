@@ -1625,6 +1625,8 @@ public:
   void finish(double dz);
   void promote_fsal();
   void clear_fsal();
+  // The boundary monitor found the temporal collar quiet (solprop SEP 21).
+  void set_absorber_quiet(const bool quiet) noexcept { absorber_quiet_ = quiet; }
   std::vector<Complex> field_to_host() const;
   std::vector<Complex> stage_to_host(std::size_t stage) const;
   std::vector<Complex> projected_to_host(bool coarse);
@@ -2123,6 +2125,16 @@ public:
   std::unique_ptr<RamanForwardPlan> raman_kernel_forward_plan_;
   // solprop's general modal route; null on every other route.
   std::unique_ptr<GeneralModalSource> general_;
+  bool absorber_quiet_ = false;
+  // Whether the stage adds the in-stage absorber's term. A quiet temporal collar is
+  // left out on the modal routes, as solprop's reference leaves it out, unless a
+  // real-space collar shares the term or the route is the general modal one or a
+  // coupled flow, which keep it (solprop SEP 21).
+  [[nodiscard]] bool absorbing() const noexcept {
+    return problem_.in_stage_absorber &&
+           !(absorber_quiet_ && !general_ && !problem_.coupled_flow &&
+             problem_.spatial_absorber_matrix.empty());
+  }
   // solprop's linear.coupled_flow; null otherwise.
   std::unique_ptr<CoupledFlowAction> flow_;
   // solprop SEP 6's dispersive electronic response on the fused node path, and on the
@@ -6997,11 +7009,11 @@ StageTerms GeneralWorkspace::stage_terms(const std::size_t stage) const {
   terms.analytic = problem_.family == FieldFamily::field_analytic;
   const bool general_active =
       terms.general && (general_->responds() || problem_.in_stage_absorber);
-  terms.zero_response = terms.general ? !general_active
-                                      : !problem_.nonlinear && !problem_.plasma &&
-                                            !problem_.raman &&
-                                            !problem_.in_stage_absorber && !dispersive_;
-  terms.in_stage_absorber = problem_.in_stage_absorber;
+  terms.zero_response = terms.general
+                            ? !general_active
+                            : !problem_.nonlinear && !problem_.plasma &&
+                                  !problem_.raman && !absorbing() && !dispersive_;
+  terms.in_stage_absorber = absorbing();
   return terms;
 }
 
@@ -7128,8 +7140,8 @@ bool GeneralWorkspace::modal_core(const std::size_t stage) {
       general_core(stage);
     return general_active;
   }
-  if (!problem_.nonlinear && !problem_.plasma && !problem_.raman &&
-      !problem_.in_stage_absorber && !dispersive_)
+  if (!problem_.nonlinear && !problem_.plasma && !problem_.raman && !absorbing() &&
+      !dispersive_)
     return false;
   // SEP 6's dispersive response filters the padded spectrum first: the inverse
   // transform destroys it. In place, that transform gives the filtered field.
@@ -7211,7 +7223,7 @@ bool GeneralWorkspace::modal_core(const std::size_t stage) {
   // The response's spectrum joins the stage's, before the envelope currents'.
   if (dispersive_)
     dispersive_->combine();
-  if (problem_.in_stage_absorber) {
+  if (absorbing()) {
     form_absorber();
     if (problem_.family == FieldFamily::envelope)
       KokkosFFT::execute(*absorber_complex_plan_, absorber_complex_, absorber_spectrum_,
@@ -12235,6 +12247,9 @@ std::vector<double> GeneralState::aperture_statistics(
 void GeneralState::finish(const double dz) { workspace_->finish(dz); }
 void GeneralState::promote_fsal() { workspace_->promote_fsal(); }
 void GeneralState::clear_fsal() { workspace_->clear_fsal(); }
+void GeneralState::set_absorber_quiet(const bool quiet) {
+  workspace_->set_absorber_quiet(quiet);
+}
 double GeneralState::quadrature_error() const {
   return workspace_ ? workspace_->quadrature_error()
                     : Kokkos::Experimental::quiet_NaN_v<double>;

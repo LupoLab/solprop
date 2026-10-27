@@ -635,6 +635,8 @@ class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             shape if self._in_stage_absorber and not self._free else (0, 0),
             dtype=np.complex128,
         )
+        # Zeros the stage adds while the collar is quiet, made at the first quiet stage.
+        self._quiet_absorber: np.ndarray | None = None
         self._allocate_workspaces(fftw_threads)
 
     def _allocate_runge_kutta(self, shape: tuple[int, int]) -> None:
@@ -1052,6 +1054,7 @@ class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         self._spatial_absorber = np.empty((0, 0))
         self._spatial_absorber_time = np.empty((0, 0))
         self._absorber_spectrum = np.empty((0, 0), dtype=np.complex128)
+        self._quiet_absorber = None
         self._statistics_power_weight = np.empty(0)
         self._closed = True
 
@@ -1526,7 +1529,7 @@ class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             self._prefactor_for(bundle),
             self._problem.grids.omega_window,
             self._propagator(fraction, bundle, forward=False),
-            self._absorber_term(),
+            self._absorber_term(may_quiet=True),
             float(tableau.solution_weights[index]),
             float(tableau.error_weights[index]),
             self._stages[index],
@@ -2926,8 +2929,18 @@ class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             )
         )
 
-    def _absorber_term(self) -> Complex[np.ndarray, "n_columns n_omega"]:
+    def _collar_changed(self) -> None:
+        """Forget the reused stage, evaluated under the other collar setting."""
+        self._has_recycled = False
+
+    def _absorber_term(
+        self, *, may_quiet: bool = False
+    ) -> Complex[np.ndarray, "n_columns n_omega"]:
         """Return the in-stage absorber term, or a buffer the kernel ignores.
+
+        On the modal stage (`may_quiet`) a temporal collar alone is left out while the
+        boundary monitor finds it quiet (SEP 21), as the reference does: the kernel
+        then adds a held buffer of zeros, and the product and transform are skipped.
 
         The modal field on the fine time grid is still in the plan's own buffer when
         this is called -- the forward transform of the *polarisation* does not destroy
@@ -2947,6 +2960,10 @@ class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         """
         if not self._in_stage_absorber:
             return self._exponent
+        if may_quiet and self._collar_quiet and not self._spatial_absorber.size:
+            if self._quiet_absorber is None:
+                self._quiet_absorber = np.zeros_like(self._absorber_spectrum)
+            return self._quiet_absorber
         plans, responses = self._plans, self._problem.responses
         rate = (
             responses.temporal_absorber_fine
@@ -3512,7 +3529,7 @@ class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             self._prefactor_for(bundle),
             self._problem.grids.omega_window,
             inverse,
-            self._absorber_term(),
+            self._absorber_term(may_quiet=True),
             0.0,
             0.0,
             self._adams_out,

@@ -65,6 +65,25 @@ counted there. A region of ``n`` time samples holds the floor to a relative spre
 about ``1/sqrt(n)``; three times the expectation keeps the narrowest guards in use (a
 few samples) from reading the floor's fluctuation as light."""
 
+CADENCE = 8
+"""Committed steps between checks while the edges are quiet: every one of them while a
+guard or the collar holds more than :data:`ACTIVE` budgets squared, and the state of
+every saved plane, are checked regardless."""
+
+CHECKS = 256
+"""The fewest checks over the guide's length: a quiet window is checked at least every
+``length / CHECKS`` however long the steps, so light must walk about twenty windows
+over the run to cross the collar and guards between two checks."""
+
+ACTIVE = 0.1
+"""The fraction of the budget, as a field amplitude, above which a guard or the collar
+counts as active and every step is checked."""
+
+QUIET = 1e-12
+"""The share of the field's energy, above the shot-noise floor, below which the collar
+counts as quiet: its in-stage term may then be left out of the stages (SEP 21). As a
+field amplitude, a thousandth of the default budget's thousandth."""
+
 logger = logging.getLogger(__name__)
 
 
@@ -136,6 +155,8 @@ class BoundaryMonitor:
         The grid's spectral layout.
     columns : numpy.ndarray or None
         Quadrature weights of the transverse columns, or ``None`` for modal routes.
+    interval : float
+        The longest distance, m, a quiet window goes unchecked (:data:`CHECKS`).
     split : bool
         Whether the temporal collar is applied once per accepted step (the
         ``"split_step"`` scheme), whose removal is then read exactly from each
@@ -147,6 +168,7 @@ class BoundaryMonitor:
     kind: GridKind
     columns: Float[np.ndarray, " n_columns"] | None = None
     split: bool = False
+    interval: float = math.inf
     _launch: float = field(default=math.nan, init=False)
     _floor: float = field(default=0.0, init=False)
     _floor_regions: Float[np.ndarray, " 4"] = field(
@@ -182,6 +204,11 @@ class BoundaryMonitor:
         init=False,
     )
     _steps: int = field(default=0, init=False)
+    _skipped: int = field(default=0, init=False)
+    _since_check: int = field(default=0, init=False)
+    _busy: bool = field(default=True, init=False)
+    _quiet: bool = field(default=False, init=False)
+    _stale: bool = field(default=False, init=False)
 
     @classmethod
     def build(
@@ -234,7 +261,7 @@ class BoundaryMonitor:
         )
         weights = np.stack([low, high, collar, rate])
         weights.setflags(write=False)
-        return cls(check, weights, grid.kind, columns, split)
+        return cls(check, weights, grid.kind, columns, split, grid.length / CHECKS)
 
     def _power(
         self, field_spectrum: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
@@ -303,8 +330,10 @@ class BoundaryMonitor:
         if total <= 0.0:
             self._last = (z, 0.0)
             self._raw_last = (z, 0.0)
+            self._settle(None)
             return
         shares = self._above(regions) / total
+        self._settle(shares)
         self._last = (z, float(shares[3]))
         self._raw_last = (z, float(regions[3]) / total)
         self._launch_occupancy = (float(shares[0]), float(shares[1]), float(shares[2]))
@@ -345,15 +374,21 @@ class BoundaryMonitor:
         """
         total, regions, power = self._regions(field_spectrum)
         self._steps += 1
+        # The split's exact removal reads one step; across unchecked ones the
+        # trapezoid integrates the rate instead.
+        exact = self.split and self._since_check == 0
+        self._since_check = 0
+        self._stale = False
         if not total > _FLOOR * self._launch:
             # Nothing was launched, or nothing is left: no light to judge.
             self._last = (z, 0.0)
             self._raw_last = (z, 0.0)
             self._collar_now = 0.0
+            self._settle(None)
             return
         # The whole field's record, floor included, kept beside the judged one.
         raw_rate = float(regions[3]) / self._launch
-        if self.split and self._raw_last is not None:
+        if exact and self._raw_last is not None:
             self._split_removal(power, z - self._raw_last[0])
         elif self._raw_last is not None:
             previous_z, previous_rate = self._raw_last
@@ -364,9 +399,10 @@ class BoundaryMonitor:
         )
         above = self._above(regions)
         shares = above / total
+        self._settle(shares)
         # The removal rate as a fraction of the launch energy per metre.
         rate = float(above[3]) / self._launch
-        if self._last is not None and not self.split:
+        if self._last is not None and not exact:
             previous_z, previous_rate = self._last
             self._removed += 0.5 * (z - previous_z) * (previous_rate + rate)
         self._last = (z, rate)
@@ -397,6 +433,59 @@ class BoundaryMonitor:
                 BoundaryWarning,
                 stacklevel=2,
             )
+
+    def _settle(self, shares: Float[np.ndarray, " 4"] | None) -> None:
+        """Set the check cadence and the collar's quiet flag from a checked state.
+
+        ``None`` is a state with no light to judge: quiet, and checked lazily.
+        """
+        if shares is None:
+            self._busy, self._quiet = False, True
+            return
+        active = (ACTIVE * self.check.budget) ** 2
+        self._busy = bool(max(shares[0], shares[1], shares[2]) > active)
+        self._quiet = bool(shares[2] < QUIET)
+
+    def due(self, z: float) -> bool:
+        """Return whether the step just committed at `z` is to be checked.
+
+        Every step is while a guard or the collar is active (:data:`ACTIVE`), and
+        otherwise every :data:`CADENCE`-th or after :attr:`interval`, whichever comes
+        first; the caller passes the others to :meth:`skip` without reading the state.
+
+        Parameters
+        ----------
+        z : float
+            The committed position, m.
+
+        Returns
+        -------
+        bool
+            True to call :meth:`step` with the committed state.
+        """
+        if self._busy or self._since_check + 1 >= CADENCE:
+            return True
+        return self._last is None or z - self._last[0] >= self.interval
+
+    def skip(self) -> None:
+        """Count a committed step that is not checked."""
+        self._skipped += 1
+        self._since_check += 1
+        self._stale = True
+
+    @property
+    def stale(self) -> bool:
+        """Whether the last committed step went unchecked."""
+        return self._stale
+
+    @property
+    def collar_quiet(self) -> bool:
+        """Whether the collar held less than :data:`QUIET` above the floor.
+
+        As of the last check; while it holds, the collar's in-stage term may be left
+        out of the next stages.
+        """
+        return self._quiet
 
     def _split_removal(self, power: Float[np.ndarray, " n_t"], step: float) -> None:
         """Add one split step's exact removal, read back from its committed state.
@@ -473,6 +562,7 @@ class BoundaryMonitor:
             "collar_max": self._collar_max,
             "removed_fraction": max(self._removed, 0.0),
             "steps": self._steps,
+            "skipped": self._skipped,
             "noise_floor": self._floor / self._launch if self._launch > 0.0 else 0.0,
             "raw_guard_max": self._raw_guard_max,
             "raw_removed_fraction": self._raw_removed,

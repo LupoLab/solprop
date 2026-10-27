@@ -74,7 +74,10 @@ The first public release. It contains:
   the window's guards at the launch and every committed step, warns
   (`BoundaryWarning`) and then stops (`BoundaryError`) when light above the shot-noise
   floor reaches the edge, and records the energy the temporal collar removed (exactly
-  under the split scheme) with a row per saved plane. Output schema 27 (`Absorber.spatial`,
+  under the split scheme) with a row per saved plane. Quiet edges are checked every
+  eighth step or every `length / 256`, and while the collar holds nothing above the
+  floor its in-stage term is left out of the stages, so a run whose light stays clear
+  pays for neither. Output schema 27 (`Absorber.spatial`,
   and the default collar of runs that declared none). The benchmark suite's cases take
   the new defaults at new revisions.
 - **Incident beams into general modal guides**
