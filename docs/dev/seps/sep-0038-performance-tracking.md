@@ -62,7 +62,8 @@ them.
 
 - accuracy qualification. SEP 37 measured the defaults' accuracy; tracking times the
   default, it does not certify it. A numerical regression is caught by the test suite;
-- GPU tracking (a later SEP, once the GPU builds are released);
+- GPU qualification and tuning. `--device` (§5.1) times a native GPU build on the same
+  cases, but which GPUs get a standing history file is the maintainer's choice;
 - statistical adoption verdicts. The history shows changes; the
   [benchmark rules](../benchmarks.md) still say how a performance claim is judged;
 - continuous integration. Shared CI runners are too noisy for timing.
@@ -134,7 +135,8 @@ python -m benchmarks ab      --baseline-python PY [--candidate-python PY] [SELEC
 python -m benchmarks history [SLUG] [--threads W]
 
 SELECTION: [--case NAME]... [--set SET]... [--all] [--stepper S] [--threads W]
-           [--production N] [--backend B] [--repeats 3] [--threading POLICY]
+           [--production N] [--backend B] [--device] [--repeats 3]
+           [--threading POLICY]
 ```
 
 - `list` prints the plan and its estimated time; it imports no scientific library.
@@ -151,6 +153,13 @@ SELECTION: [--case NAME]... [--set SET]... [--all] [--stepper S] [--threads W]
   `active` (idle threads spin), `bound` (pinned to neighbouring cores) or
   `bound-active`. The policy is part of what history rows compare by; the default is
   set by phase 2's measurement.
+- `--device` runs each case once on the GPU of a native CUDA or HIP build, with the
+  production width of host threads. The worker refuses a device build without
+  `--device` and a CPU build with it. A device row's width is `device`, the slug is
+  the GPU model (for example `nvidia-a40`, plus any cloud family), and the row records
+  the device memory the run holds: the drop in the device's free memory from before
+  construction to after the warm-up. The CPU costs of §5.2 do not apply, so a device
+  plan has no time estimate.
 - `--append-history` adds the run to `benchmarks/history/<slug>.csv`. It records only
   the whole default plan with at least three repeats, on the native backend, every
   configuration complete and consistent (§4), timing the checkout's own `src/` with a
@@ -212,14 +221,16 @@ model), `sysctl` on macOS and the registry on Windows.
 
 The standing history files are an Apple M5 Max, a 16-core allocation of an AMD EPYC
 7763 cluster node and a cloud Arm instance (Neoverse-V2, for example AWS Graviton4),
-with Windows x86-64 measured occasionally. GPU tracking is left to a later SEP. A cloud instance type, from `--instance-type` or
+with Windows x86-64 measured occasionally; a GPU file can be added with `--device`
+(§5.1). A cloud instance type, from `--instance-type` or
 the DMI product name on Linux, is recorded beside it but is not part of the slug.
 
 Each history row is one (run, case, stepper, width): date, solprop version, commit,
-native build identity (version, profile, compiler), slug, CPU model, instance type, OS,
+native build identity (version, profile, compiler), slug, CPU model, GPU model (device
+rows), instance type, OS,
 width, case, case revision, requested stepper, resolved integrator and tolerances, noise
 model, median, minimum and maximum seconds, repeats, accepted and rejected steps, source
-evaluations, peak resident memory, and whether the machine was busy when a worker
+evaluations, peak resident memory, device memory (device rows), and whether the machine was busy when a worker
 started. That is a few kilobytes per release per machine.
 
 The full bundle of a run (plan, worker requests and logs, results, environment) stays in
@@ -358,3 +369,6 @@ is final.
   busy flag judges by CPU use where swap is not reported. Its open questions went to
   the maintainer, who added the memory domains spanned to what rows compare by and
   asked that a native rebuild be required only when `native/` changed.
+- 2026-10-27: At the maintainer's request, device mode (`--device`) was added before
+  the first release instead of in a later SEP, so that a GPU history line can start
+  with the first tagged release.

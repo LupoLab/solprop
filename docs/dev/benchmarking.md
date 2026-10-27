@@ -93,6 +93,22 @@ spin before sleeping), `active` (idle threads spin), `bound` (threads pinned to
 neighbouring cores) or `bound-active`. The policy is recorded with each row, and rows
 compare only within one policy.
 
+## On a GPU
+
+With a native GPU build installed (CUDA or HIP; see the native backend's build guide),
+`--device` runs every selected case once on the device:
+
+```sh
+uv run python -m benchmarks track --device
+```
+
+The host still runs the production width of threads, but each row's width is `device`.
+The hardware name is the GPU model, for example `nvidia-a40` or `nvidia-h200`, plus the
+instance family on a cloud machine, and the host CPU model is recorded beside it. Each
+row also records the device memory the run holds. The worker refuses a GPU build
+without `--device` and a CPU build with it. The case costs are CPU costs, so a device
+plan gives no time estimate.
+
 ## Recording a run
 
 ```sh

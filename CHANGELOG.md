@@ -315,7 +315,8 @@ The first public release. It contains:
   `python -m benchmarks track` times complete runs of about a dozen representative
   workloads, each with its interface's default integrator and tolerances, at one
   thread and the production width in about an hour per machine, and records them in
-  `benchmarks/history/` by hardware. It replaces SEP 30's standard suite, whose
+  `benchmarks/history/` by hardware; `--device` runs the same cases on a native GPU
+  build. It replaces SEP 30's standard suite, whose
   reference qualification, native coverage and export are removed; `ab` compares two
   builds on the same worker.
 - **Documentation.** An introduction with executable lessons, a user guide, a
