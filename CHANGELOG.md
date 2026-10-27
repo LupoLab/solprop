@@ -154,7 +154,12 @@ The first public release. It contains:
     and the hybrid planar grid carry none and record why; an interior launch takes its
     spectrum as given unless `noise="input"` is passed. A floor-subtracted spectral
     density, `get_spectral_density(..., noise_floor="subtract")`, removes the seed's one
-    photon per bin.
+    photon per bin and channel as a signed density (`get_spectrum` takes only
+    `"keep"`; `plotting.spec_1d` and `prop_2d` pass it through, and `spec_1d` masks
+    non-positive values on a logarithmic axis). Input noise is carried beside a coherent
+    wall, the taper coupling, a split block, a moving solid guide and the TDSE response,
+    whose refusals now name only the modified model; `translate.tdse_source.admit_tdse`
+    takes `modified_noise` in place of `has_noise`.
   - An optional helium TDSE atomic response for research. Its native backend is not
     yet publicly available.
 - **Numerics.**

@@ -182,7 +182,8 @@ has a fixed modulus, for one realisation this equals the modified model's correc
 readout $|\psi + N|^2 - |N|^2$ wherever the linear operator is unitary. Under loss the
 input seed has decayed, so the subtraction removes more than remains; values near the
 floor can be negative and are returned signed. It refuses a run without noise and a
-modified run, whose saved field holds no seed.
+modified run, whose saved field holds no seed. See
+[processing](../results/processing.md#removing-the-noise-floor).
 
 ## Reproducibility
 
@@ -196,7 +197,17 @@ which may already carry one, while an explicit `noise="input"` there adds the dr
 launch. `seed=` beside a default that resolves to none is refused. The realisation and
 its seed are stored in the output, with how the model was resolved
 (`RunMetadata.noise_resolution`), and the start-of-run
-summary prints both. The noise functions can also be called directly, and
+summary prints both.
+
+Input noise is carried beside every coupled linear flow (a coherent wall, the taper
+coupling of a multimode capillary, a split block and a moving solid guide) and beside
+the TDSE response. Its draw is part of the launch, so the flow, or the atom, sees it as
+part of the field. It is one photon per channel and bin because each route's entrance
+basis is orthonormal in true power: the capillary's HE₁ₘ set by its Bessel orthogonality
+and per-mode power normalisation, and a general guide's basis by its Gram certificate (a
+declared rotation keeps the total per bin and redistributes it among the channels). The
+modified model is still refused on these routes: its draw is kept apart from the field,
+and its transport through a coupled flow, or into the atom's drive, is not measured. The noise functions can also be called directly, and
 the generator is always passed in, never created inside:
 
 ```{code-block} python
