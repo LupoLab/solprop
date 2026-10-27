@@ -28,6 +28,7 @@ from solprop.output.scan import PointResult, ScanWriter
 from solprop.output.schema import SCHEMA_VERSION, RunMetadata, SavedPlane
 from solprop.physdata import _optmat
 from solprop.physdata.selection import MaterialManifest, MaterialSelection
+from solprop.stepper import Multistep
 
 pytestmark = pytest.mark.filterwarnings(
     "ignore::solprop.exceptions.MaterialRangeWarning"
@@ -58,6 +59,8 @@ def metadata(materials: MaterialSelection | None = SELECTION) -> Any:
         backend="numpy_ref",
         materials=materials,
         noise=None,
+        # The Adams march, so that the legacy records below carry a method string.
+        integrator=Multistep(),
     ).metadata()
 
 

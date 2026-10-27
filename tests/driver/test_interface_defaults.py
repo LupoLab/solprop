@@ -97,20 +97,16 @@ def _spatial(space, controller=None, integrator=None, noise=None):
         dz_init=grid.length,
         integrator=integrator,
     )
-    build = (
-        Simulation.from_radial
-        if isinstance(space, RadialGrid)
-        else Simulation.from_free
-    )
-    return build(
-        grid,
-        space,
+    arguments = (
         SpatialMedium(),
         [],
         SpatialPulse(GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 60e-6),
-        settings=settings,
-        noise=noise,
     )
+    if isinstance(space, RadialGrid):
+        return Simulation.from_radial(
+            grid, space, *arguments, settings=settings, noise=noise
+        )
+    return Simulation.from_free(grid, space, *arguments, settings=settings, noise=noise)
 
 
 def test_a_radial_run_without_a_controller_takes_the_spatial_default():
