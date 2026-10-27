@@ -600,6 +600,30 @@ KOKKOS_INLINE_FUNCTION Complex exponential(const Complex value) {
   return {magnitude * Kokkos::cos(value.imag()), magnitude * Kokkos::sin(value.imag())};
 }
 
+// `cos theta` and `sin theta`. On a device they are one `sincos` call, which shares
+// the argument's reduction between the two (on a GPU of reduced binary64 rate the
+// stage propagators are about half of the stage entry); the host keeps the two
+// library calls, so its values are unchanged.
+KOKKOS_INLINE_FUNCTION void cosine_sine(const double theta, double& cosine,
+                                        double& sine) {
+#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
+  ::sincos(theta, &sine, &cosine);
+#else
+  cosine = Kokkos::cos(theta);
+  sine = Kokkos::sin(theta);
+#endif
+}
+
+// A stage or step propagator `exp(argument)`: `exponential` with the cosine and sine
+// from `cosine_sine`, so it is `exponential` to the bit on the host.
+KOKKOS_INLINE_FUNCTION Complex propagator_exp(const Complex argument) {
+  const double magnitude = Kokkos::exp(argument.real());
+  double cosine = 0.0;
+  double sine = 0.0;
+  cosine_sine(argument.imag(), cosine, sine);
+  return {magnitude * cosine, magnitude * sine};
+}
+
 KOKKOS_INLINE_FUNCTION double squared_abs(const Complex value) {
   return value.real() * value.real() + value.imag() * value.imag();
 }
@@ -1148,6 +1172,9 @@ void require_general_problem(const Problem& problem) {
   }
 }
 
+// The samples of one tile of the device trapezoid plasma's two-level scans.
+inline constexpr std::size_t plasma_tile_samples = 1024;
+
 // Descriptors borrow allocations retained by the member GeneralState owners. They
 // contain no ownership or reference counts and are refreshed after state swaps.
 struct UpdateColumn {
@@ -1179,20 +1206,63 @@ int host_reduction_team_size(const ExecutionSpace& execution, const std::size_t 
 }
 #endif
 
+// The teams a column's norm reductions are split over on a device, each writing its
+// own partial sums: one team per column fills a GPU only when the columns are many, so
+// a one-node fibre's column takes up to `reduction_target_teams` teams of at least
+// `reduction_min_bins` bins each. The host keeps one slot per column. The slots depend
+// on the member's columns and bins alone, so a batch member and its solo run sum in one
+// order.
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+constexpr std::size_t reduction_target_teams = 256;
+constexpr std::size_t reduction_min_bins = 1024;
+#endif
+inline std::size_t reduction_slots(const std::size_t columns, const std::size_t n) {
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  const std::size_t wanted =
+      (reduction_target_teams + std::max<std::size_t>(columns, 1) - 1) /
+      std::max<std::size_t>(columns, 1);
+  const std::size_t most =
+      std::max<std::size_t>(1, (n + reduction_min_bins - 1) / reduction_min_bins);
+  return std::max<std::size_t>(1, std::min(wanted, most));
+#else
+  static_cast<void>(columns);
+  static_cast<void>(n);
+  return 1;
+#endif
+}
+
+// The bins `[first, end)` of slot `slot` of `slots` over `n`.
+KOKKOS_INLINE_FUNCTION void slot_range(const std::size_t n, const std::size_t slots,
+                                       const std::size_t slot, std::size_t& first,
+                                       std::size_t& end) {
+  const std::size_t width = (n + slots - 1) / slots;
+  first = Kokkos::min(n, slot * width);
+  end = Kokkos::min(n, first + width);
+}
+
+// The update and its three binary64 norms. On a device each column is `slots` teams,
+// each over its own bins, writing its partial sums at offset `slot` from the column's
+// partial pointers; the host reduces them.
 template <class Columns>
 void accept_update(const ExecutionSpace& execution, const std::size_t count,
                    const std::size_t n, const double dz, const Columns& columns,
-                   const char* label) {
+                   const char* label, const std::size_t slots) {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   using ReductionPolicy = Kokkos::TeamPolicy<ExecutionSpace>;
   using ReductionMember = ReductionPolicy::member_type;
-  const ReductionPolicy reduction_policy(execution, static_cast<int>(count),
+  const ReductionPolicy reduction_policy(execution, static_cast<int>(count * slots),
                                          SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE);
   Kokkos::parallel_for(
       label, reduction_policy, KOKKOS_LAMBDA(const ReductionMember& team) {
-        const auto column = static_cast<std::size_t>(team.league_rank());
+        const auto league = static_cast<std::size_t>(team.league_rank());
+        const auto column = league / slots;
+        const auto slot = league % slots;
+        std::size_t first = 0;
+        std::size_t end = 0;
+        slot_range(n, slots, slot, first, end);
         const auto values = columns(column);
-        Kokkos::parallel_for(Kokkos::TeamThreadRange(team, static_cast<int>(n)),
+        Kokkos::parallel_for(Kokkos::TeamThreadRange(team, static_cast<int>(first),
+                                                     static_cast<int>(end)),
                              [&](const int index_value) {
                                const auto index = static_cast<std::size_t>(index_value);
                                const Complex candidate =
@@ -1207,7 +1277,8 @@ void accept_update(const ExecutionSpace& execution, const std::size_t count,
         double new_sum = 0.0;
         double error_sum = 0.0;
         Kokkos::parallel_reduce(
-            Kokkos::TeamThreadRange(team, static_cast<int>(n)),
+            Kokkos::TeamThreadRange(team, static_cast<int>(first),
+                                    static_cast<int>(end)),
             [&](const int index_value, double& update) {
               const auto index = static_cast<std::size_t>(index_value);
               if (values.in_norm[index] != 0U)
@@ -1215,7 +1286,8 @@ void accept_update(const ExecutionSpace& execution, const std::size_t count,
             },
             old_sum);
         Kokkos::parallel_reduce(
-            Kokkos::TeamThreadRange(team, static_cast<int>(n)),
+            Kokkos::TeamThreadRange(team, static_cast<int>(first),
+                                    static_cast<int>(end)),
             [&](const int index_value, double& update) {
               const auto index = static_cast<std::size_t>(index_value);
               if (values.in_norm[index] != 0U)
@@ -1223,7 +1295,8 @@ void accept_update(const ExecutionSpace& execution, const std::size_t count,
             },
             new_sum);
         Kokkos::parallel_reduce(
-            Kokkos::TeamThreadRange(team, static_cast<int>(n)),
+            Kokkos::TeamThreadRange(team, static_cast<int>(first),
+                                    static_cast<int>(end)),
             [&](const int index_value, double& update) {
               const auto index = static_cast<std::size_t>(index_value);
               if (values.in_norm[index] != 0U)
@@ -1231,15 +1304,16 @@ void accept_update(const ExecutionSpace& execution, const std::size_t count,
             },
             error_sum);
         Kokkos::single(Kokkos::PerTeam(team), [&]() {
-          *values.old_partial = old_sum;
-          *values.new_partial = new_sum;
-          *values.error_partial = error_sum;
+          values.old_partial[slot] = old_sum;
+          values.new_partial[slot] = new_sum;
+          values.error_partial[slot] = error_sum;
         });
       });
 #else
   // One team per column, its threads splitting the bins when the columns are fewer
   // than the threads, and the update and the three norms in one pass; the sums
-  // associate as the team splits them (solprop SEP 25).
+  // associate as the team splits them (solprop SEP 25). The host keeps one slot.
+  static_cast<void>(slots);
   using ReductionPolicy = Kokkos::TeamPolicy<ExecutionSpace>;
   using ReductionMember = ReductionPolicy::member_type;
   const ReductionPolicy reduction_policy(execution, static_cast<int>(count),
@@ -1373,19 +1447,32 @@ struct StageTerms {
   // parts are even and odd, so `exp(-phase)` is `e^{-a} (cos b, -sin b)` with its own
   // magnitude, never a reciprocal of the forward value, and is the finish's former
   // `exponential(-phase)` to the bit. A coupled flow's residual reads the phase.
-  KOKKOS_INLINE_FUNCTION void combine(const std::size_t stage, const double dz,
-                                      const double solution_weight,
-                                      const double error_weight,
-                                      const std::size_t column, const std::size_t index,
-                                      const Complex phase) const {
+  // Returns the stage's forward propagator, which the device's last stage reuses for
+  // the whole step's when the two phases are equal.
+  KOKKOS_INLINE_FUNCTION Complex combine(const std::size_t stage, const double dz,
+                                         const double solution_weight,
+                                         const double error_weight,
+                                         const std::size_t column,
+                                         const std::size_t index,
+                                         const Complex phase) const {
     const Complex phase_at = add_noise ? noise_phase(stage, column, index) : Complex{};
-    const double cosine = Kokkos::cos(phase.imag());
-    const double sine = Kokkos::sin(phase.imag());
-    const double magnitude = Kokkos::exp(phase.real());
-    const double inverse_magnitude = Kokkos::exp(-phase.real());
-    const Complex propagator(magnitude * cosine, magnitude * sine);
-    stage_inverse(column, index) =
-        Complex(inverse_magnitude * cosine, -(inverse_magnitude * sine));
+    Complex propagator(1.0, 0.0);
+    Complex inverse(1.0, -0.0);
+#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
+    // A stage at the step's anchor has a zero phase: its propagators are exactly the
+    // library's values there, `(1, 0)` and `(1, -0)`, without the four evaluations.
+    if (phase.real() != 0.0 || phase.imag() != 0.0)
+#endif
+    {
+      double cosine = 0.0;
+      double sine = 0.0;
+      cosine_sine(phase.imag(), cosine, sine);
+      const double magnitude = Kokkos::exp(phase.real());
+      const double inverse_magnitude = Kokkos::exp(-phase.real());
+      propagator = Complex(magnitude * cosine, magnitude * sine);
+      inverse = Complex(inverse_magnitude * cosine, -(inverse_magnitude * sine));
+    }
+    stage_inverse(column, index) = inverse;
     if (flow)
       stage_phase(column, index) = phase;
     Complex value{};
@@ -1423,6 +1510,7 @@ struct StageTerms {
         error(column, index) += error_weight * Complex{};
       }
     }
+    return propagator;
   }
 
   // The fine bins no coarse bin fills, positions `[begin, end)` of this column's
@@ -1772,6 +1860,17 @@ public:
             bool Stash, bool Harmonic, bool Raman, bool RamanThg, bool Multiple = false,
             bool Folded = false>
   void response_impl(std::size_t stage, std::size_t first_node, std::size_t node_count);
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  // The device's response (`device_response`) and its trapezoid plasma's two-level
+  // scans.
+  template <FieldFamily Family, std::size_t Components, bool Plasma, bool Nonlinear,
+            bool Stash, bool Harmonic, bool Raman, bool RamanThg>
+  void device_response(std::size_t stage, std::size_t first_node,
+                       std::size_t node_count);
+  template <FieldFamily Family, std::size_t Components, bool Stash>
+  void device_trapezoid_plasma(std::size_t stage, std::size_t first_node,
+                               std::size_t node_count);
+#endif
   // solprop SEP 18's band rule as a team column (include/solprop_native/plasma.hpp):
   // filter, then scan, for the population and free current, in whole-row passes.
   // It writes the current separately from the collared non-plasma response.
@@ -2010,6 +2109,10 @@ public:
   RealView2 statistics_magnitude_;
   RealView2 plasma_rate_, plasma_exposure_, plasma_fraction_;
   RealView2 plasma_current_integrand_, plasma_free_current_;
+  // The device trapezoid plasma's tile totals, by component row, and its tile count
+  // (`device_trapezoid_plasma`).
+  RealView2 plasma_tile_totals_;
+  std::size_t plasma_tiles_{};
   RealView2 plasma_outer_current_;
   RealView weighted_scale_, weighted_partials_;
   RealView spatial_spectral_weights_;
@@ -2041,6 +2144,9 @@ public:
   // tile's samples, the tiles of a row, a host tile team's threads, and the tiles'
   // totals by row.
   bool band_tiled_{band_tiled(thread_policy())};
+  // Each column's norm reductions on a device are this many teams (`reduction_slots`):
+  // the norm partials hold `columns * reduction_slots_` slots, reduced on the host.
+  std::size_t reduction_slots_{reduction_slots(problem_.n_columns(), problem_.n_omega)};
   std::size_t band_tile_{};
   std::size_t band_tile_count_{};
   int band_tile_threads_{band_tile_threads(thread_policy())};
@@ -2435,21 +2541,25 @@ public:
             one.advanced_.data() + column * one.advanced_.stride(0),
             one.residual_.data() + column * one.residual_.stride(0),
             one.norm_mask_.data(),
-            one.partials_.data() + column,
-            one.partials_.data() + one.partials_.stride(0) + column,
-            one.partials_.data() + 2 * one.partials_.stride(0) + column,
+            one.partials_.data() + column * one.reduction_slots_,
+            one.partials_.data() + one.partials_.stride(0) +
+                column * one.reduction_slots_,
+            one.partials_.data() + 2 * one.partials_.stride(0) +
+                column * one.reduction_slots_,
             one.current_.data() + column * one.current_.stride(0)};
       }
     }
     Kokkos::deep_copy(execution_, descriptors_, host_);
     const auto descriptors = descriptors_;
+    // The members' own split: a member sums its norms as its solo run does.
+    const auto slots = members_.front()->workspace_->reduction_slots_;
     accept_update(
         execution_, descriptors.extent(0), omega_, dz,
         KOKKOS_LAMBDA(const std::size_t column) { return descriptors(column); },
-        "solprop_native.batch.accept_error_partials");
+        "solprop_native.batch.accept_error_partials", slots);
     execution_.fence("solprop_native batch update boundary");
     std::vector<double> result;
-    result.reserve(members_.size() * 3 * columns_);
+    result.reserve(members_.size() * 3 * columns_ * slots);
     for (const auto& member : members_) {
       const auto partials = member->workspace_->collect_trial();
       result.insert(result.end(), partials.begin(), partials.end());
@@ -2589,7 +2699,9 @@ void GeneralWorkspace::allocate() {
     noise_ = ComplexView2("solprop_native.noise", columns, n);
   if (!problem_.separable_geometry() && problem_.coupled_flow)
     stage_phase_ = ComplexView2("solprop_native.step.stage_phase", columns, n);
-  partials_ = RealView2("solprop_native.step.error_partials", 3, columns);
+  partials_ =
+      RealView2("solprop_native.step.error_partials", 3,
+                checked_product(columns, reduction_slots_, "norm partial slots"));
   if (!problem_.projection_coarse_matrix.empty())
     quadrature_partials_ =
         RealView2("solprop_native.transform.quadrature_partials", 2, columns);
@@ -2597,7 +2709,8 @@ void GeneralWorkspace::allocate() {
   Kokkos::deep_copy(quadrature_scores_, Kokkos::Experimental::quiet_NaN_v<double>);
   if (problem_.weighted_controller) {
     weighted_scale_ = RealView("solprop_native.step.weighted_scale", n);
-    weighted_partials_ = RealView("solprop_native.step.weighted_partials", columns);
+    weighted_partials_ =
+        RealView("solprop_native.step.weighted_partials", columns * reduction_slots_);
   }
   if (!problem_.spatial_spectral_weights.empty()) {
     spatial_spectral_weights_ =
@@ -3093,6 +3206,13 @@ void GeneralWorkspace::allocate() {
       if (weight_rows != 0)
         plasma_outer_current_ = RealView2("solprop_native.plasma.outer_current",
                                           weight_rows, problem_.n_to);
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+      if (!problem_.plasma_band) {
+        plasma_tiles_ = (problem_.n_to + plasma_tile_samples - 1) / plasma_tile_samples;
+        plasma_tile_totals_ =
+            RealView2("solprop_native.plasma.tile_totals", chunk_rows, plasma_tiles_);
+      }
+#endif
     }
     if (problem_.stash_plasma) {
       stash_candidate_ = RealView2("solprop_native.plasma.stash_candidate",
@@ -3836,9 +3956,11 @@ std::vector<double> GeneralWorkspace::trial_step(const double dz,
   const auto partials = partials_;
   const auto count = problem_.n_columns();
   const auto n = problem_.n_omega;
+  const auto slots = reduction_slots_;
   accept_update(
       execution_space_, count, n, dz,
       KOKKOS_LAMBDA(const std::size_t column) {
+        const auto slot = column * slots;
         return UpdateColumn{current.data() + column * current.stride(0),
                             solution.data() + column * solution.stride(0),
                             error.data() + column * error.stride(0),
@@ -3846,12 +3968,12 @@ std::vector<double> GeneralWorkspace::trial_step(const double dz,
                             advanced.data() + column * advanced.stride(0),
                             residual.data() + column * residual.stride(0),
                             in_norm.data(),
-                            partials.data() + column,
-                            partials.data() + partials.stride(0) + column,
-                            partials.data() + 2 * partials.stride(0) + column,
+                            partials.data() + slot,
+                            partials.data() + partials.stride(0) + slot,
+                            partials.data() + 2 * partials.stride(0) + slot,
                             carried.data() + column * carried.stride(0)};
       },
-      "solprop_native.step.accept_error_partials");
+      "solprop_native.step.accept_error_partials", slots);
   return collect_trial();
 }
 
@@ -4144,7 +4266,7 @@ void GeneralWorkspace::low_storage_flows_formed(const bool rebuild_table) {
         problem_.n_columns(), n,
         KOKKOS_LAMBDA(const std::size_t column, const std::size_t omega) {
           const auto values = spatial.value(column / n_pol, omega, active(omega) != 0U);
-          flows(0, column, omega) = exponential(delta(2) * values.linear);
+          flows(0, column, omega) = propagator_exp(delta(2) * values.linear);
         });
     return;
   }
@@ -4155,10 +4277,11 @@ void GeneralWorkspace::low_storage_flows_formed(const bool rebuild_table) {
       n, KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
         if (count == 1) {
           flows(0, column, index) =
-              exponential(terms.phase_sum(2 * n_phi, column, index));
+              propagator_exp(terms.phase_sum(2 * n_phi, column, index));
         } else {
-          flows(0, column, index) = exponential(terms.phase_sum(0, column, index));
-          flows(1, column, index) = exponential(terms.phase_sum(n_phi, column, index));
+          flows(0, column, index) = propagator_exp(terms.phase_sum(0, column, index));
+          flows(1, column, index) =
+              propagator_exp(terms.phase_sum(n_phi, column, index));
         }
       });
 }
@@ -4304,7 +4427,7 @@ void GeneralWorkspace::low_storage_separable_fold(const std::size_t pass,
     Complex flow(1.0, 0.0);
     if (flows_here)
       flow = tabulated ? flows(0, column, omega)
-                       : exponential(delta(flow_row) * values.linear);
+                       : propagator_exp(delta(flow_row) * values.linear);
     Complex a = state(column, omega);
     Complex b = reads_accumulator ? accumulator(column, omega) : Complex{};
     Complex c = reads_register ? stage_register(column, omega) : Complex{};
@@ -4414,7 +4537,7 @@ void GeneralWorkspace::low_storage_modal_pass(const std::size_t pass, const doub
           flow = count == 1 ? flows(0, column, index)
                  : count == 2
                      ? flows(flow_row, column, index)
-                     : exponential(terms.phase_sum(flow_row * n_phi, column, index));
+                     : propagator_exp(terms.phase_sum(flow_row * n_phi, column, index));
         Complex a = state(column, index);
         Complex b = stage > 0 ? accumulator(column, index) : Complex{};
         Complex c{};
@@ -6446,10 +6569,12 @@ std::vector<double> GeneralWorkspace::collect_trial() {
       problem_.first_same_as_last && !problem_.split_step_absorber && !flow_;
   execution_space_.fence("solprop_native trial boundary");
   const auto host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, partials_);
-  std::vector<double> result(3 * problem_.n_columns());
+  // Every column's slots, in order: the host's reduction is the caller's sum of a row.
+  const auto slots = host.extent(1);
+  std::vector<double> result(3 * slots);
   for (std::size_t row = 0; row < 3; ++row)
-    for (std::size_t column = 0; column < problem_.n_columns(); ++column)
-      result[row * problem_.n_columns() + column] = host(row, column);
+    for (std::size_t slot = 0; slot < slots; ++slot)
+      result[row * slots + slot] = host(row, slot);
   return result;
 }
 
@@ -6531,7 +6656,7 @@ void GeneralWorkspace::separable_stage_input(const std::size_t stage, const doub
         for (std::size_t previous = 0; previous < stage; ++previous)
           accumulated +=
               tableau(stage * n_stages + previous) * stages(previous, column, omega);
-        Complex value = exponential(delta(stage) * values.linear) *
+        Complex value = propagator_exp(delta(stage) * values.linear) *
                         (current(column, omega) + dz * accumulated);
         if (add_noise) {
           const double angle = at(stage) * values.linear.imag();
@@ -6541,7 +6666,7 @@ void GeneralWorkspace::separable_stage_input(const std::size_t stage, const doub
         layout.cell(scratch, omega * n_pol + column % n_pol, mode) =
             value * inverse_area_count;
         if (stage + 1 == n_stages)
-          whole(column, omega) = exponential(delta(n_stages) * values.linear);
+          whole(column, omega) = propagator_exp(delta(n_stages) * values.linear);
       });
 }
 
@@ -6686,7 +6811,7 @@ void GeneralWorkspace::separable_finish_transform(const std::size_t stage,
         Complex value = layout.cell(scratch, omega * n_pol + column % n_pol, mode);
         value *= material ? values.prefactor * window(omega)
                           : Complex(active(omega) != 0U ? 1.0 : 0.0);
-        value *= exponential(-delta(stage) * values.linear);
+        value *= propagator_exp(-delta(stage) * values.linear);
         if (material)
           stages(stage, column, omega) = value;
         else
@@ -7037,10 +7162,14 @@ void GeneralWorkspace::stage_entry(const std::size_t stage, const double dz) {
         if (finish_previous)
           terms.finish(previous, previous_solution, previous_error, column, index);
         const Complex phase = terms.phase_sum(stage * n_phi, column, index);
-        if (last)
-          terms.whole(column, index) =
-              exponential(terms.phase_sum(n_stages * n_phi, column, index));
-        terms.combine(stage, dz, solution_weight, error_weight, column, index, phase);
+        const Complex forward = terms.combine(stage, dz, solution_weight, error_weight,
+                                              column, index, phase);
+        // The whole step's propagator; at a last stage whose node is the step's end
+        // (DOPRI5's) the phase sums are equal and the stage's propagator is it exactly.
+        if (last) {
+          const Complex whole = terms.phase_sum(n_stages * n_phi, column, index);
+          terms.whole(column, index) = whole == phase ? forward : propagator_exp(whole);
+        }
         for (std::size_t gap = index; gap < gaps; gap += n)
           terms.zero_gaps(column, gap, gap + 1);
       });
@@ -7069,7 +7198,7 @@ void GeneralWorkspace::stage_entry(const std::size_t stage, const double dz) {
           terms.phase_block(n_stages * n_phi, column, first, count, real, imag);
           for (std::size_t bin = 0; bin < count; ++bin)
             terms.whole(column, first + bin) =
-                exponential(Complex(real[bin], imag[bin]));
+                propagator_exp(Complex(real[bin], imag[bin]));
         }
         terms.zero_gaps(column, block * gaps / blocks, (block + 1) * gaps / blocks);
       });
@@ -7571,13 +7700,6 @@ void GeneralWorkspace::response_impl(const std::size_t stage,
   const auto carrier = carrier_;
   const auto rate_coefficients = rate_coefficients_;
   const auto stash = stash_candidate_;
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-  const auto plasma_rate = plasma_rate_;
-  const auto plasma_exposure = plasma_exposure_;
-  const auto plasma_fraction = plasma_fraction_;
-  const auto current_integrand = plasma_current_integrand_;
-  const auto free_current = plasma_free_current_;
-#endif
   const auto density = stage_plasma_density_;
   const auto kerr_density = stage_kerr_density_;
   const auto channels = problem_.n_channels;
@@ -7603,282 +7725,11 @@ void GeneralWorkspace::response_impl(const std::size_t stage,
   const auto rate_intervals = problem_.rate_intervals;
   const auto n_stages = problem_.n_stages;
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  // The device's form (`device_response`); a mixture of channels takes the generic
+  // column below.
   if constexpr (!Multiple) {
-    using TeamPolicy = Kokkos::TeamPolicy<ExecutionSpace>;
-    using TeamMember = TeamPolicy::member_type;
-    const auto league_size = static_cast<int>(node_count);
-    const auto team_samples = static_cast<int>(n_to);
-    const TeamPolicy policy(response_space_for(node_count), league_size,
-                            static_cast<int>(response_team_size()));
-    if (!Plasma) {
-      Kokkos::parallel_for(
-          "solprop_native.response.device_pointwise", policy,
-          KOKKOS_LAMBDA(const TeamMember& team) {
-            const auto node = static_cast<std::size_t>(team.league_rank());
-            const std::size_t base = node * Components;
-            Kokkos::parallel_for(
-                Kokkos::TeamThreadRange(team, team_samples), [&](const int time_index) {
-                  const auto time = static_cast<std::size_t>(time_index);
-                  Complex first_value{};
-                  Complex second_value{};
-                  if (Family == FieldFamily::field_real) {
-                    first_value = Complex(node_real(base, time), 0.0);
-                    if (Components == 2)
-                      second_value = Complex(node_real(base + 1, time), 0.0);
-                  } else {
-                    first_value = node_complex(base, time);
-                    if (Components == 2)
-                      second_value = node_complex(base + 1, time);
-                  }
-                  const double modulus =
-                      squared_abs(first_value) +
-                      (Components == 2 ? squared_abs(second_value) : 0.0);
-                  const Complex square =
-                      first_value * first_value +
-                      (Components == 2 ? second_value * second_value : Complex{});
-                  const double factor = kerr_coefficient * kerr_density(stage);
-                  Complex first{};
-                  Complex second{};
-                  if (Nonlinear) {
-                    if (Family == FieldFamily::field_real) {
-                      const Complex kerr_first(factor * modulus * first_value.real(),
-                                               0.0);
-                      first = kerr_first;
-                      if (Components == 2) {
-                        const Complex kerr_second(
-                            factor * modulus * second_value.real(), 0.0);
-                        second = kerr_second;
-                      }
-                    } else {
-                      const auto analytic = [&](const Complex value) {
-                        const double weighted_real = conjugate_factor * square.real();
-                        const double weighted_imag = conjugate_factor * square.imag();
-                        const double weighted_self = self_factor * modulus;
-                        Complex result(factor * (weighted_self * value.real() +
-                                                 (weighted_real * value.real() +
-                                                  weighted_imag * value.imag())),
-                                       factor * (weighted_self * value.imag() +
-                                                 (weighted_imag * value.real() -
-                                                  weighted_real * value.imag())));
-                        if (Harmonic)
-                          result += ((factor * harmonic_factor) * carrier(time)) *
-                                    square * value;
-                        return result;
-                      };
-                      const Complex kerr_first = analytic(first_value);
-                      first = kerr_first;
-                      if (Components == 2) {
-                        const Complex kerr_second = analytic(second_value);
-                        second = kerr_second;
-                      }
-                    }
-                  }
-                  if (Raman) {
-                    write_raman_drive<Components, RamanThg>(raman_drive, node, time,
-                                                            first_value, second_value,
-                                                            raman_drives);
-                  }
-                  if (Family != FieldFamily::envelope) {
-                    out_real(base, time) =
-                        Raman ? first.real() : first.real() * window(time);
-                    if (Components == 2)
-                      out_real(base + 1, time) =
-                          Raman ? second.real() : second.real() * window(time);
-                  } else {
-                    out_complex(base, time) = Raman ? first : first * window(time);
-                    if (Components == 2)
-                      out_complex(base + 1, time) =
-                          Raman ? second : second * window(time);
-                  }
-                });
-          });
-    } else {
-      Kokkos::parallel_for(
-          "solprop_native.response.device_plasma", policy,
-          KOKKOS_LAMBDA(const TeamMember& team) {
-            const auto node = static_cast<std::size_t>(team.league_rank());
-            const std::size_t base = node * Components;
-            Kokkos::parallel_for(
-                Kokkos::TeamThreadRange(team, team_samples), [&](const int time_index) {
-                  const auto time = static_cast<std::size_t>(time_index);
-                  double first = 0.0;
-                  double second = 0.0;
-                  if (Family == FieldFamily::field_real) {
-                    first = node_real(base, time);
-                    if (Components == 2)
-                      second = node_real(base + 1, time);
-                  } else {
-                    first = node_complex(base, time).real();
-                    if (Components == 2)
-                      second = node_complex(base + 1, time).real();
-                  }
-                  const double magnitude = Components == 2
-                                               ? Kokkos::hypot(first, second)
-                                               : Kokkos::abs(first);
-                  plasma_rate(node, time) = ionisation_rate(
-                      magnitude, rate_coefficients, log_field_min, d_log_field,
-                      field_min, field_max, rate_max, rate_intervals);
-                });
-            team.team_barrier();
-            Kokkos::parallel_scan(
-                Kokkos::TeamThreadRange(team, team_samples),
-                [&](const int time_index, double& update, const bool final) {
-                  const auto time = static_cast<std::size_t>(time_index);
-                  if (time != 0)
-                    update += trapezoid(plasma_rate(node, time),
-                                        plasma_rate(node, time - 1), dt);
-                  if (final)
-                    plasma_exposure(node, time) = update;
-                });
-            team.team_barrier();
-            Kokkos::parallel_for(
-                Kokkos::TeamThreadRange(team, team_samples), [&](const int time_index) {
-                  const auto time = static_cast<std::size_t>(time_index);
-                  plasma_fraction(node, time) = ionised_fraction(
-                      plasma_exposure(node, time), preionisation(stage));
-                });
-            team.team_barrier();
-
-            for (std::size_t component = 0; component < Components; ++component) {
-              const auto row = base + component;
-              Kokkos::parallel_for(
-                  Kokkos::TeamThreadRange(team, team_samples),
-                  [&](const int time_index) {
-                    const auto time = static_cast<std::size_t>(time_index);
-                    const double field = Family == FieldFamily::field_real
-                                             ? node_real(row, time)
-                                             : node_complex(row, time).real();
-                    current_integrand(row, time) =
-                        plasma_fraction(node, time) * charge_mass_ratio * field;
-                  });
-              team.team_barrier();
-              Kokkos::parallel_scan(
-                  Kokkos::TeamThreadRange(team, team_samples),
-                  [&](const int time_index, double& update, const bool final) {
-                    const auto time = static_cast<std::size_t>(time_index);
-                    if (time != 0)
-                      update += trapezoid(current_integrand(row, time),
-                                          current_integrand(row, time - 1), dt);
-                    if (final)
-                      free_current(row, time) = update;
-                  });
-              team.team_barrier();
-              Kokkos::parallel_for(
-                  Kokkos::TeamThreadRange(team, team_samples),
-                  [&](const int time_index) {
-                    const auto time = static_cast<std::size_t>(time_index);
-                    double first = 0.0;
-                    double second = 0.0;
-                    if (Family == FieldFamily::field_real) {
-                      first = node_real(base, time);
-                      if (Components == 2)
-                        second = node_real(base + 1, time);
-                    } else {
-                      first = node_complex(base, time).real();
-                      if (Components == 2)
-                        second = node_complex(base + 1, time).real();
-                    }
-                    const double magnitude_squared = first * first + second * second;
-                    const double field = component == 0 ? first : second;
-                    const double guard =
-                        plasma_rate(node, time) > 0.0 && magnitude_squared > 0.0
-                            ? ionisation_potential * plasma_rate(node, time) *
-                                  (1.0 - plasma_fraction(node, time)) /
-                                  magnitude_squared
-                            : 0.0;
-                    held_current(row, time) =
-                        density(stage) * (free_current(row, time) + guard * field);
-                  });
-              team.team_barrier();
-            }
-
-            Kokkos::parallel_for(
-                Kokkos::TeamThreadRange(team, team_samples), [&](const int time_index) {
-                  const auto time = static_cast<std::size_t>(time_index);
-                  Complex first_value{};
-                  Complex second_value{};
-                  if (Family == FieldFamily::field_real) {
-                    first_value = Complex(node_real(base, time), 0.0);
-                    if (Components == 2)
-                      second_value = Complex(node_real(base + 1, time), 0.0);
-                  } else {
-                    first_value = node_complex(base, time);
-                    if (Components == 2)
-                      second_value = node_complex(base + 1, time);
-                  }
-                  const double modulus =
-                      squared_abs(first_value) +
-                      (Components == 2 ? squared_abs(second_value) : 0.0);
-                  const Complex square =
-                      first_value * first_value +
-                      (Components == 2 ? second_value * second_value : Complex{});
-                  const double factor = kerr_coefficient * kerr_density(stage);
-                  Complex first{};
-                  Complex second{};
-                  if (Nonlinear) {
-                    if (Family == FieldFamily::field_real) {
-                      first += Complex(factor * modulus * first_value.real(), 0.0);
-                      if (Components == 2)
-                        second += Complex(factor * modulus * second_value.real(), 0.0);
-                    } else {
-                      const auto analytic = [&](const Complex value) {
-                        const double weighted_real = conjugate_factor * square.real();
-                        const double weighted_imag = conjugate_factor * square.imag();
-                        const double weighted_self = self_factor * modulus;
-                        Complex result(factor * (weighted_self * value.real() +
-                                                 (weighted_real * value.real() +
-                                                  weighted_imag * value.imag())),
-                                       factor * (weighted_self * value.imag() +
-                                                 (weighted_imag * value.real() -
-                                                  weighted_real * value.imag())));
-                        if (Harmonic)
-                          result += ((factor * harmonic_factor) * carrier(time)) *
-                                    square * value;
-                        return result;
-                      };
-                      first += analytic(first_value);
-                      if (Components == 2)
-                        second += analytic(second_value);
-                    }
-                  }
-                  if (Raman) {
-                    write_raman_drive<Components, RamanThg>(raman_drive, node, time,
-                                                            first_value, second_value,
-                                                            raman_drives);
-                  }
-                  if (Family != FieldFamily::envelope) {
-                    out_real(base, time) =
-                        Raman ? first.real() : first.real() * window(time);
-                    if (Components == 2)
-                      out_real(base + 1, time) =
-                          Raman ? second.real() : second.real() * window(time);
-                  } else {
-                    out_complex(base, time) = Raman ? first : first * window(time);
-                    if (Components == 2)
-                      out_complex(base + 1, time) =
-                          Raman ? second : second * window(time);
-                  }
-                });
-            team.team_barrier();
-            if (Stash) {
-              if (!stash.empty() && stage + 1 == n_stages) {
-                double largest_rate = 0.0;
-                Kokkos::parallel_reduce(
-                    Kokkos::TeamThreadRange(team, team_samples),
-                    [&](const int time_index, double& largest) {
-                      const auto time = static_cast<std::size_t>(time_index);
-                      if (plasma_rate(node, time) > largest)
-                        largest = plasma_rate(node, time);
-                    },
-                    Kokkos::Max<double>(largest_rate));
-                Kokkos::single(Kokkos::PerTeam(team), [&]() {
-                  stash(first_node + node, 0) = plasma_fraction(node, n_to - 1);
-                  stash(first_node + node, 1) = largest_rate;
-                });
-              }
-            }
-          });
-    }
+    device_response<Family, Components, Plasma, Nonlinear, Stash, Harmonic, Raman,
+                    RamanThg>(stage, first_node, node_count);
     return;
   }
 #endif
@@ -8111,6 +7962,304 @@ void GeneralWorkspace::response_impl(const std::size_t stage,
         }
       });
 }
+
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+// The device's response with no team tied to a node, so that a one-node fibre fills the
+// device:
+//
+//   - the pointwise terms (Kerr, the harmonic, the Raman drive and the windowed
+//     polarisation) as one two-dimensional range over (node, time), in the column's
+//     arithmetic sample by sample;
+//   - the trapezoid plasma as two-level scans over tiles of `plasma_tile_samples`:
+//     each running integral is a kernel of one team per (row, tile) that sums the
+//     tile's increments into its total (`plasma_tile_totals_`), then one per (row,
+//     tile) that adds the row's earlier totals and scans the tile again from that
+//     offset, forming the exposure's fraction or the current from each prefix.
+template <FieldFamily Family, std::size_t Components, bool Plasma, bool Nonlinear,
+          bool Stash, bool Harmonic, bool Raman, bool RamanThg>
+void GeneralWorkspace::device_response(const std::size_t stage,
+                                       const std::size_t first_node,
+                                       const std::size_t node_count) {
+  const auto node_real = node_real_;
+  const auto node_complex = node_complex_;
+  const auto out_real = polarisation_real_;
+  const auto out_complex = polarisation_complex_;
+  const auto raman_drive = node_raman_drive_;
+  const auto raman_drives = problem_.raman_drives();
+  const auto window = time_window_;
+  const auto carrier = carrier_;
+  const auto kerr_density = stage_kerr_density_;
+  const auto n_to = problem_.n_to;
+  const double kerr_coefficient = problem_.kerr_coefficient;
+  const double self_factor = problem_.self_factor;
+  const double conjugate_factor = problem_.conjugate_factor;
+  const double harmonic_factor = problem_.harmonic_factor;
+  if constexpr (Plasma)
+    device_trapezoid_plasma<Family, Components, Stash>(stage, first_node, node_count);
+  Kokkos::parallel_for(
+      Plasma ? "solprop_native.response.device_pointwise_after_plasma"
+             : "solprop_native.response.device_pointwise",
+      Range2(response_space_for(node_count), {0, 0}, {node_count, n_to}),
+      KOKKOS_LAMBDA(const std::size_t node, const std::size_t time) {
+        capture_anchor(self_factor, conjugate_factor, node_real, node_complex, out_real,
+                       out_complex, raman_drive, raman_drives, window, carrier,
+                       kerr_density, kerr_coefficient, harmonic_factor, stage);
+        const std::size_t base = node * Components;
+        const auto value_at = [&](const std::size_t row) {
+          if constexpr (Family == FieldFamily::field_real)
+            return Complex(node_real(row, time), 0.0);
+          else
+            return Complex(node_complex(row, time));
+        };
+        const Complex first_value = value_at(base);
+        Complex second_value{};
+        if constexpr (Components == 2)
+          second_value = value_at(base + 1);
+        const double modulus = squared_abs(first_value) +
+                               (Components == 2 ? squared_abs(second_value) : 0.0);
+        const Complex square =
+            first_value * first_value +
+            (Components == 2 ? second_value * second_value : Complex{});
+        const double factor = kerr_coefficient * kerr_density(stage);
+        Complex first{};
+        Complex second{};
+        if constexpr (Nonlinear) {
+          if constexpr (Family == FieldFamily::field_real) {
+            first += Complex(factor * modulus * first_value.real(), 0.0);
+            if constexpr (Components == 2)
+              second += Complex(factor * modulus * second_value.real(), 0.0);
+          } else {
+            const auto analytic = [&](const Complex value) {
+              const double weighted_real = conjugate_factor * square.real();
+              const double weighted_imag = conjugate_factor * square.imag();
+              const double weighted_self = self_factor * modulus;
+              Complex result(
+                  factor *
+                      (weighted_self * value.real() +
+                       (weighted_real * value.real() + weighted_imag * value.imag())),
+                  factor *
+                      (weighted_self * value.imag() +
+                       (weighted_imag * value.real() - weighted_real * value.imag())));
+              if constexpr (Harmonic)
+                result += ((factor * harmonic_factor) * carrier(time)) * square * value;
+              return result;
+            };
+            first += analytic(first_value);
+            if constexpr (Components == 2)
+              second += analytic(second_value);
+          }
+        }
+        if constexpr (Raman)
+          write_raman_drive<Components, RamanThg>(raman_drive, node, time, first_value,
+                                                  second_value, raman_drives);
+        if constexpr (Family != FieldFamily::envelope) {
+          out_real(base, time) = Raman ? first.real() : first.real() * window(time);
+          if constexpr (Components == 2)
+            out_real(base + 1, time) =
+                Raman ? second.real() : second.real() * window(time);
+        } else {
+          out_complex(base, time) = Raman ? first : first * window(time);
+          if constexpr (Components == 2)
+            out_complex(base + 1, time) = Raman ? second : second * window(time);
+        }
+      });
+}
+
+// The trapezoid plasma's two-level scans on a device (`device_response`). Rows of the
+// rate, exposure and fraction views are the chunk's nodes; rows of the integrand and
+// of the tile totals are its component rows.
+template <FieldFamily Family, std::size_t Components, bool Stash>
+void GeneralWorkspace::device_trapezoid_plasma(const std::size_t stage,
+                                               const std::size_t first_node,
+                                               const std::size_t node_count) {
+  using TeamPolicy = Kokkos::TeamPolicy<ExecutionSpace>;
+  using TeamMember = TeamPolicy::member_type;
+  const auto node_real = node_real_;
+  const auto node_complex = node_complex_;
+  const auto held_current = held_current_;
+  const auto rates = plasma_rate_;
+  const auto exposures = plasma_exposure_;
+  const auto fractions = plasma_fraction_;
+  const auto integrands = plasma_current_integrand_;
+  const auto totals = plasma_tile_totals_;
+  const auto stash = stash_candidate_;
+  const auto rate_coefficients = rate_coefficients_;
+  const auto density = stage_plasma_density_;
+  const auto preionisation = stage_preionisation_;
+  const double charge_mass_ratio = problem_.charge_mass_ratio;
+  const double ionisation_potential = problem_.ionisation_potential;
+  const double dt = problem_.dt_fine;
+  const double log_field_min = problem_.log_field_min;
+  const double d_log_field = problem_.d_log_field;
+  const double field_min = problem_.field_min;
+  const double field_max = problem_.field_max;
+  const double rate_max = problem_.rate_max;
+  const auto rate_intervals = problem_.rate_intervals;
+  const auto n_to = problem_.n_to;
+  const auto samples = static_cast<int>(n_to);
+  const auto width = static_cast<int>(plasma_tile_samples);
+  const auto tiles = static_cast<int>(plasma_tiles_);
+  const auto last = n_to - 1;
+  const bool stashing = Stash && !stash.empty() && stage + 1 == problem_.n_stages;
+  const std::size_t rows = node_count * Components;
+  const auto team_size = static_cast<int>(response_team_size());
+  // The field a row reads: a real row's value, or an analytic or envelope row's real
+  // part.
+  const auto raw = [=] KOKKOS_FUNCTION(const std::size_t row, const std::size_t time) {
+    capture_anchor(node_real, node_complex);
+    if constexpr (Family == FieldFamily::field_real)
+      return node_real(row, time);
+    else
+      return node_complex(row, time).real();
+  };
+
+  // 1. The rates.
+  Kokkos::parallel_for(
+      "solprop_native.response.device_plasma_rate",
+      Range2(response_space_for(node_count), {0, 0}, {node_count, n_to}),
+      KOKKOS_LAMBDA(const std::size_t node, const std::size_t time) {
+        const std::size_t base = node * Components;
+        const double first = raw(base, time);
+        double magnitude = 0.0;
+        if constexpr (Components == 2)
+          magnitude = Kokkos::hypot(first, raw(base + 1, time));
+        else
+          magnitude = Kokkos::abs(first);
+        rates(node, time) =
+            ionisation_rate(magnitude, rate_coefficients, log_field_min, d_log_field,
+                            field_min, field_max, rate_max, rate_intervals);
+      });
+  // 2. The exposure: tile totals, then each tile's prefixes from its offset, and the
+  // fraction from each.
+  const auto exposure_local = KOKKOS_LAMBDA(const TeamMember& team) {
+    capture_anchor(rates, totals, samples, width, tiles, dt);
+    const auto node = static_cast<std::size_t>(team.league_rank() / tiles);
+    const int tile = team.league_rank() % tiles;
+    const int first = tile * width;
+    const int end = Kokkos::min(first + width, samples);
+    const double total = team_trapezoid_total(
+        team,
+        [&](const int sample) { return rates(node, static_cast<std::size_t>(sample)); },
+        first, end, dt);
+    Kokkos::single(Kokkos::PerTeam(team),
+                   [&] { totals(node, static_cast<std::size_t>(tile)) = total; });
+  };
+  Kokkos::parallel_for("solprop_native.response.device_plasma_exposure_tiles",
+                       TeamPolicy(response_space_for(node_count),
+                                  static_cast<int>(node_count) * tiles, team_size),
+                       exposure_local);
+  const auto exposure_finish = KOKKOS_LAMBDA(const TeamMember& team) {
+    capture_anchor(rates, totals, exposures, fractions, preionisation, samples, width,
+                   tiles, dt, stage);
+    const auto node = static_cast<std::size_t>(team.league_rank() / tiles);
+    const int tile = team.league_rank() % tiles;
+    const int first = tile * width;
+    const int end = Kokkos::min(first + width, samples);
+    const double offset = team_tile_offset(team, totals, node, tile);
+    team_trapezoid_finish(
+        team,
+        [&](const int sample) { return rates(node, static_cast<std::size_t>(sample)); },
+        first, end, dt, offset,
+        [&](const int sample, const double prefix) {
+          const auto time = static_cast<std::size_t>(sample);
+          exposures(node, time) = prefix;
+          fractions(node, time) = ionised_fraction(prefix, preionisation(stage));
+        });
+  };
+  Kokkos::parallel_for("solprop_native.response.device_plasma_exposure",
+                       TeamPolicy(response_space_for(node_count),
+                                  static_cast<int>(node_count) * tiles, team_size),
+                       exposure_finish);
+  // 3. The free-current integrand, per component row.
+  Kokkos::parallel_for(
+      "solprop_native.response.device_plasma_integrand",
+      Range2(response_space_for(node_count), {0, 0}, {rows, n_to}),
+      KOKKOS_LAMBDA(const std::size_t row, const std::size_t time) {
+        integrands(row, time) =
+            fractions(row / Components, time) * charge_mass_ratio * raw(row, time);
+      });
+  // 4. The free current: tile totals, then each tile's prefixes from its offset and
+  // the current from each.
+  const auto current_local = KOKKOS_LAMBDA(const TeamMember& team) {
+    capture_anchor(integrands, totals, samples, width, tiles, dt);
+    const auto row = static_cast<std::size_t>(team.league_rank() / tiles);
+    const int tile = team.league_rank() % tiles;
+    const int first = tile * width;
+    const int end = Kokkos::min(first + width, samples);
+    const double total = team_trapezoid_total(
+        team,
+        [&](const int sample) {
+          return integrands(row, static_cast<std::size_t>(sample));
+        },
+        first, end, dt);
+    Kokkos::single(Kokkos::PerTeam(team),
+                   [&] { totals(row, static_cast<std::size_t>(tile)) = total; });
+  };
+  Kokkos::parallel_for("solprop_native.response.device_plasma_current_tiles",
+                       TeamPolicy(response_space_for(node_count),
+                                  static_cast<int>(rows) * tiles, team_size),
+                       current_local);
+  const auto current_finish = KOKKOS_LAMBDA(const TeamMember& team) {
+    capture_anchor(integrands, totals, held_current, rates, fractions, density, samples,
+                   width, tiles, dt, ionisation_potential, stage);
+    const auto row = static_cast<std::size_t>(team.league_rank() / tiles);
+    const int tile = team.league_rank() % tiles;
+    const int first = tile * width;
+    const int end = Kokkos::min(first + width, samples);
+    const double offset = team_tile_offset(team, totals, row, tile);
+    team_trapezoid_finish(
+        team,
+        [&](const int sample) {
+          return integrands(row, static_cast<std::size_t>(sample));
+        },
+        first, end, dt, offset,
+        [&](const int sample, const double prefix) {
+          const auto time = static_cast<std::size_t>(sample);
+          const std::size_t node = row / Components;
+          const std::size_t base = node * Components;
+          const double first_field = raw(base, time);
+          const double second_field = Components == 2 ? raw(base + 1, time) : 0.0;
+          const double magnitude_squared =
+              first_field * first_field + second_field * second_field;
+          const double rate = rates(node, time);
+          const double guard = rate > 0.0 && magnitude_squared > 0.0
+                                   ? ionisation_potential * rate *
+                                         (1.0 - fractions(node, time)) /
+                                         magnitude_squared
+                                   : 0.0;
+          held_current(row, time) = density(stage) * (prefix + guard * raw(row, time));
+        });
+  };
+  Kokkos::parallel_for("solprop_native.response.device_plasma_current",
+                       TeamPolicy(response_space_for(node_count),
+                                  static_cast<int>(rows) * tiles, team_size),
+                       current_finish);
+  // 5. The stash: the last sample's fraction and the largest rate, per node.
+  if (stashing) {
+    const auto peak = KOKKOS_LAMBDA(const TeamMember& team) {
+      capture_anchor(rates, fractions, stash, samples, last, first_node);
+      const auto node = static_cast<std::size_t>(team.league_rank());
+      double largest = 0.0;
+      Kokkos::parallel_reduce(
+          Kokkos::TeamThreadRange(team, samples),
+          [&](const int sample, double& update) {
+            const double rate = rates(node, static_cast<std::size_t>(sample));
+            if (rate > update)
+              update = rate;
+          },
+          Kokkos::Max<double>(largest));
+      Kokkos::single(Kokkos::PerTeam(team), [&] {
+        stash(first_node + node, 0) = fractions(node, last);
+        stash(first_node + node, 1) = largest;
+      });
+    };
+    Kokkos::parallel_for("solprop_native.response.device_plasma_stash",
+                         TeamPolicy(response_space_for(node_count),
+                                    static_cast<int>(node_count), team_size),
+                         peak);
+  }
+}
+#endif
 
 static_assert(band_max_half + 1 == static_cast<int>(plasma_max_taps),
               "the team band filter's tap bound is the problem's");
@@ -9808,15 +9957,23 @@ std::vector<double> GeneralWorkspace::weighted_error(const std::vector<double>& 
   const int team_size =
       host_reduction_team_size(execution_space_, problem_.n_columns(), n);
 #endif
-  const TeamPolicy policy(execution_space_, static_cast<int>(problem_.n_columns()),
-                          team_size);
+  // On a device each column is `reduction_slots_` teams over its own bins; the
+  // caller sums the slots.
+  const auto slots = reduction_slots_;
+  const TeamPolicy policy(execution_space_,
+                          static_cast<int>(problem_.n_columns() * slots), team_size);
   Kokkos::parallel_for(
       "solprop_native.step.weighted_error_partials", policy,
       KOKKOS_LAMBDA(const TeamMember& team) {
-        const auto column = static_cast<std::size_t>(team.league_rank());
+        const auto league = static_cast<std::size_t>(team.league_rank());
+        const auto column = league / slots;
+        std::size_t first = 0;
+        std::size_t end = 0;
+        slot_range(n, slots, league % slots, first, end);
         double sum = 0.0;
         Kokkos::parallel_reduce(
-            Kokkos::TeamThreadRange(team, static_cast<int>(n)),
+            Kokkos::TeamThreadRange(team, static_cast<int>(first),
+                                    static_cast<int>(end)),
             [&](const int index_value, double& update) {
               const auto index = static_cast<std::size_t>(index_value);
               if (in_norm(index) == 0U)
@@ -9825,13 +9982,13 @@ std::vector<double> GeneralWorkspace::weighted_error(const std::vector<double>& 
               update += squared_abs(value);
             },
             sum);
-        Kokkos::single(Kokkos::PerTeam(team), [&] { partials(column) = sum; });
+        Kokkos::single(Kokkos::PerTeam(team), [&] { partials(league) = sum; });
       });
   execution_space_.fence("solprop_native weighted-error boundary");
   const auto host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, partials);
-  std::vector<double> result(problem_.n_columns());
-  for (std::size_t column = 0; column < result.size(); ++column)
-    result[column] = host(column);
+  std::vector<double> result(problem_.n_columns() * slots);
+  for (std::size_t slot = 0; slot < result.size(); ++slot)
+    result[slot] = host(slot);
   return result;
 }
 
@@ -11776,9 +11933,10 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
       {"plasma_device_scan",
        (plasma_rate_.size() + plasma_exposure_.size() + plasma_fraction_.size() +
         plasma_current_integrand_.size() + plasma_free_current_.size() +
-        plasma_outer_current_.size() + band_tile_totals_.size()) *
+        plasma_outer_current_.size() + band_tile_totals_.size() +
+        plasma_tile_totals_.size()) *
            real_bytes},
-      {"error_partials", 3 * problem_.n_columns() * real_bytes},
+      {"error_partials", 3 * problem_.n_columns() * reduction_slots_ * real_bytes},
       {"quadrature_partials", problem_.projection_coarse_matrix.empty()
                                   ? 0
                                   : 2 * problem_.n_columns() * real_bytes},
@@ -11992,6 +12150,7 @@ void GeneralWorkspace::close() noexcept {
   plasma_free_current_ = {};
   plasma_outer_current_ = {};
   band_tile_totals_ = {};
+  plasma_tile_totals_ = {};
   spatial_spectral_weights_ = {};
   spatial_on_axis_ = {};
   spatial_statistics_partials_ = {};
