@@ -109,7 +109,7 @@ scaled by the step. Concretely:
 | long runs (more than about $3\times10^4$ steps) | yes | yes | no: the propagator's drift reaches the field envelope |
 | strong damping per step | yes | yes | only below `exp(88.7)` per step |
 | memory of field-sized buffers | 1 | about 1 (the source's buffers halve) | about 1/2 |
-| speed | the reference | gains where the source dominates a step, most on GPUs with slow binary64 | the largest gains, and on Apple GPUs the only option |
+| speed | the reference | gains where the source dominates a step: about 2 times on an A40, under 1.3 times on GPUs with full-rate binary64 | the largest gains, and on Apple GPUs the only option |
 | noise-seeded runs | yes | refused until the noise study (phase 5) | refused |
 
 Take **mixed precision** when a run is dominated by its nonlinear source (fine time
@@ -187,7 +187,7 @@ field's error, and binary64's own field error at the same tolerance for comparis
 | self-phase modulation, 10π, no dispersion (GNLSE) | 7.9e-6 | 9.6e-5 (bands) | 1.9e-6 | survives |
 | fundamental soliton, ten periods (GNLSE) | 2.7e-5 | 6.5e-6 (peak) | 1.1e-6 | survives |
 | dispersive-wave emission, He capillary gradient, two modes, 1.5 m | 2.6e-6 | 4.9e-5 (bands) | 1.3e-6 | survives |
-| comb-to-continuum, H₂ capillary at 40 bar, 0.1 m, noise-free | 2.6e-3 | 3.4e-4 (peak) | 3.0e-7 | survives over 0.05 m |
+| comb-to-continuum, H₂ capillary at 40 bar, 0.1 m, noise-free | 2.6e-3 | 3.4e-4 (peak) | 3.0e-7 | survives over 0.025 m (below) |
 | plasma blue shift, Ar capillary, field grid, 0.4 m | 1.8e-4 | 2.1e-4 (bands) | 1.6e-4 | survives |
 | plasma blue shift, Ar capillary, envelope grid, 0.4 m | 1.3e-5 | 2.1e-5 (ionised) | 1.3e-5 | survives |
 | molecular Raman, N₂ capillary at 2 bar, 0.3 m | 1.1e-6 | 2.7e-5 (bands) | 1.6e-7 | survives |
@@ -206,8 +206,10 @@ field-grid one 2.2e-4 (2.8e-4, bands): both survive.
   whatever seed the Stokes band holds; rounding seeds it at the level of the unit
   roundoff times the field. In binary64, adding a seed of $2^{-24}$ of the launch's peak
   spectral amplitude moves the result at 0.1 m by 5 %: the sensitivity is the
-  physics, and binary32's own rounding is such a seed. Over 0.05 m the run is inside
-  every envelope.
+  physics, and binary32's own rounding is such a seed. SEP 33 measured 0.05 m with
+  transforms more accurate than binary32 (NumPy's float32 transforms round once from
+  binary64); with the binary32 transforms `mlx` and `native` use, the run is inside
+  every envelope over 0.025 m (SEP 36).
 - **The tolerance floor** stays at `1e-6`: tightening from `1e-5` to `1e-6` still buys
   accuracy (by 92 % in the self-phase-modulation case's field).
 - **The propagator's step limit.** With no nonlinear source the rounding of
@@ -218,13 +220,46 @@ field-grid one 2.2e-4 (2.8e-4, bands): both survive.
 
 ### Mixed precision's record
 
-```{admonition} Phase 5
-:class: note
-SEP 36's mixed-precision survival study is in progress. Its record, with the floor it
-fixes and the Adams integrator's measurement, will appear here. Native's confirmation
-runs so far agree with `numpy_ref`'s mixed path and stay within binary64's accuracy
-envelopes.
-```
+SEP 36 ran the same cases, with the same envelopes, in mixed precision at `1e-8`,
+`1e-7` and `1e-6`. The table gives the field error at `1e-7`, mixed precision's floor,
+and the part of it that is precision rather than truncation (the mixed run against
+binary64 at the same tolerance, across all three tolerances):
+
+| case | mixed `1e-7`: field | precision part | largest other metric | verdict |
+|---|---|---|---|---|
+| self-phase modulation, 10π (GNLSE) | 9.3e-6 | 7.9e-6–9.3e-6 | 8.3e-5 (bands) | survives |
+| fundamental soliton, ten periods (GNLSE) | 1.7e-6 | 1.7e-6–1.8e-6 | 5.6e-7 (bands) | survives |
+| dispersive-wave emission, He capillary, 1.5 m | 6.1e-7 | 6.5e-7–1.3e-6 | 2.6e-6 (bands) | survives |
+| comb-to-continuum, H₂ at 40 bar, noise-free | 8.9e-4 at 0.1 m | — | 9.7e-5 (peak) | survives over 0.025 m on `native` (below) |
+| plasma blue shift, Ar capillary, field grid | 1.6e-5 | 1.5e-5–6.0e-5 | 1.6e-5 (ionised) | survives |
+| plasma blue shift, envelope grid, 0.1 m | 1.4e-6 | 1.4e-6–1.6e-6 | — | survives |
+| molecular Raman, N₂ capillary | 7.1e-7 | 6.7e-7–7.3e-7 | 2.9e-5 (bands) | survives |
+| radial Kerr beam | 5.4e-7 | 6.2e-7–8.2e-7 | 9.0e-6 (bands) | survives |
+| radial filament with plasma | 5.2e-7 | 2.2e-7–4.5e-7 | 1.3e-6 (peak) | survives |
+| Cartesian diffraction | 0 | 0 | 0 | survives |
+| Cartesian Kerr beam | 2.6e-6 | 2.6e-6–2.8e-6 | 1.0e-5 (bands) | survives |
+
+- **The floor is `1e-7`.** The precision part is the same at every tolerance: the
+  binary32 source's rounding times a step's nonlinear phase, not the controller's
+  target. At `1e-8` the mixed run takes up to twice binary64's steps on the
+  comb-to-continuum and 1.28 times on the envelope-grid plasma, and buys no accuracy.
+- **Where mixed is much better than single:** wherever the state's rounding or the
+  propagator's drift dominated single precision: the soliton (1.8e-6 against 2.7e-5),
+  the argon blue shift (1.5e-5 against 1.8e-4), the radial Kerr beam (7.6e-7 against
+  8.5e-6). On self-phase modulation the two are equal, since there the error is the
+  source's rounding.
+- **The comb-to-continuum** is limited to 0.025 m in both reduced modes on `native`
+  (field error 2.1e-5 there; 1.4–1.5e-3 at 0.05 m). Its error is the binary32
+  transforms' rounding floor seeding the empty Stokes bands, which noise-free Raman
+  gain amplifies; mixed precision does not help, since its source transforms are
+  binary32 too. With noise on, the quantum seed dominates.
+- **The Adams integrator** is admitted under mixed precision. Against Runge–Kutta at
+  one tolerance it stays within every envelope; on the dispersive-wave case it is
+  1.4–1.9 times faster, on the argon blue shift 0.7–0.8 times as fast, as in binary64.
+- **On GPUs** the confirmation cases (comb-to-continuum over 0.05 m, the argon blue
+  shift, the radial filament in single; dispersive-wave emission and the argon blue
+  shift in mixed) stay within every envelope on an NVIDIA A40, an NVIDIA H100 and an
+  AMD Instinct MI325X.
 
 ### Noise under mixed precision
 
@@ -273,14 +308,22 @@ by the study. The study's record and the noise models' admission will appear her
   Small field-plasma capillaries are slower on the GPU, bound by its per-operation
   latency. These are same-process comparisons on one machine, not the standard
   benchmark suite.
-- **Performance on `native`.**
+- **Performance on `native`.** On CPUs (2× AMD EPYC 7763), a step of single or mixed
+  precision is 1.1–1.7 times faster than binary64, most on fine time grids and
+  multimode capillaries, least on small transverse grids. On GPUs, throughput of a
+  fibre with Raman (samples × steps per second, one run, $2^{18}$ samples):
 
-  ```{admonition} Phase 5
-  :class: note
-  The time per step of single and mixed precision against binary64 on `native`, on CPUs
-  and GPUs, with the batch and concurrency throughput, is measured by SEP 36's
-  benchmarks and will be tabulated here.
-  ```
+  | GPU | single / binary64 | mixed / binary64 |
+  |---|---|---|
+  | NVIDIA A40 (binary64 at 1/64 rate) | 2.3 | 2.0 |
+  | NVIDIA H100 | 1.22 | 1.14 |
+  | AMD Instinct MI325X | 1.08 | 1.08 |
+
+  On GPUs with full-rate binary64, a fibre step of this size is bound by kernel launches
+  and copies, not arithmetic, so the reduced modes gain less than 1.3 times: keep
+  binary64 there unless memory is the limit. To fill a GPU with an ensemble, use the
+  lockstep batch (`select_batch`): it beats concurrent processes everywhere measured.
+  The standard benchmark records for both modes follow solprop's 0.1 release.
 
 The [worked example](../../auto_examples/performance/plot_01_single_precision.rst) runs a
 capillary with the envelope-grid plasma and a radial filament in both precisions and
