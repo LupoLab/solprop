@@ -18,7 +18,6 @@ import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 
 @dataclass(frozen=True)
@@ -174,8 +173,9 @@ def _windows_cores(cpus: Sequence[int]) -> int | None:  # pragma: no cover - Win
         )
 
     try:
-        kernel32: Any = ctypes.windll.kernel32  # type: ignore[attr-defined]
-        query: Any = kernel32.GetLogicalProcessorInformation
+        # One calling convention on 64-bit Windows, so CDLL reaches kernel32 and is
+        # typed on every platform, unlike ``windll``.
+        query = ctypes.CDLL("kernel32").GetLogicalProcessorInformation
         size = ctypes.c_ulong(0)
         query(None, ctypes.byref(size))
         table = (_Information * (size.value // ctypes.sizeof(_Information)))()
