@@ -499,6 +499,47 @@ team_band_tile(const TeamMember& team, const Load& load, const int first, const 
 }
 
 /**
+ * The binary64 total of a tile's trapezoid increments, `spacing (y_n + y_{n-1}) / 2`
+ * for n in `[first, end)` (none at n = 0), by a team reduction every thread receives;
+ * `load(n)` returns y_n widened to binary64. The first level of a tiled running
+ * integral (solprop SEP 36): `team_trapezoid_finish` is the second.
+ */
+template <class TeamMember, class Load>
+KOKKOS_INLINE_FUNCTION double
+team_trapezoid_total(const TeamMember& team, const Load& load, const int first,
+                     const int end, const double spacing) {
+  double total = 0.0;
+  Kokkos::parallel_reduce(
+      Kokkos::TeamThreadRange(team, first, end),
+      [&](const int sample, double& update) {
+        if (sample != 0)
+          update += spacing * (load(sample) + load(sample - 1)) / 2.0;
+      },
+      total);
+  return total;
+}
+
+/**
+ * The inclusive trapezoid prefixes of a tile from `offset` (the row's earlier tile
+ * totals, `team_tile_offset`), `store(n, offset + local)` once per sample, the local
+ * prefix a binary64 team scan of the tile's increments. Ends with a team barrier.
+ */
+template <class TeamMember, class Load, class Store>
+KOKKOS_INLINE_FUNCTION void
+team_trapezoid_finish(const TeamMember& team, const Load& load, const int first,
+                      const int end, const double spacing, const double offset,
+                      const Store& store) {
+  Kokkos::parallel_scan(Kokkos::TeamThreadRange(team, first, end),
+                        [&](const int sample, double& update, const bool final) {
+                          if (sample != 0)
+                            update += spacing * (load(sample) + load(sample - 1)) / 2.0;
+                          if (final)
+                            store(sample, offset + update);
+                        });
+  team.team_barrier();
+}
+
+/**
  * The offset of tile `tile` of row `row`: the sum of the row's earlier tile totals,
  * `totals(row, 0 .. tile - 1)`, by a Kokkos team reduction every thread receives.
  */
@@ -597,6 +638,79 @@ void portable_tiled_band_scan(const ExecutionSpace& execution_space,
                                const auto sample = static_cast<std::size_t>(i);
                                prefixes(row, sample) = offset + locals(row, sample);
                              });
+      });
+}
+
+/**
+ * The trapezoid running integral of each row of `values` into `prefixes` as the device
+ * column's two-level scan does (solprop SEP 36): one team per (row, tile) sums the
+ * tile's increments into `totals` (`team_trapezoid_total`), then one per (row, tile)
+ * scans the tile again from the row's earlier totals (`team_trapezoid_finish`). The
+ * native tests hold it to a serial reference over tiles and team sizes. `team_size` 0
+ * is the build's: the device team width, or one host thread.
+ */
+template <class ExecutionSpace, class InputView, class TotalView, class OutputView>
+void portable_tiled_trapezoid_scan(const ExecutionSpace& execution_space,
+                                   const InputView& values, const TotalView& totals,
+                                   const OutputView& prefixes, const double spacing,
+                                   const std::size_t tile, const int team_size = 0) {
+  const auto rows = values.extent(0);
+  const auto samples = values.extent(1);
+  if (tile == 0)
+    throw std::invalid_argument("plasma tiled trapezoid tile must be positive");
+  const auto tiles = (samples + tile - 1) / tile;
+  if (prefixes.extent(0) != rows || prefixes.extent(1) != samples ||
+      totals.extent(0) != rows || totals.extent(1) != tiles)
+    throw std::invalid_argument("plasma tiled trapezoid view extents are inconsistent");
+  constexpr auto limit = static_cast<std::size_t>(std::numeric_limits<int>::max());
+  if (samples > limit || rows > limit / std::max<std::size_t>(tiles, 1))
+    throw std::length_error("plasma tiled trapezoid rows exceed int extents");
+  using TeamPolicy = Kokkos::TeamPolicy<ExecutionSpace>;
+  using TeamMember = TeamPolicy::member_type;
+  const auto league = static_cast<int>(rows * tiles);
+  const auto width = static_cast<int>(tile);
+  const auto row_samples = static_cast<int>(samples);
+  const auto row_tiles = static_cast<int>(tiles);
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  const int threads = team_size > 0 ? team_size : SOLPROP_NATIVE_DEVICE_TEAM_SIZE;
+#else
+  const int threads = team_size > 0 ? team_size : 1;
+#endif
+  Kokkos::parallel_for(
+      "solprop_native.plasma.portable_tiled_trapezoid_local",
+      TeamPolicy(execution_space, league, threads),
+      KOKKOS_LAMBDA(const TeamMember& team) {
+        const auto row = static_cast<std::size_t>(team.league_rank() / row_tiles);
+        const int index = team.league_rank() % row_tiles;
+        const int first = index * width;
+        const int end = Kokkos::min(first + width, row_samples);
+        const double total = team_trapezoid_total(
+            team,
+            [&](const int i) {
+              return static_cast<double>(values(row, static_cast<std::size_t>(i)));
+            },
+            first, end, spacing);
+        Kokkos::single(Kokkos::PerTeam(team),
+                       [&] { totals(row, static_cast<std::size_t>(index)) = total; });
+      });
+  Kokkos::parallel_for(
+      "solprop_native.plasma.portable_tiled_trapezoid_finish",
+      TeamPolicy(execution_space, league, threads),
+      KOKKOS_LAMBDA(const TeamMember& team) {
+        const auto row = static_cast<std::size_t>(team.league_rank() / row_tiles);
+        const int index = team.league_rank() % row_tiles;
+        const int first = index * width;
+        const int end = Kokkos::min(first + width, row_samples);
+        const double offset = team_tile_offset(team, totals, row, index);
+        team_trapezoid_finish(
+            team,
+            [&](const int i) {
+              return static_cast<double>(values(row, static_cast<std::size_t>(i)));
+            },
+            first, end, spacing, offset,
+            [&](const int sample, const double prefix) {
+              prefixes(row, static_cast<std::size_t>(sample)) = prefix;
+            });
       });
 }
 

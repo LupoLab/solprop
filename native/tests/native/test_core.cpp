@@ -1941,6 +1941,52 @@ std::vector<int> tiled_team_sizes() {
 #endif
 }
 
+TEST(GeneralState, TiledTrapezoidScanIsExactOnIntegers) {
+  // The device trapezoid plasma's two-level scan (solprop SEP 36): integer samples
+  // and a spacing of two make every increment and partial sum an exact integer, so
+  // any association gives the serial result exactly, over tiles and team sizes.
+  using View = Kokkos::View<double**, native::Layout, native::MemorySpace>;
+  const native::ExecutionSpace execution_space;
+  constexpr double spacing = 2.0;
+  for (const std::size_t samples :
+       {std::size_t{1}, std::size_t{9}, std::size_t{2600}}) {
+    constexpr std::size_t rows = 3;
+    View input("solprop_native.test.trapezoid_input", rows, samples);
+    View prefixes("solprop_native.test.trapezoid_prefixes", rows, samples);
+    auto host_input = Kokkos::create_mirror_view(input);
+    for (std::size_t row = 0; row < rows; ++row)
+      for (std::size_t sample = 0; sample < samples; ++sample)
+        host_input(row, sample) =
+            static_cast<double>((sample * 7 + row * 13) % 23) - 11.0;
+    Kokkos::deep_copy(execution_space, input, host_input);
+    for (const std::size_t tile :
+         {std::size_t{1}, std::size_t{5}, std::size_t{64}, std::size_t{1024}}) {
+      View totals("solprop_native.test.trapezoid_totals", rows,
+                  (samples + tile - 1) / tile);
+      for (const int team_size : tiled_team_sizes()) {
+        Kokkos::deep_copy(execution_space, prefixes,
+                          std::numeric_limits<double>::quiet_NaN());
+        native::portable_tiled_trapezoid_scan(execution_space, input, totals, prefixes,
+                                              spacing, tile, team_size);
+        execution_space.fence("solprop_native tiled trapezoid test");
+        const auto host =
+            Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, prefixes);
+        for (std::size_t row = 0; row < rows; ++row) {
+          double serial = 0.0;
+          for (std::size_t sample = 0; sample < samples; ++sample) {
+            if (sample != 0)
+              serial += spacing *
+                        (host_input(row, sample) + host_input(row, sample - 1)) / 2.0;
+            ASSERT_EQ(host(row, sample), serial)
+                << samples << " " << tile << " " << team_size << " " << row << " "
+                << sample;
+          }
+        }
+      }
+    }
+  }
+}
+
 TEST(GeneralState, BandTileSizesFollowTheRowLength) {
   EXPECT_EQ(native::band_tile_samples(64), native::band_tile_min);
   EXPECT_EQ(native::band_tile_samples(8192), std::size_t{256});
