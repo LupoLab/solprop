@@ -2513,6 +2513,52 @@ Recorded as slices land; the phase report follows at the end of the phase.
   2 % at rounding level, with fields equal to 6e-12; the test was pinned to the former
   grid. A controller question near the collar's stability limit, recorded here.
 
+### Phase 2 — report (draft, 2026-10-27)
+
+**Built.** The keywords (`absorber=False`, `absorber_scheme=` on every `prop_*`); the
+collar outside the requested window on cost-chosen smooth sizes (D1, D3, D8, Q16); the
+default collar on the GNLSE and spatial routes (D6, D9), applied by the split scheme
+on the spatial routes (D14); the boundary monitor (`solprop.monitor`, on by default),
+judging above the shot-noise floor (D13), with a row per saved plane and the split's
+exact removal (D5), checked every step only near an edge and leaving a quiet collar
+out of the stages (D15); the run summary's edge-watch row; the manual pages, the
+tutorial "Is my time window big enough?" and the changelog. Output schema 27; the
+kernel schema is unchanged.
+
+**Departures from Part I.**
+
+- No backend-resident reductions and no kernel hook: the monitor reads the committed
+  state on the host at the committed-endpoint point of §4.6, every march and backend.
+  Its cost is bounded by the cadence of D15 instead.
+- The occupancies are rows of the monitor's execution record, not plane statistics
+  (§6's sketch): the statistics catalogue is the caller's and the backends'.
+- The spatial routes measure with the quadrature-weighted field norm, not SEP 34's
+  flux (D16, roadmap).
+- The removal of the spectral collar (`U_omega`) is not recorded.
+- The quiet collar (D15) is new: Part I did not foresee a switch of the in-stage
+  term; it is exact below a stated threshold and bounded above it.
+
+**Measured.** Against main on SEP 38's tracking cases (the A/B above): the wider
+windows cost what their sizes say (RDW +23 %, helium RDW +16 %, hydrogen Raman +8 %),
+the smooth sizes save elsewhere (argon -16 to -24 %, GRIN -38 %), and the two
+regressions it found, the radial filament's doubled steps and GNLSE Raman/shock's
+collar and monitor, are removed by D14 and D15. The confirming A/B on the final branch
+follows below. The spatial study (D14) and the GNLSE measurements (D15) give the
+accuracy evidence: the split scheme is as accurate as the in-stage collar or better
+on every spatial case, and the quiet collar leaves a clear run's field unchanged to
+1e-9 on every backend.
+
+**Not built (Part I's phases).** Phases 1 and 4, the implicit collar (D4). The escaped
+field record waits for phase 0b's R5 and phase 3.
+
+**For phase 0b.** The records of the absorbed field must separate the vacuum floor,
+as the monitor does (D13), and the collar takes floor energy as well as light (the
+roadmap's "Vacuum noise under loss"). A relaunched run starts its accumulators at
+zero (D10).
+
+**Open.** Why CtC's step became cheaper on a larger grid (the A/B above) is not
+investigated. The worked examples are re-run on the final branch (below).
+
 ## Part III — History
 
 - 2026-10-16: Drafted. The same day, John Travers resolved Q1–Q10 with the drafting agent,
