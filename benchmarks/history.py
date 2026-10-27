@@ -35,6 +35,7 @@ COLUMNS = (
     "cpu_model",
     "instance_type",
     "system",
+    "numa_domains",
     "threads",
     "threading",
     "case",
@@ -100,13 +101,15 @@ def read(path: Path) -> list[Record]:
 def comparable(row: Record) -> tuple[str, ...]:
     """Key the rows that measure the same thing on one hardware set.
 
-    Two rows compare only with the same width, threading, case definition,
+    Two rows compare only with the same memory domains spanned, width, threading,
+    case definition,
     stepper, resolved integrator, tolerances and noise model: a changed library
     default is a new configuration, not a speed-up.
     """
     return tuple(
         str(row.get(key) or "")
         for key in (
+            "numa_domains",
             "threads",
             "threading",
             "case",

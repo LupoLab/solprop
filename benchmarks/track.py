@@ -31,6 +31,7 @@ from benchmarks.system import (
     git_receipt,
     guard,
     hardware,
+    native_changed,
     physical_cores,
     thread_environment,
 )
@@ -211,6 +212,7 @@ def history_rows(
             "cpu_model": machine["cpu_model"],
             "instance_type": machine["instance_type"],
             "system": f"{machine['system']} {machine['machine']}",
+            "numa_domains": machine["numa_domains"],
             "threads": row["threads"],
             "threading": row["threading"],
             "case": row["case"],
@@ -270,10 +272,17 @@ def imported_elsewhere(
 ) -> str | None:
     """Say if the workers timed code other than this checkout's commit."""
     commit = (provenance.get("build_info") or {}).get("git_commit")
-    if commit and commit != source_state.get("revision"):
+    revision = source_state.get("revision")
+    # A build from an earlier commit is current if native/ has not changed since.
+    if (
+        commit
+        and revision
+        and commit != revision
+        and native_changed(ROOT, commit, revision)
+    ):
         return (
-            f"the native backend was built from {commit[:12]}, not this checkout's "
-            "commit; rebuild it (uv sync --extra native)"
+            f"native/ changed since the native backend's build ({commit[:12]}); "
+            "rebuild it (uv sync --extra native)"
         )
     source = ROOT / "src"
     if any(

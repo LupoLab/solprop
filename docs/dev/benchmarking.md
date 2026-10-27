@@ -113,8 +113,9 @@ default plan with at least three repeats, on the native backend, and only when:
   same final field to rounding, with the native backend running the threads it was
   given;
 - the workers imported solprop from this checkout's `src/` (run from the checkout's
-  own environment, `uv sync --extra native`, not an installed copy) with a native
-  build of the same commit;
+  own environment, `uv sync --extra native`, not an installed copy), with a native
+  build from a commit after which nothing under `native/` changed but its
+  documentation and tests;
 - nothing under `src/`, `native/` or `benchmarks/` is uncommitted, unless
   `--allow-dirty`, whose rows are marked dirty.
 
@@ -129,9 +130,11 @@ run: its date, solprop version, the configurations it ran and how many started o
 busy machine, and its change against the first and the previous recorded runs. A
 change is the geometric mean of median-time ratios (below one is faster) over the
 configurations both runs share, counted in brackets. Two rows are the same
-configuration only with the same threading policy, case revision, stepper, resolved
-integrator, tolerances and noise model, so a changed library default starts a new
-series rather than reading as a speed-up.
+configuration only with the same number of memory (NUMA) domains spanned, threading
+policy, case revision, stepper, resolved integrator, tolerances and noise model. A
+changed library default therefore starts a new series rather than reading as a
+speed-up, and so does an allocation spread over more memory domains than usual: on a
+cluster, keep the cores together (`--distribution=block:block` under Slurm).
 
 ## Comparing two builds while iterating
 

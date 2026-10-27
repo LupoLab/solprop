@@ -122,6 +122,7 @@ def test_history_rows_append_read_and_summarise(tmp_path):
         "instance_type": None,
         "system": "Linux",
         "machine": "x86_64",
+        "numa_domains": 1,
     }
     provenance = {
         "packages": {"solprop": "1.0"},
@@ -340,3 +341,16 @@ def test_a_native_tracking_run_records_its_build(tmp_path, monkeypatch):
     assert results["provenance"]["build_info"]["package_version"]
     assert results["rows"][0]["native_threads"] == 1
     assert (out / "raw" / "smoke.default.t1" / "environment.json").exists()
+
+
+def test_memory_domains_count_from_the_topology_and_separate_series():
+    assert system.numa_domains(None) == 1
+    rows = [{"numa_nodes": [0]}, {"numa_nodes": [0]}, {"numa_nodes": [3]}]
+    assert system.numa_domains(rows) == 2
+    row: dict[str, object] = dict.fromkeys(history.COLUMNS, "1")
+    assert history.comparable(row) != history.comparable({**row, "numa_domains": "8"})
+
+
+def test_a_native_build_counts_as_current_unless_native_changed():
+    assert not system.native_changed(runner.ROOT, "HEAD", "HEAD")
+    assert system.native_changed(runner.ROOT, "0" * 40, "HEAD")

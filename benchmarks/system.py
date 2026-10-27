@@ -31,6 +31,8 @@ __all__ = [
     "guard",
     "hardware",
     "interval",
+    "native_changed",
+    "numa_domains",
     "physical_cores",
     "slug",
     "thread_environment",
@@ -153,6 +155,7 @@ def hardware(production: int, instance_type: str | None = None) -> Record:
     cores = physical_cores()
     instance = instance_type or _instance_type()
     return {
+        "numa_domains": numa_domains(details["cpu_topology"]),
         # The cores a run uses name the hardware set: on a cluster the CPU mask can
         # show the whole node while the allocation is a part of it.
         "slug": slug(model, production, instance),
@@ -167,6 +170,45 @@ def hardware(production: int, instance_type: str | None = None) -> Record:
         "instance_type": instance,
         "allocation": allocation_details(),
     }
+
+
+def numa_domains(topology: list[Record] | None) -> int:
+    """Count the memory (NUMA) domains the allocated CPUs span; 1 where unknown.
+
+    A 16-core allocation inside one domain and one spread over eight share a CPU
+    model and core count but not memory bandwidth, so rows compare by this too.
+    """
+    nodes = {node for row in topology or () for node in row.get("numa_nodes") or ()}
+    return max(1, len(nodes))
+
+
+def native_changed(directory: Path, commit: str, revision: str) -> bool:
+    """Whether ``native/`` differs between a native build's commit and `revision`.
+
+    Its documentation and tests do not count; a commit Git cannot find does.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(directory),
+                "diff",
+                "--quiet",
+                commit,
+                revision,
+                "--",
+                "native",
+                ":(exclude,glob)native/**/*.md",
+                ":(exclude)native/tests",
+            ],
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+    except OSError, subprocess.TimeoutExpired:
+        return True
+    return result.returncode != 0
 
 
 def slug(model: str, cores: int, instance: str | None = None) -> str:

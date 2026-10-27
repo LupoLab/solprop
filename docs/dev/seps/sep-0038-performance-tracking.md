@@ -114,7 +114,8 @@ that fails this is reported and kept out of the history.
 
 **Aggregate.** For one hardware set and width, the change between two runs is the
 geometric mean, over the configurations both ran, of the ratio of their medians. Two
-rows are the same configuration only with the same threading policy, case revision,
+rows are the same configuration only with the same number of memory (NUMA) domains
+spanned by the allocation, threading policy, case revision,
 stepper, resolved integrator, tolerances and noise model: a changed default is a new
 configuration, shown as such rather than averaged in. Each run is compared with the
 first recorded and with the previous one, with the number of shared configurations.
@@ -153,7 +154,8 @@ SELECTION: [--case NAME]... [--set SET]... [--all] [--stepper S] [--threads W]
 - `--append-history` adds the run to `benchmarks/history/<slug>.csv`. It records only
   the whole default plan with at least three repeats, on the native backend, every
   configuration complete and consistent (§4), timing the checkout's own `src/` with a
-  native build of the same commit. It refuses uncommitted changes under `src/`,
+  native build from a commit after which `native/` (but its documentation and tests)
+  has not changed. It refuses uncommitted changes under `src/`,
   `native/` or `benchmarks/` unless `--allow-dirty`, whose rows are marked dirty.
 - `history` prints, per width, one line per recorded run: date, version, the number of
   configurations and of busy ones, and the change against the first and the previous
@@ -202,7 +204,9 @@ selection.
 
 The **hardware slug** is the CPU model reduced to lower-case words, followed by the
 production width in cores and, on a cloud instance, its family, for example `apple-m5-max-18c`,
-`amd-epyc-7763-16c` or `arm-neoverse-v2-16c-aws-m8g`. It names no host. The model comes from
+`amd-epyc-7763-16c` or `arm-neoverse-v2-16c-aws-m8g`. It names no host. The memory
+domains the allocation spans are a column beside it: sixteen cores packed in one EPYC
+domain and sixteen spread over eight share a name but not memory bandwidth. The model comes from
 `/proc/cpuinfo` on x86 Linux, `lscpu` on Arm Linux (whose `/proc/cpuinfo` names no
 model), `sysctl` on macOS and the registry on Windows.
 
@@ -352,4 +356,5 @@ is final.
   committed code with a matching native build is recorded, older history files gain
   new columns, the slug counts the production width and names a cloud family, and the
   busy flag judges by CPU use where swap is not reported. Its open questions went to
-  the maintainer.
+  the maintainer, who added the memory domains spanned to what rows compare by and
+  asked that a native rebuild be required only when `native/` changed.
