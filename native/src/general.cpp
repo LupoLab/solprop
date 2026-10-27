@@ -1187,8 +1187,9 @@ void require_general_problem(const Problem& problem) {
   }
 }
 
-// The samples of one tile of the device trapezoid plasma's two-level scans.
-inline constexpr std::size_t plasma_tile_samples = 1024;
+// The samples of one tile of the device trapezoid plasma's two-level scans (unused on
+// a host build).
+[[maybe_unused]] inline constexpr std::size_t plasma_tile_samples = 1024;
 
 // Descriptors borrow allocations retained by the member GeneralState owners. They
 // contain no ownership or reference counts and are refreshed after state swaps.

@@ -40,12 +40,36 @@ _BINARY32 = (np.dtype(np.float32), np.dtype(np.complex64))
 
 
 def _library(values: np.ndarray) -> ModuleType:
-    """Return ``scipy.fft`` for a binary32 operand and ``numpy.fft`` otherwise."""
+    """Return the transform library for an operand's format.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The operand.
+
+    Returns
+    -------
+    types.ModuleType
+        ``scipy.fft`` for a binary32 operand, ``numpy.fft`` otherwise.
+    """
     return scipy.fft if values.dtype in _BINARY32 else np.fft
 
 
 def _into(result: np.ndarray, out: np.ndarray | None) -> np.ndarray:
-    """Return `result`, written into `out` first when one is given."""
+    """Return a transform's result, written into a given array first.
+
+    Parameters
+    ----------
+    result : numpy.ndarray
+        The transform's result.
+    out : numpy.ndarray or None
+        Where to write it, or ``None`` to return `result` itself.
+
+    Returns
+    -------
+    numpy.ndarray
+        `out` holding `result`, or `result`.
+    """
     if out is None:
         return result
     out[...] = result
@@ -55,28 +79,84 @@ def _into(result: np.ndarray, out: np.ndarray | None) -> np.ndarray:
 def rfft(
     values: Inexact[np.ndarray, "*input"], n: int | None = None, axis: int = -1
 ) -> Shaped[np.ndarray, "*output"]:
-    """Return the forward real transform of `values` along `axis`, padded to `n`."""
+    """Return the forward real transform along an axis.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        Real input.
+    n : int or None, optional
+        Length to zero-pad or crop the axis to; ``None`` keeps it.
+    axis : int, optional
+        The transformed axis, the last by default.
+
+    Returns
+    -------
+    numpy.ndarray
+        The half spectrum, complex in the operand's precision.
+    """
     return _library(values).rfft(values, n=n, axis=axis)
 
 
 def irfft(
     values: Inexact[np.ndarray, "*input"], n: int | None = None, axis: int = -1
 ) -> Shaped[np.ndarray, "*output"]:
-    """Return the inverse real transform of `values` along `axis`, of length `n`."""
+    """Return the inverse real transform along an axis.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        Half spectrum.
+    n : int or None, optional
+        Length of the real output; ``None`` takes ``2 * (m - 1)``.
+    axis : int, optional
+        The transformed axis, the last by default.
+
+    Returns
+    -------
+    numpy.ndarray
+        The real signal in the operand's precision.
+    """
     return _library(values).irfft(values, n=n, axis=axis)
 
 
 def fft(
     values: Inexact[np.ndarray, "*input"], axis: int = -1
 ) -> Shaped[np.ndarray, "*output"]:
-    """Return the forward complex transform of `values` along `axis`."""
+    """Return the forward complex transform along an axis.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        Input.
+    axis : int, optional
+        The transformed axis, the last by default.
+
+    Returns
+    -------
+    numpy.ndarray
+        The spectrum, complex in the operand's precision.
+    """
     return _library(values).fft(values, axis=axis)
 
 
 def ifft(
     values: Inexact[np.ndarray, "*input"], axis: int = -1
 ) -> Shaped[np.ndarray, "*output"]:
-    """Return the inverse complex transform of `values` along `axis`."""
+    """Return the inverse complex transform along an axis.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        Spectrum.
+    axis : int, optional
+        The transformed axis, the last by default.
+
+    Returns
+    -------
+    numpy.ndarray
+        The signal, complex in the operand's precision.
+    """
     return _library(values).ifft(values, axis=axis)
 
 
@@ -85,7 +165,22 @@ def fft2(
     axes: tuple[int, int] = (0, 1),
     out: np.ndarray | None = None,
 ) -> Shaped[np.ndarray, "*output"]:
-    """Return the forward two-dimensional transform of `values` over `axes`."""
+    """Return the forward two-dimensional transform over two axes.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        Input.
+    axes : tuple of int, optional
+        The transformed axes, the first two by default.
+    out : numpy.ndarray or None, optional
+        Where to write the result.
+
+    Returns
+    -------
+    numpy.ndarray
+        The spectrum, in `out` when given.
+    """
     return _into(_library(values).fft2(values, axes=axes), out)
 
 
@@ -94,5 +189,20 @@ def ifft2(
     axes: tuple[int, int] = (0, 1),
     out: np.ndarray | None = None,
 ) -> Shaped[np.ndarray, "*output"]:
-    """Return the inverse two-dimensional transform of `values` over `axes`."""
+    """Return the inverse two-dimensional transform over two axes.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        Spectrum.
+    axes : tuple of int, optional
+        The transformed axes, the first two by default.
+    out : numpy.ndarray or None, optional
+        Where to write the result.
+
+    Returns
+    -------
+    numpy.ndarray
+        The signal, in `out` when given.
+    """
     return _into(_library(values).ifft2(values, axes=axes), out)
