@@ -105,7 +105,10 @@ pip install "solprop[native]"
 Precompiled wheels serve macOS on Apple silicon (osx-arm64), Linux on x86-64 (linux-64),
 Linux on aarch64 (linux-aarch64) and Windows on x86-64 (win-64). They are the
 **distribution** build: compiled for a CPU baseline (x86-64-v3, any Apple silicon Mac,
-Neoverse N1; [processor requirements](../../introduction/installation.md)) and carrying a BLAS that shares the backend's threads. Elsewhere, and for
+Neoverse N1; [processor requirements](../../introduction/installation.md)) and carrying a BLAS that shares the backend's threads. The Linux wheels compile all three precisions; the macOS and Windows wheels compile
+binary64 only, because the reduced policies would add more than 60 % to their size
+(SEP 36 Q5: 69 % and 79 % measured), so single and mixed precision there need a source
+build. Elsewhere, and for
 an NVIDIA or AMD GPU, build the package from source. A source build can also be the
 **local** profile, compiled for the machine that runs it with its own vendor BLAS, which
 is a few per cent faster than the wheel on the measured cases. A third profile,

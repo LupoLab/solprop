@@ -14,7 +14,7 @@ import pytest
 from precision_cases import gnlse, loaded
 from solprop.backends.driver import StepDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.registry import available, select
+from solprop.backends.registry import native_precisions, select
 from solprop.backends.rounding_margin import (
     RoundingMargin,
     occupied_bins,
@@ -199,7 +199,9 @@ def test_a_reused_runner_starts_afresh_and_a_resume_continues():
     assert continued["sum_phi_squared"] == pytest.approx(uninterrupted, rel=1e-12)
 
 
-@pytest.mark.skipif("native" not in available(), reason="the native backend is absent")
+@pytest.mark.skipif(
+    "mixed" not in native_precisions(), reason="no native build runs mixed precision"
+)
 @pytest.mark.parametrize("model", ["input", "modified"])
 def test_native_mixed_records_the_oracles_indicator(model):
     """Class R: the same steps on both, so the sums agree to the mixed source bound."""
