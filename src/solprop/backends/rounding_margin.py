@@ -119,7 +119,7 @@ def rounding_amplitude(
     --------
     >>> from solprop.backends.rounding_margin import rounding_amplitude
     >>> f"{rounding_amplitude(0.05**2 * 1e4, 2**14, 2**12):.1e}"
-    '2.1e-07'
+    '2.1e-06'
     """
     return c_s * _U32 * math.log2(n) * math.sqrt(sum_phi_squared * n_occupied / n)
 

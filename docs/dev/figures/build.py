@@ -712,6 +712,8 @@ MODULES = {
                 "multistep",
                 "exponential",
                 "low_storage",
+                "reduced",
+                "rounding_margin",
             ),
         ),
         Module(
@@ -720,7 +722,9 @@ MODULES = {
                 "backend",
                 "batch",
                 "passes",
+                "transforms",
                 "single",
+                "mixed",
                 "admission",
                 "envelope_plasma",
                 "general_modal",

@@ -87,14 +87,15 @@ def test_admission_refuses_by_name_and_the_study_reaches_adams():
     # A replayed schedule reads no tolerance.
     admit(SINGLE, rtol=1e-12, schedule=True)
     admit(MIXED, rtol=1e-12, schedule=True)
-    for precision in (SINGLE, MIXED):
-        with pytest.raises(TranslationError, match="Adams integrator"):
-            admit(precision, adams=True)
+    # Adams: admitted under mixed precision (SEP 36 Q2), refused under single but
+    # inside the study's admission.
+    admit(MIXED, adams=True, rtol=1e-8)
+    with pytest.raises(TranslationError, match="Adams integrator"):
+        admit(SINGLE, adams=True)
     assert not study_active()
     with study_admission():
         assert study_active()
         admit(SINGLE, adams=True)
-        admit(MIXED, adams=True, rtol=1e-8)
     assert SINGLE_RTOL_FLOOR == 1e-6 and MIXED_RTOL_FLOOR == 1e-8
     assert rtol_floor(DOUBLE) == 0.0 and rtol_floor(MIXED) == MIXED_RTOL_FLOOR
 
