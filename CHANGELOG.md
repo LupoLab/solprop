@@ -345,6 +345,9 @@ The first public release. It contains:
 
 ### Fixed
 
+- **`python -m benchmarks ab` between builds whose grids differ** recorded the field
+  difference as infinite, which the summary's JSON refused, so the run ended without
+  its summary; the difference is now recorded as not defined.
 - **The noise row of a printed `Simulation`** named the realisation's class; it now
   gives its model and seed.
 - **Spectral ranges of the plots in the units of their axis.** `prop_2d`, `spec_1d` and
