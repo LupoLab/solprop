@@ -2210,6 +2210,30 @@ exists, at its interface's defaults, with SEP 38's noise seed base:
   binary64 run's quarter points.
 - Criteria, verdicts and the indicator's calibration as §7.3 records them.
 
+### Q2: mixed Adams against mixed Runge–Kutta (2026-10-27)
+
+The maintainer's rule (after phase 1): mixed Adams is admitted if, at each candidate
+tolerance on `rdw` and `argon`, it is within every envelope and at most twice mixed
+Runge–Kutta's error in every metric. Measured on native (one Zen 3 node, one thread,
+the current kernels), against the binary64 references at 10⁻¹⁰:
+
+| case | rtol | Adams within | worst ratio to RK (metric) | accepted steps, Adams / RK | wall time, Adams / RK |
+|---|---|---|---|---|---|
+| `rdw` | 1e-8 | yes | 0.96 | 5125 / 1957 | 41 / 56 s |
+| `rdw` | 1e-7 | yes | 1.12 | 2262 / 1223 | 22 / 38 s |
+| `rdw` | 1e-6 | yes | 2.26 (field: 2.7e-6 / 1.2e-6) | 1554 / 769 | 17 / 27 s |
+| `argon` | 1e-8 | yes | 22.7 (peak: 3.0e-6 / 1.3e-7) | 42482 / 7433 | 167 / 135 s |
+| `argon` | 1e-7 | yes | 2.59 (peak: 5.1e-6 / 2.0e-6) | 27161 / 4461 | 109 / 84 s |
+| `argon` | 1e-6 | yes | 3.13 (energy: 8.9e-6 / 2.8e-6) | 17143 / 2504 | 70 / 50 s |
+
+Mixed Adams is within every envelope at every tolerance, but exceeds twice
+Runge–Kutta's error at four of the six points, in metrics 30 to 1000 times below their
+envelopes. **By the rule, Adams is not admitted under mixed precision:** it stays
+reachable only through the study's admission, and a mixed run whose interface defaults
+to `Multistep()` (the capillary, radial and planar routes under SEP 37) takes
+`RungeKutta()`. Adams is faster on `rdw` (1.4–1.9 times) and slower on `argon`
+(0.7–0.8 times).
+
 ## Part III — History
 
 - 2026-10-25: Drafted (Opus 5.5), after an indicative A40 measurement of transforms,
