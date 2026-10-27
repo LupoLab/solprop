@@ -170,12 +170,13 @@ def step_index() -> Simulation:
     )
 
 
-def grin(*, nonlinear: bool) -> Simulation:
+def grin(*, nonlinear: bool, length: float = 0.1) -> Simulation:
     """Preserve the linear lesson or the four-channel dispersive GRIN example.
 
     The nonlinear source describes the GPI model and its chosen Kerr coefficient
     alongside Krupa et al., doi:10.1103/PhysRevLett.116.183901. This extraction
     retains its four-channel truncation, not a mode-count convergence claim.
+    `length` shortens the nonlinear guide, which is uniform along z.
     """
     radius, contrast = (50e-6, 0.0095) if nonlinear else (25e-6, 0.005)
     wavelength = 1.064e-6 if nonlinear else 1.03e-6
@@ -200,7 +201,7 @@ def grin(*, nonlinear: bool) -> Simulation:
         core_responses=(MaterialKerr(n2=2.7e-20, at=wavelength),) if nonlinear else (),
     )
     grid = FieldGrid.from_limits(
-        0.1 if nonlinear else 1e-3,
+        length if nonlinear else 1e-3,
         wavelength,
         (450e-9, 1.8e-6) if nonlinear else (1e-6, 1.06e-6),
         1.2e-12 if nonlinear else 100e-15,
@@ -238,7 +239,7 @@ def grin(*, nonlinear: bool) -> Simulation:
         )
         return Simulation.from_waveguide(
             (),
-            0.1,
+            length,
             provider=guide,
             grid=grid,
             incident=beam,
@@ -320,14 +321,17 @@ def moving() -> Simulation:
     )
 
 
-def advanced(name: str) -> Simulation:
-    """Select a declared guide before applying the suite's measurement settings."""
+def advanced(name: str, length: float) -> Simulation:
+    """Select a declared guide before applying the suite's measurement settings.
+
+    `length` is the registered guide length; only the nonlinear GRIN guide takes it.
+    """
     if name in ("scalar_wall", "vector_wall", "taper", "taper_wall"):
         return coupled(name)
     if name == "step_index_pair":
         return step_index()
     if name in ("grin_linear", "grin_nonlinear"):
-        return grin(nonlinear=name == "grin_nonlinear")
+        return grin(nonlinear=name == "grin_nonlinear", length=length)
     if name == "moving_solid_guide":
         return moving()
     raise SuiteError(f"advanced guide builder not implemented for {name}")

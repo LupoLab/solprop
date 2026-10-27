@@ -2,59 +2,57 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Verify bounded advanced definitions without running a benchmark campaign."""
+"""Check the advanced guide cases without running them."""
+
+import warnings
 
 import numpy as np
 import pytest
-from benchmarks.builders import build, fixed_schedule
+from benchmarks.builders import build
 from benchmarks.guides import ScaledPermittivity, advanced, coupled
 from benchmarks.records import SuiteError
-from benchmarks.registry import ADAPTIVE, CASES, FIXED, select
-from benchmarks.worker import Diagnostics
+from benchmarks.registry import CASES, select
 
+from solprop.exceptions import GrazingIncidenceWarning, SolpropWarning
 from solprop.modes import IndexMaterial
-from solprop.stepper import Multistep, RungeKutta
+from solprop.stepper import Multistep
+
+
+def configuration(name, stepper="default"):
+    return CASES[name].configuration(stepper, 1, "numpy_ref")
 
 
 @pytest.mark.medium
 @pytest.mark.parametrize("name", ["scalar_wall", "vector_wall", "taper", "taper_wall"])
-def test_wall_cases_keep_full_profiles_and_the_original_fixed_itinerary(name):
-    case = CASES[name]
-    diagnostics = Diagnostics()
-    diagnostics.case, diagnostics.phase = name, "construction"
-    with diagnostics.capture():
-        simulation = build(case.measurement(FIXED) | {"backend": "numpy_ref"})
+def test_wall_cases_keep_full_profiles(name):
+    # The tutorials' short guides under-absorb walk-off, and the walls are near
+    # the paraxial limit: the warnings SEP 30 reviewed for these cases.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        simulation = build(configuration(name))
         problem = simulation.translate()
+    assert {type(item.message) for item in caught} == (
+        {SolpropWarning}
+        if name == "taper"
+        else {SolpropWarning, GrazingIncidenceWarning}
+    )
     assert simulation.grid.length == 2e-4
     assert problem.shape[1] == (4 if name == "vector_wall" else 3)
     assert (simulation.wall is None) == (name == "taper")
     assert simulation.taper_coupling
-    schedule = problem.stepper.schedule
-    assert schedule is not None
-    assert len(schedule.steps) == 10
-    assert diagnostics.records() and all(
-        row["expected"] for row in diagnostics.records()
-    )
-    if name.startswith("taper"):
-        # The fixed schedule must land on both original profile corners even
-        # though the adaptive diagnostic ends during the taper.
-        edges = schedule.edges
-        for corner in (6e-5, 1.4e-4):
-            assert np.min(abs(edges - corner)) <= 10 * np.finfo(float).eps * corner
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("track", [*ADAPTIVE, FIXED])
-def test_linear_grin_launch_is_configurable_before_translation(track):
+@pytest.mark.parametrize("stepper", ["default", "multistep"])
+def test_linear_grin_launch_is_configurable_before_translation(stepper):
     case = CASES["grin_linear"]
-    simulation = build(case.measurement(track) | {"backend": "numpy_ref"})
+    simulation = build(configuration("grin_linear", stepper))
     assert simulation.grid.length == 1e-3
     waveguide = simulation.configuration["waveguide"]
     assert isinstance(waveguide, dict)
     assert waveguide["length"] == case.length
-    assert isinstance(
-        simulation.settings.integrator,
-        Multistep if track == ADAPTIVE[0] else RungeKutta,
+    assert isinstance(simulation.settings.integrator, Multistep) == (
+        stepper == "multistep"
     )
     centre = int(np.argmin(abs(simulation.grid.omega - simulation.grid.omega0)))
     launch = simulation.initial
@@ -64,24 +62,14 @@ def test_linear_grin_launch_is_configurable_before_translation(track):
     simulation.translate()
 
 
-def test_advanced_selection_keeps_seeds_windows_and_unexecuted_profile_corners():
+def test_advanced_selection_and_unknown_guides():
     cases = select(sets=("advanced",))
     assert len(cases) == 8
-    assert all(case.status == "implemented" for case in cases)
-    assert all(0 < case.stop <= case.length for case in cases)
-    assert CASES["grin_nonlinear"].measurement(ADAPTIVE[0])["noise_seed"] == 41
-    case = CASES["moving_solid_guide"]
-    schedule = fixed_schedule(case, case.measurement(FIXED))
-    # Schedule arithmetic may round once per edge; its unexecuted tail still
-    # has to land on the original taper/waist corner for translation to admit it.
-    assert (
-        np.min(abs(schedule.edges - 5e-3))
-        <= len(schedule.steps) * np.finfo(float).eps * case.length
-    )
-    assert schedule.edges[10] < 5e-3
-    for builder in (advanced, coupled):
-        with pytest.raises(SuiteError, match="not implemented"):
-            builder("absent")
+    assert CASES["grin_nonlinear"].length == 0.02
+    with pytest.raises(SuiteError, match="not implemented"):
+        advanced("absent", 1.0)
+    with pytest.raises(SuiteError, match="not implemented"):
+        coupled("absent")
 
 
 def test_scaled_cladding_preserves_the_material_identity_and_domain():

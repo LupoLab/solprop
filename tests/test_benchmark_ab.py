@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Exercise the fast exploratory A/B mode on synthetic receipts and a small case."""
+"""Exercise the exploratory A/B mode on synthetic receipts and a small case."""
 
 import math
 import sys
@@ -10,26 +10,8 @@ import sys
 import numpy as np
 import pytest
 from benchmarks import __main__ as cli
-from benchmarks import ab, system
-from benchmarks.collection import ROOT
-from benchmarks.planning import Selection, matrix
+from benchmarks import ab
 from benchmarks.records import read_record
-from benchmarks.registry import ADAPTIVE, FIXED, select
-
-
-@pytest.fixture(autouse=True)
-def _ample_memory(monkeypatch):
-    """Admit by the cases' estimates on a fixed machine, not this one's free memory.
-
-    A loaded 16 GB runner has too little free memory for the smoke case's estimate,
-    which would skip the rows these tests exercise; admission is patched where tested.
-    """
-    monkeypatch.setattr(system, "effective_memory", lambda: 64 * 2**30)
-
-
-@pytest.fixture
-def profile():
-    return system.Profile("test-machine", 1, 2, (0, 1), "topology")
 
 
 def receipt(identifier, arm, round_index, seconds, *, work=(10, 1)):
@@ -51,30 +33,10 @@ def test_build_order_alternates_between_rounds():
     assert ab.arm_order(2) == ab.arm_order(0)
 
 
-def test_admission_explains_every_skipped_row(profile, monkeypatch):
-    plan = matrix(
-        select(("smoke", "batch", "kerr_beam_768")),
-        profile,
-        Selection(threads="1", tracks=(ADAPTIVE[1], FIXED)),
-    )
-    rows, skipped = ab.admitted(plan)
-    assert [row["configuration"]["case"] for row in rows] == ["smoke", "smoke"]
-    assert any("batch exercise needs the standard runner" in item for item in skipped)
-    assert any("kerr_beam_768" in item for item in skipped)
-    monkeypatch.setattr(
-        ab, "admission", lambda *_args: {"admitted": False, "reason": "no memory"}
-    )
-    rows, skipped = ab.admitted(plan)
-    assert not rows
-    assert any(
-        item.endswith("smoke adaptive-rk 1 threads: no memory") for item in skipped
-    )
-
-
 def test_summary_pairs_rounds_and_reports_spread_and_fields(tmp_path):
     rows = [
-        {"id": "a", "configuration": {"case": "x", "track": "t", "threads": 1}},
-        {"id": "b", "configuration": {"case": "y", "track": "t", "threads": 1}},
+        {"id": "a", "configuration": {"case": "x", "stepper": "rk", "threads": 1}},
+        {"id": "b", "configuration": {"case": "y", "stepper": "rk", "threads": 1}},
     ]
     samples = [
         receipt("a", "baseline", 0, [1.0, 1.2, 1.1]),
@@ -122,9 +84,9 @@ def test_summary_output_states_ratio_direction_without_a_verdict(capsys):
         [
             {
                 "case": "x",
-                "track": "t",
+                "stepper": "rk",
                 "threads": 1,
-                "baseline_seconds": 1e-3,
+                "baseline_seconds": 1.0,
                 "candidate_seconds": None,
                 "ratio": None,
                 "field_difference": None,
@@ -133,10 +95,10 @@ def test_summary_output_states_ratio_direction_without_a_verdict(capsys):
             },
             {
                 "case": "y",
-                "track": "t",
+                "stepper": "rk",
                 "threads": 1,
-                "baseline_seconds": 2e-3,
-                "candidate_seconds": 1e-3,
+                "baseline_seconds": 2.0,
+                "candidate_seconds": 1.0,
                 "ratio": 0.5,
                 "ratio_min": 0.4,
                 "ratio_max": 0.6,
@@ -156,26 +118,21 @@ def test_summary_output_states_ratio_direction_without_a_verdict(capsys):
 def test_invalid_options_and_existing_output_are_refused(tmp_path, capsys):
     base = ["ab", "--baseline-python", sys.executable, "--threads", "1"]
     assert cli.main([*base, "--case", "smoke", "--rounds", "0"]) == 2
-    assert cli.main([*base, "--case", "batch", "--out", str(tmp_path / "b")]) == 2
+    assert (
+        cli.main([*base, "--case", "kerr_beam_192", "--stepper", "rk", "--out", "x"])
+        == 2
+    )
     (tmp_path / "kept").write_text("x")
     assert cli.main([*base, "--case", "smoke", "--out", str(tmp_path)]) == 2
     errors = capsys.readouterr().err
     assert "must be positive" in errors
-    assert "no admitted configuration" in errors
+    assert "no configuration in the selection" in errors
     assert "output already exists" in errors
 
 
-def test_worker_timeout_and_missing_receipts_are_failures(tmp_path, monkeypatch):
-    events = ab.launch_worker(
-        sys.executable,
-        {"rows": [], "repeats": 1, "harness_root": str(ROOT)},
-        {"PATH": ""},
-        tmp_path / "slow",
-        1e-3,
-    )
-    assert events == [{"event": "failed", "error": "worker timeout"}]
-    monkeypatch.setattr(ab, "launch_worker", lambda *_args: [])
-    monkeypatch.setattr(ab, "guard", lambda *_args, **_kw: {"quiet": False})
+def test_missing_receipts_are_failures(tmp_path, monkeypatch):
+    monkeypatch.setattr(ab, "launch_worker", lambda *_args: ([], 0.0))
+    monkeypatch.setattr(ab, "guard", lambda *_args: {"quiet": False})
     out = tmp_path / "run"
     status = cli.main(
         [
@@ -184,8 +141,6 @@ def test_worker_timeout_and_missing_receipts_are_failures(tmp_path, monkeypatch)
             "smoke",
             "--threads",
             "1",
-            "--track",
-            ADAPTIVE[1],
             "--rounds",
             "1",
             "--baseline-python",
@@ -205,7 +160,7 @@ def test_worker_timeout_and_missing_receipts_are_failures(tmp_path, monkeypatch)
 def test_small_case_runs_both_builds_in_alternating_order(
     tmp_path, monkeypatch, capsys
 ):
-    monkeypatch.setattr(ab, "guard", lambda *_args, **_kw: {"quiet": True})
+    monkeypatch.setattr(ab, "guard", lambda *_args: {"quiet": True})
     out = tmp_path / "run"
     status = cli.main(
         [
@@ -216,10 +171,8 @@ def test_small_case_runs_both_builds_in_alternating_order(
             "numpy_ref",
             "--threads",
             "1",
-            "--track",
-            ADAPTIVE[1],
-            "--track",
-            FIXED,
+            "--length",
+            "0.5",
             "--rounds",
             "2",
             "--repeats",
@@ -241,12 +194,17 @@ def test_small_case_runs_both_builds_in_alternating_order(
         "baseline",
     ]
     results = read_record(out / "results.json")
-    assert len(results["samples"]) == 8
+    assert len(results["samples"]) == 4
     assert all(len(item["repetitions"]) == 2 for item in results["samples"])
-    for row in results["summary"]:
-        assert row["rounds"] == 2
-        assert row["same_work"]
-        # The same interpreter and build repeat the same operations exactly.
-        assert row["field_difference"] == 0.0
+    assert all(
+        rep["z"] == pytest.approx(0.5e-4)
+        for item in results["samples"]
+        for rep in item["repetitions"]
+    )
+    (row,) = results["summary"]
+    assert row["rounds"] == 2
+    assert row["same_work"]
+    # The same interpreter and build repeat the same operations exactly.
+    assert row["field_difference"] == 0.0
     assert {item["python_executable"] for item in results["provenance"]["baseline"]}
     assert read_record(out / "plan.json")["harness_files"]

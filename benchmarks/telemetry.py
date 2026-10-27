@@ -12,8 +12,6 @@ import re
 import subprocess
 from pathlib import Path
 
-import psutil
-
 from benchmarks.records import Record, SuiteError
 
 __all__ = [
@@ -21,8 +19,6 @@ __all__ = [
     "cpu_list",
     "hardware_details",
     "linux_topology",
-    "numa_pages",
-    "process_binding",
 ]
 
 
@@ -134,63 +130,3 @@ def allocation_details() -> Record:
     }
     result["exclusivity"] = "unverified; requires the scheduler allocation record"
     return result
-
-
-def numa_pages(contents: str) -> list[Record]:
-    """Aggregate resident mapping bytes by NUMA node, excluding mapping paths."""
-    totals: dict[int, int] = {}
-    for line in contents.splitlines():
-        size = re.search(r"\bkernelpagesize_kB=(\d+)\b", line)
-        if size is None:
-            continue
-        for node, count in re.findall(r"\bN(\d+)=(\d+)\b", line):
-            key = int(node)
-            totals[key] = totals.get(key, 0) + int(count) * int(size[1]) * 1024
-    return [
-        {"node": node, "resident_mapping_bytes": value}
-        for node, value in sorted(totals.items())
-    ]
-
-
-def process_binding() -> Record:
-    """Inspect live thread affinities and NUMA placement after diagnostic work.
-
-    Allowed CPU sets do not establish execution residency. This deliberately
-    separate diagnostic neither samples inside kernels nor changes affinity.
-    """
-    try:
-        threads = psutil.Process().threads()
-    except psutil.Error:
-        threads = None
-    rows = []
-    for thread in threads or []:
-        affinity = None
-        reason = "per-thread affinity unavailable on this OS"
-        if hasattr(os, "sched_getaffinity"):
-            try:
-                affinity = sorted(os.sched_getaffinity(thread.id))
-                reason = None
-            except OSError:
-                reason = "thread exited or affinity query denied"
-        rows.append(
-            {
-                "thread_id": thread.id,
-                "user_seconds": thread.user_time,
-                "system_seconds": thread.system_time,
-                "allowed_cpus": affinity,
-                "affinity_reason": reason,
-            }
-        )
-    maps = _read(Path("/proc/self/numa_maps"))
-    placement = numa_pages(maps) if maps else []
-    return {
-        "allocation": allocation_details(),
-        "threads": rows,
-        "threads_reason": None
-        if threads is not None
-        else "thread inventory unavailable",
-        "numa": placement,
-        "numa_reason": None if placement else "NUMA mapping sizes unavailable",
-        "residency": None,
-        "residency_reason": "affinity is allowed placement, not sampled CPU residency",
-    }
