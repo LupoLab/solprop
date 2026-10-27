@@ -2060,6 +2060,25 @@ generation seeded by rounding; under SEP 37's default input noise the quantum se
 dominates, and `ctc_noise` judges that case in phase 5. MLX's binary32 transforms have
 not been measured on this case.
 
+### Q5 applied: the wheels (2026-10-27)
+
+The release wheels were built from this branch with all three policies (the wheels
+workflow), against main's latest scheduled build:
+
+| wheel | binary64 only | all three | growth |
+|---|---|---|---|
+| Linux x86-64 | 16.1 MB | 18.7 MB | +16 % |
+| Linux aarch64 | 12.5 MB | 14.8 MB | +18 % |
+| macOS arm64 | 3.7 MB | 6.2 MB | +69 % |
+| Windows x86-64 | 4.8 MB | 8.6 MB | +79 % |
+
+By Q5's rule the Linux wheels carry all three modes and the macOS and Windows wheels
+carry binary64 only; single and mixed precision there are an option of source builds,
+as the native guide says. The builds found three faults the Linux CI could not: a
+member the reduced units did not instantiate (Windows' linker), two helpers unused in
+them (macOS's `-Wunused-template`), and a statically linked binary32 FFTW the build
+record could not name (Windows), which the extension now exports.
+
 ### Main merged, and SEP 37's defaults (2026-10-27)
 
 The branch took main with SEP 35 (the Adams carrier frame), SEP 37 (noise on by default;
