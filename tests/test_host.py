@@ -4,8 +4,11 @@
 
 """The machine a run records, and what it records the run spent."""
 
+import contextlib
 import json
 import platform
+import sys
+import types
 from typing import Any
 
 import pytest
@@ -54,7 +57,47 @@ def test_an_unknown_system_or_a_failed_query_names_no_cpu(monkeypatch):
     monkeypatch.setattr(_host.platform, "system", lambda: "Darwin")
     monkeypatch.setattr(_host, "_command", lambda arguments: None)
     assert _host.cpu_model() is None
+
+
+def test_a_query_returns_its_output_or_none():
+    assert _host._command([sys.executable, "-c", "print('M')"]) == "M\n"
+    assert _host._command([sys.executable, "-c", "raise SystemExit(1)"]) is None
     assert _host._command(["solprop-no-such-command"]) is None
+
+
+def test_an_unreadable_cpuinfo_falls_back_to_lscpu(monkeypatch, tmp_path):
+    monkeypatch.setattr(_host.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(_host, "Path", lambda _: tmp_path / "missing")
+    monkeypatch.setattr(_host, "_command", lambda arguments: None)
+    assert _host.cpu_model() is None
+
+
+def test_windows_names_its_cpu_from_the_registry(monkeypatch):
+    @contextlib.contextmanager
+    def open_key(root, path):
+        yield path
+
+    registry = types.SimpleNamespace(
+        HKEY_LOCAL_MACHINE=0,
+        OpenKey=open_key,
+        QueryValueEx=lambda key, name: (" AMD Ryzen 9 9950X ", 1),
+    )
+    monkeypatch.setitem(sys.modules, "winreg", registry)
+    monkeypatch.setattr(_host.platform, "system", lambda: "Windows")
+    assert _host.cpu_model() == "AMD Ryzen 9 9950X"
+    # Off Windows the module is absent, and no name is read.
+    monkeypatch.setitem(sys.modules, "winreg", None)
+    assert _host._windows_model() is None
+
+
+def test_memory_that_cannot_be_read_is_none(monkeypatch):
+    def refuse(name):
+        raise ValueError(name)
+
+    monkeypatch.setattr(_host.os, "sysconf", refuse)
+    assert _host._memory_bytes() is None
+    monkeypatch.setattr(_host.os, "sysconf", lambda name: -1)
+    assert _host._memory_bytes() is None
 
 
 def test_usage_counts_from_the_clock_and_reports_the_peak_in_bytes():
