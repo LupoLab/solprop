@@ -105,7 +105,9 @@ def capillary(
         "schedule": FixedSchedule.uniform(0.0, length, length / 16),
         "absorber_scheme": "split_step",
     } | overrides
-    return Simulation.from_capillary(50e-6, length, gas, pressure, **keywords)
+    return Simulation.from_capillary(
+        50e-6, length, gas, pressure, **{"noise": None, **keywords}
+    )
 
 
 def loaded(simulation: Simulation, cleanup: ExitStack | None = None) -> Backend:
@@ -181,6 +183,7 @@ def spatial_kerr(  # noqa: PLR0913 - the case's own knobs
         [] if chi3 is None else [KerrResponse(chi3, thg=False)],
         pulse,
         settings=settings,
+        noise=None,
     )
 
 
@@ -230,6 +233,7 @@ def plasma_beam(
         responses,
         pulse,
         settings=settings,
+        noise=None,
     )
 
 

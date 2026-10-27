@@ -236,10 +236,13 @@ def _precision(problem: KernelProblem) -> str:
     Returns
     -------
     str
-        ``"double"`` or ``"single"``.
+        ``"double"``, ``"single"`` or, for SEP 36's mixed mode,
+        ``"mixed (binary64 state, binary32 source)"``.
     """
-    # Translation admits no mixed precision, so the state's name is the run's.
-    return problem.precision.state
+    name = problem.precision.name
+    if name == "mixed":
+        return "mixed (binary64 state, binary32 source)"
+    return name
 
 
 def _grid(metadata: RunMetadata) -> str:

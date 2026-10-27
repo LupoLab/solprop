@@ -380,7 +380,7 @@ def argon(precision: str, backend: str, energy: float) -> Simulation:
         loss=False, trange=400e-15, wavelength_limits=(300e-9, 4e-6), modes=1,
         precision=precision, backend=backend, integrator=RungeKutta(),  # pyright: ignore[reportArgumentType]
         schedule=FixedSchedule.uniform(0.0, 0.4, 0.4 / 2500, save_planes=[0.4]),
-        save_planes=[0.4], plasma=False,
+        save_planes=[0.4], plasma=False, noise=None,
     )  # fmt: skip
 
 

@@ -308,6 +308,7 @@ __all__ = [
     "INTERIOR_LAUNCH_NOISE",
     "LOOSE_ADAMS_RTOL",
     "LOW_STORAGE_BACKENDS",
+    "MIXED_PRECISION_NOISE",
     "ORTHONORMALITY_TOLERANCE",
     "PLANAR_NOISE",
     "PLASMA_STATISTICS",
@@ -472,6 +473,16 @@ SINGLE_PRECISION_NOISE = (
     "single precision carries no noise: binary32 rounding swamps a one-photon seed"
 )
 """Why a default resolves to no noise under ``precision="single"`` (SEP 37)."""
+
+MIXED_PRECISION_NOISE = (
+    "mixed precision carries no noise by default until a noise model is qualified "
+    "under it"
+)
+"""Why a default resolves to no noise under ``precision="mixed"`` (SEP 36).
+
+SEP 36's noise study admits each model under mixed precision on what it passes; until
+then a default noise model falls back to none, as under single precision.
+"""
 
 PLANAR_NOISE = "the hybrid planar grid carries no noise: no photon measure is declared"
 """Why a planar run carries no noise (SEP 37)."""
@@ -7852,20 +7863,21 @@ def _interface_integrator(
     ``RungeKutta()`` where the caller named none: SEP 37's matched-accuracy rule chose
     it for :func:`~solprop.driver.interface.prop_gnlse` and
     :func:`~solprop.driver.interface.prop_waveguide` among the integrators every route
-    of each interface admits. Single precision keeps
-    its own default, which is the same march. A named integrator is returned unchanged.
+    of each interface admits. Single and mixed precision keep
+    their own default, which is the same march. A named integrator is returned
+    unchanged.
 
     Parameters
     ----------
     integrator : Multistep, RungeKutta, LowStorageRungeKutta or None
         The keyword as given.
-    precision : {'double', 'single'}
+    precision : {'double', 'single', 'mixed'}
         The run's arithmetic.
 
     Returns
     -------
     Multistep, RungeKutta, LowStorageRungeKutta or None
-        The integrator to put in the settings; ``None`` leaves single precision's.
+        The integrator to put in the settings; ``None`` leaves a reduced precision's.
     """
     if integrator is None and precision == "double":
         return RungeKutta()
@@ -7883,8 +7895,9 @@ def _resolve_noise(
     """Resolve a constructor's ``noise`` keyword into the model a run carries (SEP 37).
 
     ``"default"`` resolves to ``"input"``, the one-photon-per-mode seed added to the
-    input field, except under single precision, whose binary32 rounding swamps the seed:
-    there it resolves to none and says why. A seed beside a default that resolves to
+    input field, except under single precision, whose binary32 rounding swamps the seed,
+    and under mixed precision until SEP 36 qualifies a model: there it resolves to none
+    and says why. A seed beside a default that resolves to
     none is refused rather than silently dropped, and so is a seed beside
     ``noise=None``. Any other value is passed through, and an unknown one is refused
     where it is drawn.
@@ -7898,7 +7911,7 @@ def _resolve_noise(
         The keyword as given.
     seed : int or None
         The keyword ``seed`` as given.
-    precision : {'double', 'single'}
+    precision : {'double', 'single', 'mixed'}
         The run's arithmetic.
     tdse : bool, optional
         Whether the run carries the TDSE response, which takes no noise by default
@@ -7930,11 +7943,15 @@ def _resolve_noise(
     ('input', NoiseResolution(requested='default', resolved='input', reason=None))
     >>> _resolve_noise("default", None, "single")[0] is None
     True
+    >>> _resolve_noise("default", None, "mixed")[0] is None
+    True
     """
     if noise == "default":
         fallback = (
             SINGLE_PRECISION_NOISE
             if precision == "single"
+            else MIXED_PRECISION_NOISE
+            if precision == "mixed"
             else TDSE_NOISE
             if tdse
             else quiet

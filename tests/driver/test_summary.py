@@ -294,17 +294,24 @@ def test_the_planes_row_names_per_step_and_interpolated_saving():
     assert planes.endswith(", and every 3 accepted steps, interpolated")
 
 
-def test_precision_is_the_state_s():
+@pytest.mark.parametrize(
+    ("precision", "expected"),
+    [
+        (Precision("single", "single"), "single"),
+        (Precision("double", "single"), "mixed (binary64 state, binary32 source)"),
+    ],
+)
+def test_precision_names_the_mode(precision, expected):
     simulation = gnlse()
     problem = simulation.translate()
     summary = run_summary(
-        dataclasses.replace(problem, precision=Precision("single", "single")),
+        dataclasses.replace(problem, precision=precision),
         simulation.metadata(),
         backend="numpy_ref",
         execution={},
         output=MemoryOutput(),
     )
-    assert dict(summary.rows)["precision"] == "single"
+    assert dict(summary.rows)["precision"] == expected
 
 
 def test_threads_come_from_the_backend_s_record():

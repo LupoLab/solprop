@@ -12,6 +12,7 @@ import pytest
 from solprop.driver import Simulation, SimulationSettings, prop_gnlse
 from solprop.driver.simulation import (
     INTERIOR_LAUNCH_NOISE,
+    MIXED_PRECISION_NOISE,
     SINGLE_PRECISION_NOISE,
 )
 from solprop.driver.summary import _noise
@@ -78,6 +79,15 @@ def test_single_precision_falls_back_and_says_why():
         "default", None, SINGLE_PRECISION_NOISE
     )
     assert _noise(simulation.metadata()) == f"off (default: {SINGLE_PRECISION_NOISE})"
+
+
+def test_mixed_precision_falls_back_until_a_model_is_qualified():
+    simulation = _gnlse(precision="mixed")
+    assert simulation.noise is None
+    assert simulation.noise_resolution == NoiseResolution(
+        "default", None, MIXED_PRECISION_NOISE
+    )
+    assert _noise(simulation.metadata()) == f"off (default: {MIXED_PRECISION_NOISE})"
 
 
 def test_a_seed_beside_a_fallback_is_refused():
