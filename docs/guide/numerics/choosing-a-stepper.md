@@ -37,7 +37,7 @@ choose another.
 
 Under `precision="single"` every interface takes `RungeKutta()` and no noise. Under
 `precision="mixed"` every interface keeps the integrator of this table and its
-tolerance raised to the mixed floor, `1e-8`; it carries no noise by default until a
+tolerance raised to the mixed floor, `1e-7`; it carries no noise by default until a
 noise model is qualified under mixed precision
 ([reduced precision](../performance/reduced-precision.md)). The
 spatial interfaces' tolerances apply where their `SimulationSettings` give no

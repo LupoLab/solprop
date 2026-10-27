@@ -256,7 +256,7 @@ def test_mixed_precision_takes_its_defaults_and_refuses_what_it_does_not_run():
     settings = simulation.settings
     assert settings.precision == "mixed"
     assert isinstance(settings.integrator, RungeKutta)
-    # The larger of the interface's binary64 default and the floor 1e-8: 1e-7 for the
+    # The larger of the interface's binary64 default and the floor 1e-7: 1e-7 for the
     # GNLSE (SEP 37), 1e-6 for a capillary (SEP 36 section 5).
     assert cast("PIController", settings.controller).rtol == 1e-7
     controller = capillary("mixed").settings.controller
@@ -273,11 +273,11 @@ def test_mixed_precision_takes_its_defaults_and_refuses_what_it_does_not_run():
     assert isinstance(
         dataclasses.replace(settings, integrator=None).integrator, Multistep
     )
-    with pytest.raises(DriverError, match="mixed-precision floor 1e-08"):
+    with pytest.raises(DriverError, match="mixed-precision floor 1e-07"):
         dataclasses.replace(
             settings,
             controller=dataclasses.replace(
-                cast("PIController", settings.controller), rtol=1e-9
+                cast("PIController", settings.controller), rtol=1e-8
             ),
         )
     # The oracle, and the native backend where it is installed (whose build refuses

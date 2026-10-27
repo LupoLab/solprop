@@ -72,31 +72,31 @@ def test_admission_refuses_by_name_and_the_study_reaches_adams():
         )
 
     admit(SINGLE)
-    admit(MIXED, rtol=1e-8)
+    admit(MIXED, rtol=1e-7)
     admit(DOUBLE, "native", rtol=1e-12)
     with pytest.raises(TranslationError, match=r"numba_cpu.*precision='single'"):
         admit(SINGLE, "numba_cpu")
-    admit(MIXED, "native", rtol=1e-8)
+    admit(MIXED, "native", rtol=1e-7)
     for backend in ("numba_cpu", "mlx"):
         with pytest.raises(TranslationError, match="refuses precision='mixed'"):
             admit(MIXED, backend)
     with pytest.raises(TranslationError, match="floor 1e-06"):
         admit(SINGLE, rtol=1e-7)
-    with pytest.raises(TranslationError, match="mixed-precision floor 1e-08"):
-        admit(MIXED, rtol=1e-9)
+    with pytest.raises(TranslationError, match="mixed-precision floor 1e-07"):
+        admit(MIXED, rtol=1e-8)
     # A replayed schedule reads no tolerance.
     admit(SINGLE, rtol=1e-12, schedule=True)
     admit(MIXED, rtol=1e-12, schedule=True)
     # Adams: admitted under mixed precision (SEP 36 Q2), refused under single but
     # inside the study's admission.
-    admit(MIXED, adams=True, rtol=1e-8)
+    admit(MIXED, adams=True, rtol=1e-7)
     with pytest.raises(TranslationError, match="Adams integrator"):
         admit(SINGLE, adams=True)
     assert not study_active()
     with study_admission():
         assert study_active()
         admit(SINGLE, adams=True)
-    assert SINGLE_RTOL_FLOOR == 1e-6 and MIXED_RTOL_FLOOR == 1e-8
+    assert SINGLE_RTOL_FLOOR == 1e-6 and MIXED_RTOL_FLOOR == 1e-7
     assert rtol_floor(DOUBLE) == 0.0 and rtol_floor(MIXED) == MIXED_RTOL_FLOOR
 
 

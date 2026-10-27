@@ -82,8 +82,8 @@ binary64 levels. What remains is the source's binary32 rounding, which enters th
 scaled by the step. Concretely:
 
 - **The tolerance floor.** The default `rtol` is the larger of the interface's binary64
-  default and `1e-8` ({data}`~solprop.translate.precision.MIXED_RTOL_FLOOR`); an explicit
-  adaptive `rtol` below `1e-8` is refused. A step whose source rounding exceeds the
+  default and `1e-7` ({data}`~solprop.translate.precision.MIXED_RTOL_FLOOR`); an explicit
+  adaptive `rtol` below `1e-7` is refused. A step whose source rounding exceeds the
   target is rejected and shortened, so the controller cannot stall; at worst it takes
   more steps than binary64 would.
 - **No damping limit.** The propagators are binary64, so mixed precision has no
@@ -105,7 +105,7 @@ scaled by the step. Concretely:
 | | binary64 (default) | mixed | single |
 |---|---|---|---|
 | accuracy | the reference | the source's rounding only: close to binary64 on every case measured so far | the state's and propagator's rounding too, about $c\,M\,u$ after $M$ steps |
-| tolerance floor | none | `1e-8` | `1e-6` |
+| tolerance floor | none | `1e-7` | `1e-6` |
 | long runs (more than about $3\times10^4$ steps) | yes | yes | no: the propagator's drift reaches the field envelope |
 | strong damping per step | yes | yes | only below `exp(88.7)` per step |
 | memory of field-sized buffers | 1 | about 1 (the source's buffers halve) | about 1/2 |

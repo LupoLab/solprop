@@ -2244,6 +2244,25 @@ therefore keeps its binary64 default integrator (SEP 37), with its tolerance rai
 the mixed floor, and the guide documents the trade. Single precision still refuses
 Adams (SEP 33 Q2).
 
+### Q1 decided: the mixed floor is `1e-7` (2026-10-27)
+
+By Q1's rule, confirmed by John Travers. The step clause holds at `1e-8` on three
+cases: `ctc` takes 1.49, 1.60 and 2.13 times binary64's accepted steps at 0.1, 0.05
+and 0.025 m (its limit is the last), `argon_envelope` 1.28 times (phase 3), and `rdw`
+rejects two steps against binary64's one. From `1e-7` to `1e-6` neither clause holds
+on any case. The mixed precision's own error is the same at every candidate
+tolerance, so a tolerance below `1e-7` buys steps without accuracy.
+`MIXED_RTOL_FLOOR` is `1e-7`: an explicit adaptive `rtol` below it is refused, and the
+interface defaults are unchanged in effect (the GNLSE's `1e-7`, the capillary's
+`1e-6`, the spatial routes' `1e-5` all lie at or above it).
+
+### Benchmarks deferred (2026-10-27)
+
+The maintainer decided that the final benchmark records of §7.4 and phase 5 are made
+after solprop's 0.1 release, with SEP 38's `track --precision`, rather than in this
+SEP. The A40, H100 and MI325X throughput and the per-pass profiles above stand as
+this SEP's device measurements (a deviation from §7.4 and phase 5).
+
 ## Part III — History
 
 - 2026-10-25: Drafted (Opus 5.5), after an indicative A40 measurement of transforms,

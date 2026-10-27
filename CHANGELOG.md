@@ -261,7 +261,7 @@ The first public release. It contains:
   damping limit, and the `native` backend on the same routes on the CPU, its state
   physical and its source at the launch's scale, the split-step collar's transforms in
   binary64; `numba_cpu` and `mlx` refuse it. Its default `rtol` is the
-  larger of each interface's binary64 default and the floor `1e-8`, below which an
+  larger of each interface's binary64 default and the floor `1e-7`, below which an
   explicit tolerance is refused, and its default integrator each interface's binary64
   one: the Adams integrator is admitted, as accurate as Runge–Kutta within the
   envelopes. Noise models are refused, and a default noise falls back to none, until

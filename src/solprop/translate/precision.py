@@ -91,13 +91,16 @@ roundoff, buys steps without accuracy. An explicit tolerance below the floor is 
 and the floor is every interface's default under single precision.
 """
 
-MIXED_RTOL_FLOOR = 1e-8
+MIXED_RTOL_FLOOR = 1e-7
 """The smallest relative tolerance a mixed-precision run admits (SEP 36, Q1).
 
 The controller's embedded estimate sees the binary32 source's rounding scaled by the
 weights' differences and the step's nonlinear phase, about ``1e-1 c_s u32 log2(n)
 phi_NL``, which is below ``1e-8`` for ``n = 2**16`` and ``phi_NL <= 0.1`` (SEP 36
-section 4.2). The survival study raises it by the rule of SEP 36 section 7.3.
+section 4.2). The survival study raised it from ``1e-8`` by the rule of SEP 36 section
+7.3: at ``1e-8`` the mixed run took up to twice binary64's accepted steps on a Raman
+case and more on an envelope-plasma one, and its error is the same at every tolerance,
+so a tighter one buys steps without accuracy.
 """
 
 REDUCED_PRECISION_BACKENDS: dict[str, tuple[str, ...]] = {
@@ -308,7 +311,7 @@ def rtol_floor(precision: Precision | PrecisionName) -> float:
     --------
     >>> from solprop.translate.precision import rtol_floor
     >>> rtol_floor("double"), rtol_floor("single"), rtol_floor("mixed")
-    (0.0, 1e-06, 1e-08)
+    (0.0, 1e-06, 1e-07)
     """
     name = precision_named(precision).name
     return {"single": SINGLE_RTOL_FLOOR, "mixed": MIXED_RTOL_FLOOR}.get(name, 0.0)

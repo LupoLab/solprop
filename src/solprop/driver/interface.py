@@ -581,7 +581,7 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         binary64 throughout. ``"single"`` holds the state and the source evaluation in
         binary32; ``"mixed"`` holds the state and every stored row in binary64 and the
         source evaluation in binary32. Each takes `rtol` by default at the larger of
-        the binary64 default and its floor (1e-6 single, 1e-8 mixed;
+        the binary64 default and its floor (1e-6 single, 1e-7 mixed;
         :func:`~solprop.translate.precision.rtol_floor`), below which an explicit value
         is refused, and
         ``RungeKutta()``; the Adams method, noise models and the backends that do not
@@ -1034,7 +1034,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         binary64 throughout. ``"single"`` holds the state and the source evaluation in
         binary32; ``"mixed"`` holds the state and every stored row in binary64 and the
         source evaluation in binary32. Each takes `rtol` by default at the larger of
-        the binary64 default and its floor (1e-6 single, 1e-8 mixed;
+        the binary64 default and its floor (1e-6 single, 1e-7 mixed;
         :func:`~solprop.translate.precision.rtol_floor`), below which an explicit value
         is refused, and
         ``RungeKutta()``; the Adams method, noise models and the backends that do not
@@ -1508,7 +1508,7 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         binary64 throughout. ``"single"`` holds the state and the source evaluation in
         binary32; ``"mixed"`` holds the state and every stored row in binary64 and the
         source evaluation in binary32. Each takes `rtol` by default at the larger of
-        the binary64 default and its floor (1e-6 single, 1e-8 mixed;
+        the binary64 default and its floor (1e-6 single, 1e-7 mixed;
         :func:`~solprop.translate.precision.rtol_floor`), below which an explicit value
         is refused, and
         ``RungeKutta()``; the Adams method, noise models and the backends that do not
