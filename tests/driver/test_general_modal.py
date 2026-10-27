@@ -1571,8 +1571,8 @@ def run_general(weak, provider, *, changes=None, state=None):
     """Return a completed general modal run, with **no absorber** by default.
 
     ``from_waveguide`` builds the grid's default collar, as every waveguide entry
-    point does, and ``prop_gnlse`` builds none; a like-for-like comparison has to
-    turn it off, which is a settings change and not a keyword.
+    point does, and so does ``prop_gnlse`` (SEP 21), whose runs here take
+    ``absorber=False``; a like-for-like comparison turns both off.
     The default-collar case needs no change, so it goes through the public
     function, which is where ``prop_waveguide(provider=...)`` is exercised.
     """
@@ -1955,7 +1955,11 @@ def test_a_weakly_guiding_channel_agrees_with_the_calibrated_gnlse(
             grid=envelope_grid,
             fibre=channel,
             shock=True,
-            **{"integrator": Multistep(), **({"noise": None, **common})},
+            **{
+                "integrator": Multistep(),
+                "absorber": False,
+                **({"noise": None, **common}),
+            },
         ),
     )
     straight, peak = straight_peak(general_linear, field_grid)
@@ -1978,7 +1982,11 @@ def test_a_weakly_guiding_channel_agrees_with_the_calibrated_gnlse(
             grid=envelope_grid,
             fibre=channel,
             shock=True,
-            **{"integrator": Multistep(), **({"noise": None, **common})},
+            **{
+                "integrator": Multistep(),
+                "absorber": False,
+                **({"noise": None, **common}),
+            },
         ),
     )
     turned = turned_by(general, straight, peak, field_grid)
@@ -2030,7 +2038,11 @@ def test_what_the_in_stage_collar_costs_the_same_comparison(weak, record_propert
             grid=envelope_grid,
             fibre=channel,
             shock=True,
-            **{"integrator": Multistep(), **({"noise": None, **common})},
+            **{
+                "integrator": Multistep(),
+                "absorber": False,
+                **({"noise": None, **common}),
+            },
         ),
     )
     gnlse_linear = cast(
@@ -2041,7 +2053,11 @@ def test_what_the_in_stage_collar_costs_the_same_comparison(weak, record_propert
             grid=envelope_grid,
             fibre=channel,
             shock=True,
-            **{"integrator": Multistep(), **({"noise": None, **common})},
+            **{
+                "integrator": Multistep(),
+                "absorber": False,
+                **({"noise": None, **common}),
+            },
         ),
     )
     envelope_straight, envelope_peak = straight_peak(gnlse_linear, envelope_grid)

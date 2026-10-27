@@ -2210,6 +2210,9 @@ def witness_run(
     grid = witness_grid(case)
     chosen = {"backend": TEST_BACKEND if backend is None else backend}
     stated = witness_inputs(grid, case["modes"])
+    # Luna's archives ran on these windows with nothing watching their edges; the
+    # comparison is of the propagation, so solprop's boundary monitor stays off too.
+    stated["boundary_check"] = None
     if n_r is not None:
         stated["n_r"] = n_r
     return prop_capillary(
@@ -3136,9 +3139,11 @@ def ctc_run(
             rtol=LUNA_TOLERANCES["rtol"],
             atol=LUNA_TOLERANCES["atol"],
             backend=backend,
-            noise=None if seed is None else "input",
-            seed=seed,
-            **witness_inputs(grid, case["modes"]),
+            **{
+                **witness_inputs(grid, case["modes"]),
+                "noise": None if seed is None else "input",
+                "seed": seed,
+            },
         )
         if luna_vibration:
             # Test-only matching of the archived witness's physical model, not

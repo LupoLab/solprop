@@ -28,6 +28,7 @@ from collections.abc import Callable, Sequence
 import numpy as np
 import pytest
 
+from legacy_geometry import LEGACY_GRID
 from selected_backend import selected_backend
 
 try:
@@ -173,8 +174,13 @@ def narrow_grid():
 
 @pytest.fixture(scope="session")
 def soliton_grid():
-    """The scaffold's envelope grid, 4096 bins, wide enough for the N = 6 soliton."""
-    return EnvelopeGrid.from_limits(1.0, WAVELENGTH, (500e-9, 2e-6), 4e-12)
+    """The scaffold's envelope grid, 4096 bins, wide enough for the N = 6 soliton.
+
+    The geometry before SEP 21, on which the soliton convergence records were made.
+    """
+    return EnvelopeGrid.from_limits(
+        1.0, WAVELENGTH, (500e-9, 2e-6), 4e-12, **LEGACY_GRID
+    )
 
 
 @pytest.fixture(scope="session")

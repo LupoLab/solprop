@@ -139,6 +139,8 @@ def weak_band(schedule):
         noise=None,  # a noiseless soliton: the calibration is about the stepper
         schedule=schedule,
         integrator=LowStorageRungeKutta(),
+        # The default in-stage collar caps an explicit step; the split one does not.
+        absorber_scheme="split_step",
         dz_max=schedule.max_step,
         dz_init=schedule.max_step,
     )
@@ -150,7 +152,7 @@ def weak_band(schedule):
 
 base = FixedSchedule.uniform(0.0, length, length / 32)
 calibration = calibrate(base, weak_band, order=4, requested=1e-6)
-print(f"observed order {calibration.observed_order:.2f}")  # 3.88
+print(f"observed order {calibration.observed_order:.2f}")  # 3.92
 production = replay(base, calibration, calibration.achieved_error / 10)
 print(production.n_steps)  # 58
 ```

@@ -16,6 +16,7 @@ contrast of 0.005, solved as the scalar weak-guidance **LP** approximation, whos
 spacing sets a self-imaging length of 784.7 um, inside a millimetre.
 """
 
+import dataclasses
 from typing import cast
 
 import numpy as np
@@ -193,6 +194,9 @@ def test_grin_self_imaging(grid, linear_guide, imaging, record_property):
         backend="numpy_ref",
         noise=None,
     )
+    # A continuous wave fills the window, guards included, by design: nothing to
+    # watch at its edges (SEP 21).
+    simulation.settings = dataclasses.replace(simulation.settings, boundary_check=None)
     state = np.zeros((2, 1, grid.n_omega), dtype=complex)
     state[:, 0, centre] = 1.0
     run = cast("MemoryOutput", simulation.with_input(state).run(progress="none"))

@@ -470,7 +470,9 @@ fibre_run = source_fibre.run(progress="none")
 spliced = couple(
     field_plane(fibre_run, source=source_fibre),
     target_fibre.input_port(),
-    model=CouplingModel("scalar_paraxial", model_error=0.1),
+    # The splice's defects sum to about 0.15, mostly the angular content of the two
+    # cores across the band; the budget has to cover them.
+    model=CouplingModel("scalar_paraxial", model_error=0.2),
 )
 print(spliced.report.efficiency)
 

@@ -227,7 +227,7 @@ grin = GradedIndexProvider(
     extent=2.0,
     core_responses=(MaterialKerr(n2=2.6e-20, at=1.03e-6),),
 )
-grin_grid = FieldGrid.from_limits(1e-3, 1.03e-6, (1.0e-6, 1.06e-6), 100e-15)
+grin_grid = FieldGrid.from_limits(1e-3, 1.03e-6, (1.0e-6, 1.06e-6), 400e-15)
 grin_active = grin_grid.omega[grin_grid.active_mask]
 grin_low = 0.99 * float(grin_active[0])
 grin_guide = ModalGuide.from_provider(
