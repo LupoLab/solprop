@@ -4,66 +4,41 @@
 
 """Build declared cases after the worker has configured its scientific runtimes.
 
-Definitions are extracted from the public sources recorded by the registry. No
-gallery or test module executes here, and no warning filter hides model warnings.
+Each case is the interface call a user would write: no tolerance or integrator is
+passed where the interface has a default (SEP 37), and every noisy launch fixes
+:data:`~benchmarks.registry.SEED`. No gallery or test module executes here, and
+no warning filter hides model warnings.
 """
 
 from __future__ import annotations
 
 import dataclasses
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from benchmarks.records import Record, SuiteError
-from benchmarks.registry import ADAPTIVE, CASES, KERR, Case
+from benchmarks.registry import CASES, SEED
 
-__all__ = ["build", "capillary", "fixed_schedule", "gnlse", "kerr", "spatial"]
+__all__ = ["build", "capillary", "gnlse", "integrator", "kerr", "spatial"]
 
 if TYPE_CHECKING:
     from solprop.driver import Simulation, SimulationSettings
-    from solprop.stepper import FixedSchedule
+    from solprop.stepper import Multistep, RungeKutta
 
 
-def fixed_schedule(case: Case, configuration: Record) -> FixedSchedule:
-    """Keep the exact measured step count and any unexecuted full-guide tail."""
-    import numpy as np  # noqa: PLC0415 - worker-only imports
+def integrator(stepper: str) -> Multistep | RungeKutta | None:
+    """Return the integrator a stepper override names; ``None`` keeps the default."""
+    from solprop.stepper import Multistep, RungeKutta  # noqa: PLC0415
 
-    from solprop.stepper import FixedSchedule  # noqa: PLC0415
-
-    stop = float(configuration["stop"])
-    edges = configuration.get("schedule", [])
-    if edges:
-        expected_steps = 4 if case.name == "envelope_plasma" else 10
-        if len(edges) != expected_steps + 1 or edges[0] != 0 or edges[-1] > case.length:
-            raise SuiteError(
-                f"a fixed pilot schedule needs {expected_steps} "
-                "entrance steps within the guide"
-            )
-    else:
-        if case.step is None:
-            raise SuiteError("fixed track requires a qualified schedule")
-        # Freeze the integer count instead of allowing a rounded quotient to add
-        # a step. The Kerr count includes its separate one-step lead-in.
-        edges = np.linspace(0.0, stop, round(stop / case.step) + 1).tolist()
-    lengths = np.diff(edges)
-    if not np.all(np.isfinite(lengths)) or np.any(lengths <= 0):
-        raise SuiteError("fixed schedule edges must be finite and strictly increasing")
-    if edges[-1] < case.length:
-        corners = (5e-3,) if case.name == "moving_solid_guide" else ()
-        tail = FixedSchedule.uniform(
-            edges[-1],
-            case.length,
-            min(lengths),
-            save_planes=[
-                *(corner for corner in corners if corner > edges[-1]),
-                case.length,
-            ],
-        )
-        lengths = np.concatenate((lengths, tail.steps))
-    return FixedSchedule(lengths)
+    return {
+        "default": None,
+        "multistep": Multistep(),
+        "multistep-interaction": Multistep(formulation="interaction"),
+        "rk": RungeKutta(),
+    }[stepper]
 
 
 def capillary(name: str) -> Simulation:
-    """Build the original full guide, independently of the measured interval."""
+    """Build a capillary case on its resolved or mode-averaged route."""
     from solprop.stats import default_spec  # noqa: PLC0415
 
     simulation = _resolved_capillary(name)
@@ -94,37 +69,43 @@ def _resolved_capillary(name: str) -> Simulation:
             fwhm=7.5e-15,
             energy=275e-6,
             modes=4 if name == "rdw" else 1,
-            rtol=1e-6,
-            atol=1e-10,
-            backend="numpy_ref",
-            seed=20261027,
+            seed=SEED,
         )
-    if name in ("ctc", "ctc_reduced"):
-        full = name == "ctc"
+    if name == "ctc":
         return Simulation.from_capillary(
             16e-6,
-            0.2 if full else 0.1,
+            0.13,
             "H2",
             40.0,
             lambda0=515e-9,
-            wavelength_limits=(170e-9, 4e-6) if full else (250e-9, 2e-6),
-            # Revision 2 of the reduced case: 2 ps, the window a production run of
-            # this pulse takes (1 ps crowded its 400 fs pulse).
-            trange=4e-12 if full else 2e-12,
+            wavelength_limits=(220e-9, 4e-6),
+            trange=2e-12,
             fwhm=400e-15,
             energy=10e-6,
-            modes=6 if full else 2,
+            modes=3,
+            loss=0.0,
+            seed=SEED,
+        )
+    if name == "ctc_reduced":
+        return Simulation.from_capillary(
+            16e-6,
+            0.1,
+            "H2",
+            40.0,
+            lambda0=515e-9,
+            wavelength_limits=(250e-9, 2e-6),
+            trange=2e-12,
+            fwhm=400e-15,
+            energy=10e-6,
+            modes=2,
             raman=True,
             temperature=294.0,
-            rtol=1e-6,
-            atol=1e-10,
-            backend="numpy_ref",
-            seed=20261027,
+            seed=SEED,
         )
-    if name in ("argon_blueshift", "argon_blueshift_averaged"):
+    if name.startswith("argon_blueshift"):
         return Simulation.from_capillary(
             13e-6,
-            0.4,
+            0.2,
             "Ar",
             1.7,
             lambda0=800e-9,
@@ -132,12 +113,26 @@ def _resolved_capillary(name: str) -> Simulation:
             energy=3e-6,
             loss=False,
             trange=400e-15,
-            wavelength_limits=(300e-9, 4e-6),
+            wavelength_limits=(160e-9, 4e-6),
             modes=1,
-            rtol=1e-6,
-            atol=1e-10,
-            backend="numpy_ref",
-            seed=20261027,
+            envelope=name == "argon_blueshift_envelope",
+            seed=SEED,
+        )
+    if name == "h2_raman_averaged":
+        return Simulation.from_capillary(
+            20e-6,
+            0.4,
+            "H2",
+            10.0,
+            lambda0=1030e-9,
+            fwhm=40e-15,
+            energy=3e-6,
+            loss=False,
+            plasma=False,
+            trange=800e-15,
+            wavelength_limits=(200e-9, 4e-6),
+            modes=1,
+            seed=SEED,
         )
     if name in ("h2_raman_6ps", "h2_raman_6ps_averaged"):
         return Simulation.from_capillary(
@@ -154,10 +149,7 @@ def _resolved_capillary(name: str) -> Simulation:
             trange=6e-12,
             wavelength_limits=(400e-9, 4e-6),
             modes=1,
-            rtol=1e-6,
-            atol=1e-10,
-            backend="numpy_ref",
-            seed=20261027,
+            seed=SEED,
         )
     raise SuiteError(f"capillary builder not implemented for {name}")
 
@@ -188,10 +180,7 @@ def gnlse(name: str) -> Simulation:
             pulseshape="sech",
             raman=False,
             shock=False,
-            rtol=1e-6,
-            atol=1e-10,
-            backend="numpy_ref",
-            seed=20261027,
+            seed=SEED,
         )
     if name == "gnlse_raman_shock":
         return Simulation.from_gnlse(
@@ -218,10 +207,7 @@ def gnlse(name: str) -> Simulation:
             peak_power=10e3,
             raman=True,
             shock=True,
-            noise=None,
-            rtol=1e-6,
-            atol=1e-10,
-            backend="numpy_ref",
+            seed=SEED,
         )
     raise SuiteError(f"GNLSE builder not implemented for {name}")
 
@@ -273,7 +259,6 @@ def kerr(name: str, settings: SimulationSettings) -> Simulation:
         [KerrResponse(chi3=2.2e-22 * MU0 * EPS0 * C**2, thg=False)],
         launch,
         settings=settings,
-        seed=20261027,
     )
 
 
@@ -320,6 +305,8 @@ def spatial(name: str, settings: SimulationSettings) -> Simulation:
     responses: list[KerrResponse | PlasmaResponse] = [KerrResponse(chi3, thg=False)]
     if plasma:
         responses.append(PlasmaResponse("Ar", OptmatRate("Ar", 800e-9)))
+    if plasma:
+        settings = dataclasses.replace(settings, ionisation_field_range=(1e7, 1e11))
     if name.startswith("radial") or name == "spatial_absorber":
         return Simulation.from_radial(
             grid,
@@ -330,7 +317,7 @@ def spatial(name: str, settings: SimulationSettings) -> Simulation:
             responses,
             pulse,
             settings=settings,
-            seed=20261027,
+            seed=SEED,
         )
     if name == "line" or name.startswith("cartesian_filament"):
         size = case.dimensions[0]
@@ -371,112 +358,102 @@ def _planar(settings: SimulationSettings) -> Simulation:
     )
 
 
+def smoke() -> Simulation:
+    """Build the runner's own short noiseless fibre."""
+    from solprop.driver import Simulation  # noqa: PLC0415
+
+    return Simulation.from_gnlse(
+        0.11,
+        CASES["smoke"].length,
+        [0.0, 0.0, -11.83e-27],
+        lambda0=835e-9,
+        wavelength_limits=(600e-9, 1200e-9),
+        trange=200e-15,
+        width=20e-15,
+        peak_power=10.0,
+        pulseshape="sech",
+        raman=False,
+        shock=False,
+        n_save=2,
+        noise=None,
+    )
+
+
 def build(configuration: Record) -> Simulation:
-    """Resolve the exact declared integrator and bounded observation itinerary."""
+    """Build a case for the configured backend, stepper and observations.
+
+    The tolerances are left to the interface. A stepper override replaces only the
+    integrator. A case with a fixed step runs its declared schedule with the
+    low-storage RK4IP march.
+    """
     import numpy as np  # noqa: PLC0415
 
     from solprop.driver import SimulationSettings  # noqa: PLC0415
-    from solprop.stepper import (  # noqa: PLC0415
-        LowStorageRungeKutta,
-        Multistep,
-        PIController,
-        RungeKutta,
-    )
+    from solprop.stepper import FixedSchedule, LowStorageRungeKutta  # noqa: PLC0415
 
     case = CASES[configuration["case"]]
-    track = configuration["track"]
-    if case.status != "implemented":
-        raise SuiteError(f"{case.name}: {case.pending_reason}")
-    start, stop = float(configuration["start"]), float(configuration["stop"])
-    planes = np.linspace(start, stop, int(configuration["observations"]) + 1)[1:]
-    # Translation sees the original guide endpoint; the benchmark loop only
-    # visits the selected planes. No gradient or gas-flow law is rescaled.
-    itinerary: list[float] = sorted(
-        {*(float(value) for value in planes), case.length, *([start] if start else [])}
-    )
-    integrator = (
-        Multistep()
-        if track == ADAPTIVE[0]
-        else LowStorageRungeKutta(scheme="rk4ip")
-        if track == KERR
-        else RungeKutta()
-    )
-    controller = PIController(
-        rtol=configuration.get("reference_rtol") or configuration["rtol"] or 1e-6,
-        atol=configuration["atol"] or 0.0,
-    )
-    schedule = fixed_schedule(case, configuration) if track not in ADAPTIVE else None
-    settings = SimulationSettings(
-        controller,
-        save_planes=itinerary,
-        dz_max=case.length,
-        dz_init=case.length * 1e-4,
-        auto_init=True,
-        integrator=integrator,
-        schedule=schedule,
-        backend=configuration["backend"],
-        fields=configuration["fields"],
-        field_planes=(len(planes),) if configuration["fields"] == "planes" else (),
-        propagator_mode="tabulate" if track == KERR else "auto",
-        ionisation_field_range=(1e7, 1e11)
-        if case.builder == "spatial" and "filament" in case.name
-        else None,
-    )
-    if case.builder in ("capillary", "gnlse", "advanced", "exercise"):
-        if case.builder == "exercise":
-            from benchmarks.exercises import exercise  # noqa: PLC0415
-
-            simulation = exercise(case.name)
-        elif case.builder == "advanced":
-            from benchmarks.guides import advanced  # noqa: PLC0415
-
-            simulation = advanced(case.name)
-        else:
-            simulation = (
-                capillary(case.name)
-                if case.builder == "capillary"
-                else gnlse(case.name)
+    stop = float(configuration["stop"])
+    # A shortened run (ab --length) saves its last plane where it stops.
+    itinerary = np.linspace(0.0, stop, int(configuration["planes"]) + 1)[1:].tolist()
+    fields = configuration["fields"]
+    observed = {
+        "save_planes": itinerary,
+        "backend": configuration["backend"],
+        "fields": fields,
+        "field_planes": (len(itinerary),) if fields == "planes" else (),
+    }
+    chosen = integrator(configuration["stepper"])
+    if case.builder in ("kerr", "spatial"):
+        settings = SimulationSettings(
+            save_planes=itinerary,
+            dz_max=case.length,
+            dz_init=case.length * 1e-4,
+            auto_init=True,
+            integrator=chosen,
+            backend=configuration["backend"],
+            fields=fields,
+            field_planes=observed["field_planes"],
+        )
+        if case.step is not None:
+            settings = dataclasses.replace(
+                settings,
+                integrator=LowStorageRungeKutta(scheme="rk4ip"),
+                schedule=FixedSchedule(
+                    np.diff(np.linspace(0.0, stop, max(1, round(stop / case.step)) + 1))
+                ),
+                propagator_mode="tabulate",
             )
-        simulation.settings = dataclasses.replace(
-            simulation.settings,
-            controller=controller,
-            integrator=integrator,
-            schedule=schedule,
-            save_planes=itinerary,
-            backend=configuration["backend"],
-            fields=configuration["fields"],
-            field_planes=(len(planes),) if configuration["fields"] == "planes" else (),
-        )
-        return simulation
-    if case.builder == "kerr":
-        return kerr(case.name, settings)
-    if case.builder == "spatial":
-        return spatial(case.name, settings)
-    if case.builder == "smoke":
-        from solprop.driver import Simulation  # noqa: PLC0415
+        return (kerr if case.builder == "kerr" else spatial)(case.name, settings)
+    if case.builder == "exercise":
+        from benchmarks.exercises import exercise  # noqa: PLC0415
 
-        simulation = Simulation.from_gnlse(
-            0.11,
-            case.length,
-            [0.0, 0.0, -11.83e-27],
-            lambda0=835e-9,
-            wavelength_limits=(600e-9, 1200e-9),
-            trange=200e-15,
-            width=20e-15,
-            peak_power=10.0,
-            pulseshape="sech",
-            raman=False,
-            shock=False,
-            n_save=2,
-            noise=None,
-        )
-        simulation.settings = dataclasses.replace(
-            simulation.settings,
-            controller=controller,
-            integrator=integrator,
-            schedule=schedule,
-            save_planes=itinerary,
-            backend=configuration["backend"],
-        )
-        return simulation
-    raise SuiteError(f"unknown builder {case.builder}")
+        simulation = exercise(case.name)
+    elif case.builder == "advanced":
+        from benchmarks.guides import advanced  # noqa: PLC0415
+
+        options: dict[str, Any] = {"save_planes": itinerary}
+        if chosen is not None:
+            options["integrator"] = chosen
+        simulation = advanced(case.name, case.length, options)
+        if case.name == "grin_nonlinear":
+            # Translated at construction (its launch is coupled): only the backend
+            # and the field retention may still change.
+            simulation.settings = dataclasses.replace(
+                simulation.settings,
+                backend=configuration["backend"],
+                fields=fields,
+                field_planes=observed["field_planes"],
+            )
+            return simulation
+    elif case.builder == "capillary":
+        simulation = capillary(case.name)
+    elif case.builder == "gnlse":
+        simulation = gnlse(case.name)
+    elif case.builder == "smoke":
+        simulation = smoke()
+    else:
+        raise SuiteError(f"unknown builder {case.builder}")
+    if chosen is not None:
+        observed["integrator"] = chosen
+    simulation.settings = dataclasses.replace(simulation.settings, **observed)
+    return simulation

@@ -31,4 +31,5 @@ sep-0033-single-precision-mlx
 sep-0034-medium-flux
 sep-0035-carrier-frame-exponential-adams
 sep-0037-noise-and-stepper-defaults
+sep-0038-performance-tracking
 ```

@@ -6,7 +6,7 @@
 | **Title** | Standard benchmark suite |
 | **Author** | John Travers |
 | **Drafting agent** | GPT-6 (2026-10-21) |
-| **Status** | Final |
+| **Status** | Superseded |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); Opus 5.5 (AI) |
 | **Type** | Process |
@@ -14,7 +14,7 @@
 | **Resolution** | Accepted 2026-10-21 by John Travers after reading the revised proposal; maintainer decision recorded in Part III. |
 | **Requires** | [SEP 25](sep-0025-rounding-level-reproducibility.md) (numerical comparison policy); [SEP 28](sep-0028-free-space-evaluation.md) (bounded spatial workloads) |
 | **Supersedes** | — |
-| **Superseded-by** | — |
+| **Superseded-by** | [SEP 38](sep-0038-performance-tracking.md) |
 | **Implementation** | Phase 1 merged; phases 2–4 implemented on `feature/sep-0030-phase-2`, `feature/sep-0030-phase-3` and `feature/sep-0030-phase-4`; consolidated for merge on the phase 4 branches after closing validation |
 | **Manual pages** | [Running the benchmark suite](../../benchmarking.md) |
 
@@ -1295,6 +1295,9 @@ branches are unnecessary. No main-branch merge or publication is claimed here.
   requested its merge to main. Status is Accepted and Part I is frozen. The
   qualification questions assigned to implementation phases in §12 remain there;
   acceptance does not claim measured timings or completed implementation.
+- 2026-10-27: Superseded by [SEP 38](sep-0038-performance-tracking.md), which retired the
+  standard mode, reference qualification, native coverage and export for complete-run
+  tracking.
 
 ### AI review — 2026-10-21
 

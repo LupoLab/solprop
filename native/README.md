@@ -145,8 +145,7 @@ Kokkos Kernels and other dependencies are not project coverage.
 The coverage build also installs `solprop_native_labels`, a host-only Kokkos Tools
 module that counts parallel-for/reduce/scan labels and profile regions without
 requesting fences. Set `KOKKOS_TOOLS_LIBS` to this module and `SOLPROP_NATIVE_LABEL_FILE`
-to a new JSON-lines output path for a separate label pass. The benchmark suite's
-`coverage` command does this itself. Reports, raw profiles and binary snapshots belong
+to a new JSON-lines output path for a separate label pass. Reports, raw profiles and binary snapshots belong
 in ignored local `.benchmarks/` storage, not in git. An uninstantiated template or
 compiled-out path has no counter and is not an executed path with a zero count; CPU
 coverage has no target percentage.

@@ -338,10 +338,10 @@ DEFAULT_RTOL = 1e-7
 """Relative tolerance a GNLSE run asks for unless told otherwise.
 
 Set by SEP 37's convergence protocol on the supercontinuum of Dudley, Genty and Coen
-(the standard suite's ``gnlse_raman_shock``): the loosest of three levels a decade apart
-at which the ensemble-mean spectrum stays within 0.5 dB above -40 dB of its peak and the
-coherence within 0.02, over paired seeds, with the default ``RungeKutta()``. A noiseless
-soliton-recurrence study asks for its own, tighter value.
+(the benchmark suite's ``gnlse_raman_shock``): the loosest of three levels a decade
+apart at which the ensemble-mean spectrum stays within 0.5 dB above -40 dB of its peak
+and the coherence within 0.02, over paired seeds, with the default ``RungeKutta()``.
+A noiseless soliton-recurrence study asks for its own, tighter value.
 """
 
 DEFAULT_ATOL = 1e-14
@@ -355,7 +355,7 @@ CAPILLARY_RTOL = 1e-6
 
 The default of :meth:`Simulation.from_capillary` and
 :func:`~solprop.driver.interface.prop_capillary` with their default ``Multistep()``.
-SEP 37's convergence protocol on the standard suite's ``rdw`` case passes it, and a
+SEP 37's convergence protocol on the benchmark suite's ``rdw`` case passes it, and a
 noisy comb-to-continuum check needs it with this integrator (``1e-5`` fails the
 coherence budget there). It is a starting point, not a
 guarantee: a production run should calibrate it (``docs/dev/stepper.md`` section 3).
@@ -366,7 +366,7 @@ WAVEGUIDE_RTOL = 1e-5
 
 The default of :meth:`Simulation.from_waveguide` and
 :func:`~solprop.driver.interface.prop_waveguide` with their default ``RungeKutta()``,
-set by SEP 37's convergence protocol on the standard suite's ``grin_nonlinear``
+set by SEP 37's convergence protocol on the benchmark suite's ``grin_nonlinear``
 window. A starting
 point, not a guarantee: a production run should calibrate it.
 """
@@ -374,8 +374,8 @@ point, not a guarantee: a production run should calibrate it.
 SPATIAL_RTOL = 1e-5
 """Relative tolerance of the controller a radial or planar run takes by default.
 
-Set by SEP 37's convergence protocol on the standard suite's ``radial_filament_256`` and
-``planar`` cases. It applies only where the caller's
+Set by SEP 37's convergence protocol on the benchmark suite's ``radial_filament_256``
+and ``planar`` cases. It applies only where the caller's
 :class:`SimulationSettings` gives no controller.
 """
 

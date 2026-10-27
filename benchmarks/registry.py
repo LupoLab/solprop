@@ -2,238 +2,313 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Declare immutable benchmark workloads without importing their builders."""
+"""Declare immutable benchmark workloads without importing their builders.
+
+Every case is a complete guide run with its interface's default integrator and
+tolerances (SEP 37), a fixed noise seed and the native backend unless asked
+otherwise (SEP 38). The ``tracking`` set is what ``python -m benchmarks track``
+times by default; every other case runs only when named.
+"""
 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
 from benchmarks.records import Record, SuiteError, identity
-from benchmarks.schedules import ENTRANCE_SCHEDULES
 
 __all__ = [
-    "ADAPTIVE",
     "CASES",
-    "FIXED",
-    "KERR",
+    "SEED",
     "SETS",
-    "TRACKS",
+    "STEPPERS",
+    "TRACKING",
+    "WIDTHS",
     "Case",
-    "ResolvedConfiguration",
-    "WarningRule",
     "select",
 ]
 
-ADAPTIVE = ("adaptive-multistep", "adaptive-rk")
-FIXED = "fixed-rk"
-KERR = "fixed-rk4ip"
-TRACKS = (*ADAPTIVE, FIXED, KERR)
 SETS = (
-    "core",
+    "tracking",
     "modal-capillary",
     "free-space",
     "mode-averaged",
     "advanced",
     "backend-exercise",
 )
-
-# First ten accepted entrance steps of the independent NumPy default-RK pilot
-# at rtol=1e-6. SEP 30 Part II records the pilot and verification. Keep these
-# separate from Case so freezing a diagnostic does not rename adaptive windows.
-_FIXED_SCHEDULES = {
-    **{
-        (name, 1): edges
-        for name, edges in ENTRANCE_SCHEDULES.items()
-        if name
-        not in ("ctc_reduced", "scalar_wall", "vector_wall", "taper", "taper_wall")
-    },
-    ("radial_filament_256", 1): (
-        0.0,
-        3e-6,
-        3.7247892534444475e-5,
-        6.857136108217572e-5,
-        9.611546370159467e-5,
-        0.00012252784589431744,
-        0.00014998314854780485,
-        0.00017906017049297354,
-        0.0002095001546572779,
-        0.00024121867141398048,
-        0.00027452363203191686,
-    ),
-}
-
-
-@dataclass(frozen=True)
-class WarningRule:
-    """Declare one reviewed warning by phase, category and narrow message pattern."""
-
-    phase: str
-    category: str
-    pattern: str
-
-
-@dataclass(frozen=True)
-class ResolvedConfiguration:
-    """Freeze planned measurement semantics before constructing scientific objects."""
-
-    case: str
-    revision: int
-    case_hash: str
-    track: str
-    start: float
-    stop: float | None
-    schedule: tuple[float, ...]
-    step: float | None
-    rtol: float | None
-    atol: float | None
-    observations: int
-    fields: str
-    statistics: str = "source-default"
-    noise_seed: int | None = None
-    reset: str = "launch-and-lead-in-v1"
-    measurement_version: int = 1
+TRACKING = "tracking"
+STEPPERS = ("default", "multistep", "multistep-interaction", "rk")
+WIDTHS = ("1", "production")
+SEED = 20261027
+"""The noise seed every case fixes, so that its repeats take the same steps."""
 
 
 @dataclass(frozen=True)
 class Case:
-    """Name the definition, supported measurements and qualification status."""
+    """Name one complete workload, how it is observed and what it costs.
+
+    Attributes
+    ----------
+    name : str
+        Registry key; a changed definition keeps the name and raises `revision`.
+    revision : int
+        Definition revision; history rows compare only within one.
+    sets : tuple of str
+        Selection groups; ``tracking`` puts the case in the default run.
+    interface : str
+        The ``prop_*`` interface whose defaults the case runs with.
+    builder : str
+        Builder family in ``benchmarks.builders``.
+    length : float
+        Guide length in metres; a run propagates all of it.
+    dimensions : tuple of int
+        Main array sizes, for the plan only.
+    source : str
+        Where the definition comes from.
+    widths : tuple of str
+        Thread widths the case runs at by default: ``"1"`` and ``"production"``.
+    planes : int
+        Evenly spaced observations, the last at `length`.
+    fields : str
+        ``"all"`` keeps every observed field, ``"planes"`` only the last.
+    step : float or None
+        A fixed step in metres; the case then runs its declared fixed schedule and
+        admits no stepper override.
+    cost : tuple of float or None
+        Seconds per complete run at 1 and 16 threads on 16 cores of an AMD EPYC 7763
+        node, from SEP 38's calibration run, for the plan's estimate; ``None`` if
+        unknown.
+    """
 
     name: str
     revision: int
     sets: tuple[str, ...]
+    interface: str
     builder: str
-    tracks: tuple[str, ...]
     length: float
-    start: float
-    stop: float
-    step: float | None
     dimensions: tuple[int, ...]
     source: str
-    status: str = "implemented"
-    pending_reason: str | None = None
-    estimate_bytes: int | None = None
-    atol: float = 1e-10
-    planes: int = 1
-    warnings: tuple[WarningRule, ...] = ()
+    widths: tuple[str, ...] = WIDTHS
+    planes: int = 11
+    fields: str = "all"
+    step: float | None = None
+    cost: tuple[float | None, float | None] = (None, None)
+
+    @property
+    def tracked(self) -> bool:
+        """Whether the default ``track`` selection includes the case."""
+        return TRACKING in self.sets
+
+    @property
+    def steppers(self) -> tuple[str, ...]:
+        """Stepper choices the case admits; a fixed schedule admits its own only."""
+        return ("default",) if self.step is not None else STEPPERS
 
     @property
     def digest(self) -> str:
-        """Identify immutable definition values, excluding selection aliases."""
+        """Identify the definition, excluding selection groups and estimates."""
         record = asdict(self)
-        for key in ("sets", "status", "pending_reason", "estimate_bytes"):
+        for key in ("sets", "widths", "cost"):
             record.pop(key)
         return identity(record)
 
-    def measurement(self, track: str, schedule: tuple[float, ...] = ()) -> Record:
-        """Resolve a measurement without constructing any scientific object."""
-        if track not in self.tracks:
-            raise SuiteError(f"{self.name} does not admit {track}")
-        if track == FIXED and not schedule:
-            schedule = _FIXED_SCHEDULES.get((self.name, self.revision), ())
-        adaptive = track in ADAPTIVE
-        start = self.start if adaptive or track == KERR else 0.0
-        stop = (
-            self.stop
-            if adaptive or track == KERR
-            else (
-                schedule[-1]
-                if schedule
-                else 10 * self.step
-                if self.step is not None
-                else None
-            )
-        )
-        return asdict(
-            ResolvedConfiguration(
-                self.name,
-                self.revision,
-                self.digest,
-                track,
-                start,
-                stop,
-                schedule,
-                self.step,
-                1e-6 if track != KERR else None,
-                self.atol if track != KERR else None,
-                self.planes if adaptive else 1,
-                "planes"
-                if adaptive and self.name == "far_field_stats"
-                else "all"
-                if adaptive
-                else "none",
-                noise_seed=41
-                if self.name == "grin_nonlinear"
-                else 13
-                if self.name == "noise"
-                else None,
-            )
-        )
+    def configuration(
+        self,
+        stepper: str,
+        width: int,
+        backend: str = "native",
+        fraction: float = 1.0,
+        warmup: float = 0.02,
+        *,
+        device: bool = False,
+    ) -> Record:
+        """Resolve one measurement without constructing a scientific object.
+
+        On a device build, `width` is the host's thread count and `device` says the
+        native backend must run on the accelerator.
+        """
+        if stepper not in self.steppers:
+            raise SuiteError(f"{self.name} admits only {', '.join(self.steppers)}")
+        if not 0 < fraction <= 1 or not 0 <= warmup < 1:
+            raise SuiteError("length fraction must be in (0, 1], warm-up in [0, 1)")
+        return {
+            "case": self.name,
+            "revision": self.revision,
+            "case_hash": self.digest,
+            "stepper": stepper,
+            "threads": width,
+            "backend": backend,
+            "device": device,
+            "stop": self.length * fraction,
+            "fraction": fraction,
+            "warmup": warmup,
+            "planes": self.planes,
+            "fields": self.fields,
+        }
 
 
-_CORE = (
+_TRACKED = (
+    Case(
+        "gnlse_raman_shock",
+        1,
+        ("tracking", "mode-averaged"),
+        "prop_gnlse",
+        "gnlse",
+        0.15,
+        (1, 16384, 16384),
+        "Dudley, Genty and Coen, Rev. Mod. Phys. 78, 1135 (2006), section III",
+        cost=(84.5, 47.2),
+    ),
+    Case(
+        "gnlse_soliton",
+        1,
+        ("tracking", "mode-averaged"),
+        "prop_gnlse",
+        "gnlse",
+        1.3278075458959397,
+        (1, 4096, 4096),
+        "docs/introduction/tutorials/plot_02_soliton.py; one soliton period",
+        cost=(12.6, 8.5),
+    ),
     Case(
         "rdw",
         1,
-        ("core", "modal-capillary"),
+        ("tracking", "modal-capillary"),
+        "prop_capillary",
         "capillary",
-        (*ADAPTIVE, FIXED),
         1.5,
-        0.02,
-        0.04,
-        0.002,
         (4, 4096, 8192),
-        "benchmarks/cases.py:rdw",
+        "He resonant dispersive wave, four resolved modes",
+        cost=(19.2, 12.6),
     ),
+    Case(
+        "he_rdw_averaged",
+        1,
+        ("tracking", "mode-averaged"),
+        "prop_capillary",
+        "capillary",
+        1.5,
+        (1, 4096, 8192),
+        "rdw on the mode-averaged route",
+        cost=(2.7, 2.7),
+    ),
+    # Revision 2 (SEP 38): 0.2 m and 160 nm-4 um, as SEP 37 phase 0 measured it;
+    # revision 1 was the 0.4 m blue-shift example with a 300 nm edge.
+    Case(
+        "argon_blueshift",
+        2,
+        ("tracking", "modal-capillary"),
+        "prop_capillary",
+        "capillary",
+        0.2,
+        (1, 4096, 8192),
+        "docs/examples/processes/plot_06_ionisation_blue_shift.py, shortened",
+        cost=(65.8, 35.5),
+    ),
+    Case(
+        "argon_blueshift_averaged",
+        2,
+        ("tracking", "mode-averaged"),
+        "prop_capillary",
+        "capillary",
+        0.2,
+        (1, 4096, 8192),
+        "argon_blueshift on the mode-averaged route",
+        cost=(15.2, 15.1),
+    ),
+    Case(
+        "argon_blueshift_envelope",
+        1,
+        ("tracking", "modal-capillary"),
+        "prop_capillary",
+        "capillary",
+        0.2,
+        (1, 2048, 2048),
+        "argon_blueshift on the envelope grid",
+        cost=(3.3, 3.4),
+    ),
+    Case(
+        "h2_raman_averaged",
+        1,
+        ("tracking", "mode-averaged"),
+        "prop_capillary",
+        "capillary",
+        0.4,
+        (1, 4096, 8192),
+        "docs/examples/processes/plot_05_raman_self_frequency_shift.py, 10 bar",
+        cost=(16.2, 16.2),
+    ),
+    # Revision 2 (SEP 38): three modes, 0.13 m, 2 ps and 220 nm-4 um, the
+    # definition SEP 37 phase 0 measured; revision 1 had six modes over 0.2 m.
     Case(
         "ctc",
-        1,
-        ("core", "modal-capillary"),
+        2,
+        ("tracking", "modal-capillary"),
+        "prop_capillary",
         "capillary",
-        (*ADAPTIVE, FIXED),
-        0.2,
-        0.00017,
-        0.00034,
-        0.000017,
-        (6, 32768, 65536),
-        "benchmarks/cases.py:ctc",
-    ),
-    Case(
-        "kerr_beam_384",
-        1,
-        ("core", "free-space"),
-        "kerr",
-        (KERR,),
-        5.5e-6,
-        0.5e-6,
-        5.5e-6,
-        0.5e-6,
-        (384, 384, 600),
-        "benchmarks/sep28/cases.py:kerr_beam_384",
-        atol=0.0,
-        warnings=(
-            WarningRule(
-                "construction",
-                "MaterialRangeWarning",
-                r"malitson 'Malitson 1965' is valid over 210-3710 nm; "
-                r"the requested spectrum spans 130\.2-1200 nm\. Source: "
-                r"Malitson, JOSA 55, 1205 \(1965\), doi:10\.1364/JOSA\.55\.001205",
-            ),
-        ),
+        0.13,
+        (3, 8192, 16384),
+        "H2 comb-to-continuum, three modes",
+        widths=("production",),
+        cost=(605.0, 291.5),
     ),
     Case(
         "radial_filament_256",
         1,
-        ("core", "free-space"),
+        ("tracking", "free-space"),
+        "prop_radial",
         "spatial",
-        (*ADAPTIVE, FIXED),
         0.03,
-        0.0,
-        0.03,
-        None,
         (256, 250),
-        "benchmarks/sep16/free_space.py:radial_filament",
-        atol=0.0,
+        "Ar filament with plasma, 256 radial nodes",
         planes=4,
+        cost=(16.4, 6.1),
+    ),
+    # Revision 2 (SEP 38): a 2 cm guide, the window SEP 37 phase 0 measured;
+    # revision 1 was the example's 0.1 m.
+    Case(
+        "grin_nonlinear",
+        2,
+        ("tracking", "advanced"),
+        "prop_waveguide",
+        "advanced",
+        0.02,
+        (4, 4096, 8192),
+        "docs/examples/waveguides/plot_04_graded_index_multimode.py, 2 cm",
+        widths=("production",),
+        planes=5,
+        cost=(102.0, 37.8),
+    ),
+    # Revision 2 (SEP 38): four 0.5 um steps; revision 1 took eleven over 5.5 um.
+    # A fixed-step run costs the same per step, so fewer steps track the same work.
+    Case(
+        "kerr_beam_384",
+        2,
+        ("tracking", "free-space"),
+        "prop_free",
+        "kerr",
+        2e-6,
+        (384, 384, 600),
+        "fused-silica Kerr beam, four fixed RK4IP steps",
+        widths=("production",),
+        planes=1,
+        fields="planes",
+        step=0.5e-6,
+        cost=(None, 48.6),
+    ),
+    Case(
+        "kerr_beam_192",
+        2,
+        ("tracking", "free-space"),
+        "prop_free",
+        "kerr",
+        2e-6,
+        (192, 192, 300),
+        "fused-silica Kerr beam, four fixed RK4IP steps",
+        widths=("1",),
+        planes=1,
+        fields="planes",
+        step=0.5e-6,
+        cost=(13.3, None),
     ),
 )
 
@@ -242,120 +317,41 @@ _MODAL = (
         "rdw_one_mode",
         1,
         ("modal-capillary",),
+        "prop_capillary",
         "capillary",
-        (*ADAPTIVE, FIXED),
         1.5,
-        0.0,
-        ENTRANCE_SCHEDULES["rdw_one_mode"][-1],
-        None,
         (1, 4096, 8192),
-        "benchmarks/cases.py:rdw with one resolved mode",
+        "rdw with one resolved mode",
     ),
-    # Revision 2 (SEP 35 phase 4): a 2 ps window, as a production run of this pulse
-    # takes; revision 1's 1 ps crowded the 400 fs pulse. Its entrance re-piloted.
     Case(
         "ctc_reduced",
         2,
         ("modal-capillary",),
+        "prop_capillary",
         "capillary",
-        (*ADAPTIVE, FIXED),
         0.1,
-        0.0,
-        ENTRANCE_SCHEDULES["ctc_reduced"][-1],
-        0.00012,
         (2, 8192, 16384),
-        "benchmarks/cases.py:ctc_reduced with a 2 ps window",
-    ),
-    Case(
-        "argon_blueshift",
-        1,
-        ("modal-capillary",),
-        "capillary",
-        (*ADAPTIVE, FIXED),
-        0.4,
-        0.0,
-        ENTRANCE_SCHEDULES["argon_blueshift"][-1],
-        None,
-        (1, 2048, 4096),
-        "docs/examples/processes/plot_06_ionisation_blue_shift.py",
+        "ctc with two modes over 0.1 m and a 2 ps window",
     ),
     Case(
         "h2_raman_6ps",
         1,
         ("modal-capillary",),
+        "prop_capillary",
         "capillary",
-        (*ADAPTIVE, FIXED),
         2.0,
-        0.0,
-        ENTRANCE_SCHEDULES["h2_raman_6ps"][-1],
-        None,
         (1, 16384, 32768),
         "docs/examples/processes/plot_05_raman_self_frequency_shift.py; 6 ps window",
-    ),
-    Case(
-        "he_rdw_averaged",
-        1,
-        ("mode-averaged",),
-        "capillary",
-        (*ADAPTIVE, FIXED),
-        1.5,
-        0.0,
-        ENTRANCE_SCHEDULES["he_rdw_averaged"][-1],
-        None,
-        (1, 4096, 8192),
-        "benchmarks/cases.py:rdw; benchmarks/sep25/cases.py averaged route",
-    ),
-    Case(
-        "argon_blueshift_averaged",
-        1,
-        ("mode-averaged",),
-        "capillary",
-        (*ADAPTIVE, FIXED),
-        0.4,
-        0.0,
-        ENTRANCE_SCHEDULES["argon_blueshift_averaged"][-1],
-        None,
-        (1, 2048, 4096),
-        "docs/examples/processes/plot_06_ionisation_blue_shift.py",
     ),
     Case(
         "h2_raman_6ps_averaged",
         1,
         ("mode-averaged",),
+        "prop_capillary",
         "capillary",
-        (*ADAPTIVE, FIXED),
         2.0,
-        0.0,
-        ENTRANCE_SCHEDULES["h2_raman_6ps_averaged"][-1],
-        None,
         (1, 16384, 32768),
-        "docs/examples/processes/plot_05_raman_self_frequency_shift.py; 6 ps window",
-    ),
-    Case(
-        "gnlse_soliton",
-        1,
-        ("mode-averaged",),
-        "gnlse",
-        (*ADAPTIVE, FIXED),
-        1.3278075458959397,
-        0.0,
-        ENTRANCE_SCHEDULES["gnlse_soliton"][-1],
-        None,
-        (1, 4096, 4096),
-        "docs/introduction/tutorials/plot_02_soliton.py",
-    ),
-    Case(
-        "gnlse_raman_shock",
-        1,
-        ("mode-averaged",),
-        "gnlse",
-        (*ADAPTIVE, FIXED),
-        0.15,
-        0.0,
-        ENTRANCE_SCHEDULES["gnlse_raman_shock"][-1],
-        None,
-        (1, 16384, 16384),
-        "benchmarks/sep13/gnlse.py",
+        "h2_raman_6ps on the mode-averaged route",
     ),
 )
 
@@ -364,193 +360,69 @@ _FREE = (
         "radial_filament_512",
         1,
         ("free-space",),
+        "prop_radial",
         "spatial",
-        (*ADAPTIVE, FIXED),
         0.03,
-        0.0,
-        ENTRANCE_SCHEDULES["radial_filament_512"][-1],
-        None,
         (512, 1024, 2048),
-        "benchmarks/sep16/free_space.py:radial_filament_large",
-        atol=0.0,
+        "radial_filament_256 at 512 nodes",
     ),
-    Case(
-        "cartesian_filament_128",
-        1,
-        ("free-space",),
-        "spatial",
-        (*ADAPTIVE, FIXED),
-        0.03,
-        0.0,
-        ENTRANCE_SCHEDULES["cartesian_filament_128"][-1],
-        None,
-        (128, 128, 1024, 2048),
-        "benchmarks/sep16/free_space.py:cartesian_filament_large",
-        atol=0.0,
-    ),
-    Case(
-        "cartesian_filament_256",
-        1,
-        ("free-space",),
-        "spatial",
-        (*ADAPTIVE, FIXED),
-        0.03,
-        0.0,
-        ENTRANCE_SCHEDULES["cartesian_filament_256"][-1],
-        None,
-        (256, 256, 1024, 2048),
-        "benchmarks/sep28/cases.py:cartesian_filament_256",
-        atol=0.0,
-    ),
-    Case(
-        "kerr_beam_192",
-        1,
-        ("free-space",),
-        "kerr",
-        (KERR,),
-        5.5e-6,
-        0.5e-6,
-        5.5e-6,
-        0.5e-6,
-        (192, 192, 300),
-        "benchmarks/sep28/cases.py:kerr_beam_192",
-        atol=0.0,
-        warnings=(
-            WarningRule(
-                "construction",
-                "MaterialRangeWarning",
-                r"malitson 'Malitson 1965' is valid over 210-3710 nm; "
-                r"the requested spectrum spans 130\.4-1182 nm\. Source: "
-                r"Malitson, JOSA 55, 1205 \(1965\), doi:10\.1364/JOSA\.55\.001205",
-            ),
-        ),
+    *(
+        Case(
+            f"cartesian_filament_{size}",
+            1,
+            ("free-space",),
+            "prop_free",
+            "spatial",
+            0.03,
+            (size, size, 1024, 2048),
+            "the Ar filament on a Cartesian grid",
+        )
+        for size in (128, 256)
     ),
     Case(
         "kerr_beam_768",
         1,
         ("free-space",),
+        "prop_free",
         "kerr",
-        (KERR,),
         3e-6,
-        0.5e-6,
-        3e-6,
-        0.5e-6,
         (768, 768, 600),
-        "benchmarks/sep28/cases.py:kerr_beam_768",
-        atol=0.0,
-        warnings=_CORE[2].warnings,
+        "fused-silica Kerr beam, fixed RK4IP steps",
+        planes=1,
+        fields="planes",
+        step=0.5e-6,
     ),
     Case(
         "line",
         1,
         ("free-space",),
+        "prop_free",
         "spatial",
-        (*ADAPTIVE, FIXED),
         0.08,
-        0.0,
-        ENTRANCE_SCHEDULES["line"][-1],
-        None,
         (128, 512, 1024),
-        "benchmarks/sep16/free_space.py:line",
-        atol=0.0,
+        "Ar Kerr beam on a line grid",
     ),
     Case(
         "planar",
         1,
         ("free-space",),
+        "prop_planar",
         "spatial",
-        (*ADAPTIVE, FIXED),
         0.05,
-        0.0,
-        ENTRANCE_SCHEDULES["planar"][-1],
-        None,
         (2, 32, 512, 512),
-        "benchmarks/sep16/free_space.py:planar",
-        atol=0.0,
+        "two-mode Ar slab",
     ),
     Case(
         "spatial_absorber",
         1,
         ("free-space",),
+        "prop_radial",
         "spatial",
-        (*ADAPTIVE, FIXED),
         0.08,
-        0.0,
-        ENTRANCE_SCHEDULES["spatial_absorber"][-1],
-        None,
         (64, 512, 1024),
-        "benchmarks/sep16/free_space.py:radial_boundary",
-        atol=0.0,
+        "radial Kerr beam meeting its absorbing boundary",
     ),
 )
-
-_GUIDE_WARNINGS = {
-    "scalar_wall": (
-        WarningRule(
-            "construction",
-            "SolpropWarning",
-            "the temporal absorber attenuates a packet walking off by 0\\.15"
-            " fs over 0\\.0002 m by only 0\\.00065 nepers, below the 6\\.9 "
-            "that stops it wrapping around the time window; widen trange, "
-            "or raise boundary_N above 2\\.12e\\+05",
-        ),
-        WarningRule(
-            "construction",
-            "GrazingIncidenceWarning",
-            "the coherent wall block's quasi_static reaches 0\\.0449, within"
-            " a factor ten of the 0\\.25 limit; the condensed paraxial model"
-            " is marginal over this band",
-        ),
-    ),
-    "vector_wall": (
-        WarningRule(
-            "construction",
-            "SolpropWarning",
-            "the temporal absorber attenuates a packet walking off by "
-            "0\\.141 fs over 0\\.0002 m by only 0\\.00069 nepers, below the "
-            "6\\.9 that stops it wrapping around the time window; widen "
-            "trange, or raise boundary_N above 2e\\+05",
-        ),
-        WarningRule(
-            "construction",
-            "GrazingIncidenceWarning",
-            "the coherent wall block's quasi_static reaches 0\\.06069, "
-            "within a factor ten of the 0\\.25 limit; the condensed paraxial"
-            " model is marginal over this band",
-        ),
-    ),
-    "taper": (
-        WarningRule(
-            "construction",
-            "SolpropWarning",
-            "the temporal absorber attenuates a packet walking off by 0\\.19"
-            " fs over 0\\.0002 m by only 0\\.00051 nepers, below the 6\\.9 "
-            "that stops it wrapping around the time window; widen trange, "
-            "or raise boundary_N above 2\\.69e\\+05",
-        ),
-    ),
-    "taper_wall": (
-        WarningRule(
-            "construction",
-            "SolpropWarning",
-            "the temporal absorber attenuates a packet walking off by 0\\.19"
-            " fs over 0\\.0002 m by only 0\\.00051 nepers, below the 6\\.9 "
-            "that stops it wrapping around the time window; widen trange, "
-            "or raise boundary_N above 2\\.69e\\+05",
-        ),
-        WarningRule(
-            "construction",
-            "GrazingIncidenceWarning",
-            "the coherent wall block's quasi_static reaches 0\\.05613, "
-            "within a factor ten of the 0\\.25 limit; the condensed paraxial"
-            " model is marginal over this band",
-        ),
-    ),
-    "step_index_pair": (),
-    "grin_linear": (),
-    "grin_nonlinear": (),
-    "moving_solid_guide": (),
-}
 
 _ADVANCED = (
     *(
@@ -558,15 +430,11 @@ _ADVANCED = (
             name,
             1,
             ("advanced",),
+            "prop_capillary",
             "advanced",
-            (*ADAPTIVE, FIXED),
             2e-4,
-            0.0,
-            ENTRANCE_SCHEDULES[name][-1],
-            2e-5,
             (4 if name == "vector_wall" else 3, 1024, 2048),
             f"docs/tutorials/capillaries/{source}",
-            warnings=_GUIDE_WARNINGS[name],
         )
         for name, source in (
             ("scalar_wall", "plot_07_coherent_wall.py"),
@@ -576,38 +444,14 @@ _ADVANCED = (
         )
     ),
     *(
-        Case(
-            name,
-            1,
-            ("advanced",),
-            "advanced",
-            (*ADAPTIVE, FIXED),
-            length,
-            0.0,
-            ENTRANCE_SCHEDULES[name][-1],
-            None,
-            dimensions,
-            source,
-            warnings=_GUIDE_WARNINGS[name],
-        )
-        for name, length, dimensions, source in (
-            (
-                "step_index_pair",
-                1e-3,
-                (2, 1024, 2048),
-                "benchmarks/sep25/cases.py:_general",
-            ),
+        Case(name, 1, ("advanced",), "prop_waveguide", "advanced", length, size, source)
+        for name, length, size, source in (
+            ("step_index_pair", 1e-3, (2, 1024, 2048), "nonlinear HE11 parity pair"),
             (
                 "grin_linear",
                 0.0007846800630498693,
                 (2, 128, 256),
                 "docs/tutorials/waveguides/plot_06_graded_index.py",
-            ),
-            (
-                "grin_nonlinear",
-                0.1,
-                (4, 4096, 8192),
-                "docs/examples/waveguides/plot_04_graded_index_multimode.py",
             ),
             (
                 "moving_solid_guide",
@@ -619,148 +463,111 @@ _ADVANCED = (
     ),
 )
 
-CASES = {case.name: case for case in (*_CORE, *_MODAL, *_FREE, *_ADVANCED)}
+_EXERCISES = tuple(
+    Case(
+        name,
+        1,
+        ("backend-exercise",),
+        interface,
+        "exercise",
+        length,
+        dimensions,
+        source,
+        planes=8 if name in ("dense_output", "far_field_stats") else 1,
+        fields="planes" if name == "far_field_stats" else "all",
+    )
+    for name, interface, length, dimensions, source in (
+        (
+            "vector_raman",
+            "prop_capillary",
+            2e-4,
+            (1, 2, 256, 256),
+            "the vector Raman tutorial's circular pump and delayed probe",
+        ),
+        (
+            "envelope_plasma",
+            "prop_capillary",
+            8e-6,
+            (1, 1, 256, 256),
+            "docs/tutorials/capillaries/plot_05_envelope_plasma.py",
+        ),
+        (
+            "mixture_gradient",
+            "prop_capillary",
+            1.5,
+            (1, 1, 512, 1024),
+            "docs/guide/media/mixtures.md",
+        ),
+        (
+            "dispersive_kerr",
+            "prop_capillary",
+            0.5,
+            (1, 1, 2048, 4096),
+            "docs/tutorials/capillaries/plot_11_dispersive_kerr.py",
+        ),
+        ("plasma_band", "prop_capillary", 1e-3, (2, 1, 512, 1024), "band plasma"),
+        (
+            "plasma_trapezoid",
+            "prop_capillary",
+            1e-3,
+            (2, 1, 512, 1024),
+            "trapezoid plasma",
+        ),
+        ("noise", "prop_gnlse", 1e-3, (1, 1, 1024, 1024), "modified-noise fibre"),
+        ("dense_output", "prop_gnlse", 1.0, (1, 1, 1024, 1024), "dense output"),
+        (
+            "absorber_schemes",
+            "prop_gnlse",
+            1e-3,
+            (1, 1, 1024, 1024),
+            "split-step absorber",
+        ),
+        (
+            "ordinary_stats",
+            "prop_capillary",
+            1e-3,
+            (2, 1, 512, 1024),
+            "ordinary statistics on two modes",
+        ),
+        (
+            "far_field_stats",
+            "prop_free",
+            1e-3,
+            (224, 64, 128, 128),
+            "docs/tutorials/free_space/plot_07_far_field_statistics.py",
+        ),
+    )
+)
+
+CASES = {
+    case.name: case for case in (*_TRACKED, *_MODAL, *_FREE, *_ADVANCED, *_EXERCISES)
+}
 CASES["smoke"] = Case(
     "smoke",
     1,
     (),
+    "prop_gnlse",
     "smoke",
-    (*ADAPTIVE, FIXED),
     1e-4,
-    0.0,
-    1e-4,
-    1e-5,
-    (),
-    "suite integration smoke; not an adoption workload",
+    (1, 256, 256),
+    "a short noiseless fibre for testing the runner; not a workload",
+    planes=2,
 )
-CASES["batch"] = Case(
-    "batch",
-    1,
-    ("backend-exercise",),
-    "batch",
-    (FIXED,),
-    1e-3,
-    0.0,
-    1e-3,
-    1e-4,
-    (2, 1, 1024, 1024),
-    "tests/backends/test_batch_lockstep.py:simulation; ten fixed RK steps",
-)
-
-# Original guides with frozen default-RK entrance pilots; the 8 µm plasma
-# tutorial ends after four steps, a window retained by design.
-for _name, _length, _dimensions, _source in (
-    (
-        "vector_raman",
-        2e-4,
-        (1, 2, 256, 256),
-        "tests/vector_raman_cases.py and vector Raman tutorial",
-    ),
-    (
-        "envelope_plasma",
-        8e-6,
-        (1, 1, 256, 256),
-        "docs/tutorials/capillaries/plot_05_envelope_plasma.py",
-    ),
-    (
-        "mixture_gradient",
-        1.5,
-        (1, 1, 512, 1024),
-        "docs/guide/media/mixtures.md; capillary interface case",
-    ),
-    (
-        "dispersive_kerr",
-        0.5,
-        (1, 1, 2048, 4096),
-        "docs/tutorials/capillaries/plot_11_dispersive_kerr.py",
-    ),
-    (
-        "plasma_band",
-        1e-3,
-        (2, 1, 512, 1024),
-        "tests/backends/test_band_plasma_parity.py:modal",
-    ),
-    (
-        "plasma_trapezoid",
-        1e-3,
-        (2, 1, 512, 1024),
-        "tests/backends/test_band_plasma_parity.py:modal",
-    ),
-    (
-        "noise",
-        1e-3,
-        (1, 1, 1024, 1024),
-        "tests/backends/test_batch_lockstep.py:simulation",
-    ),
-    ("dense_output", 1.0, (1, 1, 1024, 1024), "tests/backends/test_dense_output.py"),
-    (
-        "absorber_schemes",
-        1e-3,
-        (1, 1, 1024, 1024),
-        "tests/backends/test_batch_lockstep.py:simulation",
-    ),
-    (
-        "ordinary_stats",
-        1e-3,
-        (2, 1, 512, 1024),
-        "tests/driver/test_prop_capillary.py:build",
-    ),
-    (
-        "far_field_stats",
-        1e-3,
-        (224, 64, 128, 128),
-        "docs/tutorials/free_space/plot_07_far_field_statistics.py",
-    ),
-):
-    CASES[_name] = Case(
-        _name,
-        1,
-        ("backend-exercise",),
-        "exercise",
-        ADAPTIVE if _name == "dense_output" else (*ADAPTIVE, FIXED),
-        _length,
-        0.0,
-        ENTRANCE_SCHEDULES[_name][-1],
-        None,
-        _dimensions,
-        _source,
-        atol=1e-14
-        if _name == "envelope_plasma"
-        else 1e-18
-        if _name == "dense_output"
-        else 1e-12
-        if _name == "far_field_stats"
-        else 1e-10,
-        planes=8 if _name in ("dense_output", "far_field_stats") else 1,
-        warnings=(
-            WarningRule(
-                "construction",
-                "MaterialRangeWarning",
-                r"H2: optmat's Raman response raman_response/H2@293\.15K,800nm "
-                r"is used outside its validated density range "
-                r"\(0\.3722 to 0\.3722 amagat\)\. optmat: density below 0\.94 amagat, "
-                r"where the motion of the molecules sets the widths: "
-                r"the Dicke terms are capped at the Doppler widths \(TC-\d+\)",
-            ),
-        )
-        if _name == "vector_raman"
-        else (),
-    )
 
 
 def select(
     cases: tuple[str, ...] = (), sets: tuple[str, ...] = (), *, all_cases: bool = False
 ) -> tuple[Case, ...]:
-    """Expand selectors once, retaining declared order and excluding no failures."""
-    if any(name not in CASES for name in cases):
-        raise SuiteError(
-            f"unknown case: {', '.join(name for name in cases if name not in CASES)}"
-        )
+    """Expand selectors in declared order; no selection means the tracking set."""
+    if unknown := [name for name in cases if name not in CASES]:
+        raise SuiteError(f"unknown case: {', '.join(unknown)}")
     if any(name not in SETS for name in sets):
-        raise SuiteError("unknown set; use --all for the union")
-    selected_sets = SETS if all_cases else sets or (() if cases else ("core",))
+        raise SuiteError("unknown set; use --all for every case")
+    if all_cases:
+        return tuple(case for case in CASES.values() if case.name != "smoke")
+    selected = sets or (() if cases else (TRACKING,))
     return tuple(
         case
         for case in CASES.values()
-        if case.name in cases or set(case.sets).intersection(selected_sets)
+        if case.name in cases or set(case.sets).intersection(selected)
     )

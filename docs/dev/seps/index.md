@@ -67,12 +67,13 @@ Proposals that are final, rejected, withdrawn or superseded; the
 | [27](archive/sep-0027-held-plasma-current.md) | An edge-free field-grid plasma source: hold the current at the temporal collar | Final | Change |
 | [28](archive/sep-0028-free-space-evaluation.md) | Free-space evaluation at the memory bound | Final | Change |
 | [29](archive/sep-0029-compiled-backend-distribution.md) | The native backend in solprop, distributed as binaries | Final | Change |
-| [30](archive/sep-0030-standard-benchmark-suite.md) | Standard benchmark suite | Final | Process |
+| [30](archive/sep-0030-standard-benchmark-suite.md) | Standard benchmark suite | Superseded | Process |
 | [31](archive/sep-0031-simulation-coupling.md) | Coupling simulations and transporting ultrafast fields | Final | Feature |
 | [33](archive/sep-0033-single-precision-mlx.md) | Single-precision propagation, and an MLX backend for Apple GPUs | Final | Feature |
 | [34](archive/sep-0034-medium-flux.md) | Medium flux for free-space propagation | Final | Change |
 | [35](archive/sep-0035-carrier-frame-exponential-adams.md) | A carrier frame for the exponential Adams history | Final | Change |
 | [37](archive/sep-0037-noise-and-stepper-defaults.md) | Shot noise on by default, and an integrator and tolerances chosen for each interface | Final | Change |
+| [38](archive/sep-0038-performance-tracking.md) | Performance tracking: complete runs, about an hour per machine | Final | Process |
 
 ```{toctree}
 :hidden:
