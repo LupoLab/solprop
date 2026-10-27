@@ -393,6 +393,10 @@ collar ([free-space propagation](../free-space/model.md#spatial-collar-and-stati
 
 ## Watching the window's edges
 
+The tutorial [Is my time window big enough?](../../auto_tutorials/basics/plot_07_time_window.rst)
+sizes a window with what follows, on a short fibre whose Raman soliton walks towards
+the late edge.
+
 Every run watches its time window ({py:class}`solprop.monitor.BoundaryCheck`, on by default
 through `SimulationSettings.boundary_check`). At the launch and at every committed step it
 measures the share of the field's energy in the outer 5 % of the realised window at each
