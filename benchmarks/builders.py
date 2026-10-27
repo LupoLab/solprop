@@ -180,7 +180,10 @@ def gnlse(name: str) -> Simulation:
             pulseshape="sech",
             raman=False,
             shock=False,
-            seed=SEED,
+            # The one noiseless case: a soliton-recurrence study runs without noise,
+            # and a seed would make it a different workload (SEP 37 measured 65 times
+            # the steps with one).
+            noise=None,
         )
     if name == "gnlse_raman_shock":
         return Simulation.from_gnlse(

@@ -163,7 +163,7 @@ def test_tracked_definitions_change_only_with_a_new_revision():
     # digest covers the registry's declared fields; builder edits need the same.
     assert [(case.name, case.revision, case.digest[:12]) for case in select()] == [
         ("gnlse_raman_shock", 1, "b3f7fc864691"),
-        ("gnlse_soliton", 1, "c842ded9a2c7"),
+        ("gnlse_soliton", 2, "f52512986806"),
         ("rdw", 1, "883433a7ddb1"),
         ("he_rdw_averaged", 1, "677a784eeb82"),
         ("argon_blueshift", 2, "a080d3f0462f"),
