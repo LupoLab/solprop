@@ -87,7 +87,8 @@ physical cores in the process's CPU allocation unless `--production` gives it; o
 cluster, give it explicitly.
 
 **Threading.** `--threading` sets OpenMP's placement and waiting in every worker:
-`passive` (unpinned, idle threads sleep at once), `default` (the runtime's own short
+`passive` (unpinned, idle threads sleep at once), `passive-bound` (the same, pinned
+to neighbouring cores), `default` (the runtime's own short
 spin before sleeping), `active` (idle threads spin), `bound` (threads pinned to
 neighbouring cores) or `bound-active`. The policy is recorded with each row, and rows
 compare only within one policy.

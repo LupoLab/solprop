@@ -149,7 +149,8 @@ SELECTION: [--case NAME]... [--set SET]... [--all] [--stepper S] [--threads W]
 - `--production` gives the production width; otherwise it is the number of physical
   cores in the process's CPU allocation.
 - `--threading` sets OpenMP's placement and waiting for every worker: `passive`
-  (unpinned; idle threads sleep at once), `default` (the runtime's own waiting),
+  (unpinned; idle threads sleep at once), `passive-bound` (pinned, sleeping at
+  once), `default` (the runtime's own waiting),
   `active` (idle threads spin), `bound` (pinned to neighbouring cores) or
   `bound-active`. The policy is part of what history rows compare by; the default is
   set by phase 2's measurement.

@@ -81,6 +81,14 @@ THREADING: dict[str, dict[str, str]] = {
         "KMP_BLOCKTIME": "0",
         "GOMP_SPINCOUNT": "0",
     },
+    # Pinned to neighbouring cores, and idle threads sleep at once.
+    "passive-bound": {
+        "OMP_PROC_BIND": "close",
+        "OMP_PLACES": "cores",
+        "OMP_WAIT_POLICY": "PASSIVE",
+        "KMP_BLOCKTIME": "0",
+        "GOMP_SPINCOUNT": "0",
+    },
     # Unpinned, with each OpenMP runtime's own waiting (a short spin, then sleep).
     "default": {"OMP_PROC_BIND": "false"},
     # Unpinned, and idle threads spin between parallel regions.
