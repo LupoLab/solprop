@@ -4248,7 +4248,7 @@ class Simulation(Displayed):
             absorber_scheme=absorber_scheme,
             noise=noise,
             seed=seed,
-            rtol=CAPILLARY_RTOL if rtol is None and precision == "double" else rtol,
+            rtol=_tolerance(rtol, precision, CAPILLARY_RTOL),
             atol=atol,
             dz_max=dz_max,
             dz_init=dz_init,

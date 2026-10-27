@@ -255,9 +255,9 @@ def test_mixed_precision_takes_its_defaults_and_refuses_what_it_does_not_run():
     settings = simulation.settings
     assert settings.precision == "mixed"
     assert isinstance(settings.integrator, RungeKutta)
-    # The larger of the binary64 default and the floor: 1e-8 for the GNLSE, 1e-6 for
-    # a waveguide (SEP 36 section 5).
-    assert settings.controller.rtol == 1e-8
+    # The larger of the interface's binary64 default and the floor 1e-8: 1e-7 for the
+    # GNLSE (SEP 37), 1e-6 for a capillary (SEP 36 section 5).
+    assert settings.controller.rtol == 1e-7
     assert capillary("mixed").settings.controller.rtol == 1e-6
     assert simulation.translate().precision is MIXED
     for backend in ("numba_cpu", "mlx"):

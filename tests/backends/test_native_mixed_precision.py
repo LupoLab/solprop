@@ -380,7 +380,8 @@ def test_a_modified_noise_run_agrees_with_the_oracle_under_the_study_admission(
             0.11, 0.02, [0.0, 0.0, -1.183e-26, 8.1e-41], lambda0=835e-9,
             wavelength_limits=(500e-9, 2e-6), trange=1e-12, width=50e-15,
             peak_power=100.0, pulseshape="sech", save_planes=[0.02],
-            backend=backend, precision=p, noise=noise, seed=3,
+            backend=backend, precision=p, noise=noise,
+            seed=None if noise is None else 3,
             integrator=RungeKutta(),
             schedule=FixedSchedule.uniform(0.0, 0.02, 0.002, save_planes=[0.02]),
         )  # fmt: skip
