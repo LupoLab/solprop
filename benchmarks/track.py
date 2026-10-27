@@ -74,6 +74,11 @@ def selection_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--backend", choices=("numpy_ref", "numba_cpu", "native"), default="native"
     )
+    parser.add_argument(
+        "--device",
+        action="store_true",
+        help="run each case once on the GPU of a native device build",
+    )
     parser.add_argument("--repeats", type=int, default=3, help="timed runs per case")
     parser.add_argument(
         "--threading",
@@ -120,14 +125,16 @@ def summarise(
 
     A row is consistent when its repeats took the same steps and reached the same
     final field to rounding, and the native backend ran the threads it was given.
+    A device row's width is ``device``: its host threads do not set its pace.
     """
     values = row["configuration"]
+    device = bool(values.get("device"))
     base = {
         "id": row["id"],
         "case": values["case"],
         "revision": values["revision"],
         "stepper": values["stepper"],
-        "threads": values["threads"],
+        "threads": "device" if device else values["threads"],
         "threading": threading,
         "status": result["status"],
         "busy": busy,
@@ -152,9 +159,12 @@ def summarise(
         "native_threads": native_threads,
         "consistent": same_steps == 1
         and result["repeat_difference"] <= REPEAT_TOLERANCE
-        and native_threads in (None, values["threads"]),
+        and (device or native_threads in (None, values["threads"])),
         "source_evaluations": last["source_evaluations"],
         "peak_rss_gib": result["peak_rss_bytes"] / 2**30,
+        "device_gib": None
+        if result.get("device_bytes") is None
+        else result["device_bytes"] / 2**30,
         "construction_s": result["construction_seconds"] + result["backend_seconds"],
         "warmup_s": result["warmup_seconds"],
         "integrator": result["integrator"],
@@ -175,14 +185,14 @@ def show_results(rows: list[Record]) -> None:
     for row in rows:
         if row["status"] != "ok":
             print(
-                f"{row['case']:26} {'':28} {row['threads']:>3} failed: {row['error']}"
+                f"{row['case']:26} {'':28} {row['threads']!s:>3} failed: {row['error']}"
             )
             continue
         spread = 100 * (row["max_s"] - row["min_s"]) / row["median_s"]
         print(
-            f"{row['case']:26} {row['integrator']:28} {row['threads']:>3} "
+            f"{row['case']:26} {row['integrator']:28} {row['threads']!s:>3} "
             f"{row['median_s']:9.2f} {spread:8.1f} {row['accepted']:7d} "
-            f"{row['peak_rss_gib']:6.2f}"
+            f"{row['device_gib'] or row['peak_rss_gib']:6.2f}"
             + ("" if row["consistent"] else "  (repeats or threads inconsistent)")
             + ("  (busy)" if row["busy"] else "")
         )
@@ -210,6 +220,7 @@ def history_rows(
             or None,
             "slug": machine["slug"],
             "cpu_model": machine["cpu_model"],
+            "gpu_model": machine.get("gpu_model"),
             "instance_type": machine["instance_type"],
             "system": f"{machine['system']} {machine['machine']}",
             "numa_domains": machine["numa_domains"],
@@ -231,6 +242,9 @@ def history_rows(
             "rejected": row["rejected"],
             "source_evaluations": row["source_evaluations"],
             "peak_rss_gib": f"{row['peak_rss_gib']:.3f}",
+            "device_gib": None
+            if row.get("device_gib") is None
+            else f"{row['device_gib']:.3f}",
             "construction_s": f"{row['construction_s']:.2f}",
             "busy": int(row["busy"]),
         }
@@ -251,7 +265,7 @@ def refuse_partial(
             "uncommitted changes: commit them, or pass --allow-dirty to record "
             "this run anyway (its rows are marked dirty)"
         )
-    default, _ = plan_rows(select(), ("default",), None, production)
+    default, _ = plan_rows(select(), ("default",), None, production, device=args.device)
     if [row["id"] for row in rows] != [row["id"] for row in default]:
         raise SuiteError("the history records the whole default plan only")
     if args.repeats < 3:
@@ -305,13 +319,14 @@ def track(args: argparse.Namespace) -> int:
         args.threads,
         production,
         backend=args.backend,
+        device=args.device,
     )
     if not rows:
         raise SuiteError("no configuration in the selection")
     show_plan(rows, skipped, args.repeats)
     if args.dry_run:
         return 0
-    machine = hardware(production, args.instance_type)
+    machine = hardware(production, args.instance_type, device=args.device)
     source = git_receipt(ROOT)
     if args.append_history:
         refuse_partial(args, rows, production, source)

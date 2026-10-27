@@ -118,8 +118,14 @@ class Case:
         backend: str = "native",
         fraction: float = 1.0,
         warmup: float = 0.02,
+        *,
+        device: bool = False,
     ) -> Record:
-        """Resolve one measurement without constructing a scientific object."""
+        """Resolve one measurement without constructing a scientific object.
+
+        On a device build, `width` is the host's thread count and `device` says the
+        native backend must run on the accelerator.
+        """
         if stepper not in self.steppers:
             raise SuiteError(f"{self.name} admits only {', '.join(self.steppers)}")
         if not 0 < fraction <= 1 or not 0 <= warmup < 1:
@@ -131,6 +137,7 @@ class Case:
             "stepper": stepper,
             "threads": width,
             "backend": backend,
+            "device": device,
             "stop": self.length * fraction,
             "fraction": fraction,
             "warmup": warmup,

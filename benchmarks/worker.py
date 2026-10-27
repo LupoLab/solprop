@@ -37,6 +37,7 @@ from benchmarks.records import (
 )
 
 __all__ = [
+    "HOST_SPACES",
     "Diagnostics",
     "emit",
     "integrator_label",
@@ -61,9 +62,19 @@ def emit(kind: str, **values: object) -> None:
     print(canonical({"event": kind, **values}), flush=True)
 
 
-def runtime(backend: str) -> Record:
-    """Import in the required order and identify the loaded packages and pools."""
+HOST_SPACES = ("OpenMP", "Threads", "Serial")
+"""Kokkos execution spaces of a native CPU build; any other is an accelerator's."""
+
+
+def runtime(backend: str, device: bool = False) -> Record:
+    """Import in the required order and identify the loaded packages and pools.
+
+    A `device` run needs a native accelerator build with a visible device; any
+    other run needs a CPU build.
+    """
     info: Record = {}
+    if device and backend != "native":
+        raise SuiteError("only the native backend runs on a device")
     if backend == "native":
         # solprop_native must be imported before pyFFTW.
         import solprop_native  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
@@ -71,8 +82,11 @@ def runtime(backend: str) -> Record:
         build = dataclasses.asdict(solprop_native.build_info())
         if build.get("coverage_instrumented", False):
             raise SuiteError("an instrumented native build cannot be timed")
-        if build.get("execution_space") not in ("OpenMP", "Threads", "Serial"):
-            raise SuiteError("the benchmarks time native CPU builds only")
+        on_host = build.get("execution_space") in HOST_SPACES
+        if device and (on_host or not build.get("device_count")):
+            raise SuiteError("a device run needs a native GPU build and a visible GPU")
+        if not device and not on_host:
+            raise SuiteError("a native GPU build times device runs only (--device)")
         extension = Path(importlib.import_module("solprop_native._core").__file__ or "")
         info.update(build_info=build, extension_hash=file_hash(extension))
     from threadpoolctl import threadpool_info  # noqa: PLC0415
@@ -208,6 +222,15 @@ def timed_run(
     return record, output.plane_field(output.n_saved - 1, "fft")
 
 
+def _device_free(configuration: Record) -> int | None:
+    """Read the accelerator's free bytes on a device run, else ``None``."""
+    if not configuration.get("device"):
+        return None
+    import solprop_native  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+
+    return solprop_native.available_device_memory()
+
+
 def measure(configuration: Record, repeats: int, fields: Path | None) -> Record:
     """Build once, warm up once, then time ``repeats`` complete runs.
 
@@ -224,6 +247,7 @@ def measure(configuration: Record, repeats: int, fields: Path | None) -> Record:
     from solprop.driver.run import field_retention  # noqa: PLC0415
     from solprop.output.schema import serialise  # noqa: PLC0415
 
+    free_before = _device_free(configuration)
     started = time.perf_counter()
     simulation = build(configuration)
     problem = simulation.translate()
@@ -250,6 +274,7 @@ def measure(configuration: Record, repeats: int, fields: Path | None) -> Record:
         engine.observe(field=True)
         engine.stats(problem.stats_spec)
         warmup = time.perf_counter() - started
+        free_warm = _device_free(configuration)
         repetitions = []
         first = final = None
         difference = 0.0
@@ -276,6 +301,11 @@ def measure(configuration: Record, repeats: int, fields: Path | None) -> Record:
             "warmup_seconds": warmup,
             "repetitions": repetitions,
             "peak_rss_bytes": peak_rss(),
+            # The run's workspace stays allocated, so the drop in free memory from
+            # before construction to after the warm-up is what the run holds.
+            "device_bytes": None
+            if free_before is None or free_warm is None
+            else free_before - free_warm,
             "finite": bool(np.all(np.isfinite(final))),
             "repeat_difference": difference,
             "integrator": integrator_label(problem.stepper.integrator),
@@ -303,7 +333,12 @@ def main() -> int:
         request = read_record(Path(sys.argv[1]))
         configuration = request["configuration"]
         with diagnostics.capture():
-            emit("provenance", provenance=runtime(configuration["backend"]))
+            emit(
+                "provenance",
+                provenance=runtime(
+                    configuration["backend"], bool(configuration.get("device"))
+                ),
+            )
             diagnostics.phase = "measurement"
             fields = request.get("fields")
             result = measure(

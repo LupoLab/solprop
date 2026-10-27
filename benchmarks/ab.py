@@ -187,6 +187,7 @@ def ab(args: argparse.Namespace) -> int:
         args.production or physical_cores(),
         backend=args.backend,
         fraction=args.length,
+        device=args.device,
     )
     for reason in skipped:
         print(f"skipped {reason}")

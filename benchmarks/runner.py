@@ -57,7 +57,9 @@ def freeze_harness(directory: Path) -> Record:
     return files
 
 
-def plan_rows(
+# The suppression below is for PLR0913: the keyword options are the shared
+# command-line selection, passed through unchanged.
+def plan_rows(  # noqa: PLR0913
     cases: tuple[Case, ...],
     steppers: tuple[str, ...],
     threads: str | None,
@@ -65,16 +67,18 @@ def plan_rows(
     *,
     backend: str = "native",
     fraction: float = 1.0,
+    device: bool = False,
 ) -> tuple[list[Record], list[str]]:
     """Resolve configurations in run order; explain every one left out.
 
     Without `threads`, each case runs at its declared widths; with it, every case
-    runs at the widths it names.
+    runs at the widths it names. On a `device`, each case runs once, with the
+    production width of host threads, and its CPU cost does not apply.
     """
     rows: list[Record] = []
     skipped: list[str] = []
     for case in cases:
-        declared = ",".join(case.widths)
+        declared = "production" if device else ",".join(case.widths)
         for width in widths(threads or declared, production):
             for stepper in steppers:
                 if stepper not in case.steppers:
@@ -85,11 +89,12 @@ def plan_rows(
                     continue
                 rows.append(
                     {
-                        "id": f"{case.name}.{stepper}.t{width}",
+                        "id": f"{case.name}.{stepper}."
+                        + ("device" if device else f"t{width}"),
                         "configuration": case.configuration(
-                            stepper, width, backend, fraction
+                            stepper, width, backend, fraction, device=device
                         ),
-                        "cost": case.cost[0 if width == 1 else 1],
+                        "cost": None if device else case.cost[0 if width == 1 else 1],
                     }
                 )
     rows.sort(key=lambda row: row["configuration"]["threads"])
@@ -111,7 +116,8 @@ def show_plan(rows: list[Record], skipped: list[str], runs: int) -> None:
         values = row["configuration"]
         cost = "?" if row["cost"] is None else f"{row['cost']:.0f}"
         print(
-            f"{values['case']:26} {values['stepper']:22} {values['threads']:>7} "
+            f"{values['case']:26} {values['stepper']:22} "
+            f"{'device' if values.get('device') else values['threads']:>7} "
             f"{cost:>10}"
         )
     for reason in skipped:

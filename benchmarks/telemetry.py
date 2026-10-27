@@ -17,6 +17,7 @@ from benchmarks.records import Record, SuiteError
 __all__ = [
     "allocation_details",
     "cpu_list",
+    "gpu_model",
     "hardware_details",
     "linux_topology",
     "lscpu_model",
@@ -175,3 +176,34 @@ def allocation_details() -> Record:
     }
     result["exclusivity"] = "unverified; requires the scheduler allocation record"
     return result
+
+
+def gpu_model(nvidia: str | None, amd: str | None) -> str | None:
+    """Name the first visible GPU from ``nvidia-smi`` or ``rocm-smi`` output.
+
+    `nvidia` is ``nvidia-smi --query-gpu=name --format=csv,noheader``; `amd` is
+    ``rocm-smi --showproductname --csv``, whose ``Card Series`` column names the part.
+    """
+    for line in (nvidia or "").splitlines():
+        if line.strip():
+            return line.strip()
+    lines = [line for line in (amd or "").splitlines() if line.strip()]
+    if len(lines) > 1:
+        header = [cell.strip() for cell in lines[0].split(",")]
+        if "Card Series" in header:
+            value = lines[1].split(",")[header.index("Card Series")].strip()
+            if value:
+                return value if value.startswith("AMD") else f"AMD {value}"
+    return None
+
+
+def gpu_details() -> Record:
+    """Record the first visible GPU's model, or why it is unknown."""
+    model = gpu_model(
+        _command(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"]),
+        _command(["rocm-smi", "--showproductname", "--csv"]),
+    )
+    return {
+        "gpu_model": model,
+        "gpu_model_reason": None if model else "no nvidia-smi or rocm-smi answer",
+    }

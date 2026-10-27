@@ -12,7 +12,7 @@ import sys
 
 import pytest
 from benchmarks import __main__ as cli
-from benchmarks import history, runner, system, track
+from benchmarks import history, runner, system, telemetry, track
 from benchmarks.records import SuiteError, read_record
 from benchmarks.registry import CASES, select
 
@@ -176,7 +176,12 @@ def test_older_history_files_gain_new_columns_and_newer_ones_are_refused(tmp_pat
 
 
 def namespace(**values):
-    defaults = {"backend": "native", "allow_dirty": False, "repeats": 3}
+    defaults = {
+        "backend": "native",
+        "allow_dirty": False,
+        "repeats": 3,
+        "device": False,
+    }
     return argparse.Namespace(**(defaults | values))
 
 
@@ -354,3 +359,54 @@ def test_memory_domains_count_from_the_topology_and_separate_series():
 def test_a_native_build_counts_as_current_unless_native_changed():
     assert not system.native_changed(runner.ROOT, "HEAD", "HEAD")
     assert system.native_changed(runner.ROOT, "0" * 40, "HEAD")
+
+
+@pytest.mark.usefixtures("sixteen_cpus")
+def test_a_device_plan_runs_each_case_once_and_its_rows_stand_apart():
+    rows, _ = runner.plan_rows(select(), ("default",), None, 8, device=True)
+    assert len(rows) == len(select())
+    assert all(row["id"].endswith(".device") for row in rows)
+    assert {row["configuration"]["threads"] for row in rows} == {8}
+    assert all(row["configuration"]["device"] for row in rows)
+    assert runner.estimate(rows, 3) is None
+    clean = {"revision": "a" * 40, "dirty": False}
+    track.refuse_partial(namespace(device=True), rows, 8, clean)
+    with pytest.raises(SuiteError, match="whole default plan"):
+        track.refuse_partial(namespace(), rows, 8, clean)
+    receipt = {
+        "status": "ok",
+        "repetitions": [{"seconds": 1.0, "accepted": 5, "rejected": 0,
+                         "source_evaluations": 6, "z": 1.0}],
+        "repeat_difference": 0.0, "peak_rss_bytes": 1, "device_bytes": 2**31,
+        "construction_seconds": 1.0, "backend_seconds": 0.0, "warmup_seconds": 0.0,
+        "integrator": "RungeKutta", "rtol": 1e-6, "atol": 0.0, "noise": None,
+        "finite": True, "provenance": {"build_info": {"runtime_threads": 1}},
+    }  # fmt: skip
+    # The host threads of a device build do not set its pace, so are not checked.
+    summary = track.summarise(rows[0], receipt, busy=False)
+    assert summary["consistent"]
+    assert summary["threads"] == "device"
+    assert summary["device_gib"] == 2.0
+
+
+@pytest.mark.parametrize(
+    ("nvidia", "amd", "model"),
+    [
+        ("NVIDIA A40\nNVIDIA A40\n", None, "NVIDIA A40"),
+        (None, "device,Card Series,Card Model\ncard0,MI325X,0x74a5\n", "AMD MI325X"),
+        (
+            None,
+            "device,Card Series\ncard0,AMD Instinct MI300X\n",
+            "AMD Instinct MI300X",
+        ),
+        (None, None, None),
+        ("", "device,Card Model\ncard0,0x74a5\n", None),
+    ],
+)
+def test_the_gpu_is_named_from_the_vendor_query(nvidia, amd, model):
+    assert telemetry.gpu_model(nvidia, amd) == model
+
+
+def test_a_device_slug_names_the_gpu_and_any_cloud_family():
+    assert system.device_slug("NVIDIA H200") == "nvidia-h200"
+    assert system.device_slug("NVIDIA A40", "aws g5.xlarge") == "nvidia-a40-aws-g5"

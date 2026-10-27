@@ -33,6 +33,7 @@ COLUMNS = (
     "native_build",
     "slug",
     "cpu_model",
+    "gpu_model",
     "instance_type",
     "system",
     "numa_domains",
@@ -54,6 +55,7 @@ COLUMNS = (
     "rejected",
     "source_evaluations",
     "peak_rss_gib",
+    "device_gib",
     "construction_s",
     "busy",
 )

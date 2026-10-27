@@ -20,12 +20,18 @@ from pathlib import Path
 import psutil
 
 from benchmarks.records import Record, SuiteError, identity
-from benchmarks.telemetry import allocation_details, hardware_details, linux_topology
+from benchmarks.telemetry import (
+    allocation_details,
+    gpu_details,
+    hardware_details,
+    linux_topology,
+)
 
 __all__ = [
     "POOL_VARIABLES",
     "THREADING",
     "counters",
+    "device_slug",
     "eligible_cpus",
     "git_receipt",
     "guard",
@@ -148,18 +154,30 @@ def _instance_type() -> str | None:
     return None
 
 
-def hardware(production: int, instance_type: str | None = None) -> Record:
-    """Describe the hardware without a host name, and derive its slug."""
+def hardware(
+    production: int, instance_type: str | None = None, *, device: bool = False
+) -> Record:
+    """Describe the hardware without a host name, and derive its slug.
+
+    A `device` run is named by its GPU, which then sets the pace; the host CPU is
+    recorded beside it.
+    """
     details = hardware_details(eligible_cpus())
     model = details["cpu_model"] or platform.processor() or platform.machine()
     cores = physical_cores()
     instance = instance_type or _instance_type()
+    gpu = gpu_details() if device else {"gpu_model": None}
+    if device and not isinstance(gpu["gpu_model"], str):
+        raise SuiteError(f"cannot name the GPU: {gpu['gpu_model_reason']}")
     return {
         "numa_domains": numa_domains(details["cpu_topology"]),
         # The cores a run uses name the hardware set: on a cluster the CPU mask can
         # show the whole node while the allocation is a part of it.
-        "slug": slug(model, production, instance),
+        "slug": device_slug(gpu["gpu_model"], instance)
+        if isinstance(gpu["gpu_model"], str)
+        else slug(model, production, instance),
         "cpu_model": model,
+        "gpu_model": gpu["gpu_model"],
         "physical_cores": cores,
         "logical_cpus": len(eligible_cpus()),
         "production": production,
@@ -222,6 +240,15 @@ def slug(model: str, cores: int, instance: str | None = None) -> str:
         return f"{slug(model, cores)}-{family}"
     words = re.sub(r"[^a-z0-9]+", "-", _MODEL_NOISE.sub(" ", model).lower())
     return f"{words.strip('-') or 'unknown-cpu'}-{cores}c"
+
+
+def device_slug(model: str, instance: str | None = None) -> str:
+    """Name a GPU hardware set by its model (``nvidia-a40``), plus any cloud family."""
+    words = re.sub(r"[^a-z0-9]+", "-", model.lower()).strip("-") or "unknown-gpu"
+    if instance:
+        family = re.sub(r"[^a-z0-9]+", "-", instance.lower().split(".")[0]).strip("-")
+        return f"{words}-{family}"
+    return words
 
 
 def thread_environment(
