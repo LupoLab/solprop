@@ -143,6 +143,7 @@ def radial(pressure=1.0, length=2e-3, backend="numpy_ref"):
         [],
         pulse,
         settings=settings,
+        noise=None,
     )
 
 

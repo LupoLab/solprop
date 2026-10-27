@@ -1111,6 +1111,7 @@ def test_a_source_path_certificate_is_carried_beside_the_coupling(port):
             dz_init=2e-4,
             backend="numpy_ref",
         ),
+        noise=None,
     )
     flux = gradient.translate().flux
     assert flux is not None and flux.admission is not None

@@ -268,6 +268,7 @@ def step_problem(descriptors, *, blocks=(), basis_block=None):
         dz_max=STEP_LENGTH / STEPS,
         dz_init=STEP_LENGTH / STEPS,
         schedule=FixedSchedule(np.full(STEPS, STEP_LENGTH / STEPS)),
+        noise=None,
     )
     simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
     return simulation.translate(), grid

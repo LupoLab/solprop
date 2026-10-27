@@ -132,7 +132,7 @@ def test_mlx_is_a_single_precision_backend_only():
     simulation = Simulation.from_gnlse(
         0.11, 0.05, [0.0, 0.0, -1e-26], lambda0=835e-9, trange=1e-12,
         wavelength_limits=(500e-9, 2e-6), width=50e-15, peak_power=1.0,
-        pulseshape="sech", precision="single",
+        pulseshape="sech", precision="single", noise=None,
     )  # fmt: skip
     if mx.metal.is_available():
         assert simulation.settings.backend == "mlx"
@@ -288,7 +288,7 @@ def test_a_gaussian_beam_diffracts_as_paraxial_optics_says():
         GaussianPulse(wavelength=wavelength, fwhm=300e-15, energy=1e-3), waist
     )
     simulation = Simulation.from_free(
-        grid, space, SpatialMedium(), [], pulse, settings=settings
+        grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
     )
     index = int(np.argmin(np.abs(grid.omega - grid.omega0)))
     assert grid.omega[index] == grid.omega0

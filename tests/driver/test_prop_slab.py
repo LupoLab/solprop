@@ -384,6 +384,7 @@ def test_a_slab_set_is_refused_where_it_cannot_go():
             provider=general_guide(grid=grid),
             lambda0=835e-9,
             grid=grid,
+            noise=None,
         )
 
 
@@ -429,6 +430,7 @@ def test_a_slab_fibre_through_prop_gnlse_records_per_unit_width():
         dz_max=LENGTH / STEPS,
         dz_init=LENGTH / STEPS,
         progress="none",
+        noise=None,
     )
     metadata = output.metadata
     assert metadata is not None and metadata.simulation_kind == "mode_averaged"

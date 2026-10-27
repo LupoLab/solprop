@@ -57,6 +57,7 @@ def metadata(materials: MaterialSelection | None = SELECTION) -> Any:
         n_save=2,
         backend="numpy_ref",
         materials=materials,
+        noise=None,
     ).metadata()
 
 

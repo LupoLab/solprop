@@ -193,6 +193,7 @@ def test_the_third_order_soliton_runs_the_same_through_the_interface(
         dz_init=soliton.period / MEDIUM_STEPS,
         n_save=2,
         backend=test_backend_name,
+        noise=None,
     )
     handler, stored, direct = interface_and_backend(simulation)
     assert_matched(stored, direct, simulation_bound(simulation))
@@ -240,6 +241,7 @@ def test_the_sixth_order_soliton_runs_the_same_through_the_interface(
         dz_init=stop / MEDIUM_STEPS,
         n_save=2,
         backend=test_backend_name,
+        noise=None,
     )
     handler, stored, direct = interface_and_backend(simulation)
     assert_matched(stored, direct, simulation_bound(simulation))
@@ -685,6 +687,7 @@ def test_supplied_mode_and_table_without_area_use_gamma():
             peak_power=9.8,
             pulseshape="sech",
             n_save=2,
+            noise=None,
         )
         mapped = simulation.configuration["gnlse"]
         assert isinstance(mapped, GnlseProblem)
@@ -768,6 +771,7 @@ def test_index_table_gnlse_metadata_hash_across_processes(use_mode):
                 fwhm=100e-15,
                 energy=1e-12,
                 n_save=2,
+                noise=None,
             )
             .metadata()
             .configuration_hash()
@@ -845,6 +849,7 @@ def test_gnlse_mode_fill_is_only_a_linear_source():
         peak_power=9.8,
         pulseshape="sech",
         n_save=2,
+        noise=None,
     )
     mode = simulation.modes[0]
     assert isinstance(mode, SpecifiedMode)

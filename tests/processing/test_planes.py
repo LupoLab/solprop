@@ -69,8 +69,12 @@ def spatial(space, pressure: float | PressureGradient = 1.0):
     )
     medium = SpatialMedium("Ar", pressure)
     if isinstance(space, RadialGrid):
-        return Simulation.from_radial(grid, space, medium, [], pulse, settings=settings)
-    return Simulation.from_free(grid, space, medium, [], pulse, settings=settings)
+        return Simulation.from_radial(
+            grid, space, medium, [], pulse, settings=settings, noise=None
+        )
+    return Simulation.from_free(
+        grid, space, medium, [], pulse, settings=settings, noise=None
+    )
 
 
 @pytest.fixture(scope="module")
@@ -238,6 +242,7 @@ def general_run():
         dz_init=length / 2,
         n_save=2,
         backend="numpy_ref",
+        noise=None,
     )
     return simulation, simulation.run(progress="none")
 

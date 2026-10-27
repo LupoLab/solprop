@@ -193,6 +193,7 @@ def test_a_two_colour_capillary_run_records_both_pulses():
         n_save=2,
         progress="none",
         backend="numpy_ref",
+        noise=None,
     )
     assert run.metadata is not None
     recorded = run.metadata.configuration["pulse"]

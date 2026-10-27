@@ -90,6 +90,7 @@ def simulation(guide, grid):
         dz_max=GENERAL_Z_END / 20,
         dz_init=GENERAL_Z_END / 20,
         n_save=2,
+        noise=None,
     )
 
 

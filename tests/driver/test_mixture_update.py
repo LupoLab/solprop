@@ -190,6 +190,7 @@ def test_radial_update_shares_covered_operator_terms_and_input(source, constant)
         source.responses,
         pulse,
         settings=source.settings,
+        noise=None,
     )
     original = simulation.translate()
     changed = material.with_densities(
@@ -230,6 +231,7 @@ def test_uncovered_constant_update_falls_back_to_constant_operator(source, geome
                 GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=1e-9), 80e-6
             ),
             settings=source.settings,
+            noise=None,
         )
     source.translate()
     changed = material.with_densities(

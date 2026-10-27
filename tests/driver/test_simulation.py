@@ -237,7 +237,7 @@ def test_an_input_that_is_neither_a_pulse_nor_a_spectrum_is_refused(
 
 def test_from_capillary_needs_a_grid_or_the_keywords_to_build_one():
     with pytest.raises(DriverError, match="wavelength_limits and trange"):
-        Simulation.from_capillary(125e-6, 0.3, "He", 1.0, lambda0=800e-9)
+        Simulation.from_capillary(125e-6, 0.3, "He", 1.0, lambda0=800e-9, noise=None)
 
 
 # ----------------------------------------------------- the capillary constructor

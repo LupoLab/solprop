@@ -118,6 +118,7 @@ def gnlse(  # noqa: PLR0913 - the case's own knobs
         integrator=RungeKutta() if integrator is None else integrator,
         raman=raman,
         polarisation_taper=taper,
+        noise=None,
     )
 
 
@@ -196,7 +197,7 @@ def test_single_precision_takes_its_defaults_and_refuses_what_it_does_not_run():
         return Simulation.from_gnlse(
             0.11, 0.05, [0.0, 0.0, -1e-26], lambda0=835e-9, trange=1e-12,
             wavelength_limits=(500e-9, 2e-6), width=50e-15, peak_power=1.0,
-            pulseshape="sech", precision="single",
+            pulseshape="sech", precision="single", noise=None,
         )  # fmt: skip
 
     # "auto" is the GPU backend where MLX and a Metal device are present, and refused
@@ -490,6 +491,7 @@ def plasma_beam(
             responses,
             pulse,
             settings=settings,
+            noise=None,
         )
     return Simulation.from_radial(
         grid,
@@ -498,6 +500,7 @@ def plasma_beam(
         responses,
         pulse,
         settings=settings,
+        noise=None,
     )
 
 
@@ -853,6 +856,7 @@ def gradient(precision: str) -> Simulation:
         precision=precision,  # pyright: ignore[reportArgumentType]
         integrator=Multistep(),
         rtol=1e-6,
+        noise=None,
     )
 
 

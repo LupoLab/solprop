@@ -240,6 +240,7 @@ def test_without_tdse_a_representative_call_is_unchanged():
             energy=1e-4,
             modes=1,
             backend="numpy_ref",
+            noise=None,
         )
     stats = simulation.settings.stats
     assert stats is not None

@@ -61,7 +61,7 @@ def _run(  # noqa: PLR0913 - one case's physics and its numerical settings
         else FixedSchedule.uniform(0.0, LENGTH, LENGTH / steps),
     )
     simulation = Simulation.from_radial(
-        _grid(), space, medium, list(responses), initial, settings=settings
+        _grid(), space, medium, list(responses), initial, settings=settings, noise=None
     )
     output = simulation.run()
     values = {name: np.asarray(output[f"stats/{name}"]) for name in names}

@@ -332,6 +332,7 @@ def test_auto_runs_the_march_on_native_when_installed():
         integrator=MARCH,
         dz_max=schedule.max_step,
         dz_init=schedule.max_step,
+        noise=None,
     )
     assert simulation.settings.backend == "native"
     output = simulation.run()

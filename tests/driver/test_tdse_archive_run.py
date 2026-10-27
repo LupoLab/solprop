@@ -290,6 +290,7 @@ def test_archive_requests_the_run_cannot_honour_are_refused(fake, tmp_path):
         peak_power=9.8,
         pulseshape="sech",
         n_save=2,
+        noise=None,
     )
     with pytest.raises(DriverError, match="no TDSE response"):
         gnlse.run(progress="none", tdse_archive=TDSEArchive(tmp_path / "a.h5"))

@@ -401,6 +401,7 @@ def test_a_mixture_of_varying_composition_matches_the_reference(evaluator):
             n_save=2,
             absorber_scheme="split_step",
             schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / STEPS),
+            noise=None,
         )
     problem = simulation.translate()
     start = scalars(problem, 0.0, 0.0).dispersive_kerr_densities

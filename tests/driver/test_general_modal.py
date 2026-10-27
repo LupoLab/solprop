@@ -263,9 +263,11 @@ def test_an_array_valued_gas_keyword_is_refused_by_name_and_not_by_a_crash():
 def test_the_gas_route_still_needs_a_gas_and_refuses_the_guide_keywords():
     """Without a provider: a gas is required and the guide's keywords are not."""
     with pytest.raises(DriverError, match="needs a gas fill"):
-        Simulation.from_waveguide((), GENERAL_Z_END, lambda0=835e-9)
+        Simulation.from_waveguide((), GENERAL_Z_END, lambda0=835e-9, noise=None)
     with pytest.raises(DriverError, match="channel= belongs to the general"):
-        Simulation.from_waveguide((), GENERAL_Z_END, "He", lambda0=835e-9, channel=0)
+        Simulation.from_waveguide(
+            (), GENERAL_Z_END, "He", lambda0=835e-9, channel=0, noise=None
+        )
     with pytest.raises(DriverError, match="observable_rtol= belongs to the general"):
         Simulation.from_waveguide(
             (),
@@ -273,6 +275,7 @@ def test_the_gas_route_still_needs_a_gas_and_refuses_the_guide_keywords():
             "He",
             lambda0=835e-9,
             observable_rtol=1e-6,
+            noise=None,
         )
     with pytest.raises(DriverError, match="observable_atol= belongs to the general"):
         Simulation.from_waveguide(
@@ -281,6 +284,7 @@ def test_the_gas_route_still_needs_a_gas_and_refuses_the_guide_keywords():
             "He",
             lambda0=835e-9,
             observable_atol=1e-16,
+            noise=None,
         )
     with pytest.raises(DriverError, match="kerr_form= belongs to the general"):
         Simulation.from_waveguide(
@@ -289,11 +293,14 @@ def test_the_gas_route_still_needs_a_gas_and_refuses_the_guide_keywords():
             "He",
             lambda0=835e-9,
             kerr_form="analytic",
+            noise=None,
         )
     # The default is not a value the gas route has to refuse: it names no model of
     # its own, and `thg=` is where a gas-filled field run says the same thing.
     with pytest.raises(DriverError, match="needs a gas fill"):
-        Simulation.from_waveguide((), GENERAL_Z_END, lambda0=835e-9, kerr_form="real")
+        Simulation.from_waveguide(
+            (), GENERAL_Z_END, lambda0=835e-9, kerr_form="real", noise=None
+        )
 
 
 def test_modes_of_ones_own_are_refused_beside_a_guide(guide, grid):
@@ -1076,6 +1083,7 @@ def ordinary_simulation(names):
         n_save=2,
         stats=StatsSpec(names=tuple(names)),
         backend="numpy_ref",
+        noise=None,
     )
 
 
@@ -2576,6 +2584,7 @@ def test_fixed_steps_beyond_the_collar_are_refused_at_translation():
             schedule=FixedSchedule(np.full(steps, length / steps)),
             n_save=2,
             backend="numpy_ref",
+            noise=None,
         )
 
     with pytest.raises(TranslationError, match=r"stable .* only up to 6\.96\d*e-07 m"):

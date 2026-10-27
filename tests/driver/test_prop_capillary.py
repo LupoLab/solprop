@@ -150,6 +150,7 @@ def _four_modes_over_a_metre_and_a_half(trange, modes):
         energy=100e-6,
         modes=modes,
         n_save=3,
+        noise=None,
     )
 
 
@@ -3174,6 +3175,7 @@ def ctc_field_range(case):
             plasma_integration="trapezoid",
             temperature=CTC_WITNESS["temperature_k"],
             n_save=2,
+            noise=None,
         )
     return simulation.settings.ionisation_field_range
 
@@ -3547,6 +3549,7 @@ def ctc_memory_ledger(case):
             plasma_integration="trapezoid",
             temperature=CTC_WITNESS["temperature_k"],
             n_save=2,
+            noise=None,
         )
         problem = simulation.translate()
         backend = NumpyRefBackend(

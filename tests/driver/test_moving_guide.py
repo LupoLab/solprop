@@ -648,6 +648,7 @@ def _step_run(guide, steps, index, launch=None):
         dz_init=LENGTH / steps,
         schedule=FixedSchedule(np.full(steps, LENGTH / steps)),
         integrator=RungeKutta(),
+        noise=None,
     )
     simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
     problem = simulation.translate()
@@ -1421,6 +1422,7 @@ def test_prop_gnlse_assembles_its_gamma_from_the_pump_s_area(kinked):
         energy=GRIN_PULSE["energy"],
         lambda0=wavelength,
         backend="numpy_ref",
+        noise=None,
     )
     mapping = simulation.configuration["gnlse"]
     assert isinstance(mapping, GnlseProblem)

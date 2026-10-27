@@ -491,6 +491,7 @@ def test_a_schema_six_file_cannot_resume_any_schema_seven_run(tmp_path):
         pulseshape="sech",
         n_save=2,
         backend="numpy_ref",
+        noise=None,
     ).metadata()
     assert ordinary.modal is None
     assert ordinary.schema_version == SCHEMA_VERSION == 25

@@ -123,6 +123,7 @@ def test_a_multimode_taper_without_its_coupling(integrator):
         integrator=integrator,
         absorber_scheme="split_step",
         backend="numpy_ref",
+        noise=None,
     )
     assert simulation.translate().linear.phi_representation == "table"
     assert_native_matches(simulation)
@@ -159,6 +160,7 @@ def test_a_radial_run_through_three_independent_species(integrator):
             integrator=integrator,
             backend="numpy_ref",
         ),
+        noise=None,
     )
     problem = simulation.translate()
     assert problem.linear.phi_representation == "table"

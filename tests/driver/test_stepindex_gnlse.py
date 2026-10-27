@@ -133,6 +133,7 @@ def interface_run(fibre, backend="numpy_ref"):
         n_save=2,
         backend=backend,
         progress="none",
+        noise=None,
     ).fields("fft")
 
 

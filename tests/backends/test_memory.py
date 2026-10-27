@@ -256,6 +256,7 @@ def test_estimate_memory_counts_a_moving_guide_to_the_byte_on_native():
             fwhm=60e-15,
             energy=1e-12,
             pulseshape="gauss",
+            noise=None,
         )
         simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
         problem = simulation.translate()

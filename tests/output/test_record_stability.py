@@ -76,6 +76,7 @@ def spatial(kind: str) -> Simulation:
             responses,
             pulse,
             settings=settings,
+            noise=None,
         )
     return Simulation.from_free(
         grid,
@@ -84,6 +85,7 @@ def spatial(kind: str) -> Simulation:
         responses,
         pulse,
         settings=settings,
+        noise=None,
     )
 
 
@@ -101,6 +103,7 @@ def build(kind: str) -> Simulation:
             pulseshape="sech",
             n_save=3,
             backend="numpy_ref",
+            noise=None,
         )
     return spatial(kind)
 

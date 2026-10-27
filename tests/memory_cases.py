@@ -113,6 +113,7 @@ def split_simulation(window):
         dz_max=1e-3 / steps,
         dz_init=1e-3 / steps,
         schedule=FixedSchedule(np.full(steps, 1e-3 / steps)),
+        noise=None,
     )
 
 

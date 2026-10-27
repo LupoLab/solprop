@@ -36,6 +36,7 @@ def radial():
         [],
         pulse,
         settings=settings,
+        noise=None,
     )
 
 

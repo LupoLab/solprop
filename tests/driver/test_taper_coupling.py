@@ -308,6 +308,7 @@ def test_a_supplied_set_couples_through_from_waveguide_and_a_provider_refuses_it
             provider=split_guide(general_grid()),
             lambda0=835e-9,
             taper_coupling=False,
+            noise=None,
         )
 
 
@@ -365,6 +366,7 @@ def slow_taper(*, taper_coupling=True, steps=STEPS):
         dz_max=length / steps,
         dz_init=length / steps,
         taper_coupling=taper_coupling,
+        noise=None,
     )
 
 

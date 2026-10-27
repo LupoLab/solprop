@@ -374,5 +374,5 @@ def test_a_memory_budget_without_a_guide_is_refused_by_name():
     """The gas-filled route builds no reference at construction, so it has no use."""
     with pytest.raises(DriverError, match="memory_budget= belongs to the general"):
         Simulation.from_waveguide(
-            [], 1e-3, "He", 1.0, lambda0=800e-9, memory_budget="1 GiB"
+            [], 1e-3, "He", 1.0, lambda0=800e-9, memory_budget="1 GiB", noise=None
         )

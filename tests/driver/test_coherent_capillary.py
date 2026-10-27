@@ -666,6 +666,7 @@ def test_a_tube_lattice_is_refused_rather_than_given_the_bare_capillary_wall():
             wall=CoherentWall(),
             plasma=False,
             raman=False,
+            noise=None,
         )
     block = [
         VincettiMode(15e-6, "Ar", 10.0, lattice=lattice, m=index + 1)
@@ -826,6 +827,7 @@ def test_a_wall_declared_on_another_route_is_refused_by_name():
             quadrature=None,
             prefactor_index=None,
         ),
+        noise=None,
     )
     spatial.wall = CoherentWall()
     with pytest.raises(TranslationError, match="a spatial geometry"):
@@ -843,6 +845,7 @@ def test_a_wall_declared_on_another_route_is_refused_by_name():
         save_planes=[GENERAL_Z_END / 10],
         dz_max=GENERAL_Z_END / 20,
         dz_init=GENERAL_Z_END / 20,
+        noise=None,
     )
     general.wall = CoherentWall()
     with pytest.raises(TranslationError, match="the general modal route"):
@@ -1347,6 +1350,7 @@ def test_the_flow_record_survives_a_file_and_a_resume_checks_it(tmp_path):
             schedule=FixedSchedule(np.full(STEPS, LENGTH / STEPS)),
             plasma=False,
             raman=False,
+            noise=None,
         ).run(path, resume=True)
 
 
@@ -2233,6 +2237,7 @@ def test_prop_capillary_runs_a_varying_wall_end_to_end_and_records_its_flow():
             schedule=FixedSchedule(np.full(STEPS, LENGTH / STEPS)),
             plasma=False,
             raman=False,
+            noise=None,
         ),
     )
     written = walled.metadata
@@ -2266,6 +2271,7 @@ def test_prop_capillary_runs_a_varying_wall_end_to_end_and_records_its_flow():
             plasma=False,
             raman=False,
             taper_coupling=False,
+            noise=None,
         ),
     )
     wide = energy_loss(run_capillary(wall=CoherentWall(), modes=3))
@@ -2443,6 +2449,7 @@ def test_the_varying_wall_route_is_pinned_to_its_recorded_answer(ndarrays_regres
             integrator=FIXED_ORDER,
             plasma=False,
             raman=False,
+            noise=None,
         ),
     )
     field = handler.planes()[-1].field
@@ -3040,6 +3047,7 @@ def test_prop_capillary_runs_a_vector_wall_on_a_taper_end_to_end_and_is_pinned(
                 integrator=FIXED_ORDER,
                 plasma=False,
                 raman=False,
+                noise=None,
             ),
         )
     )
@@ -3917,6 +3925,7 @@ def _taper_note_bore(count: int) -> Simulation:
         backend="numpy_ref",
         dz_max=1e-4,
         dz_init=1e-4,
+        noise=None,
     )
 
 

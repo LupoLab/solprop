@@ -287,6 +287,7 @@ def test_free_space_resolves_a_named_gas_medium_into_an_optmat_fill(free_case):
         pulse,
         settings=settings,
         materials=SELECTION,
+        noise=None,
     )
     medium = simulation.medium.material
     assert isinstance(medium, Mixture)
@@ -301,7 +302,7 @@ def test_free_space_resolves_a_named_gas_medium_into_an_optmat_fill(free_case):
     ]
     # The absent keyword resolves the same way: there is no other gas.
     plain: Any = Simulation.from_free(
-        grid, space, SpatialMedium("Ar", 2.0), [], pulse, settings=settings
+        grid, space, SpatialMedium("Ar", 2.0), [], pulse, settings=settings, noise=None
     )
     assert isinstance(plain.medium.material, Mixture)
     assert plain.metadata().materials.hashed() == manifest.hashed()
@@ -320,6 +321,7 @@ def test_a_supplied_susceptibility_is_kept_and_a_glass_taken_as_it_is(free_case)
         pulse,
         settings=settings,
         materials=SELECTION,
+        noise=None,
     )
     (component,) = kept.medium.material.components
     assert component.species.susceptibility == other
@@ -333,6 +335,7 @@ def test_a_supplied_susceptibility_is_kept_and_a_glass_taken_as_it_is(free_case)
         pulse,
         settings=settings,
         materials=SELECTION,
+        noise=None,
     )
     assert glass.medium.material is window
     assert names(glass.metadata().materials) == ["fit/SiO2"]
@@ -688,6 +691,7 @@ def general(guide, grid, materials: MaterialSelection | None = SELECTION) -> Any
         dz_max=GENERAL_Z_END / 20,
         dz_init=GENERAL_Z_END / 20,
         materials=materials,
+        noise=None,
     )
 
 

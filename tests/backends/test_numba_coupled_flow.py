@@ -708,6 +708,7 @@ def test_prop_capillary_runs_a_wall_on_numba_as_the_reference_does():
                     schedule=FixedSchedule(np.full(STEPS, LENGTH / STEPS)),
                     plasma=False,
                     raman=False,
+                    noise=None,
                 ),
             )
     simulation = build("scalar")

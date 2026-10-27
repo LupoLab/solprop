@@ -657,6 +657,7 @@ def test_a_run_through_the_entry_point_is_the_references_on_numba(cases):
         pulseshape="gauss",
         save_planes=[short],
         backend="numpy_ref",
+        noise=None,
     ).translate()
     maps = _general_maps(problem)
     assert maps is not None

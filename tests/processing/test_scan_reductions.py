@@ -156,6 +156,7 @@ def build_field_point(point):
         plasma=False,
         n_save=2,
         backend="numpy_ref",
+        noise=None,
     )
 
 

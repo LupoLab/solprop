@@ -77,6 +77,7 @@ def tiny_simulation(*, max_calls=None):
         integrator=Multistep(max_calls=max_calls),
         dz_init=1e-6,
         dz_max=1e-6,
+        noise=None,
     )
 
 
@@ -931,6 +932,7 @@ def test_spatial_resume_retains_physical_field_without_modal_normalisation(monke
             dz_init=1e-6,
             dz_max=grid.length,
         ),
+        noise=None,
     )
     problem = simulation.translate()
     backend = select("numpy_ref", problem, grid=grid, modes=simulation.modes)

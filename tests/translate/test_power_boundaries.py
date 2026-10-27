@@ -154,10 +154,10 @@ def test_spatial_contract_refuses_a_modal_weight(grid):
         dz_init=grid.length,
     )
     problem = Simulation.from_radial(
-        grid, space, SpatialMedium(), [], pulse, settings=settings
+        grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
     ).translate()
     simulation = Simulation.from_radial(
-        grid, space, SpatialMedium(), [], pulse, settings=settings
+        grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
     )
     simulation.translate()
     updated = simulation.with_input(simulation.initial)
@@ -201,6 +201,7 @@ def test_retranslating_the_same_modal_input_is_exactly_identical():
             thg=False,
             loss=False,
             cladding=1.45,
+            noise=None,
         )
     problem = simulation.translate()
     assert problem.linear.power_weight_representation != "constant"
@@ -234,6 +235,7 @@ def test_a_taper_with_a_floored_vacuum_end_translates():
         n_save=2,
         rtol=1e-6,
         plasma=False,
+        noise=None,
     )
     problem = simulation.translate()
     linear = problem.linear

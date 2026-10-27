@@ -121,6 +121,7 @@ def low_storage(length: float = 0.02, steps: int = 8) -> Simulation:
         integrator=LowStorageRungeKutta(),
         dz_max=schedule.max_step,
         dz_init=schedule.max_step,
+        noise=None,
     )
 
 

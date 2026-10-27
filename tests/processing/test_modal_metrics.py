@@ -738,6 +738,7 @@ def test_both_cpu_backends_refuse_a_general_name_on_an_ordinary_run(backend):
         pulseshape="sech",
         n_save=2,
         backend=backend,
+        noise=None,
     )
     problem = simulation.translate()
     built = select(backend, problem, grid=simulation.grid)

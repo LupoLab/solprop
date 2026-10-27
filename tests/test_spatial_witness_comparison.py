@@ -101,6 +101,7 @@ def test_cartesian_observables_recover_uniform_plane_wave_energy_and_intensity()
             dz_max=grid.length,
             dz_init=grid.length,
         ),
+        noise=None,
     )
     _, energy, peak = observables(simulation, field)
     intensity = 0.5 * EPS0 * C * amplitude**2

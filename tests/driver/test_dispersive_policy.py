@@ -113,6 +113,7 @@ def test_the_gnlse_refuses_a_dispersive_policy_by_name():
             pulseshape="sech",
             n_save=2,
             materials=MaterialSelection(electronic="gas-polynomial"),
+            noise=None,
         )
 
 
@@ -138,6 +139,7 @@ def test_a_constant_kerr_response_beside_a_dispersive_policy_is_refused():
             pulse,
             settings=settings,
             materials=MaterialSelection(electronic="symmetric-kerr"),
+            noise=None,
         )
 
 
