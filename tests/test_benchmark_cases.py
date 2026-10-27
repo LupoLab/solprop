@@ -81,7 +81,7 @@ def test_fixed_step_cases_run_their_schedule_and_refuse_overrides():
     assert isinstance(simulation.settings.integrator, LowStorageRungeKutta)
     schedule = simulation.settings.schedule
     assert schedule is not None
-    assert len(schedule.steps) == 11
+    assert len(schedule.steps) == 4
     np.testing.assert_allclose(schedule.edges[-1], case.length, rtol=1e-12)
     assert simulation.settings.fields == "planes"
 

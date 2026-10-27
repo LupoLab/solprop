@@ -48,3 +48,19 @@ def test_missing_hardware_and_allocation_details_keep_reasons(monkeypatch):
     monkeypatch.setattr(telemetry, "_read", lambda _: None)
     record = telemetry.allocation_details()
     assert record["allowed_cpus"] is None and record["allowed_cpus_reason"]
+
+
+@pytest.mark.parametrize(
+    ("output", "model"),
+    [
+        (
+            "Architecture: aarch64\nVendor ID: ARM\nModel name: Neoverse-V2\n",
+            "ARM Neoverse-V2",
+        ),
+        ("Vendor ID: AuthenticAMD\nModel name: AMD EPYC 9R45\n", "AMD EPYC 9R45"),
+        ("Vendor ID: ARM\nModel name: -\n", None),
+        ("", None),
+    ],
+)
+def test_lscpu_names_arm_cores_by_vendor_and_part(output, model):
+    assert telemetry.lscpu_model(output) == model

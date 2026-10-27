@@ -24,6 +24,7 @@ from benchmarks.telemetry import allocation_details, hardware_details, linux_top
 
 __all__ = [
     "POOL_VARIABLES",
+    "THREADING",
     "counters",
     "eligible_cpus",
     "git_receipt",
@@ -63,6 +64,29 @@ POOL_VARIABLES = (
     "SOLPROP_FFTW_PLAN",
     "KOKKOS_TOOLS_LIBS",
 )
+
+THREADING: dict[str, dict[str, str]] = {
+    # Unpinned, and idle threads sleep at once: robust on a shared machine.
+    "passive": {
+        "OMP_PROC_BIND": "false",
+        "OMP_WAIT_POLICY": "PASSIVE",
+        "KMP_BLOCKTIME": "0",
+        "GOMP_SPINCOUNT": "0",
+    },
+    # Unpinned, with each OpenMP runtime's own waiting (a short spin, then sleep).
+    "default": {"OMP_PROC_BIND": "false"},
+    # Unpinned, and idle threads spin between parallel regions.
+    "active": {"OMP_PROC_BIND": "false", "OMP_WAIT_POLICY": "ACTIVE"},
+    # Threads pinned to neighbouring cores, with the runtime's own waiting.
+    "bound": {"OMP_PROC_BIND": "close", "OMP_PLACES": "cores"},
+    # Pinned, and spinning.
+    "bound-active": {
+        "OMP_PROC_BIND": "close",
+        "OMP_PLACES": "cores",
+        "OMP_WAIT_POLICY": "ACTIVE",
+    },
+}
+"""OpenMP placement and waiting policies a run may choose (SEP 38)."""
 
 _MODEL_NOISE = re.compile(
     r"\((?:r|tm)\)|\bcpu\b|\bprocessor\b|\b\d+-core\b|@.*$", re.IGNORECASE
@@ -148,10 +172,18 @@ def slug(model: str, cores: int) -> str:
     return f"{words.strip('-') or 'unknown-cpu'}-{cores}c"
 
 
-def thread_environment(width: int, incoming: dict[str, str]) -> dict[str, str]:
-    """Set every pool to `width` before its library is imported."""
+def thread_environment(
+    width: int, incoming: dict[str, str], threading: str = "passive"
+) -> dict[str, str]:
+    """Set every pool to `width`, and OpenMP's placement and waiting by `threading`.
+
+    The pools are set before their libraries are imported. `threading` is a key of
+    :data:`THREADING`; its OpenMP variables replace any the caller had.
+    """
     if width < 1:
         raise SuiteError("thread counts must be positive")
+    if threading not in THREADING:
+        raise SuiteError(f"unknown threading policy {threading}")
     environment = incoming.copy()
     for key in POOL_VARIABLES:
         if key not in ("SOLPROP_FFTW_PLAN", "KOKKOS_TOOLS_LIBS"):
@@ -179,12 +211,7 @@ def thread_environment(width: int, incoming: dict[str, str]) -> dict[str, str]:
             "SOLPROP_BLAS_THREADS",
         ):
             environment[key] = "1"
-    environment.update(
-        OMP_PROC_BIND="false",
-        OMP_WAIT_POLICY="PASSIVE",
-        KMP_BLOCKTIME="0",
-        GOMP_SPINCOUNT="0",
-    )
+    environment.update(THREADING[threading])
     return environment
 
 

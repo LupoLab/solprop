@@ -209,6 +209,7 @@ def ab(args: argparse.Namespace) -> int:
             "rounds": args.rounds,
             "repeats": args.repeats,
             "length": args.length,
+            "threading": args.threading,
             "seed": args.seed,
             "rows": rows,
             "skipped": skipped,
@@ -238,7 +239,7 @@ def ab(args: argparse.Namespace) -> int:
                         if round_index == 0
                         else None,
                     },
-                    thread_environment(width, dict(os.environ)),
+                    thread_environment(width, dict(os.environ), args.threading),
                     output / "raw" / f"r{round_index}-{arm}-{row['id']}",
                     args.timeout,
                     harness,

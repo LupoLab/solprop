@@ -34,6 +34,7 @@ COLUMNS = (
     "instance_type",
     "system",
     "threads",
+    "threading",
     "case",
     "revision",
     "stepper",
@@ -85,6 +86,7 @@ def comparable(row: Record) -> tuple[str, ...]:
     """Key the rows that measure the same thing on one hardware set."""
     return (
         str(row["threads"]),
+        row["threading"],
         row["case"],
         str(row["revision"]),
         row["stepper"],

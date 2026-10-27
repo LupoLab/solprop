@@ -26,6 +26,7 @@ from benchmarks.runner import (
     show_plan,
 )
 from benchmarks.system import (
+    THREADING,
     eligible_cpus,
     git_receipt,
     guard,
@@ -66,6 +67,12 @@ def selection_options(parser: argparse.ArgumentParser) -> None:
         "--backend", choices=("numpy_ref", "numba_cpu", "native"), default="native"
     )
     parser.add_argument("--repeats", type=int, default=3, help="timed runs per case")
+    parser.add_argument(
+        "--threading",
+        choices=tuple(THREADING),
+        default="passive",
+        help="OpenMP placement and waiting (benchmarks/system.py)",
+    )
 
 
 def track_options(parser: argparse.ArgumentParser) -> None:
@@ -98,7 +105,9 @@ def steppers(value: str) -> tuple[str, ...]:
     return names
 
 
-def summarise(row: Record, result: Record, busy: bool) -> Record:
+def summarise(
+    row: Record, result: Record, busy: bool, threading: str = "passive"
+) -> Record:
     """Reduce one worker's receipt to the tracked statistics."""
     values = row["configuration"]
     base = {
@@ -107,6 +116,7 @@ def summarise(row: Record, result: Record, busy: bool) -> Record:
         "revision": values["revision"],
         "stepper": values["stepper"],
         "threads": values["threads"],
+        "threading": threading,
         "status": result["status"],
         "busy": busy,
     }
@@ -183,6 +193,7 @@ def history_rows(
             "instance_type": machine["instance_type"],
             "system": f"{machine['system']} {machine['machine']}",
             "threads": row["threads"],
+            "threading": row["threading"],
             "case": row["case"],
             "revision": row["revision"],
             "stepper": row["stepper"],
@@ -243,6 +254,7 @@ def track(args: argparse.Namespace) -> int:
             "hardware": machine,
             "source": source,
             "repeats": args.repeats,
+            "threading": args.threading,
             "rows": rows,
             "skipped": skipped,
         },
@@ -258,13 +270,13 @@ def track(args: argparse.Namespace) -> int:
         events, elapsed = launch_worker(
             sys.executable,
             {"configuration": row["configuration"], "repeats": args.repeats},
-            thread_environment(width, dict(os.environ)),
+            thread_environment(width, dict(os.environ), args.threading),
             output / "raw" / row["id"],
             args.timeout,
         )
         result = receipt(events)
         provenance = result.get("provenance") or provenance
-        results.append(summarise(row, result, busy))
+        results.append(summarise(row, result, busy, args.threading))
         state = (
             f"{results[-1]['median_s']:.2f} s"
             if result["status"] == "ok"

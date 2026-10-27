@@ -86,6 +86,7 @@ def result_row(case="rdw", threads=1, median=2.0):
         "revision": CASES[case].revision,
         "stepper": "default",
         "threads": threads,
+        "threading": "passive",
         "status": "ok",
         "busy": False,
         "median_s": median,
@@ -231,3 +232,17 @@ def test_a_tracking_run_records_complete_runs_and_appends_history(
         == 2
     )
     assert "native backend only" in capsys.readouterr().err
+
+
+def test_threading_policies_replace_the_callers_openmp_settings():
+    incoming = {"OMP_WAIT_POLICY": "ACTIVE", "OMP_PLACES": "threads", "PATH": "/bin"}
+    passive = system.thread_environment(4, incoming)
+    assert passive["OMP_WAIT_POLICY"] == "PASSIVE"
+    assert passive["SOLPROP_NATIVE_THREADS"] == "4"
+    assert "OMP_PLACES" not in passive
+    assert passive["PATH"] == "/bin"
+    bound = system.thread_environment(4, incoming, "bound")
+    assert (bound["OMP_PROC_BIND"], bound["OMP_PLACES"]) == ("close", "cores")
+    assert "OMP_WAIT_POLICY" not in bound
+    with pytest.raises(SuiteError, match="unknown threading"):
+        system.thread_environment(4, incoming, "spin")
