@@ -4,6 +4,7 @@
 
 """Exercise the exploratory A/B mode on synthetic receipts and a small case."""
 
+import json
 import math
 import sys
 
@@ -67,7 +68,9 @@ def test_summary_pairs_rounds_and_reports_spread_and_fields(tmp_path):
     assert second["rounds"] == 1
     assert not second["same_work"]
     assert second["failures"] == ["e"]
-    assert second["field_difference"] == math.inf
+    # Fields on different grids have no difference, and the record stays valid JSON.
+    assert second["field_difference"] is None
+    json.dumps(second, allow_nan=False)
 
 
 def test_field_difference_without_fields_or_with_a_zero_reference(tmp_path):
