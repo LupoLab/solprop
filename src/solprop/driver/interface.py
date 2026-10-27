@@ -71,7 +71,7 @@ from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.runge_kutta import RungeKutta
 from solprop.stepper.schedule import FixedSchedule
-from solprop.translate.masks import DEFAULT_ABSORBER_SCHEME, AbsorberScheme
+from solprop.translate.masks import AbsorberScheme
 from solprop.translate.modal import DEFAULT_NODE_BUDGET
 from solprop.translate.precision import PrecisionName
 from solprop.translate.responses import KerrForm
@@ -670,13 +670,14 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
     ...     gamma, 1.57e-3, [0.0, 0.0, beta2], lambda0=835e-9,
     ...     wavelength_limits=(500e-9, 2e-6), trange=2e-12,
     ...     width=tau0, peak_power=peak, pulseshape="sech", shock=False,
-    ...     n_save=3, rtol=1e-8,
+    ...     n_save=3, rtol=1e-8, noise=None,
     ... )
     >>> handler.n_saved, handler["z"].tolist()
     (3, [0.0, 0.000785, 0.00157])
 
     The fibre is lossless and the window holds the soliton's tails clear of the
-    collar, so the energy statistic is the same at every plane:
+    collar, so without shot noise (part of which the collar would absorb) the energy
+    statistic is the same at every plane:
 
     >>> energy = handler["stats/energy"][:, 0, 0]
     >>> bool(abs(energy[-1] / energy[0] - 1.0) < 1e-8)
@@ -1731,7 +1732,7 @@ def _with_boundary(
             raise DriverError(msg)
         changes["absorber"] = absorber
     if scheme is not None:
-        if settings.absorber_scheme not in (DEFAULT_ABSORBER_SCHEME, scheme):
+        if settings.absorber_scheme not in (None, scheme):
             msg = (
                 f"the settings already declare absorber_scheme="
                 f"{settings.absorber_scheme!r}; give it there or as the keyword"

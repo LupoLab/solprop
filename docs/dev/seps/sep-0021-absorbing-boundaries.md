@@ -2325,6 +2325,14 @@ diagnostics; transform-size cost; full-length timings.
   launch, so after loss the monitor over-subtracts and is less sensitive; the collar,
   like any loss, also removes vacuum noise the input model never restores. Both go to
   the roadmap item "Vacuum noise under loss" (maintainer, 2026-10-27).
+- **D14 — the split scheme on the spatial routes (maintainer, 2026-10-27).** The
+  radial, free-space and planar routes apply the default temporal collar by the split
+  scheme unless the settings name a scheme or interpolate their planes;
+  `SimulationSettings.absorber_scheme` defaults to `None`, the route's choice, which
+  the other routes resolve to the in-stage scheme. Evidence: the spatial collar-scheme
+  study below. A fixed schedule on a spatial route now keeps its collar (the split is
+  unconditionally stable), so the tracking suite's `kerr_beam` cases run the default
+  collar on main's builder.
 
 **Limitations.**
 
@@ -2428,6 +2436,29 @@ Recorded as slices land; the phase report follows at the end of the phase.
   - **The floor-subtracted density** assumes the vacuum floor is conserved; the default
     collar absorbs part of it, so the subtraction is biased low by up to the absorbed
     fraction of one photon per bin. The identity test runs without a collar.
+- **The collar scheme on the spatial routes (2026-10-27).** The A/B against main
+  (below) found the radial filament taking twice the steps (132 to 265) under the
+  default collar that phase 2 gave the spatial routes; the in-stage collar caused it.
+  On six spatial cases of the tracking registry, built by their own builders, each
+  scheme was scored against a no-collar window 2.5 times the request at a tenth of the
+  case's `rtol`, on one shared lattice (power-of-two sizes), noise off; the error is the
+  relative L2 inside the requested window. Records with the development records
+  (`results/spatial_split/table.json`).
+
+  | case (integrator) | reference at the case's `rtol` | in-stage | split | no collar | steps in-stage / split |
+  |---|---|---|---|---|---|
+  | radial filament, 256 (Multistep) | 5.2e-6 | 3.2e-5 | 3.6e-5 | 5.2e-6 | 265 / 129 |
+  | radial filament, 512 (Multistep) | 4.9e-6 | 3.1e-5 | 3.8e-5 | 4.9e-6 | 265 / 130 |
+  | radial with a real-space collar (Multistep) | 7.4e-6 | 2.3e-5 | 8.0e-6 | 7.7e-6 | 220 / 48 |
+  | planar (Multistep) | 1.6e-6 | 1.5e-5 | 1.6e-6 | 1.6e-6 | 187 / 41 |
+  | line (Runge-Kutta) | 0 | 3.7e-7 | 3e-11 | 3e-11 | 41 / 28 |
+  | Cartesian filament, 128 (Runge-Kutta) | 8.9e-5 | 1.3e-4 | 1.6e-4 | 9.1e-5 | 61 / 51 |
+
+  The split is as accurate as the in-stage collar or better (on the planar case the
+  largest spectral error above -60 dB falls from 2.2e-3 to 4.6e-5 dB), with 1.2 to 4.6
+  times fewer steps and 20 to 38 % less wall time on the radial and Cartesian cases
+  (warm; the small cases' first runs are dominated by compilation). On the radial
+  filaments both schemes leave 3e-5, the collar's own effect. Decision D14.
 - **Observed:** on the capability capillary route an adaptive exponential Adams run
   limited by the in-stage collar chooses steps that differ between backends by up to
   2 % at rounding level, with fields equal to 6e-12; the test was pinned to the former

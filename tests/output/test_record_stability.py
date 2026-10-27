@@ -165,7 +165,9 @@ def split(kind: str):
     # declared none record the bare boundaries that stand for it; the schema-21
     # projection takes both back.
     hashed = without_sep21_absorber(
-        historical.hashed(), bare=kind in ("modal", "radial", "cartesian")
+        historical.hashed(),
+        bare=kind in ("modal", "radial", "cartesian"),
+        spatial=kind != "modal",
     )
     return record_skeleton(without_optmat_release(hashed))
 

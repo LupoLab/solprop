@@ -369,7 +369,7 @@ and is independent of the `Absorber` and its lengths:
 | entry point | absorber by default |
 |---|---|
 | `prop_capillary`, `prop_waveguide`, `prop_gnlse` and their `Simulation.from_*` builders | the grid's default collar, `absorber(grid)`: spectral and temporal, `boundary_N = 20`, applied in every stage |
-| `prop_radial`, `prop_free`, `prop_planar` and their builders, whose settings declare none | the same temporal and spectral collar; the real-space transverse collar stays off, as before (`Absorber.spatial=False`) |
+| `prop_radial`, `prop_free`, `prop_planar` and their builders, whose settings declare none | the same temporal and spectral collar, applied once per accepted step (`absorber_scheme="split_step"`) unless planes are interpolated; the real-space transverse collar stays off, as before (`Absorber.spatial=False`) |
 | a `Simulation` built directly with its own `SimulationSettings` | none unless `SimulationSettings(absorber=...)` is given |
 
 Every `prop_*` entry point takes `absorber=` and `absorber_scheme=`. Pass
@@ -380,6 +380,13 @@ leaves no room for a collar ({py:func}`solprop.boundaries.no_absorber`). On the 
 interfaces `absorber=False` leaves the transverse collars as they are. `absorber=None` means
 "build the default", not "no absorber"; a scheme beside `absorber=False`, or a keyword
 that contradicts what a spatial run's settings already declare, is refused.
+
+The spatial routes apply the temporal collar by the split scheme unless the settings name
+a scheme or interpolate their planes, which the split refuses: on the spatial cases of the
+performance-tracking suite the in-stage collar took 1.2 to 4.6 times the steps of the
+split one, at equal or worse accuracy inside the requested window
+([SEP 21](../../dev/seps/sep-0021-absorbing-boundaries.md)). The split is unconditionally
+stable, so a fixed schedule on a spatial route keeps its collar.
 
 On a spatial grid an absorber given explicitly also switches on the real-space transverse
 collar ([free-space propagation](../free-space/model.md#spatial-collar-and-statistics)).

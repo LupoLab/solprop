@@ -64,7 +64,10 @@ The first public release. It contains:
   Transform sizes default to `fft_size="auto"`, the cheapest 2-3-5-smooth size up to the
   next power of two by a fitted FFT cost model (`grid.fft_cost`). GNLSE and spatial runs
   get the default temporal and spectral collar, as capillary runs have (the real-space
-  transverse collar stays off unless an absorber is given: `Absorber.spatial`). Every
+  transverse collar stays off unless an absorber is given: `Absorber.spatial`); the
+  spatial routes apply it once per accepted step (`absorber_scheme="split_step"`)
+  unless planes are interpolated, and `SimulationSettings.absorber_scheme` defaults to
+  `None`, the route's choice. Every
   `prop_*` interface takes `absorber=False`, which switches both soft collars off and
   keeps the hard band mask (`boundaries.no_absorber`), and `absorber_scheme=`. A boundary
   monitor (`solprop.monitor`, `SimulationSettings.boundary_check`, on by default) watches

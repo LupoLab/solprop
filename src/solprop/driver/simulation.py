@@ -577,13 +577,14 @@ class SimulationSettings(Displayed):
     prefactor_index : float or None
         Use this constant in the prefactor and power weight; None uses Re n_eff.
         The GNLSE passes 1.0, leaving its power normalisation and Phi unchanged.
-    absorber_scheme : {'nonlinear', 'split_step'}
+    absorber_scheme : {'nonlinear', 'split_step'} or None
         How the temporal collar is applied (``docs/guide/numerics/boundaries.md``).
-        ``"nonlinear"``, the default, adds ``-alpha(t) E(t) / 2`` inside every stage;
-        ``"split_step"`` multiplies the accepted state by ``exp(-alpha(t) h / 2)`` once
-        per step, which is a Lie splitting and first order wherever the collar does any
-        work. The second stays reachable so the comparison can be re-measured and older
-        results reproduced.
+        ``None``, the default, is the route's: ``"split_step"`` on the radial,
+        free-space and planar routes unless planes are interpolated (SEP 21), and
+        ``"nonlinear"`` elsewhere. ``"nonlinear"`` adds ``-alpha(t) E(t) / 2`` inside
+        every stage; ``"split_step"`` multiplies the accepted state by
+        ``exp(-alpha(t) h / 2)`` once per step, a Lie splitting, first order wherever
+        the collar does any work and unconditionally stable.
     absorber : solprop.boundaries.Absorber or None
         The collar rates. Its spectral part folds into the linear operator and its
         temporal part crosses the seam as a rate
@@ -726,7 +727,7 @@ class SimulationSettings(Displayed):
     shock: bool = True
     prefactor_index: float | None = None
     absorber: Absorber | None = None
-    absorber_scheme: AbsorberScheme = DEFAULT_ABSORBER_SCHEME
+    absorber_scheme: AbsorberScheme | None = None
     quadrature: TransverseQuadrature | None = None
     components: Sequence[str] | None = None
     ionisation_field_range: tuple[float, float] | None = None
@@ -812,7 +813,7 @@ class SimulationSettings(Displayed):
             ("shock term", self.shock),
             (
                 "absorber",
-                f"{self.absorber_scheme}" if self.absorber is not None else "none",
+                f"{_scheme(self)}" if self.absorber is not None else "none",
             ),
             ("statistics", "none" if self.stats is None else type(self.stats).__name__),
             ("backend", self.backend),
@@ -1940,7 +1941,7 @@ class Simulation(Displayed):
                     density=settings.density,
                     noise=self.noise,
                     absorber=settings.absorber,
-                    absorber_scheme=settings.absorber_scheme,
+                    absorber_scheme=_scheme(settings),
                     quadrature=settings.quadrature,
                     components=settings.components,
                     ionisation_field_range=(
@@ -2479,7 +2480,7 @@ class Simulation(Displayed):
                     "shock": self.settings.shock,
                     "prefactor_index": self.settings.prefactor_index,
                     "absorber": self.settings.absorber,
-                    "absorber_scheme": self.settings.absorber_scheme,
+                    "absorber_scheme": _scheme(self.settings),
                     "propagator_mode": self.settings.propagator_mode,
                     # Every run records its precision, double included (SEP 33
                     # section 5.3, ADR-051), so a resume in the other is refused.
@@ -2706,7 +2707,7 @@ class Simulation(Displayed):
             rate,
             check,
             columns=columns,
-            split=rate is not None and self.settings.absorber_scheme == "split_step",
+            split=rate is not None and _scheme(self.settings) == "split_step",
         )
 
     def run(  # noqa: PLR0913 - independent execution and output controls
@@ -7312,7 +7313,7 @@ def _check_tdse_execution(simulation: Simulation, settings: SimulationSettings) 
         raise DriverError("TDSE refuses noise='modified'; use 'input' or None")
     if settings.schedule is not None or settings.interpolate_planes:
         raise DriverError("TDSE requires adaptive Adams with landed save planes")
-    if settings.absorber_scheme != "nonlinear":
+    if _scheme(settings) != "nonlinear":
         raise DriverError("TDSE requires the in-stage temporal collar")
     if (
         simulation.spatial_grid is not None
@@ -7900,6 +7901,26 @@ def _save_planes(
     return np.linspace(0.0, length, count)[1:]
 
 
+def _scheme(settings: SimulationSettings) -> AbsorberScheme:
+    """Return the collar scheme the settings resolve to, ``"nonlinear"`` if unnamed.
+
+    Parameters
+    ----------
+    settings : SimulationSettings
+        The run's settings.
+
+    Returns
+    -------
+    {'nonlinear', 'split_step'}
+        The scheme.
+    """
+    return (
+        DEFAULT_ABSORBER_SCHEME
+        if settings.absorber_scheme is None
+        else settings.absorber_scheme
+    )
+
+
 def _spatial_settings(settings: SimulationSettings, route: str) -> SimulationSettings:
     """Fill an omitted controller with the spatial interface's default (SEP 37).
 
@@ -7915,9 +7936,14 @@ def _spatial_settings(settings: SimulationSettings, route: str) -> SimulationSet
     SimulationSettings
         `settings`, with the interface's default controller where it gave none
         (:data:`SPATIAL_RTOL` for radial and planar runs, :data:`FREE_RTOL` for
-        Cartesian and line ones) and, for a free-space run that named no integrator,
-        ``RungeKutta()``.
+        Cartesian and line ones), for a free-space run that named no integrator,
+        ``RungeKutta()``, and, where no collar scheme is named, ``"split_step"``
+        unless planes are interpolated (SEP 21).
     """
+    if settings.absorber_scheme is None and not settings.interpolate_planes:
+        # The in-stage collar cost the spatial cases 1.2 to 4.6 times the steps of the
+        # split scheme, at equal or worse accuracy (SEP 21 Part II).
+        settings = dataclasses.replace(settings, absorber_scheme="split_step")
     if (
         route == "free"
         and not settings.integrator_named

@@ -164,6 +164,8 @@ def planar_problem(
         absorber=(
             absorber(grid, boundary_length=1.0e3) if absorbed else bare_absorber(grid)
         ),
+        # The in-stage scheme, which the planar route no longer takes by default.
+        absorber_scheme="nonlinear",
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", SolpropWarning)
