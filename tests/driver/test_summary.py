@@ -20,7 +20,9 @@ from solprop.driver.simulation import metadata_for
 from solprop.driver.summary import (
     RUN_SUMMARY_ANNOTATION,
     RunSummary,
+    _code,
     _compiled,
+    _machine,
     _medium,
     _pressure,
     _rate,
@@ -28,6 +30,8 @@ from solprop.driver.summary import (
     _response,
     _responses,
     _threads,
+    memory_size,
+    resources,
     run_summary,
 )
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
@@ -43,6 +47,7 @@ from solprop.nonlinear.optmat_rates import OptmatRate
 from solprop.nonlinear.raman import SilicaTensorResponse
 from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
 from solprop.output import HDF5Output, MemoryOutput, open_file
+from solprop.output.schema import GitProvenance
 from solprop.physdata import Mixture
 from solprop.profiles import Linear
 from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse
@@ -115,10 +120,14 @@ class Recording(NullReporter):
     def __init__(self):
         self.events = []
         self.text = None
+        self.closing = None
 
     def summary(self, text):
         self.events.append("summary")
-        self.text = text
+        if self.text is None:
+            self.text = text
+        else:
+            self.closing = text
 
     def started(self, z_start, z_end, n_planes):
         self.events.append("started")
@@ -317,6 +326,74 @@ def test_threads_come_from_the_backend_s_record():
     assert _threads("other", {}).startswith("budget ")
 
 
+def test_the_code_row_leads_with_the_commit_in_a_checkout():
+    metadata = gnlse().metadata()
+    release = dataclasses.replace(metadata, versions={"solprop": "1.2.0"}, git=None)
+    assert _code(release) == "1.2.0"
+    git = GitProvenance(commit="0123456789ab" + "c" * 28, branch="main", dirty=True)
+    checkout = dataclasses.replace(
+        release, versions={"solprop": "1.2.1.dev3+gabc"}, git=git
+    )
+    assert _code(checkout) == (
+        "commit 0123456789ab, modified (main, installed as 1.2.1.dev3+gabc)"
+    )
+    clean = dataclasses.replace(checkout, git=dataclasses.replace(git, dirty=False))
+    assert _code(clean).startswith("commit 0123456789ab (main, ")
+    assert list(rows(gnlse()))[:3] == ["solprop", "machine", "backend"]
+
+
+def test_the_machine_row_leaves_out_what_was_not_read():
+    record = {
+        "system": "Linux",
+        "release": "6.8.0",
+        "machine": "x86_64",
+        "cpu_model": "AMD EPYC 9R45",
+        "logical_cpus": 192,
+        "usable_cpus": 16,
+        "memory_bytes": 768 * 2**30,
+    }
+    assert _machine(record) == (
+        "x86_64, AMD EPYC 9R45, 192 CPUs (16 usable), 768 GiB, Linux 6.8.0"
+    )
+    bare = record | {"cpu_model": None, "memory_bytes": None, "logical_cpus": None}
+    assert _machine(bare) == "x86_64, Linux 6.8.0"
+
+
+def test_resources_are_written_in_seconds_or_hours_and_binary_units():
+    assert memory_size(512) == "512 B"
+    assert memory_size(1536) == "1.5 KiB"
+    assert memory_size(3 * 2**40) == "3 TiB"
+    spent = {"wall_time_s": 4000.0, "cpu_time_s": 12.5, "peak_rss_bytes": 2**30}
+    assert resources(spent) == (
+        "resources: 1:06:40 wall, 12.5 s CPU, process peak memory 1 GiB"
+    )
+
+
+def test_a_file_records_each_execution_s_machine_and_resources(tmp_path):
+    path = tmp_path / "run.h5"
+    with pytest.raises(KeyboardInterrupt):
+        gnlse().run(path, progress=Stop())
+    with open_file(path) as stored:
+        assert stored.outcome is not None
+        failed: Any = stored.outcome.execution
+    assert failed["host"]["usable_cpus"] >= 1
+    assert failed["resources"]["wall_time_s"] >= 0.0
+    gnlse().run(path, progress="none", resume=True)
+    with open_file(path) as stored:
+        assert stored.outcome is not None
+        assert stored.outcome.status == "complete"
+        execution: Any = stored.outcome.execution
+        earlier: Any = stored.outcome.previous_executions[0]
+        assert len(stored.outcome.previous_executions) == 1
+    assert earlier["execution"]["resources"] == failed["resources"]
+    assert execution["host"] == failed["host"]
+    assert set(execution["resources"]) == {
+        "wall_time_s",
+        "cpu_time_s",
+        "peak_rss_bytes",
+    }
+
+
 def test_a_resume_says_where_it_continues():
     table = rows(gnlse(), start_plane=1, z_start=0.005)
     assert table["start"] == "resuming at z = 5 mm, 1 of 2 planes to go"
@@ -428,7 +505,10 @@ def test_a_run_shows_the_summary_before_it_starts_and_keeps_it():
     reporter = Recording()
     output = gnlse().run(progress=reporter)
     assert isinstance(output, MemoryOutput)
-    assert reporter.events == ["summary", "started", "finished"]
+    assert reporter.events == ["summary", "started", "finished", "summary"]
+    assert reporter.closing is not None
+    assert reporter.closing.startswith("resources: ")
+    assert " wall, " in reporter.closing and " CPU" in reporter.closing
     assert reporter.text is not None
     assert reporter.text.startswith("Starting propagation from z = 0 m to 10 mm\n")
     records: Any = output.annotations[RUN_SUMMARY_ANNOTATION]
@@ -444,6 +524,7 @@ def test_the_closing_line_of_a_bar_run_is_shown_on_its_stream():
     assert text.startswith("Starting propagation from z = 0 m to 10 mm\n")
     assert "  shot noise:     off\n" in text
     assert "finished at z = 1.000000e-02 m: " in text
+    assert "\nresources: " in text
 
 
 def test_a_reporter_without_the_call_is_not_shown_the_summary():
@@ -479,7 +560,8 @@ def test_progress_log_logs_the_summary_at_info(caplog):
         gnlse().run(progress="log", progress_period=0)
     messages = [r.getMessage() for r in caplog.records if r.name == "solprop.log"]
     assert messages[0].startswith("Starting propagation from z = 0 m to 10 mm\n")
-    assert messages[-1].startswith("finished at z = ")
+    assert messages[-2].startswith("finished at z = ")
+    assert messages[-1].startswith("resources: ")
     assert all(r.levelno == logging.INFO for r in caplog.records[:1])
 
 

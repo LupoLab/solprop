@@ -37,13 +37,14 @@ from typing import cast
 
 import numpy as np
 
+from solprop._host import RunClock, machine, usage
 from solprop._interrupts import committing, handled
 from solprop.backends.populations import axis_refusal
 from solprop.backends.protocol import Backend, Observation
 from solprop.backends.protocol import StepHistory as BackendHistory
 from solprop.backends.registry import statistics_refusal
 from solprop.driver.memory import MemoryAdmission
-from solprop.driver.summary import RUN_SUMMARY_ANNOTATION, run_summary
+from solprop.driver.summary import RUN_SUMMARY_ANNOTATION, resources, run_summary
 from solprop.exceptions import (
     DriverError,
     OutputError,
@@ -421,6 +422,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
     )
     backend.set_progress(reporter)
     started = time.perf_counter()
+    clock = RunClock.start()
     logger.debug(
         "running %d save planes from index %d, collecting %d statistics",
         planes.size,
@@ -452,7 +454,11 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
             snapshots._start()
             snapshots_started = True
         _record_execution(
-            checkpoint_output, backend, tdse_binding, RunOutcome("running", reached)
+            checkpoint_output,
+            backend,
+            tdse_binding,
+            RunOutcome("running", reached),
+            clock=clock,
         )
         # The entrance is saved when the handler holds nothing, rather than whenever the
         # run starts at plane zero: a run interrupted before it reached its first save
@@ -477,6 +483,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
                     backend,
                     tdse_binding,
                     RunOutcome("running", reached),
+                    clock=clock,
                 )
         index = start_plane
         while index < planes.size:
@@ -517,6 +524,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
                     backend,
                     tdse_binding,
                     RunOutcome("running", reached),
+                    clock=clock,
                 )
             if snapshots is not None:
                 assert isinstance(output, HDF5Output)
@@ -531,6 +539,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
                         backend,
                         tdse_binding,
                         RunOutcome("running", z),
+                        clock=clock,
                     )
 
                 snapshots._service(
@@ -551,8 +560,11 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
                 backend,
                 tdse_binding,
                 RunOutcome("complete", reached),
+                clock=clock,
             )
         reporter.finished(time.perf_counter() - started)
+        if isinstance(reporter, SummarisingReporter):
+            reporter.summary(resources(usage(clock)))
     except BaseException as error:
         failure = error
         failed_z = _persist_failure(
@@ -562,7 +574,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
             tdse_binding,
             keeper,
             _FailedObservation(
-                pending, output.n_saved > pending_save_count, error, reached
+                pending, output.n_saved > pending_save_count, error, reached, clock
             ),
         )
         if failed_z is not None:
@@ -931,6 +943,7 @@ class _FailedObservation:
     already_saved: bool
     error: BaseException
     reached: float
+    clock: RunClock
 
 
 class _MarchKeeper:
@@ -1109,6 +1122,7 @@ def _persist_failure(
                     reached,
                     message=f"{type(failure.error).__name__}: {failure.error}",
                 ),
+                clock=failure.clock,
                 checkpoint=checkpoint,
             )
             keeper.keep(reached)
@@ -1171,6 +1185,7 @@ def _record_abandoned_step(
                     message=f"{type(failure.error).__name__}: {failure.error}; "
                     f"{reason}",
                 ),
+                clock=failure.clock,
             )
     except Exception as record_error:
         failure.error.add_note(f"the failure could not be recorded: {record_error}")
@@ -1183,9 +1198,14 @@ def _record_execution(
     binding: TDSEBinding | None,
     outcome: RunOutcome,
     *,
+    clock: RunClock,
     checkpoint: TerminalCheckpoint | None = None,
 ) -> None:
     """Snapshot call accounting without requesting any diagnostic evaluation.
+
+    The record also names the machine (:func:`solprop._host.machine`) and what the run
+    has spent so far (:func:`solprop._host.usage`): written at every save plane, it
+    keeps the wall time and peak memory of a run that is killed between them.
 
     Parameters
     ----------
@@ -1197,12 +1217,14 @@ def _record_execution(
         Optional atomic runtime supplying attempted native calls.
     outcome : RunOutcome
         Requested status, absolute position in m and any error message.
+    clock : solprop._host.RunClock
+        When the run started.
     checkpoint : TerminalCheckpoint or None, optional
         Accepted field to preserve separately from scheduled observations.
     """
     if output is None:
         return
-    record = backend.metadata()
+    record = {**backend.metadata(), "host": machine(), "resources": usage(clock)}
     if binding is not None:
         record = {**record, "tdse": dict(binding.metadata())}
     calls = record.get("response_calls", {})

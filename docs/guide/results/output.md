@@ -186,7 +186,7 @@ For a modal run:
                                configuration_hash, simulation_kind, grid_kind, created,
                                n_saved, fields, field_shape
 /meta/json              the whole RunMetadata as one UTF-8 JSON string
-/meta/outcome           status, cumulative call ledgers and execution provenance as JSON
+/meta/outcome           status, call ledgers, execution provenance, machine and resources (JSON)
 /meta/annotations/<name>  optional post-run annotations, one JSON string each
 /z                      (n_z,)                              plane positions, m
 /field                  (n_z, n_modes, n_pol, n_omega)      complex, optics convention
