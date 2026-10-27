@@ -203,7 +203,7 @@ def band_coherence(
     :func:`spectral_bands` across the reference mean spectrum's occupied span. A band
     whose mean spectral energy is below `floor_db` of the largest band's is not
     scored. The reference selects the bands and weighs them, so two ensembles judged
-    against one reference (for example two arithmetics or two solvers with the same
+    against one reference (for example two precisions or two solvers with the same
     seeds) are averaged over the same bins with the same weights. The reference's own
     band coherence is ``band_coherence(reference, reference)``.
 

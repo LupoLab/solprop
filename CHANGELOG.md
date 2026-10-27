@@ -342,7 +342,7 @@ The first public release. It contains:
 - **Ensemble and replay helpers.** `processing.coherence.band_coherence` and
   `spectral_bands` reduce an ensemble's coherence to one value per spectral band, weighted
   by a reference ensemble's mean spectrum, to compare two ensembles band by band;
-  `FixedSchedule.from_history` replays a run's accepted steps, so two arithmetics or
+  `FixedSchedule.from_history` replays a run's accepted steps, so two precisions or
   backends can be compared on the same discretisation.
 - **Documentation.** An introduction with executable lessons, a user guide, a
   long-form primer on the physics and numerics, focused tutorials and worked examples,
