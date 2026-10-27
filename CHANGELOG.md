@@ -369,6 +369,9 @@ The first public release. It contains:
   time per step at $2^{16}$ on an NVIDIA A40; runs with many nodes (radial, Cartesian)
   and short steps are unchanged. Device results move at rounding level, since the norms
   and the plasma's running sums are summed in tiles.
+- **`python -m benchmarks ab` between builds whose grids differ** recorded the field
+  difference as infinite, which the summary's JSON refused, so the run ended without
+  its summary; the difference is now recorded as not defined.
 
 - **The noise row of a printed `Simulation`** named the realisation's class; it now
   gives its model and seed.
