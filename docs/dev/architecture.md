@@ -654,10 +654,17 @@ process counts belong to the scan executor:
 | large on GPU | one thread per element | sequential | one problem per device |
 
 The plasma cumulative integral is sequential in value but not necessarily in execution. On
-the CPU it is the inner loop of the fused pass. The CUDA path uses one team per node: rate
-evaluation is time-parallel and a fixed deterministic scan tree forms exposure, fraction and
-currents before the response finish. Response teams are 256 below 8,192 time samples and 512
-at and above it; deterministic reduction blocks are 512. Fixed batches are
+the CPU it is the inner loop of the fused pass. The device path ties no team to a node
+(SEP 36): rate evaluation is time-parallel, and each running integral is a two-level scan
+over tiles of 1,024 samples, one team per (row, tile) summing its tile's increments into
+a binary64 total and then one per (row, tile) scanning its tile again from the row's
+earlier totals, forming the exposure's fraction or the current from each prefix. The
+pointwise response is one two-dimensional (node, time) range. Each column's norm
+reductions (the accepted update's three norms, the weighted error and the last stage's
+norm) are split over up to 256 teams of at least 1,024 bins, whose partial sums the host
+adds; a batch member keeps its own split, so it sums as its solo run does. Response
+teams are 256 below 8,192 time samples and 512 at and above it; deterministic reduction
+blocks are 512. Fixed batches are
 implemented; their measured crossover depends on workload
 ([backends.md](backends.md)). Public selection prefers the installed native backend,
 otherwise Numba CPU (ADR-029); the installed native build determines its execution space.

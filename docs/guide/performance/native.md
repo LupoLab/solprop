@@ -79,8 +79,9 @@ present). Under either reduced mode a GPU build:
   execution metadata (`gemm_probe_error`).
 - **keeps subnormals.** No build flushes binary32 subnormals to zero; the build refuses
   the flags that would (`-ftz=true`, `--use_fast_math`, `-fgpu-flush-denormals-to-zero`).
-- **evaluates the source one team per node**, its threads over the time samples, with the
-  plasma's running integrals as binary64 scans over the binary32 samples.
+- **evaluates the source over (node, time)**, so that a one-node fibre fills the device,
+  with the plasma's running integrals as two-level binary64 scans over tiles of the
+  binary32 samples.
 
 The binary32 transforms are FFTW's single-precision library on a CPU (`fftw3f`, named in
 the build record as `fft_binary32_library`), cuFFT and rocFFT on GPUs.

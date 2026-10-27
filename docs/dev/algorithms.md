@@ -528,7 +528,8 @@ convert their currents with exact inverse-frequency factors on the active bins.
 Only the field route's exposure and free-current recurrences use the running rule. The measured effect, the multipliers and the band rule's records are in
 [accuracy.md §1](accuracy.md). The density's values are
 ordered recurrences, but a GPU may evaluate them with a deterministic fixed-tree inclusive
-scan after parallel rate evaluation; the native CUDA path does so with one team per node.
+scan after parallel rate evaluation; the native device path does so with a two-level scan
+over tiles (binary64 tile totals, then each tile rescanned from its offset).
 The CPU path retains serial traversal of $t$. A cubic interpolant has error
 $h^4|f''''|/384$, so the rate table
 is **fourth order in the knot spacing**. Measured orders for both are in [accuracy.md
