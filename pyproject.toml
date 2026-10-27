@@ -73,7 +73,10 @@ dev = [
     # the Marcatili beta and its frequency derivatives symbolically; it is
     # in the dev group because pyright and the doctest collection import that script.
     "sympy",
-    "pytest>=8",
+    # Below 9.2 until pytest-xdist supports it: pytest 9.2 derives a node's id from a
+    # structured id, so xdist 3.8 can no longer append the `@group` suffix that
+    # `--dist loadgroup` schedules by, and every xdist_group is silently ignored.
+    "pytest>=8,<9.2",
     "pytest-xdist",
     "pytest-randomly",
     "pytest-regressions",
