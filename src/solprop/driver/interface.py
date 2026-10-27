@@ -984,9 +984,9 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
     rtol : float or None, optional
         ``None`` takes the default below, or the single-precision floor.
         Relative step tolerance; the default is
-        :data:`~solprop.driver.simulation.CAPILLARY_RTOL`, the capillary
-        default. Calibrate it for a production run (``docs/dev/stepper.md``
-        section 3).
+        :data:`~solprop.driver.simulation.CAPILLARY_RTOL` with the Adams default and
+        :data:`~solprop.driver.simulation.SINGLE_MODE_RTOL` with the Runge-Kutta one.
+        Calibrate it for a production run (``docs/dev/stepper.md`` section 3).
     atol : float, optional
         Absolute step tolerance, in the square root of watts.
     dz_max : float or None, optional
@@ -997,10 +997,10 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         A fixed schedule to replay instead of stepping adaptively.
     integrator : Multistep, RungeKutta or LowStorageRungeKutta, optional
         The method that steps the run (``docs/guide/numerics/choosing-a-stepper.md``).
-        ``None``,
-        the default, takes ``Multistep()``: the low-call exponential Adams method, one
-        response evaluation per step. ``RungeKutta()`` is the interaction-picture
-        DOPRI5 march, for a cheap response or a state too large for the Adams history.
+        ``None``, the default, takes ``Multistep()``, the low-call exponential Adams
+        method, for two or more resolved modes or the TDSE response, and
+        ``RungeKutta()``, the interaction-picture DOPRI5 march, for one resolved mode or
+        a mode-averaged one, where SEP 37 measured it 1.5 to 3.5 times faster.
         ``LowStorageRungeKutta()`` replays `schedule` in three registers (SEP 24).
     interpolate_planes : bool, optional
         Observe the save planes inside accepted steps instead of landing on them

@@ -306,6 +306,7 @@ __all__ = [
     "ORTHONORMALITY_TOLERANCE",
     "PLANAR_NOISE",
     "PLASMA_STATISTICS",
+    "SINGLE_MODE_RTOL",
     "SINGLE_PRECISION_NOISE",
     "SPATIAL_ATOL",
     "SPATIAL_RTOL",
@@ -351,14 +352,22 @@ DEFAULT_N_SAVE = 201
 """Planes a GNLSE run stores, counting the one at ``z = 0``."""
 
 CAPILLARY_RTOL = 1e-6
-"""Relative tolerance a capillary run asks for unless told otherwise.
+"""Relative tolerance a multimode capillary run asks for unless told otherwise.
 
 The default of :meth:`Simulation.from_capillary` and
-:func:`~solprop.driver.interface.prop_capillary` with their default ``Multistep()``.
-SEP 37's convergence protocol on the standard suite's ``rdw`` case passes it, and a
-noisy comb-to-continuum check needs it with this integrator (``1e-5`` fails the
-coherence budget there). It is a starting point, not a
-guarantee: a production run should calibrate it (``docs/dev/stepper.md`` section 3).
+:func:`~solprop.driver.interface.prop_capillary` for two or more resolved modes or the
+TDSE response, which take ``Multistep()`` by default. SEP 37's convergence protocol on
+the standard suite's ``rdw`` case passes it, and a noisy comb-to-continuum check needs
+it with this integrator (``1e-5`` fails the coherence budget there). It is a starting
+point, not a guarantee: a production run should calibrate it
+(``docs/dev/stepper.md`` section 3).
+"""
+
+SINGLE_MODE_RTOL = 1e-5
+"""Relative tolerance a single-mode or mode-averaged capillary run asks for by default.
+
+With its default ``RungeKutta()`` (SEP 37, D10): the protocol's ``rdw`` and noisy
+comb-to-continuum checks pass it with this integrator.
 """
 
 WAVEGUIDE_RTOL = 1e-5
@@ -4059,9 +4068,9 @@ class Simulation(Displayed):
         seed : int or None, optional
             Entropy of the noise generator.
         rtol : float or None, optional
-            Relative step tolerance; the default is :data:`CAPILLARY_RTOL`, the
-            waveguide default. Calibrate it for a production run
-            (``docs/dev/stepper.md`` section 3).
+            Relative step tolerance; the default is :data:`CAPILLARY_RTOL` with the
+            Adams default and :data:`SINGLE_MODE_RTOL` with the Runge-Kutta one.
+            Calibrate it for a production run (``docs/dev/stepper.md`` section 3).
         atol : float, optional
             Absolute step tolerance, in the square root of watts.
         dz_max : float or None, optional
@@ -4073,11 +4082,11 @@ class Simulation(Displayed):
         integrator : Multistep, RungeKutta or LowStorageRungeKutta, optional
             The method that steps the run
             (``docs/guide/numerics/choosing-a-stepper.md``).
-            ``None``, the default, takes ``Multistep()``: the low-call exponential
-            Adams method, one response evaluation per step. ``RungeKutta()`` is the
-            interaction-picture DOPRI5 march, for a cheap response or a state too
-            large for the Adams history. ``LowStorageRungeKutta()`` replays
-            `schedule` in three registers (SEP 24).
+            ``None``, the default, takes ``Multistep()``, the low-call exponential
+            Adams method, for two or more resolved modes or the TDSE response, and
+            ``RungeKutta()``, the interaction-picture DOPRI5 march, for one resolved
+            mode or a mode-averaged one (SEP 37). ``LowStorageRungeKutta()``
+            replays `schedule` in three registers (SEP 24).
         interpolate_planes : bool, optional
             Observe the save planes inside accepted steps instead of landing on them
             (SEP 14): through the Adams march's own polynomial, or DOPRI5's
@@ -4202,7 +4211,7 @@ class Simulation(Displayed):
             absorber_scheme=absorber_scheme,
             noise=noise,
             seed=seed,
-            rtol=CAPILLARY_RTOL if rtol is None and precision == "double" else rtol,
+            rtol=rtol,
             atol=atol,
             dz_max=dz_max,
             dz_init=dz_init,
@@ -5594,6 +5603,12 @@ class Simulation(Displayed):
             responses,
             ionisation_field_range,
             _InputPeak(field0, mode_set, working, rule) if ionising else None,
+        )
+        integrator, rtol = _capillary_stepping(
+            integrator,
+            rtol,
+            adams=atomic is not None or (len(mode_set) > 1 and rule is not None),
+            applies=not waveguide and precision == "double",
         )
         settings = SimulationSettings(
             controller=PIController(
@@ -7773,6 +7788,50 @@ def _save_planes(
         )
         raise DriverError(msg)
     return np.linspace(0.0, length, count)[1:]
+
+
+def _capillary_stepping(
+    integrator: Multistep | RungeKutta | LowStorageRungeKutta | None,
+    rtol: float | None,
+    *,
+    adams: bool,
+    applies: bool,
+) -> tuple[Multistep | RungeKutta | LowStorageRungeKutta | None, float | None]:
+    """Return a capillary run's default integrator and tolerance (SEP 37, D10).
+
+    The exponential Adams method carries the intermodal beat of two or more resolved
+    modes in its propagator, where the interaction-picture Runge-Kutta march has to
+    resolve it within its steps, and it is the TDSE response's only march: such a run
+    takes ``Multistep()`` and :data:`CAPILLARY_RTOL`. One resolved mode, or a
+    mode-averaged one, takes ``RungeKutta()`` and :data:`SINGLE_MODE_RTOL`, which were
+    1.5 to 3.5 times faster there at matched accuracy. A named integrator or tolerance
+    is kept.
+
+    Parameters
+    ----------
+    integrator : Multistep, RungeKutta, LowStorageRungeKutta or None
+        The keyword as given.
+    rtol : float or None
+        The keyword as given.
+    adams : bool
+        Whether the run resolves two or more modes or carries the TDSE response.
+    applies : bool
+        Whether the rule applies: a double-precision capillary run, not a waveguide
+        built on the same assembly, whose interface chooses its own defaults.
+
+    Returns
+    -------
+    tuple
+        The integrator and the tolerance to build the settings with.
+    """
+    if not applies:
+        return integrator, rtol
+    chosen = integrator
+    if chosen is None:
+        chosen = Multistep() if adams else RungeKutta()
+    if rtol is None:
+        rtol = CAPILLARY_RTOL if adams else SINGLE_MODE_RTOL
+    return chosen, rtol
 
 
 def _spatial_settings(settings: SimulationSettings, route: str) -> SimulationSettings:
