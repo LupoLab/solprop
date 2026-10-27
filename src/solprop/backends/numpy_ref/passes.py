@@ -45,6 +45,7 @@ import numpy as np
 from jaxtyping import Bool, Complex, Float, Inexact, Int, Num
 
 from solprop import boundaries, fourier
+from solprop.backends.numpy_ref import transforms
 from solprop.constants import EPS0
 from solprop.exceptions import BackendError
 from solprop.fourier import GridKind
@@ -592,8 +593,8 @@ def raman_polarisation(
     # pass reproduce the oracle rather than merely agree with it.
     for node in range(field_t.shape[0]):
         drive[node, :n_to] = raman_drive(field_t[node], kind=kind, thg=thg)
-    convolved = np.fft.irfft(
-        spectrum * np.fft.rfft(drive, axis=-1), n=2 * n_to, axis=-1
+    convolved = transforms.irfft(
+        spectrum * transforms.rfft(drive, axis=-1), n=2 * n_to, axis=-1
     )[..., :n_to]
     return (EPS0 * density) * field_t * convolved[:, np.newaxis, :]
 
@@ -650,8 +651,8 @@ def _vector_raman_polarisation(
             2 * half * (np.real(x) * np.real(y) + np.imag(x) * np.imag(y))
         )
     kernels = spectrum if n_drives == 1 else spectrum[[0, 1, 1]]
-    convolved = np.fft.irfft(
-        kernels * np.fft.rfft(drive, axis=-1), n=2 * n_to, axis=-1
+    convolved = transforms.irfft(
+        kernels * transforms.rfft(drive, axis=-1), n=2 * n_to, axis=-1
     )[..., :n_to]
     if n_drives == 1:
         return (EPS0 * density) * field_t * convolved
@@ -1282,7 +1283,7 @@ def tensor_raman_spectrum(
                 amplitude[channel] += weights[channel] * damped
             offset += 1
         total += density * component.fraction * amplitude
-    return np.fft.rfft(total, axis=-1) * dt
+    return transforms.rfft(total, axis=-1) * dt
 
 
 def nonlinear_polarisation(  # noqa: PLR0913 - the fused pass takes what the responses need
@@ -1586,8 +1587,8 @@ def held_plasma_spectrum(
     numpy.ndarray
         Polarisation-equivalent spectrum in raw DFT units, with inactive bins zero.
     """
-    current = np.fft.rfft(gated, axis=-1)[..., crop_index]
-    derivative = np.fft.rfft(edge, axis=-1)[..., crop_index]
+    current = transforms.rfft(gated, axis=-1)[..., crop_index]
+    derivative = transforms.rfft(edge, axis=-1)[..., crop_index]
     result = np.zeros_like(current)
     q = 1j * omega[active]
     result[..., active] = current[..., active] / q - derivative[..., active] / q**2
