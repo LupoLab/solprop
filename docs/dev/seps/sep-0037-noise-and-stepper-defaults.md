@@ -632,10 +632,9 @@ destination:
     runs and move most of the capillary test references. The maintainer decides this.
 - **Verification:** the default lane and the slow lane on the cluster node (below, at
   Final), and the defaults checked by construction.
-- **After the maintainer's review (D9, D10):**
-  - The capillary steps by its representation: `RungeKutta()` at 1e-5 for one resolved
-    mode or a mode-averaged one, `Multistep()` at 1e-6 for two or more resolved modes or
-    the TDSE response.
+- **After the maintainer's review (D9–D11):**
+  - The capillary keeps `Multistep()` at 1e-6 for every representation (D11, which
+    replaced D10's representation rule).
   - `prop_free` takes adaptive `RungeKutta()`, a default controller (`FREE_RTOL`) and
     no noise by default.
   - A TDSE run takes no noise by default and warns when asked for it (D8).
@@ -1118,6 +1117,21 @@ provably better and not worse elsewhere, is an improvement.
   march resolves within its steps and the exponential Adams method carries in its
   propagator. The noisy comb-to-continuum case, the only one that matters there, is
   1.3 to 1.6 times slower with the Adams method; that is the accepted cost.
+  *Replaced by D11 the same day.*
+- **D11 (2026-10-27).** The capillary takes one default, `Multistep()` at 1e-6
+  (`CAPILLARY_RTOL`), for every representation, and D10's rule is withdrawn. Re-running
+  the worked examples under D10 showed that it did not carry beyond the one-mode RDW
+  comparison it came from. On the cluster node, with the native backend, the Adams
+  method at 1e-6 was faster than the Runge–Kutta march at 1e-5 on the Kerr-only
+  single-mode examples (self-phase modulation 20.5 s against 32.1 s, soliton
+  compression 15.2 against 20.8, four-wave mixing 10.8 against 13.4, cross-phase
+  modulation 9.6 against 13.2) and on the dispersive Kerr four-wave-mixing scan
+  (1202 s against 4327 s). The Runge–Kutta march won only on the long Raman (584 s
+  against 160 s) and ionisation (44.5 against 21.3) examples. Re-measured warm on
+  self-phase modulation against a tight reference, the Adams method at 1e-6 took 2.8 s
+  for a field error of 4.2e-5, and the Runge–Kutta march at 1e-5 4.9 s for 2.6e-4. The
+  guide names `RungeKutta()` as the faster choice for long Raman and plasma runs, and
+  says that the dispersive Kerr policies cost more per step.
 - **D7.** The modified model is kept as it is, with no new work. Whether to keep or
   remove it is decided when SEP 7 settles whether gain media need its separate
   noise-injection path: amplified spontaneous emission needs the noise to see only the

@@ -28,8 +28,7 @@ choose another.
 | Interface | Integrator | `rtol` | `atol` | Shot noise |
 |---|---|---|---|---|
 | `prop_gnlse` | `RungeKutta()` | 1e-7 | 1e-14 √W | `"input"` |
-| `prop_capillary`, one resolved mode or mode-averaged | `RungeKutta()` | 1e-5 | 1e-10 √W | `"input"` |
-| `prop_capillary`, two or more resolved modes | `Multistep()` | 1e-6 | 1e-10 √W | `"input"` |
+| `prop_capillary` | `Multistep()` | 1e-6 | 1e-10 √W | `"input"` |
 | `prop_capillary` with the TDSE response | `Multistep()` | 1e-6 | 1e-10 √W | none |
 | `prop_waveguide` | `RungeKutta()` | 1e-5 | 1e-10 √W | `"input"` |
 | `prop_radial` | `Multistep()` | 1e-5 | 0 | `"input"` |
@@ -46,13 +45,22 @@ are slow and rarely about noise sensitivity.
 On the GNLSE, the Runge–Kutta march is 2.5 to 4.8 times faster than the exponential
 Adams method at matched accuracy, more with noise. On the waveguide route it is 4 times
 faster; the interaction-formulation Adams method is faster still there but refuses the
-coupled flows some waveguide routes carry. On the capillary the representation decides.
-With one resolved mode, or a mode-averaged one, the Runge–Kutta march is 1.5 to 3.5 times
-faster. With several resolved modes the source beats at the modes' phase mismatches: the
-interaction-picture march has to resolve that beat within its steps (going from one
-resolved mode to four multiplies its steps by 3.7 on the RDW capillary), while the
-exponential Adams method carries it in its propagator and is about three times faster.
-The TDSE response runs only on `Multistep()`. The radial and
+coupled flows some waveguide routes carry. On the capillary the Adams method is the
+default for every representation. With several resolved modes the source beats at the
+modes' phase mismatches: the interaction-picture march has to resolve that beat within
+its steps (going from one resolved mode to four multiplies its steps by 3.7 on the RDW
+capillary), while the exponential Adams method carries it in its propagator and is
+about three times faster. With one mode, or a mode-averaged one, the Adams method at
+1e-6 was 1.2 to 1.75 times faster than the Runge–Kutta march at 1e-5 on the Kerr-only
+worked examples, and more accurate (on self-phase modulation in argon, a field error of
+4e-5 against 3e-4). It spends one response evaluation per step where the Runge–Kutta
+march spends six, so an expensive response widens the gap. The dispersive Kerr
+policies (`MaterialSelection(electronic="symmetric-kerr")` or `"gas-polynomial"`) cost
+more per evaluation than the carrier Kerr default: on a single-mode argon
+four-wave-mixing scan with them, the Adams method was 3.6 times faster. On a long run
+with Raman or plasma, `RungeKutta()` is the faster choice: 3.6 times on the Raman
+self-frequency-shift example and 2.1 times on the ionisation blueshift example. The
+TDSE response runs only on `Multistep()`. The radial and
 planar defaults hold their methods, which are faster there than the Runge–Kutta march
 (by 1.4 to 2.4 times on the radial filament), and set a tolerance where the caller gave
 no controller. A free-space run takes the Runge–Kutta march: the Adams history's
