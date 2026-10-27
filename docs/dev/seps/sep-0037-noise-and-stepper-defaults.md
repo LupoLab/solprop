@@ -6,7 +6,7 @@
 | **Title** | Shot noise on by default, and an integrator and tolerances chosen for each interface |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-10-26); Opus 5.5 (2026-10-26, revision after review) |
-| **Status** | Accepted |
+| **Status** | In progress |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); GPT-6 (AI) |
 | **Type** | Change |
@@ -15,7 +15,7 @@
 | **Requires** | [SEP 16](archive/sep-0016-unified-multistep.md) (the multistep family and its work–precision qualification); [SEP 30](archive/sep-0030-standard-benchmark-suite.md) (the benchmark suite); [SEP 31](archive/sep-0031-simulation-coupling.md) (field planes and coupled stages) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | — |
+| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0037-noise-and-stepper-defaults`: phases 0–3 in progress |
 | **Manual pages** | — |
 
 ## Part I — Proposal
