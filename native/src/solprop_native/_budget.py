@@ -18,6 +18,7 @@ import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -96,13 +97,41 @@ def _read_cgroup_cpus(root: Path) -> int | None:
 
 
 def cores_in_masks(masks: Sequence[int], cpus: Sequence[int]) -> int:
-    """Count the cores, given as CPU bitmasks, that hold any of ``cpus``."""
+    """Count the cores, given as CPU bitmasks, that hold any of ``cpus``.
+
+    Parameters
+    ----------
+    masks : sequence of int
+        One bitmask per physical core: bit ``n`` set when CPU ``n`` is one of its
+        hardware threads.
+    cpus : sequence of int
+        The CPU indices the process may run on.
+
+    Returns
+    -------
+    int
+        The number of cores holding at least one of ``cpus``.
+    """
     wanted = sum(1 << cpu for cpu in cpus)
     return sum(1 for mask in masks if mask & wanted)
 
 
 def _linux_cores(cpus: Sequence[int], root: Path) -> int | None:
-    pairs = set()
+    """Count the distinct (package, core) pairs of ``cpus`` in a sysfs CPU tree.
+
+    Parameters
+    ----------
+    cpus : sequence of int
+        The CPU indices the process may run on.
+    root : Path
+        The sysfs CPU directory, ``/sys/devices/system/cpu`` on a running system.
+
+    Returns
+    -------
+    int or None
+        The number of physical cores, or ``None`` if any CPU's topology is unreadable.
+    """
+    pairs: set[tuple[str, str]] = set()
     for cpu in cpus:
         topology = root / f"cpu{cpu}" / "topology"
         try:
@@ -118,11 +147,26 @@ def _linux_cores(cpus: Sequence[int], root: Path) -> int | None:
 
 
 def _windows_cores(cpus: Sequence[int]) -> int | None:  # pragma: no cover - Windows
+    """Count the physical cores holding ``cpus`` from Windows' processor table.
+
+    Parameters
+    ----------
+    cpus : sequence of int
+        The CPU indices the process may run on (processor group 0).
+
+    Returns
+    -------
+    int or None
+        The number of physical cores, or ``None`` if the table cannot be read.
+    """
     import ctypes
 
     class _Information(ctypes.Structure):
-        # SYSTEM_LOGICAL_PROCESSOR_INFORMATION: the mask, the relationship and a
-        # 16-byte union that is aligned to 8.
+        """One ``SYSTEM_LOGICAL_PROCESSOR_INFORMATION`` entry.
+
+        The mask, the relationship and a 16-byte union aligned to 8.
+        """
+
         _fields_ = (
             ("mask", ctypes.c_size_t),
             ("relationship", ctypes.c_int),
@@ -130,8 +174,8 @@ def _windows_cores(cpus: Sequence[int]) -> int | None:  # pragma: no cover - Win
         )
 
     try:
-        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-        query = kernel32.GetLogicalProcessorInformation
+        kernel32: Any = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        query: Any = kernel32.GetLogicalProcessorInformation
         size = ctypes.c_ulong(0)
         query(None, ctypes.byref(size))
         table = (_Information * (size.value // ctypes.sizeof(_Information)))()
@@ -140,7 +184,7 @@ def _windows_cores(cpus: Sequence[int]) -> int | None:  # pragma: no cover - Win
     except AttributeError, OSError:
         return None
     # Relationship 0 is RelationProcessorCore: one entry per physical core.
-    masks = [entry.mask for entry in table if entry.relationship == 0]
+    masks = [int(entry.mask) for entry in table if entry.relationship == 0]
     return cores_in_masks(masks, cpus) or None
 
 
@@ -153,6 +197,19 @@ def physical_cores(
     keep those busy, so a second thread per core adds contention, not speed. Linux
     reads each CPU's package and core from ``root``; Windows asks the kernel. macOS on
     Apple silicon has one thread per core, so the CPUs are the cores.
+
+    Parameters
+    ----------
+    cpus : sequence of int
+        The CPU indices the process may run on.
+    root : Path, optional
+        The sysfs CPU directory, read on Linux.
+
+    Returns
+    -------
+    int or None
+        The number of physical cores, or ``None`` on other platforms or when the
+        topology cannot be read.
     """
     if sys.platform.startswith("linux"):
         return _linux_cores(cpus, root)
