@@ -151,7 +151,8 @@ The first public release. It contains:
     (`noise="input"`) and recorded with its seed and with how the model was chosen
     (`RunMetadata.noise_resolution`, output schema 26). `noise=None` switches it off,
     and `noise="modified"` keeps the realisation apart from the field. Single precision,
-    the hybrid planar grid and the TDSE response carry none by default and record why
+    the hybrid planar grid, the TDSE response and the Cartesian and line grids carry none
+    by default and record why
     (noise asked for beside the TDSE is warned on); an interior launch takes its
     spectrum as given unless `noise="input"` is passed. A floor-subtracted spectral
     density, `get_spectral_density(..., noise_floor="subtract")`, removes the seed's one
@@ -168,9 +169,11 @@ The first public release. It contains:
     interaction-picture Runge–Kutta pair. A low-storage Runge–Kutta variant is
     included. Each interface has its own default integrator and tolerances, set by
     measurement (SEP 37): `RungeKutta()` for `prop_gnlse` (`rtol` 1e-7) and
-    `prop_waveguide` (1e-5), `Multistep()` for `prop_capillary` (1e-6) and the spatial
-    routes; `prop_radial` and `prop_planar` take `rtol` 1e-5 when their
-    `SimulationSettings` give no controller, which is now optional.
+    `prop_waveguide` (1e-5) and `prop_free` (1e-5), `Multistep()` for
+    `prop_capillary` (1e-6), `prop_radial` and `prop_planar` (1e-5). The spatial
+    interfaces apply their tolerance when `SimulationSettings` give no controller, which
+    is now optional, and a free-space run that names no integrator takes
+    `RungeKutta()`. The choosing-a-stepper page tabulates every default.
   - The linear propagation is integrated exactly, and absorbing boundaries act as rates.
   - Fixed and adaptive schedules.
   - Bounded, rounding-level reproducibility across backends.

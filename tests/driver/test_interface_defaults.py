@@ -11,6 +11,9 @@ from solprop.driver import Simulation, SimulationSettings
 from solprop.driver.simulation import (
     CAPILLARY_RTOL,
     DEFAULT_RTOL,
+    FREE_ATOL,
+    FREE_NOISE,
+    FREE_RTOL,
     SPATIAL_ATOL,
     SPATIAL_RTOL,
     TDSE_NOISE,
@@ -70,13 +73,14 @@ def test_the_waveguide_takes_the_runge_kutta_march_and_its_tolerance():
     assert controller.rtol == WAVEGUIDE_RTOL == 1e-5
 
 
-def _spatial(space, controller=None):
+def _spatial(space, controller=None, integrator=None, noise=None):
     grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
     settings = SimulationSettings(
         controller,
         save_planes=[grid.length],
         dz_max=grid.length,
         dz_init=grid.length,
+        integrator=integrator,
     )
     build = (
         Simulation.from_radial
@@ -90,7 +94,7 @@ def _spatial(space, controller=None):
         [],
         SpatialPulse(GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 60e-6),
         settings=settings,
-        noise=None,
+        noise=noise,
     )
 
 
@@ -102,9 +106,19 @@ def test_a_radial_run_without_a_controller_takes_the_spatial_default():
     assert _spatial(RadialGrid(6e-4, 16), explicit).settings.controller is explicit
 
 
-def test_a_free_space_run_without_a_controller_is_refused():
-    with pytest.raises(DriverError, match="no default tolerance yet"):
-        _spatial(FreeGrid(3e-4, 8, 3e-4, 8))
+def test_a_free_space_run_takes_the_runge_kutta_march_and_no_noise():
+    simulation = _spatial(FreeGrid(3e-4, 8, 3e-4, 8))
+    assert isinstance(simulation.settings.integrator, RungeKutta)
+    controller = simulation.settings.controller
+    assert controller is not None
+    assert (controller.rtol, controller.atol) == (FREE_RTOL, FREE_ATOL)
+    named = _spatial(FreeGrid(3e-4, 8, 3e-4, 8), integrator=Multistep())
+    assert isinstance(named.settings.integrator, Multistep)
+    quiet = _spatial(FreeGrid(3e-4, 8, 3e-4, 8), noise="default")
+    assert quiet.noise is None
+    assert quiet.noise_resolution == NoiseResolution("default", None, FREE_NOISE)
+    radial = _spatial(RadialGrid(6e-4, 16), noise="default")
+    assert radial.noise_resolution == NoiseResolution("default", "input")
 
 
 def test_a_simulation_built_directly_needs_a_controller():

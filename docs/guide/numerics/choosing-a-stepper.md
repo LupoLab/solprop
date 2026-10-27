@@ -25,13 +25,21 @@ on and off, among the methods every route of the interface admits. A default nev
 depends on the physics a run switches on; pass `integrator=`, `rtol=` or `atol=` to
 choose another.
 
-| Interface | Integrator | `rtol` | `atol` |
-|---|---|---|---|
-| `prop_gnlse` | `RungeKutta()` | 1e-7 | 1e-14 √W |
-| `prop_capillary` | `Multistep()` | 1e-6 | 1e-10 √W |
-| `prop_waveguide` | `RungeKutta()` | 1e-5 | 1e-10 √W |
-| `prop_radial`, `prop_planar` | `Multistep()` | 1e-5 | 0 |
-| `prop_free` | `Multistep()` | the caller's controller | |
+| Interface | Integrator | `rtol` | `atol` | Shot noise |
+|---|---|---|---|---|
+| `prop_gnlse` | `RungeKutta()` | 1e-7 | 1e-14 √W | `"input"` |
+| `prop_capillary` | `Multistep()` | 1e-6 | 1e-10 √W | `"input"`; none with the TDSE response |
+| `prop_waveguide` | `RungeKutta()` | 1e-5 | 1e-10 √W | `"input"` |
+| `prop_radial` | `Multistep()` | 1e-5 | 0 | `"input"` |
+| `prop_free` (Cartesian, line) | `RungeKutta()` | 1e-5 | 0 | none |
+| `prop_planar` | `Multistep()` | 1e-5 | 0 | none (not carried) |
+
+Under `precision="single"` every interface takes `RungeKutta()` and no noise. The
+spatial interfaces' tolerances apply where their `SimulationSettings` give no
+controller; a free-space run that names no integrator takes `RungeKutta()`. A default
+noise that resolves to none says why in the run record and the start-of-run summary,
+and asking for noise beside the TDSE response is warned on: TDSE and Cartesian runs
+are slow and rarely about noise sensitivity.
 
 On the GNLSE, the Runge–Kutta march is 2.5 to 4.8 times faster than the exponential
 Adams method at matched accuracy, more with noise. On the waveguide route it is 4 times
@@ -40,8 +48,10 @@ coupled flows some waveguide routes carry. On the capillary the evidence is spli
 Runge–Kutta march wins most cases, the Adams method the resolved-mode RDW and the
 noiseless comb-to-continuum runs that dominate production — and the default stays the
 Adams method. A capillary run with the TDSE response needs `Multistep()`. The radial and
-planar defaults hold their methods and set a tolerance where the caller gave no
-controller; a free-space run has no measured default yet.
+planar defaults hold their methods, which are faster there than the Runge–Kutta march
+(by 1.4 to 2.4 times on the radial filament), and set a tolerance where the caller gave
+no controller. A free-space run takes the Runge–Kutta march: the Adams history's
+memory rules the multistep method out for a large transverse state.
 
 The tolerances were set by a convergence test: the loosest of three levels a decade
 apart at which a seeded ensemble's mean spectrum stays within 0.5 dB, above −40 dB of

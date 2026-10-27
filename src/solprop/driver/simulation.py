@@ -297,6 +297,9 @@ __all__ = [
     "DEFAULT_ATOL",
     "DEFAULT_N_SAVE",
     "DEFAULT_RTOL",
+    "FREE_ATOL",
+    "FREE_NOISE",
+    "FREE_RTOL",
     "INTERIOR_LAUNCH_NOISE",
     "LOOSE_ADAMS_RTOL",
     "LOW_STORAGE_BACKENDS",
@@ -379,6 +382,17 @@ Set by SEP 37's convergence protocol on the standard suite's ``radial_filament_2
 SPATIAL_ATOL = 0.0
 """Absolute tolerance of the same default controller: none, as the suite runs it."""
 
+FREE_RTOL = 1e-5
+"""Relative tolerance of the controller a Cartesian or line run takes by default.
+
+With the default ``RungeKutta()`` (SEP 37): the Adams history's memory rules the
+multistep method out for a large transverse state. Applies only where the caller's
+:class:`SimulationSettings` gives no controller.
+"""
+
+FREE_ATOL = 0.0
+"""Absolute tolerance of the same default controller."""
+
 WAVEGUIDE_ATOL = 1e-10
 """Absolute tolerance of a modal waveguide run, in sqrt(W).
 
@@ -454,6 +468,12 @@ SINGLE_PRECISION_NOISE = (
 
 PLANAR_NOISE = "the hybrid planar grid carries no noise: no photon measure is declared"
 """Why a planar run carries no noise (SEP 37)."""
+
+FREE_NOISE = (
+    "a Cartesian or line run carries no noise by default: it is slow, and rarely about "
+    "noise sensitivity"
+)
+"""Why a default resolves to no noise on the free-space interface (SEP 37)."""
 
 TDSE_NOISE = (
     "a TDSE run carries no noise by default: it is expensive, rarely repeated as an "
@@ -710,6 +730,9 @@ class SimulationSettings(Displayed):
     evanescent_rate: float | None = None
     transverse_absorber: TransverseCollar | None = None
     adiabatic_accuracy: AdiabaticAccuracy | None = None
+    integrator_named: bool = dataclasses.field(
+        default=False, init=False, repr=False, compare=False
+    )
 
     def _planes_text(self) -> str:
         """Return the save planes summarised, for printing.
@@ -801,6 +824,7 @@ class SimulationSettings(Displayed):
             raise DriverError(refusal)
         object.__setattr__(self, "field_planes", tuple(self.field_planes))
         precision = _precision(self.precision)
+        object.__setattr__(self, "integrator_named", self.integrator is not None)
         if self.integrator is None:
             object.__setattr__(
                 self, "integrator", RungeKutta() if precision.single else Multistep()
@@ -1720,6 +1744,7 @@ class Simulation(Displayed):
                 one.name
                 for one in dataclasses.fields(SimulationSettings)
                 if one.name not in _EXECUTION_SETTINGS
+                and one.init
                 and not _same_setting(
                     getattr(self._settings, one.name), getattr(settings, one.name)
                 )
@@ -3441,7 +3466,12 @@ class Simulation(Displayed):
         ):
             msg = "spatial input must have shape (n_columns, n_pol, n_omega)"
             raise DriverError(msg)
-        noise_model, resolution = _resolve_noise(noise, seed, settings.precision)
+        noise_model, resolution = _resolve_noise(
+            noise,
+            seed,
+            settings.precision,
+            quiet=None if isinstance(space, RadialGrid) else FREE_NOISE,
+        )
         draw = (
             None
             if noise_model is None
@@ -7758,26 +7788,25 @@ def _spatial_settings(settings: SimulationSettings, route: str) -> SimulationSet
     Returns
     -------
     SimulationSettings
-        `settings`, with :data:`SPATIAL_RTOL` and :data:`SPATIAL_ATOL` where it gave no
-        controller.
-
-    Raises
-    ------
-    DriverError
-        If a free-space run gives no controller: its default tolerance has not been
-        measured.
+        `settings`, with the interface's default controller where it gave none
+        (:data:`SPATIAL_RTOL` for radial and planar runs, :data:`FREE_RTOL` for
+        Cartesian and line ones) and, for a free-space run that named no integrator,
+        ``RungeKutta()``.
     """
+    if (
+        route == "free"
+        and not settings.integrator_named
+        and settings.precision == "double"
+    ):
+        # The Adams history's memory rules the multistep method out for a large
+        # transverse state: a free-space run takes the Runge-Kutta march (SEP 37).
+        settings = dataclasses.replace(settings, integrator=RungeKutta())
     if settings.controller is not None:
         return settings
-    if route == "free":
-        msg = (
-            "a Cartesian or line run has no default tolerance yet (SEP 37 measured "
-            "none): give its SimulationSettings a controller=PIController(...)"
-        )
-        raise DriverError(msg)
-    return dataclasses.replace(
-        settings, controller=PIController(rtol=SPATIAL_RTOL, atol=SPATIAL_ATOL)
+    rtol, atol = (
+        (FREE_RTOL, FREE_ATOL) if route == "free" else (SPATIAL_RTOL, SPATIAL_ATOL)
     )
+    return dataclasses.replace(settings, controller=PIController(rtol=rtol, atol=atol))
 
 
 def _interface_integrator(
@@ -7809,7 +7838,12 @@ def _interface_integrator(
 
 
 def _resolve_noise(
-    noise: str | None, seed: int | None, precision: str, *, tdse: bool = False
+    noise: str | None,
+    seed: int | None,
+    precision: str,
+    *,
+    tdse: bool = False,
+    quiet: str | None = None,
 ) -> tuple[NoiseModel | None, NoiseResolution]:
     """Resolve a constructor's ``noise`` keyword into the model a run carries (SEP 37).
 
@@ -7835,6 +7869,9 @@ def _resolve_noise(
         Whether the run carries the TDSE response, which takes no noise by default
         and warns when noise is asked for: its runs are expensive, rarely repeated as
         ensembles, and checked coherently.
+    quiet : str or None, optional
+        Why this interface takes no noise by default, as the free-space one does:
+        ``"default"`` then resolves to none, recorded with this reason.
 
     Returns
     -------
@@ -7865,7 +7902,7 @@ def _resolve_noise(
             if precision == "single"
             else TDSE_NOISE
             if tdse
-            else None
+            else quiet
         )
         if fallback is not None:
             if seed is not None:

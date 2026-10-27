@@ -1087,6 +1087,13 @@ provably better and not worse elsewhere, is an improvement.
 - **D8 (2026-10-27).** A TDSE run takes no noise by default and warns when noise is
   asked for (`TDSE_NOISE`). TDSE runs are expensive, never repeated as noise
   ensembles, and mostly checked coherently, so noise there is the exception.
+- **D9 (2026-10-27).** The GNLSE and waveguide defaults (RK, 1e-7 and 1e-5), the
+  radial and planar defaults (Multistep, 1e-5) and the TDSE, record and merge items are
+  approved. A Cartesian or line run (`prop_free`) takes adaptive `RungeKutta()` by
+  default, since the Adams history's memory rules the multistep method out there, and no
+  noise by default (`FREE_NOISE`), since such runs are slow and rarely about noise
+  sensitivity. Its tolerance is set by a measurement on the suite's free-space cases.
+  The documentation carries one table of every interface's defaults.
 - **D7.** The modified model is kept as it is, with no new work. Whether to keep or
   remove it is decided when SEP 7 settles whether gain media need its separate
   noise-injection path: amplified spontaneous emission needs the noise to see only the
