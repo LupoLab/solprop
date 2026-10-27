@@ -124,6 +124,9 @@ def _propagate(backend: str):
         wavelength_limits=(200e-9, 4e-6),
         n_save=2,
         backend=backend,
+        # Noiseless: SEP 37's default draws a fresh realisation every run, and the
+        # repeat below must agree to rounding.
+        noise=None,
     )
     field = np.asarray(output["field"])[-1]
     if not np.all(np.isfinite(field)):

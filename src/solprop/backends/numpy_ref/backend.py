@@ -35,7 +35,7 @@ from solprop.backends.driver import StepDriver, refuse_general_leaves
 from solprop.backends.exponential import refuse_carrier_frame, refuse_formulation
 from solprop.backends.low_storage import LowStorageMarch
 from solprop.backends.memory import adams_memory, reference_base_memory
-from solprop.backends.numpy_ref import passes
+from solprop.backends.numpy_ref import passes, transforms
 from solprop.backends.numpy_ref.admission import (
     refuse_general_route,
 )
@@ -755,7 +755,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         if channels:
             if transform.geometry is not None and transform.geometry.kind == "free":
                 nx, ny = transform.geometry.shape
-                physical = np.fft.ifft2(
+                physical = transforms.ifft2(
                     field.reshape(ny, nx, *field.shape[1:]), axes=(0, 1)
                 ).reshape(field.shape)
                 nodes = passes.to_time(
@@ -877,7 +877,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         physical = (
             slab_synthesis(self._problem.transform, field) / grids.pad_scale
             if geometry.kind == "slab"
-            else np.fft.ifft2(
+            else transforms.ifft2(
                 field.reshape(ny, nx, *field.shape[1:]), axes=(0, 1)
             ).reshape(field.shape)
         )
@@ -938,7 +938,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 slab_synthesis(self._problem.transform, field)
                 / self._problem.grids.pad_scale
                 if geometry.kind == "slab"
-                else np.fft.ifft2(
+                else transforms.ifft2(
                     field.reshape(ny, nx, *field.shape[1:]), axes=(0, 1)
                 ).reshape(field.shape)
             )
@@ -1784,7 +1784,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         if geometry is not None and geometry.kind == "free":
             nx, ny = geometry.shape
             shape = (ny, nx, *masked.shape[2:])
-            physical = np.fft.ifft2(masked[0].reshape(shape), axes=(0, 1)).reshape(
+            physical = transforms.ifft2(masked[0].reshape(shape), axes=(0, 1)).reshape(
                 masked.shape[1:]
             )
             chunk = self._problem.transform.node_chunk
@@ -1793,7 +1793,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 physical[rows] = passes.apply_temporal_rate(
                     physical[rows][None], rate, dz, kind=self._kind
                 )[0]
-            result = np.fft.fft2(physical.reshape(shape), axes=(0, 1)).reshape(
+            result = transforms.fft2(physical.reshape(shape), axes=(0, 1)).reshape(
                 masked.shape
             )
             return self._apply_mask(result)
@@ -2276,7 +2276,9 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             return result
         scratch = np.empty_like(lab[0])
         if len(responses.response_order) > 1:
-            np.fft.ifft2(lab[0].reshape(shape), axes=(0, 1), out=scratch.reshape(shape))
+            transforms.ifft2(
+                lab[0].reshape(shape), axes=(0, 1), out=scratch.reshape(shape)
+            )
             raman = self._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
             for first in range(0, transform.n_nodes, transform.node_chunk):
                 rows = slice(first, first + transform.node_chunk)
@@ -2300,7 +2302,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                         loss, grids.crop_index, kind=self._kind
                     )
             view = scratch.reshape(shape)
-            np.fft.fft2(view, axes=(0, 1), out=view)
+            transforms.fft2(view, axes=(0, 1), out=view)
             data = problem.linear.separable
             assert data is not None
             for first in range(0, transform.n_nodes, transform.node_chunk):
@@ -2312,7 +2314,9 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         if self._in_stage_absorber:
             # The rate is additive to the normalised material term. Reusing the
             # transverse scratch avoids a second retained physical spectral volume.
-            np.fft.ifft2(lab[0].reshape(shape), axes=(0, 1), out=scratch.reshape(shape))
+            transforms.ifft2(
+                lab[0].reshape(shape), axes=(0, 1), out=scratch.reshape(shape)
+            )
             temporal = self._tables.temporal_rate
             for first in range(0, transform.n_nodes, transform.node_chunk):
                 rows = slice(first, first + transform.node_chunk)
@@ -2326,7 +2330,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                     -0.5 * rate * field_t, grids.crop_index, kind=self._kind
                 )
             view = scratch.reshape(shape)
-            np.fft.fft2(view, axes=(0, 1), out=view)
+            transforms.fft2(view, axes=(0, 1), out=view)
             result[0] += grids.active_mask * scratch
         return result * inverse_propagator
 

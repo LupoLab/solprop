@@ -10,7 +10,7 @@ import math
 import numpy as np
 import pytest
 
-from solprop.exceptions import ConvergenceError
+from solprop.exceptions import ConvergenceError, StepperError
 from solprop.stepper.schedule import (
     ORDER_MARGIN,
     FixedSchedule,
@@ -550,3 +550,25 @@ def test_uniform_validation_rejects_a_bad_request(kwargs, message):
 
 def test_a_uniform_schedule_refines_like_any_other():
     assert FixedSchedule.uniform(0.0, 1.0, 0.25).refined(2).n_steps == 8
+
+
+def test_a_history_replays_its_accepted_steps():
+    schedule = FixedSchedule.from_history(
+        np.array([0.0, 0.0, 0.1, 0.3]),
+        np.array([0.3, 0.1, 0.2, 0.2]),
+        np.array([False, True, True, True]),
+    )
+    np.testing.assert_array_equal(schedule.steps, [0.1, 0.2, 0.2])
+    assert schedule.z_start == 0.0
+    assert schedule.z_end == pytest.approx(0.5)
+    # Without the flags every attempt counts; a later start continues the run.
+    assert FixedSchedule.from_history([0.2, 0.3], [0.1, 0.1]).z_start == 0.2
+
+
+def test_a_history_that_is_not_one_run_is_refused():
+    with pytest.raises(StepperError, match="not one run"):
+        FixedSchedule.from_history([0.0, 0.2], [0.1, 0.1])
+    with pytest.raises(StepperError, match="no accepted step"):
+        FixedSchedule.from_history([0.0], [0.1], [False])
+    with pytest.raises(StepperError, match="one entry per attempt"):
+        FixedSchedule.from_history([0.0, 0.1], [0.1])
