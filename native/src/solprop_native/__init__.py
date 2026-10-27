@@ -75,7 +75,6 @@ __all__ = [
     "STAGE_SCALARS_FIELDS",
     "STAGE_TERMS_FIELDS",
     "TRANSFORM_FIELDS",
-    "WAIT_POLICY",
     "BuildInfo",
     "NativeBackend",
     "NativeBatchBackend",

@@ -26,6 +26,12 @@ from solprop.driver.executors.slurm import Slurm
 from solprop.exceptions import DriverError
 
 
+@pytest.fixture(autouse=True)
+def _fake_cpus_are_cores(monkeypatch):
+    """Count the faked CPU lists as cores, whatever this machine's hardware threads."""
+    monkeypatch.setattr(_process, "physical_cores", lambda cpus: None)
+
+
 @pytest.mark.parametrize("value", ["max", "0", "4294967296"])
 def test_linux_memory_limits_ignore_unlimited_or_zero_cgroups(
     tmp_path, monkeypatch, value
