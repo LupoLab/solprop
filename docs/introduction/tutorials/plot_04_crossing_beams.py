@@ -123,6 +123,7 @@ simulation = Simulation.from_free(
     [],
     left + right,
     settings=settings,
+    noise=None,
 )
 run = simulation.run(progress="none")
 
@@ -206,6 +207,7 @@ for initial in (left, right):
         [],
         initial,
         settings=check_settings,
+        noise=None,
     ).run(progress="none")
     individual.append(single)
 
@@ -285,6 +287,7 @@ fine = Simulation.from_free(
     [],
     launch(fine_space, +1) + launch(fine_space, -1),
     settings=check_settings,
+    noise=None,
 ).run(progress="none")
 refinement_errors = []
 fine_flux = SpatialFlux.resolve(grid, fine_space, VACUUM)

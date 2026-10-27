@@ -52,6 +52,7 @@ with warnings.catch_warnings():
         energy=20e-6,
         n_save=5,
         progress="none",
+        seed=20261027,
     )
 print(run)
 

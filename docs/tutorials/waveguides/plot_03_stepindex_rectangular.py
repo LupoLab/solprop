@@ -96,6 +96,7 @@ strand_output = prop_gnlse(
     n_save=2,
     backend="numpy_ref",
     progress="none",
+    noise=None,
 )
 # The same grid prop_gnlse built from those keywords, for the wavelength axis.
 grid = EnvelopeGrid.from_limits(0.15, 835e-9, (400e-9, 1400e-9), 1e-12)
@@ -152,6 +153,7 @@ rectangular = prop_waveguide(
     stats=StatsSpec(names=("energy",)),
     backend="numpy_ref",
     progress="none",
+    noise=None,
 )
 print(f"Rectangular transmitted energy: {rectangular['stats/energy'][-1].sum():.6e} J")
 print(f"Complete step-index/rectangular example: {perf_counter() - started:.3f} s")

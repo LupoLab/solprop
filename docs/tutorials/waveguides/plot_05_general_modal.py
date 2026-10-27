@@ -142,6 +142,7 @@ linear_guide = ModalGuide.from_provider(
     nodes=nodes,
 )
 common = {
+    "noise": None,  # a 40 pJ comparison of two routes: the lesson is noiseless
     "lambda0": 835e-9,
     "fwhm": 40e-15,
     "energy": 4e-11,

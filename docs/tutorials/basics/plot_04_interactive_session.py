@@ -115,6 +115,7 @@ run = sol.prop_capillary(
     energy=pulse["energy"],
     n_save=41,
     progress="none",
+    seed=20261027,
 )
 print(run)
 

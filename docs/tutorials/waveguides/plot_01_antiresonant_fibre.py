@@ -113,6 +113,7 @@ output = prop_capillary(
     rtol=1e-5,
     stats=StatsSpec(names=("energy",)),
     progress=NullReporter(),
+    seed=20261027,
 )
 frequency = grid_of(output).omega
 active = frequency > 0
