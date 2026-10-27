@@ -13,7 +13,7 @@ no warning filter hides model warnings.
 from __future__ import annotations
 
 import dataclasses
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from benchmarks.records import Record, SuiteError
 from benchmarks.registry import CASES, SEED
@@ -453,7 +453,20 @@ def build(configuration: Record) -> Simulation:
     elif case.builder == "advanced":
         from benchmarks.guides import advanced  # noqa: PLC0415
 
-        simulation = advanced(case.name, case.length)
+        options: dict[str, Any] = {"save_planes": itinerary}
+        if chosen is not None:
+            options["integrator"] = chosen
+        simulation = advanced(case.name, case.length, options)
+        if case.name == "grin_nonlinear":
+            # Translated at construction (its launch is coupled): only the backend
+            # and the field retention may still change.
+            simulation.settings = dataclasses.replace(
+                simulation.settings,
+                backend=configuration["backend"],
+                fields=fields,
+                field_planes=observed["field_planes"],
+            )
+            return simulation
     elif case.builder == "capillary":
         simulation = capillary(case.name)
     elif case.builder == "gnlse":
