@@ -21,7 +21,7 @@ keywords in Python spelling and every quantity in SI units (pressures stay in ba
 
 | Luna | solprop |
 |---|---|
-| `λ0`, `τfwhm`, `τw`, `ϕ`, `λlims`, `saveN`, `shotnoise` | `lambda0`, `fwhm`, `width`, `phases`, `wavelength_limits`, `n_save`, `noise="input"` with a `seed` |
+| `λ0`, `τfwhm`, `τw`, `ϕ`, `λlims`, `saveN`, `shotnoise` | `lambda0`, `fwhm`, `width`, `phases`, `wavelength_limits`, `n_save`, the default `noise="input"`, with a `seed` |
 | `pulses=[Pulses.GaussPulse(...), ...]` | `pulses=[GaussianPulse(...), ...]` ({class}`~solprop.pulses.PulseSum`) |
 | `modes=:HE11` (mode-averaged), `modes=1`, `modes=4` | `mode_average=True`, `modes=1`, `modes=4`, or a list of mode objects; solprop's default is the resolved `modes=1` |
 | `Plotting.prop_2D`, `time_1D`, `spec_1D` | `prop_2d`, `time_1d`, `spec_1d` |
@@ -206,7 +206,11 @@ and raises when there is none.
 that never engages); a step below `dz_min` raises rather than being accepted silently;
 the last step lands exactly on the fibre end.
 
-**Noise.** The shot noise is confined to the active band on both field and envelope
+**Noise.** Both codes carry shot noise by default, but with different models: Luna
+defaults to its modified model and solprop to the input model, which is the same
+calculation wherever the linear operator is unitary and the less uncertain one where it
+is not ([shot noise](../media/noise.md#why-the-modified-model-is-not-the-default)). The
+shot noise is confined to the active band on both field and envelope
 grids (Luna's field-grid noise sits in the zero-frequency bin and above the window);
 the `"modified"` noise model is advanced by the unitary part of the linear propagator
 along z, not held constant; the generator is seeded explicitly and the seed recorded;

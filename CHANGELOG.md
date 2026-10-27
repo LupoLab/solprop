@@ -145,7 +145,16 @@ The first public release. It contains:
   - Photoionisation with atomic and molecular rate models, and plasma on field and
     envelope grids.
   - Rotational and vibrational Raman responses, scalar and vector.
-  - Quantum shot noise.
+  - Quantum shot noise, on by default
+    ([SEP 37](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0037-noise-and-stepper-defaults.html)):
+    one photon per mode with a random phase, added to the input field
+    (`noise="input"`) and recorded with its seed and with how the model was chosen
+    (`RunMetadata.noise_resolution`, output schema 26). `noise=None` switches it off,
+    and `noise="modified"` keeps the realisation apart from the field. Single precision
+    and the hybrid planar grid carry none and record why; an interior launch takes its
+    spectrum as given unless `noise="input"` is passed. A floor-subtracted spectral
+    density, `get_spectral_density(..., noise_floor="subtract")`, removes the seed's one
+    photon per bin.
   - An optional helium TDSE atomic response for research. Its native backend is not
     yet publicly available.
 - **Numerics.**
