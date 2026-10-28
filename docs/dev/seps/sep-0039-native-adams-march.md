@@ -122,6 +122,7 @@ host-side lever, and §6.9 places it among the native levers.
   (phase 3);
 - the resident coupled-flow sections and moving maps (phase 4). The aim is to cover
   every configuration that has a resident engine (Q2);
+- device builds (phase 5), qualified before `Final` (Q6);
 - the seam: a march-policy record, the scalar tables, the host events, one metadata
   field;
 - the amendment of `native/AGENTS.md`'s policy rule and of ADR-043 (§6.3).
@@ -131,13 +132,13 @@ host-side lever, and §6.9 places it among the native levers.
 - **Any change to the method, the controller's algorithm, its constants or any
   default.** The native march executes the Python march's algorithm, and
   `native/AGENTS.md` forbids tuning the controller for speed.
-- **The capillary default.** It is re-decided by SEP 37's rule after re-measurement
-  (§12, Q10).
+- **The capillary default, and every other default.** Outside this SEP's scope
+  (decided, Q10).
 - **Fewer steps on the argon blue-shift cases.** Multistep takes 11 169 calls there
   against Runge–Kutta's 10 105, so no overhead work wins that case (§4.1). That needs
   a method change, not an execution change.
-- **Runge–Kutta's host loop.** Its cost per call is small, but a fair comparison needs
-  it later (§10, Q8).
+- **Runge–Kutta's host loop.** Its cost per call is small. A native Runge–Kutta march
+  is not planned, and can be taken up another time if it is needed (decided, Q8).
 - **The fixed 90–190 ms per run** that goes to metadata, provenance, output and plane
   observation. It is the same for both methods. This draft adds it to the roadmap as
   its own item.
@@ -519,8 +520,9 @@ The Runge–Kutta march does neither: it commits the state and position first, a
 its next proposal from the proposal rather than from the landed step.
 
 Phase 0 moves the position into the commit before the floor is tested, so that the state
-and position always agree, and the native march follows that order. Whether a short
-landing should raise the floor at all is a method question (Q13).
+and position always agree, and the native march follows that order. The rule itself
+stays for now. If the implementation finds short landings in practice, it may change the
+rule, recording the change and its evidence in the phase report (decided, Q13).
 
 #### 4.5 Order choice
 
@@ -981,9 +983,11 @@ separate a step's records from its state (ADR-047). This is SEP 24's pattern
 **Signals.** A signal waits for the native call to return (ADR-047), so a call is
 bounded:
 
-- by its attempts (the size of the row buffer; 256 is proposed);
-- by its wall time, from a monotonic clock read once per attempt (0.1 s is proposed;
-  Q3).
+- by its attempts: the size of the row buffer, 256;
+- by its wall time, from a monotonic clock read once per attempt: 0.1 s (decided, Q3).
+
+Neither is a user setting. A crossing costs 20–40 µs, so the bound costs at most
+0.04 % of a run.
 
 A scheduler's `SIGTERM` or a keyboard interrupt is then served within that bound, plus
 one trial.
@@ -1019,8 +1023,9 @@ thresholds, the quiet verdict and the stop.
   offset.
 - **Progress** is reported per attempt, in bulk at each event, so it lags by at most one
   call.
-- **The per-step debug log** of the Python march is replaced by one debug line per
-  event, built from the rows.
+- **The per-step debug log** of the Python march is kept. When the `DEBUG` level is
+  enabled, the host writes one line per attempt from the rows at each event, guarded by
+  `isEnabledFor`, so the lines cost nothing otherwise (decided, Q12).
 - **The record and the configuration hash** are unchanged. The metadata adds
   `adams_march`.
 
@@ -1056,9 +1061,9 @@ of SEP 0 §7 is met as follows:
     nopython code, which is the compiled step driver backends.md §3.5 decided against.
   - Compiling only the decision would save about a tenth of the host cost and keep every
     crossing.
-  - A roadmap item records it, to be revisited if `numba_cpu` becomes a production
-    backend for cheap capillaries.
-- **Native** gets the march (phases 1–4).
+  - `numba_cpu` is being demoted, and backend parity of the march is not needed. No
+    roadmap item is added (decided, Q9).
+- **Native** gets the march (phases 1–5).
 
 **Admission.** The native march runs when all of these hold:
 
@@ -1114,9 +1119,9 @@ SEP 16 measured 0.13–0.2 ms of host Python per trial on a device, against kern
 kernel fusion (§6.9) or graph capture would address later. A controller resident on the
 device is out of scope (§10).
 
-Device qualification follows the standing policy ([backends.md](../backends.md)): later,
-in one pass, in a GPU segment with its own budget (phase 5). Until then a device build
-runs the host march, records it and warns (Q2).
+Device qualification follows the standing policy ([backends.md](../backends.md)): in one
+pass, in a GPU segment with its own budget, as phase 5 and before `Final` (Q6). Until then
+a device build runs the host march, records it and warns (Q2).
 
 #### 6.8 Cost: time, memory, code
 
@@ -1201,7 +1206,8 @@ What the table shows:
 - **Runge–Kutta gains too, and the table does not count it.** It would gain from N3
   (multi-row cases at sixteen threads), N6 (a few per cent) and N5b on its propagators.
   A native Runge–Kutta march would save its own 10 µs (M5) or 40–50 µs (EPYC) per call:
-  about 0.13 s of helium's 1.39 s and 0.39 s of argon's 3.0 s on the EPYC (§10, Q8).
+  about 0.13 s of helium's 1.39 s and 0.39 s of argon's 3.0 s on the EPYC. Such a march
+  is not planned (§10, Q8).
 - **On short runs the fixed 90–190 ms per run is then a large share** of both methods'
   time: 0.12 s of a 0.7 s helium run.
 
@@ -1372,9 +1378,10 @@ No tutorial or worked example is needed: nothing a user writes changes.
   (`HostMarchWarning` or similar, §6.6).
 - **What it breaks:**
   - ADR-043's single executed controller;
-  - Python-level introspection of a native run's march: per-step debug logging and
-    monkeypatching of `AdamsMarch` methods, which apply only to the host march;
-  - signal latency, now up to one call bound (0.1 s proposed) instead of one trial;
+  - Python-level introspection of a native run's march: the debug lines arrive per
+    call rather than as each step is taken, and monkeypatching `AdamsMarch` methods
+    applies only to the host march;
+  - signal latency, now up to one call bound (0.1 s) instead of one trial;
   - progress granularity, now per call.
 - **Luna.jl.** No difference to record.
 
@@ -1398,11 +1405,10 @@ No tutorial or worked example is needed: nothing a user writes changes.
   next step for device builds, but the launches and the norm read-back are a separate
   problem, and it would be its own SEP.
 - **Tabulating the stage scalars on a fine grid** (§6.5.6).
-- **Moving the Runge–Kutta march native in the same SEP.** RK's host cost is 10 µs (M5)
-  and 40–50 µs (EPYC) per call. A native RK march matters for a fair default decision
-  (§6.9), but its controller (the lagged PI controller, the stretch, the start rule) is
-  another algorithm to specify. It is better as a follow-up that reuses this SEP's
-  policy-record pattern (Q8).
+- **Moving the Runge–Kutta march native.** RK's host cost is 10 µs (M5) and 40–50 µs
+  (EPYC) per call, and its controller (the lagged PI controller, the stretch, the start
+  rule) is another algorithm to specify. Not pursued: it can be taken up another time,
+  reusing this SEP's policy-record pattern, if it is needed (Q8).
 - **Retuning the controller for fewer steps** on the argon case. That is a method
   change, outside this SEP, and `native/AGENTS.md` forbids it as a speed measure.
 
@@ -1415,6 +1421,8 @@ gate runs in CI.
 **Phase 0: the controller core in solprop.**
 
 - `MarchPolicy` and `march_policy`.
+- The general path (`_attempt`, `_correct`, `_commit`, `_next_order`), which serves only
+  `ComparisonMultistep`, moved out of `AdamsMarch` into its own class (Q7).
 - A pure core of the controller (`stencil`, `decide`, `reject`, `choose_order`, the caps,
   `approach` and `landing`) over a policy and a state. `AdamsMarch` calls it.
 - No change in behaviour, except the commit order of §4.4, which is a fix: the existing
@@ -1450,16 +1458,17 @@ with everything of §6.5:
 Also in phase 2: the new ADR, the `native/AGENTS.md` amendment, the documentation of §8,
 and kernel and output schema +1. Verified by §7.1, §7.3, §7.4, §7.5 and §7.6.
 
-**Phase 3: the interaction formulation's fused path, and replayed schedules natively.**
-Single runs only; lockstep batches keep `replay_step` on the host. Verified by §7.2's
-matched marches and §7.4.
+**Phase 3: the interaction formulation's fused path (Q4), and replayed schedules
+natively.** Single runs only; lockstep batches keep `replay_step` on the host (Q14).
+Verified by §7.2's matched marches and §7.4.
 
 **Phase 4: coupled flows and moving maps**, natively, for every flow the resident engine
 executes (Q2). The flow section and weights, the block's end weights and the transform
 weights per position. Verified by `test_exponential_coupled.py` under both marches.
 
-**Phase 5 (later, its own budget): device builds.** The march on CUDA and HIP builds, in
-one GPU segment under the standing device policy: the parity tests with `-m gpu`, and
+**Phase 5: device builds**, inside this SEP and before `Final` (Q6), with a GPU budget
+the maintainer approves when the phase starts. The march on CUDA and HIP builds, in one
+GPU segment under the standing device policy: the parity tests with `-m gpu`, and
 ten-step timings against the host march.
 
 The native items of §6.9 proceed independently. Each phase's benchmarks are measured on
@@ -1467,46 +1476,53 @@ The native items of §6.9 proceed independently. Each phase's benchmarks are mea
 
 ### 12. Open questions
 
+The author decided every question below on 2026-10-28, before review. Each decision is
+recorded beside its question, and the proposal above follows it.
+
 - **Q1.** Amend `native/AGENTS.md`'s rule with the wording of §6.3, or keep it as it is
   and record B as an exception in the new ADR? **Decided 2026-10-28 (John Travers):
   amend.**
 - **Q2.** Configurations outside the native march's admission: run the host march and
   record it, or refuse them by name on native? **Decided 2026-10-28 (John Travers): run
   the host march with a warning, and aim to cover every configuration** (§6.6).
-- **Q3.** The call bound: 256 attempts and 0.1 s of wall time are proposed. A scheduler
-  allows seconds, but a keyboard interrupt wants tenths. Phase 2.
+- **Q3.** The call bound. A scheduler allows seconds, but a keyboard interrupt wants
+  tenths. **Decided 2026-10-28 (John Travers): 256 attempts and 0.1 s of wall time,
+  not a user setting** (§6.5.7).
 - **Q4.** Does the interaction formulation's fused path deserve the native march (phase
-  3)? It is not the default, but SEP 37's capillary rule measured it on every row, and
-  the controller is shared. Recommended: yes, since the cost is small once phase 2
-  exists. Settle at phase 3.
+  3)? It is not the default, but on SEP 37's capillary rows it scored 1.45/1.47 times
+  the fastest against the exponential formulation's 2.15/2.26, and the controller is
+  shared. **Decided 2026-10-28 (John Travers): yes, in phase 3.**
 - **Q5.** Coupled flows and moving maps (phase 4): native, or left on the host march?
   Answered by Q2: native, for every flow the resident engine executes. What has no
   resident engine is Q14.
-- **Q6.** Device builds: qualify in this SEP's phase 5 or in a later device SEP? It
-  depends on the GPU budget.
+- **Q6.** Device builds: qualify in this SEP's phase 5 or in a later device SEP?
+  **Decided 2026-10-28 (John Travers): in phase 5, before `Final`, with a GPU budget
+  approved when the phase starts.**
 - **Q7.** Whether phase 0's refactor should also simplify `AdamsMarch` itself. The
   general path, `_attempt`, `_correct`, `_commit` and `_next_order`, which serve only
-  `ComparisonMultistep`, could move into their own class. Phase 0.
+  `ComparisonMultistep`, could move into their own class. **Decided 2026-10-28 (John
+  Travers): yes, in phase 0, with no change in behaviour.**
 - **Q8.** A native Runge–Kutta march in a follow-up SEP, reusing the policy-record
-  pattern, so that the default comparison is between equally optimised marches.
-  Recommended: draft it after phase 2's measurements.
-- **Q9.** A compiled march for `numba_cpu`: recorded here as an exception (§6.6), with a
-  roadmap item. Settle at `Final`.
-- **Q10.** The capillary default. It is not decided here. After phases 1–2 and the §6.9
-  items land, SEP 37's rule (the fastest at matched accuracy among the methods every
-  route of the interface admits) is re-run on the capillary rows. That decision is the
-  maintainers'.
+  pattern, so that the default comparison is between equally optimised marches?
+  **Decided 2026-10-28 (John Travers): no.** It can be taken up another time if it is
+  needed.
+- **Q9.** A compiled march for `numba_cpu`? **Decided 2026-10-28 (John Travers): no.**
+  Backend parity of the march is not needed, and `numba_cpu` is being demoted, so no
+  roadmap item is added (§6.6).
+- **Q10.** The capillary default. **Decided 2026-10-28 (John Travers): outside this
+  SEP's scope; it changes no default.**
 - **Q11.** Should phase 1, which needs no SEP on its own, land ahead of acceptance as an
   ordinary optimisation pull request? **Decided 2026-10-28 (John Travers): no.** It
   lands with the whole SEP.
 - **Q12.** Progress and logging granularity. Is one progress update and one debug line
   per event enough, or should the attempt rows be logged one by one at debug level?
-  Phase 2.
+  **Decided 2026-10-28 (John Travers): progress once per call; one debug line per
+  attempt, written from the rows when `DEBUG` is enabled** (§6.5.8).
 - **Q13.** Should an accepted landing shorter than $h_{\min}/g$ raise the floor (§4.4)?
   The Adams march forms its next proposal from the step taken, so it does; the
-  Runge–Kutta march grows from its proposal and does not. Changing the Adams rule is a
-  change to the method, outside this SEP. It is listed for the maintainers, and phase 0
-  only fixes the commit order.
+  Runge–Kutta march grows from its proposal and does not. **Decided 2026-10-28 (John
+  Travers): phase 0 fixes the commit order. The rule may be changed in this SEP if the
+  implementation finds a reason, recorded in the phase report.**
 - **Q14.** Which configurations may still run the warned host march at `Final`
   (following Q2)? Proposed: only those with no resident engine or no data form for the
   native march:
@@ -1517,8 +1533,8 @@ The native items of §6.9 proceed independently. Each phase's benchmarks are mea
   - lockstep batch replay;
   - device builds, until phase 5.
 
-  The untransported compensation is a private test witness and does not warn. To settle
-  before acceptance.
+  The untransported compensation is a private test witness and does not warn.
+  **Decided 2026-10-28 (John Travers): as proposed.**
 
 ### 13. References
 
@@ -1562,3 +1578,15 @@ No phase has started.
     cover every configuration (§6.6; phase 4 is no longer optional; Q5 answered; Q14
     added);
   - Q11: phase 1 stays in the SEP.
+- 2026-10-28: The author's decisions on the remaining questions recorded:
+  - Q3: the call bound is 256 attempts and 0.1 s;
+  - Q4: the interaction formulation is covered in phase 3;
+  - Q6: device builds are phase 5, before `Final`;
+  - Q7: phase 0 moves the general path into its own class;
+  - Q8: no native Runge–Kutta march;
+  - Q9: no `numba_cpu` march and no roadmap item, since `numba_cpu` is being demoted;
+  - Q10: no default changes, outside scope;
+  - Q12: one debug line per attempt at `DEBUG`;
+  - Q13: phase 0 fixes the commit order, and the rule may change if the
+    implementation finds a reason;
+  - Q14: the warned host-march list as proposed.

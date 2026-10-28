@@ -91,9 +91,9 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   and stage scalars executed natively under a policy record solprop hands over, with the
   Python march as the reference, returning to the host only at planes, monitor checks
   and statistics rows. It removes most of the 0.1–0.5 ms of Python per trial; the
-  native-side optimisations it lists need no SEP. It changes no default.
-  A native Runge–Kutta march, a `numba_cpu` march and a device-resident controller
-  remain open.
+  native-side optimisations it lists need no SEP. Configurations it does not cover run
+  the Python march with a warning, and it changes no default. A device-resident
+  controller remains open.
 
 The informal items below record work not fully covered by these proposals. When adding
 or revising a SEP, remove an informal item only if the proposal covers it in full;
