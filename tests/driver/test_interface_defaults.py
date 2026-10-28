@@ -447,7 +447,7 @@ def test_a_tdse_run_s_refusals_name_the_precision_and_the_integrator():
         _capillary(tdse=_sae(), **SINGLE)
     with pytest.raises(DriverError, match=r"integrator=Multistep\(\).*RungeKutta"):
         _capillary(tdse=_sae(), integrator=RungeKutta())
-    with pytest.raises(DriverError, match="requires backend='numpy_ref'"):
+    with pytest.raises(DriverError, match="explicit backend='numpy_ref'"):
         SimulationSettings(
             save_planes=[1.0],
             dz_max=1.0,

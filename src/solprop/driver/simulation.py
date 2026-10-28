@@ -981,8 +981,8 @@ def _admit_tdse_execution(settings: SimulationSettings, precision: Precision) ->
         raise DriverError(msg)
     if settings.backend != "numpy_ref":
         msg = (
-            f"tdse_execution requires backend='numpy_ref', the one backend that runs "
-            f"the TDSE response; got backend={settings.backend!r}"
+            f"tdse_execution requires an explicit backend='numpy_ref', the one backend "
+            f"that runs the TDSE response; got backend={settings.backend!r}"
         )
         raise DriverError(msg)
     if not isinstance(settings.integrator, Multistep):
