@@ -13,7 +13,7 @@ configuration; a faster backend does not select a different physical model.
 | `numpy_ref` | plain NumPy, the **reference**: every other backend is tested against it | checking a result; the few representations only it runs (`CoherentWall(method="cf4")`, with `integrator=RungeKutta()`); small problems where compiling costs more than running |
 | `numba_cpu` | compiled kernels shipped with solprop, with its own thread pools | the default when the native backend is not installed; problems the native backend refuses; many single-threaded scan workers |
 | `native` | the [native backend](native.md), the optional solprop-native distribution built from the repository's `native/` directory: OpenMP, FFTW and a vendor BLAS on a CPU, or CUDA/HIP on a GPU | the default when installed, and usually the fastest for large runs, the general modal route, moving solid guides and the coherent wall |
-| `mlx` | the Apple-silicon GPU through Apple's MLX, in **single precision only** ([single precision](single-precision.md)); the `mlx` extra, macOS on Apple silicon | `precision="single"` capillary and fibre runs on a Mac, where it is the `"auto"` choice; it refuses `precision="double"` |
+| `mlx` | the Apple-silicon GPU through Apple's MLX, in **single precision only** ([single precision](single-precision.md)); the `mlx` extra, macOS on Apple silicon; **experimental** in this release | `precision="single"` capillary and fibre runs on a Mac, where it is the `"auto"` choice; it refuses `precision="double"` |
 
 `backend="auto"`, the default of every entry point, is `"native"` when `solprop_native`
 is installed and `"numba_cpu"` otherwise; under `precision="single"` it is `"mlx"` when
@@ -125,6 +125,12 @@ reference backend's single-precision path. It runs the capillary and fibre route
 both absorber schemes, Runge–Kutta and the low-storage march, lockstep batches) and
 radial and Cartesian free space, including a line, with their transverse collars, and
 the envelope-grid plasma.
+
+The backend is **experimental** in this release. Its Metal kernels are tested on a
+Metal device by hand rather than in continuous integration, and its speed has not been
+re-measured on the default grids, whose 2-3-5-smooth sizes MLX's GPU transform runs
+four to eight times slower than powers of two: build single-precision grids with
+`fft_size="pow2"` ([grid sizes on `mlx`](single-precision.md#grid-sizes-on-mlx)).
 
 MLX computes float32 matrix products in TF32 by default on Apple GPUs, which SEP 25's
 arithmetic rules forbid. solprop sets `MLX_ENABLE_TF32=0` when it imports the backend,

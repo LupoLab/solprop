@@ -1604,6 +1604,22 @@ gated and edge currents, the envelope plasma's drive and loss -- are projected i
 matrix product (`passes.project_many`), measured at 1.18 times faster on a one-mode
 plasma capillary, where launches bound the stage, and neutral on larger ones.
 
+**Status: experimental** in the first release. The custom Metal kernels (`gpu_only` in
+`tests/backends/test_mlx.py`) run only on a Metal device, by hand; CI's macOS lane runs
+the module on MLX's CPU device without the runtime type checks, basedpyright on Linux
+cannot resolve `mlx.core`, and the coverage lane omits `mlx_gpu`
+([testing](testing.md#the-mlx-omission)). The default `fft_size="auto"` takes the smooth
+size that a cost model fitted to FFTW's CPU transforms ranks cheapest
+(`grid._RADIX_PENALTY`); MLX's GPU FFT runs such sizes four to eight times slower than
+the next power of two (real transforms on an Apple M5 Max: 902 µs at 12288 against
+218 µs at 16384, 7629 µs at 98304 against 992 µs at 131072), so on default grids `mlx`
+can be slower than binary64 `native`, and the guide sends single-precision grids to
+`fft_size="pow2"`. Full support waits on power-of-two grids by default under single
+precision (or a per-backend transform cost), a macOS `mlx` CI job (coverage with a
+recorded floor, the runtime type checks, basedpyright on `mlx_gpu`), the default
+in-stage collar's tests restored on the default geometry, bounds against the oracle
+that can detect an `mlx` error, and a re-timing on an idle machine (roadmap).
+
 **The envelope-grid plasma** (`mlx_gpu/envelope.py`, SEP 33 §6.3) is one kernel thread
 per sample: native's closed-form ellipse (`envelope_axes`: the scaled Gram matrix's
 eigenvalues, the minor axis from the determinant, so circular, nearly linear and scalar
@@ -1795,7 +1811,7 @@ that execution space.
 | field-free observation (`observe(field=False)`), the runner, a transverse collar's rate and a set evanescent rate on the separable element | yes | yes | yes (field-free observation needs no native change; the rate is one view in `SpatialCoefficients`) | compiles; not qualified |
 | materials from optmat: gas Raman leaves of many rows on gradients, rate tables, optmat walls, the silica bundles | yes | yes | yes | not qualified |
 | coupling between runs (`field_plane`, `regrid`, `couple`, `Outcouple`, `transport`, `with_input`; SEP 31) | host-side: any source and receiving backend | host-side | host-side | receiving runs not qualified |
-| single precision (`precision="single"`, SEP 33): fibre, radial and Cartesian routes, Kerr, Raman, field and envelope plasma, both absorber schemes, Runge–Kutta and the low-storage march, fixed-schedule batches | the oracle | refused | refused | refused; `mlx` runs every route but the envelope-grid plasma (below) |
+| single precision (`precision="single"`, SEP 33): fibre, radial and Cartesian routes, Kerr, Raman, field and envelope plasma, both absorber schemes, Runge–Kutta and the low-storage march, fixed-schedule batches | the oracle | refused | refused | refused; `mlx`, experimental, runs it where the operator is device-ready (§4a) |
 
 **Materials from optmat** ([SEP 3](seps/archive/sep-0003-optmat-materials.md), a run under
 `MaterialSelection`) reach the backends as the arrays any other run carries: index and
@@ -1845,8 +1861,8 @@ Which backend and build to choose for a run is the user guide's
 ## 11. Current limits
 
 - `"cf4"` coupled-flow sections run only on `numpy_ref`.
-- Single precision runs on `numpy_ref`, its oracle, and on `mlx` (the fibre, radial and
-  Cartesian routes); it
+- Single precision runs on `numpy_ref`, its oracle, and on `mlx`, experimental (the
+  fibre, radial and Cartesian routes; §4a); it
   refuses the general modal route, the hybrid planar kind, coupled flows, TDSE responses,
   the dispersive electronic response, the far-field statistics, noise models, the Adams
   integrator and an adaptive `rtol` below `1e-6`.

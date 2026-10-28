@@ -10,9 +10,13 @@ its accuracy in binary32 is a property of the problem, so this page records whic
 ```{note}
 Single precision runs on the `mlx` backend, on the GPU of an Apple-silicon Mac
 ([choosing a backend](backends.md#the-apple-gpu-backend)), for capillary and fibre runs
-and radial and Cartesian free space. `numpy_ref` runs every route below as the
-reference implementation, which defines the arithmetic and measures it but is not fast.
-`numba_cpu` and `native` compute in binary64 only.
+and radial and Cartesian free space. `mlx` is **experimental** in this release: its
+Metal kernels are not run in continuous integration, the survival record below was
+measured on the reference implementation (on `mlx` for two cases only), and on the
+default grids it can be slower than binary64 `native`; build single-precision grids
+with `fft_size="pow2"` ([grid sizes on `mlx`](#grid-sizes-on-mlx)). `numpy_ref` runs
+every route below as the reference implementation, which defines the arithmetic and
+measures it but is not fast. `numba_cpu` and `native` compute in binary64 only.
 ```
 
 ## Asking for it
@@ -73,6 +77,32 @@ interfaces. Under single precision:
 | the Adams integrator | refused, pending its accuracy record | refused |
 | noise models | refused (a known limitation, below) | refused |
 | the general modal route, the hybrid planar kind, coupled flows, TDSE responses, the dispersive electronic response, the far-field statistics | refused | refused |
+
+## Grid sizes on `mlx`
+
+A grid's default sample count, `fft_size="auto"`, is the cheapest size with prime
+factors 2, 3 and 5 by a cost model fitted to FFTW's transforms on CPUs
+([grids](../setup/grids.md#coarse-and-fine-sampling)). MLX's GPU transform runs those
+sizes four to eight times slower than the next power of two. On an Apple M5 Max one real
+transform took:
+
+| samples | µs | next power of two | µs |
+|---|---|---|---|
+| 12288 | 902 | 16384 | 218 |
+| 98304 | 7629 | 131072 | 992 |
+
+So on a default grid a single-precision run on `mlx` can be slower than a binary64 run
+on `native`. For a single-precision run, build the grid with `fft_size="pow2"` and pass
+it as `grid=`; the keyword interfaces build `"auto"` grids:
+
+```python
+from solprop.grid import FieldGrid
+
+grid = FieldGrid.from_limits(0.1, 800e-9, (200e-9, 3e-6), 200e-15, fft_size="pow2")
+```
+
+On the CPU backends `"auto"` stays the cheaper choice. Making powers of two the
+single-precision default is planned, with a re-timing of `mlx` on such grids.
 
 ## How the arithmetic is kept accurate
 
@@ -152,9 +182,11 @@ field-grid one 2.2e-4 (2.8e-4, bands): both survive.
 - **Performance.** On the reference implementation a single-precision run costs about as
   much as a double-precision one. On `mlx` the gain over `native` grows with the
   problem, and is largest for the envelope-grid plasma, whose cycle moments the GPU
-  evaluates one sample per thread. On an otherwise idle MacBook Pro M5 Max (18 CPU cores, 40-core GPU), in the same
-  process, the median time of a fixed step on `native` (binary64) over that on `mlx`
-  (binary32) was:
+  evaluates one sample per thread. On an otherwise idle MacBook Pro M5 Max (18 CPU
+  cores, 40-core GPU), in the same process, on power-of-two grids and before the
+  default grids and boundaries changed
+  ([SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md)), the median time
+  of a fixed step on `native` (binary64) over that on `mlx` (binary32) was:
 
   | case | `native` / `mlx` |
   |---|---|
@@ -167,7 +199,16 @@ field-grid one 2.2e-4 (2.8e-4, bands): both survive.
 
   Small field-plasma capillaries are slower on the GPU, bound by its per-operation
   latency. These are same-process comparisons on one machine, not the standard
-  benchmark suite.
+  benchmark suite, and they have not been repeated since: they indicate what a
+  power-of-two grid gains, and do not hold on the default grids, where `mlx` can be
+  slower than `native` ([grid sizes on `mlx`](#grid-sizes-on-mlx)).
+- **`mlx` is experimental.** Its custom Metal kernels are tested on a Metal device by
+  hand, not in continuous integration, whose macOS runners test the backend on MLX's
+  CPU device; its coverage is not measured there. Its comb-to-continuum limit is
+  unmeasured: the 0.05 m above is the reference implementation's, whose transforms are
+  more accurate than MLX's. Power-of-two grids by default under single precision, a
+  macOS `mlx` job in continuous integration and a re-timing on current grids come
+  before it is fully supported.
 
 The [worked example](../../auto_examples/performance/plot_01_single_precision.rst) runs a
 capillary with the envelope-grid plasma and a radial filament in both precisions and
