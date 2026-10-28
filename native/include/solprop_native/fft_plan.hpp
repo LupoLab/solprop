@@ -15,28 +15,39 @@
 
 namespace solprop_native {
 
-// Read the explicit effort setting shared with solprop's Numba plans. Kokkos-FFT's
-// ESTIMATE plans consume matching wisdom left by a higher-effort temporary plan.
-inline unsigned fftw_planner_effort() {
+// The two kinds of batched transform the plan policy tells apart: one-dimensional rows
+// (the temporal, modal, Raman and plasma transforms) and free space's two-dimensional
+// transverse planes.
+enum class FftShape { rows, planes };
+
+// The one plan policy for the host FFTW plans: the effort at which a transform of this
+// shape, run on `threads` threads, is seeded. Kokkos-FFT plans at FFTW_ESTIMATE and
+// consumes the wisdom a higher-effort temporary plan of the same transform left, so
+// FFTW_ESTIMATE here means "do not seed". An explicit SOLPROP_FFTW_PLAN (shared with
+// solprop's Numba plans) applies to every transform at every width. Unset, it is
+// `measure`, except for threaded rows, which stay at ESTIMATE: there measured planning
+// chose a slower threaded decomposition (solprop's docs/dev/benchmarks.md, "Threaded
+// FFT plan selection"). Transverse planes are measured at any width (solprop SEP 28:
+// 3.2-3.4 times faster than ESTIMATE).
+inline unsigned fftw_seed_effort(const FftShape shape, const int threads) {
   const char* text = std::getenv("SOLPROP_FFTW_PLAN");
-  const std::string_view effort = text == nullptr ? "measure" : text;
+  if (text == nullptr)
+    return shape == FftShape::rows && threads > 1 ? FFTW_ESTIMATE : FFTW_MEASURE;
+  const std::string_view effort = text;
   if (effort == "estimate")
     return FFTW_ESTIMATE;
   return effort == "patient" ? FFTW_PATIENT : FFTW_MEASURE;
 }
 
 // Seed only last-axis, contiguous, out-of-place row transforms. Planning may
-// destroy BOTH buffers: callers must invoke this before filling working data.
-// There is no allocation or planning in execution, and the temporary plan owns
-// no field storage. Already measured geometries reuse FFTW's process-local wisdom.
+// destroy BOTH buffers: callers must invoke this before filling working data, and
+// before the transform's own Kokkos-FFT plan exists, which would otherwise keep
+// ESTIMATE. There is no allocation or planning in execution, and the temporary plan
+// owns no field storage. Already measured geometries reuse FFTW's process-local wisdom.
 template <class Execution, class Input, class Output>
 void seed_row_fft_wisdom(const Execution& execution, const Input& input,
                          const Output& output, const KokkosFFT::Direction direction) {
-  // Threaded wisdom can select slower plans for the complete modal source.
-  // Retain the serial benefit and make threaded measurement opt-in.
-  if (execution.concurrency() > 1 && std::getenv("SOLPROP_FFTW_PLAN") == nullptr)
-    return;
-  const auto effort = fftw_planner_effort();
+  const auto effort = fftw_seed_effort(FftShape::rows, execution.concurrency());
   if (effort == FFTW_ESTIMATE)
     return;
   constexpr bool real_input =
