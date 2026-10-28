@@ -159,7 +159,9 @@ def vector(steps: int) -> tuple[FieldGrid, KernelProblem]:
         800e-9,
         (600e-9, 1.2e-6),
         150e-15,
-        **{**LEGACY_GRID, "collar_fraction": 0.2},
+        fft_size=LEGACY_GRID["fft_size"],
+        collar_fraction=0.2,
+        collar_placement=LEGACY_GRID["collar_placement"],
     )
     space = RadialGrid(6e-4, 16, window_factor=0.0)
     pulse = SpatialPulse(

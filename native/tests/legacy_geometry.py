@@ -11,7 +11,18 @@ transform length, a pulse placed against the window's edge -- states it here.
 
 from __future__ import annotations
 
-LEGACY_GRID = {
+from typing import Literal, TypedDict
+
+
+class LegacyGrid(TypedDict):
+    """The ``from_limits`` keywords of the former geometry."""
+
+    fft_size: str
+    collar_fraction: float
+    collar_placement: Literal["inside"]
+
+
+LEGACY_GRID: LegacyGrid = {
     "fft_size": "pow2",
     "collar_fraction": 0.05,
     "collar_placement": "inside",
