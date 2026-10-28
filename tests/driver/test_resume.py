@@ -276,6 +276,32 @@ def test_a_default_noise_run_without_a_seed_resumes_from_the_seed_it_recorded(
         )
 
 
+def test_a_recorded_seed_is_taken_only_for_the_model_the_file_drew(
+    build_simulation, tmp_path
+):
+    path = tmp_path / "run.h5"
+    scheduled(build_simulation, noise="input").run(path)
+    # Already drawn from the recorded seed: a second resume of the same run has
+    # nothing to redraw and finds the file complete.
+    again = scheduled(build_simulation, noise="input")
+    again.run(path, resume=True)
+    seed = again.noise.seed if again.noise is not None else None
+    again.run(path, resume=True)
+    assert again.noise is not None and again.noise.seed == seed
+    # A file of another noise model, or of none, keeps the call's own draw, and the
+    # resume is refused as a different run.
+    modified = scheduled(build_simulation, noise="modified")
+    drawn = modified.noise
+    with pytest.raises(OutputError, match=r"noise\.model"):
+        modified.run(path, resume=True)
+    assert modified.noise is drawn
+    quiet = tmp_path / "quiet.h5"
+    scheduled(build_simulation).run(quiet)
+    noisy = scheduled(build_simulation, noise="input")
+    with pytest.raises(OutputError, match="these fields changed: noise"):
+        noisy.run(quiet, resume=True)
+
+
 def test_a_seeded_realisation_is_not_redrawn_and_the_refusal_names_the_seed(
     build_simulation, tmp_path
 ):
