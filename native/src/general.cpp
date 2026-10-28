@@ -6256,12 +6256,15 @@ adams_defect_block(const ExponentialWeights& weights, const std::size_t rows,
                    const double dz, const double* scale, const std::size_t column,
                    const std::size_t first, const std::size_t last, double* update) {
   SOLPROP_NATIVE_STRICT_BLOCK
-  // The block's sums, added to the reduction's once.
-  double sums[3] = {0.0, 0.0, 0.0};
+  // The block's sums, added to the reduction's once. A trial scores at most three
+  // defects (adams_exponential_trial refuses more); the bound says so here too.
+  constexpr std::size_t max_rows = 3;
+  const std::size_t scored = rows < max_rows ? rows : max_rows;
+  double sums[max_rows] = {0.0, 0.0, 0.0};
   for (std::size_t index = first; index < last; ++index) {
     if (in_norm(index) == 0)
       continue;
-    for (std::size_t row = 0; row < rows; ++row) {
+    for (std::size_t row = 0; row < scored; ++row) {
       Complex difference = strict_scale(weights.rows[row][0], source(column, index));
       for (std::size_t t = 1; t < weights.width; ++t)
         difference =
@@ -6283,7 +6286,7 @@ adams_defect_block(const ExponentialWeights& weights, const std::size_t rows,
       sums[row] += squared_abs(strict_divide(defect, scale[index - first]));
     }
   }
-  for (std::size_t row = 0; row < rows; ++row)
+  for (std::size_t row = 0; row < scored; ++row)
     update[row] += sums[row];
 }
 
