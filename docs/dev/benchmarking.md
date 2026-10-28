@@ -56,7 +56,9 @@ pools are set in the environment before any scientific import. The worker:
    fills caches;
 3. times `--repeats` complete runs (default 3). Each restarts the backend from the
    translated launch and goes through `solprop.driver.run.run_problem`, the loop of
-   `Simulation.run`, so it includes the plane observations and statistics.
+   `Simulation.run`, with a fresh boundary monitor as `Simulation.run` attaches one,
+   so it includes the plane observations, the statistics and the boundary checks: what
+   a user's run costs.
 
 The result is the median of the repeats, with the minimum and maximum beside it, the
 accepted and rejected steps, the source evaluations, the peak resident memory, and the

@@ -376,8 +376,9 @@ The first public release. It contains:
   `benchmarks/history/` by hardware; `--device` runs the same cases on a native GPU
   build. It replaces SEP 30's standard suite, whose
   reference qualification, native coverage and export are removed; `ab` compares two
-  builds on the same worker. Every case starts at revision 1 with the release's first
-  history rows: `gnlse_raman_shock` launches Dudley, Genty and Coen's 50 fs FWHM pulse,
+  builds on the same worker. Each timed run checks the boundaries with the monitor
+  `Simulation.run` attaches, so the rows time what a user's run costs. Every case starts
+  at revision 1 with the release's first history rows: `gnlse_raman_shock` launches Dudley, Genty and Coen's 50 fs FWHM pulse,
   `ctc_reduced` is the comb-to-continuum tests' one-mode case (the two-mode case is
   `ctc_reduced_two_mode`), the mode-averaged cases ask for `mode_average=True`, and the
   declared array sizes and costs are those of the current grids.
