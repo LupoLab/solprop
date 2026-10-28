@@ -65,7 +65,7 @@ from solprop.constants import EPS0, C
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.grid import TimeGrid
 from solprop.modes.protocol import Mode
-from solprop.monitor import BoundaryMonitor
+from solprop.monitor import BoundaryEnergies, BoundaryMonitor
 from solprop.noise import NoiseRealisation
 from solprop.output.capability import (
     declared_capability,
@@ -500,9 +500,6 @@ class NativeBackend(StepDriver[_core.State]):
 
     def _adams_adopt(self, advanced: ComplexArray, dz: float) -> ComplexArray:
         """Adopt an Adams step through the native finish; keep its host copy."""
-        # The host engine passes the step's end in, so it is read before its split.
-        if (reader := super()._split_reader(self._z + dz)) is not None:
-            reader.before_split(advanced, dz)
         self._native_state.adopt(np.ascontiguousarray(advanced.reshape(-1)), dz)
         self._state = self._native_state
         self._host_state = self._native_state.field_to_host().reshape(
@@ -848,16 +845,36 @@ class NativeBackend(StepDriver[_core.State]):
             return math.sqrt(float(np.asarray(weighted).sum()))
         return residual / float(scale)
 
-    def _split_reader(self, end: float) -> BoundaryMonitor | None:
-        """Return ``None``: a trial's end stays in the engine until its finish.
+    def _bind_monitor(self, monitor: BoundaryMonitor | None) -> None:
+        """Hold the boundary monitor's weights in the native state (solprop SEP 21).
 
-        The engine adopts the advanced state only in :meth:`_finish`, after its split,
-        so the boundary monitor integrates the committed states' rate instead
-        (solprop SEP 21, D5); the host Adams engine's adoption reads the end it passes
-        in (:meth:`_adams_adopt`).
+        From here on the engine's finish adds a split-step collar's removal at every
+        accepted step, on every march, and :meth:`_boundary_energies` reads it.
         """
-        del end
-        return None
+        super()._bind_monitor(monitor)
+        if monitor is None:
+            self._native_state.unbind_monitor()
+            return
+        columns = (
+            np.empty(0, dtype=np.float64)
+            if monitor.columns is None
+            else np.ascontiguousarray(monitor.columns, dtype=np.float64)
+        )
+        self._native_state.bind_monitor(
+            np.ascontiguousarray(monitor.weights, dtype=np.float64).reshape(-1), columns
+        )
+
+    def _boundary_energies(self, state: _core.State) -> BoundaryEnergies:
+        """Reduce the monitor's five numbers where the state lives (solprop SEP 21).
+
+        Only they and the split's removal since the last reading cross to the host.
+        """
+        if state is not self._native_state:
+            raise BackendError("the monitored state does not belong to this backend")
+        reading = np.asarray(state.monitor_reading(), dtype=np.float64).reshape(-1)
+        return BoundaryEnergies(
+            float(reading[0]), reading[1:5].copy(), removed=float(reading[5])
+        )
 
     def _finish(self, state: _core.State, dz: float) -> _core.State:
         if state is not self._native_state:

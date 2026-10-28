@@ -153,13 +153,14 @@ def _lost(run: Output) -> float:
 
 
 @pytest.mark.parametrize("integrator", [RungeKutta(), Multistep()], ids=repr)
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
 def test_the_split_scheme_s_removal_is_read_exactly(
     backend: str, integrator: RungeKutta | Multistep
 ) -> None:
-    # Applied once per accepted step, the split's removal is read from each checked
-    # step's state before the split; it is the run's own energy deficit, not a
-    # quadrature of it, though the pulse walks deep into the collar.
+    # Applied once per accepted step, the split's removal is added up by the
+    # backend's own finish at every accepted step, checked or not, the native
+    # engine's included; it is the run's own energy deficit, not a quadrature of
+    # it, though the pulse walks deep into the collar.
     if backend not in available():
         pytest.skip(f"{backend} is not installed")
     with warnings.catch_warnings():
@@ -168,23 +169,6 @@ def test_the_split_scheme_s_removal_is_read_exactly(
     lost = _lost(run)
     assert lost > 0.5
     assert record_of(run)["removed_fraction"] == pytest.approx(lost, rel=1e-3)
-
-
-@pytest.mark.parametrize("integrator", [RungeKutta(), Multistep()], ids=repr)
-def test_an_engine_s_own_split_is_integrated_by_the_rate(
-    integrator: RungeKutta | Multistep,
-) -> None:
-    # The native engine applies the split inside its own finish, so the committed
-    # states' rate is integrated instead: light absorbed deep in the collar within
-    # one step is undercounted, never counted twice.
-    if "native" not in available():
-        pytest.skip("native is not installed")
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", BoundaryWarning)
-        run = _split("native", integrator).run(progress="none")
-    lost = _lost(run)
-    assert lost > 0.5
-    assert 1e-2 < record_of(run)["removed_fraction"] < lost
 
 
 @pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])

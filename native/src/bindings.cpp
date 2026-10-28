@@ -912,6 +912,26 @@ public:
     else
       state_->set_absorber_quiet(quiet);
   }
+  void bind_monitor(const std::vector<double>& weights,
+                    const std::vector<double>& column_weights) {
+    require_open();
+    if (general_state_)
+      general_state_->bind_monitor(weights, column_weights);
+    else
+      state_->bind_monitor(weights, column_weights);
+  }
+  void unbind_monitor() {
+    require_open();
+    if (general_state_)
+      general_state_->unbind_monitor();
+    else
+      state_->unbind_monitor();
+  }
+  std::vector<double> monitor_reading() {
+    require_open();
+    return general_state_ ? general_state_->monitor_reading()
+                          : state_->monitor_reading();
+  }
   std::map<std::string, std::size_t> memory_ledger() {
     require_open();
     return general_state_ ? general_state_->memory_ledger() : state_->memory_ledger();
@@ -2052,6 +2072,28 @@ NB_MODULE(_core, module_) {
           "set_absorber_quiet",
           [](BoundState& self, const bool quiet) { self.set_absorber_quiet(quiet); },
           "quiet"_a)
+      // solprop SEP 21: the boundary monitor's weights, and its five numbers and the
+      // split's removal read where the state lives.
+      .def(
+          "bind_monitor",
+          [](BoundState& self, const RealInput weights,
+             const RealInput column_weights) {
+            const auto held_weights = real_vector(weights);
+            const auto held_columns = real_vector(column_weights);
+            const nb::gil_scoped_release release;
+            self.bind_monitor(held_weights, held_columns);
+          },
+          "weights"_a.noconvert(), "column_weights"_a.noconvert())
+      .def("unbind_monitor", [](BoundState& self) { self.unbind_monitor(); })
+      .def("monitor_reading",
+           [](BoundState& self) {
+             std::vector<double> values;
+             {
+               const nb::gil_scoped_release release;
+               values = self.monitor_reading();
+             }
+             return real_output(std::move(values), 1);
+           })
       .def("field_to_host",
            [](BoundState& self) {
              std::vector<native::Complex> values;
