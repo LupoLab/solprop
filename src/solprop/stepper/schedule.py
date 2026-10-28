@@ -22,10 +22,11 @@ exactly on the next save plane or hard kink, which is what replaces dense output
 (see ``docs/dev/decisions.md``). See ``docs/dev/stepper.md`` sections 3 and 8.
 """
 
+import bisect
 import itertools
 import math
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 import numpy as np
@@ -855,6 +856,12 @@ class StepTargets:  # numpydoc ignore=PR02
         already permits every step, raising the local error by at most ``1.1**5``.
         Pass 1 to switch stretching off. A stretch never exceeds ``dz_max``.
 
+    Attributes
+    ----------
+    kinks, planes, edges : tuple of float
+        ``hard_kinks``, ``save_planes`` and ``breakpoints`` as floats, which the
+        landing rule searches every step.
+
     Raises
     ------
     StepperError
@@ -868,6 +875,9 @@ class StepTargets:  # numpydoc ignore=PR02
     dz_max: float
     z_end: float
     stretch: float = 1.1
+    kinks: tuple[float, ...] = field(init=False, repr=False)
+    planes: tuple[float, ...] = field(init=False, repr=False)
+    edges: tuple[float, ...] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         """Validate the target sets and adopt read-only copies."""
@@ -889,6 +899,15 @@ class StepTargets:  # numpydoc ignore=PR02
             raise StepperError(
                 f"stretch must be finite and at least 1, got {self.stretch}"
             )
+        # The same positions as floats, for the searches a march makes every step:
+        # `bisect` on a short tuple finds the index `numpy.searchsorted` finds on
+        # strictly increasing values, at a fraction of the call's cost.
+        for name, values in (
+            ("kinks", self.hard_kinks),
+            ("planes", self.save_planes),
+            ("edges", self.breakpoints),
+        ):
+            object.__setattr__(self, name, tuple(values.tolist()))
 
 
 @dataclass(frozen=True)
@@ -916,27 +935,22 @@ class Landing:
     stretched: bool = False
 
 
-def _next_target(
-    positions: Float[np.ndarray, " n"], position: float, tolerance: float
-) -> float | None:
-    """Return the first entry of ``positions`` genuinely ahead of ``position``.
+def _bound_order(
+    bound: tuple[float, LandingTarget] | tuple[float, LandingTarget, float],
+) -> tuple[float, int]:
+    """Order a cap or a landing: shortest first, then the highest priority.
 
     Parameters
     ----------
-    positions : numpy.ndarray
-        Strictly increasing positions, m.
-    position : float
-        Current position, m.
-    tolerance : float
-        Positions within this of ``position`` count as already passed, m.
+    bound : tuple
+        The step it allows, m, and what it is, then its position for a landing.
 
     Returns
     -------
-    float or None
-        The next position, or None if there is none.
+    tuple
+        The step and the negated priority.
     """
-    index = int(np.searchsorted(positions, position + tolerance, side="left"))
-    return float(positions[index]) if index < positions.size else None
+    return bound[0], -_LANDING_PRIORITY[bound[1]]
 
 
 def landing(z: float, dz: float, targets: StepTargets) -> Landing:
@@ -1005,40 +1019,42 @@ def landing(z: float, dz: float, targets: StepTargets) -> Landing:
     """
     if not dz > 0.0 or not math.isfinite(dz):
         raise StepperError(f"dz must be finite and positive, got {dz}")
-    edges = targets.breakpoints
+    # The searches run on the targets' float tuples (`StepTargets.edges` and the
+    # rest): the rule runs once a step, so its small costs are a step's.
+    edges = targets.edges
     if not edges[0] <= z <= edges[-1]:
         raise StepperError(
             f"z = {z:.6g} m lies outside the operator table"
             f" [{float(edges[0]):.6g}, {float(edges[-1]):.6g}] m"
         )
-    tolerance = _LANDING_ULPS * float(np.spacing(max(abs(z), abs(targets.z_end))))
+    # `math.ulp` is `np.spacing` of a non-negative float.
+    tolerance = _LANDING_ULPS * math.ulp(max(abs(z), abs(targets.z_end)))
     if z >= targets.z_end - tolerance:
         raise StepperError(f"z = {z:.6g} m is already at or past z_end")
 
-    interval = edges[_interval_index(edges, z)]
-    width = float(edges[_interval_index(edges, z) + 1] - interval)
+    # `_interval_index` on the tuple.
+    index = min(max(bisect.bisect_right(edges, z) - 1, 0), len(edges) - 2)
+    width = edges[index + 1] - edges[index]
     caps: list[tuple[float, LandingTarget]] = [
         (dz, LandingTarget.NONE),
         (targets.dz_max, LandingTarget.MAX_STEP),
         (width, LandingTarget.INTERVAL_WIDTH),
     ]
     landings: list[tuple[float, LandingTarget, float]] = []
+    # The first position of each set at or beyond `z + tolerance`; the end is a set
+    # of one.
     for kind, positions in (
-        (LandingTarget.HARD_KINK, targets.hard_kinks),
-        (LandingTarget.SAVE_PLANE, targets.save_planes),
-        (LandingTarget.END, np.array([targets.z_end])),
+        (LandingTarget.HARD_KINK, targets.kinks),
+        (LandingTarget.SAVE_PLANE, targets.planes),
+        (LandingTarget.END, (float(targets.z_end),)),
     ):
-        ahead = _next_target(positions, z, tolerance)
-        if ahead is not None:
-            landings.append((ahead - z, kind, ahead))
+        found = bisect.bisect_left(positions, z + tolerance)
+        if found < len(positions):
+            landings.append((positions[found] - z, kind, positions[found]))
     # Shortest wins; among equals the highest-priority target, so a save plane sitting
     # on a kink is reported as the save plane and the caller snaps to it either way.
-    cap_dz, cap_kind = min(
-        caps, key=lambda item: (item[0], -_LANDING_PRIORITY[item[1]])
-    )
-    gap, kind, ahead = min(
-        landings, key=lambda item: (item[0], -_LANDING_PRIORITY[item[1]])
-    )
+    cap_dz, cap_kind = min(caps, key=_bound_order)
+    gap, kind, ahead = min(landings, key=_bound_order)
     if gap <= cap_dz:
         return Landing(dz=gap, target=kind, z_target=ahead)
     if gap <= min(targets.stretch * cap_dz, targets.dz_max):

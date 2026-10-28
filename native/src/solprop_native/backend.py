@@ -11,9 +11,9 @@ import functools
 import logging
 import math
 import types
-from collections.abc import Callable, Generator, Mapping, Sequence
-from contextlib import contextmanager
+from collections.abc import Callable, Mapping, Sequence
 from importlib.metadata import version
+from types import TracebackType
 from typing import ClassVar, Literal, Protocol, cast
 
 import numpy as np
@@ -36,10 +36,9 @@ from solprop.backends.memory import (
 from solprop.backends.multistep import (
     AdamsMarch,
     CoupledBlock,
-    compensation_tables,
-    exponential_tables,
     fused_tables,
     source_absent,
+    trial_tables,
 )
 from solprop.backends.numpy_ref import QUADRATURE_ALARM
 from solprop.backends.numpy_ref.admission import refuse_general_route
@@ -127,13 +126,33 @@ type RealArray = npt.NDArray[np.float64]
 logger = logging.getLogger(__name__)
 
 
-@contextmanager
-def _envelope_errors() -> Generator[None]:
-    """Translate refinement failures without importing solprop in the extension."""
-    try:
-        yield
-    except _core.EnvelopeConvergenceError as error:
-        raise ConvergenceError(str(error)) from error
+class _envelope_errors:
+    """Translate refinement failures without importing solprop in the extension.
+
+    A class rather than a generator: it wraps every native step call.
+    """
+
+    __slots__ = ()
+
+    def __enter__(self) -> None:
+        """Enter the native call."""
+
+    def __exit__(
+        self,
+        kind: type[BaseException] | None,
+        error: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Raise a refinement failure leaving the call as solprop's error.
+
+        Raises
+        ------
+        solprop.exceptions.ConvergenceError
+            If the call raised the extension's ``EnvelopeConvergenceError``.
+        """
+        del kind, traceback
+        if isinstance(error, _core.EnvelopeConvergenceError):
+            raise ConvergenceError(str(error)) from error
 
 
 ADAMS_MAX_CHANNELS = 16
@@ -388,6 +407,7 @@ class NativeBackend(StepDriver[_core.State]):
             controller=self._problem.stepper.controller,
             n_omega=self._problem.grids.n_omega,
             arrays=self._resident_arrays,
+            sample=self._resident_sample,
             hoist=self._hoist,
             adopted=self._resident_adopted,
             rate=self._rate_weights,
@@ -444,7 +464,7 @@ class NativeBackend(StepDriver[_core.State]):
         bundle = self._stage_scalars(anchor, position)
         self._last_bundle = bundle
         stages = self._problem.stepper.tableau.n_stages
-        arrays, material = self._trial_arrays([bundle] * stages, bundle)
+        arrays, material = self._repeated_arrays(bundle)
         flow = self._flow
         if flow is not None:
             # Beside a coupled flow the trial's section and a frozen-residual flow's
@@ -459,6 +479,67 @@ class NativeBackend(StepDriver[_core.State]):
                 ),
             }
         return arrays, material
+
+    def _resident_sample(self, step: _TrialArrays, position: float) -> _TrialArrays:
+        """Return the arrays of a trial at `position`, from a step's that ends there.
+
+        An exponential trial evaluates its new sample at a trial anchored at the step's
+        end. That bundle reads every table at the same position as the step's own, by
+        the same evaluation, and its increment of ``Phi`` is a value less itself:
+        exactly zero, also for a z table's slots. So its arrays are the step's with the
+        increments zeroed, value for value, with no second evaluation of the tables.
+        Beside a coupled flow the section and weights follow the anchor, so the bundle
+        is formed.
+        """
+        if self._flow is not None:
+            return self._resident_arrays(position, position)
+        (phi_delta, *rows), material = step
+        phi_at, prefactor, density, taper, preionisation, raman_rates = rows
+        return (
+            np.zeros_like(phi_delta),
+            phi_at,
+            prefactor,
+            density,
+            taper,
+            preionisation,
+            raman_rates,
+        ), material
+
+    def _repeated_arrays(self, bundle: StageScalars) -> _TrialArrays:
+        """Return the trial arrays of a step whose every stage row is `bundle`.
+
+        `_trial_arrays` of the bundle repeated, value for value. With the weights a
+        constant's or an expansion's own and no further material rows (SEP 6's
+        channels, a moving guide's maps), each array is one row repeated in one call
+        rather than packed from a list of the same bundle, which costs a resident
+        Adams trial more than its coefficient tables. The other problems take
+        `_trial_arrays`.
+        """
+        stages = self._problem.stepper.tableau.n_stages
+        if (
+            self._z_tables is not None
+            or self._terms.separable is not None
+            or self._problem.responses.dispersive_kerr is not None
+            or self._moving_maps
+        ):
+            return self._trial_arrays([bundle] * stages, bundle)
+        phi_delta = _required(bundle.phi_delta, "phi_delta")[np.newaxis]
+        phi_at = _required(bundle.phi_at, "phi_at")[np.newaxis]
+        prefactor = _required(bundle.prefactor, "prefactor")[np.newaxis]
+        return (
+            np.repeat(phi_delta, stages + 1, axis=0),
+            np.repeat(phi_at, stages, axis=0),
+            np.repeat(prefactor, stages, axis=0),
+            np.full(stages, bundle.density, dtype=np.float64),
+            np.full(stages, bundle.taper_scale, dtype=np.float64),
+            np.full(stages, bundle.preionisation, dtype=np.float64),
+            _repeated_row(bundle.raman_rates, stages),
+        ), {
+            "kerr_density": np.full(stages, bundle.kerr_density, dtype=np.float64),
+            "plasma_densities": _repeated_row(bundle.plasma_densities, stages),
+            "plasma_preionisation": _repeated_row(bundle.plasma_preionisation, stages),
+            "raman_densities": _repeated_row(bundle.raman_densities, stages),
+        }
 
     def _adams_block(self, z: float, dz: float) -> object:
         """Return the frozen block of the section a step from `z` is anchored in.
@@ -564,8 +645,7 @@ class NativeBackend(StepDriver[_core.State]):
             propagator = np.exp(self._delta_phi(bundle))
         self._adams_held = None
         self._last_bundle = bundle
-        stages = self._problem.stepper.tableau.n_stages
-        arrays, material = self._trial_arrays([bundle] * stages, bundle)
+        arrays, material = self._repeated_arrays(bundle)
         with _envelope_errors():
             source = self._native_state.adams_source(
                 np.ascontiguousarray((lab / propagator).reshape(-1)),
@@ -1491,6 +1571,11 @@ def _build_facts() -> _BuildFacts:
     )
 
 
+def _repeated_row(values: tuple[float, ...], count: int) -> RealArray:
+    """Return a stage row of host scalars repeated `count` times, ``(count, n)``."""
+    return np.repeat(np.array([values], dtype=np.float64), count, axis=0)
+
+
 def _required(values: RealArray | None, name: str) -> RealArray:
     if values is None:
         raise BackendError(f"device-ready problem has no {name}")
@@ -1566,6 +1651,8 @@ class _ResidentAdams:
     n_omega: int
     arrays: Callable[[float, float], _TrialArrays]
     """``(anchor, position) -> trial arrays`` with every stage row at `position`."""
+    sample: Callable[[_TrialArrays, float], _TrialArrays]
+    """``(step arrays, end) -> trial arrays`` anchored at the step's end, `end`."""
     hoist: Callable[[float], None]
     adopted: Callable[[float | None], None]
     """Make the native state the backend's, at a new position when one is given."""
@@ -1815,38 +1902,38 @@ class _ResidentAdams:
         whose anchor is the step's end.
         """
         self.hoist(z)
-        predictor, corrector, rows = exponential_tables(
-            nodes, order, orders, helpers=self.helpers
+        # Every table in one call of the backend's helpers; each is a fresh
+        # C-contiguous float64 array, as the native call takes it.
+        predictor, corrector, rows, spans, carried, endpoint, defects = trial_tables(
+            nodes, order, orders, compensated=self.compensated, helpers=self.helpers
         )
         divisor = self._divisor()
         width = corrector.shape[0]
         step, material = self.arrays(z, z + dz)
-        sample, sample_material = self.arrays(z + dz, z + dz)
-        empty = np.empty(0, dtype=np.float64)
-        spans = carried = endpoint = defects = rate = empty
+        sample, sample_material = self.sample((step, material), z + dz)
+        rate = _NO_RATE
         if self.compensated:
-            spans, carried, endpoint, defects = compensation_tables(
-                nodes, order, orders, helpers=self.helpers
+            rate = np.ascontiguousarray(
+                self.rate(z + dz, before=True), dtype=np.float64
             )
-            rate = self.rate(z + dz, before=True)
         carrier = self._carrier(z, dz, nodes, width - 1)
         with _envelope_errors():
             norms = self.native.adams_exponential_trial(
                 dz,
                 np.ascontiguousarray(slots[: max(width - 1, order)], dtype=np.uint64),
-                np.ascontiguousarray(predictor, dtype=np.float64).reshape(-1),
-                np.ascontiguousarray(corrector, dtype=np.float64).reshape(-1),
-                np.ascontiguousarray(rows, dtype=np.float64).reshape(-1),
+                predictor.reshape(-1),
+                corrector.reshape(-1),
+                rows.reshape(-1),
                 divisor,
                 *step,
                 material,
                 *sample,
                 sample_material,
-                np.ascontiguousarray(spans, dtype=np.float64),
-                np.ascontiguousarray(carried, dtype=np.float64),
-                np.ascontiguousarray(endpoint, dtype=np.float64),
-                np.ascontiguousarray(defects, dtype=np.float64).reshape(-1),
-                np.ascontiguousarray(rate, dtype=np.float64),
+                spans,
+                carried,
+                endpoint,
+                defects.reshape(-1),
+                rate,
                 carrier,
             )
         self._trial = (z, dz, nodes, slots, order)
@@ -1932,6 +2019,9 @@ _NO_DIVISOR = np.empty(0, dtype=np.float64)
 
 _NO_CARRIER = np.empty(0, dtype=np.float64)
 """The empty carrier frame: the native trial takes the unshifted arithmetic."""
+
+_NO_RATE = np.empty(0, dtype=np.float64)
+"""The empty endpoint rate of an uncompensated trial."""
 
 
 def _on_device() -> bool:

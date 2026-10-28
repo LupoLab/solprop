@@ -14,6 +14,7 @@ a replayed schedule. The parity of either against the reference backend is the s
 suites' (``test_exponential_routes.py``, ``test_compiled_multistep.py``).
 """
 
+import dataclasses
 import math
 from typing import cast
 
@@ -84,6 +85,57 @@ def test_a_varying_operator_is_resident_in_both_formulations():
     route = "capillary (pressure gradient)"
     assert engine_of(route, Multistep(formulation="interaction")) == "_ResidentAdams"
     assert engine_of(route, Multistep(formulation="exponential")) == "_ResidentAdams"
+
+
+def assert_same_arrays(actual, expected):
+    """Assert two packings of a trial's arrays hold the same values and layout."""
+    (rows, material), (expected_rows, expected_material) = actual, expected
+    assert material.keys() == expected_material.keys()
+    pairs = [*zip(rows, expected_rows, strict=True)] + [
+        (material[key], expected_material[key]) for key in material
+    ]
+    for got, want in pairs:
+        if not isinstance(want, np.ndarray):
+            assert got == want
+            continue
+        assert got.dtype == want.dtype and got.shape == want.shape
+        assert got.flags.c_contiguous
+        np.testing.assert_array_equal(got, want)
+
+
+@pytest.mark.parametrize(
+    "route",
+    [
+        "capillary (mode-averaged)",
+        "capillary (pressure gradient)",
+        "cartesian",
+        "general guide (moving)",
+    ],
+)
+def test_a_resident_trial_packs_what_its_bundles_would(route):
+    # A resident trial's stage rows are its one bundle's, packed once rather than
+    # from a list of it; its end sample's are those of a bundle anchored at the end,
+    # whose increment of Phi is a value less itself. Packing moves values and forms
+    # nothing, so the arrays are the same exactly: constant and expansion weights,
+    # the separable route and a moving guide beside a coupled flow, which take the
+    # general packing and a formed bundle.
+    simulation = ROUTES[route](None)
+    problem = simulation.translate()
+    backend = NativeBackend(problem, grid=simulation.grid, modes=simulation.modes)
+    try:
+        stages = problem.stepper.tableau.n_stages
+        z, end = 0.1 * problem.stepper.z_end, 0.13 * problem.stepper.z_end
+        backend._hoist(z)
+        step = backend._resident_arrays(z, end)
+        bundle = backend._stage_scalars(z, end)
+        packed = backend._trial_arrays([bundle] * stages, bundle)
+        if backend._flow is None:
+            assert_same_arrays(step, packed)
+        sample = backend._resident_sample(step, end)
+        backend._hoist(end)
+        assert_same_arrays(sample, backend._resident_arrays(end, end))
+    finally:
+        backend.close()
 
 
 def run(problem, grid, monkeypatch, *, resident):
@@ -342,3 +394,59 @@ def test_the_compensated_reference_follows_the_host_engine(dense, monkeypatch):
     # band's edge, about 1e-7 of their own amplitude, with the same calls.
     scale = np.max(np.abs(host))
     np.testing.assert_allclose(fields, host, rtol=0, atol=1e-8 * scale)
+
+
+class HostScaleController(PIController):
+    """solprop's controller with its scale overridden: formed on the host."""
+
+    def scale(self, norm_y, norm_y_new):
+        """Return the inherited scale, from this subclass's own method."""
+        return super().scale(norm_y, norm_y_new)
+
+
+def test_a_divisor_formed_on_the_host_takes_the_same_steps():
+    # solprop's own controller has the norm's divisor formed in the exponential
+    # trial's last pass, from the accepted state's magnitude its first pass reduces; a
+    # controller that overrides `scale` has it formed on the host from the engine's
+    # magnitude and uploaded. The same formula on the same magnitude: on a pressure
+    # gradient, whose compensation joins every defect, both take the same steps.
+    from backends.test_exponential_varying import LENGTH, gradient  # noqa: PLC0415
+
+    simulation = gradient(
+        save_planes=list(np.linspace(LENGTH / 4, LENGTH, 4)), rtol=1e-7
+    )
+    problem = simulation.translate()
+    own = problem.stepper.controller
+    assert type(own) is PIController
+    hosted = HostScaleController(
+        **{
+            field.name: getattr(own, field.name)
+            for field in dataclasses.fields(own)
+            if field.init
+        }
+    )
+    on_host = dataclasses.replace(
+        problem, stepper=dataclasses.replace(problem.stepper, controller=hosted)
+    )
+
+    def march(problem):
+        backend = NativeBackend(problem, grid=simulation.grid, modes=simulation.modes)
+        try:
+            backend.set_initial(problem.initial.field0, None)
+            fields = []
+            for plane in problem.stepper.save_planes:
+                backend.propagate_to(float(plane))
+                fields.append(backend.observe().require_field().copy())
+            march = backend._adams
+            assert march is not None
+            engine = march._engine
+            assert type(engine).__name__ == "_ResidentAdams"
+            return np.array(fields), march.ledger.total, engine._device_scale
+        finally:
+            backend.close()
+
+    fields, calls, device = march(problem)
+    host, host_calls, host_device = march(on_host)
+    assert (device, host_device) == (True, False)
+    assert calls == host_calls
+    np.testing.assert_allclose(fields, host, rtol=0, atol=1e-12 * np.max(np.abs(host)))

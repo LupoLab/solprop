@@ -105,6 +105,10 @@ int operation_threads(const ThreadPolicy& policy, const CpuPool pool,
     threshold = raman_thread_min_elements;
     full = raman_full_thread_elements;
     break;
+  case CpuOperation::adams:
+    threshold = adams_thread_min_elements;
+    full = adams_full_thread_elements;
+    break;
   }
   if (elements < threshold)
     return 1;
@@ -132,10 +136,10 @@ const ExecutionSpace& CpuExecutionPool::get(const CpuOperation operation,
   if (elements != 0) {
     static constexpr const char* pools[] = {"kernels", "fft", "raman_fft",
                                             "raman_tail_fft"};
-    static constexpr const char* operations[] = {"stage", "response", "dense", "fft",
-                                                 "raman", "copy",     "flow",  "modal"};
+    static constexpr const char* operations[] = {
+        "stage", "response", "dense", "fft", "raman", "copy", "flow", "modal", "adams"};
     static_assert(std::size(operations) ==
-                  static_cast<unsigned>(CpuOperation::modal) + 1);
+                  static_cast<unsigned>(CpuOperation::adams) + 1);
     const auto name =
         std::string(pools[static_cast<unsigned>(pool_)]) + "." +
         operations[static_cast<unsigned>(operation)] + "." + std::to_string(elements) +
