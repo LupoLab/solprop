@@ -361,3 +361,27 @@ def test_a_second_watched_run_reads_as_the_first(backend: str) -> None:
     np.testing.assert_array_equal(again.regions, first.regions)
     assert again.removed == 0.0
     assert all(size >= 0 for size in ledger.values())
+
+
+@pytest.mark.parametrize(
+    ("backend", "route", "rows"),
+    [
+        ("numba_cpu", "capillary (multimode)", ("monitor_spectrum", "monitor_time")),
+        # The general engine reads through its statistics buffers: only its weights.
+        ("native", "gnlse", ("monitor_weights",)),
+    ],
+    ids=["numba_cpu", "native"],
+)
+def test_a_monitor_s_own_transform_is_in_the_ledger(
+    backend: str, route: str, rows: tuple[str, ...]
+) -> None:
+    # Without a collar the backend has no coarse pair: what the monitor allocates at
+    # its first attach is counted with every other buffer.
+    _require(backend)
+    simulation = _simulation(route, "nonlinear")
+    made = _loaded(simulation, backend, _bare(simulation))
+    try:
+        ledger = made.memory_ledger()
+    finally:
+        made.close()
+    assert all(ledger[row] > 0 for row in rows), {row: ledger[row] for row in rows}
