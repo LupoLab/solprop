@@ -2975,6 +2975,9 @@ class AdamsMarch:
             and method.formulation == "exponential"
             else 0.0
         )
+        # Whether the stages left a quiet collar out at the last attempt: the step
+        # after it returns is held to the collar's stable step (`_collar_reentry`).
+        self._collar_was_quiet = False
 
     def reset(self) -> None:
         """Forget the history: the state was loaded or changed outside the march."""
@@ -3215,7 +3218,10 @@ class AdamsMarch:
             try:
                 if not self._history:
                     self._start()
-                stop = landing(backend._z, self._capped(backend._proposal), targets)
+                proposal = self._collar_reentry(
+                    backend._quiet_capped(self._capped(backend._proposal))
+                )
+                stop = landing(backend._z, proposal, targets)
                 dz, end, kink = self._approach(stop, targets, target)
                 # The accepted step moves the position with the state, and restarts
                 # the history at a kink, in one commit (`_land`).
@@ -3907,10 +3913,40 @@ class AdamsMarch:
             ``COLLAR_STABILITY * PEC_REAL_INTERVAL[order - 1] / (dz max(alpha) / 2)``,
             infinite without an in-stage collar.
         """
-        if self._collar_rate <= 0.0:
+        if self._collar_rate <= 0.0 or self._backend._collar_quiet:
+            # No in-stage collar, or one the stages leave out while it is quiet: no
+            # stiff term to weigh the orders by.
             return math.inf
         interval = COLLAR_STABILITY * PEC_REAL_INTERVAL[order - 1]
         return interval / (self._collar_rate * dz)
+
+    def _collar_reentry(self, proposal: float) -> float:
+        """Return the proposal held to the collar's stable step as its term returns.
+
+        While a quiet collar is left out of the stages the order choice ignores its
+        stability limit (:meth:`_stable_factor`), so the march may hold a high order
+        and a long step; on the first attempt after the term returns that step would
+        be unstable for it. That attempt is held to the stable step of the current
+        order, and the order choice weighs the limit again from there.
+
+        Parameters
+        ----------
+        proposal : float
+            The controller's proposal, m.
+
+        Returns
+        -------
+        float
+            The proposal, or the collar's stable step when the term has just
+            returned, m.
+        """
+        quiet = self._backend._collar_quiet
+        returning = self._collar_was_quiet and not quiet
+        self._collar_was_quiet = quiet
+        if not returning or self._collar_rate <= 0.0:
+            return proposal
+        interval = COLLAR_STABILITY * PEC_REAL_INTERVAL[self._order - 1]
+        return min(proposal, interval / self._collar_rate)
 
     def _order_weight(self, scores: dict[int, float], dz: float, order: int) -> float:
         """Return an order's weight: its defect's step factor, capped for stability.
