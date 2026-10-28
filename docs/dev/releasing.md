@@ -10,6 +10,10 @@ the git tag ([SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md)):
   build; source builds are made from the repository
   ([Building the native backend](../guide/performance/building-native.md)).
 
+Versions are 0.x for now: a minor release may break the API, the output schema or the
+resume key, and every break is listed under "Changed (breaking)" in the changelog
+(ADR-058 in [decisions](decisions.md)). The first release is 0.1.0.
+
 The wheels are built, repaired, qualified and published by
 `.github/workflows/wheels.yml`. cibuildwheel's configuration is the
 `[tool.cibuildwheel]` table of `native/pyproject.toml`; the libraries each wheel bundles

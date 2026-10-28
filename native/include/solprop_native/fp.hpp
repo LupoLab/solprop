@@ -108,6 +108,15 @@ strict_mul(const Kokkos::complex<double> a, const Kokkos::complex<double> b) {
   return {rr - ii, ri + ir};
 }
 
+/** `|a|^2`, each square rounded before the sum: a magnitude test without `hypot`. */
+SOLPROP_NATIVE_STRICT_FUNCTION
+KOKKOS_INLINE_FUNCTION double strict_norm(const Kokkos::complex<double> a) {
+  SOLPROP_NATIVE_STRICT_BLOCK
+  const double rr = a.real() * a.real();
+  const double ii = a.imag() * a.imag();
+  return rr + ii;
+}
+
 /** `sum + w a` for a real `w`, the product rounded before the sum. */
 SOLPROP_NATIVE_STRICT_FUNCTION
 KOKKOS_INLINE_FUNCTION Kokkos::complex<double>

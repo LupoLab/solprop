@@ -328,7 +328,7 @@ it is qualified, [backends.md](backends.md); for the current seam,
 
 ## ADR-021 — Python 3.14 and current dependencies; no backwards compatibility
 
-- **Status:** accepted
+- **Status:** accepted; ADR-058 says what the 0.x releases promise
 - **Decision:** `requires-python = ">=3.14"`, numpy ≥ 2.5, scipy ≥ 1.18, matplotlib ≥
   3.10.7 (the floors and their reasons are in [dependencies.md](dependencies.md)); modern
   language features are used freely; nothing is promised about API stability until a
@@ -942,7 +942,9 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-045 — `Multistep()` is the default integrator; `RungeKutta()` names the march
 - **Status:** accepted ([SEP 16](seps/archive/sep-0016-unified-multistep.md)); amended by
-  ADR-055, which gives `prop_gnlse` and `prop_waveguide` `RungeKutta()` by default
+  ADR-055, which chooses each interface's default: `RungeKutta()` on `prop_gnlse`,
+  `prop_waveguide` and `prop_free`, `Multistep()` on `prop_capillary` (an override of
+  its rule), `prop_radial` and `prop_planar`
 - **Context:** the exponential formulation runs on every route and backend, devices
   included, and took the fewest calls on every case SEP 16 measured. With the
   error norm over the whole active band it was, at matched error on one CPU thread,
@@ -1157,7 +1159,8 @@ Withdrawn (development-process record, not a design decision).
 
 - **Status:** accepted; withdraws the source filter of
   [SEP 12](seps/archive/sep-0012-tdse-nonlinear-response.md) and
-  [SEP 26](seps/archive/sep-0026-edge-free-tdse-source.md)
+  [SEP 26](seps/archive/sep-0026-edge-free-tdse-source.md); one exception added on
+  2026-10-28 (`collar_placement="inside"`)
 - **Context:** before a first release there are no external output files to keep. An
   option or reader whose only purpose is to reproduce an earlier form of a configuration
   or record is a second code path to test and document, with no scientific use.
@@ -1170,6 +1173,13 @@ Withdrawn (development-process record, not a design decision).
   left out to keep an earlier record's hash. Options with a scientific use stay:
   `ComparisonMultistep`, both Raman spellings, the Luna witnesses (`LEGACY_CONVENTIONS`,
   the trapezoid plasma rule) and `vacuum_end="floor"`.
+- **The exception: `collar_placement="inside"`** (maintainer, 2026-10-28). It rebuilds
+  the time-window geometry of before [SEP 21](seps/archive/sep-0021-absorbing-boundaries.md),
+  the collar inside the request, bin for bin. It stays public because the Luna
+  witnesses and the frozen cross-backend comparisons were measured on that geometry, and
+  re-measuring them is work of its own. Tests pin it, through `tests/legacy_geometry.py`,
+  only where a stored measurement depends on it ([testing](testing.md)); the others move
+  to the default geometry after the first release.
 - **Why:** one obvious way to do each thing. The ungated source failed every window
   screen it was tried on (17.8–19.4% of the flat-band source between 60 and 120 fs), and
   no scientific use of it was found.
@@ -1479,3 +1489,27 @@ Withdrawn (development-process record, not a design decision).
     exponential Adams march, the cap removes the gain. A per-step check that would lift
     the cap is on the roadmap.
   - The monitor's record counts `collar_left_out_checks`.
+
+## ADR-058 — The 0.x releases are unstable; the first output schema is 1
+
+- **Status:** accepted (maintainer, 2026-10-28)
+- **Context:** ADR-021 promised nothing about stability until a first release, and
+  nothing said what the first release promises. The exported surface is large
+  (`solprop.translate` alone exports 61 names), and some internal seams are known to be
+  provisional: the state's vestigial batch axis, the two step loops that one march
+  protocol would replace, and the integrator's tie to `PIController`. Development output
+  files carry schemas up to 27, and solprop keeps readers for them.
+- **Decision:**
+  - The first releases are 0.x. A minor release may break the API, the output schema or
+    the resume key; every break is listed under "Changed (breaking)" in the changelog.
+  - Before the first tag the output schema restarts at 1 and the readers of the
+    development schemas go; the kernel's `SCHEMA_VERSION` is renamed
+    `KERNEL_SCHEMA_VERSION`, so that the two numbers cannot be confused.
+  - `solprop.translate`, `solprop.backends` and the internals of `solprop.output` are
+    unstable within 0.x, and three seams are reserved for change: the state's batch
+    axis, the step-loop protocol, and the split of the integrator from the controller.
+- **Why:** breaking costs nothing before anyone depends on the package, and a promise
+  made now would freeze seams already known to need work.
+- **Consequences:** a released version cannot read a development output file; keep an
+  older install for those. The resume-compatibility policy for 1.0 stays on the roadmap
+  (*Release preparation*).

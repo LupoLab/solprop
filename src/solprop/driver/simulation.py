@@ -570,10 +570,13 @@ class SimulationSettings(Displayed):
         saves the requested planes only. Not in scans.
     integrator : Multistep, RungeKutta, LowStorageRungeKutta or None
         The method that steps the run (``docs/guide/numerics/choosing-a-stepper.md``).
-        ``None``, the default, takes ``Multistep()`` under double precision and
-        ``RungeKutta()`` under single precision, which refuses the Adams method until
-        its single-precision survival is established (SEP 33, Q2); the stored value
-        is the resolved method. ``Multistep()`` is the low-call exponential Adams
+        ``None``, the default, takes ``Multistep()`` under double precision, or
+        ``RungeKutta()`` where the interface's builder sets it
+        (:meth:`Simulation.from_gnlse`, :meth:`Simulation.from_waveguide` and
+        :meth:`Simulation.from_free`; ``docs/guide/numerics/choosing-a-stepper.md``),
+        and ``RungeKutta()`` under single precision, which refuses the Adams method
+        until its single-precision survival is established (SEP 33, Q2); the stored
+        value is the resolved method. ``Multistep()`` is the low-call exponential Adams
         method, which
         ``numpy_ref``, ``numba_cpu`` and ``native`` execute for supported
         configurations;
@@ -644,20 +647,22 @@ class SimulationSettings(Displayed):
     backend : str
         Registry name of the backend to execute the run. The default ``"auto"``
         resolves to ``"native"`` when installed, otherwise ``"numba_cpu"``, at
-        settings construction. The stored name is concrete, including in scan workers.
-        An installed backend's import or construction errors never trigger a fallback.
+        settings construction; under single precision, to ``"mlx"`` (`precision`).
+        The stored name is concrete, including in scan workers. An installed
+        backend's import or construction errors never trigger a fallback.
     precision : {'double', 'single'}
         The arithmetic the run is held in (SEP 33,
         ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is
         binary64 throughout and changes nothing.
         ``"single"`` holds the state, the stages, the transforms and the responses in
-        binary32, with the controller and every host scalar in binary64; it admits
-        ``backend="numpy_ref"`` (the single-precision oracle), refuses an adaptive
-        ``rtol`` below :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR`, the
-        Adams integrator and noise models, and is refused by ``numba_cpu`` and
-        ``native``. ``backend="auto"`` resolves to a GPU backend that computes in
-        binary32 when one is installed and is otherwise refused. Part of the hashed
-        configuration; outputs are binary64 either way.
+        binary32, with the controller and every host scalar in binary64. It admits
+        ``backend="numpy_ref"`` (the single-precision oracle) and the experimental
+        ``backend="mlx"``; refuses an adaptive ``rtol`` below
+        :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR`, the Adams integrator
+        and an explicit noise model (a default noise resolves to none); and is
+        refused by ``numba_cpu`` and ``native``. ``backend="auto"`` resolves to
+        ``"mlx"`` when MLX and a Metal GPU are present and is otherwise refused.
+        Part of the hashed configuration; outputs are binary64 either way.
     resume_history : bool or None
         Whether the output keeps the Adams march's state at every save plane and
         terminal checkpoint, so that a resume continues the history -- its samples, its
@@ -3481,8 +3486,9 @@ class Simulation(Displayed):
             Moving frame. None uses the declared responses' THG choice.
         noise : {'default', None, 'input', 'modified'}, optional
             One photon per transverse column, polarisation and active bin.
-            ``"default"``, the default, resolves to ``"input"`` wherever the run can
-            carry noise, and records the resolution (SEP 37).
+            ``"default"``, the default, resolves to no noise on a Cartesian or line
+            grid and records why (:data:`FREE_NOISE`, SEP 37); pass ``"input"`` or
+            ``"modified"`` for a noise model.
         seed : int or None, optional
             Random generator seed; None draws and records system entropy.
         materials : solprop.physdata.selection.MaterialSelection or None, optional
@@ -3691,8 +3697,9 @@ class Simulation(Displayed):
             Moving frame. None uses the declared responses' THG choice.
         noise : {'default', None, 'input', 'modified'}, optional
             One photon per transverse column, polarisation and active bin.
-            ``"default"``, the default, resolves to ``"input"`` wherever the run can
-            carry noise, and records the resolution (SEP 37).
+            ``"default"``, the default, resolves to ``"input"`` on a radial grid and to
+            no noise on a Cartesian or line one (:data:`FREE_NOISE`), and records the
+            resolution (SEP 37).
         seed : int or None, optional
             Random generator seed; None draws and records system entropy.
         materials : solprop.physdata.selection.MaterialSelection or None, optional
@@ -3971,9 +3978,10 @@ class Simulation(Displayed):
         precision : {'double', 'single'}, optional
             The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
             ``"single"``, which takes ``rtol`` at the floor
-            :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR` by default,
-            ``RungeKutta()`` and ``backend="numpy_ref"``
-            (:attr:`SimulationSettings.precision`).
+            :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR` by default and
+            ``RungeKutta()``, carries no noise, and resolves ``backend="auto"`` to the
+            experimental ``mlx`` where MLX and a Metal GPU are present, with
+            ``numpy_ref`` as the reference (:attr:`SimulationSettings.precision`).
         materials : solprop.physdata.selection.MaterialSelection or None, optional
             Take fused silica's nonlinear response from optmat's silica bundle
             (:class:`~solprop.physdata.glasses.SilicaBundle`): with `raman` on, an
@@ -4266,9 +4274,10 @@ class Simulation(Displayed):
             channel to every other with a definite phase instead of giving each its own
             Marcatili attenuation. It needs the contiguous set ``HE_11`` to ``HE_1N`` --
             or, with ``impedance="te_tm"``, one azimuthal order -- on a constant or a
-            varying guide, a scalar run and no noise model, and all three backends
-            execute it (a ``method="cf4"`` wall ``numpy_ref`` alone); every other mode
-            set or geometry is refused by name. ``None``, the default, carries no wall:
+            varying guide, and a scalar run; it carries the default ``"input"`` noise
+            and refuses ``"modified"``. All three backends execute it (a
+            ``method="cf4"`` wall ``numpy_ref`` alone); every other mode set or
+            geometry is refused by name. ``None``, the default, carries no wall:
             the modes keep their own Marcatili loss, and a multimode taper its taper
             coupling (below).
         taper_coupling : bool, optional
@@ -4429,9 +4438,10 @@ class Simulation(Displayed):
         precision : {'double', 'single'}, optional
             The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
             ``"single"``, which takes ``rtol`` at the floor
-            :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR` by default,
-            ``RungeKutta()`` and ``backend="numpy_ref"``
-            (:attr:`SimulationSettings.precision`).
+            :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR` by default and
+            ``RungeKutta()``, carries no noise, and resolves ``backend="auto"`` to the
+            experimental ``mlx`` where MLX and a Metal GPU are present, with
+            ``numpy_ref`` as the reference (:attr:`SimulationSettings.precision`).
         polarisation : str, float or None, optional
             Refused; this path is scalar.
         materials : solprop.physdata.selection.MaterialSelection or None, optional
@@ -4917,9 +4927,10 @@ class Simulation(Displayed):
         precision : {'double', 'single'}, optional
             The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
             ``"single"``, which keeps ``rtol`` at :data:`WAVEGUIDE_RTOL` by default
-            (``docs/guide/performance/single-precision.md``), and takes
-            ``RungeKutta()`` and ``backend="numpy_ref"``
-            (:attr:`SimulationSettings.precision`).
+            (``docs/guide/performance/single-precision.md``), takes ``RungeKutta()``,
+            carries no noise, and resolves ``backend="auto"`` to the experimental
+            ``mlx`` where MLX and a Metal GPU are present, with ``numpy_ref`` as the
+            reference (:attr:`SimulationSettings.precision`).
         polarisation : str, float or None, optional
             Refused; this path is scalar.
         taper_coupling : bool, optional
@@ -5568,9 +5579,10 @@ class Simulation(Displayed):
             channel to every other with a definite phase instead of giving each its own
             Marcatili attenuation. It needs the contiguous set ``HE_11`` to ``HE_1N`` --
             or, with ``impedance="te_tm"``, one azimuthal order -- on a constant or a
-            varying guide, a scalar run and no noise model, and all three backends
-            execute it (a ``method="cf4"`` wall ``numpy_ref`` alone); every other mode
-            set or geometry is refused by name. ``None``, the default, carries no wall:
+            varying guide, and a scalar run; it carries the default ``"input"`` noise
+            and refuses ``"modified"``. All three backends execute it (a
+            ``method="cf4"`` wall ``numpy_ref`` alone); every other mode set or
+            geometry is refused by name. ``None``, the default, carries no wall:
             the modes keep their own Marcatili loss, and a multimode taper its taper
             coupling (below).
         taper_coupling : bool, optional
@@ -5730,7 +5742,9 @@ class Simulation(Displayed):
             and otherwise use Numba CPU. Import or construction errors do not fall back.
         precision : {'double', 'single'}, optional
             The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
-            ``"single"``, which takes ``RungeKutta()`` and ``backend="numpy_ref"``
+            ``"single"``, which takes ``RungeKutta()``, carries no noise, and
+            resolves ``backend="auto"`` to the experimental ``mlx`` where MLX and a
+            Metal GPU are present, with ``numpy_ref`` as the reference
             (:attr:`SimulationSettings.precision`); `rtol` comes resolved.
         polarisation : str, float or None, optional
             Refused; this path is scalar.

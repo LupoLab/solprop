@@ -36,10 +36,12 @@ that runs it, `backend="numba_cpu"` or `backend="numpy_ref"`. The
 [TDSE response](../media/tdse.md) currently requires `numpy_ref`;
 select it explicitly rather than relying on automatic backend choice.
 
-The default `Multistep()` ([the Adams integrator](../numerics/adams.md)) and
-`RungeKutta()` are available across the three backends for their supported
-configurations. Beside a coupled flow, Adams requires its exponential
-formulation; CF4 requires Runge–Kutta on the reference backend. Check the
+`Multistep()` ([the Adams integrator](../numerics/adams.md)) and `RungeKutta()`, each
+the default of some interfaces
+([the defaults](../numerics/choosing-a-stepper.md#the-defaults)), are available across
+the three binary64 backends for their supported configurations; single precision
+refuses `Multistep()` on every backend. Beside a coupled flow, Adams requires its
+exponential formulation; CF4 requires Runge–Kutta on the reference backend. Check the
 response and geometry chapters for further restrictions. The backend used is
 logged at INFO and recorded in the output.
 
