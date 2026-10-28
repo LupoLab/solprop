@@ -405,11 +405,18 @@ nonlocal, band-limited problem; the measurement (SEP 21's phase 0b: commutator t
 surface gap, the error budget and the memory and transform cost) comes first, and the
 record must separate the vacuum floor the collar absorbs.
 
-**The split collar while quiet.** SEP 21 leaves a quiet in-stage collar out of the stages
-(D15), but the split scheme's pass still runs every step: on the tracking suite's fixed-step
-Kerr beam it costs 28 % per step. Skipping the pass while the monitor finds the collar
-quiet needs the switch in every backend's step finish, the native separable and modal
-engines included.
+**The split collar while quiet.** An opted-in quiet collar (`BoundaryCheck(quiet_collar=True)`,
+ADR-057) leaves the in-stage term out of the stages, but the split scheme's pass still runs
+every step: on the tracking suite's fixed-step Kerr beam it costs 28 % per step. Skipping
+the pass while the monitor finds the collar quiet needs the switch in every backend's step
+finish, the native separable and modal engines included.
+
+**The quiet collar on long steps.** While an opted-in collar rests, no step is longer than
+the monitor's check interval (`length / 256`), so a run whose steps are longer than that,
+such as a short capillary under the exponential Adams march, gains nothing from resting
+it. Checking the collar after every resting step instead, cheap once the monitor's
+reduction runs on the backend, would let such a step be rejected and retaken with the
+collar in when light has entered, and lift the cap.
 
 **The boundary monitor's flux on spatial routes.** [SEP 21](seps/archive/sep-0021-absorbing-boundaries.md)'s
 monitor measures a spatial run's guard and collar occupancies with the quadrature-weighted

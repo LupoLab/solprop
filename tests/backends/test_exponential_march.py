@@ -697,12 +697,18 @@ def test_the_formulation_refuses_a_cf4_section(narrow_grid, soliton_problem):
         refuse_formulation(coupled, "probe")
 
 
-def _chooser(method, collar_rate):
-    """Return a bare march holding only what the order choice reads."""
+def _chooser(method, collar_rate, *, quiet=False):
+    """Return a bare march holding only what the order choice reads.
+
+    Its backend stands in for the one flag the march reads from it: whether the stages
+    leave a quiet collar out.
+    """
     march = object.__new__(AdamsMarch)
     march._method = method
     march._collar_rate = collar_rate
     march._order = 5
+    march._backend = SimpleNamespace(_collar_quiet=quiet)
+    march._collar_was_quiet = False
     return march
 
 
@@ -716,6 +722,32 @@ def test_the_exponential_order_choice_weighs_the_in_stage_collar():
     scores = {5: 1e-3, 4: 1e-2}
     assert _chooser(EXPONENTIAL, rate)._choose_order(5, scores, dz) == (4, 1e-2)
     assert _chooser(EXPONENTIAL, 0.0)._choose_order(5, scores, dz) == (5, 1e-3)
+
+
+def test_a_resting_collar_no_longer_weighs_the_order_choice():
+    # While the stages leave a quiet collar out (an opted-in BoundaryCheck) there is no
+    # stiff term to weigh the orders by: the same scores keep order 5.
+    dz = 1e-4
+    rate = PEC_REAL_INTERVAL[4] / dz
+    scores = {5: 1e-3, 4: 1e-2}
+    assert _chooser(EXPONENTIAL, rate, quiet=True)._choose_order(5, scores, dz) == (
+        5,
+        1e-3,
+    )
+
+
+def test_the_step_after_a_collar_returns_is_held_to_its_stable_step():
+    # A long order-5 proposal made while the collar rested is held, on the first attempt
+    # with the term back, to the step at which order 5 is stable for the collar; later
+    # attempts and a march whose collar never rested pass the proposal through.
+    rate = 1.0e3
+    stable = PEC_REAL_INTERVAL[4] / rate
+    march = _chooser(EXPONENTIAL, rate, quiet=True)
+    assert march._collar_reentry(1.0) == 1.0
+    march._backend._collar_quiet = False
+    assert march._collar_reentry(1.0) == pytest.approx(stable)
+    assert march._collar_reentry(1.0) == 1.0
+    assert _chooser(EXPONENTIAL, 0.0)._collar_reentry(1.0) == 1.0
 
 
 @pytest.mark.parametrize("integrator", FORMULATIONS, ids=["interaction", "exponential"])

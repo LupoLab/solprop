@@ -282,6 +282,26 @@ def _seeded_growth(backend, problem, grid, collar, worst):
     return float(abs(final[0, 3, 0, worst])) / seed
 
 
+@pytest.mark.parametrize("name", BACKENDS)
+def test_a_coupled_flow_keeps_its_collar_in_every_stage(transient, name):
+    """A quiet collar is never left out beside a coupled flow, on any backend.
+
+    The frozen flow carries the collar (SEP 21 D15), so the term stays in every
+    stage whatever the monitor says: one rule, decided by the driver, for all three
+    backends (the native engine kept it and the Python ones dropped it before).
+    """
+    backend = backend_class(name)
+    problem, grid = transient
+    assert problem.linear.coupled_flow is not None
+    driver = backend(problem, grid=grid)
+    try:
+        assert not driver._collar_can_rest()
+        driver._set_collar_quiet(True)
+        assert not driver._collar_quiet
+    finally:
+        driver.close()
+
+
 @pytest.mark.medium
 @pytest.mark.parametrize("name", BACKENDS)
 def test_a_seeded_collar_no_longer_grows_towards_a_frozen_section_s_end(

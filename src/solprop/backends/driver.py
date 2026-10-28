@@ -1584,7 +1584,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             # stretched step that was executed: otherwise every save plane restarts it
             # from a sliver and it regrows at the growth cap, which over two hundred
             # planes costs more steps than the run needs between them (stepper.md 3).
-            stop = landing(self._z, self._proposal, targets)
+            stop = landing(self._z, self._quiet_capped(self._proposal), targets)
             norm, advanced = self._trial_step(self._z, stop.dz)
             # What the controller learns from, and what a rejection is scaled by, is the
             # norm the *proposal* would have scored; what decides acceptance, and what
@@ -1867,8 +1867,9 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
     """The input-noise draw the launch carries, the monitor's floor; ``None``."""
 
     _collar_quiet: bool = False
-    """Whether the monitor last found the collar quiet (:data:`solprop.monitor.QUIET`):
-    the modal stage then leaves the in-stage temporal collar term out (SEP 21)."""
+    """Whether the modal stage leaves the in-stage temporal collar term out: the run
+    opted in, the monitor last found the collar quiet (:data:`solprop.monitor.QUIET`)
+    and the route can rest it (:meth:`_collar_can_rest`; SEP 21, ADR-057)."""
 
     def attach_monitor(self, monitor: BoundaryMonitor) -> None:
         """Watch the time window's edges from here on, starting with the current state.
@@ -1893,20 +1894,80 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
     def _set_collar_quiet(self, quiet: bool) -> None:
         """Say whether the collar is quiet.
 
-        The low-storage march keeps its collar, whatever the monitor says. A change
-        drops a reused first-same-as-last stage, which was evaluated under the other
-        setting (:meth:`_collar_changed`); a backend whose stages run elsewhere passes
-        the flag on there.
+        The term is left out only where the route can rest it
+        (:meth:`_collar_can_rest`), and the monitor is told what the stages do, so
+        that it adds no removal while the term is out. A change drops a reused
+        first-same-as-last stage, which was evaluated under the other setting
+        (:meth:`_collar_changed`); a backend whose stages run elsewhere passes the
+        flag on there.
 
         Parameters
         ----------
         quiet : bool
             The monitor's verdict.
         """
-        quiet = quiet and self._low_storage is None
+        quiet = quiet and self._collar_can_rest()
+        if self._monitor is not None:
+            self._monitor.note_collar(quiet)
         if quiet != self._collar_quiet:
             self._collar_quiet = quiet
             self._collar_changed()
+
+    def _quiet_capped(self, proposal: float) -> float:
+        """Return the proposal, held to the monitor's interval while the collar rests.
+
+        A left-out collar absorbs nothing, and the monitor can only see the committed
+        states: one long step could carry light from a quiet collar deep into it,
+        unabsorbed. While the term is out no step is longer than the interval the
+        monitor checks a quiet window at (:attr:`BoundaryMonitor.interval`, the
+        guide's length over :data:`solprop.monitor.CHECKS`), so light has to walk
+        about twenty windows over the run to cross the collar between two checks.
+
+        Parameters
+        ----------
+        proposal : float
+            The controller's proposal, m.
+
+        Returns
+        -------
+        float
+            The proposal, or the monitor's interval while the collar is left out, m.
+        """
+        monitor = self._monitor
+        if not self._collar_quiet or monitor is None:
+            return proposal
+        return min(proposal, monitor.interval)
+
+    def _collar_can_rest(self) -> bool:
+        """Return whether this run's stages may leave a quiet temporal collar out.
+
+        One rule for every backend: a binary64 modal stage with the in-stage
+        (``"nonlinear"``) scheme and a temporal collar alone. The low-storage march,
+        coupled flows, the general modal route, a radial real-space collar sharing
+        the term and single precision keep the collar in every stage (SEP 21 D15).
+
+        Returns
+        -------
+        bool
+            True when the term may be left out while the collar is quiet.
+        """
+        problem = self._problem
+        responses = problem.responses
+        geometry = problem.transform.geometry
+        real_space = (
+            geometry is not None
+            and geometry.kind == "radial"
+            and bool(np.any(geometry.absorber_rate))
+        )
+        return (
+            self._low_storage is None
+            and responses.temporal_absorber is not None
+            and responses.absorber_scheme == "nonlinear"
+            and problem.linear.coupled_flow is None
+            and problem.transform.modal_tables is None
+            and not problem.precision.single
+            and not real_space
+        )
 
     def _collar_changed(self) -> None:  # noqa: B027 - optional by design
         """Drop whatever was evaluated under the other collar setting.

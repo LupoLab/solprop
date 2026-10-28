@@ -36,6 +36,15 @@ Policy (D7): the square root of a guard occupancy above
 at the launch an occupancy above :attr:`BoundaryCheck.launch_threshold` warns. At the
 end of a run the removed fraction is reported, and warns when its square root exceeds
 the budget (D5).
+
+**The quiet collar is opt-in** (:attr:`BoundaryCheck.quiet_collar`, SEP 21 D15 as
+amended by ADR-057). When asked for, a collar that held less than :data:`QUIET` of the
+field's energy, the shot-noise floor included, at :data:`QUIET_CHECKS` consecutive
+checks may be left out of the in-stage stages until light returns. It is judged on the
+whole field because light below the floor is still light the collar would have
+absorbed: judged above the floor, the threshold became a few times the floor itself
+and dropped a term that moved the field by up to a percent. By default the collar
+stays in every stage.
 """
 
 from __future__ import annotations
@@ -60,6 +69,7 @@ __all__ = [
     "DEFAULT_BOUNDARY_CHECK",
     "FLOOR_MARGIN",
     "QUIET",
+    "QUIET_CHECKS",
     "BoundaryCheck",
     "BoundaryMonitor",
 ]
@@ -81,17 +91,26 @@ every saved plane, are checked regardless."""
 
 CHECKS = 256
 """The fewest checks over the guide's length: a quiet window is checked at least every
-``length / CHECKS`` however long the steps, so light must walk about twenty windows
-over the run to cross the collar and guards between two checks."""
+``length / CHECKS`` (or at every committed step, when the steps are longer), so light
+must walk about twenty windows over the run to cross the collar and guards between two
+checks. While an opted-in quiet collar is left out of the stages no step is longer than
+that interval, so the premise holds where an unabsorbed crossing would matter."""
 
 ACTIVE = 0.1
 """The fraction of the budget, as a field amplitude, above which a guard or the collar
 counts as active and every step is checked."""
 
 QUIET = 1e-12
-"""The share of the field's energy, above the shot-noise floor, below which the collar
-counts as quiet: its in-stage term may then be left out of the stages (SEP 21). As a
-field amplitude, a thousandth of the default budget's thousandth."""
+"""The share of the field's energy, floor included, below which the collar counts as
+quiet: when the run opts in (:attr:`BoundaryCheck.quiet_collar`), its in-stage term may
+then be left out of the stages (SEP 21). As a field amplitude, a thousandth of the
+default budget's thousandth."""
+
+QUIET_CHECKS = 2
+"""Consecutive quiet checks before the collar's term is left out. Light returning puts
+it back at the first check that sees it; asking for two quiet ones before leaving it
+out again keeps a collar hovering at the threshold from switching at every check, each
+switch costing the march a reused stage or an Adams rejection."""
 
 logger = logging.getLogger(__name__)
 
@@ -114,19 +133,26 @@ class BoundaryCheck:
     launch_threshold : float
         The launch warns when its guard or collar occupancy exceeds this. Default
         1e-4.
+    quiet_collar : bool
+        Leave the in-stage temporal collar out of the stages while it is quiet
+        (:data:`QUIET`, :data:`QUIET_CHECKS`), a speed-up for runs whose light stays
+        clear of the edges. Off by default: the collar then stays in every stage. It
+        applies on binary64 modal routes with the ``"nonlinear"`` absorber scheme
+        and a temporal collar alone; elsewhere the collar always stays.
 
     Examples
     --------
     >>> from solprop.monitor import BoundaryCheck
     >>> check = BoundaryCheck()
-    >>> check.guard_fraction, check.budget, check.stop_factor
-    (0.05, 0.001, 10.0)
+    >>> check.guard_fraction, check.budget, check.stop_factor, check.quiet_collar
+    (0.05, 0.001, 10.0, False)
     """
 
     guard_fraction: float = 0.05
     budget: float = 1e-3
     stop_factor: float = 10.0
     launch_threshold: float = 1e-4
+    quiet_collar: bool = False
 
     def __post_init__(self) -> None:
         """Validate the thresholds.
@@ -221,6 +247,9 @@ class BoundaryMonitor:
     _since_check: int = field(default=0, init=False)
     _busy: bool = field(default=True, init=False)
     _quiet: bool = field(default=False, init=False)
+    _quiet_run: int = field(default=0, init=False)
+    _left_out: bool = field(default=False, init=False)
+    _left_out_checks: int = field(default=0, init=False)
     _stale: bool = field(default=False, init=False)
 
     @classmethod
@@ -379,7 +408,7 @@ class BoundaryMonitor:
             self._settle(None)
             return
         shares = self._above(regions) / total
-        self._settle(shares)
+        self._settle(shares, float(regions[2]) / total)
         self._last = (z, float(shares[3]))
         self._raw_last = (z, float(regions[3]) / total)
         self._launch_occupancy = (float(shares[0]), float(shares[1]), float(shares[2]))
@@ -420,6 +449,7 @@ class BoundaryMonitor:
         """
         total, regions, power = self._regions(field_spectrum)
         self._steps += 1
+        self._left_out_checks += int(self._left_out)
         # The split's exact removal reads one step; across unchecked ones the
         # trapezoid integrates the rate instead.
         exact = self.split and self._since_check == 0
@@ -432,12 +462,14 @@ class BoundaryMonitor:
             self._collar_now = 0.0
             self._settle(None)
             return
-        # The whole field's record, floor included, kept beside the judged one.
+        # The whole field's record, floor included, kept beside the judged one. While
+        # the stages left a quiet collar out (`note_collar`) it absorbed nothing, so
+        # the steps since the last check add no removal.
         raw_rate = float(regions[3]) / self._launch
         previous_z, previous_rate = self._raw_last or (z, raw_rate)
         if exact:
             self._split_removal(power, z - previous_z)
-        else:
+        elif not self._left_out:
             self._raw_removed += 0.5 * (z - previous_z) * (previous_rate + raw_rate)
         self._raw_last = (z, raw_rate)
         self._raw_guard_max = max(
@@ -445,10 +477,10 @@ class BoundaryMonitor:
         )
         above = self._above(regions)
         shares = above / total
-        self._settle(shares)
+        self._settle(shares, float(regions[2]) / total)
         # The removal rate as a fraction of the launch energy per metre.
         rate = float(above[3]) / self._launch
-        if self._last is not None and not exact:
+        if self._last is not None and not exact and not self._left_out:
             previous_z, previous_rate = self._last
             self._removed += 0.5 * (z - previous_z) * (previous_rate + rate)
         self._last = (z, rate)
@@ -480,21 +512,32 @@ class BoundaryMonitor:
                 stacklevel=2,
             )
 
-    def _settle(self, shares: Float[np.ndarray, " 4"] | None) -> None:
+    def _settle(
+        self, shares: Float[np.ndarray, " 4"] | None, raw_collar: float = 0.0
+    ) -> None:
         """Set the check cadence and the collar's quiet flag from a checked state.
+
+        The cadence follows the shares above the floor; the quiet flag follows the
+        collar's share of the whole field, floor included (:data:`QUIET`), and is
+        raised only for a run that opted in, after :data:`QUIET_CHECKS` quiet checks
+        in a row.
 
         Parameters
         ----------
         shares : numpy.ndarray or None
             The state's shares above the floor, or ``None`` for a state with no light
             to judge, which is quiet and checked lazily.
+        raw_collar : float, optional
+            The collar's share of the whole field, floor included.
         """
         if shares is None:
-            self._busy, self._quiet = False, True
-            return
-        active = (ACTIVE * self.check.budget) ** 2
-        self._busy = bool(max(shares[0], shares[1], shares[2]) > active)
-        self._quiet = bool(shares[2] < QUIET)
+            self._busy, calm = False, True
+        else:
+            active = (ACTIVE * self.check.budget) ** 2
+            self._busy = bool(max(shares[0], shares[1], shares[2]) > active)
+            calm = raw_collar < QUIET
+        self._quiet_run = self._quiet_run + 1 if calm else 0
+        self._quiet = self.check.quiet_collar and self._quiet_run >= QUIET_CHECKS
 
     def due(self, z: float) -> bool:
         """Return whether the step just committed at `z` is to be checked.
@@ -536,10 +579,11 @@ class BoundaryMonitor:
 
     @property
     def collar_quiet(self) -> bool:
-        """Whether the collar held less than :data:`QUIET` above the floor.
+        """Whether the collar's in-stage term may be left out of the next stages.
 
-        As of the last check; while it holds, the collar's in-stage term may be left
-        out of the next stages.
+        True only when the run opted in (:attr:`BoundaryCheck.quiet_collar`) and the
+        collar held less than :data:`QUIET` of the field's energy, floor included, at
+        the last :data:`QUIET_CHECKS` checks.
 
         Returns
         -------
@@ -547,6 +591,20 @@ class BoundaryMonitor:
             The flag.
         """
         return self._quiet
+
+    def note_collar(self, left_out: bool) -> None:
+        """Record whether the stages leave the collar's term out from here on.
+
+        The run's driver decides, from this monitor's :attr:`collar_quiet` and from
+        whether its route can leave the term out at all; while it is out the collar
+        absorbs nothing, and :meth:`step` adds no removal for those steps.
+
+        Parameters
+        ----------
+        left_out : bool
+            True while the in-stage term is left out.
+        """
+        self._left_out = left_out
 
     def _split_removal(self, power: Float[np.ndarray, " n_t"], step: float) -> None:
         """Add one split step's exact removal, read back from its committed state.
@@ -616,7 +674,10 @@ class BoundaryMonitor:
             guard nothing reached). Beside them, the floor's share of the launch
             energy (``noise_floor``, zero without input noise), and the largest guard
             share and the removed fraction of the whole field, floor included
-            (``raw_guard_max``, ``raw_removed_fraction``). Under ``planes``, one row
+            (``raw_guard_max``, ``raw_removed_fraction``), and how many checks found the
+            collar's term left out since the previous one (``collar_left_out_checks``,
+            zero unless the run opted in to :attr:`BoundaryCheck.quiet_collar`). Under
+            ``planes``, one row
             per saved plane from the launch on: ``z``, the ``collar_occupancy`` there,
             each guard's largest occupancy since the previous plane (``guard_low``,
             ``guard_high``) and the ``removed_fraction`` so far.
@@ -652,6 +713,7 @@ class BoundaryMonitor:
             "noise_floor": self._floor / self._launch if self._launch > 0.0 else 0.0,
             "raw_guard_max": self._raw_guard_max,
             "raw_removed_fraction": self._raw_removed,
+            "collar_left_out_checks": self._left_out_checks,
             "planes": {name: list(values) for name, values in self._planes.items()},
         }
 

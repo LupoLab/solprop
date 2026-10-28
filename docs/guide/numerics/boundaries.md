@@ -415,14 +415,25 @@ edge, the guards, and in the collar:
 **How often, and what it saves.** While some guard or the collar holds more than a tenth
 of the budget (as a field amplitude), every committed step is checked. While the edges
 are quiet, a step is checked every eighth step or after `length / 256` of the guide,
-whichever comes first, and the state of every saved plane is checked regardless. And
-while the collar holds less than `1e-12` of the field's energy above the shot-noise
-floor, the in-stage temporal collar's term, whose transform is a stage's largest cost
-after the response's, is left out of the stages until a check finds light in it again.
-On a GNLSE Raman/shock run whose pulse stays clear, the two bring the default collar's
-cost to that of no collar. The split scheme, the low-storage march, the general modal
-route, coupled flows and a real-space collar keep their collar at every step;
-`boundary_check=None` keeps it everywhere.
+whichever comes first, and the state of every saved plane is checked regardless. The
+collar itself stays in every stage.
+
+**The quiet collar, on request.** `BoundaryCheck(quiet_collar=True)` also leaves the
+in-stage temporal collar's term, whose transform is a stage's largest cost after the
+response's, out of the stages while the collar is quiet: while it held less than `1e-12`
+of the field's energy, the shot-noise floor included, at two checks in a row. A check
+that finds light in it puts the term back at once. While the term is out no step is
+longer than `length / 256`, so light cannot cross into the collar unabsorbed within one
+long step, and the exponential Adams march no longer limits its order by the collar's
+stability; the first step after the term returns is held to that limit. Under input
+noise the floor alone fills the collar far above the threshold, so the option only acts
+on noise-free runs; on a 2 cm noise-free GNLSE Raman/shock run whose pulse stays clear it
+saved 6 to 9 % per step on `numba_cpu` and `native` (Apple M5 Max). It is off by default
+because a run cannot know in advance whether its light stays clear, and an omission
+judged too early is an error nothing reports (ADR-057). It applies to binary64 modal
+stages with the in-stage scheme; the split scheme, the low-storage march, the general
+modal route, coupled flows, a radial real-space collar and single precision always keep
+the collar. The record's `collar_left_out_checks` counts the checks that found it out.
 
 **Above the shot-noise floor.** Input noise, on by default, puts one photon per mode across
 the whole window, guards and collar included. Light below that floor cannot be told from
