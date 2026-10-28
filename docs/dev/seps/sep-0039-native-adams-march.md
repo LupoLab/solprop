@@ -48,7 +48,10 @@ Success means:
 - on the tracking set's capillaries, the native march takes the same steps as the
   Python march on the same engine (a diagnostic, never a promise; SEP 25);
 - it meets each case's accuracy envelope;
-- its host cost per trial is at most 15 µs on the M5 and 40 µs on the EPYC.
+- with a quiet boundary monitor, its host cost per trial is at most 15 µs on the M5 and
+  40 µs on the EPYC;
+- it is nowhere slower than the Python march beyond the A/B spread, including on
+  expensive sources and runs that return every step (§7.6).
 
 Together with the native-side work that needs no SEP (§6.9), the estimates are:
 
@@ -294,7 +297,8 @@ interleaved with the others.
   - Runge–Kutta: about 10 500 calls.
 
 The helium and `rdw` counts are inferred from each run's time and its per-trial or
-per-call cost, so read them as about ±5 %.
+per-call cost, so read them as about ±5 %. Phase 0 replaces them with counted values,
+in a public benchmark entry (§7.6).
 
 **Prototypes.** Every prototype took the baseline's accepted and rejected steps on every
 case, with final fields within 4e-10 of the baseline. They are listed with their results
@@ -426,10 +430,11 @@ Given $\mathcal{S}$ and a march target $z_T$:
    and the calls charged so far plus $c$ exceed $B$, stop with the event *budget*. The
    host raises `ResponseBudgetError` with the last accepted position and state.
 2. **Start.** If the history is empty:
+   - add one to `startup`, before the evaluation, as the reference does: a call that
+     fails has still been charged (R4);
    - evaluate the source once at the accepted state;
    - set the history to $[(z, \text{accepted}, 0)]$;
-   - set $q = 1$ under variable order, otherwise $q = q_{\max}$;
-   - add one to `startup`.
+   - set $q = 1$ under variable order, otherwise $q = q_{\max}$.
 3. **Proposal.** Apply three caps in turn:
    - **The carrier cap.** With a carrier frame active, let
      $e = \min(z + h_p, z_{\mathrm{end}})$ and let $\phi$ be the chord phase of the
@@ -450,19 +455,41 @@ Given $\mathcal{S}$ and a march target $z_T$:
      then $q' + 1$, each kept when $1 \le k \le q_{\max}$, $k \le n$ and
      ($k < q'$ or rising).
 6. **Trial.**
+   - Add one to `predictor`, before anything is evaluated, as the reference does.
    - Form the coefficient tables of §4.7 from the nodes.
    - Evaluate the source once.
    - Reduce the scaled defect norms $\varepsilon_k$ for $k \in O$ (SEP 16 §4.2;
      [stepper.md](../stepper.md)). The scale is $r_{\mathrm{tol}}\,w\,\lVert u_n \rVert
      + a_{\mathrm{tol}}$, with $u_n$ the accepted state before the step, over the norm
      mask.
-   - Add one to `predictor`.
 7. **Decide** (§4.4), and record the attempt (§4.8).
 
-Steps 6 and 7 are the engine's and the controller's; everything else is the march's. A
-prescribed schedule (phase 3) replaces steps 3–4 with the schedule's step and edge, and
-accepts every finite norm. A non-finite norm on a replay is the event *diverged*, which
-the host raises as `ConvergenceError`.
+Steps 6 and 7 are the engine's and the controller's; everything else is the march's.
+
+**A prescribed schedule** (phase 3) is `AdamsMarch._replay_to`, with its own stopping,
+landing and kink rules (R6). The state adds the schedule's cursor $m$, which is
+`StepDriver._schedule_index`; a load rebuilds it from the position
+(`_schedule_index_at`), as today. The march uses:
+
+- the schedule's precomputed edges $E$ (`FixedSchedule.edges`, the running sum of its
+  steps);
+- the slack $\delta$ = `replay_tolerance(schedule, z_T)`. This is
+  $\max(u, n_{\mathrm{steps}})$ units in the last place of the larger of $z_T$ and
+  the schedule's length, because a sum of $n$ rounded steps drifts by about $n$ ulps.
+
+While $m < n_{\mathrm{steps}}$ and $z < z_T - \delta$, each attempt:
+
+1. takes $h$ = `steps[m]` and $z_e = E_{m+1}$, with no caps and no landing rule;
+2. treats $z_e$ as a kink when some hard kink lies within $\delta$ of it;
+3. runs steps 1, 2, 5 and 6, accepts every finite norm, and appends it to the accepted
+   norms as `_replay_to` does;
+4. advances $m$ in the same commit as the position.
+
+A non-finite norm is the event *diverged*, which the host raises as `ConvergenceError`
+with the reference's message. If $z < z_T - \delta$ when the schedule is used up, the
+event is *exhausted*, which the host raises as the reference's `BackendError`. The
+adaptive test `reached` is not used on a replay: the schedule ending 12 ulps short of
+`1e-3` in `replay_tolerance`'s own example must still count as arriving.
 
 #### 4.4 Acceptance, rejection and the step-size factor
 
@@ -504,8 +531,11 @@ On an acceptance, in one commit (§6.5.7):
    of the new sample with its state and rate on a compensated history;
 4. append $(z + h, \text{predicted}, \text{row})$;
 5. add one to `accepted_steps`, append $q'$ to the ledger's orders, and set $r = 0$;
-6. choose the next order $q_n$ and its norm (§4.5);
-7. set $h_p = $ `limit_step`$(h, F(\varepsilon_{q_n}, q_n, g))$ and clear $\lambda$;
+6. choose the stored order $q_s$, which the next stencil starts from, and the control
+   order $q_c$ with its norm $\varepsilon_c$, which set the next proposal's exponent
+   (§4.5);
+7. set $h_p = $ `limit_step`$(h, F(\varepsilon_c, q_c, g))$, set $q = q_s$, and clear
+   $\lambda$;
 8. move to $z = z_e$. At a hard kink, empty the history and add one to `restarts`.
 
 **A defect in the reference's commit order.** `AdamsMarch._decide` tests the floor in
@@ -520,14 +550,25 @@ The Runge–Kutta march does neither: it commits the state and position first, a
 its next proposal from the proposal rather than from the landed step.
 
 Phase 0 moves the position into the commit before the floor is tested, so that the state
-and position always agree, and the native march follows that order. The rule itself
-stays for now. If the implementation finds short landings in practice, it may change the
-rule, recording the change and its evidence in the phase report (decided, Q13).
+and position always agree, and the native march follows that order. Before the floor is
+raised, the accepted attempt's row, the kink restart and the ledger are published to the
+host like any other accepted step (§6.5.7, R3). The rule itself stays for now. If the
+implementation finds short landings in practice, it may change the rule, recording the
+change and its evidence in the phase report (decided, Q13).
 
 #### 4.5 Order choice
 
-Under a fixed order, $q_n = q_{\max}$ and the norm is $\varepsilon_{q'}$. Under variable
-order every scored order $k$ has the weight
+**Under a fixed order** the two orders differ: $q_s = q_{\max}$, but $q_c = q'$ and
+$\varepsilon_c = \varepsilon_{q'}$. This is `AdamsMarch._choose_order`, which stores
+`method.order` and returns the step's own order.
+
+At startup and after a restart, $q'$ is below $q_{\max}$ until the history fills. The
+exponent is then the step's own, not $q_{\max}$'s. With `Multistep(order=5,
+variable_order=False)`, one sample held and $\varepsilon = 0.25$, the factor is 1.6;
+taking $q_{\max}$ would give 1.0079 (the AI review's probe, R1).
+
+**Under variable order** $q_s = q_c$ is the chosen order $q_n$ below, and
+$\varepsilon_c = \varepsilon_{q_n}$. Every scored order $k$ has the weight
 
 $$
 W_k = \min\!\big(s\,\varepsilon_k^{-1/(k+1)},\ \Sigma_k\big),
@@ -625,12 +666,29 @@ $$
 **The interaction formulation's fused path** (phase 3) needs the predictor's integrated
 weights, the corrector's, and the same defect rows (`fused_tables`).
 
-**Accuracy.** The nodes stay well separated: steps vary by at most $g = 2$ per accepted
-step and by at least $f_{\min} = 0.2$ per rejection, and $q_{\max} \le 6$. The
-Vandermonde systems are therefore small and modestly conditioned. The native tables use
-the algorithm of `stepper.multistep` (`_basis_rows`, already native and strict as
-`_core.basis_rows`). They are compared with the Python tables to a rounding budget fixed
-from the systems' condition numbers before the comparison ([6], chapter 22).
+**Accuracy.** No useful conditioning bound holds over the histories the march admits
+(R7):
+
+- a landing may shorten a step by any ratio while an ordinary save plane keeps the
+  history;
+- rejections compound $f_{\min}$;
+- `max_growth`, `min_factor` and `equal_approach` are settings.
+
+With four unit steps followed by a trial shortened to $10^{-10}$, the corrector's nodes
+are $(1, 0, -10^{10}, \dots, -4\times10^{10})$. Their monomial Vandermonde matrix has
+an $\infty$-norm condition estimate of about $2\times10^{53}$. That bound says nothing
+useful about the error of the algorithms actually used (products of roots and divided
+differences), or of the weights a trial applies.
+
+The native tables use the algorithm of `stepper.multistep` (`_basis_rows`, already
+native and strict as `_core.basis_rows`). They are therefore not held to a
+condition-number budget. Instead, both the native tables and the reference's are
+compared with an exact oracle: the same tables computed in rational arithmetic from the
+binary64 nodes, with Python's `fractions.Fraction` and no new dependency (§7.2).
+
+This SEP proposes no new restart or admission rule for extreme node ratios. If the
+corpus shows the reference losing accuracy on histories the march admits, that is
+reported to the author as a question of numerical policy.
 
 #### 4.8 Stage scalars along z, and the host events
 
@@ -654,49 +712,99 @@ equal the ones the backend forms today through `translate.stage.scalars_at`, to 
 That is a structural property, tested exactly (§7.1). The tables are uploaded once per
 run.
 
-**Host events.** The march returns to the host only after an attempt at which the host
-has work. The host passes the bounds at every entry, and the native side tests them
-with the host's own expressions:
+**Host events.** The march returns to the host only when the host has work, and every
+return is drained completely (R5).
 
-| Event | Native test after an accepted step |
+- **At entry,** the host does what `march_to` does today before its loop:
+  - it restores a march held ahead of a dense observation;
+  - it returns at once if a natural stop is due (`_natural_stop_due`) or the target is
+    reached;
+  - otherwise it passes the bounds below.
+
+  No call is made when no attempt is due.
+- **Before each attempt,** native tests the budget (§4.3, step 1).
+- **After each attempt,** accepted or rejected, it tests the call bound, and returns any
+  error.
+- **After each accepted attempt,** it tests the accepted-step events, with the host's
+  own expressions:
+
+| Event | Native test after an accepted attempt |
 |---|---|
 | target reached | `reached(z, z_T)`: $z \ge z_T - \tau$ |
 | crossed (dense observation) | $z > z_T$ with planes interpolated |
 | host step | the accepted-step count since entry reaches $n_e$, the smallest of: the steps to the next statistics row (`row_period`), to the next natural stop (`step_planes`), and to the boundary monitor's next cadence check (1 while an edge is busy, otherwise `CADENCE` less the steps since its last check) |
 | monitor distance | $z - z_{\mathrm{last}} \ge I_{\mathrm{check}}$, the monitor's own expression, or its first check |
-| call bound | the attempts or the wall time since entry reach the call's bounds (§6.5.7) |
-| budget, floor, diverged | §4.3 and §4.4 |
-| error | a native failure in a trial. The steps committed before it stand, and the error is returned rather than thrown (§6.5.7) |
+
+The other returns have no event step:
+
+| Return | When it is tested |
+|---|---|
+| call bound | after any attempt: the attempts or the wall time since entry reach the call's bounds (§6.5.7) |
+| budget | before an attempt (§4.3, step 1) |
+| floor | when a proposal is formed, after a rejection or an acceptance (§4.4) |
+| diverged, exhausted | on a replay (§4.3) |
+| error | wherever a native failure occurs. The steps committed before it stand, and the error is returned rather than thrown (§6.5.7) |
 
 Every attempt writes one row into a host buffer: end, step, norm (with a non-finite norm
 written as $\infty$, as `_record` does), whether it was accepted, its order, and its wall
-time since entry. On return, the host:
+time since entry. A call can return:
 
-1. records the rows (`_record`, progress);
-2. applies the accepted steps' bookkeeping in bulk. By construction none of them but the
-   last had host work: monitor skips, statistics and natural-stop counters;
-3. runs the last step's `_take_step_stats` and `_natural_stop` as today.
+- with no rows (the budget, or an error, at its first attempt);
+- with rows but no acceptance (rejections up to the call bound);
+- with accepted steps followed by rejections.
+
+**Draining.** Inside the commit of §6.5.7, the host ingests every row exactly once, in
+order. It appends the step-history row, and for an accepted row applies that step's
+accounting exactly once: the monitor's skip, the statistics and natural-stop counters,
+and `_accepted_norms` on a replay.
+
+Only one accepted row can have host work: the **event step**, the accepted attempt
+after which native returned with an accepted-step event. By construction no earlier
+accepted row had any. For the event step the host runs the reference's own sequence,
+`_take_step_stats` then `_natural_stop`, unchanged. So coincident events are serviced
+in the reference's order and exactly once: for example, a plane that is also a
+statistics row and a monitor check, or a natural stop due on a dense crossing.
+
+A return for any other reason has no event step, and its accepted rows take the skip
+path only. The other reasons are the call bound, the budget, the floor, divergence,
+exhaustion and an error.
+
+**After the commit,** the host:
+
+1. makes the progress callbacks, one per attempt in order, so a reporter's display
+   updates once per call (Q12);
+2. writes the debug lines;
+3. does the event step's work;
+4. raises the error last, if there is one.
 
 So every statistics row, monitor check and natural stop falls on the accepted step it
 falls on today.
+
+**The backend's accepted-step hook is not replayed.** On native, `_on_accepted_step`
+calls `promote_fsal`, which scores the quadrature alarm from the step's buffers. The
+native march does that scoring itself after each accepted step, where the buffers are
+current, and the host's ingestion does not call the hook.
 
 #### 4.9 What "the same steps" means
 
 Both marches read norms from the same native kernels. They differ only in:
 
-- the coefficient tables, which differ by a few units in the last place;
+- the coefficient tables, and so the norms formed with them;
 - the order of the scalar operations that combine them.
 
-The controller's own arithmetic is the same IEEE operations on the same inputs: strict
-in C++, with the same `pow` [7, 8]. Its outputs are discontinuous functions of the
-norms: acceptance at $\varepsilon = 1$, adoption at $W_b = H W_{q'}$, and the landing and
-kink tolerances.
+How far the norms differ is measured per case, not assumed (R8). Phase 1 records, on
+every qualification case, the distribution of $|\Delta\varepsilon|/\varepsilon$
+between trials run with the host's tables and with the native ones.
 
-A decision flips only when the two norms straddle a threshold, that is, when its margin
-is below the norms' rounding difference, about $10^{-14}$ relative here. Across $10^4$
-decisions in a run, such flips are rare, but they are not impossible. After one flip the
-two trajectories differ by more than rounding, and they agree only to the run's
-tolerance.
+The controller's own arithmetic is the same IEEE operations on the same inputs: strict,
+with the platform's `pow` (§6.5.1) [7, 8]. Its outputs are discontinuous functions of
+the norms: acceptance at $\varepsilon = 1$, adoption at $W_b = H W_{q'}$, and the
+landing and kink tolerances.
+
+A decision flips only when the two marches' inputs straddle a threshold, that is, when
+its margin is below their difference. Such flips are rare, but they are not impossible.
+After one flip the two trajectories differ by more than rounding, and they agree only
+within the case's accuracy envelope (R10).
 
 So, as SEP 25 §4.4 rules for adaptive runs, "the same steps" is:
 
@@ -756,13 +864,18 @@ next host event. The algorithm is written in the kernel contract and versioned b
 `SCHEMA_VERSION` like every other part of the seam, and the Python march stays its
 reference.
 
-**(C) No controller move.** Python keeps the decision. Native does three things:
+**(C) No controller move.** Python keeps the decision. Native does two things:
 
 - **Forms the coefficient tables** from the nodes inside the trial call.
 - **Evaluates the stage scalars** from tables uploaded once. Python passes only the
   trial's two positions and its phase increment.
-- **Fuses each call.** A trial call also performs the previous trial's accept or
-  discard, so a trial costs one crossing.
+
+The trial and the accept stay separate calls. Fusing the accept into the next trial call
+was considered and dropped (R2). The accepted state would wait for a next trial that may
+never come: a save plane, a natural stop, a spent budget, the end of the run or an
+interruption can intervene, and a monitor verdict can change the next trial's collar
+setting after the state must already have been adopted. Phase 2 removes those crossings
+anyway, because it decides and commits inside the native call.
 
 **What each option takes off a trial**, per trial, from today's host cost (§3.3).
 
@@ -771,11 +884,10 @@ reference.
 - the tables become a native helper (−15 to −34 µs on the M5, −126 to −168 µs on the
   EPYC with the compensation's tables);
 - the stage scalars are evaluated natively (−130 to −156 µs on the EPYC);
-- the rate weights go native (−22 µs);
-- the accept is fused into the next trial (−15 to −20 µs).
+- the rate weights go native (−22 µs).
 
 The decision (39–47 µs on the EPYC), the march loop, `_record`, the step bookkeeping
-and one crossing stay.
+and two crossings per accepted trial stay.
 
 **Options A and B** remove all of it but a residual:
 
@@ -788,17 +900,17 @@ Per-trial savings:
 
 | | C | A | B |
 |---|---:|---:|---:|
-| Saving per trial, Apple M5 Max (helium / argon), µs | 55–85 / 45–75 | 125–135 / 93–103 | 125–135 / 93–103 |
-| Saving per trial, AMD EPYC 7763 (helium / argon), µs | 280–350 / 230–295 | 460–485 / 365–390 | 460–485 / 365–390 |
+| Saving per trial, Apple M5 Max (helium / argon), µs | 50–80 / 40–70 | 125–135 / 93–103 | 125–135 / 93–103 |
+| Saving per trial, AMD EPYC 7763 (helium / argon), µs | 265–335 / 240–280 | 460–485 / 365–390 | 460–485 / 365–390 |
 
 Host time left per trial, and the run-level effect:
 
 | | C | A | B |
 |---|---|---|---|
-| Host time left per trial, M5 / EPYC, µs | 35–85 / 110–220 | 5–15 / 15–40 | 5–15 / 15–40 |
-| Seam crossings | one per trial | one per host event | one per host event |
-| Run-level saving alone, helium (EPYC, of 3.15 s) | 0.40–0.50 s | 0.65–0.69 s | 0.65–0.69 s |
-| Run-level saving alone, argon (EPYC, of 12.6 s) | 2.6–3.3 s | 4.1–4.4 s | 4.1–4.4 s |
+| Host time left per trial, M5 / EPYC, µs | 40–90 / 125–235 | 5–15 / 15–40 | 5–15 / 15–40 |
+| Seam crossings | two per accepted trial | one per host event | one per host event |
+| Run-level saving alone, helium (EPYC, of 3.15 s) | 0.38–0.48 s | 0.65–0.69 s | 0.65–0.69 s |
+| Run-level saving alone, argon (EPYC, of 12.6 s) | 2.7–3.1 s | 4.1–4.4 s | 4.1–4.4 s |
 
 Ownership, rules and risk:
 
@@ -811,7 +923,21 @@ Ownership, rules and risk:
 
 The M5 savings for C take the M5's measured table cost (15–34 µs) and scale the other
 EPYC pieces by the measured 3.5–4 times. The helium figures include the compensation's
-tables and rate weights; argon has a constant operator and needs neither.
+tables and rate weights; argon has a constant operator and needs neither. The residual
+for A and B assumes events every eighth accepted step or so. Busy monitors,
+`step_planes = 1` and `row_period = 1` return every step, which phase 2 measures (§7.6,
+R12).
+
+**What B adds over C.** Accepting a second implementation of the controller rests on
+B's gain over a completed phase 1, not over today (R12). From the same pieces:
+
+| Case | Apple M5 Max | AMD EPYC 7763 |
+|---|---|---|
+| `he_rdw_averaged` | 45–85 µs per trial, 0.06–0.12 s per run | 125–220 µs per trial, 0.18–0.31 s per run |
+| `argon_blueshift_averaged` | 25–65 µs per trial, 0.28–0.73 s per run | 85–150 µs per trial, 0.95–1.7 s per run |
+
+That is 7–14 % of the helium run and 9–23 % of the argon run once the items of §6.9 have
+landed. These are estimates; phase 2 measures them with N1–N7 held fixed (§7.6).
 
 #### 6.2 Recommendation: B, built on C
 
@@ -828,9 +954,9 @@ C is not an alternative to B. It is B's first phase: the tables and the stage sc
 must be native before the loop can be. As a stopping point, C is weaker for three
 reasons:
 
-- On the EPYC it leaves 110–220 µs of Python per trial, still 0.4–0.7 source calls on
+- On the EPYC it leaves 125–235 µs of Python per trial, still 0.5–0.7 source calls on
   the cheap cases.
-- It keeps one crossing per trial.
+- It keeps two crossings per accepted trial.
 - On a GPU it keeps the Python decision between the norm read-back and the next launch.
 
 **Recommended:** B, built in the phases of §11 with C's pieces first.
@@ -910,8 +1036,23 @@ time of drafting moves the kernel schema to 38.
 
 ##### 6.5.1 The controller
 
-§4.3–§4.5, in binary64 on the host thread (ADR-054), written once as scalar C++ in a
-`SOLPROP_NATIVE_STRICT_FUNCTION`. Its inputs are the norms the engine already reduces.
+§4.3–§4.5, in binary64 on the host thread (ADR-054), as scalar C++ in a host-only
+translation unit of its own. Its inputs are the norms the engine already reduces.
+
+**Strict on every build** (R8). That unit is compiled with contraction off and without
+fast-math on every build, through a per-source compile option rather than `fp.hpp`'s
+macros. The macros do not suffice here:
+
+- `SOLPROP_NATIVE_STRICT_FUNCTION` alone is empty under Clang, which needs
+  `SOLPROP_NATIVE_STRICT_BLOCK` in the body;
+- both macros are empty under CUDA and HIP, including their host pass.
+
+A test in the style of `tests/native/test_fp.cpp` checks, on each supported compiler,
+that a product and a sum in that unit round separately. The compilers are GCC, Clang,
+the Windows toolchain, and in phase 5 the CUDA and HIP host compilers.
+
+**One elementary function.** The controller calls only `pow`, from the platform's C
+library, as Python's float power does.
 
 The norm's scale must be the engine's own: `adams_scale` from `PIController.scale`,
 which today's `_device_scale` path already forms natively. A controller with another
@@ -975,10 +1116,25 @@ when they change (`prepare_raman_stage`), so nothing moves there.
 ##### 6.5.7 Commits, signals, errors and the monitor
 
 **Commits.** Each accepted step commits in native code, before the next attempt: the
-state, the history, the position and the ledger change together. The host's bookkeeping
-for a call's rows (§4.8) runs inside one `committing()` section, so a signal can never
-separate a step's records from its state (ADR-047). This is SEP 24's pattern
-(`atomic`), applied to a run of steps instead of one.
+state, the history, the position and the ledger change together. On the host, one
+`committing()` guard spans the whole exchange (R3):
+
+1. the native call;
+2. the synchronisation of the host's position, proposal, order, history and ledger with
+   the native march;
+3. the ingestion of every returned row (§4.8, draining).
+
+A signal that arrives during the call is held until all three are done, and only then
+raised (ADR-047). Without the guard around the call itself, `solprop._interrupts` would
+raise as soon as Python resumed, with native several commits ahead of the host's
+records. SEP 24's atomic step guards its native call the same way.
+
+User code runs only after the guard: the progress callbacks, the debug lines and the
+event step's work (§4.8). A callback that raises therefore finds the host's records
+complete and in step with the native state, and the run loop's terminal checkpoint
+writes a consistent state, position, history and ledger. The floor (§4.4) follows the
+same rule: the accepted attempt, its kink restart and its ledger are published before
+the floor is raised.
 
 **Signals.** A signal waits for the native call to return (ADR-047), so a call is
 bounded:
@@ -986,17 +1142,40 @@ bounded:
 - by its attempts: the size of the row buffer, 256;
 - by its wall time, from a monotonic clock read once per attempt: 0.1 s (decided, Q3).
 
-Neither is a user setting. A crossing costs 20–40 µs, so the bound costs at most
-0.04 % of a run.
+Neither is a user setting. A crossing costs an estimated 20–40 µs.
+
+- In default runs the monitor's cadence returns at least every eighth accepted step, so
+  the call bound rarely binds.
+- When it does, 256 attempts of a trial of 0.3–1 ms take 0.08–0.3 s, and the crossing is
+  at most 0.05 % of that. For a 50 µs trial it would be 0.3 %.
+
+Phase 2 measures the crossings actually made and their cost (§7.6, R12).
 
 A scheduler's `SIGTERM` or a keyboard interrupt is then served within that bound, plus
 one trial.
 
-**Errors.** A native failure in a trial (a non-finite field the source refuses, an
-allocation failure) is caught inside the march. It stops at the last commit and returns
-the *error* event carrying its message. The host records the committed rows, then
-raises the same exception a host march would. An exception thrown through nanobind in
-the middle of a call would lose the records of steps already committed.
+**Errors.** A native failure is caught inside the march: in an evaluation, a reduction,
+an accept or a scalar-table evaluation. The march stops at the last commit and returns
+an *error* record (R4) that holds:
+
+- **the stage:** the startup evaluation, the trial's evaluation, the trial's reductions,
+  the accept, or the stage scalars;
+- **the category:** a code for the exception class the host march would raise there.
+  These are the classes the adapter raises today: `ConvergenceError` from an envelope
+  failure (`_envelope_errors`), `BackendError`, and the built-in errors of the bindings.
+  The class is never inferred from the message.
+- **the message.**
+
+The ledger returned with it keeps the charges already made. A startup or trial call is
+charged before it is evaluated (§4.3), so a failed call is counted, as the reference
+counts it. The host:
+
+1. synchronises the ledger;
+2. drains the committed rows;
+3. raises the class the code names.
+
+An exception thrown through nanobind in the middle of a call would lose the records of
+steps already committed.
 
 **`ConvergenceError` and `ResponseBudgetError`** are raised by the host from the *floor*,
 *diverged* and *budget* events, with the reference's messages. The budget error carries
@@ -1021,8 +1200,9 @@ thresholds, the quiet verdict and the stop.
 - **The step history's rows.** These are `_record`'s rows. Each attempt's wall time is
   the call's start, read on the host with `perf_counter`, plus the native monotonic
   offset.
-- **Progress** is reported per attempt, in bulk at each event, so it lags by at most one
-  call.
+- **Progress.** The reporter receives one `step` call per attempt, in order, in bulk
+  after each native call. Its display therefore updates once per call and lags by at
+  most one call (Q12).
 - **The per-step debug log** of the Python march is kept. When the `DEBUG` level is
   enabled, the host writes one line per attempt from the rows at each event, guarded by
   `isEnabledFor`, so the lines cost nothing otherwise (decided, Q12).
@@ -1031,19 +1211,44 @@ thresholds, the quiet verdict and the stop.
 
 ##### 6.5.9 Resume snapshots
 
-`MarchSnapshot` keeps its form and fields (ADR-046; SEP 29 §6.6). At an event the host
-reads the march state: the position, the proposal, the order, the rejection count,
-$\lambda$, and the entries' positions, identities and rows. It reads the engine's rows
-through the existing `adams_rows_to_host`, losslessly.
+`MarchSnapshot` keeps its fields (ADR-046; SEP 29 §6.6) and gains one: the collar's
+quiet flag at the last attempt, $w_Q$ (R9). At an event the host reads the march state:
 
-A load installs both, then calls `reset` on the held trial. Snapshots cross both ways:
+- the position and the proposal;
+- the order and the rejection count;
+- $\lambda$ and $w_Q$;
+- the entries' positions, identities and rows.
 
-- native march to host march, which is also how `numpy_ref` and `numba_cpu` continue a
-  native run's history;
-- host march to native march.
+It reads the engine's rows through the existing `adams_rows_to_host`, losslessly. A load
+installs both, restores $w_Q$, then calls `reset` on the held trial. A snapshot is
+taken only at an event with nothing ahead of it, as today.
 
-A resume agrees with the uninterrupted run to rounding, never bitwise (ADR-049, SEP 25
-§6.8). A snapshot is taken only at an event with nothing ahead of it, as today.
+**Why $w_Q$.** It decides the collar's re-entry cap (§4.3). Today's snapshot does not
+hold it, so a resumed run starts with it false and skips a cap the uninterrupted run
+would take. And `begin_run` does not reset it, so a backend reused for another run
+starts with the last run's value. Phase 0 adds the field (output schema +1) and resets
+it in `begin_run`, in the Python march first.
+
+**Where a snapshot continues.**
+
+| Snapshot from | Native march | Host march on native | `numpy_ref`, `numba_cpu` |
+|---|---|---|---|
+| Native march | yes | yes: the same engine and rows | yes, except a frozen-residual coupled flow's history (`applied` rows), which the host engines refuse by name, so it restarts, as today |
+| Host march on native | yes | yes | the same as the row above |
+| `numpy_ref`, `numba_cpu` | yes, except a frozen-residual flow's history (`weights_<row>`), refused by name, as today | the same as the column to the left | yes |
+
+The existing named refusals stay. No conversion between the two frozen-residual forms is
+proposed.
+
+**What a resume promises** (R10).
+
+- **The transfer is exact.** The rows, positions, identities, slots, order, controller
+  state and $w_Q$ equal the stored ones after a round trip (SEP 29 R17).
+- **The continuation is an adaptive run.** A resumed run meets the case's accuracy
+  envelope against a converged reference, as SEP 25 §4.4 rules. It need not take the
+  uninterrupted run's steps.
+- **A rounding budget applies only to matched comparisons:** a fixed-order schedule with
+  matched history and plane handling.
 
 #### 6.6 Backend order, exceptions and refusals
 
@@ -1065,37 +1270,40 @@ of SEP 0 §7 is met as follows:
     roadmap item is added (decided, Q9).
 - **Native** gets the march (phases 1–5).
 
-**Admission.** The native march runs when all of these hold:
+**Admission** (R11). One matrix decides how each configuration runs on the native
+backend at `Final`. It covers CPU and device builds alike, since phase 5 comes before
+`Final` (Q6). A configuration is matched on its formulation, its corrector and
+interpolant, whether its engine is resident, its norm scale and the build, never on the
+method's type alone. `ComparisonMultistep` is a subclass of `Multistep`, and its
+one-order-higher PEC variants take the same resident path.
 
-- the method is `Multistep()`;
-- the engine is resident (`_adams_engine` returns `_ResidentAdams`);
-- the norm's scale is `PIController.scale`;
-- the transported compensation is used (not the untransported witness);
-- no coupled flow or moving transform map is present (until phase 4).
+| Configuration | At `Final` | Phase |
+|---|---|---|
+| `Multistep()`, exponential, on a constant, expansion or z-table operator, with the transported compensation, carrier frame, collars, interpolated planes, kinks and budget | native march | 2 (CPU), 5 (device) |
+| `Multistep(formulation="interaction")` | native march | 3, 5 |
+| `ComparisonMultistep` with the one-order-higher PEC corrector (`corrector="pec"`, `corrector_order = order + 1`), fixed or variable order, with the Adams or the Hermite interpolant | native march: the resident fused path, whose observation already takes the Hermite rule | 3, 5 |
+| A prescribed schedule, single run | native march | 3, 5 |
+| A coupled flow whose sections all lie on the eigenbasis route, at most 16 channels; a moving transform map | native march | 4, 5 |
+| `ComparisonMultistep`'s general path: PECE, explicit Adams–Bashforth, matched pairs | warned host march (host arrays, as today) | — |
+| A coupled flow off the eigenbasis route or wider than 16 channels (the host engine, ADR-044) | warned host march | — |
+| A norm scale other than `PIController.scale` | warned host march | — |
+| Lockstep batch replay (`LockstepRunner`, `replay_step`) | warned host march | — |
+| The untransported compensation (a private test witness); the private `adams_march="host"` switch (§5) | host march, no warning | — |
+| Everything `_refuse_adams` and `_refuse_unsupported` refuse today: TDSE, single precision, CF4, a batch axis, the interaction formulation beside a coupled flow; on device builds the carrier frame and z tables | refused by name, unchanged | — |
 
-Otherwise the host march runs, as it does today, and **warns** (decided, Q2). The
-warning is a `SolpropWarning` subclass, for example `HostMarchWarning`. It is issued once
-per run, when the backend is constructed, and it names the reason and the native
-march's coverage. The choice is also recorded in `adams_march`.
+**The warning** (decided, Q2). A run that takes the warned host march warns once, when
+the backend is constructed, with a `SolpropWarning` subclass, for example
+`HostMarchWarning`. It names the reason and the native march's coverage, and the choice
+is recorded in `adams_march`.
 
 This is not a fallback between backends: both marches execute the same method on the
-same backend and agree to the run's tolerance. The same already holds when
-`_adams_engine` returns the host engine for a flow off the eigenbasis route (ADR-044).
-Warnings are errors in the test suite, so a test of an uncovered configuration on native
-asserts the warning.
+same backend, and each meets the case's accuracy envelope (R10). The same already holds
+when `_adams_engine` returns the host engine for a flow off the eigenbasis route
+(ADR-044). Warnings are errors in the test suite, so a test of a warned configuration on
+native asserts the warning.
 
-The aim is to cover every configuration (Q2). Phases 3 and 4 remove the interaction
-formulation, replays and the resident coupled sections and moving maps from the list.
-Which configurations may keep the warned host march at `Final` is Q14.
-
-The private keyword that forces the host march (§5) does not warn: it is a test and
-benchmark tool.
-
-**Refused by name, unchanged:**
-
-- `ComparisonMultistep`'s general path, which has no resident engine;
-- everything `_refuse_adams` and `_refuse_unsupported` refuse today: TDSE, single
-  precision, CF4, a batch axis, and on device builds the carrier frame and z tables.
+**While the phases are under way,** the rows of later phases run the warned host march,
+devices until phase 5 included. That is a state of the branch, not of `Final`.
 
 Inside the march, a record with a missing or out-of-range field is refused by name with
 a `BackendError` before anything is allocated.
@@ -1220,65 +1428,94 @@ requires.
 
 #### 7.1 Exact structural contracts
 
-- **Decision traces.** A test entry of the native march takes a policy, a state, the
-  nodes and a sequence of norms, and returns the decisions. Phase 0's pure controller
-  core does the same in Python. Over a corpus of traces the two must agree exactly on:
-  - the accept;
-  - the next order;
-  - the next proposal, to the bit;
-  - the restart;
-  - every ledger counter;
-  - the landing (step, end, kind, kink).
+- **Decision traces** (R1, R8). The controller is tested on its decisions, separately
+  from the arithmetic that feeds them.
+  - *The oracle.* The corpus is generated in phase 0 from the reference as it stands
+    before the refactor. The current `AdamsMarch` is driven through a stub engine that
+    returns prescribed norms. The refactored core and the native march must both
+    reproduce it, so a mistake in the extraction cannot be blessed in both halves.
+  - *Decisions on supplied scores.* Each decision is exercised on identical scalar
+    inputs: an acceptance on its norm, an order adoption on its weights, a landing on
+    its gaps and caps, a restart on its counts. On these the two implementations agree
+    exactly:
+    - the accept;
+    - the stored and control orders;
+    - the restart;
+    - every ledger counter;
+    - the landing (step, end, kind, kink).
 
-  The corpus is generated from phase 0's core, kept with `pytest-regressions`, and
-  covers:
-  - norms at $1 \pm$ one ulp, $0$, $\infty$ and NaN;
-  - neighbours tied, and at $H$ exactly;
-  - the collar cap binding and quiet;
+    The threshold witnesses live here, with no `pow` between input and comparison:
+    norms at $1 \pm$ one ulp, $0$, $\infty$ and NaN; weights tied, and at $H$ exactly;
+    gaps within $\tau$ of a plane, a kink, a kink on a plane, and at the stretch
+    limit.
+  - *The scalar formulas.* $F$ and $W_k$ are compared over the corpus's inputs. They are
+    exact where both halves call the same C library's `pow` (Linux, macOS). Elsewhere
+    the bound is one ulp, stated in the test.
+  - *Whole traces.* Sequences through startup, growth, rejection and restart are
+    compared with margin-aware expectations. A step whose decision margin is below 8 ulp
+    of its threshold is reported, not compared.
+
+  The traces cover:
+  - fixed-order startup and post-restart growth at orders 2–6 (R1);
+  - variable order with the collar cap binding, and quiet;
   - three and four consecutive rejections;
   - the budget at its edge;
-  - the floor;
-  - landings within $\tau$ of a plane, a kink, a kink on a plane, and stretched;
+  - the floor, including an accepted landing shorter than $h_{\min}/g$;
   - equal approach;
-  - the carrier cap.
-
-  Exact equality is legitimate because the same IEEE operations on the same inputs give
-  the same result. Both halves' scalar arithmetic is strict and calls the same `pow`. A
-  platform whose C++ `pow` differs from Python's would compare the proposals at one ulp
-  and everything else exactly, and the test says so where it applies.
+  - the carrier cap;
+  - non-default `max_growth`, `min_factor` and `equal_approach`.
 - **Stage scalars.** The native bundles equal `scalars_at`'s field for field on constant,
   gradient, profile, multi-gas, Raman and plasma problems, because they use the same
   strict Clenshaw helper (§4.8).
-- **Events.** Each event at the accepted step where the host march would act:
+- **Events** (R5). Each event falls at the accepted step where the host march acts, and
+  each accepted step is accounted exactly once. Checked by counting rows, checks and
+  stops on runs that take the same steps:
   - statistics rows at `row_period` 1, 3 and 7;
   - natural stops at `step_planes` 1, 2 and 5;
-  - monitor checks busy and quiet;
-  - dense crossings.
+  - monitor checks, busy and quiet;
+  - dense crossings, including one where a natural stop stays due;
+  - a plane that is also a statistics row and a monitor check;
+  - `max_calls = 1`;
+  - returns with rejections only, and with accepted steps followed by rejections;
+  - a return for the call bound.
+- **Lossless state** (R9, R10). After a round trip in either direction, a snapshot's rows,
+  positions, identities, slots, order, controller state and $w_Q$ equal the stored ones
+  exactly (SEP 29 R17), and a load does not take the restart path. The frozen-residual
+  refusals of §6.5.9 stay, with their names. A backend reused for a second run starts
+  with $w_Q$ and $\lambda$ cleared.
+- **The ledger** (R4) counts the calls actually made, checked against the source's own
+  counter. That includes a startup evaluation that fails, a trial evaluation that fails,
+  and a failure after the source has returned, each also through a snapshot and resume
+  of its ledger.
 
-  Checked by counting rows and checks on runs that take the same steps.
-- **Lossless state.** A snapshot's rows, positions, identities, rows' slots, order and
-  controller state equal the stored ones exactly after a round trip in either direction
-  (SEP 29 R17), and a load does not take the restart path.
-- **The ledger** counts the calls actually made. The calls are counted independently
-  through the source's own counter.
+#### 7.2 Rounding budgets and the table oracle
 
-#### 7.2 Rounding budgets
-
-- **Coefficient tables.** Native against `exponential_tables`, `compensation_tables`,
-  `factored_defect_rows` and `fused_tables`, over random admissible node sets (steps
-  varying by $[f_{\min}, g]$, orders 1–6). The budget is the Vandermonde system's
-  condition number times its operation count times the unit roundoff, derived in the
-  test before the comparison [6].
+- **Coefficient tables** (R7). Native and reference tables are both compared with exact
+  tables. These are computed in rational arithmetic (`fractions.Fraction`) from the same
+  binary64 nodes, for `exponential_tables`, `compensation_tables`,
+  `factored_defect_rows` and `fused_tables`.
+  - *The node sets* come from real histories, not only random ones: landings that
+    shorten a step by $10^{-1}$ to $10^{-10}$ with `equal_approach=False`, rejection
+    cascades up to the restart, non-default growth and smallest factors, orders 1–6.
+  - *The error* is measured in the weights a trial applies: per row, the sum of absolute
+    errors over the sum of absolute exact weights.
+  - *The bound* is finite and informative: the native error must not exceed the
+    larger of four times the reference's error on the same node set and 16 ulp.
+  - *The report.* The reference's own error is reported for every node set. Where it is
+    large, that is a finding for the author (§4.7), not a test to loosen.
 - **Matched marches.** A prescribed schedule at a fixed order, with matched startup and
   restart history and matched plane handling, on the native march and on the host march
   over the same engine. The fields at every plane must agree to a budget from the step
   count and the per-step rounding of SEP 25 §4.3. This is the R-comparison SEP 25 asks
   for (phase 3, when replay is native).
+- **The norms' spread** (R8). Phase 1 records, per qualification case, the distribution
+  of $|\Delta\varepsilon|/\varepsilon$ between trials with host and native tables.
+  These are the inputs of §4.9's margins.
 
-#### 7.3 Accuracy envelopes for adaptive runs
+#### 7.3 Accuracy envelopes for adaptive runs and resume
 
-The native march against the host march on the same native engine. Across the routes
-and switches of phase 2's admission, the cases are:
+The native march against the host march on the same native engine. Across the rows of
+§6.6's matrix, the cases are:
 
 - a constant operator;
 - an expansion gradient with the transported compensation;
@@ -1292,10 +1529,14 @@ and switches of phase 2's admission, the cases are:
 - tolerances tight enough to reject;
 - the restart after three rejections.
 
+**Adaptive resumes** (R10) run the same cases stopped part-way, including a stop and
+resume across a quiet-to-active collar transition (R9).
+
 Each case's envelope is set in its test against a tighter or stored converged reference,
-times a safety factor fixed before measuring (SEP 25 §4.4). Step and call counts are
-recorded, together with the smallest decision margin of each run. A difference in steps
-is reported in the phase report, never asserted against.
+times a safety factor fixed before measuring (SEP 25 §4.4); `rtol` and `atol` alone do
+not bound the global error. Step and call counts are recorded, together with the
+smallest decision margin of each run. A difference in steps is reported in the phase
+report, never asserted against.
 
 #### 7.4 The existing suite
 
@@ -1315,25 +1556,63 @@ the host march.
 
 #### 7.5 Lifecycle
 
-- **Signals.** A `SIGTERM` or `SIGINT` sent during a long native call is honoured within
-  the call bound. The output file is consistent, and a resume continues the history.
-- **Errors.** A native failure in the middle of a call leaves the committed steps
-  recorded and raises the host march's exception. The floor, budget and diverged events
-  raise the reference's messages.
+- **Signals** (R3). Signals are injected:
+  - during a long native call;
+  - at the return boundary, after native has committed several steps and before the
+    host has ingested them.
+
+  Each is honoured within the call bound. The terminal checkpoint's state, position,
+  step history and ledger are checked together, and a resume continues the history.
+- **Exceptions in user code** (R3). A progress reporter that raises on the first
+  ingested row, and an accepted landing that hits the floor, leave the same consistent
+  checkpoint.
+- **Native errors** (R4). A failure in the middle of a call leaves the committed steps
+  recorded, and raises the class its error record names. Startup, trial, reduction and
+  accept failures are each injected.
+- **Replay** (R6, phase 3):
+  - the 160-step schedule that ends 12 ulps short of its length, which must count as
+    arriving;
+  - kinks on edges;
+  - a schedule too short for its target (*exhausted*);
+  - a resume part-way through, with the cursor rebuilt from the position.
 
 #### 7.6 Benchmarks
 
-The tracking capillaries are run with `python -m benchmarks ab`, in interleaved fresh
-processes, with the host and native marches selected through the private switch:
+The A/B harness, `python -m benchmarks ab`, compares the two marches on the same build
+and revision, with N1–N7 held fixed and the march chosen per arm (R12). The harness
+gains a per-arm environment, or the private switch is read from the environment once at
+import.
 
-- cases: `he_rdw_averaged`, `argon_blueshift_averaged`, `h2_raman_averaged`, `rdw`;
-- one thread and the production width;
-- on an Apple M5 Max and an AMD EPYC 7763, or the machines then current, recorded by
-  hardware model.
+**What each phase reports:**
 
-Short windows of about ten accepted steps come first, then complete runs. The per-trial
-host cost is reported from the same timers §3.3 used. Each phase adds a ledger entry in
-[benchmarks.md](../benchmarks.md).
+- end-to-end time;
+- attempts, source calls and host events per run, counted, not inferred;
+- residual host time per trial.
+
+**Cases:**
+
+- `he_rdw_averaged`, `argon_blueshift_averaged`, `h2_raman_averaged`, `rdw`;
+- a short window of `ctc`, for an expensive source;
+- frequent events: a busy monitor, `step_planes = 1` and `row_period = 1`.
+
+Each is run at one thread and the production width, interleaved in fresh processes, on
+an Apple M5 Max and an AMD EPYC 7763 (or the machines then current, recorded by hardware
+model).
+
+**Lengths.** Runs use `--length` fractions chosen so that each arm finishes in seconds
+on the slower machine, and named in the ledger entry: short guides, as `AGENTS.md`
+requires. Complete tracking runs stay with SEP 38's release procedure and are not part
+of this SEP's qualification.
+
+**Baseline.** Phase 0 records the baseline in [benchmarks.md](../benchmarks.md): the
+invocation, the lengths, the counted attempts and calls per case, and the host cost by
+piece. The decision to go on to phase 2 then rests on public numbers. Each later phase
+adds its own entry.
+
+**Acceptance rule.** On every case above, the native march must not be slower than the
+host march by more than the A/B's own measured spread, about 2 %. That includes the
+expensive-source and frequent-event cases. A regression beyond that blocks `Final` until
+it is understood and fixed.
 
 ### 8. Documentation
 
@@ -1347,9 +1626,12 @@ host cost is reported from the same timers §3.3 used. Each phase adds a ledger 
 - **[decisions.md](../decisions.md).** A new ADR amending ADR-043 (§6.3).
 - **`native/AGENTS.md`.** The amended rule (§6.3).
 - **The manual page [the Adams integrator](../../guide/numerics/adams.md).** A short
-  paragraph under its limitations or costs: on native the march runs in the compiled
-  backend, `adams_march` records it, the warning says when it does not, and results agree
-  with the host march to the run's tolerance.
+  paragraph under its limitations or costs. On native the march runs in the compiled
+  backend and `adams_march` records it; the warning says when it does not; and results
+  meet the same accuracy envelope as the host march's. Its resume paragraph, which says
+  a resumed run agrees with the uninterrupted one "to rounding", is restated as SEP 25
+  §4.4 rules: the transfer is exact, and the continuation meets the accuracy envelope
+  (R10).
 - **The manual page [choosing a stepper](../../guide/numerics/choosing-a-stepper.md).**
   Re-measured rows once the phases land.
 - **`CHANGELOG.md`.** A line citing this SEP.
@@ -1361,15 +1643,16 @@ No tutorial or worked example is needed: nothing a user writes changes.
 - **Defaults.** None changes. `Multistep()` stays the method, with its fields and
   constants.
 - **Results.**
-  - On the native backend, results change at the rounding level. That is the coefficient
-    tables' few ulp.
-  - A decision can flip at a knife edge, after which the run agrees with the host march
-    to its tolerance (§4.9).
+  - On the native backend, the native march's tables differ from the host's by rounding
+    (measured, §7.2).
+  - A decision can flip at a knife edge, after which the run meets the case's accuracy
+    envelope rather than the host march's steps (§4.9, R10).
   - Validated results elsewhere are unchanged: `numpy_ref` and `numba_cpu` run the same
     Python march, refactored without behaviour change in phase 0.
 - **Seam.** Kernel schema +1 in phase 1 and +1 in phase 2. New contract tuples
   `SCALAR_TABLES_FIELDS` and `MARCH_POLICY_FIELDS`, and additions to `DRIVER_SURFACE`.
-- **Output.** Output schema +1 in phase 2 for `RunMetadata.adams_march`. Older files read
+- **Output.** Output schema +1 in phase 0, for the collar flag $w_Q$ in
+  `MarchSnapshot` (R9), and +1 in phase 2, for `RunMetadata.adams_march`. Older files read
   as before, since breaking changes are allowed before the first release and there are no
   compatibility shims (ADR-051).
 - **Rules.** `native/AGENTS.md`'s policy rule is amended, and ADR-043 is amended by a new
@@ -1425,25 +1708,34 @@ gate runs in CI.
   `ComparisonMultistep`, moved out of `AdamsMarch` into its own class (Q7).
 - A pure core of the controller (`stencil`, `decide`, `reject`, `choose_order`, the caps,
   `approach` and `landing`) over a policy and a state. `AdamsMarch` calls it.
-- No change in behaviour, except the commit order of §4.4, which is a fix: the existing
-  Adams tests pass unchanged on `numpy_ref` and `numba_cpu`, and a regression test
-  covers an accepted landing shorter than $h_{\min}/g$.
-- The decision-trace corpus.
+- No change in behaviour, except two fixes:
+  - the commit order of §4.4, with a regression test for an accepted landing shorter
+    than $h_{\min}/g$;
+  - the collar flag $w_Q$, kept in `MarchSnapshot` and reset by `begin_run` (§6.5.9;
+    output schema +1).
+
+  The existing Adams tests pass unchanged on `numpy_ref` and `numba_cpu`.
+- The decision-trace corpus, generated from the reference before the refactor (§7.1,
+  R1), and the table oracle's corpus (§7.2, R7).
+- The baseline benchmark entry: invocation, lengths, counted attempts and calls, host
+  cost by piece (§7.6, R12).
 - The kernel-contract section, drafted.
 
-Verified by the existing suite and the corpus's self-consistency.
+Verified by the existing suite, and by the refactored core reproducing the
+pre-refactor corpus exactly.
 
 **Phase 1: native tables and stage scalars** (option C's pieces).
 
 - The scalar tables leaf, with derivative tables for the rate weights.
 - Native coefficient tables formed from the nodes inside the trial call.
 - Lean trial arguments: positions and phase increment only.
-- The accept fused into the next trial call.
+- The trial and the accept stay separate calls (R2).
 - Kernel schema +1.
 - The Python march still decides.
 
-Verified by §7.1's scalar equality, §7.2's table budgets, the existing suite, and the
-benchmarks. Expected −280 to −350 µs per helium trial on the EPYC. Phase 1 stays in
+Verified by §7.1's scalar equality, §7.2's table oracle and the norms' spread, the
+existing suite, and the benchmarks. Expected −265 to −335 µs per helium trial on the
+EPYC. Phase 1 stays in
 this SEP and lands with the rest in its one pull request (decided, Q11).
 
 **Phase 2: the native march**, for the exponential formulation on diagonal operators,
@@ -1456,11 +1748,14 @@ with everything of §6.5:
 - admission and the host march elsewhere.
 
 Also in phase 2: the new ADR, the `native/AGENTS.md` amendment, the documentation of §8,
-and kernel and output schema +1. Verified by §7.1, §7.3, §7.4, §7.5 and §7.6.
+and kernel and output schema +1. The two marches are compared on the same revision with
+N1–N7 held fixed, under §7.6's acceptance rule. Verified by §7.1, §7.3, §7.4, §7.5 and
+§7.6.
 
 **Phase 3: the interaction formulation's fused path (Q4), and replayed schedules
-natively.** Single runs only; lockstep batches keep `replay_step` on the host (Q14).
-Verified by §7.2's matched marches and §7.4.
+natively,** with replay's own cursor, slack, kink and exhaustion rules (§4.3, R6). Single
+runs only; lockstep batches keep `replay_step` on the host (Q14). Verified by §7.2's
+matched marches, §7.4 and §7.5's replay cases.
 
 **Phase 4: coupled flows and moving maps**, natively, for every flow the resident engine
 executes (Q2). The flow section and weights, the block's end weights and the transform
@@ -1530,11 +1825,12 @@ recorded beside its question, and the proposal above follows it.
   - a coupled flow whose sections are off the eigenbasis route or wider than 16
     channels (ADR-044);
   - a controller whose norm scale is not `PIController.scale`;
-  - lockstep batch replay;
-  - device builds, until phase 5.
+  - lockstep batch replay.
 
   The untransported compensation is a private test witness and does not warn.
-  **Decided 2026-10-28 (John Travers): as proposed.**
+  **Decided 2026-10-28 (John Travers): as proposed.** The proposal also listed "device
+  builds, until phase 5". With phase 5 before `Final` (Q6), that is a state of the
+  branch, not of `Final`, and it moves to §6.6's matrix (R11).
 
 ### 13. References
 
@@ -1590,6 +1886,8 @@ No phase has started.
   - Q13: phase 0 fixes the commit order, and the rule may change if the
     implementation finds a reason;
   - Q14: the warned host-march list as proposed.
+- 2026-10-28: AI review by GPT-6 (R1–R12) recorded by the author. The drafting agent
+  (Opus 5.5) answered every point under *Response to review* and revised Part I.
 
 ### AI review — 2026-10-28
 
@@ -1808,3 +2106,147 @@ change to the propagation equations.
 The author should answer R1–R12 in a separate response subsection and revise Part I
 thereafter, as SEP 0 requires. This review does not accept the SEP or change its
 status from Draft.
+
+### Response to review — 2026-10-28
+
+The drafting agent, Opus 5.5, checked each point against the code before answering. All
+twelve are taken. Part I is revised as follows; section numbers are those of the revised
+text.
+
+1. **R1: taken.** Confirmed in `AdamsMarch._choose_order`: under a fixed order it stores
+   `method.order` but returns the step's own order for the factor.
+   - §4.4 (step 6–7) and §4.5 now distinguish the stored order $q_s$ from the control
+     order $q_c$ and its norm $\varepsilon_c$. The review's probe is quoted in §4.5.
+   - §7.1's corpus is generated from the reference *before* the refactor, through a stub
+     engine, and both the refactored core and the native march must reproduce it. Its
+     traces cover fixed-order startup and post-restart growth at orders 2–6.
+   - Phase 0 is updated to match.
+2. **R2: taken, by dropping the fusion.** Option C and phase 1 keep the trial and the
+   accept as separate calls (§6.1, §11). The flush that fusion would need belongs at
+   exactly the boundaries the review lists, and phase 2 removes those crossings anyway,
+   by deciding and committing inside the native call.
+   - Option C's figures are recomputed without the fused accept: −265 to −335 µs per
+     helium trial on the EPYC, two crossings per accepted trial.
+3. **R3: taken.** Confirmed: `committing()` only defers inside its block, and `_record`
+   calls the progress reporter.
+   - §6.5.7 now requires one guard spanning the native call, the synchronisation of the
+     host's position, proposal, order, history and ledger, and the ingestion of every
+     row.
+   - User code runs only after the guard: progress callbacks, debug lines and the event
+     step's work. The floor publishes the accepted attempt, its kink restart and the
+     ledger before it raises (§4.4).
+   - §7.5 injects signals during a call and at the return boundary, and exceptions from
+     a progress reporter and from the floor. It checks the terminal checkpoint's state,
+     position, history and ledger together.
+4. **R4: taken.** Confirmed: the reference charges `startup` and `predictor` before
+   `engine.start` and `engine.exponential_trial`.
+   - §4.3 now charges before evaluating.
+   - §6.5.7's error record carries the stage, a category code for the exception class
+     (never parsed from the message), and the message, with the ledger as charged.
+   - §7.1 counts calls independently through startup, trial and post-source failures,
+     including a snapshot and resume of their ledgers.
+5. **R5: taken.** §4.8 now specifies:
+   - the entry checks (as `march_to`'s, so no call is made when no attempt is due);
+   - the per-attempt, per-accepted-attempt and pre-attempt tests;
+   - returns with no rows, rows without acceptance, and acceptances followed by
+     rejections;
+   - exactly-once accounting of each accepted row;
+   - the single event step, for which the host runs the reference's own
+     `_take_step_stats` and `_natural_stop`, so coincident events (including a natural
+     stop due on a dense crossing) are serviced in the reference's order.
+
+   The event table is split into accepted-step events and the other returns, which have
+   no event step. `_on_accepted_step` is not replayed: on native it calls `promote_fsal`,
+   whose quadrature scoring the native march performs itself after each acceptance.
+   Progress is reconciled with Q12: one callback per attempt, delivered in bulk, so a
+   display updates once per call (§4.8, §6.5.8). The tests the review asks for are in
+   §7.1.
+6. **R6: taken.** Confirmed: `_replay_to` uses `replay_tolerance` for both stopping and
+   kinks, and advances `_schedule_index`; a load rebuilds the cursor with
+   `_schedule_index_at`. §4.3 now specifies:
+   - the cursor;
+   - the precomputed edges;
+   - the slack $\max(u, n_{\mathrm{steps}})$ ulps;
+   - the stopping, kink and *exhausted* rules;
+   - the restoration on load.
+
+   `reached` is explicitly not used on a replay. §7.5 adds the 160-step witness, kinks on
+   edges, exhaustion and a resume part-way. Phase 3 refers to them.
+7. **R7: taken.** The conditioning claim is removed. §4.7 gives the review's example and
+   says why a condition-number budget is uninformative here.
+   - §7.2 replaces the budget with an exact rational oracle (`fractions.Fraction`, no
+     new dependency).
+   - The node sets come from real landing and rejection histories, with non-default
+     factors and `equal_approach=False`.
+   - The error is measured in the applied weights. The bound is finite and relative to
+     the reference's own error (at most four times it, or 16 ulp).
+   - No restart or admission rule is proposed. If the reference proves inaccurate on
+     admissible histories, that is reported to the author as a numerical-policy question
+     (§4.7).
+8. **R8: taken.** Confirmed in `fp.hpp`: `SOLPROP_NATIVE_STRICT_FUNCTION` is empty under
+   Clang, and both macros are empty when `__CUDACC__` or `__HIPCC__` is defined, the host
+   pass included.
+   - §6.5.1 puts the controller in a host-only translation unit compiled with
+     contraction off by a per-source option on every build, checked on each supported
+     compiler. It names `pow` from the platform's C library as its only elementary
+     function.
+   - §7.1 separates exact decision tests on identical supplied scores (where the
+     threshold witnesses live) from numerical tests of $F$ and $W_k$. Those are exact
+     with a common C library and at one ulp otherwise, with margin-aware whole traces.
+   - §4.9's nominal $10^{-14}$ is removed. Phase 1 measures the norms' spread per case
+     (§7.2).
+9. **R9: taken, with one proposal for the author.**
+   - §6.5.9 now gives a support matrix. It keeps today's named refusals between the
+     native `applied` rows and the host engines' `weights_<row>` for frozen-residual
+     flows, and proposes no conversion.
+   - On $w_Q$, confirmed: neither `MarchSnapshot` nor `load` keeps
+     `_collar_was_quiet`, and `begin_run` does not reset it. The SEP now proposes
+     restoring it from the snapshot (one new field, output schema +1 in phase 0) and
+     resetting it in `begin_run`, fixed in the Python march first.
+   - Reconstructing it from the monitor's state at the plane was considered and not
+     proposed. The plane's own check may change the flag after the last attempt, so it
+     would not reproduce the uninterrupted run's cap.
+   - §7.1 and §7.3 test the quiet-to-active resume and a reused backend.
+
+   Whether to snapshot $w_Q$ (proposed) or deliberately reset it is the author's call.
+10. **R10: taken.** §6.5.9 states the three levels:
+    - the transfer is exact;
+    - an adaptive continuation meets the case's accuracy envelope against a converged
+      reference;
+    - a rounding budget applies only to matched fixed-order schedules.
+
+    "To the run's tolerance" is replaced by the per-case accuracy envelope throughout
+    (§4.9, §6.6, §9). §7.3 adds adaptive resume cases. §8 restates the Adams manual
+    page's resume paragraph, which today says "to rounding", in those terms.
+11. **R11: taken.** Confirmed: `_refuse_adams` does not refuse the general path, and the
+    one-order-higher PEC comparison variants take the resident fused path, the Hermite
+    interpolant included. §6.6 replaces the list and the wrong "refused by name" line
+    with one matrix. The matrix:
+    - is keyed on formulation, corrector and interpolant, resident engine, norm scale
+      and build;
+    - distinguishes the native march, the warned host march, the unwarned private paths
+      and the existing refusals;
+    - records device builds at `Final`.
+
+    Q14's "device builds, until phase 5" is moved there as a state of the branch. This
+    is a consistency correction under Q6, not a change to the author's Q14 decision.
+12. **R12: taken.**
+    - §6.1 adds the estimate the review asks for: B's gain over a completed phase 1.
+      That is 125–220 µs per helium trial and 85–150 µs per argon trial on the EPYC, or
+      7–14 % and 9–23 % of the runs once §6.9's items have landed. It also notes that
+      frequent events return every step.
+    - §7.6 now compares the two marches on the same build and revision, with N1–N7 held
+      fixed (a per-arm environment for `ab`). It reports end-to-end time, counted
+      attempts, calls and events, and residual host time.
+    - The cases add an expensive source (a short `ctc` window) and frequent events (a
+      busy monitor, `step_planes = 1`, `row_period = 1`).
+    - The acceptance rule is no regression beyond the A/B's measured spread, about 2 %,
+      on any case.
+    - Runs use `--length` fractions that finish in seconds; complete tracking runs stay
+      with SEP 38's release procedure.
+    - The "0.04 %" figure is replaced by an estimate that names which bound binds, to be
+      measured in phase 2 (§6.5.7).
+    - Phase 0 records the baseline publicly (§3.3, §7.6). The profiling study's numbers
+      remain the motivation; the counted entry is the evidence.
+
+    The 2 % rule is a proposal; the author may set another.
