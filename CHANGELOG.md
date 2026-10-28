@@ -528,6 +528,21 @@ The first public release. It contains:
   is 24-27 % faster (`native/benchmarks/size_cliffs.py`). macOS keeps 8192 and 32,768:
   on an Apple arm64 laptop the serial stage and transforms are the faster ones at those
   sizes, and its node-chunk gain at n_t 8640 is 26 %.
+- **Native cost of the exponential Adams trial.** Without a coupled flow a trial ran up
+  to seven kernels around its one source evaluation, and an accepted step three more,
+  each a fork and a join of the thread pool when threaded. A trial is now two passes
+  around the source: the prediction with the accepted state's magnitude, and the
+  correction with the defects' norms, whose divisor it forms. An accepted step is one
+  pass, and the accepted state is never copied back. The passes take a CPU size class
+  of their own, elements times history rows: four threads from 8,192, the pool from
+  65,536 (`build_info().adams_thread_min_elements`, `adams_full_thread_elements`). So
+  the single-column capillaries, whose stages stay serial, thread them. The newest
+  history sample's compensation reuses the step's flow, bit for bit. Results move only
+  by rounding (relative field differences under 6e-10 over complete runs), and step
+  counts are unchanged. At 16 threads `rdw`, `he_rdw_averaged` and
+  `argon_blueshift_averaged` run 31 %, 23 % and 23 % faster on an AMD EPYC 7763, and
+  25 %, 25 % and 10 % faster on an Apple M5 Max. At one thread they are within 2 % of
+  before on both.
 - **Native CPU cost of the mode-averaged and modal routes' transforms.** Their two
   temporal transforms per source evaluation were planned at `FFTW_ESTIMATE`, which picks
   markedly slower codelets for long rows; they now get serial measured wisdom, as the
