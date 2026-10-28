@@ -23,7 +23,7 @@ from solprop.backends.driver import StepDriver
 from solprop.backends.numba_cpu.batch import NumbaCpuBatchBackend
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.driver import Simulation
-from solprop.exceptions import BackendError
+from solprop.exceptions import BackendError, BoundaryError
 from solprop.monitor import BoundaryCheck, BoundaryMonitor
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
@@ -293,7 +293,10 @@ def test_lockstep_gives_every_member_its_own_boundary_monitor():
         runner = LockstepRunner(members)
         cleanup.callback(runner.close)
         grid = simulations[0].grid
-        runner.attach_monitor(BoundaryMonitor.build(grid, None, BoundaryCheck()))
+        # The cheap members' window holds about 1e-5 of their energy in its guards,
+        # a field of 3e-3: a check at that budget watches them without a warning.
+        relaxed = BoundaryCheck(budget=1e-2)
+        runner.attach_monitor(BoundaryMonitor.build(grid, None, relaxed))
         runner.propagate_to(0.001)
         monitors = [member._monitor for member in members]
         assert monitors[0] is not monitors[1]
@@ -302,6 +305,36 @@ def test_lockstep_gives_every_member_its_own_boundary_monitor():
             planes = monitor.summary()["planes"]
             assert isinstance(planes, dict)
             assert planes["z"][-1] == pytest.approx(0.001)
+
+
+def test_a_member_s_stop_ends_its_watch_alone():
+    # A check strict enough to refuse any launch stops the first member before its
+    # first step; the second, unwatched, and the batch go on.
+    with ExitStack() as cleanup:
+        simulations = [simulation(index, "numpy_ref") for index in range(2)]
+        members = tuple(loaded(one, cleanup) for one in simulations)
+        runner = LockstepRunner(members)
+        cleanup.callback(runner.close)
+        strict = BoundaryCheck(budget=1e-300, stop_factor=1.0)
+        runner.attach_monitors(
+            [BoundaryMonitor.build(simulations[0].grid, None, strict), None]
+        )
+        runner.propagate_to(0.001)
+        runner.finish_monitors()
+        stopped, unwatched = runner.member_stops
+        assert isinstance(stopped, BoundaryError)
+        assert unwatched is None
+        assert members[0]._monitor is None
+        assert runner._z == pytest.approx(0.001)
+
+
+def test_lockstep_refuses_a_monitor_per_member_miscount():
+    with ExitStack() as cleanup:
+        members = tuple(loaded(simulation(i, "numpy_ref"), cleanup) for i in range(2))
+        runner = LockstepRunner(members)
+        cleanup.callback(runner.close)
+        with pytest.raises(BackendError, match="1 boundary monitors for 2 members"):
+            runner.attach_monitors([None])
 
 
 def test_batch_registry_refuses_empty_and_mixed_owners():

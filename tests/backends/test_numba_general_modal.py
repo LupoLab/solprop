@@ -60,9 +60,13 @@ from solprop.translate.coupled import ModalMetricTables
 from solprop.translate.general import general_modal_route
 from solprop.translate.responses import regional_responses
 
-pytestmark = pytest.mark.filterwarnings(
-    "ignore::solprop.exceptions.GeneralModalBasisWarning"
-)
+pytestmark = [
+    pytest.mark.filterwarnings("ignore::solprop.exceptions.GeneralModalBasisWarning"),
+    # The fixtures here launch noise-free into time windows kept tight for speed, which
+    # hold more than a millionth of the energy in their guards or collar: the boundary
+    # monitor warns (SEP 21), and the window's edge is not what this module tests.
+    pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning"),
+]
 """The graded-index guide warns on its long-wavelength end, which is expected here."""
 
 HEAVY = {"grin", "raman"}
