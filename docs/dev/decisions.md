@@ -1287,7 +1287,8 @@ Withdrawn (development-process record, not a design decision).
 ## ADR-055 — Noise on by default, and defaults chosen for each interface
 
 - **Status:** accepted ([SEP 37](seps/archive/sep-0037-noise-and-stepper-defaults.md)); amends
-  ADR-045 and ADR-008
+  ADR-045 and ADR-008; the capillary's override of the selection rule requalified on
+  2026-10-28
 - **Context:** every run was noiseless unless it asked, every interface stepped with
   `Multistep()`, and the default tolerances were partly unexplained. A one-photon
   seed is part of the physics a run models; the integrator that is fastest at matched
@@ -1301,14 +1302,53 @@ Withdrawn (development-process record, not a design decision).
     elsewhere. Whether it stays is decided with SEP 7.
   - Each interface takes its own default integrator and tolerances by a fixed rule
     (the fastest at matched accuracy among the methods every route of the interface
-    admits) and a convergence protocol. `prop_gnlse` takes `RungeKutta()` and `rtol`
-    1e-7; `prop_waveguide` takes `RungeKutta()` and 1e-5; `prop_capillary` keeps
-    `Multistep()` and 1e-6 for every representation; `prop_radial` and `prop_planar`
-    keep `Multistep()` and take 1e-5 with no `atol` where the caller gives no
-    controller; `prop_free` takes `RungeKutta()` and 1e-4 with no `atol`. A default never depends on the physics switched on, except the
-    TDSE's, by the maintainer's decision, and the free-space noise.
+    admits) and a convergence protocol, with one override. `prop_gnlse` takes
+    `RungeKutta()` and `rtol` 1e-7; `prop_waveguide` takes `RungeKutta()` and 1e-5;
+    `prop_capillary` keeps `Multistep()` and 1e-6 for every representation, against
+    the rule (below); `prop_radial` and `prop_planar` keep `Multistep()` and take 1e-5
+    with no `atol` where the caller gives no controller; `prop_free` takes
+    `RungeKutta()` and 1e-4 with no `atol`. A default never depends on the physics
+    switched on, except the TDSE's, by the maintainer's decision, and the free-space
+    noise.
+  - **The capillary overrides the rule** (SEP 37 D11, the maintainer's decision). On
+    the capillary cases the rule prefers `RungeKutta()` at its passing 1e-5: each
+    candidate's time over the fastest, as a geometric mean, was 1.15 and 1.09 at one
+    and sixteen threads against 2.15 and 2.26 for `Multistep()` when SEP 37 chose,
+    and is 1.08 and 1.05 against 2.51 and 2.52 on the release's tracking cases. The
+    Adams method stays the default because it wins the runs the capillary is mostly
+    used for, and the TDSE response runs only on it. Requalified on 2026-10-28 on the
+    tracking set's seven capillary cases and four worked examples (native CPU
+    backend, 16 cores of an AMD EPYC 7B13, every run's field against a reference a
+    hundred times tighter):
+    - *Several resolved modes.* The source beats at the modes' phase mismatches,
+      which the interaction picture must resolve and the exponential Adams method
+      carries in its propagator: the Runge–Kutta march takes 3.6 times its one-mode
+      steps on the four-mode RDW capillary, where it is 2.3 to 2.9 times slower than
+      the Adams method at 1e-6 and 1.4 to 1.7 times at 1e-5. On the three-mode
+      comb-to-continuum case it is 1.1 to 1.35 times slower at 1e-6; at 1e-5 it is
+      faster, with five times the field error.
+    - *Kerr-only single-mode runs.* The Adams method is 1.6 to 3.3 times faster on
+      self-phase modulation in argon and 1.3 to 1.9 times on soliton
+      self-compression in helium, against either Runge–Kutta tolerance.
+    - *The cost.* On one mode or a mode-averaged one with plasma or Raman, the
+      Runge–Kutta march is faster: 1.25 to 4 times at 1e-6 and 2 to 6 times at 1e-5
+      on the tracking cases, and 1.3 to 2.9 times on the ionisation and Raman worked
+      examples. Neither collar scheme changes the Adams steps there; the Adams method
+      needs about as many source calls as the Runge–Kutta march, and on these cheap
+      sources each of its steps costs up to four times a Runge–Kutta stage. The
+      stepper guide names `RungeKutta()` for those runs.
+    - *Accuracy.* Every run stayed within 0.15 dB of its reference spectrum, against
+      the protocol's 0.5 dB. At equal `rtol` the Runge–Kutta march was the more
+      accurate, two to ten times, on every case but the RDW capillaries (equal on
+      four modes, five times less accurate mode-averaged); at 1e-5 it was 2 to 12
+      times less accurate than the Adams method at 1e-6, except on the envelope grid.
+    - *The collar.* With the in-stage collar back in every stage (ADR-057's quiet
+      collar is opt-in), the capillary default costs 0 to 4 % more than with the
+      quiet collar on by default, measured with the boundary monitor a run attaches;
+      the GNLSE default costs 9 to 23 % more. Neither changes which method is faster.
 - **Why:** the input model is the least bad noise model solprop implements, used by
-  the literature and the group for years; the defaults follow measurement, not habit.
+  the literature and the group for years; the defaults follow measurement, not habit,
+  and the one override follows the workloads the capillary serves.
 - **Consequences:**
   - Every default run is stochastic unless it fixes `seed`. Tests and worked examples
     fix theirs, or pass `noise=None` where their lesson is noiseless.
