@@ -685,9 +685,9 @@ any of the first ten items.
   batched rate pass first; the dense observation's and the corrector's exponentials; the
   separable route's stage propagators; and `hypot` in the field magnitudes. Measure
   SLEEF's AdvSIMD functions on Linux aarch64 (Graviton, Ampere), where glibc's libm is
-  not Apple's, and AVX-512 against AVX2 in a local build on Intel and AMD Zen 4/5; the
-  AVX-512 variant is taken wherever a local build targets it, measured only in the
-  microbenchmark (2.9 times glibc on an Intel Xeon Gold 6240).
+  not Apple's. The AVX-512F functions are opt-in, faster than AVX2 on AMD Zen 5 and
+  slower on Intel Ice Lake: measure Zen 4 and Intel's Sapphire Rapids and later, whose
+  512-bit clock penalty is smaller, before making them a default anywhere.
 
 **Further fusion in the stage passes.** Candidates, each subject to the source-accumulation
 and stage-dependency checks of [SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)

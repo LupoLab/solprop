@@ -28,11 +28,14 @@
  * - SLEEF (`SOLPROP_NATIVE_VECTOR_MATH_SLEEF`): SLEEF's u10 functions, each within
  *   1.0 ulp of the correctly rounded value over its whole domain (sincos included:
  *   SLEEF reduces large arguments exactly), with C99's results at zeros, infinities
- *   and NaNs. The variant is the code's target: AVX-512F (eight lanes) where a local
- *   build targets it, AVX2 with FMA (four) for the distribution's x86-64-v3, else SSE2
- *   (two); AdvSIMD (two) on aarch64. A block's last partial vector is padded with a
- *   harmless argument and goes through the same function, so an element's result
- *   does not depend on its place in the block.
+ *   and NaNs. The variant is the code's target: AVX2 with FMA (four lanes) wherever
+ *   the target has them, the distribution's x86-64-v3 included, else SSE2 (two);
+ *   AdvSIMD (two) on aarch64. AVX-512F (eight) only on request
+ *   (`SOLPROP_NATIVE_VECTOR_MATH_AVX512`, for a target with it): faster than AVX2 on
+ *   an AMD EPYC 9B45 (Zen 5) and slower on an Intel Xeon of the Ice Lake generation,
+ *   whose cores lower their clock under 512-bit work. A block's last partial vector is
+ * padded with a harmless argument and goes through the same function, so an element's
+ * result does not depend on its place in the block.
  * - Scalar: the system libm's `std::exp`, `std::log`, `std::cos` and `std::sin`, one
  *   call an element, as the kernels made them before.
  *
@@ -47,7 +50,8 @@ namespace solprop_native::vmath {
 // `memcpy` loads and stores it unaligned and `*` forms one rounded product a lane, with
 // no intrinsic (written out in each: GCC drops the type's attributes from a template
 // argument).
-#if defined(SOLPROP_NATIVE_VECTOR_MATH_SLEEF) && defined(__AVX512F__)
+#if defined(SOLPROP_NATIVE_VECTOR_MATH_SLEEF) &&                                       \
+    defined(SOLPROP_NATIVE_VECTOR_MATH_AVX512) && defined(__AVX512F__)
 struct Lanes {
   using Vector = __m512d;
   static constexpr std::size_t width = 8;

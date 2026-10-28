@@ -14,8 +14,12 @@
 # it was measured, and Linux aarch64, not yet measured) and in device builds, whose
 # kernels keep their own functions. SLEEF requests it on Arm too (its AdvSIMD
 # functions); SCALAR keeps the system libm everywhere. The variant follows the code's
-# target: AVX-512F where a local build targets it, AVX2 with FMA (the distribution's
-# x86-64-v3), else SSE2; AdvSIMD on aarch64.
+# target: AVX2 with FMA where it has them (the distribution's x86-64-v3 included), else
+# SSE2; AdvSIMD on aarch64. SOLPROP_NATIVE_VECTOR_MATH_AVX512 takes the AVX-512F
+# functions on a target with AVX-512F: on one thread they ran the tracking cases about
+# 4 % faster than the AVX2 ones on an AMD EPYC 9B45 (Zen 5) and slower on an Intel
+# Xeon of the Ice Lake generation, whose cores lower their clock under 512-bit work, so
+# the default stays at AVX2.
 #
 # SLEEF 3.9.0 is fetched like Kokkos (FETCHCONTENT_SOURCE_DIR_SLEEF names a local copy
 # for an offline build) and linked static.
@@ -23,6 +27,8 @@ set(SOLPROP_NATIVE_SLEEF_VERSION "3.9.0")
 set(SOLPROP_NATIVE_VECTOR_MATH "AUTO" CACHE STRING
     "Host vector maths for the transcendental passes: AUTO, SLEEF or SCALAR")
 set_property(CACHE SOLPROP_NATIVE_VECTOR_MATH PROPERTY STRINGS AUTO SLEEF SCALAR)
+option(SOLPROP_NATIVE_VECTOR_MATH_AVX512
+       "Take SLEEF's AVX-512F functions where the target has AVX-512F" OFF)
 string(TOUPPER "${SOLPROP_NATIVE_VECTOR_MATH}" _vector_math_request)
 if(NOT _vector_math_request MATCHES "^(AUTO|SLEEF|SCALAR)$")
   message(FATAL_ERROR
@@ -147,5 +153,8 @@ function(solprop_native_link_vector_math target)
   if(SOLPROP_NATIVE_VECTOR_MATH STREQUAL "SLEEF")
     target_link_libraries(${target} PUBLIC solprop_native_sleef)
     target_compile_definitions(${target} PUBLIC SOLPROP_NATIVE_VECTOR_MATH_SLEEF=1)
+    if(SOLPROP_NATIVE_VECTOR_MATH_AVX512)
+      target_compile_definitions(${target} PUBLIC SOLPROP_NATIVE_VECTOR_MATH_AVX512=1)
+    endif()
   endif()
 endfunction()

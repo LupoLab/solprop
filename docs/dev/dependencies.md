@@ -82,7 +82,7 @@ native CPU build's host vector maths on x86-64 (ADR-059): vector `exp`, `log` an
 by `native/include/solprop_native/vmath.hpp`. It is fetched at its release tag like
 Kokkos (`FETCHCONTENT_SOURCE_DIR_SLEEF` names a local copy for an offline build), built
 static as its own CMake project with only `libsleef` and the variants the layer calls
-(SSE2, AVX2, AVX-512F; AdvSIMD on aarch64), and compiled into the extension, whose wheel
+(SSE2, AVX2, AVX-512F on request; AdvSIMD on aarch64), and compiled into the extension, whose wheel
 carries its licence as `LICENSE-sleef.txt`. Arm builds (Apple silicon, Linux aarch64)
 and GPU builds use the system libm and do not fetch it; `SOLPROP_NATIVE_VECTOR_MATH`
 overrides the choice. Its floor is the pinned release: it is never resolved from a

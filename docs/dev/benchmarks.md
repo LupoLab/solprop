@@ -459,6 +459,50 @@ Cartesian 128² 1.28 → 1.06. The unmonitored path is unchanged:
 `python -m benchmarks ab` at one thread on the same node gives 1.000 (GNLSE soliton),
 1.005 (radial filament) and 1.005 (Kerr beam) for the three cases above.
 
+### Host vector maths
+
+The native CPU kernels' transcendentals in vector passes (ADR-059) against the parent
+revision, complete runs of the tracking cases from the entrance (the fraction of the
+guide in brackets where it is not the whole), the default stepper and `RungeKutta()`,
+three rounds of interleaved fresh processes, medians with their median absolute
+deviations. Every arm took the same steps; final fields differ from the parent's by
+4e-15 to 6e-11 relative, the run-to-run spread of FFTW's measured plans (a candidate
+with this change's arithmetic on the libm route differs as much).
+
+**Two-socket AMD EPYC 7763** (Zen 3, AVX2; 16 cores of a shared node, GCC 16.2, FFTW
+3.3.11, OpenBLAS 0.3.34, Kokkos 5.2.1 OpenMP, a local build, so SLEEF's AVX2
+functions), one thread. The libm row is this change built with
+`SOLPROP_NATIVE_VECTOR_MATH=SCALAR`, which keeps each element's calls: an A/A-like
+control.
+
+| case | stepper | before (s) | vector maths | libm route |
+|---|---|---:|---:|---:|
+| `gnlse_raman_shock` (0.3) | RK | 18.81 ± 0.05 | −19.2 % | +0.3 % |
+| `argon_blueshift_averaged` | RK | 2.955 ± 0.014 | −13.9 % | +0.4 % |
+| `argon_blueshift_averaged` | default | 8.340 ± 0.003 | −5.5 % | +0.4 % |
+| `he_rdw_averaged` | RK | 1.369 ± 0.010 | −10.3 % | +1.2 % |
+| `he_rdw_averaged` | default | 2.353 ± 0.008 | −10.1 % | +0.3 % |
+| `h2_raman_averaged` (0.5) | RK | 2.854 ± 0.004 | −9.0 % | +0.8 % |
+| `rdw` (0.3) | RK | 7.704 ± 0.039 | −6.9 % | +2.2 % |
+| `rdw` (0.3) | default | 5.369 ± 0.035 | −8.2 % | +1.1 % |
+| `radial_filament_256` (0.3) | RK | 8.986 ± 0.058 | −5.4 % | −1.2 % |
+| `radial_filament_256` (0.3) | default | 6.304 ± 0.065 | −1.4 % | +0.8 % |
+| `argon_blueshift_envelope` | RK | 1.673 ± 0.010 | −5.2 % | +0.9 % |
+| geometric mean | | | **−8.8 %** (conservative 0.925) | +0.7 % |
+
+The free-space routes, the same machine and protocol, one thread, with the low-storage
+flows and the split factor: `spatial_absorber` (0.5) −12.2 %, `radial_filament_256`
+(0.3) RK −5.3 % and default −1.8 %, `planar` (0.5) −1.5 %, `line` (0.5) −1.1 %,
+`kerr_beam_192` (0.5) −0.9 % (inside its spread); geometric mean −3.9 %. Sixteen-thread
+runs on that node, which other jobs shared, scattered by more than the effect (one
+case's arms spread by 30 %), and are not reported.
+
+**Apple M5 Max**, a machine in ordinary use (labelled A/B), one thread: this change's
+default (the system libm, each element's own calls) against the parent, geometric mean
++0.4 % over eight of the cases above, every case within its spread; SLEEF's AdvSIMD
+functions forced on (`SOLPROP_NATIVE_VECTOR_MATH=SLEEF`) +11.6 %, `gnlse_raman_shock`
++56 %.
+
 ## Reference tables
 
 These tables back the indicative results above.

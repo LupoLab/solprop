@@ -589,8 +589,8 @@ The first public release. It contains:
   pass and the low-storage flow table formed each `exp`, `log`, `cos` and `sin` in a
   per-element call to the system libm, which on Linux was up to two thirds of a kernel.
   They now form a block's transcendentals in one pass of a vector-maths layer that calls
-  SLEEF 3.9.0's 1.0 ulp vector functions (AVX2 in the wheels, AVX-512F in a local build
-  for a processor with it), statically linked, its licence in the wheel. Arm builds keep
+  SLEEF 3.9.0's 1.0 ulp vector functions (AVX2; AVX-512F on request with
+  `SOLPROP_NATIVE_VECTOR_MATH_AVX512`), statically linked, its licence in the wheel. Arm builds keep
   the system libm and their per-element calls, which measured faster there; device
   builds are unchanged. The absorber split's factor is formed once a sample instead of
   once an element, on every build. `SOLPROP_NATIVE_VECTOR_MATH` selects the route, and

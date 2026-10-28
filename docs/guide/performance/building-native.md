@@ -331,6 +331,7 @@ The options are read by `native/CMakeLists.txt` and `native/cmake/HostLibraries.
 | `SOLPROP_NATIVE_ENABLE_AGGRESSIVE_VECTORIZATION` | `ON` | sets `Kokkos_ENABLE_AGGRESSIVE_VECTORIZATION` |
 | `SOLPROP_NATIVE_ENABLE_COVERAGE` | `OFF` | a Clang CPU build with source coverage, for development only; disables IPO, and its timings are not performance evidence |
 | `SOLPROP_NATIVE_VECTOR_MATH` | `AUTO` | the CPU kernels' transcendental functions ([vector maths](#vector-maths)): `AUTO` (SLEEF on x86-64 CPU builds, the system libm on Arm and in GPU builds), `SLEEF` (also on aarch64, with its AdvSIMD functions) or `SCALAR` (the system libm). Not `SLEEF` in a GPU build |
+| `SOLPROP_NATIVE_VECTOR_MATH_AVX512` | `OFF` | `ON` takes SLEEF's AVX-512F functions where the target has AVX-512F, instead of its AVX2 ones: faster on AMD Zen 5, slower on Intel's Ice Lake generation ([vector maths](#vector-maths)) |
 
 **Execution space**
 
@@ -413,9 +414,12 @@ exponential Adams method's flows, phi-functions and compensation, the ionisation
 and fractions) in passes over blocks of elements through one layer,
 `native/include/solprop_native/vmath.hpp` ([ADR-059](../../dev/decisions.md)). On x86-64
 it calls [SLEEF](https://sleef.org)'s vector functions, each within 1.0 ulp of the
-correctly rounded value over its whole domain, in the variant the build's target
-allows: AVX-512F for a local build on a processor with it, AVX2 for the wheels'
-x86-64-v3 baseline, SSE2 otherwise. glibc's scalar `exp`, `cos` and `sin` cost a complex
+correctly rounded value over its whole domain: AVX2 where the build's target has it (the
+wheels' x86-64-v3 baseline and any local build on a processor from 2013 or later), SSE2
+otherwise. `SOLPROP_NATIVE_VECTOR_MATH_AVX512=ON` takes the AVX-512F functions on a
+target with AVX-512F: on one thread they ran the tracking cases about 4 % faster than
+the AVX2 ones on an AMD EPYC 9B45 (Zen 5) but 7 % slower on an Intel Xeon of the Ice
+Lake generation, whose cores lower their clock under 512-bit work. glibc's scalar `exp`, `cos` and `sin` cost a complex
 exponential 10 to 30 ns on an AMD EPYC 7763; SLEEF's AVX2 functions take it 3.3 to 3.6
 times faster at the same worst error on the kernels' own arguments. On Apple silicon
 the system libm is already about 3 ns, SLEEF's AdvSIMD functions gain nothing, and the

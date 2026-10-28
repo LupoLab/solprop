@@ -413,8 +413,8 @@ class BuildInfo:
         native build.
     vector_math
         The host kernels' transcendental functions: ``"SLEEF 3.9.0 u10, AVX2"`` (its
-        1.0 ulp vector functions, in the variant the build targets: ``AVX-512F``,
-        ``AVX2``, ``SSE2`` or ``AdvSIMD``), the default on x86-64, or
+        1.0 ulp vector functions, in the variant the build selected: ``AVX2``, ``SSE2``,
+        ``AVX-512F`` on request or ``AdvSIMD``), the default on x86-64, or
         ``"scalar libm"``, the system's, on Arm and in device builds
         (``SOLPROP_NATIVE_VECTOR_MATH``).
     gemm_provider, tpl_blas_enabled, blas_backend, blas_thread_policy

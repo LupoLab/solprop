@@ -1543,9 +1543,10 @@ Withdrawn (development-process record, not a design decision).
     band-rule plasma column's rates and fractions, the exponential Adams predict pass
     (flows, phi-function exponentials, compensation) and the low-storage flow table.
   - On x86-64 CPU builds the layer calls SLEEF 3.9.0's u10 functions (within 1.0 ulp of
-    the correctly rounded value over each function's whole domain), in the variant the
-    code's target allows: AVX-512F where a local build targets it, AVX2 for the wheels'
-    x86-64-v3, SSE2 otherwise. On Arm (Apple silicon, measured, and Linux aarch64, not
+    the correctly rounded value over each function's whole domain): AVX2 where the
+    target has it (the wheels' x86-64-v3 included), SSE2 otherwise. Its AVX-512F
+    functions are opt-in (`SOLPROP_NATIVE_VECTOR_MATH_AVX512`): faster than AVX2 on an
+    AMD EPYC 9B45 (Zen 5) and slower on an Intel Xeon of the Ice Lake generation. On Arm (Apple silicon, measured, and Linux aarch64, not
     yet) and in device builds it is the system libm, and each converted kernel keeps
     its per-element form there (`if constexpr (vmath::vectorised)`), which measured
     faster with the libm; device kernels keep their own functions.
