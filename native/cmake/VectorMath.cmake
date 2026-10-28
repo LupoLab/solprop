@@ -123,10 +123,13 @@ function(_solprop_native_add_sleef)
   )
   # The header directory must exist when this project is generated.
   file(MAKE_DIRECTORY "${_binary}/include")
+  # SLEEF_STATIC_LIBS: on the MSVC ABI sleef.h otherwise declares every function
+  # dllimport.
   add_library(solprop_native_sleef STATIC IMPORTED GLOBAL)
   set_target_properties(solprop_native_sleef PROPERTIES
     IMPORTED_LOCATION "${_library}"
-    INTERFACE_INCLUDE_DIRECTORIES "${_binary}/include")
+    INTERFACE_INCLUDE_DIRECTORIES "${_binary}/include"
+    INTERFACE_COMPILE_DEFINITIONS SLEEF_STATIC_LIBS)
   add_dependencies(solprop_native_sleef solprop_native_sleef_build)
   set(sleef_SOURCE_DIR "${sleef_SOURCE_DIR}" PARENT_SCOPE)
 endfunction()

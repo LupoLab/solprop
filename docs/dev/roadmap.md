@@ -678,8 +678,16 @@ any of the first ten items.
 - **Selective run-time kernel dispatch**: AVX-512 variants of a hot kernel in the
   x86-64-v3 wheel behind a CPU-feature selector
   ([SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md), §6.2).
-- **Batched vector transcendentals for the plasma response**, which need the dependent
-  plasma recurrence split into a batched rate pass.
+- **Vector maths beyond the converted kernels** (ADR-059). The stage entry, the band
+  plasma column, the exponential Adams predict pass and the low-storage flows take their
+  transcendentals in vector passes on x86-64. Still per element: the trapezoid plasma
+  column and the envelope plasma's cycle moments, whose dependent recurrences need a
+  batched rate pass first; the dense observation's and the corrector's exponentials; the
+  separable route's stage propagators; and `hypot` in the field magnitudes. Measure
+  SLEEF's AdvSIMD functions on Linux aarch64 (Graviton, Ampere), where glibc's libm is
+  not Apple's, and AVX-512 against AVX2 in a local build on Intel and AMD Zen 4/5; the
+  AVX-512 variant is taken wherever a local build targets it, measured only in the
+  microbenchmark (2.9 times glibc on an Intel Xeon Gold 6240).
 
 **Further fusion in the stage passes.** Candidates, each subject to the source-accumulation
 and stage-dependency checks of [SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)
@@ -698,7 +706,9 @@ GPUs with slow double precision.
 - Decided: contraction on, with the protected blocks strict; reassociation per kernel; no
   umbrella fast-math, `nnan`/`ninf`, `nsz`, or approximate functions and reciprocals.
   Measured and not adopted: libmvec `exp` and `log` under Clang (about 3 %, still behind
-  GCC) and Accelerate's vForce in the propagator (about 0.1 ms per window).
+  GCC) and Accelerate's vForce in the propagator (about 0.1 ms per window). Adopted:
+  SLEEF's 1.0 ulp vector `exp`, `log` and `sincos` over block passes on x86-64
+  (ADR-059); Arm keeps the system libm.
 - `-fno-math-errno` and `-fno-trapping-math`. Under GCC (the Linux builds) the first
   lets `sqrt` compile to one instruction and vectorise; the second lets loops with
   conditional floating-point work be if-converted. A few per cent at most, in the custom
