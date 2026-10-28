@@ -38,25 +38,15 @@ def integrator(stepper: str) -> Multistep | RungeKutta | None:
 
 
 def capillary(name: str) -> Simulation:
-    """Build a capillary case on its resolved or mode-averaged route."""
-    from solprop.stats import default_spec  # noqa: PLC0415
+    """Build a capillary case on its resolved or mode-averaged route.
 
-    simulation = _resolved_capillary(name)
-    if name.endswith("_averaged"):
-        # One resolved mode still integrates its transverse profile. The averaged
-        # route uses its effective area and the matching ordinary statistics.
-        simulation.settings = dataclasses.replace(
-            simulation.settings,
-            quadrature=None,
-            components=None,
-            stats=default_spec("mode_averaged"),
-        )
-    return simulation
-
-
-def _resolved_capillary(name: str) -> Simulation:
+    A ``_averaged`` case asks the interface for ``mode_average=True``, as a user
+    would: one mode carried as a uniform disc of its effective area, with the
+    interface's own statistics.
+    """
     from solprop.driver import Simulation  # noqa: PLC0415 - worker-only imports
 
+    averaged = name.endswith("_averaged")
     if name.startswith("rdw") or name == "he_rdw_averaged":
         return Simulation.from_capillary(
             125e-6,
@@ -69,6 +59,7 @@ def _resolved_capillary(name: str) -> Simulation:
             fwhm=7.5e-15,
             energy=275e-6,
             modes=4 if name == "rdw" else 1,
+            mode_average=averaged,
             seed=SEED,
         )
     if name == "ctc":
@@ -86,7 +77,10 @@ def _resolved_capillary(name: str) -> Simulation:
             loss=0.0,
             seed=SEED,
         )
-    if name == "ctc_reduced":
+    if name in ("ctc_reduced", "ctc_reduced_two_mode"):
+        # The reduced case of the comb-to-continuum tests: the fundamental alone on a
+        # 2 ps window, five times the pulse, so that the launch stays clear of the
+        # temporal collar (a 1 ps window clipped it and seeded the Raman cascade).
         return Simulation.from_capillary(
             16e-6,
             0.1,
@@ -97,7 +91,7 @@ def _resolved_capillary(name: str) -> Simulation:
             trange=2e-12,
             fwhm=400e-15,
             energy=10e-6,
-            modes=2,
+            modes=1 if name == "ctc_reduced" else 2,
             raman=True,
             temperature=294.0,
             seed=SEED,
@@ -116,6 +110,7 @@ def _resolved_capillary(name: str) -> Simulation:
             wavelength_limits=(160e-9, 4e-6),
             modes=1,
             envelope=name == "argon_blueshift_envelope",
+            mode_average=averaged,
             seed=SEED,
         )
     if name == "h2_raman_averaged":
@@ -132,6 +127,7 @@ def _resolved_capillary(name: str) -> Simulation:
             trange=800e-15,
             wavelength_limits=(200e-9, 4e-6),
             modes=1,
+            mode_average=True,
             seed=SEED,
         )
     if name in ("h2_raman_6ps", "h2_raman_6ps_averaged"):
@@ -149,6 +145,7 @@ def _resolved_capillary(name: str) -> Simulation:
             trange=6e-12,
             wavelength_limits=(400e-9, 4e-6),
             modes=1,
+            mode_average=averaged,
             seed=SEED,
         )
     raise SuiteError(f"capillary builder not implemented for {name}")
@@ -205,7 +202,8 @@ def gnlse(name: str) -> Simulation:
             lambda0=835e-9,
             wavelength_limits=(400e-9, 2e-6),
             trange=12.5e-12,
-            fwhm=50e-15 * 1.763,
+            # 50 fs FWHM, T0 = 28.4 fs (Dudley, Genty and Coen, section III).
+            fwhm=50e-15,
             pulseshape="sech",
             peak_power=10e3,
             raman=True,

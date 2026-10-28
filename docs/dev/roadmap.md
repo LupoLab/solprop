@@ -714,10 +714,7 @@ GPUs with slow double precision.
 GPU runs per hardware set. The first history rows are recorded at the release commit on
 an Apple M5 Max, a 16-core AMD EPYC 7763 allocation and a cloud Arm Neoverse-V2
 instance, with Windows x86-64 occasionally; a GPU file, cloud launch recipes and an
-`mlx` backend in the tracking set remain to do. The tracking set's
-`gnlse_raman_shock` launches `fwhm=50e-15 * 1.763`, about 88 fs FWHM, where the
-Dudley–Genty–Coen case is 50 fs FWHM (T0 = 28.4 fs); decide whether to correct it before
-the first history rows, since it changes the case's identity.
+`mlx` backend in the tracking set remain to do.
 
 **Remaining benchmark references and estimates.** Complete independent reference
 checks for the 512-node radial filament, 128/256-square Cartesian filaments and

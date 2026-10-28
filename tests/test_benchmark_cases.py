@@ -4,6 +4,9 @@
 
 """Check the benchmark cases' definitions without timing them (SEP 38)."""
 
+import math
+import warnings
+
 import numpy as np
 import pytest
 from benchmarks.builders import build, capillary, gnlse
@@ -11,8 +14,9 @@ from benchmarks.records import SuiteError
 from benchmarks.registry import CASES, SEED, STEPPERS, select
 
 from solprop.driver.simulation import CAPILLARY_RTOL, DEFAULT_RTOL
-from solprop.exceptions import MaterialRangeWarning
+from solprop.exceptions import MaterialRangeWarning, SolpropWarning
 from solprop.nonlinear.responses import PlasmaResponse
+from solprop.pulses import SechPulse
 from solprop.stepper import LowStorageRungeKutta, Multistep, RungeKutta
 
 
@@ -109,6 +113,49 @@ def test_averaging_is_a_distinct_route_with_the_original_grid(resolved, averaged
         )
 
 
+def test_the_reduced_ctc_case_is_the_fundamental_alone():
+    # The reduced comb-to-continuum case of the tests; its two-mode twin keeps the
+    # same window and guide.
+    one, two = capillary("ctc_reduced"), capillary("ctc_reduced_two_mode")
+    assert (len(one.modes), len(two.modes)) == (1, 2)
+    assert one.grid.length == two.grid.length == 0.1
+    np.testing.assert_array_equal(one.grid.omega, two.grid.omega)
+
+
+def test_the_raman_shock_case_launches_the_published_pulse():
+    # Dudley, Genty and Coen's supercontinuum: a 50 fs FWHM sech, T0 = 28.4 fs.
+    launch = gnlse("gnlse_raman_shock").initial
+    assert isinstance(launch, SechPulse)
+    assert launch.fwhm == pytest.approx(50e-15, rel=1e-15)
+    assert launch.peak_power == pytest.approx(10e3, rel=1e-15)
+
+
+# Cases whose construction takes several seconds (mode solving, large transverse grids).
+SLOW_BUILDS = ("grin_nonlinear", "kerr_beam_384", "kerr_beam_768", "moving_solid_guide")
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param(name, marks=pytest.mark.slow) if name in SLOW_BUILDS else name
+        for name in CASES
+    ],
+)
+def test_declared_dimensions_follow_the_builders(name):
+    case = CASES[name]
+    # Some builders keep their sources' model warnings (an ultraviolet extrapolation,
+    # a guide shorter than the absorber's walk-off); only the sizes are read here.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SolpropWarning)
+        simulation = build(configuration(name))
+    assert case.dimensions[-2:] == (simulation.grid.n_t, simulation.grid.n_to)
+    leading = case.dimensions[:-2]
+    if simulation.spatial_grid is not None:
+        assert math.prod(leading) == simulation.spatial_grid.n_columns
+    else:
+        assert leading[0] == len(simulation.modes)
+
+
 def test_the_envelope_case_differs_from_its_field_twin_only_in_the_grid():
     field = capillary("argon_blueshift")
     envelope = capillary("argon_blueshift_envelope")
@@ -161,18 +208,20 @@ def test_selection_and_builders_refuse_unknown_names():
 def test_tracked_definitions_change_only_with_a_new_revision():
     # A changed definition must raise its revision: rows compare within one. The
     # digest covers the registry's declared fields; builder edits need the same.
+    # Every case starts at revision 1 with the first history rows, at the release.
     assert [(case.name, case.revision, case.digest[:12]) for case in select()] == [
-        ("gnlse_raman_shock", 1, "b3f7fc864691"),
-        ("gnlse_soliton", 2, "f52512986806"),
-        ("rdw", 1, "883433a7ddb1"),
-        ("he_rdw_averaged", 1, "677a784eeb82"),
-        ("argon_blueshift", 2, "a080d3f0462f"),
-        ("argon_blueshift_averaged", 2, "66e834d1cf14"),
-        ("argon_blueshift_envelope", 1, "a11d59421661"),
-        ("h2_raman_averaged", 1, "7dbd829ef3bf"),
-        ("ctc", 2, "089a0f9e01e3"),
-        ("radial_filament_256", 1, "99fd7698eaaf"),
-        ("grin_nonlinear", 2, "b0e47fd41668"),
-        ("kerr_beam_384", 2, "44905b3e6d02"),
-        ("kerr_beam_192", 2, "726f5965e965"),
+        ("gnlse_raman_shock", 1, "3da05c17d16e"),
+        ("gnlse_soliton", 1, "46cd5ec245e2"),
+        ("rdw", 1, "dbbc8e09cd88"),
+        ("he_rdw_averaged", 1, "f9ebec0f93a7"),
+        ("argon_blueshift", 1, "a48ead7cf1dc"),
+        ("argon_blueshift_averaged", 1, "06b8b09e4444"),
+        ("argon_blueshift_envelope", 1, "0b376ed0c4ae"),
+        ("h2_raman_averaged", 1, "4b7440bfae07"),
+        ("ctc", 1, "5e88b5b3b60f"),
+        ("radial_filament_256", 1, "ea6c16906669"),
+        ("grin_nonlinear", 1, "5a1ddf84368a"),
+        ("kerr_beam_384", 1, "88c44c3d288c"),
+        ("kerr_beam_192", 1, "1c8baa576a04"),
     ]
+    assert {case.revision for case in CASES.values()} == {1}
