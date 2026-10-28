@@ -1570,10 +1570,11 @@ struct StageTerms {
   // pass of the vector-maths layer over the block (solprop ADR-059): the phases' sines
   // and cosines, their magnitudes and inverse magnitudes, and the noise phases'.
   template <EntryPhase Mode>
-  void entry_factors_block(const std::size_t stage, const std::size_t column,
-                           const std::size_t first, const std::size_t count,
-                           const double (&real)[stage_block],
-                           const double (&imag)[stage_block], EntryBlock& block) const {
+  [[maybe_unused]] void
+  entry_factors_block(const std::size_t stage, const std::size_t column,
+                      const std::size_t first, const std::size_t count,
+                      const double (&real)[stage_block],
+                      const double (&imag)[stage_block], EntryBlock& block) const {
     if constexpr (Mode != EntryPhase::repeated)
       vmath::sincos(imag, block.sine, block.cosine, count);
     if constexpr (Mode == EntryPhase::general) {
@@ -6213,9 +6214,10 @@ struct AdamsBlock {
   double spanned[adams_block][2 * adams_max_samples];
 
   template <class Points>
-  void form(const ExponentialWeights& weights, const bool compensated,
-            const std::size_t column, const std::size_t first, const std::size_t last,
-            const Points& exponent, const Points& flow) {
+  [[maybe_unused]] void form(const ExponentialWeights& weights, const bool compensated,
+                             const std::size_t column, const std::size_t first,
+                             const std::size_t last, const Points& exponent,
+                             const Points& flow) {
     const std::size_t count = last - first;
     double real[adams_block], imag[adams_block];
     double out_real[adams_block], out_imag[adams_block];
