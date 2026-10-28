@@ -15,6 +15,7 @@ import dataclasses
 import math
 import warnings
 from types import SimpleNamespace
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -707,7 +708,8 @@ def _chooser(method, collar_rate, *, quiet=False):
     march._method = method
     march._collar_rate = collar_rate
     march._order = 5
-    march._backend = SimpleNamespace(_collar_quiet=quiet)
+    # A stand-in, not a StepDriver: the order choice reads one flag from it.
+    march._backend = cast("Any", SimpleNamespace(_collar_quiet=quiet))
     march._collar_was_quiet = False
     return march
 
