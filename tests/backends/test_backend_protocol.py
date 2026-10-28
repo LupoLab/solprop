@@ -60,16 +60,18 @@ def test_a_history_of_ragged_arrays_is_refused(name):
         StepHistory(**fields)
 
 
-def test_a_history_with_a_non_finite_entry_is_refused():
-    record = history()
-    with pytest.raises(BackendError, match="not finite"):
-        StepHistory(
-            record.z,
-            record.dz,
-            np.array([np.nan, 0.4]),
-            record.accepted,
-            record.wall_time,
-        )
+@pytest.mark.parametrize("name", ["z", "dz", "error_norm", "wall_time"])
+def test_a_history_with_a_non_finite_entry_is_refused(name):
+    fields = {
+        "z": history().z,
+        "dz": history().dz,
+        "error_norm": history().error_norm,
+        "accepted": history().accepted,
+        "wall_time": history().wall_time,
+    }
+    fields[name] = np.array([np.nan, fields[name][1]])
+    with pytest.raises(BackendError, match=f"{name} has entries that are not finite"):
+        StepHistory(**fields)
 
 
 def test_a_rejected_step_records_a_diverged_trial_as_infinity():
