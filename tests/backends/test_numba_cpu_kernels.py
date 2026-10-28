@@ -959,3 +959,40 @@ def test_write_temporal_absorber_overwrites_with_the_real_part_of_a_view():
     kernels.write_temporal_absorber(analytic.real, rate, output)
     # Binary-exact samples and rates, grouped as the reference groups them.
     np.testing.assert_array_equal(output, -0.5 * rate * analytic.real)
+
+
+@pytest.mark.parametrize("complex_samples", [False, True], ids=["field", "envelope"])
+@pytest.mark.parametrize("weighted", [False, True], ids=["unit", "columns"])
+@pytest.mark.parametrize("threaded", [False, True], ids=["serial", "rows"])
+def test_the_boundary_partials_are_the_monitor_s_sums(
+    complex_samples: bool, weighted: bool, threaded: bool
+) -> None:
+    # Each row's energy and four weighted energies, and what a split takes of it,
+    # against the same sums in NumPy: positive terms, so the bound is gamma of the
+    # row's length, relative to each sum.
+    rng = np.random.default_rng(21)
+    rows, n_t = 5, 64
+    samples = rng.standard_normal((rows, n_t))
+    if complex_samples:
+        samples = samples + 1j * rng.standard_normal((rows, n_t))
+    weights = rng.random((4, n_t))
+    taken = rng.random(n_t)
+    row_weights = rng.random(rows) if weighted else np.empty(0)
+    scale = row_weights if weighted else np.ones(rows)
+    power = np.abs(samples) ** 2
+    boundary, removal = (
+        (kernels.boundary_partials_parallel, kernels.removal_partials_parallel)
+        if threaded
+        else (kernels.boundary_partials, kernels.removal_partials)
+    )
+    partials = np.full(kernels.BOUNDARY_SUMS * rows + 1, np.nan)
+    boundary(samples, row_weights, weights, partials)
+    expected = np.column_stack([power.sum(axis=1), power @ weights.T]) * scale[:, None]
+    np.testing.assert_allclose(
+        partials[:-1].reshape(rows, kernels.BOUNDARY_SUMS), expected, rtol=gamma(n_t)
+    )
+    # Nothing past the rows is written.
+    assert np.isnan(partials[-1])
+    taken_partials = np.empty(rows)
+    removal(samples, row_weights, taken, taken_partials)
+    np.testing.assert_allclose(taken_partials, scale * (power @ taken), rtol=gamma(n_t))

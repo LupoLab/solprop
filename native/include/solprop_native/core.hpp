@@ -30,6 +30,18 @@ using Layout = Kokkos::LayoutRight;
 using Range2 = Kokkos::MDRangePolicy<
     ExecutionSpace, Kokkos::Rank<2, Kokkos::Iterate::Right, Kokkos::Iterate::Right>>;
 using Complex = Kokkos::complex<double>;
+
+/** The boundary monitor's five sums of a state (solprop SEP 21), one reduction value:
+    the energy, then the low guard's, the high guard's, the collar's and the rate's. */
+struct MonitorSums {
+  Kokkos::Array<double, 5> values{};
+  KOKKOS_INLINE_FUNCTION MonitorSums& operator+=(const MonitorSums& other) {
+    for (std::size_t slot = 0; slot < 5; ++slot)
+      values[slot] += other.values[slot];
+    return *this;
+  }
+};
+
 using ComplexView = Kokkos::View<Complex*, Layout, MemorySpace>;
 using ConstComplexView = Kokkos::View<const Complex*, Layout, MemorySpace>;
 using RealView = Kokkos::View<double*, Layout, MemorySpace>;
@@ -581,6 +593,20 @@ public:
   void promote_fsal();
   void clear_fsal();
   void set_absorber_quiet(bool quiet);
+  /**
+   * Bind solprop's boundary monitor (SEP 21): its four time weights, row-major
+   * `(4, n_t)`, and its columns' quadrature by mode (empty for unit weights). From
+   * here on each split-step finish adds what it takes to an accumulator, which
+   * `monitor_reading` drains.
+   */
+  void bind_monitor(const std::vector<double>& weights,
+                    const std::vector<double>& column_weights);
+  void unbind_monitor() noexcept;
+  /**
+   * The bound monitor's reading of the accepted state: `sum_t P`, the four weighted
+   * sums `sum_t w_k P`, and what the split collar took since the last reading.
+   */
+  [[nodiscard]] std::vector<double> monitor_reading();
   [[nodiscard]] std::vector<Complex> field_to_host() const;
   [[nodiscard]] std::map<std::string, std::size_t> memory_ledger() const;
   [[nodiscard]] CpuSizing execution_sizing() const;
@@ -726,6 +752,12 @@ public:
   void promote_fsal();
   void clear_fsal();
   void set_absorber_quiet(bool quiet);
+  /** As `State::bind_monitor`; the columns' weights are by mode. */
+  void bind_monitor(const std::vector<double>& weights,
+                    const std::vector<double>& column_weights);
+  void unbind_monitor() noexcept;
+  /** As `State::monitor_reading`, over every column of the state. */
+  [[nodiscard]] std::vector<double> monitor_reading();
   [[nodiscard]] double quadrature_error() const;
   [[nodiscard]] double quadrature_peak();
   [[nodiscard]] std::string synthesis_provider() const;
@@ -781,3 +813,7 @@ void multiply_phase(const ExecutionSpace& execution_space, ConstComplexView valu
                     ConstRealView phase, ComplexView output);
 
 } // namespace solprop_native
+
+template <> struct Kokkos::reduction_identity<solprop_native::MonitorSums> {
+  KOKKOS_FUNCTION static solprop_native::MonitorSums sum() { return {}; }
+};

@@ -463,13 +463,17 @@ thresholds the execution ran under (`guard_fraction`, `budget`, `stop_factor`,
 `quiet_collar`) and the launch's energy in the monitor's own units (`launch_energy`).
 
 Under the in-stage scheme the removed fraction is integrated along z by the trapezoid.
-Under `absorber_scheme="split_step"` a checked step is read just before its split, which
-gives the power the split took, `P(1 − e^{−αh})`, exactly. Read back from the state the
-split leaves, the same removal multiplied whatever the band mask left deep in the collar
-by `e^{αh}`, into removals larger than the launch and false warnings. The `native` backend
-applies the split inside its own engine, where the state before it cannot be read: there
-the trapezoid of the committed states' rate is taken, which undercounts light absorbed deep
-in the collar within one step and never counts residue.
+Under `absorber_scheme="split_step"` every backend adds up, in its own step finish, what
+each accepted step's split takes of the power it finds, `P(1 − e^{−αh})`, so the removal
+is exact on every step, checked or not. Read back from the state the split leaves, the
+same removal would multiply whatever the band mask left deep in the collar by `e^{αh}`,
+into removals larger than the launch and false warnings.
+
+A check reads five numbers of the state, its energy and the four weighted energies above,
+and each backend forms them where the state lives: on the GPU for `mlx` and a device build
+of `native`, in compiled code for `numba_cpu` and `native` on the CPU, and with NumPy for
+`numpy_ref`, the reference the others are tested against. The field is not copied to the
+host to be watched.
 
 A resumed run continues the record: the state it resumes from is checked by the first
 step, not judged as a launch, so a run stopped at an edge can be resumed under a relaxed

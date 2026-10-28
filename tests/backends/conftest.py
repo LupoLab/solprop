@@ -168,7 +168,7 @@ def selected_backend_class(selected_backend_name):
 
 @pytest.fixture(scope="session")
 def narrow_grid():
-    """A short-window envelope grid, 1024 bins, for the tests that only need a field."""
+    """A short-window envelope grid, 768 bins, for the tests that only need a field."""
     return EnvelopeGrid.from_limits(1.0, WAVELENGTH, (500e-9, 2e-6), 1e-12)
 
 

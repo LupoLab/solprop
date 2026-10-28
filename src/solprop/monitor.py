@@ -15,13 +15,20 @@ polarisations and transverse columns (with their quadrature weights), and forms:
   collar;
 - the **removal rate** ``int alpha(t) P(t) dt`` of the temporal collar, integrated
   along z by the trapezoid over committed steps into the removed fraction of the
-  launch energy. Under the ``"split_step"`` scheme a checked step is read just before
-  its split instead, which gives the power the split took exactly
-  (:meth:`BoundaryMonitor.before_split`).
+  launch energy. Under the ``"split_step"`` scheme the backend adds up what each
+  accepted step's split takes instead, ``sum_t P(t) (1 - exp(-alpha(t) h))`` of the
+  power ``P`` it finds, which is exact on unchecked steps too
+  (:attr:`BoundaryEnergies.removed`).
 
 ``P`` is the energy-density proxy of SEP 21 section 4.6: exact for modal true-power
 amplitudes, and on spatial routes the quadrature-weighted field norm rather than the
 admittance-weighted flux. The quantities are relative, so the proxy's scale cancels.
+
+**Where the reduction runs.** A check needs five numbers of the state, its energy and
+its four weighted energies (:class:`BoundaryEnergies`), and the backend forms them
+where its state lives (``StepDriver._boundary_energies``): only the five cross to the
+host. :meth:`BoundaryMonitor.energies` and :meth:`BoundaryMonitor.split_removal` are
+the host reductions, the reference every backend is held to.
 
 **The shot-noise floor (Q24).** An input-noise launch carries one photon per mode
 across the whole window, guards and collar included. Light below that floor cannot be
@@ -75,6 +82,7 @@ __all__ = [
     "QUIET",
     "QUIET_CHECKS",
     "BoundaryCheck",
+    "BoundaryEnergies",
     "BoundaryMonitor",
 ]
 
@@ -204,6 +212,41 @@ DEFAULT_BOUNDARY_CHECK = BoundaryCheck()
 """The check a run takes unless its settings or an interface keyword say otherwise."""
 
 
+@dataclass(frozen=True)
+class BoundaryEnergies:
+    """What a backend reads of its state at a check: the monitor's five numbers.
+
+    Each is a sum over the coarse time axis of the energy-density proxy ``P(t)``,
+    summed over everything but time with the columns' quadrature weights
+    (:meth:`BoundaryMonitor.power`), in the proxy's units of energy.
+
+    Attributes
+    ----------
+    total : float
+        The state's energy, ``sum_t P(t)``.
+    regions : numpy.ndarray
+        Shape ``(4,)``: ``sum_t w_k(t) P(t)`` for the four rows of
+        :attr:`BoundaryMonitor.weights`, the energies in the low guard, the high guard
+        and the collar (weighted by ``1 - W``), and the collar's removal rate, energy
+        per metre.
+    removed : float
+        What the ``"split_step"`` collar took since the previous reading, summed over
+        every accepted step: ``sum_t P(t) (1 - exp(-alpha(t) h))`` of the power ``P``
+        each step's split found. Zero under the in-stage scheme or without a collar.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.monitor import BoundaryEnergies
+    >>> BoundaryEnergies(1.0, np.zeros(4)).removed
+    0.0
+    """
+
+    total: float
+    regions: Float[np.ndarray, " 4"]
+    removed: float = 0.0
+
+
 @dataclass
 class BoundaryMonitor:
     """The monitor of one run: its weights, its running totals and its record.
@@ -223,8 +266,9 @@ class BoundaryMonitor:
         The longest distance, m, a quiet window goes unchecked (:data:`CHECKS`).
     split : bool
         Whether the temporal collar is applied once per accepted step (the
-        ``"split_step"`` scheme), whose removal is then read exactly from the state
-        before the split (:meth:`before_split`) rather than by the trapezoid (D5).
+        ``"split_step"`` scheme), whose removal the backend then adds up exactly at
+        every accepted step (:attr:`BoundaryEnergies.removed`) rather than the
+        monitor integrating the rate by the trapezoid (D5).
     """
 
     check: BoundaryCheck
@@ -276,9 +320,8 @@ class BoundaryMonitor:
     _left_out: bool = field(default=False, init=False)
     _left_out_checks: int = field(default=0, init=False)
     _stale: bool = field(default=False, init=False)
-    _pending: tuple[float, Float[np.ndarray, " n_t"]] | None = field(
-        default=None, init=False
-    )
+    _committed: float = field(default=math.nan, init=False)
+    _floor_taken: float = field(default=0.0, init=False)
     _resuming: bool = field(default=False, init=False)
     _resume_plane: bool = field(default=False, init=False)
     _resumed_at: list[float] = field(default_factory=list, init=False)
@@ -336,10 +379,12 @@ class BoundaryMonitor:
         weights.setflags(write=False)
         return cls(check, weights, grid.kind, columns, split, grid.length / CHECKS)
 
-    def _power(
+    def power(
         self, field_spectrum: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
     ) -> Float[np.ndarray, " n_t"]:
         """Return the time-domain energy density summed over everything but time.
+
+        The host reduction, in binary64 whatever the state's precision.
 
         Parameters
         ----------
@@ -351,21 +396,84 @@ class BoundaryMonitor:
         numpy.ndarray
             ``P(t)`` on the coarse time axis, weighted by the columns' quadrature.
         """
-        samples = fourier.inverse(field_spectrum, kind=self.kind)
+        samples = fourier.inverse(
+            np.asarray(field_spectrum, dtype=np.complex128), kind=self.kind
+        )
         density = np.abs(samples) ** 2
         if self.columns is not None:
             density = density * self.columns[None, :, None, None]
         return density.reshape(-1, density.shape[-1]).sum(axis=0)
 
-    def _regions(
-        self, power: Float[np.ndarray, " n_t"]
-    ) -> tuple[float, Float[np.ndarray, " 4"]]:
-        """Return the total energy of one state and its four weighted energies.
+    def energies(
+        self, field_spectrum: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
+    ) -> BoundaryEnergies:
+        """Return a state's energy and its four weighted energies, on the host.
+
+        The reference reduction every backend's own is held to; a split's removal is
+        not a property of one state, and is zero here.
 
         Parameters
         ----------
-        power : numpy.ndarray
-            The state's ``P(t)`` (:meth:`_power`).
+        field_spectrum : numpy.ndarray
+            A state, canonical layout, FFT convention.
+
+        Returns
+        -------
+        BoundaryEnergies
+            ``sum_t P(t)`` and ``weights @ P``.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> from solprop.grid import EnvelopeGrid
+        >>> from solprop.monitor import BoundaryCheck, BoundaryMonitor
+        >>> grid = EnvelopeGrid.from_limits(1.0, 800e-9, (600e-9, 1.2e-6), 1e-12)
+        >>> monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
+        >>> pulse = np.exp(-((grid.t / 50e-15) ** 2)).astype(complex)
+        >>> energies = monitor.energies(np.fft.fft(pulse)[None, None, None, :])
+        >>> bool(np.isclose(energies.total, np.sum(np.abs(pulse) ** 2)))
+        True
+        """
+        power = self.power(field_spectrum)
+        return BoundaryEnergies(float(power.sum()), self.weights @ power)
+
+    def split_removal(
+        self,
+        field_spectrum: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        step: float,
+    ) -> float:
+        """Return what one accepted step's split collar takes of the state it finds.
+
+        The split multiplies the field by ``exp(-alpha(t) h / 2)``, so it takes
+        ``P(t) (1 - exp(-alpha(t) h))`` of the power ``P`` it finds, read exactly
+        from the state before the split; the band mask after it is not counted. The
+        host reduction a backend's accepted-step finish is held to. Read back from
+        the committed state instead, the same removal would be ``P (exp(alpha h) -
+        1)`` of the power the split left, which multiplies whatever the mask leaves
+        deep in the collar by ``exp(alpha h)``: a removal made from nothing.
+
+        Parameters
+        ----------
+        field_spectrum : numpy.ndarray
+            The accepted state before the split, canonical layout, FFT convention.
+        step : float
+            The step's length, m.
+
+        Returns
+        -------
+        float
+            The energy taken, in the proxy's units.
+        """
+        return float(self.power(field_spectrum) @ -np.expm1(-self.weights[3] * step))
+
+    @staticmethod
+    def _judged(energies: BoundaryEnergies) -> tuple[float, Float[np.ndarray, " 4"]]:
+        """Return a reading's energy and weighted energies, or nothing for no light.
+
+        Parameters
+        ----------
+        energies : BoundaryEnergies
+            A backend's reading of one state.
 
         Returns
         -------
@@ -375,10 +483,10 @@ class BoundaryMonitor:
             The energies in the low guard, the high guard and the collar, and the
             collar's removal rate, energy per metre.
         """
-        total = float(power.sum())
+        total = float(energies.total)
         if total <= 0.0 or not math.isfinite(total):
             return 0.0, np.zeros(4)
-        return total, self.weights @ power
+        return total, np.asarray(energies.regions, dtype=np.float64)
 
     def _above(self, regions: Float[np.ndarray, " 4"]) -> Float[np.ndarray, " 4"]:
         """Return each region's energy above the shot-noise floor.
@@ -406,7 +514,7 @@ class BoundaryMonitor:
 
     def launch(
         self,
-        field_spectrum: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        energies: BoundaryEnergies,
         z: float,
         *,
         floor: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"] | None = None,
@@ -420,14 +528,14 @@ class BoundaryMonitor:
 
         Parameters
         ----------
-        field_spectrum : numpy.ndarray
-            The launched state, canonical layout, FFT convention.
+        energies : BoundaryEnergies
+            The backend's reading of the launched state; its removal is not read.
         z : float
             Its position, m.
         floor : numpy.ndarray or None, optional
-            The input-noise draw the launch carries, in the same layout and
+            The input-noise draw the launch carries, canonical layout, FFT
             convention; ``None`` without one. Its energy is the vacuum floor the
-            monitor judges above (Q24).
+            monitor judges above (Q24), read here on the host once.
 
         Raises
         ------
@@ -435,10 +543,11 @@ class BoundaryMonitor:
             When the square root of a guard occupancy exceeds ``stop_factor`` budgets.
         """
         if floor is not None:
-            self._floor = float(self._power(floor).sum())
+            self._floor = float(self.power(floor).sum())
             # The floor is stationary: its expected density is uniform in time.
             self._floor_regions = self._floor * self.weights.mean(axis=1)
-        total, regions = self._regions(self._power(field_spectrum))
+        self._committed = z
+        total, regions = self._judged(energies)
         resuming, self._resuming = self._resuming, False
         if resuming:
             self._resumed_at.append(z)
@@ -528,46 +637,35 @@ class BoundaryMonitor:
                 for name, values in cast("Mapping[str, list[float]]", rows).items()
             }
 
-    def step(
-        self,
-        field_spectrum: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"] | None,
-        z: float,
-    ) -> None:
+    def step(self, energies: BoundaryEnergies, z: float) -> None:
         """Account one committed step, and warn or stop on a guard occupancy.
 
         Parameters
         ----------
-        field_spectrum : numpy.ndarray or None
-            The committed state, canonical layout, FFT convention; ``None`` for the
-            state :meth:`before_split` read before the step's split.
+        energies : BoundaryEnergies
+            The backend's reading of the committed state, with what a split collar
+            took since the previous reading.
         z : float
             Its position, m.
 
         Raises
         ------
         BoundaryError
-            When the square root of a guard occupancy exceeds ``stop_factor`` budgets,
-            or when no state was given and none was read before the split.
+            When the square root of a guard occupancy exceeds ``stop_factor`` budgets.
         """
-        pending, self._pending = self._pending, None
-        if field_spectrum is not None:
-            power, before = self._power(field_spectrum), None
-        elif pending is not None:
-            # The split leaves exp(-alpha h) of the power it found; the band mask
-            # after it is not counted.
-            before = pending
-            power = before[1] * np.exp(-self.weights[3] * before[0])
-        else:
-            msg = "the boundary monitor was given no state and read none before a split"
-            raise BoundaryError(msg)
-        total, regions = self._regions(power)
+        self._commit(z)
+        total, regions = self._judged(energies)
         self._steps += 1
         self._left_out_checks += int(self._left_out)
-        # The split's exact removal reads one step from the state before it; across
-        # unchecked ones, or from a committed state, the trapezoid integrates the rate.
-        exact = before if self._since_check == 0 else None
         self._since_check = 0
         self._stale = False
+        if self.split and self._launch > 0.0:
+            # What the split took at every accepted step since the previous reading,
+            # checked or not, and however little of the light is left.
+            removed = float(energies.removed)
+            self._raw_removed += removed / self._launch
+            self._removed += (removed - self._floor_taken) / self._launch
+        self._floor_taken = 0.0
         if not total > _FLOOR * self._launch:
             # Nothing was launched, or nothing is left: no light to judge.
             self._last = (z, 0.0)
@@ -577,12 +675,11 @@ class BoundaryMonitor:
             return
         # The whole field's record, floor included, kept beside the judged one. While
         # the stages left a quiet collar out (`note_collar`) it absorbed nothing, so
-        # the steps since the last check add no removal.
+        # the steps since the last check add no removal; a split's was read above.
         raw_rate = float(regions[3]) / self._launch
         previous_z, previous_rate = self._raw_last or (z, raw_rate)
-        if exact is not None:
-            self._split_removal(*exact)
-        elif not self._left_out:
+        integrate = not (self.split or self._left_out)
+        if integrate:
             self._raw_removed += 0.5 * (z - previous_z) * (previous_rate + raw_rate)
         self._raw_last = (z, raw_rate)
         self._raw_guard_max = max(
@@ -593,7 +690,7 @@ class BoundaryMonitor:
         self._settle(shares, float(regions[2]) / total)
         # The removal rate as a fraction of the launch energy per metre.
         rate = float(above[3]) / self._launch
-        if self._last is not None and exact is None and not self._left_out:
+        if self._last is not None and integrate:
             previous_z, previous_rate = self._last
             self._removed += 0.5 * (z - previous_z) * (previous_rate + rate)
         self._last = (z, rate)
@@ -698,12 +795,40 @@ class BoundaryMonitor:
             return True
         return self._last is None or z - self._last[0] >= self.interval
 
-    def skip(self) -> None:
-        """Count a committed step that is not checked."""
+    def skip(self, z: float) -> None:
+        """Count a committed step that is not checked.
+
+        Parameters
+        ----------
+        z : float
+            Its position, m.
+        """
+        self._commit(z)
         self._skipped += 1
         self._since_check += 1
         self._stale = True
-        self._pending = None
+
+    def _commit(self, z: float) -> None:
+        """Move to the committed position `z`, adding the floor's expected removal.
+
+        Under the ``"split_step"`` scheme with an input-noise floor, the share of
+        the backend's removal that is the floor's: what the split takes of a uniform
+        density holding the floor's energy, ``floor / n_t sum_t (1 - exp(-alpha(t)
+        h))`` for the step ``h`` that ended at `z`. A position behind the last
+        committed one (a plane observed inside the step after it) adds nothing.
+
+        Parameters
+        ----------
+        z : float
+            The committed position, m.
+        """
+        step = z - self._committed
+        if not step > 0.0:
+            return
+        self._committed = z
+        if self.split and self._floor > 0.0:
+            taken = float(np.sum(-np.expm1(-self.weights[3] * step)))
+            self._floor_taken += self._floor / self.weights.shape[1] * taken
 
     @property
     def stale(self) -> bool:
@@ -744,62 +869,6 @@ class BoundaryMonitor:
             True while the in-stage term is left out.
         """
         self._left_out = left_out
-
-    def before_split(
-        self,
-        field_spectrum: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
-        step: float,
-    ) -> None:
-        """Read an accepted step's state just before its split collar is applied.
-
-        Under the ``"split_step"`` scheme the run's driver calls this, on a step it is
-        about to adopt and :meth:`due` to check, and then :meth:`step` with ``None``.
-        The split multiplies the field by ``exp(-alpha(t) h / 2)``, so the power it
-        takes, ``P(t) (1 - exp(-alpha(t) h))`` of the power ``P`` it finds, is read
-        exactly from this state. Read back from the committed state the same removal
-        would be ``P(t) (exp(alpha(t) h) - 1)`` of the power the split left, which
-        multiplies whatever the band mask after the split leaves deep in the collar by
-        ``exp(alpha h)``: a removal made from nothing.
-
-        Parameters
-        ----------
-        field_spectrum : numpy.ndarray
-            The accepted state before the split, canonical layout, FFT convention.
-        step : float
-            The step's length, m.
-        """
-        self._pending = (step, self._power(field_spectrum))
-
-    @property
-    def read_ahead(self) -> bool:
-        """Whether :meth:`before_split` read the step :meth:`step` is to account.
-
-        Returns
-        -------
-        bool
-            True until the next :meth:`step` takes the reading.
-        """
-        return self._pending is not None
-
-    def _split_removal(self, step: float, before: Float[np.ndarray, " n_t"]) -> None:
-        """Add one split step's exact removal, read from the state before its split.
-
-        The floor's share is that of a uniform density.
-
-        Parameters
-        ----------
-        step : float
-            The step's length, m.
-        before : numpy.ndarray
-            ``P(t)`` of the accepted state before the split (:meth:`before_split`).
-        """
-        if not step > 0.0:
-            return
-        taken_share = -np.expm1(-self.weights[3] * step)
-        taken = float(before @ taken_share)
-        floor = self._floor / before.size * float(taken_share.sum())
-        self._raw_removed += taken / self._launch
-        self._removed += (taken - floor) / self._launch
 
     def _plane_row(self, z: float) -> None:
         """Append one saved plane's row and start the next plane's guard maxima.

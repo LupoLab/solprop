@@ -1768,6 +1768,14 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             # Either there is no collar, or ADR-025's other scheme applied it inside
             # every stage, where it is already in the accepted state.
             return masked
+        if (monitor := self._split_monitor) is not None:
+            # The time factor acts alike on every column of any transverse basis, so
+            # the stored state's power is what the split takes of, wherever it acts;
+            # read as the physical state, which a single-precision state is scaled
+            # from.
+            self._split_removed += monitor.split_removal(
+                self._observed_field(masked), dz
+            )
         geometry = self._problem.transform.geometry
         if geometry is not None and geometry.kind == "slab":
             # A (p, y) row is a modal amplitude whose time signal is a real field's,

@@ -415,6 +415,11 @@ public:
   // in-stage term, below the monitor's threshold, is left out of the stages.
   void set_absorber_quiet(const bool quiet) noexcept { absorber_quiet_ = quiet; }
 
+  void bind_monitor(const std::vector<double>& weights,
+                    const std::vector<double>& column_weights);
+  void unbind_monitor() noexcept { monitor_bound_ = false; }
+  std::vector<double> monitor_reading();
+
   std::vector<Complex> field_to_host() const {
     require_open();
     if (!initialized_)
@@ -475,6 +480,17 @@ public:
   void accept_and_score(double dz);
   void mask(const ComplexView& values);
   void split_step(double dz);
+  void plan_coarse_inverse();
+  void add_split_removal(double dz);
+  [[nodiscard]] bool monitoring_split() const noexcept {
+    return monitor_bound_ && problem_.split_step_absorber;
+  }
+  // solprop's boundary monitor (SEP 21, ADR-057): its four time weights `(4, n_t)`
+  // and the column's quadrature weight, and what the split-step collar took since the
+  // last reading beside one split's sum. Allocated at the first bind, with the coarse
+  // pair a split collar would have planned, and kept.
+  bool monitor_bound_{};
+  double monitor_column_weight_ = 1.0;
 
   Problem problem_;
   CpuExecutionPool kernel_pool_{CpuPool::kernels};
@@ -498,6 +514,8 @@ public:
   RealView partials_, omega_window_, time_window_, absorber_fine_;
   RealView absorber_coarse_, fine_time_real_, projected_real_, absorber_real_;
   RealView coarse_time_real_, tableau_, stage_phi_delta_, stage_phi_at_;
+  RealView monitor_weights_;
+  Kokkos::View<double, Layout, MemorySpace> monitor_removed_, monitor_split_sum_;
   RealView stage_prefactor_, stage_density_, stage_taper_;
   ByteView active_mask_, norm_mask_;
   IndexView crop_index_;
@@ -655,21 +673,165 @@ void Workspace::plan() {
   }
   if (!problem_.split_step_absorber)
     return;
+  plan_coarse_inverse();
   if (problem_.family == FieldFamily::envelope) {
-    coarse_inverse_complex_plan_ = std::make_unique<ComplexPlan>(
-        coarse_fft_execution_space_, coarse_spectrum_, coarse_time_complex_,
-        KokkosFFT::Direction::backward, axis);
     coarse_forward_complex_plan_ = std::make_unique<ComplexPlan>(
         coarse_fft_execution_space_, coarse_time_complex_, coarse_spectrum_,
         KokkosFFT::Direction::forward, axis);
   } else {
-    coarse_inverse_real_plan_ = std::make_unique<InverseRealPlan>(
-        coarse_fft_execution_space_, coarse_spectrum_, coarse_time_real_,
-        KokkosFFT::Direction::backward, axis);
     coarse_forward_real_plan_ = std::make_unique<RealPlan>(
         coarse_fft_execution_space_, coarse_time_real_, coarse_spectrum_,
         KokkosFFT::Direction::forward, axis);
   }
+}
+
+// The coarse inverse transform on its buffers, which the split-step collar and the
+// boundary monitor read; allocated here when the constructor did not.
+void Workspace::plan_coarse_inverse() {
+  constexpr int axis = -1;
+  if (coarse_spectrum_.extent(0) == 0)
+    coarse_spectrum_ =
+        ComplexView("solprop_native.absorber.coarse_spectrum", problem_.n_omega);
+  if (problem_.family == FieldFamily::envelope) {
+    if (coarse_time_complex_.extent(0) == 0)
+      coarse_time_complex_ =
+          ComplexView("solprop_native.absorber.coarse_time_complex", problem_.n_t);
+    coarse_inverse_complex_plan_ = std::make_unique<ComplexPlan>(
+        coarse_fft_execution_space_, coarse_spectrum_, coarse_time_complex_,
+        KokkosFFT::Direction::backward, axis);
+  } else {
+    if (coarse_time_real_.extent(0) == 0)
+      coarse_time_real_ =
+          RealView("solprop_native.absorber.coarse_time_real", problem_.n_t);
+    coarse_inverse_real_plan_ = std::make_unique<InverseRealPlan>(
+        coarse_fft_execution_space_, coarse_spectrum_, coarse_time_real_,
+        KokkosFFT::Direction::backward, axis);
+  }
+}
+
+// What one split takes of the power it finds, `sum P (1 - exp(-alpha h))`, added to
+// the run's accumulator in the memory space (solprop SEP 21, ADR-057): the monitor's
+// reading drains it at a check, so every accepted step is counted, checked or not.
+void Workspace::add_split_removal(const double dz) {
+  const auto rate = absorber_coarse_;
+  const double weight = monitor_column_weight_;
+  const Kokkos::RangePolicy<ExecutionSpace> samples(execution_space_, 0, problem_.n_t);
+  if (problem_.family == FieldFamily::envelope) {
+    const auto time = coarse_time_complex_;
+    Kokkos::parallel_reduce(
+        "solprop_native.monitor.split_removal_complex", samples,
+        KOKKOS_LAMBDA(const std::size_t index, double& update) {
+          const Complex value = time(index);
+          update += weight *
+                    (value.real() * value.real() + value.imag() * value.imag()) *
+                    -Kokkos::expm1(-rate(index) * dz);
+        },
+        monitor_split_sum_);
+  } else {
+    const auto time = coarse_time_real_;
+    Kokkos::parallel_reduce(
+        "solprop_native.monitor.split_removal_real", samples,
+        KOKKOS_LAMBDA(const std::size_t index, double& update) {
+          update +=
+              weight * time(index) * time(index) * -Kokkos::expm1(-rate(index) * dz);
+        },
+        monitor_split_sum_);
+  }
+  const auto removed = monitor_removed_;
+  const auto split = monitor_split_sum_;
+  Kokkos::parallel_for(
+      "solprop_native.monitor.split_removal_add",
+      Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, 1),
+      KOKKOS_LAMBDA(const std::size_t) { removed() += split(); });
+}
+
+// Bind solprop's boundary monitor (SEP 21): its four time weights, row-major `(4,
+// n_t)`, and the column's quadrature (empty for a unit weight). The first bind
+// allocates its few views, and the coarse pair when no split collar planned one;
+// the split's accumulator starts at zero.
+void Workspace::bind_monitor(const std::vector<double>& weights,
+                             const std::vector<double>& column_weights) {
+  require_open();
+  require_extent(weights.size(), 4 * problem_.n_t, "monitor weights");
+  if (!column_weights.empty())
+    require_extent(column_weights.size(), 1, "monitor column weights");
+  if (monitor_weights_.extent(0) == 0) {
+    monitor_weights_ = RealView("solprop_native.monitor.weights", 4 * problem_.n_t);
+    monitor_removed_ =
+        Kokkos::View<double, Layout, MemorySpace>("solprop_native.monitor.removed");
+    monitor_split_sum_ =
+        Kokkos::View<double, Layout, MemorySpace>("solprop_native.monitor.split_sum");
+    if (!coarse_inverse_complex_plan_ && !coarse_inverse_real_plan_)
+      plan_coarse_inverse();
+  }
+  copy_vector(execution_space_, monitor_weights_, weights);
+  monitor_column_weight_ = column_weights.empty() ? 1.0 : column_weights[0];
+  Kokkos::deep_copy(execution_space_, monitor_removed_, 0.0);
+  execution_space_.fence("solprop_native monitor bind");
+  monitor_bound_ = true;
+}
+
+// The bound monitor's reading of the accepted state: `sum_t P`, the four weighted
+// sums and the split's accumulator, which this drains (solprop SEP 21, ADR-057).
+std::vector<double> Workspace::monitor_reading() {
+  require_open();
+  if (!initialized_)
+    throw std::logic_error("no initial field has been loaded");
+  if (!monitor_bound_)
+    throw std::logic_error("no boundary monitor is bound");
+  const auto current = current_;
+  const auto coarse = coarse_spectrum_;
+  const auto n_t = problem_.n_t;
+  const double inverse_n = 1.0 / static_cast<double>(n_t);
+  Kokkos::parallel_for(
+      "solprop_native.monitor.spectrum",
+      Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, problem_.n_omega),
+      KOKKOS_LAMBDA(const std::size_t index) {
+        coarse(index) = inverse_n * current(index);
+      });
+  const auto weights = monitor_weights_;
+  const double weight = monitor_column_weight_;
+  MonitorSums sums;
+  const Kokkos::RangePolicy<ExecutionSpace> samples(execution_space_, 0, n_t);
+  if (problem_.family == FieldFamily::envelope) {
+    KokkosFFT::execute(*coarse_inverse_complex_plan_, coarse_spectrum_,
+                       coarse_time_complex_, KokkosFFT::Normalization::none);
+    const auto time = coarse_time_complex_;
+    Kokkos::parallel_reduce(
+        "solprop_native.monitor.sums", samples,
+        KOKKOS_LAMBDA(const std::size_t index, MonitorSums& update) {
+          const Complex value = time(index);
+          const double power =
+              weight * (value.real() * value.real() + value.imag() * value.imag());
+          update.values[0] += power;
+          for (std::size_t region = 0; region < 4; ++region)
+            update.values[region + 1] += weights(region * n_t + index) * power;
+        },
+        Kokkos::Sum<MonitorSums>(sums));
+  } else {
+    KokkosFFT::execute(*coarse_inverse_real_plan_, coarse_spectrum_, coarse_time_real_,
+                       KokkosFFT::Normalization::none);
+    const auto time = coarse_time_real_;
+    Kokkos::parallel_reduce(
+        "solprop_native.monitor.sums", samples,
+        KOKKOS_LAMBDA(const std::size_t index, MonitorSums& update) {
+          const double power = weight * time(index) * time(index);
+          update.values[0] += power;
+          for (std::size_t region = 0; region < 4; ++region)
+            update.values[region + 1] += weights(region * n_t + index) * power;
+        },
+        Kokkos::Sum<MonitorSums>(sums));
+  }
+  double removed = 0.0;
+  if (problem_.split_step_absorber) {
+    execution_space_.fence("solprop_native monitor reading");
+    removed =
+        Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, monitor_removed_)();
+    Kokkos::deep_copy(execution_space_, monitor_removed_, 0.0);
+  }
+  execution_space_.fence("solprop_native monitor reading");
+  return {sums.values[0], sums.values[1], sums.values[2],
+          sums.values[3], sums.values[4], removed};
 }
 
 void Workspace::reuse_fsal() {
@@ -1015,6 +1177,8 @@ void Workspace::split_step(const double dz) {
   if (problem_.family == FieldFamily::envelope) {
     KokkosFFT::execute(*coarse_inverse_complex_plan_, coarse_spectrum_,
                        coarse_time_complex_, KokkosFFT::Normalization::none);
+    if (monitoring_split())
+      add_split_removal(dz);
     const auto time = coarse_time_complex_;
     const auto rate = absorber_coarse_;
     Kokkos::parallel_for(
@@ -1028,6 +1192,8 @@ void Workspace::split_step(const double dz) {
   } else {
     KokkosFFT::execute(*coarse_inverse_real_plan_, coarse_spectrum_, coarse_time_real_,
                        KokkosFFT::Normalization::none);
+    if (monitoring_split())
+      add_split_removal(dz);
     const auto time = coarse_time_real_;
     const auto rate = absorber_coarse_;
     Kokkos::parallel_for(
@@ -1076,13 +1242,12 @@ std::map<std::string, std::size_t> Workspace::memory_ledger() const {
       {"absorber_time", problem_.in_stage_absorber ? projected_time : 0},
       {"absorber_spectrum",
        problem_.in_stage_absorber ? projected_spectrum_size() * complex_bytes : 0},
-      {"coarse_spectrum",
-       problem_.split_step_absorber ? problem_.n_omega * complex_bytes : 0},
-      {"coarse_time",
-       problem_.split_step_absorber
-           ? problem_.n_t *
-                 (problem_.family == FieldFamily::envelope ? complex_bytes : real_bytes)
-           : 0},
+      {"coarse_spectrum", coarse_spectrum_.size() * complex_bytes},
+      {"coarse_time", coarse_time_real_.size() * real_bytes +
+                          coarse_time_complex_.size() * complex_bytes},
+      {"monitor_weights",
+       (monitor_weights_.size() + monitor_removed_.size() + monitor_split_sum_.size()) *
+           real_bytes},
       {"fixed_terms", (problem_.n_phi_terms + problem_.n_prefactor_terms) *
                           problem_.n_omega * complex_bytes},
       {"masks_and_transform_data",
@@ -1140,6 +1305,10 @@ void Workspace::close() noexcept {
   coarse_spectrum_ = {};
   coarse_time_real_ = {};
   coarse_time_complex_ = {};
+  monitor_bound_ = false;
+  monitor_weights_ = {};
+  monitor_removed_ = {};
+  monitor_split_sum_ = {};
   partials_ = {};
   omega_window_ = {};
   time_window_ = {};
@@ -1185,6 +1354,15 @@ void State::clear_fsal() { workspace_->clear_fsal(); }
 void State::set_absorber_quiet(const bool quiet) {
   workspace_->set_absorber_quiet(quiet);
 }
+void State::bind_monitor(const std::vector<double>& weights,
+                         const std::vector<double>& column_weights) {
+  workspace_->bind_monitor(weights, column_weights);
+}
+void State::unbind_monitor() noexcept {
+  if (workspace_)
+    workspace_->unbind_monitor();
+}
+std::vector<double> State::monitor_reading() { return workspace_->monitor_reading(); }
 std::vector<Complex> State::field_to_host() const {
   return workspace_->field_to_host();
 }

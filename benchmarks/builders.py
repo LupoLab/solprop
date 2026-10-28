@@ -18,10 +18,19 @@ from typing import TYPE_CHECKING, Any
 from benchmarks.records import Record, SuiteError
 from benchmarks.registry import CASES, SEED
 
-__all__ = ["build", "capillary", "gnlse", "integrator", "kerr", "spatial"]
+__all__ = [
+    "build",
+    "capillary",
+    "gnlse",
+    "integrator",
+    "kerr",
+    "spatial",
+    "spatial_grids",
+]
 
 if TYPE_CHECKING:
     from solprop.driver import Simulation, SimulationSettings
+    from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
     from solprop.stepper import Multistep, RungeKutta
 
 
@@ -38,25 +47,15 @@ def integrator(stepper: str) -> Multistep | RungeKutta | None:
 
 
 def capillary(name: str) -> Simulation:
-    """Build a capillary case on its resolved or mode-averaged route."""
-    from solprop.stats import default_spec  # noqa: PLC0415
+    """Build a capillary case on its resolved or mode-averaged route.
 
-    simulation = _resolved_capillary(name)
-    if name.endswith("_averaged"):
-        # One resolved mode still integrates its transverse profile. The averaged
-        # route uses its effective area and the matching ordinary statistics.
-        simulation.settings = dataclasses.replace(
-            simulation.settings,
-            quadrature=None,
-            components=None,
-            stats=default_spec("mode_averaged"),
-        )
-    return simulation
-
-
-def _resolved_capillary(name: str) -> Simulation:
+    A ``_averaged`` case asks the interface for ``mode_average=True``, as a user
+    would: one mode carried as a uniform disc of its effective area, with the
+    interface's own statistics.
+    """
     from solprop.driver import Simulation  # noqa: PLC0415 - worker-only imports
 
+    averaged = name.endswith("_averaged")
     if name.startswith("rdw") or name == "he_rdw_averaged":
         return Simulation.from_capillary(
             125e-6,
@@ -69,6 +68,7 @@ def _resolved_capillary(name: str) -> Simulation:
             fwhm=7.5e-15,
             energy=275e-6,
             modes=4 if name == "rdw" else 1,
+            mode_average=averaged,
             seed=SEED,
         )
     if name == "ctc":
@@ -86,7 +86,10 @@ def _resolved_capillary(name: str) -> Simulation:
             loss=0.0,
             seed=SEED,
         )
-    if name == "ctc_reduced":
+    if name in ("ctc_reduced", "ctc_reduced_two_mode"):
+        # The reduced case of the comb-to-continuum tests: the fundamental alone on a
+        # 2 ps window, five times the pulse, so that the launch stays clear of the
+        # temporal collar (a 1 ps window clipped it and seeded the Raman cascade).
         return Simulation.from_capillary(
             16e-6,
             0.1,
@@ -97,7 +100,7 @@ def _resolved_capillary(name: str) -> Simulation:
             trange=2e-12,
             fwhm=400e-15,
             energy=10e-6,
-            modes=2,
+            modes=1 if name == "ctc_reduced" else 2,
             raman=True,
             temperature=294.0,
             seed=SEED,
@@ -116,6 +119,7 @@ def _resolved_capillary(name: str) -> Simulation:
             wavelength_limits=(160e-9, 4e-6),
             modes=1,
             envelope=name == "argon_blueshift_envelope",
+            mode_average=averaged,
             seed=SEED,
         )
     if name == "h2_raman_averaged":
@@ -132,6 +136,7 @@ def _resolved_capillary(name: str) -> Simulation:
             trange=800e-15,
             wavelength_limits=(200e-9, 4e-6),
             modes=1,
+            mode_average=True,
             seed=SEED,
         )
     if name in ("h2_raman_6ps", "h2_raman_6ps_averaged"):
@@ -149,6 +154,7 @@ def _resolved_capillary(name: str) -> Simulation:
             trange=6e-12,
             wavelength_limits=(400e-9, 4e-6),
             modes=1,
+            mode_average=averaged,
             seed=SEED,
         )
     raise SuiteError(f"capillary builder not implemented for {name}")
@@ -205,7 +211,8 @@ def gnlse(name: str) -> Simulation:
             lambda0=835e-9,
             wavelength_limits=(400e-9, 2e-6),
             trange=12.5e-12,
-            fwhm=50e-15 * 1.763,
+            # 50 fs FWHM, T0 = 28.4 fs (Dudley, Genty and Coen, section III).
+            fwhm=50e-15,
             pulseshape="sech",
             peak_power=10e3,
             raman=True,
@@ -213,6 +220,58 @@ def gnlse(name: str) -> Simulation:
             seed=SEED,
         )
     raise SuiteError(f"GNLSE builder not implemented for {name}")
+
+
+def spatial_grids(
+    name: str,
+) -> tuple[EnvelopeGrid | FieldGrid, FreeGrid | LineGrid | RadialGrid]:
+    """Return a free-space case's time and transverse grids, without its launch.
+
+    Building a Cartesian case allocates its whole launch (35 GB at the peak for the
+    768-square Kerr beam), so its declared sizes are checked from these grids alone.
+    The planar slab has its own builder.
+    """
+    from solprop.grid import (  # noqa: PLC0415
+        EnvelopeGrid,
+        FieldGrid,
+        FreeGrid,
+        LineGrid,
+        RadialGrid,
+    )
+
+    case = CASES[name]
+    size = case.dimensions[0]
+    if case.builder == "kerr":
+        half_width, window = {
+            192: (91.5e-6, 130e-15),
+            384: (183e-6, 250e-15),
+            768: (366e-6, 250e-15),
+        }[size]
+        grid = EnvelopeGrid.from_limits(
+            case.length,
+            260e-9,
+            (143e-9, 600e-9),
+            window,
+            thg=False,
+            fft_size="smooth",
+        )
+        return grid, FreeGrid(
+            half_width * 1.1, size, half_width * 1.1, size, window_factor=0.0
+        )
+    plasma = "filament" in name
+    field = FieldGrid.from_limits(
+        case.length,
+        800e-9,
+        (350e-9, 2e-6) if plasma else (500e-9, 1.6e-6),
+        250e-15,
+    )
+    if name.startswith("radial") or name == "spatial_absorber":
+        return field, RadialGrid(3e-4 if name == "spatial_absorber" else 1e-3, size)
+    if name == "line":
+        return field, LineGrid(1e-3, size)
+    if name.startswith("cartesian_filament"):
+        return field, FreeGrid(6e-4, size, 6e-4, size)
+    raise SuiteError(f"spatial builder not implemented for {name}")
 
 
 def kerr(name: str, settings: SimulationSettings) -> Simulation:
@@ -224,27 +283,14 @@ def kerr(name: str, settings: SimulationSettings) -> Simulation:
     """
     from solprop.constants import EPS0, MU0, C  # noqa: PLC0415
     from solprop.driver import Simulation  # noqa: PLC0415
-    from solprop.grid import EnvelopeGrid, FreeGrid  # noqa: PLC0415
+    from solprop.grid import FreeGrid  # noqa: PLC0415
     from solprop.nonlinear.responses import KerrResponse  # noqa: PLC0415
     from solprop.physdata.glasses import SellmeierGlass  # noqa: PLC0415
     from solprop.pulses import GaussianPulse, SpatialPulse  # noqa: PLC0415
     from solprop.spatial import SpatialMedium  # noqa: PLC0415
 
-    size = CASES[name].dimensions[0]
-    half_width, window = {
-        192: (91.5e-6, 130e-15),
-        384: (183e-6, 250e-15),
-        768: (366e-6, 250e-15),
-    }[size]
-    grid = EnvelopeGrid.from_limits(
-        CASES[name].length,
-        260e-9,
-        (143e-9, 600e-9),
-        window,
-        thg=False,
-        fft_size="smooth",
-    )
-    space = FreeGrid(half_width * 1.1, size, half_width * 1.1, size, window_factor=0.0)
+    grid, space = spatial_grids(name)
+    assert isinstance(space, FreeGrid)
     glass = SellmeierGlass(
         name="malitson",
         source="Malitson 1965",
@@ -273,7 +319,7 @@ def spatial(name: str, settings: SimulationSettings) -> Simulation:
 
     from solprop.constants import C  # noqa: PLC0415
     from solprop.driver import Simulation  # noqa: PLC0415
-    from solprop.grid import FieldGrid, FreeGrid, LineGrid, RadialGrid  # noqa: PLC0415
+    from solprop.grid import RadialGrid  # noqa: PLC0415
     from solprop.nonlinear.optmat_rates import OptmatRate  # noqa: PLC0415
     from solprop.nonlinear.responses import (  # noqa: PLC0415
         KerrResponse,
@@ -283,16 +329,10 @@ def spatial(name: str, settings: SimulationSettings) -> Simulation:
     from solprop.pulses import GaussianPulse, SpatialPulse  # noqa: PLC0415
     from solprop.spatial import SpatialMedium, critical_power  # noqa: PLC0415
 
-    case = CASES[name]
     if name == "planar":
         return _planar(settings)
+    grid, space = spatial_grids(name)
     plasma = "filament" in name
-    grid = FieldGrid.from_limits(
-        case.length,
-        800e-9,
-        (350e-9, 2e-6) if plasma else (500e-9, 1.6e-6),
-        250e-15,
-    )
     medium = SpatialMedium("Ar", 1.0)
     chi3 = gamma3("Ar", wavelength=800e-9)
     density = float(medium.density(np.array([0.0]))[0])
@@ -310,27 +350,13 @@ def spatial(name: str, settings: SimulationSettings) -> Simulation:
         responses.append(PlasmaResponse("Ar", OptmatRate("Ar", 800e-9)))
     if plasma:
         settings = dataclasses.replace(settings, ionisation_field_range=(1e7, 1e11))
-    if name.startswith("radial") or name == "spatial_absorber":
+    if isinstance(space, RadialGrid):
         return Simulation.from_radial(
-            grid,
-            RadialGrid(
-                3e-4 if name == "spatial_absorber" else 1e-3, case.dimensions[0]
-            ),
-            medium,
-            responses,
-            pulse,
-            settings=settings,
-            seed=SEED,
+            grid, space, medium, responses, pulse, settings=settings, seed=SEED
         )
-    if name == "line" or name.startswith("cartesian_filament"):
-        size = case.dimensions[0]
-        space = (
-            LineGrid(1e-3, size) if name == "line" else FreeGrid(6e-4, size, 6e-4, size)
-        )
-        return Simulation.from_free(
-            grid, space, medium, responses, pulse, settings=settings
-        )
-    raise SuiteError(f"spatial builder not implemented for {name}")
+    return Simulation.from_free(
+        grid, space, medium, responses, pulse, settings=settings
+    )
 
 
 def _planar(settings: SimulationSettings) -> Simulation:
@@ -371,7 +397,8 @@ def smoke() -> Simulation:
         [0.0, 0.0, -11.83e-27],
         lambda0=835e-9,
         wavelength_limits=(600e-9, 1200e-9),
-        trange=200e-15,
+        # Fifteen widths: a 200 fs window clipped the sech's tails at the launch.
+        trange=300e-15,
         width=20e-15,
         peak_power=10.0,
         pulseshape="sech",

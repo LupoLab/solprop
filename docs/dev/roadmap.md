@@ -414,18 +414,9 @@ finish, the native separable and modal engines included.
 **The quiet collar on long steps.** While an opted-in collar rests, no step is longer than
 the monitor's check interval (`length / 256`), so a run whose steps are longer than that,
 such as a short capillary under the exponential Adams march, gains nothing from resting
-it. Checking the collar after every resting step instead, cheap once the monitor's
+it. Checking the collar after every resting step instead, cheap now that the monitor's
 reduction runs on the backend, would let such a step be rejected and retaken with the
 collar in when light has entered, and lift the cap.
-
-**The split collar's removal on the native engine.** Under the split scheme the monitor
-reads a checked step's state just before its split, which gives the removal exactly
-(ADR-057). The native engine holds a trial's end inside the step until its finish applies
-the split, so there the monitor integrates the committed states' rate by the trapezoid,
-which undercounts light absorbed deep in the collar within one step (a pulse walked 0.65
-of the window into the collar reads 0.16 of the launch removed against 0.71 lost). The
-backend-resident reduction of the monitor, with the split's removal summed in the finish
-itself, makes it exact there too, on unchecked steps as well.
 
 **The boundary monitor's flux on spatial routes.** [SEP 21](seps/archive/sep-0021-absorbing-boundaries.md)'s
 monitor measures a spatial run's guard and collar occupancies with the quadrature-weighted
@@ -714,10 +705,7 @@ GPUs with slow double precision.
 GPU runs per hardware set. The first history rows are recorded at the release commit on
 an Apple M5 Max, a 16-core AMD EPYC 7763 allocation and a cloud Arm Neoverse-V2
 instance, with Windows x86-64 occasionally; a GPU file, cloud launch recipes and an
-`mlx` backend in the tracking set remain to do. The tracking set's
-`gnlse_raman_shock` launches `fwhm=50e-15 * 1.763`, about 88 fs FWHM, where the
-Dudley–Genty–Coen case is 50 fs FWHM (T0 = 28.4 fs); decide whether to correct it before
-the first history rows, since it changes the case's identity.
+`mlx` backend in the tracking set remain to do.
 
 **Remaining benchmark references and estimates.** Complete independent reference
 checks for the 512-node radial filament, 128/256-square Cartesian filaments and

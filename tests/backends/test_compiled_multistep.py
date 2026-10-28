@@ -16,8 +16,7 @@ import math
 import numpy as np
 import pytest
 
-from bounds import assert_within
-from legacy_geometry import LEGACY_GRID
+from bounds import assert_within, fft_bound
 from solprop.backends import available
 from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -179,12 +178,11 @@ def test_numba_sources_the_analytic_field_and_the_envelope_plasma(route):
     # families: the analytic signal of a field without THG, and the envelope with its
     # plasma assembly. One evaluation is compared, at a field that reaches into the
     # temporal collar: whole runs part by round-off in the discrete order choice.
-    # The former grid, on which the tolerance below was measured.
     limits = (0.01, 800e-9, (200e-9, 2e-6), 100e-15)
     grid = (
-        EnvelopeGrid.from_limits(*limits, thg=False, **LEGACY_GRID)
+        EnvelopeGrid.from_limits(*limits, thg=False)
         if route.get("envelope")
-        else FieldGrid.from_limits(*limits, **LEGACY_GRID)
+        else FieldGrid.from_limits(*limits)
     )
     simulation = Simulation.from_capillary(
         150e-6,
@@ -213,9 +211,22 @@ def test_numba_sources_the_analytic_field_and_the_envelope_plasma(route):
         found.append((np.array(source), np.array(back)))
         backend.close()
     (reference, reference_back), (source, back) = found
-    # Measured 8.3e-12 (analytic field) and 1.6e-15 (envelope plasma) of the peak.
-    scale = np.max(np.abs(reference))
-    np.testing.assert_allclose(source, reference, rtol=0, atol=1e-10 * scale)
+    # The source is compared before its transport back to the anchor, which the
+    # propagator below carries: U(anchor, position) reaches 1e26 on the active band's
+    # edges (the capillary's loss over the millimetre), where the in-stage collar's
+    # broad term is small against its own peak. Transported, that small content and
+    # the whole term's rounding with it become the source's peak, so a peak-relative
+    # comparison measures the grid more than the backend (8.3e-12 of the peak on the
+    # grids before SEP 21, 3.6e-10 and 4.7e-10 on today's, for the same 4e-16 of the
+    # term's own peak). Untransported, the two evaluations are one transform round
+    # trip apart: measured 5.9e-16 normwise on both grids, against the one-evaluation
+    # budget fft_bound(n_to), about 1e-12.
+    assert_within(
+        source * back,
+        reference * reference_back,
+        fft_bound(problem.grids.n_to),
+        what="untransported source",
+    )
     # The propagator back to the anchor, exp(Phi(anchor) - Phi(position)), from one
     # table on both sides: an exponent rounded within a few eps of its size and an
     # exponential's few eps, so 16 eps (1 + max |delta Phi|) relative.
