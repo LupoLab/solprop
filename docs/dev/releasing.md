@@ -99,7 +99,10 @@ runs them on a processor below the baseline.
 when it is imported. LLVM's OpenMP runtime refuses, or crashes on, a second initialised
 copy, so the native package raises at import when pyFFTW is already loaded
 ([OpenMP runtimes and pyFFTW](../guide/performance/building-native.md#openmp-runtimes-and-pyfftw)).
-solprop imports both backends lazily, so a script that only calls solprop is unaffected.
+solprop imports both backends lazily, and on macOS its `numba_cpu` backend imports the
+native package, when installed, before pyFFTW, so a script that only calls solprop can
+run both backends in either order; only a script that imports pyFFTW itself first meets
+the refusal, whose message says what to do.
 `coexistence.py` expects that refusal on macOS; `--bypass-guard` adds a report-only
 scenario that hides pyFFTW from the guard, to test whether it is still needed.
 

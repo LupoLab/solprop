@@ -26,7 +26,7 @@ from conftest import ComplexArray, PhaseACase
 from solprop.stepper import FixedSchedule
 
 import solprop_native as native
-from solprop_native import _core  # pyright: ignore[reportPrivateUsage]
+from solprop_native import _bind, _core  # pyright: ignore[reportPrivateUsage]
 
 POOL_VARIABLES = (
     "SOLPROP_NATIVE_KERNEL_THREADS",
@@ -224,6 +224,47 @@ def test_module_entry_point_prints_one_json_record() -> None:
     lines = completed.stdout.splitlines()
     assert len(lines) == 1
     assert json.loads(lines[0])["schema_version"] == 37
+
+
+@pytest.mark.parametrize(
+    ("environ", "expected", "binding"),
+    [
+        ({}, "false", "false"),
+        ({"OMP_PROC_BIND": " "}, "false", "false"),
+        ({"OMP_PROC_BIND": "spread"}, "environment: OMP_PROC_BIND=spread", "spread"),
+        ({"OMP_PLACES": "cores"}, "environment: OMP_PLACES=cores", None),
+        ({"KMP_AFFINITY": "compact"}, "environment: KMP_AFFINITY=compact", None),
+        ({"GOMP_CPU_AFFINITY": "0-3"}, "environment: GOMP_CPU_AFFINITY=0-3", None),
+    ],
+)
+def test_threads_stay_unbound_unless_the_user_placed_them(
+    environ: dict[str, str], expected: str, binding: str | None
+) -> None:
+    """Only an unplaced process gets ``OMP_PROC_BIND=false``; a placement is kept."""
+    assert _bind.proc_bind(environ) == expected
+    assert environ.get("OMP_PROC_BIND") == binding
+
+
+def test_the_first_native_import_prints_no_binding_notice() -> None:
+    """Kokkos's four-line ``OMP_PROC_BIND`` notice is not printed by default."""
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import solprop_native; print(solprop_native.PROC_BIND)",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={
+            key: value
+            for key, value in os.environ.items()
+            if key not in _bind.VARIABLES
+        },
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.split() == ["false"]
+    assert "OMP_PROC_BIND" not in completed.stderr
 
 
 @pytest.mark.parametrize("explicit", [None, "3"])

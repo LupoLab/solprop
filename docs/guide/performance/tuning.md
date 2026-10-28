@@ -291,9 +291,13 @@ The native CPU backend runs on OpenMP, whose standard variables apply:
 
 - `OMP_PROC_BIND` and `OMP_PLACES` pin threads to cores, which avoids threads migrating
   between cores and sockets: `OMP_PROC_BIND=spread OMP_PLACES=cores` is a good default
-  for one run on a multi-socket machine. Kokkos prints a notice when `OMP_PROC_BIND` is
-  unset; `OMP_PROC_BIND=false` silences it without pinning. With a build whose FFTW
-  uses pthreads rather than OpenMP, prefer `OMP_PROC_BIND=false`.
+  for one run on a multi-socket machine. When none of `OMP_PROC_BIND`, `OMP_PLACES`,
+  `GOMP_CPU_AFFINITY` and `KMP_AFFINITY` is set, the native backend's import sets
+  `OMP_PROC_BIND=false`: the threads stay unpinned, as the runtimes leave them anyway,
+  and Kokkos does not print its notice that the variable is unset, whose advice is for a
+  run with the machine to itself. The run's metadata records what applied as
+  `openmp_proc_bind`. With a build whose FFTW uses pthreads rather than OpenMP, prefer
+  `OMP_PROC_BIND=false`.
 - `OMP_WAIT_POLICY` decides what idle threads do between parallel regions: `active`
   keeps them spinning, `passive` lets them sleep at once. **The native backend chooses
   for you** when none of `OMP_WAIT_POLICY`, `GOMP_SPINCOUNT` and `KMP_BLOCKTIME` is set.
