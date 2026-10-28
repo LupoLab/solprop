@@ -85,7 +85,7 @@ The run
         fwhm=30e-15,
         energy=3e-6,
         loss=False,
-        trange=400e-15,
+        trange=600e-15,
         wavelength_limits=(300e-9, 4e-6),
         n_save=301,
         progress="none",
@@ -211,7 +211,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    45 s; backend native
+    13 s; backend native
 
 
 
@@ -219,7 +219,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 44.530 seconds)
+   **Total running time of the script:** (0 minutes 12.726 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_06_ionisation_blue_shift.py:

@@ -176,7 +176,7 @@ knots.
 
     def linear_grid(length):
         """Return the narrow grid the picojoule runs propagate on."""
-        return FieldGrid.from_limits(length, WAVELENGTH, (1.0e-6, 1.065e-6), 0.4e-12)
+        return FieldGrid.from_limits(length, WAVELENGTH, (1.0e-6, 1.065e-6), 0.8e-12)
 
 
     reference_length = 1e-3
@@ -196,15 +196,15 @@ knots.
       provider: GradedIndexProvider(LP0, 2 channels, 48 elements, extent=2)
       channels: LP0,1, LP0,2
       regions:  core (MaterialKerr(n2=2.7e-20 m^2/W, at 1.03 um)), exterior
-      sampling: ModalSampling(17 knots, 885.1 Trad/s to 2.085 Prad/s, 384 nodes)
+      sampling: ModalSampling(17 knots, 879.6 Trad/s to 2.09 Prad/s, 384 nodes)
     ModalPath: how a moving guide was sampled along z
       sections:       1 (1 per kink interval)
       span:           0 m to 1 mm
       degree:         8
       positions:      9
-      budget:         2.446e-06
-      held-out error: 3.143e-07
-      gram departure: 1.335e-06
+      budget:         2.550e-06
+      held-out error: 3.291e-07
+      gram departure: 1.398e-06
 
 
 
@@ -412,14 +412,14 @@ keep the launched energy to about 1e-6 in every run.
 
  .. code-block:: none
 
-    L =  0.05 mm: LP_02 holds 6.131e-02 at the exit (first order 6.267e-02); energy lost 8.1e-07
-    L =  0.10 mm: LP_02 holds 5.394e-02 at the exit (first order 5.517e-02); energy lost 8.1e-07
-    L =  0.20 mm: LP_02 holds 3.112e-02 at the exit (first order 3.192e-02); energy lost 8.1e-07
-    L =  0.50 mm: LP_02 holds 7.900e-04 at the exit (first order 7.597e-04); energy lost 8.1e-07
-    L =  1.00 mm: LP_02 holds 6.548e-04 at the exit (first order 6.496e-04); energy lost 8.1e-07
-    L =  2.00 mm: LP_02 holds 3.271e-04 at the exit (first order 3.272e-04); energy lost 8.2e-07
-    L =  5.00 mm: LP_02 holds 2.525e-05 at the exit (first order 2.520e-05); energy lost 5.7e-07
-    L = 10.00 mm: LP_02 holds 1.307e-05 at the exit (first order 1.307e-05); energy lost 1.3e-06
+    L =  0.05 mm: LP_02 holds 6.131e-02 at the exit (first order 6.267e-02); energy lost 6.8e-10
+    L =  0.10 mm: LP_02 holds 5.394e-02 at the exit (first order 5.517e-02); energy lost 6.9e-10
+    L =  0.20 mm: LP_02 holds 3.112e-02 at the exit (first order 3.192e-02); energy lost 7.7e-10
+    L =  0.50 mm: LP_02 holds 7.900e-04 at the exit (first order 7.597e-04); energy lost 2.0e-09
+    L =  1.00 mm: LP_02 holds 6.548e-04 at the exit (first order 6.496e-04); energy lost 7.0e-09
+    L =  2.00 mm: LP_02 holds 3.271e-04 at the exit (first order 3.272e-04); energy lost 3.1e-08
+    L =  5.00 mm: LP_02 holds 2.525e-05 at the exit (first order 2.520e-05); energy lost -1.6e-07
+    L = 10.00 mm: LP_02 holds 1.307e-05 at the exit (first order 1.307e-05); energy lost 5.9e-07
     advisory step 0.130 mm against dz_max 0.120 mm
 
 
@@ -926,7 +926,7 @@ Twelve guides, eight linear runs on the moving guide and four nonlinear runs.
 
  .. code-block:: none
 
-    909 s; backend native, 32 threads
+    232 s; backend native, 18 threads
 
 
 
@@ -943,7 +943,7 @@ For a paced introduction to propagation, start with the
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (15 minutes 8.942 seconds)
+   **Total running time of the script:** (3 minutes 52.235 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_05_moving_solid_guide.py:

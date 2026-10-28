@@ -2568,7 +2568,13 @@ does (D13), since the collar takes floor energy as well as light (the roadmap's 
 noise under loss"); a relaunched run starts its accumulators at zero (D10).
 
 **Open.** Why CtC's step became cheaper on a larger grid (the A/B above) is not
-investigated. The worked examples were re-run on the final branch.
+investigated. The worked examples were re-run on the final branch. The monitor
+warned on six that light left their windows, and five were widened until it no longer
+did (self-phase modulation 0.7 to 3 ps, Raman self-frequency shift 3.5 to 5 ps,
+ionisation blue shift 0.4 to 0.6 ps, the graded-index fibre 1.2 to 1.6 ps, the moving
+solid guide's linear runs 0.4 to 0.8 ps). On the sixth, the Raman comb, the collar
+removes 6e-6 of the launch energy on every window from 6 to 8 ps, with or without input
+noise; that is not investigated, and its committed output predates the monitor.
 
 ## Part III — History
 

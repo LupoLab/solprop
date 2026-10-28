@@ -131,8 +131,8 @@ the helium index and the silica wall, so the run raises no range notice.
 
  .. code-block:: none
 
-    launched 275 uJ; 100-150 nm at the exit 10.49 uJ
-    conversion efficiency 3.82%
+    launched 275 uJ; 100-150 nm at the exit 10.48 uJ
+    conversion efficiency 3.81%
 
 
 
@@ -250,7 +250,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    27 s; backend native
+    35 s; backend native
 
 
 
@@ -258,7 +258,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 27.088 seconds)
+   **Total running time of the script:** (0 minutes 34.512 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_00_vuv_dispersive_wave.py:

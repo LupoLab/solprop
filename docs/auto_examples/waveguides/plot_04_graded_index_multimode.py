@@ -152,7 +152,7 @@ provider = GradedIndexProvider(
 print(provider)
 
 # %%
-# The grid spans 450 nm to 1.8 um, which holds both GPI sidebands, and 1.2 ps. The
+# The grid spans 450 nm to 1.8 um, which holds both GPI sidebands, and 1.6 ps. The
 # guide is solved at 97 frequencies across the **active** band -- from half the
 # grid's lowest declared frequency, 3.6 um, to its highest -- on a node rule of two
 # Gauss points per radial element and two angular nodes. The route gates the
@@ -160,7 +160,7 @@ print(provider)
 # and would warn if it exceeded its budget anywhere else in the active band; this
 # guide's sampling passes without a warning.
 
-grid = FieldGrid.from_limits(LENGTH, WAVELENGTH, (450e-9, 1.8e-6), 1.2e-12)
+grid = FieldGrid.from_limits(LENGTH, WAVELENGTH, (450e-9, 1.8e-6), 1.6e-12)
 active = grid.omega[grid.active_mask]
 nodes = provider.node_rule(0.99 * float(active[0]), n_r=2, n_theta=2)
 guide = ModalGuide.from_provider(
@@ -212,8 +212,9 @@ print(
 # the guide's contrast and the angular content of the beam and channels. The
 # recovered amplitudes are launched unscaled: the launched energy is the share of
 # the incident energy the channels capture, and anything they miss is lost at the
-# entrance. ``model_error=0.1`` admits this guide: the weak-guidance contrast,
-# 0.0095, must stay below an eighth of the budget, and the counted terms (printed
+# entrance. ``model_error=0.13`` admits this guide: the weak-guidance contrast,
+# 0.0095, and the closure of the paraxial magnetic field, 0.016 on this grid, must each
+# stay below an eighth of the budget, and the counted terms (printed
 # below) sum to about 0.02.
 #
 # Shot noise is added to the input (``noise="input"``, one photon per bin and
@@ -231,7 +232,7 @@ beam = SpatialPulse(
     ),
     WAIST,
 )
-coupling = CouplingModel("vector_paraxial", model_error=0.1)
+coupling = CouplingModel("vector_paraxial", model_error=0.13)
 
 
 def propagate(length, n_save):

@@ -152,7 +152,7 @@ provider = GradedIndexProvider(
 print(provider)
 
 # %%
-# The grid spans 450 nm to 1.8 um, which holds both GPI sidebands, and 1.2 ps. The
+# The grid spans 450 nm to 1.8 um, which holds both GPI sidebands, and 1.6 ps. The
 # guide is solved at 97 frequencies across the **active** band -- from half the
 # grid's lowest declared frequency, 3.6 um, to its highest -- on a node rule of two
 # Gauss points per radial element and two angular nodes. The route gates the
@@ -160,7 +160,7 @@ print(provider)
 # and would warn if it exceeded its budget anywhere else in the active band; this
 # guide's sampling passes without a warning.
 
-grid = FieldGrid.from_limits(LENGTH, WAVELENGTH, (450e-9, 1.8e-6), 1.2e-12)
+grid = FieldGrid.from_limits(LENGTH, WAVELENGTH, (450e-9, 1.8e-6), 1.6e-12)
 active = grid.omega[grid.active_mask]
 nodes = provider.node_rule(0.99 * float(active[0]), n_r=2, n_theta=2)
 guide = ModalGuide.from_provider(

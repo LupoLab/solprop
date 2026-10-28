@@ -288,7 +288,7 @@ propagation tolerance; see :doc:`/guide/setup/grids`.
 
  .. code-block:: none
 
-    716 s for 8 shots; backend native
+    2212 s for 8 shots; backend native
 
 
 
@@ -296,7 +296,7 @@ propagation tolerance; see :doc:`/guide/setup/grids`.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (11 minutes 56.193 seconds)
+   **Total running time of the script:** (36 minutes 52.019 seconds)
 
 
 .. _sphx_glr_download_auto_examples_supercontinuum_plot_03_modulational_instability_supercontinuum.py:

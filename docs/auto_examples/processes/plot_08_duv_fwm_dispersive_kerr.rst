@@ -277,7 +277,7 @@ along the fibre and the pump's.
              235.5          1.977         1.611         1.606
              240.8          1.825         1.483         1.477
     carrier-kerr    best 204.1 mbar: largest signal 3.32 uJ; at the exit 2.36 uJ
-    symmetric-kerr  best 193.7 mbar: largest signal 3.28 uJ; at the exit 2.68 uJ
+    symmetric-kerr  best 193.7 mbar: largest signal 3.27 uJ; at the exit 2.68 uJ
     gas-polynomial  best 193.7 mbar: largest signal 3.26 uJ; at the exit 2.68 uJ
 
 
@@ -377,7 +377,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    1202 s; backend native
+    348 s; backend native
 
 
 
@@ -385,7 +385,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (20 minutes 2.181 seconds)
+   **Total running time of the script:** (5 minutes 47.981 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_08_duv_fwm_dispersive_kerr.py:

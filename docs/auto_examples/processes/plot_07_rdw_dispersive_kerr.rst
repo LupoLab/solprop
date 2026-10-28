@@ -278,9 +278,9 @@ shaded; four modes, summed.
 
  .. code-block:: none
 
-    carrier-kerr    100-150 nm  10.49 uJ (-23.2 % of the polynomial's), centre 134.51 nm; largest peak power  106 GW; 142.1 uJ at the exit
-    symmetric-kerr  100-150 nm  13.68 uJ ( +0.1 % of the polynomial's), centre 132.14 nm; largest peak power  102 GW; 155.3 uJ at the exit
-    gas-polynomial  100-150 nm  13.66 uJ ( +0.0 % of the polynomial's), centre 132.19 nm; largest peak power  102 GW; 155.0 uJ at the exit
+    carrier-kerr    100-150 nm  10.48 uJ (-23.2 % of the polynomial's), centre 134.51 nm; largest peak power  106 GW; 142.1 uJ at the exit
+    symmetric-kerr  100-150 nm  13.66 uJ ( +0.1 % of the polynomial's), centre 132.15 nm; largest peak power  102 GW; 155.3 uJ at the exit
+    gas-polynomial  100-150 nm  13.64 uJ ( +0.0 % of the polynomial's), centre 132.19 nm; largest peak power  102 GW; 155.0 uJ at the exit
 
 
 
@@ -395,9 +395,9 @@ coefficients.
  .. code-block:: none
 
     modes  carrier   symmetric  polynomial (uJ)   carrier vs polynomial
-        1     6.58      10.10       10.06        -34.6 %
-        2    10.98      14.26       14.24        -22.9 %
-        4    10.49      13.68       13.66        -23.2 %
+        1     6.55      10.07       10.03        -34.6 %
+        2    10.97      14.24       14.22        -22.9 %
+        4    10.48      13.66       13.64        -23.2 %
 
 
 
@@ -438,8 +438,8 @@ With plasma on, the dispersive runs' lower peak power went with less energy lost
 
  .. code-block:: none
 
-    carrier-kerr    no plasma: largest peak power  128 GW; 100-150 nm 12.29 uJ; 220.3 uJ at the exit
-    gas-polynomial  no plasma: largest peak power  118 GW; 100-150 nm 14.75 uJ; 220.3 uJ at the exit
+    carrier-kerr    no plasma: largest peak power  128 GW; 100-150 nm 12.27 uJ; 220.3 uJ at the exit
+    gas-polynomial  no plasma: largest peak power  118 GW; 100-150 nm 14.70 uJ; 220.3 uJ at the exit
 
 
 
@@ -468,7 +468,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    517 s; backend native
+    366 s; backend native
 
 
 
@@ -476,7 +476,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (8 minutes 37.296 seconds)
+   **Total running time of the script:** (6 minutes 5.819 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_07_rdw_dispersive_kerr.py:

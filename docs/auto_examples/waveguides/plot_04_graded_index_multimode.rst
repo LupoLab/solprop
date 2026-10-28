@@ -193,7 +193,7 @@ response by :math:`n_2`, at the wavelength it was measured.
 
 .. GENERATED FROM PYTHON SOURCE LINES 155-162
 
-The grid spans 450 nm to 1.8 um, which holds both GPI sidebands, and 1.2 ps. The
+The grid spans 450 nm to 1.8 um, which holds both GPI sidebands, and 1.6 ps. The
 guide is solved at 97 frequencies across the **active** band -- from half the
 grid's lowest declared frequency, 3.6 um, to its highest -- on a node rule of two
 Gauss points per radial element and two angular nodes. The route gates the
@@ -206,7 +206,7 @@ guide's sampling passes without a warning.
 .. code-block:: Python
 
 
-    grid = FieldGrid.from_limits(LENGTH, WAVELENGTH, (450e-9, 1.8e-6), 1.2e-12)
+    grid = FieldGrid.from_limits(LENGTH, WAVELENGTH, (450e-9, 1.8e-6), 1.6e-12)
     active = grid.omega[grid.active_mask]
     nodes = provider.node_rule(0.99 * float(active[0]), n_r=2, n_theta=2)
     guide = ModalGuide.from_provider(
@@ -284,7 +284,7 @@ the finite, dispersive fibre are close to that and not equal to it.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 203-225
+.. GENERATED FROM PYTHON SOURCE LINES 203-226
 
 The run
 -------
@@ -298,8 +298,9 @@ nodes -- whose admission budget, ``model_error``, bounds that closure's error,
 the guide's contrast and the angular content of the beam and channels. The
 recovered amplitudes are launched unscaled: the launched energy is the share of
 the incident energy the channels capture, and anything they miss is lost at the
-entrance. ``model_error=0.1`` admits this guide: the weak-guidance contrast,
-0.0095, must stay below an eighth of the budget, and the counted terms (printed
+entrance. ``model_error=0.13`` admits this guide: the weak-guidance contrast,
+0.0095, and the closure of the paraxial magnetic field, 0.016 on this grid, must each
+stay below an eighth of the budget, and the counted terms (printed
 below) sum to about 0.02.
 
 Shot noise is added to the input (``noise="input"``, one photon per bin and
@@ -309,7 +310,7 @@ oscillates at that period, and the adaptive stepper would otherwise try steps th
 straddle it. The default cubic is the real one, so the third harmonic is carried
 too.
 
-.. GENERATED FROM PYTHON SOURCE LINES 225-258
+.. GENERATED FROM PYTHON SOURCE LINES 226-259
 
 .. code-block:: Python
 
@@ -322,7 +323,7 @@ too.
         ),
         WAIST,
     )
-    coupling = CouplingModel("vector_paraxial", model_error=0.1)
+    coupling = CouplingModel("vector_paraxial", model_error=0.13)
 
 
     def propagate(length, n_save):
@@ -365,7 +366,7 @@ too.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 259-269
+.. GENERATED FROM PYTHON SOURCE LINES 260-270
 
 The launch account
 ------------------
@@ -378,7 +379,7 @@ launched share is the measure of what the four channels take: here all but a
 few parts in :math:`10^5`, mostly in ``LP_01``. The launched energy is what the
 run's ``physical_energy`` reads at the entrance.
 
-.. GENERATED FROM PYTHON SOURCE LINES 269-293
+.. GENERATED FROM PYTHON SOURCE LINES 270-294
 
 .. code-block:: Python
 
@@ -420,8 +421,8 @@ run's ``physical_energy`` reads at the entrance.
       launched:       159.7 nJ
       launched share: 1.0000 of the incident energy
       uncaptured:     not defined
-      budget:         1.832e-02 of model_error 0.1
-      angular:        1.250e-02 (field) incident field: cone-rule allocation (1 - cos the...
+      budget:         2.207e-02 of model_error 0.13
+      angular:        1.625e-02 (field) incident field: cone-rule allocation (1 - cos the...
       numerical:      0.000e+00 (field) source domain/resolution 0.0e+00, field beyond th...
       source metric:  9.473e-05 (field) common measure M0 against the plane's native metric
       target metric:  2.517e-08 (map) F at the port's nodes against the native Q
@@ -432,13 +433,13 @@ run's ``physical_energy`` reads at the entrance.
       passivity:      1.107e-03 (field) apparent gain within the model's defects, reporte...
       exterior:       zero
     incident 159.67 nJ, launched 159.67 nJ (0.99998 of the incident energy), captured not defined (vector_paraxial recovers coordinates with the flux pairing F; F and the incident measure M0 are not one positive metric, so no orthogonal remainder is a physical loss (section 4.3))
-    admission budget 1.832e-02 of model_error 0.1
+    admission budget 2.207e-02 of model_error 0.13
     launched shares: LP0,1 0.933, LP0,2 0.062, LP0,3 0.004, LP0,4 0.000
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 294-306
+.. GENERATED FROM PYTHON SOURCE LINES 295-307
 
 Self-imaging
 ------------
@@ -453,7 +454,7 @@ which is why the guide and its tables are passed beside the output. The dashed
 lines mark the period the channels' spacings predict. The launch is mostly
 ``LP_01`` with a few per cent of ``LP_02``, so what oscillates is their beat.
 
-.. GENERATED FROM PYTHON SOURCE LINES 306-335
+.. GENERATED FROM PYTHON SOURCE LINES 307-336
 
 .. code-block:: Python
 
@@ -498,7 +499,7 @@ lines mark the period the channels' spacings predict. The launch is mostly
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 336-343
+.. GENERATED FROM PYTHON SOURCE LINES 337-344
 
 The spectrum
 ------------
@@ -508,7 +509,7 @@ narrow one near 785 nm from about 4 cm, and a broader one near 1.45 um from abou
 5.5 cm. The pulse spreads in time as it goes, because self-phase modulation in
 normal dispersion broadens it.
 
-.. GENERATED FROM PYTHON SOURCE LINES 343-356
+.. GENERATED FROM PYTHON SOURCE LINES 344-357
 
 .. code-block:: Python
 
@@ -537,7 +538,7 @@ normal dispersion broadens it.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 357-367
+.. GENERATED FROM PYTHON SOURCE LINES 358-368
 
 The spectral energy density summed over the channels, at the entrance and every
 2.5 cm, on a logarithmic scale, with the first GPI sideband pair predicted from
@@ -550,7 +551,7 @@ band is *not* at the predicted Stokes position (1.58 um), nor at the
 energy-conserving partner of the anti-Stokes band (1.64 um); the leading-order
 formula does not explain it, and this page leaves it as an open observation.
 
-.. GENERATED FROM PYTHON SOURCE LINES 367-408
+.. GENERATED FROM PYTHON SOURCE LINES 368-409
 
 .. code-block:: Python
 
@@ -614,7 +615,7 @@ formula does not explain it, and this page leaves it as an open observation.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 409-417
+.. GENERATED FROM PYTHON SOURCE LINES 410-418
 
 The channels
 ------------
@@ -625,7 +626,7 @@ orthonormal in true power, so a channel's energy is the frequency sum of its own
 small, fast ripple is the Kerr exchange between the channels at the beat period;
 the slow drift is what the nonlinearity moves over centimetres.
 
-.. GENERATED FROM PYTHON SOURCE LINES 417-440
+.. GENERATED FROM PYTHON SOURCE LINES 418-441
 
 .. code-block:: Python
 
@@ -672,14 +673,14 @@ the slow drift is what the nonlinearity moves over centimetres.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 441-445
+.. GENERATED FROM PYTHON SOURCE LINES 442-446
 
 Which channel carries which band: the exit spectrum of each channel. The pump
 stays mostly in ``LP_01``; the bands the parametric process built are shared
 between the channels, because the process that made them is the beat between
 the channels.
 
-.. GENERATED FROM PYTHON SOURCE LINES 445-460
+.. GENERATED FROM PYTHON SOURCE LINES 446-461
 
 .. code-block:: Python
 
@@ -710,13 +711,13 @@ the channels.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 461-464
+.. GENERATED FROM PYTHON SOURCE LINES 462-465
 
 Runtime and reproducibility
 ---------------------------
 A ten-centimetre and a 4.5 mm run of four channels on the general modal route.
 
-.. GENERATED FROM PYTHON SOURCE LINES 464-471
+.. GENERATED FROM PYTHON SOURCE LINES 465-472
 
 .. code-block:: Python
 
@@ -735,12 +736,12 @@ A ten-centimetre and a 4.5 mm run of four channels on the general modal route.
 
  .. code-block:: none
 
-    1687 s; backend native, 32 threads
+    2965 s; backend native, 16 threads
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 472-478
+.. GENERATED FROM PYTHON SOURCE LINES 473-479
 
 Related reading
 ---------------
@@ -752,7 +753,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (28 minutes 7.020 seconds)
+   **Total running time of the script:** (49 minutes 25.456 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_04_graded_index_multimode.py:

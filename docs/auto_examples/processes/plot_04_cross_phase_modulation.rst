@@ -201,7 +201,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    10 s; backend native
+    9 s; backend native
 
 
 
@@ -209,7 +209,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 9.624 seconds)
+   **Total running time of the script:** (0 minutes 9.457 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_04_cross_phase_modulation.py:
