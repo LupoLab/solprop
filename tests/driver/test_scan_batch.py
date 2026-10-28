@@ -13,6 +13,7 @@ import h5py
 import numpy as np
 import pytest
 
+from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER, assert_points_matched
 from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
@@ -21,6 +22,7 @@ from solprop.driver import Simulation, _scan_batch
 from solprop.driver.executors import Batch, Local
 from solprop.driver.scan import Scan, run_scan
 from solprop.exceptions import DriverError, OutputError
+from solprop.grid import EnvelopeGrid
 from solprop.output.hdf5 import _dataset
 from solprop.processing import scans
 from solprop.stats import StatsSpec
@@ -28,13 +30,16 @@ from solprop.stepper import FixedSchedule
 
 
 def build(point, backend="numpy_ref"):
+    # The former grid without a collar: a short fixed schedule is refused beside the
+    # default collar, and these tests are about batched scans, not boundaries.
+    grid = EnvelopeGrid.from_limits(0.001, 835e-9, (500e-9, 2e-6), 1e-12, **LEGACY_GRID)
     return Simulation.from_gnlse(
         0.11 * (point.index + 1),
         0.001,
         [0.0, 0.0, -1.183e-26 * (point.index + 1)],
         lambda0=835e-9,
-        wavelength_limits=(500e-9, 2e-6),
-        trange=1e-12,
+        grid=grid,
+        absorber=bare_absorber(grid),
         width=100e-15,
         peak_power=float(point.index + 1),
         pulseshape="sech",

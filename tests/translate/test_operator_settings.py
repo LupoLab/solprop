@@ -15,6 +15,7 @@ import warnings
 import numpy as np
 import pytest
 
+from legacy_geometry import bare_absorber
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import TransverseCollar, absorber, transverse_collar_rate
 from solprop.driver import Simulation, SimulationSettings
@@ -76,6 +77,8 @@ def line(
 ) -> Simulation:
     """A Kerr line whose finest columns are evanescent, replayed at `step`."""
     grid = EnvelopeGrid.from_limits(length, WAVELENGTH, (700e-9, 950e-9), 400e-15)
+    # The budgets below are the evanescent and transverse rates alone: no collar.
+    settings.setdefault("absorber", bare_absorber(grid))
     # A 0.2 um spacing: the grid's largest k_x, 1.6e7 rad/m, is past k0 = 7.9e6.
     space = LineGrid(2e-6, 22, window_factor=0.1)
     pulse = evanescent_beam(grid, space, SpatialMedium() if medium is None else medium)
@@ -236,6 +239,8 @@ def test_a_replayed_step_just_inside_the_budget_completes_finite():
     with warnings.catch_warnings():
         warnings.simplefilter("error", ExponentBudgetWarning)
         simulation = line(evanescent_rate=RATE, step=step, length=4 * step)
+    # The exponent budget is the subject; the beam reaches the window's edge.
+    simulation.settings = dataclasses.replace(simulation.settings, boundary_check=None)
     output = simulation.run(progress="none")
     assert np.all(np.isfinite(output["field"]))
 
@@ -356,6 +361,8 @@ def radial(
 ) -> Simulation:
     """A radial Kerr run whose outer columns are evanescent, capped at RATE."""
     grid = EnvelopeGrid.from_limits(length, WAVELENGTH, (700e-9, 950e-9), 400e-15)
+    # The budgets below are the evanescent and transverse rates alone: no collar.
+    settings.setdefault("absorber", bare_absorber(grid))
     # Sixteen columns over 4 um: the largest k_r, about 1.2e7 rad/m, is past k0.
     space = RadialGrid(4e-6, 16)
     pulse = evanescent_beam(grid, space, SpatialMedium())
@@ -414,6 +421,10 @@ def test_a_radial_step_inside_the_budget_completes_finite():
     with warnings.catch_warnings():
         warnings.simplefilter("error", ExponentBudgetWarning)
         simulation = radial(step=step, length=4 * step)
+        # The exponent budget is the subject; the beam reaches the window's edge.
+        simulation.settings = dataclasses.replace(
+            simulation.settings, boundary_check=None
+        )
         output = simulation.run(progress="none")
     assert np.all(np.isfinite(output["field"]))
 

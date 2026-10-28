@@ -225,6 +225,8 @@ junit_family = "legacy"
 # silicon only, and hold no doctests: they are not collected; tests/ imports them.
 addopts = "-ra --strict-markers --strict-config --doctest-modules -m 'not slow and not gpu and not benchmark' --ignore=src/solprop/backends/mlx_gpu"
 filterwarnings = ["error"]        # add targeted `ignore::...` entries as needed
+# (The boundary monitor's warnings are ignored by tests/conftest.py, as a mark: a
+# filter here naming solprop's class would import solprop before coverage starts.)
 markers = [
     # The three tiers of docs/dev/testing.md section 2, one marker each; a test carries
     # at most one of them and tests/test_tiers.py asserts it. Fast is the absence of a

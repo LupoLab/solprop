@@ -148,12 +148,18 @@ def test_every_stored_quantity_is_classified():
 # The witness is frozen (``docs/dev/testing.md``): the grid rules the stored axes were
 # reproduced with are stated here rather than taken from solprop's defaults, so that a
 # change of a default cannot move what is compared. They are today's defaults.
-FIELD_GRID_RULES = {"ffac": 6.0, "fft_size": "pow2", "collar_fraction": 0.05}
+FIELD_GRID_RULES = {
+    "ffac": 6.0,
+    "fft_size": "pow2",
+    "collar_fraction": 0.05,
+    "collar_placement": "inside",
+}
 ENVELOPE_GRID_RULES = {
     "thg": False,
     "ffac": 2.0,
     "fft_size": "pow2",
     "collar_fraction": 0.05,
+    "collar_placement": "inside",
 }
 
 

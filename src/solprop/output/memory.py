@@ -178,7 +178,7 @@ class MemoryOutput(PlaneStore):
     >>> handler.open(metadata)
     >>> handler.save(SavedPlane(z=0.0, field=np.ones((1, 1, grid.n_omega), complex)))
     >>> handler.n_saved, handler["field"].shape
-    (1, (1, 1, 1, 2048))
+    (1, (1, 1, 1, 2560))
     >>> handler.close()
     """
 

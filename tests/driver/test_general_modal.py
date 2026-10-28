@@ -34,6 +34,7 @@ import pytest
 from numpy.testing import assert_allclose
 
 from bounds import departure
+from legacy_geometry import LEGACY_GRID
 from march_bounds import (
     FIXED_ORDER,
     STATISTIC_FACTOR,
@@ -685,6 +686,9 @@ def test_a_beam_the_channels_cannot_see_is_a_valid_zero_launch(incident_guide, g
     of the incident energy, since an energy is quadratic in the amplitude.
     """
     simulation = launched(incident_guide, grid, incident_beam(3e-6, (0.0, 1.0)))
+    # The subject is the zero launch; its rounding residue fills the whole window. The
+    # check is read at run time, so it can be switched off after translation.
+    simulation.settings = dataclasses.replace(simulation.settings, boundary_check=None)
     report = account(simulation)
     assert simulation.general is not None
     nodes = int(simulation.general.tables.electric.shape[1])
@@ -1188,7 +1192,7 @@ def test_an_hdf5_file_carries_the_labels_and_the_identities(guide, grid, tmp_pat
     simulation = build(guide, grid)
     simulation.run(path, progress="none")
     stored = resume(path).metadata
-    assert stored.schema_version == 26
+    assert stored.schema_version == 27
     assert stored.modal is not None
     assert dict(stored.modal)["basis"] == "general_modal"
     labels = [dict(one.label) for one in stored.modes if one.label is not None]
@@ -1509,10 +1513,15 @@ WEAK_COMMON = {
 
 @pytest.fixture(scope="module")
 def weak():
-    """The weakly guiding system: two grids, one guide band, and the coefficients."""
-    field_grid = FieldGrid.from_limits(GENERAL_Z_END, 835e-9, WEAK_WINDOW, WEAK_TRANGE)
+    """The weakly guiding system: two grids, one guide band, and the coefficients.
+
+    On the former grid geometry, on which the departures quoted here were measured.
+    """
+    field_grid = FieldGrid.from_limits(
+        GENERAL_Z_END, 835e-9, WEAK_WINDOW, WEAK_TRANGE, **LEGACY_GRID
+    )
     envelope_grid = EnvelopeGrid.from_limits(
-        GENERAL_Z_END, 835e-9, WEAK_WINDOW, WEAK_TRANGE
+        GENERAL_Z_END, 835e-9, WEAK_WINDOW, WEAK_TRANGE, **LEGACY_GRID
     )
     # One guide serves both routes, so its knots must cover the union of the two
     # grids' active bands: each starts at half its own lowest declared frequency.
@@ -1562,8 +1571,8 @@ def run_general(weak, provider, *, changes=None, state=None):
     """Return a completed general modal run, with **no absorber** by default.
 
     ``from_waveguide`` builds the grid's default collar, as every waveguide entry
-    point does, and ``prop_gnlse`` builds none; a like-for-like comparison has to
-    turn it off, which is a settings change and not a keyword.
+    point does, and so does ``prop_gnlse`` (SEP 21), whose runs here take
+    ``absorber=False``; a like-for-like comparison turns both off.
     The default-collar case needs no change, so it goes through the public
     function, which is where ``prop_waveguide(provider=...)`` is exercised.
     """
@@ -1946,7 +1955,11 @@ def test_a_weakly_guiding_channel_agrees_with_the_calibrated_gnlse(
             grid=envelope_grid,
             fibre=channel,
             shock=True,
-            **{"integrator": Multistep(), **({"noise": None, **common})},
+            **{
+                "integrator": Multistep(),
+                "absorber": False,
+                **({"noise": None, **common}),
+            },
         ),
     )
     straight, peak = straight_peak(general_linear, field_grid)
@@ -1969,7 +1982,11 @@ def test_a_weakly_guiding_channel_agrees_with_the_calibrated_gnlse(
             grid=envelope_grid,
             fibre=channel,
             shock=True,
-            **{"integrator": Multistep(), **({"noise": None, **common})},
+            **{
+                "integrator": Multistep(),
+                "absorber": False,
+                **({"noise": None, **common}),
+            },
         ),
     )
     turned = turned_by(general, straight, peak, field_grid)
@@ -2021,7 +2038,11 @@ def test_what_the_in_stage_collar_costs_the_same_comparison(weak, record_propert
             grid=envelope_grid,
             fibre=channel,
             shock=True,
-            **{"integrator": Multistep(), **({"noise": None, **common})},
+            **{
+                "integrator": Multistep(),
+                "absorber": False,
+                **({"noise": None, **common}),
+            },
         ),
     )
     gnlse_linear = cast(
@@ -2032,7 +2053,11 @@ def test_what_the_in_stage_collar_costs_the_same_comparison(weak, record_propert
             grid=envelope_grid,
             fibre=channel,
             shock=True,
-            **{"integrator": Multistep(), **({"noise": None, **common})},
+            **{
+                "integrator": Multistep(),
+                "absorber": False,
+                **({"noise": None, **common}),
+            },
         ),
     )
     envelope_straight, envelope_peak = straight_peak(gnlse_linear, envelope_grid)
@@ -2611,7 +2636,10 @@ def test_fixed_steps_beyond_the_collar_are_refused_at_translation():
         simulation().run(progress="none")
     for settings in ({"absorber_scheme": "split_step"}, {"absorber": None}):
         stable = simulation()
-        stable.settings = dataclasses.replace(stable.settings, **settings)
+        # The subject is the collar's limit; the short window's light reaches its edge.
+        stable.settings = dataclasses.replace(
+            stable.settings, boundary_check=None, **settings
+        )
         output = stable.run(progress="none")
         assert isinstance(output, MemoryOutput)
         assert all(np.all(np.isfinite(kept(plane.field))) for plane in output.planes())

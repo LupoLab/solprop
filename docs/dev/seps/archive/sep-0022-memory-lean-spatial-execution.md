@@ -12,7 +12,7 @@
 | **Type** | Change |
 | **Created** | 2026-10-16 |
 | **Resolution** | Accepted 2026-10-18 by John Travers after his final review, on the revisions of 2026-10-18 recorded in Part III; Part I is frozen from here |
-| **Requires** | — (related: [SEP 21](../sep-0021-absorbing-boundaries.md), the temporal collar, whose Q10 names this SEP as its transverse follow-up) |
+| **Requires** | — (related: [SEP 21](sep-0021-absorbing-boundaries.md), the temporal collar, whose Q10 names this SEP as its transverse follow-up) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
 | **Implementation** | phase 1: Opus 5.5 (AI) for John Travers, branch `feature/sep-0022-phase-1`; phase 2: Opus 5.5 (AI) for John Travers, branch `feature/sep-0022-phase-2`; phase 3: Opus 5.5 (AI) for John Travers, branch `feature/sep-0022-phase-3` |
@@ -93,7 +93,7 @@ physically do.
 
 **In scope.** The five items of §1, on the Cartesian kind (and the line, `LineGrid`). They
 also apply to the radial and planar kinds wherever an item is not specific to periodic
-grids (§5). This is the follow-up SEP that [SEP 21](../sep-0021-absorbing-boundaries.md)'s
+grids (§5). This is the follow-up SEP that [SEP 21](sep-0021-absorbing-boundaries.md)'s
 Q10 names for the transverse collars, in two respects: the Cartesian routes' k⊥ collar,
 and decoupling the transverse collar's length from the spectral rate's ceiling. The
 real-space transverse collar's geometry and strength stay as SEP 21's phase-0 finding R4

@@ -132,8 +132,11 @@ def moving_case(guide, backend):
         backend=backend,
         **{"noise": None, **GRIN_PULSE},
     )
-    # No collar, as the moving guide's own tests run it.
-    simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
+    # No collar, as the moving guide's own tests run it, and no watch on the window's
+    # edges: the band-limited pulse holds part of its energy in the guards (SEP 21).
+    simulation.settings = dataclasses.replace(
+        simulation.settings, absorber=None, boundary_check=None
+    )
     return simulation
 
 

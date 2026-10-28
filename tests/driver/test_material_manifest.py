@@ -556,7 +556,7 @@ def test_ten_steps_write_the_manifest_and_a_changed_identity_is_refused(tmp_path
         **{"noise": None, **options},
     )
     stored: Any = open_file(path).metadata
-    assert stored.schema_version == 26
+    assert stored.schema_version == 27
     assert names(stored.materials) == [
         "eos/Ar",
         "fit/Ar",

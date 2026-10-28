@@ -218,7 +218,7 @@ propagation compares the two codes.
 | Vincetti production form against converged JCMwave FEM rows (30 µm core, 180 nm walls, six tubes; t/r = 0.017, outside the fits' range) | index RMSE 7.5e-6 over 79 vacuum rows, 2.9 % of the decrement median away from resonance; 4.5e-6 and 0.7 % at 10 bar argon; the vacuum-to-argon change to 7.2e-8; window loss 0.5–1.6× the FEM's; fitted area 2.5 % / 1.2 % median; first-band β₂ 20–70 % less negative than the FEM's | `tests/modes/test_vincetti_fem.py` (bounds with 15 % margin) |
 | Marcatili effective indices | 3e-10 in `n − 1` and 1.3e-11 in the loss, every mode of the M2 set | `tests/modes/test_luna_modes.py` |
 | `N`, `A_eff`, the Bessel zeros and `E_xy` | solprop's to rounding, bar Luna's older ε₀ (1.33e-10) | `tests/modes/test_luna_modes.py` |
-| the M2 and CtC grids | bitwise equal at 90, 100 and 170 nm; one ulp at the reduced CtC case's 250 nm | `tests/driver/test_prop_capillary.py` |
+| the M2 and CtC grids | bitwise equal at 90 and 100 nm; one ulp at the reduced CtC case's 250 nm | `tests/driver/test_prop_capillary.py` |
 
 A propagation comparison is read with the deliberate departures from Luna in mind —
 optmat's default ionisation rate, the rate absorber in place of Luna's per-step window
@@ -340,31 +340,26 @@ densities agree to 0.04 %, which is what excludes the rate as a cause.
 ```
 
 
-## 6. Milestone M4: the comb-to-continuum continuum, six modes, 0.2 m
+## 6. Milestone M4: the comb-to-continuum case
 
-All rows are asserted in `tests/driver/test_prop_capillary.py`.
+All rows are asserted in `tests/driver/test_prop_capillary.py`. Luna is compared on the
+reduced case only; the full case (six modes, 0.3 m on a 4 ps window) is solprop's own.
 
-| metric | reduced case (2 modes, 1 ps window) |
+| metric | reduced case (1 mode, 2 ps window, 0.1 m) |
 |---|---|
-| input states | 2.014e-6 in total energy, at the 1e-5 pulse/grid bound |
-| fundamental, shape | 0.15438 |
-| fundamental, content | 1.04401 |
-| second mode | 0.58884 |
-| Stokes rungs, ours over Luna's | 0.84578, 1.52348, 1.21135 |
-| peak on-axis field | 0.71 of Luna's — a single-sample extremum, open, no bound rests on it |
+| exit energy, ours over Luna's | 1.00001 |
+| fundamental, content | 1.00001 |
+| fundamental, shape | 0.03833 |
 
-The witness runs use the true-power conversion and launch of the introduction, and match
-the archived Luna vibrational strength explicitly. The fill is constant, so the change of
-variables leaves no logarithmic term behind: every metric is within 2e-4 of its
-vacuum-normalised value, which is the evidence that the launch energy is the whole of the
-convention's effect.
-
-The reduced case is a pessimistic one: its window is 2.5 pulse widths and both codes'
-collars work there — a twentieth of its input field sits in the temporal collar, so a
-change of the collar's profile moves every metric of the reduced column. The bounds are
-±10 % two-sided on the reduced case; `numba_cpu` reproduces every metric to four figures.
-Still open: solprop accepts 11 671 steps to Luna's 9163 at the same tolerance, a
-controller question and not a tuning target.
+The reduced case is the fundamental alone on a window five pulse widths wide, so the
+pump stays clear of both codes' temporal collars, and it runs without input noise.
+Noise-free, its Raman cascade grows only from rounding, so the two codes agree on the
+fundamental and its energy, and the shape row is the relative L2 distance of the
+normalised exit spectra. Seeded with shot noise the same case forms the cascade
+(`test_the_seeded_reduced_ctc_case_forms_the_raman_cascade`), which is asserted on
+solprop alone. The former reduced case, two modes on a 1 ps window, clipped the 400 fs
+pump at the window's edge, and the stimulated Raman scattering it seeded in both codes
+was the boundary's (SEP 21, D2).
 
 ## 7. Backend equivalence
 
@@ -408,9 +403,9 @@ relative-L2 bounds of `1e-10` and `1e-9`.
 | the analytic field family | 1e-13 | 4.6e-16 | `tests/backends/test_numba_cpu.py` |
 | the reduced M2 case | 1e-10 | 3.5e-14, at identical step counts | `tests/driver/test_prop_capillary.py` |
 | the reduced M2 case, native CPU | 1e-10 | 3.5e-14, at identical step counts | `tests/driver/test_prop_capillary.py` |
-| the reduced CtC field, native CPU against fresh Numba | 1e-9 | below the bound at identical 1,235 accepted steps | `tests/driver/test_prop_capillary.py` |
+| the reduced CtC field with seeded shot noise, native CPU against fresh Numba | 1e-9 | 5.2e-11 at identical 4,937 accepted steps | `tests/driver/test_prop_capillary.py` |
 | the reduced M2 case, native CUDA | 1e-10 | 5.5534e-13, at identical step counts | `tests/backends/test_native_gpu.py` (the `gpu` lane) |
-| the reduced CtC field, native CUDA against fresh Numba | 1e-9 | below the bound at identical 1,235 accepted steps | `tests/backends/test_native_gpu.py` (the `gpu` lane) |
+| the reduced CtC field, native CUDA against fresh Numba | 1e-9 | below the bound at identical 1,235 accepted steps on the former 1 ps two-mode case; not yet re-measured on the 2 ps one-mode case | `tests/backends/test_native_gpu.py` (the `gpu` lane) |
 | native Raman kernel/convolution | operation-count and FFT-depth bounds fixed before execution | native host reference, all three drive forms and tail chunks pass | the native tests under `native/tests/native/` |
 | the plasma scan's running sums | `4 n_to ε` across scalar/vector libm paths | 2.79e-16 scaled at 256 samples on an x86-64 host; same-path repetition within the same bound | `tests/backends/test_numba_cpu_kernels.py` |
 | two runs, one thread against many, on one fixed schedule | the step's rounding budget from its reduction lengths | within it | `tests/backends/test_numba_cpu.py` |
@@ -470,15 +465,13 @@ which that target does not bound.
 - **Accepted-step counts.** Luna's are not reproducible across machines (4856 against 4851
   on one case); solprop's were identical on both when measured, an observation rather
   than a requirement ([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)).
-  solprop takes 27 % more steps than Luna on the CtC case and 58 % fewer on the M2 case at the same nominal tolerance, because the
-  two norms mean different things.
-- **The CtC peak on-axis field**, 0.71 of Luna's on the reduced case; a single-sample
-  extremum, to be recomputed on one definition before it is read as physics.
+  solprop takes 58 % fewer steps than Luna on the M2 case at the same nominal tolerance,
+  because the two norms mean different things. On the reduced CtC case (one mode, 2 ps)
+  it takes 3163 accepted steps to Luna's 205; that gap is recorded and not yet explained.
 - **The spatial witnesses** (§10) are diagnostics, not bounds: full Cartesian agreement
   is close, the modal-prefactor difference explains most of the elliptical-envelope and
   circular-plasma differences, and radial on-axis and elliptical-field residuals remain.
-- **Not yet measured at all**: a Luna comparison above six modes; the mode-2 energy
-  against a converged Luna on the CtC case, which has no converged witness.
+- **Not yet measured at all**: a Luna comparison above six modes.
 
 ## 9. Regenerating the numbers
 

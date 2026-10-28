@@ -16,6 +16,7 @@ from numpy.testing import assert_allclose
 from scipy.linalg import expm
 from scipy.special import gammainc, j0
 
+from legacy_geometry import LEGACY_GRID
 from solprop.backends.memory import estimate_memory, ledger_groups
 from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
@@ -83,7 +84,7 @@ def absorber_case(request):
         if family == "envelope"
         else FieldGrid.from_limits
     )
-    grid = constructor(LENGTH, 800e-9, (600e-9, 1.2e-6), 150e-15)
+    grid = constructor(LENGTH, 800e-9, (600e-9, 1.2e-6), 150e-15, **LEGACY_GRID)
     space = RadialGrid(300e-6, 16, window_factor=0.5)
     reference_length = 5 * LENGTH
     boundary = Absorber(

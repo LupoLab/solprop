@@ -95,7 +95,7 @@ The run
         fwhm=30e-15,
         energy=250e-6,
         plasma=False,
-        trange=700e-15,
+        trange=3e-12,
         wavelength_limits=(200e-9, 4e-6),
         n_save=301,
         progress="none",
@@ -187,13 +187,13 @@ spectra.
 
  .. code-block:: none
 
-    input 30 fs; output 132.4 fs; transform limit 1.6 fs; compressed 2.0 fs, 67% of the transform-limited peak power
+    input 30 fs; output 132.4 fs; transform limit 1.5 fs; compressed 2.0 fs, 65% of the transform-limited peak power
     Compression by taylor
-      found:      GDD -61.25 fs^2, TOD -18.51 fs^3
-      duration:   132.4 fs before, 1.951 fs after, 1.554 fs at the transform limit
-      peak power: 1.547 GW before, 85.52 GW after, 127.4 GW at the limit
-      quality:    0.6715 of the transform-limited peak power
-      search:     converged: Optimization terminated successfully. (2705 evaluations)
+      found:      GDD -61.24 fs^2, TOD -18.51 fs^3
+      duration:   132.4 fs before, 1.951 fs after, 1.47 fs at the transform limit
+      peak power: 1.547 GW before, 85.5 GW after, 131.6 GW at the limit
+      quality:    0.6495 of the transform-limited peak power
+      search:     converged: Optimization terminated successfully. (1775 evaluations)
 
 
 
@@ -217,7 +217,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    21 s; backend native
+    65 s; backend native
 
 
 
@@ -225,7 +225,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 20.533 seconds)
+   **Total running time of the script:** (1 minutes 4.730 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_01_self_phase_modulation.py:

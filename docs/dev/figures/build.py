@@ -594,6 +594,7 @@ MODULES = {
         Module("noise.py"),
         Module("linear.py"),
         Module("boundaries.py"),
+        Module("monitor.py"),
         Module("polarisation.py"),
         Module("optics.py"),
         Module("tools.py"),

@@ -355,7 +355,11 @@ def test_auto_runs_a_moving_guide_on_native():
             backend="auto",
             **{"noise": None, **GRIN_PULSE},
         )
-        simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
+        # The bare guide, no absorber and so no window watch: the light reaches the
+        # edge of this short window by design.
+        simulation.settings = dataclasses.replace(
+            simulation.settings, absorber=None, boundary_check=None
+        )
         run = cast(MemoryOutput, simulation.run(progress="none"))
     assert run.metadata is not None
     record = run.metadata.backend

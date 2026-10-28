@@ -17,6 +17,7 @@ import numpy as np
 import pytest
 
 from bounds import assert_within, stencil_bound
+from legacy_geometry import LEGACY_GRID
 from mixture_cases import mixture_case
 from solprop.backends.numba_cpu import kernels
 from solprop.backends.numba_cpu.backend import _channel_rate_arrays, _rate_arrays
@@ -28,7 +29,9 @@ from solprop.nonlinear.responses import PlasmaResponse
 from solprop.translate.plasma_integration import design_running_integral
 from solprop.translate.responses import plasma_coefficients
 
-GRID = FieldGrid.from_limits(1.0, 800e-9, (200e-9, 2e-6), 60e-15, ffac=6.0)
+GRID = FieldGrid.from_limits(
+    1.0, 800e-9, (200e-9, 2e-6), 60e-15, ffac=6.0, **LEGACY_GRID
+)
 """A short default-oversampled window: K = 4, a few hundred samples."""
 
 DENSITY = 2e25

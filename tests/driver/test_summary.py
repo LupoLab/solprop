@@ -105,6 +105,9 @@ def summary_of(simulation, *, backend="numpy_ref", execution=None, **keywords):
         backend=backend,
         execution={} if execution is None else execution,
         output=keywords.pop("output", MemoryOutput()),
+        boundary_check=keywords.pop(
+            "boundary_check", simulation.settings.boundary_check
+        ),
         **keywords,
     )
 
@@ -147,8 +150,13 @@ def test_gnlse_summary_names_the_fibre_and_says_noise_and_raman_are_off():
     assert table["medium"] == "fibre, gamma 0.11 /W/m"
     assert table["responses"] == "Kerr\nRaman off"
     assert table["shot noise"] == "off"
-    assert table["absorber"] == "none"
-    assert table["grid"].startswith("envelope, 1024 points, window ")
+    # The GNLSE takes the routes' default collar, with its edges watched (SEP 21).
+    assert table["absorber"] == (
+        "temporal, nonlinear scheme; "
+        "edges watched (guards 0.05 of the window, budget 1e-03)"
+    )
+    # The window holds the request and the collar outside it, on a smooth size.
+    assert table["grid"].startswith("envelope, 768 points, window ")
     assert table["start"] == "new run"
     assert table["output"] == "MemoryOutput"
     assert "pressure" not in table
@@ -173,7 +181,10 @@ def test_mode_averaged_capillary_with_noise_and_plasma():
         "plasma (He), rate optmat recommended",
         "Raman off",
     ]
-    assert table["absorber"] == "temporal, nonlinear scheme"
+    assert table["absorber"] == (
+        "temporal, nonlinear scheme; "
+        "edges watched (guards 0.05 of the window, budget 1e-03)"
+    )
     assert table["integrator"].startswith("Multistep, variable order up to ")
     assert table["tolerances"].startswith("rtol 1e-06, atol ")
 
@@ -280,9 +291,12 @@ def test_the_integrator_row_names_each_march():
         gnlse(
             integrator=LowStorageRungeKutta(),
             schedule=FixedSchedule(np.full(4, 0.0025)),
+            # Four 2.5 mm steps are past the default collar's stability limit.
+            absorber=False,
         )
     )
     assert low["integrator"] == "LowStorageRungeKutta (rk4ip)"
+    assert low["absorber"].startswith("none; edges watched")
     assert low["tolerances"].endswith("replaying a fixed schedule of 4 steps")
 
 

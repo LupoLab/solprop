@@ -39,16 +39,17 @@ use; photoionisation is off.
 **What to look for.** After a short compression the soliton emerges and its spectrum
 moves steadily to the red, to about 1.75 um by the end of the fibre, while the pulse
 in time bends towards later arrival. The remaining pump radiation stays near 1030 nm,
-and at the exit a second, non-soliton feature near 1.33 um is the tallest on the red
-side of the spectrum (the soliton's peak is about 0.84 of it); the shift is therefore
-followed as the longest-wavelength strong peak, not the tallest one.
+and at the exit a second, non-soliton feature near 1.33 um reaches about three
+quarters of the soliton's peak on the red side of the spectrum; the shift is therefore
+followed as the longest-wavelength strong peak, which such a feature cannot take over,
+not the tallest one.
 
 **What is approximate.** The waveguide dispersion of a capillary is used for an
 antiresonant fibre, whose resonances are ignored; only the fundamental mode is
 carried. The Raman response is optmat's line-by-line model of hydrogen, with its lines
 grouped by width into three damping groups; 5 bar is 4.6 amagat, inside the model's
 validated range. With solprop's former built-in Raman and Kerr data (before SEP 3)
-the soliton reached about 1.74 um, and the 1.33 um feature stayed below it.
+the soliton reached about 1.74 um.
 
 This is panel (e) of the survey of nonlinear processes in the review by Travers et
 al.; the experiment it is based on is reported by Lippl et al., Optics Letters 51
@@ -58,13 +59,13 @@ The :doc:`Raman guide </guide/media/raman>` explains the delayed response,
 line widths and time-window requirements. Compare the blue-shifting mechanism
 in :doc:`plot_06_ionisation_blue_shift`.
 
-.. GENERATED FROM PYTHON SOURCE LINES 48-51
+.. GENERATED FROM PYTHON SOURCE LINES 49-52
 
 The run
 -------
 Molecular hydrogen carries its rotational and vibrational Raman response by default.
 
-.. GENERATED FROM PYTHON SOURCE LINES 51-80
+.. GENERATED FROM PYTHON SOURCE LINES 52-81
 
 .. code-block:: Python
 
@@ -90,7 +91,7 @@ Molecular hydrogen carries its rotational and vibrational Raman response by defa
         energy=4e-6,
         loss=False,
         plasma=False,
-        trange=3.5e-12,
+        trange=5e-12,
         wavelength_limits=(400e-9, 4e-6),
         n_save=301,
         progress="none",
@@ -104,12 +105,12 @@ Molecular hydrogen carries its rotational and vibrational Raman response by defa
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 81-83
+.. GENERATED FROM PYTHON SOURCE LINES 82-84
 
 Spectral and temporal evolution
 -------------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 83-94
+.. GENERATED FROM PYTHON SOURCE LINES 84-95
 
 .. code-block:: Python
 
@@ -136,16 +137,17 @@ Spectral and temporal evolution
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 95-101
+.. GENERATED FROM PYTHON SOURCE LINES 96-103
 
 The shift
 ---------
 The soliton's wavelength along the fibre: on the red side of the pump, the
 longest-wavelength spectral peak that reaches at least 30 % of the red side's
-maximum (with a prominence of 10 % of it). The tallest red-side peak is not the
-soliton at the exit: a cluster near 1.33 um outgrows it there.
+maximum (with a prominence of 10 % of it). The tallest red-side peak would follow a
+cluster near 1.33 um wherever it outgrew the soliton; at the exit it reaches about
+three quarters of the soliton's height.
 
-.. GENERATED FROM PYTHON SOURCE LINES 101-132
+.. GENERATED FROM PYTHON SOURCE LINES 103-134
 
 .. code-block:: Python
 
@@ -205,17 +207,17 @@ soliton at the exit: a cluster near 1.33 um outgrows it there.
 
  .. code-block:: none
 
-    soliton peak at the exit: 1748 nm; tallest red-side peak: 1334 nm
+    soliton peak at the exit: 1753 nm; tallest red-side peak: 1753 nm
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 133-135
+.. GENERATED FROM PYTHON SOURCE LINES 135-137
 
 Runtime and reproducibility
 ----------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 135-137
+.. GENERATED FROM PYTHON SOURCE LINES 137-139
 
 .. code-block:: Python
 
@@ -229,7 +231,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    584 s; backend native
+    206 s; backend native
 
 
 
@@ -237,7 +239,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (9 minutes 43.903 seconds)
+   **Total running time of the script:** (3 minutes 25.526 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_05_raman_self_frequency_shift.py:

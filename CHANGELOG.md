@@ -56,6 +56,32 @@ The first public release. It contains:
   benchmark suite's `ctc_reduced` case moves to a 2 ps window (revision 2). Kernel schema 37 (`Multistep.carrier_frame`); every `Multistep`
   representation names the policy, so a march snapshot taken before it restarts its
   history.
+- **Time-window boundaries**
+  ([SEP 21](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0021-absorbing-boundaries.html),
+  phase 2, in progress). The temporal collar lies outside the requested window: grids
+  widen to `trange / (1 - 2 collar_fraction)`, with `collar_fraction` now 0.1, so the
+  whole request is flat; `collar_placement="inside"` rebuilds the former geometry.
+  Transform sizes default to `fft_size="auto"`, the cheapest 2-3-5-smooth size up to the
+  next power of two by a fitted FFT cost model (`grid.fft_cost`). GNLSE and spatial runs
+  get the default temporal and spectral collar, as capillary runs have (the real-space
+  transverse collar stays off unless an absorber is given: `Absorber.spatial`); the
+  spatial routes apply it once per accepted step (`absorber_scheme="split_step"`)
+  unless planes are interpolated, and `SimulationSettings.absorber_scheme` defaults to
+  `None`, the route's choice. Every
+  `prop_*` interface takes `absorber=False`, which switches both soft collars off and
+  keeps the hard band mask (`boundaries.no_absorber`), and `absorber_scheme=`. A boundary
+  monitor (`solprop.monitor`, `SimulationSettings.boundary_check` or the
+  `boundary_check=` keyword of `prop_gnlse`, `prop_capillary` and `prop_waveguide`, on by
+  default) watches
+  the window's guards at the launch and every committed step, warns
+  (`BoundaryWarning`) and then stops (`BoundaryError`) when light above the shot-noise
+  floor reaches the edge, and records the energy the temporal collar removed (exactly
+  under the split scheme) with a row per saved plane. Quiet edges are checked every
+  eighth step or every `length / 256`, and while the collar holds nothing above the
+  floor its in-stage term is left out of the stages, so a run whose light stays clear
+  pays for neither. Output schema 27 (`Absorber.spatial`,
+  and the default collar of runs that declared none). The benchmark suite's cases take
+  the new defaults at new revisions.
 - **Incident beams into general modal guides**
   ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0031-simulation-coupling.html),
   phases 1 and 3). `from_waveguide(provider=..., incident=SpatialPulse(...),
@@ -209,6 +235,12 @@ The first public release. It contains:
     records what applied.
   - Each backend is tested against the reference implementation within derived error
     bounds.
+  - The hydrogen comb-to-continuum (CtC) test and benchmark cases: the reduced case is
+    the fundamental mode alone on a 2 ps window, because a 1 ps window clipped the
+    launched 400 fs pump at the temporal collar, and in noise-free runs that clipped
+    edge seeded the Raman cascade. Seeded with shot noise instead, the reduced case
+    forms the cascade over its 0.1 m, which a test now checks; noise-free, the full case
+    runs 0.3 m, where the continuum forms on its 4 ps grid.
   - A short start-up: a run on the native backend imports neither Numba nor
     `scipy.signal`, plotting imports `matplotlib.pyplot` only when it draws, and an
     optmat rate builds only the model it uses (optmat 0.9.1, which reads only the data a

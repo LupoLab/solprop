@@ -20,10 +20,13 @@ from typing import cast
 import numpy as np
 import pytest
 
+from backends.conftest import WAVELENGTH
 from capability_routes import ROUTES
+from legacy_geometry import LEGACY_GRID
 from solprop.backends import available
 from solprop.backends.multistep import HostHistory
 from solprop.exceptions import ResponseBudgetError
+from solprop.grid import EnvelopeGrid
 from solprop.stepper import FixedSchedule, PIController
 from solprop.stepper.multistep import ComparisonMultistep, Multistep
 
@@ -139,8 +142,14 @@ def assert_same_run(first, second):
     ids=["adams", "hermite", "exponential"],
 )
 def test_resident_dense_observation_follows_the_host_engine(
-    narrow_grid, soliton_problem, integrator, monkeypatch
+    soliton_problem, integrator, monkeypatch
 ):
+    # The narrow fixture's window as it was built before SEP 21 (1024 bins): the
+    # steps' 1e-6 agreement below was measured on it, and the comparison PEC method's
+    # step choices part by 4.9e-5 on the 768-bin grid the fixture now builds.
+    narrow_grid = EnvelopeGrid.from_limits(
+        1.0, WAVELENGTH, (500e-9, 2e-6), 1e-12, **LEGACY_GRID
+    )
     problem = soliton_problem(
         narrow_grid,
         2,

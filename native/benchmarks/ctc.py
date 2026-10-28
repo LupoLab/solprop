@@ -20,8 +20,7 @@ import threading
 import time
 import warnings
 from dataclasses import replace
-from pathlib import Path
-from typing import Any, cast
+from typing import Any, TypedDict, cast
 
 from device_record import DeviceRecord, device_record
 
@@ -77,75 +76,56 @@ class Measurement(Result):
     median_absolute_deviation: float
 
 
-def _source_root() -> Path:
-    import solprop
+# The two CtC shapes, defined here rather than read from a stored comparison: hydrogen
+# at 40 bar in a 16 um capillary, 400 fs and 10 uJ at 515 nm, no loss, the package's
+# own materials. The full shape runs 0.3 m on six modes and a 4 ps, 170 nm-4 um grid;
+# the reduced one is the fundamental alone over 0.1 m on a 2 ps, 250 nm-2 um grid, five
+# times the pulse, which keeps the launch clear of the temporal collar.
+class Shape(TypedDict):
+    """One CtC shape: its length, modes, band, window and save count."""
 
-    return Path(solprop.__file__).resolve().parents[2]
+    length: float
+    modes: int
+    wavelength_limits: tuple[float, float]
+    trange: float
+    n_save: int
 
 
-def _cladding(tag: str, grid: Any, media: dict[str, object]) -> Any:
-    import numpy as np
-    from scipy.interpolate import CubicSpline  # pyright: ignore[reportMissingTypeStubs]
-
-    from solprop.constants import C
-    from solprop.physdata.glasses import TabulatedGlass
-
-    band = grid.active_mask
-    omega = grid.omega[band]
-    index = (
-        np.asarray(media[f"{tag}_CLAD_RE"])[band]
-        + 1j * np.asarray(media[f"{tag}_CLAD_IM"])[band]
-    )
-    wavelength_um = 2.0e6 * math.pi * C / omega
-    order = np.argsort(wavelength_um)
-    log_wavelength = np.log(wavelength_um[order])
-    return TabulatedGlass(
-        name="SiO2",
-        source="luna",
-        wavelength_range=(
-            float(wavelength_um[order][0]) * 1e-6,
-            float(wavelength_um[order][-1]) * 1e-6,
-        ),
-        citation="Luna's shipped cladding table, sampled on this run's frequency axis",
-        provenance={"source": "the media emitted beside this witness"},
-        _real=CubicSpline(log_wavelength, np.real(index[order])),
-        _log_extinction=CubicSpline(
-            log_wavelength, np.log(np.maximum(np.imag(index[order]), 1e-30))
-        ),
-        _log_wavelength_limits=(float(log_wavelength[0]), float(log_wavelength[-1])),
-    )
+CASES: dict[str, Shape] = {
+    "ctc_reduced": {
+        "length": 0.1,
+        "modes": 1,
+        "wavelength_limits": (250e-9, 2e-6),
+        "trange": 2e-12,
+        "n_save": 21,
+    },
+    "ctc_full": {
+        "length": 0.3,
+        "modes": 6,
+        "wavelength_limits": (170e-9, 4e-6),
+        "trange": 4e-12,
+        "n_save": 201,
+    },
+}
 
 
 def build_simulation(case_name: str, backend_name: str) -> Any:
     from solprop.driver import Simulation
-    from solprop.grid import FieldGrid
 
-    data = _source_root() / "tests" / "data"
-    witness = json.loads((data / "luna_ctc.json").read_text())
-    media = json.loads((data / "luna_ctc_media.json").read_text())
-    key = "reduced" if case_name == "ctc_reduced" else "full"
-    tag = key.upper()
-    case = witness[key]
-    grid = FieldGrid.from_limits(
-        case["length"],
-        witness["lambda0"],
-        (case["lambda_min"], case["lambda_max"]),
-        case["trange"],
-    )
+    case = CASES[case_name]
     return Simulation.from_capillary(
-        case["radius"],
+        16e-6,
         case["length"],
         "H2",
-        case["pressure"],
-        grid=grid,
-        lambda0=witness["lambda0"],
-        fwhm=witness["tau_fwhm"],
-        energy=witness["energy"],
+        40.0,
+        lambda0=515e-9,
+        wavelength_limits=case["wavelength_limits"],
+        trange=case["trange"],
+        fwhm=400e-15,
+        energy=10e-6,
         modes=case["modes"],
         loss=False,
         raman=True,
-        temperature=witness["temperature_k"],
-        cladding=_cladding(tag, grid, media),
         n_save=case["n_save"],
         rtol=1e-6,
         atol=1e-10,

@@ -37,6 +37,7 @@ import pytest
 
 from backends.matched import dispersive_response_bound
 from bounds import assert_within
+from legacy_geometry import LEGACY_GRID, bare_absorber
 from modal_provider_cases import GENERAL_Z_END, WAVELENGTH, general_grid
 from solprop.backends.numpy_ref import NumpyRefBackend, general_modal, passes
 from solprop.backends.numpy_ref.backend import _general_maps
@@ -342,8 +343,11 @@ def test_without_dispersion_the_free_derivative_is_the_constant_one(thg, geometr
 def free_energy_change(response: object, materials: MaterialSelection) -> float:
     """Return the energy change of ten fixed steps of a lossless free-space run."""
     length = 2e-4
-    grid = FieldGrid.from_limits(length, 800e-9, (200e-9, 3e-6), 100e-15)
+    # The former grid and no collar: ten fixed steps are refused beside the default
+    # one, and the subject is the response, not the boundaries.
+    grid = FieldGrid.from_limits(length, 800e-9, (200e-9, 3e-6), 100e-15, **LEGACY_GRID)
     settings = SimulationSettings(
+        absorber=bare_absorber(grid),
         controller=PIController(rtol=1e-8, atol=1e-14),
         save_planes=[length],
         dz_max=length / 10,
@@ -399,7 +403,10 @@ def planar_simulation(
     response: object, *, steps: int = 1, materials: MaterialSelection = CARRIER
 ):
     """Return a hybrid planar run: TE1 and TE3 of a lossless argon gap, four k_y."""
-    grid = FieldGrid.from_limits(PLANAR_LENGTH, 800e-9, (200e-9, 3e-6), 100e-15)
+    # The former grid and no collar, as in free_energy_change.
+    grid = FieldGrid.from_limits(
+        PLANAR_LENGTH, 800e-9, (200e-9, 3e-6), 100e-15, **LEGACY_GRID
+    )
     modes = [SlabMode(HALF_GAP, "Ar", 2.0, order=p, loss=False) for p in (1, 3)]
     pulse = PlanarPulse(
         GaussianPulse(wavelength=800e-9, fwhm=15e-15, energy=2e-4),
@@ -415,6 +422,7 @@ def planar_simulation(
         backend="numpy_ref",
         stats=StatsSpec(names=("energy",)),
         integrator=RungeKutta(),
+        absorber=bare_absorber(grid),
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", SolpropWarning)

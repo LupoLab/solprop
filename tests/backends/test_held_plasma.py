@@ -28,7 +28,17 @@ EPS = np.finfo(float).eps
 
 
 def grid_case(limits=(90e-9, 1.6e-6), window=60e-15, fft_size="pow2"):
-    return FieldGrid.from_limits(1.0, 800e-9, limits, window, fft_size=fft_size)
+    # The certificate's cases were sized on the collar inside the window, a twentieth
+    # of it at each edge, as solprop built it before SEP 21 (LEGACY_GRID's collar).
+    return FieldGrid.from_limits(
+        1.0,
+        800e-9,
+        limits,
+        window,
+        fft_size=fft_size,
+        collar_fraction=0.05,
+        collar_placement="inside",
+    )
 
 
 def source(grid, current):

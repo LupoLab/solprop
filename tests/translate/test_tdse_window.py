@@ -17,6 +17,7 @@ import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 from tests.hacc_cases import hacc_response
 
+from legacy_geometry import LEGACY_GRID
 from solprop.exceptions import TranslationError
 from solprop.grid import FieldGrid
 from solprop.nonlinear.tdse import TDSEAtomicWindow
@@ -26,9 +27,10 @@ from solprop.translate.tdse import (
     resolve_atomic_window,
 )
 
-# run_short's grid (SEP 20 section 3.1): 1024 coarse and 2048 fine samples of
-# 50.03 as over 102.5 fs, with the collar flat over the requested +/- 30 fs.
-_GRID = FieldGrid.from_limits(4.05, 800e-9, (9e-8, 1.6e-6), 60e-15)
+# run_short's grid as SEP 20 section 3.1 documents it: 1024 coarse and 2048 fine
+# samples of 50.03 as over 102.5 fs, with the collar flat over the requested +/- 30 fs
+# (power-of-two sizes and the collar inside the window, as grids were built then).
+_GRID = FieldGrid.from_limits(4.05, 800e-9, (9e-8, 1.6e-6), 60e-15, **LEGACY_GRID)
 
 
 def _planck(t, start, stop, taper):

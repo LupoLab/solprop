@@ -19,6 +19,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from legacy_geometry import LEGACY_GRID
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import absorber
 from solprop.constants import C
@@ -55,7 +56,10 @@ def pinned_final():
     count = REFERENCE["count"]
     length = REFERENCE["length"]
     limits = (wavelength / 1.001, wavelength * 1.001)
-    grid = FieldGrid.from_limits(length, wavelength, limits, 50.0 * limits[0] / C)
+    # The former geometry, on which the study chose its launch bin.
+    grid = FieldGrid.from_limits(
+        length, wavelength, limits, 50.0 * limits[0] / C, **LEGACY_GRID
+    )
     index = REFERENCE["launch_bin"]
     simulation = Simulation.from_capillary(
         RADIUS,

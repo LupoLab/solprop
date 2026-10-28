@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from legacy_geometry import LEGACY_GRID
 from solprop.constants import C
 from solprop.grid import FieldGrid
 from solprop.modes import MarcatiliMode
@@ -95,8 +96,11 @@ def mixture_case(
         for i in range(2)
     )
     mixture = Mixture.of(*components)
-    # The held-current certificate requires a resolved collar at both edges.
-    grid = FieldGrid.from_limits(1e-3, 800e-9, (400e-9, 2e-6), 100e-15, ffac=4.0)
+    # The held-current certificate requires a resolved collar at both edges; the
+    # case is sized for the former geometry.
+    grid = FieldGrid.from_limits(
+        1e-3, 800e-9, (400e-9, 2e-6), 100e-15, ffac=4.0, **LEGACY_GRID
+    )
     mode = MarcatiliMode(30e-6, mixture=mixture, cladding=1.45, loss=False)
     responses = []
     for index, component in enumerate(components):

@@ -21,6 +21,7 @@ import numpy as np
 import pytest
 
 from convergence_records import Column, Study, record
+from legacy_geometry import LEGACY_GRID
 from solprop.backends.numpy_ref import passes
 from solprop.constants import C
 from solprop.grid import FieldGrid
@@ -135,7 +136,8 @@ PLASMA_BAND_RESPONSE = Study(
 
 
 def _grid(limits, ffac):
-    return FieldGrid.from_limits(1.0, PUMP, limits, 400e-15, ffac=ffac)
+    # The recorded study's grid: power-of-two sizes, the collar inside the window.
+    return FieldGrid.from_limits(1.0, PUMP, limits, 400e-15, ffac=ffac, **LEGACY_GRID)
 
 
 def _field_on(grid, base, spectrum):

@@ -234,10 +234,10 @@ default ``"auto"``, which is the native build where one is installed.
     MemoryOutput
       state:           closed
       planes:          201, 0 m to 2 m
-      field per plane: 4 x 1 x 2049 (modes x components x omega)
+      field per plane: 4 x 1 x 1601 (modes x components x omega)
       statistics:      core_radius, density, electron_density, energy, fwhm_t, fwhm_t_out...
       between planes:  none
-      run:             RunMetadata(multimode, field grid of 4096, 4 modes, native, 2026-1...
+      run:             RunMetadata(multimode, field grid of 3200, 4 modes, native, 2026-1...
 
 
 
@@ -335,8 +335,8 @@ higher modes.
 
  .. code-block:: none
 
-    gradient : largest peak power 69.2 GW at z = 1.790 m; at the exit 64.4 GW and 2.02 fs
-    constant : largest peak power 68.4 GW at z = 1.970 m; at the exit 67.7 GW and 1.66 fs
+    gradient : largest peak power 69.4 GW at z = 1.790 m; at the exit 64.5 GW and 2.02 fs
+    constant : largest peak power 68.7 GW at z = 1.970 m; at the exit 68.0 GW and 1.65 fs
 
 
 
@@ -438,7 +438,7 @@ ultraviolet is counted with a band-pass,
     gradient : transmitted 0.706; HE_11 7.05e-01, HE_12 6.35e-04, HE_13 4.29e-04, HE_14 8.15e-07
                100-250 nm at the exit: 0.23 uJ (0.09%)
     constant : transmitted 0.713; HE_11 7.10e-01, HE_12 1.75e-03, HE_13 6.26e-04, HE_14 8.03e-06
-               100-250 nm at the exit: 1.53 uJ (0.61%)
+               100-250 nm at the exit: 1.57 uJ (0.63%)
 
 
 
@@ -500,16 +500,16 @@ compressed, fissioned and broadened again before it leaves.
 
     gradient to vacuum mean 0.35 bar:  4.02 fs,   36.6 GW
     gradient to vacuum mean 0.45 bar:  2.88 fs,   49.9 GW
-    gradient to vacuum mean 0.55 bar:  1.81 fs,   67.8 GW
-    gradient to vacuum mean 0.65 bar:  1.39 fs,   60.0 GW
-    gradient to vacuum mean 0.80 bar:  2.29 fs,   30.5 GW
-    gradient to vacuum mean 0.95 bar:  7.51 fs,   15.2 GW
-    constant fill      mean 0.35 bar:  3.99 fs,   34.8 GW
+    gradient to vacuum mean 0.55 bar:  1.80 fs,   68.0 GW
+    gradient to vacuum mean 0.65 bar:  1.37 fs,   60.6 GW
+    gradient to vacuum mean 0.80 bar:  2.27 fs,   30.6 GW
+    gradient to vacuum mean 0.95 bar:  7.50 fs,   15.2 GW
+    constant fill      mean 0.35 bar:  3.97 fs,   34.9 GW
     constant fill      mean 0.45 bar:  2.55 fs,   50.2 GW
-    constant fill      mean 0.55 bar:  1.54 fs,   69.7 GW
-    constant fill      mean 0.65 bar:  1.28 fs,   61.9 GW
-    constant fill      mean 0.80 bar:  1.44 fs,   41.2 GW
-    constant fill      mean 0.95 bar:  1.72 fs,   28.0 GW
+    constant fill      mean 0.55 bar:  1.53 fs,   70.2 GW
+    constant fill      mean 0.65 bar:  1.26 fs,   62.7 GW
+    constant fill      mean 0.80 bar:  1.42 fs,   41.5 GW
+    constant fill      mean 0.95 bar:  1.65 fs,   28.3 GW
 
 
 
@@ -539,7 +539,7 @@ Fourteen complete two-metre runs of four coupled modes.
 
  .. code-block:: none
 
-    394 s; backend native, 32 threads
+    452 s; backend native, 16 threads
 
 
 
@@ -556,7 +556,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (6 minutes 34.463 seconds)
+   **Total running time of the script:** (7 minutes 31.972 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_01_gradient_compressor.py:

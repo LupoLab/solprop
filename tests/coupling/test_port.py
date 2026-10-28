@@ -9,6 +9,7 @@ import dataclasses
 import numpy as np
 import pytest
 
+from legacy_geometry import LEGACY_GRID
 from solprop.coupling import (
     CouplingLaunch,
     CouplingModel,
@@ -31,7 +32,7 @@ LIMITS = (600e-9, 1.2e-6)
 
 
 def grid_of(trange=1e-12, limits=LIMITS):
-    return EnvelopeGrid.from_limits(1.0, 800e-9, limits, trange)
+    return EnvelopeGrid.from_limits(1.0, 800e-9, limits, trange, **LEGACY_GRID)
 
 
 BASIS = PlaneBasis("modal", basis_identity("modal", {"modes": ["HE11"]}), ("HE11",))

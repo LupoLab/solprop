@@ -7,6 +7,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from legacy_geometry import LEGACY_GRID
 from solprop import fourier
 from solprop.boundaries import absorber
 from solprop.exceptions import TranslationError
@@ -27,7 +28,7 @@ GRIDS = ["field", "envelope"]
 @pytest.fixture(scope="module", params=GRIDS, ids=GRIDS)
 def grid(request):
     builder = FieldGrid if request.param == "field" else EnvelopeGrid
-    return builder.from_limits(1.0, 800e-9, (400e-9, 2e-6), 400e-15)
+    return builder.from_limits(1.0, 800e-9, (400e-9, 2e-6), 400e-15, **LEGACY_GRID)
 
 
 def test_every_mask_is_the_grid_s_own(grid):

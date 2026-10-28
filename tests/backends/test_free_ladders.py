@@ -21,6 +21,7 @@ from backends.test_radial_nonlinear import (
     matched_parity_grids,
 )
 from bounds import gamma, ladder_bound
+from legacy_geometry import LEGACY_GRID
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.constants import C
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid
@@ -45,7 +46,8 @@ def free_case(request):
     )
     # Resolve the held-current collar while retaining the short non-plasma grids.
     window = 400e-15 if family.endswith("plasma") else 150e-15
-    grid = constructor(LENGTH, 800e-9, (600e-9, 1.2e-6), window)
+    # The former geometry, which the stored records' bounds were derived on.
+    grid = constructor(LENGTH, 800e-9, (600e-9, 1.2e-6), window, **LEGACY_GRID)
     space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7),

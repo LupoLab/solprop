@@ -30,6 +30,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from legacy_geometry import LEGACY_GRID
 from modal_provider_cases import GENERAL_Z_END, general_grid, general_guide
 from solprop import stats
 from solprop.backends import select
@@ -610,7 +611,9 @@ def test_a_reference_on_another_grid_is_refused(run, tables, guide):
     identity cannot see, an axis of the same length and the same endpoints whose
     interior knots are somewhere else.
     """
-    narrow = FieldGrid.from_limits(GENERAL_Z_END, 835e-9, (815e-9, 860e-9), 30e-15)
+    narrow = FieldGrid.from_limits(
+        GENERAL_Z_END, 835e-9, (815e-9, 860e-9), 30e-15, **LEGACY_GRID
+    )
     assert narrow.n_omega != len(tables.omega)
     other = route_for(general_guide(grid=narrow), narrow).tables
     with pytest.raises(OutputError, match=r"their modal\.tables\.n_omega is"):

@@ -28,6 +28,7 @@ from solprop._host import machine
 from solprop._process import thread_budget
 from solprop.constants import C
 from solprop.log import format_duration
+from solprop.monitor import BoundaryCheck
 from solprop.output.schema import Output, RunMetadata
 from solprop.stepper.multistep import Multistep
 from solprop.translate.problem import KernelProblem
@@ -120,6 +121,7 @@ def run_summary(  # noqa: PLR0913 - the run's parts, each a distinct object
     output: Output,
     start_plane: int = 0,
     z_start: float = 0.0,
+    boundary_check: BoundaryCheck | None = None,
 ) -> RunSummary:
     """Describe a run before its first step.
 
@@ -142,6 +144,9 @@ def run_summary(  # noqa: PLR0913 - the run's parts, each a distinct object
         resume.
     z_start : float, optional
         Where the run starts, m.
+    boundary_check : solprop.monitor.BoundaryCheck or None, optional
+        The thresholds the window's edges are watched with (SEP 21); ``None`` when they
+        are not watched.
 
     Returns
     -------
@@ -197,7 +202,7 @@ def run_summary(  # noqa: PLR0913 - the run's parts, each a distinct object
         ("integrator", _integrator(problem)),
         ("propagator", str(execution.get("propagator_mode", "not reported"))),
         ("tolerances", _tolerances(problem)),
-        ("absorber", _absorber(problem)),
+        ("absorber", _absorber(problem, boundary_check)),
         ("save planes", _planes(problem, planes)),
         ("output", _output(output)),
         ("start", _start(start_plane, planes.size, z_start)),
@@ -745,22 +750,32 @@ def _tolerances(problem: KernelProblem) -> str:
     return text
 
 
-def _absorber(problem: KernelProblem) -> str:
-    """Describe the temporal absorber.
+def _absorber(problem: KernelProblem, check: BoundaryCheck | None) -> str:
+    """Describe the temporal absorber and the watch on the window's edges.
 
     Parameters
     ----------
     problem : solprop.translate.problem.KernelProblem
         The translated problem.
+    check : solprop.monitor.BoundaryCheck or None
+        The edge thresholds, or ``None`` when the edges are not watched.
 
     Returns
     -------
     str
-        ``"none"`` or the scheme it is applied by.
+        ``"none"`` or the scheme it is applied by, then the edge watch.
     """
-    if not problem.flags.has_temporal_absorber:
-        return "none"
-    return f"temporal, {problem.responses.absorber_scheme} scheme"
+    text = (
+        f"temporal, {problem.responses.absorber_scheme} scheme"
+        if problem.flags.has_temporal_absorber
+        else "none"
+    )
+    if check is None:
+        return f"{text}; edges not watched"
+    return (
+        f"{text}; edges watched (guards {check.guard_fraction:g} of the window, "
+        f"budget {check.budget:.0e})"
+    )
 
 
 def _planes(problem: KernelProblem, planes: np.ndarray) -> str:

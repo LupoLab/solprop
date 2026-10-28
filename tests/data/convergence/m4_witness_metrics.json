@@ -5,10 +5,9 @@
   "unit": "1"
  },
  "case": {
-  "full case": "6 modes, 0.2 m",
   "media": "the package fit unchanged; Luna's cladding table",
-  "reduced case": "2 modes, a 1 ps window",
-  "witness": "tests/data/luna_ctc_reduced.h5 and luna_ctc_full.h5"
+  "reduced case": "1 mode, a 2 ps window, 0.1 m",
+  "witness": "tests/data/luna_ctc_reduced.h5"
  },
  "columns": [
   {
@@ -39,138 +38,30 @@
  "luna": null,
  "rows": [
   {
-   "axis": "fundamental, content",
-   "high": 1.03,
-   "low": 0.97,
-   "series": "full case",
-   "value": 0.9929678290406192,
-   "write": 0,
-   "written_by": "tests/driver/test_prop_capillary.py::test_the_full_ctc_case_against_its_witness"
-  },
-  {
-   "axis": "fundamental, shape",
-   "high": 0.2,
-   "low": 0.04,
-   "series": "full case",
-   "value": 0.08571885169461209,
-   "write": 0,
-   "written_by": "tests/driver/test_prop_capillary.py::test_the_full_ctc_case_against_its_witness"
-  },
-  {
-   "axis": "mode 3, content",
-   "high": 10.0,
-   "low": 0.1,
-   "series": "full case",
-   "value": 1.0176593572033352,
-   "write": 0,
-   "written_by": "tests/driver/test_prop_capillary.py::test_the_full_ctc_case_against_its_witness"
-  },
-  {
-   "axis": "mode 4, content",
-   "high": 10.0,
-   "low": 0.1,
-   "series": "full case",
-   "value": 0.8899687077746121,
-   "write": 0,
-   "written_by": "tests/driver/test_prop_capillary.py::test_the_full_ctc_case_against_its_witness"
-  },
-  {
-   "axis": "mode 5, content",
-   "high": 10.0,
-   "low": 0.1,
-   "series": "full case",
-   "value": 0.98197165617088,
-   "write": 0,
-   "written_by": "tests/driver/test_prop_capillary.py::test_the_full_ctc_case_against_its_witness"
-  },
-  {
-   "axis": "mode 6, content",
-   "high": 10.0,
-   "low": 0.1,
-   "series": "full case",
-   "value": 0.8621678618577796,
-   "write": 0,
-   "written_by": "tests/driver/test_prop_capillary.py::test_the_full_ctc_case_against_its_witness"
-  },
-  {
-   "axis": "second mode, content",
-   "high": 1.15,
-   "low": 0.9,
-   "series": "full case",
-   "value": 1.021456290047398,
-   "write": 0,
-   "written_by": "tests/driver/test_prop_capillary.py::test_the_full_ctc_case_against_its_witness"
-  },
-  {
-   "axis": "span at 1e-4, high edge",
-   "high": 10000.0,
-   "low": 849.0,
-   "series": "full case",
-   "value": 849.8184591914569,
-   "write": 0,
-   "written_by": "tests/driver/test_prop_capillary.py::test_the_full_ctc_case_against_its_witness"
-  },
-  {
-   "axis": "span at 1e-4, low edge",
-   "high": 364.0,
-   "low": 0.0,
-   "series": "full case",
-   "value": 337.119341563786,
-   "write": 0,
-   "written_by": "tests/driver/test_prop_capillary.py::test_the_full_ctc_case_against_its_witness"
-  },
-  {
-   "axis": "Stokes rung 1",
-   "high": 0.9303800000000001,
-   "low": 0.76122,
+   "axis": "exit energy, ours over Luna's",
+   "high": 1.0001,
+   "low": 0.9999,
    "series": "reduced case",
-   "value": 0.8457832032413175,
-   "write": 1,
-   "written_by": "tests/driver/test_prop_capillary.py::test_the_reduced_ctc_metrics_are_bounded_at_milestone_m4"
-  },
-  {
-   "axis": "Stokes rung 2",
-   "high": 1.6758500000000003,
-   "low": 1.37115,
-   "series": "reduced case",
-   "value": 1.5234816077740496,
-   "write": 1,
-   "written_by": "tests/driver/test_prop_capillary.py::test_the_reduced_ctc_metrics_are_bounded_at_milestone_m4"
-  },
-  {
-   "axis": "Stokes rung 3",
-   "high": 1.3324300000000002,
-   "low": 1.09017,
-   "series": "reduced case",
-   "value": 1.2113482565635947,
-   "write": 1,
+   "value": 1.0000061488826115,
+   "write": 0,
    "written_by": "tests/driver/test_prop_capillary.py::test_the_reduced_ctc_metrics_are_bounded_at_milestone_m4"
   },
   {
    "axis": "fundamental, content",
-   "high": 1.148,
-   "low": 0.94,
+   "high": 1.0001,
+   "low": 0.9999,
    "series": "reduced case",
-   "value": 1.0440103396287876,
-   "write": 1,
+   "value": 1.0000061488827905,
+   "write": 0,
    "written_by": "tests/driver/test_prop_capillary.py::test_the_reduced_ctc_metrics_are_bounded_at_milestone_m4"
   },
   {
    "axis": "fundamental, shape",
-   "high": 0.17,
-   "low": 0.139,
+   "high": 0.0422,
+   "low": 0.0345,
    "series": "reduced case",
-   "value": 0.15438462667471464,
-   "write": 1,
-   "written_by": "tests/driver/test_prop_capillary.py::test_the_reduced_ctc_metrics_are_bounded_at_milestone_m4"
-  },
-  {
-   "axis": "second mode, content",
-   "high": 0.648,
-   "low": 0.53,
-   "series": "reduced case",
-   "value": 0.5888359426961463,
-   "write": 1,
+   "value": 0.03833276438933937,
+   "write": 0,
    "written_by": "tests/driver/test_prop_capillary.py::test_the_reduced_ctc_metrics_are_bounded_at_milestone_m4"
   }
  ],
@@ -179,38 +70,13 @@
  "title": "Milestone M4 against its Luna witness, metric by metric",
  "writes": [
   {
-   "backend": "numba_cpu",
+   "backend": "numpy_ref",
    "blas": null,
-   "branch": "development",
-   "commit": "fb7302dd815f571fc60ca8df1f3eb0949efb1620",
+   "branch": "feature/sep-0021-temporal-boundaries",
+   "commit": "72f98885472268b8c9b0b9404765b4bd73c1798f",
    "fftw_planner": null,
    "machine_id": "darwin-arm64",
-   "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
-   "packages": {
-    "numba": "0.67.0",
-    "numpy": "2.5.2",
-    "scipy": "1.18.1"
-   },
-   "python": "3.14.5",
-   "threads": {
-    "MKL_NUM_THREADS": null,
-    "NUMBA_NUM_THREADS": null,
-    "OMP_NUM_THREADS": null,
-    "OPENBLAS_NUM_THREADS": null,
-    "SOLPROP_BLAS_THREADS": null,
-    "SOLPROP_FFTW_THREADS": null,
-    "SOLPROP_NUMBA_THREADS": null,
-    "VECLIB_MAXIMUM_THREADS": null
-   }
-  },
-  {
-   "backend": "numba_cpu",
-   "blas": null,
-   "branch": "development",
-   "commit": "4f831f5787cf5c5387f51ce350036b5dbf3261e3",
-   "fftw_planner": "estimate",
-   "machine_id": "darwin-arm64",
-   "os": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+   "os": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
    "packages": {
     "numba": "0.67.0",
     "numpy": "2.5.2",
@@ -221,17 +87,17 @@
     "MKL_NUM_THREADS": null,
     "NUMBA_NUM_THREADS": null,
     "OMP_DYNAMIC": null,
-    "OMP_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": null,
     "OMP_PLACES": null,
     "OMP_PROC_BIND": null,
     "OMP_WAIT_POLICY": null,
-    "OPENBLAS_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": null,
     "SOLPROP_BLAS_THREADS": null,
     "SOLPROP_FFTW_THREADS": null,
     "SOLPROP_NATIVE_THREADS": null,
     "SOLPROP_NUMBA_THREADS": null,
     "SOLPROP_TRANSVERSE_FFTW_THREADS": null,
-    "VECLIB_MAXIMUM_THREADS": "1"
+    "VECLIB_MAXIMUM_THREADS": null
    }
   }
  ]

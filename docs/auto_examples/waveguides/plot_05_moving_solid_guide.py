@@ -156,7 +156,7 @@ def taper_guide(radius, grid, knots=17, count=2):
 
 def linear_grid(length):
     """Return the narrow grid the picojoule runs propagate on."""
-    return FieldGrid.from_limits(length, WAVELENGTH, (1.0e-6, 1.065e-6), 0.4e-12)
+    return FieldGrid.from_limits(length, WAVELENGTH, (1.0e-6, 1.065e-6), 0.8e-12)
 
 
 reference_length = 1e-3

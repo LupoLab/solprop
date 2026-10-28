@@ -33,10 +33,10 @@ import numpy as np
 
 from solprop.constants import C
 from solprop.driver import prop_gnlse, prop_waveguide
-from solprop.grid import EnvelopeGrid
 from solprop.modes import RectMode, StepIndexMode
 from solprop.modes.base import beta2, db_per_m, zdw
 from solprop.physdata import aluminium, silver
+from solprop.processing import grid_of
 from solprop.stats import StatsSpec
 
 started = perf_counter()
@@ -75,7 +75,9 @@ axis.legend()
 figure.tight_layout()
 
 # %%
-# The mode itself is the fibre of a mode-averaged GNLSE run.
+# The mode itself is the fibre of a mode-averaged GNLSE run. Its window is kept
+# narrow on purpose (above): the supercontinuum's radiation leaves it, which the
+# boundary monitor would otherwise stop the run for, so the check is off.
 strand_output = prop_gnlse(
     None,
     0.15,
@@ -97,9 +99,10 @@ strand_output = prop_gnlse(
     backend="numpy_ref",
     progress="none",
     noise=None,
+    boundary_check=None,
 )
-# The same grid prop_gnlse built from those keywords, for the wavelength axis.
-grid = EnvelopeGrid.from_limits(0.15, 835e-9, (400e-9, 1400e-9), 1e-12)
+# The grid prop_gnlse built from those keywords, for the wavelength axis.
+grid = grid_of(strand_output)
 figure, axis = plt.subplots(figsize=(7, 3.5))
 active = grid.omega > 0
 order = np.argsort(2 * np.pi * C / grid.omega[active])

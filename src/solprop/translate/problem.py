@@ -1024,7 +1024,7 @@ class KernelProblem:
     ...     dz_max=0.1, dz_init=1e-3, shock=False, prefactor_index=1.0, density=1.0,
     ... )
     >>> problem.shape, problem.grid_kind, problem.schema_version
-    ((1, 1, 1, 4096), 'envelope', 37)
+    ((1, 1, 1, 3072), 'envelope', 37)
     """
 
     schema_version: int

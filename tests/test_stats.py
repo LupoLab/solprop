@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from legacy_geometry import LEGACY_GRID
 from solprop import fourier, stats
 from solprop.constants import C
 from solprop.exceptions import ModeError, OutputError
@@ -59,12 +60,12 @@ EXACT = 1e-12
 
 @pytest.fixture
 def envelope_grid():
-    return EnvelopeGrid.from_limits(1.0, WAVELENGTH, LIMITS, TRANGE)
+    return EnvelopeGrid.from_limits(1.0, WAVELENGTH, LIMITS, TRANGE, **LEGACY_GRID)
 
 
 @pytest.fixture
 def field_grid():
-    return FieldGrid.from_limits(1.0, WAVELENGTH, LIMITS, TRANGE)
+    return FieldGrid.from_limits(1.0, WAVELENGTH, LIMITS, TRANGE, **LEGACY_GRID)
 
 
 @pytest.fixture

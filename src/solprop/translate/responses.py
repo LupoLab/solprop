@@ -3205,7 +3205,7 @@ def compile_responses(  # noqa: PLR0913 - the contract's section 5 has this many
     >>> compiled = compile_responses([problem.kerr], grid, problem.mode, density=1.0,
     ...                              z_max=1.0, shock=False, prefactor_index=1.0)
     >>> compiled.prefactor.value_shape, compiled.prefactor_constant.shape
-    ((1, 1, 4096), (1, 1, 4096))
+    ((1, 1, 3072), (1, 1, 3072))
     >>> bool(np.all(compiled.prefactor_constant[0, 0][~grid.active_mask] == 0.0))
     True
     """

@@ -124,6 +124,7 @@ run = prop_gnlse(
     trange=400e-15,
     wavelength_limits=(600e-9, 1.2e-6),
     shock=False,
+    noise=None,
     n_save=3,
     progress="none",
 )

@@ -14,6 +14,7 @@ import pytest
 from numpy.testing import assert_allclose
 
 from flux_oracles import admittance
+from legacy_geometry import LEGACY_GRID, bare_absorber
 from solprop.backends.registry import available
 from solprop.constants import EPS0, HBAR, C
 from solprop.driver import Simulation, SimulationSettings, prop_radial
@@ -46,7 +47,9 @@ def case(request):
         if request.param == "field"
         else partial(EnvelopeGrid.from_limits, thg=False)
     )
-    grid = constructor(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15)
+    # The former grid and no collar: these tests are about the radial route, and
+    # its lossless flow is the reference.
+    grid = constructor(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, **LEGACY_GRID)
     space = RadialGrid(6e-4, 32)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 60e-6
@@ -56,6 +59,7 @@ def case(request):
         save_planes=[grid.length],
         dz_max=grid.length,
         dz_init=grid.length,
+        absorber=bare_absorber(grid),
     )
     return grid, space, pulse, settings
 
@@ -72,7 +76,7 @@ def test_radial_interface_caches_and_saves_geometry(case, backend, request):
     # Preserve the compact pulse specification; serializing the built transverse
     # volume here would duplicate the input and make Cartesian metadata enormous.
     assert metadata.configuration["initial"] is pulse
-    assert metadata.schema_version == 26
+    assert metadata.schema_version == 27
     assert metadata.simulation_kind == "radial"
     assert metadata.spatial is not None
     assert metadata.spatial["stored_field_units"] == "V m"

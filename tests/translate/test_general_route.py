@@ -21,6 +21,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from legacy_geometry import LEGACY_GRID
 from modal_provider_cases import (
     GENERAL_CHI3,
     GENERAL_Z_END,
@@ -63,7 +64,14 @@ from solprop.translate.responses import (
 @pytest.fixture(scope="module")
 def case():
     """One HE11 channel of a 1.5 um step-index strand, and its route."""
-    return general_case()
+    return general_case(grid=legacy_grid())
+
+
+def legacy_grid():
+    """Return the shared grid as it was built when this module's numbers were taken."""
+    return FieldGrid.from_limits(
+        GENERAL_Z_END, 835e-9, (815e-9, 860e-9), 60e-15, **LEGACY_GRID
+    )
 
 
 def problem_of(case, **overrides):
@@ -720,7 +728,7 @@ def test_the_route_constructor_refuses_an_envelope_grid(case):
 
 def test_a_guide_narrower_than_the_active_band_is_refused_with_both_bands():
     """The >=2x rule, with the measured example in the message."""
-    grid = general_grid()
+    grid = legacy_grid()
     # A guide solved over the run's declared window alone, which is the mistake
     # the message is written for: half the frequencies the run will reach.
     declared = grid.omega[grid.inband_mask]

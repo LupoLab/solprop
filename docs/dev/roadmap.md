@@ -81,18 +81,6 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   and a composition-preserving mixture EOS. One resolved state feeds linear optics,
   Raman amplitudes, widths and shifts. Current upstream model selections, estimates
   and validity records govern admission; nonlinear local-field corrections remain open.
-- [SEP 21 — Temporal boundaries: wider windows, absorption and the escaped field](seps/sep-0021-absorbing-boundaries.md):
-  wider production windows without temporal absorption versus collar strategies at
-  matched physical accuracy, including fixed asymmetric placement, prescribed frames,
-  memory and guard-monitor costs. Its qualification decides between a monitored opt-in
-  and a default, with the warning/error policy, before adoption. An implicit–explicit
-  collar is pursued only where it can improve on the admissible retained-window
-  alternatives. Absorbed-energy and occupancy diagnostics, keyword switches, and an
-  opt-in escaped-field record after its own qualification remain in scope. Plasma
-  comparisons use the held-current source, and the affected CPU free-space cost
-  recommendations are remeasured on the current free-space evaluation.
-  Spatial collar changes, adaptive recentering/expansion, a general offset-grid API,
-  independently asymmetric absorber ramps and implicit Runge–Kutta remain open.
 - [SEP 32 — Raman Maxwell–Bloch dynamics](seps/sep-0032-raman-maxwell-bloch.md):
   a separate scalar two-level population/coherence response, with equilibrium
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
@@ -259,6 +247,18 @@ kept as it is, with no new work. Whether it stays is decided with
 noise to see only the emission gain, which its separate injection path could carry. If
 gain media take a gain Langevin term instead, the modified model is removed.
 
+**Vacuum noise under loss.** The input model puts one photon per mode in at the launch and
+never replenishes it, so every loss lowers the simulated floor below the vacuum: guide
+attenuation, the spectral band collar and the temporal collar of
+[SEP 21](seps/archive/sep-0021-absorbing-boundaries.md), which also takes the seed from noise that
+walks through it, so frequencies walking more than half the window reach the pulse with a
+weakened seed. Fluctuation–dissipation calls for re-injecting vacuum noise where light is
+absorbed (a loss Langevin term; under the split collar scheme it can be added once per
+accepted step, outside the error-controlled stages). Until then the floor-subtracted
+density reads low where loss took the seed, and SEP 21's boundary monitor, which takes the
+floor from the launch, over-subtracts after loss and is less sensitive for weak launches in
+lossy guides (it never warns falsely). To be decided with the gain Langevin term above.
+
 ## Waveguides and geometries
 
 **Material absorption in step-index fibres.** The step-index eigenproblem takes the core
@@ -395,6 +395,34 @@ guidance (index contrast up to 0.02) and the radial `TE_0m`/`TM_0m` sectors. Hyb
 guiding profiles and for polarisation effects in graded-index fibres.
 
 ## Numerics
+
+**The escaped field.** [SEP 21](seps/archive/sep-0021-absorbing-boundaries.md) (§4.7, D17) left
+out a record of the light that leaves the time window through the collar, so a narrow run
+could report what walked out (a spectrum per edge) without a wider one. Two records are
+candidates: a surface-flux reconstruction from just inside the collar, after tSURFF, and
+the amplitude the collar removes, propagated linearly. Neither is qualified for this
+nonlocal, band-limited problem; the measurement (SEP 21's phase 0b: commutator tails, the
+surface gap, the error budget and the memory and transform cost) comes first, and the
+record must separate the vacuum floor the collar absorbs.
+
+**The split collar while quiet.** SEP 21 leaves a quiet in-stage collar out of the stages
+(D15), but the split scheme's pass still runs every step: on the tracking suite's fixed-step
+Kerr beam it costs 28 % per step. Skipping the pass while the monitor finds the collar
+quiet needs the switch in every backend's step finish, the native separable and modal
+engines included.
+
+**The boundary monitor's flux on spatial routes.** [SEP 21](seps/archive/sep-0021-absorbing-boundaries.md)'s
+monitor measures a spatial run's guard and collar occupancies with the quadrature-weighted
+field norm rather than [SEP 34](seps/archive/sep-0034-medium-flux.md)'s admittance-weighted
+flux (D16). For paraxial beams the two shares agree; a non-paraxial or strongly dispersive
+beam would weight its edges differently. A time-resolved flux needs the admittance applied
+per column and frequency before the inverse transform: another half of the state in memory.
+
+**The coarse-divides-fine size rule.** A grid's coarse transform size must divide its fine
+one, so the realised size is not monotone in the requested window: a slightly larger
+request can land on a smaller, cheaper pair, or a smaller one on a dearer pair. The
+sizes stay correct, so [SEP 21](seps/archive/sep-0021-absorbing-boundaries.md) kept the rule (D11);
+choosing the pair jointly by the FFT cost model, or relaxing the rule, is left for later.
 
 **Multistep integration with general varying noncommuting coupled flows.**
 [SEP 16](seps/archive/sep-0016-unified-multistep.md) covered diagonal and separable operators,
@@ -723,7 +751,7 @@ With `absorber_scheme="split_step"` on a general modal guide, `numpy_ref` carrie
 launch's content outside the active band (it decays over the steps) and `native` sets it
 to zero at once; inside the active band the two agree, and with the in-stage collar or
 none they agree everywhere. Not yet traced: one of the two
-applies the hard band limit where the other does not. [SEP 21](seps/sep-0021-absorbing-boundaries.md)'s campaign
+applies the hard band limit where the other does not. [SEP 21](seps/archive/sep-0021-absorbing-boundaries.md)'s campaign
 needs it resolved before it compares the split scheme on a general modal guide.
 
 **Fixed-order Adams norms on devices.** On a native host build the Adams engine's
@@ -982,7 +1010,7 @@ split-step scheme: today that takes replacing the frozen `SimulationSettings` be
 first run ([boundaries](../guide/numerics/boundaries.md)). An explicit `absorber=False` and an
 `absorber_scheme=` keyword would make both one argument. Related: spatial runs carry no
 absorber unless one is given, although every spatial grid has a collar; whether they
-should default to one deserves a design check. [SEP 21](seps/sep-0021-absorbing-boundaries.md) proposes the two
+should default to one deserves a design check. [SEP 21](seps/archive/sep-0021-absorbing-boundaries.md) proposes the two
 keywords and a qualified convenience path for monitored propagation without temporal
 absorption while retaining the spectral collar; the spatial default is not in its scope.
 
@@ -991,12 +1019,28 @@ frame, but walk-off is usually one-sided: the Raman self-frequency-shift example
 −200 fs to +1.7 ps inside a ±1.75 ps window, so most of its leading half carries
 nothing. An offset time axis, or a frame chosen to centre the expected walk-off, would
 roughly halve such grids and keep content away from the temporal collar.
-[SEP 21](seps/sep-0021-absorbing-boundaries.md) measures fixed asymmetric launch
+[SEP 21](seps/archive/sep-0021-absorbing-boundaries.md) measures fixed asymmetric launch
 placement and prescribed frames, including fastest-light and midpoint frames, and
 delivers qualified setting support and guidance. The remaining work is
 a general offset time-axis API, independently asymmetric absorber ramps, and adaptive
 recentering or grid expansion, with consistent history, response memory, noise and
 output-coordinate transport. Those require a separate design and remain outside SEP 21.
+
+**A phase-space filter for the temporal boundary.** Soffer and Stucchio's
+time-dependent filter (J. Comput. Phys. 225, 1218, 2007) deletes only the windowed
+Fourier content a free flow would carry out of the window, so it adds no stiff term
+to the equation. Its free-buffer assumption, its interval cap for broadband fields and
+its restart of multistep history are untested here.
+[SEP 21](seps/archive/sep-0021-absorbing-boundaries.md) §4.9 analyses it; a prototype on the
+Runge–Kutta path, against the wide-window reference, was removed from that SEP's
+campaign and would be measured first.
+
+**A directional collar occupancy.** Classifying the content of each temporal collar as
+outgoing, incoming or unresolved from its windowed spectrum and group delay could help
+separate wrap-around and reflection from ordinary outgoing radiation, though incoming
+content can also be genuine returning physics. Removed from
+[SEP 21](seps/archive/sep-0021-absorbing-boundaries.md); worth evaluating offline on saved
+planes against its wide-window cases before adding a diagnostic.
 
 **A self-focusing collapse estimate.** The critical power is provided
 ({func}`~solprop.spatial.critical_power`), but not the Marburger estimate of the collapse

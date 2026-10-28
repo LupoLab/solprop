@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from bounds import gamma
+from legacy_geometry import LEGACY_GRID, bare_absorber
 from solprop.backends.spatial import collar_field_fraction
 from solprop.constants import C
 from solprop.driver.simulation import Simulation, SimulationSettings
@@ -29,9 +30,13 @@ SPACE = RadialGrid(6e-4, 32)
 
 
 def _grid() -> EnvelopeGrid:
-    """Return the 800 nm envelope grid every case here shares."""
+    """Return the 800 nm envelope grid every case here shares.
+
+    The former geometry, run without a collar (:func:`_run`): the cases are about the
+    flux through a gradient, and an undeclared absorber meant none before SEP 21.
+    """
     return EnvelopeGrid.from_limits(
-        LENGTH, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
+        LENGTH, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False, **LEGACY_GRID
     )
 
 
@@ -48,8 +53,10 @@ def _run(  # noqa: PLR0913 - one case's physics and its numerical settings
     steps: int | None = None,
 ) -> tuple[dict[str, np.ndarray], KernelProblem]:
     """Run 1 mm of `medium`; return the stored statistics, exit field and problem."""
+    grid = _grid()
     settings = SimulationSettings(
         controller=PIController(rtol=rtol, atol=1e-14),
+        absorber=bare_absorber(grid),
         save_planes=[LENGTH / 2, LENGTH],
         dz_max=LENGTH / 4,
         dz_init=LENGTH / 16,
@@ -61,7 +68,7 @@ def _run(  # noqa: PLR0913 - one case's physics and its numerical settings
         else FixedSchedule.uniform(0.0, LENGTH, LENGTH / steps),
     )
     simulation = Simulation.from_radial(
-        _grid(), space, medium, list(responses), initial, settings=settings, noise=None
+        grid, space, medium, list(responses), initial, settings=settings, noise=None
     )
     output = simulation.run()
     values = {name: np.asarray(output[f"stats/{name}"]) for name in names}

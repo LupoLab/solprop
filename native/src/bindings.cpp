@@ -904,6 +904,14 @@ public:
     else
       state_->clear_fsal();
   }
+  // The engines leave a quiet collar out where the reference does (solprop SEP 21).
+  void set_absorber_quiet(const bool quiet) {
+    require_open();
+    if (general_state_)
+      general_state_->set_absorber_quiet(quiet);
+    else
+      state_->set_absorber_quiet(quiet);
+  }
   std::map<std::string, std::size_t> memory_ledger() {
     require_open();
     return general_state_ ? general_state_->memory_ledger() : state_->memory_ledger();
@@ -2040,6 +2048,10 @@ NB_MODULE(_core, module_) {
           "dz"_a)
       .def("promote_fsal", [](BoundState& self) { self.promote_fsal(); })
       .def("clear_fsal", [](BoundState& self) { self.clear_fsal(); })
+      .def(
+          "set_absorber_quiet",
+          [](BoundState& self, const bool quiet) { self.set_absorber_quiet(quiet); },
+          "quiet"_a)
       .def("field_to_host",
            [](BoundState& self) {
              std::vector<native::Complex> values;

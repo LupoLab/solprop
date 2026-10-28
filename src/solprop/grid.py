@@ -24,7 +24,7 @@ import logging
 import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import ClassVar, Literal
+from typing import ClassVar, Final, Literal
 
 import numpy as np
 from jaxtyping import Bool, Complex, Float
@@ -37,13 +37,17 @@ from solprop.fourier import GridKind
 from solprop.hankel import QDHT
 
 __all__ = [
+    "DEFAULT_COLLAR_FRACTION",
+    "FFT_SIZES",
     "Collar",
+    "CollarPlacement",
     "EnvelopeGrid",
     "FieldGrid",
     "FreeGrid",
     "LineGrid",
     "RadialGrid",
     "TimeGrid",
+    "fft_cost",
     "planck_taper",
     "planck_taper_derivative",
     "planck_taper_derivative_error",
@@ -1090,6 +1094,105 @@ class Collar:
         )
 
 
+FFT_SIZES: Final = ("auto", "pow2", "smooth")
+"""The transform-size rules of :meth:`FieldGrid.from_limits` and its envelope twin."""
+
+DEFAULT_COLLAR_FRACTION: Final = 0.1
+"""Width of each temporal collar, as a fraction of the realised window (SEP 21 D3)."""
+
+_RADIX_PENALTY: Final = {3: 1.05, 5: 1.04}
+"""Relative cost per factor of 3 and of 5 in an FFT's length.
+
+Fitted to FFTW's batched real transforms, measured planning, every even
+2-3-5-smooth length from 4096 to 262144, on Intel and Apple CPUs (SEP 21 phase 0a,
+finding 14): within 10 per cent of the cheapest length for most requests.
+"""
+
+
+def fft_cost(n: int) -> float:
+    """Return the modelled relative cost of a real transform of length `n`.
+
+    ``n log2 n``, times ``_RADIX_PENALTY`` for each factor of 3 and of 5.
+
+    Parameters
+    ----------
+    n : int
+        Transform length, at least 2.
+
+    Returns
+    -------
+    float
+        Relative cost, comparable between lengths only.
+
+    Examples
+    --------
+    >>> from solprop.grid import fft_cost
+    >>> fft_cost(4096) < fft_cost(4374)  # 4374 = 2 * 3^7
+    True
+    """
+    cost = n * math.log2(n)
+    for prime, penalty in _RADIX_PENALTY.items():
+        while n % prime == 0:
+            n //= prime
+            cost *= penalty
+    return cost
+
+
+def _smooth_sizes(low: int, high: int) -> list[int]:
+    """Return every even 2-3-5-smooth integer in ``[low, high]``.
+
+    Parameters
+    ----------
+    low, high : int
+        Inclusive bounds.
+
+    Returns
+    -------
+    list of int
+        The sizes, increasing.
+    """
+    found = []
+    size = low
+    while size <= high:
+        found.append(size)
+        size = _next_smooth_even(size + 1)
+    return found
+
+
+CollarPlacement = Literal["outside", "inside"]
+"""Where the temporal collar lies against the requested window."""
+
+
+def _needed_window(trange: float, collar_fraction: float, placement: str) -> float:
+    """Return the window a grid must realise at least, s.
+
+    Parameters
+    ----------
+    trange : float
+        Requested window, s.
+    collar_fraction : float
+        Width of each temporal collar as a fraction of the realised window.
+    placement : {'outside', 'inside'}
+        Where the collar lies against the request.
+
+    Returns
+    -------
+    float
+        ``trange / (1 - 2 collar_fraction)`` outside, ``trange`` inside.
+
+    Raises
+    ------
+    GridError
+        If the placement is neither.
+    """
+    if placement == "outside":
+        return trange / (1.0 - 2.0 * collar_fraction)
+    if placement == "inside":
+        return trange
+    msg = f"collar_placement must be 'outside' or 'inside', got {placement!r}"
+    raise GridError(msg)
+
+
 def _next_smooth_even(n: int) -> int:
     """Return the smallest even 2-3-5-smooth integer that is at least ``n``.
 
@@ -1128,8 +1231,10 @@ def _fft_size(needed: float, fft_size: str) -> int:
     ----------
     needed : float
         Number of samples the request implies.
-    fft_size : {'pow2', 'smooth'}
-        Round up to the next power of two, or to the next even 2-3-5-smooth size.
+    fft_size : {'auto', 'pow2', 'smooth'}
+        Round up to the next power of two, or to the next even 2-3-5-smooth size
+        (``'auto'`` rounds as ``'smooth'`` here; its choice is made in
+        :func:`_choose_sizes`).
 
     Returns
     -------
@@ -1139,7 +1244,7 @@ def _fft_size(needed: float, fft_size: str) -> int:
     Raises
     ------
     GridError
-        If ``fft_size`` is neither ``'pow2'`` nor ``'smooth'``.
+        If ``fft_size`` is not one of :data:`FFT_SIZES`.
     """
     return max(fourier.MIN_N_T, _next_size(needed, fft_size))
 
@@ -1151,8 +1256,10 @@ def _next_size(needed: float, fft_size: str) -> int:
     ----------
     needed : float
         Lower bound on the result.
-    fft_size : {'pow2', 'smooth'}
-        Round up to the next power of two, or to the next even 2-3-5-smooth size.
+    fft_size : {'auto', 'pow2', 'smooth'}
+        Round up to the next power of two, or to the next even 2-3-5-smooth size
+        (``'auto'`` rounds as ``'smooth'`` here; its choice is made in
+        :func:`_choose_sizes`).
 
     Returns
     -------
@@ -1163,10 +1270,10 @@ def _next_size(needed: float, fft_size: str) -> int:
     Raises
     ------
     GridError
-        If ``fft_size`` is neither ``'pow2'`` nor ``'smooth'``.
+        If ``fft_size`` is not one of :data:`FFT_SIZES`.
     """
-    if fft_size not in ("pow2", "smooth"):
-        msg = f"fft_size must be 'pow2' or 'smooth', got {fft_size!r}"
+    if fft_size not in FFT_SIZES:
+        msg = f"fft_size must be one of {FFT_SIZES}, got {fft_size!r}"
         raise GridError(msg)
     count = max(1, math.ceil(needed))
     if fft_size == "pow2":
@@ -1239,6 +1346,16 @@ def _choose_sizes(
     tuple of int
         The coarse and fine numbers of time samples, ``(n_t, n_to)``.
     """
+    if fft_size == "auto":
+        # The cheapest pair by the transform-cost model, among the smooth fine sizes up
+        # to the next power of two (which is one of them).
+        needed = trange / dt_fine
+        ceiling = _fft_size(needed, "pow2")
+        pairs = []
+        for n_fine in _smooth_sizes(_fft_size(needed, "smooth"), ceiling):
+            pair = _choose_sizes(half_bins, n_fine * dt_fine, dt_fine, "smooth")
+            pairs.append((fft_cost(pair[1]) + fft_cost(pair[0]), pair[1], pair))
+        return min(pairs)[2]
     n_to = _fft_size(trange / dt_fine, fft_size)
     half = half_bins(2.0 * np.pi / (n_to * dt_fine), n_to)
     n_t = _coarse_size(2 * half, n_to)
@@ -1761,10 +1878,10 @@ def _check_common(
             f"window itself, got {ffac!r}"
         )
         raise GridError(msg)
-    if not 0.0 < collar_fraction < 0.5:
+    if not 0.0 <= collar_fraction < 0.5:
         msg = (
-            "collar_fraction must lie strictly between 0 and 0.5 so that the temporal "
-            f"collar is non-degenerate, got {collar_fraction!r}"
+            "collar_fraction must lie in [0, 0.5): zero leaves no temporal collar, and "
+            f"half or more leaves no window, got {collar_fraction!r}"
         )
         raise GridError(msg)
 
@@ -1839,7 +1956,7 @@ class FieldGrid(TimeGrid):
     >>> from solprop.grid import FieldGrid
     >>> grid = FieldGrid.from_limits(1.5, 800e-9, (90e-9, 4e-6), 400e-15)
     >>> grid.n_t, grid.n_to, grid.n_omega
-    (4096, 8192, 2049)
+    (5120, 10240, 2561)
     """
 
     kind: ClassVar[GridKind] = "field"
@@ -1857,8 +1974,9 @@ class FieldGrid(TimeGrid):
         *,
         dt: float | None = None,
         ffac: float = 6.0,
-        fft_size: str = "pow2",
-        collar_fraction: float = 0.05,
+        fft_size: str = "auto",
+        collar_fraction: float = DEFAULT_COLLAR_FRACTION,
+        collar_placement: CollarPlacement = "outside",
         # The return annotation stays quoted: beartype resolves it while the class body
         # is still executing, when the bare class name is not yet bound.
     ) -> "FieldGrid":  # noqa: UP037
@@ -1893,12 +2011,23 @@ class FieldGrid(TimeGrid):
             response that generates no third harmonic, such as ``|E_a|^2 E``. At exactly
             2 the fine Nyquist frequency is ``omega_max`` itself, so the apodisation
             collar above it is truncated rather than represented.
-        fft_size : {'pow2', 'smooth'}, optional
-            Round the transform sizes up to the next power of two, or to the next even
-            2-3-5-smooth size, which tracks the requirement far more closely.
+        fft_size : {'auto', 'pow2', 'smooth'}, optional
+            How the transform sizes are rounded up: ``'auto'``, the default, takes the
+            cheapest even 2-3-5-smooth size between the requirement and the next power
+            of two by a transform-cost model (:func:`fft_cost`); ``'pow2'`` the next
+            power of two; ``'smooth'`` the next even 2-3-5-smooth size.
         collar_fraction : float, optional
-            Minimum width of each temporal collar as a fraction of the full window,
-            strictly between 0 and 0.5. The default is 0.05.
+            Width of each temporal collar as a fraction of the realised window, in
+            ``[0, 0.5)``. The collar lies **outside** the requested window: the grid is
+            widened to at least ``trange / (1 - 2 collar_fraction)`` so that the whole
+            request stays flat (SEP 21). Zero leaves no room for a temporal collar, for
+            a run without one. The default is 0.1.
+        collar_placement : {'outside', 'inside'}, optional
+            ``'outside'``, the default, widens the window so that the collar lies
+            outside the request. ``'inside'`` is the geometry before SEP 21, kept to
+            reproduce frozen witnesses: the window is the request rounded up, and the
+            collar takes at least `collar_fraction` of it, inside the request when the
+            rounding leaves too little slack.
 
         Returns
         -------
@@ -1915,7 +2044,7 @@ class FieldGrid(TimeGrid):
         >>> from solprop.grid import FieldGrid
         >>> grid = FieldGrid.from_limits(1.5, 800e-9, (90e-9, 4e-6), 400e-15)
         >>> grid.n_t, grid.n_to
-        (4096, 8192)
+        (5120, 10240)
         >>> float(grid.dt / grid.dt_fine)
         2.0
         """
@@ -1945,7 +2074,8 @@ class FieldGrid(TimeGrid):
             # so the collar is fully represented on the coarse grid.
             return min(math.floor(omega_max_window / d_omega) + 2, n_to // 2 + 1)
 
-        n_t, n_to = _choose_sizes(half_bins, trange, dt_fine, fft_size)
+        needed = _needed_window(trange, collar_fraction, collar_placement)
+        n_t, n_to = _choose_sizes(half_bins, needed, dt_fine, fft_size)
         trange_even = n_to * dt_fine
         d_omega = 2.0 * np.pi / trange_even
         # dt comes from the integer ratio rather than from pi/omega[-1], so that the
@@ -2022,8 +2152,9 @@ class EnvelopeGrid(TimeGrid):
         dt: float | None = None,
         thg: bool = False,
         ffac: float | None = None,
-        fft_size: str = "pow2",
-        collar_fraction: float = 0.05,
+        fft_size: str = "auto",
+        collar_fraction: float = DEFAULT_COLLAR_FRACTION,
+        collar_placement: CollarPlacement = "outside",
         # The return annotation stays quoted: beartype resolves it while the class body
         # is still executing, when the bare class name is not yet bound.
     ) -> "EnvelopeGrid":  # noqa: UP037
@@ -2063,12 +2194,16 @@ class EnvelopeGrid(TimeGrid):
         ffac : float or None, optional
             Fine-grid oversampling factor, at least 2. Defaults to 6 with ``thg`` and 2
             without.
-        fft_size : {'pow2', 'smooth'}, optional
-            Round the transform sizes up to the next power of two, or to the next even
-            2-3-5-smooth size.
+        fft_size : {'auto', 'pow2', 'smooth'}, optional
+            How the transform sizes are rounded up, as for
+            :meth:`FieldGrid.from_limits`; ``'auto'`` by default.
         collar_fraction : float, optional
-            Minimum width of each temporal collar as a fraction of the full window,
-            strictly between 0 and 0.5. The default is 0.05.
+            Width of each temporal collar as a fraction of the realised window, in
+            ``[0, 0.5)``, outside the requested window, as for
+            :meth:`FieldGrid.from_limits`. The default is 0.1.
+        collar_placement : {'outside', 'inside'}, optional
+            Where the collar lies against the request, as for
+            :meth:`FieldGrid.from_limits`; ``'outside'`` by default.
 
         Returns
         -------
@@ -2127,7 +2262,8 @@ class EnvelopeGrid(TimeGrid):
             reach = max(abs(omega_max_window - omega0), abs(omega0 - 0.5 * omega_min))
             return min(max(math.ceil(reach / d_omega), 1), n_to // 2)
 
-        n_t, n_to = _choose_sizes(half_bins, trange, dt_fine, fft_size)
+        needed = _needed_window(trange, collar_fraction, collar_placement)
+        n_t, n_to = _choose_sizes(half_bins, needed, dt_fine, fft_size)
         trange_even = n_to * dt_fine
         d_omega = 2.0 * np.pi / trange_even
         dt_coarse = dt_fine * (n_to // n_t)

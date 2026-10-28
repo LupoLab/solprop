@@ -138,7 +138,7 @@ def kinked_radius():
 
 def build(guide, grid, *, steps=STEPS, length=LENGTH, **overrides):
     """Return a general modal simulation of a guide on a fixed schedule."""
-    return Simulation.from_waveguide(
+    simulation = Simulation.from_waveguide(
         (),
         length,
         provider=guide,
@@ -158,6 +158,9 @@ def build(guide, grid, *, steps=STEPS, length=LENGTH, **overrides):
             }
         ),
     )
+    # The subject is the moving guide; the 60 fs pulse fills its window to the edge.
+    simulation.settings = dataclasses.replace(simulation.settings, boundary_check=None)
+    return simulation
 
 
 @pytest.fixture(scope="module")
@@ -1158,7 +1161,10 @@ def kinked_run(kinked):
     )
     # As `kinked_problem`: ten 1e-4 m steps are beyond the default collar's explicit
     # stability, and the collar is not what is under test.
-    simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
+    # The boundary monitor is off too: the pulse fills the tight window to its edge.
+    simulation.settings = dataclasses.replace(
+        simulation.settings, absorber=None, boundary_check=None
+    )
     run = cast("MemoryOutput", simulation.run(progress="none"))
     tables = general_modal_route(
         kinked, grid, z_max=LENGTH, omega_reference=float(grid.omega0)

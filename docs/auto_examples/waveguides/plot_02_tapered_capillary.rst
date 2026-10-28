@@ -264,13 +264,13 @@ runs, with or without the wall, carry the taper in the coupled flow instead.
 
  .. code-block:: none
 
-    coherent wall        HE_14 near the corner: z = 0.6734 m 3.60e-07, z = 0.6985 m 4.59e-07, z = 0.7236 m 1.52e-06
-    no wall (coupled)    HE_14 near the corner: z = 0.6734 m 4.40e-07, z = 0.6985 m 3.35e-07, z = 0.7236 m 1.58e-07
-    no wall (adiabatic)  HE_14 near the corner: z = 0.6734 m 9.60e-20, z = 0.6985 m 8.80e-20, z = 0.7236 m 7.31e-20
+    coherent wall        HE_14 near the corner: z = 0.6734 m 3.60e-07, z = 0.6985 m 4.58e-07, z = 0.7236 m 1.52e-06
+    no wall (coupled)    HE_14 near the corner: z = 0.6734 m 4.40e-07, z = 0.6985 m 3.34e-07, z = 0.7236 m 1.53e-07
+    no wall (adiabatic)  HE_14 near the corner: z = 0.6734 m 9.60e-20, z = 0.6985 m 8.80e-20, z = 0.7236 m 7.32e-20
     coherent wall        z = 0.5 m HE_12 2.67e-05, HE_13 5.56e-06, HE_14 1.13e-06
-    coherent wall        z = 0.71 m HE_12 1.71e-04, HE_13 7.74e-06, HE_14 1.49e-06
+    coherent wall        z = 0.71 m HE_12 1.71e-04, HE_13 7.73e-06, HE_14 1.49e-06
     no wall (coupled)    z = 0.5 m HE_12 2.50e-05, HE_13 7.25e-06, HE_14 2.77e-06
-    no wall (coupled)    z = 0.71 m HE_12 1.28e-04, HE_13 3.01e-06, HE_14 2.54e-07
+    no wall (coupled)    z = 0.71 m HE_12 1.28e-04, HE_13 3.01e-06, HE_14 2.51e-07
     no wall (adiabatic)  z = 0.5 m HE_12 4.05e-14, HE_13 2.75e-15, HE_14 1.40e-19
     no wall (adiabatic)  z = 0.71 m HE_12 1.54e-14, HE_13 1.71e-15, HE_14 7.48e-20
 
@@ -331,8 +331,8 @@ and the worst of the three validity ratios over the whole run.
     n_sections     4
     n_deg          17
     connection     True
-    advisory_step  0.000167777
-    quasi_static   0.0952
+    advisory_step  0.000176201
+    quasi_static   0.0923
 
 
 
@@ -504,7 +504,7 @@ the exit.
     taper, coherent wall        z = 0.71 m HE_11 5.86e-01, HE_12 2.66e-03, HE_13 1.29e-03, HE_14 1.06e-04
     taper, coherent wall        exit      HE_11 2.68e-01, HE_12 8.63e-03, HE_13 1.76e-03, HE_14 2.07e-04
     taper, no wall (adiabatic)  z = 0.71 m HE_11 5.89e-01, HE_12 2.30e-03, HE_13 1.22e-03, HE_14 9.58e-05
-    taper, no wall (adiabatic)  exit      HE_11 2.67e-01, HE_12 8.68e-03, HE_13 1.70e-03, HE_14 1.94e-04
+    taper, no wall (adiabatic)  exit      HE_11 2.67e-01, HE_12 8.68e-03, HE_13 1.70e-03, HE_14 1.95e-04
 
 
 
@@ -556,9 +556,9 @@ the ultraviolet band is printed below.
 
  .. code-block:: none
 
-    taper, coherent wall            transmitted 0.279; 100-300 nm 14.01 uJ (9.34%)
-    taper, no wall (adiabatic)      transmitted 0.278; 100-300 nm 13.72 uJ (9.14%)
-    straight 100 um, coherent wall  transmitted 0.705; 100-300 nm 16.79 uJ (11.19%)
+    taper, coherent wall            transmitted 0.279; 100-300 nm 14.03 uJ (9.35%)
+    taper, no wall (adiabatic)      transmitted 0.278; 100-300 nm 13.74 uJ (9.16%)
+    straight 100 um, coherent wall  transmitted 0.705; 100-300 nm 16.91 uJ (11.27%)
 
 
 
@@ -588,7 +588,7 @@ Six complete one-metre runs of four coupled modes: three linear, three nonlinear
 
  .. code-block:: none
 
-    154 s; backend native, 32 threads
+    88 s; backend native, 16 threads
 
 
 
@@ -606,7 +606,7 @@ For a paced introduction to propagation, start with the
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (2 minutes 34.028 seconds)
+   **Total running time of the script:** (1 minutes 28.144 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_02_tapered_capillary.py:

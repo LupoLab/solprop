@@ -24,12 +24,17 @@ class _Item:
         self.nodeid = nodeid
         self.stash = pytest.Stash()
         self.groups = list(groups)
+        self.filters = []
 
     def get_closest_marker(self, name):
         assert name == "xdist_group"
         return self.groups[0] if self.groups else None
 
-    def add_marker(self, marker):
+    def add_marker(self, marker, append=True):
+        # conftest also gives every item the boundary monitor's warning filter.
+        if marker.name == "filterwarnings":
+            self.filters.append(marker)
+            return
         assert marker.name == "xdist_group"
         self.groups.append(marker)
 

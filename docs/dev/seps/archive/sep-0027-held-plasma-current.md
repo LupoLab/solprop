@@ -93,7 +93,7 @@ $1.8\times10^{-14}$. This was a fixed-field source comparison: no propagation wa
 - Collisions, recombination, an explicit drift-current model and THz emission below the
   active band (§10).
 - The window and collar defaults ([grids](../../../guide/setup/grids.md)) and the field's
-  absorbing collar ([SEP 21](../sep-0021-absorbing-boundaries.md)).
+  absorbing collar ([SEP 21](sep-0021-absorbing-boundaries.md)).
 - General GPU performance optimisation. The implementation includes a CUDA build check
   and bounded HIP device qualification under the maintainer's revised decision below.
 

@@ -14,13 +14,19 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from record_numbers import assert_record_numbers, record_skeleton, skeleton_hash
+from legacy_geometry import LEGACY_GRID
+from record_numbers import (
+    assert_record_numbers,
+    record_skeleton,
+    skeleton_hash,
+    without_sep21_absorber,
+)
 from solprop import _display, tools
 from solprop.coupling import AdmissionItem, CouplingReport
 from solprop.driver import Simulation, SimulationSettings
 from solprop.driver.scan import Scan
 from solprop.exceptions import MaterialRangeWarning, ModeError, OutputError
-from solprop.grid import EnvelopeGrid, FreeGrid, RadialGrid
+from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, RadialGrid
 from solprop.modes import (
     CoherentWall,
     GradedIndexProvider,
@@ -111,8 +117,8 @@ def simulation():
         "He",
         1.0,
         lambda0=800e-9,
-        wavelength_limits=(200e-9, 2e-6),
-        trange=300e-15,
+        # The grid the record's literals below were taken on.
+        grid=FieldGrid.from_limits(0.1, 800e-9, (200e-9, 2e-6), 300e-15, **LEGACY_GRID),
         fwhm=10e-15,
         energy=100e-6,
         modes=2,
@@ -680,8 +686,9 @@ def test_the_run_record_is_what_it_was_before_the_printing(examples):
             quadrature=None,
             configuration=configuration,
         )
+        # SEP 21 records the absorber's spatial flag (output schema 27).
         skeleton, values, floor = record_skeleton(
-            without_optmat_release(record.hashed())
+            without_optmat_release(without_sep21_absorber(record.hashed()))
         )
         assert skeleton_hash(skeleton) == literal, schema
         numbers[schema] = np.asarray(values, dtype=float)
@@ -703,7 +710,7 @@ def test_the_run_record_names_its_power_convention(examples):
     # the spectral convention; a schema-5 record (which carries no material manifest)
     # reads back as the vacuum label.
     metadata = quiet(examples["Simulation"].metadata)
-    assert "optics spectra, poynting amplitudes, schema 26" in str(metadata)
+    assert "optics spectra, poynting amplitudes, schema 27" in str(metadata)
     older = replace(
         metadata, schema_version=5, quadrature=None, materials=MaterialManifest()
     )

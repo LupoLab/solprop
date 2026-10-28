@@ -452,7 +452,7 @@ def crossing_nepers(grid, group_delay_span, boundary_n=DEFAULT_BOUNDARY_N):
 def test_the_walk_off_warning_fires_when_the_absorber_is_too_weak(field_grid):
     # A packet whose group delay drifts by more than the time window itself crosses the
     # collar too fast to be absorbed, reaches the edge alive, and wraps around.
-    span = 1e-12
+    span = 2e-12
     assert crossing_nepers(field_grid, span) < MIN_COLLAR_ATTENUATION
     with pytest.warns(SolpropWarning, match="wrapping around"):
         warn_walkoff(field_grid, span)
@@ -470,7 +470,7 @@ def test_the_walk_off_warning_is_silent_when_the_absorber_is_strong_enough(field
 
 
 def test_a_stronger_absorber_silences_the_warning(field_grid):
-    span = 1e-12
+    span = 2e-12
     with pytest.warns(SolpropWarning):
         warn_walkoff(field_grid, span, boundary_N=DEFAULT_BOUNDARY_N)
     with warnings.catch_warnings():
@@ -480,7 +480,7 @@ def test_a_stronger_absorber_silences_the_warning(field_grid):
 
 
 def test_the_warning_says_how_much_stronger_the_absorber_must_be(field_grid):
-    span = 1e-12
+    span = 2e-12
     with pytest.warns(SolpropWarning) as record:
         warn_walkoff(field_grid, span)
     message = str(record[0].message)

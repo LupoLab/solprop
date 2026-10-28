@@ -110,8 +110,12 @@ def _run(backend):
     )
     # A collar referred to ten metres, weak enough for ten explicit centimetre steps
     # (ADR-025); the default refers it to the run and needs more of them.
+    # The boundary monitor is off: the subject is the gradient, and the ten coarse
+    # steps through the gas spread the light to the window's edge.
     simulation.settings = replace(
-        simulation.settings, absorber=absorber(simulation.grid, boundary_length=10.0)
+        simulation.settings,
+        absorber=absorber(simulation.grid, boundary_length=10.0),
+        boundary_check=None,
     )
     with warnings.catch_warnings():
         for category in QUIET:

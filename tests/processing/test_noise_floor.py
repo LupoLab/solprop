@@ -70,6 +70,9 @@ def _fibre(noise: str | None) -> Simulation:
         integrator=RungeKutta(),
         n_save=2,
         backend="numpy_ref",
+        # The identity holds without loss: the default collar would absorb part of
+        # the draw that the modified run keeps apart (SEP 21).
+        absorber=False,
     )
 
 

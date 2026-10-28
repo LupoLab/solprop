@@ -99,7 +99,6 @@ _VUV = (
     "1.43× in the fundamental, 1.30× over both modes; arrival 4.730 fs against 4.622 fs"  # noqa: RUF001
 )
 _LUNA_FALLS = "Luna's second mode falls from 3.341 to 2.543, 2.101 and 1.893 µJ"
-_STOKES = "| Stokes rungs, ours over Luna's | 0.84578, 1.52348, 1.21135 |"
 _CUDA_RUNGS = "9.56e-22, 7.62e-18, 5.42e-17, 6.10e-16, 9.31e-16 and 2.73e-17"
 _LADDER = (
     "one linear application",
@@ -264,23 +263,20 @@ QUOTES = (
     Quote("Luna's falls by a factor of 1.76 onto it", "1.76", _luna_fall),
     # Section 6: milestone M4.
     Quote(
-        "| fundamental, shape | 0.15438 |",
-        "0.15438",
-        lambda: at(M4, "reduced case", "fundamental, shape", "value"),
+        "| exit energy, ours over Luna's | 1.00001 |",
+        "1.00001",
+        lambda: at(M4, "reduced case", "exit energy, ours over Luna's", "value"),
     ),
     Quote(
-        "| fundamental, content | 1.04401 |",
-        "1.04401",
+        "| fundamental, content | 1.00001 |",
+        "1.00001",
         lambda: at(M4, "reduced case", "fundamental, content", "value"),
     ),
     Quote(
-        "| second mode | 0.58884 |",
-        "0.58884",
-        lambda: at(M4, "reduced case", "second mode, content", "value"),
+        "| fundamental, shape | 0.03833 |",
+        "0.03833",
+        lambda: at(M4, "reduced case", "fundamental, shape", "value"),
     ),
-    Quote(_STOKES, "0.84578", lambda: at(M4, "reduced case", "Stokes rung 1", "value")),
-    Quote(_STOKES, "1.52348", lambda: at(M4, "reduced case", "Stokes rung 2", "value")),
-    Quote(_STOKES, "1.21135", lambda: at(M4, "reduced case", "Stokes rung 3", "value")),
     # Section 7: backend equivalence, `numba_cpu` and Kokkos against the reference.
     *(
         Quote(f"| {row} | {bound} ε | {measured} |", printed, value)

@@ -168,10 +168,12 @@ def test_the_area_path_is_the_one_kink_mechanism():
 def test_scalar_reduction():
     # A constant area declared as a path is the existing route: the same fast
     # paths, the same arithmetic. On a prescribed schedule at a fixed order the two
-    # runs are one march, so they agree within its rounding budget (SEP 25).
+    # runs are one march, so they agree within its rounding budget (SEP 25). Without
+    # a collar, which refuses ten fixed steps and is not what this is about.
     prescribed = {
         "schedule": FixedSchedule.uniform(0.0, LENGTH, LENGTH / 10, save_planes=[]),
         "integrator": FIXED_ORDER,
+        "absorber": False,
     }
     number = run(ENTRANCE_AREA, **prescribed).fields("fft")
     declared = run(Constant(ENTRANCE_AREA), **prescribed).fields("fft")

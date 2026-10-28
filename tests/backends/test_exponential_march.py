@@ -20,6 +20,7 @@ import numpy as np
 import pytest
 
 from bounds import assert_within, gamma, step_evaluations
+from legacy_geometry import LEGACY_GRID
 from solprop._helpers import PLAIN
 from solprop.backends.batch import LockstepRunner
 from solprop.backends.driver import StepDriver
@@ -39,6 +40,7 @@ from solprop.exceptions import (
     StepperError,
     TranslationError,
 )
+from solprop.grid import EnvelopeGrid
 from solprop.noise import modified_noise
 from solprop.stepper import FixedSchedule, PIController, RungeKutta
 from solprop.stepper.multistep import PEC_REAL_INTERVAL, ComparisonMultistep, Multistep
@@ -51,6 +53,15 @@ SOLITON_PERIOD = math.pi / 2 * (100e-15) ** 2 / 11.83e-27
 EXPONENTIAL = Multistep(formulation="exponential")
 INTERACTION = Multistep(formulation="interaction")
 FORMULATIONS = [INTERACTION, EXPONENTIAL]
+
+
+@pytest.fixture(scope="session")
+def narrow_grid():
+    """Return the conftest's narrow grid as built before SEP 21.
+
+    The measurements here were fixed on it, and their subject is not the boundaries.
+    """
+    return EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 1e-12, **LEGACY_GRID)
 
 
 def fixed(method: Multistep) -> Multistep:

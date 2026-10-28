@@ -18,6 +18,7 @@ import numpy.typing as npt
 import pytest
 from bounds import EPS, assert_within, step_bound
 from conftest import PhaseACase, RamanCase
+from legacy_geometry import LEGACY_GRID
 from solprop.backends.driver import StepDriver
 from solprop.backends.low_storage import schedule_key
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -826,7 +827,9 @@ def test_packed_real_blas_radial_envelope_matches_the_reference_when_eligible() 
     at least 256 nodes and 256 fine samples on HYBRID/TPL host builds; pin its
     selection, its ledger row and its agreement with the reference at that
     shape."""
-    grid = EnvelopeGrid.from_limits(1e-4, 800e-9, (600e-9, 1.2e-6), 300e-15, thg=False)
+    grid = EnvelopeGrid.from_limits(
+        1e-4, 800e-9, (600e-9, 1.2e-6), 300e-15, thg=False, **LEGACY_GRID
+    )
     assert grid.n_to == 256
     space = RadialGrid(1e-3, 256)
     start = SpatialPulse(

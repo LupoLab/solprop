@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import dataclasses
 import math
 import re
 
@@ -15,12 +16,15 @@ from solprop import fourier
 from solprop.constants import C
 from solprop.exceptions import GridError
 from solprop.grid import (
+    DEFAULT_COLLAR_FRACTION,
     Collar,
     EnvelopeGrid,
     FieldGrid,
     TimeGrid,
     _fft_size,
     _frequency_limits,
+    _needed_window,
+    fft_cost,
     planck_taper,
 )
 
@@ -115,9 +119,60 @@ def test_collar_reports_its_edge_widths():
 # --- construction: the sizes the grids pin --------------------------------------------
 
 
-def test_field_grid_reproduces_the_rdw_vuv_sizes(field_grid):
-    assert (field_grid.n_t, field_grid.n_to) == (4096, 8192)
-    assert (field_grid.n_omega, field_grid.n_omega_fine) == (2049, 4097)
+def test_field_grid_reproduces_the_rdw_vuv_sizes():
+    # Luna's geometry, as the frozen witnesses state it: powers of two, collar inside.
+    grid = FieldGrid.from_limits(
+        **RDW, fft_size="pow2", collar_fraction=0.05, collar_placement="inside"
+    )
+    assert (grid.n_t, grid.n_to) == (4096, 8192)
+    assert (grid.n_omega, grid.n_omega_fine) == (2049, 4097)
+
+
+def test_the_default_collar_lies_outside_the_request(field_grid):
+    # SEP 21: the whole requested window is flat, and the collar takes a tenth of the
+    # realised window beyond it at each end.
+    assert_allclose(field_grid.t_collar.one_high, RDW["trange"] / 2, rtol=8 * EPS)
+    assert_allclose(field_grid.t_collar.one_low, -RDW["trange"] / 2, rtol=8 * EPS)
+    window = field_grid.n_to * field_grid.dt_fine
+    assert window >= RDW["trange"] / (1 - 2 * DEFAULT_COLLAR_FRACTION)
+    assert (field_grid.n_t, field_grid.n_to) == (5120, 10240)
+
+
+def test_a_collar_placement_must_be_outside_or_inside():
+    # The runtime type check refuses it at from_limits; the sizing helper refuses it
+    # for any caller without one.
+    assert _needed_window(1.0, 0.1, "inside") == 1.0
+    with pytest.raises(GridError, match="collar_placement must be"):
+        _needed_window(1.0, 0.1, "middle")
+
+
+def test_a_grid_without_room_for_a_taper_takes_the_spectral_collar_alone(field_grid):
+    # A collar of one sample each side cannot taper: the default absorber falls back
+    # to its spectral collar rather than refuse the run.
+    from solprop.driver.simulation import default_collar  # noqa: PLC0415
+
+    edges = field_grid.t_collar
+    narrow = dataclasses.replace(
+        field_grid,
+        t_collar=dataclasses.replace(
+            edges,
+            zero_low=edges.one_low - field_grid.dt,
+            zero_high=edges.one_high + field_grid.dt,
+        ),
+    )
+    assert default_collar(field_grid).temporal
+    assert not default_collar(narrow).temporal
+
+
+def test_auto_sizes_cost_no_more_than_the_power_of_two():
+    for trange in (137e-15, 400e-15, 550e-15, 923e-15):
+        auto = FieldGrid.from_limits(**{**RDW, "trange": trange})
+        pow2 = FieldGrid.from_limits(**{**RDW, "trange": trange}, fft_size="pow2")
+        assert fft_cost(auto.n_to) + fft_cost(auto.n_t) <= fft_cost(
+            pow2.n_to
+        ) + fft_cost(pow2.n_t)
+        assert is_smooth(auto.n_to)
+        assert auto.n_to % auto.n_t == 0
 
 
 @pytest.mark.parametrize("grid_name", ["field_grid", "envelope_grid"])
@@ -297,11 +352,19 @@ def test_the_two_temporal_windows_agree_at_coincident_samples(envelope_grid):
     )
 
 
-def test_a_wider_collar_fraction_widens_the_collar():
+def test_a_wider_collar_fraction_widens_the_collar_and_the_window():
     narrow = FieldGrid.from_limits(**RDW, collar_fraction=0.05)
     wide = FieldGrid.from_limits(**RDW, collar_fraction=0.25)
     assert wide.t_collar.width_low > narrow.t_collar.width_low
-    assert wide.t_window.sum() < narrow.t_window.sum()
+    assert wide.n_t * wide.dt > narrow.n_t * narrow.dt
+    # The request stays flat either way.
+    assert wide.t_collar.one_high == narrow.t_collar.one_high
+
+
+def test_a_zero_collar_fraction_realises_the_request():
+    # No temporal collar, so the window need hold only the request (SEP 21, Q16).
+    grid = FieldGrid.from_limits(**RDW, collar_fraction=0.0, fft_size="smooth")
+    assert grid.n_to * grid.dt_fine < 1.05 * RDW["trange"]
 
 
 def test_a_window_longer_than_requested_keeps_lunas_collar_edges():
@@ -311,7 +374,9 @@ def test_a_window_longer_than_requested_keeps_lunas_collar_edges():
     # the
     # geometry is Luna's, unwidened.
     trange = 210e-15
-    grid = FieldGrid.from_limits(**{**RDW, "trange": trange})
+    grid = FieldGrid.from_limits(
+        **{**RDW, "trange": trange}, fft_size="pow2", collar_placement="inside"
+    )
     assert grid.n_to * grid.dt_fine > 1.9 * trange
     assert_allclose(grid.t_collar.one_high, trange / 2, rtol=8 * EPS)
 
@@ -358,7 +423,7 @@ def test_a_grid_round_trips_a_pulse_through_its_fine_grid(grid_name, request):
 
 @pytest.mark.parametrize("factory", [FieldGrid, EnvelopeGrid])
 def test_pow2_sizes_are_powers_of_two(factory):
-    grid = factory.from_limits(**RDW)
+    grid = factory.from_limits(**RDW, fft_size="pow2")
     for size in (grid.n_t, grid.n_to):
         assert size == 1 << (size.bit_length() - 1)
 
@@ -377,7 +442,7 @@ def test_smooth_sizes_are_even_and_two_three_five_smooth(factory, trange):
 
 def test_smooth_sizes_track_the_requirement_more_closely_than_powers_of_two():
     smooth = FieldGrid.from_limits(**RDW, fft_size="smooth")
-    pow2 = FieldGrid.from_limits(**RDW)
+    pow2 = FieldGrid.from_limits(**RDW, fft_size="pow2")
     assert smooth.n_to <= pow2.n_to
     assert smooth.n_t < pow2.n_t
 
@@ -449,9 +514,8 @@ def test_from_limits_rejects_bad_scalars(factory, override, message):
         ({"dt": -1e-18}, "dt must be a positive"),
         ({"ffac": 1.5}, "ffac must be at least 2"),
         ({"ffac": 0.0}, "ffac must be at least 2"),
-        ({"collar_fraction": 0.0}, "collar_fraction must lie strictly"),
-        ({"collar_fraction": 0.5}, "collar_fraction must lie strictly"),
-        ({"collar_fraction": -0.1}, "collar_fraction must lie strictly"),
+        ({"collar_fraction": 0.5}, "collar_fraction must lie in"),
+        ({"collar_fraction": -0.1}, "collar_fraction must lie in"),
         ({"fft_size": "fast"}, "fft_size must be"),
     ],
 )

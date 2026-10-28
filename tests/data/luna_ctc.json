@@ -1,68 +1,41 @@
 {
- "as_luna_wrote_them_bytes": {
-  "luna_ctc_full.h5": 332380253,
-  "luna_ctc_reduced.h5": 3626031
- },
+ "as_luna_wrote_it_bytes": 3033644,
  "blas_threads": 6,
  "energy": 1e-05,
  "fftw_pool": "none",
  "fftw_threads": 1,
  "files": {
-  "luna_ctc_full.h5": {
-   "bytes": 4527659,
-   "sha256": "21979d3bb17d856e6601cafb21d12a28d33a3902e89344f5dae240416398738f"
-  },
   "luna_ctc_media.json": {
-   "bytes": 2956799,
-   "sha256": "c4c57e8c25c9f72b785cd4691b1611c305441d2c9e67b4e9b90f3ddd0eb3192d"
+   "bytes": 1036953,
+   "sha256": "985ff081848aad37a498f0e185e7cb4fdc9cfe1c361dc09779a294f83eba69d4"
   },
   "luna_ctc_reduced.h5": {
-   "bytes": 1725191,
-   "sha256": "f3dcc5520ad359fabc57ad45dd9e36215f6354c4ee8f16466bcebea981b08931"
+   "bytes": 1770041,
+   "sha256": "9e1738d0c17ddf155f887ab5414d847f156d1f796a157415ecd0e3f63d5a383d"
   }
  },
- "full": {
-  "lambda_max": 4e-06,
-  "lambda_min": 1.7e-07,
-  "length": 0.2,
-  "modes": 6,
-  "n_save": 201,
-  "pressure": 40.0,
-  "radius": 1.6e-05,
-  "trange": 4e-12
- },
- "full_trimmed_to_planes": [
-  0,
-  -1
- ],
- "generated": "2026-09-06T12:40:53+00:00",
+ "generated": "2026-10-24T16:53:59+00:00",
  "julia_threads": 1,
  "julia_version": "julia version 1.12.6",
  "lambda0": 5.15e-07,
  "luna_branch": "modal-fixed",
  "luna_commit": "de9db7c9a3b6e37fc71bb657540abab177242883",
  "luna_describe": "de9db7c LinearOps: frozen_transverse kwarg for the free-space const linop",
- "luna_path": "~/.julia/dev/Luna",
- "note": "Regression witnesses, not truth. Generated at solprop's room temperature of 294.0 K rather than Luna's 293.15 K, and with the shot noise off; both departures are so that the comparison measures the solver. Luna turns the Raman response on by itself for hydrogen and the plasma on for a real field, so neither is passed. Hydrogen's susceptibility, its hyperpolarisability, the cladding index, Luna's Raman response and Luna's own molecular ADK rate are emitted in luna_ctc_media.json because the package defaults differ from them by design. The full case's field is trimmed to the planes listed above and both files' statistics are stored on the stride listed above; regenerate with tests/data/generate_luna_ctc.py. The full case is 0.2 m, not the 1.5 m of the script the target came from: that length was arbitrary and is the one parameter that changes nothing else about the case. The continuum is formed by 0.2 m but still evolving, the red shoulder growing with distance, so this is a regression witness and a benchmark rather than a converged endpoint. julia_threads, blas_threads, fftw_threads and fftw_pool were added by hand from the generator's own invocation (no `-t`, `JULIA_NUM_THREADS` unset): both runtime_s numbers above -- including the full case's 4533 s -- are single-threaded Luna with a six-thread BLAS and FFTW left at one thread. No witness was regenerated.",
+ "luna_path": "an exported clone of the Luna repository at the recorded commit",
+ "note": "A noise-free regression witness for the solver, not truth; it forms no continuum, since nothing seeds the Stokes band. Generated at 294.0 K rather than Luna's 293.15 K, and with the shot noise off, so that the comparison measures the solver. Luna turns the Raman response on by itself for hydrogen and the plasma on for a real field, so neither is passed. Hydrogen's susceptibility, its hyperpolarisability, the cladding index, Luna's Raman response and Luna's own molecular ADK rate are emitted in luna_ctc_media.json because the package defaults differ from them by design. Regenerate with tests/data/generate_luna_ctc.py. The thread counts and the FFTW pool are read inside the Julia program rather than assumed.",
  "reduced": {
   "lambda_max": 2e-06,
   "lambda_min": 2.5e-07,
   "length": 0.1,
-  "modes": 2,
+  "modes": 1,
   "n_save": 21,
   "pressure": 40.0,
   "radius": 1.6e-05,
-  "trange": 1e-12
+  "trange": 2e-12
  },
- "runtime_s": {
-  "full": 4533.120375156403,
-  "reduced": 76.38446116447449
- },
+ "runtime_s": 29.750715970993042,
  "shotnoise": false,
- "stats_stride": {
-  "luna_ctc_full.h5": 2,
-  "luna_ctc_reduced.h5": 1
- },
+ "stats_stride": 1,
  "tau_fwhm": 4e-13,
  "temperature_k": 294.0
 }

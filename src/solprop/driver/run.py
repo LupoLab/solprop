@@ -61,6 +61,7 @@ from solprop.log import (
     SummarisingReporter,
     resolve_reporter,
 )
+from solprop.monitor import BoundaryCheck, BoundaryMonitor
 from solprop.output.capability import (
     capability_of,
     declared_capability,
@@ -280,6 +281,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
     field_planes: Sequence[int] = (),
     snapshots: SnapshotController | None = None,
     tdse_archive: TDSEArchiveWriter | None = None,
+    boundary_monitor: BoundaryMonitor | None = None,
 ) -> None:
     """Run one translated problem to its save planes, writing each one out.
 
@@ -357,6 +359,10 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         ``step_planes=1``, all fields and non-interpolated observations.
     tdse_archive : solprop.output.tdse_archive.TDSEArchiveWriter or None, optional
         Live archive to suspend and copy beside the optical writer.
+    boundary_monitor : solprop.monitor.BoundaryMonitor or None, optional
+        Watches the time window's edges (SEP 21): attached to the backend once its
+        launch is recorded, fed every committed step, and its record reported and
+        written into the execution record at the end. ``None`` watches nothing.
 
     Raises
     ------
@@ -443,7 +449,15 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         reserve(planes.size + 1)
     _retain(output, retention, problem.shape[1:])
     reached, missing_current_save = _resume_position(output, checkpoint_output, problem)
-    _announce(problem, metadata, backend, output, reporter, (start_plane, reached))
+    _announce(
+        problem,
+        metadata,
+        backend,
+        output,
+        reporter,
+        (start_plane, reached),
+        boundary_check=None if boundary_monitor is None else boundary_monitor.check,
+    )
     keeper = _MarchKeeper(output, backend, resume_history)
     pending: SavedPlane | None = None
     pending_save_count = output.n_saved
@@ -485,6 +499,9 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
                     RunOutcome("running", reached),
                     clock=clock,
                 )
+        attach = getattr(backend, "attach_monitor", None)
+        if boundary_monitor is not None and attach is not None:
+            attach(boundary_monitor)
         index = start_plane
         while index < planes.size:
             target = float(planes[index])
@@ -554,6 +571,8 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
             # A natural step can stop short of the requested plane (SEP 14).
             if math.isclose(summary.z, target, rel_tol=1e-12, abs_tol=0.0):
                 index += 1
+        if boundary_monitor is not None and attach is not None:
+            boundary_monitor.finish()
         with committing():
             _record_execution(
                 checkpoint_output,
@@ -604,13 +623,15 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
                 snapshots._finish()
 
 
-def _announce(
+def _announce(  # noqa: PLR0913 - the run's parts, each a distinct object
     problem: KernelProblem,
     metadata: RunMetadata,
     backend: Backend,
     output: Output,
     reporter: ProgressReporter,
     start: tuple[int, float],
+    *,
+    boundary_check: BoundaryCheck | None = None,
 ) -> None:
     """Show the run's summary through the reporter and record it on a plane store.
 
@@ -630,6 +651,8 @@ def _announce(
     start : tuple of int and float
         The first save plane beyond the loaded state, and the position the run starts
         from, m.
+    boundary_check : solprop.monitor.BoundaryCheck or None, optional
+        The thresholds the window's edges are watched with, or ``None``.
     """
     start_plane, z_start = start
     summary = run_summary(
@@ -640,6 +663,7 @@ def _announce(
         output=output,
         start_plane=start_plane,
         z_start=z_start,
+        boundary_check=boundary_check,
     )
     if isinstance(reporter, SummarisingReporter):
         reporter.summary(summary.text())

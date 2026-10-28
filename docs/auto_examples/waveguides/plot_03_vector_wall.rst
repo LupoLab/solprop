@@ -386,8 +386,8 @@ as the launch, fills through the Kerr overlap in both runs alike.
 
  .. code-block:: none
 
-    vector wall: HE_11 6.71e-01, HE_12 1.98e-02, EH_11 5.76e-07, EH_12 2.02e-07
-    no wall    : HE_11 6.58e-01, HE_12 1.95e-02, EH_11 1.27e-12, EH_12 1.06e-12
+    vector wall: HE_11 6.71e-01, HE_12 1.98e-02, EH_11 5.76e-07, EH_12 2.01e-07
+    no wall    : HE_11 6.58e-01, HE_12 1.95e-02, EH_11 1.63e-12, EH_12 1.64e-12
 
 
 
@@ -417,7 +417,7 @@ Four complete one-metre runs of three or four coupled modes.
 
  .. code-block:: none
 
-    1670 s; backend native, 32 threads
+    1301 s; backend native, 16 threads
 
 
 
@@ -434,7 +434,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (27 minutes 49.828 seconds)
+   **Total running time of the script:** (21 minutes 41.401 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_03_vector_wall.py:

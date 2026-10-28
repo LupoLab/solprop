@@ -114,7 +114,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 26
+SCHEMA_VERSION = 27
 """Version of the record layout; incremented whenever a stored field changes meaning.
 
 Version 9 adds the SEP 13 stepping method. Independent version-10 branches added
@@ -188,6 +188,9 @@ asked for, ``"default"`` when the keyword was omitted, the model the run carries
 why a default fell back to none. It sits beside the hash, not in it, because the
 resolved model is already there through the noise record. A record older than 26 has
 none.
+
+Version 27 (SEP 21) records ``Absorber.spatial``, and a GNLSE or spatial run that
+declares no absorber records the default collar it now has rather than none.
 """
 
 INLINE_ARRAY_LIMIT = 2**20
@@ -4303,7 +4306,7 @@ class PlaneStore(Displayed, ABC):
         >>> n_omega = handler.metadata.grid.n_omega
         >>> handler.save(SavedPlane(z=0.0, field=np.ones((1, 1, n_omega), complex)))
         >>> handler.plane_field(-1).shape
-        (1, 1, 2048)
+        (1, 1, 2560)
         """
         plane = index + self._n_saved if index < 0 else index
         if not 0 <= plane < self._n_saved:

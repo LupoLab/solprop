@@ -19,6 +19,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from legacy_geometry import LEGACY_GRID, bare_absorber
 from solprop import fourier
 from solprop.boundaries import absorber
 from solprop.constants import C
@@ -78,7 +79,10 @@ pytestmark = [
 
 LENGTH = 0.1
 HALF_GAP = 63.5e-6
-GRID = EnvelopeGrid.from_limits(LENGTH, 800e-9, (650e-9, 1000e-9), 600e-15)
+GRID = EnvelopeGrid.from_limits(
+    LENGTH, 800e-9, (650e-9, 1000e-9), 600e-15, **LEGACY_GRID
+)
+"""The former grid geometry: these tests are about the planar route, not the window."""
 
 
 FILL = SpatialMedium("Ar", 1.0)
@@ -95,6 +99,9 @@ def slab_modes(orders=(1, 3, 5), **fill):
 
 
 def settings(backend="numpy_ref", steps=10, **changes):
+    # No collar unless one is declared: a few fixed steps are refused beside the
+    # default one, and only the y-collar test is about boundaries.
+    changes.setdefault("absorber", bare_absorber(GRID))
     return SimulationSettings(
         controller=PIController(rtol=1e-8, atol=1e-12),
         save_planes=[LENGTH],
@@ -582,7 +589,7 @@ def test_the_y_collar_absorbs_what_reaches_it_when_an_absorber_is_declared():
     energies = {}
     collar = absorber(GRID, boundary_length=0.2)
     for name, declared, scheme in (
-        ("none", None, "nonlinear"),
+        ("none", bare_absorber(GRID), "nonlinear"),
         ("nonlinear", collar, "nonlinear"),
         ("split_step", collar, "split_step"),
     ):

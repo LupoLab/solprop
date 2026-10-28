@@ -1,8 +1,8 @@
 FieldGrid: a real field grid
-  time samples:      1024 (2048 oversampled)
-  time window:       455.4 fs, step 444.8 as
+  time samples:      1152 (2304 oversampled)
+  time window:       512.4 fs, step 444.8 as
   undamped window:   -200 fs to 200 fs
-  frequency samples: 513, step 2.196 THz
+  frequency samples: 577, step 1.952 THz
   spectral band:     400-2000 nm
   reference:         800 nm
   length:            100 mm

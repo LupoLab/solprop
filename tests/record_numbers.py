@@ -109,3 +109,41 @@ def assert_record_numbers(numbers, floors, stored: Path) -> None:
     limit = RECORD_RTOL * np.abs(expected[finite]) + floors[finite]
     outside = np.abs(numbers[finite] - expected[finite]) > limit
     assert not outside.any(), f"{int(outside.sum())} numbers outside their bound"
+
+
+def without_sep21_absorber(
+    record: dict, *, bare: bool = False, spatial: bool = False
+) -> dict:
+    """Return a hashed record as it was before output schema 27 (SEP 21).
+
+    Schema 26 records ``Absorber.spatial``; the projection drops it. A run that declared
+    no absorber recorded ``None`` before and now records the bare boundaries that stand
+    for it (``tests/legacy_geometry.py``); with `bare` the projection restores ``None``.
+    A spatial run that named no collar scheme now records ``"split_step"``, its route's
+    default; with `spatial` the projection restores the former ``"nonlinear"``.
+
+    Parameters
+    ----------
+    record : dict
+        A record from ``RunMetadata.hashed``.
+    bare : bool, optional
+        Whether the run's absorber stands for the former ``None``.
+    spatial : bool, optional
+        Whether the run is a spatial one that named no collar scheme.
+
+    Returns
+    -------
+    dict
+        The projected record; `record` is not modified.
+    """
+    configuration = dict(record["configuration"])
+    collar = configuration.get("absorber")
+    if bare:
+        configuration["absorber"] = None
+    elif isinstance(collar, dict):
+        configuration["absorber"] = {
+            key: value for key, value in collar.items() if key != "spatial"
+        }
+    if spatial and configuration.get("absorber_scheme") == "split_step":
+        configuration["absorber_scheme"] = "nonlinear"
+    return {**record, "configuration": configuration}

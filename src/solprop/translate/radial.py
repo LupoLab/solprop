@@ -90,7 +90,7 @@ def radial_transform(  # noqa: PLR0913 - geometry and the shared translation con
     projection = hankel.forward_scale * diagonal * hankel.matrix
     rate = (
         np.zeros(space.n_r)
-        if absorber is None
+        if absorber is None or not absorber.spatial
         else (TEMPORAL_ALPHA_LENGTH * (1 - space.window) / absorber.in_stage_length)
     )
     geometry = SpatialGeometry(

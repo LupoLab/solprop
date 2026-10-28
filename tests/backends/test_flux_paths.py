@@ -10,6 +10,7 @@ from typing import cast
 import numpy as np
 import pytest
 
+from legacy_geometry import LEGACY_GRID, bare_absorber
 from solprop.adiabatic import AdiabaticAccuracy
 from solprop.driver.simulation import Simulation, SimulationSettings
 from solprop.exceptions import MaterialError, TranslationError
@@ -37,8 +38,14 @@ def _case(
     planes: list[float],
     accuracy: AdiabaticAccuracy | None = None,
 ) -> Simulation:
-    """Return a short linear radial run of a 3 nJ beam through `medium`."""
-    grid = EnvelopeGrid.from_limits(LENGTH, 800e-9, (600e-9, 1.2e-6), 150e-15)
+    """Return a short linear radial run of a 3 nJ beam through `medium`.
+
+    On the former grid and without a collar, as an undeclared absorber meant before
+    SEP 21: the subject is the flux through the path, which a collar would drain.
+    """
+    grid = EnvelopeGrid.from_limits(
+        LENGTH, 800e-9, (600e-9, 1.2e-6), 150e-15, **LEGACY_GRID
+    )
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=ENERGY), 60e-6
     )
@@ -50,6 +57,7 @@ def _case(
         backend=backend,
         stats=StatsSpec(names=("energy", "peak_intensity")),
         adiabatic_accuracy=accuracy,
+        absorber=bare_absorber(grid),
     )
     return Simulation.from_radial(
         grid, RadialGrid(6e-4, 16), medium, [], pulse, settings=settings, noise=None

@@ -18,6 +18,7 @@ was asked for is recorded as structured metadata.
 The manual page is ``docs/guide/setup/running.md``.
 """
 
+import dataclasses
 import logging
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -26,7 +27,7 @@ from typing import Literal
 import numpy as np
 from jaxtyping import Float
 
-from solprop.boundaries import Absorber
+from solprop.boundaries import Absorber, no_absorber
 from solprop.coupling.models import CouplingModel
 from solprop.driver.simulation import (
     DEFAULT_ATOL,
@@ -35,6 +36,7 @@ from solprop.driver.simulation import (
     Simulation,
     SimulationSettings,
 )
+from solprop.exceptions import DriverError
 from solprop.gasflow import VacuumEnd
 from solprop.grid import FreeGrid, RadialGrid, TimeGrid
 from solprop.linear import Frame
@@ -51,6 +53,7 @@ from solprop.modes.protocol import Mode
 from solprop.modes.quadrature import RadialRule
 from solprop.modes.slab import PlanarGrid
 from solprop.modes.tabulated import IndexTable
+from solprop.monitor import DEFAULT_BOUNDARY_CHECK, BoundaryCheck
 from solprop.nonlinear.ionisation import IntegrationPolicy, IonisationRate
 from solprop.nonlinear.raman import MolecularOptions
 from solprop.nonlinear.tdse import TDSEExecution, TDSEGasResponse
@@ -103,6 +106,8 @@ def prop_radial(  # noqa: PLR0913 - the simulation interface and output controls
     progress: ProgressReporter | ProgressChoice | None = None,
     progress_period: float = DEFAULT_PROGRESS_PERIOD,
     materials: MaterialSelection | None = None,
+    absorber: Absorber | Literal[False] | None = None,
+    absorber_scheme: AbsorberScheme | None = None,
 ) -> Output:
     """Propagate a radial beam and return its saved output.
 
@@ -150,12 +155,19 @@ def prop_radial(  # noqa: PLR0913 - the simulation interface and output controls
         :meth:`~solprop.driver.simulation.Simulation.from_radial`). Supplied objects are
         taken as they are, and the run records its material manifest (output schema 8).
         ``None`` (the default) is ``MaterialSelection()``, optmat's recommended models.
+    absorber : solprop.boundaries.Absorber, False or None, optional
+        Overrides `settings`' absorber, which must then declare none. ``False``
+        switches the temporal and spectral collars off and keeps the hard band mask;
+        the transverse collars keep their own settings (SEP 21 section 5).
+    absorber_scheme : {'nonlinear', 'split_step'} or None, optional
+        Overrides `settings`' temporal scheme, which must then be the default.
 
     Returns
     -------
     solprop.output.schema.Output
         Saved fields, metadata, statistics and step history.
     """
+    settings = _with_boundary(settings, grid, absorber, absorber_scheme)
     simulation = Simulation.from_radial(
         grid,
         space,
@@ -194,6 +206,8 @@ def prop_free(  # noqa: PLR0913 - the simulation interface and output controls
     progress: ProgressReporter | ProgressChoice | None = None,
     progress_period: float = DEFAULT_PROGRESS_PERIOD,
     materials: MaterialSelection | None = None,
+    absorber: Absorber | Literal[False] | None = None,
+    absorber_scheme: AbsorberScheme | None = None,
 ) -> Output:
     """Propagate a Cartesian beam and return its saved output.
 
@@ -245,12 +259,19 @@ def prop_free(  # noqa: PLR0913 - the simulation interface and output controls
         :meth:`~solprop.driver.simulation.Simulation.from_free`). Supplied objects are
         taken as they are, and the run records its material manifest (output schema 8).
         ``None`` (the default) is ``MaterialSelection()``, optmat's recommended models.
+    absorber : solprop.boundaries.Absorber, False or None, optional
+        Overrides `settings`' absorber, which must then declare none. ``False``
+        switches the temporal and spectral collars off and keeps the hard band mask;
+        the transverse collars keep their own settings (SEP 21 section 5).
+    absorber_scheme : {'nonlinear', 'split_step'} or None, optional
+        Overrides `settings`' temporal scheme, which must then be the default.
 
     Returns
     -------
     solprop.output.schema.Output
         Saved fields, metadata, statistics and step history.
     """
+    settings = _with_boundary(settings, grid, absorber, absorber_scheme)
     simulation = Simulation.from_free(
         grid,
         space,
@@ -286,6 +307,8 @@ def prop_planar(  # noqa: PLR0913 - the simulation interface and output controls
     progress: ProgressReporter | ProgressChoice | None = None,
     progress_period: float = DEFAULT_PROGRESS_PERIOD,
     materials: MaterialSelection | None = None,
+    absorber: Absorber | Literal[False] | None = None,
+    absorber_scheme: AbsorberScheme | None = None,
 ) -> Output:
     """Propagate a beam in a hollow planar guide, resolved in y, and return its output.
 
@@ -330,12 +353,19 @@ def prop_planar(  # noqa: PLR0913 - the simulation interface and output controls
         :meth:`~solprop.driver.simulation.Simulation.from_planar`). Supplied objects are
         taken as they are, and the run records its material manifest (output schema 8).
         ``None`` (the default) is ``MaterialSelection()``, optmat's recommended models.
+    absorber : solprop.boundaries.Absorber, False or None, optional
+        Overrides `settings`' absorber, which must then declare none. ``False``
+        switches the temporal and spectral collars off and keeps the hard band mask;
+        the transverse collars keep their own settings (SEP 21 section 5).
+    absorber_scheme : {'nonlinear', 'split_step'} or None, optional
+        Overrides `settings`' temporal scheme, which must then be the default.
 
     Returns
     -------
     solprop.output.schema.Output
         Saved fields, metadata, statistics and step history.
     """
+    settings = _with_boundary(settings, grid, absorber, absorber_scheme)
     simulation = Simulation.from_planar(
         grid,
         space,
@@ -352,6 +382,22 @@ def prop_planar(  # noqa: PLR0913 - the simulation interface and output controls
         progress=progress,
         progress_period=progress_period,
     )
+
+
+def _watch(simulation: Simulation, check: BoundaryCheck | None) -> None:
+    """Give `simulation` the edge watch an interface keyword asked for.
+
+    Parameters
+    ----------
+    simulation : Simulation
+        The built run; its check is an execution setting, so it may still change.
+    check : solprop.monitor.BoundaryCheck or None
+        The keyword's value; the default leaves the settings as they are.
+    """
+    if check is not DEFAULT_BOUNDARY_CHECK:
+        simulation.settings = dataclasses.replace(
+            simulation.settings, boundary_check=check
+        )
 
 
 def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
@@ -393,6 +439,9 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
     n_save: int | None = None,
     stats: StatsSpec | None = None,
     polarisation_taper: bool = False,
+    absorber: Absorber | Literal[False] | None = None,
+    absorber_scheme: AbsorberScheme | None = None,
+    boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
     output: Output | Path | str | None = None,
     snapshots: SnapshotController | None = None,
     backend: str = "auto",
@@ -565,6 +614,17 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         absorbing the field through the linear operator. Default ``False``: the taper
         costs a systematic error of the size of the field's content in the collar, and
         the rate absorber acts either way (``docs/guide/numerics/boundaries.md``).
+    absorber : solprop.boundaries.Absorber, False or None, optional
+        The collar rates; ``None`` builds the default collar of the grid, and
+        ``False`` switches both soft collars off and keeps the hard band mask
+        (:func:`solprop.boundaries.no_absorber`; SEP 21).
+    absorber_scheme : {'nonlinear', 'split_step'} or None, optional
+        How a temporal collar is applied (ADR-025); ``None`` is the default, inside
+        every stage.
+    boundary_check : solprop.monitor.BoundaryCheck or None, optional
+        How the run watches its time window's edges (SEP 21): the default warns, then
+        stops, when light above the shot-noise floor reaches them; ``None`` watches
+        nothing, for a window kept narrow on purpose.
     output : solprop.output.schema.Output or pathlib.Path or str or None, optional
         Where the run goes: a handler, a path to stream an HDF5 file to, or ``None`` for
         a :class:`solprop.output.memory.MemoryOutput`.
@@ -630,17 +690,19 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
     >>> peak = 9 * abs(beta2) / (gamma * tau0**2)
     >>> handler = prop_gnlse(
     ...     gamma, 1.57e-3, [0.0, 0.0, beta2], lambda0=835e-9,
-    ...     wavelength_limits=(500e-9, 2e-6), trange=1e-12,
+    ...     wavelength_limits=(500e-9, 2e-6), trange=2e-12,
     ...     width=tau0, peak_power=peak, pulseshape="sech", shock=False,
-    ...     n_save=3, rtol=1e-8,
+    ...     n_save=3, rtol=1e-8, noise=None,
     ... )
     >>> handler.n_saved, handler["z"].tolist()
     (3, [0.0, 0.000785, 0.00157])
 
-    The fibre is lossless, so the energy statistic is the same at every plane:
+    The fibre is lossless and the window holds the soliton's tails clear of the
+    collar, so without shot noise (part of which the collar would absorb) the energy
+    statistic is the same at every plane:
 
     >>> energy = handler["stats/energy"][:, 0, 0]
-    >>> bool(abs(energy[-1] / energy[0] - 1.0) < 1e-9)
+    >>> bool(abs(energy[-1] / energy[0] - 1.0) < 1e-8)
     True
     """
     simulation = Simulation.from_gnlse(
@@ -679,6 +741,8 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         n_save=n_save,
         stats=stats,
         polarisation_taper=polarisation_taper,
+        absorber=absorber,
+        absorber_scheme=absorber_scheme,
         backend=backend,
         precision=precision,
         materials=materials,
@@ -690,6 +754,7 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         len(simulation.settings.save_planes),
         simulation.settings.backend,
     )
+    _watch(simulation, boundary_check)
     return simulation.run(
         output,
         snapshots=snapshots,
@@ -739,8 +804,9 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
     n_theta: int | None = None,
     radial_rule: RadialRule = "gauss_kronrod",
     ionisation_field_range: tuple[float, float] | None = None,
-    absorber: Absorber | None = None,
+    absorber: Absorber | Literal[False] | None = None,
     absorber_scheme: AbsorberScheme | None = None,
+    boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
     noise: NoiseSetting = "default",
     seed: int | None = None,
     rtol: float | None = None,
@@ -968,13 +1034,19 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         Field amplitudes in V/m the rate table must cover. ``None`` derives them
         from the input's peak field over the axis and the transverse nodes; see
         :func:`solprop.driver.simulation.default_field_range`.
-    absorber : solprop.boundaries.Absorber or None, optional
-        The collar rates; ``None`` builds the default collar of the grid.
+    absorber : solprop.boundaries.Absorber, False or None, optional
+        The collar rates; ``None`` builds the default collar of the grid, and
+        ``False`` switches both soft collars, temporal and spectral, off and keeps
+        the hard band mask (:func:`solprop.boundaries.no_absorber`; SEP 21).
     absorber_scheme : {'nonlinear', 'split_step'} or None, optional
         How the temporal collar is applied (ADR-025): inside every stage, the
         default, or once per accepted step. The low-call Adams methods of
         SEP 13 step much further with ``'split_step'``, whose first-order
         splitting error stays inside the collar.
+    boundary_check : solprop.monitor.BoundaryCheck or None, optional
+        How the run watches its time window's edges (SEP 21): the default warns, then
+        stops, when light above the shot-noise floor reaches them; ``None`` watches
+        nothing, for a window kept narrow on purpose.
     noise : {'default', None, 'input', 'modified'}, optional
         Which shot-noise model to carry.
         ``"default"``, the default, resolves to ``"input"`` wherever the run can
@@ -1104,7 +1176,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
     ...         n_r=16, n_save=2, rtol=1e-8,
     ...     )
     >>> output["field"].shape[1:]
-    (2, 1, 257)
+    (2, 1, 193)
 
     The pressure the run saw is recorded beside the field, and it falls along the
     capillary:
@@ -1187,6 +1259,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         len(simulation.settings.save_planes),
         simulation.settings.backend,
     )
+    _watch(simulation, boundary_check)
     return simulation.run(
         output,
         snapshots=snapshots,
@@ -1237,7 +1310,9 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
     n_theta: int | None = None,
     radial_rule: RadialRule = "gauss_kronrod",
     ionisation_field_range: tuple[float, float] | None = None,
-    absorber: Absorber | None = None,
+    absorber: Absorber | Literal[False] | None = None,
+    absorber_scheme: AbsorberScheme | None = None,
+    boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
     noise: NoiseSetting = "default",
     seed: int | None = None,
     rtol: float | None = None,
@@ -1454,8 +1529,17 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         Field amplitudes in V/m the rate table must cover. ``None`` derives them
         from the input's peak field over the axis and the transverse nodes; see
         :func:`solprop.driver.simulation.default_field_range`.
-    absorber : solprop.boundaries.Absorber or None, optional
-        The collar rates; ``None`` builds the default collar of the grid.
+    absorber : solprop.boundaries.Absorber, False or None, optional
+        The collar rates; ``None`` builds the default collar of the grid, and
+        ``False`` switches both soft collars, temporal and spectral, off and keeps
+        the hard band mask (:func:`solprop.boundaries.no_absorber`; SEP 21).
+    absorber_scheme : {'nonlinear', 'split_step'} or None, optional
+        How the temporal collar is applied (ADR-025); ``None`` is the default,
+        inside every stage.
+    boundary_check : solprop.monitor.BoundaryCheck or None, optional
+        How the run watches its time window's edges (SEP 21): the default warns, then
+        stops, when light above the shot-noise floor reaches them; ``None`` watches
+        nothing, for a window kept narrow on purpose.
     noise : {'default', None, 'input', 'modified'}, optional
         Which shot-noise model to carry.
         ``"default"``, the default, resolves to ``"input"`` wherever the run can
@@ -1580,6 +1664,7 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         radial_rule=radial_rule,
         ionisation_field_range=ionisation_field_range,
         absorber=absorber,
+        absorber_scheme=absorber_scheme,
         noise=noise,
         seed=seed,
         rtol=rtol,
@@ -1610,6 +1695,7 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         len(simulation.settings.save_planes),
         simulation.settings.backend,
     )
+    _watch(simulation, boundary_check)
     return simulation.run(
         output,
         snapshots=snapshots,
@@ -1617,3 +1703,75 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         progress_period=progress_period,
         resume=resume,
     )
+
+
+def _with_boundary(
+    settings: SimulationSettings,
+    grid: TimeGrid,
+    absorber: Absorber | Literal[False] | None,
+    scheme: AbsorberScheme | None,
+) -> SimulationSettings:
+    """Apply a spatial interface's absorber keywords to its settings (SEP 21 section 5).
+
+    Parameters
+    ----------
+    settings : SimulationSettings
+        The settings given.
+    grid : TimeGrid
+        The run's temporal grid.
+    absorber : Absorber, False or None
+        The collar given; ``False`` zeroes the temporal and spectral rates of the
+        settings' absorber and keeps its lengths, so that the real-space collar, which
+        reads them, is unchanged (without one it builds the hard mask alone, with the
+        real-space collar off, as before); ``None`` leaves the settings' own.
+    scheme : {'nonlinear', 'split_step'} or None
+        The temporal scheme given; ``None`` leaves the settings' own.
+
+    Returns
+    -------
+    SimulationSettings
+        The settings with the keywords applied.
+
+    Raises
+    ------
+    DriverError
+        If a keyword conflicts with what the settings already declare, or a scheme is
+        given beside ``absorber=False``.
+    """
+    changes: dict[str, object] = {}
+    if absorber is False:
+        if scheme is not None:
+            msg = (
+                "absorber=False switches the temporal collar off, so there is nothing "
+                f"for absorber_scheme={scheme!r} to apply; give one or the other"
+            )
+            raise DriverError(msg)
+        current = settings.absorber
+        changes["absorber"] = (
+            dataclasses.replace(no_absorber(grid), spatial=False)
+            if current is None
+            else dataclasses.replace(
+                current,
+                spectral_rate=np.zeros_like(current.spectral_rate),
+                temporal_rate=np.zeros(grid.n_t),
+                temporal_rate_fine=np.zeros(grid.n_to),
+                temporal=False,
+            )
+        )
+    elif absorber is not None:
+        if settings.absorber is not None:
+            msg = (
+                "the settings already declare an absorber; give it there or as the "
+                "absorber keyword, not both"
+            )
+            raise DriverError(msg)
+        changes["absorber"] = absorber
+    if scheme is not None:
+        if settings.absorber_scheme not in (None, scheme):
+            msg = (
+                f"the settings already declare absorber_scheme="
+                f"{settings.absorber_scheme!r}; give it there or as the keyword"
+            )
+            raise DriverError(msg)
+        changes["absorber_scheme"] = scheme
+    return dataclasses.replace(settings, **changes) if changes else settings

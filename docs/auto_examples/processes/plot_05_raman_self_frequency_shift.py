@@ -24,16 +24,17 @@ use; photoionisation is off.
 **What to look for.** After a short compression the soliton emerges and its spectrum
 moves steadily to the red, to about 1.75 um by the end of the fibre, while the pulse
 in time bends towards later arrival. The remaining pump radiation stays near 1030 nm,
-and at the exit a second, non-soliton feature near 1.33 um is the tallest on the red
-side of the spectrum (the soliton's peak is about 0.84 of it); the shift is therefore
-followed as the longest-wavelength strong peak, not the tallest one.
+and at the exit a second, non-soliton feature near 1.33 um reaches about three
+quarters of the soliton's peak on the red side of the spectrum; the shift is therefore
+followed as the longest-wavelength strong peak, which such a feature cannot take over,
+not the tallest one.
 
 **What is approximate.** The waveguide dispersion of a capillary is used for an
 antiresonant fibre, whose resonances are ignored; only the fundamental mode is
 carried. The Raman response is optmat's line-by-line model of hydrogen, with its lines
 grouped by width into three damping groups; 5 bar is 4.6 amagat, inside the model's
 validated range. With solprop's former built-in Raman and Kerr data (before SEP 3)
-the soliton reached about 1.74 um, and the 1.33 um feature stayed below it.
+the soliton reached about 1.74 um.
 
 This is panel (e) of the survey of nonlinear processes in the review by Travers et
 al.; the experiment it is based on is reported by Lippl et al., Optics Letters 51
@@ -70,7 +71,7 @@ run = prop_capillary(
     energy=4e-6,
     loss=False,
     plasma=False,
-    trange=3.5e-12,
+    trange=5e-12,
     wavelength_limits=(400e-9, 4e-6),
     n_save=301,
     progress="none",
@@ -96,8 +97,9 @@ figures[-1].tight_layout()
 # ---------
 # The soliton's wavelength along the fibre: on the red side of the pump, the
 # longest-wavelength spectral peak that reaches at least 30 % of the red side's
-# maximum (with a prominence of 10 % of it). The tallest red-side peak is not the
-# soliton at the exit: a cluster near 1.33 um outgrows it there.
+# maximum (with a prominence of 10 % of it). The tallest red-side peak would follow a
+# cluster near 1.33 um wherever it outgrew the soliton; at the exit it reaches about
+# three quarters of the soliton's height.
 
 z = np.asarray(run["z"])
 wavelength, density = get_spectral_density(run, "wavelength")

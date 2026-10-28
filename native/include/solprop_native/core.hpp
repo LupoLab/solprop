@@ -562,6 +562,7 @@ public:
   void finish(double dz);
   void promote_fsal();
   void clear_fsal();
+  void set_absorber_quiet(bool quiet);
   [[nodiscard]] std::vector<Complex> field_to_host() const;
   [[nodiscard]] std::map<std::string, std::size_t> memory_ledger() const;
   [[nodiscard]] CpuSizing execution_sizing() const;
@@ -706,6 +707,7 @@ public:
   void finish(double dz);
   void promote_fsal();
   void clear_fsal();
+  void set_absorber_quiet(bool quiet);
   [[nodiscard]] double quadrature_error() const;
   [[nodiscard]] double quadrature_peak();
   [[nodiscard]] std::string synthesis_provider() const;

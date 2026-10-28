@@ -31,6 +31,7 @@ from numpy.testing import assert_allclose
 from backends.matched import native_thread_fields
 from backends.test_radial_nonlinear import CHI3, LENGTH, QuadraticRate, derivative
 from bounds import gamma, ladder_bound
+from legacy_geometry import LEGACY_GRID, bare_absorber
 from mixture_cases import AnalyticRate
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available
@@ -350,7 +351,9 @@ def test_prop_planar_runs_on_native_as_on_the_reference(tmp_path):
     The fields and every default free-space statistic of the two files agree under
     the ladder bound over the run's 10 cm (the operator's term dominates it).
     """
-    grid = EnvelopeGrid.from_limits(0.1, 800e-9, (650e-9, 1000e-9), 600e-15)
+    grid = EnvelopeGrid.from_limits(
+        0.1, 800e-9, (650e-9, 1000e-9), 600e-15, **LEGACY_GRID
+    )
     modes = [SlabMode(HALF_GAP, "Ar", 1.0, order=p) for p in (1, 3, 5)]
     space = PlanarGrid(modes, 1.5e-3, 32)
     launch = PlanarPulse(
@@ -369,6 +372,7 @@ def test_prop_planar_runs_on_native_as_on_the_reference(tmp_path):
             schedule=FixedSchedule(np.full(10, 0.01)),
             backend=backend,
             stats=default_spec("free"),
+            absorber=bare_absorber(grid),
         )
         prop_planar(
             grid,

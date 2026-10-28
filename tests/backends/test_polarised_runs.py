@@ -13,6 +13,7 @@ import pytest
 from bounds import gamma, ladder_bound, record_backend
 from convergence_records import record
 from convergence_studies import BACKEND_EQUIVALENCE
+from legacy_geometry import LEGACY_GRID
 from rate_oracles import adk_oracle
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.constants import CHARGE_MASS_RATIO
@@ -35,7 +36,9 @@ N_RADIAL = 24
 def polarised_case(request):
     family = request.param
     grid_class = EnvelopeGrid if family == "envelope" else FieldGrid
-    grid = grid_class.from_limits(LENGTH, 800e-9, (300e-9, 2e-6), 100e-15)
+    grid = grid_class.from_limits(
+        LENGTH, 800e-9, (300e-9, 2e-6), 100e-15, **LEGACY_GRID
+    )
     # Vacuum index and fixed cladding make this an analytic propagation test without
     # extrapolating any gas's index fit. The specified chi3 is absolute (density=1).
     mode = MarcatiliMode(125e-6, cladding=1.45, loss=False)
@@ -195,7 +198,7 @@ def plasma_work_bound(grid, tau, amplitude, potential):
 def plasma_energy_at(backend_class, backend_name, requested_dt):
     tau, amplitude, density = 6e-15, 1e10, 1e22
     grid = FieldGrid.from_limits(
-        LENGTH, 800e-9, (200e-9, 4e-6), 100e-15, dt=requested_dt
+        LENGTH, 800e-9, (200e-9, 4e-6), 100e-15, dt=requested_dt, **LEGACY_GRID
     )
     # The work is the difference of two energies per event, which the rate declares
     # (SEP 3, D8): the former registry's helium and argon potentials, 0.9036 and
@@ -330,7 +333,7 @@ class QuadraticRate:
 
 @pytest.fixture(scope="module")
 def circular_plasma_case():
-    grid = FieldGrid.from_limits(LENGTH, 800e-9, (300e-9, 2e-6), 100e-15)
+    grid = FieldGrid.from_limits(LENGTH, 800e-9, (300e-9, 2e-6), 100e-15, **LEGACY_GRID)
     mode = MarcatiliMode(125e-6, cladding=1.45, loss=False)
     rate = build_rate_table(QuadraticRate(), (1e7, 1e11))
     template = np.zeros((1, 1, grid.n_omega), dtype=complex)

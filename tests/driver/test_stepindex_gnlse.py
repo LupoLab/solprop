@@ -10,6 +10,7 @@ from numpy.testing import assert_allclose
 
 from solprop.constants import C
 from solprop.driver import Simulation, SimulationSettings, prop_gnlse
+from solprop.driver.simulation import default_collar
 from solprop.exceptions import MaterialRangeWarning
 from solprop.grid import EnvelopeGrid
 from solprop.modes import IndexTable, StepIndexMode
@@ -48,6 +49,11 @@ def strand_simulation(backend, length=SLOW_LENGTH, core=None):
             shock=True,
             prefactor_index=1.0,
             backend=backend,
+            # The collar prop_gnlse gives the same fibre, so the two routes are one
+            # problem; the strand's supercontinuum reaches the window's edges, which
+            # its narrow 1 ps window does not mean to hold (SEP 21).
+            absorber=default_collar(grid),
+            boundary_check=None,
         ),
     )
 
@@ -135,6 +141,7 @@ def interface_run(fibre, backend="numpy_ref"):
         progress="none",
         noise=None,
         integrator=Multistep(),
+        boundary_check=None,
     ).fields("fft")
 
 

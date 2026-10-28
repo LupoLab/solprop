@@ -407,6 +407,10 @@ public:
     pending_fsal_ = false;
   }
 
+  // The boundary monitor found the temporal collar quiet (solprop SEP 21): its
+  // in-stage term, below the monitor's threshold, is left out of the stages.
+  void set_absorber_quiet(const bool quiet) noexcept { absorber_quiet_ = quiet; }
+
   std::vector<Complex> field_to_host() const {
     require_open();
     if (!initialized_)
@@ -459,6 +463,10 @@ public:
   void forward_response();
   void form_absorber();
   void forward_absorber();
+  [[nodiscard]] bool absorbing() const noexcept {
+    return problem_.in_stage_absorber && !absorber_quiet_;
+  }
+  bool absorber_quiet_ = false;
   void finish_stage(std::size_t stage);
   void accept_and_score(double dz);
   void mask(const ComplexView& values);
@@ -742,7 +750,7 @@ void Workspace::evaluate_stage(const std::size_t stage, const double dz) {
           whole(index) = exponential(whole_phase());
         }
       });
-  if (!problem_.nonlinear && !problem_.in_stage_absorber) {
+  if (!problem_.nonlinear && !absorbing()) {
     const auto solution = solution_;
     const auto error = error_;
     const double solution_weight = problem_.solution_weights[stage];
@@ -765,7 +773,7 @@ void Workspace::evaluate_stage(const std::size_t stage, const double dz) {
   inverse_transform();
   response(stage);
   forward_response();
-  if (problem_.in_stage_absorber) {
+  if (absorbing()) {
     form_absorber();
     forward_absorber();
   }
@@ -893,7 +901,7 @@ void Workspace::finish_stage(const std::size_t stage) {
   const auto error = error_;
   const std::size_t n_phi = problem_.n_phi_terms;
   const std::size_t n_prefactor = problem_.n_prefactor_terms;
-  const bool in_stage_absorber = problem_.in_stage_absorber;
+  const bool in_stage_absorber = absorbing();
   const double solution_weight = problem_.solution_weights[stage];
   const double error_weight = problem_.error_weights[stage];
   Kokkos::parallel_for(
@@ -1170,6 +1178,9 @@ std::array<double, 3> State::trial_step(const double dz, const TrialScalars& sca
 void State::finish(const double dz) { workspace_->finish(dz); }
 void State::promote_fsal() { workspace_->promote_fsal(); }
 void State::clear_fsal() { workspace_->clear_fsal(); }
+void State::set_absorber_quiet(const bool quiet) {
+  workspace_->set_absorber_quiet(quiet);
+}
 std::vector<Complex> State::field_to_host() const {
   return workspace_->field_to_host();
 }

@@ -145,16 +145,24 @@ what the tests assert, and what would be false if the factor of one half were dr
 ## Geometry, and the collar that is not one
 
 The collar geometry comes from the grid: the spectral collar rises over `[ω_min/2, ω_min]`
-and falls over `[ω_max, 1.1 ω_max]`; the temporal collar is symmetric about zero, flat over
-the requested window or over all but 5 % of the realised window at each end if that is
-smaller, so each collar has a guaranteed minimum width of 5 % and can reach inside the
-requested window ([grids](../setup/grids.md#the-active-band-and-absorbing-collars)).
+and falls over `[ω_max, 1.1 ω_max]`; the temporal collar is symmetric about zero and lies
+**outside** the requested window. The grid widens the realised window to at least
+`trange / (1 − 2f)`, with `collar_fraction` `f = 0.1` by default, so the whole request is
+flat and the collar takes a tenth of the realised window beyond it at each end
+([grids](../setup/grids.md#the-active-band-and-absorbing-collars)). A collar inside the
+request would cut into light the run is meant to keep; the SEP 21 campaign measured that
+on a full-length Raman-soliton run, where it cost two orders of magnitude in accuracy.
 
-That guarantee matters. A collar made only of the slack between the requested and the
-realised window — the flat region at `±trange/2` and the zeros at the ends of the axis —
-vanishes whenever the transform size makes the realised window equal to the requested one,
-the common case on a power-of-two grid: the temporal window is then identically one except
-for a single sample, and the grid has no temporal absorber at all.
+Two settings change the geometry. `collar_fraction=0` leaves no room for a temporal collar
+and realises the request alone, for a run without one (`absorber=False` builds its grid so).
+`collar_placement="inside"` rebuilds the geometry solprop used before SEP 21: the window is
+the request rounded up, and the collar takes at least `collar_fraction` of it, inside the
+request when the rounding leaves too little slack. It exists to reproduce frozen
+comparisons and stored witnesses bin for bin.
+
+A collar made only of the slack between the requested and the realised window would
+vanish whenever the transform size made the realised window equal to the requested one;
+the minimum fraction is what prevents that.
 {py:func}`solprop.boundaries.absorber` refuses a collar whose edge spans fewer than four
 grid samples: below that the discrete profile steps rather than tapers, the rate jumps to
 its cap in one sample, and the boundary is the brick wall the rate form exists to avoid.
@@ -290,7 +298,7 @@ DOPRI5 stable step fall from 26 µm to 3.1 µm. With two lengths the spectral ra
 and the collars do not.
 
 `collar_length` is whatever sets the temporal collar's strength — `boundary_N` or
-`boundary_length` today. [SEP 21](../../dev/seps/sep-0021-absorbing-boundaries.md), which
+`boundary_length` today. [SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md), which
 owns the temporal collar, may parameterise that strength by a protected walk-off; the
 spatial collar follows the same length until its findings say otherwise.
 
@@ -343,7 +351,7 @@ by the transform pair's rounding.
 
 A spectral-only collar is passed as `absorber=absorber(grid, temporal=False)`; a keyword
 that turns both soft collars off on the fibre entry points is
-[SEP 21](../../dev/seps/sep-0021-absorbing-boundaries.md)'s.
+[SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md)'s.
 
 ### A transverse collar
 
@@ -360,26 +368,83 @@ and is independent of the `Absorber` and its lengths:
 
 | entry point | absorber by default |
 |---|---|
-| `prop_capillary`, `prop_waveguide`, `Simulation.from_capillary`, `Simulation.from_waveguide` | the grid's default collar, `absorber(grid)`: spectral and temporal, `boundary_N = 20`, applied in every stage |
-| `prop_gnlse`, `Simulation.from_gnlse` | none |
-| a `Simulation` built with its own `SimulationSettings`, and the free-space and planar entry points, which take one | none unless `SimulationSettings(absorber=...)` is given |
+| `prop_capillary`, `prop_waveguide`, `prop_gnlse` and their `Simulation.from_*` builders | the grid's default collar, `absorber(grid)`: spectral and temporal, `boundary_N = 20`, applied in every stage |
+| `prop_radial`, `prop_free`, `prop_planar` and their builders, whose settings declare none | the same temporal and spectral collar, applied once per accepted step (`absorber_scheme="split_step"`) unless planes are interpolated; the real-space transverse collar stays off, as before (`Absorber.spatial=False`) |
+| a `Simulation` built directly with its own `SimulationSettings` | none unless `SimulationSettings(absorber=...)` is given |
 
-The fibre entry points take `absorber=`: pass `absorber(grid, boundary_N=60)` for a
-stronger one, or `absorber(grid, boundary_length=...)` to fix the reference length `ℓ`
-directly. `absorber=None` there means "build the default", not "no absorber". To run
-without one, or with the split scheme, replace the simulation's settings before its first
-`translate()` or `run()`; after it the translated problem is cached and an assignment
-that changes anything but the backend raises `DriverError`:
+Every `prop_*` entry point takes `absorber=` and `absorber_scheme=`. Pass
+`absorber(grid, boundary_N=60)` for a stronger collar, `absorber(grid, boundary_length=...)`
+to fix the reference length `ℓ` directly, and `absorber=False` for none: both soft collars,
+temporal and spectral, are switched off, the hard band mask is kept, and the built grid
+leaves no room for a collar ({py:func}`solprop.boundaries.no_absorber`). On the spatial
+interfaces `absorber=False` leaves the transverse collars as they are. `absorber=None` means
+"build the default", not "no absorber"; a scheme beside `absorber=False`, or a keyword
+that contradicts what a spatial run's settings already declare, is refused.
 
-```{code-block} python
-import dataclasses
+The spatial routes apply the temporal collar by the split scheme unless the settings name
+a scheme or interpolate their planes, which the split refuses: on the spatial cases of the
+performance-tracking suite the in-stage collar took 1.2 to 4.6 times the steps of the
+split one, at equal or worse accuracy inside the requested window
+([SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md)). The split is unconditionally
+stable, so a fixed schedule on a spatial route keeps its collar.
 
-simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
-# or: dataclasses.replace(simulation.settings, absorber_scheme="split_step")
-```
+On a spatial grid an absorber given explicitly also switches on the real-space transverse
+collar ([free-space propagation](../free-space/model.md#spatial-collar-and-statistics)).
 
-On a spatial grid the same absorber also switches on the transverse collar
-([free-space propagation](../free-space/model.md#spatial-collar-and-statistics)).
+## Watching the window's edges
+
+The tutorial [Is my time window big enough?](../../auto_tutorials/basics/plot_07_time_window.rst)
+sizes a window with what follows, on a short fibre whose Raman soliton walks towards
+the late edge.
+
+Every run watches its time window ({py:class}`solprop.monitor.BoundaryCheck`, on by default
+through `SimulationSettings.boundary_check`). At the launch and at every committed step it
+measures the share of the field's energy in the outer 5 % of the realised window at each
+edge, the guards, and in the collar:
+
+- at the launch, more than `1e-4` in a guard or the collar warns
+  ({py:class}`~solprop.exceptions.BoundaryWarning`): the window clips the input, which can
+  seed spurious radiation;
+- during the run, a guard occupancy whose square root exceeds the field-error budget
+  (`1e-3` by default) warns once, and ten times the budget stops the run with
+  {py:class}`~solprop.exceptions.BoundaryError`;
+- at the end, the fraction of the launch energy the temporal collar removed is logged, and
+  warns when its square root exceeds the budget. Weak spectral features can matter at far
+  smaller fractions than that: the record is there to read.
+
+**How often, and what it saves.** While some guard or the collar holds more than a tenth
+of the budget (as a field amplitude), every committed step is checked. While the edges
+are quiet, a step is checked every eighth step or after `length / 256` of the guide,
+whichever comes first, and the state of every saved plane is checked regardless. And
+while the collar holds less than `1e-12` of the field's energy above the shot-noise
+floor, the in-stage temporal collar's term, whose transform is a stage's largest cost
+after the response's, is left out of the stages until a check finds light in it again.
+On a GNLSE Raman/shock run whose pulse stays clear, the two bring the default collar's
+cost to that of no collar. The split scheme, the low-storage march, the general modal
+route, coupled flows and a real-space collar keep their collar at every step;
+`boundary_check=None` keeps it everywhere.
+
+**Above the shot-noise floor.** Input noise, on by default, puts one photon per mode across
+the whole window, guards and collar included. Light below that floor cannot be told from
+the vacuum, so the monitor judges what lies above it: from each region's energy it
+subtracts three times the floor's expected share (the floor is uniform in time on
+average, and three times its expectation clears its fluctuation in a narrow guard), and
+from the collar's removal rate the floor's expected removal. A weak launch is therefore
+not stopped for its own noise, while light well above the floor that reaches an edge
+still is. Light that arrives at an edge weaker than the vacuum's own share of it is not
+reported.
+
+What the monitor saw is kept in the run's execution record, under `boundary_monitor`: the
+launch occupancies, the largest guard and collar occupancies and where the guards peaked,
+and the removed fraction, all above the floor; beside them the floor's share of the
+launch energy (`noise_floor`) and the whole field's largest guard share and removed
+fraction, floor included (`raw_guard_max`, `raw_removed_fraction`). Under `planes` it keeps
+one row per saved plane: `z`, the collar occupancy there, each guard's largest occupancy
+since the previous plane, and the removed fraction so far. Under the in-stage scheme the
+removed fraction is integrated along z by the trapezoid; under `absorber_scheme="split_step"`
+each step's removal is read exactly from the state it leaves. `SimulationSettings(boundary_check=None)`, or `boundary_check=None` on `prop_gnlse`,
+`prop_capillary` and `prop_waveguide`, watches nothing; a
+`BoundaryCheck` with a larger `budget` or `stop_factor` relaxes it.
 
 ## A worked example
 
