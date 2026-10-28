@@ -275,6 +275,9 @@ def grin(
         dz_init=length / 10,
         backend="numpy_ref",
         seed=20261027,
+        # The launch below is one frequency bin, a beam that fills the whole window
+        # by design, so no edge check applies; the lesson declares none either.
+        boundary_check=None,
     )
     launch = np.zeros((2, 1, grid.n_omega), dtype=complex)
     launch[:, 0, centre] = 1.0

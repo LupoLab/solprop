@@ -211,6 +211,20 @@ rather than computing it again — but only where the state it describes is prov
 the run adopted. `numba_cpu` does this for the plasma pair: §3.1a has the measurement and the
 predicate.
 
+**The boundary monitor's reading** is the third thing the loop calls at the same point, and
+the backend reduces it (SEP 21, ADR-057). At a check the driver asks
+`_boundary_energies(state)` for five numbers, the state's energy and its four weighted
+energies (`solprop.monitor.BoundaryEnergies`), and the backend forms them where its state
+lives: `numba_cpu` through its own coarse inverse plans and a compiled sum, `mlx` on the
+GPU, `native` in its memory space through its statistics buffers (CPU and device builds
+alike). Only the five cross to the host; `numpy_ref`'s host reduction
+(`BoundaryMonitor.energies`) is the reference. `_bind_monitor` hands a backend the run's
+monitor when it is attached, and `None` when a state is loaded. Under the `split_step`
+scheme the backend's `_finish` — and the native engine's own finish, on every march —
+adds what each accepted step's split takes of the power it finds, `P (1 − e^{−αh})`, to an
+accumulator the next reading drains, so the removal is exact on unchecked steps too. The
+input-noise floor is read on the host, once, at the launch.
+
 ## 2. `numpy_ref`: the oracle
 
 Plain NumPy and `scipy.fft`, one function per pass, no fusion, no in-place tricks, no

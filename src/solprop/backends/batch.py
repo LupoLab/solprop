@@ -317,6 +317,8 @@ class LockstepRunner(StepDriver[tuple[object, ...]]):
         except BoundaryError as error:
             self._stops[index] = error
             member._monitor = None
+            # The member's backend stops reading for it, a split's removal included.
+            member._bind_monitor(None)
             member._set_collar_quiet(False)
 
     def _monitor_plane(self) -> None:

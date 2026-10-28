@@ -51,11 +51,13 @@ __all__ = [
     "REGIME_ELEMENTS",
     "ColumnFamily",
     "GeneralPlans",
+    "MonitorPlan",
     "ThreadPools",
     "TransformPlans",
     "TransversePlans",
     "apply_pools",
     "build_general_plans",
+    "build_monitor_plan",
     "build_plans",
     "build_transverse_plans",
     "choose_pools",
@@ -1043,6 +1045,97 @@ def build_plans(  # noqa: PLR0913 - one plan set has this many dimensions
     }
     plans.buffer_bytes["fft_plan_heap_growth"] = plan_heap_growth
     return plans
+
+
+@dataclass
+class MonitorPlan:
+    """The boundary monitor's own coarse inverse transform and its two buffers.
+
+    Built only where the run has no split-step absorber's coarse pair to borrow, the
+    first time a monitor is attached, and kept for the backend's life. It has the rows
+    the coarse pair would have had, so a reading takes the state in the same chunks
+    either way.
+
+    Attributes
+    ----------
+    spectrum : numpy.ndarray
+        The coarse spectrum, complex, shape ``(rows, n_omega)``: one-sided on a field
+        grid, full on an envelope grid.
+    time : numpy.ndarray
+        The coarse time samples, real on a field grid and complex on an envelope grid,
+        shape ``(rows, n_t)``.
+    to_time : pyfftw.FFTW
+        Spectrum to time, unnormalised.
+    plan_heap_growth : int
+        What planning added to the allocator, bytes, for the ledger.
+    """
+
+    spectrum: Any
+    time: Any
+    to_time: Any
+    plan_heap_growth: int
+
+    def ledger(self) -> dict[str, int]:
+        """Return the bytes the plan's buffers and planning hold, by name.
+
+        Returns
+        -------
+        dict
+            The monitor's rows of
+            :meth:`solprop.backends.protocol.Backend.memory_ledger`.
+        """
+        return {
+            "monitor_spectrum": int(self.spectrum.nbytes),
+            "monitor_time": int(self.time.nbytes),
+            "monitor_fft_plan_heap_growth": self.plan_heap_growth,
+        }
+
+
+def build_monitor_plan(
+    rows: int, n_t: int, *, complex_time: bool, flag: str, threads: int
+) -> MonitorPlan:
+    """Allocate the boundary monitor's coarse buffers and plan its inverse on them.
+
+    Its buffers are its own and empty, so planning (which may overwrite them) can
+    happen with a state already loaded. ``rows * n_omega * 16 + rows * n_t * (16 if
+    complex_time else 8)`` bytes, ``n_omega = n_t`` on an envelope grid and
+    ``n_t // 2 + 1`` on a field grid, plus what FFTW's plan holds.
+
+    Parameters
+    ----------
+    rows : int
+        Rows transformed together, positive.
+    n_t : int
+        Coarse time samples, positive.
+    complex_time : bool
+        Whether the samples are complex (an envelope grid) rather than real.
+    flag : str
+        A key of :data:`PLAN_FLAGS`: the backend's own, which :func:`build_plans`
+        refused at construction if it were not one.
+    threads : int
+        FFTW's pool for this plan, positive.
+
+    Returns
+    -------
+    MonitorPlan
+        The plan and its buffers.
+    """
+    spectrum = pyfftw.empty_aligned(
+        (rows, n_t if complex_time else n_t // 2 + 1), "complex128"
+    )
+    time_samples = pyfftw.empty_aligned(
+        (rows, n_t), "complex128" if complex_time else "float64"
+    )
+    heap_before = _heap_bytes()
+    to_time = _plan(
+        spectrum, time_samples, forward=False, flag=PLAN_FLAGS[flag], threads=threads
+    )
+    return MonitorPlan(
+        spectrum=spectrum,
+        time=time_samples,
+        to_time=to_time,
+        plan_heap_growth=max(0, _heap_bytes() - heap_before),
+    )
 
 
 @dataclass

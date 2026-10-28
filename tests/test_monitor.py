@@ -35,6 +35,7 @@ from solprop.monitor import (
     CHECKS,
     QUIET_CHECKS,
     BoundaryCheck,
+    BoundaryEnergies,
     BoundaryMonitor,
 )
 from solprop.output import MemoryOutput
@@ -159,13 +160,14 @@ def _lost(run: Output) -> float:
 
 
 @pytest.mark.parametrize("integrator", [RungeKutta(), Multistep()], ids=repr)
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
 def test_the_split_scheme_s_removal_is_read_exactly(
     backend: str, integrator: RungeKutta | Multistep
 ) -> None:
-    # Applied once per accepted step, the split's removal is read from each checked
-    # step's state before the split; it is the run's own energy deficit, not a
-    # quadrature of it, though the pulse walks deep into the collar.
+    # Applied once per accepted step, the split's removal is added up by the
+    # backend's own finish at every accepted step, checked or not, the native
+    # engine's included; it is the run's own energy deficit, not a quadrature of
+    # it, though the pulse walks deep into the collar.
     if backend not in available():
         pytest.skip(f"{backend} is not installed")
     with warnings.catch_warnings():
@@ -176,21 +178,37 @@ def test_the_split_scheme_s_removal_is_read_exactly(
     assert record_of(run)["removed_fraction"] == pytest.approx(lost, rel=1e-3)
 
 
-@pytest.mark.parametrize("integrator", [RungeKutta(), Multistep()], ids=repr)
-def test_an_engine_s_own_split_is_integrated_by_the_rate(
-    integrator: RungeKutta | Multistep,
-) -> None:
-    # The native engine applies the split inside its own finish, so the committed
-    # states' rate is integrated instead: light absorbed deep in the collar within
-    # one step is undercounted, never counted twice.
-    if "native" not in available():
-        pytest.skip("native is not installed")
+def test_a_single_precision_split_reads_the_physical_removal() -> None:
+    # A single-precision state is held as a / s, s a power of two chosen from the
+    # launch (2**7 for ten kilowatts): the removal is of the physical state, not of
+    # the scaled one, which read 1/s**2 of it. The nonlinearity scales down with the
+    # power, so the walk is the watt's, inside binary32's range.
+    peak_power = 1e4
+    grid = EnvelopeGrid.from_limits(LENGTH, 1e-6, (0.8e-6, 1.25e-6), TRANGE)
+    omega0 = 2 * np.pi * C / 1e-6
+    offset = 0.65 * TRANGE / (BETA2 * LENGTH)
+    simulation = Simulation.from_gnlse(
+        1e-9 / peak_power, LENGTH, [0.0, 0.0, BETA2], lambda0=1e-6, grid=grid,
+        pulses=[GaussianPulse(
+            wavelength=2 * np.pi * C / (omega0 + offset), fwhm=200e-15,
+            peak_power=peak_power,
+        )],
+        noise=None, raman=False, shock=False, n_save=3, precision="single",
+        backend="numpy_ref", integrator=RungeKutta(), rtol=1e-5,
+        schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / 200),
+    )  # fmt: skip
+    simulation.settings = dataclasses.replace(
+        simulation.settings,
+        boundary_check=BoundaryCheck(budget=1.0, stop_factor=1.0),
+        absorber_scheme="split_step",
+    )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", BoundaryWarning)
-        run = _split("native", integrator).run(progress="none")
+        run = simulation.run(progress="none")
     lost = _lost(run)
     assert lost > 0.5
-    assert 1e-2 < record_of(run)["removed_fraction"] < lost
+    # Binary32's rounding over 200 steps, far inside the 1/s**2 the bug read.
+    assert record_of(run)["removed_fraction"] == pytest.approx(lost, rel=1e-4)
 
 
 @pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
@@ -396,7 +414,7 @@ def test_a_resume_with_nothing_to_continue_starts_the_record_again(
     monitor.resume(record, plane=True)
     with warnings.catch_warnings():
         warnings.simplefilter("error", BoundaryWarning)
-        monitor.launch(spectrum, 0.5)
+        monitor.launch(monitor.energies(spectrum), 0.5)
     summary = monitor.summary()
     assert summary["resumed_at"] == [0.5]
     assert summary["launch_guard_high"] is None
@@ -411,7 +429,7 @@ def test_a_running_record_restores_the_totals_without_rows() -> None:
     # original launch, and the rows start again at the next plane.
     grid, spectrum = _two_pulses(0.0, 0.95)
     first = BoundaryMonitor.build(grid, None, BoundaryCheck())
-    first.launch(spectrum, 0.0)
+    first.launch(first.energies(spectrum), 0.0)
     running = {
         name: value
         for name, value in first.summary().items()
@@ -420,7 +438,7 @@ def test_a_running_record_restores_the_totals_without_rows() -> None:
     running |= {"removed_fraction": 0.25, "steps": 7}
     monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
     monitor.resume(running, plane=False)
-    monitor.launch(spectrum, 0.5)
+    monitor.launch(monitor.energies(spectrum), 0.5)
     summary = monitor.summary()
     assert summary["launch_energy"] == first.summary()["launch_energy"]
     assert summary["removed_fraction"] == 0.25
@@ -516,7 +534,7 @@ def _launch_with(share: float, at: float) -> BoundaryMonitor:
     """Return a monitor that has launched :func:`_two_pulses`."""
     grid, spectrum = _two_pulses(share, at)
     monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
-    monitor.launch(spectrum, 0.0)
+    monitor.launch(monitor.energies(spectrum), 0.0)
     return monitor
 
 
@@ -586,9 +604,9 @@ def test_a_field_absorbed_to_nothing_is_not_judged() -> None:
     grid = EnvelopeGrid.from_limits(LENGTH, 1e-6, (0.8e-6, 1.25e-6), TRANGE)
     pulse = np.exp(-((grid.t / 50e-15) ** 2)).astype(complex)
     monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
-    monitor.launch(np.fft.fft(pulse)[None, None, None, :], 0.0)
+    monitor.launch(monitor.energies(np.fft.fft(pulse)[None, None, None, :]), 0.0)
     residue = np.full(grid.n_t, 1e-12, dtype=complex)
-    monitor.step(np.fft.fft(residue)[None, None, None, :], 0.1)
+    monitor.step(monitor.energies(np.fft.fft(residue)[None, None, None, :]), 0.1)
     assert monitor.summary()["guard_low_max"] == 0.0
 
 
@@ -596,42 +614,78 @@ def test_a_launch_with_no_light_is_not_judged() -> None:
     grid = EnvelopeGrid.from_limits(LENGTH, 1e-6, (0.8e-6, 1.25e-6), TRANGE)
     monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
     dark = np.zeros((1, 1, 1, grid.n_t), dtype=complex)
-    monitor.launch(dark, 0.0)
-    monitor.step(dark, 0.1)
+    monitor.launch(monitor.energies(dark), 0.0)
+    monitor.step(monitor.energies(dark), 0.1)
     summary = monitor.summary()
     assert summary["guard_low_max"] == summary["guard_high_max"] == 0.0
     assert summary["removed_fraction"] == 0.0
 
 
-def test_the_split_removal_of_a_zero_length_step_is_nothing() -> None:
-    # Two checks at one position, as a step landing on a saved plane gives.
+def _split_monitor(
+    *, floor: bool = False
+) -> tuple[BoundaryMonitor, np.ndarray, BoundaryEnergies]:
+    """Return a split-scheme monitor launched on a centred pulse, and its reading."""
     grid = EnvelopeGrid.from_limits(LENGTH, 1e-6, (0.8e-6, 1.25e-6), TRANGE)
     rate = np.full(grid.n_t, 10.0)
-    monitor = BoundaryMonitor.build(grid, rate, BoundaryCheck(), split=True)
+    check = BoundaryCheck(budget=1.0, stop_factor=1.0)
+    monitor = BoundaryMonitor.build(grid, rate, check, split=True)
     pulse = np.exp(-((grid.t / 50e-15) ** 2)).astype(complex)
     spectrum = np.fft.fft(pulse)[None, None, None, :]
-    monitor.launch(spectrum, 0.0)
-    monitor.before_split(spectrum, 0.0)
-    assert monitor.read_ahead
-    monitor.step(None, 0.0)
-    assert not monitor.read_ahead
-    assert monitor.summary()["raw_removed_fraction"] == 0.0
+    rng = np.random.default_rng(5)
+    draw = 1e-3 * np.exp(2j * np.pi * rng.random(grid.n_t))[None, None, None, :]
+    reading = monitor.energies(spectrum)
+    monitor.launch(reading, 0.0, floor=draw if floor else None)
+    return monitor, spectrum, reading
 
 
-def test_a_check_needs_a_state() -> None:
-    grid = EnvelopeGrid.from_limits(LENGTH, 1e-6, (0.8e-6, 1.25e-6), TRANGE)
-    monitor = BoundaryMonitor.build(grid, None, BoundaryCheck(), split=True)
-    pulse = np.exp(-((grid.t / 50e-15) ** 2)).astype(complex)
-    monitor.launch(np.fft.fft(pulse)[None, None, None, :], 0.0)
-    with pytest.raises(BoundaryError, match="no state"):
-        monitor.step(None, 0.1)
+def test_the_split_s_removal_is_what_the_backend_took() -> None:
+    # The backend adds up every accepted step's split, checked or not; the monitor
+    # reads the sum at the next check and integrates no rate.
+    monitor, spectrum, reading = _split_monitor()
+    taken = monitor.split_removal(spectrum, 0.01)
+    assert taken == pytest.approx(reading.total * -math.expm1(-10.0 * 0.01))
+    monitor.skip(0.01)
+    monitor.step(dataclasses.replace(reading, removed=2 * taken), 0.02)
+    # Two checks at one position, as a step landing on a saved plane gives: the
+    # second reads nothing taken since the first.
+    monitor.step(reading, 0.02)
+    summary = monitor.summary()
+    assert summary["raw_removed_fraction"] == pytest.approx(2 * taken / reading.total)
+    assert summary["removed_fraction"] == summary["raw_removed_fraction"]
+
+
+def test_the_split_s_removal_counts_when_nothing_is_left() -> None:
+    # The step that absorbs the last of the light is not judged, but what it took
+    # is the run's removal all the same.
+    monitor, _, reading = _split_monitor()
+    gone = BoundaryEnergies(0.0, np.zeros(4), removed=reading.total)
+    monitor.step(gone, 0.1)
+    assert monitor.summary()["removed_fraction"] == pytest.approx(1.0)
+
+
+def test_the_floor_s_share_of_the_split_s_removal_is_set_aside() -> None:
+    # Over every committed step, checked or not, the split takes of the uniform
+    # floor what it takes of a uniform density; that share is not the signal's.
+    monitor, _, reading = _split_monitor(floor=True)
+    floor = monitor.summary()["noise_floor"]
+    assert isinstance(floor, float)
+    assert floor > 0.0
+    steps = (0.01, 0.025, 0.03)
+    for z in steps[:-1]:
+        monitor.skip(z)
+    monitor.step(dataclasses.replace(reading, removed=0.5 * reading.total), steps[-1])
+    # A uniform density's share under a uniform rate, over the three steps.
+    share = 1.0 - math.exp(-10.0 * steps[-1])
+    summary = monitor.summary()
+    assert summary["raw_removed_fraction"] == pytest.approx(0.5)
+    assert summary["removed_fraction"] == pytest.approx(0.5 - floor * share)
 
 
 def test_a_plane_is_recorded_once() -> None:
     grid = EnvelopeGrid.from_limits(LENGTH, 1e-6, (0.8e-6, 1.25e-6), TRANGE)
     monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
     pulse = np.exp(-((grid.t / 50e-15) ** 2)).astype(complex)
-    monitor.launch(np.fft.fft(pulse)[None, None, None, :], 0.0)
+    monitor.launch(monitor.energies(np.fft.fft(pulse)[None, None, None, :]), 0.0)
     monitor.plane(0.0)
     monitor.plane(0.0)
     planes = monitor.summary()["planes"]
@@ -684,8 +738,8 @@ def test_a_launch_of_the_floor_alone_is_not_judged() -> None:
     monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
     with warnings.catch_warnings():
         warnings.simplefilter("error", BoundaryWarning)
-        monitor.launch(draw, 0.0, floor=draw)
-        monitor.step(draw, 0.1)
+        monitor.launch(monitor.energies(draw), 0.0, floor=draw)
+        monitor.step(monitor.energies(draw), 0.1)
     summary = monitor.summary()
     assert summary["guard_low_max"] == summary["guard_high_max"] == 0.0
     assert summary["noise_floor"] == pytest.approx(1.0)
@@ -823,12 +877,14 @@ def test_a_check_is_due_every_step_while_light_is_near_an_edge() -> None:
     monitor = BoundaryMonitor.build(grid, None, BoundaryCheck(quiet_collar=True))
     centred = np.exp(-((grid.t / 50e-15) ** 2)).astype(complex)
     edge = np.exp(-(((grid.t - 0.97 * grid.t.max()) / 30e-15) ** 2)).astype(complex)
-    spectrum = lambda samples: np.fft.fft(samples)[None, None, None, :]  # noqa: E731
+    spectrum = lambda samples: monitor.energies(  # noqa: E731
+        np.fft.fft(samples)[None, None, None, :]
+    )
     monitor.launch(spectrum(centred), 0.0)
     # One quiet check is not enough to leave the collar out (QUIET_CHECKS).
     assert QUIET_CHECKS == 2
     assert not monitor.collar_quiet
-    due = [monitor.due(1e-4 * k) or monitor.skip() for k in range(1, CADENCE)]
+    due = [monitor.due(1e-4 * k) or monitor.skip(1e-4 * k) for k in range(1, CADENCE)]
     assert not any(due)
     assert monitor.due(1e-4 * CADENCE)
     # However few the steps, a quiet window is checked every length / CHECKS.
@@ -852,7 +908,9 @@ def test_a_collar_returns_at_once_and_rests_again_only_after_quiet_checks() -> N
     # A thousandth of the amplitude at the collar: far above QUIET, below the guards'
     # warning at this relaxed budget.
     near = 1e-3 * np.exp(-(((grid.t - 0.93 * grid.t.max()) / 30e-15) ** 2))
-    spectrum = lambda samples: np.fft.fft(samples)[None, None, None, :]  # noqa: E731
+    spectrum = lambda samples: monitor.energies(  # noqa: E731
+        np.fft.fft(samples)[None, None, None, :]
+    )
     monitor.launch(spectrum(centred), 0.0)
     verdicts = []
     for k, state in enumerate((centred, centred + near, centred, centred), start=1):
@@ -871,14 +929,14 @@ def test_a_resting_collar_adds_no_removal() -> None:
     monitor = BoundaryMonitor.build(grid, rate, check)
     pulse = np.fft.fft(np.exp(-((grid.t / 50e-15) ** 2)).astype(complex))
     state = pulse[None, None, None, :]
-    monitor.launch(state, 0.0)
+    monitor.launch(monitor.energies(state), 0.0)
     monitor.note_collar(True)
-    monitor.step(state, 0.1)
+    monitor.step(monitor.energies(state), 0.1)
     summary = monitor.summary()
     assert summary["removed_fraction"] == summary["raw_removed_fraction"] == 0.0
     assert summary["collar_left_out_checks"] == 1
     monitor.note_collar(False)
-    monitor.step(state, 0.2)
+    monitor.step(monitor.energies(state), 0.2)
     removed = monitor.summary()["removed_fraction"]
     assert isinstance(removed, float)
     assert removed > 0.0

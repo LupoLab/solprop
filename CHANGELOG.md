@@ -52,8 +52,7 @@ The first public release. It contains:
   of IP-DOPRI5; elsewhere it saves less or nothing, and a weak band still forming is
   less tightly controlled, so it is opt-in and `"off"` stays the default. The manual's
   decision guide says when to use it. It runs on `numpy_ref`, `numba_cpu` and native
-  CPU builds; native device builds and the free-space routes refuse it by name. The
-  benchmark suite's `ctc_reduced` case moves to a 2 ps window (revision 2). Kernel schema 37 (`Multistep.carrier_frame`); every `Multistep`
+  CPU builds; native device builds and the free-space routes refuse it by name. Kernel schema 37 (`Multistep.carrier_frame`); every `Multistep`
   representation names the policy, so a march snapshot taken before it restarts its
   history.
 - **Time-window boundaries**
@@ -77,17 +76,19 @@ The first public release. It contains:
   on: it warns
   (`BoundaryWarning`) and then stops (`BoundaryError`) when light above the shot-noise
   floor reaches the edge, refusing a launch above the stop level before its first step.
-  It records the energy the temporal collar removed (under the split scheme read before
-  each checked step's split, exactly; the `native` engine's own split by the trapezoid)
-  and the thresholds it ran under, with a row per saved plane in the run's closing
-  record. A resumed run continues the record, without a launch check; only the
+  It records the energy the temporal collar removed (under the split scheme summed
+  exactly by each backend's step finish at every accepted step) and the thresholds it
+  ran under, with a row per saved plane in the run's closing record. Each backend
+  reduces the monitor's five numbers where its state lives, on the GPU for `mlx` and
+  device builds of `native`, so a check copies five numbers to the host rather than the
+  field (kernel schema 38). A resumed run continues the record, without a launch check; only the
   quiet-collar opt-in enters the resume key. Each member of a `Batch` scan watches its
   own window, and a point stopped at an edge fails alone, as it would run alone. Quiet edges are checked every
   eighth step or every `length / 256`. `BoundaryCheck(quiet_collar=True)` also leaves a
   quiet in-stage collar out of the stages, judged on the whole field, floor included;
   it is off by default, so the collar stays in every stage unless a run asks (ADR-057). Output schema 27 (`Absorber.spatial`,
   and the default collar of runs that declared none). The benchmark suite's cases take
-  the new defaults at new revisions.
+  the new defaults.
 - **Incident beams into general modal guides**
   ([SEP 31](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0031-simulation-coupling.html),
   phases 1 and 3). `from_waveguide(provider=..., incident=SpatialPulse(...),
@@ -378,7 +379,12 @@ The first public release. It contains:
   `benchmarks/history/` by hardware; `--device` runs the same cases on a native GPU
   build. It replaces SEP 30's standard suite, whose
   reference qualification, native coverage and export are removed; `ab` compares two
-  builds on the same worker.
+  builds on the same worker. Each timed run checks the boundaries with the monitor
+  `Simulation.run` attaches, so the rows time what a user's run costs. Every case starts
+  at revision 1 with the release's first history rows: `gnlse_raman_shock` launches Dudley, Genty and Coen's 50 fs FWHM pulse,
+  `ctc_reduced` is the comb-to-continuum tests' one-mode case (the two-mode case is
+  `ctc_reduced_two_mode`), the mode-averaged cases ask for `mode_average=True`, and the
+  declared array sizes and costs are those of the current grids.
 - **Ensemble and replay helpers.** `processing.coherence.band_coherence` and
   `spectral_bands` reduce an ensemble's coherence to one value per spectral band, weighted
   by a reference ensemble's mean spectrum, to compare two ensembles band by band;

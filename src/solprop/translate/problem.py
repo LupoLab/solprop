@@ -195,7 +195,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 37
+SCHEMA_VERSION = 38
 """Version of the kernel contract this module implements.
 
 Incremented on every change to the field list of ``docs/dev/kernel-contract.md``. A
@@ -437,6 +437,13 @@ exponential formulation removes from its history inside each step. A backend tha
 not deliver the shift refuses it by name, and a build against an older version refuses
 the problem rather than step a requested shift unshifted; no ``KernelProblem`` field or
 stage bundle moves.
+
+Version 38 adds two members to the driver's protected surface: the boundary monitor's
+reading moves into the backend. ``StepDriver._bind_monitor`` hands the backend a run's
+monitor (or ``None``), and ``StepDriver._boundary_energies`` returns the monitor's five
+numbers of a state and what a split-step collar took since the last reading
+(:class:`solprop.monitor.BoundaryEnergies`), so a device backend reduces where its state
+lives; no ``KernelProblem`` field or stage bundle moves.
 """
 
 DEFAULT_COMPONENTS = ("x",)
@@ -1024,7 +1031,7 @@ class KernelProblem:
     ...     dz_max=0.1, dz_init=1e-3, shock=False, prefactor_index=1.0, density=1.0,
     ... )
     >>> problem.shape, problem.grid_kind, problem.schema_version
-    ((1, 1, 1, 3072), 'envelope', 37)
+    ((1, 1, 1, 3072), 'envelope', 38)
     """
 
     schema_version: int
@@ -6343,7 +6350,7 @@ def debug_summary(problem: KernelProblem) -> str:
     ...     width=100e-15, peak_power=9.8, pulseshape="sech", n_save=3,
     ... )
     >>> print(debug_summary(simulation.translate()).splitlines()[0])
-    kernel problem schema 37: envelope grid, route modal
+    kernel problem schema 38: envelope grid, route modal
     """
     linear, transform = problem.linear, problem.transform
     tables, metric = transform.modal_tables, linear.modal_metric

@@ -21,8 +21,9 @@ workstation, or an exclusive allocation on a cluster node.
 ## The tracking set
 
 `python -m benchmarks list` prints the plan: one line per case, stepper and width, and
-the estimated time from the costs each case declares (complete runs on an AMD EPYC 7763
-node; other machines differ). With no selection it is the tracking set:
+the estimated time from the costs each case declares (complete runs on 16 cores of an
+AMD EPYC 7B13, about 33 minutes for the tracking set; other machines differ). With no
+selection it is the tracking set:
 
 | Case | Interface | Problem | Widths |
 |---|---|---|---|
@@ -56,7 +57,9 @@ pools are set in the environment before any scientific import. The worker:
    fills caches;
 3. times `--repeats` complete runs (default 3). Each restarts the backend from the
    translated launch and goes through `solprop.driver.run.run_problem`, the loop of
-   `Simulation.run`, so it includes the plane observations and statistics.
+   `Simulation.run`, with a fresh boundary monitor as `Simulation.run` attaches one,
+   so it includes the plane observations, the statistics and the boundary checks: what
+   a user's run costs.
 
 The result is the median of the repeats, with the minimum and maximum beside it, the
 accepted and rejected steps, the source evaluations, the peak resident memory, and the

@@ -48,12 +48,13 @@ from solprop.constants import EPS0
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.grid import TimeGrid
 from solprop.modes.protocol import Mode
+from solprop.monitor import BoundaryEnergies, BoundaryMonitor
 from solprop.profiles import ZProfile
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.translate.envelope_plasma import EnvelopePlasmaAssembly
 from solprop.translate.linop import _separable_phase
-from solprop.translate.precision import combine
+from solprop.translate.precision import combine, narrow
 from solprop.translate.problem import KernelProblem
 from solprop.translate.responses import ResponseStage
 from solprop.translate.spatial import separable_values
@@ -108,6 +109,29 @@ def _summed(totals: list[mx.array], parts: list[mx.array]) -> list[mx.array]:
         The sums.
     """
     return [a + b for a, b in zip(totals, parts, strict=True)]
+
+
+def _restored(value: float, power: float, exponent: int) -> float:
+    """Return a rule-6 scaled sum restored in binary64, ``value 2**(2 power + e)``.
+
+    Parameters
+    ----------
+    value : float
+        The sum of the scaled squares.
+    power : float
+        The power of two the values were divided by before squaring, an integer, or
+        not finite when they were not.
+    exponent : int
+        Any further block exponent of the weights in the sum.
+
+    Returns
+    -------
+    float
+        The sum, or NaN when the values it was taken of were not finite.
+    """
+    if not math.isfinite(power):
+        return math.nan
+    return math.ldexp(value, 2 * int(power) + exponent)
 
 
 def refuse_unsupported(problem: KernelProblem) -> None:
@@ -175,6 +199,25 @@ class MlxBackend(NumpySingleBackend):
     """
 
     name = "mlx"
+
+    _monitor_weights: mx.array | None = None
+    """The boundary monitor's four weight rows on the device, each narrowed with its
+    own exponent (:attr:`_monitor_exponents`), while a monitor is bound (SEP 21)."""
+
+    _monitor_exponents: tuple[int, ...] = (0, 0, 0, 0)
+    """The weight rows' block exponents (SEP 33 section 4.3, rule 1)."""
+
+    _monitor_columns: mx.array | None = None
+    """A radial run's column quadrature on the device, narrowed, shaped to broadcast
+    against the state; ``None`` elsewhere."""
+
+    _column_exponent: int = 0
+    """The column quadrature's block exponent."""
+
+    _pending_removal: tuple[mx.array, ...] = ()
+    """What the split took at accepted steps not yet read: device scalars, each step's
+    rule-6 exponent and its scaled sum (:meth:`_device_removal`), folded into
+    :attr:`_split_removed` at the next synchronisation (:meth:`_synchronised`)."""
 
     def __init__(
         self,
@@ -382,6 +425,10 @@ class MlxBackend(NumpySingleBackend):
     def _finish(self, state: Any, dz: float) -> Any:
         """Mask the accepted state, apply a split-step collar, and check it is finite.
 
+        While a boundary monitor of the ``"split_step"`` scheme is attached, what the
+        split takes is reduced on the device from the time samples it forms anyway,
+        and read with the next synchronisation (:meth:`_synchronised`).
+
         Parameters
         ----------
         state : mlx.core.array
@@ -407,15 +454,191 @@ class MlxBackend(NumpySingleBackend):
             # outside the collar, so the transforms' rounding -- MLX's GPU round trip
             # shrinks by 1-2e-7 -- touches the collar's correction alone, not the state.
             change = mx.array(np.expm1(-0.5 * rate * dz).astype(np.float32))
+            samples = self._time_samples(finished)
+            if self._split_monitor is not None:
+                self._pending_removal += self._device_removal(samples, change)
+            time = samples * change
             if self._kind == "field":
-                time = mx.fft.irfft(finished, n=rate.size, axis=-1) * change
                 finished = finished + mx.fft.rfft(time, axis=-1) * self._active
             else:
-                time = mx.fft.ifft(finished, axis=-1) * change
                 finished = finished + mx.fft.fft(time, axis=-1) * self._active
         # Finiteness was read with the trial's norm (one synchronisation per step):
         # a non-finite trial state scores an infinite norm, which every march refuses.
         return finished
+
+    # The boundary monitor's reading (SEP 21).
+
+    def _time_samples(self, state: mx.array) -> mx.array:
+        """Return a device state's samples on the coarse time axis.
+
+        Parameters
+        ----------
+        state : mlx.core.array
+            A scaled state, canonical layout.
+
+        Returns
+        -------
+        mlx.core.array
+            Its inverse transform along the last axis, real on a field grid.
+        """
+        if self._kind == "field":
+            return mx.fft.irfft(state, n=self._problem.grids.n_t, axis=-1)
+        return mx.fft.ifft(state, axis=-1)
+
+    def _scaled_density(self, samples: mx.array) -> tuple[mx.array, mx.array]:
+        """Return time samples' energy density, scaled as SEP 33's rule 6 has it.
+
+        The samples are divided by the power of two at or below their largest
+        magnitude before squaring, so the squares and their sums cannot leave
+        binary32's range; the columns' quadrature, narrowed with its own exponent,
+        weighs each column on a radial run.
+
+        Parameters
+        ----------
+        samples : mlx.core.array
+            Time samples of a scaled state, canonical layout.
+
+        Returns
+        -------
+        tuple of mlx.core.array
+            The power of two ``p`` (a float32 scalar holding an integer) and the
+            density, ``|samples / 2**p|**2`` times the narrowed column weights; the
+            host restores ``2**(2 p)`` and the columns' exponent in binary64.
+        """
+        peak = mx.max(mx.abs(samples))
+        power = mx.where(peak > 0, mx.floor(mx.log2(peak)), 0.0)
+        scaled = samples * mx.power(2.0, -power)
+        if self._kind == "field":
+            density = scaled * scaled
+        else:
+            re, im = mx.real(scaled), mx.imag(scaled)
+            density = re * re + im * im
+        if self._monitor_columns is not None:
+            density = density * self._monitor_columns
+        return power, density
+
+    def _device_removal(
+        self, samples: mx.array, change: mx.array
+    ) -> tuple[mx.array, ...]:
+        """Return what one split takes of the samples it damps, lazily, scaled.
+
+        Parameters
+        ----------
+        samples : mlx.core.array
+            The masked accepted state's time samples, before the split.
+        change : mlx.core.array
+            ``exp(-alpha(t) h / 2) - 1`` on the coarse time axis, binary32.
+
+        Returns
+        -------
+        tuple of mlx.core.array
+            The scaling's power of two and ``sum_t (1 - exp(-alpha h)) P(t)`` of the
+            scaled density (:meth:`_scaled_density`).
+        """
+        # 1 - exp(-alpha h) = -c (2 + c) with c = exp(-alpha h / 2) - 1, which the
+        # split already holds: a product of two accurate factors, no cancellation.
+        taken = -change * (2.0 + change)
+        power, density = self._scaled_density(samples)
+        return power, mx.sum(density * taken)
+
+    def _synchronised(self, values: list[mx.array]) -> np.ndarray:
+        """Read device values and the split's pending removals in one synchronisation.
+
+        The removals are folded into :attr:`_split_removed` in binary64, physical
+        units. Every read a march makes goes through here, so the lazy graph of a
+        removal -- which holds its step's time samples -- never outlives the next
+        synchronisation.
+
+        Parameters
+        ----------
+        values : list of mlx.core.array
+            The arrays the caller reads, of any shapes.
+
+        Returns
+        -------
+        numpy.ndarray
+            ``values`` flattened and concatenated, binary64.
+        """
+        pending, self._pending_removal = self._pending_removal, ()
+        flat = [value.reshape(-1) for value in (*values, *pending)]
+        read = np.array(mx.concatenate(flat), dtype=np.float64)
+        count = sum(int(value.size) for value in values)
+        for power, taken in read[count:].reshape(-1, 2):
+            # The state is a / s, so its power is s**2 times the scaled one's.
+            restored = _restored(float(taken), float(power), self._column_exponent)
+            self._split_removed += restored * self.scale**2
+        return read[:count]
+
+    def _bind_monitor(self, monitor: BoundaryMonitor | None) -> None:
+        """Upload a boundary monitor's weights, or release them.
+
+        Each weight row and the columns' quadrature are narrowed with their own block
+        exponents (SEP 33 section 4.3, rule 1), once per run.
+
+        Parameters
+        ----------
+        monitor : solprop.monitor.BoundaryMonitor or None
+            The run's monitor, or ``None`` to stop.
+        """
+        super()._bind_monitor(monitor)
+        self._pending_removal = ()
+        if monitor is None:
+            self._monitor_weights = self._monitor_columns = None
+            return
+        rows = [narrow(np.asarray(row, dtype=np.float64)) for row in monitor.weights]
+        self._monitor_weights = mx.array(np.stack([row.values for row in rows]))
+        self._monitor_exponents = tuple(row.exponent for row in rows)
+        if monitor.columns is None:
+            self._monitor_columns, self._column_exponent = None, 0
+        else:
+            columns = narrow(np.asarray(monitor.columns, dtype=np.float64))
+            self._monitor_columns = mx.array(columns.values[None, :, None, None])
+            self._column_exponent = columns.exponent
+
+    def _boundary_energies(self, state: Any) -> BoundaryEnergies:
+        """Return the boundary monitor's reading, reduced on the device.
+
+        ``P(t)`` and its four weighted sums are formed on the device; five numbers
+        and the scaling's exponent cross to the host, with any pending split
+        removal, in one synchronisation.
+
+        Parameters
+        ----------
+        state : mlx.core.array
+            The scaled binary32 state.
+
+        Returns
+        -------
+        solprop.monitor.BoundaryEnergies
+            The reading, binary64, physical units.
+
+        Raises
+        ------
+        BackendError
+            If no monitor is attached.
+        """
+        weights = self._monitor_weights
+        if self._monitor is None or weights is None:
+            raise BackendError(f"{self.name}: no boundary monitor is attached")
+        n_t = self._problem.grids.n_t
+        power, density = self._scaled_density(self._time_samples(state))
+        density_t = mx.sum(density.reshape(-1, n_t), axis=0)
+        # Elementwise products and sums, not a matrix product, which MLX may round
+        # to TF32 on the GPU.
+        regions = mx.sum(weights * density_t[None, :], axis=1)
+        values = self._synchronised([power, mx.sum(density_t), regions])
+        # s**2 for the state's scale, 2**(2 p) for rule 6's, and the narrowed
+        # weights' own exponents, restored in binary64.
+        power, scale, own = float(values[0]), self.scale**2, self._column_exponent
+        total = _restored(float(values[1]), power, own) * scale
+        regions_host = np.array(
+            [
+                _restored(float(value), power, own + row) * scale
+                for value, row in zip(values[2:], self._monitor_exponents, strict=True)
+            ]
+        )
+        removed, self._split_removed = self._split_removed, 0.0
+        return BoundaryEnergies(total, regions_host, removed)
 
     # The trial step.
 
@@ -464,7 +687,9 @@ class MlxBackend(NumpySingleBackend):
             # chunks and the scans' levels -- is then the most that is ever live
             # (SEP 33 section 6.3), where a whole step's graph would hold seven.
             if self.evaluate_stages:
-                mx.eval(stage)
+                # The previous split's pending removal with the first stage, which
+                # evaluates the state it was taken from: its time samples go then.
+                mx.eval(stage, *self._pending_removal)
             stages.append(stage)
             solution = solution + float(tableau.solution_weights[index]) * stage
             error = error + float(tableau.error_weights[index]) * stage
@@ -1131,7 +1356,7 @@ class MlxBackend(NumpySingleBackend):
         # whole trial state is finite, which spares the finish a check of its own.
         reductions.append(mx.all(mx.isfinite(advanced)).astype(mx.float32))
         reductions.append(self._failure_count())
-        values = np.array(mx.stack(reductions), dtype=np.float64)
+        values = self._synchronised(reductions)
         self._raise_on_failures(values[-1])
         if not np.all(np.isfinite(values[:-1])) or values[-2] != 1.0:
             return math.inf
@@ -1316,9 +1541,11 @@ class MlxLowStorage:
             The norm, binary64 on the host.
         """
         # Read at use: the march is built inside the backend's own construction.
-        picked = mx.take(values, self._backend._norm_index, axis=-1)
+        backend = self._backend
+        picked = mx.take(values, backend._norm_index, axis=-1)
         re, im = mx.real(picked), mx.imag(picked)
-        return math.sqrt(float(cast(float, mx.sum(re * re + im * im).item())))
+        # Through the backend's read, which takes a pending split removal with it.
+        return math.sqrt(float(backend._synchronised([mx.sum(re * re + im * im)])[0]))
 
     def step(self, z: float, dz: float) -> float:
         """Take one step, leaving the raw accepted state in the backend.

@@ -62,7 +62,8 @@ PLANES = list(np.linspace(SOLITON_PERIOD / 16, SOLITON_PERIOD / 2, 8))
 def narrow_grid():
     """Return the conftest's narrow grid as built before SEP 21.
 
-    The measurements here were fixed on it, and their subject is not the boundaries.
+    The measurements here were fixed on it, and their subject is not the boundaries;
+    the compiled backends' parity is held on today's geometry instead.
     """
     return EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 1e-12, **LEGACY_GRID)
 
@@ -149,18 +150,25 @@ def test_dense_planes_match_landed_ones_at_fewer_steps(narrow_grid, soliton_prob
 
 @pytest.mark.parametrize("backend_class", COMPILED, ids=lambda one: one.name)
 def test_a_compiled_backend_interpolates_as_the_reference(
-    narrow_grid, soliton_problem, backend_class
+    soliton_problem, backend_class
 ):
+    # The conftest's narrow grid as runs are built today (768 bins), not this
+    # module's former one: backend parity is held on the default geometry. Measured
+    # 2.3e-15 (numba_cpu) and 1.7e-15 (native) of the peak at the reference's 127
+    # attempts, as on the former grid (2.1e-15 and 3.0e-15 at 125); a launch changed
+    # by 1e-14 relative moves the reference's own fields by 4e-14 of the peak and none
+    # of its attempts, so no decision here is near a rounding fork.
+    grid = EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 1e-12)
     problem = soliton_problem(
-        narrow_grid,
+        grid,
         2,
         save_planes=PLANES,
         controller=PIController(rtol=1e-6, atol=1e-18),
         dz_max=SOLITON_PERIOD,
         interpolate_planes=True,
     )
-    reference, reference_attempts = run(NumpyRefBackend, problem, narrow_grid)
-    fields, attempts = run(backend_class, problem, narrow_grid)
+    reference, reference_attempts = run(NumpyRefBackend, problem, grid)
+    fields, attempts = run(backend_class, problem, grid)
     assert attempts == reference_attempts
     scale = np.max(np.abs(reference))
     np.testing.assert_allclose(fields, reference, rtol=0, atol=1e-12 * scale)
