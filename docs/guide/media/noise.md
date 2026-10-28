@@ -193,8 +193,9 @@ In a run, choose the model with the driver's `noise` keyword and fix the realisa
 `seed`; `prop_gnlse`, `prop_capillary`, `prop_waveguide`, `prop_radial` and `prop_free`
 all take both. The keyword's default, `"default"`, resolves to `"input"` wherever the
 run can carry noise. Where it cannot, it resolves to none: under single precision, whose
-binary32 rounding swamps the seed, on the hybrid planar grid, which declares no photon
-measure, beside the TDSE response, whose runs are expensive, rarely repeated as
+binary32 rounding swamps the seed, on the hybrid planar grid and on a `prop_waveguide`
+run of slab modes, neither of which declares a photon measure for its amplitudes per
+unit width (an explicit model is refused there), beside the TDSE response, whose runs are expensive, rarely repeated as
 ensembles and checked coherently (an explicit noise model there is warned on), and on
 the Cartesian and line grids of `prop_free`, whose runs are slow and rarely about noise
 sensitivity. The [table of defaults](../numerics/choosing-a-stepper.md#the-defaults)
