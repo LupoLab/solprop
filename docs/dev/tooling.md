@@ -227,6 +227,10 @@ jaxtyping hook) run in the coverage lane only; the other test lanes set
   its lint and strict types, clang-format and its pytest suite (`lint pytest`);
   clang-tidy and the native tests (`tidy`); and ASan and UBSan (`sanitize`). The
   distribution wheel's stage is native-wheel's Linux job.
+- **ci-passed** (Linux): runs after every lane, always, and fails if any of them failed
+  or was cancelled. It is the check the `main` ruleset requires, beside the Read the
+  Docs build: which lanes run depends on the change, and a skipped matrix job reports
+  its unexpanded name, so no fixed list of job names suits every pull request.
 
 `.github/workflows/wheels.yml` builds the native release wheels (Linux x86-64 and
 aarch64, macOS arm64, Windows x64) on pull requests that change the wheel recipe
