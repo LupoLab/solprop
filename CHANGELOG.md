@@ -69,14 +69,18 @@ The first public release. It contains:
   unless planes are interpolated, and `SimulationSettings.absorber_scheme` defaults to
   `None`, the route's choice. Every
   `prop_*` interface takes `absorber=False`, which switches both soft collars off and
-  keeps the hard band mask (`boundaries.no_absorber`), and `absorber_scheme=`. A boundary
+  keeps the hard band mask (`boundaries.no_absorber`) and the collar's room, so the run
+  shares the absorber-on run's grid, and `absorber_scheme=`. A boundary
   monitor (`solprop.monitor`, `SimulationSettings.boundary_check` or the
   `boundary_check=` keyword of `prop_gnlse`, `prop_capillary` and `prop_waveguide`, on by
-  default) watches
-  the window's guards at the launch and every committed step, warns
+  default) watches the window's guards by one rule from the launch on: it warns
   (`BoundaryWarning`) and then stops (`BoundaryError`) when light above the shot-noise
-  floor reaches the edge, and records the energy the temporal collar removed (exactly
-  under the split scheme) with a row per saved plane. Quiet edges are checked every
+  floor reaches the edge, refusing a launch above the stop level before its first step.
+  It records the energy the temporal collar removed (under the split scheme read before
+  each checked step's split, exactly; the `native` engine's own split by the trapezoid)
+  and the thresholds it ran under, with a row per saved plane in the run's closing
+  record. A resumed run continues the record, without a launch check; only the
+  quiet-collar opt-in enters the resume key. Quiet edges are checked every
   eighth step or every `length / 256`. `BoundaryCheck(quiet_collar=True)` also leaves a
   quiet in-stage collar out of the stages, judged on the whole field, floor included;
   it is off by default, so the collar stays in every stage unless a run asks (ADR-057). Output schema 27 (`Absorber.spatial`,

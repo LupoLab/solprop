@@ -16,6 +16,7 @@ from __future__ import annotations
 import dataclasses
 import math
 import warnings
+from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
@@ -23,9 +24,10 @@ import pytest
 
 from solprop.backends.registry import available
 from solprop.constants import C
-from solprop.driver import Simulation
+from solprop.driver import Simulation, prop_gnlse
 from solprop.exceptions import BoundaryError, BoundaryWarning
 from solprop.grid import EnvelopeGrid
+from solprop.log import NullReporter
 from solprop.monitor import (
     CADENCE,
     CHECKS,
@@ -33,9 +35,13 @@ from solprop.monitor import (
     BoundaryCheck,
     BoundaryMonitor,
 )
-from solprop.output.schema import Output, PlaneStore
+from solprop.output import MemoryOutput
+from solprop.output.hdf5 import resume
+from solprop.output.schema import Output, PlaneStore, RunOutcome, TerminalCheckpoint
 from solprop.pulses import GaussianPulse
 from solprop.stepper.multistep import Multistep
+from solprop.stepper.runge_kutta import RungeKutta
+from solprop.stepper.schedule import FixedSchedule
 
 LENGTH = 1.0
 TRANGE = 1e-12
@@ -90,7 +96,7 @@ def record_of(run: Output) -> dict[str, float]:
     return {
         name: math.nan if value is None else float(value)
         for name, value in record.items()
-        if name != "planes"
+        if value is None or isinstance(value, int | float)
     }
 
 
@@ -126,21 +132,85 @@ def test_a_walking_pulse_is_stopped_at_the_guard() -> None:
         walker(1.2 * TRANGE).run(progress="none")
 
 
-def test_the_split_scheme_s_removal_is_read_exactly() -> None:
-    # Applied once per accepted step, the split's removal is read back from each
-    # committed state; it is the run's own energy deficit, not a quadrature of it.
-    relaxed = BoundaryCheck(budget=1.0, stop_factor=1.0)
-    simulation = walker(0.65 * TRANGE, check=relaxed)
+def _split(
+    backend: str, integrator: RungeKutta | Multistep, *, drift: float = 0.65 * TRANGE
+) -> Simulation:
+    """Return the walker under the ``"split_step"`` scheme with its stop relaxed."""
+    simulation = walker(
+        drift, check=BoundaryCheck(budget=1.0, stop_factor=1.0), backend=backend
+    )
+    simulation.settings = dataclasses.replace(
+        simulation.settings, absorber_scheme="split_step", integrator=integrator
+    )
+    return simulation
+
+
+def _lost(run: Output) -> float:
+    """Return the fraction of its launch energy a single-mode run lost."""
+    energy = np.asarray(run["stats/energy"])[:, 0, 0]
+    return float(1.0 - energy[-1] / energy[0])
+
+
+@pytest.mark.parametrize("integrator", [RungeKutta(), Multistep()], ids=repr)
+@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu"])
+def test_the_split_scheme_s_removal_is_read_exactly(
+    backend: str, integrator: RungeKutta | Multistep
+) -> None:
+    # Applied once per accepted step, the split's removal is read from each checked
+    # step's state before the split; it is the run's own energy deficit, not a
+    # quadrature of it, though the pulse walks deep into the collar.
+    if backend not in available():
+        pytest.skip(f"{backend} is not installed")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        run = _split(backend, integrator).run(progress="none")
+    lost = _lost(run)
+    assert lost > 0.5
+    assert record_of(run)["removed_fraction"] == pytest.approx(lost, rel=1e-3)
+
+
+@pytest.mark.parametrize("integrator", [RungeKutta(), Multistep()], ids=repr)
+def test_an_engine_s_own_split_is_integrated_by_the_rate(
+    integrator: RungeKutta | Multistep,
+) -> None:
+    # The native engine applies the split inside its own finish, so the committed
+    # states' rate is integrated instead: light absorbed deep in the collar within
+    # one step is undercounted, never counted twice.
+    if "native" not in available():
+        pytest.skip("native is not installed")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        run = _split("native", integrator).run(progress="none")
+    lost = _lost(run)
+    assert lost > 0.5
+    assert 1e-2 < record_of(run)["removed_fraction"] < lost
+
+
+@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+def test_a_deep_collar_reads_no_removal_from_residue(backend: str) -> None:
+    # A capillary whose ten steps take the collar's deepest samples to alpha h of
+    # about 25, its pulse far from the edges. The band mask after each split leaves
+    # residue deep in the collar; read back from the committed state the split's
+    # removal multiplied it by exp(alpha h) into more than the run lost and a
+    # warning to widen the window.
+    if backend not in available():
+        pytest.skip(f"{backend} is not installed")
+    simulation = Simulation.from_capillary(
+        125e-6, 1e-3, "Ar", 1.0, lambda0=800e-9, wavelength_limits=(300e-9, 2e-6),
+        trange=400e-15, fwhm=30e-15, energy=10e-6, mode_average=True, noise=None,
+        n_save=2, backend=backend, integrator=RungeKutta(),
+        schedule=FixedSchedule.uniform(0.0, 1e-3, 1e-4),
+    )  # fmt: skip
     simulation.settings = dataclasses.replace(
         simulation.settings, absorber_scheme="split_step"
     )
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore", BoundaryWarning)
+        warnings.simplefilter("error", BoundaryWarning)
         run = simulation.run(progress="none")
-    energy = np.asarray(run["stats/energy"])[:, 0, 0]
-    lost = 1.0 - energy[-1] / energy[0]
-    assert lost > 1e-3
-    assert record_of(run)["removed_fraction"] == pytest.approx(lost, rel=1e-3)
+    energy = np.asarray(run["stats/energy"]).ravel()
+    # The run loses about 1e-4 to the capillary's wall, none of it in the collar.
+    assert 1.0 - energy[-1] / energy[0] > 1e-4
+    assert record_of(run)["removed_fraction"] < 1e-10
 
 
 def test_every_saved_plane_has_a_row() -> None:
@@ -160,6 +230,163 @@ def test_every_saved_plane_has_a_row() -> None:
     assert rows["removed_fraction"][0] == 0.0
 
 
+class _Recording(MemoryOutput):
+    """A memory output that keeps every execution record it is given."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.records: list[RunOutcome] = []
+
+    def record_outcome(
+        self, outcome: RunOutcome, checkpoint: TerminalCheckpoint | None = None
+    ) -> None:
+        self.records.append(outcome)
+        super().record_outcome(outcome, checkpoint)
+
+
+def _monitor_record(outcome: RunOutcome | None) -> dict[str, Any] | None:
+    """Return an outcome's boundary-monitor record, or ``None`` without one."""
+    assert outcome is not None and outcome.execution is not None
+    return cast("dict[str, Any] | None", outcome.execution.get("boundary_monitor"))
+
+
+def test_only_the_closing_record_carries_the_plane_rows() -> None:
+    # The execution record is rewritten at every saved plane; with a row per plane in
+    # it each record was longer than the last, and the file grew with their square.
+    output = _Recording()
+    relaxed = BoundaryCheck(budget=1.0, stop_factor=1.0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        walker(0.65 * TRANGE, check=relaxed).run(progress="none", output=output)
+    running = [
+        record
+        for outcome in output.records
+        if outcome.status == "running"
+        and (record := _monitor_record(outcome)) is not None
+    ]
+    assert running
+    assert all("planes" not in record for record in running)
+    assert all("removed_fraction" in record for record in running)
+    closing = _monitor_record(output.outcome)
+    assert closing is not None
+    assert closing["planes"]["z"] == [0.0, 0.5, 1.0]
+
+
+def test_a_stopped_run_s_record_carries_the_plane_rows() -> None:
+    output = MemoryOutput()
+    with (
+        pytest.warns(BoundaryWarning, match="guard occupancy"),
+        pytest.raises(BoundaryError, match="guards"),
+    ):
+        walker(1.2 * TRANGE).run(progress="none", output=output)
+    assert output.outcome is not None and output.outcome.status == "failed"
+    record = _monitor_record(output.outcome)
+    assert record is not None
+    assert record["planes"]["z"][0] == 0.0
+
+
+def test_the_file_grows_linearly_with_its_planes(tmp_path: Path) -> None:
+    # Eight times the planes: the bytes per plane do not grow with them.
+    per_plane = []
+    for n_save in (50, 400):
+        path = tmp_path / f"run_{n_save}.h5"
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", BoundaryWarning)
+            prop_gnlse(
+                0.11, 0.05, [0.0, 0.0, -1.183e-26], lambda0=835e-9,
+                wavelength_limits=(500e-9, 2e-6), trange=1e-12, width=100e-15,
+                peak_power=9.8, pulseshape="sech", n_save=n_save, seed=1,
+                progress="none", output=path, backend="numpy_ref",
+            )  # fmt: skip
+        per_plane.append(path.stat().st_size / n_save)
+    assert per_plane[1] < 1.05 * per_plane[0]
+
+
+class _CrashError(RuntimeError):
+    """What an interrupted run raises, standing in for a machine going away."""
+
+
+class _StopAfterFirstPlane(NullReporter):
+    """A progress reporter that stops the run at its first saved plane after launch."""
+
+    def plane(self, z: float, summary: object) -> None:
+        raise _CrashError(f"stopped at z = {z}")
+
+
+def _file_record(path: Path) -> tuple[dict[str, Any], int]:
+    """Return a run file's monitor record and how many executions it holds."""
+    outcome = resume(path).outcome
+    record = _monitor_record(outcome)
+    assert outcome is not None and record is not None
+    return record, len(outcome.previous_executions) + 1
+
+
+def test_a_resumed_run_continues_the_record(tmp_path: Path) -> None:
+    # Interrupted at its middle plane and resumed, the run's record reads as the
+    # uninterrupted run's: the launch it was judged at, the rows of every plane, and
+    # the removed fraction against the original launch energy.
+    relaxed = BoundaryCheck(budget=1.0, stop_factor=1.0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        whole = record_of(walker(0.65 * TRANGE, check=relaxed).run(progress="none"))
+        path = tmp_path / "run.h5"
+        with pytest.raises(_CrashError):
+            walker(0.65 * TRANGE, check=relaxed).run(
+                path, progress=_StopAfterFirstPlane()
+            )
+        walker(0.65 * TRANGE, check=relaxed).run(path, resume=True, progress="none")
+    record, executions = _file_record(path)
+    assert executions == 2
+    assert record["resumed_at"] == [0.5]
+    assert record["planes"]["z"] == [0.0, 0.5, 1.0]
+    assert record["launch_energy"] == pytest.approx(whole["launch_energy"], rel=1e-12)
+    assert record["launch_collar"] == pytest.approx(whole["launch_collar"], rel=1e-9)
+    assert record["removed_fraction"] > 1e-2
+    assert record["removed_fraction"] == pytest.approx(
+        whole["removed_fraction"], rel=1e-3
+    )
+    assert record["collar_max"] == pytest.approx(whole["collar_max"], rel=1e-3)
+
+
+def test_a_run_stopped_at_the_edge_resumes_without_a_launch_check(
+    tmp_path: Path,
+) -> None:
+    # A resume is not a launch: the state it resumes from is judged by the first
+    # step's check, never refused as a clipped input.
+    path = tmp_path / "run.h5"
+    with (
+        pytest.warns(BoundaryWarning, match="guard occupancy"),
+        pytest.raises(BoundaryError, match="at z ="),
+    ):
+        walker(1.2 * TRANGE).run(path, progress="none")
+    stopped, _ = _file_record(path)
+    with (
+        warnings.catch_warnings(record=True) as caught,
+        pytest.raises(BoundaryError, match="at z ="),
+    ):
+        warnings.simplefilter("always", BoundaryWarning)
+        walker(1.2 * TRANGE).run(path, resume=True, progress="none")
+    assert not [one for one in caught if "at the launch" in str(one.message)]
+    record, executions = _file_record(path)
+    assert executions == 2
+    assert len(record["resumed_at"]) == 1
+    assert record["guard_high_max"] >= stopped["guard_high_max"]
+    assert record["check"] == dataclasses.asdict(BoundaryCheck())
+
+
+def test_only_the_quiet_collar_is_part_of_the_resume_key() -> None:
+    simulation = walker(0.0)
+    plain = simulation.metadata().configuration_hash()
+    simulation.settings = dataclasses.replace(
+        simulation.settings, boundary_check=BoundaryCheck(budget=0.5, stop_factor=2.0)
+    )
+    assert simulation.metadata().configuration_hash() == plain
+    simulation.settings = dataclasses.replace(
+        simulation.settings, boundary_check=BoundaryCheck(quiet_collar=True)
+    )
+    assert simulation.metadata().configuration_hash() != plain
+
+
 def test_without_a_check_nothing_is_watched() -> None:
     simulation = walker(1.2 * TRANGE)
     import dataclasses  # noqa: PLC0415
@@ -171,17 +398,50 @@ def test_without_a_check_nothing_is_watched() -> None:
     assert "boundary_monitor" not in run.outcome.execution
 
 
-def test_a_launch_in_the_guard_warns() -> None:
+def _launch_with(share: float, at: float) -> BoundaryMonitor:
+    """Return a monitor that has launched a centred pulse beside a copy at `at`.
+
+    The copy holds `share` of the launch energy; `at` is a fraction of ``t.max()``.
+    """
     grid = EnvelopeGrid.from_limits(LENGTH, 1e-6, (0.8e-6, 1.25e-6), TRANGE)
     t = grid.t
-    state = np.exp(-(((t - 0.98 * t.max()) / 30e-15) ** 2)).astype(complex)
-    spectrum = np.fft.fft(state)[None, None, None, :]
+
+    def pulse(centre: float) -> np.ndarray:
+        return np.exp(-(((t - centre) / 10e-15) ** 2)).astype(complex)
+
+    state = math.sqrt(1.0 - share) * pulse(0.0) + math.sqrt(share) * pulse(at * t.max())
     monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
-    with pytest.warns(BoundaryWarning, match="launched field"):
-        monitor.launch(spectrum, 0.0)
+    monitor.launch(np.fft.fft(state)[None, None, None, :], 0.0)
+    return monitor
+
+
+def test_a_launch_in_the_guard_warns_as_a_step_would() -> None:
+    # One rule from the launch on: the square root of 1e-5 is above the 1e-3 budget
+    # and below ten of them.
+    with pytest.warns(BoundaryWarning, match="at the launch"):
+        monitor = _launch_with(1e-5, 0.95)
     launched = monitor.summary()["launch_guard_high"]
-    assert isinstance(launched, float)
-    assert launched > 0.5
+    assert launched == pytest.approx(1e-5, rel=1e-3)
+
+
+def test_a_launch_deep_in_the_guard_is_refused() -> None:
+    with pytest.raises(BoundaryError, match="at the launch the field puts"):
+        _launch_with(0.5, 0.95)
+
+
+def test_a_launch_in_the_collar_alone_is_not_judged() -> None:
+    # The collar absorbs what the launch puts there, and the end of the run reports
+    # it; only the guards are judged, as at every step.
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", BoundaryWarning)
+        monitor = _launch_with(1e-2, 0.85)
+    summary = monitor.summary()
+    launched_guard = summary["launch_guard_high"]
+    assert isinstance(launched_guard, float)
+    assert launched_guard < 1e-12
+    launched_collar = summary["launch_collar"]
+    assert isinstance(launched_collar, float)
+    assert launched_collar > 1e-3
 
 
 def test_the_removed_fraction_is_the_energy_the_run_lost() -> None:
@@ -246,8 +506,20 @@ def test_the_split_removal_of_a_zero_length_step_is_nothing() -> None:
     pulse = np.exp(-((grid.t / 50e-15) ** 2)).astype(complex)
     spectrum = np.fft.fft(pulse)[None, None, None, :]
     monitor.launch(spectrum, 0.0)
-    monitor.step(spectrum, 0.0)
+    monitor.before_split(spectrum, 0.0)
+    assert monitor.read_ahead
+    monitor.step(None, 0.0)
+    assert not monitor.read_ahead
     assert monitor.summary()["raw_removed_fraction"] == 0.0
+
+
+def test_a_check_needs_a_state() -> None:
+    grid = EnvelopeGrid.from_limits(LENGTH, 1e-6, (0.8e-6, 1.25e-6), TRANGE)
+    monitor = BoundaryMonitor.build(grid, None, BoundaryCheck(), split=True)
+    pulse = np.exp(-((grid.t / 50e-15) ** 2)).astype(complex)
+    monitor.launch(np.fft.fft(pulse)[None, None, None, :], 0.0)
+    with pytest.raises(BoundaryError, match="no state"):
+        monitor.step(None, 0.1)
 
 
 def test_a_plane_is_recorded_once() -> None:
@@ -505,6 +777,33 @@ def test_a_resting_collar_adds_no_removal() -> None:
     removed = monitor.summary()["removed_fraction"]
     assert isinstance(removed, float)
     assert removed > 0.0
+
+
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
+def test_a_runner_s_next_input_starts_without_the_last_monitor(backend: str) -> None:
+    # A runner reuses its backend: the next input, run with no check, carries no
+    # record of the last one's monitor and keeps its collar in every stage, as a
+    # fresh backend's run does.
+    if backend not in available():
+        pytest.skip(f"{backend} is not installed")
+    simulation = walker(
+        0.0, check=BoundaryCheck(quiet_collar=True), trange=3 * TRANGE, backend=backend
+    )
+    pulse = GaussianPulse(wavelength=1e-6, fwhm=200e-15, peak_power=1.0)
+    with simulation.runner() as runner:
+        watched = runner.run(pulse, progress="none")
+        simulation.settings = dataclasses.replace(
+            simulation.settings, boundary_check=None
+        )
+        unwatched = runner.run(pulse, progress="none")
+    assert record_of(watched)["collar_left_out_checks"] > 0
+    assert isinstance(unwatched, PlaneStore)
+    assert unwatched.outcome is not None and unwatched.outcome.execution is not None
+    assert "boundary_monitor" not in unwatched.outcome.execution
+    fresh = walker(0.0, check=None, trange=3 * TRANGE, backend=backend)
+    fresh.settings = dataclasses.replace(fresh.settings, boundary_check=None)
+    alone = fresh.run(progress="none")
+    np.testing.assert_array_equal(_exit(unwatched), _exit(alone))
 
 
 def test_the_check_may_change_after_translation() -> None:

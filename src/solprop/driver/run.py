@@ -361,8 +361,10 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         Live archive to suspend and copy beside the optical writer.
     boundary_monitor : solprop.monitor.BoundaryMonitor or None, optional
         Watches the time window's edges (SEP 21): attached to the backend once its
-        launch is recorded, fed every committed step, and its record reported and
-        written into the execution record at the end. ``None`` watches nothing.
+        launch is recorded and fed every committed step. Its record is written into
+        the execution record at every save plane without the per-plane rows, which
+        the closing record (complete, failed or out of budget) carries, and its removed
+        fraction is reported at the end. ``None`` watches nothing.
 
     Raises
     ------
@@ -449,6 +451,8 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         reserve(planes.size + 1)
     _retain(output, retention, problem.shape[1:])
     reached, missing_current_save = _resume_position(output, checkpoint_output, problem)
+    # Read before this execution's first record replaces the earlier one's.
+    resumed, monitored = _earlier_execution(output, checkpoint_output)
     _announce(
         problem,
         metadata,
@@ -501,6 +505,12 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
                 )
         attach = getattr(backend, "attach_monitor", None)
         if boundary_monitor is not None and attach is not None:
+            if resumed:
+                # The record continues across the resume (SEP 21, ADR-057).
+                boundary_monitor.resume(
+                    monitored,
+                    plane=output.n_saved > 0 and float(output["z"][-1]) == reached,
+                )
             attach(boundary_monitor)
         index = start_plane
         while index < planes.size:
@@ -887,6 +897,34 @@ def _resume_position(
     return reached, missing_current_save
 
 
+def _earlier_execution(
+    output: Output, checkpoint_output: CheckpointOutput | None
+) -> tuple[bool, Mapping[str, object] | None]:
+    """Return whether this execution resumes another, and that one's monitor record.
+
+    Parameters
+    ----------
+    output : Output
+        Open handler, before this execution saves or records anything.
+    checkpoint_output : CheckpointOutput or None
+        Checkpoint-capable handler, if available, holding the earlier outcome.
+
+    Returns
+    -------
+    resumed : bool
+        Whether the handler holds an earlier execution's planes or outcome.
+    record : collections.abc.Mapping or None
+        That execution's boundary-monitor record, or ``None`` without one.
+    """
+    outcome = None if checkpoint_output is None else checkpoint_output.outcome
+    resumed = output.n_saved > 0 or outcome is not None
+    execution = None if outcome is None else outcome.execution
+    record = None if execution is None else execution.get("boundary_monitor")
+    if not isinstance(record, Mapping):
+        return resumed, None
+    return resumed, cast("Mapping[str, object]", record)
+
+
 def _open_run(
     output: Output,
     metadata: RunMetadata,
@@ -1249,6 +1287,13 @@ def _record_execution(
     if output is None:
         return
     record = {**backend.metadata(), "host": machine(), "resources": usage(clock)}
+    monitor = record.get("boundary_monitor")
+    if outcome.status == "running" and isinstance(monitor, Mapping):
+        # The monitor's per-plane rows go out with the closing record alone: rewritten
+        # at every plane, the record grew with them and the file with their square.
+        record["boundary_monitor"] = {
+            name: value for name, value in monitor.items() if name != "planes"
+        }
     if binding is not None:
         record = {**record, "tdse": dict(binding.metadata())}
     calls = record.get("response_calls", {})

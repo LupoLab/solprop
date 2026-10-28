@@ -108,7 +108,6 @@ from solprop.exceptions import (
 from solprop.fourier import power_amplitude
 from solprop.gasflow import VacuumEnd
 from solprop.grid import (
-    DEFAULT_COLLAR_FRACTION,
     EnvelopeGrid,
     FieldGrid,
     FreeGrid,
@@ -913,6 +912,23 @@ class SimulationSettings(Displayed):
             )
         except TranslationError as error:
             raise DriverError(str(error)) from error
+
+
+def _quiet_collar(settings: SimulationSettings) -> bool:
+    """Return whether a run's settings opt in to the quiet collar (ADR-057).
+
+    Parameters
+    ----------
+    settings : SimulationSettings
+        The settings.
+
+    Returns
+    -------
+    bool
+        True when the boundary check asks for it.
+    """
+    check = settings.boundary_check
+    return check is not None and check.quiet_collar
 
 
 def _tolerance(rtol: float | None, precision: PrecisionName, default: float) -> float:
@@ -1790,6 +1806,9 @@ class Simulation(Displayed):
         if hasattr(self, "noise"):
             _check_initial_position(self, settings)
             _check_tdse_execution(self, settings)
+            if _quiet_collar(settings) != _quiet_collar(self._settings):
+                # The opt-in is part of the resume key: the record is built again.
+                self._metadata = None
         self._settings = settings
 
     def _kind(self) -> str:
@@ -2496,6 +2515,11 @@ class Simulation(Displayed):
                 configuration["transverse_absorber"] = self.settings.transverse_absorber
             if self.settings.adiabatic_accuracy is not None:
                 configuration["adiabatic_accuracy"] = self.settings.adiabatic_accuracy
+            # A quiet collar changes what the stages compute (ADR-057), so the opt-in
+            # is part of the resume key, recorded only where taken; the rest of the
+            # check is the execution's, recorded in its record.
+            if _quiet_collar(self.settings):
+                configuration["quiet_collar"] = True
             if self.spatial_grid is not None:
                 configuration.update(
                     spatial_grid=self.spatial_grid, medium=self.medium, frame=self.frame
@@ -3785,7 +3809,6 @@ class Simulation(Displayed):
             lambda0,
             wavelength_limits,
             trange,
-            collar=absorber is not False,
         )
         _check_selection_carrier(materials, working.reference_wavelength, lambda0)
         mapping = _gnlse_fibre(
@@ -5002,7 +5025,6 @@ class Simulation(Displayed):
             trange,
             envelope=False,
             thg=False,
-            collar=absorber is not False,
         )
         if working.kind != "field":
             msg = (
@@ -5573,7 +5595,6 @@ class Simulation(Displayed):
             trange,
             envelope=envelope,
             thg=thg,
-            collar=absorber is not False,
         )
         materials = MaterialSelection() if materials is None else materials
         _check_selection_carrier(materials, working.reference_wavelength, lambda0)
@@ -7522,8 +7543,6 @@ def _gnlse_grid(
     lambda0: float,
     wavelength_limits: tuple[float, float] | None,
     trange: float | None,
-    *,
-    collar: bool = True,
 ) -> TimeGrid:
     """Return the envelope grid a GNLSE run propagates on.
 
@@ -7539,9 +7558,6 @@ def _gnlse_grid(
         Window limits, m.
     trange : float or None
         Time window, s.
-    collar : bool, optional
-        Whether to leave room for a temporal collar outside the request; ``False``
-        (``absorber=False``) builds the request alone (SEP 21, Q16).
 
     Returns
     -------
@@ -7570,9 +7586,7 @@ def _gnlse_grid(
             "your own"
         )
         raise DriverError(msg)
-    return EnvelopeGrid.from_limits(
-        length, lambda0, wavelength_limits, trange, collar_fraction=_room(collar)
-    )
+    return EnvelopeGrid.from_limits(length, lambda0, wavelength_limits, trange)
 
 
 def _gnlse_fibre(  # noqa: PLR0913 - the coefficients of the mapping
@@ -8253,22 +8267,6 @@ def default_field_range(peak_field: float) -> tuple[float, float]:
     return (peak_field * _FIELD_RANGE_BELOW, peak_field * _FIELD_RANGE_ABOVE)
 
 
-def _room(collar: bool) -> float:
-    """Return a built grid's collar fraction: the default, or none without a collar.
-
-    Parameters
-    ----------
-    collar : bool
-        Whether the run has a temporal collar.
-
-    Returns
-    -------
-    float
-        :data:`solprop.grid.DEFAULT_COLLAR_FRACTION`, or zero.
-    """
-    return DEFAULT_COLLAR_FRACTION if collar else 0.0
-
-
 def _capillary_grid(  # noqa: PLR0913 - the three grid keywords and the two switches
     grid: TimeGrid | None,
     length: float,
@@ -8278,7 +8276,6 @@ def _capillary_grid(  # noqa: PLR0913 - the three grid keywords and the two swit
     *,
     envelope: bool,
     thg: bool,
-    collar: bool = True,
 ) -> TimeGrid:
     """Return the grid a capillary run propagates on.
 
@@ -8299,9 +8296,6 @@ def _capillary_grid(  # noqa: PLR0913 - the three grid keywords and the two swit
     thg : bool
         Whether the responses reach the third harmonic, which sets an envelope grid's
         oversampling.
-    collar : bool, optional
-        Whether to leave room for a temporal collar outside the request; ``False``
-        (``absorber=False``) builds the request alone (SEP 21, Q16).
 
     Returns
     -------
@@ -8327,14 +8321,11 @@ def _capillary_grid(  # noqa: PLR0913 - the three grid keywords and the two swit
             "or a grid of your own"
         )
         raise DriverError(msg)
-    room = _room(collar)
     if envelope:
         return EnvelopeGrid.from_limits(
-            length, lambda0, wavelength_limits, trange, thg=thg, collar_fraction=room
+            length, lambda0, wavelength_limits, trange, thg=thg
         )
-    return FieldGrid.from_limits(
-        length, lambda0, wavelength_limits, trange, collar_fraction=room
-    )
+    return FieldGrid.from_limits(length, lambda0, wavelength_limits, trange)
 
 
 def _capillary_modes(  # noqa: PLR0913 - capillary geometry and material keywords
