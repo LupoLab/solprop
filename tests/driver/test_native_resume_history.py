@@ -45,9 +45,13 @@ from solprop.output.schema import MarchSnapshot
 from solprop.stepper import Multistep
 from solprop.stepper.multistep import ComparisonMultistep
 
-pytestmark = pytest.mark.skipif(
-    "native" not in available(), reason="needs solprop-native"
-)
+pytestmark = [
+    pytest.mark.skipif("native" not in available(), reason="needs solprop-native"),
+    # The fixtures here launch noise-free into time windows kept tight for speed, which
+    # hold more than a millionth of the energy in their guards or collar: the boundary
+    # monitor warns (SEP 21), and the window's edge is not what this module tests.
+    pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning"),
+]
 
 
 def moving(backend, rtol=RTOL):

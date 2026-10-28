@@ -34,9 +34,13 @@ from solprop.stepper import FixedSchedule
 # grid's long-wavelength collar on the 100 um side -- and say so once per mode
 # (GrazingIncidenceWarning); these tests check the route and its records, and
 # the warning itself is qualified in tests/modes/test_rectangular.py.
-pytestmark = pytest.mark.filterwarnings(
-    "ignore::solprop.exceptions.GrazingIncidenceWarning"
-)
+pytestmark = [
+    pytest.mark.filterwarnings("ignore::solprop.exceptions.GrazingIncidenceWarning"),
+    # The fixtures here launch noise-free into time windows kept tight for speed, which
+    # hold more than a millionth of the energy in their guards or collar: the boundary
+    # monitor warns (SEP 21), and the window's edge is not what this module tests.
+    pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning"),
+]
 
 
 def settings(**changes):

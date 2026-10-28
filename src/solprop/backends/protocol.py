@@ -27,15 +27,16 @@ never conjugate.
 
 import dataclasses
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 import numpy as np
 from jaxtyping import Bool, Complex, Float, Int
 
-from solprop.exceptions import BackendError
+from solprop.exceptions import BackendError, BoundaryError
 from solprop.log import ProgressReporter
+from solprop.monitor import BoundaryMonitor
 from solprop.noise import NoiseRealisation
 from solprop.stats import StatsSpec
 
@@ -758,4 +759,29 @@ class BatchBackend(Backend, Protocol):
         tuple of dict
             Complete per-member backend provenance, including the batch strategy.
         """
+        ...
+
+    def attach_monitors(self, monitors: Sequence[BoundaryMonitor | None]) -> None:
+        """Give each member its own boundary monitor, or none (SEP 21).
+
+        Parameters
+        ----------
+        monitors : collections.abc.Sequence
+            One monitor with nothing recorded, or ``None``, per member.
+        """
+        ...
+
+    @property
+    def member_stops(self) -> tuple[BoundaryError | None, ...]:
+        """Return what stopped each member's watch, ``None`` where nothing did.
+
+        Returns
+        -------
+        tuple
+            One entry per member, in member order.
+        """
+        ...
+
+    def finish_monitors(self) -> None:
+        """Report each still-watched member's removed fraction at the run's end."""
         ...

@@ -695,7 +695,7 @@ def admit_guide_memory(
     >>> from solprop.grid import FieldGrid
     >>> from solprop.processing._examples import example_general_run
     >>> guide = example_general_run()[2]
-    >>> grid = FieldGrid.from_limits(1e-5, 1.03e-6, (1.0e-6, 1.06e-6), 100e-15)
+    >>> grid = FieldGrid.from_limits(1e-5, 1.03e-6, (1.0e-6, 1.06e-6), 200e-15)
     >>> admit_guide_memory(  # doctest: +ELLIPSIS
     ...     guide, grid, z_max=1e-5, backend="numpy_ref", memory_budget="1 kB"
     ... )

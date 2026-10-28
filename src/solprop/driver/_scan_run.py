@@ -297,6 +297,19 @@ class _Capture(MemoryOutput):
             self.spool.save(plane)
         self._n_saved += 1
 
+    def _last_saved_z(self) -> float:
+        """Return the position of the last plane the capture kept.
+
+        The capture keeps its columns itself rather than in the store; a stopped run
+        reads this back before it records its terminal checkpoint.
+
+        Returns
+        -------
+        float
+            The position, m.
+        """
+        return float(self.arrays["z"][-1])
+
     def close(self) -> None:
         """Close the temporary spool and the capture lifecycle."""
         if self.spool is not None:

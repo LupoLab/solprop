@@ -83,7 +83,8 @@ The first public release. It contains:
   reduces the monitor's five numbers where its state lives, on the GPU for `mlx` and
   device builds of `native`, so a check copies five numbers to the host rather than the
   field (kernel schema 38). A resumed run continues the record, without a launch check; only the
-  quiet-collar opt-in enters the resume key. Quiet edges are checked every
+  quiet-collar opt-in enters the resume key. Each member of a `Batch` scan watches its
+  own window, and a point stopped at an edge fails alone, as it would run alone. Quiet edges are checked every
   eighth step or every `length / 256`. `BoundaryCheck(quiet_collar=True)` also leaves a
   quiet in-stage collar out of the stages, judged on the whole field, floor included;
   it is off by default, so the collar stays in every stage unless a run asks (ADR-057). Output schema 27 (`Absorber.spatial`,

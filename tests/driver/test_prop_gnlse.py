@@ -40,6 +40,11 @@ from solprop.physdata import Mixture
 from solprop.profiles import Linear
 from solprop.stepper import FixedSchedule
 
+# The fixtures here launch noise-free into time windows kept tight for speed, which
+# hold more than a millionth of the energy in their guards or collar: the boundary
+# monitor warns (SEP 21), and the window's edge is not what this module tests.
+pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
+
 
 def item(parent, *names) -> Any:
     """Return one h5py object, loosely typed so that a test may inspect it."""

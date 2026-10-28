@@ -348,7 +348,7 @@ def example_general_run() -> tuple[MemoryOutput, ModalTransformTables, ModalGuid
     from solprop.translate.general import general_modal_route  # noqa: PLC0415
 
     wavelength, length, contrast = 1.03e-6, 1e-5, 0.0095
-    grid = FieldGrid.from_limits(length, wavelength, (1.0e-6, 1.06e-6), 100e-15)
+    grid = FieldGrid.from_limits(length, wavelength, (1.0e-6, 1.06e-6), 200e-15)
     provider = GradedIndexProvider(
         permittivity=PowerLawPermittivity(IndexMaterial(1.45), contrast),
         exterior=IndexMaterial(1.45 * np.sqrt(1.0 - 2.0 * contrast)),

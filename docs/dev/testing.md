@@ -274,6 +274,16 @@ and a prescribed schedule executes exactly its steps.
 with a deliberate perturbation (a flipped sign, a dropped term) to show that it still
 fails, and the commit says so.
 
+**Warnings are errors.** `pyproject.toml` turns every warning into an error, the boundary
+monitor's `BoundaryWarning` among them (SEP 21), so every run in the suite asserts that
+its launch and its march stayed clear of the time window's edges. A module whose fixtures
+launch noise-free into windows kept tight for speed opts out explicitly, with its reason
+in a comment: `pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")`
+in its `pytestmark`, or on the one test, or a relaxed `BoundaryCheck` where the test
+watches the window itself. The monitor still runs and keeps its record; only its warnings
+are ignored. A warning that shows a window too narrow for what the test measures is
+fixed by widening the window, not filtered.
+
 ## 4. Determinism
 
 Randomness is explicit (`np.random.default_rng(seed)`); tests are isolated (`tmp_path`, no

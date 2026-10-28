@@ -45,6 +45,11 @@ from solprop.output.schema import MarchSnapshot, SavedPlane, _example_metadata
 from solprop.stepper import Multistep, RungeKutta
 from solprop.stepper.multistep import ComparisonMultistep
 
+# The fixtures here launch noise-free into time windows kept tight for speed, which
+# hold more than a millionth of the energy in their guards or collar: the boundary
+# monitor warns (SEP 21), and the window's edge is not what this module tests.
+pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
+
 INTERACTION = Multistep(formulation="interaction")
 
 RTOL = 1e-6
