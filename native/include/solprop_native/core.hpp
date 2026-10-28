@@ -43,8 +43,10 @@ inline constexpr std::int64_t host_range2_tile = 64;
     many whole rows as fit when a row is shorter. Kokkos's host default tiles two rows
     by the whole of the last extent, which leaves a kernel over `(columns, n)` only
     ceil(columns / 2) tiles to share: one for a single column, two for four modes,
-    whatever the thread count. Device builds keep Kokkos's default. Every kernel over a
-    `Range2` is elementwise, so its tiling changes no value. */
+    whatever the thread count. A one-thread instance keeps Kokkos's default: it has
+    nothing to share, and the small tiles cost the four-mode RDW about 1 % at one
+    thread on an AMD EPYC 7763. Device builds keep Kokkos's default too. Every kernel
+    over a `Range2` is elementwise, so its tiling changes no value. */
 template <typename LT, std::size_t LN, typename UT, std::size_t UN>
 [[nodiscard]] Range2Policy Range2(const ExecutionSpace& space, const LT (&lower)[LN],
                                   const UT (&upper)[UN]) {
@@ -52,6 +54,8 @@ template <typename LT, std::size_t LN, typename UT, std::size_t UN>
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   return Range2Policy(space, lower, upper);
 #else
+  if (space.concurrency() == 1)
+    return Range2Policy(space, lower, upper);
   const auto row = std::clamp<std::int64_t>(static_cast<std::int64_t>(upper[1]) -
                                                 static_cast<std::int64_t>(lower[1]),
                                             1, host_range2_tile);
