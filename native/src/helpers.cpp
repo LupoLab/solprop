@@ -6,6 +6,7 @@
 
 #include "solprop_native/chebyshev.hpp"
 #include "solprop_native/lagrange_basis.hpp"
+#include "solprop_native/vmath.hpp"
 
 #include <nanobind/ndarray.h>
 
@@ -19,7 +20,9 @@
  * that runs them (solprop SEP 29 section 6.6, R2): the stage scalars' Chebyshev rows
  * and the Adams basis. Each is a sub-microsecond call on a few hundred numbers, so the
  * GIL is held, nothing is allocated, and every array is the caller's: its dtype, rank,
- * C-contiguity and shape are checked exactly and nothing is converted.
+ * C-contiguity and shape are checked exactly and nothing is converted. The host
+ * vector-maths layer's batch functions (vmath.hpp) are bound the same way, for its
+ * accuracy tests against a high-precision reference.
  */
 namespace solprop_native::bindings {
 namespace {
@@ -76,6 +79,39 @@ void basis_rows(const Input<double, 1>& points, const double upper,
   lagrange::basis_rows(points.data(), n, upper, integrate, rows.data(), weights.data());
 }
 
+void require_length(const char* name, const std::size_t expected,
+                    const std::size_t actual) {
+  if (actual != expected)
+    throw std::invalid_argument(std::string(name) + ": the arrays have lengths " +
+                                std::to_string(expected) + " and " +
+                                std::to_string(actual));
+}
+
+void vector_exp(const Input<double, 1>& x, const Output<double, 1>& out) {
+  require_length("vector_exp", x.shape(0), out.shape(0));
+  vmath::exp(x.data(), out.data(), x.shape(0));
+}
+
+void vector_log(const Input<double, 1>& x, const Output<double, 1>& out) {
+  require_length("vector_log", x.shape(0), out.shape(0));
+  vmath::log(x.data(), out.data(), x.shape(0));
+}
+
+void vector_sincos(const Input<double, 1>& x, const Output<double, 1>& sine,
+                   const Output<double, 1>& cosine) {
+  require_length("vector_sincos", x.shape(0), sine.shape(0));
+  require_length("vector_sincos", x.shape(0), cosine.shape(0));
+  vmath::sincos(x.data(), sine.data(), cosine.data(), x.shape(0));
+}
+
+void vector_exp_complex(const Input<double, 1>& a, const Input<double, 1>& b,
+                        const Output<double, 1>& real, const Output<double, 1>& imag) {
+  require_length("vector_exp_complex", a.shape(0), b.shape(0));
+  require_length("vector_exp_complex", a.shape(0), real.shape(0));
+  require_length("vector_exp_complex", a.shape(0), imag.shape(0));
+  vmath::exp_complex(a.data(), b.data(), real.data(), imag.data(), a.shape(0));
+}
+
 } // namespace
 
 void bind_helpers(nb::module_& module_) {
@@ -87,6 +123,12 @@ void bind_helpers(nb::module_& module_) {
               "c"_a.noconvert(), "out"_a.noconvert());
   module_.def("basis_rows", &basis_rows, "points"_a.noconvert(), "upper"_a,
               "integrate"_a, "rows"_a.noconvert(), "weights"_a.noconvert());
+  module_.def("vector_exp", &vector_exp, "x"_a.noconvert(), "out"_a.noconvert());
+  module_.def("vector_log", &vector_log, "x"_a.noconvert(), "out"_a.noconvert());
+  module_.def("vector_sincos", &vector_sincos, "x"_a.noconvert(), "sine"_a.noconvert(),
+              "cosine"_a.noconvert());
+  module_.def("vector_exp_complex", &vector_exp_complex, "a"_a.noconvert(),
+              "b"_a.noconvert(), "real"_a.noconvert(), "imag"_a.noconvert());
 }
 
 } // namespace solprop_native::bindings
