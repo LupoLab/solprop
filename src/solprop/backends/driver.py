@@ -706,6 +706,8 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         numpy.ndarray
             The state the run carries on, as :meth:`_adams_state` will return it.
         """
+        if (reader := self._split_reader(self._z + dz)) is not None:
+            reader.before_split(self._observed_field(cast(_StateT, advanced)), dz)
         finished = self._finish(cast(_StateT, advanced), dz)
         self._state = finished
         return cast(Complex[np.ndarray, "n_batch n_modes n_pol n_omega"], finished)
@@ -1164,9 +1166,10 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         after a run -- a :class:`~solprop.driver.simulation.SimulationRunner`'s, or
         after a failed run -- repeats a fresh backend's run (SEP 22 section 4.7): a
         dense observation's look-ahead, an Adams march's call ledger and last-rejection
-        flag and a low-storage march's source-evaluation count here, and the quadrature
-        alarm, whose value the entrance plane's ``quadrature_error`` reads before any
-        march, in the overrides of the backends that keep one. A resume restores its
+        flag, a low-storage march's source-evaluation count and the boundary monitor,
+        with the collar it may have rested, here, and the quadrature alarm, whose value
+        the entrance plane's ``quadrature_error`` reads before any march, in the
+        overrides of the backends that keep one. A resume restores its
         ledger afterwards (:meth:`restore_call_ledgers`).
 
         Loading is the one entry that clears a low-storage step abandoned in flight
@@ -1243,6 +1246,10 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             self._low_storage.reset()
             # Its count is the loaded run's, as the Adams ledger is (SEP 22 4.7).
             self._low_storage.source_evaluations = 0
+        # A boundary monitor watches one run: the next attaches its own or none, and
+        # a collar the last one rested goes back into the stages (SEP 21).
+        self._monitor = None
+        self._set_collar_quiet(False)
 
     def set_progress(self, reporter: ProgressReporter) -> None:
         """Attach the reporter every attempted step is reported to.
@@ -1604,6 +1611,8 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
                     # The step crosses the plane: hold its extension for the
                     # observation, and for any later plane it also crosses.
                     self._dense_step = self._dense_record(self._z, stop.dz)
+                if (reader := self._split_reader(end)) is not None:
+                    reader.before_split(self._observed_field(advanced), stop.dz)
                 finished = self._finish(advanced, stop.dz)
                 with committing():
                     self._state = finished
@@ -1793,11 +1802,14 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
                     "shorter steps, or let the controller choose them"
                 )
                 raise ConvergenceError(msg)
+            end = float(edges[self._schedule_index + 1])
+            if (reader := self._split_reader(end)) is not None:
+                reader.before_split(self._observed_field(advanced), dz)
             finished = self._finish(advanced, dz)
             with committing():
                 self._state = finished
                 self._schedule_index += 1
-                self._z = float(edges[self._schedule_index])
+                self._z = end
             self._record(self._z, dz, norm, accepted=True)
             self._accepted_norms.append(norm)
             self._take_step_stats()
@@ -1890,6 +1902,32 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             floor=self._input_floor,
         )
         self._set_collar_quiet(monitor.collar_quiet)
+
+    def _split_reader(self, end: float) -> BoundaryMonitor | None:
+        """Return the monitor when it reads the step adopted at `end` before its split.
+
+        Under the ``"split_step"`` scheme a step the monitor will check is read just
+        before :meth:`_finish` applies the collar, from which its removal is exact
+        (:meth:`solprop.monitor.BoundaryMonitor.before_split`); every march calls this
+        on the step it is about to finish. A march whose finish runs inside a
+        backend's own engine has no such point, and the monitor integrates the rate
+        of the committed states instead.
+
+        Parameters
+        ----------
+        end : float
+            Where the step ends, m.
+
+        Returns
+        -------
+        solprop.monitor.BoundaryMonitor or None
+            The monitor, or ``None`` when it does not read this step before its
+            split.
+        """
+        monitor = self._monitor
+        if monitor is not None and monitor.split and monitor.due(end):
+            return monitor
+        return None
 
     def _set_collar_quiet(self, quiet: bool) -> None:
         """Say whether the collar is quiet.
@@ -2009,7 +2047,13 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             # A quiet window is checked every few steps, without reading the state
             # in between (`solprop.monitor.CADENCE`).
             if monitor.due(self._z):
-                monitor.step(self._observed_field(self._require_state()), self._z)
+                # A split step was read before its collar (`_split_reader`).
+                monitor.step(
+                    None
+                    if monitor.read_ahead
+                    else self._observed_field(self._require_state()),
+                    self._z,
+                )
                 self._set_collar_quiet(monitor.collar_quiet)
             else:
                 monitor.skip()

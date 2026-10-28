@@ -15,7 +15,9 @@ polarisations and transverse columns (with their quadrature weights), and forms:
   collar;
 - the **removal rate** ``int alpha(t) P(t) dt`` of the temporal collar, integrated
   along z by the trapezoid over committed steps into the removed fraction of the
-  launch energy.
+  launch energy. Under the ``"split_step"`` scheme a checked step is read just before
+  its split instead, which gives the power the split took exactly
+  (:meth:`BoundaryMonitor.before_split`).
 
 ``P`` is the energy-density proxy of SEP 21 section 4.6: exact for modal true-power
 amplitudes, and on spatial routes the quadrature-weighted field norm rather than the
@@ -31,11 +33,10 @@ noise nothing is subtracted; with a weak launch the field is mostly floor and wh
 above it is a small share. The raw values, of the whole field, are recorded beside the
 judged ones.
 
-Policy (D7): the square root of a guard occupancy above
-:attr:`BoundaryCheck.budget` warns, and above ``stop_factor`` times it stops the run;
-at the launch an occupancy above :attr:`BoundaryCheck.launch_threshold` warns. At the
-end of a run the removed fraction is reported, and warns when its square root exceeds
-the budget (D5).
+Policy (D7, one rule from the launch on): the square root of a guard occupancy above
+:attr:`BoundaryCheck.budget` warns, and above ``stop_factor`` times it stops the run, or
+refuses it at the launch before a step is spent. At the end of a run the removed
+fraction is reported, and warns when its square root exceeds the budget (D5).
 
 **The quiet collar is opt-in** (:attr:`BoundaryCheck.quiet_collar`, SEP 21 D15 as
 amended by ADR-057). When asked for, a collar that held less than :data:`QUIET` of the
@@ -49,10 +50,13 @@ stays in every stage.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import math
 import warnings
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import cast
 
 import numpy as np
 from jaxtyping import Complex, Float
@@ -115,6 +119,31 @@ switch costing the march a reused stage or an Adams rejection."""
 logger = logging.getLogger(__name__)
 
 
+def _number(
+    record: Mapping[str, object], name: str, default: float = math.nan
+) -> float:
+    """Return a record's number, or `default` when it is absent or not a number.
+
+    Parameters
+    ----------
+    record : collections.abc.Mapping
+        A monitor record read back from a run's file.
+    name : str
+        The field.
+    default : float, optional
+        What an absent or unmeasured field stands for.
+
+    Returns
+    -------
+    float
+        The value.
+    """
+    value = record.get(name)
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return default
+    return float(value)
+
+
 @dataclass(frozen=True)
 class BoundaryCheck:
     """How a run watches its time window's edges (SEP 21, D5 and D7).
@@ -129,10 +158,7 @@ class BoundaryCheck:
         removed fraction, above it warns. Default 1e-3.
     stop_factor : float
         The run stops when the square root of a guard occupancy exceeds this many
-        budgets. Default 10.
-    launch_threshold : float
-        The launch warns when its guard or collar occupancy exceeds this. Default
-        1e-4.
+        budgets, and a launch above it is refused. Default 10.
     quiet_collar : bool
         Leave the in-stage temporal collar out of the stages while it is quiet
         (:data:`QUIET`, :data:`QUIET_CHECKS`), a speed-up for runs whose light stays
@@ -151,7 +177,6 @@ class BoundaryCheck:
     guard_fraction: float = 0.05
     budget: float = 1e-3
     stop_factor: float = 10.0
-    launch_threshold: float = 1e-4
     quiet_collar: bool = False
 
     def __post_init__(self) -> None:
@@ -165,7 +190,7 @@ class BoundaryCheck:
         if not 0.0 < self.guard_fraction < 0.5:
             msg = f"guard_fraction must lie in (0, 0.5), got {self.guard_fraction!r}"
             raise BoundaryError(msg)
-        for name in ("budget", "stop_factor", "launch_threshold"):
+        for name in ("budget", "stop_factor"):
             value = getattr(self, name)
             if not (math.isfinite(value) and value > 0.0):
                 msg = f"{name} must be finite and positive, got {value!r}"
@@ -198,8 +223,8 @@ class BoundaryMonitor:
         The longest distance, m, a quiet window goes unchecked (:data:`CHECKS`).
     split : bool
         Whether the temporal collar is applied once per accepted step (the
-        ``"split_step"`` scheme), whose removal is then read exactly from each
-        committed state rather than by the trapezoid (D5).
+        ``"split_step"`` scheme), whose removal is then read exactly from the state
+        before the split (:meth:`before_split`) rather than by the trapezoid (D5).
     """
 
     check: BoundaryCheck
@@ -251,6 +276,12 @@ class BoundaryMonitor:
     _left_out: bool = field(default=False, init=False)
     _left_out_checks: int = field(default=0, init=False)
     _stale: bool = field(default=False, init=False)
+    _pending: tuple[float, Float[np.ndarray, " n_t"]] | None = field(
+        default=None, init=False
+    )
+    _resuming: bool = field(default=False, init=False)
+    _resume_plane: bool = field(default=False, init=False)
+    _resumed_at: list[float] = field(default_factory=list, init=False)
 
     @classmethod
     def build(
@@ -327,14 +358,14 @@ class BoundaryMonitor:
         return density.reshape(-1, density.shape[-1]).sum(axis=0)
 
     def _regions(
-        self, field_spectrum: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
-    ) -> tuple[float, Float[np.ndarray, " 4"], Float[np.ndarray, " n_t"]]:
-        """Return the total energy of one state, its four weighted energies and ``P``.
+        self, power: Float[np.ndarray, " n_t"]
+    ) -> tuple[float, Float[np.ndarray, " 4"]]:
+        """Return the total energy of one state and its four weighted energies.
 
         Parameters
         ----------
-        field_spectrum : numpy.ndarray
-            A state, canonical layout, FFT convention.
+        power : numpy.ndarray
+            The state's ``P(t)`` (:meth:`_power`).
 
         Returns
         -------
@@ -343,14 +374,11 @@ class BoundaryMonitor:
         regions : numpy.ndarray
             The energies in the low guard, the high guard and the collar, and the
             collar's removal rate, energy per metre.
-        power : numpy.ndarray
-            ``P(t)``.
         """
-        power = self._power(field_spectrum)
         total = float(power.sum())
         if total <= 0.0 or not math.isfinite(total):
-            return 0.0, np.zeros(4), power
-        return total, self.weights @ power, power
+            return 0.0, np.zeros(4)
+        return total, self.weights @ power
 
     def _above(self, regions: Float[np.ndarray, " 4"]) -> Float[np.ndarray, " 4"]:
         """Return each region's energy above the shot-noise floor.
@@ -383,7 +411,12 @@ class BoundaryMonitor:
         *,
         floor: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"] | None = None,
     ) -> None:
-        """Record the launch, and warn if it already fills a guard or the collar.
+        """Record the launch, and warn or refuse if it already fills a guard.
+
+        The rule of every later check (:meth:`step`): the square root of a guard
+        occupancy above the budget warns, and above ``stop_factor`` budgets refuses
+        the run before its first step. After :meth:`resume` the state is the one the
+        run resumes from, recorded and not judged.
 
         Parameters
         ----------
@@ -395,64 +428,144 @@ class BoundaryMonitor:
             The input-noise draw the launch carries, in the same layout and
             convention; ``None`` without one. Its energy is the vacuum floor the
             monitor judges above (Q24).
-        """
-        if floor is not None:
-            self._floor = float(self._power(floor).sum())
-            # The floor is stationary: its expected density is uniform in time.
-            self._floor_regions = self._floor * self.weights.mean(axis=1)
-        total, regions, _ = self._regions(field_spectrum)
-        self._launch = total
-        if total <= 0.0:
-            self._last = (z, 0.0)
-            self._raw_last = (z, 0.0)
-            self._settle(None)
-            return
-        shares = self._above(regions) / total
-        self._settle(shares, float(regions[2]) / total)
-        self._last = (z, float(shares[3]))
-        self._raw_last = (z, float(regions[3]) / total)
-        self._launch_occupancy = (float(shares[0]), float(shares[1]), float(shares[2]))
-        self._collar_now = float(shares[2])
-        self._since = [float(shares[0]), float(shares[1])]
-        self._plane_row(z)
-        worst = max(self._launch_occupancy)
-        if worst > self.check.launch_threshold:
-            self._warned = True
-            warnings.warn(
-                f"the launched field already puts {worst:.2e} of its energy in the "
-                "time window's guards or collar, above the "
-                f"{self.check.launch_threshold:.0e} a clean launch leaves: the window "
-                "clips the input, which can seed spurious radiation; widen trange or "
-                "move the launch",
-                BoundaryWarning,
-                stacklevel=2,
-            )
-
-    def step(
-        self,
-        field_spectrum: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
-        z: float,
-    ) -> None:
-        """Account one committed step, and warn or stop on a guard occupancy.
-
-        Parameters
-        ----------
-        field_spectrum : numpy.ndarray
-            The committed state, canonical layout, FFT convention.
-        z : float
-            Its position, m.
 
         Raises
         ------
         BoundaryError
             When the square root of a guard occupancy exceeds ``stop_factor`` budgets.
         """
-        total, regions, power = self._regions(field_spectrum)
+        if floor is not None:
+            self._floor = float(self._power(floor).sum())
+            # The floor is stationary: its expected density is uniform in time.
+            self._floor_regions = self._floor * self.weights.mean(axis=1)
+        total, regions = self._regions(self._power(field_spectrum))
+        resuming, self._resuming = self._resuming, False
+        if resuming:
+            self._resumed_at.append(z)
+        if not (resuming and self._launch > 0.0):
+            # A resume restored its original launch energy (`resume`), unless the
+            # record it continues had none.
+            self._launch = total
+        if total <= 0.0:
+            self._last = (z, 0.0)
+            self._raw_last = (z, 0.0)
+            self._settle(None)
+            return
+        above = self._above(regions)
+        shares = above / total
+        self._settle(shares, float(regions[2]) / total)
+        self._last = (z, float(above[3]) / self._launch)
+        self._raw_last = (z, float(regions[3]) / self._launch)
+        self._collar_now = float(shares[2])
+        self._since = [float(shares[0]), float(shares[1])]
+        if resuming:
+            if self._resume_plane:
+                self._plane_row(z)
+            return
+        self._launch_occupancy = (float(shares[0]), float(shares[1]), float(shares[2]))
+        self._plane_row(z)
+        self._judge(shares, None)
+
+    def resume(self, record: Mapping[str, object] | None, *, plane: bool) -> None:
+        """Continue the record of the executions a resumed run follows (SEP 21).
+
+        Called before :meth:`launch`, which then records the resumed state without
+        judging it: the first execution judged the launch, and a run stopped at an
+        edge may be resumed under a relaxed check. When `record` carries the
+        monitor's totals, ``launch_energy`` among them, they are restored, so the
+        removed fraction, the guard maxima and the rows continue against the
+        original launch; otherwise the record starts again from the resumed state,
+        its launch fields unmeasured.
+
+        Parameters
+        ----------
+        record : collections.abc.Mapping or None
+            The ``boundary_monitor`` record of the latest earlier execution, or
+            ``None`` without one. Rows are restored from a closing record; a running
+            one, written at a plane, carries none
+            (:func:`solprop.driver.run.run_problem`).
+        plane : bool
+            Whether the run resumes at a saved plane, whose row is then recorded
+            unless the restored rows hold it.
+        """
+        self._resuming = True
+        self._resume_plane = plane
+        if record is None:
+            return
+        launch = _number(record, "launch_energy")
+        if not launch > 0.0:
+            return
+        self._launch = launch
+        low, high, collar = (
+            _number(record, name)
+            for name in ("launch_guard_low", "launch_guard_high", "launch_collar")
+        )
+        self._launch_occupancy = (low, high, collar)
+        self._guard_max = [
+            _number(record, "guard_low_max", 0.0),
+            _number(record, "guard_high_max", 0.0),
+        ]
+        self._guard_at = [
+            _number(record, "guard_low_at"),
+            _number(record, "guard_high_at"),
+        ]
+        self._collar_max = _number(record, "collar_max", 0.0)
+        self._removed = _number(record, "removed_fraction", 0.0)
+        self._raw_removed = _number(record, "raw_removed_fraction", 0.0)
+        self._raw_guard_max = _number(record, "raw_guard_max", 0.0)
+        self._steps = int(_number(record, "steps", 0.0))
+        self._skipped = int(_number(record, "skipped", 0.0))
+        self._left_out_checks = int(_number(record, "collar_left_out_checks", 0.0))
+        resumed = record.get("resumed_at")
+        if isinstance(resumed, list):
+            self._resumed_at = [float(one) for one in cast("list[float]", resumed)]
+        rows = record.get("planes")
+        if isinstance(rows, Mapping) and set(cast("Mapping[str, object]", rows)) == set(
+            self._planes
+        ):
+            self._planes = {
+                name: [float(one) for one in cast("list[float]", values)]
+                for name, values in cast("Mapping[str, list[float]]", rows).items()
+            }
+
+    def step(
+        self,
+        field_spectrum: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"] | None,
+        z: float,
+    ) -> None:
+        """Account one committed step, and warn or stop on a guard occupancy.
+
+        Parameters
+        ----------
+        field_spectrum : numpy.ndarray or None
+            The committed state, canonical layout, FFT convention; ``None`` for the
+            state :meth:`before_split` read before the step's split.
+        z : float
+            Its position, m.
+
+        Raises
+        ------
+        BoundaryError
+            When the square root of a guard occupancy exceeds ``stop_factor`` budgets,
+            or when no state was given and none was read before the split.
+        """
+        pending, self._pending = self._pending, None
+        if field_spectrum is not None:
+            power, before = self._power(field_spectrum), None
+        elif pending is not None:
+            # The split leaves exp(-alpha h) of the power it found; the band mask
+            # after it is not counted.
+            before = pending
+            power = before[1] * np.exp(-self.weights[3] * before[0])
+        else:
+            msg = "the boundary monitor was given no state and read none before a split"
+            raise BoundaryError(msg)
+        total, regions = self._regions(power)
         self._steps += 1
         self._left_out_checks += int(self._left_out)
-        # The split's exact removal reads one step; across unchecked ones the
-        # trapezoid integrates the rate instead.
-        exact = self.split and self._since_check == 0
+        # The split's exact removal reads one step from the state before it; across
+        # unchecked ones, or from a committed state, the trapezoid integrates the rate.
+        exact = before if self._since_check == 0 else None
         self._since_check = 0
         self._stale = False
         if not total > _FLOOR * self._launch:
@@ -467,8 +580,8 @@ class BoundaryMonitor:
         # the steps since the last check add no removal.
         raw_rate = float(regions[3]) / self._launch
         previous_z, previous_rate = self._raw_last or (z, raw_rate)
-        if exact:
-            self._split_removal(power, z - previous_z)
+        if exact is not None:
+            self._split_removal(*exact)
         elif not self._left_out:
             self._raw_removed += 0.5 * (z - previous_z) * (previous_rate + raw_rate)
         self._raw_last = (z, raw_rate)
@@ -480,7 +593,7 @@ class BoundaryMonitor:
         self._settle(shares, float(regions[2]) / total)
         # The removal rate as a fraction of the launch energy per metre.
         rate = float(above[3]) / self._launch
-        if self._last is not None and not exact and not self._left_out:
+        if self._last is not None and exact is None and not self._left_out:
             previous_z, previous_rate = self._last
             self._removed += 0.5 * (z - previous_z) * (previous_rate + rate)
         self._last = (z, rate)
@@ -491,25 +604,50 @@ class BoundaryMonitor:
             if shares[edge] > self._guard_max[edge]:
                 self._guard_max[edge] = float(shares[edge])
                 self._guard_at[edge] = z
+        self._judge(shares, z)
+
+    def _judge(self, shares: Float[np.ndarray, " 4"], z: float | None) -> None:
+        """Warn once, or stop, on a state's guard occupancy (D7).
+
+        Parameters
+        ----------
+        shares : numpy.ndarray
+            The state's shares above the floor.
+        z : float or None
+            Its position, m, or ``None`` for the launch.
+
+        Raises
+        ------
+        BoundaryError
+            When the square root of a guard occupancy exceeds ``stop_factor`` budgets.
+        """
+        check = self.check
         worst = math.sqrt(max(float(shares[0]), float(shares[1]), 0.0))
-        if worst > self.check.stop_factor * self.check.budget:
+        if z is None:
+            where = "at the launch"
+            cause = "the window clips the input, which can seed spurious radiation"
+            fate = ""
+        else:
+            where = f"at z = {z:.6e} m"
+            cause = "light is reaching the window's edge"
+            fate = " and will wrap around or be absorbed"
+        if worst > check.stop_factor * check.budget:
             msg = (
-                f"at z = {z:.6e} m the field puts {worst**2:.2e} of its energy in the "
-                f"time window's {self.check.guard_fraction:g} guards, whose square "
-                f"root {worst:.2e} is above {self.check.stop_factor:g} times the "
-                f"{self.check.budget:.0e} budget: light is reaching the window's edge "
-                "and will wrap around or be absorbed; widen trange, move the launch, "
-                "or relax the check (settings.boundary_check)"
+                f"{where} the field puts {worst**2:.2e} of its energy in the time "
+                f"window's {check.guard_fraction:g} guards, whose square root "
+                f"{worst:.2e} is above {check.stop_factor:g} times the "
+                f"{check.budget:.0e} budget: {cause}{fate}; widen trange, move the "
+                "launch, or relax the check (settings.boundary_check)"
             )
             raise BoundaryError(msg)
-        if worst > self.check.budget and not self._warned:
+        if worst > check.budget and not self._warned:
             self._warned = True
             warnings.warn(
-                f"at z = {z:.6e} m the square root of the time window's guard "
-                f"occupancy is {worst:.2e}, above the {self.check.budget:.0e} budget: "
-                "light is reaching the window's edge; widen trange or move the launch",
+                f"{where} the square root of the time window's guard occupancy is "
+                f"{worst:.2e}, above the {check.budget:.0e} budget: {cause}; widen "
+                "trange or move the launch",
                 BoundaryWarning,
-                stacklevel=2,
+                stacklevel=3,
             )
 
     def _settle(
@@ -565,6 +703,7 @@ class BoundaryMonitor:
         self._skipped += 1
         self._since_check += 1
         self._stale = True
+        self._pending = None
 
     @property
     def stale(self) -> bool:
@@ -606,26 +745,59 @@ class BoundaryMonitor:
         """
         self._left_out = left_out
 
-    def _split_removal(self, power: Float[np.ndarray, " n_t"], step: float) -> None:
-        """Add one split step's exact removal, read back from its committed state.
+    def before_split(
+        self,
+        field_spectrum: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        step: float,
+    ) -> None:
+        """Read an accepted step's state just before its split collar is applied.
 
-        The split multiplies the field by ``exp(-alpha(t) h / 2)`` once per accepted
-        step, so the power it took is ``P(t) (exp(alpha(t) h) - 1)`` of the power
-        ``P`` it left; the floor's share is that of a uniform density. The band mask
-        that follows the split is not counted.
+        Under the ``"split_step"`` scheme the run's driver calls this, on a step it is
+        about to adopt and :meth:`due` to check, and then :meth:`step` with ``None``.
+        The split multiplies the field by ``exp(-alpha(t) h / 2)``, so the power it
+        takes, ``P(t) (1 - exp(-alpha(t) h))`` of the power ``P`` it finds, is read
+        exactly from this state. Read back from the committed state the same removal
+        would be ``P(t) (exp(alpha(t) h) - 1)`` of the power the split left, which
+        multiplies whatever the band mask after the split leaves deep in the collar by
+        ``exp(alpha h)``: a removal made from nothing.
 
         Parameters
         ----------
-        power : numpy.ndarray
-            ``P(t)`` of the committed state.
+        field_spectrum : numpy.ndarray
+            The accepted state before the split, canonical layout, FFT convention.
         step : float
             The step's length, m.
         """
+        self._pending = (step, self._power(field_spectrum))
+
+    @property
+    def read_ahead(self) -> bool:
+        """Whether :meth:`before_split` read the step :meth:`step` is to account.
+
+        Returns
+        -------
+        bool
+            True until the next :meth:`step` takes the reading.
+        """
+        return self._pending is not None
+
+    def _split_removal(self, step: float, before: Float[np.ndarray, " n_t"]) -> None:
+        """Add one split step's exact removal, read from the state before its split.
+
+        The floor's share is that of a uniform density.
+
+        Parameters
+        ----------
+        step : float
+            The step's length, m.
+        before : numpy.ndarray
+            ``P(t)`` of the accepted state before the split (:meth:`before_split`).
+        """
         if not step > 0.0:
             return
-        gain = np.expm1(self.weights[3] * step)
-        taken = float(power @ gain)
-        floor = self._floor / power.size * float(gain.sum())
+        taken_share = -np.expm1(-self.weights[3] * step)
+        taken = float(before @ taken_share)
+        floor = self._floor / before.size * float(taken_share.sum())
         self._raw_removed += taken / self._launch
         self._removed += (taken - floor) / self._launch
 
@@ -661,26 +833,32 @@ class BoundaryMonitor:
         """
         self._plane_row(z)
 
-    def summary(self) -> dict[str, float | dict[str, list[float]] | None]:
+    def summary(self) -> dict[str, float | list[float] | dict[str, list[float]] | None]:
         """Return the record of the run so far, for its execution record.
 
         Returns
         -------
         dict
-            Launch occupancies, the largest guard and collar occupancies and where the
-            guards peaked, the removed fraction of the launched signal and the number
-            of committed steps accounted, all judged above the shot-noise floor;
-            ``None`` for what was never measured (a launch the run resumed past, a
-            guard nothing reached). Beside them, the floor's share of the launch
-            energy (``noise_floor``, zero without input noise), and the largest guard
-            share and the removed fraction of the whole field, floor included
-            (``raw_guard_max``, ``raw_removed_fraction``), and how many checks found the
-            collar's term left out since the previous one (``collar_left_out_checks``,
-            zero unless the run opted in to :attr:`BoundaryCheck.quiet_collar`). Under
-            ``planes``, one row
-            per saved plane from the launch on: ``z``, the ``collar_occupancy`` there,
-            each guard's largest occupancy since the previous plane (``guard_low``,
-            ``guard_high``) and the ``removed_fraction`` so far.
+            The thresholds of this execution (``guard_fraction``, ``budget``,
+            ``stop_factor``, ``quiet_collar``); the launch's energy in the monitor's
+            own units, the denominator of every fraction
+            (``launch_energy``), and where the run was resumed (``resumed_at``,
+            empty for an uninterrupted one). Launch occupancies, the largest guard
+            and collar occupancies and where the guards peaked, the removed fraction
+            of the launched signal and the number of committed steps accounted, all
+            judged above the shot-noise floor; ``None`` for what was never measured
+            (a launch a resume could not recover, a guard nothing reached). Beside
+            them, the floor's share of the launch energy (``noise_floor``, zero
+            without input noise), and the largest guard share and the removed
+            fraction of the whole field, floor included (``raw_guard_max``,
+            ``raw_removed_fraction``), and how many checks found the collar's term
+            left out since the previous one (``collar_left_out_checks``, zero unless
+            the run opted in to :attr:`BoundaryCheck.quiet_collar`). Under
+            ``planes``, one row per saved plane from the launch on: ``z``, the
+            ``collar_occupancy`` there, each guard's largest occupancy since the
+            previous plane (``guard_low``, ``guard_high``) and the
+            ``removed_fraction`` so far. A resumed run continues all of these
+            (:meth:`resume`).
         """
 
         def finite(value: float) -> float | None:
@@ -699,6 +877,9 @@ class BoundaryMonitor:
             return value if math.isfinite(value) else None
 
         return {
+            **dataclasses.asdict(self.check),
+            "launch_energy": finite(self._launch),
+            "resumed_at": list(self._resumed_at),
             "launch_guard_low": finite(self._launch_occupancy[0]),
             "launch_guard_high": finite(self._launch_occupancy[1]),
             "launch_collar": finite(self._launch_occupancy[2]),

@@ -1394,6 +1394,27 @@ Withdrawn (development-process record, not a design decision).
       binary64 modal stage with the in-stage scheme and a temporal collar alone. The
       low-storage march, coupled flows, the general modal route, a radial real-space
       collar and single precision keep the collar.
+  - **The monitor's rules** (maintainer, 2026-10-28):
+    - one rule from the launch on: the square root of a guard occupancy above the
+      budget warns, and above `stop_factor` budgets stops the run, or refuses it at the
+      launch before its first step. D5's separate launch threshold (`1e-4` of the energy
+      in a guard or the collar) is withdrawn; light the launch puts in the collar alone
+      is absorbed and reported with the removed fraction;
+    - under the split scheme a checked step's removal is read from its state just
+      before the split, `P(1 − e^{−αh})`, not from the state after it, whose deep-collar
+      residue `e^{αh}` multiplied into removals above the launch energy; where the split
+      runs inside a backend's own engine (native), the trapezoid of the committed rate
+      is taken until the monitor's reduction runs on the backend;
+    - the record continues across a resume: no launch check, the totals, launch
+      occupancies and rows restored against the original launch energy. The
+      `BoundaryCheck` is recorded per execution and stays outside the resume key, so a
+      run stopped at an edge can be resumed under a relaxed check; the quiet-collar
+      opt-in is inside it;
+    - the per-plane rows are written in the closing record only, not in the record
+      rewritten at every plane;
+    - `absorber=False` zeroes the collars' rates and keeps their room: one grid with or
+      without an absorber, so the Raman tail taper and the held-plasma gate keep their
+      samples.
 - **Why:**
   - A run cannot know in advance whether its light stays clear, and an omission judged
     too early is an error nothing reports. The robust default is the collar in every

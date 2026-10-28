@@ -5,8 +5,9 @@
 """The absorber keywords of the builders and interfaces (SEP 21 section 5).
 
 ``absorber=False`` switches the temporal and spectral collars off and keeps the hard
-band mask; ``absorber_scheme`` is accepted everywhere a temporal collar can be; a scheme
-beside ``absorber=False``, or a keyword that contradicts the settings, is refused.
+band mask and the collars' room, so the run shares the absorber-on run's grid;
+``absorber_scheme`` is accepted everywhere a temporal collar can be; a scheme beside
+``absorber=False``, or a keyword that contradicts the settings, is refused.
 """
 
 from __future__ import annotations
@@ -26,6 +27,8 @@ from solprop.exceptions import DriverError
 from solprop.grid import FieldGrid
 from solprop.modes.capillary import MarcatiliMode
 from solprop.stepper import PIController
+from solprop.translate.plasma_source import plasma_source_record
+from solprop.translate.raman import kernel_taper
 
 
 @pytest.fixture(scope="module")
@@ -41,10 +44,10 @@ def _capillary(**keywords: Any) -> Simulation:
     )  # fmt: skip
 
 
-def _gnlse(**keywords: Any) -> Simulation:
+def _gnlse(*, trange: float = 2e-12, **keywords: Any) -> Simulation:
     return Simulation.from_gnlse(
         0.1, 0.1, [0.0, 0.0, -1e-26], lambda0=1e-6, fwhm=100e-15, peak_power=1.0,
-        trange=2e-12, wavelength_limits=(0.7e-6, 1.5e-6), noise=None, **keywords,
+        trange=trange, wavelength_limits=(0.7e-6, 1.5e-6), noise=None, **keywords,
     )  # fmt: skip
 
 
@@ -144,11 +147,37 @@ def test_spatial_keywords_refuse_a_contradiction(grid: FieldGrid) -> None:
     assert same.absorber is not None
 
 
-def test_absorber_false_leaves_no_collar_room_in_a_built_grid() -> None:
-    """Without a temporal collar the built grid holds only the request (Q16)."""
-    with_collar, without = _capillary().grid, _capillary(absorber=False).grid
-    assert without.n_t < with_collar.n_t
-    assert with_collar.t_collar.one_high == without.t_collar.one_high
+@pytest.mark.parametrize("build", [_capillary, _gnlse])
+def test_absorber_false_keeps_the_collar_s_room(
+    build: Callable[..., Simulation],
+) -> None:
+    """The collars' rates are zero and their room is kept: one grid, absorber or none.
+
+    The Raman tail taper, the held-plasma gate and every other reader of the collar
+    keep their samples whatever the transform size rounds to (SEP 21, ADR-057).
+    """
+    with_collar, without = build().grid, build(absorber=False).grid
+    assert without.n_t == with_collar.n_t
+    assert without.t_collar == with_collar.t_collar
+    np.testing.assert_array_equal(without.t, with_collar.t)
+
+
+@pytest.mark.parametrize("trange", [2e-12, 1.998e-12, 1.5e-12])
+def test_absorber_false_keeps_the_raman_taper(trange: float) -> None:
+    """The response's tail taper is the absorber-on run's, many samples wide."""
+    on = _gnlse(raman=True, trange=trange)
+    off = _gnlse(raman=True, trange=trange, absorber=False)
+    off.translate()
+    taper = kernel_taper(off.grid)
+    np.testing.assert_array_equal(taper, kernel_taper(on.grid))
+    assert np.count_nonzero(taper < 1.0) > 10
+
+
+def test_absorber_false_keeps_the_held_plasma_gate() -> None:
+    """A field-plasma capillary's gate is the absorber-on run's."""
+    on = _capillary(plasma=True).translate()
+    off = _capillary(plasma=True, absorber=False).translate()
+    assert plasma_source_record(off.grids) == plasma_source_record(on.grids)
 
 
 def test_spatial_defaults_leave_the_real_space_collar_off() -> None:

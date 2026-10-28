@@ -154,7 +154,8 @@ request would cut into light the run is meant to keep; the SEP 21 campaign measu
 on a full-length Raman-soliton run, where it cost two orders of magnitude in accuracy.
 
 Two settings change the geometry. `collar_fraction=0` leaves no room for a temporal collar
-and realises the request alone, for a run without one (`absorber=False` builds its grid so).
+and realises the request alone, for a grid built by hand for a run without one;
+`absorber=False` keeps the room (below).
 `collar_placement="inside"` rebuilds the geometry solprop used before SEP 21: the window is
 the request rounded up, and the collar takes at least `collar_fraction` of it, inside the
 request when the rounding leaves too little slack. It exists to reproduce frozen
@@ -375,8 +376,11 @@ and is independent of the `Absorber` and its lengths:
 Every `prop_*` entry point takes `absorber=` and `absorber_scheme=`. Pass
 `absorber(grid, boundary_N=60)` for a stronger collar, `absorber(grid, boundary_length=...)`
 to fix the reference length `ℓ` directly, and `absorber=False` for none: both soft collars,
-temporal and spectral, are switched off, the hard band mask is kept, and the built grid
-leaves no room for a collar ({py:func}`solprop.boundaries.no_absorber`). On the spatial
+temporal and spectral, are switched off and the hard band mask is kept
+({py:func}`solprop.boundaries.no_absorber`). The built grid keeps the collar's room, so a
+run without an absorber shares the grid of the run with one, and the Raman response's tail
+taper and the held plasma current's gate, which read the collar's width, keep their
+samples whatever the transform size rounds to. On the spatial
 interfaces `absorber=False` leaves the transverse collars as they are. `absorber=None` means
 "build the default", not "no absorber"; a scheme beside `absorber=False`, or a keyword
 that contradicts what a spatial run's settings already declare, is refused.
@@ -402,12 +406,13 @@ through `SimulationSettings.boundary_check`). At the launch and at every committ
 measures the share of the field's energy in the outer 5 % of the realised window at each
 edge, the guards, and in the collar:
 
-- at the launch, more than `1e-4` in a guard or the collar warns
-  ({py:class}`~solprop.exceptions.BoundaryWarning`): the window clips the input, which can
-  seed spurious radiation;
-- during the run, a guard occupancy whose square root exceeds the field-error budget
-  (`1e-3` by default) warns once, and ten times the budget stops the run with
-  {py:class}`~solprop.exceptions.BoundaryError`;
+- from the launch on, a guard occupancy whose square root exceeds the field-error budget
+  (`1e-3` by default, a millionth of the energy) warns once
+  ({py:class}`~solprop.exceptions.BoundaryWarning`), and ten times the budget (a ten
+  thousandth) stops the run with {py:class}`~solprop.exceptions.BoundaryError`; at the
+  launch that means the window clips the input, which can seed spurious radiation, and
+  the run is refused before its first step. Light the launch puts in the collar alone is
+  absorbed, and the end of the run reports it;
 - at the end, the fraction of the launch energy the temporal collar removed is logged, and
   warns when its square root exceeds the budget. Weak spectral features can matter at far
   smaller fractions than that: the record is there to read.
@@ -451,11 +456,32 @@ and the removed fraction, all above the floor; beside them the floor's share of 
 launch energy (`noise_floor`) and the whole field's largest guard share and removed
 fraction, floor included (`raw_guard_max`, `raw_removed_fraction`). Under `planes` it keeps
 one row per saved plane: `z`, the collar occupancy there, each guard's largest occupancy
-since the previous plane, and the removed fraction so far. Under the in-stage scheme the
-removed fraction is integrated along z by the trapezoid; under `absorber_scheme="split_step"`
-each step's removal is read exactly from the state it leaves. `SimulationSettings(boundary_check=None)`, or `boundary_check=None` on any `prop_*`
-function or `Simulation.from_*` constructor, watches nothing; a
-`BoundaryCheck` with a larger `budget` or `stop_factor` relaxes it.
+since the previous plane, and the removed fraction so far. The record is rewritten at every
+saved plane without the rows, which the closing record (complete, failed or out of budget)
+carries, so a file does not grow with the square of its planes. Beside them are the
+thresholds the execution ran under (`guard_fraction`, `budget`, `stop_factor`,
+`quiet_collar`) and the launch's energy in the monitor's own units (`launch_energy`).
+
+Under the in-stage scheme the removed fraction is integrated along z by the trapezoid.
+Under `absorber_scheme="split_step"` a checked step is read just before its split, which
+gives the power the split took, `P(1 − e^{−αh})`, exactly. Read back from the state the
+split leaves, the same removal multiplied whatever the band mask left deep in the collar
+by `e^{αh}`, into removals larger than the launch and false warnings. The `native` backend
+applies the split inside its own engine, where the state before it cannot be read: there
+the trapezoid of the committed states' rate is taken, which undercounts light absorbed deep
+in the collar within one step and never counts residue.
+
+A resumed run continues the record: the state it resumes from is checked by the first
+step, not judged as a launch, so a run stopped at an edge can be resumed under a relaxed
+check (the check is not part of the resume key; the quiet-collar opt-in is). The totals,
+the launch occupancies and the rows of a closing record are restored, so the removed
+fraction and the guard maxima continue against the original launch, and `resumed_at`
+lists where the run was resumed. A run killed without a closing record restores its
+totals, and its rows start again at the resume.
+
+`SimulationSettings(boundary_check=None)`, or `boundary_check=None` on any `prop_*`
+function or `Simulation.from_*` constructor, watches nothing; a `BoundaryCheck` with a
+larger `budget` or `stop_factor` relaxes it.
 
 ## A worked example
 

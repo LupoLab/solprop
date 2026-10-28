@@ -418,6 +418,15 @@ it. Checking the collar after every resting step instead, cheap once the monitor
 reduction runs on the backend, would let such a step be rejected and retaken with the
 collar in when light has entered, and lift the cap.
 
+**The split collar's removal on the native engine.** Under the split scheme the monitor
+reads a checked step's state just before its split, which gives the removal exactly
+(ADR-057). The native engine holds a trial's end inside the step until its finish applies
+the split, so there the monitor integrates the committed states' rate by the trapezoid,
+which undercounts light absorbed deep in the collar within one step (a pulse walked 0.65
+of the window into the collar reads 0.16 of the launch removed against 0.71 lost). The
+backend-resident reduction of the monitor, with the split's removal summed in the finish
+itself, makes it exact there too, on unchecked steps as well.
+
 **The boundary monitor's flux on spatial routes.** [SEP 21](seps/archive/sep-0021-absorbing-boundaries.md)'s
 monitor measures a spatial run's guard and collar occupancies with the quadrature-weighted
 field norm rather than [SEP 34](seps/archive/sep-0034-medium-flux.md)'s admittance-weighted

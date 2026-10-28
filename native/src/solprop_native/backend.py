@@ -65,6 +65,7 @@ from solprop.constants import EPS0, C
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.grid import TimeGrid
 from solprop.modes.protocol import Mode
+from solprop.monitor import BoundaryMonitor
 from solprop.noise import NoiseRealisation
 from solprop.output.capability import (
     declared_capability,
@@ -499,6 +500,9 @@ class NativeBackend(StepDriver[_core.State]):
 
     def _adams_adopt(self, advanced: ComplexArray, dz: float) -> ComplexArray:
         """Adopt an Adams step through the native finish; keep its host copy."""
+        # The host engine passes the step's end in, so it is read before its split.
+        if (reader := super()._split_reader(self._z + dz)) is not None:
+            reader.before_split(advanced, dz)
         self._native_state.adopt(np.ascontiguousarray(advanced.reshape(-1)), dz)
         self._state = self._native_state
         self._host_state = self._native_state.field_to_host().reshape(
@@ -843,6 +847,17 @@ class NativeBackend(StepDriver[_core.State]):
             weighted = self._native_state.weighted_error(native_scale)
             return math.sqrt(float(np.asarray(weighted).sum()))
         return residual / float(scale)
+
+    def _split_reader(self, end: float) -> BoundaryMonitor | None:
+        """Return ``None``: a trial's end stays in the engine until its finish.
+
+        The engine adopts the advanced state only in :meth:`_finish`, after its split,
+        so the boundary monitor integrates the committed states' rate instead
+        (solprop SEP 21, D5); the host Adams engine's adoption reads the end it passes
+        in (:meth:`_adams_adopt`).
+        """
+        del end
+        return None
 
     def _finish(self, state: _core.State, dz: float) -> _core.State:
         if state is not self._native_state:
