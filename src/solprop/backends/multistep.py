@@ -4280,9 +4280,9 @@ def trial_tables(
 
     :func:`exponential_tables`' three and, compensated, :func:`compensation_tables`'
     four, composed over the record's basis; a record that forms them in one call
-    (:attr:`solprop._helpers.Helpers.tables`, the native backend's) performs the same
-    operations in the same order, so the tables are the same, read once a trial
-    instead of from a dozen small calls.
+    (``Helpers.tables``, the native backend's) performs the same operations in the
+    same order, so the tables are the same, read once a trial instead of from a dozen
+    small calls.
 
     Parameters
     ----------

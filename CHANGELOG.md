@@ -532,6 +532,18 @@ The first public release. It contains:
   are exact to the bit. The `gnlse_raman_shock` tracking case (16,384 points, one
   thread) costs 5.7-5.8 ms per step on an AMD EPYC 7763 (was 8.7; `numba_cpu` 6.1-6.3)
   and 2.43-2.47 ms on an Apple M5 Max (was 3.0-3.4; `numba_cpu` 2.31-2.38).
+- **Host cost of an exponential `Multistep()` step on the native backend.** Each trial
+  packed the same stage scalars into every stage row twice and formed its coefficient
+  tables from a dozen small calls. The tables now come from one call of the backend's
+  helpers (`Helpers.tables`, formed in C++ by the native record), the trial packs one
+  stage row and reuses it for its end sample, the factored defect's node polynomial is
+  expanded without `numpy.polynomial`, and the landing rule, shared with Runge-Kutta,
+  searches its targets without NumPy calls. The Python side of a trial costs 208 µs on
+  an AMD EPYC 7763 for `he_rdw_averaged` (was 471) and 151 µs for
+  `argon_blueshift_averaged` (was 374), so at one thread they run 12 % and 20 % faster;
+  on an Apple M5 Max 65 µs (was 179) and 51 µs (was 131). The steps taken are the same;
+  only the defect polynomial's coefficients move, within 2 ulp, so fields change at
+  rounding level.
 - **A single-precision step that overflows is rejected, not fatal.** An adaptive trial
   whose propagator passed binary32's `exp(88.72)` (a long step under a strong collar)
   scored a non-finite error norm, which the controller rejected and the step history
