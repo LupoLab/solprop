@@ -447,7 +447,7 @@ noisy = prop_gnlse(
     [0.0, 0.0, -1.183e-26],
     lambda0=835e-9,
     wavelength_limits=(500e-9, 2e-6),
-    trange=1e-12,
+    trange=1.4e-12,
     width=100e-15,
     peak_power=9.8,
     pulseshape="sech",

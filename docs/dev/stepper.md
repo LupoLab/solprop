@@ -42,9 +42,9 @@ realisation of the `"modified"` noise model (§7; zero without one); `S` and `W_
 synthesis and projection matrices between modal amplitudes and the field at the quadrature
 nodes; `τ(z)` is the taper scale that carries a varying effective area; `p(ω, z)` is the
 UPPE prefactor with the crop scale folded in; and `W(ω)` is the spectral collar profile
-([kernel-problem.md](kernel-problem.md)). With the default in-stage absorber scheme, pass 7
-also adds the temporal absorber's own term, `−α(t) E(t)/2` transformed to the modes, beside
-the normalised polarisation (§6).
+([kernel-problem.md](kernel-problem.md)). With the in-stage absorber scheme, the modal
+routes' default, pass 7 also adds the temporal absorber's own term, `−α(t) E(t)/2`
+transformed to the modes, beside the normalised polarisation (§6).
 
 **Passes 3 to 5 are a loop over node chunks.** The transforms of passes 2 and 6 run once
 over all `n_modes n_pol` columns; the space-domain work runs over `transform.node_chunk`
@@ -105,9 +105,10 @@ the norm of §3), and an accepted step ends with the boundary treatments applied
 step rather than once per stage: the hard band mask (`apply_hard_mask`), idempotent because
 the operator and the prefactor are already zero outside the active band, and, only under
 `absorber_scheme="split_step"`, the temporal absorber as an exact rate over the step
-(`apply_temporal_rate`). The default scheme has already applied the absorber inside every
-stage (pass 7), which keeps the scheme fifth order where the split factor would make it
-first order in the collar (§6).
+(`apply_temporal_rate`). The in-stage scheme, the modal routes' default, has already
+applied the absorber inside every stage (pass 7), which keeps the scheme fifth order where
+the split factor would make it first order in the collar; the radial, Cartesian and planar
+routes take the split by default (§6).
 
 ### The fused response pass
 
@@ -178,10 +179,11 @@ needs (nothing changes the state after the last stage) are algorithms.md §2. **
 band mask satisfies it:** the prefactor is exactly zero outside the active mask, so no stage
 writes there, the state never acquires content there and the mask is a no-op (measured at
 9.9e-17). **The temporal absorber's per-step split factor does not** (ADR-025), which is
-why the default absorber is applied inside the stage (§6): that is what makes the saving
-available at all. The same argument requires the in-stage absorber's own term to be masked
-to the active band: unmasked it writes outside the band, the accept pass's mask removes it,
-and the identity fails at 7.4e-7 rather than 1.8e-16.
+why the modal routes' default absorber is applied inside the stage (§6): that is what
+makes the saving available at all. The spatial routes' default split forgoes it. The same
+argument requires the in-stage absorber's own term to be masked to the active band:
+unmasked it writes outside the band, the accept pass's mask removes it, and the identity
+fails at 7.4e-7 rather than 1.8e-16.
 
 `numba_cpu` takes the saving — 9.2 to 9.5 % of a step, four modes and one, with the
 answers agreeing to 3e-16 and 6e-16 over 400 fixed steps — and keeps the recycled stage
@@ -308,8 +310,10 @@ a Cartesian Kerr beam, `tests/backends/test_low_storage.py`).
 
 ### Low-call Adams methods
 
-`stepper/multistep.py` and `backends/multistep.py` hold the default integrator
-(ADR-037, ADR-045; `stepper/runge_kutta.py`'s `RungeKutta` names the tableau's march).
+`stepper/multistep.py` and `backends/multistep.py` hold the Adams integrator, the default
+of `prop_capillary`, `prop_radial` and `prop_planar` (ADR-037, ADR-045, ADR-055;
+`stepper/runge_kutta.py`'s `RungeKutta` names the tableau's march, the default of
+`prop_gnlse`, `prop_waveguide` and `prop_free`).
 `Multistep` is an Adams march with a derivative history, in the exponential formulation
 by default ([SEP 16](seps/archive/sep-0016-unified-multistep.md)) and in the interaction
 picture, transporting the history, on request
@@ -678,11 +682,14 @@ The collars as rates, the two temporal applications, their orders and the in-sta
 stability limit are [algorithms.md §8](algorithms.md#8-absorbing-boundaries). The design
 and the measurements behind it:
 
-- **Default (ADR-025): the in-stage term**, `−α(t)E(t)/2` added inside every stage with its
-  own modal transform, masked to the active band so that no stage writes outside the band
-  the equation is solved on (which is also what keeps FSAL, §2).
-- **The per-step split factor**, kept behind the same switch, is followed by the hard band
-  mask, as the in-stage term is: the product in time writes into every bin, and on a field
+- **The modal routes' default (ADR-025): the in-stage term**, `−α(t)E(t)/2` added inside
+  every stage with its own modal transform, masked to the active band so that no stage
+  writes outside the band the equation is solved on (which is also what keeps FSAL, §2).
+- **The radial, Cartesian and planar routes' default (SEP 21): the per-step split
+  factor**, unless planes are interpolated; there the in-stage term took 1.2 to 4.6 times
+  the split's steps at equal or worse accuracy. The split factor, kept behind the same
+  switch, is followed by the hard band mask, as the in-stage term is: the product in
+  time writes into every bin, and on a field
   grid with a pulse driven into a strong collar the DC it left reached a percent of the
   spectral peak. Its first order is measured: observed orders 0.99 and 1.01 against the
   in-stage term's 4.52 and 6.16, and an absorbed energy moving by 6.5e-5 against 9.0e-10

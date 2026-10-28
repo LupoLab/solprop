@@ -178,6 +178,22 @@ coupled-flow matrix function on the scalar wall took about 20 times its threaded
 time; both were corrected before the comparison above. "Noisy" rows did not meet the
 predeclared stability check; taper, short-line and planar controls were not requalified.
 
+The exponential Adams trial without a coupled flow is two passes around its source
+evaluation, a prediction and a correction that also reduces the defects' norms. An
+element of them costs about ten stage entries, so they take a class of their own, its
+work the field's elements times the history's rows (seven at the default fifth order).
+Forced to 1-16 threads of a 16-thread process whose idle threads sleep, over
+single-column capillaries of 401 to 10,241 elements, on 16 cores of a dual AMD EPYC
+7643: four threads lost at 4,487 (0.8×) and gained 1.1-2.1× (median of two rounds)
+from 5,607 to 71,687, while sixteen beat four on argon from 11,207 but lost to them on
+helium up to 17,927 and lost to one thread at 8,967 (0.7×), a fork and join of sixteen
+sleeping threads costing 100-200 µs. The first round had the node to itself; in the
+second, with other jobs on it, the serial times held within 5 % while the threaded ones
+slowed by up to 2.3×, the sixteen-thread ones most, yet four threads stayed at least as
+fast as one from 5,607 up. On a loaded Apple M5 Max (indicative) four gained 1.0-1.6×
+at 4,487-8,967 and sixteen beat four only at 71,687 (4.7× against 2.8×). The class
+therefore threads at four from 8,192 and takes the pool from 65,536 on both platforms.
+
 (smooth-size-cliffs)=
 ### Smooth grid sizes
 
@@ -454,7 +470,8 @@ use the field's element count; batch updates use the fused batch's total. Packin
 matrix entries and temporal copies use output samples, without multiplying by the dense
 transform's inner dimension. Responses use active columns × components × fine-grid
 samples. Dense products use output rows × inner dimension × samples; coupled matrix
-functions instead use active spectral bins × modes³. FFT and Raman choices use each
+functions instead use active spectral bins × modes³, and the exponential Adams trial's
+passes the field's elements × history rows. FFT and Raman choices use each
 plan's actual real-side batch dimensions, including a kernel transform and the last
 partial chunk.
 
@@ -466,6 +483,7 @@ partial chunk.
 | Native/custom GEMM | 1,048,576 | 1,048,576 | none |
 | General-modal synthesis/projection/maps | 65,536 | 65,536 | none |
 | Coupled matrix functions | 32,768 | 32,768 | none |
+| Exponential Adams trial passes | 8,192 | 65,536 | up to four threads |
 | Modal/spatial FFT | 32,768 | 131,072 | up to four threads |
 | Raman FFT | 65,536 | 262,144 | up to four threads |
 

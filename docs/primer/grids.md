@@ -35,8 +35,10 @@ spectral resolution, $\delta\omega=2\pi/T$. The time spacing $\delta t$ sets the
 the Nyquist frequency $\pi/\delta t$. A grid is therefore requested by a wavelength range and a time
 range ([choose the window and wavelength range](../guide/setup/grids.md#choose-the-window-and-wavelength-range)).
 The wavelength range sets the highest frequency the run must represent, and the time range sets how far
-the pulse may walk or spread. Sizes are even, and powers of two by default; a "smooth" option also
-allows sizes whose prime factors are 2, 3 and 5. Time axes are centred, $t_n=(n-n_t/2)\,\delta t$.
+the pulse may walk or spread. Sizes are even and have no prime factor above 5. By default
+(`fft_size="auto"`) a model of the transform's cost picks the cheapest such size between the one the
+request needs and the next power of two; `"pow2"` and `"smooth"` ask for the next power of two or the
+next such size instead. Time axes are centred, $t_n=(n-n_t/2)\,\delta t$.
 
 The window has to contain more than the pulse. It must hold whatever the pulse sheds and whatever
 responds after it: dispersive waves that walk off, a Raman coherence that rings for picoseconds, a
@@ -111,12 +113,19 @@ collars](../guide/setup/grids.md#the-active-band-and-absorbing-collars)):
 Between the requested and the active band lie the **spectral collars**. These are Planck tapers that rise over
 $[\omega_{\min}/2,\omega_{\min}]$ and fall over $[\omega_{\max},1.1\,\omega_{\max}]$, the smooth window of McKechan,
 Robinson and Sathyaprakash (2010, Eq. 7). Light that spreads into a collar is absorbed smoothly instead of
-reaching a hard edge. In time, a **temporal collar** does the same at the edges of the window: each collar is at
-least 5% of the realised window, and solprop refuses one narrower than four samples. A collar only one sample
-wide, which Luna produces when the realised window equals the requested one, is no absorber at all.
+reaching a hard edge. In time, a **temporal collar** does the same beyond the edges of the window you ask
+for. The grid widens the realised window to at least $T_{\rm req}/(1-2f)$, where $T_{\rm req}$ is the
+requested time range and `collar_fraction` $f=0.1$ by default, so the whole request stays flat and each
+collar takes at least a tenth of the realised window outside it. solprop refuses a collar narrower than four samples. A collar only one sample wide, which Luna produces
+when the realised window equals the requested one, is no absorber at all.
 
 The collars are not masks applied between steps. They are absorption rates added to the equation, for the reason
-explained in §12.7. An absorber that is doing its job is silent. `warn_walkoff`, given the group-delay span of the band you care about, warns when the temporal collar is too weak to stop a packet before it wraps, and on a spatial grid the energy fraction in the transverse collar is a run statistic. If significant light reaches a collar, the run was absorbing light that the physics may need, and the window or band should be enlarged.
+explained in §12.7. An absorber that is doing its job is silent, so every run also watches the edges of its
+time window ([watching the window's edges](../guide/numerics/boundaries.md#watching-the-windows-edges)).
+From the launch on, it measures the share of the energy in a guard, the outer 5 % of the realised window at
+each edge, judged above the shot-noise floor. A guard share whose square root exceeds a field-error budget
+of $10^{-3}$ warns, and one above ten budgets stops the run. At the end the monitor reports the fraction of the
+energy the collar removed, which warns by the same budget. `warn_walkoff`, given the group-delay span of the band you care about, warns when the temporal collar is too weak to stop a packet before it wraps, and on a spatial grid the energy fraction in the transverse collar is a run statistic. If significant light reaches a collar, the run was absorbing light that the physics may need, and the window or band should be enlarged.
 
 ## 11.6 Signs, phases and energies
 
@@ -155,7 +164,8 @@ band-limited grid.
   `ffac=6` represents the third harmonic, and 4 is enough without it. The envelope default of 2 does not oversample,
   so keep its spectrum away from the edges.
 - The active band is $\omega_{\min}/2<\omega<1.1\,\omega_{\max}$. Outside it the operator and the prefactor are zero.
-  Planck collars absorb smoothly at both spectral edges and both temporal edges.
+  Planck collars absorb smoothly at both spectral edges and both temporal edges; the temporal collars lie
+  outside the requested window, and a monitor warns when light reaches the window's edges.
 - Parseval is exact. On a field grid, interior bins count four times.
 :::
 

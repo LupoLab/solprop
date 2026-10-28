@@ -137,6 +137,8 @@ axis.set(xlabel="Wavelength (nm)", ylabel="Loss (dB/m)")
 axis.legend()
 figure.tight_layout()
 
+# The 130 fs window keeps the 30 fs pulse's tails out of the boundary monitor's guards
+# and the collar; at 100 fs the collar removes 4e-5 of the energy, which warns.
 rectangular = prop_waveguide(
     [RectMode(50e-6, 10e-6, cladding=aluminium())],
     0.001,
@@ -144,7 +146,7 @@ rectangular = prop_waveguide(
     5.0,
     lambda0=800e-9,
     wavelength_limits=(450e-9, 1200e-9),
-    trange=100e-15,
+    trange=130e-15,
     fwhm=30e-15,
     energy=1e-8,
     envelope=True,

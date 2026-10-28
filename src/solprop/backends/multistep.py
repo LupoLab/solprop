@@ -40,6 +40,7 @@ section 6.1):
 - a load or a resume starts afresh, at order one, and its startup calls are counted.
 """
 
+import bisect
 import functools
 import logging
 import math
@@ -71,7 +72,13 @@ from solprop.stepper.multistep import (
     lagrange_coefficients,
     milne_factor,
 )
-from solprop.stepper.schedule import FixedSchedule, LandingTarget, StepTargets, landing
+from solprop.stepper.schedule import (
+    FixedSchedule,
+    Landing,
+    LandingTarget,
+    StepTargets,
+    landing,
+)
 from solprop.translate.linop import phi_rate
 from solprop.translate.tdse import TDSEPurpose
 
@@ -93,6 +100,7 @@ __all__ = [
     "factored_defect_rows",
     "fused_tables",
     "source_absent",
+    "trial_tables",
 ]
 
 RESTART_AFTER = 3
@@ -1129,7 +1137,7 @@ class ExponentialKernels:
             The monomial rows of ``_exponential_rows``, shape
             ``(len(orders), width, width)``.
         """
-        return _exponential_rows(nodes, orders, width, helpers=self._helpers)[0]
+        return _exponential_rows(nodes, orders, width, helpers=self._helpers)
 
     def correct(  # noqa: PLR0913, PLR0917 - buffers are a kernel's parameters
         self,
@@ -2464,7 +2472,7 @@ class HostHistory:
                 # history and the prediction rounded once.
                 lab = lab.astype(np.complex64)
         source = backend._adams_lab_source(lab, z + dz, purpose="predictor")
-        _, corrector = _exponential_rows(nodes, orders, width, helpers=backend.helpers)
+        corrector = _exponential_corrector(nodes, order, width, helpers=backend.helpers)
         rows = kernels.defect_rows(nodes, orders, width)
         extra = None
         if compensation is not None:
@@ -3429,7 +3437,7 @@ class AdamsMarch:
         return (end - z) * (CARRIER_PHASE_CAP / phase)
 
     def _approach(
-        self, stop: object, targets: StepTargets, target: float
+        self, stop: Landing, targets: StepTargets, target: float
     ) -> tuple[float, float, bool]:
         """Return the step to take, where it ends and whether it lands on a kink.
 
@@ -3447,9 +3455,6 @@ class AdamsMarch:
         tuple
             The step, m; its end position, m; and whether that end is a hard kink.
         """
-        from solprop.stepper.schedule import Landing  # noqa: PLC0415 - typing only
-
-        assert isinstance(stop, Landing)
         backend = self._backend
         z = backend._z
         landed = stop.z_target is not None
@@ -3466,10 +3471,10 @@ class AdamsMarch:
         # A kink that is also a save plane may be reported as the plane; it still
         # restarts the history, which must not interpolate across a jump in D.
         # The run's own end is not one: nothing follows it to restart.
-        tolerance = 8 * float(np.spacing(max(abs(end), 1.0)))
+        tolerance = 8 * math.ulp(max(abs(end), 1.0))
         interior = end < backend._problem.stepper.z_end - tolerance
-        on_kink = interior and bool(
-            np.any(np.abs(targets.hard_kinks - end) <= tolerance)
+        on_kink = interior and any(
+            abs(kink - end) <= tolerance for kink in targets.kinks
         )
         return stop.dz, end, stop.target is LandingTarget.HARD_KINK or on_kink
 
@@ -4161,15 +4166,24 @@ def factored_defect_rows(
     rows = np.zeros((len(orders), 2 * width))
     for index, order in enumerate(orders):
         points = [1.0, *nodes[:order]]
+        row = rows[index]
         for t, node in enumerate(points):
             denominator = 1.0
             for s, other in enumerate(points):
                 if s != t:
                     denominator *= node - other
-            rows[index, t] = 1.0 / denominator
-        rows[index, width : width + order + 1] = np.polynomial.polynomial.polyfromroots(
-            nodes[:order]
-        )
+            row[t] = 1.0 / denominator
+        # The node polynomial one linear factor at a time, newest node first, as the
+        # Adams basis builds its numerators (`_basis_rows`); in plain floats, since
+        # `numpy.polynomial.polyfromroots` costs four fifths of this function. Every
+        # node is at or below zero, so every coefficient is positive: no cancellation.
+        coefficients = [1.0]
+        for root in nodes[:order]:
+            product = [0.0, *coefficients]
+            for power, value in enumerate(coefficients):
+                product[power] -= root * value
+            coefficients = product
+        row[width : width + order + 1] = coefficients
     return rows
 
 
@@ -4198,7 +4212,7 @@ def exponential_tables(
         rows of :func:`factored_defect_rows`.
     """
     width = 1 + max(orders)
-    _, corrector = _exponential_rows(nodes, orders, width, helpers=helpers)
+    corrector = _exponential_corrector(nodes, order, width, helpers=helpers)
     predictor = lagrange_coefficients(nodes[:order], check=False, helpers=helpers)
     return predictor, corrector, factored_defect_rows(nodes, orders, width)
 
@@ -4234,27 +4248,84 @@ def compensation_tables(
     """
     width = 1 + max(orders)
     spans = np.array([1.0 - node for node in nodes[: width - 1]])
-    predictor = integrated_weights(
-        np.asarray(nodes[:order]), check=False, helpers=helpers
-    )
-    corrector = integrated_weights(
-        np.asarray([1.0, *nodes[:order]]), check=False, helpers=helpers
-    )
+    # Each count's predictor and corrector once: the step's own pair is also its
+    # defect's, so a trial forms two weights per scored order, not two more.
+    weights = {
+        count: (
+            integrated_weights(nodes[:count], check=False, helpers=helpers),
+            integrated_weights([1.0, *nodes[:count]], check=False, helpers=helpers),
+        )
+        for count in dict.fromkeys([order, *orders])
+    }
     rows = np.zeros((len(orders), width))
     for index, scored in enumerate(orders):
-        rows[index, : scored + 1] = integrated_weights(
-            np.asarray([1.0, *nodes[:scored]]), check=False, helpers=helpers
-        )
-        rows[index, 1 : scored + 1] -= integrated_weights(
-            np.asarray(nodes[:scored]), check=False, helpers=helpers
-        )
+        predicted, through = weights[scored]
+        rows[index, : scored + 1] = through
+        rows[index, 1 : scored + 1] -= predicted
+    predictor, corrector = weights[order]
     return spans, predictor, corrector, rows
+
+
+def trial_tables(
+    nodes: list[float],
+    order: int,
+    orders: list[int],
+    *,
+    compensated: bool,
+    helpers: Helpers,
+) -> tuple[
+    np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray
+]:
+    """Return all of an exponential trial's coefficient tables, for a resident engine.
+
+    :func:`exponential_tables`' three and, compensated, :func:`compensation_tables`'
+    four, composed over the record's basis; a record that forms them in one call
+    (``Helpers.tables``, the native backend's) performs the same operations in the
+    same order, so the tables are the same, read once a trial instead of from a dozen
+    small calls.
+
+    Parameters
+    ----------
+    nodes : list of float
+        The history's normalised positions, newest first.
+    order : int
+        The step's order.
+    orders : list of int
+        The orders scored, the step's own first.
+    compensated : bool
+        Whether the trial carries a varying operator's transported compensation.
+    helpers : solprop._helpers.Helpers
+        The engine's backend's implementation of the Adams basis.
+
+    Returns
+    -------
+    tuple
+        The predictor, the corrector and the factored defect rows; then the
+        compensation's spans, predictor, corrector and defect rows, shapes ``(0,)``
+        and ``(0, 0)`` when not compensated.
+    """
+    one_call = helpers.tables
+    if one_call is not None:
+        return one_call(np.asarray(nodes, dtype=np.float64), order, orders, compensated)
+    predictor, corrector, factored = exponential_tables(
+        nodes, order, orders, helpers=helpers
+    )
+    if not compensated:
+        return predictor, corrector, factored, *_NO_COMPENSATION
+    spans, carried, endpoint, defects = compensation_tables(
+        nodes, order, orders, helpers=helpers
+    )
+    return predictor, corrector, factored, spans, carried, endpoint, defects
+
+
+_NO_COMPENSATION = (np.empty(0), np.empty(0), np.empty(0), np.empty((0, 0)))
+"""An uncompensated trial's compensation tables: spans, weights and defect rows."""
 
 
 def _exponential_rows(
     nodes: list[float], orders: list[int], width: int, *, helpers: Helpers
-) -> tuple[np.ndarray, np.ndarray]:
-    """Return each order's defect coefficients and the step's own corrector's.
+) -> np.ndarray:
+    """Return each order's defect coefficients in the monomial basis.
 
     Over ``X = (source, newest, ...)`` in the monomial basis of the moments, order
     ``k``'s defect is its ``k + 1``-node corrector through the new source less its
@@ -4274,22 +4345,49 @@ def _exponential_rows(
 
     Returns
     -------
-    tuple
-        The defect rows, shape ``(len(orders), width, width)``, and the step's own
-        corrector, shape ``(width, width)``, zero past its nodes.
+    numpy.ndarray
+        The defect rows, shape ``(len(orders), width, width)``.
     """
     rows = np.zeros((len(orders), width, width))
-    corrector = np.zeros((width, width))
     for index, order in enumerate(orders):
         stencil = nodes[:order]
-        through = lagrange_coefficients([1.0, *stencil], check=False, helpers=helpers)
-        rows[index, : order + 1, : order + 1] = through
+        rows[index, : order + 1, : order + 1] = lagrange_coefficients(
+            [1.0, *stencil], check=False, helpers=helpers
+        )
         rows[index, 1 : order + 1, :order] -= lagrange_coefficients(
             stencil, check=False, helpers=helpers
         )
-        if index == 0:
-            corrector[: order + 1, : order + 1] = through
-    return rows, corrector
+    return rows
+
+
+def _exponential_corrector(
+    nodes: list[float], order: int, width: int, *, helpers: Helpers
+) -> np.ndarray:
+    """Return the step's own corrector's Lagrange coefficients, padded to `width`.
+
+    Parameters
+    ----------
+    nodes : list of float
+        The history's normalised positions, newest first.
+    order : int
+        The step's order; the corrector runs through the new source and the
+        ``order`` newest samples.
+    width : int
+        ``1 + max(orders)``: the samples and the moments the trial forms.
+    helpers : solprop._helpers.Helpers
+        The owning backend's implementation of the Adams basis.
+
+    Returns
+    -------
+    numpy.ndarray
+        The coefficients over ``X = (source, newest, ...)``, shape ``(width, width)``,
+        zero past its nodes.
+    """
+    corrector = np.zeros((width, width))
+    corrector[: order + 1, : order + 1] = lagrange_coefficients(
+        [1.0, *nodes[:order]], check=False, helpers=helpers
+    )
+    return corrector
 
 
 def _defect_at(trial: _Trial, source: _State, order: int, helpers: Helpers) -> float:
@@ -4448,11 +4546,12 @@ def _next_landing(z: float, targets: StepTargets, target: float) -> float | None
     float or None
         The nearest landing ahead, or ``None`` when none lies ahead.
     """
-    tolerance = 8 * float(np.spacing(max(abs(z), abs(target))))
+    tolerance = 8 * math.ulp(max(abs(z), abs(target)))
     candidates = [target]
-    for positions in (targets.save_planes, targets.hard_kinks):
-        ahead = positions[positions > z + tolerance]
-        if ahead.size:
-            candidates.append(float(ahead[0]))
+    for positions in (targets.planes, targets.kinks):
+        # The first strictly beyond `z + tolerance`; the positions increase strictly.
+        index = bisect.bisect_right(positions, z + tolerance)
+        if index < len(positions):
+            candidates.append(positions[index])
     nearest = min(candidates)
     return nearest if nearest > z + tolerance else None

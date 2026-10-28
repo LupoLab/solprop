@@ -1937,7 +1937,12 @@ public:
   void require_trial_scalars(const TrialScalars& scalars) const;
   void require_adams() const;
   void adams_phase();
+  void adams_evaluate_source(const TrialScalars& scalars);
   void adams_evaluate(const TrialScalars& scalars);
+  std::vector<double>
+  adams_elementwise_trial(double dz, const ExponentialWeights& weights,
+                          const std::vector<double>& divisor, const TrialScalars& step,
+                          const TrialScalars& sample, const std::vector<double>& rate);
   void adams_rate(const std::vector<double>& rate, const ComplexView2& out);
   void allocate();
   void upload();
@@ -2153,6 +2158,9 @@ public:
   ExecutionSpace fft_execution_space_;
   ExecutionSpace temporal_execution_space_, flow_execution_space_,
       absorber_execution_space_;
+  // The exponential Adams trial's passes and its accepted step's rows, sized by
+  // adams_allocate when the history's rows are known.
+  ExecutionSpace adams_execution_space_, adams_copy_space_;
   ExecutionSpace raman_multiply_space_, raman_tail_multiply_space_,
       raman_rebuild_space_, raman_scale_space_;
   ExecutionSpace raman_execution_space_, raman_tail_execution_space_,
@@ -4959,6 +4967,11 @@ void GeneralWorkspace::adams_allocate(const std::size_t slots, const bool compen
   if (adams_divisor_.extent(0) != n)
     adams_divisor_ =
         Kokkos::View<double*, Layout, MemorySpace>("solprop_native.adams.divisor", n);
+  // A trial's elementwise passes cost about ten stage entries an element, rising with
+  // the moments formed, so they take a width of their own; the accepted step's rows
+  // are copies.
+  adams_execution_space_ = kernel_pool_.get(CpuOperation::adams, columns * n * slots);
+  adams_copy_space_ = kernel_pool_.get(CpuOperation::copy, columns * n);
   if (adams_store_.extent(0) == slots)
     return;
   adams_store_ = ComplexView3("solprop_native.adams.store", slots, columns, n);
@@ -4976,6 +4989,31 @@ void GeneralWorkspace::require_adams() const {
   if (adams_store_.extent(0) == 0)
     throw std::logic_error("the resident Adams history is not allocated");
 }
+
+namespace {
+
+// The whole step's phase increment `sum_t dPhi_t Phi_t` at one element, in term order:
+// strict (solprop SEP 25 section 4.2).
+template <class Terms, class Weights>
+SOLPROP_NATIVE_STRICT_FUNCTION KOKKOS_INLINE_FUNCTION Complex adams_phase_sum(
+    const Terms& phi_terms, const Weights& phi_delta, const std::size_t offset,
+    const std::size_t n_phi, const std::size_t column, const std::size_t index) {
+  SOLPROP_NATIVE_STRICT_BLOCK
+  double real = 0.0;
+  double imag = 0.0;
+  for (std::size_t term = 0; term < n_phi; ++term) {
+    const double weight = phi_delta(offset + term);
+    // Exact, as in `StageTerms::phase_sum`.
+    if (weight == 0.0)
+      continue;
+    const Complex fixed = phi_terms(term, column, index);
+    real = real + weight * fixed.real();
+    imag = imag + weight * fixed.imag();
+  }
+  return Complex(real, imag);
+}
+
+} // namespace
 
 // The whole step's exponent from the uploaded weights, and its exponential: on a
 // separable route the step's length times each element's operator, as the stage
@@ -5013,25 +5051,16 @@ void GeneralWorkspace::adams_phase() {
       KOKKOS_LAMBDA(const std::size_t column, const std::size_t index)
           SOLPROP_NATIVE_STRICT_FUNCTION {
             SOLPROP_NATIVE_STRICT_BLOCK
-            double real = 0.0;
-            double imag = 0.0;
-            for (std::size_t term = 0; term < n_phi; ++term) {
-              const double weight = phi_delta(offset + term);
-              // Exact, as in `StageTerms::phase_sum`.
-              if (weight == 0.0)
-                continue;
-              const Complex fixed = phi_terms(term, column, index);
-              real = real + weight * fixed.real();
-              imag = imag + weight * fixed.imag();
-            }
-            exponent(column, index) = Complex(real, imag);
-            propagator(column, index) = exponential(Complex(real, imag));
+            const Complex x =
+                adams_phase_sum(phi_terms, phi_delta, offset, n_phi, column, index);
+            exponent(column, index) = x;
+            propagator(column, index) = exponential(x);
           });
 }
 
 // The stage-zero source at an anchor-frame field held in current_, as adams_source
-// evaluates it, into stages_(0); current_ is restored from adams_saved_ afterwards.
-void GeneralWorkspace::adams_evaluate(const TrialScalars& scalars) {
+// evaluates it, into stages_(0).
+void GeneralWorkspace::adams_evaluate_source(const TrialScalars& scalars) {
   if (general_)
     general_->set_weights(scalars.transform_weights);
   if (problem_.raman)
@@ -5039,10 +5068,15 @@ void GeneralWorkspace::adams_evaluate(const TrialScalars& scalars) {
                         problem_.n_raman_components > 1 ? scalars.raman_densities.data()
                                                         : nullptr);
   evaluate_stage_source(0, 0.0);
-  Kokkos::deep_copy(execution_space_, current_, adams_saved_);
   stages_ready_ = true;
   pending_fsal_ = false;
   has_recycled_ = false;
+}
+
+// The same, with current_ restored from adams_saved_ afterwards.
+void GeneralWorkspace::adams_evaluate(const TrialScalars& scalars) {
+  adams_evaluate_source(scalars);
+  Kokkos::deep_copy(execution_space_, current_, adams_saved_);
 }
 
 void GeneralWorkspace::adams_start(const std::size_t slot,
@@ -5659,6 +5693,16 @@ KOKKOS_INLINE_FUNCTION void adams_phi(const Complex x, const Complex exp_x,
                                      1.0 / 87178291200.0,
                                      1.0 / 1307674368000.0,
                                      1.0 / 20922789888000.0};
+  // 1/n for the series' divisors m + order, the doubles the division rounds to.
+  static_assert(adams_series_terms + 2 * adams_max_samples <= 40);
+  constexpr double inverse_divisor[40] = {
+      0.0,        1.0 / 1.0,  1.0 / 2.0,  1.0 / 3.0,  1.0 / 4.0,  1.0 / 5.0,
+      1.0 / 6.0,  1.0 / 7.0,  1.0 / 8.0,  1.0 / 9.0,  1.0 / 10.0, 1.0 / 11.0,
+      1.0 / 12.0, 1.0 / 13.0, 1.0 / 14.0, 1.0 / 15.0, 1.0 / 16.0, 1.0 / 17.0,
+      1.0 / 18.0, 1.0 / 19.0, 1.0 / 20.0, 1.0 / 21.0, 1.0 / 22.0, 1.0 / 23.0,
+      1.0 / 24.0, 1.0 / 25.0, 1.0 / 26.0, 1.0 / 27.0, 1.0 / 28.0, 1.0 / 29.0,
+      1.0 / 30.0, 1.0 / 31.0, 1.0 / 32.0, 1.0 / 33.0, 1.0 / 34.0, 1.0 / 35.0,
+      1.0 / 36.0, 1.0 / 37.0, 1.0 / 38.0, 1.0 / 39.0};
   const double magnitude = Kokkos::abs(x);
   if (magnitude == 0.0) {
     for (std::size_t k = 0; k <= order; ++k)
@@ -5672,18 +5716,30 @@ KOKKOS_INLINE_FUNCTION void adams_phi(const Complex x, const Complex exp_x,
       out[k] = strict_mul(strict_sub(out[k - 1], Complex(reciprocal[k - 1])), inverse);
     return;
   }
+  // The halvings that bring |x| to at most 1/2, ceil(log2(2 |x|)), each one exact:
+  // `scale` is 2^-squarings.
   int squarings = 0;
-  if (magnitude > 0.5)
-    squarings = static_cast<int>(Kokkos::ceil(Kokkos::log2(magnitude / 0.5)));
-  const Complex y = strict_scale(Kokkos::pow(0.5, squarings), x);
+  double scale = 1.0;
+  double reduced = magnitude;
+  while (reduced > 0.5) {
+    ++squarings;
+    scale *= 0.5;
+    reduced *= 0.5;
+  }
+  const Complex y = strict_scale(scale, x);
+  // Each later term is below |y| / (m + order) of this one, |y| <= 1/2: once this one
+  // is under a quarter ulp of the sum, the rest cannot change it. The test compares
+  // squared magnitudes, which differ from hypot's only in the test's own rounding, so a
+  // term below a quarter ulp may be added once more or once less.
+  constexpr double quarter_ulp = 0.25 * Kokkos::Experimental::epsilon_v<double>;
+  constexpr double stop = quarter_ulp * quarter_ulp;
   Complex term = reciprocal[order];
   Complex total = term;
   for (int m = 1; m < adams_series_terms; ++m) {
-    term = strict_scale(1.0 / static_cast<double>(static_cast<std::size_t>(m) + order),
+    term = strict_scale(inverse_divisor[static_cast<std::size_t>(m) + order],
                         strict_mul(term, y));
     total = strict_add(total, term);
-    if (Kokkos::abs(term) <=
-        0.25 * Kokkos::Experimental::epsilon_v<double> * Kokkos::abs(total))
+    if (strict_norm(term) <= stop * strict_norm(total))
       break;
   }
   out[order] = total;
@@ -5695,11 +5751,13 @@ KOKKOS_INLINE_FUNCTION void adams_phi(const Complex x, const Complex exp_x,
     for (std::size_t k = 0; k <= order; ++k)
       old[k] = out[k];
     out[0] = strict_mul(old[0], old[0]);
+    double half = 1.0; // 2^-k, exact
     for (std::size_t k = 1; k <= order; ++k) {
+      half *= 0.5;
       Complex sum = strict_mul(old[0], old[k]);
       for (std::size_t i = 1; i <= k; ++i)
         sum = strict_accumulate(sum, reciprocal[k - i], old[i]);
-      out[k] = strict_scale(Kokkos::pow(0.5, static_cast<int>(k)), sum);
+      out[k] = strict_scale(half, sum);
     }
   }
 }
@@ -5753,67 +5811,6 @@ KOKKOS_INLINE_FUNCTION Complex adams_history(const Store& store,
     return value;
   return strict_mul(Complex(weights.factor_re[t], weights.factor_im[t]), value);
 }
-
-/** The squared scaled norms of up to three factored exponential defects. */
-struct ExponentialDefectNorms {
-  using value_type = double[];
-  using size_type = std::size_t;
-  size_type value_count;
-  Kokkos::View<Complex***, Layout, MemorySpace> store;
-  Kokkos::View<Complex***, Layout, MemorySpace> moments;
-  Kokkos::View<Complex**, Layout, MemorySpace> source;
-  Kokkos::View<Complex***, Layout, MemorySpace> carried;
-  Kokkos::View<Complex**, Layout, MemorySpace> endpoint;
-  Kokkos::View<unsigned char*, Layout, MemorySpace> in_norm;
-  Kokkos::View<double*, Layout, MemorySpace> divisor;
-  ExponentialWeights weights;
-  double dz;
-  std::size_t n;
-
-  // The defect and its compensation term: strict (solprop SEP 25 section 4.2).
-  SOLPROP_NATIVE_STRICT_FUNCTION
-  KOKKOS_INLINE_FUNCTION void operator()(const std::size_t item,
-                                         value_type update) const {
-    SOLPROP_NATIVE_STRICT_BLOCK
-    const auto column = item / n;
-    const auto index = item % n;
-    if (in_norm(index) == 0)
-      return;
-    const double scale = divisor(index);
-    for (size_type row = 0; row < value_count; ++row) {
-      // A divided difference of the samples times one moment combination.
-      Complex difference = strict_scale(weights.rows[row][0], source(column, index));
-      for (std::size_t t = 1; t < weights.width; ++t)
-        difference =
-            strict_accumulate(difference, weights.rows[row][t],
-                              adams_history(store, weights, t - 1, column, index));
-      Complex weight{};
-      for (std::size_t k = 0; k < weights.count; ++k)
-        weight = strict_accumulate(weight, weights.rows[row][weights.width + k],
-                                   moments(k, column, index));
-      Complex defect = strict_scale(dz, strict_mul(difference, weight));
-      if (weights.compensated) {
-        Complex compensation =
-            strict_scale(weights.comp_rows[row][0], endpoint(column, index));
-        for (std::size_t t = 0; t + 1 < weights.width; ++t)
-          compensation = strict_accumulate(compensation, weights.comp_rows[row][t + 1],
-                                           carried(t, column, index));
-        defect = strict_accumulate(defect, dz, compensation);
-      }
-      const Complex scaled = strict_divide(defect, scale);
-      update[row] += squared_abs(scaled);
-    }
-  }
-  KOKKOS_INLINE_FUNCTION void join(value_type destination,
-                                   const value_type source_values) const {
-    for (size_type row = 0; row < value_count; ++row)
-      destination[row] += source_values[row];
-  }
-  KOKKOS_INLINE_FUNCTION void init(value_type values) const {
-    for (size_type row = 0; row < value_count; ++row)
-      values[row] = 0.0;
-  }
-};
 
 // The defects' norms beside a coupled flow (solprop SEP 16 phase 6): per bin, the
 // samples' channel vectors; off the block each channel's defect is the diagonal one,
@@ -6003,12 +6000,14 @@ void GeneralWorkspace::adams_compensation_start(const std::size_t slot,
 // cost of a call (and Clang, which inlines every level, is unchanged).
 
 // The predictor's carried samples `e^{s_t x} (R_t - x / dz) u_t`, written to
-// `carried`, and the prediction `value + dz sum_t c_t carried_t`.
+// `carried`, and the prediction `value + dz sum_t c_t carried_t`. A span of one (the
+// newest sample, at the step's start) takes the step's flow `flow = e^x` as it is:
+// `strict_scale(1, x)` is x, so its exponential is the same bits.
 template <class Rates, class States, class Carried>
 SOLPROP_NATIVE_STRICT_FUNCTION KOKKOS_INLINE_FUNCTION Complex
 adams_predicted_compensation(const ExponentialWeights& weights, const Complex x,
-                             const double inverse_dz, const double dz,
-                             const Complex value, const Rates& rates,
+                             const Complex flow, const double inverse_dz,
+                             const double dz, const Complex value, const Rates& rates,
                              const States& states, const Carried& carried,
                              const std::size_t column, const std::size_t index) {
   SOLPROP_NATIVE_STRICT_BLOCK
@@ -6016,8 +6015,11 @@ adams_predicted_compensation(const ExponentialWeights& weights, const Complex x,
     const auto slot = weights.slot[t];
     Complex term = compensation_residual(rates(slot, column, index), x, inverse_dz,
                                          states(slot, column, index));
-    if (weights.span[t] != 0.0)
-      term = strict_mul(exponential(strict_scale(weights.span[t], x)), term);
+    const double span = weights.span[t];
+    if (span == 1.0)
+      term = strict_mul(flow, term);
+    else if (span != 0.0)
+      term = strict_mul(exponential(strict_scale(span, x)), term);
     carried(t, column, index) = term;
   }
   Complex compensation{};
@@ -6073,6 +6075,320 @@ adams_observed_compensation(const ExponentialWeights& weights, const std::size_t
   return total;
 }
 
+namespace {
+
+// The elements a host task of the elementwise trial's passes takes in turn. Each pass
+// runs its loops over the block, so that what one loop writes the next reads from
+// cache, and a strict loop is one call a block on a compiler that keeps strict
+// functions out of line; a device takes a thread an element.
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+constexpr std::size_t adams_block = 1;
+#else
+constexpr std::size_t adams_block = 32;
+#endif
+
+// The step's exponent and flow on the elements [first, last) of a column. The phase
+// increment: strict (solprop SEP 25 section 4.2).
+template <class Terms, class Weights, class Points>
+SOLPROP_NATIVE_STRICT_FUNCTION KOKKOS_INLINE_FUNCTION void
+adams_phase_block(const Terms& phi_terms, const Weights& phi_delta,
+                  const std::size_t offset, const std::size_t n_phi,
+                  const std::size_t column, const std::size_t first,
+                  const std::size_t last, const Points& exponent, const Points& flow) {
+  SOLPROP_NATIVE_STRICT_BLOCK
+  for (std::size_t index = first; index < last; ++index) {
+    const Complex x =
+        adams_phase_sum(phi_terms, phi_delta, offset, n_phi, column, index);
+    exponent(column, index) = x;
+    flow(column, index) = exponential(x);
+  }
+}
+
+// The squared scaled norms of up to three factored defects on the in-band elements of
+// [first, last) of a column, added to `update`: a divided difference of the samples
+// times one moment combination, and a varying operator's compensation term, over the
+// divisor `scale[index - first]`. The defects and their compensation: strict (solprop
+// SEP 25 section 4.2).
+template <class Store, class Moments, class Points, class Carried, class Mask>
+SOLPROP_NATIVE_STRICT_FUNCTION KOKKOS_INLINE_FUNCTION void
+adams_defect_block(const ExponentialWeights& weights, const std::size_t rows,
+                   const Store& store, const Moments& moments, const Points& source,
+                   const Carried& carried, const Points& endpoint, const Mask& in_norm,
+                   const double dz, const double* scale, const std::size_t column,
+                   const std::size_t first, const std::size_t last, double* update) {
+  SOLPROP_NATIVE_STRICT_BLOCK
+  // The block's sums, added to the reduction's once.
+  double sums[3] = {0.0, 0.0, 0.0};
+  for (std::size_t index = first; index < last; ++index) {
+    if (in_norm(index) == 0)
+      continue;
+    for (std::size_t row = 0; row < rows; ++row) {
+      Complex difference = strict_scale(weights.rows[row][0], source(column, index));
+      for (std::size_t t = 1; t < weights.width; ++t)
+        difference =
+            strict_accumulate(difference, weights.rows[row][t],
+                              adams_history(store, weights, t - 1, column, index));
+      Complex weight{};
+      for (std::size_t k = 0; k < weights.count; ++k)
+        weight = strict_accumulate(weight, weights.rows[row][weights.width + k],
+                                   moments(k, column, index));
+      Complex defect = strict_scale(dz, strict_mul(difference, weight));
+      if (weights.compensated) {
+        Complex compensation =
+            strict_scale(weights.comp_rows[row][0], endpoint(column, index));
+        for (std::size_t t = 0; t + 1 < weights.width; ++t)
+          compensation = strict_accumulate(compensation, weights.comp_rows[row][t + 1],
+                                           carried(t, column, index));
+        defect = strict_accumulate(defect, dz, compensation);
+      }
+      sums[row] += squared_abs(strict_divide(defect, scale[index - first]));
+    }
+  }
+  for (std::size_t row = 0; row < rows; ++row)
+    update[row] += sums[row];
+}
+
+/**
+ * The elementwise trial's last pass (solprop SEP 16 phase 3b), a block of a column a
+ * task: the new sample and the corrected field `exp(x) u + dz sum_k M_k sum_j c_jk
+ * F_j` with a varying operator's compensation, then the squared scaled norms of up to
+ * three factored defects, reduced in the same traversal. solprop's own controller's
+ * divisor is formed here from the accepted state's magnitude, as its
+ * PIController.scale forms it; any other controller's is read from `divisor`.
+ */
+struct ExponentialCorrection {
+  using value_type = double[];
+  using size_type = std::size_t;
+  size_type value_count;
+  Kokkos::View<Complex***, Layout, MemorySpace> store, moments, stages, carried;
+  Kokkos::View<Complex***, Layout, MemorySpace> phi_terms;
+  Kokkos::View<Complex**, Layout, MemorySpace> source, flow, current, advanced,
+      exponent;
+  Kokkos::View<Complex**, Layout, MemorySpace> lab, endpoint, endpoint_rate;
+  Kokkos::View<double*, Layout, MemorySpace> rate_weights;
+  Kokkos::View<unsigned char*, Layout, MemorySpace> in_norm;
+  Kokkos::View<double*, Layout, MemorySpace> divisor, scale_weights;
+  Kokkos::View<double, Layout, MemorySpace> magnitude_sum;
+  ExponentialWeights weights;
+  double dz, inverse_dz, rtol, atol;
+  std::size_t n, blocks, n_phi;
+  bool device_scale;
+
+  KOKKOS_INLINE_FUNCTION void operator()(const std::size_t task,
+                                         value_type update) const {
+    const auto column = task / blocks;
+    const auto first = (task % blocks) * adams_block;
+    const auto last = first + adams_block < n ? first + adams_block : n;
+    const double magnitude = device_scale ? Kokkos::sqrt(magnitude_sum()) : 0.0;
+    double scale[adams_block]{};
+    for (std::size_t index = first; index < last; ++index) {
+      const Complex g = stages(0, column, index);
+      source(column, index) = g;
+      Complex total{};
+      for (std::size_t k = 0; k < weights.count; ++k) {
+        Complex combined = weights.corrector[0][k] * g;
+        for (std::size_t t = 1; t < weights.width; ++t)
+          combined += weights.corrector[t][k] *
+                      adams_history(store, weights, t - 1, column, index);
+        total += moments(k, column, index) * combined;
+      }
+      Complex value = flow(column, index) * current(column, index) + dz * total;
+      // The new sample's compensation at the predicted field, untransported, with the
+      // rate read on the side of the step's end the step came from.
+      if (weights.compensated)
+        value = adams_corrected_compensation(
+            weights, n_phi, rate_weights, phi_terms, exponent(column, index),
+            inverse_dz, lab(column, index), dz, value, endpoint_rate, endpoint, carried,
+            column, index);
+      advanced(column, index) = value;
+      if (in_norm(index) == 0)
+        continue;
+      if (device_scale)
+        scale[index - first] = scale_weights.extent(0) != 0
+                                   ? rtol * scale_weights(index) * magnitude + atol
+                                   : rtol * magnitude + atol;
+      else
+        scale[index - first] = divisor(index);
+    }
+    adams_defect_block(weights, value_count, store, moments, source, carried, endpoint,
+                       in_norm, dz, scale, column, first, last, update);
+  }
+  KOKKOS_INLINE_FUNCTION void join(value_type destination,
+                                   const value_type source_values) const {
+    for (size_type row = 0; row < value_count; ++row)
+      destination[row] += source_values[row];
+  }
+  KOKKOS_INLINE_FUNCTION void init(value_type values) const {
+    for (size_type row = 0; row < value_count; ++row)
+      values[row] = 0.0;
+  }
+};
+
+} // namespace
+
+// The exponential trial without a coupled flow, every formula elementwise, in three
+// passes on the trial's own width (solprop SEP 16 phase 3b). The first forms the
+// step's exponent, flow and moments, a varying operator's carried samples and the
+// prediction, and reduces the accepted state's magnitude for the norm's divisor; the
+// second is the source at the prediction; the third is ExponentialCorrection. Each
+// threaded pass costs a fork and a join, which on a host is most of what one of these
+// passes costs on a few thousand elements. The prediction is written beside the
+// accepted state and the two exchange places around the source, so the accepted
+// state is never copied.
+std::vector<double> GeneralWorkspace::adams_elementwise_trial(
+    const double dz, const ExponentialWeights& weights,
+    const std::vector<double>& divisor, const TrialScalars& step,
+    const TrialScalars& sample, const std::vector<double>& rate) {
+  const auto columns = problem_.n_columns();
+  const auto n = problem_.n_omega;
+  const bool compensated = weights.compensated;
+  // solprop's own controller's scale is formed from the magnitude below; any other
+  // controller's divisor crosses.
+  const bool device_scale = divisor.empty() && adams_device_scale_;
+  if (!device_scale)
+    adams_upload_divisor(divisor);
+  if (compensated) {
+    // The corrector forms the endpoint's rate and compensation; only the weights cross.
+    require_extent(rate.size(), problem_.n_phi_terms, "Adams rate weights");
+    if (adams_rate_weights_.extent(0) != rate.size())
+      adams_rate_weights_ = Kokkos::View<double*, Layout, MemorySpace>(
+          "solprop_native.adams.rate_weights", rate.size());
+    copy_vector(execution_space_, adams_rate_weights_, rate);
+  }
+  upload_trial(step);
+  const std::size_t blocks = (n + adams_block - 1) / adams_block;
+  const auto tasks =
+      Kokkos::RangePolicy<ExecutionSpace>(adams_execution_space_, 0, columns * blocks);
+  const bool separable = problem_.separable_geometry();
+  const auto spatial = spatial_;
+  const auto active = active_mask_;
+  const auto n_pol = problem_.n_pol_state;
+  const auto n_stages = problem_.n_stages;
+  const auto phi_terms = phi_terms_;
+  const auto phi_delta = stage_phi_delta_;
+  const auto n_phi = problem_.n_phi_terms;
+  const auto offset = n_stages * n_phi;
+  const auto exponent = adams_exponent_;
+  const auto flow = adams_propagator_;
+  const auto moments = adams_moments_;
+  const auto store = adams_store_;
+  const auto current = current_;
+  const auto predicted = adams_saved_;
+  const auto lab = adams_lab_;
+  const auto carried = adams_carried_;
+  const auto states = adams_states_;
+  const auto rates = adams_rates_;
+  const auto in_norm = norm_mask_;
+  const std::size_t count = weights.count;
+  const std::size_t formed = count > weights.order ? count : weights.order;
+  const double inverse_dz = 1.0 / dz;
+  // The step's exponent, on a separable route the step's length times each element's
+  // operator as the stage kernel forms the whole propagator, and its flow; its
+  // moments (kept for the corrector and the norms); a varying operator's carried
+  // samples; and the prediction, exp(x) u + dz sum_k M_k sum_j c_jk F_j and the
+  // compensation's predictor, the field the lab-frame source is evaluated at.
+  const auto predict = KOKKOS_LAMBDA(const std::size_t task, double& magnitude) {
+    const auto column = task / blocks;
+    const auto first = (task % blocks) * adams_block;
+    const auto last = first + adams_block < n ? first + adams_block : n;
+    if (separable)
+      for (std::size_t index = first; index < last; ++index) {
+        const Complex x =
+            phi_delta(n_stages) *
+            spatial.value(column / n_pol, index, active(index) != 0U).linear;
+        exponent(column, index) = x;
+        flow(column, index) = exponential(x);
+      }
+    else
+      adams_phase_block(phi_terms, phi_delta, offset, n_phi, column, first, last,
+                        exponent, flow);
+    double squares = 0.0;
+    for (std::size_t index = first; index < last; ++index) {
+      const Complex x = exponent(column, index);
+      const Complex propagate = flow(column, index);
+      Complex phi[2 * adams_max_samples + 1];
+      adams_moment_phi(weights, x, propagate, formed, phi);
+      for (std::size_t k = 0; k < count; ++k)
+        moments(k, column, index) = adams_factorial(k) * phi[k + 1];
+      const Complex accepted = current(column, index);
+      if (in_norm(index) != 0)
+        squares += squared_abs(accepted);
+      Complex total{};
+      for (std::size_t k = 0; k < weights.order; ++k) {
+        Complex combined{};
+        for (std::size_t t = 0; t < weights.order; ++t)
+          combined +=
+              weights.predictor[t][k] * adams_history(store, weights, t, column, index);
+        const Complex moment = adams_factorial(k) * phi[k + 1];
+        total += moment * combined;
+      }
+      Complex value = propagate * accepted + dz * total;
+      if (compensated) {
+        value =
+            adams_predicted_compensation(weights, x, propagate, inverse_dz, dz, value,
+                                         rates, states, carried, column, index);
+        lab(column, index) = value;
+      }
+      predicted(column, index) = value;
+    }
+    magnitude += squares;
+  };
+  if (device_scale) {
+    // A threaded reduction in whatever order measures fastest (solprop SEP 25).
+    Kokkos::parallel_reduce("solprop_native.adams.exponential_predict", tasks, predict,
+                            adams_magnitude_sum_);
+  } else {
+    double unused = 0.0;
+    Kokkos::parallel_reduce("solprop_native.adams.exponential_predict", tasks, predict,
+                            unused);
+  }
+  std::swap(current_, adams_saved_);
+  upload_trial(sample);
+  adams_evaluate_source(sample);
+  std::swap(current_, adams_saved_);
+  std::vector<double> norms(weights.n_rows, 0.0);
+  const Kokkos::View<double*, Kokkos::HostSpace,
+                     Kokkos::MemoryTraits<Kokkos::Unmanaged>>
+      result(norms.data(), weights.n_rows);
+  const ExponentialCorrection reducer{weights.n_rows,
+                                      store,
+                                      moments,
+                                      stages_,
+                                      carried,
+                                      phi_terms,
+                                      adams_source_,
+                                      flow,
+                                      current_,
+                                      advanced_,
+                                      exponent,
+                                      lab,
+                                      adams_endpoint_,
+                                      adams_endpoint_rate_,
+                                      adams_rate_weights_,
+                                      in_norm,
+                                      adams_divisor_,
+                                      adams_scale_weights_,
+                                      adams_magnitude_sum_,
+                                      weights,
+                                      dz,
+                                      inverse_dz,
+                                      adams_rtol_,
+                                      adams_atol_,
+                                      n,
+                                      blocks,
+                                      n_phi,
+                                      device_scale};
+  Kokkos::parallel_reduce("solprop_native.adams.exponential_correct", tasks, reducer,
+                          result);
+  adams_execution_space_.fence("solprop_native Adams trial boundary");
+  for (auto& value : norms)
+    value = std::sqrt(value);
+  adams_trial_ready_ = true;
+  adams_trial_compensated_ = compensated;
+  adams_trial_coupled_ = false;
+  return norms;
+}
+
 std::vector<double> GeneralWorkspace::adams_exponential_trial(
     const double dz, const ExponentialWeights& weights,
     const std::vector<double>& divisor, const TrialScalars& step,
@@ -6094,116 +6410,113 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
       throw std::out_of_range("Adams history row");
   require_trial_scalars(step);
   require_trial_scalars(sample);
+  if (!coupled)
+    return adams_elementwise_trial(dz, weights, divisor, step, sample, rate);
   adams_upload_divisor(divisor);
   // The step's exponent and flow, and its moments, once for every formula.
   upload_trial(step);
   adams_phase();
-  const std::size_t section = coupled ? step.flow_section : 0;
-  const bool residual = coupled && adams_applied_.extent(0) != 0;
+  const std::size_t section = step.flow_section;
+  const bool residual = adams_applied_.extent(0) != 0;
   if (residual)
     upload_weights(execution_space_, adams_end_weights_, step.flow_weights);
   const auto columns = problem_.n_columns();
   const auto n = problem_.n_omega;
   const auto policy = Range2(execution_space_, {0, 0}, {columns, n});
-  const auto bins = Kokkos::RangePolicy<ExecutionSpace>(
-      coupled ? flow_execution_space_ : execution_space_, 0, n);
+  const auto bins = Kokkos::RangePolicy<ExecutionSpace>(flow_execution_space_, 0, n);
   const auto exponent = adams_exponent_;
   const auto flow = adams_propagator_;
   const auto moments = adams_moments_;
   const std::size_t count = weights.count;
-  using BlockSlots = Kokkos::View<std::size_t*, Layout, MemorySpace>;
-  const BlockSlots slots = coupled ? flow_->block_slots() : BlockSlots{};
-  // The elementwise moments, off the block's bins beside a coupled flow: on them the
-  // block's matrices below take their place. Without one the predictor forms them.
-  if (coupled)
-    Kokkos::parallel_for(
-        "solprop_native.adams.moments", policy,
-        KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
-          if (coupled && slots(index) != 0)
-            return;
-          Complex phi[2 * adams_max_samples + 1];
-          adams_moment_phi(weights, exponent(column, index), flow(column, index), count,
-                           phi);
-          for (std::size_t k = 0; k < count; ++k)
-            moments(k, column, index) = adams_factorial(k) * phi[k + 1];
-        });
+  const auto slots = flow_->block_slots();
+  // The elementwise moments, off the block's bins: on them the block's matrices below
+  // take their place.
+  Kokkos::parallel_for(
+      "solprop_native.adams.moments", policy,
+      KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
+        if (slots(index) != 0)
+          return;
+        Complex phi[2 * adams_max_samples + 1];
+        adams_moment_phi(weights, exponent(column, index), flow(column, index), count,
+                         phi);
+        for (std::size_t k = 0; k < count; ++k)
+          moments(k, column, index) = adams_factorial(k) * phi[k + 1];
+      });
   // The block's flow and moments, W f(x + h lambda) Y from the section's eigenbasis,
   // every bin on its route (adams_allocate refuses a flow with a bin off it).
   const auto block = adams_block_;
   const auto modes = problem_.n_modes;
-  const auto left = coupled ? flow_->left() : CoupledFlowAction::ComplexView4{};
-  const auto right = coupled ? flow_->right() : CoupledFlowAction::ComplexView4{};
-  const auto eigenvalues =
-      coupled ? flow_->eigenvalues() : CoupledFlowAction::ComplexView3{};
+  const auto left = flow_->left();
+  const auto right = flow_->right();
+  const auto eigenvalues = flow_->eigenvalues();
   const auto terms =
       residual ? flow_->residual_terms() : CoupledFlowAction::ComplexView4{};
   const auto frozen = residual ? flow_->frozen() : CoupledFlowAction::ComplexView4{};
   // A device takes a thread per (bin, channel) in the coupled passes below: its
   // lanes outnumber the bins and a channel vector does not fit a thread's
   // registers. A host keeps a task per bin, which forms a bin's shared terms once.
-  if (coupled)
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-    Kokkos::parallel_for(
-        "solprop_native.adams.block_functions",
-        Range2(flow_execution_space_, {0, 0}, {n, modes * modes}),
-        KOKKOS_LAMBDA(const std::size_t index, const std::size_t pair) {
-          const auto one = slots(index);
-          if (one == 0)
-            return;
-          const auto bin = one - 1;
-          const auto i = pair / modes;
-          const auto j = pair % modes;
-          const Complex shift = exponent(0, index);
-          // One entry (i, j) of every function's matrix, a thread each: the sum over
-          // the eigenvalues in their order, each function formed where it is needed.
-          Complex total[adams_max_samples + 1];
-          for (std::size_t k = 0; k <= count; ++k)
-            total[k] = Complex{};
-          Complex phi[2 * adams_max_samples + 1];
-          for (std::size_t m = 0; m < modes; ++m) {
-            const Complex x = shift + dz * eigenvalues(section, bin, m);
-            const Complex exp_x = exponential(x);
-            // The flow is exp(h B); the moments are the shifted block's (solprop SEP
-            // 35 section 4.5): every eigenvalue moves by -sigma.
-            adams_moment_phi(weights, x, exp_x, count, phi);
-            const Complex l = left(section, bin, i, m);
-            const Complex r = right(section, bin, m, j);
-            total[0] += l * exp_x * r;
-            for (std::size_t k = 0; k < count; ++k)
-              total[k + 1] += l * (adams_factorial(k) * phi[k + 1]) * r;
-          }
-          for (std::size_t k = 0; k <= count; ++k)
-            block(k, bin, i, j) = total[k];
-        });
+  Kokkos::parallel_for(
+      "solprop_native.adams.block_functions",
+      Range2(flow_execution_space_, {0, 0}, {n, modes * modes}),
+      KOKKOS_LAMBDA(const std::size_t index, const std::size_t pair) {
+        const auto one = slots(index);
+        if (one == 0)
+          return;
+        const auto bin = one - 1;
+        const auto i = pair / modes;
+        const auto j = pair % modes;
+        const Complex shift = exponent(0, index);
+        // One entry (i, j) of every function's matrix, a thread each: the sum over
+        // the eigenvalues in their order, each function formed where it is needed.
+        Complex total[adams_max_samples + 1];
+        for (std::size_t k = 0; k <= count; ++k)
+          total[k] = Complex{};
+        Complex phi[2 * adams_max_samples + 1];
+        for (std::size_t m = 0; m < modes; ++m) {
+          const Complex x = shift + dz * eigenvalues(section, bin, m);
+          const Complex exp_x = exponential(x);
+          // The flow is exp(h B); the moments are the shifted block's (solprop SEP
+          // 35 section 4.5): every eigenvalue moves by -sigma.
+          adams_moment_phi(weights, x, exp_x, count, phi);
+          const Complex l = left(section, bin, i, m);
+          const Complex r = right(section, bin, m, j);
+          total[0] += l * exp_x * r;
+          for (std::size_t k = 0; k < count; ++k)
+            total[k + 1] += l * (adams_factorial(k) * phi[k + 1]) * r;
+        }
+        for (std::size_t k = 0; k <= count; ++k)
+          block(k, bin, i, j) = total[k];
+      });
 #else
-    Kokkos::parallel_for(
-        "solprop_native.adams.block_functions", bins,
-        KOKKOS_LAMBDA(const std::size_t index) {
-          const auto one = slots(index);
-          if (one == 0)
-            return;
-          const auto bin = one - 1;
-          const Complex shift = exponent(0, index);
-          Complex values[adams_max_channels][adams_max_samples + 1];
-          Complex phi[2 * adams_max_samples + 1];
-          for (std::size_t m = 0; m < modes; ++m) {
-            const Complex x = shift + dz * eigenvalues(section, bin, m);
-            const Complex exp_x = exponential(x);
-            values[m][0] = exp_x;
-            adams_moment_phi(weights, x, exp_x, count, phi);
-            for (std::size_t k = 0; k < count; ++k)
-              values[m][k + 1] = adams_factorial(k) * phi[k + 1];
-          }
-          for (std::size_t k = 0; k <= count; ++k)
-            for (std::size_t i = 0; i < modes; ++i)
-              for (std::size_t j = 0; j < modes; ++j) {
-                Complex total{};
-                for (std::size_t m = 0; m < modes; ++m)
-                  total += left(section, bin, i, m) * values[m][k] *
-                           right(section, bin, m, j);
-                block(k, bin, i, j) = total;
-              }
-        });
+  Kokkos::parallel_for(
+      "solprop_native.adams.block_functions", bins,
+      KOKKOS_LAMBDA(const std::size_t index) {
+        const auto one = slots(index);
+        if (one == 0)
+          return;
+        const auto bin = one - 1;
+        const Complex shift = exponent(0, index);
+        Complex values[adams_max_channels][adams_max_samples + 1];
+        Complex phi[2 * adams_max_samples + 1];
+        for (std::size_t m = 0; m < modes; ++m) {
+          const Complex x = shift + dz * eigenvalues(section, bin, m);
+          const Complex exp_x = exponential(x);
+          values[m][0] = exp_x;
+          adams_moment_phi(weights, x, exp_x, count, phi);
+          for (std::size_t k = 0; k < count; ++k)
+            values[m][k + 1] = adams_factorial(k) * phi[k + 1];
+        }
+        for (std::size_t k = 0; k <= count; ++k)
+          for (std::size_t i = 0; i < modes; ++i)
+            for (std::size_t j = 0; j < modes; ++j) {
+              Complex total{};
+              for (std::size_t m = 0; m < modes; ++m)
+                total +=
+                    left(section, bin, i, m) * values[m][k] * right(section, bin, m, j);
+              block(k, bin, i, j) = total;
+            }
+      });
 #endif
   // A varying operator's samples carried to the step's end in the chord's flow:
   // exp((1 - theta_j) x) (D(z_j) - x / dz) u_j, the difference of rates formed first.
@@ -6215,7 +6528,7 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
   const auto applied = adams_applied_;
   const bool compensated = weights.compensated;
   const double inverse_dz = 1.0 / dz;
-  if (compensated && coupled)
+  if (compensated)
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
     Kokkos::parallel_for(
         "solprop_native.adams.coupled_carry",
@@ -6326,66 +6639,75 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
   const auto current = current_;
   const auto saved = adams_saved_;
   const auto lab = adams_lab_;
-  if (coupled)
-    Kokkos::deep_copy(execution_space_, saved, current);
-  if (!coupled)
-    // One pass: the step's moments (kept for the corrector and the norms), a varying
-    // operator's carried samples, the accepted state set aside, and the prediction.
-    Kokkos::parallel_for(
-        "solprop_native.adams.exponential_predict", policy,
-        KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
-          const Complex x = exponent(column, index);
-          const Complex propagate = flow(column, index);
-          Complex phi[2 * adams_max_samples + 1];
-          const std::size_t formed = count > weights.order ? count : weights.order;
-          adams_moment_phi(weights, x, propagate, formed, phi);
-          for (std::size_t k = 0; k < count; ++k)
-            moments(k, column, index) = adams_factorial(k) * phi[k + 1];
-          const Complex accepted = current(column, index);
-          saved(column, index) = accepted;
-          Complex total{};
-          for (std::size_t k = 0; k < weights.order; ++k) {
-            Complex combined{};
-            for (std::size_t t = 0; t < weights.order; ++t)
-              combined += weights.predictor[t][k] *
-                          adams_history(store, weights, t, column, index);
-            const Complex moment = adams_factorial(k) * phi[k + 1];
-            total += moment * combined;
-          }
-          Complex value = propagate * accepted + dz * total;
-          if (compensated) {
-            value = adams_predicted_compensation(weights, x, inverse_dz, dz, value,
-                                                 rates, states, carried, column, index);
-            lab(column, index) = value;
-          }
-          current(column, index) = value;
-        });
-  else
+  Kokkos::deep_copy(execution_space_, saved, current);
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-    Kokkos::parallel_for(
-        "solprop_native.adams.coupled_predict",
-        Range2(execution_space_, {0, 0}, {n, modes}),
-        KOKKOS_LAMBDA(const std::size_t index, const std::size_t i) {
-          const auto one = slots(index);
-          // Channel c's combinations sum_t w_tk F_t, its samples read once.
-          const auto combine = [&](const std::size_t c, Complex* out) {
-            Complex samples[adams_max_samples];
+  Kokkos::parallel_for(
+      "solprop_native.adams.coupled_predict",
+      Range2(execution_space_, {0, 0}, {n, modes}),
+      KOKKOS_LAMBDA(const std::size_t index, const std::size_t i) {
+        const auto one = slots(index);
+        // Channel c's combinations sum_t w_tk F_t, its samples read once.
+        const auto combine = [&](const std::size_t c, Complex* out) {
+          Complex samples[adams_max_samples];
+          for (std::size_t t = 0; t < weights.order; ++t)
+            samples[t] = adams_history(store, weights, t, c, index);
+          for (std::size_t k = 0; k < weights.order; ++k) {
+            Complex total{};
             for (std::size_t t = 0; t < weights.order; ++t)
-              samples[t] = adams_history(store, weights, t, c, index);
-            for (std::size_t k = 0; k < weights.order; ++k) {
-              Complex total{};
-              for (std::size_t t = 0; t < weights.order; ++t)
-                total += weights.predictor[t][k] * samples[t];
-              out[k] = total;
-            }
-          };
-          Complex combined[adams_max_samples];
+              total += weights.predictor[t][k] * samples[t];
+            out[k] = total;
+          }
+        };
+        Complex combined[adams_max_samples];
+        Complex value{};
+        if (one == 0) {
+          combine(i, combined);
+          Complex total{};
+          for (std::size_t k = 0; k < weights.order; ++k)
+            total += moments(k, i, index) * combined[k];
+          value = flow(i, index) * saved(i, index) + dz * total;
+        } else {
+          const auto bin = one - 1;
+          Complex linear{};
+          Complex total{};
+          for (std::size_t j = 0; j < modes; ++j) {
+            linear += block(0, bin, i, j) * saved(j, index);
+            combine(j, combined);
+            for (std::size_t k = 0; k < weights.order; ++k)
+              total += block(k + 1, bin, i, j) * combined[k];
+          }
+          value = linear + dz * total;
+        }
+        if (compensated) {
+          Complex compensation{};
+          for (std::size_t t = 0; t < weights.order; ++t)
+            compensation = strict_accumulate(compensation, weights.comp_predictor[t],
+                                             carried(t, i, index));
+          value = strict_accumulate(value, dz, compensation);
+          lab(i, index) = value;
+        }
+        current(i, index) = value;
+      });
+#else
+  Kokkos::parallel_for(
+      "solprop_native.adams.coupled_predict", bins,
+      KOKKOS_LAMBDA(const std::size_t index) {
+        const auto one = slots(index);
+        Complex combined[adams_max_samples][adams_max_channels];
+        for (std::size_t k = 0; k < weights.order; ++k)
+          for (std::size_t i = 0; i < modes; ++i) {
+            Complex total{};
+            for (std::size_t t = 0; t < weights.order; ++t)
+              total +=
+                  weights.predictor[t][k] * adams_history(store, weights, t, i, index);
+            combined[k][i] = total;
+          }
+        for (std::size_t i = 0; i < modes; ++i) {
           Complex value{};
           if (one == 0) {
-            combine(i, combined);
             Complex total{};
             for (std::size_t k = 0; k < weights.order; ++k)
-              total += moments(k, i, index) * combined[k];
+              total += moments(k, i, index) * combined[k][i];
             value = flow(i, index) * saved(i, index) + dz * total;
           } else {
             const auto bin = one - 1;
@@ -6393,9 +6715,8 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
             Complex total{};
             for (std::size_t j = 0; j < modes; ++j) {
               linear += block(0, bin, i, j) * saved(j, index);
-              combine(j, combined);
               for (std::size_t k = 0; k < weights.order; ++k)
-                total += block(k + 1, bin, i, j) * combined[k];
+                total += block(k + 1, bin, i, j) * combined[k][j];
             }
             value = linear + dz * total;
           }
@@ -6408,50 +6729,8 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
             lab(i, index) = value;
           }
           current(i, index) = value;
-        });
-#else
-    Kokkos::parallel_for(
-        "solprop_native.adams.coupled_predict", bins,
-        KOKKOS_LAMBDA(const std::size_t index) {
-          const auto one = slots(index);
-          Complex combined[adams_max_samples][adams_max_channels];
-          for (std::size_t k = 0; k < weights.order; ++k)
-            for (std::size_t i = 0; i < modes; ++i) {
-              Complex total{};
-              for (std::size_t t = 0; t < weights.order; ++t)
-                total += weights.predictor[t][k] *
-                         adams_history(store, weights, t, i, index);
-              combined[k][i] = total;
-            }
-          for (std::size_t i = 0; i < modes; ++i) {
-            Complex value{};
-            if (one == 0) {
-              Complex total{};
-              for (std::size_t k = 0; k < weights.order; ++k)
-                total += moments(k, i, index) * combined[k][i];
-              value = flow(i, index) * saved(i, index) + dz * total;
-            } else {
-              const auto bin = one - 1;
-              Complex linear{};
-              Complex total{};
-              for (std::size_t j = 0; j < modes; ++j) {
-                linear += block(0, bin, i, j) * saved(j, index);
-                for (std::size_t k = 0; k < weights.order; ++k)
-                  total += block(k + 1, bin, i, j) * combined[k][j];
-              }
-              value = linear + dz * total;
-            }
-            if (compensated) {
-              Complex compensation{};
-              for (std::size_t t = 0; t < weights.order; ++t)
-                compensation = strict_accumulate(
-                    compensation, weights.comp_predictor[t], carried(t, i, index));
-              value = strict_accumulate(value, dz, compensation);
-              lab(i, index) = value;
-            }
-            current(i, index) = value;
-          }
-        });
+        }
+      });
 #endif
   upload_trial(sample);
   {
@@ -6463,15 +6742,7 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
   // a frozen-residual flow's residual at the step's end joins it.
   const auto endpoint = adams_endpoint_;
   const auto end_applied = adams_end_applied_;
-  if (compensated && !coupled) {
-    // The corrector forms the endpoint's rate and compensation; only the weights cross.
-    require_extent(rate.size(), problem_.n_phi_terms, "Adams rate weights");
-    if (adams_rate_weights_.extent(0) != rate.size())
-      adams_rate_weights_ = Kokkos::View<double*, Layout, MemorySpace>(
-          "solprop_native.adams.rate_weights", rate.size());
-    copy_vector(execution_space_, adams_rate_weights_, rate);
-  }
-  if (compensated && coupled) {
+  if (compensated) {
     adams_rate(rate, adams_endpoint_rate_);
     const auto endpoint_rate = adams_endpoint_rate_;
     Kokkos::parallel_for(
@@ -6523,62 +6794,79 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
   const auto stages = stages_;
   const auto source = adams_source_;
   const auto advanced = advanced_;
-  const auto endpoint_rate = adams_endpoint_rate_;
-  const auto rate_weights = adams_rate_weights_;
-  const auto phi_terms = phi_terms_;
-  const auto n_phi = problem_.n_phi_terms;
-  if (!coupled)
-    Kokkos::parallel_for(
-        "solprop_native.adams.exponential_correct", policy,
-        KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
-          const Complex g = stages(0, column, index);
-          source(column, index) = g;
-          Complex total{};
-          for (std::size_t k = 0; k < count; ++k) {
-            Complex combined = weights.corrector[0][k] * g;
-            for (std::size_t t = 1; t < weights.width; ++t)
-              combined += weights.corrector[t][k] *
-                          adams_history(store, weights, t - 1, column, index);
-            total += moments(k, column, index) * combined;
-          }
-          Complex value = flow(column, index) * current(column, index) + dz * total;
-          // The new sample's compensation at the predicted field, untransported, with
-          // the rate read on the side of the step's end the step came from.
-          if (compensated)
-            value = adams_corrected_compensation(
-                weights, n_phi, rate_weights, phi_terms, exponent(column, index),
-                inverse_dz, lab(column, index), dz, value, endpoint_rate, endpoint,
-                carried, column, index);
-          advanced(column, index) = value;
-        });
-  else
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-    Kokkos::parallel_for(
-        "solprop_native.adams.coupled_correct",
-        Range2(execution_space_, {0, 0}, {n, modes}),
-        KOKKOS_LAMBDA(const std::size_t index, const std::size_t i) {
-          const auto one = slots(index);
-          source(i, index) = stages(0, i, index);
-          // Channel c's combinations sum_t w_tk F_t with the new sample first.
-          const auto combine = [&](const std::size_t c, Complex* out) {
-            const Complex g = stages(0, c, index);
-            Complex samples[adams_max_samples];
+  Kokkos::parallel_for(
+      "solprop_native.adams.coupled_correct",
+      Range2(execution_space_, {0, 0}, {n, modes}),
+      KOKKOS_LAMBDA(const std::size_t index, const std::size_t i) {
+        const auto one = slots(index);
+        source(i, index) = stages(0, i, index);
+        // Channel c's combinations sum_t w_tk F_t with the new sample first.
+        const auto combine = [&](const std::size_t c, Complex* out) {
+          const Complex g = stages(0, c, index);
+          Complex samples[adams_max_samples];
+          for (std::size_t t = 1; t < weights.width; ++t)
+            samples[t] = adams_history(store, weights, t - 1, c, index);
+          for (std::size_t k = 0; k < count; ++k) {
+            Complex total = weights.corrector[0][k] * g;
             for (std::size_t t = 1; t < weights.width; ++t)
-              samples[t] = adams_history(store, weights, t - 1, c, index);
-            for (std::size_t k = 0; k < count; ++k) {
-              Complex total = weights.corrector[0][k] * g;
-              for (std::size_t t = 1; t < weights.width; ++t)
-                total += weights.corrector[t][k] * samples[t];
-              out[k] = total;
-            }
-          };
-          Complex combined[adams_max_samples];
+              total += weights.corrector[t][k] * samples[t];
+            out[k] = total;
+          }
+        };
+        Complex combined[adams_max_samples];
+        Complex value{};
+        if (one == 0) {
+          combine(i, combined);
+          Complex total{};
+          for (std::size_t k = 0; k < count; ++k)
+            total += moments(k, i, index) * combined[k];
+          value = flow(i, index) * current(i, index) + dz * total;
+        } else {
+          const auto bin = one - 1;
+          Complex linear{};
+          Complex total{};
+          for (std::size_t j = 0; j < modes; ++j) {
+            linear += block(0, bin, i, j) * current(j, index);
+            combine(j, combined);
+            for (std::size_t k = 0; k < count; ++k)
+              total += block(k + 1, bin, i, j) * combined[k];
+          }
+          value = linear + dz * total;
+        }
+        if (compensated) {
+          Complex compensation =
+              strict_scale(weights.comp_corrector[0], endpoint(i, index));
+          for (std::size_t t = 0; t < weights.order; ++t)
+            compensation = strict_accumulate(
+                compensation, weights.comp_corrector[t + 1], carried(t, i, index));
+          value = strict_accumulate(value, dz, compensation);
+        }
+        advanced(i, index) = value;
+      });
+#else
+  Kokkos::parallel_for(
+      "solprop_native.adams.coupled_correct", bins,
+      KOKKOS_LAMBDA(const std::size_t index) {
+        const auto one = slots(index);
+        Complex combined[adams_max_samples][adams_max_channels];
+        for (std::size_t i = 0; i < modes; ++i) {
+          const Complex g = stages(0, i, index);
+          source(i, index) = g;
+          for (std::size_t k = 0; k < count; ++k) {
+            Complex total = weights.corrector[0][k] * g;
+            for (std::size_t t = 1; t < weights.width; ++t)
+              total += weights.corrector[t][k] *
+                       adams_history(store, weights, t - 1, i, index);
+            combined[k][i] = total;
+          }
+        }
+        for (std::size_t i = 0; i < modes; ++i) {
           Complex value{};
           if (one == 0) {
-            combine(i, combined);
             Complex total{};
             for (std::size_t k = 0; k < count; ++k)
-              total += moments(k, i, index) * combined[k];
+              total += moments(k, i, index) * combined[k][i];
             value = flow(i, index) * current(i, index) + dz * total;
           } else {
             const auto bin = one - 1;
@@ -6586,9 +6874,8 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
             Complex total{};
             for (std::size_t j = 0; j < modes; ++j) {
               linear += block(0, bin, i, j) * current(j, index);
-              combine(j, combined);
               for (std::size_t k = 0; k < count; ++k)
-                total += block(k + 1, bin, i, j) * combined[k];
+                total += block(k + 1, bin, i, j) * combined[k][j];
             }
             value = linear + dz * total;
           }
@@ -6601,81 +6888,26 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
             value = strict_accumulate(value, dz, compensation);
           }
           advanced(i, index) = value;
-        });
-#else
-    Kokkos::parallel_for(
-        "solprop_native.adams.coupled_correct", bins,
-        KOKKOS_LAMBDA(const std::size_t index) {
-          const auto one = slots(index);
-          Complex combined[adams_max_samples][adams_max_channels];
-          for (std::size_t i = 0; i < modes; ++i) {
-            const Complex g = stages(0, i, index);
-            source(i, index) = g;
-            for (std::size_t k = 0; k < count; ++k) {
-              Complex total = weights.corrector[0][k] * g;
-              for (std::size_t t = 1; t < weights.width; ++t)
-                total += weights.corrector[t][k] *
-                         adams_history(store, weights, t - 1, i, index);
-              combined[k][i] = total;
-            }
-          }
-          for (std::size_t i = 0; i < modes; ++i) {
-            Complex value{};
-            if (one == 0) {
-              Complex total{};
-              for (std::size_t k = 0; k < count; ++k)
-                total += moments(k, i, index) * combined[k][i];
-              value = flow(i, index) * current(i, index) + dz * total;
-            } else {
-              const auto bin = one - 1;
-              Complex linear{};
-              Complex total{};
-              for (std::size_t j = 0; j < modes; ++j) {
-                linear += block(0, bin, i, j) * current(j, index);
-                for (std::size_t k = 0; k < count; ++k)
-                  total += block(k + 1, bin, i, j) * combined[k][j];
-              }
-              value = linear + dz * total;
-            }
-            if (compensated) {
-              Complex compensation =
-                  strict_scale(weights.comp_corrector[0], endpoint(i, index));
-              for (std::size_t t = 0; t < weights.order; ++t)
-                compensation = strict_accumulate(
-                    compensation, weights.comp_corrector[t + 1], carried(t, i, index));
-              value = strict_accumulate(value, dz, compensation);
-            }
-            advanced(i, index) = value;
-          }
-        });
+        }
+      });
 #endif
   std::vector<double> norms(weights.n_rows, 0.0);
   const Kokkos::View<double*, Kokkos::HostSpace,
                      Kokkos::MemoryTraits<Kokkos::Unmanaged>>
       result(norms.data(), weights.n_rows);
-  if (!coupled) {
-    const ExponentialDefectNorms reducer{
-        weights.n_rows, store,          moments, source, carried, endpoint,
-        norm_mask_,     adams_divisor_, weights, dz,     n};
-    Kokkos::parallel_reduce(
-        "solprop_native.adams.exponential_norms",
-        Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, columns * n), reducer,
-        result);
-  } else {
-    const CoupledDefectNorms reducer{
-        weights.n_rows, store,      moments,        source,  carried, endpoint, block,
-        slots,          norm_mask_, adams_divisor_, weights, dz,      modes};
+  const CoupledDefectNorms reducer{
+      weights.n_rows, store,      moments,        source,  carried, endpoint, block,
+      slots,          norm_mask_, adams_divisor_, weights, dz,      modes};
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-    // A device item is a (bin, channel) pair, a host item a bin.
-    const auto items = n * modes;
+  // A device item is a (bin, channel) pair, a host item a bin.
+  const auto items = n * modes;
 #else
-    const auto items = n;
+  const auto items = n;
 #endif
-    Kokkos::parallel_reduce(
-        "solprop_native.adams.coupled_norms",
-        Kokkos::RangePolicy<ExecutionSpace>(flow_execution_space_, 0, items), reducer,
-        result);
-  }
+  Kokkos::parallel_reduce(
+      "solprop_native.adams.coupled_norms",
+      Kokkos::RangePolicy<ExecutionSpace>(flow_execution_space_, 0, items), reducer,
+      result);
   execution_space_.fence("solprop_native Adams trial boundary");
   for (auto& value : norms)
     value = std::sqrt(value);
@@ -6740,24 +6972,41 @@ void GeneralWorkspace::adams_exponential_accept(const double dz, const std::size
     }
   }
   adams_dense_compensated_ = dense.width > 0 && adams_trial_compensated_;
-  finish(dz);
-  stash_is_current_ = false;
-  // Untransported samples: nothing moves; the new sample takes row `free`, and for a
-  // varying operator its state and rate the rows beside it.
+  // The accepted field takes `finish`'s boundary treatment: a split-step absorber's
+  // half steps, or the band's mask in the pass below. Untransported samples: nothing
+  // moves; the new sample takes row `free`, and for a varying operator its state and
+  // rate the rows beside it.
+  const bool masked = !problem_.split_step_absorber;
+  if (!masked)
+    split_step(dz, advanced_);
   const bool compensated = adams_trial_compensated_;
+  const auto active = active_mask_;
+  const auto advanced = advanced_;
   const auto states = adams_states_;
   const auto rates = adams_rates_;
   const auto lab = adams_lab_;
   const auto endpoint_rate = adams_endpoint_rate_;
+  const std::size_t blocks = (n + adams_block - 1) / adams_block;
   Kokkos::parallel_for(
-      "solprop_native.adams.exponential_store", policy,
-      KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
-        store(free, column, index) = source(column, index);
-        if (compensated) {
-          states(free, column, index) = lab(column, index);
-          rates(free, column, index) = endpoint_rate(column, index);
+      "solprop_native.adams.exponential_accept",
+      Kokkos::RangePolicy<ExecutionSpace>(adams_copy_space_, 0, columns * blocks),
+      KOKKOS_LAMBDA(const std::size_t task) {
+        const auto column = task / blocks;
+        const auto first = (task % blocks) * adams_block;
+        const auto last = first + adams_block < n ? first + adams_block : n;
+        for (std::size_t index = first; index < last; ++index) {
+          if (masked && active(index) == 0U)
+            advanced(column, index) = Complex{};
+          store(free, column, index) = source(column, index);
+          if (compensated) {
+            states(free, column, index) = lab(column, index);
+            rates(free, column, index) = endpoint_rate(column, index);
+          }
         }
       });
+  std::swap(current_, advanced_);
+  // The last evaluation was at the prediction, so no response stash is the state's.
+  stash_is_current_ = false;
   // A frozen-residual flow's weights at the new sample, the trial's end.
   if (adams_trial_coupled_)
     Kokkos::deep_copy(execution_space_,
@@ -12014,7 +12263,7 @@ void GeneralWorkspace::add_split_removal(const double dz, const std::size_t acti
       KOKKOS_LAMBDA(const std::size_t index) {
         share(index) = -Kokkos::expm1(-rate(index) * dz);
       });
-  const Range2 samples(execution_space_, {0, 0}, {active_rows, problem_.n_t});
+  const auto samples = Range2(execution_space_, {0, 0}, {active_rows, problem_.n_t});
   if (problem_.family == FieldFamily::envelope) {
     const auto time = coarse_time_complex_;
     Kokkos::parallel_reduce(
@@ -12849,6 +13098,8 @@ void GeneralWorkspace::close() noexcept {
   temporal_execution_space_ = ExecutionSpace();
   flow_execution_space_ = ExecutionSpace();
   absorber_execution_space_ = ExecutionSpace();
+  adams_execution_space_ = ExecutionSpace();
+  adams_copy_space_ = ExecutionSpace();
   raman_multiply_space_ = ExecutionSpace();
   raman_tail_multiply_space_ = ExecutionSpace();
   raman_rebuild_space_ = ExecutionSpace();

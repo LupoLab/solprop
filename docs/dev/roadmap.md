@@ -86,6 +86,14 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
   data and integration questions must be settled before acceptance; shared-level
   ladders, vector saturation and repeated-window histories remain future work.
+- [SEP 39 — A native Adams march: the Multistep step loop in the compiled backend](seps/sep-0039-native-adams-march.md):
+  the exponential `Multistep()` controller, order choice, landings, coefficient tables
+  and stage scalars executed natively under a policy record solprop hands over, with the
+  Python march as the reference, returning to the host only at planes, monitor checks
+  and statistics rows. It removes most of the 0.1–0.5 ms of Python per trial; the
+  native-side optimisations it lists need no SEP. Configurations it does not cover run
+  the Python march with a warning, and it changes no default. A device-resident
+  controller remains open.
 
 The informal items below record work not fully covered by these proposals. When adding
 or revising a SEP, remove an informal item only if the proposal covers it in full;
@@ -425,6 +433,46 @@ flux (D16). For paraxial beams the two shares agree; a non-paraxial or strongly 
 beam would weight its edges differently. A time-resolved flux needs the admittance applied
 per column and frequency before the inverse transform: another half of the state in memory.
 
+**The boundary monitor's remaining SEP 21 items.** What
+[SEP 21](seps/archive/sep-0021-absorbing-boundaries.md) asked of the monitor and the
+first release does not yet do:
+- a stop names the edge's share, its position and the budget, but not which edge, nor the
+  check's coverage, nor whether to strengthen or widen the collar; the removed fraction
+  is logged at INFO and warned of only above the budget; and a run whose steps the
+  in-stage collar's stability limit holds says nothing of it;
+- a fixed low-storage schedule is checked at the monitor's cadence, and does not refuse a
+  schedule whose steps are too long for the checks to cover;
+- the thresholds were qualified on modal runs; the shot-noise floor's margin, the
+  general modal route and the low-storage march are unqualified;
+- the campaign's witnesses (a window that wraps, the flux reading, the floor's scaling
+  law) are not yet tests.
+
+**A walk-off parameterisation of the collar.** SEP 21 (D3) proposed sizing both edges of
+the temporal collar from the walk-off a run expects, `absorber(..., walkoff=...)`,
+refusing a conflicting `boundary_N`; a run cut into slices keeps its parent's strength
+through `boundary_length`, which the boundaries guide does not yet say.
+
+**The real-space collar's geometry.** SEP 21 (D9) left the radial and Cartesian
+real-space collar as it was, for a follow-up proposal with a radial witness.
+
+**The collar's consumers converged.** The Raman response's tail taper and the held
+plasma current's gate are sized by the temporal collar's width. Their convergence in
+that width, on plasma and Raman cases, is unmeasured.
+
+**Adams steps near the collar's limit across backends.** Near the in-stage collar's
+stability limit the backends' Adams steps differ by up to 2 %; the controller question
+SEP 21 recorded about it is open.
+
+**Replaying a guided run's history.** `FixedSchedule.from_history` cannot replay a
+default guided run whose steps the in-stage collar's limit held, and the guide does not
+yet describe it, `band_coherence` or `spectral_bands`.
+
+**Recording the default controller.** Radial, Cartesian and planar runs take a default
+controller only when the caller gives none; the run's record does not say which applied.
+
+**A radial noise witness.** Input noise on the radial route has no witness of its own
+against an independent reference.
+
 **The coarse-divides-fine size rule.** A grid's coarse transform size must divide its fine
 one, so the realised size is not monotone in the requested window: a slightly larger
 request can land on a smaller, cheaper pair, or a smaller one on a dearer pair. The
@@ -590,7 +638,7 @@ any of the first ten items.
     silicon the serial stage is faster even at 8,196 elements, so sweep the crossover
     there on a quiet machine (`native/benchmarks/size_cliffs.py` and the SSFS and
     reduced comb-to-continuum cases) and set its own values.
-- **The multimode step at full width on Linux**: at 36 threads on the Xeon, general-modal
+- **The multimode step at full width on Linux**: at 36 threads on a dual Xeon Gold 6240, general-modal
   RK is about 6 % slower than before the per-core changes (reduced comb-to-continuum is
   4 % faster). Estimate planning is as slow, so FFT plan selection is ruled out; find the
   cause.
@@ -606,6 +654,9 @@ any of the first ten items.
   threaded-rows-at-estimate rule was set at 32 threads on an AVX-512 server; on an
   18-core arm64 laptop at four threads, measured planning made a 32 768-sample Raman
   GNLSE evaluation 6 % faster, for 1.1 s more planning.
+- **The thread budget on chips with efficiency cores**: the budget counts physical
+  cores (ADR-056), but on macOS it may count every core of a chip with efficiency cores,
+  and on Windows it counts processor indices; neither is measured.
 - **Thread thresholds on Windows and linux-aarch64**: the native CPU thresholds
   (`native/include/solprop_native/core.hpp`) switch only on `__APPLE__`, so both take the
   values measured on x86-64 Linux (Cascade Lake and Zen 3), unmeasured there. Sweep the
@@ -648,10 +699,14 @@ GPUs with slow double precision.
   umbrella fast-math, `nnan`/`ninf`, `nsz`, or approximate functions and reciprocals.
   Measured and not adopted: libmvec `exp` and `log` under Clang (about 3 %, still behind
   GCC) and Accelerate's vForce in the propagator (about 0.1 ms per window).
-- Value-safe options, not yet measured: `-fno-math-errno` and `-fno-trapping-math` change
-  no rounded result. Under GCC (the Linux builds) the first lets `sqrt` compile to one
-  instruction and vectorise; the second lets loops with conditional floating-point work
-  be if-converted. A few per cent at most, in the custom kernels only.
+- `-fno-math-errno` and `-fno-trapping-math`. Under GCC (the Linux builds) the first
+  lets `sqrt` compile to one instruction and vectorise; the second lets loops with
+  conditional floating-point work be if-converted. A few per cent at most, in the custom
+  kernels only. The first was measured on the exponential Adams march on an AMD EPYC 7763
+  under GCC 16.2: 1.9–2.7 % faster at one thread, and **not value-identical** — with the
+  same steps the final field moved by up to 1.9e-10 relative, within SEP 25's rules but
+  to be stated when adopted ([SEP 39](seps/sep-0039-native-adams-march.md) §6.9). The
+  second is not yet measured.
 - Subnormals: no build sets flush-to-zero. On x86-64 an operation on a subnormal can cost
   of the order of a hundred cycles (NVIDIA GPUs and Apple silicon take them at full
   speed), and spectral wings held down by an absorber or a per-step `exp(-rate dz)` could
@@ -991,6 +1046,13 @@ outside the hashed text; either keeps the record small.
 sample by a direct $O(n_r^2 n_t)$ sum rather than a matrix product. These are per-stage
 and per-plane times, not allocations.
 
+**The fixed host cost of a run.** A complete capillary run on the native backend spends
+90–190 ms outside its steps (122 ms on an AMD EPYC 7763) on metadata, provenance,
+output and plane observation, the same for either integrator: 0.12 s of a 0.7 s
+mode-averaged helium run once its steps are cheap
+([SEP 39](seps/sep-0039-native-adams-march.md) §6.9, which leaves it out of scope).
+Profile it and remove what is not needed per run.
+
 **A copy-free Adams sample.** The Adams sample on `numba_cpu` makes 16
 passes of which 4 are needed (identity fills, a stage clear, an unused accumulation, a
 returned copy). A `numba_cpu` Adams engine through the existing hook, or a destination
@@ -1034,17 +1096,6 @@ spectral channel of the far-field statistic `absorbed_power` reports the collar 
 user's rate together. An omit-default `user_rate` on `Absorber`, summed at translation,
 would let the two be attributed without moving any record
 ([SEP 22](seps/archive/sep-0022-memory-lean-spatial-execution.md)).
-
-**An absorber switch on the keyword interfaces.** `prop_capillary`, `prop_waveguide` and
-their `Simulation.from_*` constructors build the default spectral and temporal collar
-when `absorber=None`, and there is no keyword to run without an absorber or with the
-split-step scheme: today that takes replacing the frozen `SimulationSettings` before the
-first run ([boundaries](../guide/numerics/boundaries.md)). An explicit `absorber=False` and an
-`absorber_scheme=` keyword would make both one argument. Related: spatial runs carry no
-absorber unless one is given, although every spatial grid has a collar; whether they
-should default to one deserves a design check. [SEP 21](seps/archive/sep-0021-absorbing-boundaries.md) proposes the two
-keywords and a qualified convenience path for monitored propagation without temporal
-absorption while retaining the spectral collar; the spatial default is not in its scope.
 
 **An offset or walk-off-centred time window.** The temporal grid is symmetric about the
 frame, but walk-off is usually one-sided: the Raman self-frequency-shift example plots

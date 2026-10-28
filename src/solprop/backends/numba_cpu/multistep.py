@@ -71,7 +71,8 @@ __all__ = [
 _SERIES_TERMS = 24
 """Most Taylor terms of the highest phi function, the reference's fixed count."""
 
-_EPSILON = float(np.finfo(np.float64).eps)
+_QUARTER_ULP_SQUARED = (0.25 * float(np.finfo(np.float64).eps)) ** 2
+"""The series' stopping ratio, a quarter ulp, squared to compare squared magnitudes."""
 
 _FACTORIALS = np.array([float(np.prod(np.arange(1, k + 1))) for k in range(12)])
 """``k!`` for ``k < 12``, exact in float64."""
@@ -164,18 +165,28 @@ def _phi(  # noqa: PLR0913, PLR0917 - buffers are a kernel's parameters
         for k in range(1, order + 1):
             out[k] = (out[k - 1] - reciprocal[k - 1]) * inverse
         return
+    # The halvings that bring |x| to at most 1/2, ceil(log2(2 |x|)), each one exact:
+    # scale is 2**-squarings.
     squarings = 0
-    if magnitude > 0.5:
-        squarings = int(np.ceil(np.log2(magnitude / 0.5)))
-    y = x * (0.5**squarings)
+    scale = 1.0
+    reduced = magnitude
+    while reduced > 0.5:
+        squarings += 1
+        scale *= 0.5
+        reduced *= 0.5
+    y = x * scale
     term = complex(reciprocal[order])
     total = term
     for m in range(1, _SERIES_TERMS):
         term = term * y * inverse_terms[m]
         total = total + term
         # Each later term is below |y| / (m + order) of this one, |y| <= 1/2: once
-        # this one is under a quarter ulp of the sum, the rest cannot change it.
-        if abs(term) <= 0.25 * _EPSILON * abs(total):
+        # this one is under a quarter ulp of the sum, the rest cannot change it. The
+        # test compares squared magnitudes, which differ from abs's only in the test's
+        # own rounding, so a term below a quarter ulp may be added once more or less.
+        term_norm = term.real * term.real + term.imag * term.imag
+        total_norm = total.real * total.real + total.imag * total.imag
+        if term_norm <= _QUARTER_ULP_SQUARED * total_norm:
             break
     out[order] = total
     for k in range(order - 1, 0, -1):
@@ -185,11 +196,13 @@ def _phi(  # noqa: PLR0913, PLR0917 - buffers are a kernel's parameters
         for k in range(order + 1):
             old[k] = out[k]
         out[0] = old[0] * old[0]
+        half = 1.0  # 2**-k, exact
         for k in range(1, order + 1):
+            half *= 0.5
             total = old[0] * old[k]
             for i in range(1, k + 1):
                 total = total + old[i] * reciprocal[k - i]
-            out[k] = total * (0.5**k)
+            out[k] = total * half
 
 
 class AdamsPasses(NamedTuple):

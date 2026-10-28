@@ -528,6 +528,21 @@ The first public release. It contains:
   is 24-27 % faster (`native/benchmarks/size_cliffs.py`). macOS keeps 8192 and 32,768:
   on an Apple arm64 laptop the serial stage and transforms are the faster ones at those
   sizes, and its node-chunk gain at n_t 8640 is 26 %.
+- **Native cost of the exponential Adams trial.** Without a coupled flow a trial ran up
+  to seven kernels around its one source evaluation, and an accepted step three more,
+  each a fork and a join of the thread pool when threaded. A trial is now two passes
+  around the source: the prediction with the accepted state's magnitude, and the
+  correction with the defects' norms, whose divisor it forms. An accepted step is one
+  pass, and the accepted state is never copied back. The passes take a CPU size class
+  of their own, elements times history rows: four threads from 8,192, the pool from
+  65,536 (`build_info().adams_thread_min_elements`, `adams_full_thread_elements`). So
+  the single-column capillaries, whose stages stay serial, thread them. The newest
+  history sample's compensation reuses the step's flow, bit for bit. Results move only
+  by rounding (relative field differences under 6e-10 over complete runs), and step
+  counts are unchanged. At 16 threads `rdw`, `he_rdw_averaged` and
+  `argon_blueshift_averaged` run 31 %, 23 % and 23 % faster on an AMD EPYC 7763, and
+  25 %, 25 % and 10 % faster on an Apple M5 Max. At one thread they are within 2 % of
+  before on both.
 - **Native CPU cost of the mode-averaged and modal routes' transforms.** Their two
   temporal transforms per source evaluation were planned at `FFTW_ESTIMATE`, which picks
   markedly slower codelets for long rows; they now get serial measured wisdom, as the
@@ -538,6 +553,38 @@ The first public release. It contains:
   are exact to the bit. The `gnlse_raman_shock` tracking case (16,384 points, one
   thread) costs 5.7-5.8 ms per step on an AMD EPYC 7763 (was 8.7; `numba_cpu` 6.1-6.3)
   and 2.43-2.47 ms on an Apple M5 Max (was 3.0-3.4; `numba_cpu` 2.31-2.38).
+- **Native and `numba_cpu` cost of the exponential Adams moments.** The phi-functions'
+  series stopped once a term fell under a quarter ulp of its sum, a test that took two
+  `hypot` calls a term; it now compares squared magnitudes. The halving count, the
+  powers `2^-k` and the series' divisors `1/n` come from exact running products and
+  tables rather than `log2`, `pow` and a division a term. Results move only by
+  rounding (a term under a quarter ulp may be added once more or once less) and step
+  counts are unchanged. At one thread on an Apple M5 Max the native backend runs
+  `argon_blueshift_averaged` 7 % and `he_rdw_averaged` 9 % faster, and `numba_cpu`
+  5 % and 3 % faster with bit-identical fields.
+- **Native CPU kernels over modes and frequencies use all their threads.** The native
+  CPU backend's two-dimensional kernels took Kokkos's host tiling, two rows by a whole
+  row, so a kernel over (modes, frequency bins) gave OpenMP one tile for one mode and
+  two for four, whatever the thread count. A host tile now holds about 64 samples (part
+  of a row, or whole rows when they are shorter); an execution instance with one thread
+  keeps the old tiling, and device builds are unchanged. The elementwise kernels are
+  unchanged to the bit; the boundary monitor's split-removal sum, a reduction over the
+  same policy, may now add in another order, within its rounding. At 16 threads the four-mode `rdw` tracking case with the default stepper runs
+  21 % faster on an AMD EPYC 7763 and 16-18 % faster on an Apple M5 Max; single-mode
+  cases and `RungeKutta()` change by a few per cent at most, and one-thread runs not
+  at all.
+- **Host cost of an exponential `Multistep()` step on the native backend.** Each trial
+  packed the same stage scalars into every stage row twice and formed its coefficient
+  tables from a dozen small calls. The tables now come from one call of the backend's
+  helpers (`Helpers.tables`, formed in C++ by the native record), the trial packs one
+  stage row and reuses it for its end sample, the factored defect's node polynomial is
+  expanded without `numpy.polynomial`, and the landing rule, shared with Runge-Kutta,
+  searches its targets without NumPy calls. The Python side of a trial costs 208 µs on
+  an AMD EPYC 7763 for `he_rdw_averaged` (was 471) and 151 µs for
+  `argon_blueshift_averaged` (was 374), so at one thread they run 12 % and 20 % faster;
+  on an Apple M5 Max 65 µs (was 179) and 51 µs (was 131). The steps taken are the same;
+  only the defect polynomial's coefficients move, within 2 ulp, so fields change at
+  rounding level.
 - **A single-precision step that overflows is rejected, not fatal.** An adaptive trial
   whose propagator passed binary32's `exp(88.72)` (a long step under a strong collar)
   scored a non-finite error norm, which the controller rejected and the step history

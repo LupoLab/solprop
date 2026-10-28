@@ -150,7 +150,11 @@ checks; `numba_cpu` takes `NUMBA`, the same functions compiled; `native` takes i
 `NATIVE`, C++ transcriptions (`native/include/solprop_native/chebyshev.hpp` and
 `lagrange_basis.hpp`). All three perform the same operations in the same order under
 strict arithmetic, so the rows a table keeps for its last positions are shared whichever
-filled them. Translation runs before any backend exists and keeps the shared reference:
+filled them. A record may add a third operation, an exponential Adams trial's
+coefficient tables in one call (`Helpers.tables`, the composition of
+`backends.multistep.trial_tables` over its own basis): `NATIVE` has it, in C++ beside
+the basis (`trial_tables` in `lagrange_basis.hpp`), so its resident engine forms every
+table of a trial in one call rather than a dozen; `PLAIN` and `NUMBA` compose them. Translation runs before any backend exists and keeps the shared reference:
 `clenshaw` and `PiecewiseChebyshev.__call__` without a record, and the shared functions'
 defaults, are Numba's. So is a z table's state-sized evaluation on the hosts
 (`delta_phi`, and the rate of `phi_rate` on a z table), which is not a stage scalar:
@@ -1665,8 +1669,9 @@ math mode with its test in `tests/backends/test_mlx.py`, or established by a pro
 | envelope cycle moments | closed-form ellipse, split rules with the cutoffs honoured, compensated sums, per-sample failure flag | 2.3e-6 against the oracle's adaptive moments (budget 2e-6 each) |
 | matrix products | `MLX_ENABLE_TF32=0` at import; `gemm_probe` at construction, bound `2**-17` | 2e-7 float32 against 7e-4 TF32 |
 
-**Measured MLX behaviour that shaped the backend.** The GPU FFT is about three times
-less accurate than NumPy's float32 transform and its round trip shrinks by 1–2e-7, a
+**Measured MLX behaviour that shaped the backend.** The GPU FFT is 2.0 to 2.6 times less
+accurate than SciPy's binary32 transform at powers of two, and 3.1 to 4.0 times at
+2-3-5-smooth sizes (Apple M5 Max), and its round trip shrinks by 1–2e-7, a
 coherent bias; the split-step collar is therefore applied as the correction
 `a + F(F^-1(a)(f - 1))`, which only the collar's bins see. Graph lifetimes: below
 `memory.MLX_GRAPH_BUDGET` (1 GiB) a whole step is one graph, read with its norm in one

@@ -295,6 +295,15 @@ that a real fork passes. Seeded noise arrays are inputs: arithmetic comparisons 
 same stored launch and noise arrays on both sides, and the generator itself stays
 reproducible.
 
+**Fixtures and the defaults.** Most tests pass `noise=None`, so that a run compares
+deterministically; noise is tested where it is the subject. Some pin the time-window
+geometry of before [SEP 21](seps/archive/sep-0021-absorbing-boundaries.md) through
+`tests/legacy_geometry.py` (`LEGACY_GRID`, `bare_absorber`). Pin it only where a stored
+measurement depends on it (a convergence record, a Luna witness, a frozen cross-backend
+comparison) and say which in a comment: it is the one compatibility option solprop keeps
+(ADR-051). Every route and backend keeps at least one test at the default geometry,
+noise and stepper.
+
 ## 5. Reference data
 
 Recorded numerical states are compared at a tolerance, not by digest, so no record is tied

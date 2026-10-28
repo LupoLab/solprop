@@ -1675,9 +1675,12 @@ class CoherentWall(Displayed):
     scale or a measured curve is refused by name rather than discarded. It is derived
     for the full capillary model, so ``model="reduced"`` is refused too. It needs the
     contiguous ``HE_11`` to ``HE_1N`` set, whose every channel declares the same radius
-    and density profiles and whose profiles carry analytic derivatives, a scalar run and
-    no noise model; all three backends execute the ``linear.coupled_flow`` leaf it
-    becomes (``method="cf4"`` on ``numpy_ref`` alone).
+    and density profiles and whose profiles carry analytic derivatives, and a scalar
+    run. It carries the default ``"input"`` noise, drawn in the channel basis at the
+    entrance and propagated like any field, and refuses the ``"modified"`` model, whose
+    transport through a nonunitary coupled flow is not measured. All three backends
+    execute the ``linear.coupled_flow`` leaf it becomes (``method="cf4"`` on
+    ``numpy_ref`` alone).
 
     **The vector boundary response** is ``impedance="te_tm"``. The scalar
     block above condenses one *impedance-averaged* Robin condition, which is what a

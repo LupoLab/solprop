@@ -85,10 +85,10 @@ and plasma, and a GNLSE fibre, on a terminal:
 
 ```text
 Starting propagation from z = 0 m to 10 mm
-  solprop:        commit 2384dffe10ad, modified (main, installed as 0.0.1.dev240+gc0950602)
+  solprop:        commit fbc01170e186, modified (docs/release-records, installed as 0...
   machine:        arm64, Apple M5 Max, 18 CPUs (18 usable), 128 GiB, Darwin 27.0.0
-  backend:        numba_cpu
-  threads:        1 kernel, 1 FFTW; budget 18 (affinity)
+  backend:        numpy_ref
+  threads:        1 (NumPy reference); budget 18 (affinity)
   precision:      double
   grid:           field, 4096 points, window 683.1 fs, band 150 nm to 4 um
   representation: mode-averaged, one mode, scalar
@@ -97,16 +97,16 @@ Starting propagation from z = 0 m to 10 mm
   responses:      Kerr, third harmonic
                   plasma (Ar), rate optmat recommended
                   Raman off
-  shot noise:     input model, seed 7
+  shot noise:     input model (default), seed 7
   integrator:     Multistep, variable order up to 5, exponential formulation
-  propagator:     recompute
+  propagator:     tabulate
   tolerances:     rtol 1e-06, atol 1e-10, dz_max 5 mm
-  absorber:       temporal, nonlinear scheme
+  absorber:       temporal, nonlinear scheme; edges watched (guards 0.05 of the window, budget 1e-03)
   save planes:    2 after the entrance, 5 mm to 10 mm
   output:         HDF5Output run.h5
   start:          new run
-finished at z = 1.000000e-02 m: 229 steps (2 rejected) in 1.16 s, achieved/requested tolerance ratio 8.414e-01
-resources: 1.21 s wall, 1.19 s CPU, process peak memory 412 MiB
+finished at z = 1.000000e-02 m: 228 steps (0 rejected) in 0.64 s, achieved/requested tolerance ratio 8.862e-01
+resources: 0.642 s wall, 0.592 s CPU, process peak memory 268 MiB
 
 Starting propagation from z = 0 m to 50 mm
   ...
@@ -114,7 +114,10 @@ Starting propagation from z = 0 m to 50 mm
   medium:         fibre, gamma 0.11 /W/m
   responses:      Kerr
                   Raman off
-  shot noise:     off
+  shot noise:     input model (default), seed 7
+  integrator:     RungeKutta (DOPRI5)
+  propagator:     tabulate
+  tolerances:     rtol 1e-07, atol 1e-14, dz_max 25 mm
   ...
 ```
 
@@ -128,7 +131,15 @@ several runs includes the earlier ones and on a device does not count device mem
 The same values are in the file ([provenance](../results/provenance.md#the-machine-and-what-a-run-spent)).
 
 Raman is always named, `off` when the run has none, with the fraction held back from the
-Kerr term when it is on; shot noise is always named, with its model and seed or `off`.
+Kerr term when it is on; shot noise is always named, with its model and seed or `off`,
+and `(default)` when the model came from the `noise` keyword's default; a default that
+resolved to no noise says why, as in `off (default: a Cartesian or line run carries no
+noise by default: ...)`. A line longer than 88 characters is cut short with `...`, as the
+`solprop` line is above (the `absorber` line is shown in full, as the output records it);
+the output keeps every value in full, in its `run_summary` annotation
+([provenance](../results/provenance.md)). The `absorber` line also says whether the run
+watches its window's edges
+([watching the window's edges](../numerics/boundaries.md#watching-the-windows-edges)).
 `start` says `new run` or where a resume continues from. The block is built from the
 translated problem and the run's metadata
 ({py:func}`~solprop.driver.summary.run_summary`), so it describes the run as it will

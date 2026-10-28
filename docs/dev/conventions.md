@@ -107,8 +107,10 @@ conversion sites; no propagation kernel converts amplitudes.
 
 ## 3. Grids
 
-**Time axis**: `t_n = (n − n_t/2) δt`, `n = 0 … n_t − 1`, centred on zero; `n_t` even (a power
-of two by default, or an even 2-3-5-smooth size on request).
+**Time axis**: `t_n = (n − n_t/2) δt`, `n = 0 … n_t − 1`, centred on zero; `n_t` even and
+2-3-5-smooth. `fft_size="auto"`, the default, takes the cheapest such size by the transform-cost
+model (`grid.fft_cost`) between the requirement and the next power of two; `"pow2"` and `"smooth"`
+take the next power of two or the next such size.
 
 **Field grid** (`FieldGrid`, real `E(t)`): the state is the one-sided spectrum on
 `ω_k = k δω`, `k = 0 … n_t/2`, so `n_omega = n_t/2 + 1` and `δω = 2π/(n_t δt)`. Construction
@@ -119,8 +121,10 @@ from the wavelength limits `(λ_min, λ_max)` and the requested window `trange` 
 - the **fine** grid is sampled at `ffac × f_max` (`δt_fine = 1/(ffac f_max)`, or the user's
   `δt` if finer); `ffac = 6` by default so that a cubic response (`E³`, reaching `3ω_max`)
   is resolved; `ffac = 4` suffices for a response without third harmonic; `ffac ≥ 2`;
-- `n_to` = the transform size ≥ `trange/δt_fine`; the realised window is
-  `trange_even = n_to δt_fine` and `δω = 2π/trange_even` on both grids;
+- `n_to` = the transform size ≥ `trange/((1 − 2 collar_fraction) δt_fine)`, room for the
+  temporal collar outside the request (`collar_fraction = 0.1` by default; `trange/δt_fine`
+  under `collar_placement="inside"`); the realised window is `trange_even = n_to δt_fine` and
+  `δω = 2π/trange_even` on both grids;
 - the coarse grid keeps the fine bins up to the first `ω > ω_max_win`, its size `n_t` rounded
   up to the smallest even divisor of `n_to` (so `2^k + 1` bins on a power-of-two grid; clamped
   to the fine grid); `δt = π/ω[−1]`, `n_t = 2 (n_omega − 1)`;
@@ -146,10 +150,12 @@ processing shifts for display), with `ω₀ = 2πc/λ_ref`. Construction (Luna `
 in-band region is `[ω_min, ω_max]`. The spectral collar is a Planck taper rising over
 `[ω_min/2, ω_min]` and falling over `[ω_max, 1.1 ω_max]`; the temporal collar is a Planck
 taper rising over `[t_min, −t_flat]` and falling over `[t_flat, t_max]`, with
-`t_flat = min(trange/2, (T/2)(1 − 2 collar_fraction))`: flat over the requested window, or
-less where FFT rounding leaves too little room outside it, so each collar has a guaranteed
-minimum width (a fraction `collar_fraction` of the window; Luna's power-of-two grids had
-none) and can reach inside the requested window. In
+`t_flat = min(trange/2, (T/2)(1 − 2 collar_fraction))`. The grid realises
+`T ≥ trange/(1 − 2 collar_fraction)`, so `t_flat = trange/2`: the whole request is flat and
+each collar, at least a fraction `collar_fraction` of the window (Luna's power-of-two grids had
+no minimum), lies outside it (SEP 21, ADR-057). Only `collar_placement="inside"`, which
+realises the request rounded up and is kept to reproduce frozen witnesses, can put the
+collar inside the requested window. In
 solprop these profiles become **rates** (ADR-007); the hard band limit outside the active
 mask is a 0/1 mask.
 
