@@ -595,9 +595,9 @@ The first public release. It contains:
   builds are unchanged. The absorber split's factor is formed once a sample instead of
   once an element, on every build. `SOLPROP_NATIVE_VECTOR_MATH` selects the route, and
   `build_info().vector_math` records it. Steps taken are the same and fields change only
-  by rounding. At one thread on an AMD EPYC 7763 the tracking cases run 1 to 19 % faster
-  (`gnlse_raman_shock` 19 %, `argon_blueshift_averaged` 14 % with `RungeKutta()` and
-  6 % with the default, `he_rdw_averaged` 10 %, `rdw` 7 to 8 %; geometric mean 9 %).
+  by rounding. At one thread the tracking cases run 11 % faster on an AMD EPYC 7763 (geometric
+  mean; 6 to 19 %, `gnlse_raman_shock` most) and 7 % on an AMD EPYC 9B45, and 5 % at
+  sixteen threads there; an Apple M5 Max is unchanged.
 - **A single-precision step that overflows is rejected, not fatal.** An adaptive trial
   whose propagator passed binary32's `exp(88.72)` (a long step under a strong collar)
   scored a non-finite error norm, which the controller rejected and the step history

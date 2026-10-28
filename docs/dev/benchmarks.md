@@ -469,26 +469,28 @@ deviations. Every arm took the same steps; final fields differ from the parent's
 4e-15 to 6e-11 relative, the run-to-run spread of FFTW's measured plans (a candidate
 with this change's arithmetic on the libm route differs as much).
 
-**Two-socket AMD EPYC 7763** (Zen 3, AVX2; 16 cores of a shared node, GCC 16.2, FFTW
-3.3.11, OpenBLAS 0.3.34, Kokkos 5.2.1 OpenMP, a local build, so SLEEF's AVX2
-functions), one thread. The libm row is this change built with
-`SOLPROP_NATIVE_VECTOR_MATH=SCALAR`, which keeps each element's calls: an A/A-like
-control.
+**Two-socket AMD EPYC 7763** (Zen 3, AVX2; 16 cores of a shared node, glibc 2.34, GCC
+16.2, FFTW 3.3.11, OpenBLAS 0.3.34, Kokkos 5.2.1 OpenMP, a local build, so SLEEF's AVX2
+functions), one thread, this change's final revision, two rounds:
 
-| case | stepper | before (s) | vector maths | libm route |
-|---|---|---:|---:|---:|
-| `gnlse_raman_shock` (0.3) | RK | 18.81 ± 0.05 | −19.2 % | +0.3 % |
-| `argon_blueshift_averaged` | RK | 2.955 ± 0.014 | −13.9 % | +0.4 % |
-| `argon_blueshift_averaged` | default | 8.340 ± 0.003 | −5.5 % | +0.4 % |
-| `he_rdw_averaged` | RK | 1.369 ± 0.010 | −10.3 % | +1.2 % |
-| `he_rdw_averaged` | default | 2.353 ± 0.008 | −10.1 % | +0.3 % |
-| `h2_raman_averaged` (0.5) | RK | 2.854 ± 0.004 | −9.0 % | +0.8 % |
-| `rdw` (0.3) | RK | 7.704 ± 0.039 | −6.9 % | +2.2 % |
-| `rdw` (0.3) | default | 5.369 ± 0.035 | −8.2 % | +1.1 % |
-| `radial_filament_256` (0.3) | RK | 8.986 ± 0.058 | −5.4 % | −1.2 % |
-| `radial_filament_256` (0.3) | default | 6.304 ± 0.065 | −1.4 % | +0.8 % |
-| `argon_blueshift_envelope` | RK | 1.673 ± 0.010 | −5.2 % | +0.9 % |
-| geometric mean | | | **−8.8 %** (conservative 0.925) | +0.7 % |
+| case | stepper | before (s) | vector maths |
+|---|---|---:|---:|
+| `gnlse_raman_shock` (0.3) | RK | 18.84 ± 0.02 | −19.4 % |
+| `argon_blueshift_averaged` | RK | 2.947 ± 0.015 | −17.2 % |
+| `argon_blueshift_averaged` | default | 8.235 ± 0.003 | −6.2 % |
+| `he_rdw_averaged` | RK | 1.365 ± 0.003 | −12.4 % |
+| `he_rdw_averaged` | default | 2.338 ± 0.009 | −10.5 % |
+| `h2_raman_averaged` (0.5) | RK | 2.866 ± 0.002 | −10.1 % |
+| `rdw` (0.3) | RK | 7.679 ± 0.012 | −14.4 % |
+| `rdw` (0.3) | default | 5.313 ± 0.012 | −11.4 % |
+| `radial_filament_256` (0.3) | RK | 8.915 ± 0.010 | −7.8 % |
+| `radial_filament_256` (0.3) | default | 6.261 ± 0.025 | −5.9 % |
+| `argon_blueshift_envelope` | RK | 1.665 ± 0.006 | −5.7 % |
+| geometric mean | | | **−11.1 %** (conservative 0.896) |
+
+An earlier revision, three rounds, with a third arm built with
+`SOLPROP_NATIVE_VECTOR_MATH=SCALAR` (this change's arithmetic on the libm route, an
+A/A-like control): that arm's geometric mean was +0.7 % and its cases −1.2 to +2.2 %.
 
 The free-space routes, the same machine and protocol, one thread, with the low-storage
 flows and the split factor: `spatial_absorber` (0.5) −12.2 %, `radial_filament_256`
@@ -496,6 +498,44 @@ flows and the split factor: `spatial_absorber` (0.5) −12.2 %, `radial_filament
 `kerr_beam_192` (0.5) −0.9 % (inside its spread); geometric mean −3.9 %. Sixteen-thread
 runs on that node, which other jobs shared, scattered by more than the effect (one
 case's arms spread by 30 %), and are not reported.
+
+**AMD EPYC 9B45** (Zen 5, AVX-512; a cloud instance of 16 cores without SMT, glibc
+2.39, GCC 14.2, Ubuntu's FFTW 3.3.10 and OpenMP OpenBLAS 0.3.26), local builds at
+`-march=native`; the AVX2 rows with `-mno-avx512f` too, so the AVX2 base is the
+reference. One thread, three rounds:
+
+| case | stepper | before, AVX2 (s) | vector maths, AVX2 | AVX-512F (opt-in) |
+|---|---|---:|---:|---:|
+| `gnlse_raman_shock` (0.3) | RK | 10.42 ± 0.03 | −21.3 % | −29.2 % |
+| `argon_blueshift_averaged` | RK | 1.581 ± 0.003 | −10.9 % | −15.8 % |
+| `argon_blueshift_averaged` | default | 4.424 ± 0.004 | −6.2 % | −13.1 % |
+| `he_rdw_averaged` | RK | 0.765 ± 0.011 | −6.2 % | −8.7 % |
+| `he_rdw_averaged` | default | 1.295 ± 0.014 | −10.8 % | −18.1 % |
+| `h2_raman_averaged` (0.5) | RK | 1.546 ± 0.003 | −10.3 % | −14.7 % |
+| `rdw` (0.3) | RK | 3.873 ± 0.012 | +4.9 % | +2.2 % |
+| `rdw` (0.3) | default | 3.123 ± 0.001 | −2.5 % | −6.6 % |
+| `radial_filament_256` (0.3) | RK | 5.026 ± 0.012 | −4.3 % | −6.1 % |
+| `kerr_beam_192` (0.5) | default | 5.071 ± 0.036 | +2.0 % | +0.5 % |
+| geometric mean | | | **−6.8 %** (conservative 0.945) | −11.4 % (0.900) |
+
+The AVX-512 base was itself 2.0 % faster than the AVX2 base, so AVX-512F's functions
+save 9.8 % against it. At sixteen threads, the AVX2 builds, two rounds, six cases:
+geometric mean −5.3 % (conservative 0.983), `argon_blueshift_averaged` −10.9 % (RK) and
+−11.3 % (default), `he_rdw_averaged` −6.9 % (RK) and −1.5 % (default), `rdw` −0.9 %
+(RK) and +0.2 % (default). **An Intel Xeon of the Ice Lake generation** (a cloud instance of
+16 cores without SMT, the same software), one to two rounds and noisier: the AVX2
+functions −3.7 %, the AVX-512F functions +2.9 % (`he_rdw_averaged` with RK +21 %,
+`rdw` with RK +12 %). The AVX2 functions are therefore the default, AVX-512F an opt-in.
+
+`rdw` with RK lost 3 to 5 % on both cloud machines, against a 7 % gain on the EPYC
+7763, whose glibc (2.34) is older and slower. The label timer put it in the band plasma
+column (1.92 s → 2.21 s), whose block passes staged every sample's magnitude, rate and
+fraction: most of the pulse's samples lie outside the rate table and cost about a
+nanosecond each, as much as the staging. Writing the rows as the classifying loop goes
+and gathering only the live samples for the vector calls took the Zen 5 machine's
+`rdw` with RK to −4.7 % (from +4.4 %), `argon_blueshift_averaged` to −14.1 % (RK) and
+−6.8 % (default) and `he_rdw_averaged` with RK to −11.4 %, three rounds; the tables
+above predate that change.
 
 **Apple M5 Max**, a machine in ordinary use (labelled A/B), one thread: this change's
 default (the system libm, each element's own calls) against the parent, geometric mean
