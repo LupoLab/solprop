@@ -97,6 +97,17 @@ def test_a_spectral_range_crops_the_density(output):
     assert density.shape == x.shape
 
 
+@pytest.mark.parametrize("resolution", [None, 5e12])
+def test_a_spectral_range_that_selects_nothing_is_refused_naming_its_axis(
+    output, resolution
+):
+    """Metres on the frequency axis, the obvious slip, name the axis and its units."""
+    with pytest.raises(ProcessingError, match=r"selects nothing on the 'f' axis.* Hz"):
+        fields.get_spectral_density(
+            output, "f", plane=0, spec_range=(600e-9, 1.1e-6), resolution=resolution
+        )
+
+
 def test_the_time_domain_convention_switch_is_a_conjugation(output):
     _, optics = fields.get_field(output, plane=0, convention="optics")
     _, internal = fields.get_field(output, plane=0, convention="fft")
