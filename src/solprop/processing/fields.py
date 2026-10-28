@@ -266,7 +266,8 @@ def get_spectral_density(  # noqa: PLR0913 - the abscissa and the smoothing on t
     ------
     solprop.exceptions.ProcessingError
         If ``noise_floor`` is not one of :data:`NOISE_FLOORS`, or is ``'subtract'``
-        for a run without input noise.
+        for a run without input noise, or if ``spec_range`` selects no sample of the
+        abscissa (a range in another axis's units, say).
 
     Examples
     --------
@@ -293,6 +294,8 @@ def get_spectral_density(  # noqa: PLR0913 - the abscissa and the smoothing on t
         # The wavelength abscissa decreases where omega increases; both are reversed so
         # that every accessor hands back an ascending axis.
         x, density = x[::-1], density[..., ::-1]
+    if spec_range is not None:
+        _check_spec_range(x, spec_range, axis)
     if resolution is not None:
         # Integrating in omega with a window evaluated on the target axis is the same
         # sum as the target-axis integral with the measure d omega / |d omega / dx|.
@@ -306,6 +309,45 @@ def get_spectral_density(  # noqa: PLR0913 - the abscissa and the smoothing on t
         inside = (x >= min(spec_range)) & (x <= max(spec_range))
         return x[inside], density[..., inside]
     return x, density
+
+
+_AXIS_UNITS: dict[SpectralAxis, str] = {"omega": "rad/s", "f": "Hz", "wavelength": "m"}
+"""The SI unit of each spectral abscissa, for messages."""
+
+
+def _check_spec_range(
+    x: Float[np.ndarray, " n_x"], spec_range: tuple[float, float], axis: SpectralAxis
+) -> None:
+    """Refuse a ``spec_range`` that selects no sample of the abscissa.
+
+    Without it the density came back empty, and a plot failed later inside NumPy with
+    a message that named neither the range nor its units.
+
+    Parameters
+    ----------
+    x : numpy.ndarray
+        The abscissa, ascending, in the units of ``axis``.
+    spec_range : tuple of float
+        The requested limits, in either order.
+    axis : {'wavelength', 'f', 'omega'}
+        The abscissa's name.
+
+    Raises
+    ------
+    solprop.exceptions.ProcessingError
+        If no sample of ``x`` lies within the limits.
+    """
+    low, high = min(spec_range), max(spec_range)
+    if np.any((x >= low) & (x <= high)):
+        return
+    unit = _AXIS_UNITS[axis]
+    msg = (
+        f"spec_range {spec_range!r} selects nothing on the {axis!r} axis, whose data "
+        f"span {float(x[0]):.6g} to {float(x[-1]):.6g} {unit}; give the range in "
+        f"{unit}, or choose the axis it is in (m for 'wavelength', Hz for 'f', rad/s "
+        "for 'omega')"
+    )
+    raise ProcessingError(msg)
 
 
 def get_field(  # noqa: PLR0913 - a plane, a mode set, a representation and a window

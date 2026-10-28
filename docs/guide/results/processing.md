@@ -48,7 +48,8 @@ bin, remembering that a field grid then includes the zero-frequency bin, where a
 wavelength is undefined and asking for one raises.
 
 And one rule about what does *not* happen: no window is applied unless the call asks for
-one. `bandpass` is an explicit keyword, it is a pair of wavelengths or an array, and
+one. `bandpass` is an explicit keyword, it is a pair of wavelengths, a
+{py:class}`~solprop.processing.spectra.Passband` on any spectral axis or an array, and
 nothing is filtered without it; no accessor applies a window of its own or chooses its
 limits for you.
 

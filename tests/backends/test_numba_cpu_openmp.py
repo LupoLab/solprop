@@ -9,6 +9,7 @@ function tested here over its whole table. The import itself is checked in a fre
 interpreter, because in this one pyFFTW was loaded long ago.
 """
 
+import importlib.util
 import json
 import os
 import subprocess
@@ -49,9 +50,16 @@ def test_the_policy_is_set_only_on_linux_when_nothing_else_decides_it(
     assert openmp.wait_policy(platform, environ, loaded=loaded) == expected
 
 
+NATIVE_INSTALLED = importlib.util.find_spec("solprop_native") is not None
+
+
 @pytest.mark.parametrize("given", [None, "active"])
 def test_the_import_restores_the_environment_it_found(given):
-    """The variable is pyFFTW's alone: a runtime loaded afterwards reads the user's."""
+    """The variable is pyFFTW's alone: a runtime loaded afterwards reads the user's.
+
+    On macOS with solprop-native installed, the native package is imported first and
+    leaves its own passive default in the environment, which pyFFTW's runtime reads.
+    """
     environ = {
         key: value
         for key, value in os.environ.items()
@@ -59,6 +67,9 @@ def test_the_import_restores_the_environment_it_found(given):
     }
     if given is not None:
         environ["OMP_WAIT_POLICY"] = given
+    expected = dict(environ)
+    if openmp.native_first(sys.platform, installed=NATIVE_INSTALLED, loaded=False):
+        expected.setdefault("OMP_WAIT_POLICY", "passive")
     script = (
         "import json, os, sys\n"
         "from solprop.backends.numba_cpu import openmp\n"
@@ -73,9 +84,56 @@ def test_the_import_restores_the_environment_it_found(given):
         check=True,
     )
     after, policy, imported = json.loads(result.stdout.splitlines()[-1])
-    assert after == given
+    assert after == expected.get("OMP_WAIT_POLICY")
     assert imported
-    assert policy == openmp.wait_policy(sys.platform, environ, loaded=False)
+    assert policy == openmp.wait_policy(sys.platform, expected, loaded=False)
+
+
+@pytest.mark.parametrize(
+    ("platform", "installed", "loaded", "expected"),
+    [
+        ("darwin", True, False, True),
+        ("darwin", False, False, False),
+        ("darwin", True, True, False),
+        ("linux", True, False, False),
+        ("win32", True, False, False),
+    ],
+)
+def test_the_native_backend_loads_before_pyfftw_only_on_macos(
+    platform, installed, loaded, expected
+):
+    """Only macOS refuses the native import after pyFFTW's; too late is left alone."""
+    assert openmp.native_first(platform, installed=installed, loaded=loaded) == expected
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin" or not NATIVE_INSTALLED,
+    reason="macOS refuses the native import after pyFFTW; needs solprop-native",
+)
+def test_a_numba_cpu_import_leaves_the_native_backend_importable():
+    """pyFFTW's import loads the native backend first, which then imports cleanly.
+
+    Before, ``numba_cpu`` imported pyFFTW alone, and a later default (native) run in
+    the same process failed with the native package's import-order refusal.
+    """
+    code = (
+        "import json, sys\n"
+        "from solprop.backends.numba_cpu import openmp\n"
+        "loaded = 'solprop_native' in sys.modules\n"
+        "import solprop_native\n"
+        "print(json.dumps([openmp.NATIVE_FIRST, loaded]))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={
+            key: value for key, value in os.environ.items() if key != "PYTHONWARNINGS"
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout.splitlines()[-1]) == [True, True]
 
 
 @pytest.mark.parametrize(

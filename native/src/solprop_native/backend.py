@@ -117,7 +117,7 @@ from solprop.translate.stage import (
 )
 from solprop.translate.tdse import TDSEPurpose
 
-from . import THREAD_BUDGET, WAIT_POLICY, _core, build_info, check_build
+from . import PROC_BIND, THREAD_BUDGET, WAIT_POLICY, _core, build_info, check_build
 from ._helpers import NATIVE
 
 type ComplexArray = npt.NDArray[np.complex128]
@@ -1359,6 +1359,7 @@ class NativeBackend(StepDriver[_core.State]):
             "thread_budget": THREAD_BUDGET.threads,
             "thread_budget_source": THREAD_BUDGET.source,
             "openmp_wait_policy": WAIT_POLICY,
+            "openmp_proc_bind": PROC_BIND,
             "planning_seconds": self._native_state.planning_seconds,
             "raman_fft_provider": self._native_state.raman_fft_provider,
             "raman_fft_tasks": self._native_state.raman_fft_tasks,

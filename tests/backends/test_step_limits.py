@@ -178,8 +178,12 @@ def test_a_coarser_table_moves_an_uncapped_run_far_less_than_its_tolerance(
 ):
     # SEP 14 section 4.1's independent table refinement: with steps crossing the
     # operator table's intervals, the table's own error must stay hidden below the
-    # run's. A table built to 1e-9 instead of 1e-12 moves the exit field by 3.3e-10 at
-    # rtol=1e-6 (1.6e-7 at 1e-3): bounded at 1e-8, a hundredth of the tolerance.
+    # run's. A table built to 1e-9 instead of 1e-12 moves the exit field by 3.6e-14 at
+    # rtol=1e-6: bounded at 1e-8, a hundredth of the tolerance. The collar is applied
+    # by the split scheme so that no in-stage stiff term holds the Adams order: the
+    # march climbs to order 5 and its steps cross the intervals uncapped. With the
+    # in-stage collar the order is held at 3, and the two adaptive runs then differ by
+    # their step selection (3e-9 to 4e-8 across dependency versions), not by the table.
     def exit_field(tol):
         monkeypatch.setattr(simulation_module, "assemble", partial(assemble, tol=tol))
         fill = steady_fill("He", [0.0, 2.1, 4.2], [0.0, 0.2, 0.0], radius=256e-6)
@@ -196,6 +200,7 @@ def test_a_coarser_table_moves_an_uncapped_run_far_less_than_its_tolerance(
             rtol=1e-6,
             n_save=2,
             noise=None,
+            absorber_scheme="split_step",
             backend="numpy_ref",
         ).run()
         return output.fields(convention="fft")[-1]

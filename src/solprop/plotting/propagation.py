@@ -113,11 +113,13 @@ def prop_2d(  # noqa: PLR0913 - the two axes, the two ranges and the colour scal
     output : solprop.output.schema.Output
         An opened output handler.
     axis : {'f', 'wavelength', 'omega'}
-        Spectral abscissa of the left panel.
+        Spectral abscissa of the left panel; frequency, in Hz, by default, where the
+        other plots default to wavelength.
     spec_range : tuple of float or None
         Spectral limits in the units of ``axis``: m, Hz or rad/s. By default
         :data:`DEFAULT_WAVELENGTH_RANGE` on that axis;
         :func:`~solprop.plotting.style.wavelength_to_axis` converts a wavelength range.
+        A range that selects no sample of the axis is refused.
     trange : tuple of float
         Time limits, s.
     db_min : float

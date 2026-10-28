@@ -2,9 +2,10 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# The release wheels of solprop-native, built, repaired, qualified and (on a release
-# tag, once enabled) published. The recipe is docs/dev/releasing.md; cibuildwheel's
-# configuration is in native/pyproject.toml and the dependency scripts in native/ci/.
+# The release wheels of solprop-native, built, repaired and qualified, and solprop's own
+# distributions, built and installed; on a release tag, once enabled, both published.
+# The recipe is docs/dev/releasing.md; cibuildwheel's configuration is in
+# native/pyproject.toml and the dependency scripts in native/ci/.
 name: Wheels
 
 # The native code itself is tested on every change by CI's native jobs; this workflow
@@ -212,46 +213,77 @@ jobs:
           print(message)
           "
 
-  # solprop's own distributions (pure Python): sdist and wheel.
+  # solprop's own distributions (pure Python): sdist and wheel, each then installed from
+  # the file in a fresh environment, outside the checkout, and given the installation
+  # page's check (docs/introduction/installation.md). It imports at the files' version,
+  # which on a release tag is the tag's; `backend="auto"` resolves to numba_cpu for the
+  # wheel alone and to native with the `native` extra, whose pin (hatch_build.py) this
+  # run's Linux x86-64 wheel meets before anything is published.
   solprop-dist:
+    needs: build
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - run: uv python install 3.14
       - run: uv build --package solprop --out-dir dist
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: solprop-dist
           path: dist/*
           if-no-files-found: error
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: wheel-linux-x86_64
+          path: wheelhouse
+      - name: Install each distribution and check it
+        working-directory: ${{ runner.temp }}
+        env:
+          DIST: ${{ github.workspace }}/dist
+          WHEELHOUSE: ${{ github.workspace }}/wheelhouse
+          CHECK: |
+            import sys
+
+            import optmat
+
+            import solprop
+            from solprop.backends.registry import available, resolve_name
+
+            version, backend = sys.argv[1:]
+            print("solprop", solprop.__version__, "with optmat", optmat.__version__)
+            print("backends:", available(), "- auto means", resolve_name("auto"))
+            assert solprop.__version__ == version, f"expected solprop {version}"
+            assert resolve_name("auto") == backend, f"expected auto to mean {backend}"
+        run: |
+          sdist=$(echo "$DIST"/solprop-*.tar.gz)
+          wheel=$(echo "$DIST"/solprop-*.whl)
+          version=$(basename "$sdist" .tar.gz)
+          version=${version#solprop-}
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$version" != "${GITHUB_REF_NAME#v}" ]; then
+            echo "::error::the distributions are solprop $version, the tag $GITHUB_REF_NAME"
+            exit 1
+          fi
+          check() { # environment, requirement, what backend="auto" must resolve to
+            uv venv --python 3.14 "$1"
+            uv pip install --python "$1/bin/python" --find-links "$WHEELHOUSE" "$2"
+            "$1/bin/python" -I -c "$CHECK" "$version" "$3"
+          }
+          check wheel "$wheel" numba_cpu
+          check wheel-native "${wheel}[native]" native
+          check sdist-native "${sdist}[native]" native
 
   # Trusted publishing to PyPI on a release tag, one job and GitHub environment per
   # project (PyPI ties a pending trusted publisher to one project name per workflow and
-  # environment): solprop's sdist and wheel from `pypi`, and solprop-native's wheels
-  # only from `pypi-native` (no sdist: where no wheel matches, `solprop[native]` fails
-  # to resolve instead of building from source). Guarded until the PyPI projects, their
-  # trusted publishers and both environments exist and the repository variable PUBLISH
-  # is set to "true".
-  publish:
-    needs: [test, solprop-dist]
-    if: vars.PUBLISH == 'true' && startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-24.04
-    environment:
-      name: pypi
-    permissions:
-      id-token: write
-    steps:
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: solprop-dist
-          path: dist
-      - run: ls dist
-      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
-        with:
-          packages-dir: dist
-
+  # environment). solprop-native's wheels go first, from `pypi-native`, and only wheels
+  # (no sdist: where no wheel matches, `solprop[native]` fails to resolve instead of
+  # building from source). solprop's sdist and wheel follow from `pypi` once every
+  # native wheel is up: the `native` extra pins solprop-native at this version
+  # (hatch_build.py), so a failed native upload leaves no solprop release behind.
+  # Guarded until the PyPI projects, their trusted publishers and both environments
+  # exist and the repository variable PUBLISH is set to "true" (the pre-flight
+  # checklist in docs/dev/releasing.md).
   publish-native:
     needs: [test, solprop-dist]
     if: vars.PUBLISH == 'true' && startsWith(github.ref, 'refs/tags/v')
@@ -270,6 +302,24 @@ jobs:
         run: |
           ls dist
           ! ls dist/*.tar.gz 2>/dev/null
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: dist
+
+  publish:
+    needs: [test, solprop-dist, publish-native]
+    if: vars.PUBLISH == 'true' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    environment:
+      name: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: solprop-dist
+          path: dist
+      - run: ls dist
       - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
         with:
           packages-dir: dist

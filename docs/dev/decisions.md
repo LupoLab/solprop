@@ -361,7 +361,7 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-025 — Temporal absorber placement
 
-- **Status:** accepted
+- **Status:** accepted; amended by ADR-057 (the spatial routes default to the split scheme)
 - **Context:** See ADR-007. The temporal rate cannot be folded into Φ (not diagonal in ω) and
   cannot share the nonlinear polarisation's FFT because the UPPE prefactor `−iω/(2ε₀c n_eff)`
   is applied after that transform. Two exact-as-a-rate schemes exist: (a) a per-accepted-step
@@ -666,7 +666,7 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-037 — The low-call Adams method: one-call PEC, variable order
 
-- **Status:** accepted; made the default integrator by ADR-045
+- **Status:** accepted; made the default integrator by ADR-045; amended by ADR-057 (the spatial routes' default collar scheme, and an opt-in quiet collar)
 - **Context:** SEP 13 compared interaction-picture Adams methods for responses that
   dominate a run's cost: explicit Adams-Bashforth, PEC and PECE, matched and
   one-order-higher correctors, fixed and variable order. It ran them at full length on a
@@ -1054,7 +1054,8 @@ Withdrawn (development-process record, not a design decision).
   clauses of ADR-013 (batches bit-identical to sequential runs), ADR-022 (bitwise
   repeatability and thread-count invariance tests), ADR-034 (pins for the reference
   build) and ADR-039 (`numpy_ref` resumes bitwise), and restates the "bit for bit"
-  consequences of ADR-046 and ADR-047
+  consequences of ADR-046 and ADR-047; amended before the first release for device
+  builds (the last bullet)
 - **Context:** solprop required bitwise agreement in several places: two runs of one
   backend, one thread against many, a batch member against its solo run, a scan point
   against its run, a few kernels against the reference, and a `numpy_ref` resume. Backend
@@ -1093,6 +1094,19 @@ Withdrawn (development-process record, not a design decision).
   held to bands. `REFERENCE` keeps its name for its tidy and sanitizer role. There is no
   deterministic mode. Kernel changes that bitwise agreement would block are each
   qualified to their rounding budget and to SEP 16's work–precision cases.
+- **Amendment, device builds:** the protected helpers are strict on CPU builds only.
+  CUDA and HIP builds leave the strict blocks empty (`SOLPROP_NATIVE_STRICT_FUNCTION`
+  and `SOLPROP_NATIVE_STRICT_BLOCK` in `native/include/solprop_native/fp.hpp`, under
+  `__CUDACC__` or `__HIPCC__`, which includes nvcc's host pass) and follow their
+  compilers' contraction defaults; `build_info().optimization_policy` records
+  "compiler-default contraction". On a device the φ series, the phase sums, the
+  compensated defects and the ionised fraction may therefore contract; lossless copies
+  and sums are unaffected. Device accuracy is bounded by the measured device envelopes
+  of the GPU tests (`pytest -m gpu`) against the oracle, not by the strict-helper
+  argument. Round-to-nearest intrinsics in the protected helpers on devices (CUDA's
+  `__dmul_rn` and `__dadd_rn`, Clang's contraction pragma on HIP), with a device test
+  that a protected block does not fuse, are on the [roadmap](roadmap.md), after the
+  first release.
 
 ## ADR-050 — A replay-only low-storage march, accepted in place, with no estimate
 
@@ -1338,3 +1352,63 @@ Withdrawn (development-process record, not a design decision).
   with `OMP_WAIT_POLICY=active`, and single-team problems such as the GNLSE gain from it
   even without spare threads; the tuning guide says so. `numba_cpu` keeps its own
   passive settings for pyFFTW's and Numba's runtimes.
+
+## ADR-057 — Temporal boundaries: the collar outside the window, a watched edge, a quiet collar on request
+
+- **Status:** accepted; amends ADR-025 and ADR-037
+- **Context:** [SEP 21](seps/archive/sep-0021-absorbing-boundaries.md) changed the
+  temporal boundaries' defaults:
+  - the collar lies outside the requested window (the grid widens to
+    `trange / (1 - 2 collar_fraction)`, `collar_fraction` 0.1);
+  - transform sizes default to `fft_size="auto"`;
+  - GNLSE and spatial runs take the default collar;
+  - the spatial routes integrate it by the split scheme (D14);
+  - a boundary monitor watches the edges by default (D7, D13).
+
+  D15 also left a quiet in-stage collar out of the stages. That collar was judged above
+  the shot-noise floor, so the term was dropped while light about three times the floor
+  sat in it. Under the default input noise, a 1 W, 200 fs pulse walking into the collar
+  ended 1.6e-2 from the always-on collar's field inside the requested window, and up to
+  4 dB from its spectrum above -80 dB.
+
+  The monitor checks only committed states. A noise-free Multistep run taking 0.1 m
+  steps carried light from a quiet collar (1.6e-13 of the energy) to 3.6e-8 within one
+  step, unabsorbed, and ended 2.7e-5 from the always-on result, against 2.5e-8 with the
+  collar in.
+
+  The switch also contradicted SEP 21's own "no automatic change of scheme" and the
+  rule that a speed-up valid only under conditions the run decides is opt-in.
+- **Decision:**
+  - **The defaults above stand.** The split scheme is the default on spatial routes;
+    modal routes keep the in-stage scheme of ADR-025.
+  - **The quiet collar is opt-in:** `BoundaryCheck(quiet_collar=True)`; the default is
+    `False` (maintainer, 2026-10-28). When asked for:
+    - it rests the collar after two consecutive checks find the collar's share of the
+      whole field, floor included, below `QUIET` (1e-12);
+    - it puts the term back at the first check that finds light;
+    - while the term is out, no step is longer than the monitor's check interval
+      (`length / 256`), and the monitor adds no removal;
+    - the exponential Adams order choice ignores the collar's stability limit while
+      the term is out, and holds the first step after it returns to that limit;
+    - one rule, decided by the step driver for every backend, says where it applies: a
+      binary64 modal stage with the in-stage scheme and a temporal collar alone. The
+      low-storage march, coupled flows, the general modal route, a radial real-space
+      collar and single precision keep the collar.
+- **Why:**
+  - A run cannot know in advance whether its light stays clear, and an omission judged
+    too early is an error nothing reports. The robust default is the collar in every
+    stage.
+  - Judged on the whole field, the omitted term acts on less than 1e-12 of the energy,
+    so it moves the field by less than 1e-6 of its norm.
+  - The step cap keeps D15's premise: light must walk about twenty windows over the run
+    to cross the collar between two checks.
+- **Consequences:**
+  - Default modal runs pay the in-stage collar's transform in every stage. D15 measured
+    4.25 against 3.4 ms per step on the native GNLSE Raman/shock case.
+  - The option acts only on noise-free runs: under input noise the floor alone fills
+    the collar above the threshold. On a 2 cm noise-free GNLSE Raman/shock run whose
+    pulse stays clear, it saved 6 to 9 % per step on `numba_cpu` and `native`.
+  - On runs whose steps exceed the check interval, such as a short capillary under the
+    exponential Adams march, the cap removes the gain. A per-step check that would lift
+    the cap is on the roadmap.
+  - The monitor's record counts `collar_left_out_checks`.

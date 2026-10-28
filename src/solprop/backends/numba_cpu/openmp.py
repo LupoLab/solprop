@@ -30,9 +30,16 @@ since then that choice is theirs. It is not done either when ``pyfftw`` was impo
 before this module, because its runtime has then already read the environment.
 :data:`WAIT_POLICY` says which of these happened, and the backend's metadata records
 it as ``fftw_wait_policy``.
+
+On macOS pyFFTW's wheel carries LLVM's OpenMP runtime too, and the native backend
+refuses to load once pyFFTW is loaded (:func:`native_first`). So there, when
+solprop-native is installed, this import loads it first, and a ``numba_cpu`` run and a
+native run can share a process in either order.
 """
 
 import contextlib
+import importlib
+import importlib.util
 import os
 import sys
 import warnings
@@ -44,9 +51,11 @@ from solprop.exceptions import SolpropWarning
 __all__ = [
     "BINDING",
     "BINDING_VARIABLES",
+    "NATIVE_FIRST",
     "VARIABLES",
     "WAIT_POLICY",
     "binding_policy",
+    "native_first",
     "numba_launch",
     "pyfftw",
     "wait_policy",
@@ -190,6 +199,55 @@ def _changes(wait: str, binding: str) -> dict[str, str]:
         changes["OMP_PROC_BIND"] = "false"
     return changes
 
+
+def native_first(platform: str, *, installed: bool, loaded: bool) -> bool:
+    """Return whether the native backend must be imported before pyFFTW here.
+
+    On macOS pyFFTW's wheel and solprop-native each carry LLVM's OpenMP runtime, which
+    refuses, or crashes on, a second copy that initialised first; solprop-native
+    therefore refuses to import once pyFFTW is loaded. Without this, a ``numba_cpu``
+    run followed by a native one in the same process (a problem the native backend
+    refused, say, then a default run) failed at the native import. Loaded the other way
+    round, the two runtimes coexist.
+
+    Parameters
+    ----------
+    platform : str
+        ``sys.platform``.
+    installed : bool
+        Whether ``solprop_native`` can be found.
+    loaded : bool
+        Whether ``pyfftw`` is already imported, too late for this to help; the native
+        import's own error then says what to do.
+
+    Returns
+    -------
+    bool
+        True on macOS when solprop-native is installed and pyFFTW is not yet loaded.
+
+    Examples
+    --------
+    >>> from solprop.backends.numba_cpu.openmp import native_first
+    >>> native_first("darwin", installed=True, loaded=False)
+    True
+    >>> native_first("linux", installed=True, loaded=False)
+    False
+    """
+    return platform == "darwin" and installed and not loaded
+
+
+NATIVE_FIRST = native_first(
+    sys.platform,
+    installed=importlib.util.find_spec("solprop_native") is not None,
+    loaded="pyfftw" in sys.modules,
+)
+"""Whether this import loaded solprop-native before pyFFTW (:func:`native_first`)."""
+
+if NATIVE_FIRST:  # pragma: no cover - macOS only
+    # Its import sets the native runtime's own defaults in the environment (an
+    # OMP_WAIT_POLICY and OMP_PROC_BIND the user left unset), which pyFFTW's runtime
+    # then reads too; the policies below are read after it for that reason.
+    importlib.import_module("solprop_native")
 
 WAIT_POLICY = wait_policy(sys.platform, os.environ, loaded="pyfftw" in sys.modules)
 """How pyFFTW's OpenMP threads wait in this process (:func:`wait_policy`)."""

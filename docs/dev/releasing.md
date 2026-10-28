@@ -99,24 +99,79 @@ runs them on a processor below the baseline.
 when it is imported. LLVM's OpenMP runtime refuses, or crashes on, a second initialised
 copy, so the native package raises at import when pyFFTW is already loaded
 ([OpenMP runtimes and pyFFTW](../guide/performance/building-native.md#openmp-runtimes-and-pyfftw)).
-solprop imports both backends lazily, so a script that only calls solprop is unaffected.
+solprop imports both backends lazily, and on macOS its `numba_cpu` backend imports the
+native package, when installed, before pyFFTW, so a script that only calls solprop can
+run both backends in either order; only a script that imports pyFFTW itself first meets
+the refusal, whose message says what to do.
 `coexistence.py` expects that refusal on macOS; `--bypass-guard` adds a report-only
 scenario that hides pyFFTW from the guard, to test whether it is still needed.
 
+**solprop's distributions.** The `solprop-dist` job builds solprop's sdist and wheel and
+installs each from the file in a fresh environment, outside the checkout: the wheel
+alone, then the wheel and the sdist each with the `native` extra beside this run's
+Linux x86-64 wheel. In each it runs the check of the
+[installation page](../introduction/installation.md#checking-the-installation): solprop
+imports at the distributions' version, which on a release tag must be the tag's, and
+`backend="auto"` resolves to `numba_cpu` without the extra and to `native` with it.
+The extra pins solprop-native at solprop's own version (`hatch_build.py`), so two
+distributions built at different versions fail here, before anything is published.
+
 ## Making a release
 
-1. On `main`, with CI green, check that the changelog's `Unreleased` section describes
-   the release, then move it under the new version.
-2. Tag the release, `git tag -a vX.Y.Z`, and push the tag. The wheels workflow builds
-   and tests every wheel and builds solprop's distributions.
-3. Publishing runs on the tag once the repository variable `PUBLISH` is `true`, through
-   PyPI's trusted publishing, one job and GitHub environment per project: solprop's
-   sdist and wheel from the environment `pypi`, and solprop-native's wheels from
-   `pypi-native`. Each PyPI project names this repository, the workflow `wheels.yml` and
-   its environment as its trusted publisher (`solprop`: `pypi`; `solprop-native`:
-   `pypi-native`). PyPI ties a pending publisher to one project name per workflow and
-   environment, hence the two.
-4. Install the published release in a fresh environment, `pip install "solprop[native]"`
+### Pre-flight checklist
+
+A release tag builds and tests everything but publishes nothing until a maintainer with
+admin rights on the repository and an account on PyPI has set up publishing. Once,
+before the first tag:
+
+1. **On PyPI**, under *Your account → Publishing*, add a pending trusted publisher for
+   each project, both naming the owner `LupoLab`, the repository `solprop` and the
+   workflow `wheels.yml`:
+   - the project `solprop` with the environment `pypi`;
+   - the project `solprop-native` with the environment `pypi-native`.
+
+   PyPI ties a pending publisher to one project name per workflow and environment, hence
+   the two environments. The first upload through a pending publisher creates its
+   project.
+2. **On GitHub**, under *Settings → Environments*, give both `pypi` and `pypi-native` a
+   required reviewer, and restrict their deployments to *Selected branches and tags*
+   with the single tag rule `v*`. Without the reviewer, anyone with write access could
+   publish by pushing a tag.
+3. Under *Settings → Secrets and variables → Actions*, add the repository variable
+   `PUBLISH` with the value `true`. The publish jobs are skipped without it.
+
+Then, for every release:
+
+4. On `main`, check that the changelog's `Unreleased` section describes the release,
+   then move it under the new version. The commit that does so is the release commit.
+5. Check that CI passed on the release commit. When it merged a pull request whose head
+   has the same tree and passed CI, the push to `main` runs none of CI's lanes
+   ([CI](tooling.md#ci)), and that pull request's run is the release commit's record.
+6. With the release commit at the head of `main`, run the wheels workflow on it,
+   `gh workflow run wheels.yml --ref main`, and wait for it to pass. It is the only
+   workflow that builds and tests the Linux aarch64 wheel, and on `main` it otherwise
+   runs only weekly. On a branch the publish jobs are skipped, so this is a dry run of
+   the release.
+7. Then tag that commit, as below.
+
+### Tagging and publishing
+
+1. Tag the release commit, `git tag -a vX.Y.Z COMMIT`, and push that tag on its own,
+   `git push origin vX.Y.Z`: GitHub starts no workflow for a push of more than three
+   tags at once. The tag starts the wheels workflow again, on the tagged commit (CI
+   does not run on tags): it builds and tests every wheel, and builds solprop's
+   distributions and checks an install of each. Both publish jobs wait for every
+   wheel's `test` job and for `solprop-dist`, so the run that publishes has itself
+   tested the release commit on every wheel platform, whichever lanes CI skipped on
+   the push to `main`.
+2. Publishing, through PyPI's trusted publishing, then waits for each environment's
+   reviewer. `publish-native` uploads solprop-native's wheels from `pypi-native` first;
+   `publish` uploads solprop's sdist and wheel from `pypi` only once every native wheel
+   is up, since `solprop[native]` requires solprop-native at the same version. If an
+   upload fails partway, re-run the failed jobs: they upload the same files, and PyPI
+   accepts a file identical to one it holds. It refuses different files under a name it
+   has seen, so a release that needs a change takes a new version.
+3. Install the published release in a fresh environment, `pip install "solprop[native]"`
    on each platform, and check that `backend="auto"` resolves to `native`.
 
 The actions in the workflows are pinned by commit; when updating one, take the commit of

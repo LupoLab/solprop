@@ -47,7 +47,10 @@ public:
     coarse batch (n_t 4000) ran serially, its transforms 2.5-3.2 times slower on an
     18-core Cascade Lake socket than the 32768-sample batch's four-thread ones; 16384
     also gains on Zen 3. On an Apple arm64 laptop the serial transforms are the faster
-    ones at that size, so macOS keeps 32768 until its own crossover is swept. */
+    ones at that size, so macOS keeps 32768 until its own crossover is swept.
+   `__APPLE__` is the only platform switch here and for the stage boundary below:
+   Windows and linux-aarch64 take the x86 Linux values, which were not measured there
+   (solprop's roadmap, "Thread thresholds on Windows and linux-aarch64"). */
 #if defined(__APPLE__)
 inline constexpr std::size_t default_threaded_fft_min_samples = 32768;
 #else
@@ -125,6 +128,7 @@ enum class CpuPool { kernels, fft, raman_fft, raman_tail_fft };
 // Zen 3; at 1024 a 1351-element SSFS stage regressed. On an Apple arm64 laptop the
 // serial stage is the faster one at 8004 elements (and 4096's threaded one is already
 // dearer than 4000's serial), so macOS keeps 8192 until its own crossover is swept.
+// Windows and linux-aarch64 take the Linux value, unmeasured there.
 #if defined(__APPLE__)
 inline constexpr std::size_t stage_thread_min_elements = 8192;
 #else

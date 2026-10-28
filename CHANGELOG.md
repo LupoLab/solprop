@@ -77,9 +77,9 @@ The first public release. It contains:
   (`BoundaryWarning`) and then stops (`BoundaryError`) when light above the shot-noise
   floor reaches the edge, and records the energy the temporal collar removed (exactly
   under the split scheme) with a row per saved plane. Quiet edges are checked every
-  eighth step or every `length / 256`, and while the collar holds nothing above the
-  floor its in-stage term is left out of the stages, so a run whose light stays clear
-  pays for neither. Output schema 27 (`Absorber.spatial`,
+  eighth step or every `length / 256`. `BoundaryCheck(quiet_collar=True)` also leaves a
+  quiet in-stage collar out of the stages, judged on the whole field, floor included;
+  it is off by default, so the collar stays in every stage unless a run asks (ADR-057). Output schema 27 (`Absorber.spatial`,
   and the default collar of runs that declared none). The benchmark suite's cases take
   the new defaults at new revisions.
 - **Incident beams into general modal guides**
@@ -415,6 +415,38 @@ The first public release. It contains:
   array once with its count of elements and up to four entries of each part of the
   record with a count of the rest, and, where the noise differs, names the seed that
   draws the stored realisation.
+- **macOS: a `numba_cpu` run followed by a native run in one process.** The native
+  package refuses to import once pyFFTW is loaded on macOS, and only `numba_cpu`
+  imported pyFFTW, so a default run after a `numba_cpu` one (a problem the native
+  backend refused, say) failed with an error about imports the script never wrote. When
+  solprop-native is installed, `numba_cpu` now imports it before pyFFTW on macOS. A
+  script that imports pyFFTW itself before solprop still meets the refusal, whose
+  message now says to restart Python and import solprop first.
+- **The native backend's first run no longer prints Kokkos's `OMP_PROC_BIND` notice.**
+  Unless the user placed the threads (`OMP_PROC_BIND`, `OMP_PLACES`,
+  `GOMP_CPU_AFFINITY` or `KMP_AFFINITY`), the import sets `OMP_PROC_BIND=false`, which
+  leaves them unbound as before; the run's metadata records what applied as
+  `openmp_proc_bind`.
+- **Native FFT plans made before their wisdom.** The plasma streams' plans were made
+  before the measured wisdom was seeded and stayed at `FFTW_ESTIMATE`; every seed now
+  comes first. One plan policy decides every seed by the transform's shape and width,
+  where two helpers had applied opposite thread rules: free space's temporal pair,
+  measured only when threaded, now follows the other row transforms (measured on one
+  thread, estimate when threaded, unless `SOLPROP_FFTW_PLAN` says otherwise). Results
+  move at rounding level.
+- **A `spec_range` that misses the data is refused.** `get_spectral_density` returned
+  empty arrays, and `prop_2d` and `spec_1d` then failed inside NumPy; the refusal names
+  the axis and its units. `prop_2d` is the one plot whose axis defaults to frequency, so
+  a wavelength range given to it without `"wavelength"` is the usual cause.
+- **Packaging.** The README's image and links are absolute, so they work on PyPI for
+  both distributions; the sdist lists what it ships, so untracked files in a working
+  tree no longer go into it; both distributions name the same authors as the citation
+  record, carry Homepage, Issues and Changelog links and the classifier
+  `Development Status :: 3 - Alpha`; solprop ships `py.typed`. Python 3.15 is not yet
+  supported: solprop-native, pyFFTW and h5py have no wheels for it.
+- **Device builds' floating-point record.** CUDA and HIP builds follow their compilers'
+  contraction defaults in the protected helpers too, held to the measured device
+  envelopes; ADR-049 and the build guide now say so.
 - **Single precision's reference transforms sum in binary32.** `numpy_ref`'s
   single-precision path used NumPy's float32 transforms, which are binary64 rounded once,
   and so was more accurate than the backends it checks. Its binary32 transforms now go to

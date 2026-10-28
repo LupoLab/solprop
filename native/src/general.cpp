@@ -474,13 +474,14 @@ void tiled_update(const char* label, const ExecutionSpace& execution,
 #endif
 
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
-// Plan, then discard, a batched complex transform at that effort, leaving its wisdom.
-// It overwrites both arrays; the caller clears them.
+// Plan, then discard, a batched complex transform of transverse planes at the plan
+// policy's effort, leaving its wisdom. It overwrites both arrays; the caller clears
+// them. Row transforms are seeded by `seed_row_fft_wisdom` (fft_plan.hpp).
 inline void seed_fftw_wisdom(const ExecutionSpace& space, Complex* input,
                              Complex* output, const std::vector<int>& extents,
                              const int howmany, const int input_distance,
                              const int output_distance, const int sign) {
-  const unsigned effort = fftw_planner_effort();
+  const unsigned effort = fftw_seed_effort(FftShape::planes, space.concurrency());
   if (effort == FFTW_ESTIMATE)
     return;
   fftw_init_threads();
@@ -1849,6 +1850,7 @@ public:
   void evaluate_separable_stage(std::size_t stage, double dz);
   void seed_free_wisdom();
   void seed_modal_wisdom();
+  void seed_stream_wisdom();
   void separable_core(std::size_t stage, bool material);
   void separable_stage_input(std::size_t stage, double dz);
   void separable_load_current();
@@ -3432,8 +3434,9 @@ const ExecutionSpace& GeneralWorkspace::fft_space_for(const std::size_t samples)
 
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
 // Measured plans for free space's batched transforms (SEP 28): the transverse pair in
-// place on the scratch and, on the complex envelope, the chunk's temporal pair. The
-// scratch buffers are cleared after planning overwrote them.
+// place on the scratch and, on the complex fields, the chunk's temporal pair, each at
+// the plan policy's effort for its shape and width (`fftw_seed_effort`). The scratch
+// buffers are cleared after planning overwrote them.
 void GeneralWorkspace::seed_free_wisdom() {
   const auto planes = static_cast<int>(transverse_.extent(0));
   const auto n_y = static_cast<int>(transverse_.extent(1));
@@ -3446,21 +3449,14 @@ void GeneralWorkspace::seed_free_wisdom() {
   if (problem_.family != FieldFamily::envelope &&
       problem_.family != FieldFamily::field_analytic)
     return;
-  const auto n_to = static_cast<int>(problem_.n_to);
-  const auto rows = static_cast<int>(modal_complex_.extent(0));
-  if (fine_spectrum_.extent(1) == problem_.n_to &&
-      fft_space_for(modal_complex_.size()).concurrency() > 1) {
-    seed_fftw_wisdom(fft_space_for(modal_complex_.size()), fine_spectrum_.data(),
-                     modal_complex_.data(), {n_to}, rows, n_to, n_to, FFTW_BACKWARD);
-    Kokkos::deep_copy(execution_space_, fine_spectrum_, Complex{});
-    Kokkos::deep_copy(execution_space_, modal_complex_, Complex{});
-  }
-  if (problem_.family == FieldFamily::envelope &&
-      fft_space_for(projected_complex_.size()).concurrency() > 1) {
-    seed_fftw_wisdom(fft_space_for(projected_complex_.size()),
-                     projected_complex_.data(), projected_spectrum_.data(), {n_to},
-                     static_cast<int>(projected_complex_.extent(0)), n_to, n_to,
-                     FFTW_FORWARD);
+  // A fine spectrum wider than n_to is not a plain row pair; the helper leaves it.
+  seed_row_fft_wisdom(fft_space_for(modal_complex_.size()), fine_spectrum_,
+                      modal_complex_, KokkosFFT::Direction::backward);
+  Kokkos::deep_copy(execution_space_, fine_spectrum_, Complex{});
+  Kokkos::deep_copy(execution_space_, modal_complex_, Complex{});
+  if (problem_.family == FieldFamily::envelope) {
+    seed_row_fft_wisdom(fft_space_for(projected_complex_.size()), projected_complex_,
+                        projected_spectrum_, KokkosFFT::Direction::forward);
     Kokkos::deep_copy(execution_space_, projected_complex_, Complex{});
     Kokkos::deep_copy(execution_space_, projected_spectrum_, Complex{});
   }
@@ -3469,7 +3465,7 @@ void GeneralWorkspace::seed_free_wisdom() {
 // Measured plans for the modal routes' temporal pair, the two transforms of every
 // source evaluation: Kokkos-FFT plans them at FFTW_ESTIMATE, which picks markedly
 // slower codelets for long rows (a 16384-sample envelope GNLSE ran its pair at about
-// twice the measured cost). The shared row helper keeps the serial-only default.
+// twice the measured cost). The plan policy (`fftw_seed_effort`) decides the effort.
 void GeneralWorkspace::seed_modal_wisdom() {
   if (problem_.family == FieldFamily::field_real) {
     seed_row_fft_wisdom(fft_space_for(modal_real_.size()), fine_spectrum_, modal_real_,
@@ -3492,9 +3488,52 @@ void GeneralWorkspace::seed_modal_wisdom() {
   Kokkos::deep_copy(execution_space_, fine_spectrum_, Complex{});
   Kokkos::deep_copy(execution_space_, projected_spectrum_, Complex{});
 }
+
+// The plasma streams' forward rows, fine and coarse. Most share a shape with the
+// projected pair seeded above, whose wisdom FFTW then finds at once; the radial held
+// streams' chunk rows do not.
+void GeneralWorkspace::seed_stream_wisdom() {
+  if (held_plasma())
+    for (auto& stream : held_streams_) {
+      if (stream.projected.empty())
+        continue;
+      seed_row_fft_wisdom(fft_space_for(stream.projected.size()), stream.projected,
+                          stream.spectrum, KokkosFFT::Direction::forward);
+      Kokkos::deep_copy(execution_space_, stream.projected, 0.0);
+      Kokkos::deep_copy(execution_space_, stream.spectrum, Complex{});
+      if (stream.coarse.empty())
+        continue;
+      seed_row_fft_wisdom(fft_space_for(stream.coarse.size()), stream.coarse,
+                          stream.coarse_spectrum, KokkosFFT::Direction::forward);
+      Kokkos::deep_copy(execution_space_, stream.coarse, 0.0);
+      Kokkos::deep_copy(execution_space_, stream.coarse_spectrum, Complex{});
+    }
+  if (problem_.envelope_plasma)
+    for (auto& stream : envelope_streams_) {
+      seed_row_fft_wisdom(fft_space_for(stream.projected.size()), stream.projected,
+                          stream.spectrum, KokkosFFT::Direction::forward);
+      Kokkos::deep_copy(execution_space_, stream.projected, Complex{});
+      Kokkos::deep_copy(execution_space_, stream.spectrum, Complex{});
+      if (stream.coarse.empty())
+        continue;
+      seed_row_fft_wisdom(fft_space_for(stream.coarse.size()), stream.coarse,
+                          stream.coarse_spectrum, KokkosFFT::Direction::forward);
+      Kokkos::deep_copy(execution_space_, stream.coarse, Complex{});
+      Kokkos::deep_copy(execution_space_, stream.coarse_spectrum, Complex{});
+    }
+}
 #endif
 
 void GeneralWorkspace::plan() {
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+  // Seed every measured shape before the first plan exists: a Kokkos-FFT plan made
+  // before its wisdom stays at FFTW_ESTIMATE for the run.
+  if (problem_.free_geometry())
+    seed_free_wisdom();
+  else if (!problem_.separable_geometry())
+    seed_modal_wisdom();
+  seed_stream_wisdom();
+#endif
   fft_execution_space_ =
       fft_space_for(std::max(modal_complex_.size(), modal_real_.size()));
   if (problem_.raman) {
@@ -3532,9 +3571,6 @@ void GeneralWorkspace::plan() {
                                                KokkosFFT::Direction::backward, y_axis);
   } else if (problem_.free_geometry()) {
     const KokkosFFT::axis_type<2> axes{-2, -1};
-#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
-    seed_free_wisdom();
-#endif
     transverse_forward_ = std::make_unique<TransversePlan>(
         fft_space_for(transverse_.size()), transverse_, transverse_,
         KokkosFFT::Direction::forward, axes);
@@ -3565,10 +3601,6 @@ void GeneralWorkspace::plan() {
             fft_space_for(stream.coarse.size()), stream.coarse, stream.coarse_spectrum,
             KokkosFFT::Direction::forward, axis);
     }
-#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
-  if (!problem_.separable_geometry())
-    seed_modal_wisdom();
-#endif
   statistics_inverse_plan_ = std::make_unique<ComplexPlan>(
       fft_space_for(statistics_time_.size()), statistics_spectrum_, statistics_time_,
       KokkosFFT::Direction::backward, axis);

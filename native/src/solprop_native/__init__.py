@@ -24,14 +24,20 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from ._bind import proc_bind
 from ._budget import native_threads, physical_cores, thread_budget
 from ._cpu import check_cpu_baseline
 from ._wait import wait_policy
 
 if platform.system() == "Darwin" and "pyfftw" in sys.modules:
+    # solprop loads this package before pyFFTW itself; this is reached when a script,
+    # or a package it imported, loaded pyFFTW first.
     raise RuntimeError(
         "on macOS, import solprop_native before pyfftw; the reverse order is "
-        "unsafe with wheels that bundle another OpenMP runtime"
+        "unsafe with wheels that bundle another OpenMP runtime. pyfftw is already "
+        "loaded in this process: restart Python and import solprop (or solprop_native) "
+        "before pyfftw or any package that imports it, or pass another backend, such "
+        "as backend='numba_cpu'"
     )
 
 check_cpu_baseline(Path(__file__).parent)
@@ -56,6 +62,10 @@ _REQUESTED_THREADS = native_threads(THREAD_BUDGET)
 # How the OpenMP runtime's idle threads wait: they sleep at once unless the user chose
 # otherwise. The runtime reads this when the core loads it, just below.
 WAIT_POLICY = wait_policy()
+
+# Whether its threads are bound: not, unless the user placed them. Kokkos reads this
+# when the core starts it, just below, and otherwise prints a notice.
+PROC_BIND = proc_bind()
 
 from . import _core  # noqa: E402  (only after the processor check)
 

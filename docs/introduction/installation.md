@@ -1,7 +1,11 @@
 # Get and install solprop
 
-You need Python 3.14 or newer and an environment in which you can install Python
-packages. On the four platforms with prebuilt wheels, install solprop together with its
+You need Python 3.14 and an environment in which you can install Python packages.
+Python 3.15 is not yet supported: solprop-native, pyFFTW and h5py publish no wheels
+for it yet, so an installation there falls back to building them from source, which
+usually fails.
+
+On the four platforms with prebuilt wheels, install solprop together with its
 compiled native backend, the fastest way to run it; elsewhere, solprop's included CPU
 backends run every model, and the native backend can be built from source and added
 later without changing the physical model. The installation commands

@@ -49,7 +49,8 @@ builds contract multiply-adds (`-ffp-contract=fast` with GCC,
 `-ffp-contract=fast-honor-pragmas` with Clang and `icpx`, after `-fno-fast-math` and
 `-fp-model=precise`) except in a few protected blocks, as
 [SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md) sets out;
-`build_info().compiler_flags` and `optimization_policy` record the setting.
+`build_info().compiler_flags` and `optimization_policy` record the setting. GPU builds
+follow their compilers' defaults throughout ([GPU builds](#gpu-builds)).
 
 ## A CPU build
 
@@ -451,6 +452,15 @@ BLAS and FFT options do not apply, and the host architecture and IPO are off. Th
 profile links the device BLAS; the reference profile does not; the distribution profile
 is CPU-only.
 
+A GPU build keeps no strict floating-point blocks: the few protected helpers that a CPU
+build compiles without contraction (stable increments, small-argument functions,
+defects and compensated sums) follow the device compiler's own default there, and nvcc
+and HIP's Clang both fuse multiply-adds. `build_info().optimization_policy` then says
+"compiler-default contraction". A GPU build's answers are held to the device envelopes
+of its tests (`pytest -m gpu`) against the reference backend
+(ADR-049 in the [decision records](../../dev/decisions.md)).
+Round-to-nearest device arithmetic in those helpers is planned.
+
 ### CUDA
 
 Requirements: CUDA 12.8 or newer with cuFFT and cuBLAS, and GCC 14 or newer as the C++
@@ -530,8 +540,12 @@ solprop's `numba_cpu` backend uses [pyFFTW](https://github.com/pyFFTW/pyFFTW), w
 published wheels bundle their own OpenMP runtimes, so running both backends in one
 process loads a second runtime.
 
-- **On macOS, import `solprop_native` before anything imports pyFFTW.** The package
-  raises `RuntimeError` at import if pyFFTW is already loaded.
+- **On macOS, `solprop_native` must be imported before anything imports pyFFTW.** The
+  package raises `RuntimeError` at import if pyFFTW is already loaded. solprop takes
+  care of this itself: when the native backend is installed, `numba_cpu` imports it
+  before pyFFTW, so both backends can run in one process in either order. A script
+  that imports pyFFTW itself, or a package that does, imports solprop (or
+  `solprop_native`) first.
 - Import order alone does not remove pyFFTW's bundled runtimes. When one process must run
   both the native and the Numba backends, build pyFFTW from source against the same
   FFTW, in the same environment.

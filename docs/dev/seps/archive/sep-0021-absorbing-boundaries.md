@@ -2348,6 +2348,10 @@ diagnostics; transform-size cost; full-length timings.
   run (1339 checks of 10682 steps). Evidence for the cause: the in-stage term costs
   one forward transform of the fine time grid per stage, and the split scheme one
   extra source evaluation per step (7 against 6, the reused stage lost).
+  *Amended 2026-10-28 by ADR-057 ([decisions](../../decisions.md)):
+  the quiet collar is opt-in (`BoundaryCheck(quiet_collar=True)`), judged on the whole
+  field with the floor included, and no step is longer than the check interval while
+  the collar rests.*
 - **D16 — the monitor's energy measure on spatial routes (maintainer, 2026-10-27).**
   The quadrature-weighted field norm stays; SEP 34's admittance-weighted flux goes to
   the roadmap. For paraxial beams the admittance is about the index, which the shares

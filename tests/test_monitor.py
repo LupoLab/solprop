@@ -26,9 +26,16 @@ from solprop.constants import C
 from solprop.driver import Simulation
 from solprop.exceptions import BoundaryError, BoundaryWarning
 from solprop.grid import EnvelopeGrid
-from solprop.monitor import CADENCE, CHECKS, QUIET, BoundaryCheck, BoundaryMonitor
+from solprop.monitor import (
+    CADENCE,
+    CHECKS,
+    QUIET_CHECKS,
+    BoundaryCheck,
+    BoundaryMonitor,
+)
 from solprop.output.schema import Output, PlaneStore
 from solprop.pulses import GaussianPulse
+from solprop.stepper.multistep import Multistep
 
 LENGTH = 1.0
 TRANGE = 1e-12
@@ -316,66 +323,140 @@ def _exit(run: Output) -> np.ndarray:
     return np.asarray(run.fields("fft")[-1])
 
 
+QUIET_ENVELOPE = 1e-8
+"""Field difference allowed between an opted-in quiet collar and the always-on one: a
+decade above the largest measured (7e-10 for a clear pulse on the reference, 4e-9 for
+one walking into the collar under Multistep), which is rounding and the different step
+sequences of two adaptive runs; the omitted term acts on less than QUIET of the
+energy, so it moves the field by less than its amplitude, 1e-6, in any case."""
+
+INTEGRATORS = {"runge_kutta": None, "multistep": Multistep()}
+
+
+def _integrated(simulation: Simulation, integrator: Multistep | None) -> Simulation:
+    if integrator is not None:
+        simulation.settings = dataclasses.replace(
+            simulation.settings, integrator=integrator
+        )
+    return simulation
+
+
+def test_the_collar_stays_in_unless_the_run_opts_in() -> None:
+    # The default check watches the edges and leaves the stages alone: the run is the
+    # unwatched run exactly, and no check finds the collar left out.
+    clear = 3 * TRANGE
+    watched = walker(0.0, trange=clear).run(progress="none")
+    unwatched = _with_check(walker(0.0, trange=clear), None).run(progress="none")
+    np.testing.assert_array_equal(_exit(watched), _exit(unwatched))
+    assert record_of(watched)["collar_left_out_checks"] == 0
+
+
 @pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
 def test_a_quiet_collar_is_left_out_without_changing_the_run(backend: str) -> None:
-    # A pulse clear of the edges: the monitor finds the collar quiet, the stages leave
-    # its term out, and the field is the always-on collar's to the threshold's
-    # amplitude: the omitted term acts on a collar holding less than QUIET of the
-    # energy, so it moves the field by less than sqrt(QUIET) of its norm. The two
-    # adaptive runs otherwise differ by rounding and step selection, about 3e-9.
+    # A pulse clear of the edges, opted in: the monitor finds the collar quiet, the
+    # stages leave its term out, and the field is the always-on collar's.
     if backend not in available():
         pytest.skip(f"{backend} is not installed")
+    opted = BoundaryCheck(quiet_collar=True)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", BoundaryWarning)
-        watched = walker(0.0, trange=3 * TRANGE, backend=backend).run(progress="none")
+        watched = walker(0.0, trange=3 * TRANGE, check=opted, backend=backend).run(
+            progress="none"
+        )
         always = _with_check(walker(0.0, trange=3 * TRANGE, backend=backend), None).run(
             progress="none"
         )
     a, b = _exit(watched), _exit(always)
-    assert np.linalg.norm(a - b) <= np.sqrt(QUIET) * np.linalg.norm(b)
+    assert np.linalg.norm(a - b) <= QUIET_ENVELOPE * np.linalg.norm(b)
     record = record_of(watched)
+    assert record["collar_left_out_checks"] > 0
     # Every committed step is either checked or counted as skipped (the planes'
     # checks add to the checked ones).
     accepted = int(np.asarray(watched["step_history/accepted"], dtype=bool).sum())
     assert record["steps"] + record["skipped"] >= accepted
 
 
+@pytest.mark.parametrize("integrator", sorted(INTEGRATORS))
 @pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
-def test_light_reaching_a_quiet_collar_switches_it_back_on(backend: str) -> None:
-    # A walking pulse: the collar is quiet at first and absorbs once light arrives,
-    # as the always-on collar does, to the threshold's amplitude.
+def test_light_reaching_a_quiet_collar_switches_it_back_on(
+    backend: str, integrator: str
+) -> None:
+    # A pulse that starts clear and walks well into the collar: the collar rests at
+    # first and absorbs once light arrives, as the always-on collar does. While it
+    # rests, no step outruns the monitor's check interval, so light cannot cross into
+    # the collar unabsorbed within one long step; the Adams march, its order no longer
+    # held by the collar's stability limit while it rests, takes the step after it
+    # returns at that limit.
     if backend not in available():
         pytest.skip(f"{backend} is not installed")
-    relaxed = BoundaryCheck(budget=1.0, stop_factor=1.0)
+    method = INTEGRATORS[integrator]
+    relaxed = BoundaryCheck(budget=1.0, stop_factor=1.0, quiet_collar=True)
+    drift, clear = 1.8 * TRANGE, 3 * TRANGE
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", BoundaryWarning)
-        watched = walker(0.65 * TRANGE, check=relaxed, backend=backend).run(
-            progress="none"
-        )
-        always = _with_check(walker(0.65 * TRANGE, backend=backend), None).run(
-            progress="none"
-        )
+        watched = _integrated(
+            walker(drift, trange=clear, check=relaxed, backend=backend), method
+        ).run(progress="none")
+        always = _integrated(
+            _with_check(walker(drift, trange=clear, backend=backend), None), method
+        ).run(progress="none")
     energy = [np.asarray(run["stats/energy"])[-1, 0, 0] for run in (watched, always)]
     launched = np.asarray(always["stats/energy"])[0, 0, 0]
-    assert energy[0] < 0.999 * launched
-    assert energy[0] == pytest.approx(energy[1], rel=1e-5)
+    assert energy[0] < 0.5 * launched
+    assert energy[0] == pytest.approx(energy[1], rel=1e-6)
     a, b = _exit(watched), _exit(always)
-    assert np.linalg.norm(a - b) <= 1e-5 * np.linalg.norm(b)
+    assert np.linalg.norm(a - b) <= QUIET_ENVELOPE * np.linalg.norm(b)
+    record = record_of(watched)
+    assert record["collar_left_out_checks"] > 0
+    # Nothing is counted as removed while the collar rested: the record is the
+    # energy the run lost, to the trapezoid's accuracy over the checked steps.
+    lost = 1.0 - energy[0] / launched
+    assert record["removed_fraction"] == pytest.approx(lost, rel=0.05)
+
+
+def test_under_input_noise_the_floor_keeps_the_collar_in() -> None:
+    # Quiet is judged on the whole field: the shot-noise floor alone fills the collar
+    # far above QUIET, so an opted-in noisy run never leaves it out, and is the
+    # unwatched run exactly (judged above the floor, the term was left out while light
+    # a few times the floor sat in the collar).
+    relaxed = BoundaryCheck(budget=1.0, stop_factor=1.0, quiet_collar=True)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        watched = walker(0.65 * TRANGE, check=relaxed, noise=True).run(progress="none")
+        unwatched = _with_check(walker(0.65 * TRANGE, noise=True), None).run(
+            progress="none"
+        )
+    np.testing.assert_array_equal(_exit(watched), _exit(unwatched))
+    assert record_of(watched)["collar_left_out_checks"] == 0
+
+
+def test_the_split_scheme_keeps_its_collar() -> None:
+    # The split applies the collar once per step outside the stages: there is no
+    # in-stage term to leave out, so an opted-in split run never rests it.
+    simulation = walker(0.0, trange=3 * TRANGE, check=BoundaryCheck(quiet_collar=True))
+    simulation.settings = dataclasses.replace(
+        simulation.settings, absorber_scheme="split_step"
+    )
+    run = simulation.run(progress="none")
+    assert record_of(run)["collar_left_out_checks"] == 0
 
 
 def test_a_check_is_due_every_step_while_light_is_near_an_edge() -> None:
     grid = EnvelopeGrid.from_limits(LENGTH, 1e-6, (0.8e-6, 1.25e-6), TRANGE)
-    monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
+    monitor = BoundaryMonitor.build(grid, None, BoundaryCheck(quiet_collar=True))
     centred = np.exp(-((grid.t / 50e-15) ** 2)).astype(complex)
     edge = np.exp(-(((grid.t - 0.97 * grid.t.max()) / 30e-15) ** 2)).astype(complex)
     spectrum = lambda samples: np.fft.fft(samples)[None, None, None, :]  # noqa: E731
     monitor.launch(spectrum(centred), 0.0)
-    assert monitor.collar_quiet
+    # One quiet check is not enough to leave the collar out (QUIET_CHECKS).
+    assert QUIET_CHECKS == 2
+    assert not monitor.collar_quiet
     due = [monitor.due(1e-4 * k) or monitor.skip() for k in range(1, CADENCE)]
     assert not any(due)
     assert monitor.due(1e-4 * CADENCE)
     # However few the steps, a quiet window is checked every length / CHECKS.
     monitor.step(spectrum(centred), 1e-4 * CADENCE)
+    assert monitor.collar_quiet
     assert not monitor.due(1e-4 * CADENCE + 0.5 * LENGTH / CHECKS)
     assert monitor.due(1e-4 * CADENCE + LENGTH / CHECKS)
     with warnings.catch_warnings():
@@ -386,6 +467,46 @@ def test_a_check_is_due_every_step_while_light_is_near_an_edge() -> None:
     assert monitor.due(0.1)
 
 
+def test_a_collar_returns_at_once_and_rests_again_only_after_quiet_checks() -> None:
+    grid = EnvelopeGrid.from_limits(LENGTH, 1e-6, (0.8e-6, 1.25e-6), TRANGE)
+    check = BoundaryCheck(budget=1.0, stop_factor=1.0, quiet_collar=True)
+    monitor = BoundaryMonitor.build(grid, None, check)
+    centred = np.exp(-((grid.t / 50e-15) ** 2)).astype(complex)
+    # A thousandth of the amplitude at the collar: far above QUIET, below the guards'
+    # warning at this relaxed budget.
+    near = 1e-3 * np.exp(-(((grid.t - 0.93 * grid.t.max()) / 30e-15) ** 2))
+    spectrum = lambda samples: np.fft.fft(samples)[None, None, None, :]  # noqa: E731
+    monitor.launch(spectrum(centred), 0.0)
+    verdicts = []
+    for k, state in enumerate((centred, centred + near, centred, centred), start=1):
+        monitor.step(spectrum(state), 0.01 * k)
+        verdicts.append(monitor.collar_quiet)
+    assert verdicts == [True, False, False, True]
+
+
+def test_a_resting_collar_adds_no_removal() -> None:
+    # While the stages leave the term out the collar absorbs nothing: the steps over
+    # which it rested add nothing to the removed fraction, however much light the
+    # collar holds when the next check sees it.
+    grid = EnvelopeGrid.from_limits(LENGTH, 1e-6, (0.8e-6, 1.25e-6), TRANGE)
+    rate = np.full(grid.n_t, 10.0)
+    check = BoundaryCheck(budget=1.0, stop_factor=1.0)
+    monitor = BoundaryMonitor.build(grid, rate, check)
+    pulse = np.fft.fft(np.exp(-((grid.t / 50e-15) ** 2)).astype(complex))
+    state = pulse[None, None, None, :]
+    monitor.launch(state, 0.0)
+    monitor.note_collar(True)
+    monitor.step(state, 0.1)
+    summary = monitor.summary()
+    assert summary["removed_fraction"] == summary["raw_removed_fraction"] == 0.0
+    assert summary["collar_left_out_checks"] == 1
+    monitor.note_collar(False)
+    monitor.step(state, 0.2)
+    removed = monitor.summary()["removed_fraction"]
+    assert isinstance(removed, float)
+    assert removed > 0.0
+
+
 def test_the_check_may_change_after_translation() -> None:
     simulation = walker(0.0)
     simulation.translate()
@@ -393,3 +514,30 @@ def test_the_check_may_change_after_translation() -> None:
 
     simulation.settings = dataclasses.replace(simulation.settings, boundary_check=None)
     assert simulation.settings.boundary_check is None
+
+
+@pytest.mark.medium
+def test_a_resting_collar_frees_the_adams_order() -> None:
+    # The in-stage collar's stability limit holds the exponential Adams march of a
+    # short capillary at order 1. While an opted-in collar rests that limit no longer
+    # applies, so the march climbs to its top order; the two runs agree within their
+    # shared rtol of 1e-6 (measured 3.3e-7).
+    def capillary(check: BoundaryCheck) -> Output:
+        simulation = Simulation.from_capillary(
+            125e-6, 0.02, "He", 1.0, lambda0=800e-9, wavelength_limits=(150e-9, 2e-6),
+            trange=200e-15, fwhm=10e-15, energy=100e-6, mode_average=True, n_save=2,
+            noise=None,
+        )  # fmt: skip
+        return _with_check(simulation, check).run(progress="none")
+
+    held = capillary(BoundaryCheck())
+    freed = capillary(BoundaryCheck(quiet_collar=True))
+    orders = {
+        name: cast("dict[str, Any]", run.outcome.execution)["response_calls"]["orders"]
+        for name, run in (("held", held), ("freed", freed))
+        if isinstance(run, PlaneStore) and run.outcome is not None
+    }
+    assert max(orders["held"]) <= 2
+    assert max(orders["freed"]) >= 4
+    a, b = _exit(freed), _exit(held)
+    assert np.linalg.norm(a - b) <= 1e-5 * np.linalg.norm(b)
