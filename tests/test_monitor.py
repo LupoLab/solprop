@@ -220,6 +220,41 @@ def test_a_field_absorbed_to_nothing_is_not_judged() -> None:
     assert monitor.summary()["guard_low_max"] == 0.0
 
 
+def test_a_launch_with_no_light_is_not_judged() -> None:
+    grid = EnvelopeGrid.from_limits(LENGTH, 1e-6, (0.8e-6, 1.25e-6), TRANGE)
+    monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
+    dark = np.zeros((1, 1, 1, grid.n_t), dtype=complex)
+    monitor.launch(dark, 0.0)
+    monitor.step(dark, 0.1)
+    summary = monitor.summary()
+    assert summary["guard_low_max"] == summary["guard_high_max"] == 0.0
+    assert summary["removed_fraction"] == 0.0
+
+
+def test_the_split_removal_of_a_zero_length_step_is_nothing() -> None:
+    # Two checks at one position, as a step landing on a saved plane gives.
+    grid = EnvelopeGrid.from_limits(LENGTH, 1e-6, (0.8e-6, 1.25e-6), TRANGE)
+    rate = np.full(grid.n_t, 10.0)
+    monitor = BoundaryMonitor.build(grid, rate, BoundaryCheck(), split=True)
+    pulse = np.exp(-((grid.t / 50e-15) ** 2)).astype(complex)
+    spectrum = np.fft.fft(pulse)[None, None, None, :]
+    monitor.launch(spectrum, 0.0)
+    monitor.step(spectrum, 0.0)
+    assert monitor.summary()["raw_removed_fraction"] == 0.0
+
+
+def test_a_plane_is_recorded_once() -> None:
+    grid = EnvelopeGrid.from_limits(LENGTH, 1e-6, (0.8e-6, 1.25e-6), TRANGE)
+    monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
+    pulse = np.exp(-((grid.t / 50e-15) ** 2)).astype(complex)
+    monitor.launch(np.fft.fft(pulse)[None, None, None, :], 0.0)
+    monitor.plane(0.0)
+    monitor.plane(0.0)
+    planes = monitor.summary()["planes"]
+    assert isinstance(planes, dict)
+    assert planes["z"] == [0.0]
+
+
 def test_the_shot_noise_floor_is_not_read_as_light_at_the_edges() -> None:
     # A weak pulse: one photon per mode puts about 1e-3 of the field's energy in the
     # guards from the launch on, which the monitor judged as edge occupancy before

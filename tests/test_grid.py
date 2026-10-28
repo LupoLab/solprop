@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import dataclasses
 import math
 import re
 
@@ -22,6 +23,7 @@ from solprop.grid import (
     TimeGrid,
     _fft_size,
     _frequency_limits,
+    _needed_window,
     fft_cost,
     planck_taper,
 )
@@ -134,6 +136,32 @@ def test_the_default_collar_lies_outside_the_request(field_grid):
     window = field_grid.n_to * field_grid.dt_fine
     assert window >= RDW["trange"] / (1 - 2 * DEFAULT_COLLAR_FRACTION)
     assert (field_grid.n_t, field_grid.n_to) == (5120, 10240)
+
+
+def test_a_collar_placement_must_be_outside_or_inside():
+    # The runtime type check refuses it at from_limits; the sizing helper refuses it
+    # for any caller without one.
+    assert _needed_window(1.0, 0.1, "inside") == 1.0
+    with pytest.raises(GridError, match="collar_placement must be"):
+        _needed_window(1.0, 0.1, "middle")
+
+
+def test_a_grid_without_room_for_a_taper_takes_the_spectral_collar_alone(field_grid):
+    # A collar of one sample each side cannot taper: the default absorber falls back
+    # to its spectral collar rather than refuse the run.
+    from solprop.driver.simulation import default_collar  # noqa: PLC0415
+
+    edges = field_grid.t_collar
+    narrow = dataclasses.replace(
+        field_grid,
+        t_collar=dataclasses.replace(
+            edges,
+            zero_low=edges.one_low - field_grid.dt,
+            zero_high=edges.one_high + field_grid.dt,
+        ),
+    )
+    assert default_collar(field_grid).temporal
+    assert not default_collar(narrow).temporal
 
 
 def test_auto_sizes_cost_no_more_than_the_power_of_two():

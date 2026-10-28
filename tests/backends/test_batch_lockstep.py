@@ -24,6 +24,7 @@ from solprop.backends.numba_cpu.batch import NumbaCpuBatchBackend
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.driver import Simulation
 from solprop.exceptions import BackendError
+from solprop.monitor import BoundaryCheck, BoundaryMonitor
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 from solprop.stepper.runge_kutta import RungeKutta
@@ -283,6 +284,24 @@ def test_batch_registry_adopts_members_and_exposes_independent_observations():
         assert runner.max_batch == 2
         assert len(runner.observe_members()) == 2
         assert len(runner.member_metadata()) == 2
+
+
+def test_lockstep_gives_every_member_its_own_boundary_monitor():
+    with ExitStack() as cleanup:
+        simulations = [simulation(index, "numpy_ref") for index in range(2)]
+        members = tuple(loaded(one, cleanup) for one in simulations)
+        runner = LockstepRunner(members)
+        cleanup.callback(runner.close)
+        grid = simulations[0].grid
+        runner.attach_monitor(BoundaryMonitor.build(grid, None, BoundaryCheck()))
+        runner.propagate_to(0.001)
+        monitors = [member._monitor for member in members]
+        assert monitors[0] is not monitors[1]
+        for monitor in monitors:
+            assert monitor is not None
+            planes = monitor.summary()["planes"]
+            assert isinstance(planes, dict)
+            assert planes["z"][-1] == pytest.approx(0.001)
 
 
 def test_batch_registry_refuses_empty_and_mixed_owners():

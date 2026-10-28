@@ -434,10 +434,10 @@ class BoundaryMonitor:
             return
         # The whole field's record, floor included, kept beside the judged one.
         raw_rate = float(regions[3]) / self._launch
-        if exact and self._raw_last is not None:
-            self._split_removal(power, z - self._raw_last[0])
-        elif self._raw_last is not None:
-            previous_z, previous_rate = self._raw_last
+        previous_z, previous_rate = self._raw_last or (z, raw_rate)
+        if exact:
+            self._split_removal(power, z - previous_z)
+        else:
             self._raw_removed += 0.5 * (z - previous_z) * (previous_rate + raw_rate)
         self._raw_last = (z, raw_rate)
         self._raw_guard_max = max(
