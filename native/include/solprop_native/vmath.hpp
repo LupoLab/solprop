@@ -43,16 +43,14 @@
  */
 namespace solprop_native::vmath {
 
-#if defined(SOLPROP_NATIVE_VECTOR_MATH_SLEEF)
-namespace detail {
-
-// Loads, stores and products of SLEEF's vector types, which are the compilers' vector
-// types: `memcpy` compiles to one unaligned load or store and `*` to one rounded
-// product per lane, with no intrinsic.
-template <class V, std::size_t Width> struct LaneOperations {
-  using Vector = V;
-  static constexpr std::size_t width = Width;
-  static_assert(sizeof(Vector) == Width * sizeof(double));
+// A variant's lanes: SLEEF's vector type, which is the compilers' vector type, so that
+// `memcpy` loads and stores it unaligned and `*` forms one rounded product a lane, with
+// no intrinsic (written out in each: GCC drops the type's attributes from a template
+// argument).
+#if defined(SOLPROP_NATIVE_VECTOR_MATH_SLEEF) && defined(__AVX512F__)
+struct Lanes {
+  using Vector = __m512d;
+  static constexpr std::size_t width = 8;
   static Vector load(const double* p) {
     Vector v;
     std::memcpy(&v, p, sizeof(Vector));
@@ -60,13 +58,6 @@ template <class V, std::size_t Width> struct LaneOperations {
   }
   static void store(double* p, const Vector v) { std::memcpy(p, &v, sizeof(Vector)); }
   static Vector mul(const Vector a, const Vector b) { return a * b; }
-};
-
-} // namespace detail
-#endif
-
-#if defined(SOLPROP_NATIVE_VECTOR_MATH_SLEEF) && defined(__AVX512F__)
-struct Lanes : detail::LaneOperations<__m512d, 8> {
   static constexpr const char* name = "AVX-512F";
   static Vector exp(const Vector v) { return Sleef_expd8_u10avx512f(v); }
   static Vector log(const Vector v) { return Sleef_logd8_u10avx512f(v); }
@@ -77,7 +68,16 @@ struct Lanes : detail::LaneOperations<__m512d, 8> {
   }
 };
 #elif defined(SOLPROP_NATIVE_VECTOR_MATH_SLEEF) && defined(__AVX2__) && defined(__FMA__)
-struct Lanes : detail::LaneOperations<__m256d, 4> {
+struct Lanes {
+  using Vector = __m256d;
+  static constexpr std::size_t width = 4;
+  static Vector load(const double* p) {
+    Vector v;
+    std::memcpy(&v, p, sizeof(Vector));
+    return v;
+  }
+  static void store(double* p, const Vector v) { std::memcpy(p, &v, sizeof(Vector)); }
+  static Vector mul(const Vector a, const Vector b) { return a * b; }
   static constexpr const char* name = "AVX2";
   static Vector exp(const Vector v) { return Sleef_expd4_u10avx2(v); }
   static Vector log(const Vector v) { return Sleef_logd4_u10avx2(v); }
@@ -89,7 +89,16 @@ struct Lanes : detail::LaneOperations<__m256d, 4> {
 };
 #elif defined(SOLPROP_NATIVE_VECTOR_MATH_SLEEF) &&                                     \
     (defined(__x86_64__) || defined(_M_X64))
-struct Lanes : detail::LaneOperations<__m128d, 2> {
+struct Lanes {
+  using Vector = __m128d;
+  static constexpr std::size_t width = 2;
+  static Vector load(const double* p) {
+    Vector v;
+    std::memcpy(&v, p, sizeof(Vector));
+    return v;
+  }
+  static void store(double* p, const Vector v) { std::memcpy(p, &v, sizeof(Vector)); }
+  static Vector mul(const Vector a, const Vector b) { return a * b; }
   static constexpr const char* name = "SSE2";
   static Vector exp(const Vector v) { return Sleef_expd2_u10sse2(v); }
   static Vector log(const Vector v) { return Sleef_logd2_u10sse2(v); }
@@ -101,7 +110,16 @@ struct Lanes : detail::LaneOperations<__m128d, 2> {
 };
 #elif defined(SOLPROP_NATIVE_VECTOR_MATH_SLEEF) &&                                     \
     (defined(__aarch64__) || defined(_M_ARM64))
-struct Lanes : detail::LaneOperations<float64x2_t, 2> {
+struct Lanes {
+  using Vector = float64x2_t;
+  static constexpr std::size_t width = 2;
+  static Vector load(const double* p) {
+    Vector v;
+    std::memcpy(&v, p, sizeof(Vector));
+    return v;
+  }
+  static void store(double* p, const Vector v) { std::memcpy(p, &v, sizeof(Vector)); }
+  static Vector mul(const Vector a, const Vector b) { return a * b; }
   static constexpr const char* name = "AdvSIMD";
   static Vector exp(const Vector v) { return Sleef_expd2_u10advsimd(v); }
   static Vector log(const Vector v) { return Sleef_logd2_u10advsimd(v); }
