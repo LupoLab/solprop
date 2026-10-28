@@ -401,6 +401,48 @@ $N \log N$'s 4.30. Against a per-evaluation reference built from the cost of its
 IP-DOPRI5's 1.21 (Kokkos) and 1.80 (`numba_cpu`)
 ([SEP 28](seps/archive/sep-0028-free-space-evaluation.md)).
 
+### The boundary monitor's reading
+
+Each backend reduces the boundary monitor's five numbers where its state lives, instead
+of copying the field to the host to be transformed there (ADR-057). The benchmark
+harness runs without a monitor, so the monitor's cost is measured by its own same-process
+comparison: each case built by the harness's builder and run through `Simulation.run`
+with the default check and with `boundary_check=None`, alternated, five times each
+after a warm-up of each, the shortest of each arm compared.
+
+**Monitored over unmonitored run time**, native CPU, one thread, on a two-socket AMD
+EPYC 7763 node (GCC 16.2, FFTW 3.3.11, Kokkos 5.2.1 OpenMP); before is the parent
+revision, after is this change:
+
+| case, window | accepted steps | before | after |
+|---|---:|---:|---:|
+| Kerr beam 192², the whole 2 µm guide | 4 | +7.8 % | +4.0 % |
+| radial filament 256, 3 mm | 68 | +0.9 % | +0.6 % |
+| GNLSE soliton, a fifth of the guide | 81 | +5.5 % | +1.5 % |
+
+The Kerr beam's guide is shorter than its steps times the monitor's 256 checks, so every
+step is checked. A check now costs one inverse transform of the state where it lives
+and a pass that sums it; it was three host copies and a single-threaded host transform.
+**One check** of the launched state, the backend's reading against that host path, same
+process, shortest of seven:
+
+| case | EPYC 7763, one thread | NVIDIA A40 | NVIDIA L4 |
+|---|---:|---:|---:|
+| Kerr beam 192² (36,864 columns × 384) | 100 ms / 218 ms | 3.4 ms / 214 ms | 5.0 ms / 511 ms |
+| radial filament 256 (256 × 864, field) | 1.08 ms / 1.22 ms | 0.13 ms / 1.03 ms | 0.14 ms / 4.3 ms |
+| GNLSE soliton (one column × 3072) | 0.027 ms / 0.071 ms | 0.082 ms / 0.085 ms | 0.072 ms / 0.095 ms |
+
+The GPU columns are CUDA 12.8 builds (an A40 on its node's host, an L4 on an 8-vCPU
+cloud host, whose host path is the slower). On a field grid under the split scheme the
+native reading uses the collar's inverse real transform, half the analytic signal's
+work; through the analytic signal the radial filament's check took 1.83 ms against the
+host path's 1.13 ms at one thread. The L4's column was measured before that change. On `mlx`
+(Apple M5 Max, a busy laptop: ratios only, same process), monitored over unmonitored on
+the spatial cases of 60 fixed steps: radial 256 1.36 → 1.01, Cartesian 64² 1.21 → 1.05,
+Cartesian 128² 1.28 → 1.06. The unmonitored path is unchanged:
+`python -m benchmarks ab` at one thread on the same node gives 1.000 (GNLSE soliton),
+1.005 (radial filament) and 1.005 (Kerr beam) for the three cases above.
+
 ## Reference tables
 
 These tables back the indicative results above.
