@@ -5667,13 +5667,46 @@ constexpr double adams_phi_join = 3.0;
 constexpr int adams_series_terms = 24;
 
 /**
- * phi_0(x) .. phi_order(x) for one element into `out`, as solprop's compiled _phi.
+ * The halvings of the phi-functions' series branch: the count that brings |x| to at
+ * most 1/2, ceil(log2(2 |x|)), and `scale = 2^-count`, each halving exact.
+ */
+KOKKOS_INLINE_FUNCTION int adams_phi_halvings(const double magnitude, double& scale) {
+  int squarings = 0;
+  scale = 1.0;
+  double reduced = magnitude;
+  while (reduced > 0.5) {
+    ++squarings;
+    scale *= 0.5;
+    reduced *= 0.5;
+  }
+  return squarings;
+}
+
+/**
+ * The argument `y = 2^-s x` whose exponential the series branch of `adams_phi` forms
+ * (`0 < |x| <= adams_phi_join`), or zero where that branch does not apply; `magnitude`
+ * is `|x|`. A host block forms these first and their exponentials in one pass.
+ */
+KOKKOS_INLINE_FUNCTION Complex adams_phi_argument(const Complex x,
+                                                  const double magnitude) {
+  if (magnitude == 0.0 || magnitude > adams_phi_join)
+    return {};
+  double scale = 1.0;
+  adams_phi_halvings(magnitude, scale);
+  return strict_scale(scale, x);
+}
+
+/**
+ * phi_0(x) .. phi_order(x) for one element into `out`, as solprop's compiled _phi,
+ * given `magnitude = |x|` and `exp_x`; the series branch takes its `exp(y)` from
+ * `exp_y` when a host block formed it (`adams_phi_argument`), else forms it here.
  *
  * The small-argument phi-functions: strict arithmetic (solprop SEP 25 section 4.2).
  */
 SOLPROP_NATIVE_STRICT_FUNCTION
-KOKKOS_INLINE_FUNCTION void adams_phi(const Complex x, const Complex exp_x,
-                                      const std::size_t order, Complex* out) {
+KOKKOS_INLINE_FUNCTION void adams_phi(const Complex x, const double magnitude,
+                                      const Complex exp_x, const std::size_t order,
+                                      Complex* out, const Complex* exp_y = nullptr) {
   SOLPROP_NATIVE_STRICT_BLOCK
   // 1/k! for k <= 2 adams_max_samples, exactly representable rounding of the reference.
   constexpr double reciprocal[17] = {1.0,
@@ -5703,7 +5736,6 @@ KOKKOS_INLINE_FUNCTION void adams_phi(const Complex x, const Complex exp_x,
       1.0 / 24.0, 1.0 / 25.0, 1.0 / 26.0, 1.0 / 27.0, 1.0 / 28.0, 1.0 / 29.0,
       1.0 / 30.0, 1.0 / 31.0, 1.0 / 32.0, 1.0 / 33.0, 1.0 / 34.0, 1.0 / 35.0,
       1.0 / 36.0, 1.0 / 37.0, 1.0 / 38.0, 1.0 / 39.0};
-  const double magnitude = Kokkos::abs(x);
   if (magnitude == 0.0) {
     for (std::size_t k = 0; k <= order; ++k)
       out[k] = reciprocal[k];
@@ -5716,16 +5748,8 @@ KOKKOS_INLINE_FUNCTION void adams_phi(const Complex x, const Complex exp_x,
       out[k] = strict_mul(strict_sub(out[k - 1], Complex(reciprocal[k - 1])), inverse);
     return;
   }
-  // The halvings that bring |x| to at most 1/2, ceil(log2(2 |x|)), each one exact:
-  // `scale` is 2^-squarings.
-  int squarings = 0;
   double scale = 1.0;
-  double reduced = magnitude;
-  while (reduced > 0.5) {
-    ++squarings;
-    scale *= 0.5;
-    reduced *= 0.5;
-  }
+  const int squarings = adams_phi_halvings(magnitude, scale);
   const Complex y = strict_scale(scale, x);
   // Each later term is below |y| / (m + order) of this one, |y| <= 1/2: once this one
   // is under a quarter ulp of the sum, the rest cannot change it. The test compares
@@ -5745,7 +5769,7 @@ KOKKOS_INLINE_FUNCTION void adams_phi(const Complex x, const Complex exp_x,
   out[order] = total;
   for (std::size_t k = order - 1; k > 0; --k)
     out[k] = strict_add(reciprocal[k], strict_mul(y, out[k + 1]));
-  out[0] = Kokkos::exp(y);
+  out[0] = exp_y != nullptr ? *exp_y : Kokkos::exp(y);
   Complex old[2 * adams_max_samples + 1];
   for (int pass = 0; pass < squarings; ++pass) {
     for (std::size_t k = 0; k <= order; ++k)
@@ -5779,20 +5803,32 @@ KOKKOS_INLINE_FUNCTION double adams_factorial(const std::size_t k) {
  * x - sigma with that argument's own exponential (solprop SEP 35 section 4.1). The
  * flow stays exp(x), which the caller holds.
  */
+KOKKOS_INLINE_FUNCTION Complex adams_moment_argument(const ExponentialWeights& weights,
+                                                     const Complex x) {
+  return weights.shifted ? x - Complex(0.0, weights.shift) : x;
+}
+
+/**
+ * `adams_moment_argument`'s magnitude and series exponential may come formed by a
+ * host block (`magnitude`, `exp_y`), or are formed here.
+ */
 KOKKOS_INLINE_FUNCTION void adams_moment_phi(const ExponentialWeights& weights,
                                              const Complex x, const Complex exp_x,
-                                             const std::size_t order, Complex* out) {
+                                             const std::size_t order, Complex* out,
+                                             const double* magnitude = nullptr,
+                                             const Complex* exp_y = nullptr) {
+  const Complex argument = adams_moment_argument(weights, x);
+  const double size = magnitude != nullptr ? *magnitude : Kokkos::abs(argument);
   if (!weights.shifted) {
-    adams_phi(x, exp_x, order, out);
+    adams_phi(argument, size, exp_x, order, out, exp_y);
     return;
   }
   // exp(x - sigma) = exp(x) exp(-sigma): one product with the trial's exp(-sigma)
   // rather than a second exponential per element (a few ulp, inside the moments'
   // share of the rounding budget).
-  const Complex residual = x - Complex(0.0, weights.shift);
-  adams_phi(residual,
+  adams_phi(argument, size,
             strict_mul(exp_x, Complex(weights.unshift_re, weights.unshift_im)), order,
-            out);
+            out, exp_y);
 }
 
 /**
@@ -6003,13 +6039,17 @@ void GeneralWorkspace::adams_compensation_start(const std::size_t slot,
 // `carried`, and the prediction `value + dz sum_t c_t carried_t`. A span of one (the
 // newest sample, at the step's start) takes the step's flow `flow = e^x` as it is:
 // `strict_scale(1, x)` is x, so its exponential is the same bits.
+// A host block may pass the spans' exponentials `e^{s_t x}` formed in one pass each
+// (`spanned`, slot `t`'s parts at `spanned[2 t]` and `[2 t + 1]`); otherwise they are
+// formed here.
 template <class Rates, class States, class Carried>
 SOLPROP_NATIVE_STRICT_FUNCTION KOKKOS_INLINE_FUNCTION Complex
 adams_predicted_compensation(const ExponentialWeights& weights, const Complex x,
                              const Complex flow, const double inverse_dz,
                              const double dz, const Complex value, const Rates& rates,
                              const States& states, const Carried& carried,
-                             const std::size_t column, const std::size_t index) {
+                             const std::size_t column, const std::size_t index,
+                             const double* spanned = nullptr) {
   SOLPROP_NATIVE_STRICT_BLOCK
   for (std::size_t t = 0; t + 1 < weights.width; ++t) {
     const auto slot = weights.slot[t];
@@ -6019,7 +6059,9 @@ adams_predicted_compensation(const ExponentialWeights& weights, const Complex x,
     if (span == 1.0)
       term = strict_mul(flow, term);
     else if (span != 0.0)
-      term = strict_mul(exponential(strict_scale(span, x)), term);
+      term = strict_mul(spanned != nullptr ? Complex(spanned[2 * t], spanned[2 * t + 1])
+                                           : exponential(strict_scale(span, x)),
+                        term);
     carried(t, column, index) = term;
   }
   Complex compensation{};
@@ -6089,7 +6131,9 @@ constexpr std::size_t adams_block = 32;
 
 // The step's exponent and flow on the elements [first, last) of a column. The phase
 // increment: strict (solprop SEP 25 section 4.2).
-template <class Terms, class Weights, class Points>
+// With `Flow` false only the exponents are written (a host block forms the flows in
+// one pass, `AdamsBlock`).
+template <bool Flow = true, class Terms, class Weights, class Points>
 SOLPROP_NATIVE_STRICT_FUNCTION KOKKOS_INLINE_FUNCTION void
 adams_phase_block(const Terms& phi_terms, const Weights& phi_delta,
                   const std::size_t offset, const std::size_t n_phi,
@@ -6100,9 +6144,70 @@ adams_phase_block(const Terms& phi_terms, const Weights& phi_delta,
     const Complex x =
         adams_phase_sum(phi_terms, phi_delta, offset, n_phi, column, index);
     exponent(column, index) = x;
-    flow(column, index) = exponential(x);
+    if constexpr (Flow)
+      flow(column, index) = exponential(x);
   }
 }
+
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+/**
+ * A host block's exponentials for the predict pass, each a pass of the vector-maths
+ * layer over the block's elements (solprop ADR-059): the flows `e^x`, the moments'
+ * series exponentials `e^y` (`adams_phi_argument`) with the arguments' magnitudes,
+ * and a varying operator's spans' `e^{s_t x}`.
+ */
+// Plain doubles, so that the block costs nothing where it is not formed.
+struct AdamsBlock {
+  double magnitude[adams_block];
+  double series_real[adams_block], series_imag[adams_block];
+  // Slot t's exponential of element b at spanned[b][2 t] and [2 t + 1].
+  double spanned[adams_block][2 * adams_max_samples];
+
+  template <class Points>
+  void form(const ExponentialWeights& weights, const bool compensated,
+            const std::size_t column, const std::size_t first, const std::size_t last,
+            const Points& exponent, const Points& flow) {
+    const std::size_t count = last - first;
+    double real[adams_block], imag[adams_block];
+    double out_real[adams_block], out_imag[adams_block];
+    for (std::size_t b = 0; b < count; ++b) {
+      const Complex x = exponent(column, first + b);
+      real[b] = x.real();
+      imag[b] = x.imag();
+    }
+    vmath::exp_complex(real, imag, out_real, out_imag, count);
+    for (std::size_t b = 0; b < count; ++b)
+      flow(column, first + b) = Complex(out_real[b], out_imag[b]);
+    double y_real[adams_block], y_imag[adams_block];
+    for (std::size_t b = 0; b < count; ++b) {
+      const Complex argument =
+          adams_moment_argument(weights, Complex(real[b], imag[b]));
+      magnitude[b] = Kokkos::abs(argument);
+      const Complex y = adams_phi_argument(argument, magnitude[b]);
+      y_real[b] = y.real();
+      y_imag[b] = y.imag();
+    }
+    vmath::exp_complex(y_real, y_imag, series_real, series_imag, count);
+    if (!compensated)
+      return;
+    for (std::size_t t = 0; t + 1 < weights.width; ++t) {
+      const double span = weights.span[t];
+      if (span == 1.0 || span == 0.0)
+        continue;
+      for (std::size_t b = 0; b < count; ++b) {
+        const Complex argument = strict_scale(span, Complex(real[b], imag[b]));
+        y_real[b] = argument.real();
+        y_imag[b] = argument.imag();
+      }
+      vmath::exp_complex(y_real, y_imag, out_real, out_imag, count);
+      for (std::size_t b = 0; b < count; ++b) {
+        spanned[b][2 * t] = out_real[b];
+        spanned[b][2 * t + 1] = out_imag[b];
+      }
+    }
+  }
+};
+#endif
 
 // The squared scaled norms of up to three factored defects on the in-band elements of
 // [first, last) of a column, added to `update`: a divided difference of the samples
@@ -6291,23 +6396,44 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
     const auto column = task / blocks;
     const auto first = (task % blocks) * adams_block;
     const auto last = first + adams_block < n ? first + adams_block : n;
+    // With vector maths a host block forms its exponentials in passes (`AdamsBlock`);
+    // otherwise each element forms its own.
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+    constexpr bool passes = vmath::vectorised;
+    AdamsBlock formed_block;
+#else
+    constexpr bool passes = false;
+#endif
     if (separable)
       for (std::size_t index = first; index < last; ++index) {
         const Complex x =
             phi_delta(n_stages) *
             spatial.value(column / n_pol, index, active(index) != 0U).linear;
         exponent(column, index) = x;
-        flow(column, index) = exponential(x);
+        if constexpr (!passes)
+          flow(column, index) = exponential(x);
       }
     else
-      adams_phase_block(phi_terms, phi_delta, offset, n_phi, column, first, last,
-                        exponent, flow);
+      adams_phase_block<!passes>(phi_terms, phi_delta, offset, n_phi, column, first,
+                                 last, exponent, flow);
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+    if constexpr (passes)
+      formed_block.form(weights, compensated, column, first, last, exponent, flow);
+#endif
     double squares = 0.0;
     for (std::size_t index = first; index < last; ++index) {
       const Complex x = exponent(column, index);
       const Complex propagate = flow(column, index);
       Complex phi[2 * adams_max_samples + 1];
-      adams_moment_phi(weights, x, propagate, formed, phi);
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+      if constexpr (passes) {
+        const std::size_t b = index - first;
+        const Complex series(formed_block.series_real[b], formed_block.series_imag[b]);
+        adams_moment_phi(weights, x, propagate, formed, phi, &formed_block.magnitude[b],
+                         &series);
+      } else
+#endif
+        adams_moment_phi(weights, x, propagate, formed, phi);
       for (std::size_t k = 0; k < count; ++k)
         moments(k, column, index) = adams_factorial(k) * phi[k + 1];
       const Complex accepted = current(column, index);
@@ -6324,9 +6450,14 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
       }
       Complex value = propagate * accepted + dz * total;
       if (compensated) {
-        value =
-            adams_predicted_compensation(weights, x, propagate, inverse_dz, dz, value,
-                                         rates, states, carried, column, index);
+        const double* spanned = nullptr;
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+        if constexpr (passes)
+          spanned = formed_block.spanned[index - first];
+#endif
+        value = adams_predicted_compensation(weights, x, propagate, inverse_dz, dz,
+                                             value, rates, states, carried, column,
+                                             index, spanned);
         lab(column, index) = value;
       }
       predicted(column, index) = value;
@@ -7044,9 +7175,9 @@ void GeneralWorkspace::adams_exponential_observe(const double xi, const double d
           // xi (x - sigma), its rotated samples, and exp(-sigma (1 - xi)) on the sum.
           const Complex residual =
               xi * (exponent(column, index) - Complex(0.0, weights.shift));
-          adams_phi(residual, exponential(residual), count, phi);
+          adams_phi(residual, Kokkos::abs(residual), exponential(residual), count, phi);
         } else {
-          adams_phi(x, e, count, phi);
+          adams_phi(x, Kokkos::abs(x), e, count, phi);
         }
         Complex total{};
         double power = xi;
