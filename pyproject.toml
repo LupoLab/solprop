@@ -10,12 +10,17 @@ readme = "README.md"
 # records the licence of every file, and the documentation is CC-BY-4.0.
 license = "GPL-3.0-or-later AND MIT"
 license-files = ["LICENSE", "src/solprop/physdata/data/mirrors/NOTICE"]
-authors = [{ name = "John Travers", email = "jtravs@gmail.com" }]
+# The same authors as CITATION.cff and .zenodo.json.
+authors = [
+    { name = "John C. Travers", email = "jtravs@gmail.com" },
+    { name = "Christian Brahms" },
+]
 requires-python = ">=3.14"
 # The `native` extra pins solprop-native to this version (hatch_build.py).
 dynamic = ["version", "optional-dependencies"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    # 0.x: the interfaces may still change between minor releases.
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.14",
@@ -52,8 +57,11 @@ dependencies = [
 ]
 
 [project.urls]
+Homepage = "https://solprop.readthedocs.io/"
 Documentation = "https://solprop.readthedocs.io/en/latest/"
 Source = "https://github.com/LupoLab/solprop"
+Issues = "https://github.com/LupoLab/solprop/issues"
+Changelog = "https://github.com/LupoLab/solprop/blob/main/CHANGELOG.md"
 
 # The native backend is the `native` extra, pinned to solprop's own version by
 # hatch_build.py: `pip install solprop[native]`. Its distribution, solprop-native, is
@@ -119,7 +127,8 @@ build-backend = "hatchling.build"
 source = "vcs"
 
 [tool.hatch.version.raw-options]
-# Before the first tag (and in a fresh clone without history) the version is 0.0.0.
+# Before the first tag the version is 0.0.1.devN, from the commit count; without git
+# metadata (an archive of the tree) it is 0.0.0.
 fallback_version = "0.0.0"
 
 [tool.hatch.metadata.hooks.custom]
@@ -128,8 +137,41 @@ fallback_version = "0.0.0"
 packages = ["src/solprop"]
 
 [tool.hatch.build.targets.sdist]
-# The native distribution is built from native/ on its own (SEP 29).
-exclude = ["native/"]
+# What ships is listed, not everything in the tree: in a git worktree `.git` is a file,
+# hatchling then applies no `.gitignore`, and untracked files (agent state, coverage
+# data, notes) shipped. The native distribution is built from native/ on its own
+# (SEP 29). The excludes are the ignored build artefacts inside the listed directories.
+include = [
+    "/src",
+    "/tests",
+    "/docs",
+    "/benchmarks",
+    "/LICENSES",
+    "/CHANGELOG.md",
+    "/CITATION.cff",
+    "/CONTRIBUTING.md",
+    "/LICENSE",
+    "/README.md",
+    "/REUSE.toml",
+    "/hatch_build.py",
+    "/pyproject.toml",
+]
+exclude = [
+    "__pycache__",
+    "*.py[cod]",
+    ".hypothesis",
+    ".pytest_cache",
+    ".coverage*",
+    "*.nbi",
+    "*.nbc",
+    "*.fftw_wisdom",
+    ".DS_Store",
+    "/docs/_build",
+    "/docs/auto_tutorials",
+    "/docs/introduction/lessons",
+    "/docs/api/generated",
+    "sg_execution_times.rst",
+]
 
 # --------------------------------------------------------------------------- uv workspace
 # One lock for both distributions. `uv sync --extra native` builds and installs the

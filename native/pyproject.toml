@@ -23,14 +23,31 @@ license = "GPL-3.0-or-later"
 # The wheel carries the licence; a copy of the root LICENSE, since license-files cannot
 # reach outside the project directory.
 license-files = ["LICENSE"]
+# The same authors as solprop's.
+authors = [
+  { name = "John C. Travers", email = "jtravs@gmail.com" },
+  { name = "Christian Brahms" },
+]
 requires-python = ">=3.14"
+classifiers = [
+  # 0.x: the interfaces may still change between minor releases.
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: C++",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Scientific/Engineering :: Physics",
+]
 dependencies = [
   "numpy>=2.3",
 ]
 
 [project.urls]
+Homepage = "https://solprop.readthedocs.io/"
 Documentation = "https://solprop.readthedocs.io/en/latest/guide/performance/native.html"
 Source = "https://github.com/LupoLab/solprop/tree/main/native"
+Issues = "https://github.com/LupoLab/solprop/issues"
+Changelog = "https://github.com/LupoLab/solprop/blob/main/CHANGELOG.md"
 
 [tool.scikit-build]
 minimum-version = "build-system.requires"
