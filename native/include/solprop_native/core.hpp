@@ -95,7 +95,17 @@ void configure_thread_policy(ThreadPolicy requested);
 [[nodiscard]] ExecutionSpace execution_instance(int threads);
 
 /** Independent CPU operation classes; device dispatch is unchanged. */
-enum class CpuOperation { stage, response, dense, fft, raman, copy, flow, modal };
+enum class CpuOperation {
+  stage,
+  response,
+  dense,
+  fft,
+  raman,
+  copy,
+  flow,
+  modal,
+  adams
+};
 /** Process-start pool supplying an operation's capacity and explicit override. */
 enum class CpuPool { kernels, fft, raman_fft, raman_tail_fft };
 
@@ -103,7 +113,8 @@ enum class CpuPool { kernels, fft, raman_fft, raman_tail_fft };
 // "Kokkos CPU operation-size threading", records the complete windows and sweeps.
 // Work is elements for stages/copies, active columns * fine samples for responses,
 // rows * inner * samples for dense products, active bins * modes^3 for matrix
-// functions, and actual real-side batch samples for FFT/Raman plans (including tails).
+// functions, elements * history rows for the exponential Adams trial's passes, and
+// actual real-side batch samples for FFT/Raman plans (including tails).
 // An 8196-element RDW stage needs the full pool in the server calibration; putting its
 // reductions on a separate width loses that gain. In contrast, an 8192-element temporal
 // copy must stay serial: threading it changes averaged helium from 0.74 to 1.27 s in
@@ -142,6 +153,9 @@ inline constexpr std::size_t modal_thread_min_elements = 65536;
 inline constexpr std::size_t response_thread_min_elements = 32768;
 inline constexpr std::size_t dense_thread_min_elements = 1048576;
 inline constexpr std::size_t raman_thread_min_elements = 65536;
+// ADAMS_THRESHOLDS_PLACEHOLDER
+inline constexpr std::size_t adams_thread_min_elements = 4096;
+inline constexpr std::size_t adams_full_thread_elements = 16384;
 inline constexpr std::size_t stage_full_thread_elements = stage_thread_min_elements;
 inline constexpr std::size_t response_full_thread_elements = 196608;
 inline constexpr std::size_t response_full_thread_samples = 65536;

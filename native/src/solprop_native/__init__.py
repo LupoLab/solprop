@@ -471,6 +471,9 @@ class BuildInfo:
         Work size enabling full-width native dense execution.
     fft_full_thread_elements, raman_full_thread_elements
         Real-side sample counts enabling full-width automatic FFT plans.
+    adams_thread_min_elements, adams_full_thread_elements
+        Elements times history rows from which the exponential Adams trial's passes
+        are threaded, and from which they take the full pool.
     cpu_medium_threads
         Maximum width between an operation's serial and full-width thresholds.
     band_column, band_tile_threads
@@ -548,6 +551,8 @@ class BuildInfo:
     dense_full_thread_elements: int
     fft_full_thread_elements: int
     raman_full_thread_elements: int
+    adams_thread_min_elements: int
+    adams_full_thread_elements: int
     cpu_medium_threads: int
     band_column: str
     band_tile_threads: int
@@ -652,6 +657,8 @@ def build_info() -> BuildInfo:
         dense_full_thread_elements=int(record["dense_full_thread_elements"]),
         fft_full_thread_elements=int(record["fft_full_thread_elements"]),
         raman_full_thread_elements=int(record["raman_full_thread_elements"]),
+        adams_thread_min_elements=int(record["adams_thread_min_elements"]),
+        adams_full_thread_elements=int(record["adams_full_thread_elements"]),
         cpu_medium_threads=int(record["cpu_medium_threads"]),
         band_column=str(record["band_column"]),
         band_tile_threads=int(record["band_tile_threads"]),
