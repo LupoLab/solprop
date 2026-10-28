@@ -169,10 +169,12 @@ inline constexpr std::size_t raman_thread_min_elements = 65536;
 // so they thread on fields the stage keeps serial; its work is elements * history
 // rows (seven for the default fifth order). Swept on single-column capillaries of 401
 // to 10241 elements with the passes forced to 1-16 threads of a 16-thread process,
-// idle threads sleeping: on 16 cores of an idle dual EPYC 7643 four threads lost at
-// 4487 (0.8x) and gained 1.7-2.2x from 5607 to 71687, while 16 never beat four below
-// 71687 (equal there; a fork and join of 16 costs 100-200 us); an 18-core Apple M5
-// Max gained at four from 4487 and at 16 over four only at 71687.
+// idle threads sleeping: on 16 cores of a dual EPYC 7643 four threads lost at 4487
+// (0.8x) and gained 1.1-2.1x from 5607 to 71687, also with other jobs on the node,
+// while 16 lost to four on helium up to 17927 and to one at 8967 (a fork and join of
+// 16 costs 100-200 us); an 18-core Apple M5 Max gained at four from 4487 and at 16
+// over four only at 71687 (docs/dev/benchmarks.md, "Kokkos CPU operation-size
+// threading").
 inline constexpr std::size_t adams_thread_min_elements = 8192;
 inline constexpr std::size_t adams_full_thread_elements = 65536;
 inline constexpr std::size_t stage_full_thread_elements = stage_thread_min_elements;

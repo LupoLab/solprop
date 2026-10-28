@@ -233,6 +233,7 @@ full-width execution.
 | native/custom GEMM | output rows × inner dimension × samples | 1,048,576 | 1,048,576 |
 | general modal synthesis/projection | active nodes × components × spectral samples × modes | 65,536 | 65,536 |
 | coupled matrix functions | active spectral bins × modes³ | 32,768 | 32,768 |
+| exponential Adams trial | elements in the field × history rows | 8,192 | 65,536 |
 | modal/spatial FFT | real-side samples in the actual batch | 16,384, 32,768 on macOS (`SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES`) | 131,072 |
 | Raman FFT | real-side samples in the actual batch | 65,536 | 262,144 |
 
