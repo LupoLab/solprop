@@ -241,6 +241,32 @@ def test_the_compiled_backends_refuse_a_single_precision_problem(name):
         select(name, problem)
 
 
+def test_the_oracle_applies_the_settings_admission_to_a_problem_past_them():
+    """``registry.select`` on a translated problem meets the settings' refusals too.
+
+    The settings refuse the Adams integrator and a tolerance below the floor under
+    single precision; a problem replaced after translation reached the backend without
+    them. Adams is admitted again only inside the survival study's private switch.
+    """
+    problem = gnlse("single", steps=None).translate()
+    stepper = problem.stepper
+    adams = dataclasses.replace(
+        problem, stepper=dataclasses.replace(stepper, integrator=Multistep())
+    )
+    tight = dataclasses.replace(
+        problem,
+        stepper=dataclasses.replace(
+            stepper, controller=dataclasses.replace(stepper.controller, rtol=1e-8)
+        ),
+    )
+    with pytest.raises(BackendError, match=r"Adams integrator \(Multistep\)"):
+        select("numpy_ref", adams)
+    with pytest.raises(BackendError, match="below the single-precision floor"):
+        select("numpy_ref", tight)
+    with study_admission():
+        select("numpy_ref", adams).close()
+
+
 def test_a_step_whose_inverse_propagator_overflows_binary32_is_refused():
     """A 1 mm capillary's collar on 0.25 mm steps: |Re dPhi| = 150, past 88.72.
 

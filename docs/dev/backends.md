@@ -377,8 +377,12 @@ stable population forms and blocked running integrals
 squares against `atol / s`; and checks after every trial that the state and stages stayed
 complex64 and after every step that the state is finite. The ionisation rate's table
 lookup, the envelope-grid plasma's cycle moments and the statistics are evaluated in
-binary64 from the binary32 field, which is what the oracle defines. `numba_cpu` and
-`native` refuse a single-precision problem by name.
+binary64 from the binary32 field, which is what the oracle defines. Its constructor, and
+so `mlx`'s, applies the settings' own admission (`translate.precision.admit_precision`):
+a problem that reaches `registry.select` without passing `SimulationSettings` is still
+refused the Adams integrator, outside the survival study's private switch, and an
+adaptive `rtol` below the floor. `numba_cpu` and `native` refuse a single-precision
+problem by name.
 
 **Selection.** `backends/registry.py`: `available()` detects with
 `importlib.util.find_spec` and never caches; `select(name, problem, *, grid, modes,

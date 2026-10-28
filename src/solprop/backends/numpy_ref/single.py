@@ -54,7 +54,7 @@ from solprop.backends.numpy_ref import passes, transforms
 from solprop.backends.numpy_ref.backend import NumpyRefBackend, SourceTables
 from solprop.backends.numpy_ref.envelope_plasma import envelope_sources
 from solprop.constants import EPS0
-from solprop.exceptions import BackendError, ConvergenceError
+from solprop.exceptions import BackendError, ConvergenceError, TranslationError
 from solprop.fourier import GridKind
 from solprop.grid import TimeGrid
 from solprop.modes.protocol import Mode
@@ -62,7 +62,9 @@ from solprop.nonlinear.ionisation import RunningIntegral
 from solprop.profiles import ZProfile
 from solprop.stats import StatsSpec
 from solprop.stepper.controller import PIController
+from solprop.stepper.multistep import Multistep
 from solprop.translate.precision import (
+    admit_precision,
     block_exponent,
     combine,
     launch_peak,
@@ -132,8 +134,10 @@ class NumpySingleBackend(NumpyRefBackend):
     Raises
     ------
     BackendError
-        If the problem is not single precision, or a table cannot be narrowed without
-        losing range that its pass does not carry.
+        If the problem is not single precision, the shared single-precision admission
+        refuses it (:func:`solprop.translate.precision.admit_precision`: the Adams
+        integrator outside the survival study, an adaptive `rtol` below the floor), or
+        a table cannot be narrowed without losing range that its pass does not carry.
     """
 
     def __init__(
@@ -148,6 +152,20 @@ class NumpySingleBackend(NumpyRefBackend):
         """Adopt a single-precision problem and narrow its tables."""
         if not problem.precision.single:
             raise BackendError("the single-precision path needs a single problem")
+        # The settings admit a run through the same function, but a problem built or
+        # replaced past them (``registry.select`` on a translated problem) reaches the
+        # backend unadmitted; the refusals are the backend's own too.
+        stepper = problem.stepper
+        try:
+            admit_precision(
+                problem.precision,
+                backend=self.name,
+                adams=isinstance(stepper.integrator, Multistep),
+                rtol=stepper.controller.rtol,
+                schedule=stepper.schedule is not None,
+            )
+        except TranslationError as error:
+            raise BackendError(str(error)) from error
         super().__init__(
             problem,
             grid=grid,
