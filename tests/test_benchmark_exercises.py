@@ -14,6 +14,7 @@ from benchmarks.records import SuiteError
 from benchmarks.registry import CASES, select
 from benchmarks.worker import measure
 
+from solprop.driver import run as driver_run
 from solprop.exceptions import MaterialRangeWarning
 
 
@@ -72,3 +73,20 @@ def test_repeats_of_an_input_noise_run_reach_the_same_field():
         second["rejected"],
     )
     assert result["repeat_difference"] <= 1e-12
+
+
+@pytest.mark.medium
+def test_each_repeat_checks_the_boundaries_with_a_monitor_of_its_own(monkeypatch):
+    # What a user runs: Simulation.run attaches a fresh boundary monitor to every run.
+    monitors = []
+    run_problem = driver_run.run_problem
+
+    def recording(*args, **kwargs):
+        monitors.append(kwargs.get("boundary_monitor"))
+        return run_problem(*args, **kwargs)
+
+    monkeypatch.setattr(driver_run, "run_problem", recording)
+    measure(CASES["smoke"].configuration("default", 1, "numpy_ref"), 2, None)
+    assert len(monitors) == 2
+    assert all(monitor is not None for monitor in monitors)
+    assert monitors[0] is not monitors[1]

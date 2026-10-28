@@ -173,7 +173,9 @@ def fiber(index: int = 0, *, noise: bool = False) -> Simulation:
         [0.0, 0.0, -1.183e-26 * (index + 1)],
         lambda0=835e-9,
         wavelength_limits=(500e-9, 2e-6),
-        trange=1e-12,
+        # Twenty widths: on 1 ps the launch's sech tails reached the guards, and on
+        # 1.2 ps the split-step collar still took 4e-6 of the launch energy.
+        trange=2e-12,
         width=100e-15,
         peak_power=float(index + 1),
         pulseshape="sech",
@@ -216,7 +218,8 @@ def _dense_output() -> Simulation:
         [0.0, 0.0, beta2],
         lambda0=835e-9,
         wavelength_limits=(500e-9, 2e-6),
-        trange=1e-12,
+        # Twelve widths: the 1 ps window clipped the sech's tails at the launch.
+        trange=1.2e-12,
         width=width,
         peak_power=4 * abs(beta2) / (gamma * width**2),
         pulseshape="sech",
@@ -250,5 +253,10 @@ def exercise(name: str) -> Simulation:
             simulation.settings = replace(
                 simulation.settings, absorber_scheme="split_step"
             )
+        else:
+            # At a watt the modified noise's floor fills the whole window, guards
+            # included, within the first steps (the root occupancy grows with the
+            # window, 2e-3 on 1.2 ps and 4e-3 on 2 ps): no edge check applies to it.
+            simulation.settings = replace(simulation.settings, boundary_check=None)
         return simulation
     raise SuiteError(f"backend exercise not implemented for {name}")

@@ -61,7 +61,9 @@ class Case:
     length : float
         Guide length in metres; a run propagates all of it.
     dimensions : tuple of int
-        Main array sizes, for the plan only.
+        Main array sizes, for the plan only: the modes (and polarisations) or the
+        transverse grid, then the time samples and those of the oversampled
+        nonlinear grid, as the builder realises them.
     source : str
         Where the definition comes from.
     widths : tuple of str
@@ -74,9 +76,11 @@ class Case:
         A fixed step in metres; the case then runs its declared fixed schedule and
         admits no stepper override.
     cost : tuple of float or None
-        Seconds per complete run at 1 and 16 threads on 16 cores of an AMD EPYC 7763
-        node, from SEP 38's calibration run, for the plan's estimate; ``None`` if
-        unknown.
+        Seconds per complete run at 1 and 16 threads, for the plan's estimate;
+        ``None`` if unknown. Measured for the release on a 16-core Google Cloud
+        c2d-highcpu-32 (AMD EPYC 7B13, one thread per core) by the tracking run, with
+        the boundary monitor attached; `ctc`'s one-thread value is from a run without
+        the monitor, which costs it nothing measurable.
     """
 
     name: str
@@ -155,20 +159,20 @@ _TRACKED = (
         "gnlse",
         0.15,
         (1, 16384, 16384),
-        "Dudley, Genty and Coen, Rev. Mod. Phys. 78, 1135 (2006), section III",
-        cost=(84.5, 47.2),
+        "Dudley, Genty and Coen, Rev. Mod. Phys. 78, 1135 (2006), section III: "
+        "50 fs FWHM",
+        cost=(49.9, 69.0),
     ),
     Case(
         "gnlse_soliton",
-        2,
+        1,
         ("tracking", "mode-averaged"),
         "prop_gnlse",
         "gnlse",
         1.3278075458959397,
-        (1, 4096, 4096),
+        (1, 3072, 3072),
         "docs/introduction/tutorials/plot_02_soliton.py; one soliton period, noiseless",
-        # Measured at revision 1, with noise: an upper bound until it is remeasured.
-        cost=(12.6, 8.5),
+        cost=(0.79, 0.80),
     ),
     Case(
         "rdw",
@@ -177,9 +181,9 @@ _TRACKED = (
         "prop_capillary",
         "capillary",
         1.5,
-        (4, 4096, 8192),
+        (4, 5120, 10240),
         "He resonant dispersive wave, four resolved modes",
-        cost=(19.2, 12.6),
+        cost=(18.1, 15.2),
     ),
     Case(
         "he_rdw_averaged",
@@ -188,33 +192,33 @@ _TRACKED = (
         "prop_capillary",
         "capillary",
         1.5,
-        (1, 4096, 8192),
+        (1, 5120, 10240),
         "rdw on the mode-averaged route",
-        cost=(2.7, 2.7),
+        cost=(2.49, 2.52),
     ),
-    # Revision 2 (SEP 38): 0.2 m and 160 nm-4 um, as SEP 37 phase 0 measured it;
-    # revision 1 was the 0.4 m blue-shift example with a 300 nm edge.
+    # 0.2 m and 160 nm-4 um, as SEP 37 phase 0 measured it, rather than the worked
+    # example's 0.4 m and 300 nm edge.
     Case(
         "argon_blueshift",
-        2,
+        1,
         ("tracking", "modal-capillary"),
         "prop_capillary",
         "capillary",
         0.2,
-        (1, 4096, 8192),
+        (1, 3200, 6400),
         "docs/examples/processes/plot_06_ionisation_blue_shift.py, shortened",
-        cost=(65.8, 35.5),
+        cost=(44.8, 24.6),
     ),
     Case(
         "argon_blueshift_averaged",
-        2,
+        1,
         ("tracking", "mode-averaged"),
         "prop_capillary",
         "capillary",
         0.2,
-        (1, 4096, 8192),
+        (1, 3200, 6400),
         "argon_blueshift on the mode-averaged route",
-        cost=(15.2, 15.1),
+        cost=(10.5, 10.5),
     ),
     Case(
         "argon_blueshift_envelope",
@@ -223,9 +227,9 @@ _TRACKED = (
         "prop_capillary",
         "capillary",
         0.2,
-        (1, 2048, 2048),
+        (1, 1728, 1728),
         "argon_blueshift on the envelope grid",
-        cost=(3.3, 3.4),
+        cost=(2.38, 2.62),
     ),
     Case(
         "h2_raman_averaged",
@@ -234,23 +238,23 @@ _TRACKED = (
         "prop_capillary",
         "capillary",
         0.4,
-        (1, 4096, 8192),
+        (1, 4608, 9216),
         "docs/examples/processes/plot_05_raman_self_frequency_shift.py, 10 bar",
-        cost=(16.2, 16.2),
+        cost=(14.0, 15.2),
     ),
-    # Revision 2 (SEP 38): three modes, 0.13 m, 2 ps and 220 nm-4 um, the
-    # definition SEP 37 phase 0 measured; revision 1 had six modes over 0.2 m.
+    # Three modes, 0.13 m, 2 ps and 220 nm-4 um: the definition SEP 37 phase 0
+    # measured, shorter than the 0.3 m comb-to-continuum test case.
     Case(
         "ctc",
-        2,
+        1,
         ("tracking", "modal-capillary"),
         "prop_capillary",
         "capillary",
         0.13,
-        (3, 8192, 16384),
+        (3, 10240, 20480),
         "H2 comb-to-continuum, three modes",
         widths=("production",),
-        cost=(605.0, 291.5),
+        cost=(520.0, 226.3),
     ),
     Case(
         "radial_filament_256",
@@ -259,57 +263,56 @@ _TRACKED = (
         "prop_radial",
         "spatial",
         0.03,
-        (256, 250),
+        (256, 864, 1728),
         "Ar filament with plasma, 256 radial nodes",
         planes=4,
-        cost=(16.4, 6.1),
+        cost=(8.05, 9.07),
     ),
-    # Revision 2 (SEP 38): a 2 cm guide, the window SEP 37 phase 0 measured;
-    # revision 1 was the example's 0.1 m.
+    # A 2 cm guide, the window SEP 37 phase 0 measured, rather than the example's 0.1 m.
     Case(
         "grin_nonlinear",
-        2,
+        1,
         ("tracking", "advanced"),
         "prop_waveguide",
         "advanced",
         0.02,
-        (4, 4096, 8192),
+        (4, 3072, 6144),
         "docs/examples/waveguides/plot_04_graded_index_multimode.py, 2 cm",
         widths=("production",),
         planes=5,
-        cost=(102.0, 37.8),
+        cost=(None, 25.7),
     ),
-    # Revision 2 (SEP 38): four 0.5 um steps; revision 1 took eleven over 5.5 um.
-    # A fixed-step run costs the same per step, so fewer steps track the same work.
+    # Four 0.5 um steps: a fixed-step run costs the same per step, so four track the
+    # work of a longer schedule.
     Case(
         "kerr_beam_384",
-        2,
+        1,
         ("tracking", "free-space"),
         "prop_free",
         "kerr",
         2e-6,
-        (384, 384, 600),
+        (384, 384, 750, 750),
         "fused-silica Kerr beam, four fixed RK4IP steps",
         widths=("production",),
         planes=1,
         fields="planes",
         step=0.5e-6,
-        cost=(None, 48.6),
+        cost=(None, 29.4),
     ),
     Case(
         "kerr_beam_192",
-        2,
+        1,
         ("tracking", "free-space"),
         "prop_free",
         "kerr",
         2e-6,
-        (192, 192, 300),
+        (192, 192, 384, 384),
         "fused-silica Kerr beam, four fixed RK4IP steps",
         widths=("1",),
         planes=1,
         fields="planes",
         step=0.5e-6,
-        cost=(13.3, None),
+        cost=(15.3, None),
     ),
 )
 
@@ -321,18 +324,29 @@ _MODAL = (
         "prop_capillary",
         "capillary",
         1.5,
-        (1, 4096, 8192),
+        (1, 5120, 10240),
         "rdw with one resolved mode",
     ),
     Case(
         "ctc_reduced",
-        2,
+        1,
         ("modal-capillary",),
         "prop_capillary",
         "capillary",
         0.1,
-        (2, 8192, 16384),
-        "ctc with two modes over 0.1 m and a 2 ps window",
+        (1, 9216, 18432),
+        "the reduced comb-to-continuum test case: the fundamental alone over 0.1 m "
+        "on a 2 ps window",
+    ),
+    Case(
+        "ctc_reduced_two_mode",
+        1,
+        ("modal-capillary",),
+        "prop_capillary",
+        "capillary",
+        0.1,
+        (2, 9216, 18432),
+        "ctc_reduced with two resolved modes",
     ),
     Case(
         "h2_raman_6ps",
@@ -341,7 +355,7 @@ _MODAL = (
         "prop_capillary",
         "capillary",
         2.0,
-        (1, 16384, 32768),
+        (1, 18432, 36864),
         "docs/examples/processes/plot_05_raman_self_frequency_shift.py; 6 ps window",
     ),
     Case(
@@ -351,7 +365,7 @@ _MODAL = (
         "prop_capillary",
         "capillary",
         2.0,
-        (1, 16384, 32768),
+        (1, 18432, 36864),
         "h2_raman_6ps on the mode-averaged route",
     ),
 )
@@ -364,7 +378,7 @@ _FREE = (
         "prop_radial",
         "spatial",
         0.03,
-        (512, 1024, 2048),
+        (512, 864, 1728),
         "radial_filament_256 at 512 nodes",
     ),
     *(
@@ -375,7 +389,7 @@ _FREE = (
             "prop_free",
             "spatial",
             0.03,
-            (size, size, 1024, 2048),
+            (size, size, 864, 1728),
             "the Ar filament on a Cartesian grid",
         )
         for size in (128, 256)
@@ -387,7 +401,7 @@ _FREE = (
         "prop_free",
         "kerr",
         3e-6,
-        (768, 768, 600),
+        (768, 768, 750, 750),
         "fused-silica Kerr beam, fixed RK4IP steps",
         planes=1,
         fields="planes",
@@ -400,7 +414,7 @@ _FREE = (
         "prop_free",
         "spatial",
         0.08,
-        (128, 512, 1024),
+        (128, 576, 1152),
         "Ar Kerr beam on a line grid",
     ),
     Case(
@@ -410,7 +424,7 @@ _FREE = (
         "prop_planar",
         "spatial",
         0.05,
-        (2, 32, 512, 512),
+        (2, 32, 384, 384),
         "two-mode Ar slab",
     ),
     Case(
@@ -420,7 +434,7 @@ _FREE = (
         "prop_radial",
         "spatial",
         0.08,
-        (64, 512, 1024),
+        (64, 576, 1152),
         "radial Kerr beam meeting its absorbing boundary",
     ),
 )
@@ -434,7 +448,7 @@ _ADVANCED = (
             "prop_capillary",
             "advanced",
             2e-4,
-            (4 if name == "vector_wall" else 3, 1024, 2048),
+            (4 if name == "vector_wall" else 3, 864, 1728),
             f"docs/tutorials/capillaries/{source}",
         )
         for name, source in (
@@ -447,7 +461,7 @@ _ADVANCED = (
     *(
         Case(name, 1, ("advanced",), "prop_waveguide", "advanced", length, size, source)
         for name, length, size, source in (
-            ("step_index_pair", 1e-3, (2, 1024, 2048), "nonlinear HE11 parity pair"),
+            ("step_index_pair", 1e-3, (2, 648, 1296), "nonlinear HE11 parity pair"),
             (
                 "grin_linear",
                 0.0007846800630498693,
@@ -457,7 +471,7 @@ _ADVANCED = (
             (
                 "moving_solid_guide",
                 0.015,
-                (2, 2048, 4096),
+                (2, 2560, 5120),
                 "docs/examples/waveguides/plot_05_moving_solid_guide.py",
             ),
         )
@@ -482,7 +496,7 @@ _EXERCISES = tuple(
             "vector_raman",
             "prop_capillary",
             2e-4,
-            (1, 2, 256, 256),
+            (1, 2, 192, 192),
             "the vector Raman tutorial's circular pump and delayed probe",
         ),
         (
@@ -496,45 +510,45 @@ _EXERCISES = tuple(
             "mixture_gradient",
             "prop_capillary",
             1.5,
-            (1, 1, 512, 1024),
+            (1, 1, 576, 1152),
             "docs/guide/media/mixtures.md",
         ),
         (
             "dispersive_kerr",
             "prop_capillary",
             0.5,
-            (1, 1, 2048, 4096),
+            (1, 1, 1536, 3072),
             "docs/tutorials/capillaries/plot_11_dispersive_kerr.py",
         ),
-        ("plasma_band", "prop_capillary", 1e-3, (2, 1, 512, 1024), "band plasma"),
+        ("plasma_band", "prop_capillary", 1e-3, (2, 1, 576, 1152), "band plasma"),
         (
             "plasma_trapezoid",
             "prop_capillary",
             1e-3,
-            (2, 1, 512, 1024),
+            (2, 1, 576, 1152),
             "trapezoid plasma",
         ),
-        ("noise", "prop_gnlse", 1e-3, (1, 1, 1024, 1024), "modified-noise fibre"),
+        ("noise", "prop_gnlse", 1e-3, (1, 1, 1536, 1536), "modified-noise fibre"),
         ("dense_output", "prop_gnlse", 1.0, (1, 1, 1024, 1024), "dense output"),
         (
             "absorber_schemes",
             "prop_gnlse",
             1e-3,
-            (1, 1, 1024, 1024),
+            (1, 1, 1536, 1536),
             "split-step absorber",
         ),
         (
             "ordinary_stats",
             "prop_capillary",
             1e-3,
-            (2, 1, 512, 1024),
+            (2, 1, 576, 1152),
             "ordinary statistics on two modes",
         ),
         (
             "far_field_stats",
             "prop_free",
             1e-3,
-            (224, 64, 128, 128),
+            (224, 64, 160, 160),
             "docs/tutorials/free_space/plot_07_far_field_statistics.py",
         ),
     )
@@ -550,7 +564,7 @@ CASES["smoke"] = Case(
     "prop_gnlse",
     "smoke",
     1e-4,
-    (1, 256, 256),
+    (1, 192, 192),
     "a short noiseless fibre for testing the runner; not a workload",
     planes=2,
 )

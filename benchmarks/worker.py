@@ -8,8 +8,9 @@ The controller sets the thread pools in the environment and passes a JSON reques
 one configuration, the number of timed repeats and, optionally, where to save the
 final field. The worker builds and translates the case and constructs its backend,
 runs an untimed warm-up over the first part of the guide, then times complete runs
-through the driver's own loop, each restarted from the translated launch. It prints
-one JSON event per line; the last is the receipt.
+through the driver's own loop, each restarted from the translated launch with the
+boundary monitor ``Simulation.run`` attaches. It prints one JSON event per line; the
+last is the receipt.
 """
 
 from __future__ import annotations
@@ -53,6 +54,7 @@ if TYPE_CHECKING:
 
     from solprop.backends.protocol import Backend
     from solprop.driver import Simulation
+    from solprop.monitor import BoundaryMonitor
     from solprop.output.schema import FieldRetention
     from solprop.translate.problem import KernelProblem
 
@@ -185,8 +187,13 @@ def timed_run(
     problem: KernelProblem,
     engine: Backend,
     retention: FieldRetention,
+    monitor: BoundaryMonitor | None = None,
 ) -> tuple[Record, np.ndarray]:
-    """Time one complete run from the launch; return its counts and final field."""
+    """Time one complete run from the launch; return its counts and final field.
+
+    `monitor` is a fresh boundary monitor, attached as ``Simulation.run`` attaches
+    one; ``None`` runs without the boundary checks.
+    """
     import numpy as np  # noqa: PLC0415
 
     from solprop.driver.run import run_problem  # noqa: PLC0415
@@ -206,6 +213,7 @@ def timed_run(
         resume_history=simulation.settings.resume_history,
         fields=retention.fields,
         field_planes=retention.field_planes,
+        boundary_monitor=monitor,
     )
     seconds = (time.perf_counter_ns() - started) * 1e-9
     after = source_calls(engine)
@@ -279,7 +287,13 @@ def measure(configuration: Record, repeats: int, fields: Path | None) -> Record:
         first = final = None
         difference = 0.0
         for _ in range(repeats):
-            repetition, final = timed_run(simulation, problem, engine, retention)
+            # A user's run checks the boundaries as it goes, so each repeat does too,
+            # with a monitor of its own: Simulation.run builds one per run, and a
+            # monitor's record accumulates over the run it watches.
+            monitor = simulation._boundary_monitor()
+            repetition, final = timed_run(
+                simulation, problem, engine, retention, monitor
+            )
             repetitions.append(repetition)
             # Every repeat restarts from the same launch and seed, so its final
             # field may differ from the first repeat's by rounding only.

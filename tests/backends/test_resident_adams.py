@@ -20,13 +20,10 @@ from typing import cast
 import numpy as np
 import pytest
 
-from backends.conftest import WAVELENGTH
 from capability_routes import ROUTES
-from legacy_geometry import LEGACY_GRID
 from solprop.backends import available
 from solprop.backends.multistep import HostHistory
 from solprop.exceptions import ResponseBudgetError
-from solprop.grid import EnvelopeGrid
 from solprop.stepper import FixedSchedule, PIController
 from solprop.stepper.multistep import ComparisonMultistep, Multistep
 
@@ -115,41 +112,54 @@ def run(problem, grid, monkeypatch, *, resident):
     return np.array(fields), march, np.array(steps)
 
 
-def assert_same_run(first, second):
-    """Assert two runs took the same calls and steps and agree to rounding."""
+def assert_same_run(first, second, *, steps_rtol=1e-6, fields_atol=1e-12):
+    """Assert two runs took the same calls and steps and agree to rounding.
+
+    `steps_rtol` and `fields_atol` (of the peak) default to the bounds of a run whose
+    steps rounding moves little; a run more sensitive to rounding states its own.
+    """
     (fields, march, steps), (other, other_march, other_steps) = first, second
     assert march.ledger.total == other_march.ledger.total
     assert march.ledger.dense_observations == other_march.ledger.dense_observations
     # The engines differ only in rounding order: the resident one forms the predictor
     # in the anchor's frame without the propagator's round trip, and reduces the norms
     # in its own order. A defect is a small difference of large terms, so the steps
-    # chosen from it move most: measured at most 2.1e-8 relative over 566 calls, the
-    # fields at most 9e-15 of the peak.
-    np.testing.assert_allclose(steps, other_steps, rtol=1e-6)
+    # chosen from it move most: measured at most 3.3e-9 relative over 845 calls, the
+    # fields at most 7.7e-15 of the peak (the dense observation's Adams run), and
+    # 3e-16 of the peak on a replayed schedule.
+    np.testing.assert_allclose(steps, other_steps, rtol=steps_rtol)
     scale = np.max(np.abs(other))
-    np.testing.assert_allclose(fields, other, rtol=0, atol=1e-12 * scale)
+    np.testing.assert_allclose(fields, other, rtol=0, atol=fields_atol * scale)
 
 
 @pytest.mark.parametrize(
-    "integrator",
+    ("integrator", "steps_rtol", "fields_atol"),
     [
-        Multistep(formulation="interaction"),
-        ComparisonMultistep(
-            corrector="pec", order=4, corrector_order=5, interpolant="hermite"
+        (Multistep(formulation="interaction"), 1e-6, 1e-12),
+        (
+            ComparisonMultistep(
+                corrector="pec", order=4, corrector_order=5, interpolant="hermite"
+            ),
+            1e-3,
+            2e-10,
         ),
-        Multistep(formulation="exponential"),
+        (Multistep(formulation="exponential"), 1e-6, 1e-12),
     ],
     ids=["adams", "hermite", "exponential"],
 )
 def test_resident_dense_observation_follows_the_host_engine(
-    soliton_problem, integrator, monkeypatch
+    narrow_grid, soliton_problem, integrator, steps_rtol, fields_atol, monkeypatch
 ):
-    # The narrow fixture's window as it was built before SEP 21 (1024 bins): the
-    # steps' 1e-6 agreement below was measured on it, and the comparison PEC method's
-    # step choices part by 4.9e-5 on the 768-bin grid the fixture now builds.
-    narrow_grid = EnvelopeGrid.from_limits(
-        1.0, WAVELENGTH, (500e-9, 2e-6), 1e-12, **LEGACY_GRID
-    )
+    # The narrow fixture's 768 bins span 1.28 ps, whose edges still hold the N = 2
+    # launch's sech tails at 3.4e-3 of its peak, with no collar declared (4.0e-4 on
+    # the 1.70 ps, 1024 bins it had before SEP 21). The Adams formulations agree on it
+    # as on the former grid (steps 3.3e-9 and 4.0e-10 apart, fields 7.7e-15 and
+    # 5.3e-15 of the peak), but the comparison PEC method's run is sensitive to
+    # rounding there: the host engine against itself, with its launch changed by
+    # 1e-16 relative, parts by 2.0e-4 in steps and 4.8e-11 of the peak in fields at
+    # equal calls (1.7e-8 and 3.9e-15 on the former grid). The engines' rounding
+    # orders part it by 8.9e-5 and 2.2e-11 (Apple M5 Max); its bounds are five and
+    # four times that control's.
     problem = soliton_problem(
         narrow_grid,
         2,
@@ -161,7 +171,12 @@ def test_resident_dense_observation_follows_the_host_engine(
     )
     resident = run(problem, narrow_grid, monkeypatch, resident=True)
     assert resident[1].ledger.dense_observations > 0
-    assert_same_run(resident, run(problem, narrow_grid, monkeypatch, resident=False))
+    assert_same_run(
+        resident,
+        run(problem, narrow_grid, monkeypatch, resident=False),
+        steps_rtol=steps_rtol,
+        fields_atol=fields_atol,
+    )
 
 
 @pytest.mark.parametrize("formulation", ["interaction", "exponential"])

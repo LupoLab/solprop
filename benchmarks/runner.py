@@ -126,7 +126,7 @@ def show_plan(rows: list[Record], skipped: list[str], runs: int) -> None:
     print(
         f"{len(rows)} configurations, {runs} timed run(s) each; estimated "
         + ("time unknown" if total is None else f"{total / 60:.0f} min")
-        + " (complete-run costs on an AMD EPYC 7763 node; other machines differ)"
+        + " (complete-run costs on 16 cores of an AMD EPYC 7B13; other machines differ)"
     )
 
 
