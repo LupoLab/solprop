@@ -1665,8 +1665,9 @@ math mode with its test in `tests/backends/test_mlx.py`, or established by a pro
 | envelope cycle moments | closed-form ellipse, split rules with the cutoffs honoured, compensated sums, per-sample failure flag | 2.3e-6 against the oracle's adaptive moments (budget 2e-6 each) |
 | matrix products | `MLX_ENABLE_TF32=0` at import; `gemm_probe` at construction, bound `2**-17` | 2e-7 float32 against 7e-4 TF32 |
 
-**Measured MLX behaviour that shaped the backend.** The GPU FFT is about three times
-less accurate than NumPy's float32 transform and its round trip shrinks by 1–2e-7, a
+**Measured MLX behaviour that shaped the backend.** The GPU FFT is 2.0 to 2.6 times less
+accurate than SciPy's binary32 transform at powers of two, and 3.1 to 4.0 times at
+2-3-5-smooth sizes (Apple M5 Max), and its round trip shrinks by 1–2e-7, a
 coherent bias; the split-step collar is therefore applied as the correction
 `a + F(F^-1(a)(f - 1))`, which only the collar's bins see. Graph lifetimes: below
 `memory.MLX_GRAPH_BUDGET` (1 GiB) a whole step is one graph, read with its norm in one

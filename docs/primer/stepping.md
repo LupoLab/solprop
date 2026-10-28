@@ -11,7 +11,7 @@ that reuse past evaluations of the nonlinear term.
 
 This chapter follows that history, and at each stage says what solprop does and why. It covers
 the split-step method, the interaction picture, solprop's exact treatment of a linear operator
-that varies along $z$, the embedded Runge–Kutta pair and its error control, the default
+that varies along $z$, the embedded Runge–Kutta pair and its error control, the
 exponential Adams method, absorbers expressed as rates, linear coupling between modes, and fixed
 step schedules. Throughout, $\partial_z\hat A=D\hat A+N[\hat A]$, with $D$ the linear operator of
 §2.9 and $N$ the nonlinear term.
@@ -154,12 +154,15 @@ cancel each other when integrated", so a small conservation error does not guara
 round-off. solprop's problems have loss, ionisation, absorbers and Raman, so there is no conserved quantity to control by.
 It uses the embedded estimate, and treats conservation as a diagnostic (Chapter 13).
 
-## 12.6 The default: exponential Adams
+## 12.6 Exponential Adams
 
 A Runge–Kutta step costs six evaluations of the nonlinear term. When an evaluation is expensive, as it is with many modes,
 ionisation, Raman, a spatial grid or a Schrödinger response, the alternative is to reuse evaluations from previous steps. That
-is a multistep method. solprop's default integrator, `Multistep()`, is an exponential Adams method, and it usually needs one
-new evaluation per accepted step ([the Adams integrator](../guide/numerics/adams.md)).
+is a multistep method. solprop's `Multistep()` is an exponential Adams method, and it usually needs one
+new evaluation per accepted step ([the Adams integrator](../guide/numerics/adams.md)). It is the default integrator of the
+capillary, radial and planar interfaces. The GNLSE and waveguide interfaces default to `RungeKutta()`, which was faster on
+them at matched accuracy, and so does Cartesian free space, where the Adams history would hold too many copies of a large
+transverse state ([the defaults](../guide/numerics/choosing-a-stepper.md#the-defaults)).
 
 Exponential multistep methods go back, as Hochbruck and Ostermann (2010, §6) record, to Certaine
 (1960) and Nørsett (1969). Cox and Matthews (2002) studied them for stiff
@@ -202,12 +205,16 @@ times erodes the spectral wings fifty times more ([rates, not masks](../guide/nu
 instead turns each collar into an absorption rate, so that the absorption is a property of the equation, not of the step
 sequence. The spectral collar becomes $\alpha(\omega)=-2\ln W(\omega)/\ell$, added to the linear operator, where it is integrated
 exactly and costs nothing. The temporal collar becomes $\alpha(t)=A(1-W(t))/\ell$, with $A=12.6$ and $\ell$ the length divided by
-`boundary_N` (20 by default). It is applied inside every stage of the step.
+`boundary_N` (20 by default). On the modal routes it is applied inside every stage of the step; on the radial, Cartesian and
+planar routes it is applied once per accepted step, unless planes are interpolated.
 
-The in-stage absorber keeps the integrator's full order. A Lie splitting, applying it as a separate sub-step, is available and is
-first order. On an N = 3 soliton driven into its collar, the in-stage scheme converges at fourth to fifth order and the split
+The in-stage absorber keeps the integrator's full order. A Lie splitting, applying it as a separate sub-step, is first order.
+On an N = 3 soliton driven into its collar, the in-stage scheme converges at fourth to fifth order and the split
 scheme at first ([the two temporal schemes](../guide/numerics/boundaries.md#the-two-temporal-schemes)). The in-stage rate is
-integrated explicitly, so it limits the step to the integrator's stability interval, which binds only on very short runs.
+integrated explicitly, so it limits the step to the integrator's stability interval, which binds only on very short runs. The
+split integrates the rate exactly and is unconditionally stable; on the spatial routes the in-stage collar took 1.2 to 4.6
+times its steps at equal or worse accuracy, so the spatial routes take the split by default
+([SEP 21](../dev/seps/archive/sep-0021-absorbing-boundaries.md)).
 
 ## 12.8 Linear coupling between modes
 
@@ -239,9 +246,12 @@ of the round-off floor is reported as inconclusive.
   rule per step is first order, and the error of any approximate linear flow is invisible to the error estimate.
 - `RungeKutta()` is Dormand–Prince 5(4) in the interaction picture, with FSAL and order-condition checks. The norm is one global scale
   over the active band. The controller is Söderlind's PI.4.2 with a growth limit of 1.1.
-- The default `Multistep()` is a variable-step, variable-order exponential Adams PEC method: one evaluation per step, exact linear flow,
-  a memory history, and a short negative-real stability interval.
-- Collars are rates. The spectral rate is exact in $D$, and the temporal rate is integrated in-stage at full order.
+- `Multistep()` is a variable-step, variable-order exponential Adams PEC method: one evaluation per step, exact linear flow,
+  a memory history, and a short negative-real stability interval. It is the capillary, radial and planar default; the GNLSE,
+  waveguide and Cartesian interfaces default to `RungeKutta()`.
+- Collars are rates. The spectral rate is exact in $D$. The temporal rate is integrated in-stage at full order on the modal
+  routes, and applied once per step, as an unconditionally stable first-order split, on the radial, Cartesian and planar
+  routes.
 - Coupled linear flows are matrix functions applied by section. Fixed schedules are discovered, calibrated and replayed.
 :::
 

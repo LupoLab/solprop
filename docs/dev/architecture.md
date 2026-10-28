@@ -291,9 +291,13 @@ ModalProvider  ->  DenseModalTable  ->  ModalTransformTables  ->  KernelProblem
 envelope grid in FFT order), the oversampled fine axes `t_fine`/`omega_fine` (factor `ffac`:
 6 for a cubic field response with third-harmonic content, 4 for `|E|²E`, 1 or 2 for
 envelopes), the in-band mask (physical frequencies inside the wavelength limits), the
-spectral and temporal collar profiles, and the reference frequency `ω₀`. Sizes are powers of
-two or 2-3-5-smooth on request. The invariants between coarse and fine grids (Luna
-`Grid.jl:107–108, 244–250`) are asserted in the constructors and tested. `fourier.py` owns the
+spectral and temporal collar profiles, and the reference frequency `ω₀`. The temporal collar
+lies outside the requested window: the realised window is at least
+`trange / (1 − 2 collar_fraction)`, `collar_fraction` 0.1 by default (ADR-057). Sizes are even
+and 2-3-5-smooth: by default (`fft_size="auto"`) the cheapest by a transform-cost model up to
+the next power of two, or the next power of two or smooth size on request. The invariants
+between coarse and fine grids (Luna `Grid.jl:107–108, 244–250`) are asserted in the
+constructors and tested. `fourier.py` owns the
 sign convention ([conventions.md](conventions.md)), the r2c/c2c helpers, the analytic-signal
 and oversampling operations used outside the hot loop, and the crop/pad scaling factors that
 the translation layer hands to kernels.
@@ -367,7 +371,8 @@ derivatives at ω₀) and folds in the spectral absorber rate; it knows nothing 
 tables. For Marcatili modes with `ZProfile` core indices it exposes the three-scalar structure
 (a(z), ρ(z), β₁(z)) that lets the translation layer sample D cheaply at many z (the idea behind
 Luna's `MarcatiliLinop`). `boundaries.py` defines the collar geometry (spectral edges beyond
-the wavelength limits; temporal collar as a fraction of the window, guaranteed non-degenerate)
+the wavelength limits; temporal collar outside the requested window, at least a fraction of
+the realised window, guaranteed non-degenerate)
 and converts profiles to rates with a reference length `ℓ`: `α = −2 log(W)/ℓ` for the
 spectral collar and the bounded `12.6·(1 − W)/ℓ` for the temporal one (ADR-007).
 

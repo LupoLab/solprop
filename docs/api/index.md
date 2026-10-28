@@ -4,6 +4,11 @@ One page per public module, class and function, generated from the docstrings. T
 [user guide](../guide/index.md) explains how the objects fit together; this reference
 describes their arguments, defaults, units, return values and errors. Quantities are in SI units unless a docstring says otherwise.
 
+**Stability.** solprop is at 0.x: a minor release may change the API, and every such
+change is listed under "Changed (breaking)" in the [changelog](../changelog.md).
+{mod}`solprop.translate`, {mod}`solprop.backends` and the internals of
+{mod}`solprop.output` are for developers and change without notice.
+
 For interactive work, {mod}`solprop.sol` gathers the names a session needs behind one
 import (`import solprop.sol as sol`; see [the interactive namespace](../guide/workflows/interactive.md)).
 In scripts and library code, import from the home modules listed below.

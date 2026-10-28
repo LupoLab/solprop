@@ -45,11 +45,15 @@ compares the backends by problem.
 
 ## Which stepper
 
-The default integrator, `Multistep()`, evaluates the nonlinear response once per step;
-`RungeKutta()` usually six times, in fewer, longer steps. Keep the default wherever the
-response dominates a step, and compare the two on a short stretch of your own problem
-when it matters: the call counts and the time per call are in the run's step history and
-log. [Choosing a stepper](../numerics/choosing-a-stepper.md) sets out when each is faster,
+Each interface has its own default integrator
+([the defaults](../numerics/choosing-a-stepper.md#the-defaults)): `Multistep()` on
+`prop_capillary`, `prop_radial` and `prop_planar`, `RungeKutta()` on `prop_gnlse`,
+`prop_waveguide` and `prop_free`. `Multistep()` evaluates the nonlinear response once
+per step; `RungeKutta()` usually six times, in fewer, longer steps. `Multistep()` tends
+to gain where the response dominates a step's cost, `RungeKutta()` where it is cheap.
+Compare the two on a short stretch of your own problem when it matters: the call counts
+and the time per call are in the run's step history and log.
+[Choosing a stepper](../numerics/choosing-a-stepper.md) sets out when each is faster,
 with the measurements.
 
 **Many save planes.** Landing on every save plane caps the step at the plane spacing.

@@ -242,8 +242,9 @@ def prop_free(  # noqa: PLR0913 - the simulation interface and output controls
         Moving frame; None uses the responses' THG choice.
     noise : {'default', None, 'input', 'modified'}, optional
         One photon per spatial column, polarisation and active frequency bin.
-        ``"default"``, the default, resolves to ``"input"`` wherever the run can
-        carry noise, and records the resolution (SEP 37).
+        ``"default"``, the default, resolves to no noise on this interface and records
+        why: a Cartesian or line run is slow, and rarely about noise sensitivity
+        (SEP 37). Pass ``"input"`` or ``"modified"`` for a noise model.
     seed : int or None, optional
         Noise seed, required to have a noise model when given.
     output : solprop.output.schema.Output or pathlib.Path or str or None, optional
@@ -573,13 +574,16 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         so a run is reproducible; ``None`` draws from the operating system and records
         what it drew.
     rtol : float or None, optional
-        ``None`` takes the default below, or the single-precision floor.
-        Relative tolerance of the step controller, dimensionless and positive. The map
+        Relative tolerance of the step controller, dimensionless and positive.
+        ``None`` takes :data:`~solprop.driver.simulation.DEFAULT_RTOL`, ``1e-7``, or
+        under ``precision="single"`` the floor
+        :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR`, ``1e-6``. The map
         from this local tolerance to the global error at the output is problem dependent
         and misses by one to three orders either way, so calibrate rather than assume
         (``docs/dev/stepper.md`` section 3).
     atol : float, optional
-        Absolute tolerance, in the square root of watts, non-negative.
+        Absolute tolerance, in the square root of watts, non-negative; ``1e-14`` by
+        default (:data:`~solprop.driver.simulation.DEFAULT_ATOL`).
     dz_max : float, optional
         Cap on the controller's step proposal, m; ``None`` uses half the length.
     dz_init : float, optional
@@ -646,8 +650,11 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         binary64 throughout. ``"single"`` holds the state and the source evaluation in
         binary32: its default `rtol` is the floor
         :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR`, below which an explicit
-        value is refused; its default integrator is ``RungeKutta()``, and the Adams
-        method, noise models and every backend but ``numpy_ref`` are refused.
+        value is refused; its default integrator is ``RungeKutta()``; the default noise
+        resolves to none, and the Adams method and an explicit noise model are refused.
+        ``backend="auto"`` then resolves to the experimental ``mlx`` where MLX and a
+        Metal GPU are present, and is refused otherwise; ``numpy_ref`` runs it as the
+        reference, and ``numba_cpu`` and ``native`` refuse it.
     resume : bool or {'interpolated'}, optional
         Continue the file at `output` if it holds this same run, instead of replacing
         it. Only a path can be resumed.
@@ -948,8 +955,9 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         every ``HE_1m`` channel to every other with a definite phase instead of
         giving each its own Marcatili attenuation. It needs the contiguous set
         ``HE_11`` to ``HE_1N`` -- or, with ``impedance="te_tm"``, one azimuthal
-        order -- on a constant or a varying guide, a scalar run and no noise model;
-        all three backends execute it (``method="cf4"`` on ``numpy_ref`` alone).
+        order -- on a constant or a varying guide, and a scalar run. It carries the
+        default ``"input"`` noise and refuses ``"modified"``. All three backends
+        execute it (``method="cf4"`` on ``numpy_ref`` alone).
         ``None``, the default, carries no wall: the modes keep their own Marcatili
         loss, and a multimode taper its taper coupling (below).
     taper_coupling : bool, optional
@@ -1059,13 +1067,13 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
     seed : int or None, optional
         Entropy of the noise generator.
     rtol : float or None, optional
-        ``None`` takes the default below, or the single-precision floor.
-        Relative step tolerance; the default is
-        :data:`~solprop.driver.simulation.CAPILLARY_RTOL`, the capillary
-        default. Calibrate it for a production run (``docs/dev/stepper.md``
-        section 3).
+        Relative step tolerance. ``None`` takes
+        :data:`~solprop.driver.simulation.CAPILLARY_RTOL`, ``1e-6``, in either
+        precision (it equals the single-precision floor). Calibrate it for a production
+        run (``docs/dev/stepper.md`` section 3).
     atol : float, optional
-        Absolute step tolerance, in the square root of watts.
+        Absolute step tolerance, in the square root of watts; ``1e-10`` by default
+        (:data:`~solprop.driver.simulation.WAVEGUIDE_ATOL`).
     dz_max : float or None, optional
         Cap on the step, m; ``None`` takes half the capillary.
     dz_init : float or None, optional
@@ -1108,8 +1116,11 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         binary64 throughout. ``"single"`` holds the state and the source evaluation in
         binary32: its default `rtol` is the floor
         :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR`, below which an explicit
-        value is refused; its default integrator is ``RungeKutta()``, and the Adams
-        method, noise models and every backend but ``numpy_ref`` are refused.
+        value is refused; its default integrator is ``RungeKutta()``; the default noise
+        resolves to none, and the Adams method and an explicit noise model are refused.
+        ``backend="auto"`` then resolves to the experimental ``mlx`` where MLX and a
+        Metal GPU are present, and is refused otherwise; ``numpy_ref`` runs it as the
+        reference, and ``numba_cpu`` and ``native`` refuse it.
     polarisation : str, float or None, optional
         Refused; this path is scalar.
     output : solprop.output.schema.Output, pathlib.Path, str or None, optional
@@ -1552,13 +1563,13 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
     seed : int or None, optional
         Entropy of the noise generator.
     rtol : float or None, optional
-        ``None`` takes the default below, or the single-precision floor.
-        Relative step tolerance; the default is
-        :data:`~solprop.driver.simulation.WAVEGUIDE_RTOL`, the modal waveguide
-        default. Calibrate it for a production run (``docs/dev/stepper.md``
+        Relative step tolerance. ``None`` takes
+        :data:`~solprop.driver.simulation.WAVEGUIDE_RTOL`, ``1e-5``, in either
+        precision. Calibrate it for a production run (``docs/dev/stepper.md``
         section 3).
     atol : float, optional
-        Absolute step tolerance, in the square root of watts.
+        Absolute step tolerance, in the square root of watts; ``1e-10`` by default
+        (:data:`~solprop.driver.simulation.WAVEGUIDE_ATOL`).
     dz_max : float or None, optional
         Cap on the step, m; ``None`` takes half the waveguide.
     dz_init : float or None, optional
@@ -1591,8 +1602,11 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         binary64 throughout. ``"single"`` holds the state and the source evaluation in
         binary32: its default `rtol` stays this interface's ``1e-5``, above the floor
         :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR` below which an explicit
-        value is refused; its default integrator is ``RungeKutta()``, and the Adams
-        method, noise models and every backend but ``numpy_ref`` are refused.
+        value is refused; its default integrator is ``RungeKutta()``; the default noise
+        resolves to none, and the Adams method and an explicit noise model are refused.
+        ``backend="auto"`` then resolves to the experimental ``mlx`` where MLX and a
+        Metal GPU are present, and is refused otherwise; ``numpy_ref`` runs it as the
+        reference, and ``numba_cpu`` and ``native`` refuse it.
     polarisation : str, float or None, optional
         Refused; this path is scalar.
     taper_coupling : bool, optional

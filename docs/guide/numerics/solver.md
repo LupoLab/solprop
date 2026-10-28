@@ -5,8 +5,11 @@ tolerance and step controls alongside the temporal and spatial resolution of the
 problem. A small local error estimate does not establish that the full simulation
 or a weak generated band is accurate.
 
-Start with the default `Multistep()` method, then use [stepper selection](choosing-a-stepper.md)
-when source cost, memory or dynamics motivate a comparison. This chapter explains
+Start with the interface's default integrator, `Multistep()` on `prop_capillary`,
+`prop_radial` and `prop_planar` and `RungeKutta()` on `prop_gnlse`, `prop_waveguide` and
+`prop_free` ([the defaults](choosing-a-stepper.md#the-defaults)), then use
+[stepper selection](choosing-a-stepper.md) when source cost, memory or dynamics
+motivate a comparison. This chapter explains
 `rtol`, `atol`, `dz_init` and `dz_max`, the interaction picture and the error norm.
 [Fixed schedules](fixed-schedules.md) describe prescribed steps;
 [assessing accuracy](accuracy.md) puts those controls into a convergence study.
@@ -42,10 +45,10 @@ Three integrators take the steps, and everything else on this page — the linea
 the source definitions, caps and save-plane conventions — is used by all of them.
 `integrator=` on every entry point and on
 {py:class}`~solprop.driver.simulation.SimulationSettings` chooses between `Multistep()`,
-the default exponential Adams method ([the Adams integrator](adams.md)), `RungeKutta()`,
+the exponential Adams method ([the Adams integrator](adams.md)), `RungeKutta()`,
 the interaction-picture Dormand–Prince pair below, and `LowStorageRungeKutta()`, a
-fixed-schedule RK4; [choosing a stepper](choosing-a-stepper.md) describes each and sets
-out the measurements and the guidance. Their error estimates and histories differ, so
+fixed-schedule RK4; [choosing a stepper](choosing-a-stepper.md) describes each, gives
+each interface's default and sets out the measurements and the guidance. Their error estimates and histories differ, so
 equal requested tolerances do not guarantee equal measured error.
 
 `LowStorageRungeKutta()` replays a prescribed

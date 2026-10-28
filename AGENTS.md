@@ -122,7 +122,10 @@ benchmark on about ten steps, or on a fibre short enough to finish in seconds. T
 gallery kinds are exempt. An introductory lesson (`docs/introduction/tutorials/`) or a
 focused tutorial (`docs/tutorials/`) may run its real problem at full length when that is
 what it demonstrates; it runs on every docs build. A worked example (`docs/examples/`)
-runs a real problem at full size, only by hand with `poe docs-examples`.
+runs a real problem at full size, only by hand with `poe docs-examples`. The release
+tracking set (`python -m benchmarks track`) times complete runs by design
+([what is timed](docs/dev/benchmarks.md#benchmark-windows)); it runs by hand, on a quiet
+machine, when the history is recorded, never as part of a change's qualification.
 
 Do not declare work finished while any required check fails. If a check genuinely cannot
 pass, say so explicitly and explain why — never suppress a check to make the gate green.
@@ -328,8 +331,9 @@ The long form is [`backends.md`](docs/dev/backends.md).
   `tests/backends/test_driver.py`). Changing any of them bumps the version, rewrites the
   literal in the same commit and adds a changelog line.
 - Every hot-path change comes with a benchmark ledger entry
-  ([`benchmarks.md`](docs/dev/benchmarks.md)), measured on about ten steps; report the
-  window measured and never extrapolate it to a full run.
+  ([`benchmarks.md`](docs/dev/benchmarks.md)), measured with `python -m benchmarks ab`
+  on about ten steps or a short `ab --length` window; report the window measured and
+  never extrapolate it to a full run.
 - Every kernel is also exercised in the coverage lane (`NUMBA_DISABLE_JIT=1`).
 
 ## Errors, warnings and logging
