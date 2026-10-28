@@ -151,3 +151,11 @@ def test_band_coherence_scores_only_bands_above_the_floor():
     # A shape mismatch is refused, by the annotation's checker where it runs.
     with pytest.raises(Exception, match=r"shape|n_x"):
         coherence.band_coherence(reference, reference[:, :32])
+
+
+def test_band_coherence_of_an_empty_reference_scores_no_band():
+    """A reference with no energy occupies no band: every band is unscored."""
+    spectra = np.ones((3, 64), dtype=complex)
+    values, energy = coherence.band_coherence(spectra, np.zeros((3, 64), dtype=complex))
+    assert np.all(np.isnan(values))
+    assert np.array_equal(energy, np.zeros(32))

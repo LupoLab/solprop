@@ -244,7 +244,9 @@ def band_coherence(
     >>> bool(np.allclose(coherence, 1.0)), energy.shape
     (True, (32,))
     """
-    if spectra.shape[1:] != reference.shape[1:]:
+    if (
+        spectra.shape[1:] != reference.shape[1:]
+    ):  # pragma: no cover - refused by the annotation where it is checked
         msg = (
             f"the ensemble's spectra have shape {spectra.shape[1:]}, the reference's "
             f"{reference.shape[1:]}"
@@ -255,7 +257,6 @@ def band_coherence(
     weight = weight.reshape(-1, weight.shape[-1])
     coherence = coherence.reshape(-1, coherence.shape[-1])
     bands = spectral_bands(weight.sum(axis=0), n_bands)
-    energy = np.full(n_bands, np.nan)
     result = np.full(n_bands, np.nan)
     if not bands:
         return result, np.zeros(n_bands)
