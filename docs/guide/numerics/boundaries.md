@@ -471,8 +471,9 @@ into removals larger than the launch and false warnings.
 
 A check reads five numbers of the state, its energy and the four weighted energies above,
 and each backend forms them where the state lives: on the GPU for `mlx` and a device build
-of `native`, in compiled code on the CPU backends. The field is not copied to the host to
-be watched.
+of `native`, in compiled code for `numba_cpu` and `native` on the CPU, and with NumPy for
+`numpy_ref`, the reference the others are tested against. The field is not copied to the
+host to be watched.
 
 A resumed run continues the record: the state it resumes from is checked by the first
 step, not judged as a launch, so a run stopped at an edge can be resumed under a relaxed
