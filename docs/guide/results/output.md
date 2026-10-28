@@ -280,7 +280,10 @@ norm, whether it was accepted, and how long it took. It is recorded whether the 
 adaptive or replayed a fixed schedule, because the embedded estimate costs nothing extra
 and a replayed run still needs it: a largest scaled norm above one means a step was too
 coarse for the tolerance the norm is scaled by ([stepper.md](../../dev/stepper.md) §8).
-{py:func}`~solprop.output.hdf5.resume` returns the history recorded so far with the last
+A rejected attempt that diverged, whose propagator or error overflowed (a long step
+under a strong collar, more easily in single precision), records an infinite norm; the
+stepper retried it at a much shorter step, so take the largest norm over the accepted
+attempts. {py:func}`~solprop.output.hdf5.resume` returns the history recorded so far with the last
 plane, and an appending handler numbers the next attempt where the file left off, so a
 resumed run's file keeps one continuous record.
 

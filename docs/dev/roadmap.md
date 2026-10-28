@@ -688,6 +688,17 @@ GPUs with slow double precision.
   one-photon-per-mode seed at high pulse energy. Kokkos has no Metal backend, and one
   would need a single-source C++ compiler for Metal (the runtime part is modest: 5 to
   10 thousand lines for each existing GPU backend).
+- `mlx` from experimental to supported. The first release ships the backend
+  experimental ([backends](backends.md) §4a). What decides full support: power-of-two
+  grids by default under single precision, or a per-backend transform cost in
+  `fft_size="auto"` (MLX's GPU FFT runs 2-3-5-smooth sizes four to eight times slower
+  than powers of two); a macOS `mlx` job in CI (the `mlx` tests with the runtime type
+  checks, coverage of `mlx_gpu` against a recorded floor, a pass on MLX's CPU device,
+  basedpyright on `mlx_gpu`), which ends the coverage omission
+  ([testing](testing.md#the-mlx-omission)); the default in-stage collar's `mlx` tests
+  restored on the default geometry; bounds against the oracle that can detect an `mlx`
+  error; and a re-timing on current grids on an idle machine, which replaces the
+  guide's speed table.
 
 **Benchmark platforms beyond CPU tracking.**
 [SEP 38](seps/archive/sep-0038-performance-tracking.md) (final) tracks native CPU and

@@ -97,13 +97,14 @@ format refuses those properties under the suite's warnings-as-errors policy.
 
 ## coverage
 
-One configuration: `coverage-cpu.ini` (`source = solprop`, `branch = True`, nothing
-omitted) for `poe cov` — `cov-kernels` with `NUMBA_DISABLE_JIT=1`, then `cov-rest` with
+One configuration: `coverage-cpu.ini` (`source = solprop`, `branch = True`, the
+experimental `mlx` backend omitted: [testing](testing.md#the-mlx-omission)) for `poe cov` — `cov-kernels` with `NUMBA_DISABLE_JIT=1`, then `cov-rest` with
 normal JIT, the second appending to the first. Only the compiled modules need the
 interpreter to have their bodies counted, and interpreting the whole suite would make
 every run in it interpret the kernels, so the first pass runs only the kernel-body suites.
 The `[tool.coverage]` tables in `pyproject.toml` are the shared defaults. The lane requires
-100 % of statements and branches of the whole package (`fail_under = 100`);
+100 % of statements and branches of the whole package but `mlx_gpu`
+(`fail_under = 100`);
 `# pragma: no cover` requires a reason on the same line.
 
 ## numpydoc validation

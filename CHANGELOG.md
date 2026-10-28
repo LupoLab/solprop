@@ -526,3 +526,26 @@ The first public release. It contains:
   are exact to the bit. The `gnlse_raman_shock` tracking case (16,384 points, one
   thread) costs 5.7-5.8 ms per step on an AMD EPYC 7763 (was 8.7; `numba_cpu` 6.1-6.3)
   and 2.43-2.47 ms on an Apple M5 Max (was 3.0-3.4; `numba_cpu` 2.31-2.38).
+- **A single-precision step that overflows is rejected, not fatal.** An adaptive trial
+  whose propagator passed binary32's `exp(88.72)` (a long step under a strong collar)
+  scored a non-finite error norm, which the controller rejected and the step history
+  then refused, ending the run with `BackendError: error_norm has entries that are not
+  finite`. The trial is now an ordinary rejection: the step shrinks by the controller's
+  smallest factor, and the history records the trial's norm as infinity, which it
+  admits on a rejected entry only. The rule is the step driver's, so a binary64 trial
+  past `exp(709.78)` is rejected the same way.
+- **The Adams integrator under single precision is refused by the backend too.**
+  `registry.select("numpy_ref", problem)` built a single-precision backend for a
+  translated problem carrying `Multistep()`, which the settings refuse; the
+  single-precision backends now apply the settings' own admission and refuse it by
+  name.
+
+### Known limitations
+
+- **The `mlx` backend is experimental.** Its Metal kernels are tested by hand on a
+  Metal device, not in continuous integration, and its coverage is not measured there.
+  The single-precision survival record is the reference implementation's (on `mlx` for
+  two cases). On the default `fft_size="auto"` grids MLX's GPU transform runs four to
+  eight times slower than on powers of two, so a run can be slower than binary64
+  `native`: build single-precision grids with `fft_size="pow2"`. The guide's speed table
+  predates the current grids and is marked so.

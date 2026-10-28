@@ -31,7 +31,8 @@ __all__ = ["LockstepRunner"]
 def _refuse_invalid_norm(norms: Sequence[float], backend: str) -> None:
     """Name the member whose diagnostic no step record on any route can carry.
 
-    A non-finite or negative error norm is refused by ``StepHistory`` and
+    A batch only replays, so every step it records is accepted, and a non-finite or
+    negative error norm on an accepted step is refused by ``StepHistory`` and
     ``StepSummary`` at the next save plane whether the member ran in a batch or
     alone, so this is not a batch-only rule; what the batch owes the caller is the
     member's index, rather than an anonymous history error one plane later that

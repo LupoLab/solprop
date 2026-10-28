@@ -60,13 +60,47 @@ def test_a_history_of_ragged_arrays_is_refused(name):
         StepHistory(**fields)
 
 
-def test_a_history_with_a_non_finite_entry_is_refused():
-    record = history()
-    with pytest.raises(BackendError, match="not finite"):
+@pytest.mark.parametrize("name", ["z", "dz", "error_norm", "wall_time"])
+def test_a_history_with_a_non_finite_entry_is_refused(name):
+    fields = {
+        "z": history().z,
+        "dz": history().dz,
+        "error_norm": history().error_norm,
+        "accepted": history().accepted,
+        "wall_time": history().wall_time,
+    }
+    fields[name] = np.array([np.nan, fields[name][1]])
+    with pytest.raises(BackendError, match=f"{name} has entries that are not finite"):
+        StepHistory(**fields)
+
+
+def test_a_rejected_step_records_a_diverged_trial_as_infinity():
+    """A trial whose norm overflowed is a rejection, and its record is admitted."""
+    record = history(2, accepted=np.array([False, True]))
+    diverged = StepHistory(
+        record.z,
+        record.dz,
+        np.array([np.inf, 0.4]),
+        record.accepted,
+        record.wall_time,
+    )
+    assert diverged.n_rejected == 1
+    assert diverged.error_norm[0] == np.inf
+
+
+@pytest.mark.parametrize(
+    ("norm", "accepted"),
+    [(np.inf, True), (np.nan, False), (-np.inf, False)],
+    ids=["accepted-infinity", "rejected-nan", "rejected-negative-infinity"],
+)
+def test_only_a_rejected_step_may_record_infinity(norm, accepted):
+    """An accepted step is finite, and a diverged trial is written as +inf, not NaN."""
+    record = history(2, accepted=np.array([accepted, True]))
+    with pytest.raises(BackendError, match="other than a rejected step's infinity"):
         StepHistory(
             record.z,
             record.dz,
-            np.array([np.nan, 0.4]),
+            np.array([norm, 0.4]),
             record.accepted,
             record.wall_time,
         )

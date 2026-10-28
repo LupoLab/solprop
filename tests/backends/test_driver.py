@@ -182,6 +182,26 @@ def test_a_rejected_step_is_retried_at_the_rejection_factor_alone(
     assert retried == pytest.approx(rejected * controller.rejection_factor(1.0001))
 
 
+@pytest.mark.parametrize("diverged", [np.inf, np.nan], ids=["infinite", "nan"])
+def test_a_diverged_trial_is_rejected_shrunk_and_recorded_as_infinity(driver, diverged):
+    """A non-finite norm, as a binary32 propagator past ``exp(88.72)`` scores, rejects.
+
+    The controller retries at its smallest factor, and the history records the trial as
+    infinity, so the observation at the next plane reads it back rather than refusing
+    the record and ending the run.
+    """
+    made = driver(norms=[diverged, 0.1], factor=2.0)
+    made.propagate_to(LENGTH)
+    history = made.observe().step_history
+    assert not bool(history.accepted[0])
+    assert history.error_norm[0] == np.inf
+    assert np.all(np.isfinite(history.error_norm[1:]))
+    assert bool(history.accepted[1])
+    controller = made._problem.stepper.controller
+    assert made.calls[1][0] == 0.0
+    assert made.calls[1][1] == pytest.approx(made.calls[0][1] * controller.min_factor)
+
+
 def test_the_history_covers_only_the_steps_since_the_last_observation(driver):
     """``observe`` empties the history, as the protocol promises."""
     made = driver(planes=(LENGTH / 2, LENGTH))

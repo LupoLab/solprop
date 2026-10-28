@@ -89,8 +89,9 @@ The full gate, `uv run poe check`, runs in this order (CI runs the same steps):
 
 Report what passed, failed or remains deferred. The
 coverage lane requires 100 % of statements and branches of the whole package
-(`fail_under = 100`); it stays outside `poe check` only because it takes longer.
-`# pragma: no cover` needs a reason on the same line.
+(`fail_under = 100`) but the experimental `mlx` backend, a recorded omission
+(`docs/dev/testing.md`, "The `mlx` omission"); it stays outside `poe check` only
+because it takes longer. `# pragma: no cover` needs a reason on the same line.
 
 **CI** (`.github/workflows/ci.yml`) runs on every push to `main` and every pull request:
 `poe check` split into parallel jobs (the static checks and the documentation on Linux;

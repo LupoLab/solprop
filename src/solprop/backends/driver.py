@@ -2033,10 +2033,14 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             Length of the step, m.
         norm : float
             The scaled error norm the attempt scored, as executed: a landing step
-            clipped short records its own norm, not the proposal's equivalent.
+            clipped short records its own norm, not the proposal's equivalent. A
+            diverged attempt, whose norm overflowed or was NaN, is recorded as
+            infinity; the controller never accepts one.
         accepted : bool
             Whether the step was kept.
         """
+        if not math.isfinite(norm):
+            norm = math.inf
         self._history.append((z, dz, norm, accepted, time.perf_counter() - self._clock))
         self._progress.step(z, dz, accepted)
         if accepted:
