@@ -124,6 +124,9 @@ the gate.
   operators keep their header's contraction when inlined. Reassociation is scoped to
   the loops that need it. No umbrella fast-math, `nnan`/`ninf`, `nsz`, approximate
   functions or reciprocals, or flush-to-zero; the `__FAST_MATH__` refusal stays.
+  CUDA and HIP builds leave the strict blocks empty and follow their compilers'
+  contraction defaults, held to the measured device envelopes (solprop's ADR-049,
+  amended) until device round-to-nearest helpers land.
 - Reductions and scans take whatever order measures fastest within their rounding
   bound; the native-order GEMM (`native_order_gemm`) is held to the GEMM rounding
   bound against `KokkosBlas::gemm`, not to its bits.

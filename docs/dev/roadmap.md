@@ -593,9 +593,26 @@ any of the first ten items.
 - **Windows re-measurement** of the CPU fixes against `numba_cpu` on the single-runtime
   wheel, and a Windows CI lane that fits its memory (fewer xdist workers or a larger
   page file). Two `numba_cpu` cache tests exceed Windows's 260-character path limit.
-- **FFTW planning policy per transform shape**: `estimate`, `measure` and saved wisdom,
-  and wider codelets, compared per representative shape and processor and qualified on
-  the minimum CPU model.
+- **FFTW planning policy per transform shape**: `estimate`, `measure` and saved wisdom
+  (persisted per FFTW version and processor), and wider codelets, compared per
+  representative shape and processor and qualified on the minimum CPU model. The
+  threaded-rows-at-estimate rule was set at 32 threads on an AVX-512 server; on an
+  18-core arm64 laptop at four threads, measured planning made a 32 768-sample Raman
+  GNLSE evaluation 6 % faster, for 1.1 s more planning.
+- **Thread thresholds on Windows and linux-aarch64**: the native CPU thresholds
+  (`native/include/solprop_native/core.hpp`) switch only on `__APPLE__`, so both take the
+  values measured on x86-64 Linux (Cascade Lake and Zen 3), unmeasured there. Sweep the
+  stage and FFT crossovers on each (`native/benchmarks/size_cliffs.py` and the tracked
+  cases) and keep a table per operating system and architecture; later, widths
+  proportional to work and a run-time override for the stage threshold.
+- **Round-to-nearest arithmetic in the protected helpers on devices**: CUDA and HIP
+  builds leave the strict blocks empty and follow their compilers' contraction defaults
+  (ADR-049 in [decisions](decisions.md), amended), so the φ series, phase sums,
+  compensated defects and ionised fraction may contract there. Give the protected
+  helpers round-to-nearest intrinsics under `__CUDA_ARCH__` (`__dmul_rn`, `__dadd_rn`)
+  and Clang's `fp contract(off)` on HIP, add a device test that a protected block does
+  not fuse (the device counterpart of `native/tests/native/test_fp.cpp`), and requalify the
+  device envelopes.
 - **Compiler targets with identical libraries** (x86-64-v2, v3, v4 and processor-specific
   targets), which matter most on the general modal route.
 - **Explicit SIMD** in at most one or two kernels (the general-modal response, synthesis
