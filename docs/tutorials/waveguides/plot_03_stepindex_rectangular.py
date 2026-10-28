@@ -22,8 +22,11 @@ The rectangular comparison uses 50 by 12.5 um half-widths and both polarisation
 partners. Its propagation is of an aluminium-clad guide of 50 by 10 um half-widths
 filled with 5 bar of argon, pumped by a 30 fs pulse at 800 nm; it runs for only 1 mm
 with 10 nJ to keep this demonstration inexpensive. Kerr is enabled;
-plasma, Raman and third harmonics are disabled. The padded FFT band exceeds the
-argon fit and its MaterialRangeWarning is retained in the gallery output.
+plasma, Raman and third harmonics are disabled. Two warnings are kept in the gallery
+output: the padded FFT band reaches 2.7 um, where the step-index fibre's silica,
+taken as transparent, would absorb (MaterialRangeWarning), and the rectangular guide's
+wall model passes its first-order validity at its longest wavelengths
+(GrazingIncidenceWarning).
 """
 
 from time import perf_counter

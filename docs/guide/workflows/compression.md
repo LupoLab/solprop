@@ -249,7 +249,7 @@ It never raises for that, and never claims success.
    import matplotlib.pyplot as plt
 
    from solprop.processing import compress_taylor, get_power
-   from solprop.processing._examples import example_output
+   from solprop.processing import example_output
 
    run = example_output()
    found = compress_taylor(run)

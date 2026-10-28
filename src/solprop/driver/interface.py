@@ -1103,8 +1103,9 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         How many planes to save, counting ``z = 0``.
     stats : solprop.stats.StatsSpec or None, optional
         Which statistics to record; ``None`` takes
-        :func:`solprop.stats.default_spec` for a multimode run with the profiles,
-        plus every statistic only a backend can compute.
+        :func:`solprop.stats.default_spec` with the profiles, for a multimode run or,
+        under ``mode_average=True``, a mode-averaged one without the quadrature
+        estimate, plus every statistic only a backend can compute.
     node_budget : int, optional
         Bytes of node-chunk buffers the response pass may hold.
     backend : str, optional
@@ -1134,9 +1135,9 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         configuration is this one's.
         ``"interpolated"`` also continues a dense run from a plane interpolated
         inside a step (:meth:`solprop.driver.simulation.Simulation.run`).
-    progress : solprop.log.ProgressReporter or None, optional
-        Where progress goes; ``None`` logs a periodic line, one line per saved plane
-        and one at the end.
+    progress : ProgressReporter, {'auto', 'bar', 'log', 'none'} or None, optional
+        Where progress goes; ``None`` takes the process default: a bar on a terminal
+        or in a notebook, log lines otherwise (:func:`solprop.driver.run.run_problem`).
     progress_period : float, optional
         Seconds between the default reporter's periodic lines, s; ``0`` leaves only the
         plane and closing lines. Ignored when `progress` is given.
@@ -1589,8 +1590,9 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         How many planes to save, counting ``z = 0``.
     stats : solprop.stats.StatsSpec or None, optional
         Which statistics to record; ``None`` takes
-        :func:`solprop.stats.default_spec` for a multimode run with the profiles,
-        plus every statistic only a backend can compute.
+        :func:`solprop.stats.default_spec` with the profiles, for a multimode run or,
+        under ``mode_average=True``, a mode-averaged one without the quadrature
+        estimate, plus every statistic only a backend can compute.
     node_budget : int, optional
         Bytes of node-chunk buffers the response pass may hold.
     backend : str, optional
@@ -1624,9 +1626,9 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         configuration is this one's.
         ``"interpolated"`` also continues a dense run from a plane interpolated
         inside a step (:meth:`solprop.driver.simulation.Simulation.run`).
-    progress : solprop.log.ProgressReporter or None, optional
-        Where progress goes; ``None`` logs a periodic line, one line per saved plane
-        and one at the end.
+    progress : ProgressReporter, {'auto', 'bar', 'log', 'none'} or None, optional
+        Where progress goes; ``None`` takes the process default: a bar on a terminal
+        or in a notebook, log lines otherwise (:func:`solprop.driver.run.run_problem`).
     progress_period : float, optional
         Seconds between the default reporter's periodic lines, s; ``0`` leaves only the
         plane and closing lines. Ignored when `progress` is given.

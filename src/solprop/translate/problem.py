@@ -756,6 +756,43 @@ class Initial:
         object.__setattr__(self, "batch_params", MappingProxyType(parameters))
 
 
+_ADAMS_CONTROL = frozenset({"rtol", "atol", "weights", "region"})
+"""The controller fields the Adams march reads. It chooses its steps by its own
+``safety``, ``min_factor`` and ``max_growth``
+(:class:`~solprop.stepper.multistep.Multistep`)."""
+
+
+def _refuse_unread_control(controller: PIController) -> None:
+    """Refuse a controller setting the Adams march would ignore, by name.
+
+    Parameters
+    ----------
+    controller : solprop.stepper.controller.PIController
+        The run's controller.
+
+    Raises
+    ------
+    TranslationError
+        Naming each field set away from its default that the Adams march does not
+        read.
+    """
+    default = PIController(rtol=controller.rtol, atol=controller.atol)
+    unread = [
+        one.name
+        for one in fields(PIController)
+        if one.name not in _ADAMS_CONTROL
+        and getattr(controller, one.name) != getattr(default, one.name)
+    ]
+    if unread:
+        msg = (
+            "Multistep() reads only the controller's rtol, atol, weights and region, "
+            "and chooses its steps by its own safety, min_factor and max_growth: "
+            f"PIController's {', '.join(unread)} would be ignored. Set them on "
+            "Multistep, or leave them at their defaults"
+        )
+        raise TranslationError(msg)
+
+
 @dataclass(frozen=True, eq=False)
 class StepperSettings:
     """The tableau, the controller and the schedule of a run.
@@ -877,6 +914,8 @@ class StepperSettings:
             raise TranslationError(msg)
         if isinstance(self.integrator, LowStorageRungeKutta):
             self._check_low_storage(self.integrator)
+        if isinstance(self.integrator, Multistep):
+            _refuse_unread_control(self.controller)
         if self.interpolate_planes and self.schedule is not None:
             msg = "interpolated planes lie inside adaptive steps; a schedule lands"
             raise TranslationError(msg)
