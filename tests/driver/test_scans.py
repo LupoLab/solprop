@@ -23,6 +23,7 @@ from march_bounds import (
 )
 from solprop import _process
 from solprop.driver._scan_context import _EXECUTOR
+from solprop.driver._scan_model import name_seed
 from solprop.driver.executors import Local, pool
 from solprop.driver.executors.pool import MemoryBudget, Pool
 from solprop.driver.scan import Scan, run_scan
@@ -51,7 +52,7 @@ def _controller_without_history(monkeypatch):
     monkeypatch.setattr(pool, "peak_rss", lambda: 0)
 
 
-def build_point(point):
+def build_point(point, noise=None):
     """Return a short soliton fibre on a prescribed schedule at a fixed order.
 
     So that a scan point and the same simulation run alone are one discrete march,
@@ -77,7 +78,7 @@ def build_point(point):
         ),
         integrator=FIXED_ORDER,
         backend="numpy_ref",
-        noise=None,
+        noise=noise,
     )
 
 
@@ -432,6 +433,34 @@ def test_scan_noise_seeds_and_replacement_flags(tmp_path):
         assert list(_dataset(file, "points/seed").asstr()[...]) == list(
             _dataset(file, "points/noise_seed").asstr()[...]
         )
+
+
+def default_noise_point(point):
+    """Return the point's fibre with its noise left to the default, and unseeded."""
+    return build_point(point, noise="default")
+
+
+def test_unseeded_noise_takes_the_point_seed_and_a_rerun_matches_its_record(
+    tmp_path,
+):
+    # Without a seed axis or a base seed, the seed comes from the scan's name.
+    scan = Scan("unseeded", power=[1.0, 2.0])
+    path = tmp_path / "unseeded.h5"
+    first = run_scan(scan, default_noise_point, output=path, progress="none")
+    assert first.status.tolist() == ["done", "done"]
+    # The rerun builds every point again and finds the configuration it recorded.
+    again = run_scan(scan, default_noise_point, output=path, progress="none")
+    assert again.status.tolist() == ["done", "done"]
+    with h5py.File(path) as file:
+        recorded = list(_dataset(file, "points/noise_seed").asstr()[...])
+    assert recorded == [str(name_seed("unseeded", index)) for index in (0, 1)]
+    seeded = Scan("seeded", base_seed=23, power=[1.0])
+    result = run_scan(
+        seeded, default_noise_point, output=tmp_path / "seeded.h5", progress="none"
+    )
+    with h5py.File(result.path) as file:
+        recorded = list(_dataset(file, "points/noise_seed").asstr()[...])
+    assert recorded == [str(seeded.point(0).seed)]
 
 
 @pytest.mark.medium

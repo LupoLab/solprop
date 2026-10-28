@@ -5,6 +5,7 @@
 """Resume: continuing a file the same run wrote, and refusing one it did not."""
 
 import dataclasses
+import re
 from typing import Any
 
 import h5py
@@ -237,6 +238,58 @@ def test_an_input_noise_run_resumed_does_not_add_its_noise_twice(
             bound,
             what=key,
         )
+
+
+def test_a_default_noise_run_without_a_seed_resumes_from_the_seed_it_recorded(
+    build_simulation, tmp_path
+):
+    """Re-running the same unseeded call continues its file (the maintainers' ruling).
+
+    Each unseeded construction draws its own entropy, so the call that resumes holds
+    another realisation until it takes the recorded seed; it then continues the run
+    the file holds, which the uninterrupted run seeded with that entropy matches to
+    the matched march's rounding budget (SEP 25 4.5).
+    """
+    path = tmp_path / "part.h5"
+    run_until(
+        scheduled(build_simulation, noise="default", backend="numpy_ref"),
+        path,
+        after=2,
+    )
+    stored = resume(path).metadata.noise
+    assert stored is not None and stored.seed is not None
+    again = scheduled(build_simulation, noise="default", backend="numpy_ref")
+    assert again.noise is not None and again.noise.seed != stored.seed
+    again.run(path, resume=True)
+    assert again.noise.seed == stored.seed
+    assert resume(path).n_saved == N_SAVE
+    whole = scheduled(
+        build_simulation, noise="default", seed=stored.seed, backend="numpy_ref"
+    )
+    whole.run(tmp_path / "whole.h5")
+    for key in ("field", "noise_phase"):
+        assert_matched(
+            read_file(path, key),
+            read_file(tmp_path / "whole.h5", key),
+            budget(whole),
+            what=key,
+        )
+
+
+def test_a_seeded_realisation_is_not_redrawn_and_the_refusal_names_the_seed(
+    build_simulation, tmp_path
+):
+    path = tmp_path / "run.h5"
+    scheduled(build_simulation, noise="input", seed=17).run(path)
+    other = scheduled(build_simulation, noise="input", seed=18)
+    assert not other._reseed(17)
+    with pytest.raises(OutputError, match="cannot be resumed") as refusal:
+        other.run(path, resume=True)
+    # The spectrum's hundreds of changed bins are one entry, counted, not listed.
+    message = str(refusal.value)
+    assert re.search(r"noise\.seed, noise\.spectrum \(\d+ elements\)", message)
+    assert "[0][0]" not in message
+    assert message.endswith("pass seed=17 to draw it again")
 
 
 def test_a_resumed_run_continues_the_file_rather_than_replacing_it(

@@ -182,7 +182,13 @@ from solprop.nonlinear.responses import (
     PlasmaResponse,
 )
 from solprop.nonlinear.tdse import TDSEAtomicWindow, TDSEExecution, TDSEGasResponse
-from solprop.output.hdf5 import HDF5Output, ResumeState, check_cache, open_file
+from solprop.output.hdf5 import (
+    HDF5Output,
+    ResumeState,
+    _stored_metadata,
+    check_cache,
+    open_file,
+)
 from solprop.output.hdf5 import resume as resume_state
 from solprop.output.memory import MemoryOutput
 from solprop.output.schema import (
@@ -1642,6 +1648,10 @@ class Simulation(Displayed):
     (2, (1, 1, 1, 768))
     """
 
+    # How a constructor that drew the noise without a seed draws it again from a given
+    # one: set per instance by `_redrawable`, read by `_reseed`.
+    _noise_redraw: Callable[[int], NoiseRealisation | None] | None = None
+
     def __init__(  # noqa: PLR0913 - the physics of a run, each a distinct object
         self,
         grid: TimeGrid,
@@ -2743,7 +2753,10 @@ class Simulation(Displayed):
         resume : bool or {'interpolated'}, optional
             Continue the file at `output` if it holds this same run, instead of
             replacing it. Only a path can be resumed: the driver has to open the file in
-            append mode itself. A run interpolating its planes
+            append mode itself. Noise a constructor drew without a seed is drawn
+            again from the seed the file recorded, so re-running the same call
+            continues its file (``docs/guide/results/resuming.md``). A run
+            interpolating its planes
             (``interpolate_planes``) whose last plane was interpolated inside a step is
             refused unless this is ``"interpolated"``: it then continues afresh from
             the interpolated field, and the position is recorded in the annotation
@@ -2802,6 +2815,8 @@ class Simulation(Displayed):
         (3, [0.0, 0.005, 0.01])
         """
         with _optmat.material_context(self._material_log):
+            if resume:
+                self._adopt_recorded_seed(output)
             problem = self.translate()
             metadata = self.metadata()
             handler, state = _open_output(
@@ -3053,6 +3068,66 @@ class Simulation(Displayed):
             Whether save planes may interpolate between accepted step endpoints.
         """
         return self.settings.interpolate_planes
+
+    def _reseed(self, seed: int) -> bool:
+        """Draw a noise realisation that was drawn without a seed again, from `seed`.
+
+        A constructor given ``seed=None`` draws operating-system entropy, so building
+        the same call twice gives two realisations and two configuration hashes. A
+        resume (:meth:`run`) and a scan point (:func:`~solprop.driver.scan.run_scan`)
+        pass the seed that makes the run the one they continue or reproduce. A
+        realisation the caller seeded or supplied is never redrawn.
+
+        Parameters
+        ----------
+        seed : int
+            The entropy to draw from.
+
+        Returns
+        -------
+        bool
+            Whether the realisation was drawn again; the translation and the record
+            are then rebuilt on their next use.
+        """
+        if self._noise_redraw is None or self.noise is None or self.noise.seed == seed:
+            return False
+        self.noise = self._noise_redraw(seed)
+        self._problem = None
+        self._metadata = None
+        return True
+
+    def _adopt_recorded_seed(self, output: Output | Path | str | None) -> None:
+        """Take the noise seed of the file a resume continues, where the call gave none.
+
+        The maintainers' ruling on resuming a default call (``seed=None``): the
+        realisation is drawn again from the seed the file recorded, so the re-run
+        call describes the run it continues. Nothing happens when there is no file,
+        the file recorded no seed or another noise model, or the realisation was
+        seeded or supplied by the caller; :func:`~solprop.output.hdf5.check_cache`
+        then judges the run as before.
+
+        Parameters
+        ----------
+        output : solprop.output.schema.Output or pathlib.Path or str or None
+            Where the resumed run is written.
+        """
+        if (
+            self._noise_redraw is None
+            or self.noise is None
+            or not isinstance(output, Path | str)
+            or not Path(output).exists()
+        ):
+            return
+        stored = _stored_metadata(output)[0].noise
+        if stored is None or stored.seed is None or stored.model != self.noise.model:
+            return
+        if self._reseed(stored.seed):
+            logger.info(
+                "resuming %s: the noise was drawn without a seed, so it is drawn again "
+                "from the seed the file recorded, %d",
+                output,
+                stored.seed,
+            )
 
     def _prime(
         self, backend: Backend, problem: KernelProblem, state: ResumeState | None
@@ -3538,18 +3613,16 @@ class Simulation(Displayed):
             settings.precision,
             quiet=None if isinstance(space, RadialGrid) else FREE_NOISE,
         )
-        draw = (
-            None
-            if noise_model is None
-            else spatial_noise(
-                SpatialFlux.resolve(grid, space, medium, z=simulation.initial_z),
-                np.random.default_rng(seed),
-                model=noise_model,
-                n_pol=field.shape[1],
-            )
-        )
-        simulation.noise = draw
         simulation.noise_resolution = resolution
+        if noise_model is not None:
+            draw = functools.partial(
+                _spatial_shot_noise,
+                noise_model,
+                SpatialFlux.resolve(grid, space, medium, z=simulation.initial_z),
+                field.shape[1],
+            )
+            simulation.noise = draw(seed)
+            _redrawable(simulation, draw, seed)
         _bind_spatial_rates(simulation, initial)
         return simulation
 
@@ -3838,13 +3911,14 @@ class Simulation(Displayed):
             precision=precision,
         )
         noise_model, resolution = _resolve_noise(noise, seed, precision)
-        return cls(
+        draw = functools.partial(_shot_noise, noise_model, working)
+        simulation = cls(
             working,
             mapping.mode,
             list(mapping.responses),
             pulse,
             settings=settings,
-            noise=_shot_noise(noise_model, working, seed),
+            noise=draw(seed),
             noise_resolution=resolution,
             configuration={
                 "gnlse": mapping,
@@ -3852,6 +3926,7 @@ class Simulation(Displayed):
             },
             materials=materials,
         )
+        return _redrawable(simulation, draw, seed)
 
     @classmethod
     @_one_material_context
@@ -5110,13 +5185,14 @@ class Simulation(Displayed):
             precision=precision,
         )
         noise_model, resolution = _resolve_noise(noise, seed, precision)
+        draw = functools.partial(_general_noise, noise_model, working, guide=provider)
         simulation = cls(
             working,
             channels,
             [],
             field0,
             settings=settings,
-            noise=_general_noise(noise_model, working, seed, provider),
+            noise=draw(seed),
             noise_resolution=resolution,
             configuration={
                 "waveguide": {
@@ -5130,6 +5206,7 @@ class Simulation(Displayed):
             guide=provider,
             materials=materials,
         )
+        _redrawable(simulation, draw, seed)
         if beam is None:
             return simulation
         return _incident_launch(simulation, beam, cast("CouplingModel", coupling))
@@ -5767,13 +5844,16 @@ class Simulation(Displayed):
         noise_model, resolution = _resolve_noise(
             noise, seed, precision, tdse=atomic is not None
         )
+        draw = functools.partial(
+            _shot_noise, noise_model, working, n_modes=len(mode_set)
+        )
         simulation = cls(
             working,
             mode_set.modes,
             responses,
             field0,
             settings=settings,
-            noise=_shot_noise(noise_model, working, seed, n_modes=len(mode_set)),
+            noise=draw(seed),
             noise_resolution=resolution,
             profiles=profiles,
             wall=wall,
@@ -5821,7 +5901,7 @@ class Simulation(Displayed):
                 plasma_integration=plasma_integration,
             )
         )
-        return simulation
+        return _redrawable(simulation, draw, seed)
 
 
 class SimulationRunner(Displayed):
@@ -8160,6 +8240,61 @@ def _general_noise(
     return transformed_noise(drawn, sampling.basis.transform)
 
 
+def _spatial_shot_noise(
+    noise: NoiseModel, flux: SpatialFlux, n_pol: int, seed: int | None
+) -> NoiseRealisation:
+    """Draw a radial or Cartesian run's shot noise at its entrance plane.
+
+    Parameters
+    ----------
+    noise : {'input', 'modified'}
+        Which model to use.
+    flux : solprop.spatial.SpatialFlux
+        The entrance plane's measure.
+    n_pol : int
+        Independent polarisation components.
+    seed : int or None
+        Entropy of the generator; ``None`` draws from the operating system.
+
+    Returns
+    -------
+    solprop.noise.NoiseRealisation
+        The realisation (:func:`solprop.noise.spatial_noise`).
+    """
+    return spatial_noise(flux, np.random.default_rng(seed), model=noise, n_pol=n_pol)
+
+
+def _redrawable(
+    simulation: Simulation,
+    draw: Callable[[int | None], NoiseRealisation | None],
+    seed: int | None,
+) -> Simulation:
+    """Let a realisation drawn without a seed be drawn again from a chosen one.
+
+    A call with ``seed=None`` records the operating-system entropy it drew, so the
+    same call made twice describes two runs. Keeping the draw lets a resume take the
+    seed its file recorded and a scan point take its own (:meth:`Simulation._reseed`);
+    a seeded realisation keeps the one it was given.
+
+    Parameters
+    ----------
+    simulation : Simulation
+        The run a constructor built, carrying `draw`'s realisation.
+    draw : collections.abc.Callable
+        Draws the realisation from a seed.
+    seed : int or None
+        The seed the caller gave.
+
+    Returns
+    -------
+    Simulation
+        `simulation`, able to redraw its noise when `seed` was ``None``.
+    """
+    if seed is None and simulation.noise is not None:
+        simulation._noise_redraw = draw
+    return simulation
+
+
 def default_radial_order(n_modes: int) -> int:
     """Return the radial order of the fixed rule a capillary run uses by default.
 
@@ -9737,11 +9872,15 @@ def _incident_launch(
         report.incident_energy,
         report.launched_energy,
     )
-    return simulation.with_input(
+    launched = simulation.with_input(
         result.launch,
         noise=simulation.noise,
         configuration={"pulse": pulse, "launch": report},
     )
+    # The launch carries the constructor's realisation unchanged, so a draw made
+    # without a seed may still be drawn again from a recorded one.
+    launched._noise_redraw = simulation._noise_redraw
+    return launched
 
 
 def _in_lowest_mode(

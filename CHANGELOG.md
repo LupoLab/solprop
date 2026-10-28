@@ -382,6 +382,19 @@ The first public release. It contains:
 
 ### Fixed
 
+- **Resuming a run whose noise was drawn without a seed.** Each unseeded construction
+  drew fresh entropy, so re-running the same default call with `resume=True` was
+  refused as a different run. The realisation is now drawn again from the seed the file
+  recorded; a seed the call gives is never replaced.
+- **Scans whose builder leaves the noise unseeded** drew operating-system entropy, so a
+  point could not be reproduced and a rerun refused its own completed points. Such noise
+  is now drawn from `point.seed`, or, on a scan without seeds, from a seed derived from
+  the scan's name and the point's global index.
+- **Refusals of a different run are readable.** A refused resume, append, metadata
+  write or scan point listed every changed array element; it now names each changed
+  array once with its count of elements and up to four entries of each part of the
+  record with a count of the rest, and, where the noise differs, names the seed that
+  draws the stored realisation.
 - **Single precision's reference transforms sum in binary32.** `numpy_ref`'s
   single-precision path used NumPy's float32 transforms, which are binary64 rounded once,
   and so was more accurate than the backends it checks. Its binary32 transforms now go to

@@ -38,9 +38,12 @@ def run_scan(  # noqa: PLR0913 - the public scan controls
     scan : Scan
         Complete scan or selection of global indices.
     build : callable
-        Build a Simulation from a ScanPoint, using ``point.seed`` for active noise.
-        Pool builders must be pickleable module-level callables. Cache a base
-        simulation lazily inside this callable for one translation per worker.
+        Build a Simulation from a ScanPoint. Noise the builder leaves unseeded is
+        drawn from ``point.seed``, or, on a scan without seeds, from one derived
+        from the scan's name and the point's global index; noise it seeds itself
+        must use ``point.seed``. Pool builders must be pickleable module-level
+        callables. Cache a base simulation lazily inside this callable for one
+        translation per worker.
     output : pathlib.Path or str
         Collected HDF5 path. Matching completed points are skipped on rerun.
     executor : Executor or None, optional

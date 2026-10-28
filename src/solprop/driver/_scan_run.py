@@ -22,7 +22,7 @@ import numpy as np
 
 from solprop.backends import select
 from solprop.driver._scan_context import current_executor
-from solprop.driver._scan_model import Scan, ScanPoint
+from solprop.driver._scan_model import Scan, ScanPoint, name_seed
 from solprop.driver.executors import Batch, Executor, Local
 from solprop.driver.executors._request import ScanRequest
 from solprop.driver.executors.pool import peak_rss
@@ -340,6 +340,7 @@ class _Work:
 
     build: Callable[[ScanPoint], Simulation]
     options: _Options
+    scan_name: str
 
     def run_batch(self, jobs: Iterable[_Job], executor: Batch) -> Iterator[PointResult]:
         """Delegate compatible jobs to the common lockstep scan driver.
@@ -363,7 +364,12 @@ class _Work:
         yield from execute(jobs, self, executor)
 
     def simulation(self, job: _Job) -> Simulation:
-        """Construct a simulation and enforce its recorded noise seed.
+        """Construct a simulation and give its noise the point's seed.
+
+        Noise the builder left unseeded is drawn again from ``point.seed``, or from
+        :func:`~solprop.driver._scan_model.name_seed` on a scan without seeds, so
+        that the point is reproducible and a rerun matches the record of its first
+        run; noise the builder seeded must have used ``point.seed``.
 
         Parameters
         ----------
@@ -378,6 +384,10 @@ class _Work:
         simulation = self.build(job.point)
         if not isinstance(simulation, Simulation):
             raise DriverError("scan builder must return a Simulation")
+        point = job.point
+        simulation._reseed(
+            name_seed(self.scan_name, point.index) if point.seed is None else point.seed
+        )
         if simulation.settings.fields != "all" or simulation.settings.field_planes:
             raise DriverError(
                 "a scan keeps the fields run_scan's fields= and field_planes= ask for, "
@@ -406,12 +416,15 @@ class _Work:
                 )
         noise = simulation.noise
         if noise is not None and (
-            noise.seed is None
-            or (job.point.seed is not None and noise.seed != job.point.seed)
+            noise.seed is None or (point.seed is not None and noise.seed != point.seed)
         ):
-            raise DriverError(
-                "scan noise must have a recorded seed matching point.seed"
+            msg = (
+                f"scan noise must have a recorded seed matching point.seed: point "
+                f"{point.index} drew its noise from seed {noise.seed} and the point's "
+                f"is {point.seed}; pass seed=point.seed to the constructor, or leave "
+                "the seed unset so the scan supplies it"
             )
+            raise DriverError(msg)
         return simulation
 
     def probe(self, job: _Job) -> Mapping[str, int]:
@@ -737,7 +750,7 @@ def execute_scan(  # noqa: PLR0913 - delegated public controls
         tuple(field_planes),
         stats if isinstance(stats, str) else tuple(stats),
     )
-    work = _Work(build, options)
+    work = _Work(build, options, scan.name)
     validate = getattr(executor, "validate", None)
     if callable(validate):
         validate(work)

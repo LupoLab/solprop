@@ -205,6 +205,15 @@ its seed are stored in the output, with how the model was resolved
 (`RunMetadata.noise_resolution`), and the start-of-run
 summary prints both.
 
+Without `seed=`, each construction draws operating-system entropy and records it as the
+seed, so two identical calls are two realisations. Two places choose the seed for such
+a draw instead. A resume draws it again from the seed its file recorded, so the same
+call continues its own run ([resuming](../results/resuming.md#noise-drawn-without-a-seed)).
+A scan draws it from the point's seed, or from one derived from the scan's name and the
+point's index, so every point is reproducible
+([scans](../workflows/scans.md#noise-and-repeatability)). A seed the caller gives is
+never replaced.
+
 Input noise is carried beside every coupled linear flow (a coherent wall, the taper
 coupling of a multimode capillary, a split block and a moving solid guide) and beside
 the TDSE response. Its draw is part of the launch, so the flow, or the atom, sees it as
