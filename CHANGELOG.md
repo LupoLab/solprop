@@ -547,6 +547,16 @@ The first public release. It contains:
   counts are unchanged. At one thread on an Apple M5 Max the native backend runs
   `argon_blueshift_averaged` 7 % and `he_rdw_averaged` 9 % faster, and `numba_cpu`
   5 % and 3 % faster with bit-identical fields.
+- **Native CPU kernels over modes and frequencies use all their threads.** The native
+  CPU backend's two-dimensional kernels took Kokkos's host tiling, two rows by a whole
+  row, so a kernel over (modes, frequency bins) gave OpenMP one tile for one mode and
+  two for four, whatever the thread count. A host tile now holds about 64 samples (part
+  of a row, or whole rows when they are shorter); an execution instance with one thread
+  keeps the old tiling, and device builds are unchanged. Results are unchanged to the
+  bit. At 16 threads the four-mode `rdw` tracking case with the default stepper runs
+  21 % faster on an AMD EPYC 7763 and 16-18 % faster on an Apple M5 Max; single-mode
+  cases and `RungeKutta()` change by a few per cent at most, and one-thread runs not
+  at all.
 - **A single-precision step that overflows is rejected, not fatal.** An adaptive trial
   whose propagator passed binary32's `exp(88.72)` (a long step under a strong collar)
   scored a non-finite error norm, which the controller rejected and the step history
