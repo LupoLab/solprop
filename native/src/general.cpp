@@ -11814,9 +11814,10 @@ void GeneralWorkspace::bind_monitor(const std::vector<double>& weights,
 // The boundary monitor's reading of the accepted state (solprop SEP 21, ADR-057):
 // `sum_t P`, the four weighted sums `sum_t w_k P` and the split's accumulator, which
 // this drains; `P(t)` is the columns' weighted `|E(t)|^2` on the coarse time axis.
-// The state is transformed chunk by chunk through the statistics buffers, idle
-// between steps, with the analytic signal's spectrum: a real field is its real part,
-// exactly the inverse real transform solprop's reference takes.
+// The state is transformed chunk by chunk through buffers idle between steps: on a
+// field grid under the split scheme the collar's coarse pair, whose inverse real
+// transform is the one solprop's reference takes; otherwise the statistics buffers,
+// with the analytic signal's spectrum, whose real part is that transform's result.
 std::vector<double> GeneralWorkspace::monitor_reading() {
   require_open();
   if (!initialized_)
@@ -11833,10 +11834,44 @@ std::vector<double> GeneralWorkspace::monitor_reading() {
   const bool envelope = problem_.family == FieldFamily::envelope;
   // A one-sided spectrum's last bin is the Nyquist bin only on an even axis.
   const bool nyquist = n_t % 2 == 0;
-  const auto rows = statistics_spectrum_.extent(0);
   const auto columns = problem_.n_columns();
   MonitorSums sums;
-  for (std::size_t first = 0; first < columns; first += rows) {
+  // Half the analytic signal's transform work, on buffers that already exist.
+  if (problem_.split_step_absorber && !envelope) {
+    const auto coarse = coarse_spectrum_;
+    const auto samples = coarse_time_real_;
+    const double inverse_n = 1.0 / static_cast<double>(n_t);
+    const auto chunk_rows = coarse_spectrum_.extent(0);
+    for (std::size_t first = 0; first < columns; first += chunk_rows) {
+      const auto count = std::min(chunk_rows, columns - first);
+      Kokkos::parallel_for(
+          "solprop_native.monitor.coarse_spectrum",
+          Range2(execution_space_, {0, 0}, {count, n}),
+          KOKKOS_LAMBDA(const std::size_t row, const std::size_t index) {
+            coarse(row, index) = inverse_n * current(first + row, index);
+          });
+      KokkosFFT::execute(*coarse_inverse_real_plan_, coarse, samples,
+                         KokkosFFT::Normalization::none);
+      MonitorSums chunk;
+      Kokkos::parallel_reduce(
+          "solprop_native.monitor.sums_real",
+          Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, count * n_t),
+          KOKKOS_LAMBDA(const std::size_t item, MonitorSums& update) {
+            const auto row = item / n_t;
+            const auto index = item % n_t;
+            const double value = samples(row, index);
+            const double power = column_weights(first + row) * value * value;
+            update.values[0] += power;
+            for (std::size_t region = 0; region < 4; ++region)
+              update.values[region + 1] += weights(region, index) * power;
+          },
+          Kokkos::Sum<MonitorSums>(chunk));
+      sums += chunk;
+    }
+  }
+  const auto rows = statistics_spectrum_.extent(0);
+  const bool analytic = !(problem_.split_step_absorber && !envelope);
+  for (std::size_t first = 0; analytic && first < columns; first += rows) {
     const auto count = std::min(rows, columns - first);
     // Every bin of the rows read is written, the empty half of a one-sided spectrum
     // with zeros; a partial chunk's other rows are transformed but never read.

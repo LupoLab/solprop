@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+from collections.abc import Callable
 from typing import Any, cast
 
 import numpy as np
@@ -26,15 +27,18 @@ import pytest
 
 from bounds import device_backend, ladder_bound
 from capability_routes import LENGTH, ROUTES
+from legacy_geometry import bare_absorber
 from solprop.backends.driver import StepDriver
 from solprop.backends.protocol import Backend
 from solprop.backends.registry import available, select
 from solprop.driver import Simulation
+from solprop.exceptions import BackendError
 from solprop.monitor import BoundaryCheck, BoundaryEnergies
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.runge_kutta import RungeKutta
 from solprop.stepper.schedule import FixedSchedule
+from solprop.translate.problem import KernelProblem
 
 ROUTE_NAMES = (
     "gnlse",
@@ -103,9 +107,11 @@ def _with_copy(field: np.ndarray, n_t: int) -> np.ndarray:
     return field * (1.0 + COPY_SHARE * phase)
 
 
-def _loaded(simulation: Simulation, name: str) -> Backend:
+def _loaded(
+    simulation: Simulation, name: str, problem: KernelProblem | None = None
+) -> Backend:
     """Return a backend loaded with the edge-reaching launch and watched."""
-    problem = simulation.translate()
+    problem = simulation.translate() if problem is None else problem
     backend = select(
         name,
         problem,
@@ -152,26 +158,36 @@ def _require(backend: str) -> None:
         pytest.skip(f"{backend} is not installed")
 
 
-def _check_reading(backend: str, route: str, scheme: str) -> None:
+def _check_reading(
+    backend: str,
+    route: str,
+    scheme: str,
+    problem: Callable[[Simulation], KernelProblem] | None = None,
+) -> None:
     """Compare a backend's reading of the edge-reaching launch with the reference's."""
     simulation = _simulation(route, scheme)
-    reference, compiled = (_loaded(simulation, name) for name in ("numpy_ref", backend))
+    translated = None if problem is None else problem(simulation)
+    reference, compiled = (
+        _loaded(simulation, name, translated) for name in ("numpy_ref", backend)
+    )
     try:
         theirs, ours = _reading(reference), _reading(compiled)
     finally:
         reference.close()
         compiled.close()
-    # Light in every region, so that each sum is compared on something.
-    assert np.all(theirs.regions > 1e-6 * theirs.total)
+    monitor = simulation._boundary_monitor()
+    assert monitor is not None
+    largest = monitor.weights.max(axis=1)
+    # Light in every region a weight reaches, so that each sum is compared on
+    # something; without a collar the rate's row is zero.
+    assert np.all(theirs.regions[largest > 0.0] > 1e-6 * theirs.total)
     # A device build adds its transform's declared envelope.
     bound = ladder_bound(backend, _rounding(simulation), simulation.grid.n_t, 1)
     assert ours.total == pytest.approx(theirs.total, rel=bound)
     # Each row's sum is bounded by its largest weight times the energy: the rate's
     # row is energy per metre.
-    monitor = simulation._boundary_monitor()
-    assert monitor is not None
-    scale = bound * theirs.total * monitor.weights.max(axis=1)
-    np.testing.assert_array_less(np.abs(ours.regions - theirs.regions), scale)
+    scale = bound * theirs.total * largest
+    np.testing.assert_array_less(np.abs(ours.regions - theirs.regions), scale + (scale == 0.0))
     # Nothing was taken before the first step.
     assert ours.removed == theirs.removed == 0.0
 
@@ -249,3 +265,94 @@ def test_a_device_reads_the_reference_s_five_numbers(route: str, scheme: str) ->
 def test_a_device_s_split_removal_is_the_reference_s(route: str, march: str) -> None:
     _require_device()
     _check_split("native", route, march)
+
+
+@pytest.mark.parametrize("backend", ["numpy_ref", *COMPILED])
+def test_a_reading_needs_a_monitor(backend: str) -> None:
+    _require(backend)
+    simulation = _simulation("gnlse", "nonlinear")
+    problem = simulation.translate()
+    made = select(backend, problem, grid=simulation.grid)
+    try:
+        driver = _driver(made)
+        driver.set_initial(problem.initial.field0, None)
+        with pytest.raises(BackendError, match="no boundary monitor"):
+            driver._boundary_energies(driver._require_state())
+    finally:
+        made.close()
+
+
+def test_a_monitor_for_another_grid_is_refused() -> None:
+    # Its weights would be read out of bounds by the compiled sums.
+    _require("numba_cpu")
+    simulation = _simulation("gnlse", "nonlinear")
+    problem = simulation.translate()
+    other = _simulation("capillary (envelope)", "nonlinear")._boundary_monitor()
+    assert other is not None
+    made = select("numba_cpu", problem, grid=simulation.grid)
+    try:
+        driver = _driver(made)
+        driver.set_initial(problem.initial.field0, None)
+        with pytest.raises(BackendError, match="do not match the grid"):
+            driver.attach_monitor(other)
+    finally:
+        made.close()
+
+
+def _chunked(simulation: Simulation) -> KernelProblem:
+    """Return the Cartesian case's problem with node chunks that leave a partial one."""
+    problem = simulation.translate()
+    return dataclasses.replace(
+        problem, transform=dataclasses.replace(problem.transform, node_chunk=50)
+    )
+
+
+def _bare(simulation: Simulation) -> KernelProblem:
+    """Return a route's problem without its temporal collar."""
+    simulation.settings = dataclasses.replace(
+        simulation.settings, absorber=bare_absorber(simulation.grid)
+    )
+    return simulation.translate()
+
+
+@pytest.mark.parametrize(
+    ("route", "problem"),
+    [("cartesian", _chunked), ("gnlse", _bare), ("capillary (multimode)", _bare)],
+    ids=["partial-chunk", "single-column-no-collar", "modal-no-collar"],
+)
+@pytest.mark.parametrize("backend", COMPILED)
+def test_a_check_reads_the_reference_s_numbers_at_the_edges(
+    backend: str, route: str, problem: Callable[[Simulation], KernelProblem]
+) -> None:
+    # A last chunk shorter than the rest, and a run with no collar, for which the
+    # backends plan their own coarse transform at the first attach.
+    _require(backend)
+    _check_reading(backend, route, "nonlinear", problem)
+
+
+@pytest.mark.parametrize("backend", ["numpy_ref", *COMPILED])
+def test_a_second_watched_run_reads_as_the_first(backend: str) -> None:
+    # A runner loads its backend again for the next input and attaches a new monitor:
+    # the views the first allocated are reused, and nothing taken carries over.
+    _require(backend)
+    simulation = _simulation("radial", "split_step", MARCHES["runge_kutta"])
+    made = _loaded(simulation, backend)
+    try:
+        driver = _driver(made)
+        first = _reading(made)
+        made.propagate_to(LENGTH)
+        problem = simulation.translate()
+        driver.set_initial(
+            _with_copy(problem.initial.field0, simulation.grid.n_t), None
+        )
+        monitor = simulation._boundary_monitor()
+        assert monitor is not None
+        driver.attach_monitor(monitor)
+        again = _reading(made)
+        ledger = made.memory_ledger()
+    finally:
+        made.close()
+    assert again.total == first.total
+    np.testing.assert_array_equal(again.regions, first.regions)
+    assert again.removed == 0.0
+    assert all(size >= 0 for size in ledger.values())

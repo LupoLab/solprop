@@ -871,6 +871,8 @@ class NativeBackend(StepDriver[_core.State]):
         """
         if state is not self._native_state:
             raise BackendError("the monitored state does not belong to this backend")
+        if self._monitor is None:
+            raise BackendError(f"{self.name}: no boundary monitor is attached")
         reading = np.asarray(state.monitor_reading(), dtype=np.float64).reshape(-1)
         return BoundaryEnergies(
             float(reading[0]), reading[1:5].copy(), removed=float(reading[5])
