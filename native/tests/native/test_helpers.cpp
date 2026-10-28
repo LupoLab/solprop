@@ -134,4 +134,58 @@ TEST(LagrangeBasis, CoefficientsOfTheLinearBasis) {
   EXPECT_EQ(integral[0], 0.25);
 }
 
+TEST(LagrangeBasis, TrialTablesOnEqualSteps) {
+  // Order 2 on the nodes 0, -1, -2, scoring orders 2, 1 and 3 (width 4). The bases
+  // are theta + 1 and -theta, and the corrector's is on 1, 0, -1; the order-one
+  // defect's divided difference is (1, -1) and its node polynomial theta.
+  const std::array<double, 3> nodes{0.0, -1.0, -2.0};
+  const std::array<std::size_t, 3> orders{2, 1, 3};
+  std::array<double, 4> predictor{};
+  std::array<double, 16> corrector{};
+  std::array<double, 24> factored{};
+  std::array<double, 3> spans{-7.0, -7.0, -7.0};
+  std::array<double, 2> carried{};
+  std::array<double, 3> endpoint{};
+  std::array<double, 12> defects{};
+  lagrange::trial_tables(nodes.data(), 2, orders.data(), 3, 4, false, predictor.data(),
+                         corrector.data(), factored.data(), spans.data(),
+                         carried.data(), endpoint.data(), defects.data());
+  EXPECT_EQ(predictor[0], 1.0);
+  EXPECT_EQ(predictor[1], 1.0);
+  EXPECT_EQ(predictor[2], 0.0);
+  EXPECT_EQ(predictor[3], -1.0);
+  // Through 1 and 0, the corrector's first basis is theta (theta + 1) / 2.
+  EXPECT_EQ(corrector[0], 0.0);
+  EXPECT_EQ(corrector[1], 0.5);
+  EXPECT_EQ(corrector[2], 0.5);
+  for (std::size_t column = 0; column < 4; ++column) {
+    EXPECT_EQ(corrector[3 * 4 + column], 0.0); // past its nodes
+    EXPECT_EQ(corrector[column * 4 + 3], 0.0);
+  }
+  const std::array<double, 8> first_order{1.0, -1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0};
+  for (std::size_t t = 0; t < 8; ++t)
+    EXPECT_EQ(factored[8 + t], first_order[t]);
+  // Order three's node polynomial theta (theta + 1) (theta + 2).
+  const std::array<double, 4> cubic{0.0, 2.0, 3.0, 1.0};
+  for (std::size_t t = 0; t < 4; ++t)
+    EXPECT_EQ(factored[2 * 8 + 4 + t], cubic[t]);
+  EXPECT_EQ(spans[0], -7.0); // not written without the compensation
+  lagrange::trial_tables(nodes.data(), 2, orders.data(), 3, 4, true, predictor.data(),
+                         corrector.data(), factored.data(), spans.data(),
+                         carried.data(), endpoint.data(), defects.data());
+  EXPECT_EQ(spans[0], 1.0);
+  EXPECT_EQ(spans[2], 3.0);
+  // Adams-Bashforth 2 and Adams-Moulton 3, times 2 and 12.
+  EXPECT_NEAR(2.0 * carried[0], 3.0, 16.0 * eps);
+  EXPECT_NEAR(2.0 * carried[1], -1.0, 16.0 * eps);
+  EXPECT_NEAR(12.0 * endpoint[0], 5.0, 64.0 * eps);
+  EXPECT_NEAR(12.0 * endpoint[1], 8.0, 64.0 * eps);
+  EXPECT_NEAR(12.0 * endpoint[2], -1.0, 64.0 * eps);
+  // The step's own defect is its corrector less its predictor, zero past its nodes.
+  EXPECT_EQ(defects[0], endpoint[0]);
+  EXPECT_EQ(defects[1], endpoint[1] - carried[0]);
+  EXPECT_EQ(defects[2], endpoint[2] - carried[1]);
+  EXPECT_EQ(defects[3], 0.0);
+}
+
 } // namespace

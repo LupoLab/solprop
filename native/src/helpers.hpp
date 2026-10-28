@@ -10,7 +10,8 @@ namespace solprop_native::bindings {
 
 /**
  * Add the host helpers solprop's per-stage and per-step evaluations take from this
- * backend to the extension module: `clenshaw_points` and `basis_rows` (helpers.cpp).
+ * backend to the extension module: `clenshaw_points`, `basis_rows` and
+ * `trial_tables` (helpers.cpp).
  */
 void bind_helpers(nanobind::module_& module_);
 

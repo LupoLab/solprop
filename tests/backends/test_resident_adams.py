@@ -89,6 +89,57 @@ def test_a_varying_operator_is_resident_in_both_formulations():
     assert engine_of(route, Multistep(formulation="exponential")) == "_ResidentAdams"
 
 
+def assert_same_arrays(actual, expected):
+    """Assert two packings of a trial's arrays hold the same values and layout."""
+    (rows, material), (expected_rows, expected_material) = actual, expected
+    assert material.keys() == expected_material.keys()
+    pairs = [*zip(rows, expected_rows, strict=True)] + [
+        (material[key], expected_material[key]) for key in material
+    ]
+    for got, want in pairs:
+        if not isinstance(want, np.ndarray):
+            assert got == want
+            continue
+        assert got.dtype == want.dtype and got.shape == want.shape
+        assert got.flags.c_contiguous
+        np.testing.assert_array_equal(got, want)
+
+
+@pytest.mark.parametrize(
+    "route",
+    [
+        "capillary (mode-averaged)",
+        "capillary (pressure gradient)",
+        "cartesian",
+        "general guide (moving)",
+    ],
+)
+def test_a_resident_trial_packs_what_its_bundles_would(route):
+    # A resident trial's stage rows are its one bundle's, packed once rather than
+    # from a list of it; its end sample's are those of a bundle anchored at the end,
+    # whose increment of Phi is a value less itself. Packing moves values and forms
+    # nothing, so the arrays are the same exactly: constant and expansion weights,
+    # the separable route and a moving guide beside a coupled flow, which take the
+    # general packing and a formed bundle.
+    simulation = ROUTES[route](None)
+    problem = simulation.translate()
+    backend = NativeBackend(problem, grid=simulation.grid, modes=simulation.modes)
+    try:
+        stages = problem.stepper.tableau.n_stages
+        z, end = 0.1 * problem.stepper.z_end, 0.13 * problem.stepper.z_end
+        backend._hoist(z)
+        step = backend._resident_arrays(z, end)
+        bundle = backend._stage_scalars(z, end)
+        packed = backend._trial_arrays([bundle] * stages, bundle)
+        if backend._flow is None:
+            assert_same_arrays(step, packed)
+        sample = backend._resident_sample(step, end)
+        backend._hoist(end)
+        assert_same_arrays(sample, backend._resident_arrays(end, end))
+    finally:
+        backend.close()
+
+
 def run(problem, grid, monkeypatch, *, resident):
     """Propagate on ``native`` through every plane, with or without the resident engine.
 

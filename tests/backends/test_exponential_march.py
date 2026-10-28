@@ -31,6 +31,7 @@ from solprop.backends.multistep import (
     compensation_tables,
     exponential_tables,
     fused_tables,
+    trial_tables,
 )
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.exceptions import (
@@ -809,9 +810,11 @@ def test_the_resident_engines_tables_are_the_adams_quadratures():
         assert_within(powers @ weights, targets, bound, what="quadrature")
 
     fused = fused_tables(nodes, order, orders, helpers=PLAIN)
-    compensated = compensation_tables(nodes, order, orders, helpers=PLAIN)
-    np.testing.assert_array_equal(compensated[0], 1.0 - np.array(nodes[: width - 1]))
-    for predictor, corrector, rows in (fused, compensated[1:]):
+    compensated_tables = compensation_tables(nodes, order, orders, helpers=PLAIN)
+    np.testing.assert_array_equal(
+        compensated_tables[0], 1.0 - np.array(nodes[: width - 1])
+    )
+    for predictor, corrector, rows in (fused, compensated_tables[1:]):
         integrates(predictor, nodes[:order])
         integrates(corrector[: order + 1], points[: order + 1])
         assert not np.any(corrector[order + 1 :])
@@ -845,3 +848,14 @@ def test_the_resident_engines_tables_are_the_adams_quadratures():
         expected[scored] = 1.0
         bound = float(np.linalg.cond(powers)) * gamma(2 * width)
         assert_within(powers @ row[: scored + 1], expected, bound)
+    # The engine reads all of them through one call: these, the compensation's when
+    # it carries one, and empty arrays when it does not.
+    for compensated in (False, True):
+        tables = trial_tables(
+            nodes, order, orders, compensated=compensated, helpers=PLAIN
+        )
+        parts = (predictor, corrector, factored)
+        rest = compensated_tables if compensated else (np.empty(0),) * 3
+        for table, part in zip(tables, (*parts, *rest), strict=False):
+            np.testing.assert_array_equal(table, part)
+        assert tables[-1].shape == ((len(orders), width) if compensated else (0, 0))

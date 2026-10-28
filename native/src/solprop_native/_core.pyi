@@ -309,6 +309,19 @@ def basis_rows(
     rows: npt.NDArray[np.float64],
     weights: npt.NDArray[np.float64],
 ) -> None: ...
+def trial_tables(
+    nodes: npt.NDArray[np.float64],
+    order: int,
+    orders: list[int],
+    compensated: bool,
+    predictor: npt.NDArray[np.float64],
+    corrector: npt.NDArray[np.float64],
+    factored: npt.NDArray[np.float64],
+    spans: npt.NDArray[np.float64],
+    carried: npt.NDArray[np.float64],
+    endpoint: npt.NDArray[np.float64],
+    defects: npt.NDArray[np.float64],
+) -> None: ...
 
 class BatchState:
     def __init__(self, members: list[State]) -> None: ...

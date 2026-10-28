@@ -150,7 +150,11 @@ checks; `numba_cpu` takes `NUMBA`, the same functions compiled; `native` takes i
 `NATIVE`, C++ transcriptions (`native/include/solprop_native/chebyshev.hpp` and
 `lagrange_basis.hpp`). All three perform the same operations in the same order under
 strict arithmetic, so the rows a table keeps for its last positions are shared whichever
-filled them. Translation runs before any backend exists and keeps the shared reference:
+filled them. A record may add a third operation, an exponential Adams trial's
+coefficient tables in one call (`Helpers.tables`, the composition of
+`backends.multistep.trial_tables` over its own basis): `NATIVE` has it, in C++ beside
+the basis (`trial_tables` in `lagrange_basis.hpp`), so its resident engine forms every
+table of a trial in one call rather than a dozen; `PLAIN` and `NUMBA` compose them. Translation runs before any backend exists and keeps the shared reference:
 `clenshaw` and `PiecewiseChebyshev.__call__` without a record, and the shared functions'
 defaults, are Numba's. So is a z table's state-sized evaluation on the hosts
 (`delta_phi`, and the rate of `phi_rate` on a z table), which is not a stage scalar:

@@ -17,6 +17,7 @@ import pytest
 
 from bounds import EPS, assert_within, gamma
 from solprop._helpers import NUMBA, PLAIN, Helpers
+from solprop.backends.multistep import trial_tables
 from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.stepper.multistep import integrated_weights, lagrange_coefficients
@@ -152,6 +153,17 @@ def test_a_record_loads_its_functions_at_first_use():
     assert not calls
     assert record.points is record.points
     assert len(calls) == 1
+    # Without its own tables a record composes them from its basis.
+    assert record.tables is None
+    assert Helpers("probe", load, load, load).tables is not None
+    assert len(calls) == 2
+
+
+def test_only_the_native_record_forms_the_tables_in_one_call():
+    assert PLAIN.tables is None
+    assert NUMBA.tables is None
+    if NATIVE is not None:
+        assert NATIVE.tables is not None
 
 
 # ------------------------------------------------------------ Chebyshev rows
@@ -264,6 +276,104 @@ def test_the_shared_functions_take_the_record(helpers):
     np.testing.assert_array_equal(linear, [[0.0, 1.0], [1.0, -1.0]])
 
 
+# ------------------------------------------------------- Adams trial tables
+
+TRIALS = [(1, [1, 2]), (2, [2, 1, 3]), (3, [3, 2, 4]), (5, [5, 4]), (6, [6, 5, 7])]
+"""Orders and scored orders: a startup, rising, interior and top-order trial."""
+
+
+def history_nodes(count: int) -> np.ndarray:
+    """Return a variable-step history's nodes, newest first: 0, then negative."""
+    rng = np.random.default_rng(16 + count)
+    return np.concatenate(([0.0], -np.cumsum(rng.uniform(0.4, 1.6, size=count - 1))))
+
+
+def factored_bound(nodes: np.ndarray, orders: list[int], width: int) -> np.ndarray:
+    """Return the absolute bound between two factored defect rows, per element.
+
+    A divided-difference coefficient is ``k`` rounded differences and products and a
+    division; a node polynomial ``k`` multiplications by ``(x - theta)``, each
+    coefficient a sum of terms of one sign, as every node is at or below zero. Each
+    is within ``gamma(4 (k + 1))`` of its value relative, twice for two
+    implementations.
+    """
+    rows = np.zeros((len(orders), 2 * width))
+    for index, order in enumerate(orders):
+        points = np.concatenate(([1.0], nodes[:order]))
+        for t in range(order + 1):
+            rows[index, t] = 1.0 / abs(float(np.prod(points[t] - np.delete(points, t))))
+        rows[index, width : width + order + 1] = np.abs(
+            np.polynomial.polynomial.polyfromroots(nodes[:order])
+        )
+        rows[index] *= 2.0 * gamma(4 * (order + 1))
+    return rows
+
+
+def table_bounds(
+    nodes: np.ndarray, order: int, orders: list[int]
+) -> tuple[np.ndarray, ...]:
+    """Return the per-element bounds on each of `trial_tables`' seven arrays.
+
+    Each is a basis (:func:`basis_bound`), a difference of two (the bounds add), or
+    a factored row (:func:`factored_bound`); the spans are one exact-rounded
+    subtraction each.
+    """
+    width = 1 + max(orders)
+    through = np.concatenate(([1.0], nodes))
+    corrector = np.zeros((width, width))
+    corrector[: order + 1, : order + 1] = basis_bound(
+        through[: order + 1], 1.0, integrate=False
+    )
+    defects = np.zeros((len(orders), width))
+    for index, scored in enumerate(orders):
+        defects[index, : scored + 1] = basis_bound(
+            through[: scored + 1], 1.0, integrate=True
+        )
+        defects[index, 1 : scored + 1] += basis_bound(
+            nodes[:scored], 1.0, integrate=True
+        )
+    return (
+        basis_bound(nodes[:order], 1.0, integrate=False),
+        corrector,
+        factored_bound(nodes, orders, width),
+        2.0 * EPS * np.abs(1.0 - nodes[: width - 1]),
+        basis_bound(nodes[:order], 1.0, integrate=True),
+        basis_bound(through[: order + 1], 1.0, integrate=True),
+        defects,
+    )
+
+
+@pytest.mark.parametrize("helpers", records(), ids=lambda record: record.name)
+@pytest.mark.parametrize("compensated", [False, True])
+@pytest.mark.parametrize(("order", "orders"), TRIALS, ids=str)
+def test_the_trial_tables_agree_with_the_plain_form(
+    helpers, compensated, order, orders, record_property
+):
+    nodes = history_nodes(max(orders) + 1)
+    plain = trial_tables(
+        nodes.tolist(), order, orders, compensated=compensated, helpers=PLAIN
+    )
+    tables = trial_tables(
+        nodes.tolist(), order, orders, compensated=compensated, helpers=helpers
+    )
+    names = ("predictor", "corrector", "factored")
+    compensation = ("spans", "carried", "endpoint", "defects")
+    bounds = table_bounds(nodes, order, orders)
+    for name, actual, expected, bound in zip(
+        names + compensation, tables, plain, bounds, strict=True
+    ):
+        assert actual.dtype == np.float64 and actual.flags.c_contiguous, name
+        assert actual.shape == expected.shape, name
+        if name in compensation and not compensated:
+            assert actual.size == 0, name
+            continue
+        assert_within(actual, expected, bound, scale=1.0, elementwise=True, what=name)
+    record_property(
+        "bitwise",
+        all(np.array_equal(a, b) for a, b in zip(tables, plain, strict=True)),
+    )
+
+
 # ---------------------------------------------------------- native refusals
 
 
@@ -298,4 +408,46 @@ def test_the_native_bindings_refuse_hidden_conversions():
     with pytest.raises(TypeError):
         core.basis_rows(
             points[:3].astype(np.float32), 1.0, True, np.empty((3, 3)), np.empty(3)
+        )
+    nodes = np.array([0.0, -1.0, -2.0])
+    empty, rows = np.empty(0), np.empty((0, 0))
+
+    def tables(order, orders, *arrays):
+        core.trial_tables(
+            nodes, order, orders, False, *arrays, empty, empty, empty, rows
+        )
+
+    with pytest.raises(ValueError, match="do not fit"):
+        tables(2, [2, 4], np.empty((2, 2)), np.empty((5, 5)), np.empty((2, 10)))
+    with pytest.raises(ValueError, match="do not fit"):
+        tables(1, [], np.empty((1, 1)), np.empty((2, 2)), np.empty((0, 4)))
+    with pytest.raises(ValueError, match="must be"):
+        tables(2, [2, 1, 3], np.empty((2, 2)), np.empty((4, 4)), np.empty((3, 4)))
+    with pytest.raises(ValueError, match="must be"):
+        core.trial_tables(
+            nodes,
+            1,
+            [1],
+            False,
+            np.empty((1, 1)),
+            np.empty((2, 2)),
+            np.empty((1, 4)),
+            np.empty(1),
+            empty,
+            empty,
+            rows,
+        )
+    with pytest.raises(TypeError):
+        core.trial_tables(
+            nodes.astype(np.float32),
+            1,
+            [1],
+            False,
+            np.empty((1, 1)),
+            np.empty((2, 2)),
+            np.empty((1, 4)),
+            empty,
+            empty,
+            empty,
+            rows,
         )
