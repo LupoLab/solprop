@@ -47,7 +47,9 @@ INTEGRATORS = {
     "runge-kutta": RungeKutta(),
     "low-storage": LowStorageRungeKutta(),
 }
-"""Each march: the Adams ones read the basis, every one reads the stage tables."""
+"""Each march: the Adams ones read the basis or the record's trial tables (the
+native record forms an exponential trial's in one call), every one reads the stage
+tables."""
 
 
 class ForbiddenHelperError(AssertionError):
@@ -55,13 +57,13 @@ class ForbiddenHelperError(AssertionError):
 
 
 def forbid(monkeypatch, record):
-    """Make both of a record's operations raise."""
+    """Make each of a record's operations raise, the one-call tables included."""
 
     def refuse(*_):
         raise ForbiddenHelperError(record.name)
 
-    monkeypatch.setitem(record.__dict__, "points", refuse)
-    monkeypatch.setitem(record.__dict__, "basis", refuse)
+    for name in ("points", "basis", "tables"):
+        monkeypatch.setitem(record.__dict__, name, refuse)
 
 
 def forbid_numba(monkeypatch):
@@ -78,10 +80,15 @@ def forbid_numba(monkeypatch):
 
 
 def count(monkeypatch, record):
-    """Count a record's calls; return the tally."""
-    tally = {"points": 0, "basis": 0}
+    """Count a record's calls; return the tally.
+
+    A record without the one-call tables keeps none, and its tally stays at zero.
+    """
+    tally = {"points": 0, "basis": 0, "tables": 0}
     for name in tally:
         function = getattr(record, name)
+        if function is None:
+            continue
 
         def counted(*arguments, _name=name, _function=function):
             tally[_name] += 1
@@ -131,7 +138,8 @@ def test_the_reference_runs_only_the_plain_forms(monkeypatch, integrator):
     tally = count(monkeypatch, _helpers.PLAIN)
     propagate(NumpyRefBackend, prepared)
     assert tally["points"] > 0, tally
-    assert tally["basis"] > 0 or not integrator.startswith("adams"), tally
+    adams = tally["basis"] + tally["tables"]
+    assert adams > 0 or not integrator.startswith("adams"), tally
 
 
 @pytest.mark.parametrize("integrator", INTEGRATORS)
@@ -144,7 +152,8 @@ def test_native_runs_never_reach_the_numba_dispatchers(monkeypatch, integrator):
     tally = count(monkeypatch, NATIVE)
     propagate(native.NativeBackend, prepared)
     assert tally["points"] > 0, tally
-    assert tally["basis"] > 0 or not integrator.startswith("adams"), tally
+    adams = tally["basis"] + tally["tables"]
+    assert adams > 0 or not integrator.startswith("adams"), tally
 
 
 def z_table(integrator):
@@ -189,7 +198,8 @@ def test_a_native_z_table_run_never_reaches_the_numba_dispatchers(
     forbid(monkeypatch, _helpers.PLAIN)
     tally = count(monkeypatch, NATIVE)
     propagate(native.NativeBackend, prepared)
-    assert tally["basis"] > 0 or not integrator.startswith("adams"), tally
+    adams = tally["basis"] + tally["tables"]
+    assert adams > 0 or not integrator.startswith("adams"), tally
 
 
 @pytest.mark.parametrize(
