@@ -6,9 +6,10 @@
 
 SEP 16 section 7.1: moments and complete weights checked against augmented matrix
 exponentials and against quadrature of their defining integrals, at zero, on both sides
-of the evaluator's join, at large imaginary arguments, under strong damping, at
-resonance (``exp(x) = 1``), on unequal nodes and on ill-conditioned histories; and the
-ordinary Adams weights recovered at ``x = 0``.
+of the evaluator's join and of its halving count's steps, at large imaginary arguments,
+under strong damping, at resonance (``exp(x) = 1``), on unequal nodes and on
+ill-conditioned histories, on numpy_ref and numba_cpu; and the ordinary Adams weights
+recovered at ``x = 0``.
 """
 
 import math
@@ -24,6 +25,8 @@ from solprop.backends.exponential import (
     exponential_weights,
     phi_functions,
 )
+from solprop.backends.multistep import ExponentialKernels
+from solprop.backends.numba_cpu.multistep import NumbaExponentialKernels
 from solprop.exceptions import StepperError
 from solprop.stepper.multistep import integrated_weights, lagrange_coefficients
 
@@ -53,6 +56,18 @@ ARGUMENTS = np.array(
         2j * np.pi,
         4j * np.pi,
         2j * np.pi * 51,
+    ]
+)
+
+# |x| at and a few ulp either side of 1/2, 1 and 2, where the number of halvings before
+# the series steps: the reference takes ceil(log2(2 |x|)), the compiled evaluators count
+# the halvings.
+SQUARING_EDGES = np.array(
+    [
+        edge * direction * (1.0 + offset)
+        for edge in (0.5, 1.0, 2.0)
+        for direction in (1.0, 1j, -1.0, np.exp(0.7j))
+        for offset in (-4 * EPS, 0.0, 4 * EPS)
     ]
 )
 
@@ -128,6 +143,30 @@ def test_phi_functions_agree_with_the_augmented_exponential(x):
         # function's natural scale; 256 ulp is their sum with a margin, and is still
         # 1e3 below the coarsest coefficient error that would show in a run.
         assert abs(values[k] - reference[k]) <= 256 * EPS * natural_scale(x, k), k
+
+
+@pytest.mark.parametrize(
+    "kernels",
+    [ExponentialKernels, NumbaExponentialKernels],
+    ids=["numpy_ref", "numba_cpu"],
+)
+@pytest.mark.parametrize(
+    "x",
+    [*ARGUMENTS, *SQUARING_EDGES],
+    ids=[f"{one:.17g}" for one in [*ARGUMENTS, *SQUARING_EDGES]],
+)
+def test_kernel_moments_agree_with_the_augmented_exponential(kernels, x):
+    # The moments k! phi_{k+1}(x) each backend's trial takes: numba_cpu's compiled
+    # evaluator (a series stopped once a term is below a quarter ulp of its sum, and
+    # reciprocals multiplied in place of divisions) holds the reference's bound.
+    count = MAX_PHI_ORDER
+    exponent = np.full((1, 1, 1, 1), x, dtype=np.complex128)
+    moments = kernels().moments(exponent, count)[:, 0, 0, 0, 0]
+    reference = augmented_phi(complex(x), count)
+    for k in range(count):
+        scale = math.factorial(k)
+        error = abs(moments[k] - scale * reference[k + 1])
+        assert error <= 256 * EPS * scale * natural_scale(complex(x), k + 1), k
 
 
 @pytest.mark.parametrize(

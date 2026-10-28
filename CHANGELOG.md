@@ -532,6 +532,15 @@ The first public release. It contains:
   are exact to the bit. The `gnlse_raman_shock` tracking case (16,384 points, one
   thread) costs 5.7-5.8 ms per step on an AMD EPYC 7763 (was 8.7; `numba_cpu` 6.1-6.3)
   and 2.43-2.47 ms on an Apple M5 Max (was 3.0-3.4; `numba_cpu` 2.31-2.38).
+- **Native and `numba_cpu` cost of the exponential Adams moments.** The phi-functions'
+  series stopped once a term fell under a quarter ulp of its sum, a test that took two
+  `hypot` calls a term; it now compares squared magnitudes. The halving count, the
+  powers `2^-k` and the series' divisors `1/n` come from exact running products and
+  tables rather than `log2`, `pow` and a division a term. Results move only by
+  rounding (a term under a quarter ulp may be added once more or once less) and step
+  counts are unchanged. At one thread on an Apple M5 Max the native backend runs
+  `argon_blueshift_averaged` 7 % and `he_rdw_averaged` 9 % faster, and `numba_cpu`
+  5 % and 3 % faster with bit-identical fields.
 - **A single-precision step that overflows is rejected, not fatal.** An adaptive trial
   whose propagator passed binary32's `exp(88.72)` (a long step under a strong collar)
   scored a non-finite error norm, which the controller rejected and the step history

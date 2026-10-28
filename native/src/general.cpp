@@ -5513,6 +5513,16 @@ KOKKOS_INLINE_FUNCTION void adams_phi(const Complex x, const Complex exp_x,
                                      1.0 / 87178291200.0,
                                      1.0 / 1307674368000.0,
                                      1.0 / 20922789888000.0};
+  // 1/n for the series' divisors m + order, the doubles the division rounds to.
+  static_assert(adams_series_terms + 2 * adams_max_samples <= 40);
+  constexpr double inverse_divisor[40] = {
+      0.0,        1.0 / 1.0,  1.0 / 2.0,  1.0 / 3.0,  1.0 / 4.0,  1.0 / 5.0,
+      1.0 / 6.0,  1.0 / 7.0,  1.0 / 8.0,  1.0 / 9.0,  1.0 / 10.0, 1.0 / 11.0,
+      1.0 / 12.0, 1.0 / 13.0, 1.0 / 14.0, 1.0 / 15.0, 1.0 / 16.0, 1.0 / 17.0,
+      1.0 / 18.0, 1.0 / 19.0, 1.0 / 20.0, 1.0 / 21.0, 1.0 / 22.0, 1.0 / 23.0,
+      1.0 / 24.0, 1.0 / 25.0, 1.0 / 26.0, 1.0 / 27.0, 1.0 / 28.0, 1.0 / 29.0,
+      1.0 / 30.0, 1.0 / 31.0, 1.0 / 32.0, 1.0 / 33.0, 1.0 / 34.0, 1.0 / 35.0,
+      1.0 / 36.0, 1.0 / 37.0, 1.0 / 38.0, 1.0 / 39.0};
   const double magnitude = Kokkos::abs(x);
   if (magnitude == 0.0) {
     for (std::size_t k = 0; k <= order; ++k)
@@ -5526,18 +5536,28 @@ KOKKOS_INLINE_FUNCTION void adams_phi(const Complex x, const Complex exp_x,
       out[k] = strict_mul(strict_sub(out[k - 1], Complex(reciprocal[k - 1])), inverse);
     return;
   }
+  // The halvings that bring |x| to at most 1/2, ceil(log2(2 |x|)), each one exact:
+  // `scale` is 2^-squarings.
   int squarings = 0;
-  if (magnitude > 0.5)
-    squarings = static_cast<int>(Kokkos::ceil(Kokkos::log2(magnitude / 0.5)));
-  const Complex y = strict_scale(Kokkos::pow(0.5, squarings), x);
+  double scale = 1.0;
+  for (double reduced = magnitude; reduced > 0.5; reduced *= 0.5) {
+    ++squarings;
+    scale *= 0.5;
+  }
+  const Complex y = strict_scale(scale, x);
+  // Each later term is below |y| / (m + order) of this one, |y| <= 1/2: once this one
+  // is under a quarter ulp of the sum, the rest cannot change it. The test compares
+  // squared magnitudes, which differ from hypot's only in the test's own rounding, so a
+  // term below a quarter ulp may be added once more or once less.
+  constexpr double quarter_ulp = 0.25 * Kokkos::Experimental::epsilon_v<double>;
+  constexpr double stop = quarter_ulp * quarter_ulp;
   Complex term = reciprocal[order];
   Complex total = term;
   for (int m = 1; m < adams_series_terms; ++m) {
-    term = strict_scale(1.0 / static_cast<double>(static_cast<std::size_t>(m) + order),
+    term = strict_scale(inverse_divisor[static_cast<std::size_t>(m) + order],
                         strict_mul(term, y));
     total = strict_add(total, term);
-    if (Kokkos::abs(term) <=
-        0.25 * Kokkos::Experimental::epsilon_v<double> * Kokkos::abs(total))
+    if (strict_norm(term) <= stop * strict_norm(total))
       break;
   }
   out[order] = total;
@@ -5549,11 +5569,13 @@ KOKKOS_INLINE_FUNCTION void adams_phi(const Complex x, const Complex exp_x,
     for (std::size_t k = 0; k <= order; ++k)
       old[k] = out[k];
     out[0] = strict_mul(old[0], old[0]);
+    double half = 1.0; // 2^-k, exact
     for (std::size_t k = 1; k <= order; ++k) {
+      half *= 0.5;
       Complex sum = strict_mul(old[0], old[k]);
       for (std::size_t i = 1; i <= k; ++i)
         sum = strict_accumulate(sum, reciprocal[k - i], old[i]);
-      out[k] = strict_scale(Kokkos::pow(0.5, static_cast<int>(k)), sum);
+      out[k] = strict_scale(half, sum);
     }
   }
 }
