@@ -108,6 +108,7 @@ def prop_radial(  # noqa: PLR0913 - the simulation interface and output controls
     materials: MaterialSelection | None = None,
     absorber: Absorber | Literal[False] | None = None,
     absorber_scheme: AbsorberScheme | None = None,
+    boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
 ) -> Output:
     """Propagate a radial beam and return its saved output.
 
@@ -161,6 +162,11 @@ def prop_radial(  # noqa: PLR0913 - the simulation interface and output controls
         the transverse collars keep their own settings (SEP 21 section 5).
     absorber_scheme : {'nonlinear', 'split_step'} or None, optional
         Overrides `settings`' temporal scheme, which must then be the default.
+    boundary_check : solprop.monitor.BoundaryCheck or None, optional
+        How the run watches its time window's edges (SEP 21), when `settings` name
+        the default check: the default warns, then stops, when light above the
+        shot-noise floor reaches them; ``None`` watches nothing, for a window kept
+        narrow on purpose. Refused beside settings that name another check.
 
     Returns
     -------
@@ -179,6 +185,7 @@ def prop_radial(  # noqa: PLR0913 - the simulation interface and output controls
         noise=noise,
         seed=seed,
         materials=materials,
+        boundary_check=boundary_check,
     )
     return simulation.run(
         output,
@@ -208,6 +215,7 @@ def prop_free(  # noqa: PLR0913 - the simulation interface and output controls
     materials: MaterialSelection | None = None,
     absorber: Absorber | Literal[False] | None = None,
     absorber_scheme: AbsorberScheme | None = None,
+    boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
 ) -> Output:
     """Propagate a Cartesian beam and return its saved output.
 
@@ -265,6 +273,11 @@ def prop_free(  # noqa: PLR0913 - the simulation interface and output controls
         the transverse collars keep their own settings (SEP 21 section 5).
     absorber_scheme : {'nonlinear', 'split_step'} or None, optional
         Overrides `settings`' temporal scheme, which must then be the default.
+    boundary_check : solprop.monitor.BoundaryCheck or None, optional
+        How the run watches its time window's edges (SEP 21), when `settings` name
+        the default check: the default warns, then stops, when light above the
+        shot-noise floor reaches them; ``None`` watches nothing, for a window kept
+        narrow on purpose. Refused beside settings that name another check.
 
     Returns
     -------
@@ -283,6 +296,7 @@ def prop_free(  # noqa: PLR0913 - the simulation interface and output controls
         noise=noise,
         seed=seed,
         materials=materials,
+        boundary_check=boundary_check,
     )
     return simulation.run(
         output,
@@ -309,6 +323,7 @@ def prop_planar(  # noqa: PLR0913 - the simulation interface and output controls
     materials: MaterialSelection | None = None,
     absorber: Absorber | Literal[False] | None = None,
     absorber_scheme: AbsorberScheme | None = None,
+    boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
 ) -> Output:
     """Propagate a beam in a hollow planar guide, resolved in y, and return its output.
 
@@ -359,6 +374,11 @@ def prop_planar(  # noqa: PLR0913 - the simulation interface and output controls
         the transverse collars keep their own settings (SEP 21 section 5).
     absorber_scheme : {'nonlinear', 'split_step'} or None, optional
         Overrides `settings`' temporal scheme, which must then be the default.
+    boundary_check : solprop.monitor.BoundaryCheck or None, optional
+        How the run watches its time window's edges (SEP 21), when `settings` name
+        the default check: the default warns, then stops, when light above the
+        shot-noise floor reaches them; ``None`` watches nothing, for a window kept
+        narrow on purpose. Refused beside settings that name another check.
 
     Returns
     -------
@@ -374,6 +394,7 @@ def prop_planar(  # noqa: PLR0913 - the simulation interface and output controls
         settings=settings,
         frame=frame,
         materials=materials,
+        boundary_check=boundary_check,
     )
     return simulation.run(
         output,
@@ -382,22 +403,6 @@ def prop_planar(  # noqa: PLR0913 - the simulation interface and output controls
         progress=progress,
         progress_period=progress_period,
     )
-
-
-def _watch(simulation: Simulation, check: BoundaryCheck | None) -> None:
-    """Give `simulation` the edge watch an interface keyword asked for.
-
-    Parameters
-    ----------
-    simulation : Simulation
-        The built run; its check is an execution setting, so it may still change.
-    check : solprop.monitor.BoundaryCheck or None
-        The keyword's value; the default leaves the settings as they are.
-    """
-    if check is not DEFAULT_BOUNDARY_CHECK:
-        simulation.settings = dataclasses.replace(
-            simulation.settings, boundary_check=check
-        )
 
 
 def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
@@ -743,6 +748,7 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         polarisation_taper=polarisation_taper,
         absorber=absorber,
         absorber_scheme=absorber_scheme,
+        boundary_check=boundary_check,
         backend=backend,
         precision=precision,
         materials=materials,
@@ -754,7 +760,6 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         len(simulation.settings.save_planes),
         simulation.settings.backend,
     )
-    _watch(simulation, boundary_check)
     return simulation.run(
         output,
         snapshots=snapshots,
@@ -1226,6 +1231,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         ionisation_field_range=ionisation_field_range,
         absorber=absorber,
         absorber_scheme=absorber_scheme,
+        boundary_check=boundary_check,
         noise=noise,
         seed=seed,
         rtol=rtol,
@@ -1259,7 +1265,6 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         len(simulation.settings.save_planes),
         simulation.settings.backend,
     )
-    _watch(simulation, boundary_check)
     return simulation.run(
         output,
         snapshots=snapshots,
@@ -1584,8 +1589,8 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         The arithmetic the run is held in (SEP 33,
         ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is
         binary64 throughout. ``"single"`` holds the state and the source evaluation in
-        binary32: its default `rtol` is the floor
-        :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR`, below which an explicit
+        binary32: its default `rtol` stays this interface's ``1e-5``, above the floor
+        :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR` below which an explicit
         value is refused; its default integrator is ``RungeKutta()``, and the Adams
         method, noise models and every backend but ``numpy_ref`` are refused.
     polarisation : str, float or None, optional
@@ -1665,6 +1670,7 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         ionisation_field_range=ionisation_field_range,
         absorber=absorber,
         absorber_scheme=absorber_scheme,
+        boundary_check=boundary_check,
         noise=noise,
         seed=seed,
         rtol=rtol,
@@ -1695,7 +1701,6 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         len(simulation.settings.save_planes),
         simulation.settings.backend,
     )
-    _watch(simulation, boundary_check)
     return simulation.run(
         output,
         snapshots=snapshots,

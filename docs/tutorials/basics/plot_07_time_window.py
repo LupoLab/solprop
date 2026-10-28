@@ -31,7 +31,6 @@ the monitor and their settings.
 # One function builds the fibre on a requested window ``trange``, optionally with the
 # pulse launched at ``t0`` and with the monitor's thresholds changed.
 
-import dataclasses
 import time
 import warnings
 
@@ -40,7 +39,7 @@ import numpy as np
 
 from solprop.driver import Simulation
 from solprop.exceptions import BoundaryError, BoundaryWarning
-from solprop.monitor import BoundaryCheck
+from solprop.monitor import DEFAULT_BOUNDARY_CHECK, BoundaryCheck
 from solprop.processing import get_power
 from solprop.pulses import SechPulse
 
@@ -52,9 +51,9 @@ PEAK = 3 * abs(BETAS[2]) / (0.11 * WIDTH**2)
 """Peak power, W: three times the fundamental soliton's, a soliton order of 1.7."""
 
 
-def fibre(trange, *, t0=0.0, check=None):
+def fibre(trange, *, t0=0.0, check=DEFAULT_BOUNDARY_CHECK):
     """Return the fibre on a requested window `trange`, s."""
-    simulation = Simulation.from_gnlse(
+    return Simulation.from_gnlse(
         0.11,
         LENGTH,
         BETAS,
@@ -65,12 +64,8 @@ def fibre(trange, *, t0=0.0, check=None):
         n_save=21,
         noise=None,
         pulses=[SechPulse(wavelength=835e-9, width=WIDTH, peak_power=PEAK, t0=t0)],
+        boundary_check=check,
     )
-    if check is not None:
-        simulation.settings = dataclasses.replace(
-            simulation.settings, boundary_check=check
-        )
-    return simulation
 
 
 # %%

@@ -1312,6 +1312,10 @@ Withdrawn (development-process record, not a design decision).
 - **Consequences:**
   - Every default run is stochastic unless it fixes `seed`. Tests and worked examples
     fix theirs, or pass `noise=None` where their lesson is noiseless.
+  - The realisation is in the resume key, so a run that drew its noise without a seed
+    is resumed by drawing it again from the seed its file recorded, and a scan draws an
+    unseeded point's noise from the point's seed or one derived from the scan's name
+    (the maintainers' ruling of 2026-10-28; `docs/guide/results/resuming.md`).
   - Low-energy GNLSE runs take more steps with noise (the seed's dynamics are
     resolved). Replayed schedules for noisy ensembles must be calibrated with noise on.
 

@@ -1189,10 +1189,9 @@ class HDF5Output(PlaneStore):
         if self._append_mode:
             stored = RunMetadata.from_json(_read_json(file))
             if stored.configuration_hash() != metadata.configuration_hash():
-                changed = ", ".join(stored.differences(metadata))
                 msg = (
                     f"{self._path} holds a different run and cannot be appended to; "
-                    f"these fields changed: {changed}"
+                    f"{stored.summarise_differences(metadata)}"
                 )
                 raise OutputError(msg)
             logger.debug("continuing %s from plane %d", self._path, self._n_saved)
@@ -1821,7 +1820,7 @@ def check_cache(path: Path | str, metadata: RunMetadata) -> bool:
     )
     msg = (
         f"{path} was written for a different run and cannot be resumed; "
-        f"these fields changed: {', '.join(changed)}{note}"
+        f"{stored.summarise_differences(metadata)}{note}"
     )
     raise OutputError(msg)
 

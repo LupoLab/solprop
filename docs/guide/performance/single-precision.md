@@ -43,10 +43,18 @@ output = prop_capillary(
 field of {class}`~solprop.driver.simulation.SimulationSettings` for the free-space
 interfaces. Under single precision:
 
-- **The tolerance floor.** The default `rtol` is `1e-6`
-  ({data}`~solprop.translate.precision.SINGLE_RTOL_FLOOR`), and an explicit adaptive
-  `rtol` below it is refused: a local error target below binary32's rounding per step
-  buys steps without accuracy. A fixed schedule reads no tolerance.
+- **The tolerance floor.** An explicit adaptive `rtol` below `1e-6`
+  ({data}`~solprop.translate.precision.SINGLE_RTOL_FLOOR`) is refused: a local error
+  target below binary32's rounding per step buys steps without accuracy. A fixed
+  schedule reads no tolerance.
+- **The default tolerance.** Each interface takes the larger of its binary64 default
+  and the floor, and no more than `1e-5`
+  ({data}`~solprop.translate.precision.SINGLE_RTOL_CAP`), the loosest value the
+  survival record below measured: `1e-6` on `prop_gnlse` (whose binary64 default is
+  `1e-7`) and `prop_capillary`, `1e-5` on `prop_waveguide`, `prop_radial` and
+  `prop_planar`, and `1e-5` in free space, whose binary64 `1e-4` is not yet qualified in
+  binary32. A spatial interface applies it where its `SimulationSettings` give no
+  controller; an explicit `rtol` or controller is the caller's.
 - **The step's exponent.** Binary32 represents ``exp(x)`` only up to $x \approx 88.7$
   (binary64 to 709.8). The interaction picture multiplies by the linear propagator and
   its inverse, so a replayed step (or an adaptive run's floor `dz_min`) over which a

@@ -9,6 +9,7 @@ fastest. Selecting a subset never renumbers points. See
 ``docs/guide/workflows/scans.md`` for execution, seeds and storage.
 """
 
+import hashlib
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from math import prod
@@ -42,6 +43,39 @@ class ScanPoint:
     values: dict[str, object]
     multi_index: tuple[int, ...]
     seed: int | None = None
+
+
+def name_seed(name: str, index: int) -> int:
+    """Return the noise seed of a point whose scan declares none.
+
+    A builder that leaves its noise unseeded on a scan without a ``seed`` axis or a
+    ``base_seed`` would draw operating-system entropy, so the point could be neither
+    reproduced nor rerun against its record. :func:`~solprop.driver.scan.run_scan`
+    draws it from this seed instead: the root entropy is the first eight bytes of the
+    SHA-256 digest of the scan's name, little-endian, and the point's is
+    ``SeedSequence([root, global_index]).generate_state(1, dtype=uint64)[0]``, the
+    derivation ``base_seed`` uses.
+
+    Parameters
+    ----------
+    name : str
+        The scan's name.
+    index : int
+        The point's global index.
+
+    Returns
+    -------
+    int
+        A non-negative 64-bit seed.
+
+    Examples
+    --------
+    >>> name_seed("rdw", 3) == name_seed("rdw", 3) != name_seed("rdw", 4)
+    True
+    """
+    root = int.from_bytes(hashlib.sha256(name.encode("utf-8")).digest()[:8], "little")
+    sequence = np.random.SeedSequence([root, index])
+    return int(sequence.generate_state(1, dtype=np.uint64)[0])
 
 
 class Scan(Displayed):

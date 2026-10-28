@@ -27,7 +27,7 @@ def point():
 
 
 def test_worker_probe_records_backend_and_retention_memory(point):
-    work = _Work(build, _Options((), "all", (), "all"))
+    work = _Work(build, _Options((), "all", (), "all"), "worker")
     report = work.probe(_Job(point))
     assert report["baseline_rss"] > 0
     assert report["rss"] >= report["baseline_rss"]
@@ -58,13 +58,13 @@ def test_custom_reduction_checks_dtype_shape_and_finiteness(point, value):
 
 
 def test_worker_rejects_missing_requested_statistics(point):
-    work = _Work(build, _Options((), "none", (), ("beam_radius",)))
+    work = _Work(build, _Options((), "none", (), ("beam_radius",)), "worker")
     with pytest.raises(DriverError, match="not collected"):
         work.simulation(_Job(point))
 
 
 def test_worker_rejects_spatial_reducer_without_collected_statistic(point):
-    work = _Work(build, _Options((scans.beam_radius(),), "none", (), "none"))
+    work = _Work(build, _Options((scans.beam_radius(),), "none", (), "none"), "worker")
     with pytest.raises(DriverError, match="requires its simulation statistic"):
         work.simulation(_Job(point))
 
@@ -76,7 +76,7 @@ def test_worker_rejects_noise_seed_mismatch(point):
         original.translate().initial.field0[0],
         noise=dataclasses.replace(original.noise, seed=43),
     )
-    work = _Work(lambda point: wrong, _Options((), "none", (), "none"))
+    work = _Work(lambda point: wrong, _Options((), "none", (), "none"), "worker")
     with pytest.raises(DriverError, match=r"matching point\.seed"):
         work.simulation(_Job(point))
 
@@ -122,7 +122,7 @@ def test_input_update_refuses_incompatible_replacement(point, invalid):
 
 
 def test_worker_refuses_builder_returning_wrong_type(point):
-    work = _Work(Mock(return_value=None), _Options((), "none", (), "none"))
+    work = _Work(Mock(return_value=None), _Options((), "none", (), "none"), "worker")
     with pytest.raises(DriverError, match="return a Simulation"):
         work.simulation(_Job(point))
 
@@ -156,7 +156,7 @@ def test_scan_mixed_reducers_and_filtered_statistics(point, tmp_path):
         (),
         ("peak_power",),
     )
-    work = _Work(build, options)
+    work = _Work(build, options, "worker")
     result = work(_Job(point))
     assert result.status == "done"
     assert "stats/peak_power" in result.arrays
@@ -166,7 +166,9 @@ def test_scan_mixed_reducers_and_filtered_statistics(point, tmp_path):
 
 
 def test_worker_refuses_cached_configuration_mismatch(point):
-    result = _Work(build, _Options((), "none", (), "none"))(_Job(point, "0" * 64))
+    result = _Work(build, _Options((), "none", (), "none"), "worker")(
+        _Job(point, "0" * 64)
+    )
     assert result.status == "conflict"
 
 
@@ -178,7 +180,7 @@ def test_uninstrumented_retention_validation_rejects_unknown_fields():
 def test_probe_does_not_charge_noise_or_periodic_retention_when_disabled(point):
     base = build(point)
     simulation = base.with_input(base.translate().initial.field0[0], noise=None)
-    work = _Work(lambda point: simulation, _Options((), "all", (), "none"))
+    work = _Work(lambda point: simulation, _Options((), "all", (), "none"), "worker")
     assert work.probe(_Job(point))["output_bytes"] > 0
 
 

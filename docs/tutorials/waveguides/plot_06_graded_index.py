@@ -18,8 +18,6 @@ as a declared transverse **field** that the route projects onto the channels and
 reports what it captured.
 """
 
-import dataclasses
-
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -130,8 +128,8 @@ simulation = Simulation.from_waveguide(
     backend="numpy_ref",
     noise=None,
     absorber=False,
+    boundary_check=None,
 )
-simulation.settings = dataclasses.replace(simulation.settings, boundary_check=None)
 launch = np.zeros((2, 1, grid.n_omega), dtype=complex)
 launch[:, 0, centre] = 1.0
 run = simulation.with_input(launch).run(progress="none")
