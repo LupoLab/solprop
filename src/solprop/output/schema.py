@@ -45,6 +45,7 @@ import json
 import logging
 import math
 import platform
+import re
 import subprocess
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping, Sequence
@@ -113,6 +114,19 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
+
+_DIFFERENCES_SHOWN = 4
+"""How many changed fields a refusal names in each part of the record before it counts
+the rest of that part."""
+
+_PATH_SEPARATOR = re.compile(r"[.\[]")
+"""What ends a changed path's top-level key, the part of the record it belongs to."""
+
+_ELEMENT_INDICES = re.compile(r"(?:\[\d+\])+$")
+"""The trailing indices of a changed path into an array's element."""
+
+_ARRAY_PART = re.compile(r"\.__(?:ndarray|imaginary)__$")
+"""The key of an array record's real or imaginary part, dropped from its stem."""
 
 SCHEMA_VERSION = 27
 """Version of the record layout; incremented whenever a stored field changes meaning.
@@ -2997,6 +3011,80 @@ class RunMetadata(Displayed):
         _differences(self.hashed(), other.hashed(), "", found)
         return tuple(found)
 
+    def summarise_differences(
+        self,
+        other: "RunMetadata",  # noqa: UP037 - bound after the class body
+        *,
+        shown: int = _DIFFERENCES_SHOWN,
+    ) -> str:
+        """Say how two records differ, briefly enough to read in a refusal.
+
+        The paths of :meth:`differences`, with every array's element paths grouped
+        under the array's name and counted. Every part of the record that changed
+        (``configuration``, ``materials``, ``noise``, ``schema_version``, ...) is
+        named, with its first `shown` entries and a count of the rest, so that no
+        cause is hidden behind another part's many entries. Where the noise differs
+        and this record's realisation was drawn from a known seed, the summary says
+        which seed draws it again.
+
+        Parameters
+        ----------
+        other : RunMetadata
+            The record to compare against; this one is the stored record.
+        shown : int, optional
+            How many entries to name in each part of the record.
+
+        Returns
+        -------
+        str
+            ``"these fields changed: ..."``, empty of entries when the two describe
+            the same run.
+
+        Examples
+        --------
+        >>> import dataclasses
+        >>> from solprop.output.schema import _example_metadata
+        >>> one = _example_metadata()
+        >>> two = dataclasses.replace(
+        ...     one, configuration={"gamma": 0.22, "betas": [1.0, 2.0, 3.0]}
+        ... )
+        >>> one.summarise_differences(two)
+        'these fields changed: configuration.betas, configuration.gamma'
+        >>> three = dataclasses.replace(one, configuration={"gamma": [0.1, 0.2, 0.3]})
+        >>> three.summarise_differences(
+        ...     dataclasses.replace(one, configuration={"gamma": [0.4, 0.5, 0.6]})
+        ... )
+        'these fields changed: configuration.gamma (3 elements)'
+        """
+        # An array is recorded as its real and imaginary parts' nested lists, so an
+        # element is a stem and its trailing indices, counted once for both parts.
+        groups: dict[str, dict[str, str]] = {}
+        for path in self.differences(other):
+            container = _ELEMENT_INDICES.sub("", path)
+            stem = _ARRAY_PART.sub("", container)
+            groups.setdefault(stem, {}).setdefault(path[len(container) :], path)
+        parts: dict[str, list[str]] = {}
+        for stem, elements in groups.items():
+            part = _PATH_SEPARATOR.split(stem, maxsplit=1)[0]
+            parts.setdefault(part, []).append(
+                next(iter(elements.values()))
+                if len(elements) == 1
+                else f"{stem} ({len(elements)} elements)"
+            )
+        named: list[str] = []
+        for part, entries in parts.items():
+            named.extend(entries[:shown])
+            if len(entries) > shown:
+                named[-1] += f" (and {len(entries) - shown} more in {part})"
+        text = ", ".join(named)
+        stored = self.noise
+        if "noise" in parts and stored is not None and stored.seed is not None:
+            text += (
+                f"; the stored run drew its {stored.model} noise from seed "
+                f"{stored.seed}: pass seed={stored.seed} to draw it again"
+            )
+        return f"these fields changed: {text}"
+
     def to_json(self) -> str:
         """Return the whole record as one JSON document.
 
@@ -3186,15 +3274,14 @@ def resolve_metadata_write(
         return True
     if existing.configuration_hash() == new.configuration_hash():
         return False
-    changed = existing.differences(new)
+    changed = existing.summarise_differences(new)
     if not force:
         msg = (
-            "metadata has already been written for a different run; "
-            f"these fields changed: {', '.join(changed)}. "
+            f"metadata has already been written for a different run; {changed}. "
             "Pass force=True to overwrite it."
         )
         raise OutputError(msg)
-    logger.warning("overwriting run metadata; these fields changed: %s", changed)
+    logger.warning("overwriting run metadata; %s", changed)
     return True
 
 

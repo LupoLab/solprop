@@ -273,7 +273,9 @@ class ScanWriter:
             seed_derivation=(
                 "seed axis overrides; otherwise "
                 "SeedSequence([base_seed, global_index])."
-                "generate_state(1, dtype=uint64)[0]"
+                "generate_state(1, dtype=uint64)[0]; without either, noise a "
+                "builder leaves unseeded takes the same with base_seed replaced by "
+                "the first eight bytes of sha256(name), little-endian"
             ),
         )
         group.create_dataset("shape", data=scan.shape, dtype=np.int64)
@@ -433,8 +435,7 @@ class ScanWriter:
         )
         stored = RunMetadata.from_json(json.dumps(document))
         current = RunMetadata.from_json(result.metadata_json)
-        changed = ", ".join(stored.differences(current))
-        return f"{result.error}; these fields changed: {changed}"
+        return f"{result.error}; {stored.summarise_differences(current)}"
 
     def _stage(self, result: PointResult) -> None:
         """Write recoverable point arrays and references to common metadata.

@@ -30,12 +30,15 @@ choose another.
 | `prop_gnlse` | `RungeKutta()` | 1e-7 | 1e-14 √W | `"input"` |
 | `prop_capillary` | `Multistep()` | 1e-6 | 1e-10 √W | `"input"` |
 | `prop_capillary` with the TDSE response | `Multistep()` | 1e-6 | 1e-10 √W | none |
-| `prop_waveguide` | `RungeKutta()` | 1e-5 | 1e-10 √W | `"input"` |
+| `prop_waveguide` | `RungeKutta()` | 1e-5 | 1e-10 √W | `"input"`; none for slab modes |
 | `prop_radial` | `Multistep()` | 1e-5 | 0 | `"input"` |
 | `prop_free` (Cartesian, line) | `RungeKutta()` | 1e-4 | 0 | none |
 | `prop_planar` | `Multistep()` | 1e-5 | 0 | none (not carried) |
 
-Under `precision="single"` every interface takes `RungeKutta()` and no noise. The
+Under `precision="single"` every interface takes `RungeKutta()` and no noise, and its
+`rtol` is the larger of the table's and `1e-6`, at most `1e-5`: `1e-6` on `prop_gnlse`
+and `prop_capillary`, `1e-5` on the others, free space included
+([single precision](../performance/single-precision.md)). The
 spatial interfaces' tolerances apply where their `SimulationSettings` give no
 controller; a free-space run that names no integrator takes `RungeKutta()`. A default
 noise that resolves to none says why in the run record and the start-of-run summary,

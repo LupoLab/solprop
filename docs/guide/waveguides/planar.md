@@ -133,6 +133,14 @@ $P=P'\,w_y\sqrt{\pi/2}$, and the same for energy:
 {func}`~solprop.modes.slab.gaussian_to_per_unit_width` convert. Akturk's 12.5 mJ in
 a beam of $w_y=5$ mm is 2.0 J/m at its centre.
 
+A run on slab modes carries **no shot noise**. The one-photon draw
+([noise](../media/noise.md)) is defined per mode in √W, and a slab amplitude is in
+√(W/m): one photon per metre of y would be a convention, which no derivation has fixed
+for these modes. So `noise="default"` resolves to none, recorded with its reason as on
+the [hybrid planar grid](#resolving-y), and an explicit noise model is
+refused. A study of noise-seeded break-up seeds its launch itself, as the planar
+compressor example does.
+
 ## The rule, the launch and tapers
 
 The transverse rule of a slab set is Gauss–Legendre in x on $[-a,a]$, emitting
