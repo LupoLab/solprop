@@ -429,6 +429,23 @@ translated operators; the Jones and ellipse helpers have analytic unit tests. Th
 azimuthal selection tests include an intentionally aliased rule whose forbidden amplitude
 **must exceed** the resolved rule's bound: a diagnostic control, not a pass of that rule.
 
+**Host vector maths** ([ADR-059](decisions.md)). On x86-64 the native CPU kernels form
+their `exp`, `log`, `cos` and `sin` with SLEEF's u10 functions, on Arm with the system
+libm. The budgets are unchanged: every rounding budget above counts a library
+function's result as within one ulp of the correctly rounded value, which glibc's,
+Apple's and SLEEF's u10 functions each guarantee, so two builds' values of one function
+differ by at most two ulps, the difference the budgets already admitted between the
+native backend's libm and NumPy's own vector functions. The complex exponential
+`e^a (cos b, sin b)` is the exponential and the cosine (sine) each within one ulp and a
+product rounded once, within `5 u |e^a|` of each exact component. The layer's own
+tests hold each function to one ulp of a 50-digit mpmath reference
+(`tests/backends/test_native_vector_math.py`) over the arguments the kernels form:
+propagator, phi-function and rate exponents from `-745` to the overflow threshold,
+logarithms of field magnitudes across the positive range (subnormals included), and
+phases to `1e15` with the multiples of `pi / 2`; every block length, the C99 special
+values and agreement with the system libm are `native/tests/native/test_vmath.cpp`.
+The full suite passes against both routes, on x86-64 (AVX2) and arm64 (AdvSIMD, forced).
+
 **Scans and batches** are execution paths, not numerical models: a scan point agrees with
 the same simulation run alone, and a batch member with the same member run singly under
 the same fixed schedule, within a matched-discrete rounding budget, on every backend (scan

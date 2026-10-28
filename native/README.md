@@ -173,6 +173,6 @@ file states its copyright and licence, in an SPDX header or in the repository's
 code file with the header that `uv run reuse annotate --copyright "John C. Travers and
 contributors" --year 2026 --license GPL-3.0-or-later <file>` writes.
 
-The fetched dependencies (Kokkos, Kokkos Kernels, Kokkos-FFT, GoogleTest) and the
+The fetched dependencies (Kokkos, Kokkos Kernels, Kokkos-FFT, SLEEF, GoogleTest) and the
 libraries a build links (FFTW, the BLAS, the CUDA or ROCm libraries) carry their own
 licences.

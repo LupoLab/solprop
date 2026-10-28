@@ -5687,8 +5687,8 @@ KOKKOS_INLINE_FUNCTION int adams_phi_halvings(const double magnitude, double& sc
  * (`0 < |x| <= adams_phi_join`), or zero where that branch does not apply; `magnitude`
  * is `|x|`. A host block forms these first and their exponentials in one pass.
  */
-KOKKOS_INLINE_FUNCTION Complex adams_phi_argument(const Complex x,
-                                                  const double magnitude) {
+[[maybe_unused]] KOKKOS_INLINE_FUNCTION Complex
+adams_phi_argument(const Complex x, const double magnitude) {
   if (magnitude == 0.0 || magnitude > adams_phi_join)
     return {};
   double scale = 1.0;

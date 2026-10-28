@@ -42,6 +42,7 @@ them:
 | [Kokkos](https://github.com/kokkos/kokkos) | 5.2.1 | execution spaces, views and parallel patterns |
 | [Kokkos Kernels](https://github.com/kokkos/kokkos-kernels) | 5.2.0 | dense GEMM (BLAS component only), dispatching to the vendor BLAS |
 | [Kokkos-FFT](https://github.com/kokkos/kokkos-fft) | 2.0.0 | FFTs over FFTW, cuFFT or rocFFT |
+| [SLEEF](https://github.com/shibatch/sleef) | 3.9.0 | vector `exp`, `log` and `sincos` for the CPU kernels on x86-64 (see [vector maths](#vector-maths)); built static as its own CMake project, and not fetched where the system libm is used |
 | [GoogleTest](https://github.com/google/googletest) | 1.17.0 | the native tests only, when `BUILD_TESTING=ON` |
 
 The Python build requirements are scikit-build-core 0.11 and nanobind 2.9 or newer. CPU
@@ -329,6 +330,7 @@ The options are read by `native/CMakeLists.txt` and `native/cmake/HostLibraries.
 | `SOLPROP_NATIVE_ENABLE_IPO` | `ON` | checked IPO/LTO for CPU Release builds; never for CUDA or HIP |
 | `SOLPROP_NATIVE_ENABLE_AGGRESSIVE_VECTORIZATION` | `ON` | sets `Kokkos_ENABLE_AGGRESSIVE_VECTORIZATION` |
 | `SOLPROP_NATIVE_ENABLE_COVERAGE` | `OFF` | a Clang CPU build with source coverage, for development only; disables IPO, and its timings are not performance evidence |
+| `SOLPROP_NATIVE_VECTOR_MATH` | `AUTO` | the CPU kernels' transcendental functions ([vector maths](#vector-maths)): `AUTO` (SLEEF on x86-64 CPU builds, the system libm on Arm and in GPU builds), `SLEEF` (also on aarch64, with its AdvSIMD functions) or `SCALAR` (the system libm). Not `SLEEF` in a GPU build |
 
 **Execution space**
 
@@ -400,8 +402,33 @@ access, point it at source trees of the same versions:
 -DFETCHCONTENT_SOURCE_DIR_KOKKOS=/path/to/kokkos-5.2.1
 -DFETCHCONTENT_SOURCE_DIR_KOKKOSKERNELS=/path/to/kokkos-kernels-5.2.0
 -DFETCHCONTENT_SOURCE_DIR_KOKKOSFFT=/path/to/kokkos-fft-2.0.0
+-DFETCHCONTENT_SOURCE_DIR_SLEEF=/path/to/sleef-3.9.0           # only with SLEEF vector maths
 -DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/path/to/googletest-1.17.0   # only with BUILD_TESTING
 ```
+
+### Vector maths
+
+The CPU kernels form their transcendentals (the stage and step propagators, the
+exponential Adams method's flows, phi-functions and compensation, the ionisation rates
+and fractions) in passes over blocks of elements through one layer,
+`native/include/solprop_native/vmath.hpp` ([ADR-059](../../dev/decisions.md)). On x86-64
+it calls [SLEEF](https://sleef.org)'s vector functions, each within 1.0 ulp of the
+correctly rounded value over its whole domain, in the variant the build's target
+allows: AVX-512F for a local build on a processor with it, AVX2 for the wheels'
+x86-64-v3 baseline, SSE2 otherwise. glibc's scalar `exp`, `cos` and `sin` cost a complex
+exponential 10 to 30 ns on an AMD EPYC 7763; SLEEF's AVX2 functions take it 3.3 to 3.6
+times faster at the same worst error on the kernels' own arguments. On Apple silicon
+the system libm is already about 3 ns, SLEEF's AdvSIMD functions gain nothing, and the
+build keeps the libm and each element's own calls (`SOLPROP_NATIVE_VECTOR_MATH=SLEEF`
+selects SLEEF there too). `build_info().vector_math` records the route, for example
+`"SLEEF 3.9.0 u10, AVX2"` or `"scalar libm"`. Results differ between the routes only
+by rounding (the functions' own ulp), within the backend's derived rounding budgets
+([SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
+
+SLEEF is configured and built at build time as its own CMake project, with its own
+`-ffp-contract=off` (its double-double steps need every product and sum rounded) and
+the C driver beside the build's C++ compiler, which SLEEF requires to be the same
+version.
 
 ## Linux compilers and libraries
 
@@ -582,8 +609,9 @@ interface; do not combine a standard FFTW pthreads library with AOCL's FFTW core
 
 A wheel meant for other machines is built with `SOLPROP_NATIVE_PROFILE=DISTRIBUTION`.
 It carries its BLAS (on Linux and Windows the OpenMP OpenBLAS, BSD-3-Clause) with its
-licence, and the licence texts of Kokkos, Kokkos Kernels, Kokkos-FFT, nanobind and
-robin_map, which are compiled in. FFTW and the OpenMP runtime are bundled by the wheel
+licence, and the licence texts of Kokkos, Kokkos Kernels, Kokkos-FFT, nanobind,
+robin_map and, on x86-64, SLEEF (BSL-1.0), which are compiled in. FFTW and the OpenMP
+runtime are bundled by the wheel
 repair (`auditwheel repair` on Linux, `delocate` on macOS, `delvewheel` on Windows), and
 their licence texts by `SOLPROP_NATIVE_BUNDLED_LICENCES`; FFTW (GPL-2.0-or-later) is
 compatible with the package's GPL-3.0-or-later. The published wheels' recipe is in the
