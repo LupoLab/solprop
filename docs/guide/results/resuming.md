@@ -71,9 +71,26 @@ if check_cache("run.h5", metadata):        # False when there is no file
 
 A file written for a different run raises {py:class}`~solprop.exceptions.OutputError`
 listing the fields that changed — `configuration.gamma`, `grid.n_omega`, `modes[0].kind`
-— rather than saying only that a hash disagrees. Because the key covers the whole
+— rather than saying only that a hash disagrees. An array that changed is one entry,
+its elements counted (`noise.spectrum (755 elements)`), and every part of the record
+that changed is named with up to four of its entries and a count of the rest, so a
+changed schema version or material manifest is never hidden behind a long
+configuration. Because the key covers the whole
 configuration, a run can never continue from the state of a run with different physics
 that happens to have the same shape.
+
+### Noise drawn without a seed
+
+The noise realisation is part of the key, and a call without `seed=` draws fresh
+operating-system entropy each time it is built
+([reproducibility](../media/noise.md#reproducibility)). So that re-running the same call
+with `resume=True` continues its own file, a realisation the constructor drew without a
+seed is drawn again from the seed the file recorded before the key is compared, and the
+run logs that it did. This covers the default noise of `prop_gnlse`, `prop_capillary`,
+`prop_waveguide` and `prop_radial` and an explicit `noise="input"` or `"modified"` given
+without a seed. A seed the call gives, or a realisation it passes in, is never replaced:
+a resume that differs in it is refused, and the refusal names the seed the file was
+drawn from (`pass seed=17 to draw it again`).
 
 To carry on in the same file, build the handler with `append=True`: it opens the file
 read-write instead of replacing it, checks that the record offered describes the run

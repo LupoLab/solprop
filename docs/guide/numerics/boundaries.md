@@ -479,9 +479,9 @@ fraction and the guard maxima continue against the original launch, and `resumed
 lists where the run was resumed. A run killed without a closing record restores its
 totals, and its rows start again at the resume.
 
-`SimulationSettings(boundary_check=None)`, or `boundary_check=None` on `prop_gnlse`,
-`prop_capillary` and `prop_waveguide`, watches nothing; a `BoundaryCheck` with a larger
-`budget` or `stop_factor` relaxes it.
+`SimulationSettings(boundary_check=None)`, or `boundary_check=None` on any `prop_*`
+function or `Simulation.from_*` constructor, watches nothing; a `BoundaryCheck` with a
+larger `budget` or `stop_factor` relaxes it.
 
 ## A worked example
 

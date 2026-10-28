@@ -72,8 +72,9 @@ The first public release. It contains:
   keeps the hard band mask (`boundaries.no_absorber`) and the collar's room, so the run
   shares the absorber-on run's grid, and `absorber_scheme=`. A boundary
   monitor (`solprop.monitor`, `SimulationSettings.boundary_check` or the
-  `boundary_check=` keyword of `prop_gnlse`, `prop_capillary` and `prop_waveguide`, on by
-  default) watches the window's guards by one rule from the launch on: it warns
+  `boundary_check=` keyword of every `prop_*` function and `Simulation.from_*`
+  constructor, on by default) watches the window's guards by one rule from the launch
+  on: it warns
   (`BoundaryWarning`) and then stops (`BoundaryError`) when light above the shot-noise
   floor reaches the edge, refusing a launch above the stop level before its first step.
   It records the energy the temporal collar removed (under the split scheme read before
@@ -257,9 +258,11 @@ The first public release. It contains:
   responses in binary32, with the controller and the propagator's exponent in binary64,
   every narrowed table at its own power-of-two exponent and the state at an exact scale.
   `numpy_ref` runs it as the single-precision reference (oracle) on the fibre, radial and
-  Cartesian routes; `numba_cpu` and `native` refuse it. Its default `rtol` is the
-  floor `1e-6`, below which an explicit tolerance is refused, and its default integrator
-  `RungeKutta()`; noise models and the Adams integrator are refused. A
+  Cartesian routes; `numba_cpu` and `native` refuse it. An explicit `rtol` below the
+  floor `1e-6` is refused; each interface's default `rtol` is the larger of its binary64
+  default and the floor, at most `1e-5` (`1e-6` on `prop_gnlse` and `prop_capillary`,
+  `1e-5` on `prop_waveguide`, `prop_radial`, `prop_planar` and free space), and its
+  default integrator `RungeKutta()`; noise models and the Adams integrator are refused. A
   [survival record](https://solprop.readthedocs.io/en/latest/guide/performance/single-precision.html)
   states which problems keep their accuracy. Every run records its precision in its
   configuration, so a resume in the other precision is refused (kernel schema 36,
@@ -386,6 +389,37 @@ The first public release. It contains:
 
 ### Fixed
 
+- **Resuming a run whose noise was drawn without a seed.** Each unseeded construction
+  drew fresh entropy, so re-running the same default call with `resume=True` was
+  refused as a different run. The realisation is now drawn again from the seed the file
+  recorded; a seed the call gives is never replaced.
+- **Scans whose builder leaves the noise unseeded** drew operating-system entropy, so a
+  point could not be reproduced and a rerun refused its own completed points. Such noise
+  is now drawn from `point.seed`, or, on a scan without seeds, from a seed derived from
+  the scan's name and the point's global index.
+- **Slab mode sets on `prop_waveguide` carry no shot noise.** The default drew a
+  one-photon realisation onto slab amplitudes, in √(W/m), for which no photon measure is
+  declared. A default now resolves to none with its reason recorded, as on the hybrid
+  planar grid, and an explicit noise model is refused.
+- **`boundary_check=` on every entry point.** The `Simulation.from_*` constructors and
+  `prop_radial`, `prop_free` and `prop_planar` take it as `prop_gnlse`,
+  `prop_capillary` and `prop_waveguide` did, so a script no longer patches the settings
+  after construction; a spatial entry point refuses it beside settings that name
+  another check.
+- **An interface's default integrator is not a named one.** `prop_gnlse`,
+  `prop_waveguide` and `prop_free` chose `RungeKutta()` outside the settings, so it
+  counted as named, and a `dataclasses.replace` copy of single-precision settings in
+  binary64 took `Multistep()`. The settings now carry the interface's binary64 default:
+  a copy in either precision takes it, and `integrator_named` stays false.
+- **Refusals name the option at fault.** Single precision with `Multistep()` was told
+  to change its backend, and a TDSE run in single precision or with `RungeKutta()` was
+  told about its execution resources; each is now refused by the precision or the
+  integrator it asked for.
+- **Refusals of a different run are readable.** A refused resume, append, metadata
+  write or scan point listed every changed array element; it now names each changed
+  array once with its count of elements and up to four entries of each part of the
+  record with a count of the rest, and, where the noise differs, names the seed that
+  draws the stored realisation.
 - **macOS: a `numba_cpu` run followed by a native run in one process.** The native
   package refuses to import once pyFFTW is loaded on macOS, and only `numba_cpu`
   imported pyFFTW, so a default run after a `numba_cpu` one (a problem the native
@@ -418,7 +452,6 @@ The first public release. It contains:
 - **Device builds' floating-point record.** CUDA and HIP builds follow their compilers'
   contraction defaults in the protected helpers too, held to the measured device
   envelopes; ADR-049 and the build guide now say so.
-
 - **Single precision's reference transforms sum in binary32.** `numpy_ref`'s
   single-precision path used NumPy's float32 transforms, which are binary64 rounded once,
   and so was more accurate than the backends it checks. Its binary32 transforms now go to
@@ -427,6 +460,12 @@ The first public release. It contains:
   ([SEP 36](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0036-native-reduced-precision.html), withdrawn).
 - **A single-precision capillary's default tolerance** is the capillary's `1e-6` again;
   it had fallen through to the waveguide's `1e-5`.
+- **Single precision's default tolerance follows one rule.** The keyword interfaces
+  took the floor `1e-6` and the spatial ones their binary64 default, so a
+  single-precision waveguide ran tighter than its binary64 twin (`1e-6` against
+  `1e-5`) and free space at `1e-4`, outside the survival record. Every interface now
+  takes the larger of its default and the floor, capped at `1e-5`: the waveguide's
+  default is `1e-5` and free space's `1e-5` under single precision.
 - **The release wheels' coexistence check** runs noiseless: under the default input noise
   its repeated run drew a second realisation and failed.
 - **A one-mode run on a GPU uses the whole device.** The accepted update, the error norms

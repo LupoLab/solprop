@@ -252,11 +252,20 @@ Individual runs never draw their own bars.
 Use `Scan("name", base_seed=42, ...)` to derive a reproducible unsigned 64-bit seed
 for each global index with
 `SeedSequence([base_seed, global_index]).generate_state(1, dtype=uint64)[0]`.
-Use `point.seed` when constructing noise in the builder. An ordinary `seed=[...]`
-axis overrides automatic derivation. Subsetting or changing execution order preserves
-the seed. The file records the derivation, resolved point seed, actual noise seed,
-single-run configuration hash and backend execution settings. An active noise draw
-without a recorded seed, or with a seed different from `point.seed`, is rejected.
+An ordinary `seed=[...]` axis overrides automatic derivation. Subsetting or changing
+execution order preserves the seed.
+
+Every point's noise is reproducible, whether or not the builder seeds it. Noise the
+builder leaves unseeded — a constructor's default noise, or an explicit model without
+`seed=` — is drawn from `point.seed`. On a scan with neither a seed axis nor a base
+seed, `point.seed` is `None` and the draw takes a seed derived from the scan's name
+instead: the same derivation with the first eight bytes of the name's SHA-256 digest,
+read little-endian, in place of `base_seed`. A builder may still seed the noise itself
+with `seed=point.seed`. The file records the derivation, resolved point seed, actual
+noise seed, single-run configuration hash and backend execution settings. A noise
+draw without a recorded seed, or seeded with something other than `point.seed`, is
+rejected. Rerunning a scan rebuilds each point with the same seed, so its completed
+points match their records and are skipped.
 
 ## Retention, reductions and reading
 

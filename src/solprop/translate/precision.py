@@ -44,6 +44,7 @@ __all__ = [
     "DOUBLE",
     "SINGLE",
     "SINGLE_PRECISION_BACKENDS",
+    "SINGLE_RTOL_CAP",
     "SINGLE_RTOL_FLOOR",
     "Coefficient",
     "Narrowed",
@@ -70,7 +71,17 @@ SINGLE_RTOL_FLOOR = 1e-6
 
 A local error target below the per-step rounding of binary32, about ten times its unit
 roundoff, buys steps without accuracy. An explicit tolerance below the floor is refused,
-and the floor is every interface's default under single precision.
+and an interface whose binary64 default is tighter takes the floor under single
+precision.
+"""
+
+SINGLE_RTOL_CAP = 1e-5
+"""The loosest default relative tolerance a single-precision run takes.
+
+The single-precision survival record measured 1e-6 and 1e-5 only, so an interface whose
+binary64 default is looser -- free space's 1e-4 -- takes this one under single
+precision until the looser value is qualified in binary32. An explicit tolerance above
+it is the caller's, and is admitted.
 """
 
 SINGLE_PRECISION_BACKENDS: tuple[str, ...] = ("numpy_ref", "mlx")
