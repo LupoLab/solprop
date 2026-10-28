@@ -7,8 +7,8 @@
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-10-28) |
 | **Status** | Draft |
-| **Review status** | Not reviewed |
-| **Reviewers** | — |
+| **Review status** | In review |
+| **Reviewers** | GPT-6 (AI) |
 | **Type** | Change |
 | **Created** | 2026-10-28 |
 | **Resolution** | — |
@@ -1590,3 +1590,221 @@ No phase has started.
   - Q13: phase 0 fixes the commit order, and the rule may change if the
     implementation finds a reason;
   - Q14: the warned host-march list as proposed.
+
+### AI review — 2026-10-28
+
+Reviewer: **GPT-6 (AI), acting through Codex**. Reviewed all of Part I and the
+associated index and roadmap changes on PR #52 at `40c34af`. This review changes
+only the reviewer metadata and appends findings here; it does not revise Part I
+or record a human review. The author's decisions in §12 remain the author's.
+
+**Assessment:** option B is a reasonable architecture, and keeping the host march
+available on the same engine gives it a useful verification path. The proposal
+needs the following corrections and contract decisions before acceptance. P1
+marks a correctness or lifecycle issue to resolve before implementing the affected
+phase; P2 marks a specification or qualification issue to resolve before accepting
+the corresponding promise. All findings are open for the author's response.
+
+**Evidence and limits.** The review compared the specification with the current
+march, controller, landing rule, stage tables, native adapter, interrupt guard,
+monitor and snapshot code, and with SEPs 0, 16, 25 and 29. Small executable probes
+confirmed R1 and R6 and the conditioning example in R7; no propagation benchmark
+or native CPU/GPU qualification was run for this review. The existing virtual
+environment did not contain `solprop-native`. The moment identity in §4.7 agrees
+with equation (2.10) of
+[Hochbruck and Ostermann's author manuscript](https://na.math.kit.edu/download/papers/acta-final.pdf):
+putting `k = p + 1` gives the stated factorial. The Lagrange/Vandermonde identity
+was also checked against
+[Higham's explanation](https://nhigham.com/2021/06/15/what-is-a-vandermonde-matrix/).
+The other bibliography entries and the profiling measurements were not independently
+verified. The issues below concern execution and qualification, not a proposed
+change to the propagation equations.
+
+1. **R1 — P1: distinguish the stored order from the order controlling startup
+   growth (§§4.4–4.5, 7.1, phase 0).** With fixed order, §4.5 sets `q_n = q_max`,
+   then §4.4 uses that order in `F`. The current `AdamsMarch._choose_order`
+   instead stores `method.order` for the next stencil but returns `current` as the
+   factor's exponent order. At startup and after a restart, `current` can be
+   smaller than `q_max`. A probe with `Multistep(order=5, variable_order=False)`,
+   one available history sample and norm `0.25` gives a factor of `1.6` in the
+   reference, versus `1.0079368399158986` under the draft's formula. This changes
+   steps away from any rounding threshold. Please specify these two orders
+   separately and add fixed-order startup and post-restart traces for orders 2–6.
+   Preserve the pre-refactor reference as an oracle: generating the whole corpus
+   only from the newly extracted core could bless this same error in both halves.
+
+2. **R2 — P1: define how phase 1 commits an acceptance before the next trial
+   exists (§6.1 option C, §6.5.7, phase 1).** Fusing a trial's accept into the next
+   trial call leaves the accepted state pending. Today `_decide` calls the
+   engine's accept before moving the position, recording statistics, checking the
+   monitor or returning a plane. There may be no next trial: a save plane, natural
+   stop, exhausted call budget, final endpoint or interruption can intervene.
+   A monitor verdict can also change the next trial's collar setting after the
+   current state must already have been adopted. Please specify a flush/commit
+   operation and its ownership at every such boundary, or retain a separate
+   accept until phase 2 can decide and commit inside the native call. Include a
+   one-step run ending at a plane, an immediately exhausted budget and a monitor
+   change in phase 1's tests; measure the crossings actually left by that design.
+
+3. **R3 — P1: enter the signal guard before native mutation and make host
+   publication complete before callbacks (§§4.4, 4.8, 6.5.7, 7.5).** The text
+   puts the host's row bookkeeping inside `committing()` after the native call.
+   `solprop._interrupts._handle` raises immediately outside that guard, including
+   when Python resumes from a native call that has already committed several
+   steps. The low-storage precedent guards the native call itself as well as
+   the position update. Please require one guard spanning native execution,
+   synchronization of the host position/proposal/history/ledger and ingestion of
+   all returned rows. Also separate ingestion from user progress callbacks:
+   `_record` invokes `_progress.step`, whose exception is not deferred by
+   `committing()`. A callback failing on the first replayed row must not leave
+   the native state several commits ahead of the host records. The accepted-step
+   floor fix needs the same complete publication rule, including the accepted
+   attempt row and kink restart, before raising. Inject signals at the return
+   boundary and exceptions from callbacks and from the floor path; verify the
+   terminal checkpoint's state, position, rows and counters together.
+
+4. **R4 — P1: preserve call charges when source evaluation fails (§§4.3,
+   6.5.7–6.5.8, 7.1).** The algorithm adds `startup` after the startup evaluation
+   and `predictor` after the trial and its reductions. The reference increments
+   them before `engine.start` and `engine.exponential_trial`, respectively.
+   A source call that raises, or succeeds before a later reduction fails, has
+   still spent work. Rolling back to the last committed ledger or incrementing
+   only after success undercounts it, which matters when that ledger is saved
+   and a budgeted run resumes. Please distinguish accepted-state commits from
+   attempted-call charges, specify the failure stage and exception category in
+   the returned error record, and preserve the reference's charging boundary.
+   A message alone cannot reliably select the original exception type. Add
+   independent call-counter tests for startup failure, predictor failure and
+   failure after the source returns, including export/resume of their ledgers.
+
+5. **R5 — P1: make event draining total for empty, rejected and coincident
+   returns (§§4.8, 6.4–6.5, 7.1).** The event table is headed "after an accepted
+   step", but a call bound can end a rejected attempt, and a budget/error event
+   can return without an attempt or without any acceptance. The prescribed
+   unconditional final `_take_step_stats`/`_natural_stop` then counts a step that
+   did not happen. Conversely, a call can finish after accepted steps followed
+   by rejections, so its last attempt is not its last accepted step. Please
+   specify entry checks, per-attempt checks, zero-row and zero-acceptance returns,
+   and exactly-once accounting of each accepted step. Define how simultaneous
+   plane, monitor, statistics, natural-stop and call-bound events are all serviced,
+   including a dense crossing whose natural stop remains due. State how
+   `_record`'s backend hook is handled: native `_on_accepted_step` currently calls
+   `promote_fsal`, so replaying that hook in bulk is not automatically an inert
+   record operation. Finally reconcile §6.5.8's per-attempt progress callbacks
+   with Q12's "progress once per call". Test `max_calls=1`, rejection-only
+   returns, accepted-then-rejected returns, and several coincident events.
+
+6. **R6 — P1: specify replay's separate stopping and kink tolerances
+   (§§4.3, 4.6, 4.8, phase 3).** Replacing only the proposal and landing steps
+   does not describe the existing replay. `_replay_to` uses
+   `replay_tolerance(schedule, target)`, with
+   `max(LANDING_ULPS, schedule.n_steps)` ulps, and uses the same slack to identify
+   replayed kinks. It also advances `_schedule_index`. The draft otherwise leaves
+   the adaptive `reached` test in force and omits the replay cursor from its
+   state description. The existing documented witness
+   `FixedSchedule(np.full(160, 1e-3 / 160))` ends 12 ulps below `1e-3` in the
+   review probe: adaptive `reached` is false, while the replay test succeeds.
+   Following the draft literally can report exhaustion for this valid schedule.
+   Please specify the cursor, edge arithmetic, replay tolerance, exhaustion and
+   restoration rules, with tests for accumulated-edge drift, kinks and a resume
+   part-way through the schedule.
+
+7. **R7 — P2: qualify coefficient tables over the nodes the march actually
+   permits (§§4.7, 7.2).** The claimed modest conditioning does not follow from
+   the default growth and rejection factors. They are configurable, multiple
+   rejections compound a shrink, and a forced landing can shorten a step by an
+   arbitrary ratio without discarding history at an ordinary save plane.
+   `equal_approach=False` is admitted. For example, four preceding unit steps
+   followed by a trial shortened to `1e-10` give corrector nodes
+   `[1, 0, -1e10, -2e10, -3e10, -4e10]`; their monomial Vandermonde has an
+   infinity-norm condition estimate of about `2.05e53` in the probe, despite
+   having only six nodes. Multiplying that estimate by operation count and unit
+   roundoff gives no useful accuracy test. This is not itself evidence that the
+   existing root-product algorithm fails: its error needs analysis appropriate
+   to that algorithm and to the weights ultimately applied. Please remove the
+   unsupported conditioning claim, include actual landing/rejection histories and
+   non-default factors in the corpus, and require finite, informative bounds
+   supported by an independent polynomial or higher-precision oracle. Any new
+   admission limit or restart rule would be a numerical-policy decision for the
+   author, not an implementation convenience.
+
+8. **R8 — P2: make the exact-arithmetic promises consistent with the build
+   and threshold contracts (§§4.8–4.9, 6.5.1, 6.7, 7.1).**
+   `SOLPROP_NATIVE_STRICT_FUNCTION` alone is empty under Clang; the function body
+   also needs `SOLPROP_NATIVE_STRICT_BLOCK`. Both macros are empty under CUDA/HIP,
+   including the CUDA host pass (`native/include/solprop_native/fp.hpp`). Thus
+   that annotation alone does not establish the promised strict controller on
+   every phase-5 build. Also, §7.1 permits a one-ulp `pow` difference while still
+   demanding identical order and landing decisions at exact thresholds. A small
+   weight or proposal difference can change precisely those branches. Please
+   specify the host compilation and elementary-function requirements, and
+   separate exact decision tests on identical supplied scalar scores from
+   numerical tests that independently compute those scores. Either ensure common
+   arithmetic for threshold witnesses or define margin-aware expectations.
+   Verify strictness on each supported compiler. The nominal `1e-14` norm
+   difference in §4.9 also needs a case-specific basis, especially after R7.
+
+9. **R9 — P2: bound the snapshot portability promise and account for quiet
+   collar state (§§4.2, 6.5.9, 7.1, phase 4).** Changing the march on the same
+   resident engine is different from changing engines. A frozen-residual native
+   history exports `applied` rows; `HostHistory.load_rows` refuses those, while
+   `_ResidentAdams.load_rows` refuses the host engine's `weights_<row>` format.
+   Therefore retaining the existing format cannot by itself make every phase-4
+   snapshot continue on `numpy_ref` or `numba_cpu` without restart. Please give
+   a support matrix and retain the existing named refusal, or explicitly design
+   and qualify a conversion with its memory cost. Separately, §4.2 lists
+   `w_Q` as march state, but neither the listed snapshot fields nor the current
+   `MarchSnapshot` stores `_collar_was_quiet`. Its value controls the re-entry
+   cap. State whether load restores it, reconstructs it from monitor state or
+   deliberately resets it, and test a stop/resume across a quiet-to-active
+   transition. Verify that a reused backend starts with the specified flags too.
+
+10. **R10 — P2: use accuracy envelopes for ordinary adaptive resume
+    (§§4.9, 6.5.9, 7, 9).** The unconditional promise that a resume agrees with
+    an uninterrupted run "to rounding" contradicts SEP 25 §4.4, which explicitly
+    classifies ordinary resumed-versus-uninterrupted comparisons as accuracy
+    comparisons. The native and host marches can compute different tables and
+    proposed steps, and can then choose different orders or acceptances, even
+    if the serialized state was copied losslessly. Please keep exact checks for
+    the snapshot transfer, reserve rounding budgets for matched fixed-order
+    schedules with matched history and plane handling, and add adaptive resume
+    accuracy cases against a converged reference. Throughout the interface and
+    compatibility wording, replace agreement "to the run's tolerance" with the
+    qualified per-case accuracy envelope: local `rtol`/`atol` do not bound the
+    global error. This follows the policy already cited by the proposal.
+
+11. **R11 — P2: make admission a single consistent matrix (§§2, 6.6, Q14).**
+    Q14 permits the warned host march for `ComparisonMultistep`'s general path,
+    but §6.6 lists that same path as "Refused by name, unchanged". The current
+    `_refuse_adams` does not impose that blanket refusal; `AdamsMarch` uses
+    `HostHistory` when the fused/exponential engine is unavailable. Moreover,
+    `ComparisonMultistep` is a subclass of `Multistep`, and some comparison
+    configurations use the fused resident path, including the Hermite dense
+    interpolant covered by `test_resident_adams.py`. A type-membership check
+    alone does not enforce the stated scope. Please enumerate admission by
+    formulation, corrector/interpolant, resident-engine capability, scale and
+    build, distinguishing native march, warned host march, private unwarned
+    witnesses and pre-existing backend refusals. Record device rows at `Final`
+    after phase 5, rather than leaving "until phase 5" as a final exception.
+
+12. **R12 — P2: make the performance decision reproducible and independent
+    of the other optimisations (§§3.3, 6.1, 6.9, 7.6, 11).** The measurements
+    are useful motivation, but the draft links no committed timing ledger or
+    profiling artifact for the baseline, and infers some trial counts from
+    timings. The estimated gain of B over completed phase 1 is the relevant
+    evidence for accepting a second controller implementation. Please name the
+    reproducible benchmark invocation/configuration, exact measured window,
+    measured attempt and source counts, and public ledger entries. Compare the
+    two marches on the same implementation revision with N1–N7 held fixed, and
+    report end-to-end time and event frequency as well as residual host cost;
+    busy monitors and `step_planes=1` return every step. State the acceptance
+    rule for regressions on expensive-source and frequent-event cases. The claim
+    that call bounds cost "at most 0.04 %" assumes the time bound is limiting;
+    the 256-attempt bound can instead dominate cheap trials. Measure it. Finally,
+    §7.6's "then complete runs" must name short-guide lengths that finish in
+    seconds, consistently with §7 and the repository's qualification rule,
+    rather than authorize full-length tracking problems by implication.
+
+The author should answer R1–R12 in a separate response subsection and revise Part I
+thereafter, as SEP 0 requires. This review does not accept the SEP or change its
+status from Draft.
