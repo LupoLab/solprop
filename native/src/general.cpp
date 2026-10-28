@@ -2274,11 +2274,12 @@ public:
   // solprop's boundary monitor (SEP 21, ADR-057), bound for a run that watches its
   // window: its four time weights `(4, n_t)` (low guard, high guard, the collar's
   // 1 - W, the collar's rate), each state column's quadrature weight, and what the
-  // split-step collar took since the last reading beside one split's sum. Allocated
-  // at the first bind, a few rows, and kept.
+  // split-step collar took since the last reading beside one split's sum and the
+  // share it takes at each time. Allocated at the first bind, a few rows, and kept.
   bool monitor_bound_ = false;
   RealView2 monitor_weights_;
   RealView monitor_column_weights_;
+  RealView monitor_share_;
   Kokkos::View<double, Layout, MemorySpace> monitor_removed_;
   Kokkos::View<double, Layout, MemorySpace> monitor_split_sum_;
   [[nodiscard]] bool monitoring_split() const noexcept {
@@ -11735,32 +11736,33 @@ void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
 void GeneralWorkspace::add_split_removal(const double dz, const std::size_t active_rows,
                                          const double parseval) {
   const auto rate = absorber_coarse_;
+  const auto share = monitor_share_;
   const auto weights = monitor_column_weights_;
-  const auto n_t = problem_.n_t;
   const bool stored = parseval == 0.0;
-  const Kokkos::RangePolicy<ExecutionSpace> samples(execution_space_, 0,
-                                                    active_rows * n_t);
+  // The share the split takes depends on time alone: formed once, not per row.
+  Kokkos::parallel_for(
+      "solprop_native.monitor.split_share",
+      Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, problem_.n_t),
+      KOKKOS_LAMBDA(const std::size_t index) {
+        share(index) = -Kokkos::expm1(-rate(index) * dz);
+      });
+  const Range2 samples(execution_space_, {0, 0}, {active_rows, problem_.n_t});
   if (problem_.family == FieldFamily::envelope) {
     const auto time = coarse_time_complex_;
     Kokkos::parallel_reduce(
         "solprop_native.monitor.split_removal_complex", samples,
-        KOKKOS_LAMBDA(const std::size_t item, double& update) {
-          const auto row = item / n_t;
-          const auto index = item % n_t;
+        KOKKOS_LAMBDA(const std::size_t row, const std::size_t index, double& update) {
           update += (stored ? weights(row) : parseval) * squared_abs(time(row, index)) *
-                    -Kokkos::expm1(-rate(index) * dz);
+                    share(index);
         },
         monitor_split_sum_);
   } else {
     const auto time = coarse_time_real_;
     Kokkos::parallel_reduce(
         "solprop_native.monitor.split_removal_real", samples,
-        KOKKOS_LAMBDA(const std::size_t item, double& update) {
-          const auto row = item / n_t;
-          const auto index = item % n_t;
+        KOKKOS_LAMBDA(const std::size_t row, const std::size_t index, double& update) {
           const double value = time(row, index);
-          update += (stored ? weights(row) : parseval) * value * value *
-                    -Kokkos::expm1(-rate(index) * dz);
+          update += (stored ? weights(row) : parseval) * value * value * share(index);
         },
         monitor_split_sum_);
   }
@@ -11787,6 +11789,7 @@ void GeneralWorkspace::bind_monitor(const std::vector<double>& weights,
     monitor_weights_ = RealView2("solprop_native.monitor.weights", 4, n_t);
     monitor_column_weights_ =
         RealView("solprop_native.monitor.column_weights", columns);
+    monitor_share_ = RealView("solprop_native.monitor.split_share", n_t);
     monitor_removed_ =
         Kokkos::View<double, Layout, MemorySpace>("solprop_native.monitor.removed");
     monitor_split_sum_ =
@@ -11835,10 +11838,16 @@ std::vector<double> GeneralWorkspace::monitor_reading() {
   MonitorSums sums;
   for (std::size_t first = 0; first < columns; first += rows) {
     const auto count = std::min(rows, columns - first);
-    Kokkos::deep_copy(execution_space_, spectrum, Complex{});
+    // Every bin of the rows read is written, the empty half of a one-sided spectrum
+    // with zeros; a partial chunk's other rows are transformed but never read.
     Kokkos::parallel_for(
-        "solprop_native.monitor.spectrum", Range2(execution_space_, {0, 0}, {count, n}),
+        "solprop_native.monitor.spectrum",
+        Range2(execution_space_, {0, 0}, {count, n_t}),
         KOKKOS_LAMBDA(const std::size_t row, const std::size_t index) {
+          if (index >= n) {
+            spectrum(row, index) = Complex{};
+            return;
+          }
           const bool single = envelope || index == 0 || (nyquist && index + 1 == n);
           spectrum(row, index) = (single ? 1.0 : 2.0) / static_cast<double>(n_t) *
                                  current(first + row, index);
@@ -12273,9 +12282,10 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
       {"statistics_power_weight", statistics_power_weight_.size() * sizeof(double)},
       {"statistics_power", statistics_power_.size() * real_bytes},
       // The boundary monitor's weights and accumulators, once a monitor is bound.
-      {"monitor_weights", (monitor_weights_.size() + monitor_column_weights_.size() +
-                           monitor_removed_.size() + monitor_split_sum_.size()) *
-                              real_bytes},
+      {"monitor_weights",
+       (monitor_weights_.size() + monitor_column_weights_.size() +
+        monitor_share_.size() + monitor_removed_.size() + monitor_split_sum_.size()) *
+           real_bytes},
       {"statistics_flux_magnitude", statistics_magnitude_.size() * real_bytes},
       {"statistics_outputs", (statistics_total_power_.size() +
                               statistics_on_axis_.size() + statistics_packed_.size()) *
@@ -12489,6 +12499,7 @@ void GeneralWorkspace::close() noexcept {
   monitor_bound_ = false;
   monitor_weights_ = {};
   monitor_column_weights_ = {};
+  monitor_share_ = {};
   monitor_removed_ = {};
   monitor_split_sum_ = {};
   tableau_ = {};

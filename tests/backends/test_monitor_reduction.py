@@ -19,26 +19,22 @@ from __future__ import annotations
 
 import dataclasses
 import math
-import sys
-from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
 import pytest
 
+from bounds import device_backend, ladder_bound
+from capability_routes import LENGTH, ROUTES
 from solprop.backends.driver import StepDriver
 from solprop.backends.protocol import Backend
 from solprop.backends.registry import available, select
 from solprop.driver import Simulation
-from solprop.exceptions import BackendError
 from solprop.monitor import BoundaryCheck, BoundaryEnergies
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.runge_kutta import RungeKutta
 from solprop.stepper.schedule import FixedSchedule
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from capability_routes import LENGTH, ROUTES
 
 ROUTE_NAMES = (
     "gnlse",
@@ -156,13 +152,8 @@ def _require(backend: str) -> None:
         pytest.skip(f"{backend} is not installed")
 
 
-@pytest.mark.parametrize("scheme", SCHEMES)
-@pytest.mark.parametrize("route", ROUTE_NAMES)
-@pytest.mark.parametrize("backend", COMPILED)
-def test_a_check_reads_the_reference_s_five_numbers(
-    backend: str, route: str, scheme: str
-) -> None:
-    _require(backend)
+def _check_reading(backend: str, route: str, scheme: str) -> None:
+    """Compare a backend's reading of the edge-reaching launch with the reference's."""
     simulation = _simulation(route, scheme)
     reference, compiled = (_loaded(simulation, name) for name in ("numpy_ref", backend))
     try:
@@ -172,7 +163,8 @@ def test_a_check_reads_the_reference_s_five_numbers(
         compiled.close()
     # Light in every region, so that each sum is compared on something.
     assert np.all(theirs.regions > 1e-6 * theirs.total)
-    bound = _rounding(simulation)
+    # A device build adds its transform's declared envelope.
+    bound = ladder_bound(backend, _rounding(simulation), simulation.grid.n_t, 1)
     assert ours.total == pytest.approx(theirs.total, rel=bound)
     # Each row's sum is bounded by its largest weight times the energy: the rate's
     # row is energy per metre.
@@ -196,6 +188,33 @@ def _march(simulation: Simulation, name: str) -> dict[str, Any]:
         backend.close()
 
 
+def _check_split(backend: str, route: str, march: str) -> None:
+    """Compare a backend's split removal over a fixed march with the reference's."""
+    simulation = _simulation(route, "split_step", MARCHES[march])
+    theirs = _march(simulation, "numpy_ref")
+    ours = _march(simulation, backend)
+    assert theirs["raw_removed_fraction"] > 1e-6
+    # Each step's removal carries the reading's rounding, and the matched steps' states
+    # agree to the march's own rounding, amplified over the steps; a device build adds
+    # its transforms' declared envelope, eight round trips a step at most.
+    bound = ladder_bound(
+        backend, 1e3 * _rounding(simulation), simulation.grid.n_t, 8 * STEPS
+    )
+    for name in ("raw_removed_fraction", "removed_fraction", "collar_max"):
+        assert ours[name] == pytest.approx(theirs[name], rel=bound), name
+    assert ours["steps"] == theirs["steps"]
+
+
+@pytest.mark.parametrize("scheme", SCHEMES)
+@pytest.mark.parametrize("route", ROUTE_NAMES)
+@pytest.mark.parametrize("backend", COMPILED)
+def test_a_check_reads_the_reference_s_five_numbers(
+    backend: str, route: str, scheme: str
+) -> None:
+    _require(backend)
+    _check_reading(backend, route, scheme)
+
+
 @pytest.mark.parametrize("march", sorted(MARCHES))
 @pytest.mark.parametrize("route", ROUTE_NAMES)
 @pytest.mark.parametrize("backend", COMPILED)
@@ -205,16 +224,28 @@ def test_the_split_s_removal_is_the_reference_s(
     # Every accepted step's removal, added up by the backend's own finish on each
     # march; the steps are fixed, so the backends take the same ones.
     _require(backend)
-    simulation = _simulation(route, "split_step", MARCHES[march])
-    try:
-        theirs = _march(simulation, "numpy_ref")
-        ours = _march(simulation, backend)
-    except BackendError as refused:
-        pytest.skip(f"{march} is refused here: {refused}")
-    assert theirs["raw_removed_fraction"] > 1e-6
-    # Each step's removal carries the reading's rounding, and the matched steps' states
-    # agree to the march's own rounding, amplified over four steps.
-    bound = 1e3 * _rounding(simulation)
-    for name in ("raw_removed_fraction", "removed_fraction", "collar_max"):
-        assert ours[name] == pytest.approx(theirs[name], rel=bound), name
-    assert ours["steps"] == theirs["steps"]
+    _check_split(backend, route, march)
+
+
+def _require_device() -> None:
+    """Skip unless the installed native build runs on an accelerator."""
+    _require("native")
+    if device_backend("native") == "none":
+        pytest.skip("the installed solprop-native build has no accelerator backend")
+
+
+@pytest.mark.gpu
+@pytest.mark.parametrize("scheme", SCHEMES)
+@pytest.mark.parametrize("route", ROUTE_NAMES)
+def test_a_device_reads_the_reference_s_five_numbers(route: str, scheme: str) -> None:
+    # The reduction runs in the device's memory space; only the numbers cross.
+    _require_device()
+    _check_reading("native", route, scheme)
+
+
+@pytest.mark.gpu
+@pytest.mark.parametrize("march", sorted(MARCHES))
+@pytest.mark.parametrize("route", ROUTE_NAMES)
+def test_a_device_s_split_removal_is_the_reference_s(route: str, march: str) -> None:
+    _require_device()
+    _check_split("native", route, march)
