@@ -86,6 +86,14 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
   data and integration questions must be settled before acceptance; shared-level
   ladders, vector saturation and repeated-window histories remain future work.
+- [SEP 39 — A native Adams march: the Multistep step loop in the compiled backend](seps/sep-0039-native-adams-march.md):
+  the exponential `Multistep()` controller, order choice, landings, coefficient tables
+  and stage scalars executed natively under a policy record solprop hands over, with the
+  Python march as the reference, returning to the host only at planes, monitor checks
+  and statistics rows. It removes most of the 0.1–0.5 ms of Python per trial; the
+  native-side optimisations it lists need no SEP. Configurations it does not cover run
+  the Python march with a warning, and it changes no default. A device-resident
+  controller remains open.
 
 The informal items below record work not fully covered by these proposals. When adding
 or revising a SEP, remove an informal item only if the proposal covers it in full;
@@ -648,10 +656,14 @@ GPUs with slow double precision.
   umbrella fast-math, `nnan`/`ninf`, `nsz`, or approximate functions and reciprocals.
   Measured and not adopted: libmvec `exp` and `log` under Clang (about 3 %, still behind
   GCC) and Accelerate's vForce in the propagator (about 0.1 ms per window).
-- Value-safe options, not yet measured: `-fno-math-errno` and `-fno-trapping-math` change
-  no rounded result. Under GCC (the Linux builds) the first lets `sqrt` compile to one
-  instruction and vectorise; the second lets loops with conditional floating-point work
-  be if-converted. A few per cent at most, in the custom kernels only.
+- `-fno-math-errno` and `-fno-trapping-math`. Under GCC (the Linux builds) the first
+  lets `sqrt` compile to one instruction and vectorise; the second lets loops with
+  conditional floating-point work be if-converted. A few per cent at most, in the custom
+  kernels only. The first was measured on the exponential Adams march on an AMD EPYC 7763
+  under GCC 16.2: 1.9–2.7 % faster at one thread, and **not value-identical** — with the
+  same steps the final field moved by up to 1.9e-10 relative, within SEP 25's rules but
+  to be stated when adopted ([SEP 39](seps/sep-0039-native-adams-march.md) §6.9). The
+  second is not yet measured.
 - Subnormals: no build sets flush-to-zero. On x86-64 an operation on a subnormal can cost
   of the order of a hundred cycles (NVIDIA GPUs and Apple silicon take them at full
   speed), and spectral wings held down by an absorber or a per-step `exp(-rate dz)` could
@@ -990,6 +1002,13 @@ outside the hashed text; either keeps the record small.
 (`peak_intensity`, the fluence widths) synthesise the intensity at every node and time
 sample by a direct $O(n_r^2 n_t)$ sum rather than a matrix product. These are per-stage
 and per-plane times, not allocations.
+
+**The fixed host cost of a run.** A complete capillary run on the native backend spends
+90–190 ms outside its steps (122 ms on an AMD EPYC 7763) on metadata, provenance,
+output and plane observation, the same for either integrator: 0.12 s of a 0.7 s
+mode-averaged helium run once its steps are cheap
+([SEP 39](seps/sep-0039-native-adams-march.md) §6.9, which leaves it out of scope).
+Profile it and remove what is not needed per run.
 
 **A copy-free Adams sample.** The Adams sample on `numba_cpu` makes 16
 passes of which 4 are needed (identity fills, a stage clear, an unused accumulation, a
