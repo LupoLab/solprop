@@ -375,6 +375,55 @@ def test_a_run_stopped_at_the_edge_resumes_without_a_launch_check(
     assert {name: record[name] for name in check} == check
 
 
+@pytest.mark.parametrize(
+    "record", [None, {"removed_fraction": 0.5}], ids=["none", "no_launch_energy"]
+)
+def test_a_resume_with_nothing_to_continue_starts_the_record_again(
+    record: dict[str, float] | None,
+) -> None:
+    # No earlier monitor, or a record without its launch energy, leaves nothing to
+    # continue against: the record starts at the resumed state, which is not judged
+    # as a launch though half its energy sits in a guard.
+    grid, spectrum = _two_pulses(0.5, 0.95)
+    monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
+    monitor.resume(record, plane=True)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", BoundaryWarning)
+        monitor.launch(spectrum, 0.5)
+    summary = monitor.summary()
+    assert summary["resumed_at"] == [0.5]
+    assert summary["launch_guard_high"] is None
+    assert summary["removed_fraction"] == 0.0
+    planes = summary["planes"]
+    assert isinstance(planes, dict)
+    assert planes["z"] == [0.5]
+
+
+def test_a_running_record_restores_the_totals_without_rows() -> None:
+    # A record written at a plane carries no rows: the totals continue against the
+    # original launch, and the rows start again at the next plane.
+    grid, spectrum = _two_pulses(0.0, 0.95)
+    first = BoundaryMonitor.build(grid, None, BoundaryCheck())
+    first.launch(spectrum, 0.0)
+    running = {
+        name: value
+        for name, value in first.summary().items()
+        if name not in ("planes", "resumed_at")
+    }
+    running |= {"removed_fraction": 0.25, "steps": 7}
+    monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
+    monitor.resume(running, plane=False)
+    monitor.launch(spectrum, 0.5)
+    summary = monitor.summary()
+    assert summary["launch_energy"] == first.summary()["launch_energy"]
+    assert summary["removed_fraction"] == 0.25
+    assert summary["steps"] == 7
+    assert summary["resumed_at"] == [0.5]
+    planes = summary["planes"]
+    assert isinstance(planes, dict)
+    assert planes["z"] == []
+
+
 def test_only_the_quiet_collar_is_part_of_the_resume_key() -> None:
     simulation = walker(0.0)
     plain = simulation.metadata().configuration_hash()
@@ -399,10 +448,10 @@ def test_without_a_check_nothing_is_watched() -> None:
     assert "boundary_monitor" not in run.outcome.execution
 
 
-def _launch_with(share: float, at: float) -> BoundaryMonitor:
-    """Return a monitor that has launched a centred pulse beside a copy at `at`.
+def _two_pulses(share: float, at: float) -> tuple[EnvelopeGrid, np.ndarray]:
+    """Return a grid and a centred pulse beside a copy at `at`, as a spectrum.
 
-    The copy holds `share` of the launch energy; `at` is a fraction of ``t.max()``.
+    The copy holds `share` of the energy; `at` is a fraction of ``t.max()``.
     """
     grid = EnvelopeGrid.from_limits(LENGTH, 1e-6, (0.8e-6, 1.25e-6), TRANGE)
     t = grid.t
@@ -411,8 +460,14 @@ def _launch_with(share: float, at: float) -> BoundaryMonitor:
         return np.exp(-(((t - centre) / 10e-15) ** 2)).astype(complex)
 
     state = math.sqrt(1.0 - share) * pulse(0.0) + math.sqrt(share) * pulse(at * t.max())
+    return grid, np.fft.fft(state)[None, None, None, :]
+
+
+def _launch_with(share: float, at: float) -> BoundaryMonitor:
+    """Return a monitor that has launched :func:`_two_pulses`."""
+    grid, spectrum = _two_pulses(share, at)
     monitor = BoundaryMonitor.build(grid, None, BoundaryCheck())
-    monitor.launch(np.fft.fft(state)[None, None, None, :], 0.0)
+    monitor.launch(spectrum, 0.0)
     return monitor
 
 
