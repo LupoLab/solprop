@@ -187,7 +187,12 @@ def _check_reading(
     # Each row's sum is bounded by its largest weight times the energy: the rate's
     # row is energy per metre.
     scale = bound * theirs.total * largest
-    np.testing.assert_array_less(np.abs(ours.regions - theirs.regions), scale + (scale == 0.0))
+    weighted = largest > 0.0
+    np.testing.assert_array_less(
+        np.abs(ours.regions - theirs.regions)[weighted], scale[weighted]
+    )
+    # A row no weight reaches sums nothing.
+    assert np.all(ours.regions[~weighted] == 0.0)
     # Nothing was taken before the first step.
     assert ours.removed == theirs.removed == 0.0
 
