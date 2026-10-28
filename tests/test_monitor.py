@@ -171,6 +171,39 @@ def test_the_split_scheme_s_removal_is_read_exactly(
     assert record_of(run)["removed_fraction"] == pytest.approx(lost, rel=1e-3)
 
 
+def test_a_single_precision_split_reads_the_physical_removal() -> None:
+    # A single-precision state is held as a / s, s a power of two chosen from the
+    # launch (2**7 for ten kilowatts): the removal is of the physical state, not of
+    # the scaled one, which read 1/s**2 of it. The nonlinearity scales down with the
+    # power, so the walk is the watt's, inside binary32's range.
+    peak_power = 1e4
+    grid = EnvelopeGrid.from_limits(LENGTH, 1e-6, (0.8e-6, 1.25e-6), TRANGE)
+    omega0 = 2 * np.pi * C / 1e-6
+    offset = 0.65 * TRANGE / (BETA2 * LENGTH)
+    simulation = Simulation.from_gnlse(
+        1e-9 / peak_power, LENGTH, [0.0, 0.0, BETA2], lambda0=1e-6, grid=grid,
+        pulses=[GaussianPulse(
+            wavelength=2 * np.pi * C / (omega0 + offset), fwhm=200e-15,
+            peak_power=peak_power,
+        )],
+        noise=None, raman=False, shock=False, n_save=3, precision="single",
+        integrator=RungeKutta(), rtol=1e-5,
+        schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / 200),
+    )  # fmt: skip
+    simulation.settings = dataclasses.replace(
+        simulation.settings,
+        boundary_check=BoundaryCheck(budget=1.0, stop_factor=1.0),
+        absorber_scheme="split_step",
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        run = simulation.run(progress="none")
+    lost = _lost(run)
+    assert lost > 0.5
+    # Binary32's rounding over 200 steps, far inside the 1/s**2 the bug read.
+    assert record_of(run)["removed_fraction"] == pytest.approx(lost, rel=1e-4)
+
+
 @pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
 def test_a_deep_collar_reads_no_removal_from_residue(backend: str) -> None:
     # A capillary whose ten steps take the collar's deepest samples to alpha h of

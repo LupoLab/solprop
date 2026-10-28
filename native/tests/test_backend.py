@@ -217,7 +217,8 @@ def test_the_solprop_version_is_recorded_and_never_compared(
 
 
 @pytest.mark.parametrize(
-    "declared", [2, 18, 19, 20, 21, 22, 23, 24, 26, 27, 28, 29, 30, 31, 32, 34, 35, 36]
+    "declared",
+    [2, 18, 19, 20, 21, 22, 23, 24, 26, 27, 28, 29, 30, 31, 32, 34, 35, 36, 37],
 )
 def test_schema_mismatch_names_both_versions(
     phase_a_case: PhaseACase, declared: int
@@ -225,7 +226,7 @@ def test_schema_mismatch_names_both_versions(
     # The two independently qualified schema-18 branches are not the combined seam.
     problem, _ = phase_a_case
     spoiled = dataclasses.replace(problem, schema_version=declared)
-    with pytest.raises(BackendError, match=rf"version 37.*version {declared}"):
+    with pytest.raises(BackendError, match=rf"version 38.*version {declared}"):
         check_build(spoiled)
 
 
