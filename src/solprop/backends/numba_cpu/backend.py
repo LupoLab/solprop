@@ -93,6 +93,7 @@ from solprop.exceptions import BackendError, SolpropWarning
 from solprop.fourier import GridKind
 from solprop.grid import TimeGrid
 from solprop.modes.protocol import Mode
+from solprop.monitor import BoundaryEnergies, BoundaryMonitor
 from solprop.noise import NoiseRealisation
 from solprop.output.capability import (
     declared_capability,
@@ -135,6 +136,9 @@ logger = logging.getLogger(__name__)
 
 _STACKED_PROJECTION_MIN_NODES = 256
 _STACKED_PROJECTION_MAX_MODES = 4
+
+_NO_ROW_WEIGHTS = np.empty(0)
+"""The row weights of rows that carry no quadrature weight of their own: none."""
 
 
 class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]]):
@@ -411,6 +415,17 @@ class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             and (not self._free or problem.responses.absorber_scheme == "split_step"),
             in_stage_absorber=self._in_stage_absorber and not self._free,
             embedded=self._embedded is not None,
+        )
+        # The boundary monitor's reading (SEP 21), sized when one is first attached
+        # (`_bind_monitor`): its own coarse inverse only where no split-step pair
+        # above can lend one, its weights, and one chunk's partials.
+        self._monitor_plan: fft.MonitorPlan | None = None
+        self._monitor_weights = np.empty((0, 0))
+        self._monitor_rows = np.empty(0)
+        self._monitor_partials = np.empty(0)
+        self._monitor_kernels: tuple[Any, Any] = (
+            kernels.boundary_partials,
+            kernels.removal_partials,
         )
         self._transverse = (
             fft.build_transverse_plans(
@@ -1056,6 +1071,10 @@ class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         self._absorber_spectrum = np.empty((0, 0), dtype=np.complex128)
         self._quiet_absorber = None
         self._statistics_power_weight = np.empty(0)
+        self._monitor_plan = None
+        self._monitor_weights = np.empty((0, 0))
+        self._monitor_rows = np.empty(0)
+        self._monitor_partials = np.empty(0)
         self._closed = True
 
     def metadata(self) -> dict[str, object]:
@@ -1252,7 +1271,18 @@ class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             "stats_nodes": 0 if self._stats_nodes is None else self._stats_nodes.nbytes,
             # A low-storage march's state at its last field-free plane (SEP 22, Q14).
             "held_plane": 0 if self._held is None else self._held.nbytes,
+            # The boundary monitor's weights and one chunk's partials (SEP 21), and
+            # below its own coarse inverse where no split-step pair is borrowed.
+            "monitor_weights": self._monitor_weights.nbytes + self._monitor_rows.nbytes,
+            "monitor_partials": self._monitor_partials.nbytes,
         }
+        ledger.update(
+            dict.fromkeys(
+                ("monitor_spectrum", "monitor_time", "monitor_fft_plan_heap_growth"), 0
+            )
+            if self._monitor_plan is None
+            else self._monitor_plan.ledger()
+        )
         if self._transverse is not None:
             ledger["transverse_scratch"] = self._transverse.spectrum.nbytes
             ledger["transverse_fft_plan_heap_growth"] = (
@@ -2656,10 +2686,14 @@ class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
         """Apply the once-per-accepted-step boundary treatments to a kept step.
 
+        While a boundary monitor of the ``"split_step"`` scheme is attached, what the
+        split takes is added to its next reading (:meth:`_boundary_energies`), from
+        the time samples the split forms anyway.
+
         Parameters
         ----------
         state : numpy.ndarray
-            The state at the end of the step.
+            The state at the end of the step, updated in place.
         dz : float
             Length of the step, m.
 
@@ -2677,48 +2711,48 @@ class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             # Either there is no collar, or ADR-025's other scheme applied it inside
             # every stage, where it is already in the accepted state.
             return state
+        damping = np.exp(-0.5 * dz * rate)
+        # The share of the power the split takes, 1 - exp(-alpha h), formed without
+        # the cancellation 1 - damping**2 would suffer where the collar is weak.
+        taken = None if self._split_monitor is None else -np.expm1(-dz * rate)
         if self._slab:
-            self._finish_slab(flat, rate, dz)
+            self._finish_slab(flat, damping, taken)
             return state
         if self._free:
             physical = self._free_physical(state[0])
-            plans = self._plans
-            damping = np.exp(-0.5 * dz * rate)
-            for first in range(0, len(physical), self._chunk_nodes):
-                last = min(first + self._chunk_nodes, len(physical))
-                count = (last - first) * self._n_pol_state
-                plans.coarse_spectrum[:] = 0
-                np.multiply(
-                    physical[first:last].reshape(count, self._n_omega),
-                    1.0 / self._problem.grids.n_t,
-                    out=plans.coarse_spectrum[:count],
-                )
-                plans.absorber_to_time.execute()
-                np.multiply(plans.coarse_time, damping, out=plans.coarse_time)
-                plans.absorber_to_frequency.execute()
-                physical[first:last] = plans.coarse_spectrum[:count].reshape(
-                    last - first, self._n_pol_state, self._n_omega
-                )
+            # Merging the node and polarisation axes is a view in either transverse
+            # layout; `copy=False` refuses rather than splitting into a copy.
+            rows = np.reshape(physical, (self._n_columns, self._n_omega), copy=False)
+            # The transverse inverse is the DFT over the nodes divided by their
+            # number, so by Parseval the stored state's power is n_nodes times the
+            # physical rows' at every instant.
+            self._split_rows(
+                rows,
+                damping,
+                taken,
+                parseval=float(self._problem.transform.n_nodes),
+                row_weights=_NO_ROW_WEIGHTS,
+            )
             assert self._transverse is not None
             self._transverse.forward.execute()
-            kernels.apply_hard_mask(
-                physical.reshape(self._n_columns, self._n_omega),
-                self._problem.grids.active_mask,
-                flat,
-            )
+            kernels.apply_hard_mask(rows, self._problem.grids.active_mask, flat)
             return state
-        # The product in time spreads content across every bin, the DC among them, so
-        # the band is imposed again after it (the reference's ``_finish``).
-        absorbed = passes.apply_temporal_rate(state, rate, dz, kind=self._kind)
-        columns = absorbed.reshape(self._n_columns, self._n_omega)
-        kernels.apply_hard_mask(columns, self._problem.grids.active_mask, columns)
-        return absorbed
+        # A modal (or radial) column carries its own time signal, and the rate is the
+        # same for every column, so the coarse pair acts on the stored rows directly
+        # (the reference's ``apply_temporal_rate``), weighted by the columns' own
+        # quadrature for the monitor. The product in time spreads content across
+        # every bin, the DC among them, so the band is imposed again after it.
+        self._split_rows(
+            flat, damping, taken, parseval=1.0, row_weights=self._monitor_rows
+        )
+        kernels.apply_hard_mask(flat, self._problem.grids.active_mask, flat)
+        return state
 
     def _finish_slab(
         self,
         flat: Complex[np.ndarray, "n_columns n_omega"],
-        rate: Float[np.ndarray, " n_t"],
-        dz: float,
+        damping: Float[np.ndarray, " n_t"],
+        taken: Float[np.ndarray, " n_t"] | None,
     ) -> None:
         """Apply the split-step temporal absorber to a planar state, row by row.
 
@@ -2731,32 +2765,214 @@ class NumbaCpuBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         ----------
         flat : numpy.ndarray
             The masked state, ``(n_columns, n_omega)``, updated in place.
-        rate : numpy.ndarray
-            The collar's power rate on the coarse time grid, 1/m.
-        dz : float
-            Length of the accepted step, m.
+        damping : numpy.ndarray
+            ``exp(-alpha(t) h / 2)`` on the coarse time grid.
+        taken : numpy.ndarray or None
+            ``1 - exp(-alpha(t) h)`` while a monitor reads the split's removal, else
+            ``None``.
         """
-        slab, plans = self._slab_plans, self._plans
-        assert slab is not None and plans.coarse_spectrum is not None
-        np.multiply(flat, 1.0 / slab.spectrum.shape[1], out=slab.rows)
+        slab = self._slab_plans
+        assert slab is not None
+        n_y = slab.spectrum.shape[1]
+        np.multiply(flat, 1.0 / n_y, out=slab.rows)
         slab.inverse.execute()
-        damping = np.exp(-0.5 * dz * rate)
-        chunk = plans.coarse_spectrum.shape[0]
+        # The y inverse is the DFT over y divided by n_y, so by Parseval the stored
+        # state's power is n_y times the rows'.
+        self._split_rows(
+            slab.rows,
+            damping,
+            taken,
+            parseval=float(n_y),
+            row_weights=_NO_ROW_WEIGHTS,
+        )
+        slab.forward.execute()
+        kernels.apply_hard_mask(slab.rows, self._problem.grids.active_mask, flat)
+
+    def _split_rows(
+        self,
+        rows: Complex[np.ndarray, "n_rows n_omega"],
+        damping: Float[np.ndarray, " n_t"],
+        taken: Float[np.ndarray, " n_t"] | None,
+        *,
+        parseval: float,
+        row_weights: Float[np.ndarray, " n_weighted"],
+    ) -> None:
+        """Multiply rows by the split's factor in time, chunk by chunk, in place.
+
+        Each chunk goes to time through the coarse pair, is damped and comes back.
+        With ``taken``, what the split takes of each chunk is read from its time
+        samples before the damping (:func:`kernels.removal_partials`) and added to
+        :attr:`_split_removed`, in the stored state's units.
+
+        Parameters
+        ----------
+        rows : numpy.ndarray
+            The rows, ``(n_rows, n_omega)``, any strides, updated in place.
+        damping : numpy.ndarray
+            ``exp(-alpha(t) h / 2)`` on the coarse time grid.
+        taken : numpy.ndarray or None
+            ``1 - exp(-alpha(t) h)``, or ``None`` when no monitor reads the removal.
+        parseval : float
+            What takes the rows' power to the stored state's: one for the stored
+            rows, the transverse transform's length for physical ones.
+        row_weights : numpy.ndarray
+            The rows' quadrature weights, or empty for unit weights.
+        """
+        plans = self._plans
+        assert plans.coarse_spectrum is not None and plans.coarse_time is not None
+        spectrum, samples = plans.coarse_spectrum, plans.coarse_time
+        chunk, n_rows = spectrum.shape[0], rows.shape[0]
+        scale = 1.0 / self._problem.grids.n_t
+        _, removal = self._monitor_kernels
+        partials = self._monitor_partials
+        removed = 0.0
+        for first in range(0, n_rows, chunk):
+            last = min(first + chunk, n_rows)
+            count = last - first
+            if count < chunk:
+                # The rows past a short chunk are transformed but never read; they
+                # are kept finite.
+                spectrum[count:] = 0
+            np.multiply(rows[first:last], scale, out=spectrum[:count])
+            plans.absorber_to_time.execute()
+            if taken is not None:
+                removal(
+                    samples[:count],
+                    row_weights[first:last] if row_weights.size else row_weights,
+                    taken,
+                    partials,
+                )
+                removed += float(partials[:count].sum())
+            np.multiply(samples, damping, out=samples)
+            plans.absorber_to_frequency.execute()
+            rows[first:last] = spectrum[:count]
+        if taken is not None:
+            self._split_removed += parseval * removed
+
+    def _bind_monitor(self, monitor: BoundaryMonitor | None) -> None:
+        """Prepare to read a boundary monitor's energies, or stop reading them.
+
+        The reading runs through the split-step absorber's coarse inverse where the
+        run has one, else through the monitor's own, planned the first time a monitor
+        is attached and kept for the backend's life
+        (:func:`solprop.backends.numba_cpu.fft.build_monitor_plan`). The weights are
+        copied here, once per run.
+
+        Parameters
+        ----------
+        monitor : solprop.monitor.BoundaryMonitor or None
+            The run's monitor, or ``None`` to stop.
+
+        Raises
+        ------
+        BackendError
+            If the monitor's weights do not match the grid, or its columns the state.
+        """
+        super()._bind_monitor(monitor)
+        if monitor is None:
+            return
+        n_t = self._problem.grids.n_t
+        _, n_modes, _, _ = self._problem.shape
+        columns = monitor.columns
+        given = None if columns is None else columns.shape
+        if monitor.weights.shape != (4, n_t) or given not in {None, (n_modes,)}:
+            msg = (
+                f"{self.name}: the boundary monitor's weights {monitor.weights.shape} "
+                f"or columns {given} do not match the grid's {n_t} samples and the "
+                f"state's {n_modes} modes"
+            )
+            raise BackendError(msg)
+        if self._plans.coarse_spectrum is None and self._monitor_plan is None:
+            self._monitor_plan = fft.build_monitor_plan(
+                self._temporal_rows,
+                n_t,
+                complex_time=self._kind == "envelope",
+                flag=self._flag,
+                threads=self._pools.fftw,
+            )
+        chunk = self._monitor_transform()[0].shape[0]
+        if self._monitor_partials.size < kernels.BOUNDARY_SUMS * chunk:
+            self._monitor_partials = np.empty(kernels.BOUNDARY_SUMS * chunk)
+        # Copies the kernels may read as ordinary writable arrays, one row weight per
+        # stored (mode, polarisation) row.
+        self._monitor_weights = np.array(monitor.weights, dtype=np.float64, order="C")
+        self._monitor_rows = (
+            np.empty(0)
+            if columns is None
+            else np.repeat(np.asarray(columns, dtype=np.float64), self._n_pol_state)
+        )
+        self._monitor_kernels = kernels.boundary_kernels(self._pools.numba, chunk, n_t)
+
+    def _monitor_transform(self) -> tuple[Any, Any, Any]:
+        """Return the coarse inverse a reading takes, with its spectrum and samples.
+
+        Returns
+        -------
+        tuple
+            The coarse spectrum, the time samples and the plan between them: the
+            split-step absorber's where the run has it, else the monitor's own.
+        """
+        plans = self._plans
+        if plans.coarse_spectrum is not None:
+            return plans.coarse_spectrum, plans.coarse_time, plans.absorber_to_time
+        own = self._monitor_plan
+        assert own is not None
+        return own.spectrum, own.time, own.to_time
+
+    def _boundary_energies(
+        self, state: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
+    ) -> BoundaryEnergies:
+        """Return the boundary monitor's reading of a state, reduced in place.
+
+        The stored rows go to time chunk by chunk through the coarse inverse and are
+        reduced there by :func:`kernels.boundary_partials`: no field-sized
+        temporary. The split's removal since the previous reading is drained.
+
+        Parameters
+        ----------
+        state : numpy.ndarray
+            The state, canonical layout.
+
+        Returns
+        -------
+        solprop.monitor.BoundaryEnergies
+            The reading.
+
+        Raises
+        ------
+        BackendError
+            If no monitor is attached.
+        """
+        if self._monitor is None:
+            raise BackendError(f"{self.name}: no boundary monitor is attached")
+        spectrum, samples, to_time = self._monitor_transform()
+        rows = state.reshape(self._n_columns, self._n_omega)
+        chunk = spectrum.shape[0]
+        scale = 1.0 / self._problem.grids.n_t
+        reading, _ = self._monitor_kernels
+        weights, row_weights = self._monitor_weights, self._monitor_rows
+        partials = self._monitor_partials
+        sums = np.zeros(kernels.BOUNDARY_SUMS)
         for first in range(0, self._n_columns, chunk):
             last = min(first + chunk, self._n_columns)
             count = last - first
-            plans.coarse_spectrum[:] = 0
-            np.multiply(
-                slab.rows[first:last],
-                1.0 / self._problem.grids.n_t,
-                out=plans.coarse_spectrum[:count],
+            if count < chunk:
+                spectrum[count:] = 0
+            np.multiply(rows[first:last], scale, out=spectrum[:count])
+            to_time.execute()
+            reading(
+                samples[:count],
+                row_weights[first:last] if row_weights.size else row_weights,
+                weights,
+                partials,
             )
-            plans.absorber_to_time.execute()
-            np.multiply(plans.coarse_time, damping, out=plans.coarse_time)
-            plans.absorber_to_frequency.execute()
-            slab.rows[first:last] = plans.coarse_spectrum[:count]
-        slab.forward.execute()
-        kernels.apply_hard_mask(slab.rows, self._problem.grids.active_mask, flat)
+            sums += (
+                partials[: kernels.BOUNDARY_SUMS * count]
+                .reshape(count, kernels.BOUNDARY_SUMS)
+                .sum(axis=0)
+            )
+        removed, self._split_removed = self._split_removed, 0.0
+        return BoundaryEnergies(float(sums[0]), sums[1:], removed)
 
     # --- the tables the stage reads ---------------------------------------------
 
