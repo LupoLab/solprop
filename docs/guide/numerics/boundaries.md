@@ -84,12 +84,15 @@ transform and the absorber is a rate on the *field*, not a polarisation. Two sch
 represent it as a rate:
 
 - {py:func}`solprop.boundaries.nonlinear_absorber_term` — add `−α(t)E(t)/2` inside every
-  stage, with its own modal transform, masked to the active band. **This is the default.**
+  stage, with its own modal transform, masked to the active band. **This is the default on
+  the modal routes** (capillary, waveguide and GNLSE).
 - {py:func}`solprop.boundaries.apply_split_step` — multiply the modal time-domain field by
   `exp(−α(t)h/2)` once per accepted step, followed by the hard band limit, because the
   product in time spreads content into every bin (on a field grid, chiefly the DC). One
   batched transform pair per step; the factors telescope, so the total is a rate
-  whatever the step layout. Selectable as `absorber_scheme="split_step"`.
+  whatever the step layout. Selectable as `absorber_scheme="split_step"`, and **the default
+  on the spatial routes** (radial, free-space and planar) unless their planes are
+  interpolated ([below](#which-runs-carry-one-and-how-to-change-it)).
 
 **Why the term and not the factor.** The split factor is exact for the absorber alone, but
 applying it once per step is a *Lie splitting* of a term that does not commute with the
@@ -231,8 +234,9 @@ it cares about does not have that problem.
 
    fig, (ax_rate, ax_steps) = plt.subplots(1, 2, figsize=(9.5, 3.6))
 
-   # Only the trailing collar: it is 5 % of the window at each end, so the whole axis
-   # would show two vertical lines and nothing else.
+   # Only the trailing collar, which runs from the edge of the 400 fs request at 200 fs
+   # to the edge of the realised window near 256 fs: on the whole axis the flat request
+   # would take most of the width.
    twin = ax_rate.twinx()
    ax_rate.plot(grid.t * 1e15, grid.t_window, color="0.5", lw=1.2)
    ax_rate.set_ylabel("collar profile", color="0.5")
@@ -244,9 +248,9 @@ it cares about does not have that problem.
        )
    twin.set_ylabel("absorption rate (1/m)")
    twin.set_ylim(1e-2, 1e4)
-   twin.legend(frameon=False, loc="upper left", fontsize="small")
+   twin.legend(frameon=False, loc="center right", fontsize="small")
    ax_rate.set_xlabel("time (fs)")
-   ax_rate.set_xlim(178, 206)
+   ax_rate.set_xlim(190, 260)
 
    # A point part way down the taper, where the collar profile is 0.9. As a rate the
    # surviving field is exp(-alpha L / 2) whatever the step layout; as a per-step

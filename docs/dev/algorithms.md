@@ -77,10 +77,12 @@ not a converged answer.
 
 ## 2. The Runge–Kutta pairs
 
-This section is the tableau theory of `RungeKutta()`, the explicit march beside the
-default integrator. The default, `Multistep()`, is the low-call exponential Adams method:
-its formulation and history management are in the [solver guide](../guide/numerics/adams.md)
-and the [stepper design](stepper.md#low-call-adams-methods).
+This section is the tableau theory of `RungeKutta()`, the explicit march and the default
+integrator of `prop_gnlse`, `prop_waveguide` and `prop_free`. `Multistep()`, the default
+of `prop_capillary`, `prop_radial` and `prop_planar` (ADR-055), is the low-call
+exponential Adams method: its formulation and history management are in the
+[solver guide](../guide/numerics/adams.md) and the
+[stepper design](stepper.md#low-call-adams-methods).
 
 **What it is.** An explicit Runge–Kutta pair with an embedded companion: stage derivatives
 $k_i = f(z + c_i h,\, y + h\sum_j a_{ij}k_j)$, step $y_{n+1} = y_n + h\sum_i b_i k_i$, local
@@ -113,8 +115,9 @@ state, so its derivative serves as the first stage of the next step once **rebas
 whole step's propagator, $k_1^{n+1} = \exp(\Delta\Phi^n)k_7^n$, because the picture is
 re-anchored every step. That is one evaluation in seven. The identity holds only if nothing
 changes the state after the last stage: the hard band mask does not, and ADR-025's
-in-stage absorber does not, which is part of why it is the default. Which backends take
-the saving, and the measurements, are [stepper.md §2](stepper.md).
+in-stage absorber does not, which is part of why it is the modal routes' default. The
+per-step split factor, the radial, Cartesian and planar routes' default (SEP 21), does.
+Which backends take the saving, and the measurements, are [stepper.md §2](stepper.md).
 
 **Order and accuracy.** Order 5 on the solution and 4 on the companion, by construction: the
 17 rooted trees through order 5 are checked against $\sum_i b_i\Phi_i(t) = 1/\gamma(t)$ for
@@ -585,8 +588,8 @@ refining sixteen-fold erodes the spectral wings fifty-fold, and the limit is not
 but a brick wall at the edge of the flat region (ADR-007). As a rate it is exact,
 because traversing a distance attenuates by a factor that depends only on the distance.
 
-**Which temporal application, and its order.** The default (ADR-025) is the term
-$-\alpha(t)E(t)/2$ added inside every *stage*. The alternative, a factor
+**Which temporal application, and its order.** The modal routes' default (ADR-025) is
+the term $-\alpha(t)E(t)/2$ added inside every *stage*. The alternative, a factor
 $\exp(-\alpha(t)h/2)$ once per accepted step, is a **Lie splitting** of a term that does not
 commute with the linear flow: its splitting error is $O(h^2)$ local and $O(h)$ global, so it
 caps the whole scheme at **first** order wherever the collar does any work, and the energy
@@ -598,7 +601,10 @@ problem, so an explicit method needs $h\alpha/2$ inside its stability region, an
 {py:func}`solprop.boundaries.stable_step` returns $2R/\max\alpha$ with $R = {}$
 {py:data}`solprop.boundaries.STABILITY_RADIUS`. The split factor integrates the same term
 exactly and is unconditionally stable, which is the one thing it is better at; both stay
-implemented behind `absorber_scheme`, and the measured orders are in ADR-025.
+implemented behind `absorber_scheme`, and the measured orders are in ADR-025. On the
+radial, Cartesian and planar routes the split is the default unless planes are
+interpolated ([SEP 21](seps/archive/sep-0021-absorbing-boundaries.md)): there the
+in-stage term took 1.2 to 4.6 times the split's steps at equal or worse accuracy.
 
 **Cost.** The spectral rate is free. The in-stage term costs one extra modal transform per
 stage, on the fine grid because $\alpha(t)E(t)$ has more bandwidth than $E(t)$ — and, being

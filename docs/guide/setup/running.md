@@ -98,10 +98,13 @@ and is converted by {py:func}`~solprop.nonlinear.gnlse.attenuation_from_db`. (Pr
 on the gas-filled routes below, are in bar.)
 
 The step control is reached through `rtol`, `atol`, `dz_init` and `dz_max` on every
-entry point. `prop_gnlse` asks for `rtol=1e-8` and `atol=1e-14` (in √W) unless told
-otherwise; `prop_capillary` and `prop_waveguide` ask for the looser `1e-6` and `1e-10`,
-because each step of a modal run, with a transverse transform and a response pass over
-the quadrature nodes at every stage, costs far more. The first trial step is
+entry point. Unless told otherwise, `prop_gnlse` steps with `RungeKutta()` at `rtol=1e-7`
+and `atol=1e-14` (in √W), `prop_capillary` with `Multistep()` at `1e-6` and `1e-10`, and
+`prop_waveguide` with `RungeKutta()` at `1e-5` and `1e-10`. Each interface takes the
+integrator SEP 37 measured fastest at matched accuracy on its benchmark cases, except
+the capillary, which keeps the Adams method by the maintainer's decision, and the
+loosest tolerance that passed SEP 37's convergence test with it
+([the defaults](../numerics/choosing-a-stepper.md#the-defaults)). The first trial step is
 `length * 1e-4` and the longest allowed is half the fibre unless `dz_init` and `dz_max`
 say otherwise. These are starting points: the error a local tolerance buys at the output
 depends on the problem, so calibrate it ([the solver](../numerics/solver.md#achieved-versus-requested)).
@@ -283,8 +286,9 @@ basis costs. `CoherentWall(impedance="te_tm")` condenses the wall's two impedanc
 instead of their average, coupling the two radial families of one azimuthal order, on a
 straight bore or a taper alike. The block is the run's loss model, so `loss=` must stay
 `True`; it needs the contiguous set `modes=N` builds (or one azimuthal order, for the
-`te_tm` block), a scalar state and no noise model, and it is refused beside `lattice=`
-and `model="reduced"`, each by name. It runs on `numpy_ref`, `numba_cpu` and the native
+`te_tm` block) and a scalar state, and it is refused beside `lattice=` and
+`model="reduced"`, each by name. It carries the default input noise; the modified noise
+model is refused beside it. It runs on `numpy_ref`, `numba_cpu` and the native
 backend, CPU and GPU builds alike, with the default integration method;
 `CoherentWall(method="cf4")`, which integrates each section by commutator-free
 exponentials of its whole generator, runs on `numpy_ref` alone. See [the coherent wall](../waveguides/coherent-wall.md#the-coherent-wall),

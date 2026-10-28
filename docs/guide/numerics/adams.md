@@ -1,9 +1,11 @@
 # The Adams integrator
 
-`Multistep()`, the default integrator, reuses recent nonlinear source evaluations
-to advance the field. Away from startup and rejected trials, it usually needs one
-new source evaluation per accepted step. This can save time when a response is
-expensive, while requiring more state history in memory.
+`Multistep()` reuses recent nonlinear source evaluations to advance the field. Away
+from startup and rejected trials, it usually needs one new source evaluation per
+accepted step. This can save time when a response is expensive, while requiring more
+state history in memory. It is the default integrator of `prop_capillary`,
+`prop_radial` and `prop_planar` and their builders; `prop_gnlse`, `prop_waveguide` and
+`prop_free` default to `RungeKutta()` ([the defaults](choosing-a-stepper.md#the-defaults)).
 
 The default exponential formulation integrates an interpolating source polynomial
 against the represented linear flow. The alternative interaction formulation
@@ -487,9 +489,11 @@ constant-step stability intervals:
 | PEC5/6 | 0.087 | 0.077 |
 | PECE3/4 | 1.93 | 1.18 |
 
-The temporal absorbing collar ([absorbing boundaries](boundaries.md)) is, by default,
-a damping term inside every source evaluation. Its peak rate is a negative-real
-eigenvalue: on the canonical capillary $\alpha/2 = 30\ \mathrm{m^{-1}}$. That limits
+The temporal absorbing collar ([absorbing boundaries](boundaries.md)) is, by default on
+the capillary and the other modal routes, a damping term inside every source
+evaluation; the radial and planar routes apply it once per accepted step by default,
+unless planes are interpolated (below). Its peak rate is a negative-real eigenvalue:
+on the canonical capillary $\alpha/2 = 30\ \mathrm{m^{-1}}$. That limits
 PEC3/4 to steps of about $0.30/30 = 10$ mm, whatever the tolerance; the full run
 confirms the bound, step for step.
 
@@ -512,7 +516,7 @@ the collar holds field.
   quarter of its strength): there accuracy sets the step. So where the pulse stays clear
   of the collar, take the per-step collar with the exponential formulation; an implicit
   collar treatment would buy nothing beyond it (SEP 16 Q4).
-- **For such runs keep the default in-stage collar.** With it, the interaction
+- **For such runs keep the in-stage collar**, the modal routes' default. With it, the interaction
   formulation needed about 2.4 times fewer calls than IP-DOPRI5 on the RDW case at
   Luna's tolerance. [SEP 14](../../dev/seps/archive/sep-0014-stepper-efficiency.md)
   studied a second-order split and did not adopt it: with a Kerr source it is first

@@ -28,7 +28,7 @@ simulation = Simulation.from_gnlse(
     n_save=3,
 )
 problem = simulation.translate()
-problem.shape  # (1, 1, 1, 1024): batch, modes, polarisation, frequency
+problem.shape  # (1, 1, 1, 768): batch, modes, polarisation, frequency
 problem.flags  # single_mode=True, constant_linop=True, ...
 problem.linear.phi_representation  # 'constant': how the linear operator was stored
 ```

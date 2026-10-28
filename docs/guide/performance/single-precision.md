@@ -63,7 +63,13 @@ interfaces. Under single precision:
   default collar on 0.25 mm steps is one such case.
 - **The integrator.** The default is `RungeKutta()` (DOPRI5) and the low-storage march is
   admitted; the Adams integrator, `Multistep()`, is refused until its single-precision
-  accuracy is established.
+  accuracy is established. The binary64 default of `prop_capillary` and `prop_radial` is
+  `Multistep()` ([the defaults](../numerics/choosing-a-stepper.md#the-defaults)), so on
+  those interfaces a default run changes method as well as arithmetic when it changes
+  precision: to compare the two precisions, pass `integrator=RungeKutta()` to both, as
+  the survival record below does.
+- **Noise.** A default `noise` resolves to none, and the run records why; an explicit
+  noise model is refused (below).
 - **The backend.** `backend="auto"` resolves to `"mlx"` when MLX and a Metal GPU are
   present, and is refused otherwise; it never resolves to a binary64 backend, nor to the
   reference implementation, which is named explicitly, `backend="numpy_ref"`.
@@ -132,13 +138,14 @@ $10^{-38}$ and $3\times10^{38}$. solprop keeps both from limiting a run:
 
 ## The survival record
 
-Each case below was run in single precision at `rtol = 1e-6` and `1e-5` and compared, at
-the end of its window, with a binary64 run on the same grid at `rtol = 1e-10`, against
-accuracy envelopes fixed before any comparison: the field to $10^{-3}$, the spectral
-energy in each of 32 bands above −40 dB to 1 %, the total energy to $10^{-4}$, the peak
-power or intensity, the final ionised fraction and the beam width to $10^{-3}$, all
-relative. The table gives the largest of those relative errors at `rtol = 1e-6`, the
-field's error, and binary64's own field error at the same tolerance for comparison.
+Each case below was run with `RungeKutta()` in both precisions: in single precision at
+`rtol = 1e-6` and `1e-5`, compared at the end of its window with a binary64 run on the
+same grid at `rtol = 1e-10`, against accuracy envelopes fixed before any comparison: the
+field to $10^{-3}$, the spectral energy in each of 32 bands above −40 dB to 1 %, the
+total energy to $10^{-4}$, the peak power or intensity, the final ionised fraction and
+the beam width to $10^{-3}$, all relative. The table gives the largest of those relative
+errors at `rtol = 1e-6`, the field's error, and binary64's own field error at the same
+tolerance for comparison.
 
 | case | single: field error | largest other metric | binary64 at `1e-6`: field | verdict |
 |---|---|---|---|---|
@@ -155,10 +162,16 @@ field's error, and binary64's own field error at the same tolerance for comparis
 | Cartesian Kerr beam, 64 × 64 | 2.7e-6 | 2.0e-5 (bands) | 4.2e-6 | survives |
 
 At `rtol = 1e-5` every case but the comb-to-continuum stays inside its envelopes too.
-The table is the reference implementation's. On `mlx`, whose envelope-grid plasma is
-its own discretisation of the cycle moments, the envelope-grid blue shift over its full
-0.4 m has field error 4.8e-5 (largest other 5.3e-5, the ionised fraction) and the
-field-grid one 2.2e-4 (2.8e-4, bands): both survive.
+The table is the reference implementation's, and its survival limits are the
+reference's; `mlx`'s are unmeasured but for the two cases below. Its rows were measured
+on 24 and 25 October 2026, before the single-precision fixes of 27 October 2026 made the
+reference's transforms sum in binary32 (the comb-to-continuum case, re-measured on them,
+is below) and before the default grids and boundaries changed
+([SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md)); they have not been
+repeated since. On `mlx`, whose envelope-grid plasma is its own discretisation of the
+cycle moments, the envelope-grid blue shift over its full 0.4 m has field error 4.8e-5
+(largest other 5.3e-5, the ionised fraction) and the field-grid one 2.2e-4 (2.8e-4,
+bands): both survive.
 
 - **The comb-to-continuum limit.** Noise-free stimulated Raman scattering grows from
   whatever seed the Stokes band holds; rounding seeds it at the level of the unit
@@ -212,11 +225,16 @@ field-grid one 2.2e-4 (2.8e-4, bands): both survive.
   slower than `native` ([grid sizes on `mlx`](#grid-sizes-on-mlx)).
 - **`mlx` is experimental.** Its custom Metal kernels are tested on a Metal device by
   hand, not in continuous integration, whose macOS runners test the backend on MLX's
-  CPU device; its coverage is not measured there. Its comb-to-continuum limit is
-  unmeasured: the 0.05 m above is the reference implementation's, whose transforms are
-  more accurate than MLX's. Power-of-two grids by default under single precision, a
-  macOS `mlx` job in continuous integration and a re-timing on current grids come
-  before it is fully supported.
+  CPU device; its coverage is not measured there. Its survival limits are unmeasured
+  beyond the two plasma cases above: the comb-to-continuum's 0.05 m is the reference implementation's, whose binary32
+  transforms (SciPy's) are two to four times more accurate than MLX's GPU transform (on
+  an Apple M5 Max, against a binary64 transform: 2.0 to 2.6 times at 2¹⁴ to 2¹⁸
+  samples, 3.1 to 4.0 times at 12288 and 98304). A less accurate transform shortens the
+  limit: the binary32 FFTW transforms of the withdrawn
+  [SEP 36](../../dev/seps/archive/sep-0036-native-reduced-precision.md) kept the case
+  inside its envelopes to 0.025 m only. Power-of-two grids by default under single
+  precision, a macOS `mlx` job in continuous integration and a re-timing on current
+  grids come before it is fully supported.
 
 The [worked example](../../auto_examples/performance/plot_01_single_precision.rst) runs a
 capillary with the envelope-grid plasma and a radial filament in both precisions and

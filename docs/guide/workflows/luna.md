@@ -78,7 +78,7 @@ Four conventions change what the numbers mean:
 | the fill of a taper | the uniform-bore law | the steady flow follows the bore ($p^2$ linear in $\int a^{-4}\,dz$), with a flow-regime check |
 | `prop_gnlse(raman=False)` | still assigns $(1-f_R)$ of $\gamma$ to Kerr, so 82 % of the requested nonlinearity (an "$N = 6$" soliton is really $N = 5.43$) | all of $\gamma$ is Kerr; Luna's $(1-f_R)$ with `raman_fraction` given explicitly |
 | `prop_gnlse(raman=True)` fraction | $f_R = 0.18$ with the Hollenbeck–Cantrell shape | optmat's silica bundle: the same shape with $f_R = 0.2188$, paired with optmat's total $n_2$ fit |
-| step control | `rtol`, `atol`, the initial step and `dz_max` cannot be set through the interface | all are keywords; `prop_capillary` and `prop_waveguide` default to Luna's $10^{-6}$ and $10^{-10}$, `prop_gnlse` to $10^{-8}$ and $10^{-14}$ |
+| step control | `rtol`, `atol`, the initial step and `dz_max` cannot be set through the interface | all are keywords; `prop_capillary` defaults to Luna's $10^{-6}$ and $10^{-10}$ with `Multistep()`, `prop_waveguide` to $10^{-5}$ and $10^{-10}$ and `prop_gnlse` to $10^{-7}$ and $10^{-14}$, both with `RungeKutta()` ([the defaults](../numerics/choosing-a-stepper.md#the-defaults)) |
 | initial step | $10^{-4}$ m whatever the fibre | $10^{-4}$ of the length; `dz_max` half the length in both |
 | radial transverse quadrature | 64 nodes | $\max(32, 8 \times \text{modes})$ |
 | taper of the nonlinear polarisation in the spectral collar | always | off (`polarisation_taper=False`): the absorber acts on the field, and the taper costs a systematic error the size of the field in the collar |
@@ -245,9 +245,13 @@ error.
   stage (about 10⁻⁶ in $\beta_2$).
 - **One reference frequency** for the co-moving frame and the grid (Luna mixes the
   caller's $\lambda_0$ and the grid's $\omega_0$).
-- **Absorbing boundaries are rates** integrated inside every stage; Luna multiplies by
-  its window once per accepted step, so its absorption depends on `rtol` (refining the
-  step sixteen-fold erodes the spectral wings fifty-fold). The temporal collar always
+- **Absorbing boundaries are rates**, so the absorption over a distance does not depend
+  on how many steps cross it: the temporal rate is integrated inside every stage on the
+  modal routes, and applied as its exact factor once per accepted step on the radial,
+  Cartesian and planar routes unless planes are interpolated
+  ([absorbing boundaries](../numerics/boundaries.md)). Luna multiplies by its window once
+  per accepted step, so its absorption depends on `rtol` (refining the step sixteen-fold
+  erodes the spectral wings fifty-fold). The temporal collar always
   has a minimum width (Luna's degenerates to a single sample when the realised time
   window equals the requested one, as it does for a power-of-two `trange`).
 - **Out-of-band bins**: the nonlinear prefactor is exactly zero outside the active band

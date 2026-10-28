@@ -18,12 +18,14 @@ a problem that wants another one.
 
 ## The defaults
 
-Each interface has its own default integrator and tolerances, chosen by
+Each interface has its own default integrator and tolerances. All but one were chosen by
 [SEP 37](../../dev/seps/archive/sep-0037-noise-and-stepper-defaults.md)'s rule: the fastest
 method at matched accuracy on the benchmark suite's cases for that interface, with noise
-on and off, among the methods every route of the interface admits. A default never
-depends on the physics a run switches on; pass `integrator=`, `rtol=` or `atol=` to
-choose another.
+on and off, among the methods every route of the interface admits. The capillary is the
+exception: the rule prefers `RungeKutta()` there, and `prop_capillary` keeps
+`Multistep()` by the maintainer's decision ([ADR-055](../../dev/decisions.md); the reasons
+are below). A default integrator or tolerance never depends on the physics a run switches
+on; pass `integrator=`, `rtol=` or `atol=` to choose another.
 
 | Interface | Integrator | `rtol` | `atol` | Shot noise |
 |---|---|---|---|---|
@@ -101,6 +103,10 @@ Choose `integrator=RungeKutta()` when
   supercontinuum, where it is `prop_gnlse`'s default: the Adams method still takes
   fewer calls, but a call costs less than a Runge–Kutta step's own linear work, and
   with shot noise the Adams history resolves the seed's dynamics in many more steps;
+- **a capillary carries one mode, or a mode-averaged one, with plasma or Raman**: there
+  the Adams method needs about as many calls, and the Runge–Kutta march at
+  `rtol = 1e-5` was 2 to 6 times faster on the cases measured above, although
+  `prop_capillary` defaults to `Multistep()`;
 - **the state is too large for the Adams history** ([large problems](#large-problems-memory));
 - **an explicitly integrated damping term binds the step**: a strong in-stage collar the
   field reaches, or a replayed schedule whose steps are long against it — the Adams

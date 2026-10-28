@@ -76,7 +76,9 @@ prop_2d(run, "wavelength")
   replaces Kerr and plasma by a microscopic atomic current; its native backend is not
   yet publicly available.
 - **Accurate numerics**: two adaptive integrators, a low-call exponential Adams method
-  (the default) and an embedded Runge–Kutta pair, with the linear propagation
+  (the default of capillary, radial and planar runs) and an embedded Runge–Kutta pair
+  (the default of GNLSE, waveguide and Cartesian runs;
+  [the defaults](https://solprop.readthedocs.io/en/latest/guide/numerics/choosing-a-stepper.html#the-defaults)), with the linear propagation
   integrated exactly, absorbing boundaries as rates, and every backend tested against a
   reference implementation within derived error bounds.
 - **Workflows**: HDF5 output with resume, statistics along the fibre, parameter scans on
