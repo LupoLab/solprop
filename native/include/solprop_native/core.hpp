@@ -45,8 +45,10 @@ inline constexpr std::int64_t host_range2_tile = 64;
     ceil(columns / 2) tiles to share: one for a single column, two for four modes,
     whatever the thread count. A one-thread instance keeps Kokkos's default: it has
     nothing to share, and the small tiles cost the four-mode RDW about 1 % at one
-    thread on an AMD EPYC 7763. Device builds keep Kokkos's default too. Every kernel
-    over a `Range2` is elementwise, so its tiling changes no value. */
+    thread on an AMD EPYC 7763. Device builds keep Kokkos's default too. A kernel over
+    a `Range2` that is elementwise changes no value with the tiling; a reduction over
+    one (the boundary monitor's split removal) may add in another order, within its
+    rounding (solprop SEP 25). */
 template <typename LT, std::size_t LN, typename UT, std::size_t UN>
 [[nodiscard]] Range2Policy Range2(const ExecutionSpace& space, const LT (&lower)[LN],
                                   const UT (&upper)[UN]) {
