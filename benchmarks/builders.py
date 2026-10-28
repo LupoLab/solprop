@@ -397,7 +397,8 @@ def smoke() -> Simulation:
         [0.0, 0.0, -11.83e-27],
         lambda0=835e-9,
         wavelength_limits=(600e-9, 1200e-9),
-        trange=200e-15,
+        # Fifteen widths: a 200 fs window clipped the sech's tails at the launch.
+        trange=300e-15,
         width=20e-15,
         peak_power=10.0,
         pulseshape="sech",

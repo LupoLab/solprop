@@ -526,13 +526,13 @@ _EXERCISES = tuple(
             (2, 1, 576, 1152),
             "trapezoid plasma",
         ),
-        ("noise", "prop_gnlse", 1e-3, (1, 1, 768, 768), "modified-noise fibre"),
-        ("dense_output", "prop_gnlse", 1.0, (1, 1, 768, 768), "dense output"),
+        ("noise", "prop_gnlse", 1e-3, (1, 1, 1536, 1536), "modified-noise fibre"),
+        ("dense_output", "prop_gnlse", 1.0, (1, 1, 1024, 1024), "dense output"),
         (
             "absorber_schemes",
             "prop_gnlse",
             1e-3,
-            (1, 1, 768, 768),
+            (1, 1, 1536, 1536),
             "split-step absorber",
         ),
         (
@@ -562,7 +562,7 @@ CASES["smoke"] = Case(
     "prop_gnlse",
     "smoke",
     1e-4,
-    (1, 128, 128),
+    (1, 192, 192),
     "a short noiseless fibre for testing the runner; not a workload",
     planes=2,
 )
