@@ -57,7 +57,7 @@ The first public release. It contains:
   representation names the policy, so a march snapshot taken before it restarts its
   history.
 - **Time-window boundaries**
-  ([SEP 21](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0021-absorbing-boundaries.html),
+  ([SEP 21](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0021-absorbing-boundaries.html),
   phase 2, in progress). The temporal collar lies outside the requested window: grids
   widen to `trange / (1 - 2 collar_fraction)`, with `collar_fraction` now 0.1, so the
   whole request is flat; `collar_placement="inside"` rebuilds the former geometry.

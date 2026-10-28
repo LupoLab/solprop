@@ -130,7 +130,7 @@ its full-vector crystal E/H contract and interface solver.
 [SEP 9](../sep-0009-propagation-statistics.md) measures fields within a propagation
 route; this SEP supplies transported fields without taking on its additional
 measurement catalogue.
-[SEP 21](../sep-0021-absorbing-boundaries.md) owns wider production time windows and
+[SEP 21](sep-0021-absorbing-boundaries.md) owns wider production time windows and
 escaped-field models; remapping a saved plane cannot recover already absorbed light.
 [SEP 29](sep-0029-compiled-backend-distribution.md) has moved the compiled backend
 into this repository as `native`, distributed as `solprop-native`. Qualification

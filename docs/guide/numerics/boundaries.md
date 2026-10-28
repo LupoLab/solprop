@@ -298,7 +298,7 @@ DOPRI5 stable step fall from 26 µm to 3.1 µm. With two lengths the spectral ra
 and the collars do not.
 
 `collar_length` is whatever sets the temporal collar's strength — `boundary_N` or
-`boundary_length` today. [SEP 21](../../dev/seps/sep-0021-absorbing-boundaries.md), which
+`boundary_length` today. [SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md), which
 owns the temporal collar, may parameterise that strength by a protected walk-off; the
 spatial collar follows the same length until its findings say otherwise.
 
@@ -351,7 +351,7 @@ by the transform pair's rounding.
 
 A spectral-only collar is passed as `absorber=absorber(grid, temporal=False)`; a keyword
 that turns both soft collars off on the fibre entry points is
-[SEP 21](../../dev/seps/sep-0021-absorbing-boundaries.md)'s.
+[SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md)'s.
 
 ### A transverse collar
 
@@ -385,7 +385,7 @@ The spatial routes apply the temporal collar by the split scheme unless the sett
 a scheme or interpolate their planes, which the split refuses: on the spatial cases of the
 performance-tracking suite the in-stage collar took 1.2 to 4.6 times the steps of the
 split one, at equal or worse accuracy inside the requested window
-([SEP 21](../../dev/seps/sep-0021-absorbing-boundaries.md)). The split is unconditionally
+([SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md)). The split is unconditionally
 stable, so a fixed schedule on a spatial route keeps its collar.
 
 On a spatial grid an absorber given explicitly also switches on the real-space transverse

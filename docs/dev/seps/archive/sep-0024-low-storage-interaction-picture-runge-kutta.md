@@ -394,7 +394,7 @@ $2\sqrt2$. A replayed step must keep $h\alpha_\mathrm{max}/2\le2.785$, against 3
 DOPRI5 (`solprop.boundaries.STABILITY_RADIUS`) and 0.0877 for PEC5/6
 (`PEC_REAL_INTERVAL`). `KernelProblem._stability_radius` and
 `_check_spatial_collar_stability` take the new interval. With the default temporal
-collar's strength ($AN = 252$, [SEP 21](../sep-0021-absorbing-boundaries.md) §4.3) the
+collar's strength ($AN = 252$, [SEP 21](sep-0021-absorbing-boundaries.md) §4.3) the
 interval sets a floor of about 45 steps over a run, against 38 for DOPRI5. SEP 21's
 implicit collar, if built, is for the multistep march; this march refuses
 `absorber_scheme="implicit"` as the Runge–Kutta march does.

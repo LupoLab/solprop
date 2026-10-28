@@ -122,7 +122,7 @@ statistic without changing any normalisation.
 statistics-only save planes, which make these spectra the only record a long scan keeps,
 and a transverse-wavevector absorption rate, `SeparableOperator.kperp_rate`, whose power
 the second channel of `absorbed_power` reports.
-[SEP 21](../sep-0021-absorbing-boundaries.md) proposes cumulative `absorbed_energy`
+[SEP 21](sep-0021-absorbing-boundaries.md) proposes cumulative `absorbed_energy`
 statistics for the temporal and spectral collars (in J); `absorbed_power`'s spectral channel
 is the rate (in J/m) whose integral along $z$ is the spectral one of those. SEP 21
 accumulates its energies per accepted step by trapezoidal quadrature, so the two agree
