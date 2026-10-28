@@ -9,7 +9,7 @@ import warnings
 
 import numpy as np
 import pytest
-from benchmarks.builders import build, capillary, gnlse
+from benchmarks.builders import build, capillary, gnlse, spatial_grids
 from benchmarks.records import SuiteError
 from benchmarks.registry import CASES, SEED, STEPPERS, select
 
@@ -130,30 +130,34 @@ def test_the_raman_shock_case_launches_the_published_pulse():
     assert launch.peak_power == pytest.approx(10e3, rel=1e-15)
 
 
-# Cases whose construction takes several seconds (mode solving, large transverse grids).
-SLOW_BUILDS = ("grin_nonlinear", "kerr_beam_384", "kerr_beam_768", "moving_solid_guide")
+# Building a Cartesian case allocates its whole launch (12 and 35 GB at the peak for
+# the 384- and 768-square Kerr beams), so free-space sizes are read from the builders'
+# grids; the two solved-mode guides solve their modes (5 and 8 GB) and are left out.
+SOLVED_GUIDES = ("grin_nonlinear", "moving_solid_guide")
 
 
-@pytest.mark.parametrize(
-    "name",
-    [
-        pytest.param(name, marks=pytest.mark.slow) if name in SLOW_BUILDS else name
-        for name in CASES
-    ],
-)
+@pytest.mark.parametrize("name", [name for name in CASES if name not in SOLVED_GUIDES])
 def test_declared_dimensions_follow_the_builders(name):
     case = CASES[name]
-    # Some builders keep their sources' model warnings (an ultraviolet extrapolation,
-    # a guide shorter than the absorber's walk-off); only the sizes are read here.
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", SolpropWarning)
-        simulation = build(configuration(name))
-    assert case.dimensions[-2:] == (simulation.grid.n_t, simulation.grid.n_to)
-    leading = case.dimensions[:-2]
-    if simulation.spatial_grid is not None:
-        assert math.prod(leading) == simulation.spatial_grid.n_columns
+    if case.builder in ("kerr", "spatial") and name != "planar":
+        grid, space = spatial_grids(name)
+        columns, modes = space.n_columns, None
     else:
-        assert leading[0] == len(simulation.modes)
+        # Some builders keep their sources' model warnings (an ultraviolet
+        # extrapolation, a guide shorter than the absorber's walk-off); only the sizes
+        # are read here.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SolpropWarning)
+            simulation = build(configuration(name))
+        grid, modes = simulation.grid, len(simulation.modes)
+        transverse = simulation.spatial_grid
+        columns = None if transverse is None else transverse.n_columns
+    assert case.dimensions[-2:] == (grid.n_t, grid.n_to)
+    leading = case.dimensions[:-2]
+    if columns is not None:
+        assert math.prod(leading) == columns
+    else:
+        assert leading[0] == modes
 
 
 def test_the_envelope_case_differs_from_its_field_twin_only_in_the_grid():

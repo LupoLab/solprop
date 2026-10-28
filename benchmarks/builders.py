@@ -18,10 +18,19 @@ from typing import TYPE_CHECKING, Any
 from benchmarks.records import Record, SuiteError
 from benchmarks.registry import CASES, SEED
 
-__all__ = ["build", "capillary", "gnlse", "integrator", "kerr", "spatial"]
+__all__ = [
+    "build",
+    "capillary",
+    "gnlse",
+    "integrator",
+    "kerr",
+    "spatial",
+    "spatial_grids",
+]
 
 if TYPE_CHECKING:
     from solprop.driver import Simulation, SimulationSettings
+    from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
     from solprop.stepper import Multistep, RungeKutta
 
 
@@ -213,6 +222,58 @@ def gnlse(name: str) -> Simulation:
     raise SuiteError(f"GNLSE builder not implemented for {name}")
 
 
+def spatial_grids(
+    name: str,
+) -> tuple[EnvelopeGrid | FieldGrid, FreeGrid | LineGrid | RadialGrid]:
+    """Return a free-space case's time and transverse grids, without its launch.
+
+    Building a Cartesian case allocates its whole launch (35 GB at the peak for the
+    768-square Kerr beam), so its declared sizes are checked from these grids alone.
+    The planar slab has its own builder.
+    """
+    from solprop.grid import (  # noqa: PLC0415
+        EnvelopeGrid,
+        FieldGrid,
+        FreeGrid,
+        LineGrid,
+        RadialGrid,
+    )
+
+    case = CASES[name]
+    size = case.dimensions[0]
+    if case.builder == "kerr":
+        half_width, window = {
+            192: (91.5e-6, 130e-15),
+            384: (183e-6, 250e-15),
+            768: (366e-6, 250e-15),
+        }[size]
+        grid = EnvelopeGrid.from_limits(
+            case.length,
+            260e-9,
+            (143e-9, 600e-9),
+            window,
+            thg=False,
+            fft_size="smooth",
+        )
+        return grid, FreeGrid(
+            half_width * 1.1, size, half_width * 1.1, size, window_factor=0.0
+        )
+    plasma = "filament" in name
+    field = FieldGrid.from_limits(
+        case.length,
+        800e-9,
+        (350e-9, 2e-6) if plasma else (500e-9, 1.6e-6),
+        250e-15,
+    )
+    if name.startswith("radial") or name == "spatial_absorber":
+        return field, RadialGrid(3e-4 if name == "spatial_absorber" else 1e-3, size)
+    if name == "line":
+        return field, LineGrid(1e-3, size)
+    if name.startswith("cartesian_filament"):
+        return field, FreeGrid(6e-4, size, 6e-4, size)
+    raise SuiteError(f"spatial builder not implemented for {name}")
+
+
 def kerr(name: str, settings: SimulationSettings) -> Simulation:
     """Build SEP 28's full Cartesian envelope beam and material.
 
@@ -222,27 +283,14 @@ def kerr(name: str, settings: SimulationSettings) -> Simulation:
     """
     from solprop.constants import EPS0, MU0, C  # noqa: PLC0415
     from solprop.driver import Simulation  # noqa: PLC0415
-    from solprop.grid import EnvelopeGrid, FreeGrid  # noqa: PLC0415
+    from solprop.grid import FreeGrid  # noqa: PLC0415
     from solprop.nonlinear.responses import KerrResponse  # noqa: PLC0415
     from solprop.physdata.glasses import SellmeierGlass  # noqa: PLC0415
     from solprop.pulses import GaussianPulse, SpatialPulse  # noqa: PLC0415
     from solprop.spatial import SpatialMedium  # noqa: PLC0415
 
-    size = CASES[name].dimensions[0]
-    half_width, window = {
-        192: (91.5e-6, 130e-15),
-        384: (183e-6, 250e-15),
-        768: (366e-6, 250e-15),
-    }[size]
-    grid = EnvelopeGrid.from_limits(
-        CASES[name].length,
-        260e-9,
-        (143e-9, 600e-9),
-        window,
-        thg=False,
-        fft_size="smooth",
-    )
-    space = FreeGrid(half_width * 1.1, size, half_width * 1.1, size, window_factor=0.0)
+    grid, space = spatial_grids(name)
+    assert isinstance(space, FreeGrid)
     glass = SellmeierGlass(
         name="malitson",
         source="Malitson 1965",
@@ -271,7 +319,7 @@ def spatial(name: str, settings: SimulationSettings) -> Simulation:
 
     from solprop.constants import C  # noqa: PLC0415
     from solprop.driver import Simulation  # noqa: PLC0415
-    from solprop.grid import FieldGrid, FreeGrid, LineGrid, RadialGrid  # noqa: PLC0415
+    from solprop.grid import RadialGrid  # noqa: PLC0415
     from solprop.nonlinear.optmat_rates import OptmatRate  # noqa: PLC0415
     from solprop.nonlinear.responses import (  # noqa: PLC0415
         KerrResponse,
@@ -281,16 +329,10 @@ def spatial(name: str, settings: SimulationSettings) -> Simulation:
     from solprop.pulses import GaussianPulse, SpatialPulse  # noqa: PLC0415
     from solprop.spatial import SpatialMedium, critical_power  # noqa: PLC0415
 
-    case = CASES[name]
     if name == "planar":
         return _planar(settings)
+    grid, space = spatial_grids(name)
     plasma = "filament" in name
-    grid = FieldGrid.from_limits(
-        case.length,
-        800e-9,
-        (350e-9, 2e-6) if plasma else (500e-9, 1.6e-6),
-        250e-15,
-    )
     medium = SpatialMedium("Ar", 1.0)
     chi3 = gamma3("Ar", wavelength=800e-9)
     density = float(medium.density(np.array([0.0]))[0])
@@ -308,27 +350,13 @@ def spatial(name: str, settings: SimulationSettings) -> Simulation:
         responses.append(PlasmaResponse("Ar", OptmatRate("Ar", 800e-9)))
     if plasma:
         settings = dataclasses.replace(settings, ionisation_field_range=(1e7, 1e11))
-    if name.startswith("radial") or name == "spatial_absorber":
+    if isinstance(space, RadialGrid):
         return Simulation.from_radial(
-            grid,
-            RadialGrid(
-                3e-4 if name == "spatial_absorber" else 1e-3, case.dimensions[0]
-            ),
-            medium,
-            responses,
-            pulse,
-            settings=settings,
-            seed=SEED,
+            grid, space, medium, responses, pulse, settings=settings, seed=SEED
         )
-    if name == "line" or name.startswith("cartesian_filament"):
-        size = case.dimensions[0]
-        space = (
-            LineGrid(1e-3, size) if name == "line" else FreeGrid(6e-4, size, 6e-4, size)
-        )
-        return Simulation.from_free(
-            grid, space, medium, responses, pulse, settings=settings
-        )
-    raise SuiteError(f"spatial builder not implemented for {name}")
+    return Simulation.from_free(
+        grid, space, medium, responses, pulse, settings=settings
+    )
 
 
 def _planar(settings: SimulationSettings) -> Simulation:
