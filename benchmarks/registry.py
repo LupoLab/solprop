@@ -76,9 +76,11 @@ class Case:
         A fixed step in metres; the case then runs its declared fixed schedule and
         admits no stepper override.
     cost : tuple of float or None
-        Seconds per complete run at 1 and 16 threads on 16 cores of an AMD EPYC 7763
-        node, from SEP 38's calibration run, for the plan's estimate; ``None`` if
-        unknown.
+        Seconds per complete run at 1 and 16 threads, for the plan's estimate;
+        ``None`` if unknown. Measured for the release on a 16-core Google Cloud
+        c2d-highcpu-32 (AMD EPYC 7B13, one thread per core) by the tracking run, with
+        the boundary monitor attached; `ctc`'s one-thread value is from a run without
+        the monitor, which costs it nothing measurable.
     """
 
     name: str
@@ -159,7 +161,7 @@ _TRACKED = (
         (1, 16384, 16384),
         "Dudley, Genty and Coen, Rev. Mod. Phys. 78, 1135 (2006), section III: "
         "50 fs FWHM",
-        cost=(84.5, 47.2),
+        cost=(49.9, 69.0),
     ),
     Case(
         "gnlse_soliton",
@@ -170,7 +172,7 @@ _TRACKED = (
         1.3278075458959397,
         (1, 3072, 3072),
         "docs/introduction/tutorials/plot_02_soliton.py; one soliton period, noiseless",
-        cost=(12.6, 8.5),
+        cost=(0.79, 0.80),
     ),
     Case(
         "rdw",
@@ -181,7 +183,7 @@ _TRACKED = (
         1.5,
         (4, 5120, 10240),
         "He resonant dispersive wave, four resolved modes",
-        cost=(19.2, 12.6),
+        cost=(18.1, 15.2),
     ),
     Case(
         "he_rdw_averaged",
@@ -192,7 +194,7 @@ _TRACKED = (
         1.5,
         (1, 5120, 10240),
         "rdw on the mode-averaged route",
-        cost=(2.7, 2.7),
+        cost=(2.49, 2.52),
     ),
     # 0.2 m and 160 nm-4 um, as SEP 37 phase 0 measured it, rather than the worked
     # example's 0.4 m and 300 nm edge.
@@ -205,7 +207,7 @@ _TRACKED = (
         0.2,
         (1, 3200, 6400),
         "docs/examples/processes/plot_06_ionisation_blue_shift.py, shortened",
-        cost=(65.8, 35.5),
+        cost=(44.8, 24.6),
     ),
     Case(
         "argon_blueshift_averaged",
@@ -216,7 +218,7 @@ _TRACKED = (
         0.2,
         (1, 3200, 6400),
         "argon_blueshift on the mode-averaged route",
-        cost=(15.2, 15.1),
+        cost=(10.5, 10.5),
     ),
     Case(
         "argon_blueshift_envelope",
@@ -227,7 +229,7 @@ _TRACKED = (
         0.2,
         (1, 1728, 1728),
         "argon_blueshift on the envelope grid",
-        cost=(3.3, 3.4),
+        cost=(2.38, 2.62),
     ),
     Case(
         "h2_raman_averaged",
@@ -238,7 +240,7 @@ _TRACKED = (
         0.4,
         (1, 4608, 9216),
         "docs/examples/processes/plot_05_raman_self_frequency_shift.py, 10 bar",
-        cost=(16.2, 16.2),
+        cost=(14.0, 15.2),
     ),
     # Three modes, 0.13 m, 2 ps and 220 nm-4 um: the definition SEP 37 phase 0
     # measured, shorter than the 0.3 m comb-to-continuum test case.
@@ -252,7 +254,7 @@ _TRACKED = (
         (3, 10240, 20480),
         "H2 comb-to-continuum, three modes",
         widths=("production",),
-        cost=(605.0, 291.5),
+        cost=(520.0, 226.3),
     ),
     Case(
         "radial_filament_256",
@@ -264,7 +266,7 @@ _TRACKED = (
         (256, 864, 1728),
         "Ar filament with plasma, 256 radial nodes",
         planes=4,
-        cost=(16.4, 6.1),
+        cost=(8.05, 9.07),
     ),
     # A 2 cm guide, the window SEP 37 phase 0 measured, rather than the example's 0.1 m.
     Case(
@@ -278,7 +280,7 @@ _TRACKED = (
         "docs/examples/waveguides/plot_04_graded_index_multimode.py, 2 cm",
         widths=("production",),
         planes=5,
-        cost=(102.0, 37.8),
+        cost=(None, 25.7),
     ),
     # Four 0.5 um steps: a fixed-step run costs the same per step, so four track the
     # work of a longer schedule.
@@ -295,7 +297,7 @@ _TRACKED = (
         planes=1,
         fields="planes",
         step=0.5e-6,
-        cost=(None, 48.6),
+        cost=(None, 29.4),
     ),
     Case(
         "kerr_beam_192",
@@ -310,7 +312,7 @@ _TRACKED = (
         planes=1,
         fields="planes",
         step=0.5e-6,
-        cost=(13.3, None),
+        cost=(15.3, None),
     ),
 )
 

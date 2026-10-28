@@ -21,8 +21,9 @@ workstation, or an exclusive allocation on a cluster node.
 ## The tracking set
 
 `python -m benchmarks list` prints the plan: one line per case, stepper and width, and
-the estimated time from the costs each case declares (complete runs on an AMD EPYC 7763
-node; other machines differ). With no selection it is the tracking set:
+the estimated time from the costs each case declares (complete runs on 16 cores of an
+AMD EPYC 7B13, about 33 minutes for the tracking set; other machines differ). With no
+selection it is the tracking set:
 
 | Case | Interface | Problem | Widths |
 |---|---|---|---|
