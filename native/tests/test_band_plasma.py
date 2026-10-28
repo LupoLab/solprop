@@ -50,6 +50,7 @@ from solprop.translate.ionisation import build_rate_table
 from solprop.translate.plasma_integration import design_running_integral
 from solprop.translate.problem import KernelProblem, assemble
 
+from legacy_geometry import LEGACY_GRID
 from bounds import fft_bound
 from conftest import PhaseACase
 from plasma_bounds import assert_regression_guard, plasma_stage_bound, rate_roundoff
@@ -193,7 +194,9 @@ def modal(
 
 def spatial(kind: str, steps: int = STEPS) -> tuple[FieldGrid, KernelProblem]:
     """Return argon on a radial or Cartesian route, two components, the band rule."""
-    grid = FieldGrid.from_limits(LENGTH, 800e-9, (600e-9, 1.2e-6), 200e-15)
+    grid = FieldGrid.from_limits(
+        LENGTH, 800e-9, (600e-9, 1.2e-6), 200e-15, **LEGACY_GRID
+    )
     space = (
         RadialGrid(6e-4, 16, window_factor=0.0)
         if kind == "radial"
@@ -339,7 +342,9 @@ def test_overlapping_stencil_windows_refuse_uncertified_collar(
     trange: float, ffac: float, half: int
 ) -> None:
     """Refuse short historical stencil fixtures under the held-source contract."""
-    grid = FieldGrid.from_limits(LENGTH, 800e-9, (600e-9, 1.2e-6), trange, ffac=ffac)
+    grid = FieldGrid.from_limits(
+        LENGTH, 800e-9, (600e-9, 1.2e-6), trange, ffac=ffac, **LEGACY_GRID
+    )
     space = RadialGrid(6e-4, 16, window_factor=0.0)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=2e-15, energy=1e-8),

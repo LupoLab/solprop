@@ -50,6 +50,7 @@ from solprop.translate.plasma_integration import design_running_integral
 from solprop.translate.problem import KernelProblem, assemble
 
 from solprop_native import NativeBackend
+from legacy_geometry import LEGACY_GRID
 from bounds import UNIT_ROUNDOFF
 from plasma_bounds import (
     assert_regression_guard,
@@ -126,8 +127,9 @@ def capillary(
             ionisation_field_range=(1e3, 1e11),
             preionisation=1e-2 if kind == "preionised_quiet" else None,
             lambda0=800e-9,
-            wavelength_limits=(200e-9, 2e-6),
-            trange=TRANGE,
+            grid=FieldGrid.from_limits(
+                LENGTH, 800e-9, (200e-9, 2e-6), TRANGE, **LEGACY_GRID
+            ),
             pulses=[pulse],
             n_r=8,
             n_save=2,
@@ -153,7 +155,11 @@ def vector(steps: int) -> tuple[FieldGrid, KernelProblem]:
     # Resolve the analytic collar derivative without moving the pulse or the
     # window: the leading-edge pulse still occupies the taper.
     grid = FieldGrid.from_limits(
-        length, 800e-9, (600e-9, 1.2e-6), 150e-15, collar_fraction=0.2
+        length,
+        800e-9,
+        (600e-9, 1.2e-6),
+        150e-15,
+        **{**LEGACY_GRID, "collar_fraction": 0.2},
     )
     space = RadialGrid(6e-4, 16, window_factor=0.0)
     pulse = SpatialPulse(

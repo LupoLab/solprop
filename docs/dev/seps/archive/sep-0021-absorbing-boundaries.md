@@ -2559,7 +2559,7 @@ quoted; on one machine, warm, the default costs what no collar does (D15). The s
 study (D14) and the GNLSE measurements (D15) give the
 accuracy evidence: the split scheme is as accurate as the in-stage collar or better
 on every spatial case, and the quiet collar leaves a clear run's field unchanged to
-1e-9 on every backend.
+within 3e-9 on every backend, far below the threshold's amplitude of 1e-6.
 
 **Not built (Part I's phases).** Phases 1 and 4, the implicit collar (D4); phases 0b
 and 3, the escaped field and its qualification (D17, the roadmap's "The escaped field").

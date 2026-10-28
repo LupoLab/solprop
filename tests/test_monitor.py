@@ -26,7 +26,7 @@ from solprop.constants import C
 from solprop.driver import Simulation
 from solprop.exceptions import BoundaryError, BoundaryWarning
 from solprop.grid import EnvelopeGrid
-from solprop.monitor import CADENCE, CHECKS, BoundaryCheck, BoundaryMonitor
+from solprop.monitor import CADENCE, CHECKS, QUIET, BoundaryCheck, BoundaryMonitor
 from solprop.output.schema import Output, PlaneStore
 from solprop.pulses import GaussianPulse
 
@@ -284,8 +284,10 @@ def _exit(run: Output) -> np.ndarray:
 @pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
 def test_a_quiet_collar_is_left_out_without_changing_the_run(backend: str) -> None:
     # A pulse clear of the edges: the monitor finds the collar quiet, the stages leave
-    # its term out, and the field is the always-on collar's to far below the
-    # threshold's amplitude.
+    # its term out, and the field is the always-on collar's to the threshold's
+    # amplitude: the omitted term acts on a collar holding less than QUIET of the
+    # energy, so it moves the field by less than sqrt(QUIET) of its norm. The two
+    # adaptive runs otherwise differ by rounding and step selection, about 3e-9.
     if backend not in available():
         pytest.skip(f"{backend} is not installed")
     with warnings.catch_warnings():
@@ -295,7 +297,7 @@ def test_a_quiet_collar_is_left_out_without_changing_the_run(backend: str) -> No
             progress="none"
         )
     a, b = _exit(watched), _exit(always)
-    assert np.linalg.norm(a - b) <= 1e-9 * np.linalg.norm(b)
+    assert np.linalg.norm(a - b) <= np.sqrt(QUIET) * np.linalg.norm(b)
     record = record_of(watched)
     # Every committed step is either checked or counted as skipped (the planes'
     # checks add to the checked ones).

@@ -27,6 +27,8 @@ from solprop.pulses import SechPulse
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.problem import assemble
 
+from legacy_geometry import LEGACY_GRID
+
 BETA2 = -11.83e-27
 GAMMA = 0.11
 TAU0 = 100e-15
@@ -34,7 +36,9 @@ WAVELENGTH = 835e-9
 LENGTH = 1e-3
 STEPS = 10
 
-grid = EnvelopeGrid.from_limits(LENGTH, WAVELENGTH, (500e-9, 2e-6), 16e-12)
+grid = EnvelopeGrid.from_limits(
+    LENGTH, WAVELENGTH, (500e-9, 2e-6), 16e-12, **LEGACY_GRID
+)
 model = problem_from([0.0, 0.0, BETA2], omega_ref=grid.omega0, gamma=GAMMA, shock=False)
 peak = 9 * abs(BETA2) / (GAMMA * TAU0**2)
 initial = SechPulse(wavelength=WAVELENGTH, width=TAU0, peak_power=peak).build(grid)

@@ -17,6 +17,7 @@ from typing import cast
 import numpy as np
 import numpy.typing as npt
 import pytest
+from legacy_geometry import LEGACY_GRID
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.exceptions import MaterialRangeWarning
 from solprop.grid import EnvelopeGrid, FreeGrid, RadialGrid
@@ -132,7 +133,9 @@ def test_envelope_fields_and_all_populations_agree_across_cpu_threads(
 
 
 def test_envelope_current_streams_use_large_radial_projection() -> None:
-    grid = EnvelopeGrid.from_limits(8e-6, 800e-9, (600e-9, 1.2e-6), 300e-15)
+    grid = EnvelopeGrid.from_limits(
+        8e-6, 800e-9, (600e-9, 1.2e-6), 300e-15, **LEGACY_GRID
+    )
     space = RadialGrid(1e-3, 256)
     initial = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-3), 1e-4
@@ -202,7 +205,9 @@ def envelope_case(
             for index, one in enumerate(fill.components)
         ),
     )
-    grid = EnvelopeGrid.from_limits(8e-6, 800e-9, (500e-9, 1.2e-6), 48e-15)
+    grid = EnvelopeGrid.from_limits(
+        8e-6, 800e-9, (500e-9, 1.2e-6), 48e-15, **LEGACY_GRID
+    )
     pulse = GaussianPulse(wavelength=800e-9, fwhm=12e-15, energy=1e-6)
     responses = responses_for(
         fill,
