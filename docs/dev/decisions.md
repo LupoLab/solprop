@@ -1513,3 +1513,73 @@ Withdrawn (development-process record, not a design decision).
 - **Consequences:** a released version cannot read a development output file; keep an
   older install for those. The resume-compatibility policy for 1.0 stays on the roadmap
   (*Release preparation*).
+
+## ADR-059 — Host vector maths on SLEEF for the native CPU kernels on x86-64
+
+- **Status:** proposed with the change that makes it; the maintainers asked for SLEEF to
+  be evaluated and adopted if it paid (2026-10-28)
+- **Context:** a profile of the native exponential Adams trial found glibc's scalar
+  `exp`, `cos` and `sin` about two thirds of its predict pass on a pressure-gradient
+  helium case on an AMD EPYC 7763. A survey of the native CPU backend with Valgrind's
+  callgrind (instruction counts, one thread, the same machine) put the library's share
+  at 36 to 47 % of the Runge–Kutta stage entry, 60 to 74 % of the Adams phi-functions
+  and compensation, 3 to 12 % of the band-rule plasma column and up to 69 % of the
+  low-storage flow table; the stage entry alone is 12 to 36 % of a Runge–Kutta run on the
+  single-mode capillaries. A microbenchmark of the complex exponential
+  `e^a (cos b, sin b)` over 111,928 arguments taken from the tracking cases, against an
+  80-bit reference, one core:
+  - AMD EPYC 7763: glibc 15.7 to 30.3 ns; SLEEF 3.9.0's AVX2 functions 3.3 to 3.6 times
+    faster at the same worst error (0.8 to 1.1 ulp); glibc's `libmvec` 2.7 to 3.7 times
+    at 2 ulp, reachable from GCC only through fast-math.
+  - Intel Xeon Gold 6240: glibc 9.8 ns; SLEEF's AVX-512 functions 2.9 times and MKL's
+    HA pair 4.2 times, both at scalar accuracy.
+  - Apple M5 Max: the system libm 3.25 ns; SLEEF's AdvSIMD functions gain nothing, and
+    Accelerate's vForce 1.3 times at 1.7 ulp.
+- **Decision:**
+  - One private layer, `native/include/solprop_native/vmath.hpp`, gives the host kernels
+    batch `exp`, `log`, `sincos` and the complex exponential over contiguous arrays. A
+    kernel forms a block's arguments into a buffer, calls the layer once over it, and
+    finishes each element from the results. Converted: the Runge–Kutta stage entry, the
+    band-rule plasma column's rates and fractions, the exponential Adams predict pass
+    (flows, phi-function exponentials, compensation) and the low-storage flow table.
+  - On x86-64 CPU builds the layer calls SLEEF 3.9.0's u10 functions (within 1.0 ulp of
+    the correctly rounded value over each function's whole domain), in the variant the
+    code's target allows: AVX-512F where a local build targets it, AVX2 for the wheels'
+    x86-64-v3, SSE2 otherwise. On Arm (Apple silicon, measured, and Linux aarch64, not
+    yet) and in device builds it is the system libm, and each converted kernel keeps
+    its per-element form there (`if constexpr (vmath::vectorised)`), which measured
+    faster with the libm; device kernels keep their own functions.
+    `SOLPROP_NATIVE_VECTOR_MATH=AUTO|SLEEF|SCALAR` overrides the choice and
+    `build_info().vector_math` records it.
+  - SLEEF is fetched at its release tag like Kokkos (`FETCHCONTENT_SOURCE_DIR_SLEEF` for
+    an offline build) and built static at build time as its own CMake project: only
+    `libsleef`, with the SSE2, AVX2 and AVX-512F (or AdvSIMD) variants, its own
+    `-ffp-contract=off`, no IPO, and the C driver beside the build's C++ compiler. The
+    wheel carries its licence (BSL-1.0) as `LICENSE-sleef.txt`.
+  - The absorber split's factor `exp(-rate h / 2)`, which depends on the sample alone,
+    is formed once a tile of samples for a block of rows, on every host route.
+- **Why:**
+  - The functions keep the error bound the rounding budgets already assumed of a library
+    function (one ulp; [accuracy](accuracy.md) §7), so results change only by
+    rounding, within the derived budgets, and no SEP is needed: SEP 25 keeps
+    *approximate* functions off (its Q3), and SLEEF's u10 functions are not approximate
+    in that sense; their accuracy over the kernels' argument ranges is tested against a
+    50-digit reference. Steps taken were identical on every measured case.
+  - SLEEF is one small, permissively licensed library with the fastest accurate vector
+    functions on AMD and within 1.5 times of MKL on Intel, without MKL's size or a
+    compiler-specific route. `libmvec` is less accurate and reachable from GCC only with
+    fast-math; Accelerate's vForce gains a fifth on Apple silicon at 1.7 ulp.
+  - Building it as a separate project keeps its contraction and target names its own:
+    added as a subdirectory, its `common` target collides with Kokkos-FFT's, and this
+    project's `-ffp-contract=fast` would follow its `-ffp-contract=off` and override
+    it.
+- **Consequences:**
+  - A native CPU build on x86-64 and one on Arm differ in their transcendentals by
+    rounding, as builds on different machines already could.
+  - Every x86-64 build fetches and compiles SLEEF (about 20 s) and needs a C compiler of
+    the C++ compiler's version.
+  - Measured end to end (interleaved fresh processes, the tracking cases): see the
+    [benchmark entry](benchmarks.md#host-vector-maths).
+  - Open, on the roadmap: SLEEF on Linux aarch64, AVX-512 against AVX2 end to end, and
+    the kernels still per element (the trapezoid and envelope plasma columns, the Adams
+    corrector and dense observation, the separable stage propagators).

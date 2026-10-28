@@ -48,17 +48,13 @@ def _ulps(computed, exact):
     return error
 
 
-def _uniform(rng, lower, upper, n):
-    return rng.uniform(lower, upper, n)
-
-
 def _exponents():
     rng = np.random.default_rng(58)
     return np.concatenate(
         [
-            _uniform(rng, -60.0, 60.0, 3000),
-            _uniform(rng, -745.0, 709.7, 3000),
-            _uniform(rng, -1e-6, 1e-6, 500),
+            rng.uniform(-60.0, 60.0, 3000),
+            rng.uniform(-745.0, 709.7, 3000),
+            rng.uniform(-1e-6, 1e-6, 500),
             [-745.1, -740.0, -708.4, 0.0, -0.0, 709.78],
         ]
     )
@@ -68,9 +64,9 @@ def _magnitudes():
     rng = np.random.default_rng(59)
     return np.concatenate(
         [
-            10.0 ** _uniform(rng, 3.0, 14.0, 3000),
-            10.0 ** _uniform(rng, -307.0, 308.0, 2000),
-            _uniform(rng, 0.5, 2.0, 1000),
+            10.0 ** rng.uniform(3.0, 14.0, 3000),
+            10.0 ** rng.uniform(-307.0, 308.0, 2000),
+            rng.uniform(0.5, 2.0, 1000),
             [TINY, 1e-310, 1.0, np.nextafter(1.0, 2.0), np.finfo(np.float64).max],
         ]
     )
@@ -81,10 +77,10 @@ def _phases():
     quarter = np.arange(-4000, 4001, 37) * (np.pi / 2.0)
     return np.concatenate(
         [
-            _uniform(rng, -1e4, 1e4, 3000),
-            _uniform(rng, -10.0, 10.0, 1000),
-            _uniform(rng, -1e7, 1e7, 1000),
-            _uniform(rng, -1e15, 1e15, 300),
+            rng.uniform(-1e4, 1e4, 3000),
+            rng.uniform(-10.0, 10.0, 1000),
+            rng.uniform(-1e7, 1e7, 1000),
+            rng.uniform(-1e15, 1e15, 300),
             quarter,
             np.nextafter(quarter, np.inf),
             [0.0, -0.0, 1e-300, -1e-300],
@@ -125,8 +121,8 @@ def test_sincos_is_within_one_ulp():
 
 def test_complex_exponential_is_within_its_product_bound():
     rng = np.random.default_rng(61)
-    a = np.concatenate([_uniform(rng, -60.0, 5.0, 3000), [0.0, -0.0]])
-    b = np.concatenate([_uniform(rng, -1e4, 1e4, 3000), [0.5, -0.5]])
+    a = np.concatenate([rng.uniform(-60.0, 5.0, 3000), [0.0, -0.0]])
+    b = np.concatenate([rng.uniform(-1e4, 1e4, 3000), [0.5, -0.5]])
     real = np.empty_like(a)
     imag = np.empty_like(a)
     core.vector_exp_complex(a, b, real, imag)
