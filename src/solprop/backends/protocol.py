@@ -70,7 +70,9 @@ class StepHistory:
         The scaled embedded error norm of each step, float64, shape ``(n_steps,)``.
         For a clipped or stretched step this is the equivalent norm of the controller's
         proposal, which is what the controller's state is
-        (:meth:`solprop.stepper.controller.PIController.equivalent_norm`).
+        (:meth:`solprop.stepper.controller.PIController.equivalent_norm`). A rejected
+        trial that diverged, whose norm overflowed or was NaN, is recorded as
+        infinity; every other entry is finite.
     accepted : numpy.ndarray
         Whether each step was accepted, Boolean, shape ``(n_steps,)``.
     wall_time : numpy.ndarray
@@ -81,7 +83,7 @@ class StepHistory:
     ------
     BackendError
         If the arrays are not all the same length, a step length is not positive, or an
-        entry is not finite.
+        entry is not finite, other than a rejected step's infinite norm.
 
     Examples
     --------
@@ -126,9 +128,23 @@ class StepHistory:
                     "one entry per step, as z has"
                 )
                 raise BackendError(msg)
-            if dtype is np.float64 and not np.all(np.isfinite(values)):
+            if (
+                dtype is np.float64
+                and name != "error_norm"
+                and not np.all(np.isfinite(values))
+            ):
                 msg = f"{name} has entries that are not finite"
                 raise BackendError(msg)
+        # A diverged trial is a rejection like any other: the controller shrinks by its
+        # smallest factor and retries, so its infinite norm is a record, not a failure.
+        # An accepted step is always finite (``PIController.accepts``).
+        diverged = np.isposinf(self.error_norm) & ~self.accepted
+        if not np.all(np.isfinite(self.error_norm) | diverged):
+            msg = (
+                "error_norm has entries that are not finite, other than a rejected "
+                "step's infinity"
+            )
+            raise BackendError(msg)
         if self.dz.size and not np.all(self.dz > 0.0):
             msg = f"dz must be positive at every step, got a minimum of {self.dz.min()}"
             raise BackendError(msg)

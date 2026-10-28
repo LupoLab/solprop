@@ -507,6 +507,11 @@ class NumpySingleBackend(NumpyRefBackend):
     ) -> tuple[float, Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]]:
         """Take the reference's trial step, then check that it stayed in binary32.
 
+        A step long enough that a propagator passes ``exp(88.72)`` overflows binary32;
+        the infinity then meets the band's zeros as NaN. Neither is warned of: the
+        trial's norm is not finite, and the controller rejects it and shrinks
+        (``docs/dev/stepper.md`` section 3), as a replay refuses it by name.
+
         Parameters
         ----------
         z : float
@@ -525,7 +530,8 @@ class NumpySingleBackend(NumpyRefBackend):
             If the state or a stage value is not complex64: a binary64 array slipped
             into a pass, which would compute silently in binary64 (SEP 33 6.2).
         """
-        norm, advanced = super()._trial_step(z, dz)
+        with np.errstate(over="ignore", invalid="ignore"):
+            norm, advanced = super()._trial_step(z, dz)
         _require_dtype(advanced, self._complex, "the trial state")
         for index, stage in enumerate(self._last_stages):
             _require_dtype(stage, self._complex, f"stage {index + 1}")

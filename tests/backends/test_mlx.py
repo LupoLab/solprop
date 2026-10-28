@@ -31,7 +31,9 @@ import mlx.core as mx  # pyright: ignore[reportMissingImports] - macOS arm64 onl
 from backends.test_single_precision import (
     capillary,
     gnlse,
+    overflowing_beam,
     plasma_beam,
+    run_to_end,
     spatial_kerr,
 )
 from bounds import EPS_32, UNIT_ROUNDOFF_32, assert_within, fft_bound, higham_gamma
@@ -613,6 +615,21 @@ def test_a_non_finite_source_stops_every_march(march):
         backend._device_sources = poisoned
         with pytest.raises(ConvergenceError):
             backend.propagate_to(0.05)
+
+
+def test_an_adaptive_trial_that_overflows_binary32_is_rejected_and_shrunk():
+    """The device's trial past ``exp(88.72)`` is a rejection, as the oracle's is.
+
+    Both runs are adaptive and take their own steps after the rejections, so they are
+    held to the survival record's field envelope, not to a rounding bound.
+    """
+    device = run_to_end(overflowing_beam("single"), "mlx")
+    oracle = run_to_end(overflowing_beam("single"), "numpy_ref")
+    history = device.step_history
+    assert not bool(history.accepted[0])
+    assert history.error_norm[0] == np.inf
+    assert np.all(np.isfinite(history.error_norm[history.accepted]))
+    assert_within(device.require_field(), oracle.require_field(), 1e-3)
 
 
 def test_the_state_stays_complex64_on_the_device():

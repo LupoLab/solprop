@@ -41,7 +41,7 @@ from solprop.backends.numpy_ref.single import (
     running_integral,
     stable_population,
 )
-from solprop.backends.protocol import Backend
+from solprop.backends.protocol import Backend, Observation
 from solprop.backends.registry import (
     available,
     metal_available,
@@ -252,6 +252,71 @@ def test_a_step_whose_inverse_propagator_overflows_binary32_is_refused():
     capillary("double", length=length, schedule=schedule).translate()
     with pytest.raises(TranslationError, match=r"past binary32's range exp\(88\.72\)"):
         capillary("single", length=length, schedule=schedule).translate()
+
+
+def overflowing_beam(precision: str) -> Simulation:
+    """Return a radial Kerr beam whose first trial step is the whole millimetre.
+
+    The default collar over that step reaches ``|Re dPhi| = 459``: inside binary64's
+    range, past binary32's 88.72.
+    """
+    length = 1e-3
+    grid = EnvelopeGrid.from_limits(
+        length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
+    )
+    pulse = SpatialPulse(
+        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 60e-6
+    )
+    settings = SimulationSettings(
+        save_planes=[length],
+        dz_max=length,
+        dz_init=length,
+        precision=precision,  # pyright: ignore[reportArgumentType]
+        backend="numpy_ref",
+    )
+    return Simulation.from_radial(
+        grid,
+        RadialGrid(6e-4, 16),
+        SpatialMedium(),
+        [KerrResponse(1e-25, thg=False)],
+        pulse,
+        settings=settings,
+    )
+
+
+def run_to_end(simulation: Simulation, backend: str) -> Observation:
+    """Propagate on `backend` to the last save plane and return its observation."""
+    problem = simulation.translate()
+    with ExitStack() as cleanup:
+        made = select(backend, problem, grid=simulation.grid)
+        cleanup.callback(made.close)
+        made.set_initial(problem.initial.field0, None)
+        made.propagate_to(float(simulation.settings.save_planes[-1]))
+        return made.observe()
+
+
+def test_an_adaptive_trial_that_overflows_binary32_is_rejected_and_shrunk():
+    """A trial past ``exp(88.72)`` is a rejection, not the end of the run.
+
+    Binary64 takes the whole millimetre in one step. In binary32 the first trials'
+    propagators overflow and their norms are infinite: the controller rejects them and
+    retries at its smallest factor, and the history records them as infinity rather
+    than refusing the record at the plane.
+    """
+    single = run_to_end(overflowing_beam("single"), "numpy_ref")
+    double = run_to_end(overflowing_beam("double"), "numpy_ref")
+    history = single.step_history
+    assert double.step_history.n_rejected == 0
+    assert history.n_rejected >= 1
+    assert not bool(history.accepted[0])
+    assert history.error_norm[0] == np.inf
+    accepted = history.accepted
+    assert np.all(np.isfinite(history.error_norm[accepted]))
+    assert np.all(history.error_norm[accepted] <= 1.0)
+    # The survival record's field envelope (single-precision guide): both runs are
+    # adaptive at the default tolerance, so they are held to it, not to a rounding
+    # bound.
+    assert_within(single.require_field(), double.require_field(), 1e-3)
 
 
 def test_a_step_within_a_tenth_of_binary32s_range_is_warned_of():
