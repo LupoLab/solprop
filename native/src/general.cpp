@@ -4535,6 +4535,55 @@ void GeneralWorkspace::low_storage_flows_formed(const bool rebuild_table) {
   if (count == 0 || (count == 1 && !rebuild_table))
     return;
   const auto n = problem_.n_omega;
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+  // With vector maths a host task forms a column's exponents a block of bins at a
+  // time and their exponentials in one pass (solprop ADR-059).
+  if constexpr (vmath::vectorised) {
+    const bool separable = problem_.separable_geometry();
+    const auto spatial = spatial_;
+    const auto delta = stage_phi_delta_;
+    const auto active = active_mask_;
+    const auto n_pol = problem_.n_pol_state;
+    const auto terms = stage_terms(0);
+    const auto n_phi = problem_.n_phi_terms;
+    const std::size_t blocks = (n + stage_block - 1) / stage_block;
+    Kokkos::parallel_for(
+        separable ? "solprop_native.low_storage.separable_table"
+                  : "solprop_native.low_storage.modal_flows",
+        Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0,
+                                            problem_.n_columns() * blocks),
+        KOKKOS_LAMBDA(const std::size_t item) {
+          const std::size_t column = item / blocks;
+          const std::size_t first = (item % blocks) * stage_block;
+          const std::size_t bins = n - first < stage_block ? n - first : stage_block;
+          double real[stage_block], imag[stage_block];
+          const auto form = [&](const std::size_t flow, const std::size_t offset) {
+            if (separable) {
+              for (std::size_t bin = 0; bin < bins; ++bin) {
+                const auto omega = first + bin;
+                const Complex x =
+                    delta(2) *
+                    spatial.value(column / n_pol, omega, active(omega) != 0U).linear;
+                real[bin] = x.real();
+                imag[bin] = x.imag();
+              }
+            } else {
+              terms.phase_block(offset, column, first, bins, real, imag);
+            }
+            vmath::exp_complex(real, imag, real, imag, bins);
+            for (std::size_t bin = 0; bin < bins; ++bin)
+              flows(flow, column, first + bin) = Complex(real[bin], imag[bin]);
+          };
+          if (separable || count == 1)
+            form(0, 2 * n_phi);
+          else {
+            form(0, 0);
+            form(1, n_phi);
+          }
+        });
+    return;
+  }
+#endif
   if (problem_.separable_geometry()) {
     const auto spatial = spatial_;
     const auto delta = stage_phi_delta_;
@@ -12325,6 +12374,47 @@ void GeneralWorkspace::mask(const ComplexView2& values) {
       });
 }
 
+namespace {
+// The absorber split's factor `exp(-rate h / 2)` on `rows` rows of `time`. The factor
+// depends on the sample alone: a device forms it at every element, and a host task
+// forms it once for a tile of samples, through the vector-maths layer (solprop
+// ADR-059), and applies it to a block of rows, the same expression to the bit on the
+// libm route.
+template <class TimeView>
+void split_apply(const char* label, const ExecutionSpace& execution,
+                 const TimeView& time, const RealView& rate, const double dz,
+                 const std::size_t rows, const std::size_t samples) {
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  Kokkos::parallel_for(
+      label, Range2(execution, {0, 0}, {rows, samples}),
+      KOKKOS_LAMBDA(const std::size_t row, const std::size_t index) {
+        time(row, index) *= Kokkos::exp(-0.5 * rate(index) * dz);
+      });
+#else
+  constexpr std::size_t tile = 256;
+  constexpr std::size_t row_block = 64;
+  const std::size_t tiles = (samples + tile - 1) / tile;
+  const std::size_t blocks = (rows + row_block - 1) / row_block;
+  Kokkos::parallel_for(
+      label, Kokkos::RangePolicy<ExecutionSpace>(execution, 0, tiles * blocks),
+      KOKKOS_LAMBDA(const std::size_t task) {
+        const std::size_t first = (task % tiles) * tile;
+        const std::size_t count = samples - first < tile ? samples - first : tile;
+        const std::size_t row_first = (task / tiles) * row_block;
+        const std::size_t row_last =
+            rows - row_first < row_block ? rows : row_first + row_block;
+        double factor[tile];
+        for (std::size_t sample = 0; sample < count; ++sample)
+          factor[sample] = -0.5 * rate(first + sample) * dz;
+        vmath::exp(factor, factor, count);
+        for (std::size_t row = row_first; row < row_last; ++row)
+          for (std::size_t sample = 0; sample < count; ++sample)
+            time(row, first + sample) *= factor[sample];
+      });
+#endif
+}
+} // namespace
+
 void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
                                      const double parseval) {
   const bool tail = temporal_tail_rows_ != 0 && active_rows == temporal_tail_rows_;
@@ -12338,14 +12428,8 @@ void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
                          coarse_time_complex_, KokkosFFT::Normalization::none);
     if (monitoring_split())
       add_split_removal(dz, active_rows, parseval);
-    const auto time = coarse_time_complex_;
-    const auto rate = absorber_coarse_;
-    Kokkos::parallel_for(
-        "solprop_native.absorber.split_apply_complex",
-        Range2(execution_space_, {0, 0}, {active_rows, problem_.n_t}),
-        KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
-          time(column, index) *= Kokkos::exp(-0.5 * rate(index) * dz);
-        });
+    split_apply("solprop_native.absorber.split_apply_complex", execution_space_,
+                coarse_time_complex_, absorber_coarse_, dz, active_rows, problem_.n_t);
     if (tail)
       coarse_tail_forward_complex_.execute();
     else
@@ -12359,14 +12443,8 @@ void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
                          coarse_time_real_, KokkosFFT::Normalization::none);
     if (monitoring_split())
       add_split_removal(dz, active_rows, parseval);
-    const auto time = coarse_time_real_;
-    const auto rate = absorber_coarse_;
-    Kokkos::parallel_for(
-        "solprop_native.absorber.split_apply_real",
-        Range2(execution_space_, {0, 0}, {active_rows, problem_.n_t}),
-        KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
-          time(column, index) *= Kokkos::exp(-0.5 * rate(index) * dz);
-        });
+    split_apply("solprop_native.absorber.split_apply_real", execution_space_,
+                coarse_time_real_, absorber_coarse_, dz, active_rows, problem_.n_t);
     if (tail)
       coarse_tail_forward_real_.execute();
     else
