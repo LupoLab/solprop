@@ -81,7 +81,8 @@ The first public release. It contains:
   each checked step's split, exactly; the `native` engine's own split by the trapezoid)
   and the thresholds it ran under, with a row per saved plane in the run's closing
   record. A resumed run continues the record, without a launch check; only the
-  quiet-collar opt-in enters the resume key. Quiet edges are checked every
+  quiet-collar opt-in enters the resume key. Each member of a `Batch` scan watches its
+  own window, and a point stopped at an edge fails alone, as it would run alone. Quiet edges are checked every
   eighth step or every `length / 256`. `BoundaryCheck(quiet_collar=True)` also leaves a
   quiet in-stage collar out of the stages, judged on the whole field, floor included;
   it is off by default, so the collar stays in every stage unless a run asks (ADR-057). Output schema 27 (`Absorber.spatial`,

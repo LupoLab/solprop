@@ -183,6 +183,11 @@ groups. Mixing backend names in a batch scan raises an error. Global point indic
 unchanged. General modal runs may be batched under a narrower rule
 ([running](../waveguides/supplied-guides.md#a-guide-instead-of-a-fill)).
 
+Each member watches its own time window, as the point would run alone
+([watching the window's edges](../numerics/boundaries.md#watching-the-windows-edges)):
+a point whose light reaches an edge is stopped and recorded as failed with its
+`BoundaryError`, and the other members of its batch go on.
+
 Memory admission probes the selected backend and keeps 20 % host headroom. It
 records baseline and probe RSS, workspace and output estimates, shared table
 bytes already included in the baseline, and the admitted group size. An explicit

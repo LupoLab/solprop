@@ -248,6 +248,22 @@ def _save(
                 errors[index] = traceback.format_exc()
 
 
+def _stopped(runner: BatchBackend, errors: list[str]) -> None:
+    """Fail each member whose boundary monitor stopped it, as a lone run would fail.
+
+    Parameters
+    ----------
+    runner : solprop.backends.protocol.BatchBackend
+        The batch, whose members each watch their own window (SEP 21).
+    errors : list of str
+        Per-member failures; a stopped member's becomes its stop's traceback, and it
+        receives no further planes.
+    """
+    for index, stop in enumerate(runner.member_stops):
+        if stop is not None and not errors[index]:
+            errors[index] = "".join(traceback.format_exception(stop))
+
+
 def _run(group: Sequence[_Prepared], work: _Work) -> Iterator[PointResult]:
     """Run one admitted group and preserve independently reduced point results.
 
@@ -311,6 +327,11 @@ def _run(group: Sequence[_Prepared], work: _Work) -> Iterator[PointResult]:
             runner = select_batch(owners)
             spec = group[0].simulation.translate().stats_spec
             cleanup.callback(runner.close)
+            # Each point watches its own window, as it would run alone (SEP 21).
+            runner.attach_monitors(
+                [member.simulation._boundary_monitor() for member in group]
+            )
+            _stopped(runner, errors)
             for member, backend in zip(group, runner.member_metadata(), strict=True):
                 scratch = cleanup.enter_context(
                     TemporaryDirectory(prefix="solprop-batch-")
@@ -339,6 +360,7 @@ def _run(group: Sequence[_Prepared], work: _Work) -> Iterator[PointResult]:
                         target,
                         summary.max_norm,
                     )
+                _stopped(runner, errors)
                 _save(
                     runner,
                     captures,
@@ -346,6 +368,7 @@ def _run(group: Sequence[_Prepared], work: _Work) -> Iterator[PointResult]:
                     spec,
                     [member.simulation.translate() for member in group],
                 )
+            runner.finish_monitors()
             for index, (member, capture, error) in enumerate(
                 zip(group, captures, errors, strict=True)
             ):
