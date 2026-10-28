@@ -74,7 +74,11 @@ def arm_order(round_index: int) -> tuple[str, ...]:
 
 
 def field_difference(baseline: Path, candidate: Path) -> float | None:
-    """Return the relative L2 difference of two builds' final fields."""
+    """Return the relative L2 difference of two builds' final fields.
+
+    ``None`` when either build saved none, or when their grids differ (a build that
+    changes the time window or transform size), where no difference is defined.
+    """
     if not (baseline.exists() and candidate.exists()):
         return None
     import numpy as np  # noqa: PLC0415 - only after both workers saved fields
@@ -82,7 +86,7 @@ def field_difference(baseline: Path, candidate: Path) -> float | None:
     reference = np.load(baseline)
     found = np.load(candidate)
     if reference.shape != found.shape:
-        return math.inf
+        return None
     scale = float(np.linalg.norm(reference))
     difference = float(np.linalg.norm(found - reference))
     return difference / scale if scale else difference

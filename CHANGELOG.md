@@ -377,6 +377,9 @@ The first public release. It contains:
 
 ### Fixed
 
+- **`python -m benchmarks ab` between builds whose grids differ** recorded the field
+  difference as infinite, which the summary's JSON refused, so the run ended without
+  its summary; the difference is now recorded as not defined.
 - **The noise row of a printed `Simulation`** named the realisation's class; it now
   gives its model and seed.
 - **Spectral ranges of the plots in the units of their axis.** `prop_2d`, `spec_1d` and
@@ -417,3 +420,13 @@ The first public release. It contains:
   is 24-27 % faster (`native/benchmarks/size_cliffs.py`). macOS keeps 8192 and 32,768:
   on an Apple arm64 laptop the serial stage and transforms are the faster ones at those
   sizes, and its node-chunk gain at n_t 8640 is 26 %.
+- **Native CPU cost of the mode-averaged and modal routes' transforms.** Their two
+  temporal transforms per source evaluation were planned at `FFTW_ESTIMATE`, which picks
+  markedly slower codelets for long rows; they now get serial measured wisdom, as the
+  Raman and general modal plans do (`SOLPROP_FFTW_PLAN` still governs). The stage entry
+  of a lossless problem (every phase term purely imaginary) no longer calls `exp`, and
+  a lossless stage whose phase repeats the stage before's (the last two stages of the
+  default Runge-Kutta tableau, and the whole step's) reuses its propagator pair; both
+  are exact to the bit. The `gnlse_raman_shock` tracking case (16,384 points, one
+  thread) costs 5.7-5.8 ms per step on an AMD EPYC 7763 (was 8.7; `numba_cpu` 6.1-6.3)
+  and 2.43-2.47 ms on an Apple M5 Max (was 3.0-3.4; `numba_cpu` 2.31-2.38).
