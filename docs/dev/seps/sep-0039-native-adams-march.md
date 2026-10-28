@@ -1227,7 +1227,7 @@ taken only at an event with nothing ahead of it, as today.
 hold it, so a resumed run starts with it false and skips a cap the uninterrupted run
 would take. And `begin_run` does not reset it, so a backend reused for another run
 starts with the last run's value. Phase 0 adds the field (output schema +1) and resets
-it in `begin_run`, in the Python march first.
+it in `begin_run`, in the Python march first (decided, R9).
 
 **Where a snapshot continues.**
 
@@ -1609,8 +1609,8 @@ invocation, the lengths, the counted attempts and calls per case, and the host c
 piece. The decision to go on to phase 2 then rests on public numbers. Each later phase
 adds its own entry.
 
-**Acceptance rule.** On every case above, the native march must not be slower than the
-host march by more than the A/B's own measured spread, about 2 %. That includes the
+**Acceptance rule** (decided, R12). On every case above, the native march must not be
+slower than the host march by more than the A/B's own measured spread, about 2 %. That includes the
 expensive-source and frequent-event cases. A regression beyond that blocks `Final` until
 it is understood and fixed.
 
@@ -1888,6 +1888,10 @@ No phase has started.
   - Q14: the warned host-march list as proposed.
 - 2026-10-28: AI review by GPT-6 (R1–R12) recorded by the author. The drafting agent
   (Opus 5.5) answered every point under *Response to review* and revised Part I.
+- 2026-10-28: The author accepted the two proposals left open by the response: the
+  collar flag $w_Q$ is kept in `MarchSnapshot` and reset by `begin_run` (R9), and the
+  native march may not be slower than the host march beyond the A/B spread of about 2 %
+  (R12).
 
 ### AI review — 2026-10-28
 
@@ -2209,6 +2213,8 @@ text.
    - §7.1 and §7.3 test the quiet-to-active resume and a reused backend.
 
    Whether to snapshot $w_Q$ (proposed) or deliberately reset it is the author's call.
+   **Decided 2026-10-28 (John Travers): snapshot it and reset it in `begin_run`, as
+   proposed.**
 10. **R10: taken.** §6.5.9 states the three levels:
     - the transfer is exact;
     - an adaptive continuation meets the case's accuracy envelope against a converged
@@ -2249,4 +2255,5 @@ text.
     - Phase 0 records the baseline publicly (§3.3, §7.6). The profiling study's numbers
       remain the motivation; the counted entry is the evidence.
 
-    The 2 % rule is a proposal; the author may set another.
+    The 2 % rule is a proposal; the author may set another. **Decided 2026-10-28 (John
+    Travers): the 2 % rule, as proposed.**
