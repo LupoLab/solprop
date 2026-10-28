@@ -297,28 +297,18 @@ class _Capture(MemoryOutput):
             self.spool.save(plane)
         self._n_saved += 1
 
-    def _read(self, group: str, name: str) -> np.ndarray:
-        """Return the positions the capture kept, or what the store holds otherwise.
+    def _last_saved_z(self) -> float:
+        """Return the position of the last plane the capture kept.
 
-        The capture keeps its columns itself rather than in the store, and a stopped
-        run reads the last saved position back before it records its terminal
-        checkpoint.
-
-        Parameters
-        ----------
-        group : str
-            ``''``, ``'stats'``, ``'step_history'`` or ``'step_stats'``.
-        name : str
-            Name within the group.
+        The capture keeps its columns itself rather than in the store; a stopped run
+        reads this back before it records its terminal checkpoint.
 
         Returns
         -------
-        numpy.ndarray
-            The stored array.
+        float
+            The position, m.
         """
-        if (group, name) == ("", "z"):
-            return np.asarray(self.arrays.get("z", []), dtype=np.float64)
-        return super()._read(group, name)
+        return float(self.arrays["z"][-1])
 
     def close(self) -> None:
         """Close the temporary spool and the capture lifecycle."""
