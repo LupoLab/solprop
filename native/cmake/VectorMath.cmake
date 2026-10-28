@@ -72,14 +72,25 @@ function(_solprop_native_add_sleef)
     SOURCE_SUBDIR solprop-native-builds-this-separately
   )
   FetchContent_MakeAvailable(sleef)
-  enable_language(C)
   include(ExternalProject)
+  # SLEEF requires a C and a C++ compiler of one version: the C driver beside this
+  # build's C++ compiler (clang beside clang++, gcc beside g++, icx beside icpx), else
+  # the C compiler this project found.
+  get_filename_component(_cxx_directory "${CMAKE_CXX_COMPILER}" DIRECTORY)
+  get_filename_component(_cxx_name "${CMAKE_CXX_COMPILER}" NAME)
+  string(REGEX REPLACE "clang\\+\\+" "clang" _c_name "${_cxx_name}")
+  string(REGEX REPLACE "g\\+\\+" "gcc" _c_name "${_c_name}")
+  string(REGEX REPLACE "^icpx" "icx" _c_name "${_c_name}")
+  set(_c_compiler "${_cxx_directory}/${_c_name}")
+  if(_c_name STREQUAL _cxx_name OR NOT EXISTS "${_c_compiler}")
+    set(_c_compiler "${CMAKE_C_COMPILER}")
+  endif()
   set(_binary "${PROJECT_BINARY_DIR}/_sleef")
   set(_library
       "${_binary}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}sleef${CMAKE_STATIC_LIBRARY_SUFFIX}")
   set(_arguments
     -DCMAKE_BUILD_TYPE=Release
-    "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}"
+    "-DCMAKE_C_COMPILER=${_c_compiler}"
     "-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON
     # Only libsleef, with the variants vmath.hpp can call: none of its tests, DFT, quad
@@ -94,11 +105,12 @@ function(_solprop_native_add_sleef)
   if(SOLPROP_NATIVE_CPU_BASELINE_FLAG)
     list(APPEND _arguments "-DCMAKE_C_FLAGS=${SOLPROP_NATIVE_CPU_BASELINE_FLAG}")
   endif()
-  if(APPLE)
-    list(APPEND _arguments
-      "-DCMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}"
-      "-DCMAKE_OSX_ARCHITECTURES=${CMAKE_OSX_ARCHITECTURES}")
-  endif()
+  foreach(_setting IN ITEMS CMAKE_OSX_DEPLOYMENT_TARGET CMAKE_OSX_ARCHITECTURES
+                             CMAKE_OSX_SYSROOT CMAKE_MSVC_RUNTIME_LIBRARY)
+    if(${_setting})
+      list(APPEND _arguments "-D${_setting}=${${_setting}}")
+    endif()
+  endforeach()
   ExternalProject_Add(
     solprop_native_sleef_build
     SOURCE_DIR "${sleef_SOURCE_DIR}"
@@ -121,6 +133,7 @@ endfunction()
 
 set(SOLPROP_NATIVE_VECTOR_MATH_RECORD "scalar libm")
 if(SOLPROP_NATIVE_VECTOR_MATH STREQUAL "SLEEF")
+  enable_language(C)
   _solprop_native_add_sleef()
   set(SOLPROP_NATIVE_VECTOR_MATH_RECORD "SLEEF ${SOLPROP_NATIVE_SLEEF_VERSION}")
 endif()
