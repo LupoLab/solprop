@@ -235,8 +235,10 @@ jaxtyping hook) run in the coverage lane only; the other test lanes set
 `.github/workflows/wheels.yml` builds the native release wheels (Linux x86-64 and
 aarch64, macOS arm64, Windows x64) on pull requests that change the wheel recipe
 (`native/ci/`, `native/pyproject.toml`, the CMake files, the workflow), weekly, on release
-tags and by hand, tests each installed wheel, and publishes on a release tag once enabled
-([Releasing and the native wheels](releasing.md)).
+tags and by hand, and tests each installed wheel. It also builds solprop's sdist and
+wheel and checks a fresh install of each, and on a release tag, once enabled, publishes
+solprop-native and then solprop ([Releasing and the native wheels](releasing.md), whose
+pre-flight checklist sets publishing up).
 
 `numba_cpu` runs in the coverage lane's driver tests, in the lowest-dependency lane and
 in the Linux slow lane; the parity tests check it against `numpy_ref` in every job. GPU

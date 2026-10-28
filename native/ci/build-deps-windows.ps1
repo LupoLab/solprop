@@ -29,6 +29,10 @@
 param([Parameter(Mandatory = $true)][string]$Prefix)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+# Every download is retried on a transient failure (GitHub answers 429 at times), as
+# lib.sh's curl --retry 3 is on Linux and macOS.
+$PSDefaultParameterValues['Invoke-WebRequest:MaximumRetryCount'] = 3
+$PSDefaultParameterValues['Invoke-WebRequest:RetryIntervalSec'] = 10
 
 $fftwVersion = '3.3.11'
 $fftwSha256 = '5630c24cdeb33b131612f7eb4b1a9934234754f9f388ff8617458d0be6f239a1'
