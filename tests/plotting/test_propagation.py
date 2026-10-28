@@ -66,6 +66,15 @@ def test_prop_2d_takes_a_frequency_range_in_hertz(single):
     assert figures[0].axes[0].get_xlim() == pytest.approx((0.0, 2.0))
 
 
+def test_a_wavelength_range_on_the_default_frequency_axis_is_refused(single):
+    """``prop_2d`` alone defaults to Hz: the refusal says so, not a NumPy error."""
+    with pytest.raises(ProcessingError, match=r"on the 'f' axis.* Hz"):
+        propagation.prop_2d(single, spec_range=(600e-9, 1.1e-6))
+    with pytest.raises(ProcessingError, match=r"on the 'f' axis.* Hz"):
+        propagation.spec_1d(single, 0.0, "f", spec_range=(600e-9, 1.1e-6))
+    plt.close("all")
+
+
 def test_prop_2d_shows_the_default_wavelength_range_on_any_axis(single):
     figures = propagation.prop_2d(single, "f")
     expected = style.wavelength_to_axis("f", propagation.DEFAULT_WAVELENGTH_RANGE)

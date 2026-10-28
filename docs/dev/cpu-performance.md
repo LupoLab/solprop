@@ -93,6 +93,9 @@ time divided by the native backend's: above 1, the native backend is faster.
   global thread setting is a cap, and explicitly set pools force their (clamped) widths.
   The small cases became 2.0 times faster than one thread (geometric mean) on an
   18-core arm64 laptop and on a two-socket, 36-core AVX-512 server.
+  - The thresholds switch on `__APPLE__` alone: macOS has its own stage and FFT starts,
+    and every other build takes the x86-64 Linux values (Cascade Lake, Zen 3). Windows
+    and linux-aarch64 therefore run unmeasured thresholds.
   - Two interactions were found and corrected during qualification:
     - a narrow response stage followed by a full-width FFT on the Cartesian filament;
     - a serialised coupled-flow matrix on the scalar wall.
@@ -102,6 +105,11 @@ time divided by the native backend's: above 1, the native backend is faster.
   threads, the 204 × 2048 complex transform ran 64 × 32 instead of 32 × 64 and the
   window was 10 % slower. Serial measured planning keeps the serial gain on arm64.
   `SOLPROP_FFTW_PLAN` still selects `estimate`, `measure` or `patient` explicitly.
+  - One policy function decides every seed, by shape and width: rows as above, free
+    space's transverse planes measured at any width. Free space's temporal pair had the
+    opposite rule (measured only when threaded) and now follows the rows'. All seeding
+    happens before the first plan is made; the plasma streams' plans were made earlier
+    and stayed at estimate.
 
 **Tried and not adopted**
 - **`FFTW_PATIENT` planning.** It adds seconds of construction and gave no measured
@@ -162,6 +170,8 @@ time divided by the native backend's: above 1, the native backend is faster.
 
 These are in the [roadmap](roadmap.md):
 - **Windows re-measurement** of all the above on the single-runtime wheel.
+- **Thread thresholds on Windows and linux-aarch64**, which take the x86-64 Linux values
+  unmeasured.
 - **The TE/TM wall's complex GEMM** at one thread.
 - **FFTW planning policy per transform shape**: measure against estimate, and wider codelets.
 - **Compiler-target comparisons with identical libraries**: v3, v4 or a processor-specific

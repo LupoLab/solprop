@@ -33,7 +33,10 @@
  * - GCC ignores `#pragma STDC FP_CONTRACT` and Clang's pragma, so the function is
  *   compiled with `optimize("fp-contract=off")`. GCC then does not inline it into a
  *   caller compiled with other options: a protected helper is a call there.
- * - Device compilers (CUDA, HIP) keep their own defaults, as their builds do.
+ * - Device compilers (CUDA, HIP) keep their own defaults, as their builds do: the
+ *   blocks are empty there, nvcc's host pass included, and device accuracy is held to
+ *   the measured device envelopes (solprop's ADR-049, amended). Round-to-nearest
+ *   intrinsics with a device fusion test are on solprop's roadmap.
  *
  * Both settings are lexical: Clang marks each instruction with the setting of the code
  * it was written in, so `Kokkos::complex`'s operators, written in Kokkos' headers, stay

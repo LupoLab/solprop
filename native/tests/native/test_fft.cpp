@@ -141,6 +141,26 @@ TEST(FftProvider, StackedTailPlansLeaveEveryBlocksPaddingUntouched) {
 }
 
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+// One policy decides every seed: rows measured on one thread and left at estimate when
+// threaded, transverse planes measured at any width; an explicit SOLPROP_FFTW_PLAN
+// applies to both shapes at every width. Two helpers had applied opposite rules.
+TEST(FftProvider, OnePlanPolicyDecidesEverySeedByShapeAndWidth) {
+  const char* requested = std::getenv("SOLPROP_FFTW_PLAN");
+  const std::string_view chosen = requested == nullptr ? "" : requested;
+  const unsigned explicit_effort = chosen == "estimate"  ? FFTW_ESTIMATE
+                                   : chosen == "patient" ? FFTW_PATIENT
+                                                         : FFTW_MEASURE;
+  for (const auto shape : {native::FftShape::rows, native::FftShape::planes})
+    for (const int threads : {1, 2, 64}) {
+      SCOPED_TRACE(threads);
+      const bool threaded_rows = shape == native::FftShape::rows && threads > 1;
+      const unsigned expected = requested != nullptr ? explicit_effort
+                                : threaded_rows      ? FFTW_ESTIMATE
+                                                     : FFTW_MEASURE;
+      EXPECT_EQ(native::fftw_seed_effort(shape, threads), expected);
+    }
+}
+
 TEST(FftProvider, RowWisdomUsesSerialDefaultAndHonorsExplicitEffort) {
   // Providers such as MKL expose the FFTW API without implementing its wisdom.
   using Wisdom = std::unique_ptr<char, decltype(&fftw_free)>;

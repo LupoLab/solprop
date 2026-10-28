@@ -53,8 +53,8 @@ leaves it out and removes a copy installed by hand. The editable install does no
 itself: after changing C++ sources or CMake options, run
 `uv sync --extra native --reinstall-package solprop-native`, passing options through
 `CMAKE_ARGS` (a device build is made the same way, with the CUDA or HIP options). The
-contributor rules for this directory are in [`AGENTS.md`](AGENTS.md), beside the
-repository's [`AGENTS.md`](../AGENTS.md).
+contributor rules for this directory are in [`AGENTS.md`](https://github.com/LupoLab/solprop/blob/main/native/AGENTS.md), beside the
+repository's [`AGENTS.md`](https://github.com/LupoLab/solprop/blob/main/AGENTS.md).
 
 ### Tests
 
@@ -165,10 +165,10 @@ for the wider approach to derivation, testing and review.
 
 solprop-native is free software: you can redistribute it and modify it under the terms
 of the GNU General Public License, version 3 or (at your option) any later version
-(`GPL-3.0-or-later`), like solprop; see [LICENSE](LICENSE), a copy of the repository's
-for the wheel. The documentation is under [CC BY 4.0](../LICENSES/CC-BY-4.0.txt). Every
+(`GPL-3.0-or-later`), like solprop; see [LICENSE](https://github.com/LupoLab/solprop/blob/main/native/LICENSE), a copy of the repository's
+for the wheel. The documentation is under [CC BY 4.0](https://github.com/LupoLab/solprop/blob/main/LICENSES/CC-BY-4.0.txt). Every
 file states its copyright and licence, in an SPDX header or in the repository's
-[`REUSE.toml`](../REUSE.toml), following the [REUSE specification](https://reuse.software/);
+[`REUSE.toml`](https://github.com/LupoLab/solprop/blob/main/REUSE.toml), following the [REUSE specification](https://reuse.software/);
 `uv run poe reuse` at the repository root checks it, as part of `poe check`. Start a new
 code file with the header that `uv run reuse annotate --copyright "John C. Travers and
 contributors" --year 2026 --license GPL-3.0-or-later <file>` writes.

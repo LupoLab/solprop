@@ -1323,13 +1323,17 @@ statistics kernels alone.
 
 General-modal CPU sources share real cubic monomials across output components and
 use separate FFT plans for the final partial chunk, aliased onto existing storage.
-Their serial Kokkos-FFT plans consume measured wisdom in the linked FFTW library.
-Threaded modal transforms default to estimate planning because measured wisdom can
-select slower execution plans. `SOLPROP_FFTW_PLAN=estimate` retains cheap planning
-at every width; explicit `measure` and experimental `patient` enable timed planning
-at any width. Estimate can still consume matching wisdom already present in the
-process; the backend does not clear shared FFTW wisdom. Planning is destructive and
-precedes state initialization.
+Kokkos-FFT plans at `FFTW_ESTIMATE` and consumes measured wisdom in the linked FFTW
+library, which the workspace seeds before it makes its first plan: a plan made before
+its wisdom stays at estimate for the run. One policy (`fftw_seed_effort`,
+`include/solprop_native/fft_plan.hpp`) decides every seed by the transform's shape and
+width. Unset, row transforms (temporal, modal, Raman and plasma) are measured on one
+thread and left at estimate when threaded, because measured wisdom can select slower
+threaded plans; free space's transverse planes are measured at any width. An explicit
+`SOLPROP_FFTW_PLAN` applies to every transform at every width: `estimate` keeps cheap
+planning, `measure` and experimental `patient` time it. Estimate can still consume
+matching wisdom already present in the process; the backend does not clear shared FFTW
+wisdom. Planning is destructive and precedes state initialization.
 Contiguous Raman transforms use the same planning policy, including long doubled
 rows and partial chunks. On macOS, NEON FFTW handles serial and long Raman rows;
 short parallel power-of-two rows (at most 16384 samples) retain Accelerate. Selection
@@ -1523,7 +1527,10 @@ at most:
   the thread count (a two-column 256-point inverse took radix 4 with 64-point leaves at
   three and four threads and radix 8 with 32-point leaves at others), which moves ten
   realistic steps by at most 8 u: within the transform's rounding bound, so it constrains
-  nothing.
+  nothing. This threshold and the stage threshold switch only on `__APPLE__`
+  (`include/solprop_native/core.hpp`): Windows and linux-aarch64 builds take the values
+  measured on x86-64 Linux (Cascade Lake and Zen 3), which have not been measured on
+  those platforms ([roadmap](roadmap.md)).
 - **One stage phase.** `sum_t dPhi_t Phi_t` is needed three times per stage (the
   combination, the finish and a flow's residual) over up to 306 terms on a varying guide;
   a vectorised kernel forms it once into `stage_phase` (a ledger row) in the same

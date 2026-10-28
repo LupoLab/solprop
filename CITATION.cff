@@ -12,7 +12,10 @@ authors:
   - family-names: Brahms
     given-names: Christian
     orcid: "https://orcid.org/0000-0002-8009-3547"
+# version and date-released are those of the latest release, set by the release
+# commit; tests/test_release_metadata.py checks them against CHANGELOG.md.
 license: GPL-3.0-or-later
+url: "https://solprop.readthedocs.io/"
 repository-code: "https://github.com/LupoLab/solprop"
 keywords:
   - nonlinear optics

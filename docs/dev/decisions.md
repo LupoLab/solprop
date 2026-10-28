@@ -1054,7 +1054,8 @@ Withdrawn (development-process record, not a design decision).
   clauses of ADR-013 (batches bit-identical to sequential runs), ADR-022 (bitwise
   repeatability and thread-count invariance tests), ADR-034 (pins for the reference
   build) and ADR-039 (`numpy_ref` resumes bitwise), and restates the "bit for bit"
-  consequences of ADR-046 and ADR-047
+  consequences of ADR-046 and ADR-047; amended before the first release for device
+  builds (the last bullet)
 - **Context:** solprop required bitwise agreement in several places: two runs of one
   backend, one thread against many, a batch member against its solo run, a scan point
   against its run, a few kernels against the reference, and a `numpy_ref` resume. Backend
@@ -1093,6 +1094,19 @@ Withdrawn (development-process record, not a design decision).
   held to bands. `REFERENCE` keeps its name for its tidy and sanitizer role. There is no
   deterministic mode. Kernel changes that bitwise agreement would block are each
   qualified to their rounding budget and to SEP 16's work–precision cases.
+- **Amendment, device builds:** the protected helpers are strict on CPU builds only.
+  CUDA and HIP builds leave the strict blocks empty (`SOLPROP_NATIVE_STRICT_FUNCTION`
+  and `SOLPROP_NATIVE_STRICT_BLOCK` in `native/include/solprop_native/fp.hpp`, under
+  `__CUDACC__` or `__HIPCC__`, which includes nvcc's host pass) and follow their
+  compilers' contraction defaults; `build_info().optimization_policy` records
+  "compiler-default contraction". On a device the φ series, the phase sums, the
+  compensated defects and the ionised fraction may therefore contract; lossless copies
+  and sums are unaffected. Device accuracy is bounded by the measured device envelopes
+  of the GPU tests (`pytest -m gpu`) against the oracle, not by the strict-helper
+  argument. Round-to-nearest intrinsics in the protected helpers on devices (CUDA's
+  `__dmul_rn` and `__dadd_rn`, Clang's contraction pragma on HIP), with a device test
+  that a protected block does not fuse, are on the [roadmap](roadmap.md), after the
+  first release.
 
 ## ADR-050 — A replay-only low-storage march, accepted in place, with no estimate
 

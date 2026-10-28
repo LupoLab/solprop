@@ -7,7 +7,7 @@
 [![basedpyright](https://img.shields.io/badge/basedpyright-checked-42b983)](https://docs.basedpyright.com)
 [![PyPI](https://img.shields.io/pypi/v/solprop.svg)](https://pypi.org/project/solprop/)
 [![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](https://www.python.org/downloads/)
-[![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
+[![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](https://github.com/LupoLab/solprop/blob/main/LICENSE)
 [![REUSE](https://img.shields.io/badge/REUSE-compliant-green)](https://reuse.software)
 
 **Ultrafast nonlinear pulse propagation in Python** — from few-cycle pulses in
@@ -25,7 +25,7 @@ resonant dispersive-wave emission into the vacuum and deep ultraviolet, supercon
 generation, multimode and graded-index beam dynamics, filamentation, photoionisation and
 plasma, and Raman frequency combs.
 
-![Vacuum-ultraviolet dispersive-wave emission in a helium-filled capillary](docs/_static/readme-vuv-rdw.png)
+![Vacuum-ultraviolet dispersive-wave emission in a helium-filled capillary](https://raw.githubusercontent.com/LupoLab/solprop/main/docs/_static/readme-vuv-rdw.png)
 
 *A 7.5 fs pulse at 800 nm self-compresses in a helium-filled capillary with a pressure
 gradient to vacuum and emits a resonant dispersive wave at 120–150 nm: spectral and
@@ -99,7 +99,8 @@ it is installed, solprop uses it automatically; your scripts do not change. See
 
 ## Installation
 
-solprop needs Python 3.14 and runs on Linux, macOS and Windows:
+solprop needs Python 3.14 (3.15 is not yet supported: some dependencies have no wheels
+for it) and runs on Linux, macOS and Windows:
 
 ```sh
 pip install "solprop[native]"   # with the compiled native backend (recommended)
@@ -156,7 +157,7 @@ itself is developed almost entirely by AI coding agents under the lead developer
 direction, within a strict harness of derivations, reference comparisons, convergence
 checks and complete test coverage; the same page explains how, and what that means for
 users. The code is free software under the [GNU General Public License, version 3 or
-(at your option) any later version](LICENSE), and the documentation is under
-[CC BY 4.0](LICENSES/CC-BY-4.0.txt). Contributions are welcome: see
-[CONTRIBUTING.md](CONTRIBUTING.md). If you use solprop in published work, please cite
+(at your option) any later version](https://github.com/LupoLab/solprop/blob/main/LICENSE), and the documentation is under
+[CC BY 4.0](https://github.com/LupoLab/solprop/blob/main/LICENSES/CC-BY-4.0.txt). Contributions are welcome: see
+[CONTRIBUTING.md](https://github.com/LupoLab/solprop/blob/main/CONTRIBUTING.md). If you use solprop in published work, please cite
 the repository and the version you used.
