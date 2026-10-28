@@ -56,6 +56,11 @@ from solprop.translate.general import (
 )
 from solprop.translate.modal_tables import DEFAULT_GRAM_ATOL
 
+# The fixtures here launch noise-free into time windows kept tight for speed, which
+# hold more than a millionth of the energy in their guards or collar: the boundary
+# monitor warns (SEP 21), and the window's edge is not what this module tests.
+pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
+
 DATA = Path(__file__).resolve().parents[1] / "data"
 SCHEMA_FIVE = DATA / "power-convention-schema5.h5"
 SCHEMA_SIX = DATA / "general-modal-schema6.h5"

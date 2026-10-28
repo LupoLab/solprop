@@ -67,11 +67,6 @@ TIER_MARKERS = ("medium", "slow", "gpu", "benchmark")
 
 _COLLECTED_TIERS: dict[str, tuple[str, ...]] = {}
 
-BOUNDARY_WARNINGS_IGNORED = pytest.mark.filterwarnings(
-    "ignore::solprop.exceptions.BoundaryWarning"
-)
-"""Every item's lowest-precedence warning filter (prepended, so a test's own wins)."""
-
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(config, items):
@@ -79,10 +74,6 @@ def pytest_collection_modifyitems(config, items):
     _COLLECTED_TIERS.clear()
     for item in items:
         remember_nodeid(item)
-        # The boundary monitor (SEP 21) watches every run; a fixture near its window's
-        # edge is not a test of it. tests/test_monitor.py asserts its warnings. A mark,
-        # not a pyproject filter, so that the class is resolved after coverage starts.
-        item.add_marker(BOUNDARY_WARNINGS_IGNORED, append=False)
         _COLLECTED_TIERS[item.nodeid] = tuple(
             name for name in TIER_MARKERS if item.get_closest_marker(name) is not None
         )

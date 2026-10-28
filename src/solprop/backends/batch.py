@@ -10,7 +10,8 @@ not amortise GPU kernel launches and is not a device-batching performance claim.
 """
 
 import copy
-from collections.abc import Sequence
+import functools
+from collections.abc import Callable, Sequence
 from contextlib import ExitStack
 from typing import cast
 
@@ -19,7 +20,7 @@ from jaxtyping import Complex
 
 from solprop.backends.driver import StepDriver, replay_tolerance
 from solprop.backends.protocol import Backend, Observation
-from solprop.exceptions import BackendError
+from solprop.exceptions import BackendError, BoundaryError
 from solprop.monitor import BoundaryMonitor
 from solprop.stats import StatsSpec
 from solprop.stepper.schedule import FixedSchedule
@@ -71,6 +72,10 @@ class LockstepRunner(StepDriver[tuple[object, ...]]):
     this runner. Ownership of the loaded workspaces transfers to the runner after
     successful construction; ``close`` releases every member.
 
+    Each member watches its own time window (SEP 21). A member whose monitor stops it
+    stops watching while the others go on, and :attr:`member_stops` says which, so
+    that a batched scan fails that point alone, as a run of it alone would fail.
+
     Parameters
     ----------
     members : sequence of solprop.backends.driver.StepDriver
@@ -93,6 +98,7 @@ class LockstepRunner(StepDriver[tuple[object, ...]]):
         self.max_batch = len(self._members)
         self._state = tuple(member._require_state() for member in self._members)
         self._member_norms: tuple[float, ...] = ()
+        self._stops: list[BoundaryError | None] = [None] * len(self._members)
 
     def _apply_mask(
         self, state: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
@@ -245,18 +251,83 @@ class LockstepRunner(StepDriver[tuple[object, ...]]):
         monitor : solprop.monitor.BoundaryMonitor
             A monitor with nothing recorded, copied per member.
         """
+        self.attach_monitors([copy.deepcopy(monitor) for _ in self._members])
+
+    def attach_monitors(self, monitors: Sequence[BoundaryMonitor | None]) -> None:
+        """Give each member its own boundary monitor, or none (SEP 21).
+
+        A launch the monitor refuses stops that member's watch alone
+        (:attr:`member_stops`).
+
+        Parameters
+        ----------
+        monitors : collections.abc.Sequence
+            One monitor with nothing recorded, or ``None``, per member, in member
+            order.
+
+        Raises
+        ------
+        BackendError
+            If the count differs from the members'.
+        """
+        if len(monitors) != len(self._members):
+            raise BackendError(
+                f"{len(monitors)} boundary monitors for {len(self._members)} members"
+            )
+        for index, (member, monitor) in enumerate(
+            zip(self._members, monitors, strict=True)
+        ):
+            if monitor is not None:
+                self._watched(index, functools.partial(member.attach_monitor, monitor))
+
+    @property
+    def member_stops(self) -> tuple[BoundaryError | None, ...]:
+        """Return what stopped each member's watch, in member order.
+
+        Returns
+        -------
+        tuple
+            The :class:`~solprop.exceptions.BoundaryError` that stopped a member, or
+            ``None`` for one still watched or never watched.
+        """
+        return tuple(self._stops)
+
+    def finish_monitors(self) -> None:
+        """Report each still-watched member's removed fraction at the run's end."""
         for member in self._members:
-            member.attach_monitor(copy.deepcopy(monitor))
+            if member._monitor is not None:
+                member._monitor.finish()
+
+    def _watched(self, index: int, call: Callable[[], None]) -> None:
+        """Make one member's monitor call; a stop ends that member's watch alone.
+
+        The member's march goes on with the others, unwatched and with its collar in
+        every stage; its result is the caller's to discard.
+
+        Parameters
+        ----------
+        index : int
+            The member's position.
+        call : collections.abc.Callable
+            The call, which may raise the member's stop.
+        """
+        member = self._members[index]
+        try:
+            call()
+        except BoundaryError as error:
+            self._stops[index] = error
+            member._monitor = None
+            member._set_collar_quiet(False)
 
     def _monitor_plane(self) -> None:
         """Close each member's boundary-monitor row for the plane just reached."""
-        for member in self._members:
-            member._monitor_plane()
+        for index, member in enumerate(self._members):
+            self._watched(index, member._monitor_plane)
 
     def _take_step_stats(self) -> None:
         """Collect periodic rows through each backend's storage hooks."""
-        for member in self._members:
-            member._take_step_stats()
+        for index, member in enumerate(self._members):
+            self._watched(index, member._take_step_stats)
 
     def _begin_plane(self) -> None:
         """Reset each member's observation interval without releasing buffers."""

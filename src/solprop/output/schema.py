@@ -3785,7 +3785,7 @@ class PlaneStore(Displayed, ABC):
                 and checkpoint.plane.shape != self._layout.field_shape
             ):
                 raise OutputError("checkpoint field shape differs from saved planes")
-            if self._n_saved and checkpoint.plane.z < float(self["z"][-1]):
+            if self._n_saved and checkpoint.plane.z < self._last_saved_z():
                 raise OutputError("checkpoint precedes the last regular saved plane")
             if self._checkpoint_pending and self._terminal_checkpoint is not None:
                 checkpoint = dataclasses.replace(
@@ -3802,6 +3802,16 @@ class PlaneStore(Displayed, ABC):
         self._terminal_checkpoint = checkpoint
         if outcome.status != "running":
             self._checkpoint_pending = False
+
+    def _last_saved_z(self) -> float:
+        """Return the position of the last regular saved plane.
+
+        Returns
+        -------
+        float
+            The position, m.
+        """
+        return float(self["z"][-1])
 
     def _write_outcome(
         self, outcome: RunOutcome | None, checkpoint: TerminalCheckpoint | None

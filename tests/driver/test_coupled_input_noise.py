@@ -45,7 +45,13 @@ from solprop.output.schema import Output
 from solprop.processing.axes import grid_of
 from solprop.stepper import FixedSchedule, RungeKutta
 
-pytestmark = pytest.mark.medium
+pytestmark = [
+    pytest.mark.medium,
+    # The fixtures here launch noise-free into time windows kept tight for speed, which
+    # hold more than a millionth of the energy in their guards or collar: the boundary
+    # monitor warns (SEP 21), and the window's edge is not what this module tests.
+    pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning"),
+]
 
 STEPS = 10
 """Fixed steps every run takes; ten lands on the taper's kinks at 0.3 and 0.7 L."""

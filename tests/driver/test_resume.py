@@ -23,6 +23,11 @@ from solprop.output import MemoryOutput
 from solprop.output.hdf5 import resume
 from solprop.stepper import FixedSchedule
 
+# The fixtures here launch noise-free into time windows kept tight for speed, which
+# hold more than a millionth of the energy in their guards or collar: the boundary
+# monitor warns (SEP 21), and the window's edge is not what this module tests.
+pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
+
 # The columns two matched runs of one problem are compared on, within the march's
 # rounding budget (SEP 25). The wall time is left out: the same steps are taken and the
 # same norms scored, but never in the same number of microseconds.

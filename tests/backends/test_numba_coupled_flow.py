@@ -67,7 +67,13 @@ from solprop.translate.coupled import (
 pytestmark = [
     pytest.mark.filterwarnings(f"ignore::{category.__module__}.{category.__name__}")
     for category in QUIET
-] + [pytest.mark.filterwarnings("ignore:the temporal absorber attenuates")]
+] + [
+    pytest.mark.filterwarnings("ignore:the temporal absorber attenuates"),
+    # The fixtures here launch noise-free into time windows kept tight for speed, which
+    # hold more than a millionth of the energy in their guards or collar: the boundary
+    # monitor warns (SEP 21), and the window's edge is not what this module tests.
+    pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning"),
+]
 """The warnings the qualification cases raise on purpose (``flow_parity.QUIET``)."""
 
 

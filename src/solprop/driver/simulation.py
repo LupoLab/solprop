@@ -1755,7 +1755,7 @@ class Simulation(Displayed):
     >>> from solprop.nonlinear.gnlse import problem_from
     >>> from solprop.pulses import SechPulse
     >>> from solprop.stepper import PIController
-    >>> grid = EnvelopeGrid.from_limits(0.01, 835e-9, (500e-9, 2e-6), 1e-12)
+    >>> grid = EnvelopeGrid.from_limits(0.01, 835e-9, (500e-9, 2e-6), 1.2e-12)
     >>> gnlse = problem_from([0.0, 0.0, -1.183e-26], omega_ref=grid.omega0, gamma=0.11,
     ...                      shock=False)
     >>> simulation = Simulation(
@@ -1769,7 +1769,7 @@ class Simulation(Displayed):
     ... )
     >>> handler = simulation.run()
     >>> handler.n_saved, simulation.translate().shape
-    (2, (1, 1, 1, 768))
+    (2, (1, 1, 1, 1024))
     """
 
     # How a constructor that drew the noise without a seed draws it again from a given

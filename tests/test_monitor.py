@@ -25,6 +25,8 @@ import pytest
 from solprop.backends.registry import available
 from solprop.constants import C
 from solprop.driver import Simulation, prop_gnlse
+from solprop.driver.executors import Batch, Local
+from solprop.driver.scan import Scan, ScanPoint, run_scan
 from solprop.exceptions import BoundaryError, BoundaryWarning
 from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter
@@ -37,6 +39,7 @@ from solprop.monitor import (
 )
 from solprop.output import MemoryOutput
 from solprop.output.hdf5 import resume
+from solprop.output.scan import read_point
 from solprop.output.schema import Output, PlaneStore, RunOutcome, TerminalCheckpoint
 from solprop.pulses import GaussianPulse
 from solprop.stepper.multistep import Multistep
@@ -123,13 +126,17 @@ def test_a_pulse_that_stays_clear_leaves_the_guards_empty() -> None:
     assert record["steps"] > 0
 
 
-def test_a_walking_pulse_is_stopped_at_the_guard() -> None:
-    # One window's walk-off: the pulse reaches the guard well inside the fibre.
+@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+def test_a_walking_pulse_is_stopped_at_the_guard(backend: str) -> None:
+    # One window's walk-off: the pulse reaches the guard well inside the fibre, on
+    # every backend's march.
+    if backend not in available():
+        pytest.skip(f"{backend} is not installed")
     with (
         pytest.warns(BoundaryWarning, match="guard occupancy"),
         pytest.raises(BoundaryError, match="guards"),
     ):
-        walker(1.2 * TRANGE).run(progress="none")
+        walker(1.2 * TRANGE, backend=backend).run(progress="none")
 
 
 def _split(
@@ -435,6 +442,48 @@ def test_only_the_quiet_collar_is_part_of_the_resume_key() -> None:
         simulation.settings, boundary_check=BoundaryCheck(quiet_collar=True)
     )
     assert simulation.metadata().configuration_hash() != plain
+
+
+def _walking_point(point: ScanPoint) -> Simulation:
+    """Return a scan point whose pulse walks ``drift`` windows over the fibre.
+
+    On a fixed schedule, as a batch needs, and without a collar, so that light that
+    walks out of the window wraps into the opposite guard.
+    """
+    trange = 3 * TRANGE
+    grid = EnvelopeGrid.from_limits(
+        LENGTH, 1e-6, (0.8e-6, 1.25e-6), trange, collar_fraction=0.0
+    )
+    omega0 = 2 * np.pi * C / 1e-6
+    offset = cast("float", point.values["drift"]) * trange / (BETA2 * LENGTH)
+    planes = [0.5, 1.0]
+    return Simulation.from_gnlse(
+        1e-30, LENGTH, [0.0, 0.0, BETA2], lambda0=1e-6, grid=grid,
+        pulses=[GaussianPulse(
+            wavelength=2 * np.pi * C / (omega0 + offset), fwhm=200e-15,
+            peak_power=1.0,
+        )],
+        noise=None, raman=False, shock=False, save_planes=planes,
+        schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / 100, save_planes=planes),
+        integrator=RungeKutta(), absorber=False, backend="numpy_ref",
+    )  # fmt: skip
+
+
+def test_a_batched_scan_fails_the_point_a_lone_run_fails(tmp_path: Path) -> None:
+    # Each batch member watches its own window: the point whose pulse walks out is
+    # stopped and failed, the other completes, as the points run one by one.
+    scan = Scan("walk", drift=[0.0, 0.9])
+    for name, executor in (("local", Local()), ("batch", Batch(2))):
+        path = tmp_path / f"{name}.h5"
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", BoundaryWarning)
+            output = run_scan(
+                scan, _walking_point, executor=executor, output=path, progress="none"
+            )
+        assert output.status.tolist() == ["done", "failed"], name
+        error = str(read_point(path, 1)["error"])
+        assert "BoundaryError" in error, name
+        assert "could not be persisted" not in error, name
 
 
 def test_without_a_check_nothing_is_watched() -> None:

@@ -26,6 +26,11 @@ from solprop.pulses import SechPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 
+# The fixtures here launch noise-free into time windows kept tight for speed, which
+# hold more than a millionth of the energy in their guards or collar: the boundary
+# monitor warns (SEP 21), and the window's edge is not what this module tests.
+pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
+
 # A fibre with third-order dispersion, so beta2 crosses zero inside the band: with
 # beta2(omega) = beta_2 + beta_3 (omega - omega_ref), the zero sits at
 # omega_ref - beta_2 / beta_3, which is put at 1000 nm below.
