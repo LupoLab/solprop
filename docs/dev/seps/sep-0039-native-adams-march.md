@@ -120,8 +120,8 @@ host-side lever, and §6.9 places it among the native levers.
   - snapshots and resume;
 - the interaction formulation's fused path, and replayed schedules of single runs
   (phase 3);
-- the resident coupled-flow sections (phase 4), or a recorded decision to leave them on
-  the host march;
+- the resident coupled-flow sections and moving maps (phase 4). The aim is to cover
+  every configuration that has a resident engine (Q2);
 - the seam: a march-policy record, the scalar tables, the host events, one metadata
   field;
 - the amendment of `native/AGENTS.md`'s policy rule and of ADR-043 (§6.3).
@@ -709,9 +709,11 @@ computation that agrees to a rounding budget (§7.2).
 
 ### 5. Proposed interface
 
-Nothing public changes. A user's script, configuration and output read as before. On
+No call or setting changes. A user's script, configuration and output read as before. On
 the native backend, `Multistep()` runs through the native march whenever the
-configuration is admitted (§6.6), and otherwise through the Python march as today.
+configuration is admitted (§6.6). Otherwise it runs through the Python march as today
+and warns once per run with a new `SolpropWarning` subclass in `solprop.exceptions`,
+the one public addition, naming the reason (Q2).
 
 The run's metadata records which march ran, so that a timing or a rounding difference
 can be traced:
@@ -1066,11 +1068,23 @@ of SEP 0 §7 is met as follows:
 - the transported compensation is used (not the untransported witness);
 - no coupled flow or moving transform map is present (until phase 4).
 
-Otherwise the host march runs, as it does today. This is not a silent fallback between
-backends: both execute the same method on the same backend and agree to the run's
-tolerance, and the choice is recorded in `adams_march`. The same holds today when
+Otherwise the host march runs, as it does today, and **warns** (decided, Q2). The
+warning is a `SolpropWarning` subclass, for example `HostMarchWarning`. It is issued once
+per run, when the backend is constructed, and it names the reason and the native
+march's coverage. The choice is also recorded in `adams_march`.
+
+This is not a fallback between backends: both marches execute the same method on the
+same backend and agree to the run's tolerance. The same already holds when
 `_adams_engine` returns the host engine for a flow off the eigenbasis route (ADR-044).
-Q2 asks whether some of these should be refused instead.
+Warnings are errors in the test suite, so a test of an uncovered configuration on native
+asserts the warning.
+
+The aim is to cover every configuration (Q2). Phases 3 and 4 remove the interaction
+formulation, replays and the resident coupled sections and moving maps from the list.
+Which configurations may keep the warned host march at `Final` is Q14.
+
+The private keyword that forces the host march (§5) does not warn: it is a test and
+benchmark tool.
 
 **Refused by name, unchanged:**
 
@@ -1102,7 +1116,7 @@ device is out of scope (§10).
 
 Device qualification follows the standing policy ([backends.md](../backends.md)): later,
 in one pass, in a GPU segment with its own budget (phase 5). Until then a device build
-runs the host march and records it.
+runs the host march, records it and warns (Q2).
 
 #### 6.8 Cost: time, memory, code
 
@@ -1328,8 +1342,8 @@ host cost is reported from the same timers §3.3 used. Each phase adds a ledger 
 - **`native/AGENTS.md`.** The amended rule (§6.3).
 - **The manual page [the Adams integrator](../../guide/numerics/adams.md).** A short
   paragraph under its limitations or costs: on native the march runs in the compiled
-  backend, `adams_march` records it, and results agree with the host march to the run's
-  tolerance.
+  backend, `adams_march` records it, the warning says when it does not, and results agree
+  with the host march to the run's tolerance.
 - **The manual page [choosing a stepper](../../guide/numerics/choosing-a-stepper.md).**
   Re-measured rows once the phases land.
 - **`CHANGELOG.md`.** A line citing this SEP.
@@ -1354,6 +1368,8 @@ No tutorial or worked example is needed: nothing a user writes changes.
   compatibility shims (ADR-051).
 - **Rules.** `native/AGENTS.md`'s policy rule is amended, and ADR-043 is amended by a new
   ADR (§6.3).
+- **Warnings.** A run on native that the native march does not cover warns
+  (`HostMarchWarning` or similar, §6.6).
 - **What it breaks:**
   - ADR-043's single executed controller;
   - Python-level introspection of a native run's march: per-step debug logging and
@@ -1419,8 +1435,8 @@ Verified by the existing suite and the corpus's self-consistency.
 - The Python march still decides.
 
 Verified by §7.1's scalar equality, §7.2's table budgets, the existing suite, and the
-benchmarks. Expected −280 to −350 µs per helium trial on the EPYC. Q11 asks whether
-phase 1 lands ahead of the SEP as an ordinary optimisation.
+benchmarks. Expected −280 to −350 µs per helium trial on the EPYC. Phase 1 stays in
+this SEP and lands with the rest in its one pull request (decided, Q11).
 
 **Phase 2: the native march**, for the exponential formulation on diagonal operators,
 with everything of §6.5:
@@ -1438,10 +1454,9 @@ and kernel and output schema +1. Verified by §7.1, §7.3, §7.4, §7.5 and §7.
 Single runs only; lockstep batches keep `replay_step` on the host. Verified by §7.2's
 matched marches and §7.4.
 
-**Phase 4: coupled flows and moving maps**, natively, or a recorded decision to leave
-them on the host march. The flow section and weights, the block's end weights and the
-transform weights per position. Verified by `test_exponential_coupled.py` under both
-marches.
+**Phase 4: coupled flows and moving maps**, natively, for every flow the resident engine
+executes (Q2). The flow section and weights, the block's end weights and the transform
+weights per position. Verified by `test_exponential_coupled.py` under both marches.
 
 **Phase 5 (later, its own budget): device builds.** The march on CUDA and HIP builds, in
 one GPU segment under the standing device policy: the parity tests with `-m gpu`, and
@@ -1453,11 +1468,11 @@ The native items of §6.9 proceed independently. Each phase's benchmarks are mea
 ### 12. Open questions
 
 - **Q1.** Amend `native/AGENTS.md`'s rule with the wording of §6.3, or keep it as it is
-  and record B as an exception in the new ADR? Recommended: amend. To settle before
-  acceptance.
+  and record B as an exception in the new ADR? **Decided 2026-10-28 (John Travers):
+  amend.**
 - **Q2.** Configurations outside the native march's admission: run the host march and
-  record it (recommended, as `_adams_engine` already does for the host engine), or
-  refuse them by name on native? To settle before acceptance.
+  record it, or refuse them by name on native? **Decided 2026-10-28 (John Travers): run
+  the host march with a warning, and aim to cover every configuration** (§6.6).
 - **Q3.** The call bound: 256 attempts and 0.1 s of wall time are proposed. A scheduler
   allows seconds, but a keyboard interrupt wants tenths. Phase 2.
 - **Q4.** Does the interaction formulation's fused path deserve the native march (phase
@@ -1465,7 +1480,8 @@ The native items of §6.9 proceed independently. Each phase's benchmarks are mea
   the controller is shared. Recommended: yes, since the cost is small once phase 2
   exists. Settle at phase 3.
 - **Q5.** Coupled flows and moving maps (phase 4): native, or left on the host march?
-  Settle at phase 3 from measurement.
+  Answered by Q2: native, for every flow the resident engine executes. What has no
+  resident engine is Q14.
 - **Q6.** Device builds: qualify in this SEP's phase 5 or in a later device SEP? It
   depends on the GPU budget.
 - **Q7.** Whether phase 0's refactor should also simplify `AdamsMarch` itself. The
@@ -1481,9 +1497,8 @@ The native items of §6.9 proceed independently. Each phase's benchmarks are mea
   route of the interface admits) is re-run on the capillary rows. That decision is the
   maintainers'.
 - **Q11.** Should phase 1, which needs no SEP on its own, land ahead of acceptance as an
-  ordinary optimisation pull request? Recommended: yes, if the maintainers want its
-  saving before the rest. The SEP's later phases then start from it. To settle before
-  acceptance.
+  ordinary optimisation pull request? **Decided 2026-10-28 (John Travers): no.** It
+  lands with the whole SEP.
 - **Q12.** Progress and logging granularity. Is one progress update and one debug line
   per event enough, or should the attempt rows be logged one by one at debug level?
   Phase 2.
@@ -1492,6 +1507,18 @@ The native items of §6.9 proceed independently. Each phase's benchmarks are mea
   Runge–Kutta march grows from its proposal and does not. Changing the Adams rule is a
   change to the method, outside this SEP. It is listed for the maintainers, and phase 0
   only fixes the commit order.
+- **Q14.** Which configurations may still run the warned host march at `Final`
+  (following Q2)? Proposed: only those with no resident engine or no data form for the
+  native march:
+  - `ComparisonMultistep`'s general path;
+  - a coupled flow whose sections are off the eigenbasis route or wider than 16
+    channels (ADR-044);
+  - a controller whose norm scale is not `PIController.scale`;
+  - lockstep batch replay;
+  - device builds, until phase 5.
+
+  The untransported compensation is a private test witness and does not warn. To settle
+  before acceptance.
 
 ### 13. References
 
@@ -1529,3 +1556,9 @@ No phase has started.
   exponential `Multistep()` on the native CPU backend (Apple M5 Max and AMD EPYC 7763).
   Recommends option B (policy as data, mechanism native), built on option C's native
   tables and stage scalars.
+- 2026-10-28: The author's decisions recorded:
+  - Q1: amend `native/AGENTS.md`'s policy rule;
+  - Q2: uncovered configurations run the host march with a warning, and the SEP aims to
+    cover every configuration (§6.6; phase 4 is no longer optional; Q5 answered; Q14
+    added);
+  - Q11: phase 1 stays in the SEP.
