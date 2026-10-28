@@ -371,7 +371,8 @@ def test_a_run_stopped_at_the_edge_resumes_without_a_launch_check(
     assert executions == 2
     assert len(record["resumed_at"]) == 1
     assert record["guard_high_max"] >= stopped["guard_high_max"]
-    assert record["check"] == dataclasses.asdict(BoundaryCheck())
+    check = dataclasses.asdict(BoundaryCheck())
+    assert {name: record[name] for name in check} == check
 
 
 def test_only_the_quiet_collar_is_part_of_the_resume_key() -> None:

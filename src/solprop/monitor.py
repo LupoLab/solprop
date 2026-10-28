@@ -833,18 +833,15 @@ class BoundaryMonitor:
         """
         self._plane_row(z)
 
-    def summary(
-        self,
-    ) -> dict[
-        str, float | list[float] | dict[str, list[float]] | dict[str, object] | None
-    ]:
+    def summary(self) -> dict[str, float | list[float] | dict[str, list[float]] | None]:
         """Return the record of the run so far, for its execution record.
 
         Returns
         -------
         dict
-            The thresholds of this execution (``check``); the launch's energy in the
-            monitor's own units, the denominator of every fraction
+            The thresholds of this execution (``guard_fraction``, ``budget``,
+            ``stop_factor``, ``quiet_collar``); the launch's energy in the monitor's
+            own units, the denominator of every fraction
             (``launch_energy``), and where the run was resumed (``resumed_at``,
             empty for an uninterrupted one). Launch occupancies, the largest guard
             and collar occupancies and where the guards peaked, the removed fraction
@@ -880,7 +877,7 @@ class BoundaryMonitor:
             return value if math.isfinite(value) else None
 
         return {
-            "check": dataclasses.asdict(self.check),
+            **dataclasses.asdict(self.check),
             "launch_energy": finite(self._launch),
             "resumed_at": list(self._resumed_at),
             "launch_guard_low": finite(self._launch_occupancy[0]),

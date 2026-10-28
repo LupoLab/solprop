@@ -459,8 +459,8 @@ one row per saved plane: `z`, the collar occupancy there, each guard's largest o
 since the previous plane, and the removed fraction so far. The record is rewritten at every
 saved plane without the rows, which the closing record (complete, failed or out of budget)
 carries, so a file does not grow with the square of its planes. Beside them are the
-thresholds the execution ran under (`check`) and the launch's energy in the monitor's own
-units (`launch_energy`).
+thresholds the execution ran under (`guard_fraction`, `budget`, `stop_factor`,
+`quiet_collar`) and the launch's energy in the monitor's own units (`launch_energy`).
 
 Under the in-stage scheme the removed fraction is integrated along z by the trapezoid.
 Under `absorber_scheme="split_step"` a checked step is read just before its split, which
