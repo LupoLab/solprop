@@ -552,8 +552,9 @@ The first public release. It contains:
   row, so a kernel over (modes, frequency bins) gave OpenMP one tile for one mode and
   two for four, whatever the thread count. A host tile now holds about 64 samples (part
   of a row, or whole rows when they are shorter); an execution instance with one thread
-  keeps the old tiling, and device builds are unchanged. Results are unchanged to the
-  bit. At 16 threads the four-mode `rdw` tracking case with the default stepper runs
+  keeps the old tiling, and device builds are unchanged. The elementwise kernels are
+  unchanged to the bit; the boundary monitor's split-removal sum, a reduction over the
+  same policy, may now add in another order, within its rounding. At 16 threads the four-mode `rdw` tracking case with the default stepper runs
   21 % faster on an AMD EPYC 7763 and 16-18 % faster on an Apple M5 Max; single-mode
   cases and `RungeKutta()` change by a few per cent at most, and one-thread runs not
   at all.

@@ -11770,7 +11770,7 @@ void GeneralWorkspace::add_split_removal(const double dz, const std::size_t acti
       KOKKOS_LAMBDA(const std::size_t index) {
         share(index) = -Kokkos::expm1(-rate(index) * dz);
       });
-  const Range2 samples(execution_space_, {0, 0}, {active_rows, problem_.n_t});
+  const auto samples = Range2(execution_space_, {0, 0}, {active_rows, problem_.n_t});
   if (problem_.family == FieldFamily::envelope) {
     const auto time = coarse_time_complex_;
     Kokkos::parallel_reduce(
