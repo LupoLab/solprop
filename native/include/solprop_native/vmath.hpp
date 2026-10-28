@@ -145,7 +145,8 @@ namespace detail {
 // argument at which the function is finite (its result is discarded).
 template <std::size_t Inputs, std::size_t Outputs, class Apply>
 void tail(const double* const (&inputs)[Inputs], double* const (&outputs)[Outputs],
-          const std::size_t count, const double pad, Apply apply) {
+          std::size_t count, const double pad, Apply apply) {
+  count = count < Lanes::width ? count : Lanes::width;
   double in[Inputs][Lanes::width];
   double out[Outputs][Lanes::width];
   for (std::size_t input = 0; input < Inputs; ++input)
@@ -185,8 +186,8 @@ inline void log(const double* x, double* y, const std::size_t n) {
 inline void sincos(const double* x, double* sine, double* cosine, const std::size_t n) {
   const std::size_t full = n - n % Lanes::width;
   for (std::size_t k = 0; k < full; k += Lanes::width) {
-    typename Lanes::Vector s;
-    typename Lanes::Vector c;
+    Lanes::Vector s;
+    Lanes::Vector c;
     Lanes::sincos(Lanes::load(x + k), s, c);
     Lanes::store(sine + k, s);
     Lanes::store(cosine + k, c);
@@ -194,8 +195,8 @@ inline void sincos(const double* x, double* sine, double* cosine, const std::siz
   if (full < n)
     detail::tail<1, 2>({x + full}, {sine + full, cosine + full}, n - full, 0.0,
                        [](auto& in, auto& out) {
-                         typename Lanes::Vector s;
-                         typename Lanes::Vector c;
+                         Lanes::Vector s;
+                         Lanes::Vector c;
                          Lanes::sincos(Lanes::load(in[0]), s, c);
                          Lanes::store(out[0], s);
                          Lanes::store(out[1], c);
@@ -205,20 +206,19 @@ inline void sincos(const double* x, double* sine, double* cosine, const std::siz
 /** `(real_i, imag_i) = e^{a_i} (cos b_i, sin b_i)` for `i < n`. */
 inline void exp_complex(const double* a, const double* b, double* real, double* imag,
                         const std::size_t n) {
-  const auto apply = [](const typename Lanes::Vector va,
-                        const typename Lanes::Vector vb, typename Lanes::Vector& vr,
-                        typename Lanes::Vector& vi) {
-    const typename Lanes::Vector magnitude = Lanes::exp(va);
-    typename Lanes::Vector s;
-    typename Lanes::Vector c;
+  const auto apply = [](const Lanes::Vector va, const Lanes::Vector vb,
+                        Lanes::Vector& vr, Lanes::Vector& vi) {
+    const Lanes::Vector magnitude = Lanes::exp(va);
+    Lanes::Vector s;
+    Lanes::Vector c;
     Lanes::sincos(vb, s, c);
     vr = Lanes::mul(magnitude, c);
     vi = Lanes::mul(magnitude, s);
   };
   const std::size_t full = n - n % Lanes::width;
   for (std::size_t k = 0; k < full; k += Lanes::width) {
-    typename Lanes::Vector vr;
-    typename Lanes::Vector vi;
+    Lanes::Vector vr;
+    Lanes::Vector vi;
     apply(Lanes::load(a + k), Lanes::load(b + k), vr, vi);
     Lanes::store(real + k, vr);
     Lanes::store(imag + k, vi);
@@ -226,8 +226,8 @@ inline void exp_complex(const double* a, const double* b, double* real, double* 
   if (full < n)
     detail::tail<2, 2>({a + full, b + full}, {real + full, imag + full}, n - full, 0.0,
                        [&apply](auto& in, auto& out) {
-                         typename Lanes::Vector vr;
-                         typename Lanes::Vector vi;
+                         Lanes::Vector vr;
+                         Lanes::Vector vi;
                          apply(Lanes::load(in[0]), Lanes::load(in[1]), vr, vi);
                          Lanes::store(out[0], vr);
                          Lanes::store(out[1], vi);
