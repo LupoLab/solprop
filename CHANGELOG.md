@@ -531,6 +531,16 @@ The first public release. It contains:
   are exact to the bit. The `gnlse_raman_shock` tracking case (16,384 points, one
   thread) costs 5.7-5.8 ms per step on an AMD EPYC 7763 (was 8.7; `numba_cpu` 6.1-6.3)
   and 2.43-2.47 ms on an Apple M5 Max (was 3.0-3.4; `numba_cpu` 2.31-2.38).
+- **Native CPU kernels over modes and frequencies use all their threads.** The native
+  CPU backend's two-dimensional kernels took Kokkos's host tiling, two rows by a whole
+  row, so a kernel over (modes, frequency bins) gave OpenMP one tile for one mode and
+  two for four, whatever the thread count. A host tile now holds about 64 samples (part
+  of a row, or whole rows when they are shorter); an execution instance with one thread
+  keeps the old tiling, and device builds are unchanged. Results are unchanged to the
+  bit. At 16 threads the four-mode `rdw` tracking case with the default stepper runs
+  21 % faster on an AMD EPYC 7763 and 16-18 % faster on an Apple M5 Max; single-mode
+  cases and `RungeKutta()` change by a few per cent at most, and one-thread runs not
+  at all.
 - **A single-precision step that overflows is rejected, not fatal.** An adaptive trial
   whose propagator passed binary32's `exp(88.72)` (a long step under a strong collar)
   scored a non-finite error norm, which the controller rejected and the step history
