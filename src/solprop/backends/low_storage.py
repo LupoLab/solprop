@@ -695,8 +695,6 @@ class LowStorageMarch:
                 "accepted in place and is lost; take shorter steps"
             )
             raise ConvergenceError(msg)
-        if (reader := backend._split_reader(z + dz)) is not None:
-            reader.before_split(backend._observed_field(backend._state), dz)
         return backend._finish(backend._state, dz)
 
     def _check_stiffness(self, z: float, dz: float) -> None:

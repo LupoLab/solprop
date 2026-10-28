@@ -195,7 +195,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 37
+SCHEMA_VERSION = 38
 """Version of the kernel contract this module implements.
 
 Incremented on every change to the field list of ``docs/dev/kernel-contract.md``. A
@@ -437,6 +437,13 @@ exponential formulation removes from its history inside each step. A backend tha
 not deliver the shift refuses it by name, and a build against an older version refuses
 the problem rather than step a requested shift unshifted; no ``KernelProblem`` field or
 stage bundle moves.
+
+Version 38 adds two members to the driver's protected surface: the boundary monitor's
+reading moves into the backend. ``StepDriver._bind_monitor`` hands the backend a run's
+monitor (or ``None``), and ``StepDriver._boundary_energies`` returns the monitor's five
+numbers of a state and what a split-step collar took since the last reading
+(:class:`solprop.monitor.BoundaryEnergies`), so a device backend reduces where its state
+lives; no ``KernelProblem`` field or stage bundle moves.
 """
 
 DEFAULT_COMPONENTS = ("x",)

@@ -47,7 +47,7 @@ from solprop.grid import TimeGrid
 from solprop.log import NOT_ESTIMATED, NullReporter, ProgressReporter
 from solprop.modes.protocol import Mode
 from solprop.modes.quadrature import mode_matrix, on_axis_rule
-from solprop.monitor import BoundaryMonitor
+from solprop.monitor import BoundaryEnergies, BoundaryMonitor
 from solprop.noise import NoiseRealisation
 from solprop.output.schema import MarchSnapshot
 from solprop.profiles import ZProfile
@@ -460,7 +460,10 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         content into every bin, so the band is imposed last. Called by the march and
         by the replay on the state they are about to adopt, never on one they are
         about to throw away: a rejected step would otherwise pay the absorber's
-        transform pair for a result nobody reads.
+        transform pair for a result nobody reads. While a monitor of that scheme is
+        attached, a backend's split also adds what it takes to the monitor's next
+        reading (:attr:`_split_removed`, :meth:`_boundary_energies`), at every
+        accepted step.
 
         Parameters
         ----------
@@ -706,8 +709,6 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         numpy.ndarray
             The state the run carries on, as :meth:`_adams_state` will return it.
         """
-        if (reader := self._split_reader(self._z + dz)) is not None:
-            reader.before_split(self._observed_field(cast(_StateT, advanced)), dz)
         finished = self._finish(cast(_StateT, advanced), dz)
         self._state = finished
         return cast(Complex[np.ndarray, "n_batch n_modes n_pol n_omega"], finished)
@@ -1249,6 +1250,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         # A boundary monitor watches one run: the next attaches its own or none, and
         # a collar the last one rested goes back into the stages (SEP 21).
         self._monitor = None
+        self._bind_monitor(None)
         self._set_collar_quiet(False)
 
     def set_progress(self, reporter: ProgressReporter) -> None:
@@ -1611,8 +1613,6 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
                     # The step crosses the plane: hold its extension for the
                     # observation, and for any later plane it also crosses.
                     self._dense_step = self._dense_record(self._z, stop.dz)
-                if (reader := self._split_reader(end)) is not None:
-                    reader.before_split(self._observed_field(advanced), stop.dz)
                 finished = self._finish(advanced, stop.dz)
                 with committing():
                     self._state = finished
@@ -1803,8 +1803,6 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
                 )
                 raise ConvergenceError(msg)
             end = float(edges[self._schedule_index + 1])
-            if (reader := self._split_reader(end)) is not None:
-                reader.before_split(self._observed_field(advanced), dz)
             finished = self._finish(advanced, dz)
             with committing():
                 self._state = finished
@@ -1878,6 +1876,12 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
     _input_floor: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"] | None = None
     """The input-noise draw the launch carries, the monitor's floor; ``None``."""
 
+    _split_removed: float = 0.0
+    """What the ``"split_step"`` collar took at the accepted steps since the monitor's
+    last reading, in its units (:attr:`solprop.monitor.BoundaryEnergies.removed`):
+    a host backend's :meth:`_finish` adds to it while a monitor of that scheme is
+    attached (:attr:`_split_monitor`), and :meth:`_boundary_energies` drains it."""
+
     _collar_quiet: bool = False
     """Whether the modal stage leaves the in-stage temporal collar term out: the run
     opted in, the monitor last found the collar quiet (:data:`solprop.monitor.QUIET`)
@@ -1896,38 +1900,88 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             A monitor with nothing recorded.
         """
         self._monitor = monitor
+        self._bind_monitor(monitor)
+        # The noise draw is a host array already, read once.
         monitor.launch(
-            self._observed_field(self._require_state()),
+            self._boundary_energies(self._require_state()),
             self._z,
             floor=self._input_floor,
         )
         self._set_collar_quiet(monitor.collar_quiet)
 
-    def _split_reader(self, end: float) -> BoundaryMonitor | None:
-        """Return the monitor when it reads the step adopted at `end` before its split.
+    def _bind_monitor(self, monitor: BoundaryMonitor | None) -> None:
+        """Prepare to read a boundary monitor's energies, or stop reading them.
 
-        Under the ``"split_step"`` scheme a step the monitor will check is read just
-        before :meth:`_finish` applies the collar, from which its removal is exact
-        (:meth:`solprop.monitor.BoundaryMonitor.before_split`); every march calls this
-        on the step it is about to finish. A march whose finish runs inside a
-        backend's own engine has no such point, and the monitor integrates the rate
-        of the committed states instead.
+        Called when a monitor is attached, with nothing yet taken by a split, and
+        with ``None`` when a state is loaded. The default keeps its reading on the
+        host; a backend whose state lives elsewhere overrides this to hold the
+        monitor's weights (:attr:`solprop.monitor.BoundaryMonitor.weights`, and the
+        columns' quadrature) where it reduces, and to add each accepted step's split
+        removal there from now on (:meth:`_boundary_energies`).
 
         Parameters
         ----------
-        end : float
-            Where the step ends, m.
+        monitor : solprop.monitor.BoundaryMonitor or None
+            The run's monitor, or ``None`` to stop.
+        """
+        del monitor
+        self._split_removed = 0.0
+
+    @property
+    def _split_monitor(self) -> BoundaryMonitor | None:
+        """Return the monitor a host backend's finish adds the split's removal for.
 
         Returns
         -------
         solprop.monitor.BoundaryMonitor or None
-            The monitor, or ``None`` when it does not read this step before its
-            split.
+            The attached monitor under the ``"split_step"`` scheme, else ``None``.
         """
         monitor = self._monitor
-        if monitor is not None and monitor.split and monitor.due(end):
-            return monitor
-        return None
+        return monitor if monitor is not None and monitor.split else None
+
+    def _boundary_energies(self, state: _StateT) -> BoundaryEnergies:
+        """Return the boundary monitor's reading of a state (SEP 21, ADR-057).
+
+        The state's energy and its four weighted energies
+        (:class:`solprop.monitor.BoundaryEnergies`), and what the split collar took at
+        the accepted steps since the previous reading, which this drains. The default
+        reduces on the host (:meth:`solprop.monitor.BoundaryMonitor.energies`), the
+        reference; a backend whose state lives elsewhere reduces it there and returns
+        the five numbers, without a copy of the field.
+
+        Parameters
+        ----------
+        state : object
+            The backend's protected state representation.
+
+        Returns
+        -------
+        solprop.monitor.BoundaryEnergies
+            The reading.
+
+        Raises
+        ------
+        BackendError
+            If no monitor is attached.
+        """
+        monitor = self._monitor
+        if monitor is None:
+            raise BackendError(f"{self.name}: no boundary monitor is attached")
+        removed, self._split_removed = self._split_removed, 0.0
+        return dataclasses.replace(
+            monitor.energies(self._observed_field(state)), removed=removed
+        )
+
+    def _check_boundaries(self, monitor: BoundaryMonitor) -> None:
+        """Account the committed step at the current position with the monitor.
+
+        Parameters
+        ----------
+        monitor : solprop.monitor.BoundaryMonitor
+            The attached monitor.
+        """
+        monitor.step(self._boundary_energies(self._require_state()), self._z)
+        self._set_collar_quiet(monitor.collar_quiet)
 
     def _set_collar_quiet(self, quiet: bool) -> None:
         """Say whether the collar is quiet.
@@ -2023,8 +2077,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         if monitor is None:
             return
         if monitor.stale:
-            monitor.step(self._observed_field(self._require_state()), self._z)
-            self._set_collar_quiet(monitor.collar_quiet)
+            self._check_boundaries(monitor)
         monitor.plane(self._z)
 
     def _take_step_stats(self) -> None:
@@ -2047,16 +2100,9 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             # A quiet window is checked every few steps, without reading the state
             # in between (`solprop.monitor.CADENCE`).
             if monitor.due(self._z):
-                # A split step was read before its collar (`_split_reader`).
-                monitor.step(
-                    None
-                    if monitor.read_ahead
-                    else self._observed_field(self._require_state()),
-                    self._z,
-                )
-                self._set_collar_quiet(monitor.collar_quiet)
+                self._check_boundaries(monitor)
             else:
-                monitor.skip()
+                monitor.skip(self._z)
         if self._row_spec is None:
             return
         self._accepted_steps += 1

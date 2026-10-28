@@ -680,7 +680,7 @@ def test_metadata_and_memory_ledger_are_self_consistent(
     n = problem.shape[-1]
     stages = problem.stepper.tableau.n_stages
     assert metadata["backend"] == "native"
-    assert metadata["schema_version"] == 37
+    assert metadata["schema_version"] == 38
     assert metadata["openmp_wait_policy"] == solprop_native.WAIT_POLICY
     assert metadata["openmp_proc_bind"] == solprop_native.PROC_BIND
     assert cast(float, metadata["planning_seconds"]) >= 0.0

@@ -851,6 +851,8 @@ DRIVER_SURFACE = {
         " -> _StateT"
     ),
     "_finish": "(self, state: _StateT, dz: float) -> _StateT",
+    "_bind_monitor": "(self, monitor: solprop.monitor.BoundaryMonitor | None) -> None",
+    "_boundary_energies": "(self, state: _StateT) -> solprop.monitor.BoundaryEnergies",
     "_observed_field": (
         "(self, state: _StateT)"
         " -> jaxtyping.Complex[ndarray, 'n_batch n_modes n_pol n_omega']"
@@ -1062,8 +1064,10 @@ def test_the_surface_a_backend_subclasses_is_frozen(driver):
     these driver or stage signatures.
     Version 36 adds the problem's ``precision`` (SEP 33), without changing these
     driver or stage signatures.
+    Version 38 adds ``_bind_monitor`` and ``_boundary_energies``: the boundary
+    monitor's reading is the backend's.
     """
-    assert SCHEMA_VERSION == 37, "the seam changed: rewrite the literals of this test"
+    assert SCHEMA_VERSION == 38, "the seam changed: rewrite the literals of this test"
     for name, signature in {
         "observe_members": (
             "(self) -> tuple[solprop.backends.protocol.Observation, ...]"
