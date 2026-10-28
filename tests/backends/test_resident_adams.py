@@ -14,6 +14,7 @@ a replayed schedule. The parity of either against the reference backend is the s
 suites' (``test_exponential_routes.py``, ``test_compiled_multistep.py``).
 """
 
+import dataclasses
 import math
 from typing import cast
 
@@ -393,3 +394,59 @@ def test_the_compensated_reference_follows_the_host_engine(dense, monkeypatch):
     # band's edge, about 1e-7 of their own amplitude, with the same calls.
     scale = np.max(np.abs(host))
     np.testing.assert_allclose(fields, host, rtol=0, atol=1e-8 * scale)
+
+
+class HostScaleController(PIController):
+    """solprop's controller with its scale overridden: formed on the host."""
+
+    def scale(self, norm_y, norm_y_new):
+        """Return the inherited scale, from this subclass's own method."""
+        return super().scale(norm_y, norm_y_new)
+
+
+def test_a_divisor_formed_on_the_host_takes_the_same_steps():
+    # solprop's own controller has the norm's divisor formed in the exponential
+    # trial's last pass, from the accepted state's magnitude its first pass reduces; a
+    # controller that overrides `scale` has it formed on the host from the engine's
+    # magnitude and uploaded. The same formula on the same magnitude: on a pressure
+    # gradient, whose compensation joins every defect, both take the same steps.
+    from backends.test_exponential_varying import LENGTH, gradient  # noqa: PLC0415
+
+    simulation = gradient(
+        save_planes=list(np.linspace(LENGTH / 4, LENGTH, 4)), rtol=1e-7
+    )
+    problem = simulation.translate()
+    own = problem.stepper.controller
+    assert type(own) is PIController
+    hosted = HostScaleController(
+        **{
+            field.name: getattr(own, field.name)
+            for field in dataclasses.fields(own)
+            if field.init
+        }
+    )
+    on_host = dataclasses.replace(
+        problem, stepper=dataclasses.replace(problem.stepper, controller=hosted)
+    )
+
+    def march(problem):
+        backend = NativeBackend(problem, grid=simulation.grid, modes=simulation.modes)
+        try:
+            backend.set_initial(problem.initial.field0, None)
+            fields = []
+            for plane in problem.stepper.save_planes:
+                backend.propagate_to(float(plane))
+                fields.append(backend.observe().require_field().copy())
+            march = backend._adams
+            assert march is not None
+            engine = march._engine
+            assert type(engine).__name__ == "_ResidentAdams"
+            return np.array(fields), march.ledger.total, engine._device_scale
+        finally:
+            backend.close()
+
+    fields, calls, device = march(problem)
+    host, host_calls, host_device = march(on_host)
+    assert (device, host_device) == (True, False)
+    assert calls == host_calls
+    np.testing.assert_allclose(fields, host, rtol=0, atol=1e-12 * np.max(np.abs(host)))

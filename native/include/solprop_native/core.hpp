@@ -141,7 +141,17 @@ void configure_thread_policy(ThreadPolicy requested);
 [[nodiscard]] ExecutionSpace execution_instance(int threads);
 
 /** Independent CPU operation classes; device dispatch is unchanged. */
-enum class CpuOperation { stage, response, dense, fft, raman, copy, flow, modal };
+enum class CpuOperation {
+  stage,
+  response,
+  dense,
+  fft,
+  raman,
+  copy,
+  flow,
+  modal,
+  adams
+};
 /** Process-start pool supplying an operation's capacity and explicit override. */
 enum class CpuPool { kernels, fft, raman_fft, raman_tail_fft };
 
@@ -149,7 +159,8 @@ enum class CpuPool { kernels, fft, raman_fft, raman_tail_fft };
 // "Kokkos CPU operation-size threading", records the complete windows and sweeps.
 // Work is elements for stages/copies, active columns * fine samples for responses,
 // rows * inner * samples for dense products, active bins * modes^3 for matrix
-// functions, and actual real-side batch samples for FFT/Raman plans (including tails).
+// functions, elements * history rows for the exponential Adams trial's passes, and
+// actual real-side batch samples for FFT/Raman plans (including tails).
 // An 8196-element RDW stage needs the full pool in the server calibration; putting its
 // reductions on a separate width loses that gain. In contrast, an 8192-element temporal
 // copy must stay serial: threading it changes averaged helium from 0.74 to 1.27 s in
@@ -188,6 +199,18 @@ inline constexpr std::size_t modal_thread_min_elements = 65536;
 inline constexpr std::size_t response_thread_min_elements = 32768;
 inline constexpr std::size_t dense_thread_min_elements = 1048576;
 inline constexpr std::size_t raman_thread_min_elements = 65536;
+// The exponential Adams trial's two passes cost about ten stage entries an element,
+// so they thread on fields the stage keeps serial; its work is elements * history
+// rows (seven for the default fifth order). Swept on single-column capillaries of 401
+// to 10241 elements with the passes forced to 1-16 threads of a 16-thread process,
+// idle threads sleeping: on 16 cores of a dual EPYC 7643 four threads lost at 4487
+// (0.8x) and gained 1.1-2.1x from 5607 to 71687, also with other jobs on the node,
+// while 16 lost to four on helium up to 17927 and to one at 8967 (a fork and join of
+// 16 costs 100-200 us); an 18-core Apple M5 Max gained at four from 4487 and at 16
+// over four only at 71687 (docs/dev/benchmarks.md, "Kokkos CPU operation-size
+// threading").
+inline constexpr std::size_t adams_thread_min_elements = 8192;
+inline constexpr std::size_t adams_full_thread_elements = 65536;
 inline constexpr std::size_t stage_full_thread_elements = stage_thread_min_elements;
 inline constexpr std::size_t response_full_thread_elements = 196608;
 inline constexpr std::size_t response_full_thread_samples = 65536;

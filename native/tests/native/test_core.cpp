@@ -2623,20 +2623,22 @@ TEST(State, CloseIsIdempotentAndRejectsFurtherUse) {
 TEST(CpuThreadPolicy, AutomaticBoundariesAreMonotoneAndCapped) {
   using native::CpuOperation;
   using native::CpuPool;
-  const std::array operations{CpuOperation::stage, CpuOperation::response,
-                              CpuOperation::dense, CpuOperation::fft,
-                              CpuOperation::raman, CpuOperation::copy,
-                              CpuOperation::flow,  CpuOperation::modal};
+  const std::array operations{
+      CpuOperation::stage, CpuOperation::response, CpuOperation::dense,
+      CpuOperation::fft,   CpuOperation::raman,    CpuOperation::copy,
+      CpuOperation::flow,  CpuOperation::modal,    CpuOperation::adams};
   const std::array thresholds{
       native::stage_thread_min_elements, native::response_thread_min_elements,
       native::dense_thread_min_elements, native::default_threaded_fft_min_samples,
       native::raman_thread_min_elements, native::copy_thread_min_elements,
-      native::flow_thread_min_elements,  native::modal_thread_min_elements};
+      native::flow_thread_min_elements,  native::modal_thread_min_elements,
+      native::adams_thread_min_elements};
   const std::array full_thresholds{
       native::stage_full_thread_elements, native::response_full_thread_elements,
       native::dense_full_thread_elements, native::fft_full_thread_elements,
       native::raman_full_thread_elements, native::copy_thread_min_elements,
-      native::flow_thread_min_elements,   native::modal_thread_min_elements};
+      native::flow_thread_min_elements,   native::modal_thread_min_elements,
+      native::adams_full_thread_elements};
   for (const int cap : {1, 2, 3, 8, 72}) {
     native::ThreadPolicy policy{cap, cap, cap, cap,
                                 native::default_threaded_fft_min_samples};
@@ -2789,9 +2791,10 @@ TEST(CpuThreadPolicy, MetadataNamesEveryOperationClass) {
       native::CpuOperation::stage, native::CpuOperation::response,
       native::CpuOperation::dense, native::CpuOperation::fft,
       native::CpuOperation::raman, native::CpuOperation::copy,
-      native::CpuOperation::flow,  native::CpuOperation::modal};
-  const std::array names{"stage", "response", "dense", "fft",
-                         "raman", "copy",     "flow",  "modal"};
+      native::CpuOperation::flow,  native::CpuOperation::modal,
+      native::CpuOperation::adams};
+  const std::array names{"stage", "response", "dense", "fft",  "raman",
+                         "copy",  "flow",     "modal", "adams"};
   for (std::size_t i = 0; i < operations.size(); ++i) {
     pool.get(operations[i], 1);
     EXPECT_EQ(

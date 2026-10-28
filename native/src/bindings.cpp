@@ -1349,6 +1349,8 @@ nb::dict build_record() {
   result["dense_full_thread_elements"] = native::dense_full_thread_elements;
   result["fft_full_thread_elements"] = native::fft_full_thread_elements;
   result["raman_full_thread_elements"] = native::raman_full_thread_elements;
+  result["adams_thread_min_elements"] = native::adams_thread_min_elements;
+  result["adams_full_thread_elements"] = native::adams_full_thread_elements;
   result["cpu_medium_threads"] = native::cpu_medium_threads;
   result["band_column"] = native::band_tiled(threads) ? "tiled" : "team";
   result["band_tile_threads"] = native::band_tile_threads(threads);
