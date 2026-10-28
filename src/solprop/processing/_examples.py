@@ -4,12 +4,13 @@
 
 """Synthetic saved runs, so that the examples in this package stay short.
 
-A documentation and testing helper, not part of the public surface: the pulse is a
-Gaussian built by :mod:`solprop.pulses` and carried along ``z`` by the closed-form phase
-of pure group-velocity dispersion, which is the one propagation whose answer is known
-exactly and needs no solver. Everything in :mod:`solprop.processing` and
-:mod:`solprop.plotting` can therefore show a runnable example without importing a
-backend.
+Documentation and testing helpers: the pulse is a Gaussian built by
+:mod:`solprop.pulses` and carried along ``z`` by the closed-form phase of pure
+group-velocity dispersion, which is the one propagation whose answer is known exactly
+and needs no solver. Everything in :mod:`solprop.processing` and :mod:`solprop.plotting`
+can therefore show a runnable example without importing a backend. Only
+:func:`example_output` is public, as :func:`solprop.processing.example_output`, so that
+the guide's snippets run as written; the others serve the package's own examples.
 """
 
 import dataclasses

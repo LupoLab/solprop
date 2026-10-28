@@ -1205,6 +1205,13 @@ workflow with publishing enabled, the archive DOI, and a fresh install of
 `solprop[native]` on each wheel platform. The native wheels and their recipe were
 qualified by [SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md).
 
+**Internal state in public constructors.** `SimulationSettings`, `RunMetadata`,
+`TabulatedGlass` and `solprop.translate.Transform` carry internal state in underscore
+fields (the route's default integrator, a read file's stored field lists, a glass's
+splines, a transform's component count), which appear in their constructors'
+signatures. The state must survive `dataclasses.replace`, which `field(init=False)`
+would reset, so keeping it out of the signature is a change of construction pattern.
+
 **A resume-compatibility policy before the first public release.** The output schema
 records every field of a recorded dataclass, at its default too
 (ADR-051 in [decisions](decisions.md)),

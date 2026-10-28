@@ -148,7 +148,7 @@ the same energy to round-off, which is a test.
 
    import matplotlib.pyplot as plt
    from solprop.processing import get_spectral_density
-   from solprop.processing._examples import example_output
+   from solprop.processing import example_output
 
    output = example_output()
    fig, axes = plt.subplots(1, 3, figsize=(9.5, 3.0))
@@ -213,7 +213,7 @@ dispersion with the textbook sign.
    import matplotlib.pyplot as plt
    import numpy as np
    from solprop.processing import get_phase, grid_of
-   from solprop.processing._examples import example_output
+   from solprop.processing import example_output
 
    output = example_output()
    grid = grid_of(output)
@@ -348,7 +348,7 @@ logarithmic plot, because that would change the data; clip them yourself when yo
 
    import matplotlib.pyplot as plt
    from solprop.processing import get_spectral_density
-   from solprop.processing._examples import example_output
+   from solprop.processing import example_output
 
    output = example_output()
    fig, ax = plt.subplots(figsize=(5.6, 3.2))
@@ -384,7 +384,7 @@ call selects the same light however the result is displayed:
 
 ```python
 from solprop.processing import Passband, energy
-from solprop.processing._examples import example_output
+from solprop.processing import example_output
 
 output = example_output()
 red = energy(output, plane=-1, bandpass=Passband((0.0, 375e12), "f"))

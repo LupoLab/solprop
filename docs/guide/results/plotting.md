@@ -70,7 +70,7 @@ that conversion for anyone who thinks in wavelength:
 
 ```python
 from solprop.plotting import prop_2d, wavelength_to_axis
-from solprop.processing._examples import example_output
+from solprop.processing import example_output
 
 output = example_output()
 prop_2d(output, "f", spec_range=(0.0, 2e15))
@@ -84,7 +84,7 @@ prop_2d(output, "omega", spec_range=wavelength_to_axis("omega", (600e-9, 1100e-9
 
    import matplotlib.pyplot as plt
    from solprop.plotting import prop_2d
-   from solprop.processing._examples import example_output
+   from solprop.processing import example_output
 
    figure = prop_2d(example_output(), "wavelength", spec_range=(600e-9, 1100e-9),
                     trange=(-100e-15, 100e-15))[0]
@@ -109,7 +109,7 @@ over six decades.
 
    import matplotlib.pyplot as plt
    from solprop.plotting import spec_1d, time_1d
-   from solprop.processing._examples import example_output
+   from solprop.processing import example_output
 
    output = example_output()
    figure, (left, right) = plt.subplots(1, 2, figsize=(9.5, 3.4))
@@ -145,7 +145,7 @@ own metadata.
    :caption: The pulse statistics of the example run. The energy is conserved, the peak power halves and the duration doubles, which is the whole of what pure dispersion does.
 
    from solprop.plotting import stats
-   from solprop.processing._examples import example_output
+   from solprop.processing import example_output
 
    figure = stats(example_output())[0]
    figure.set_size_inches(8.0, 6.0)

@@ -383,3 +383,10 @@ letters spelled out (`omega`, `beta1`, `gamma3`, `chi3`, `alpha`); wavelengths a
 `wavelength` (m), never `lambda`; `n_<axis>` for lengths; `z` for the propagation coordinate;
 `dz` for a step; `phi` for the cumulative operator; established abbreviations (`fwhm`, `zdw`,
 `rdw`, `gnlse`, `uppe`, `ppt`, `adk`, `bsi`) are fine.
+
+Three public names break these rules on purpose. `lambda0`, the reference wavelength of
+every interface, and `tools.lambda_rdw` with `lambda_rdw_all` keep the names of Luna's
+`λ0` and `Tools.λRDW`, which a reader coming from Luna types first
+([coming from Luna](../guide/workflows/luna.md)). `boundary_N`, how many times the
+temporal collar's window is applied over the run ([ADR-007](decisions.md)), keeps the
+capital of the count it is written as.
