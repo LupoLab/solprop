@@ -5966,6 +5966,8 @@ adams_defect_block(const ExponentialWeights& weights, const std::size_t rows,
                    const double dz, const double* scale, const std::size_t column,
                    const std::size_t first, const std::size_t last, double* update) {
   SOLPROP_NATIVE_STRICT_BLOCK
+  // The block's sums, added to the reduction's once.
+  double sums[3] = {0.0, 0.0, 0.0};
   for (std::size_t index = first; index < last; ++index) {
     if (in_norm(index) == 0)
       continue;
@@ -5988,9 +5990,11 @@ adams_defect_block(const ExponentialWeights& weights, const std::size_t rows,
                                            carried(t, column, index));
         defect = strict_accumulate(defect, dz, compensation);
       }
-      update[row] += squared_abs(strict_divide(defect, scale[index - first]));
+      sums[row] += squared_abs(strict_divide(defect, scale[index - first]));
     }
   }
+  for (std::size_t row = 0; row < rows; ++row)
+    update[row] += sums[row];
 }
 
 /**
@@ -6147,6 +6151,7 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
     else
       adams_phase_block(phi_terms, phi_delta, offset, n_phi, column, first, last,
                         exponent, flow);
+    double squares = 0.0;
     for (std::size_t index = first; index < last; ++index) {
       const Complex x = exponent(column, index);
       const Complex propagate = flow(column, index);
@@ -6156,7 +6161,7 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
         moments(k, column, index) = adams_factorial(k) * phi[k + 1];
       const Complex accepted = current(column, index);
       if (in_norm(index) != 0)
-        magnitude += squared_abs(accepted);
+        squares += squared_abs(accepted);
       Complex total{};
       for (std::size_t k = 0; k < weights.order; ++k) {
         Complex combined{};
@@ -6175,6 +6180,7 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
       }
       predicted(column, index) = value;
     }
+    magnitude += squares;
   };
   if (device_scale) {
     // A threaded reduction in whatever order measures fastest (solprop SEP 25).
@@ -6829,18 +6835,22 @@ void GeneralWorkspace::adams_exponential_accept(const double dz, const std::size
   const auto rates = adams_rates_;
   const auto lab = adams_lab_;
   const auto endpoint_rate = adams_endpoint_rate_;
+  const std::size_t blocks = (n + adams_block - 1) / adams_block;
   Kokkos::parallel_for(
       "solprop_native.adams.exponential_accept",
-      Kokkos::RangePolicy<ExecutionSpace>(adams_copy_space_, 0, columns * n),
-      KOKKOS_LAMBDA(const std::size_t item) {
-        const auto column = item / n;
-        const auto index = item % n;
-        if (masked && active(index) == 0U)
-          advanced(column, index) = Complex{};
-        store(free, column, index) = source(column, index);
-        if (compensated) {
-          states(free, column, index) = lab(column, index);
-          rates(free, column, index) = endpoint_rate(column, index);
+      Kokkos::RangePolicy<ExecutionSpace>(adams_copy_space_, 0, columns * blocks),
+      KOKKOS_LAMBDA(const std::size_t task) {
+        const auto column = task / blocks;
+        const auto first = (task % blocks) * adams_block;
+        const auto last = first + adams_block < n ? first + adams_block : n;
+        for (std::size_t index = first; index < last; ++index) {
+          if (masked && active(index) == 0U)
+            advanced(column, index) = Complex{};
+          store(free, column, index) = source(column, index);
+          if (compensated) {
+            states(free, column, index) = lab(column, index);
+            rates(free, column, index) = endpoint_rate(column, index);
+          }
         }
       });
   std::swap(current_, advanced_);
