@@ -650,15 +650,21 @@ KOKKOS_INLINE_FUNCTION double trapezoid(const double current, const double previ
   return dt * (current + previous) / 2.0;
 }
 
-// The fraction ionised from an exposure, `1 - (1 - p) exp(-X)`, as `bodies.fraction_at`
-// rounds it. A small response: strict arithmetic (solprop SEP 25 section 4.2,
-// `fp.hpp`), so the product and the difference round separately.
+// The fraction ionised from an exposure's decay `exp(-X)`, `1 - (1 - p) exp(-X)`, as
+// `bodies.fraction_at` rounds it. A small response: strict arithmetic (solprop SEP 25
+// section 4.2, `fp.hpp`), so the product and the difference round separately.
 SOLPROP_NATIVE_STRICT_FUNCTION
-KOKKOS_INLINE_FUNCTION double ionised_fraction(const double exposure,
+KOKKOS_INLINE_FUNCTION double decayed_fraction(const double decay,
                                                const double preionisation) {
   SOLPROP_NATIVE_STRICT_BLOCK
-  const double survival = (1.0 - preionisation) * Kokkos::exp(-exposure);
+  const double survival = (1.0 - preionisation) * decay;
   return 1.0 - survival;
+}
+
+// The fraction ionised from an exposure, `decayed_fraction` of its `exp(-X)`.
+KOKKOS_INLINE_FUNCTION double ionised_fraction(const double exposure,
+                                               const double preionisation) {
+  return decayed_fraction(Kokkos::exp(-exposure), preionisation);
 }
 
 // The envelope column's fraction, `p + (1 - p) (-expm1(-X))`, strict as above.
@@ -699,6 +705,31 @@ KOKKOS_INLINE_FUNCTION double band_loss_scale(const double rate, const double fr
   return 0.0;
 }
 
+// The rate table's cubic in `log(rate)` at a field's `log |E|` within the table's
+// range: the interval's local coordinate and its Horner form (`ionisation_rate`).
+template <class View>
+KOKKOS_INLINE_FUNCTION double
+ionisation_log_rate(const double log_field, const View& coefficients,
+                    const double log_field_min, const double d_log_field,
+                    const std::size_t intervals, const std::size_t offset = 0) {
+  long raw_index = static_cast<long>((log_field - log_field_min) / d_log_field);
+  if (raw_index < 0)
+    raw_index = 0;
+  if (raw_index >= static_cast<long>(intervals))
+    raw_index = static_cast<long>(intervals - 1);
+  const auto index = static_cast<std::size_t>(raw_index);
+  const double local =
+      log_field - (log_field_min + static_cast<double>(index) * d_log_field);
+  return ((coefficients(offset + index) * local +
+           coefficients(offset + intervals + index)) *
+              local +
+          coefficients(offset + 2 * intervals + index)) *
+             local +
+         coefficients(offset + 3 * intervals + index);
+}
+
+// The ionisation rate at a field magnitude: the table's limits outside its range, and
+// within it the exponential of its cubic in `log |E|`.
 template <class View>
 KOKKOS_INLINE_FUNCTION double
 ionisation_rate(const double magnitude, const View& coefficients,
@@ -709,23 +740,48 @@ ionisation_rate(const double magnitude, const View& coefficients,
     return rate_max;
   if (magnitude < field_min)
     return 0.0;
-  const double log_field = Kokkos::log(magnitude);
-  long raw_index = static_cast<long>((log_field - log_field_min) / d_log_field);
-  if (raw_index < 0)
-    raw_index = 0;
-  if (raw_index >= static_cast<long>(intervals))
-    raw_index = static_cast<long>(intervals - 1);
-  const auto index = static_cast<std::size_t>(raw_index);
-  const double local =
-      log_field - (log_field_min + static_cast<double>(index) * d_log_field);
-  const double cubic = ((coefficients(offset + index) * local +
-                         coefficients(offset + intervals + index)) *
-                            local +
-                        coefficients(offset + 2 * intervals + index)) *
-                           local +
-                       coefficients(offset + 3 * intervals + index);
-  return Kokkos::exp(cubic);
+  return Kokkos::exp(ionisation_log_rate(Kokkos::log(magnitude), coefficients,
+                                         log_field_min, d_log_field, intervals,
+                                         offset));
 }
+
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+// The samples a host pass of the plasma column takes at a time.
+constexpr std::size_t rate_block = 256;
+
+// `ionisation_rate` over a host block of `count <= rate_block` magnitudes, with one
+// `log` and one `exp` pass of the vector-maths layer (solprop ADR-059) over the
+// magnitudes within the table's range, gathered; the others take the table's limits.
+template <class View>
+void ionisation_rates(const double* magnitude, double* rate, const std::size_t count,
+                      const View& coefficients, const double log_field_min,
+                      const double d_log_field, const double field_min,
+                      const double field_max, const double rate_max,
+                      const std::size_t intervals, const std::size_t offset = 0) {
+  double values[rate_block];
+  std::size_t active[rate_block];
+  std::size_t live = 0;
+  for (std::size_t sample = 0; sample < count; ++sample) {
+    const double value = magnitude[sample];
+    if (value > field_max) {
+      rate[sample] = rate_max;
+    } else if (value < field_min) {
+      rate[sample] = 0.0;
+    } else {
+      values[live] = value;
+      active[live] = sample;
+      ++live;
+    }
+  }
+  vmath::log(values, values, live);
+  for (std::size_t k = 0; k < live; ++k)
+    values[k] = ionisation_log_rate(values[k], coefficients, log_field_min, d_log_field,
+                                    intervals, offset);
+  vmath::exp(values, values, live);
+  for (std::size_t k = 0; k < live; ++k)
+    rate[active[k]] = values[k];
+}
+#endif
 
 template <class View, class Value>
 void copy_vector(const ExecutionSpace& execution_space, const View& destination,
@@ -8670,6 +8726,9 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
   const auto rate_intervals = problem_.rate_intervals;
   const std::size_t channels = Multiple ? problem_.n_channels : 1;
   const auto samples = static_cast<int>(problem_.n_to);
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+  const std::size_t sample_count = problem_.n_to;
+#endif
   const auto half = static_cast<int>(problem_.plasma_half_width());
   const std::size_t last = problem_.n_to - 1;
   const std::size_t league = band_league(node_count);
@@ -8705,6 +8764,7 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
         else
           return Kokkos::abs(first);
       };
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
       const auto rate_of = [&](const double magnitude, const std::size_t channel) {
         if constexpr (Multiple)
           return ionisation_rate(
@@ -8718,14 +8778,40 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
                                  d_log_field, field_min, field_max, rate_max,
                                  rate_intervals);
       };
+#endif
       BandLive integrand_live;
       integrand_live.min_val = samples;
       integrand_live.max_val = -1;
+
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+      // On the host a team thread takes blocks of samples, whose transcendentals are
+      // passes of the vector-maths layer (`ionisation_rates`, the decays below).
+      const auto blocks =
+          static_cast<int>((sample_count + rate_block - 1) / rate_block);
+      const auto rates_of = [&](const std::size_t first, const std::size_t count,
+                                double* rate, const std::size_t channel) {
+        double magnitude[rate_block];
+        for (std::size_t sample = 0; sample < count; ++sample)
+          magnitude[sample] = magnitude_at(first + sample);
+        if constexpr (Multiple)
+          ionisation_rates(
+              magnitude, rate, count, channel_coefficients,
+              channel_parameters(channel, 0), channel_parameters(channel, 1),
+              channel_parameters(channel, 2), channel_parameters(channel, 3),
+              channel_parameters(channel, 4),
+              static_cast<std::size_t>(channel_parameters(channel, 5)),
+              static_cast<std::size_t>(channel_parameters(channel, 6)));
+        else
+          ionisation_rates(magnitude, rate, count, rate_coefficients, log_field_min,
+                           d_log_field, field_min, field_max, rate_max, rate_intervals);
+      };
+#endif
 
       // 1. Per channel: rates -> filter -> scan -> exposure, then the fraction, the
       // guard and the weight pointwise.
       for (std::size_t channel = 0; channel < channels; ++channel) {
         BandLive rate_live;
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
         Kokkos::parallel_reduce(
             Kokkos::TeamThreadRange(team, samples),
             [&](const int sample, BandLive& update) {
@@ -8735,6 +8821,21 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
               band_note(update, sample, rate);
             },
             Kokkos::MinMax<int>(rate_live));
+#else
+        Kokkos::parallel_reduce(
+            Kokkos::TeamThreadRange(team, blocks),
+            [&](const int block, BandLive& update) {
+              const auto first = static_cast<std::size_t>(block) * rate_block;
+              const std::size_t count = std::min(rate_block, sample_count - first);
+              double rate[rate_block];
+              rates_of(first, count, rate, channel);
+              for (std::size_t sample = 0; sample < count; ++sample) {
+                rates(slot, first + sample) = rate[sample];
+                band_note(update, static_cast<int>(first + sample), rate[sample]);
+              }
+            },
+            Kokkos::MinMax<int>(rate_live));
+#endif
         team.team_barrier();
         const BandWindow window = band_window_of(rate_live, samples, half);
         if (window.first <= window.last)
@@ -8754,6 +8855,7 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
         const int changing_end = Kokkos::min(window.last + 2, samples);
         const double before = band_fraction(0.0, initial);
         const double after = band_fraction(total, initial);
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
         const auto fraction_at = [&](const int sample) {
           if (sample < window.first)
             return before;
@@ -8762,40 +8864,96 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
           return band_fraction(exposures(slot, static_cast<std::size_t>(sample)),
                                initial);
         };
+#else
+        // A host block's fractions: the changing samples' decays `exp(-max(X, 0))` in
+        // one pass, each fraction then `band_fraction`'s strict arithmetic.
+        const auto fractions_of = [&](const std::size_t first, const std::size_t count,
+                                      double* fraction) {
+          double decay[rate_block];
+          std::size_t active[rate_block];
+          std::size_t live = 0;
+          for (std::size_t offset = 0; offset < count; ++offset) {
+            const auto sample = static_cast<int>(first + offset);
+            if (sample < window.first) {
+              fraction[offset] = before;
+            } else if (sample >= changing_end) {
+              fraction[offset] = after;
+            } else {
+              const double exposure = exposures(slot, first + offset);
+              decay[live] = -(exposure < 0.0 ? 0.0 : exposure);
+              active[live] = offset;
+              ++live;
+            }
+          }
+          vmath::exp(decay, decay, live);
+          for (std::size_t k = 0; k < live; ++k)
+            fraction[active[k]] = decayed_fraction(decay[k], initial);
+        };
+#endif
         if constexpr (Multiple) {
           const double partial = channel_density(stage, channel);
           const double charge = channel_parameters(channel, 7);
           const double potential = channel_parameters(channel, 8);
+          const auto share_at = [&](const std::size_t time, const double fraction) {
+            const double rate = rates(slot, time);
+            const double share = partial * fraction * charge;
+            const double paid = partial * potential * rate * (1.0 - fraction);
+            const double weight = channel == 0 ? 0.0 : weights(slot, time);
+            const double work = channel == 0 ? 0.0 : guards(slot, time);
+            weights(slot, time) = weight + share;
+            guards(slot, time) = work + paid;
+          };
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
           Kokkos::parallel_for(
               Kokkos::TeamThreadRange(team, samples), [&](const int sample) {
-                const auto time = static_cast<std::size_t>(sample);
-                const double fraction = fraction_at(sample);
-                const double rate = rates(slot, time);
-                const double share = partial * fraction * charge;
-                const double paid = partial * potential * rate * (1.0 - fraction);
-                const double weight = channel == 0 ? 0.0 : weights(slot, time);
-                const double work = channel == 0 ? 0.0 : guards(slot, time);
-                weights(slot, time) = weight + share;
-                guards(slot, time) = work + paid;
+                share_at(static_cast<std::size_t>(sample), fraction_at(sample));
               });
+#else
+          Kokkos::parallel_for(
+              Kokkos::TeamThreadRange(team, blocks), [&](const int block) {
+                const auto first = static_cast<std::size_t>(block) * rate_block;
+                const std::size_t count = std::min(rate_block, sample_count - first);
+                double fraction[rate_block];
+                fractions_of(first, count, fraction);
+                for (std::size_t offset = 0; offset < count; ++offset)
+                  share_at(first + offset, fraction[offset]);
+              });
+#endif
         } else {
+          const auto integrand_at = [&](const std::size_t time, const double fraction,
+                                        BandLive& update) {
+            const double magnitude = magnitude_at(time);
+            const double squared = magnitude * magnitude;
+            guards(slot, time) = band_loss_scale(rates(slot, time), fraction, squared,
+                                                 ionisation_potential);
+            const double weight = fraction * charge_mass_ratio;
+            for (std::size_t component = 0; component < Components; ++component) {
+              const double value = weight * field_at(base + component, time);
+              integrands(own + component, time) = value;
+              band_note(update, static_cast<int>(time), value);
+            }
+          };
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
           Kokkos::parallel_reduce(
               Kokkos::TeamThreadRange(team, samples),
               [&](const int sample, BandLive& update) {
-                const auto time = static_cast<std::size_t>(sample);
-                const double fraction = fraction_at(sample);
-                const double magnitude = magnitude_at(time);
-                const double squared = magnitude * magnitude;
-                guards(slot, time) = band_loss_scale(rates(slot, time), fraction,
-                                                     squared, ionisation_potential);
-                const double weight = fraction * charge_mass_ratio;
-                for (std::size_t component = 0; component < Components; ++component) {
-                  const double value = weight * field_at(base + component, time);
-                  integrands(own + component, time) = value;
-                  band_note(update, sample, value);
-                }
+                integrand_at(static_cast<std::size_t>(sample), fraction_at(sample),
+                             update);
               },
               Kokkos::MinMax<int>(integrand_live));
+#else
+          Kokkos::parallel_reduce(
+              Kokkos::TeamThreadRange(team, blocks),
+              [&](const int block, BandLive& update) {
+                const auto first = static_cast<std::size_t>(block) * rate_block;
+                const std::size_t count = std::min(rate_block, sample_count - first);
+                double fraction[rate_block];
+                fractions_of(first, count, fraction);
+                for (std::size_t offset = 0; offset < count; ++offset)
+                  integrand_at(first + offset, fraction[offset], update);
+              },
+              Kokkos::MinMax<int>(integrand_live));
+#endif
         }
         if (stashing) {
           double largest = 0.0;
