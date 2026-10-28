@@ -749,37 +749,20 @@ ionisation_rate(const double magnitude, const View& coefficients,
 // The samples a host pass of the plasma column takes at a time.
 constexpr std::size_t rate_block = 256;
 
-// `ionisation_rate` over a host block of `count <= rate_block` magnitudes, with one
-// `log` and one `exp` pass of the vector-maths layer (solprop ADR-059) over the
-// magnitudes within the table's range, gathered; the others take the table's limits.
+// `ionisation_rate`'s values at `live <= rate_block` magnitudes within the table's
+// range, in place: one `log` and one `exp` pass of the vector-maths layer (solprop
+// ADR-059) around the cubic. A host block gathers the magnitudes it passes, so the
+// samples outside the range (most of a pulse's wings) cost what they cost before.
 template <class View>
-void ionisation_rates(const double* magnitude, double* rate, const std::size_t count,
-                      const View& coefficients, const double log_field_min,
-                      const double d_log_field, const double field_min,
-                      const double field_max, const double rate_max,
-                      const std::size_t intervals, const std::size_t offset = 0) {
-  double values[rate_block];
-  std::size_t active[rate_block];
-  std::size_t live = 0;
-  for (std::size_t sample = 0; sample < count; ++sample) {
-    const double value = magnitude[sample];
-    if (value > field_max) {
-      rate[sample] = rate_max;
-    } else if (value < field_min) {
-      rate[sample] = 0.0;
-    } else {
-      values[live] = value;
-      active[live] = sample;
-      ++live;
-    }
-  }
+void ionisation_rates_within(double* values, const std::size_t live,
+                             const View& coefficients, const double log_field_min,
+                             const double d_log_field, const std::size_t intervals,
+                             const std::size_t offset = 0) {
   vmath::log(values, values, live);
   for (std::size_t k = 0; k < live; ++k)
     values[k] = ionisation_log_rate(values[k], coefficients, log_field_min, d_log_field,
                                     intervals, offset);
   vmath::exp(values, values, live);
-  for (std::size_t k = 0; k < live; ++k)
-    rate[active[k]] = values[k];
 }
 #endif
 
@@ -9234,29 +9217,49 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
       integrand_live.max_val = -1;
 
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
-      // With vector maths a host team thread takes blocks of samples, whose
-      // transcendentals are passes of the layer (`ionisation_rates`, the decays
-      // below); with the system libm each sample keeps its own calls, as on a device.
+      // With vector maths a host team thread takes blocks of samples and gathers the
+      // live ones' transcendentals into passes of the layer (`ionisation_rates_within`,
+      // the decays below), writing the rest as it goes; with the system libm each
+      // sample keeps its own calls, as on a device.
       [[maybe_unused]] const auto blocks =
           static_cast<int>((sample_count + rate_block - 1) / rate_block);
-      [[maybe_unused]] const auto rates_of = [&](const std::size_t first,
-                                                 const std::size_t count, double* rate,
-                                                 const std::size_t channel) {
-        double magnitude[rate_block];
-        for (std::size_t sample = 0; sample < count; ++sample)
-          magnitude[sample] = magnitude_at(first + sample);
-        if constexpr (Multiple)
-          ionisation_rates(
-              magnitude, rate, count, channel_coefficients,
-              channel_parameters(channel, 0), channel_parameters(channel, 1),
-              channel_parameters(channel, 2), channel_parameters(channel, 3),
-              channel_parameters(channel, 4),
-              static_cast<std::size_t>(channel_parameters(channel, 5)),
-              static_cast<std::size_t>(channel_parameters(channel, 6)));
-        else
-          ionisation_rates(magnitude, rate, count, rate_coefficients, log_field_min,
-                           d_log_field, field_min, field_max, rate_max, rate_intervals);
-      };
+      [[maybe_unused]] const auto rates_into =
+          [&](const std::size_t first, const std::size_t count,
+              const std::size_t channel, BandLive& update) {
+            const double lower = Multiple ? channel_parameters(channel, 2) : field_min;
+            const double upper = Multiple ? channel_parameters(channel, 3) : field_max;
+            const double highest = Multiple ? channel_parameters(channel, 4) : rate_max;
+            double values[rate_block];
+            std::size_t active[rate_block];
+            std::size_t live = 0;
+            // `ionisation_rate`'s limits as it takes them: a NaN magnitude is live.
+            for (std::size_t time = first; time < first + count; ++time) {
+              const double magnitude = magnitude_at(time);
+              double rate = 0.0;
+              if (magnitude > upper) {
+                rate = highest;
+              } else if (!(magnitude < lower)) {
+                values[live] = magnitude;
+                active[live] = time;
+                ++live;
+              }
+              rates(slot, time) = rate;
+              band_note(update, static_cast<int>(time), rate);
+            }
+            if constexpr (Multiple)
+              ionisation_rates_within(
+                  values, live, channel_coefficients, channel_parameters(channel, 0),
+                  channel_parameters(channel, 1),
+                  static_cast<std::size_t>(channel_parameters(channel, 5)),
+                  static_cast<std::size_t>(channel_parameters(channel, 6)));
+            else
+              ionisation_rates_within(values, live, rate_coefficients, log_field_min,
+                                      d_log_field, rate_intervals);
+            for (std::size_t k = 0; k < live; ++k) {
+              rates(slot, active[k]) = values[k];
+              band_note(update, static_cast<int>(active[k]), values[k]);
+            }
+          };
 #endif
 
       // 1. Per channel: rates -> filter -> scan -> exposure, then the fraction, the
@@ -9269,13 +9272,8 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
               Kokkos::TeamThreadRange(team, blocks),
               [&](const int block, BandLive& update) {
                 const auto first = static_cast<std::size_t>(block) * rate_block;
-                const std::size_t count = std::min(rate_block, sample_count - first);
-                double rate[rate_block];
-                rates_of(first, count, rate, channel);
-                for (std::size_t sample = 0; sample < count; ++sample) {
-                  rates(slot, first + sample) = rate[sample];
-                  band_note(update, static_cast<int>(first + sample), rate[sample]);
-                }
+                rates_into(first, std::min(rate_block, sample_count - first), channel,
+                           update);
               },
               Kokkos::MinMax<int>(rate_live));
         } else
@@ -9319,30 +9317,30 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
                                initial);
         };
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
-        // A host block's fractions with vector maths: the changing samples' decays
-        // `exp(-max(X, 0))` in one pass, each fraction then `band_fraction`'s strict
-        // arithmetic.
-        [[maybe_unused]] const auto fractions_of =
-            [&](const std::size_t first, const std::size_t count, double* fraction) {
+        // A host block's fractions with vector maths, each handed to `apply` with its
+        // sample: the changing samples' decays `exp(-max(X, 0))` in one pass, each
+        // fraction then `band_fraction`'s strict arithmetic.
+        [[maybe_unused]] const auto fractions_into =
+            [&](const std::size_t first, const std::size_t count, const auto& apply) {
               double decay[rate_block];
               std::size_t active[rate_block];
               std::size_t live = 0;
-              for (std::size_t offset = 0; offset < count; ++offset) {
-                const auto sample = static_cast<int>(first + offset);
+              for (std::size_t time = first; time < first + count; ++time) {
+                const auto sample = static_cast<int>(time);
                 if (sample < window.first) {
-                  fraction[offset] = before;
+                  apply(time, before);
                 } else if (sample >= changing_end) {
-                  fraction[offset] = after;
+                  apply(time, after);
                 } else {
-                  const double exposure = exposures(slot, first + offset);
+                  const double exposure = exposures(slot, time);
                   decay[live] = -(exposure < 0.0 ? 0.0 : exposure);
-                  active[live] = offset;
+                  active[live] = time;
                   ++live;
                 }
               }
               vmath::exp(decay, decay, live);
               for (std::size_t k = 0; k < live; ++k)
-                fraction[active[k]] = decayed_fraction(decay[k], initial);
+                apply(active[k], decayed_fraction(decay[k], initial));
             };
 #endif
         if constexpr (Multiple) {
@@ -9363,11 +9361,8 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
             Kokkos::parallel_for(
                 Kokkos::TeamThreadRange(team, blocks), [&](const int block) {
                   const auto first = static_cast<std::size_t>(block) * rate_block;
-                  const std::size_t count = std::min(rate_block, sample_count - first);
-                  double fraction[rate_block];
-                  fractions_of(first, count, fraction);
-                  for (std::size_t offset = 0; offset < count; ++offset)
-                    share_at(first + offset, fraction[offset]);
+                  fractions_into(first, std::min(rate_block, sample_count - first),
+                                 share_at);
                 });
           } else
 #endif
@@ -9397,11 +9392,10 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
                 Kokkos::TeamThreadRange(team, blocks),
                 [&](const int block, BandLive& update) {
                   const auto first = static_cast<std::size_t>(block) * rate_block;
-                  const std::size_t count = std::min(rate_block, sample_count - first);
-                  double fraction[rate_block];
-                  fractions_of(first, count, fraction);
-                  for (std::size_t offset = 0; offset < count; ++offset)
-                    integrand_at(first + offset, fraction[offset], update);
+                  fractions_into(first, std::min(rate_block, sample_count - first),
+                                 [&](const std::size_t time, const double fraction) {
+                                   integrand_at(time, fraction, update);
+                                 });
                 },
                 Kokkos::MinMax<int>(integrand_live));
           } else
