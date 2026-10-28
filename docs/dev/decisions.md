@@ -1400,11 +1400,17 @@ Withdrawn (development-process record, not a design decision).
       launch before its first step. D5's separate launch threshold (`1e-4` of the energy
       in a guard or the collar) is withdrawn; light the launch puts in the collar alone
       is absorbed and reported with the removed fraction;
-    - under the split scheme a checked step's removal is read from its state just
-      before the split, `P(1 − e^{−αh})`, not from the state after it, whose deep-collar
-      residue `e^{αh}` multiplied into removals above the launch energy; where the split
-      runs inside a backend's own engine (native), the trapezoid of the committed rate
-      is taken until the monitor's reduction runs on the backend;
+    - under the split scheme the removal is what each accepted step's split takes of
+      the power it finds, `P(1 − e^{−αh})`, summed by the backend's own step finish at
+      every accepted step, checked or not, on every backend and march (the native
+      engine's included), and read at the next check; not read back from the state
+      after the split, whose deep-collar residue `e^{αh}` multiplied into removals above
+      the launch energy;
+    - the monitor's reading is the backend's: at a check each backend reduces the
+      state's energy and its four weighted energies where the state lives, and only
+      those five numbers and the split's removal reach the host; `numpy_ref`'s host
+      reduction is the reference, and the input-noise floor is read on the host once,
+      at the launch (2026-10-28);
     - the record continues across a resume: no launch check, the totals, launch
       occupancies and rows restored against the original launch energy. The
       `BoundaryCheck` is recorded per execution and stays outside the resume key, so a

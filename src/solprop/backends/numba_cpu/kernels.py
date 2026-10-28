@@ -55,6 +55,7 @@ __all__ = [
     "ACCEPT_ELEMENTS",
     "BAND_DIAGNOSTICS",
     "BAND_STATS_ROWS",
+    "BOUNDARY_SUMS",
     "HOST",
     "ColumnSpec",
     "accept_and_partials",
@@ -63,6 +64,9 @@ __all__ = [
     "add_temporal_absorber",
     "apply_hard_mask",
     "band_work_rows",
+    "boundary_kernels",
+    "boundary_partials",
+    "boundary_partials_parallel",
     "column_spec",
     "exponentiate",
     "make_band_plasma_column",
@@ -73,6 +77,8 @@ __all__ = [
     "make_response_column",
     "make_stats_column",
     "peak_reduce",
+    "removal_partials",
+    "removal_partials_parallel",
     "scale_samples",
     "scale_spectrum",
     "scale_tensor_spectrum",
@@ -544,6 +550,158 @@ def peak_reduce(
             total += value.real * value.real + value.imag * value.imag
         largest = max(largest, total)
     partials[0] = largest
+
+
+BOUNDARY_SUMS = 5
+"""The sums the boundary monitor reads per row: the energy and its four weighted
+energies (:class:`solprop.monitor.BoundaryEnergies`)."""
+
+
+@njit(cache=True, nogil=True)
+@no_type_check
+def boundary_partials(
+    samples: Inexact[np.ndarray, "n_rows n_t"],
+    row_weights: Float[np.ndarray, " n_weighted"],
+    weights: Float[np.ndarray, "four n_t"],
+    partials: Float[np.ndarray, " n_partials"],
+) -> None:
+    """Sum each row's power and its four weighted powers, one set of partials per row.
+
+    The boundary monitor's reading of a chunk of rows on the coarse time axis
+    (:meth:`solprop.monitor.BoundaryMonitor.energies`): ``sum_t |x(t)|^2`` and
+    ``sum_t w_k(t) |x(t)|^2`` for the monitor's four weight rows, each times the row's
+    quadrature weight. The driver sums the partials over rows and chunks; the
+    reference sums over rows first and over time second, and either order is held to
+    its summation bound (SEP 25). The row loop is a ``prange``:
+    :func:`boundary_partials_parallel` is the same body compiled parallel.
+
+    Parameters
+    ----------
+    samples : numpy.ndarray
+        The rows in time, real on a field grid and complex on an envelope grid, shape
+        ``(n_rows, n_t)``.
+    row_weights : numpy.ndarray
+        Each row's quadrature weight, shape ``(n_rows,)``, or empty for unit weights.
+    weights : numpy.ndarray
+        The monitor's four weight rows, shape ``(4, n_t)``
+        (:attr:`solprop.monitor.BoundaryMonitor.weights`).
+    partials : numpy.ndarray
+        Written with :data:`BOUNDARY_SUMS` sums per row, row by row: the energy, then
+        the four weighted energies. At least ``BOUNDARY_SUMS * n_rows`` long.
+    """
+    n_rows, n_t = samples.shape
+    weighted = row_weights.shape[0] > 0
+    for row in prange(n_rows):
+        total = 0.0
+        low = 0.0
+        high = 0.0
+        collar = 0.0
+        rate = 0.0
+        for k in range(n_t):
+            value = samples[row, k]
+            power = value.real * value.real + value.imag * value.imag
+            total += power
+            low += weights[0, k] * power
+            high += weights[1, k] * power
+            collar += weights[2, k] * power
+            rate += weights[3, k] * power
+        scale = row_weights[row] if weighted else 1.0
+        base = BOUNDARY_SUMS * row
+        partials[base] = scale * total
+        partials[base + 1] = scale * low
+        partials[base + 2] = scale * high
+        partials[base + 3] = scale * collar
+        partials[base + 4] = scale * rate
+
+
+# Not disk-cached: numba names a parfor's gufunc per process (`backends.md` 3.2).
+boundary_partials_parallel = njit(cache=False, nogil=True, parallel=True)(
+    # The plain function under ``NUMBA_DISABLE_JIT``, which has no ``py_func``.
+    getattr(boundary_partials, "py_func", boundary_partials)
+)
+""":func:`boundary_partials` with its rows threaded (:data:`ACCEPT_ELEMENTS`)."""
+
+
+@njit(cache=True, nogil=True)
+@no_type_check
+def removal_partials(
+    samples: Inexact[np.ndarray, "n_rows n_t"],
+    row_weights: Float[np.ndarray, " n_weighted"],
+    taken: Float[np.ndarray, " n_t"],
+    partials: Float[np.ndarray, " n_partials"],
+) -> None:
+    """Sum what a split-step collar takes of each row, one partial per row.
+
+    ``sum_t (1 - exp(-alpha(t) h)) |x(t)|^2`` of the rows the split is about to
+    damp, each times the row's quadrature weight
+    (:meth:`solprop.monitor.BoundaryMonitor.split_removal`). The row loop is a
+    ``prange``: :func:`removal_partials_parallel` is the same body compiled parallel.
+
+    Parameters
+    ----------
+    samples : numpy.ndarray
+        The rows in time before the split, real on a field grid and complex on an
+        envelope grid, shape ``(n_rows, n_t)``.
+    row_weights : numpy.ndarray
+        Each row's quadrature weight, shape ``(n_rows,)``, or empty for unit weights.
+    taken : numpy.ndarray
+        ``1 - exp(-alpha(t) h)`` on the coarse time axis, shape ``(n_t,)``.
+    partials : numpy.ndarray
+        Written with one sum per row; at least ``n_rows`` long.
+    """
+    n_rows, n_t = samples.shape
+    weighted = row_weights.shape[0] > 0
+    for row in prange(n_rows):
+        total = 0.0
+        for k in range(n_t):
+            value = samples[row, k]
+            total += taken[k] * (value.real * value.real + value.imag * value.imag)
+        partials[row] = (row_weights[row] if weighted else 1.0) * total
+
+
+removal_partials_parallel = njit(cache=False, nogil=True, parallel=True)(
+    # The plain function under ``NUMBA_DISABLE_JIT``, which has no ``py_func``.
+    getattr(removal_partials, "py_func", removal_partials)
+)
+""":func:`removal_partials` with its rows threaded (:data:`ACCEPT_ELEMENTS`)."""
+
+
+def boundary_kernels(threads: int, n_rows: int, n_t: int) -> tuple[Any, Any]:
+    """Choose the serial or the row-threaded boundary-monitor reductions.
+
+    One traversal of the rows each, as the accept pass's, so the same measured
+    thresholds decide (:data:`ACCEPT_ELEMENTS`, :data:`ACCEPT_COLUMNS`).
+
+    Parameters
+    ----------
+    threads : int
+        Threads the kernel pool has.
+    n_rows : int
+        Rows one call traverses: a chunk's.
+    n_t : int
+        Coarse time samples per row.
+
+    Returns
+    -------
+    tuple
+        :func:`boundary_partials` and :func:`removal_partials`, or their parallel
+        variants when a chunk is large enough to share.
+
+    Examples
+    --------
+    >>> from solprop.backends.numba_cpu import kernels
+    >>> kernels.boundary_kernels(1, 64, 8192)[0] is kernels.boundary_partials
+    True
+    >>> threaded = kernels.boundary_kernels(6, 64, 8192)
+    >>> threaded[1] is kernels.removal_partials_parallel
+    True
+    """
+    threaded = (
+        threads > 1 and n_rows >= ACCEPT_COLUMNS and n_rows * n_t >= ACCEPT_ELEMENTS
+    )
+    if threaded:
+        return boundary_partials_parallel, removal_partials_parallel
+    return boundary_partials, removal_partials
 
 
 def column_spec(

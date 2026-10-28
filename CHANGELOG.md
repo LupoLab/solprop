@@ -77,10 +77,12 @@ The first public release. It contains:
   on: it warns
   (`BoundaryWarning`) and then stops (`BoundaryError`) when light above the shot-noise
   floor reaches the edge, refusing a launch above the stop level before its first step.
-  It records the energy the temporal collar removed (under the split scheme read before
-  each checked step's split, exactly; the `native` engine's own split by the trapezoid)
-  and the thresholds it ran under, with a row per saved plane in the run's closing
-  record. A resumed run continues the record, without a launch check; only the
+  It records the energy the temporal collar removed (under the split scheme summed
+  exactly by each backend's step finish at every accepted step) and the thresholds it
+  ran under, with a row per saved plane in the run's closing record. Each backend
+  reduces the monitor's five numbers where its state lives, on the GPU for `mlx` and
+  device builds of `native`, so a check copies five numbers to the host rather than the
+  field (kernel schema 38). A resumed run continues the record, without a launch check; only the
   quiet-collar opt-in enters the resume key. Each member of a `Batch` scan watches its
   own window, and a point stopped at an edge fails alone, as it would run alone. Quiet edges are checked every
   eighth step or every `length / 256`. `BoundaryCheck(quiet_collar=True)` also leaves a

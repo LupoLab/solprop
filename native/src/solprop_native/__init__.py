@@ -161,6 +161,8 @@ DRIVER_SURFACE: tuple[str, ...] = (
     "_adams_state",
     "_apply_mask",
     "_begin_plane",
+    "_bind_monitor",
+    "_boundary_energies",
     "_dense_stages",
     "_finish",
     "_held_field",
@@ -218,7 +220,10 @@ this backend measures energy, spectra and local flux by it natively. Schema 36 (
 SEP 33) adds ``KernelProblem.precision``: this backend computes in binary64 only and
 refuses a single-precision problem by name. Schema 37 (solprop SEP 35) adds
 ``Multistep.carrier_frame``: CPU builds step the scalar shift in the resident engine;
-device builds refuse it by name until they are qualified.
+device builds refuse it by name until they are qualified. Schema 38 adds
+``_bind_monitor`` and ``_boundary_energies``: this backend reduces the boundary
+monitor's five numbers in its memory space and adds a split-step collar's removal at
+every accepted step there, so a check copies five numbers rather than the field.
 
 solprop freezes this surface under its ``SCHEMA_VERSION`` (the test in its
 ``tests/backends/test_driver.py``); :func:`check_build` looks each member up so a

@@ -29,7 +29,7 @@ def case():
 
 def test_compiled_channels_share_labels_rates_and_linear_density(case):
     mixture, _, mode, _, problem = case
-    assert problem.schema_version == 37
+    assert problem.schema_version == 38
     assert problem.flags.n_channels == 2
     assert problem.flags.n_raman == 0
     assert problem.responses.labels == mixture.labels
