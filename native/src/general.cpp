@@ -5559,9 +5559,11 @@ KOKKOS_INLINE_FUNCTION void adams_phi(const Complex x, const Complex exp_x,
   // `scale` is 2^-squarings.
   int squarings = 0;
   double scale = 1.0;
-  for (double reduced = magnitude; reduced > 0.5; reduced *= 0.5) {
+  double reduced = magnitude;
+  while (reduced > 0.5) {
     ++squarings;
     scale *= 0.5;
+    reduced *= 0.5;
   }
   const Complex y = strict_scale(scale, x);
   // Each later term is below |y| / (m + order) of this one, |y| <= 1/2: once this one
