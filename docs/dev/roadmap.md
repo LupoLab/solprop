@@ -559,6 +559,15 @@ any of the first ten items.
   costs 4–7 % more than the default's on a cheap source, which the per-history-row
   rotation of the defect reducers could reduce
   ([SEP 35](seps/archive/sep-0035-carrier-frame-exponential-adams.md)).
+- **A fused batch axis for small runs on a GPU**: on the A40, a lockstep batch of
+  $2^{14}$–$2^{15}$-sample fibre runs reaches only 0.25–0.39 of the throughput of
+  $2^{18}$-sample runs (SEP 36's Q8 rule, measured in mixed precision; binary64 runs are
+  bound the same way), since the batch fuses only the accepted update. A batch axis
+  through the stage passes would be its own SEP.
+- **Launch and copy overhead on GPUs with full-rate binary64**: on an H100 and an MI325X a
+  fibre step at $2^{16}$ is about 85 kernels of 3–9 µs, and device-to-device copies take
+  18–21 % of the MI325X's GPU time (SEP 36); kernel fusion or graph capture, then the
+  copies.
 - **BLAS threads in the Windows and manylinux recipes**: one OpenMP runtime for Kokkos,
   FFTW and OpenBLAS in the Windows wheel (set up in the wheels workflow, to be proved
   there and timed), the same check on the manylinux release recipe, and the Kokkos
@@ -627,30 +636,30 @@ GPUs with slow double precision.
 - Double-precision transcendentals on GPUs with a reduced FP64 rate (NVIDIA's GA102 and
   AD102 parts, such as the A40, run FP64 at 1/64 of FP32): the stage combination
   evaluates `exp`, `cos` and `sin` per bin and stage, which there may cost as much as the
-  transforms. Profile first. Remedies that stay in double include deriving one stage's
-  propagator from another's (squaring a half-step propagator) and reusing propagators
-  while `dz` is unchanged.
-- A single-precision source evaluation inside a double-precision solver: the transforms,
-  the responses and the modal GEMMs in FP32; the state, the linear phase increments, the
-  Adams history and the running sums in FP64. Its rounding enters each step scaled by
-  `dz`, about FP32's epsilon times the step's nonlinear phase, so the error estimate's
-  floor stays near $10^{-8}$, against about $10^{-5}$ for a solver entirely in FP32.
-  Expected gain, unmeasured: up to the bandwidth factor of two on CPUs and data-centre
-  GPUs, possibly several times on reduced-FP64 GPUs. A first test needs no new data
-  types: round only the source evaluation to `complex64` in `numpy_ref`, on coherent
-  cases and one noise-seeded case. Noise-seeded runs may fail it, since FP32 rounding can
-  sit near a one-photon-per-mode seed for pulses of a microjoule and above. Adoption
-  would be a SEP.
+  transforms. Profiled by SEP 36 on the A40: the propagator's transcendentals were about
+  a third of a binary64 stage entry; one `sincos`, none at zero phase and the last
+  stage's propagator reused for the step now apply. Further remedies that stay in double
+  include deriving one stage's propagator from another's and reusing propagators while
+  `dz` is unchanged.
+- A single-precision source evaluation inside a double-precision solver ("mixed
+  precision"), and single precision on `native`: built and measured by
+  [SEP 36](seps/archive/sep-0036-native-reduced-precision.md) and withdrawn. Mixed
+  precision kept binary64's accuracy at a floor of `1e-7` and qualified noise on the
+  supercontinuum cases, but gained 1.1–1.7 times on CPUs, 1.1–1.2 on an H100 and an
+  MI325X and about 2 only on an A40, against a precision-templated native engine. The
+  implementation is on branch `archive/sep-0036-native-reduced-precision`.
 - Entirely single precision, and Metal: [SEP 33](seps/archive/sep-0033-single-precision-mlx.md)
   (final) built the precision setting, a `numpy_ref` oracle and an MLX backend for
   Apple GPUs on the fibre, radial and Cartesian routes with every response but the
   refused ones. Its open questions: whether a rule comparing binary32 Adams with
   binary64 Adams should admit `Multistep()` under single precision (binary64 Adams has
-  the same errors at the tolerances the study used); `mlx` cases in the
-  benchmarks (SEP 38); and a fused stage kernel for the launch-bound small plasma
-  capillaries. Open beyond it: single precision on
-  `native` and `numba_cpu` (Kokkos, Kokkos Kernels and Kokkos-FFT support it on every
-  backend in use), on the routes SEP 33 refuses, and noise models under single
+  the same errors at the tolerances the study used; SEP 36 admitted mixed Adams on an
+  envelope-relative reading of the same rule); `mlx` cases in the
+  benchmarks (SEP 38); a fused stage kernel for the launch-bound small plasma
+  capillaries; and MLX's comb-to-continuum limit with its own binary32 transforms
+  (`numpy_ref`'s now sum in binary32 and keep 0.05 m; native's FFTW float sums reached
+  only 0.025 m in SEP 36). Open beyond it: single precision on `numba_cpu`, on the
+  routes SEP 33 refuses, and noise models under single
   precision, which SEP 33 refuses as a known limitation: binary32 rounding can reach a
   one-photon-per-mode seed at high pulse energy. Kokkos has no Metal backend, and one
   would need a single-source C++ compiler for Metal (the runtime part is modest: 5 to
@@ -661,7 +670,10 @@ GPUs with slow double precision.
 GPU runs per hardware set. The first history rows are recorded at the release commit on
 an Apple M5 Max, a 16-core AMD EPYC 7763 allocation and a cloud Arm Neoverse-V2
 instance, with Windows x86-64 occasionally; a GPU file, cloud launch recipes and an
-`mlx` backend in the tracking set remain to do.
+`mlx` backend in the tracking set remain to do. The tracking set's
+`gnlse_raman_shock` launches `fwhm=50e-15 * 1.763`, about 88 fs FWHM, where the
+Dudley–Genty–Coen case is 50 fs FWHM (T0 = 28.4 fs); decide whether to correct it before
+the first history rows, since it changes the case's identity.
 
 **Remaining benchmark references and estimates.** Complete independent reference
 checks for the 512-node radial filament, 128/256-square Cartesian filaments and

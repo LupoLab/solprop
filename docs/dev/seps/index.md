@@ -72,6 +72,7 @@ Proposals that are final, rejected, withdrawn or superseded; the
 | [33](archive/sep-0033-single-precision-mlx.md) | Single-precision propagation, and an MLX backend for Apple GPUs | Final | Feature |
 | [34](archive/sep-0034-medium-flux.md) | Medium flux for free-space propagation | Final | Change |
 | [35](archive/sep-0035-carrier-frame-exponential-adams.md) | A carrier frame for the exponential Adams history | Final | Change |
+| [36](archive/sep-0036-native-reduced-precision.md) | Single and mixed precision on the native backend | Withdrawn | Feature |
 | [37](archive/sep-0037-noise-and-stepper-defaults.md) | Shot noise on by default, and an integrator and tolerances chosen for each interface | Final | Change |
 | [38](archive/sep-0038-performance-tracking.md) | Performance tracking: complete runs, about an hour per machine | Final | Process |
 

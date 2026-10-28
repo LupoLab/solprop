@@ -200,6 +200,82 @@ class FixedSchedule:  # numpydoc ignore=PR02
             pieces.append(np.diff(np.linspace(start, end, n + 1)))
         return cls(np.concatenate(pieces), z_start)
 
+    @classmethod
+    def from_history(
+        cls,
+        z: Float[np.ndarray, " n_attempts"] | Sequence[float],
+        h: Float[np.ndarray, " n_attempts"] | Sequence[float],
+        accepted: Sequence[bool] | np.ndarray | None = None,
+    ) -> "FixedSchedule":  # noqa: UP037 - bound after the class body
+        """Return the accepted steps of a run's step history, to replay them exactly.
+
+        A run's history records every attempt, rejected ones too: its start ``z``, its
+        length ``h`` and whether it was accepted (``output["step_history/z"]`` and the
+        like, the whole run concatenated). The accepted attempts are the steps the
+        run took, so replaying them (``schedule=`` on the settings, with the same save
+        planes) repeats the run's discretisation without its controller. Replayed in
+        another precision or on another backend, that isolates rounding from
+        truncation: the two runs make the same truncation errors, so their difference
+        is the arithmetic's alone.
+
+        Parameters
+        ----------
+        z : numpy.ndarray or collections.abc.Sequence
+            Start of each attempt, m.
+        h : numpy.ndarray or collections.abc.Sequence
+            Length of each attempt, m.
+        accepted : numpy.ndarray or collections.abc.Sequence or None, optional
+            Whether each attempt was accepted; every attempt by default.
+
+        Returns
+        -------
+        FixedSchedule
+            The accepted steps, starting at the first accepted attempt's ``z``.
+
+        Raises
+        ------
+        StepperError
+            If the arrays differ in length, nothing was accepted, or the accepted
+            steps do not follow each other (a step starting other than where the
+            last ended, as in a history from two different runs).
+
+        Examples
+        --------
+        >>> from solprop.stepper import FixedSchedule
+        >>> z, h = [0.0, 0.0, 0.25, 0.75], [0.5, 0.25, 0.5, 0.25]
+        >>> schedule = FixedSchedule.from_history(z, h, [False, True, True, True])
+        >>> schedule.steps.tolist(), schedule.z_end
+        ([0.25, 0.5, 0.25], 1.0)
+        """
+        starts = np.asarray(z, dtype=np.float64).ravel()
+        lengths = np.asarray(h, dtype=np.float64).ravel()
+        kept = (
+            np.ones(starts.shape, dtype=np.bool_)
+            if accepted is None
+            else np.asarray(accepted, dtype=np.bool_).ravel()
+        )
+        if not starts.shape == lengths.shape == kept.shape:
+            raise StepperError(
+                "z, h and accepted must have one entry per attempt, got "
+                f"{starts.size}, {lengths.size} and {kept.size}"
+            )
+        if not np.any(kept):
+            raise StepperError("the history holds no accepted step")
+        starts, lengths = starts[kept], lengths[kept]
+        # A landing step ends exactly on its target rather than at z + h, so the next
+        # start may differ from the sum by the rounding of that snap: a few ulp of z.
+        ends = starts[:-1] + lengths[:-1]
+        slack = 64 * np.finfo(np.float64).eps * np.maximum(np.abs(ends), lengths[:-1])
+        gaps = np.abs(starts[1:] - ends)
+        if np.any(gaps > slack):
+            index = int(np.argmax(gaps > slack))
+            raise StepperError(
+                f"accepted step {index + 2} starts at {starts[index + 1]:.9g} m, not "
+                f"where step {index + 1} ended ({ends[index]:.9g} m): the history is "
+                "not one run's"
+            )
+        return cls(lengths, float(starts[0]))
+
     @property
     def n_steps(self) -> int:
         """Return the number of steps.

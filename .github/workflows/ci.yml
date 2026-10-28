@@ -470,3 +470,32 @@ jobs:
           sudo apt-get install --yes clang-tidy cmake g++-14 libfftw3-dev ninja-build pkg-config
       - run: uv python install 3.14
       - run: uv run --locked poe check-native
+
+  # The one check the main branch's ruleset requires. Which lanes run depends on what a
+  # change touches (above), and a required check is matched by its reported name: a
+  # skipped matrix job reports its unexpanded name, so no fixed list of job names fits
+  # every pull request. This job always runs after every lane, fails if any of them
+  # failed or was cancelled, and passes when each passed or was skipped by its lane.
+  ci-passed:
+    if: always()
+    needs:
+      - changes
+      - docs-tests
+      - static
+      - docs
+      - native-wheel
+      - test
+      - slow
+      - slow-macos
+      - coverage
+      - coverage-report
+      - oldest
+      - native-quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every lane passed or was skipped by its lane
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "a lane failed or was cancelled"
+          exit 1
