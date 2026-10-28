@@ -7485,26 +7485,46 @@ void GeneralWorkspace::stage_entry_with(const std::size_t stage, const double dz
         double real[stage_block];
         double imag[stage_block];
         terms.phase_block(stage * n_phi, column, first, count, real, imag);
-        EntryBlock factors{};
-        terms.template entry_factors_block<Mode>(stage, column, first, count, real,
-                                                 imag, factors);
-        for (std::size_t bin = 0; bin < count; ++bin) {
-          const Complex propagator = terms.template combine<Mode>(
-              stage, dz, solution_weight, error_weight, column, first + bin,
-              Complex(real[bin], imag[bin]), factors.at(bin));
-          if (reuse_whole)
-            terms.whole(column, first + bin) = propagator;
-        }
-        if (last && !reuse_whole) {
-          // The whole step's propagator, `entry_exponential` over the block.
-          terms.phase_block(n_stages * n_phi, column, first, count, real, imag);
-          if constexpr (lossless)
-            vmath::sincos(imag, factors.sine, factors.cosine, count);
-          else
-            vmath::exp_complex(real, imag, factors.cosine, factors.sine, count);
-          for (std::size_t bin = 0; bin < count; ++bin)
-            terms.whole(column, first + bin) =
-                Complex(factors.cosine[bin], factors.sine[bin]);
+        // With vector maths the block's transcendentals are passes of the layer; with
+        // the system libm each bin keeps its own calls, which measured faster there
+        // (the passes' buffers cost 1 to 3 % on an AMD EPYC 7763 with glibc's).
+        if constexpr (vmath::vectorised) {
+          EntryBlock factors{};
+          terms.template entry_factors_block<Mode>(stage, column, first, count, real,
+                                                   imag, factors);
+          for (std::size_t bin = 0; bin < count; ++bin) {
+            const Complex propagator = terms.template combine<Mode>(
+                stage, dz, solution_weight, error_weight, column, first + bin,
+                Complex(real[bin], imag[bin]), factors.at(bin));
+            if (reuse_whole)
+              terms.whole(column, first + bin) = propagator;
+          }
+          if (last && !reuse_whole) {
+            // The whole step's propagator, `entry_exponential` over the block.
+            terms.phase_block(n_stages * n_phi, column, first, count, real, imag);
+            if constexpr (lossless)
+              vmath::sincos(imag, factors.sine, factors.cosine, count);
+            else
+              vmath::exp_complex(real, imag, factors.cosine, factors.sine, count);
+            for (std::size_t bin = 0; bin < count; ++bin)
+              terms.whole(column, first + bin) =
+                  Complex(factors.cosine[bin], factors.sine[bin]);
+          }
+        } else {
+          for (std::size_t bin = 0; bin < count; ++bin) {
+            const Complex phase(real[bin], imag[bin]);
+            const Complex propagator = terms.template combine<Mode>(
+                stage, dz, solution_weight, error_weight, column, first + bin, phase,
+                terms.template entry_factors<Mode>(stage, column, first + bin, phase));
+            if (reuse_whole)
+              terms.whole(column, first + bin) = propagator;
+          }
+          if (last && !reuse_whole) {
+            terms.phase_block(n_stages * n_phi, column, first, count, real, imag);
+            for (std::size_t bin = 0; bin < count; ++bin)
+              terms.whole(column, first + bin) =
+                  entry_exponential<lossless>(Complex(real[bin], imag[bin]));
+          }
         }
         terms.zero_gaps(column, block * gaps / blocks, (block + 1) * gaps / blocks);
       });
@@ -8764,8 +8784,8 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
         else
           return Kokkos::abs(first);
       };
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-      const auto rate_of = [&](const double magnitude, const std::size_t channel) {
+      [[maybe_unused]] const auto rate_of = [&](const double magnitude,
+                                                const std::size_t channel) {
         if constexpr (Multiple)
           return ionisation_rate(
               magnitude, channel_coefficients, channel_parameters(channel, 0),
@@ -8778,18 +8798,19 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
                                  d_log_field, field_min, field_max, rate_max,
                                  rate_intervals);
       };
-#endif
       BandLive integrand_live;
       integrand_live.min_val = samples;
       integrand_live.max_val = -1;
 
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
-      // On the host a team thread takes blocks of samples, whose transcendentals are
-      // passes of the vector-maths layer (`ionisation_rates`, the decays below).
-      const auto blocks =
+      // With vector maths a host team thread takes blocks of samples, whose
+      // transcendentals are passes of the layer (`ionisation_rates`, the decays
+      // below); with the system libm each sample keeps its own calls, as on a device.
+      [[maybe_unused]] const auto blocks =
           static_cast<int>((sample_count + rate_block - 1) / rate_block);
-      const auto rates_of = [&](const std::size_t first, const std::size_t count,
-                                double* rate, const std::size_t channel) {
+      [[maybe_unused]] const auto rates_of = [&](const std::size_t first,
+                                                 const std::size_t count, double* rate,
+                                                 const std::size_t channel) {
         double magnitude[rate_block];
         for (std::size_t sample = 0; sample < count; ++sample)
           magnitude[sample] = magnitude_at(first + sample);
@@ -8811,31 +8832,34 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
       // guard and the weight pointwise.
       for (std::size_t channel = 0; channel < channels; ++channel) {
         BandLive rate_live;
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-        Kokkos::parallel_reduce(
-            Kokkos::TeamThreadRange(team, samples),
-            [&](const int sample, BandLive& update) {
-              const auto time = static_cast<std::size_t>(sample);
-              const double rate = rate_of(magnitude_at(time), channel);
-              rates(slot, time) = rate;
-              band_note(update, sample, rate);
-            },
-            Kokkos::MinMax<int>(rate_live));
-#else
-        Kokkos::parallel_reduce(
-            Kokkos::TeamThreadRange(team, blocks),
-            [&](const int block, BandLive& update) {
-              const auto first = static_cast<std::size_t>(block) * rate_block;
-              const std::size_t count = std::min(rate_block, sample_count - first);
-              double rate[rate_block];
-              rates_of(first, count, rate, channel);
-              for (std::size_t sample = 0; sample < count; ++sample) {
-                rates(slot, first + sample) = rate[sample];
-                band_note(update, static_cast<int>(first + sample), rate[sample]);
-              }
-            },
-            Kokkos::MinMax<int>(rate_live));
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+        if constexpr (vmath::vectorised) {
+          Kokkos::parallel_reduce(
+              Kokkos::TeamThreadRange(team, blocks),
+              [&](const int block, BandLive& update) {
+                const auto first = static_cast<std::size_t>(block) * rate_block;
+                const std::size_t count = std::min(rate_block, sample_count - first);
+                double rate[rate_block];
+                rates_of(first, count, rate, channel);
+                for (std::size_t sample = 0; sample < count; ++sample) {
+                  rates(slot, first + sample) = rate[sample];
+                  band_note(update, static_cast<int>(first + sample), rate[sample]);
+                }
+              },
+              Kokkos::MinMax<int>(rate_live));
+        } else
 #endif
+        {
+          Kokkos::parallel_reduce(
+              Kokkos::TeamThreadRange(team, samples),
+              [&](const int sample, BandLive& update) {
+                const auto time = static_cast<std::size_t>(sample);
+                const double rate = rate_of(magnitude_at(time), channel);
+                rates(slot, time) = rate;
+                band_note(update, sample, rate);
+              },
+              Kokkos::MinMax<int>(rate_live));
+        }
         team.team_barrier();
         const BandWindow window = band_window_of(rate_live, samples, half);
         if (window.first <= window.last)
@@ -8855,8 +8879,7 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
         const int changing_end = Kokkos::min(window.last + 2, samples);
         const double before = band_fraction(0.0, initial);
         const double after = band_fraction(total, initial);
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-        const auto fraction_at = [&](const int sample) {
+        [[maybe_unused]] const auto fraction_at = [&](const int sample) {
           if (sample < window.first)
             return before;
           if (sample >= changing_end)
@@ -8864,31 +8887,32 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
           return band_fraction(exposures(slot, static_cast<std::size_t>(sample)),
                                initial);
         };
-#else
-        // A host block's fractions: the changing samples' decays `exp(-max(X, 0))` in
-        // one pass, each fraction then `band_fraction`'s strict arithmetic.
-        const auto fractions_of = [&](const std::size_t first, const std::size_t count,
-                                      double* fraction) {
-          double decay[rate_block];
-          std::size_t active[rate_block];
-          std::size_t live = 0;
-          for (std::size_t offset = 0; offset < count; ++offset) {
-            const auto sample = static_cast<int>(first + offset);
-            if (sample < window.first) {
-              fraction[offset] = before;
-            } else if (sample >= changing_end) {
-              fraction[offset] = after;
-            } else {
-              const double exposure = exposures(slot, first + offset);
-              decay[live] = -(exposure < 0.0 ? 0.0 : exposure);
-              active[live] = offset;
-              ++live;
-            }
-          }
-          vmath::exp(decay, decay, live);
-          for (std::size_t k = 0; k < live; ++k)
-            fraction[active[k]] = decayed_fraction(decay[k], initial);
-        };
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+        // A host block's fractions with vector maths: the changing samples' decays
+        // `exp(-max(X, 0))` in one pass, each fraction then `band_fraction`'s strict
+        // arithmetic.
+        [[maybe_unused]] const auto fractions_of =
+            [&](const std::size_t first, const std::size_t count, double* fraction) {
+              double decay[rate_block];
+              std::size_t active[rate_block];
+              std::size_t live = 0;
+              for (std::size_t offset = 0; offset < count; ++offset) {
+                const auto sample = static_cast<int>(first + offset);
+                if (sample < window.first) {
+                  fraction[offset] = before;
+                } else if (sample >= changing_end) {
+                  fraction[offset] = after;
+                } else {
+                  const double exposure = exposures(slot, first + offset);
+                  decay[live] = -(exposure < 0.0 ? 0.0 : exposure);
+                  active[live] = offset;
+                  ++live;
+                }
+              }
+              vmath::exp(decay, decay, live);
+              for (std::size_t k = 0; k < live; ++k)
+                fraction[active[k]] = decayed_fraction(decay[k], initial);
+            };
 #endif
         if constexpr (Multiple) {
           const double partial = channel_density(stage, channel);
@@ -8903,22 +8927,25 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
             weights(slot, time) = weight + share;
             guards(slot, time) = work + paid;
           };
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-          Kokkos::parallel_for(
-              Kokkos::TeamThreadRange(team, samples), [&](const int sample) {
-                share_at(static_cast<std::size_t>(sample), fraction_at(sample));
-              });
-#else
-          Kokkos::parallel_for(
-              Kokkos::TeamThreadRange(team, blocks), [&](const int block) {
-                const auto first = static_cast<std::size_t>(block) * rate_block;
-                const std::size_t count = std::min(rate_block, sample_count - first);
-                double fraction[rate_block];
-                fractions_of(first, count, fraction);
-                for (std::size_t offset = 0; offset < count; ++offset)
-                  share_at(first + offset, fraction[offset]);
-              });
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+          if constexpr (vmath::vectorised) {
+            Kokkos::parallel_for(
+                Kokkos::TeamThreadRange(team, blocks), [&](const int block) {
+                  const auto first = static_cast<std::size_t>(block) * rate_block;
+                  const std::size_t count = std::min(rate_block, sample_count - first);
+                  double fraction[rate_block];
+                  fractions_of(first, count, fraction);
+                  for (std::size_t offset = 0; offset < count; ++offset)
+                    share_at(first + offset, fraction[offset]);
+                });
+          } else
 #endif
+          {
+            Kokkos::parallel_for(
+                Kokkos::TeamThreadRange(team, samples), [&](const int sample) {
+                  share_at(static_cast<std::size_t>(sample), fraction_at(sample));
+                });
+          }
         } else {
           const auto integrand_at = [&](const std::size_t time, const double fraction,
                                         BandLive& update) {
@@ -8933,27 +8960,30 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
               band_note(update, static_cast<int>(time), value);
             }
           };
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-          Kokkos::parallel_reduce(
-              Kokkos::TeamThreadRange(team, samples),
-              [&](const int sample, BandLive& update) {
-                integrand_at(static_cast<std::size_t>(sample), fraction_at(sample),
-                             update);
-              },
-              Kokkos::MinMax<int>(integrand_live));
-#else
-          Kokkos::parallel_reduce(
-              Kokkos::TeamThreadRange(team, blocks),
-              [&](const int block, BandLive& update) {
-                const auto first = static_cast<std::size_t>(block) * rate_block;
-                const std::size_t count = std::min(rate_block, sample_count - first);
-                double fraction[rate_block];
-                fractions_of(first, count, fraction);
-                for (std::size_t offset = 0; offset < count; ++offset)
-                  integrand_at(first + offset, fraction[offset], update);
-              },
-              Kokkos::MinMax<int>(integrand_live));
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+          if constexpr (vmath::vectorised) {
+            Kokkos::parallel_reduce(
+                Kokkos::TeamThreadRange(team, blocks),
+                [&](const int block, BandLive& update) {
+                  const auto first = static_cast<std::size_t>(block) * rate_block;
+                  const std::size_t count = std::min(rate_block, sample_count - first);
+                  double fraction[rate_block];
+                  fractions_of(first, count, fraction);
+                  for (std::size_t offset = 0; offset < count; ++offset)
+                    integrand_at(first + offset, fraction[offset], update);
+                },
+                Kokkos::MinMax<int>(integrand_live));
+          } else
 #endif
+          {
+            Kokkos::parallel_reduce(
+                Kokkos::TeamThreadRange(team, samples),
+                [&](const int sample, BandLive& update) {
+                  integrand_at(static_cast<std::size_t>(sample), fraction_at(sample),
+                               update);
+                },
+                Kokkos::MinMax<int>(integrand_live));
+          }
         }
         if (stashing) {
           double largest = 0.0;
