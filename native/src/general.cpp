@@ -15,6 +15,7 @@
 
 #include "solprop_native/raman_fft.hpp"
 #include "solprop_native/slab.hpp"
+#include "solprop_native/vmath.hpp"
 #include "solprop_native/z_table.hpp"
 #include <KokkosFFT.hpp>
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
@@ -1380,6 +1381,28 @@ constexpr std::size_t stage_block = 64;
 // How a stage's entry forms its propagator pair (`StageTerms::combine`).
 enum class EntryPhase { general, lossless, repeated };
 
+// The transcendental factors of a stage's combination at one bin: the phase's
+// `cos b` and `sin b`, its magnitudes `e^a` and `e^-a` (one on a lossless problem),
+// and the noise phase's cosine and sine.
+struct EntryFactors {
+  double cosine = 0.0, sine = 0.0, magnitude = 1.0, inverse = 1.0;
+  double noise_cosine = 0.0, noise_sine = 0.0;
+};
+
+// A host work item's factors for its block of bins, formed by the vector-maths layer
+// in one pass of each function (`StageTerms::entry_factors_block`); the factors a
+// stage does not use stay zero.
+struct EntryBlock {
+  double cosine[stage_block], sine[stage_block];
+  double magnitude[stage_block], inverse[stage_block];
+  double noise_cosine[stage_block], noise_sine[stage_block];
+
+  EntryFactors at(const std::size_t bin) const {
+    return {cosine[bin],  sine[bin],         magnitude[bin],
+            inverse[bin], noise_cosine[bin], noise_sine[bin]};
+  }
+};
+
 struct StageTerms {
   ComplexView2 current, fine, whole, solution, error, stage_phase, stage_inverse, noise;
   ComplexView2 flow_input, flow_lab, flow_drive, general_scaled, general_source;
@@ -1461,40 +1484,89 @@ struct StageTerms {
     return sum;
   }
 
-  // The combination of stage `stage` at one bin, from the stage's phase increment.
-  // The propagator `exp(phase)` and its inverse `exp(-phase)`, which the finish
-  // applies, share their cosine and sine (solprop SEP 25 section 6.7): the angle's
-  // parts are even and odd, so `exp(-phase)` is `e^{-a} (cos b, -sin b)` with its own
-  // magnitude, never a reciprocal of the forward value, and is the finish's former
-  // `exponential(-phase)` to the bit. A coupled flow's residual reads the phase.
-  // A lossless problem (`EntryPhase::lossless`: every Phi term's real part exactly
-  // zero, so the phase's is a signed zero) takes both magnitudes as `exp(+-0)`,
-  // exactly one, without the calls. A lossless stage whose phase weights equal the
-  // stage before's (`EntryPhase::repeated`) has that stage's inverse still in place,
-  // and its propagator is that inverse's conjugate, `(cos b, -(-sin b))`, to the bit.
+  // The factors of stage `stage`'s combination at one bin, one bin at a time (a
+  // device's entry; the host forms a block's together, `entry_factors_block`). The
+  // propagator `exp(phase)` and its inverse `exp(-phase)` share their cosine and sine,
+  // each magnitude is its own `exp`, and a lossless problem's are exactly one, taken
+  // without the calls (`combine`).
+  template <EntryPhase Mode>
+  KOKKOS_INLINE_FUNCTION EntryFactors entry_factors(const std::size_t stage,
+                                                    const std::size_t column,
+                                                    const std::size_t index,
+                                                    const Complex phase) const {
+    EntryFactors factors;
+    if constexpr (Mode != EntryPhase::repeated)
+      cosine_sine(phase.imag(), factors.cosine, factors.sine);
+    if constexpr (Mode == EntryPhase::general) {
+      factors.magnitude = Kokkos::exp(phase.real());
+      factors.inverse = Kokkos::exp(-phase.real());
+    }
+    if (add_noise) {
+      const Complex phase_at = noise_phase(stage, column, index);
+      factors.noise_cosine = Kokkos::cos(phase_at.imag());
+      factors.noise_sine = Kokkos::sin(phase_at.imag());
+    }
+    return factors;
+  }
+
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+  // A host work item's factors for its `count` bins from `first`, each function one
+  // pass of the vector-maths layer over the block (solprop ADR-059): the phases' sines
+  // and cosines, their magnitudes and inverse magnitudes, and the noise phases'.
+  template <EntryPhase Mode>
+  void entry_factors_block(const std::size_t stage, const std::size_t column,
+                           const std::size_t first, const std::size_t count,
+                           const double (&real)[stage_block],
+                           const double (&imag)[stage_block], EntryBlock& block) const {
+    if constexpr (Mode != EntryPhase::repeated)
+      vmath::sincos(imag, block.sine, block.cosine, count);
+    if constexpr (Mode == EntryPhase::general) {
+      double negated[stage_block];
+      for (std::size_t bin = 0; bin < count; ++bin)
+        negated[bin] = -real[bin];
+      vmath::exp(real, block.magnitude, count);
+      vmath::exp(negated, block.inverse, count);
+    }
+    if (add_noise) {
+      double angle[stage_block];
+      for (std::size_t bin = 0; bin < count; ++bin)
+        angle[bin] = noise_phase(stage, column, first + bin).imag();
+      vmath::sincos(angle, block.noise_sine, block.noise_cosine, count);
+    }
+  }
+#endif
+
+  // The combination of stage `stage` at one bin, from the stage's phase increment and
+  // its factors (`entry_factors`). The propagator `exp(phase)` and its inverse
+  // `exp(-phase)`, which the finish applies, share their cosine and sine (solprop SEP
+  // 25 section 6.7): the angle's parts are even and odd, so `exp(-phase)` is
+  // `e^{-a} (cos b, -sin b)` with its own magnitude, never a reciprocal of the forward
+  // value. A coupled flow's residual reads the phase. A lossless problem
+  // (`EntryPhase::lossless`: every Phi term's real part exactly zero, so the phase's
+  // is a signed zero) takes both magnitudes as `exp(+-0)`, exactly one, without the
+  // calls. A lossless stage whose phase weights equal the stage before's
+  // (`EntryPhase::repeated`) has that stage's inverse still in place, and its
+  // propagator is that inverse's conjugate, `(cos b, -(-sin b))`, to the bit.
   // Returns the propagator.
   template <EntryPhase Mode = EntryPhase::general>
   KOKKOS_INLINE_FUNCTION Complex combine(const std::size_t stage, const double dz,
                                          const double solution_weight,
                                          const double error_weight,
                                          const std::size_t column,
-                                         const std::size_t index,
-                                         const Complex phase) const {
-    const Complex phase_at = add_noise ? noise_phase(stage, column, index) : Complex{};
+                                         const std::size_t index, const Complex phase,
+                                         const EntryFactors& factors) const {
     Complex propagator;
     if constexpr (Mode == EntryPhase::repeated) {
       const Complex inverse = stage_inverse(column, index);
       propagator = Complex(inverse.real(), -inverse.imag());
+    } else if constexpr (Mode == EntryPhase::lossless) {
+      propagator = Complex(factors.cosine, factors.sine);
+      stage_inverse(column, index) = Complex(factors.cosine, -factors.sine);
     } else {
-      constexpr bool lossless = Mode == EntryPhase::lossless;
-      double cosine = 0.0;
-      double sine = 0.0;
-      cosine_sine(phase.imag(), cosine, sine);
-      const double magnitude = lossless ? 1.0 : Kokkos::exp(phase.real());
-      const double inverse_magnitude = lossless ? 1.0 : Kokkos::exp(-phase.real());
-      propagator = Complex(magnitude * cosine, magnitude * sine);
+      propagator =
+          Complex(factors.magnitude * factors.cosine, factors.magnitude * factors.sine);
       stage_inverse(column, index) =
-          Complex(inverse_magnitude * cosine, -(inverse_magnitude * sine));
+          Complex(factors.inverse * factors.cosine, -(factors.inverse * factors.sine));
     }
     if (flow)
       stage_phase(column, index) = phase;
@@ -1509,8 +1581,7 @@ struct StageTerms {
       value = propagator * (current(column, index) + dz * accumulated);
     }
     if (add_noise)
-      value += noise(column, index) *
-               Complex(Kokkos::cos(phase_at.imag()), Kokkos::sin(phase_at.imag()));
+      value += noise(column, index) * Complex(factors.noise_cosine, factors.noise_sine);
     const double analytic_scale =
         analytic && index > 0 && 2 * crop(index) < n_to ? 2.0 : 1.0;
     fine(column, crop(index)) = analytic_scale * inverse_n_to * value;
@@ -7326,7 +7397,8 @@ void GeneralWorkspace::stage_entry_with(const std::size_t stage, const double dz
           terms.finish(previous, previous_solution, previous_error, column, index);
         const Complex phase = terms.phase_sum(stage * n_phi, column, index);
         const Complex propagator = terms.template combine<Mode>(
-            stage, dz, solution_weight, error_weight, column, index, phase);
+            stage, dz, solution_weight, error_weight, column, index, phase,
+            terms.template entry_factors<Mode>(stage, column, index, phase));
         if (reuse_whole) {
           terms.whole(column, index) = propagator;
         } else if (last) {
@@ -7357,18 +7429,26 @@ void GeneralWorkspace::stage_entry_with(const std::size_t stage, const double dz
         double real[stage_block];
         double imag[stage_block];
         terms.phase_block(stage * n_phi, column, first, count, real, imag);
+        EntryBlock factors{};
+        terms.template entry_factors_block<Mode>(stage, column, first, count, real,
+                                                 imag, factors);
         for (std::size_t bin = 0; bin < count; ++bin) {
           const Complex propagator = terms.template combine<Mode>(
               stage, dz, solution_weight, error_weight, column, first + bin,
-              Complex(real[bin], imag[bin]));
+              Complex(real[bin], imag[bin]), factors.at(bin));
           if (reuse_whole)
             terms.whole(column, first + bin) = propagator;
         }
         if (last && !reuse_whole) {
+          // The whole step's propagator, `entry_exponential` over the block.
           terms.phase_block(n_stages * n_phi, column, first, count, real, imag);
+          if constexpr (lossless)
+            vmath::sincos(imag, factors.sine, factors.cosine, count);
+          else
+            vmath::exp_complex(real, imag, factors.cosine, factors.sine, count);
           for (std::size_t bin = 0; bin < count; ++bin)
             terms.whole(column, first + bin) =
-                entry_exponential<lossless>(Complex(real[bin], imag[bin]));
+                Complex(factors.cosine[bin], factors.sine[bin]);
         }
         terms.zero_gaps(column, block * gaps / blocks, (block + 1) * gaps / blocks);
       });
