@@ -339,15 +339,40 @@ The first public release. It contains:
   build. It replaces SEP 30's standard suite, whose
   reference qualification, native coverage and export are removed; `ab` compares two
   builds on the same worker.
+- **Ensemble and replay helpers.** `processing.coherence.band_coherence` and
+  `spectral_bands` reduce an ensemble's coherence to one value per spectral band, weighted
+  by a reference ensemble's mean spectrum, to compare two ensembles band by band;
+  `FixedSchedule.from_history` replays a run's accepted steps, so two precisions or
+  backends can be compared on the same discretisation.
 - **Documentation.** An introduction with executable lessons, a user guide, a
   long-form primer on the physics and numerics, focused tutorials and worked examples,
   the API reference, and a developer's guide with the design records (SEPs and ADRs).
 
 ### Fixed
 
+- **Single precision's reference transforms sum in binary32.** `numpy_ref`'s
+  single-precision path used NumPy's float32 transforms, which are binary64 rounded once,
+  and so was more accurate than the backends it checks. Its binary32 transforms now go to
+  `scipy.fft`; binary64 is unchanged bit for bit. The comb-to-continuum record keeps its
+  0.05 m limit on the corrected reference
+  ([SEP 36](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0036-native-reduced-precision.html), withdrawn).
+- **A single-precision capillary's default tolerance** is the capillary's `1e-6` again;
+  it had fallen through to the waveguide's `1e-5`.
+- **The release wheels' coexistence check** runs noiseless: under the default input noise
+  its repeated run drew a second realisation and failed.
+- **A one-mode run on a GPU uses the whole device.** The accepted update, the error norms
+  and the response used one team of threads per transverse node, so a fibre or a
+  mode-averaged run kept one multiprocessor busy; they now spread over up to 256 teams,
+  and the stage entry takes one `sincos` per propagator and reuses the last stage's for
+  the step where their phases agree. A fibre with Raman runs 2.5 times faster at $2^{16}$
+  samples and 5.6 times at $2^{18}$ on an AMD Instinct MI325X, and takes 4 times less GPU
+  time per step at $2^{16}$ on an NVIDIA A40; runs with many nodes (radial, Cartesian)
+  and short steps are unchanged. Device results move at rounding level, since the norms
+  and the plasma's running sums are summed in tiles.
 - **`python -m benchmarks ab` between builds whose grids differ** recorded the field
   difference as infinite, which the summary's JSON refused, so the run ended without
   its summary; the difference is now recorded as not defined.
+
 - **The noise row of a printed `Simulation`** named the realisation's class; it now
   gives its model and seed.
 - **Spectral ranges of the plots in the units of their axis.** `prop_2d`, `spec_1d` and

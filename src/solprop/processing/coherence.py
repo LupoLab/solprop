@@ -25,7 +25,7 @@ from solprop.output.schema import Output
 from solprop.processing.axes import Band, ModeSelection
 from solprop.processing.fields import get_spectrum
 
-__all__ = ["g12", "g12_of"]
+__all__ = ["band_coherence", "g12", "g12_of", "spectral_bands"]
 
 
 def g12(
@@ -151,3 +151,125 @@ def g12_of(
         msg = f"every run of an ensemble must have the same shape, got {sorted(shapes)}"
         raise OutputError(msg)
     return gathered[0][0], g12(np.stack([values for _, values in gathered]))
+
+
+def spectral_bands(
+    weights: Float[np.ndarray, " n_x"], n_bands: int = 32
+) -> list[np.ndarray]:
+    """Return the bin indices of equal bands across a spectrum's occupied span.
+
+    SEP 33's spectral metric: the span from the first to the last bin with non-zero
+    weight, cut into `n_bands` bands of as nearly equal width as the bins allow.
+
+    Parameters
+    ----------
+    weights : numpy.ndarray
+        Non-negative spectral weight per bin, shape ``(n_x,)``, zero outside the
+        band of interest (a mean spectrum restricted to the active band).
+    n_bands : int, optional
+        How many bands, 32 by default.
+
+    Returns
+    -------
+    list of numpy.ndarray
+        The bins of each band, in order; empty when every weight is zero.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.processing.coherence import spectral_bands
+    >>> [band.tolist() for band in spectral_bands(np.array([0.0, 1, 1, 1, 1, 0]), 2)]
+    [[1, 2], [3, 4]]
+    """
+    occupied = np.flatnonzero(np.asarray(weights) > 0)
+    if occupied.size == 0:
+        return []
+    span = np.arange(occupied[0], occupied[-1] + 1)
+    return list(np.array_split(span, n_bands))
+
+
+def band_coherence(
+    spectra: Complex[np.ndarray, "n_realisations *rest n_x"],
+    reference: Complex[np.ndarray, "n_reference *rest n_x"],
+    *,
+    n_bands: int = 32,
+    floor_db: float = -30.0,
+) -> tuple[Float[np.ndarray, " n_bands"], Float[np.ndarray, " n_bands"]]:
+    r"""Return an ensemble's coherence averaged over the bands of a reference spectrum.
+
+    The coherence :func:`g12` of `spectra` per bin, averaged over each band's bins
+    weighted by the `reference` ensemble's mean spectrum,
+    :math:`\sum_b \bar S_b g_{12,b} / \sum_b \bar S_b`, in the `n_bands` equal bands of
+    :func:`spectral_bands` across the reference mean spectrum's occupied span. A band
+    whose mean spectral energy is below `floor_db` of the largest band's is not
+    scored. The reference selects the bands and weighs them, so two ensembles judged
+    against one reference (for example two precisions or two solvers with the same
+    seeds) are averaged over the same bins with the same weights. The reference's own
+    band coherence is ``band_coherence(reference, reference)``.
+
+    Parameters
+    ----------
+    spectra : numpy.ndarray
+        Complex spectra of the ensemble judged, shape ``(n_realisations, ..., n_x)``,
+        at least two realisations.
+    reference : numpy.ndarray
+        Complex spectra of the reference ensemble, shape ``(n_reference, ..., n_x)``
+        with the same trailing shape. Its mean of :math:`|\tilde E|^2` over the
+        realisations, summed over the axes between, is the weight.
+    n_bands : int, optional
+        How many bands, 32 by default.
+    floor_db : float, optional
+        Bands below this level of the largest band's energy are not scored, dB;
+        -30 by default.
+
+    Returns
+    -------
+    coherence : numpy.ndarray
+        The weighted mean coherence of each band, shape ``(n_bands,)``; ``nan`` for a
+        band not scored.
+    energy : numpy.ndarray
+        The reference mean spectrum's energy in each band, shape ``(n_bands,)``.
+
+    Raises
+    ------
+    solprop.exceptions.OutputError
+        If the trailing shapes differ, or `spectra` has fewer than two realisations.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.processing.coherence import band_coherence
+    >>> one = np.ones(64, dtype=complex)
+    >>> coherence, energy = band_coherence(np.stack([one, one]), np.stack([one, one]))
+    >>> bool(np.allclose(coherence, 1.0)), energy.shape
+    (True, (32,))
+    """
+    if (
+        spectra.shape[1:] != reference.shape[1:]
+    ):  # pragma: no cover - refused by the annotation where it is checked
+        msg = (
+            f"the ensemble's spectra have shape {spectra.shape[1:]}, the reference's "
+            f"{reference.shape[1:]}"
+        )
+        raise OutputError(msg)
+    coherence = g12(spectra)
+    weight = np.mean(np.abs(reference) ** 2, axis=0)
+    weight = weight.reshape(-1, weight.shape[-1])
+    coherence = coherence.reshape(-1, coherence.shape[-1])
+    bands = spectral_bands(weight.sum(axis=0), n_bands)
+    result = np.full(n_bands, np.nan)
+    if not bands:
+        return result, np.zeros(n_bands)
+    energy = np.array([weight[:, band].sum() for band in bands])
+    kept = energy >= energy.max() * 10.0 ** (floor_db / 10.0)
+    for index, band in enumerate(bands):
+        if not kept[index]:
+            continue
+        weights = weight[:, band]
+        values = coherence[:, band]
+        # An empty bin has no coherence (nan) and no weight: it adds nothing.
+        finite = np.isfinite(values) & (weights > 0)
+        result[index] = float(
+            np.sum(weights[finite] * values[finite]) / np.sum(weights[finite])
+        )
+    return result, energy

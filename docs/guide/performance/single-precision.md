@@ -127,7 +127,10 @@ field-grid one 2.2e-4 (2.8e-4, bands): both survive.
   roundoff times the field. In binary64, adding a seed of $2^{-24}$ of the launch's peak
   spectral amplitude moves the result at 0.1 m by 5 %: the sensitivity is the
   physics, and binary32's own rounding is such a seed. Over 0.05 m the run is inside
-  every envelope.
+  every envelope. The reference's transforms now sum in binary32, as the backends' do
+  (NumPy's float32 transforms are binary64 rounded once, which this record first used);
+  on them the field error is 2.5×10⁻⁴ at 0.05 m and 1.6×10⁻³ at 0.1 m, so the limit
+  stands ([SEP 36](../../dev/seps/archive/sep-0036-native-reduced-precision.md)).
 - **The tolerance floor** stays at `1e-6`: tightening from `1e-5` to `1e-6` still buys
   accuracy (by 92 % in the self-phase-modulation case's field).
 - **The propagator's step limit.** With no nonlinear source the rounding of

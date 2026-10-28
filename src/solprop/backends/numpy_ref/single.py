@@ -50,7 +50,7 @@ from collections.abc import Mapping, Sequence
 import numpy as np
 from jaxtyping import Complex, Float, Inexact, Num
 
-from solprop.backends.numpy_ref import passes
+from solprop.backends.numpy_ref import passes, transforms
 from solprop.backends.numpy_ref.backend import NumpyRefBackend, SourceTables
 from solprop.backends.numpy_ref.envelope_plasma import envelope_sources
 from solprop.constants import EPS0
@@ -665,8 +665,8 @@ class NumpySingleBackend(NumpyRefBackend):
         assert self._held_factors is not None
         grids = self._problem.grids
         inverse, inverse_squared = self._held_factors
-        current = np.fft.rfft(gated, axis=-1)[..., grids.crop_index]
-        derivative = np.fft.rfft(edge, axis=-1)[..., grids.crop_index]
+        current = transforms.rfft(gated, axis=-1)[..., grids.crop_index]
+        derivative = transforms.rfft(edge, axis=-1)[..., grids.crop_index]
         result = np.zeros_like(current)
         active = grids.active_mask
         result[..., active] = (
@@ -935,7 +935,7 @@ def analytic_single(
     """
     real = np.real(values).astype(np.float32, copy=False)
     n = real.shape[-1]
-    spectrum = np.fft.fft(real, axis=-1)
+    spectrum = transforms.fft(real, axis=-1)
     weights = np.zeros(n, dtype=np.float32)
     weights[0] = 1.0
     if n % 2 == 0:
@@ -943,7 +943,7 @@ def analytic_single(
         weights[1 : n // 2] = 2.0
     else:
         weights[1 : (n + 1) // 2] = 2.0
-    return np.fft.ifft(spectrum * weights, axis=-1)
+    return transforms.ifft(spectrum * weights, axis=-1)
 
 
 def _drive_single(
@@ -1020,8 +1020,8 @@ def raman_single(
     drive = np.zeros((n_nodes, 2 * n_to), dtype=np.float32)
     for node in range(n_nodes):
         drive[node, :n_to] = _drive_single(field_t[node], kind=kind, thg=thg)
-    convolved = np.fft.irfft(
-        spectrum * np.fft.rfft(drive, axis=-1), n=2 * n_to, axis=-1
+    convolved = transforms.irfft(
+        spectrum * transforms.rfft(drive, axis=-1), n=2 * n_to, axis=-1
     )[..., :n_to]
     return factor * field_t * convolved[:, np.newaxis, :]
 
@@ -1081,8 +1081,8 @@ def _vector_raman_single(
             2 * half * (np.real(x) * np.real(y) + np.imag(x) * np.imag(y))
         )
     kernels = spectrum if n_drives == 1 else spectrum[[0, 1, 1]]
-    convolved = np.fft.irfft(
-        kernels * np.fft.rfft(drive, axis=-1), n=2 * n_to, axis=-1
+    convolved = transforms.irfft(
+        kernels * transforms.rfft(drive, axis=-1), n=2 * n_to, axis=-1
     )[..., :n_to]
     if n_drives == 1:
         return factor * field_t * convolved

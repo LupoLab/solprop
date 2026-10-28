@@ -193,6 +193,9 @@ def test_single_precision_takes_its_defaults_and_refuses_what_it_does_not_run():
     assert settings.precision == "single"
     assert isinstance(settings.integrator, RungeKutta)
     assert cast("PIController", settings.controller).rtol == 1e-6
+    # A capillary takes its own default, at the floor, not the waveguide's 1e-5.
+    controller = capillary("single").settings.controller
+    assert cast("PIController", controller).rtol == 1e-6
     assert simulation.translate().precision.single
 
     def automatic() -> Simulation:

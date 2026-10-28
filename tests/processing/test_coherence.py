@@ -111,3 +111,51 @@ def test_g12_of_refuses_runs_of_different_shape(synthetic):
     ]
     with pytest.raises(OutputError, match="same shape"):
         coherence.g12_of(ensemble, plane=0)
+
+
+def test_the_bands_split_the_occupied_span_equally():
+    weights = np.zeros(70)
+    weights[3:67] = 1.0
+    bands = coherence.spectral_bands(weights, 32)
+    assert len(bands) == 32
+    assert bands[0][0] == 3
+    assert bands[-1][-1] == 66
+    assert {band.size for band in bands} == {2}
+    assert coherence.spectral_bands(np.zeros(4)) == []
+
+
+def test_band_coherence_weights_each_bin_by_the_reference_spectrum():
+    rng = np.random.default_rng(1)
+    n_x = 64
+    reference = np.ones((8, n_x), dtype=complex)
+    # Two bins per band: a coherent bin and an incoherent one whose reference weight
+    # is three times larger, so the band mean is (1 * 1 + 3 * g) / 4.
+    reference[:, 1::2] *= np.sqrt(3.0)
+    phases = np.exp(2j * np.pi * rng.random((8, n_x)))
+    spectra = np.ones((8, n_x), dtype=complex)
+    spectra[:, 1::2] = phases[:, 1::2]
+    per_bin = coherence.g12(spectra)
+    values, energy = coherence.band_coherence(spectra, reference)
+    expected = (per_bin[0::2] + 3.0 * per_bin[1::2]) / 4.0
+    np.testing.assert_allclose(values, expected, rtol=1e-12)
+    np.testing.assert_allclose(energy, np.full(32, 4.0 * 8 / 8), rtol=1e-12)
+
+
+def test_band_coherence_scores_only_bands_above_the_floor():
+    reference = np.ones((4, 64), dtype=complex)
+    reference[:, 32:] *= 1e-2  # -40 dB in energy
+    values, energy = coherence.band_coherence(reference, reference)
+    assert np.all(np.isfinite(values[:16]))
+    assert np.all(np.isnan(values[16:]))
+    assert energy[16] == pytest.approx(energy[0] * 1e-4)
+    # A shape mismatch is refused, by the annotation's checker where it runs.
+    with pytest.raises(Exception, match=r"shape|n_x"):
+        coherence.band_coherence(reference, reference[:, :32])
+
+
+def test_band_coherence_of_an_empty_reference_scores_no_band():
+    """A reference with no energy occupies no band: every band is unscored."""
+    spectra = np.ones((3, 64), dtype=complex)
+    values, energy = coherence.band_coherence(spectra, np.zeros((3, 64), dtype=complex))
+    assert np.all(np.isnan(values))
+    assert np.array_equal(energy, np.zeros(32))

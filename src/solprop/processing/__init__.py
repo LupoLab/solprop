@@ -28,7 +28,7 @@ from solprop.processing.axes import (
     spectral_order,
     transverse_units,
 )
-from solprop.processing.coherence import g12, g12_of
+from solprop.processing.coherence import band_coherence, g12, g12_of, spectral_bands
 from solprop.processing.compression import (
     CepOptimum,
     Compression,
@@ -117,6 +117,7 @@ __all__ = [
     "absorbed_spectral_energy",
     "apply_transfer",
     "arrival_time",
+    "band_coherence",
     "band_mask",
     "bandpass",
     "channel_amplitudes",
@@ -161,6 +162,7 @@ __all__ = [
     "species_ionisation_energy",
     "specres",
     "spectral_axis",
+    "spectral_bands",
     "spectral_order",
     "time_bandwidth",
     "transform_limit",
