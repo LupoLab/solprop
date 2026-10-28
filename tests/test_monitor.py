@@ -194,7 +194,7 @@ def test_a_single_precision_split_reads_the_physical_removal() -> None:
             peak_power=peak_power,
         )],
         noise=None, raman=False, shock=False, n_save=3, precision="single",
-        integrator=RungeKutta(), rtol=1e-5,
+        backend="numpy_ref", integrator=RungeKutta(), rtol=1e-5,
         schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / 200),
     )  # fmt: skip
     simulation.settings = dataclasses.replace(

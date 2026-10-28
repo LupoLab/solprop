@@ -583,8 +583,8 @@ def boundary_partials(
     row_weights : numpy.ndarray
         Each row's quadrature weight, shape ``(n_rows,)``, or empty for unit weights.
     weights : numpy.ndarray
-        The monitor's four weight rows (:attr:`solprop.monitor.BoundaryMonitor.
-        weights`), shape ``(4, n_t)``.
+        The monitor's four weight rows, shape ``(4, n_t)``
+        (:attr:`solprop.monitor.BoundaryMonitor.weights`).
     partials : numpy.ndarray
         Written with :data:`BOUNDARY_SUMS` sums per row, row by row: the energy, then
         the four weighted energies. At least ``BOUNDARY_SUMS * n_rows`` long.
