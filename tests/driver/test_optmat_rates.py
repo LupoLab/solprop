@@ -42,10 +42,16 @@ from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.envelope_plasma import cycle_moments
 
 # optmat's gas models warn beyond their qualified band on these windows.
-pytestmark = pytest.mark.filterwarnings(
-    "ignore:.*qualified intervals:solprop.exceptions.MaterialRangeWarning",
-    "ignore:.*is fitted over:solprop.exceptions.MaterialRangeWarning",
-)
+pytestmark = [
+    pytest.mark.filterwarnings(
+        "ignore:.*qualified intervals:solprop.exceptions.MaterialRangeWarning",
+        "ignore:.*is fitted over:solprop.exceptions.MaterialRangeWarning",
+    ),
+    # The fixtures here launch noise-free into time windows kept tight for speed, which
+    # hold more than a millionth of the energy in their guards or collar: the boundary
+    # monitor warns (SEP 21), and the window's edge is not what this module tests.
+    pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning"),
+]
 
 SELECTION = MaterialSelection()
 LENGTH = 4e-4

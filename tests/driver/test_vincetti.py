@@ -31,6 +31,11 @@ from solprop.profiles import Constant
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule
 
+# The fixtures here launch noise-free into time windows kept tight for speed, which
+# hold more than a millionth of the energy in their guards or collar: the boundary
+# monitor warns (SEP 21), and the window's edge is not what this module tests.
+pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
+
 LATTICE = TubeLattice(180e-9, 9e-6, 6)
 BACKENDS = ["numpy_ref", "numba_cpu"]
 if importlib.util.find_spec("solprop_native") is not None:

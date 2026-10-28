@@ -41,7 +41,13 @@ from solprop.output import snapshots as module
 from solprop.output.schema import PlaneStore
 from solprop.stepper import Multistep, PIController, RungeKutta
 
-pytestmark = pytest.mark.medium
+pytestmark = [
+    pytest.mark.medium,
+    # The fixtures here launch noise-free into time windows kept tight for speed, which
+    # hold more than a millionth of the energy in their guards or collar: the boundary
+    # monitor warns (SEP 21), and the window's edge is not what this module tests.
+    pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning"),
+]
 
 
 def _run(simulation, output=None, **kwargs):

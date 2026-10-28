@@ -60,9 +60,13 @@ from solprop.stepper import FixedSchedule, PIController
 
 # optmat's models warn beyond their qualified band on these windows; the test of
 # optmat's once-per-run warnings records every warning itself.
-pytestmark = pytest.mark.filterwarnings(
-    "ignore::solprop.exceptions.MaterialRangeWarning"
-)
+pytestmark = [
+    pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning"),
+    # The fixtures here launch noise-free into time windows kept tight for speed, which
+    # hold more than a millionth of the energy in their guards or collar: the boundary
+    # monitor warns (SEP 21), and the window's edge is not what this module tests.
+    pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning"),
+]
 
 SELECTION = MaterialSelection()
 LENGTH = 4e-4
