@@ -666,6 +666,11 @@ sixteen-thread median read +2.7 % and the minimum −3.3 % inside a ±6 % spread
 The staged Python march's sixteen-thread `h2_raman_averaged` (2.24 s, slower than the
 packed march's 1.74 s, in every round) is unexplained; see SEP 39's phase 3 report.
 
+**On an NVIDIA A40** (CUDA 12.8.1; exponential formulation, short windows; the same
+steps in both arms): host time per trial 64 → 2.2 µs (`he_rdw_averaged`, 0.3), 61 → 1.6
+(`argon_blueshift_averaged`, 0.1) and 83 → 5.0 (`rdw`, 0.1), walls −6.7 %, −10.6 % and
+−1.8 %. A trial costs about a millisecond on this FP64-weak device.
+
 ## Reference tables
 
 These tables back the indicative results above.

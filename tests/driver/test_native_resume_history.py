@@ -99,6 +99,28 @@ ROWS = {
 }
 """The rows each history exports."""
 
+
+def _on_device() -> bool:
+    """Whether the installed native build executes on an accelerator."""
+    if "native" not in available():
+        return False
+    import solprop_native  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+
+    return solprop_native.build_info().device_backend != "none"
+
+
+CASE_PARAMS = [
+    pytest.param(
+        name,
+        marks=pytest.mark.skipif(
+            name == "z_table" and _on_device(),
+            reason="device builds refuse a z table by name",
+        ),
+    )
+    for name in sorted(CASES)
+]
+"""The cases, a z table's skipped on a device build, which refuses it."""
+
 QUIET = (
     # The coupled case's short window and marginal wall, as its parity cases run them.
     pytest.mark.filterwarnings("ignore:the temporal absorber attenuates a packet"),
@@ -161,7 +183,7 @@ def counted_starts(backend):
 
 
 @quiet
-@pytest.mark.parametrize("case", sorted(CASES))
+@pytest.mark.parametrize("case", CASE_PARAMS)
 def test_the_resident_history_is_restored_exactly_and_continued(build_simulation, case):
     simulation = CASES[case](build_simulation, "native")()
     problem, first = opened(simulation, "native")
@@ -198,7 +220,7 @@ def test_the_resident_history_is_restored_exactly_and_continued(build_simulation
 @quiet
 # The host engine runs solprop's march, with the warning the admission tests assert.
 @pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
-@pytest.mark.parametrize("case", sorted(CASES))
+@pytest.mark.parametrize("case", CASE_PARAMS)
 def test_the_host_engine_on_native_hooks_round_trips_too(
     build_simulation, monkeypatch, case
 ):
@@ -251,7 +273,7 @@ def test_a_resume_without_the_snapshot_restarts_the_history(build_simulation, ca
 
 @quiet
 @pytest.mark.medium
-@pytest.mark.parametrize("case", sorted(CASES))
+@pytest.mark.parametrize("case", CASE_PARAMS)
 def test_a_resumed_native_run_is_the_uninterrupted_one(
     build_simulation, tmp_path, case, caplog
 ):

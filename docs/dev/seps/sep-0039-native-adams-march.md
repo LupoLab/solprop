@@ -2567,7 +2567,7 @@ frame; lockstep batch replay.
 - The z-table, coupled-flow, moving-guide, carrier-frame, dispersive and driver modules
   on the M5 Max; the full gate on CI.
 
-### Phase 5 — report (in progress)
+### Phase 5 — report (CUDA on NVIDIA A40s; HIP to come)
 
 **Scope.** Device builds, 2026-10-29: CUDA on NVIDIA A40s only (John Travers's budget
 for the night: no rented devices). Opus 5.5 (AI) for John Travers.
@@ -2590,7 +2590,28 @@ for the night: no rented devices). Opus 5.5 (AI) for John Travers.
      attribute there: that attribute went (harmlessly, since the fused tables only
      subtract), and the sections' recursion became a free strict function.
 
-**Verification.** A40_RESULTS
+**Verification** (NVIDIA A40, CUDA 12.8.1, GCC 14.4 host, `AMPERE86`; one job):
+
+- The native package's device tests: 31 passed. solprop's device tests: 63 passed.
+- The native march's modules on the device build (the decision traces, the lifecycle
+  and admission tests, the staged-march comparisons, the resident-Adams and resume
+  modules, `test_native_gpu.py`): 203 passed. Four failed, each a configuration device
+  builds refuse by name: the carrier frame's admission test (now skipped on devices)
+  and three z-table resume cases that were not device-aware before this SEP (now
+  skipped there too).
+
+**Measured** (A40, interleaved fresh processes, medians of three; the same steps in
+both arms):
+
+| case | host µs/trial: Python march → native | wall |
+|---|---|---:|
+| `he_rdw_averaged` (0.3) | 64 → 2.2 | −6.7 % |
+| `argon_blueshift_averaged` (0.1) | 61 → 1.6 | −10.6 % |
+| `rdw` (0.1) | 83 → 5.0 | −1.8 % |
+
+A trial costs about a millisecond on this device, whose FP64 rate is a sixtieth of its
+FP32's, so the host's share is small there; on the FP64 devices SEP 16 measured
+(kernels of 3–9 µs), the same saving is most of the trial.
 
 **Not done.** The pinned single upload a trial (§6.7, item 2) was not built: the trial
 still uploads its scalars as before. HIP (AMD MI325X) and H100-class timings wait for a
