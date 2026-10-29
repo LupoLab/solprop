@@ -1430,6 +1430,8 @@ void accept_update(const ExecutionSpace& execution, const std::size_t count,
 // phase sum is the same sequence of rounded products and additions in term order as
 // a per-bin loop, laid out so that the bins vectorise.
 constexpr std::size_t stage_block = 64;
+// The pinned staging buffers a state's per-trial scalars cross from (`upload_trial`).
+constexpr std::size_t stage_staging_ring = 8;
 
 // The pointwise bodies of a stage over the coarse spectrum: its entry (the phase
 // increment, the combination with the earlier stages, the lab frame, the noise and the
@@ -1950,7 +1952,11 @@ public:
   void adams_rate(const std::vector<double>& rate, const ComplexView2& out);
   void allocate();
   void upload();
-  void upload_trial(const TrialScalars& scalars);
+  void upload_trial(const TrialScalars& scalars, const TrialScalars* sample = nullptr,
+                    const std::vector<double>* rate = nullptr);
+  void use_uploaded_sample(const TrialScalars& sample);
+  void bind_stage_scalars(std::size_t slot);
+  void note_trial_scalars(const TrialScalars& scalars);
   void plan();
   void reuse_fsal();
   void evaluate_stage(std::size_t stage, double dz);
@@ -2308,11 +2314,19 @@ public:
   RealView stage_phi_delta_, stage_phi_at_, stage_prefactor_;
   RealView stage_density_, stage_taper_, stage_preionisation_, rate_coefficients_;
   RealView stage_kerr_density_, stage_plasma_density_, stage_raman_density_;
-  // Every per-stage scalar view above lives in one buffer, uploaded in one copy from
-  // the next of a few host staging buffers (`upload_trial`).
+  // Every per-stage scalar view above, a Raman run's stage rates and amplitude
+  // densities and a compensated Adams trial's rate weights live in one buffer of two
+  // slots, uploaded in one copy a trial from the next of a ring of pinned host buffers
+  // (`upload_trial`, solprop SEP 39 section 6.7): an Adams trial's step scalars in
+  // slot 0 and its sample's in slot 1. The views point into the slot in use.
   RealView stage_scalars_;
-  std::vector<RealView::host_mirror_type> stage_staging_;
+  using StagingView = decltype(Kokkos::create_mirror_view(
+      Kokkos::SharedHostPinnedSpace{}, std::declval<RealView>()));
+  std::vector<StagingView> stage_staging_;
   std::size_t stage_staging_next_ = 0;
+  std::size_t stage_slot_size_ = 0;
+  std::array<std::size_t, 15> stage_offsets_{};
+  RealView stage_rate_weights_;
   RealView2 channel_parameters_, stage_channel_density_, stage_channel_preionisation_;
   RealView channel_coefficients_;
   Kokkos::View<double***, Layout, MemorySpace> channel_scratch_;
@@ -2986,43 +3000,40 @@ void GeneralWorkspace::allocate() {
     // pageable memory is a transfer of its own.
     const auto stages = problem_.n_stages;
     const auto channels = problem_.plasma ? problem_.n_channels : 0;
-    const std::size_t sizes[] = {(stages + 1) * problem_.n_phi_terms,
-                                 stages * problem_.n_phi_terms,
-                                 stages * problem_.n_prefactor_terms,
-                                 stages,
-                                 stages,
-                                 stages,
-                                 stages,
-                                 stages * channels,
-                                 stages * channels,
-                                 stages,
-                                 stages};
+    const auto raman_terms = problem_.raman ? problem_.n_raman_terms : 0;
+    const auto raman_components = problem_.raman && problem_.n_raman_components > 1
+                                      ? problem_.n_raman_components
+                                      : 0;
+    const std::array<std::size_t, 14> sizes{(stages + 1) * problem_.n_phi_terms,
+                                            stages * problem_.n_phi_terms,
+                                            stages * problem_.n_prefactor_terms,
+                                            stages,
+                                            stages,
+                                            stages,
+                                            stages,
+                                            stages * channels,
+                                            stages * channels,
+                                            stages,
+                                            stages,
+                                            stages * raman_terms,
+                                            stages * raman_components,
+                                            problem_.n_phi_terms};
     std::size_t total = 0;
-    for (const auto size : sizes)
-      total += size;
-    stage_scalars_ = RealView("solprop_native.step.scalars", total);
-    double* next = stage_scalars_.data();
-    const auto take = [&next](const std::size_t size) {
-      double* const start = next;
-      next += size;
-      return start;
-    };
-    stage_phi_delta_ = RealView(take(sizes[0]), sizes[0]);
-    stage_phi_at_ = RealView(take(sizes[1]), sizes[1]);
-    stage_prefactor_ = RealView(take(sizes[2]), sizes[2]);
-    stage_density_ = RealView(take(stages), stages);
-    stage_kerr_density_ = RealView(take(stages), stages);
-    stage_plasma_density_ = RealView(take(stages), stages);
-    stage_raman_density_ = RealView(take(stages), stages);
-    stage_channel_density_ = RealView2(take(stages * channels), stages, channels);
-    stage_channel_preionisation_ = RealView2(take(stages * channels), stages, channels);
-    stage_taper_ = RealView(take(stages), stages);
-    stage_preionisation_ = RealView(take(stages), stages);
-    // Two uploads a trial (the step's and the sample's) at most between fences; four
-    // staging buffers leave each copy its source until it has surely been read.
+    for (std::size_t region = 0; region < sizes.size(); ++region) {
+      stage_offsets_[region] = total;
+      total += sizes[region];
+    }
+    stage_offsets_[sizes.size()] = total;
+    stage_slot_size_ = total;
+    stage_scalars_ = RealView("solprop_native.step.scalars", 2 * total);
+    bind_stage_scalars(0);
+    // A pinned buffer's copy is asynchronous, so its source must not be rewritten
+    // until the copy has run: `upload_trial` fences before the ring comes round again.
+    // A host build's mirror is the buffer itself.
     stage_staging_.clear();
-    for (int copy = 0; copy < 4; ++copy)
-      stage_staging_.push_back(Kokkos::create_mirror_view(stage_scalars_));
+    for (std::size_t copy = 0; copy < stage_staging_ring; ++copy)
+      stage_staging_.push_back(
+          Kokkos::create_mirror_view(Kokkos::SharedHostPinnedSpace{}, stage_scalars_));
   }
   if (problem_.raman) {
     const auto doubled = 2 * problem_.n_to;
@@ -3041,15 +3052,10 @@ void GeneralWorkspace::allocate() {
                                    problem_.raman_kernels(), doubled);
     raman_kernel_spectrum_ = ComplexView2("solprop_native.raman.kernel_spectrum",
                                           problem_.raman_kernels(), problem_.n_to + 1);
-    stage_raman_rates_ = RealView2("solprop_native.raman.stage_rates",
-                                   problem_.n_stages, problem_.n_raman_terms);
     raman_tensor_weights_ =
         RealView2("solprop_native.raman.tensor_weights", problem_.n_raman_terms, 2);
     cached_raman_rates_.resize(problem_.n_raman_terms);
     if (problem_.n_raman_components > 1) {
-      stage_raman_densities_ =
-          RealView2("solprop_native.raman.stage_densities", problem_.n_stages,
-                    problem_.n_raman_components);
       raman_row_component_ =
           RealView("solprop_native.raman.row_component", problem_.n_raman_terms);
       raman_component_fraction_ = RealView("solprop_native.raman.component_fraction",
@@ -3992,29 +3998,43 @@ void GeneralWorkspace::require_trial_scalars(const TrialScalars& scalars) const 
   }
 }
 
-void GeneralWorkspace::upload_trial(const TrialScalars& scalars) {
-  // Fill the next staging buffer at each view's place in the packed buffer, then copy
-  // it across once (a host build's mirror is the buffer itself).
-  auto staging = stage_staging_[stage_staging_next_];
-  stage_staging_next_ = (stage_staging_next_ + 1) % stage_staging_.size();
-  const auto place = [&](const auto& view, const std::vector<double>& source) {
-    if (view.size() != source.size())
-      throw std::invalid_argument("fixed problem array has the wrong extent");
-    double* const into = staging.data() + (view.data() - stage_scalars_.data());
-    std::copy(source.begin(), source.end(), into);
+// Point the per-stage scalar views at a slot of the packed buffer.
+void GeneralWorkspace::bind_stage_scalars(const std::size_t slot) {
+  const auto stages = problem_.n_stages;
+  const auto channels = problem_.plasma ? problem_.n_channels : 0;
+  double* const base = stage_scalars_.data() + slot * stage_slot_size_;
+  const auto region = [&](const std::size_t index) {
+    return base + stage_offsets_[index];
   };
-  const auto fill = [&](const auto& view, const double value) {
-    double* const into = staging.data() + (view.data() - stage_scalars_.data());
-    std::fill(into, into + view.size(), value);
+  const auto extent = [&](const std::size_t index) {
+    return stage_offsets_[index + 1] - stage_offsets_[index];
   };
-  if (staging.data() != stage_scalars_.data())
-    // A device's staging buffer starts from the last values uploaded, so that a view
-    // this trial does not set keeps them, as the separate copies did.
-    std::copy(stage_staging_[(stage_staging_next_ + 2) % stage_staging_.size()].data(),
-              stage_staging_[(stage_staging_next_ + 2) % stage_staging_.size()].data() +
-                  staging.size(),
-              staging.data());
-  place(stage_phi_delta_, scalars.phi_delta);
+  stage_phi_delta_ = RealView(region(0), extent(0));
+  stage_phi_at_ = RealView(region(1), extent(1));
+  stage_prefactor_ = RealView(region(2), extent(2));
+  stage_density_ = RealView(region(3), stages);
+  stage_kerr_density_ = RealView(region(4), stages);
+  stage_plasma_density_ = RealView(region(5), stages);
+  stage_raman_density_ = RealView(region(6), stages);
+  stage_channel_density_ = RealView2(region(7), stages, channels);
+  stage_channel_preionisation_ = RealView2(region(8), stages, channels);
+  stage_taper_ = RealView(region(9), stages);
+  stage_preionisation_ = RealView(region(10), stages);
+  if (problem_.raman) {
+    stage_raman_rates_ = RealView2(region(11), stages, problem_.n_raman_terms);
+    if (problem_.n_raman_components > 1)
+      stage_raman_densities_ =
+          RealView2(region(12), stages, problem_.n_raman_components);
+  }
+  // A compensated trial's rate weights are its step's, in slot 0 whichever slot the
+  // stage views read.
+  stage_rate_weights_ =
+      RealView(stage_scalars_.data() + stage_offsets_[13], extent(13));
+}
+
+// The host's record of a trial's scalars beside the views: which stages' phase
+// weights repeat the stage before's, and the dispersive response's densities.
+void GeneralWorkspace::note_trial_scalars(const TrialScalars& scalars) {
   // Rows of equal weights give bitwise equal phases (a zero weight's term is skipped).
   const auto n_phi = problem_.n_phi_terms;
   const auto same_row = [&](const std::size_t row) {
@@ -4028,46 +4048,94 @@ void GeneralWorkspace::upload_trial(const TrialScalars& scalars) {
     phase_repeats_[stage] = same_row(stage);
   whole_repeats_ = problem_.n_stages > 0 && same_row(problem_.n_stages);
   entered_stage_ = std::numeric_limits<std::size_t>::max();
-  place(stage_phi_at_, scalars.phi_at);
-  place(stage_prefactor_, scalars.prefactor);
-  place(stage_density_, scalars.density);
-  place(stage_kerr_density_,
-        scalars.kerr_density.empty() ? scalars.density : scalars.kerr_density);
-  if (problem_.plasma) {
-    if (scalars.plasma_densities.empty()) {
-      place(stage_plasma_density_, scalars.density);
-      place(stage_channel_density_, scalars.density);
-      place(stage_channel_preionisation_, scalars.preionisation);
-    } else {
-      place(stage_channel_density_, scalars.plasma_densities);
-      place(stage_channel_preionisation_, scalars.plasma_preionisation);
-      // The sole channel already has stage-major contiguous scalar vectors.
-      // Multiple channels consume their own matrices and need no extracted copy.
-      if (problem_.n_channels == 1) {
-        place(stage_plasma_density_, scalars.plasma_densities);
-        place(stage_preionisation_, scalars.plasma_preionisation);
-      }
-    }
-  }
-  if (problem_.raman) {
-    if (scalars.raman_densities.empty())
-      place(stage_raman_density_, scalars.density);
-    else if (problem_.n_raman_components == 1)
-      place(stage_raman_density_, scalars.raman_densities);
-    else
-      fill(stage_raman_density_, 1.0);
-  }
-  place(stage_taper_, scalars.taper);
-  if (problem_.plasma && scalars.plasma_preionisation.empty())
-    place(stage_preionisation_, scalars.preionisation);
-  Kokkos::deep_copy(execution_space_, stage_scalars_, staging);
   if (auto* weights = dispersive_weights())
     weights->set_densities(scalars.dispersive_densities);
-  if (problem_.raman) {
-    copy_vector(execution_space_, stage_raman_rates_, scalars.raman_rates);
-    if (problem_.n_raman_components > 1)
-      copy_vector(execution_space_, stage_raman_densities_, scalars.raman_densities);
+}
+
+// Fill the next staging buffer with the trial's scalars, at each view's place in
+// slot 0 -- and an Adams trial's sample's in slot 1, and a compensated trial's rate
+// weights -- then copy it across once (a host build's mirror is the buffer itself)
+// and point the views at slot 0. `use_uploaded_sample` turns them to slot 1.
+void GeneralWorkspace::upload_trial(const TrialScalars& scalars,
+                                    const TrialScalars* sample,
+                                    const std::vector<double>* rate) {
+  auto staging = stage_staging_[stage_staging_next_];
+  const bool staged = staging.data() != stage_scalars_.data();
+  // The ring comes round: every earlier copy from it has run once the space drains.
+  if (staged && stage_staging_next_ == 0)
+    execution_space_.fence("solprop_native stage staging reuse");
+  const auto& previous =
+      stage_staging_[(stage_staging_next_ + stage_staging_.size() - 1) %
+                     stage_staging_.size()];
+  stage_staging_next_ = (stage_staging_next_ + 1) % stage_staging_.size();
+  if (staged)
+    // A device's staging buffer starts from the last values uploaded, so that a view
+    // this trial does not set keeps them, as the separate copies did.
+    std::copy(previous.data(), previous.data() + staging.size(), staging.data());
+  const auto fill_slot = [&](const std::size_t slot, const TrialScalars& values) {
+    double* const base = staging.data() + slot * stage_slot_size_;
+    const auto place = [&](const std::size_t region,
+                           const std::vector<double>& source) {
+      if (source.size() != stage_offsets_[region + 1] - stage_offsets_[region])
+        throw std::invalid_argument("fixed problem array has the wrong extent");
+      std::copy(source.begin(), source.end(), base + stage_offsets_[region]);
+    };
+    const auto fill = [&](const std::size_t region, const double value) {
+      std::fill(base + stage_offsets_[region], base + stage_offsets_[region + 1],
+                value);
+    };
+    place(0, values.phi_delta);
+    place(1, values.phi_at);
+    place(2, values.prefactor);
+    place(3, values.density);
+    place(4, values.kerr_density.empty() ? values.density : values.kerr_density);
+    if (problem_.plasma) {
+      if (values.plasma_densities.empty()) {
+        place(5, values.density);
+        place(7, values.density);
+        place(8, values.preionisation);
+      } else {
+        place(7, values.plasma_densities);
+        place(8, values.plasma_preionisation);
+        // The sole channel already has stage-major contiguous scalar vectors.
+        // Multiple channels consume their own matrices and need no extracted copy.
+        if (problem_.n_channels == 1) {
+          place(5, values.plasma_densities);
+          place(10, values.plasma_preionisation);
+        }
+      }
+    }
+    if (problem_.raman) {
+      if (values.raman_densities.empty())
+        place(6, values.density);
+      else if (problem_.n_raman_components == 1)
+        place(6, values.raman_densities);
+      else
+        fill(6, 1.0);
+      place(11, values.raman_rates);
+      if (problem_.n_raman_components > 1)
+        place(12, values.raman_densities);
+    }
+    place(9, values.taper);
+    if (problem_.plasma && values.plasma_preionisation.empty())
+      place(10, values.preionisation);
+  };
+  fill_slot(0, scalars);
+  if (sample != nullptr)
+    fill_slot(1, *sample);
+  if (rate != nullptr) {
+    require_extent(rate->size(), problem_.n_phi_terms, "Adams rate weights");
+    std::copy(rate->begin(), rate->end(), staging.data() + stage_offsets_[13]);
   }
+  Kokkos::deep_copy(execution_space_, stage_scalars_, staging);
+  bind_stage_scalars(0);
+  note_trial_scalars(scalars);
+}
+
+// An Adams trial's sample scalars, uploaded with its step's: the views turn to slot 1.
+void GeneralWorkspace::use_uploaded_sample(const TrialScalars& sample) {
+  bind_stage_scalars(1);
+  note_trial_scalars(sample);
 }
 
 void GeneralWorkspace::prepare_raman(const std::vector<double>& rates,
@@ -6417,15 +6485,9 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
   const bool device_scale = divisor.empty() && adams_device_scale_;
   if (!device_scale)
     adams_upload_divisor(divisor);
-  if (compensated) {
-    // The corrector forms the endpoint's rate and compensation; only the weights cross.
-    require_extent(rate.size(), problem_.n_phi_terms, "Adams rate weights");
-    if (adams_rate_weights_.extent(0) != rate.size())
-      adams_rate_weights_ = Kokkos::View<double*, Layout, MemorySpace>(
-          "solprop_native.adams.rate_weights", rate.size());
-    copy_vector(execution_space_, adams_rate_weights_, rate);
-  }
-  upload_trial(step);
+  // The corrector forms a compensated trial's endpoint rate and compensation; only its
+  // weights cross, with the step's and the sample's scalars, in the trial's one copy.
+  upload_trial(step, &sample, compensated ? &rate : nullptr);
   const std::size_t blocks = (n + adams_block - 1) / adams_block;
   const auto tasks =
       Kokkos::RangePolicy<ExecutionSpace>(adams_execution_space_, 0, columns * blocks);
@@ -6543,7 +6605,7 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
                             unused);
   }
   std::swap(current_, adams_saved_);
-  upload_trial(sample);
+  use_uploaded_sample(sample);
   adams_evaluate_source(sample);
   std::swap(current_, adams_saved_);
   std::vector<double> norms(weights.n_rows, 0.0);
@@ -6564,7 +6626,7 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
                                       lab,
                                       adams_endpoint_,
                                       adams_endpoint_rate_,
-                                      adams_rate_weights_,
+                                      stage_rate_weights_,
                                       in_norm,
                                       adams_divisor_,
                                       adams_scale_weights_,
@@ -6613,8 +6675,9 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
   if (!coupled)
     return adams_elementwise_trial(dz, weights, divisor, step, sample, rate);
   adams_upload_divisor(divisor);
-  // The step's exponent and flow, and its moments, once for every formula.
-  upload_trial(step);
+  // The step's exponent and flow, and its moments, once for every formula; the
+  // sample's scalars cross in the same copy.
+  upload_trial(step, &sample);
   adams_phase();
   const std::size_t section = step.flow_section;
   const bool residual = adams_applied_.extent(0) != 0;
@@ -6932,7 +6995,7 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
         }
       });
 #endif
-  upload_trial(sample);
+  use_uploaded_sample(sample);
   {
     const FlowAside aside(flow_);
     adams_evaluate(sample);
@@ -13082,10 +13145,18 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
       {"flux_table", flux_table_.bytes()},
       {"flux_closure_transverse", flux_transverse_.size() * complex_bytes},
       {"tableau", tableau_.size() * real_bytes},
+      // The per-stage scalars are held twice, in the packed buffer's two slots, and
+      // a device's pinned host ring holds copies of the whole buffer.
       {"stage_scalars",
-       (stage_phi_delta_.size() + stage_phi_at_.size() + stage_prefactor_.size() +
-        stage_density_.size() + stage_taper_.size() + stage_preionisation_.size()) *
+       2 *
+           (stage_phi_delta_.size() + stage_phi_at_.size() + stage_prefactor_.size() +
+            stage_density_.size() + stage_taper_.size() + stage_preionisation_.size() +
+            stage_rate_weights_.size()) *
            real_bytes},
+      {"stage_scalar_staging",
+       stage_staging_.empty() || stage_staging_.front().data() == stage_scalars_.data()
+           ? 0
+           : stage_staging_.size() * stage_scalars_.size() * real_bytes},
       {"crop_index", crop_index_.size() * index_bytes},
       {"masks", (active_mask_.size() + norm_mask_.size()) * byte_bytes},
       {"windows", (omega_window_.size() + time_window_.size()) * real_bytes},
@@ -13103,7 +13174,7 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
       {"raman_tensor_weights", raman_tensor_weights_.size() * real_bytes},
       {"raman_kernel_time", raman_kernel_time_.size() * real_bytes},
       {"raman_kernel_spectrum", raman_kernel_spectrum_.size() * complex_bytes},
-      {"stage_raman_rates", stage_raman_rates_.size() * real_bytes},
+      {"stage_raman_rates", 2 * stage_raman_rates_.size() * real_bytes},
       {"absorber_rates",
        (absorber_fine_.size() + absorber_coarse_.size() + split_factor_.size()) *
            real_bytes},
@@ -13114,12 +13185,13 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
       {"channel_rate_tables", channel_coefficients_.size() * real_bytes},
       {"channel_scratch", channel_scratch_.size() * real_bytes},
       {"material_stage_values",
-       (stage_kerr_density_.size() + stage_plasma_density_.size() +
-        stage_raman_density_.size() + stage_channel_density_.size() +
-        stage_channel_preionisation_.size()) *
+       2 *
+           (stage_kerr_density_.size() + stage_plasma_density_.size() +
+            stage_raman_density_.size() + stage_channel_density_.size() +
+            stage_channel_preionisation_.size()) *
            real_bytes},
       {"raman_component_values",
-       (stage_raman_densities_.size() + raman_row_component_.size() +
+       (2 * stage_raman_densities_.size() + raman_row_component_.size() +
         raman_component_fraction_.size() + cached_raman_densities_.capacity()) *
            real_bytes},
       {"plasma_stash", (stash_candidate_.size() + stash_current_.size()) * real_bytes},
@@ -13375,6 +13447,7 @@ void GeneralWorkspace::close() noexcept {
   spatial_absorber_complex_ = {};
   stage_phi_delta_ = {};
   stage_scalars_ = {};
+  stage_rate_weights_ = {};
   stage_staging_.clear();
   stage_phi_at_ = {};
   stage_prefactor_ = {};
