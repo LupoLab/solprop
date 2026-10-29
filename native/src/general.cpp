@@ -530,6 +530,28 @@ struct TransverseLayout {
   }
 };
 
+// Where a separable route's low-storage registers (the accumulator, the stage register
+// and the flow table) hold the element (column, omega). On the host, at the transverse
+// scratch's own position: a fold then reads them in the scratch's order beside it, and
+// only the state crosses layouts. On a device, at the state's (column-major).
+struct RegisterIndex {
+  TransverseLayout layout{};
+  std::size_t n_pol{}, n{};
+  bool plane{};
+  // One polarisation: a column is its mode, without a division (a flag of its own,
+  // which the compiler cannot fold back into `column / 1`).
+  bool scalar{};
+  KOKKOS_INLINE_FUNCTION std::size_t mode(const std::size_t column) const {
+    return scalar ? column : column / n_pol;
+  }
+  KOKKOS_INLINE_FUNCTION std::size_t operator()(const std::size_t column,
+                                                const std::size_t omega) const {
+    const std::size_t pol = scalar ? 0 : column % n_pol;
+    return plane ? (omega * n_pol + pol) * layout.plane + layout.offset(mode(column))
+                 : column * n + omega;
+  }
+};
+
 // One chunk of a separable geometry's response pass: whole transverse units (a node
 // on free space, a y row of n_p columns and n_x nodes on the hybrid planar kind), its
 // temporal rows (state columns) and its physical nodes.
@@ -582,6 +604,23 @@ struct SpatialCoefficients {
     constexpr double speed_of_light = 299792458.0;
     return Complex(speed_of_light * root.real(), -(speed_of_light * root.imag())) /
            frequency;
+  }
+  // `value`'s prefactor alone, the same arithmetic: what a fold whose flows are
+  // tabulated reads of the element.
+  KOKKOS_INLINE_FUNCTION Complex prefactor(const std::size_t mode,
+                                           const std::size_t omega,
+                                           const bool active) const {
+    if (!active)
+      return Complex{};
+    const Complex longitudinal = longitudinal_square(mode, omega);
+    if (!(longitudinal.real() > 0.0))
+      return clamped(omega);
+    const Complex root = root_of(longitudinal);
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+    return numerator(omega) * (1.0 / root.real());
+#else
+    return numerator(omega) / root.real();
+#endif
   }
   KOKKOS_INLINE_FUNCTION SpatialElement value(const std::size_t mode,
                                               const std::size_t omega,
@@ -2179,6 +2218,15 @@ public:
     const std::size_t plane = transverse_.extent(1) * transverse_.extent(2);
     return problem_.slab_geometry() ? TransverseLayout{problem_.n_p, true, plane}
                                     : TransverseLayout{problem_.n_x, false, plane};
+  }
+  RegisterIndex register_index() const noexcept {
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+    constexpr bool plane = false;
+#else
+    constexpr bool plane = true;
+#endif
+    return {transverse_layout(), problem_.n_pol_state, problem_.n_omega, plane,
+            problem_.n_pol_state == 1};
   }
   // The unscaled transverse DFT's sample count: the plane's, or the slab's y axis.
   double inverse_transverse_count() const noexcept {
@@ -5035,6 +5083,7 @@ void GeneralWorkspace::low_storage_flows_formed(const bool rebuild_table) {
     const auto n_pol = problem_.n_pol_state;
     const auto terms = stage_terms(0);
     const auto n_phi = problem_.n_phi_terms;
+    const auto index = register_index();
     const std::size_t blocks = (n + stage_block - 1) / stage_block;
     Kokkos::parallel_for(
         separable ? "solprop_native.low_storage.separable_table"
@@ -5060,8 +5109,13 @@ void GeneralWorkspace::low_storage_flows_formed(const bool rebuild_table) {
               terms.phase_block(offset, column, first, bins, real, imag);
             }
             vmath::exp_complex(real, imag, real, imag, bins);
-            for (std::size_t bin = 0; bin < bins; ++bin)
-              flows(flow, column, first + bin) = Complex(real[bin], imag[bin]);
+            if (separable)
+              for (std::size_t bin = 0; bin < bins; ++bin)
+                flows.data()[index(column, first + bin)] =
+                    Complex(real[bin], imag[bin]);
+            else
+              for (std::size_t bin = 0; bin < bins; ++bin)
+                flows(flow, column, first + bin) = Complex(real[bin], imag[bin]);
           };
           if (separable || count == 1)
             form(0, 2 * n_phi);
@@ -5078,12 +5132,13 @@ void GeneralWorkspace::low_storage_flows_formed(const bool rebuild_table) {
     const auto delta = stage_phi_delta_;
     const auto active = active_mask_;
     const auto n_pol = problem_.n_pol_state;
+    const auto index = register_index();
     cartesian_for(
         "solprop_native.low_storage.separable_table", execution_space_,
         problem_.n_columns(), n,
         KOKKOS_LAMBDA(const std::size_t column, const std::size_t omega) {
           const auto values = spatial.value(column / n_pol, omega, active(omega) != 0U);
-          flows(0, column, omega) = propagator_exp(delta(2) * values.linear);
+          flows.data()[index(column, omega)] = propagator_exp(delta(2) * values.linear);
         });
     return;
   }
@@ -5159,7 +5214,9 @@ void column_norms(const char* label, const ExecutionSpace& execution,
 }
 
 void GeneralWorkspace::low_storage_separable_input(const std::size_t pass) {
-  const auto source = pass == 0 ? current_ : register_stage_;
+  const auto state = current_;
+  const auto stage_register = register_stage_;
+  const auto index = register_index();
   const auto spatial = spatial_;
   const auto at = stage_phi_at_;
   const auto active = active_mask_;
@@ -5175,7 +5232,8 @@ void GeneralWorkspace::low_storage_separable_input(const std::size_t pass) {
       problem_.n_columns(), problem_.n_omega,
       KOKKOS_LAMBDA(const std::size_t column, const std::size_t omega) {
         const auto mode = column / n_pol;
-        Complex value = source(column, omega);
+        Complex value = pass == 0 ? state(column, omega)
+                                  : stage_register.data()[index(column, omega)];
         if (add_noise) {
           const auto values = spatial.value(mode, omega, active(omega) != 0U);
           const double angle = at(row) * values.linear.imag();
@@ -5194,6 +5252,7 @@ void GeneralWorkspace::low_storage_separable_fold(const std::size_t pass,
   const auto stage_register = register_stage_;
   const auto flows = low_storage_flows_;
   const bool tabulated = problem_.low_storage_flows != 0;
+  const bool elemental = !tabulated || (problem_.modified_noise && has_noise_);
   const auto scratch = transverse_;
   const auto spatial = spatial_;
   const auto window = omega_window_;
@@ -5202,8 +5261,10 @@ void GeneralWorkspace::low_storage_separable_fold(const std::size_t pass,
   const auto noise = noise_;
   const auto delta = stage_phi_delta_;
   const auto at = stage_phi_at_;
-  const auto n_pol = problem_.n_pol_state;
-  const auto layout = transverse_layout();
+  // A device gathers and scatters the scratch through its own tiles.
+  [[maybe_unused]] const auto n_pol = problem_.n_pol_state;
+  [[maybe_unused]] const auto layout = transverse_layout();
+  const auto index = register_index();
   const bool add_noise = problem_.modified_noise && has_noise_;
   const double scale = inverse_transverse_count();
   const int stage = static_cast<int>(pass);
@@ -5230,24 +5291,30 @@ void GeneralWorkspace::low_storage_separable_fold(const std::size_t pass,
 #else
   const bool fused_norm = final;
 #endif
-  // The element, given its cell of the transverse scratch.
-  const auto body =
-      KOKKOS_LAMBDA(const std::size_t column, const std::size_t omega, Complex& cell) {
-    const auto column_mode = column / n_pol;
+  // The element, given its cell of the transverse scratch and its state (`held`).
+  const auto body = KOKKOS_LAMBDA(const std::size_t column, const std::size_t omega,
+                                  Complex& cell, Complex& held) {
+    const auto column_mode = index.mode(column);
     const bool in_band = active(omega) != 0U;
-    const auto values = spatial.value(column_mode, omega, in_band);
+    // Tabulated flows without noise read only the prefactor of the element.
+    SpatialElement values{};
+    if (elemental)
+      values = spatial.value(column_mode, omega, in_band);
+    else if (term == term_material)
+      values.prefactor = spatial.prefactor(column_mode, omega, in_band);
     Complex source{};
     if (term == term_material)
       source = values.prefactor * window(omega) * cell;
     else if (term == term_absorber && in_band)
       source = cell;
+    const std::size_t slot = index(column, omega);
     Complex flow(1.0, 0.0);
     if (flows_here)
-      flow = tabulated ? flows(0, column, omega)
+      flow = tabulated ? flows.data()[slot]
                        : propagator_exp(delta(flow_row) * values.linear);
-    Complex a = state(column, omega);
-    Complex b = reads_accumulator ? accumulator(column, omega) : Complex{};
-    Complex c = reads_register ? stage_register(column, omega) : Complex{};
+    Complex a = held;
+    Complex b = reads_accumulator ? accumulator.data()[slot] : Complex{};
+    Complex c = reads_register ? stage_register.data()[slot] : Complex{};
     if (exchange) {
       Complex value = stage == 0 ? a : c;
       if (add_noise) {
@@ -5266,11 +5333,11 @@ void GeneralWorkspace::low_storage_separable_fold(const std::size_t pass,
       cell = value * scale;
     }
     if (writes_state)
-      state(column, omega) = a;
+      held = a;
     if (stage < 3)
-      accumulator(column, omega) = b;
+      accumulator.data()[slot] = b;
     if (writes_register)
-      stage_register(column, omega) = c;
+      stage_register.data()[slot] = c;
     return final && in_norm(omega) != 0U ? squared_abs(a) : 0.0;
   };
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
@@ -5281,20 +5348,59 @@ void GeneralWorkspace::low_storage_separable_fold(const std::size_t pass,
         return layout.cell(scratch, omega * n_pol + column % n_pol, column / n_pol);
       },
       KOKKOS_LAMBDA(const std::size_t column, const std::size_t omega, Complex& cell) {
-        static_cast<void>(body(column, omega, cell));
+        static_cast<void>(body(column, omega, cell, state(column, omega)));
       },
       KOKKOS_LAMBDA(const std::size_t column, const std::size_t omega,
                     const Complex value) {
         layout.cell(scratch, omega * n_pol + column % n_pol, column / n_pol) = value;
       });
 #else
-  register_traversal<true>(
-      "solprop_native.low_storage.separable_fold", execution_space_,
-      problem_.n_columns(), problem_.n_omega, partials_, fused_norm,
-      KOKKOS_LAMBDA(const std::size_t column, const std::size_t omega) {
-        return body(
-            column, omega,
-            layout.cell(scratch, omega * n_pol + column % n_pol, column / n_pol));
+  // The host's registers sit at the scratch cell's own position (`RegisterIndex`), so a
+  // block of adjacent columns reads them, and the scratch, in contiguous runs at every
+  // bin; only the state is column-major. A work item takes a block of columns over
+  // every bin, a tile of bins at a time: it loads the tile's state a column (a
+  // contiguous run) at a time, folds the tile in the scratch's order, and stores the
+  // state back. The final fold sums each column's norm in ascending bin order (as
+  // `register_traversal`).
+  constexpr std::size_t block = crossing_tile_columns;
+  constexpr std::size_t bins = crossing_tile_bins;
+  const std::size_t columns = problem_.n_columns();
+  const std::size_t n = problem_.n_omega;
+  const std::size_t blocks = (columns + block - 1) / block;
+  const auto partials = partials_;
+  Kokkos::parallel_for(
+      "solprop_native.low_storage.separable_fold",
+      Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, blocks),
+      KOKKOS_LAMBDA(const std::size_t which) {
+        const std::size_t first = which * block;
+        const std::size_t count = columns - first < block ? columns - first : block;
+        double totals[block] = {};
+        Complex tile[bins][block];
+        for (std::size_t start = 0; start < n; start += bins) {
+          const std::size_t width = n - start < bins ? n - start : bins;
+          for (std::size_t offset = 0; offset < count; ++offset) {
+            const Complex* row = &state(first + offset, start);
+            for (std::size_t bin = 0; bin < width; ++bin)
+              tile[bin][offset] = row[bin];
+          }
+          for (std::size_t bin = 0; bin < width; ++bin)
+            for (std::size_t offset = 0; offset < count; ++offset) {
+              const std::size_t column = first + offset;
+              const std::size_t omega = start + bin;
+              totals[offset] +=
+                  body(column, omega, scratch.data()[index(column, omega)],
+                       tile[bin][offset]);
+            }
+          if (writes_state)
+            for (std::size_t offset = 0; offset < count; ++offset) {
+              Complex* row = &state(first + offset, start);
+              for (std::size_t bin = 0; bin < width; ++bin)
+                row[bin] = tile[bin][offset];
+            }
+        }
+        if (fused_norm)
+          for (std::size_t offset = 0; offset < count; ++offset)
+            partials(0, first + offset) = totals[offset];
       });
 #endif
   if (final && !fused_norm)
