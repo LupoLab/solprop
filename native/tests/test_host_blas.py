@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass, field
+from typing import cast
 
 import pytest
 
@@ -36,12 +37,14 @@ class _Limiter:
 @dataclass
 class _Controller:
     lib_controllers: list[_Library]
-    limiters: list[_Limiter] = field(default_factory=list)
+    limiters: list[_Limiter] = field(default_factory=list[_Limiter])
 
     def select(self, **criteria: object) -> _Controller:
         def wanted(library: _Library) -> bool:
             for name, value in criteria.items():
-                values = value if isinstance(value, list) else [value]
+                values = (
+                    cast("list[object]", value) if isinstance(value, list) else [value]
+                )
                 if name == "user_api":
                     if "blas" not in values:
                         return False
@@ -62,7 +65,7 @@ class _Controller:
 
 
 @pytest.fixture(autouse=True)
-def _fresh(monkeypatch: pytest.MonkeyPatch) -> None:
+def fresh_pools(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every test starts with no backend holding the pools."""
     monkeypatch.setattr(_host_blas, "_holders", 0)
     monkeypatch.setattr(_host_blas, "_limiter", None)

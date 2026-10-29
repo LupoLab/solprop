@@ -39,7 +39,8 @@ def _limit(own_library: str, budget: int, controller: Any = None) -> tuple[str, 
     """Limit the BLAS pools other than `own_library`; say which, return the limit."""
     if controller is None:
         try:
-            import threadpoolctl  # solprop's dependency, not this package's
+            # solprop's dependency, not this package's; it ships no type stubs.
+            import threadpoolctl  # pyright: ignore[reportMissingTypeStubs]
         except ImportError:
             return "unavailable", None
         controller = threadpoolctl.ThreadpoolController()
