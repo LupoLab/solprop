@@ -256,9 +256,12 @@ struct FieldCurrentStream {
   RealView2 node, projected, coarse, stacked;
   ComplexView2 spectrum, coarse_spectrum;
   std::unique_ptr<ForwardRealPlan> forward, coarse_forward;
+  // `stacked` is the fine and coarse rows themselves (a device's packed currents),
+  // not storage of its own.
+  bool stacked_aliases{};
   std::size_t bytes() const {
-    return sizeof(double) *
-               (node.size() + projected.size() + coarse.size() + stacked.size()) +
+    return sizeof(double) * (node.size() + projected.size() + coarse.size() +
+                             (stacked_aliases ? 0 : stacked.size())) +
            sizeof(Complex) * (spectrum.size() + coarse_spectrum.size());
   }
 };
@@ -2658,6 +2661,12 @@ public:
   ComplexView carrier_;
   std::array<EnvelopeStream, 2> envelope_streams_;
   std::array<FieldCurrentStream, 3> held_streams_;
+  // A device's two held currents, fine and coarse rows of each, in one buffer and its
+  // spectrum, which one plan transforms (`held_transform`); empty on a host and on the
+  // radial route.
+  RealView2 held_pack_;
+  ComplexView2 held_pack_spectrum_;
+  std::unique_ptr<ForwardRealPlan> held_pack_forward_;
   RealView2 held_current_, held_projection_;
   ComplexView2 held_nodal_spectrum_, held_projected_spectrum_;
   RealView held_derivative_, held_inverse_;
@@ -3660,15 +3669,57 @@ void GeneralWorkspace::allocate() {
     held_inverse_ = RealView("solprop_native.held.inverse", problem_.n_omega);
     const bool radial = held_radial();
     const auto rows = radial ? chunk_rows : temporal_columns;
+    const bool coarse = !problem_.projection_coarse_matrix.empty();
+    // On a device the two currents' fine and coarse rows are one buffer, a stream's
+    // fine rows then its coarse ones (its stacked projection's own order), so that one
+    // transform takes all four: on an AMD Instinct MI325X each transform of a
+    // single-mode run was four library kernels of a few microseconds, launched one by
+    // one. The radial route transforms its streams one at a time.
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+    const bool packed = !radial;
+#else
+    const bool packed = false;
+#endif
+    const std::size_t per_stream = coarse ? 2 * rows : rows;
+    if (packed) {
+      held_pack_ = RealView2("solprop_native.held.pack", 2 * per_stream, problem_.n_to);
+      held_pack_spectrum_ = ComplexView2("solprop_native.held.pack_spectrum",
+                                         2 * per_stream, problem_.n_to / 2 + 1);
+    }
     for (std::size_t index = 0; index < (radial ? 3U : 2U); ++index) {
       auto& stream = held_streams_[index];
       const auto label =
           std::string("solprop_native.held.stream") + std::to_string(index) + ".";
       if (index < 2)
         stream.node = RealView2(label + "node", chunk_rows, problem_.n_to);
+      if (packed) {
+        const std::size_t first = index * per_stream;
+        const auto rows_from = [&](const std::size_t start, const std::size_t count) {
+          return std::pair<std::size_t, std::size_t>(start, start + count);
+        };
+        stream.projected =
+            Kokkos::subview(held_pack_, rows_from(first, rows), Kokkos::ALL);
+        stream.spectrum =
+            Kokkos::subview(held_pack_spectrum_, rows_from(first, rows), Kokkos::ALL);
+        if (coarse) {
+          stream.coarse =
+              Kokkos::subview(held_pack_, rows_from(first + rows, rows), Kokkos::ALL);
+          stream.coarse_spectrum = Kokkos::subview(
+              held_pack_spectrum_, rows_from(first + rows, rows), Kokkos::ALL);
+          // The stacked projection writes its coarse rows after the problem's
+          // columns: in place when those are the stream's rows.
+          stream.stacked_aliases = rows == problem_.n_columns();
+          stream.stacked =
+              stream.stacked_aliases
+                  ? RealView2(Kokkos::subview(held_pack_, rows_from(first, 2 * rows),
+                                              Kokkos::ALL))
+                  : RealView2(label + "stacked", 2 * rows, problem_.n_to);
+        }
+        continue;
+      }
       stream.projected = RealView2(label + "projected", rows, problem_.n_to);
       stream.spectrum = ComplexView2(label + "spectrum", rows, problem_.n_to / 2 + 1);
-      if (!problem_.projection_coarse_matrix.empty()) {
+      if (coarse) {
         stream.coarse = RealView2(label + "coarse", rows, problem_.n_to);
         stream.coarse_spectrum =
             ComplexView2(label + "coarse_spectrum", rows, problem_.n_to / 2 + 1);
@@ -4200,7 +4251,7 @@ void GeneralWorkspace::plan() {
 #endif
   }
   constexpr int axis = -1;
-  if (held_plasma())
+  if (held_plasma()) {
     for (auto& stream : held_streams_) {
       if (stream.projected.empty())
         continue;
@@ -4212,6 +4263,11 @@ void GeneralWorkspace::plan() {
             fft_space_for(stream.coarse.size()), stream.coarse, stream.coarse_spectrum,
             KokkosFFT::Direction::forward, axis);
     }
+    if (!held_pack_.empty())
+      held_pack_forward_ = std::make_unique<ForwardRealPlan>(
+          fft_space_for(held_pack_.size()), held_pack_, held_pack_spectrum_,
+          KokkosFFT::Direction::forward, axis);
+  }
   if (problem_.envelope_plasma)
     for (auto& stream : envelope_streams_) {
       stream.forward = std::make_unique<ComplexPlan>(
@@ -11767,14 +11823,23 @@ void GeneralWorkspace::held_response(const std::size_t stage,
 }
 
 void GeneralWorkspace::held_transform(const bool coarse_only) {
-  for (std::size_t index = 0; index < 2; ++index) {
-    auto& stream = held_streams_[index];
-    if (!coarse_only)
-      KokkosFFT::execute(*stream.forward, stream.projected, stream.spectrum,
-                         KokkosFFT::Normalization::none);
-    if (stream.coarse_forward && (coarse_only || !defer_quadrature_))
-      KokkosFFT::execute(*stream.coarse_forward, stream.coarse, stream.coarse_spectrum,
-                         KokkosFFT::Normalization::none);
+  // The packed rows are every transform this call takes when it takes the fine ones
+  // and, where there are coarse rows, those too.
+  const bool every_row =
+      !coarse_only && (!held_streams_[0].coarse_forward || !defer_quadrature_);
+  if (held_pack_forward_ && every_row) {
+    KokkosFFT::execute(*held_pack_forward_, held_pack_, held_pack_spectrum_,
+                       KokkosFFT::Normalization::none);
+  } else {
+    for (std::size_t index = 0; index < 2; ++index) {
+      auto& stream = held_streams_[index];
+      if (!coarse_only)
+        KokkosFFT::execute(*stream.forward, stream.projected, stream.spectrum,
+                           KokkosFFT::Normalization::none);
+      if (stream.coarse_forward && (coarse_only || !defer_quadrature_))
+        KokkosFFT::execute(*stream.coarse_forward, stream.coarse,
+                           stream.coarse_spectrum, KokkosFFT::Normalization::none);
+    }
   }
   const auto product = held_streams_[0].spectrum;
   const auto edge = held_streams_[1].spectrum;
@@ -11965,6 +12030,12 @@ void GeneralWorkspace::project(const std::size_t first_node,
     } else if (project_coarse_ && !scaled_projection_stacked_.empty()) {
       selected_gemm(transform_space_for(node_count), scaled_projection_stacked_,
                     real_source, real_stacked_target, 0.0, true);
+      // A device's packed current holds its fine and coarse rows in the stacked
+      // product itself.
+      if (field_stream != nullptr && field_stream->stacked_aliases) {
+        Kokkos::Profiling::popRegion();
+        return;
+      }
       const auto& stacked = real_stacked_target;
       const auto& fine = real_target;
       const auto& coarse = real_coarse_target;
@@ -14687,6 +14758,9 @@ void GeneralWorkspace::close() noexcept {
     stream.coarse_forward.reset();
     stream = {};
   }
+  held_pack_forward_.reset();
+  held_pack_ = {};
+  held_pack_spectrum_ = {};
   held_current_ = {};
   held_projection_ = {};
   held_nodal_spectrum_ = {};
