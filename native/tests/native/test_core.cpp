@@ -2960,8 +2960,16 @@ TEST(CpuThreadPolicy, ACompactPoolKeepsAFewThreads) {
   EXPECT_EQ(kernels.widest(), team);
   native::CpuExecutionPool transforms(native::CpuPool::fft);
   transforms.compact();
+  const int threaded = native::fftw_team_loops() ? team : 1;
   EXPECT_EQ(transforms.get(native::CpuOperation::fft, 1U << 20).concurrency(),
-            native::fftw_team_loops() ? team : 1);
+            threaded);
+  // A medium transform takes the whole team, and a Raman one threads from the modal
+  // FFT's start.
+  EXPECT_EQ(transforms.get(native::CpuOperation::fft, 32768).concurrency(), threaded);
+  EXPECT_EQ(transforms.get(native::CpuOperation::fft, 1000).concurrency(), 1);
+  native::CpuExecutionPool raman(native::CpuPool::raman_fft);
+  raman.compact();
+  EXPECT_EQ(raman.get(native::CpuOperation::raman, 32768).concurrency(), threaded);
   native::CpuExecutionPool full(native::CpuPool::kernels);
   EXPECT_EQ(full.get(native::CpuOperation::stage, 1U << 20).concurrency(),
             policy.kernels);

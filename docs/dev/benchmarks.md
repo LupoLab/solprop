@@ -250,7 +250,7 @@ Such a problem (`compact_problem`: one column, one node, one transform polarisat
 general modal route, coupled flow or separable geometry, fewer than 65536 fine samples)
 now runs on a compact team: its kernels at most eight threads wide, medium widths
 promoted to that team as in [a stable kernel team](#stable-kernel-team), and its FFT and
-Raman plans at most eight. FFTW's threaded loop normally opens the runtime's whole team
+Raman plans at most eight (see the end of this section for their sizing). FFTW's threaded loop normally opens the runtime's whole team
 (sixteen threads for a four-thread plan); beside an eight-thread kernel team that made
 GNU OpenMP end and restart threads at every pair, and a whole run took 2.6 times as long.
 The native backend therefore installs FFTW's loop callback (FFTW 3.3.9 and later, the
@@ -278,6 +278,23 @@ measured-plan floor (at most 6e-14 relative):
 
 `gnlse_raman_shock` now runs 1.25 times faster at 16 threads than at one (4.76 against
 5.94 s), where it ran at the same speed.
+
+On the compact team the transforms' own sizing was a 16-thread one: the four-thread
+plans of the 16384-sample transform left half the team idle, and the 32768-sample Raman
+transforms stayed serial below the Raman start (65536), set where a threaded Raman
+plan woke the whole runtime. A compact problem's threaded transform now takes its whole
+team, and its Raman transforms thread from the modal FFT's start. Interleaved `benchmarks
+ab` against the commit above, Xeon, 3 rounds, `--length 0.1`, the same steps:
+
+| case | 1 thread | 16 threads |
+|---|---:|---:|
+| `gnlse_raman_shock` | 0.994 | 0.875 [0.871, 0.903] |
+| `h2_raman_averaged` | 0.985 | 0.983 [0.977, 1.000] |
+
+The Raman start alone gave 1.012 [0.950, 1.015] and 0.976. With both, `gnlse_raman_shock`
+takes 4.31 s at 16 threads, 1.38 times faster than one thread. Threading every compact
+kernel of at least 4096 elements at the team width instead gained nothing
+(`h2_raman_averaged` 3 % slower).
 
 (one-mode-products)=
 ### One-mode products on the response team
