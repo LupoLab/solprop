@@ -2351,13 +2351,8 @@ class _NativeAdamsMarch(AdamsMarch):
                 return reason, True
         if self._runner is not None:
             return None, False
-        engine_reasons = (
-            (not isinstance(engine, _ResidentAdams), "the host engine's coupled flow"),
-            (_on_device(), "a device build"),
-        )
-        for failed, reason in engine_reasons:
-            if failed:
-                return reason, True
+        if not isinstance(engine, _ResidentAdams):
+            return "the host engine's coupled flow", True
         assert isinstance(engine, _ResidentAdams)
         resident = (
             (
