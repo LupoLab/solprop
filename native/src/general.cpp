@@ -6724,6 +6724,12 @@ inline double adams_lanes_predict(
       lanes.xi[b] = x[b].imag();
     }
   }
+  // Formed before the vector maths writes them: clang-tidy's analyzer does not follow
+  // its stores (a few stores a block).
+  for (std::size_t b = 0; b < n; ++b) {
+    lanes.fr[b] = 0.0;
+    lanes.fi[b] = 0.0;
+  }
   vmath::exp_complex(lanes.xr, lanes.xi, lanes.fr, lanes.fi, n);
   Complex* flow_out = &flow(column, first);
   for (std::size_t b = 0; b < n; ++b)
