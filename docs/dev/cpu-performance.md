@@ -109,9 +109,9 @@ time divided by the native backend's: above 1, the native backend is faster.
 - **NumPy's BLAS held to one thread while a native backend lives**
   ([measurements](benchmarks.md#host-blas-pool)). Its pthreads workers, woken by the
   small host-side products of each saved plane, spun on the native pool's cores for the
-  whole run: at 16 threads on a Xeon Gold 6240 the four-mode capillary became 2.2 times
-  faster, the radial filament 1.4 times and averaged helium 1.4 times; one thread is
-  unchanged.
+  whole run: at 16 threads the four-mode capillary became 2.2 times faster on a Xeon Gold
+  6240 (1.3 times on an AMD EPYC 7763), the radial filament 1.4 (1.6) times and averaged
+  helium 1.4 (2.9) times; one thread is unchanged.
 - **Measured FFTW wisdom only for serial transforms by default**
   ([measurements](benchmarks.md#threaded-fft-plan-selection)). FFTW's construction-time
   trials sometimes chose a slower *threaded* plan: on a 32-core AVX-512 server at 32

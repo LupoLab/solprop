@@ -245,13 +245,15 @@ The native backend now holds every BLAS but its own to one thread while it lives
 `numba_cpu` holds its BLAS pool. Interleaved `benchmarks ab` against the parent, 3 rounds,
 `--length 0.1`, passive-bound placement, the same steps and fields to rounding:
 
-| case | Xeon Gold 6240, 1 thread | Xeon Gold 6240, 16 threads |
-|---|---:|---:|
-| `rdw` | 0.996 | 0.462 [0.456, 0.465] |
-| `he_rdw_averaged` | 1.011 | 0.693 [0.670, 0.773] |
-| `radial_filament_256` | 0.996 | 0.725 [0.718, 0.726] |
-| the other nine tracking cases | 0.984-1.019 | 0.979-1.010 |
-| geometric mean (12 cases) | 1.000 | 0.886 |
+| case | Xeon Gold 6240, 1 thread | 16 threads | AMD EPYC 7763, 1 thread | 16 threads |
+|---|---:|---:|---:|---:|
+| `rdw` | 0.996 | 0.462 [0.456, 0.465] | 1.012 | 0.762 [0.749, 0.780] |
+| `he_rdw_averaged` | 1.011 | 0.693 [0.670, 0.773] | 0.997 | 0.343 [0.326, 0.816] |
+| `radial_filament_256` | 0.996 | 0.725 [0.718, 0.726] | 0.992 | 0.610 [0.603, 0.791] |
+| the other nine tracking cases | 0.984-1.019 | 0.979-1.010 | 0.988-1.020 | 0.972-1.017 |
+| geometric mean (12 cases) | 1.000 | 0.886 | 1.001 | 0.836 |
+
+The EPYC rows are 16 cores of a shared node (its averaged-helium spread is the node's).
 
 The four-mode capillary now runs 3.1 times faster at 16 threads than at one (0.77 s
 against 2.40 s), where it was 1.4 times.
