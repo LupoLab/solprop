@@ -8,6 +8,7 @@
 #include <Kokkos_Core.hpp>
 
 #include <cstddef>
+#include <cstdint>
 
 /*
  * The exponential Adams march's phi-functions (solprop backends/exponential.py,
@@ -157,9 +158,11 @@ inline constexpr double adams_lane_inverse_divisor[adams_series_terms +
     1.0 / 28.0, 1.0 / 29.0, 1.0 / 30.0, 1.0 / 31.0, 1.0 / 32.0};
 
 // The phi-functions' branch of a lane, as `adams_phi` chooses it.
-inline constexpr unsigned char adams_lane_zero = 0;
-inline constexpr unsigned char adams_lane_large = 1;
-inline constexpr unsigned char adams_lane_series = 2;
+// (Lane flags are as wide as a double, so that a loop over them vectorises with the
+// values it selects.)
+inline constexpr std::int64_t adams_lane_zero = 0;
+inline constexpr std::int64_t adams_lane_large = 1;
+inline constexpr std::int64_t adams_lane_series = 2;
 
 // A block's lanes. Each pass declares one and uses the parts it needs; the parts are
 // members of one object so that the compiler knows they do not overlap.
@@ -172,10 +175,10 @@ struct AdamsLanes {
   // The moments' argument (x, or x - sigma), its series argument 2^-s and that one's
   // exponential, and the large branch's e^argument.
   double ar[B], ai[B], yr[B], yi[B], er[B], ei[B], gr[B], gi[B];
-  int squarings[B];
-  unsigned char branch[B];
+  std::int64_t squarings[B];
+  std::int64_t branch[B];
   bool any_large{};
-  int most_squarings{};
+  std::int64_t most_squarings{};
   // phi_0 .. phi_order, and the squarings' previous values.
   double pr[rows][B], pi[rows][B], qr[rows][B], qi[rows][B];
   // History rows (rotated by a carrier frame) and the moments.
@@ -217,42 +220,44 @@ inline void adams_lanes_classify(AdamsLanes& lanes, const ExponentialWeights& we
   // threshold's square, which decides it as `hypot` would, and from `hypot` otherwise
   // (and for a non-finite square).
   constexpr double margin = 0x1p-40;
-  bool any_large = false;
-  bool any_close = false;
-  int most = 0;
+  constexpr double finite = Kokkos::Experimental::finite_max_v<double>;
   double scale[AdamsLanes::B];
-  unsigned char close[AdamsLanes::B];
+  std::int64_t close[AdamsLanes::B];
+  std::int64_t any_close = 0;
   for (std::size_t b = 0; b < count; ++b) {
     const double rr = lanes.ar[b] * lanes.ar[b];
     const double ii = lanes.ai[b] * lanes.ai[b];
     const double square = rr + ii;
-    const bool zero = lanes.ar[b] == 0.0 && lanes.ai[b] == 0.0;
-    const bool large = square > 9.0;
-    const int squarings =
-        (square > 0.25 ? 1 : 0) + (square > 1.0 ? 1 : 0) + (square > 4.0 ? 1 : 0);
-    const double d0 = Kokkos::fabs(square - 0.25);
-    const double d1 = Kokkos::fabs(square - 1.0);
-    const double d2 = Kokkos::fabs(square - 4.0);
-    const double d3 = Kokkos::fabs(square - 9.0);
-    const bool uncertain = !(square <= Kokkos::Experimental::finite_max_v<double>) ||
-                           d0 <= margin * 0.25 || d1 <= margin || d2 <= margin * 4.0 ||
-                           d3 <= margin * 9.0;
-    close[b] = uncertain ? 1 : 0;
-    any_close = any_close || uncertain;
-    const unsigned char branch =
-        zero ? adams_lane_zero : (large ? adams_lane_large : adams_lane_series);
-    const bool series = branch == adams_lane_series;
+    const std::int64_t zero = static_cast<std::int64_t>(lanes.ar[b] == 0.0) &
+                              static_cast<std::int64_t>(lanes.ai[b] == 0.0);
+    const std::int64_t large = static_cast<std::int64_t>(square > 9.0);
+    const std::int64_t above_quarter = static_cast<std::int64_t>(square > 0.25);
+    const std::int64_t above_one = static_cast<std::int64_t>(square > 1.0);
+    const std::int64_t above_four = static_cast<std::int64_t>(square > 4.0);
+    const std::int64_t uncertain =
+        static_cast<std::int64_t>(!(square <= finite)) |
+        static_cast<std::int64_t>(Kokkos::fabs(square - 0.25) <= margin * 0.25) |
+        static_cast<std::int64_t>(Kokkos::fabs(square - 1.0) <= margin) |
+        static_cast<std::int64_t>(Kokkos::fabs(square - 4.0) <= margin * 4.0) |
+        static_cast<std::int64_t>(Kokkos::fabs(square - 9.0) <= margin * 9.0);
+    close[b] = uncertain;
+    any_close |= uncertain;
+    const std::int64_t branch =
+        zero != 0 ? adams_lane_zero
+                  : (large != 0 ? adams_lane_large : adams_lane_series);
     lanes.branch[b] = branch;
-    lanes.squarings[b] = series ? squarings : 0;
-    scale[b] =
-        squarings == 0 ? 1.0 : (squarings == 1 ? 0.5 : (squarings == 2 ? 0.25 : 0.125));
+    lanes.squarings[b] =
+        branch == adams_lane_series ? above_quarter + above_one + above_four : 0;
+    // 2^-squarings, each factor exact.
+    scale[b] = (above_quarter != 0 ? 0.5 : 1.0) * (above_one != 0 ? 0.5 : 1.0) *
+               (above_four != 0 ? 0.5 : 1.0);
   }
-  if (any_close)
+  if (any_close != 0)
     for (std::size_t b = 0; b < count; ++b) {
       if (close[b] == 0)
         continue;
       const double magnitude = Kokkos::hypot(lanes.ar[b], lanes.ai[b]);
-      unsigned char branch = adams_lane_series;
+      std::int64_t branch = adams_lane_series;
       int squarings = 0;
       double halved = 1.0;
       if (magnitude == 0.0)
@@ -265,14 +270,16 @@ inline void adams_lanes_classify(AdamsLanes& lanes, const ExponentialWeights& we
       lanes.squarings[b] = squarings;
       scale[b] = halved;
     }
+  std::int64_t any_large = 0;
+  std::int64_t most = 0;
   for (std::size_t b = 0; b < count; ++b) {
     const bool series = lanes.branch[b] == adams_lane_series;
-    any_large = any_large || lanes.branch[b] == adams_lane_large;
+    any_large |= static_cast<std::int64_t>(lanes.branch[b] == adams_lane_large);
     most = lanes.squarings[b] > most ? lanes.squarings[b] : most;
     lanes.yr[b] = series ? scale[b] * lanes.ar[b] : 0.0;
     lanes.yi[b] = series ? scale[b] * lanes.ai[b] : 0.0;
   }
-  lanes.any_large = any_large;
+  lanes.any_large = any_large != 0;
   lanes.most_squarings = most;
 }
 
@@ -289,7 +296,7 @@ inline void adams_lanes_phi(AdamsLanes& lanes, const std::size_t order) {
   // The series: every lane takes its terms until its own stopping test holds; a lane
   // that has stopped keeps its sum and carries a zero term.
   double term_r[B], term_i[B], sum_r[B], sum_i[B];
-  unsigned char live[B];
+  std::int64_t live[B];
   const double first = adams_lane_reciprocal[order];
   for (std::size_t b = 0; b < count; ++b) {
     term_r[b] = first;
@@ -300,7 +307,7 @@ inline void adams_lanes_phi(AdamsLanes& lanes, const std::size_t order) {
   }
   for (std::size_t m = 1; m < static_cast<std::size_t>(adams_series_terms); ++m) {
     const double inverse = adams_lane_inverse_divisor[m + order];
-    unsigned char any = 0;
+    std::int64_t any = 0;
     for (std::size_t b = 0; b < count; ++b) {
       const double rr = term_r[b] * lanes.yr[b];
       const double ii = term_i[b] * lanes.yi[b];
@@ -321,7 +328,7 @@ inline void adams_lanes_phi(AdamsLanes& lanes, const std::size_t order) {
       const bool on = live[b] != 0;
       sum_r[b] = on ? total_r : sum_r[b];
       sum_i[b] = on ? total_i : sum_i[b];
-      const bool more = on && !(term_norm <= stop * total_norm);
+      const bool more = on & !(term_norm <= stop * total_norm);
       live[b] = more ? 1 : 0;
       term_r[b] = more ? next_r : 0.0;
       term_i[b] = more ? next_i : 0.0;
@@ -351,7 +358,7 @@ inline void adams_lanes_phi(AdamsLanes& lanes, const std::size_t order) {
     lanes.pi[0][b] = lanes.ei[b];
   }
   // The squarings, each lane its own number.
-  for (int pass = 0; pass < lanes.most_squarings; ++pass) {
+  for (std::int64_t pass = 0; pass < lanes.most_squarings; ++pass) {
     for (std::size_t k = 0; k <= order; ++k)
       for (std::size_t b = 0; b < count; ++b) {
         lanes.qr[k][b] = lanes.pr[k][b];
