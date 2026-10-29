@@ -65,6 +65,10 @@ from distribution import remember_nodeid  # noqa: E402 - test helper beside conf
 # appends group suffixes. Tier and convergence-record identities stay unsuffixed.
 TIER_MARKERS = ("medium", "slow", "gpu", "benchmark")
 
+HOST_MARCH_FILTER = pytest.mark.filterwarnings(
+    "ignore::solprop.exceptions.HostMarchWarning"
+)
+
 _COLLECTED_TIERS: dict[str, tuple[str, ...]] = {}
 
 
@@ -74,6 +78,12 @@ def pytest_collection_modifyitems(config, items):
     _COLLECTED_TIERS.clear()
     for item in items:
         remember_nodeid(item)
+        # SEP 39 while its phases are under way: the native backend runs solprop's
+        # Python march, with a warning, for the configurations its native march does
+        # not yet cover. A mark, like the boundary monitor's, so nothing imports solprop
+        # before coverage starts. Removed when SEP 39 is Final; the admission tests
+        # assert the warning with `pytest.warns`.
+        item.add_marker(HOST_MARCH_FILTER)
         _COLLECTED_TIERS[item.nodeid] = tuple(
             name for name in TIER_MARKERS if item.get_closest_marker(name) is not None
         )

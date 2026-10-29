@@ -3295,16 +3295,32 @@ class AdamsMarch:
         spent = self.ledger.total
         backend = self._backend
         if budget is not None and spent + cost > budget:
-            msg = (
-                f"the source-call budget of {budget} is spent ({spent} charged) at "
-                f"z = {backend._z:.6g} m: the next trial needs {cost}; "
-                "the run stops at "
-                "its last accepted step, unfinished"
-            )
-            raise ResponseBudgetError(
-                msg, z=backend._z, field=backend._adams_state().copy(), calls=spent
-            )
+            raise self._budget_error(cost)
         backend._reserve_source_calls(cost)
+
+    def _budget_error(self, cost: int) -> ResponseBudgetError:
+        """Return the error of a trial the call budget cannot pay for.
+
+        Parameters
+        ----------
+        cost : int
+            The calls the refused trial needs.
+
+        Returns
+        -------
+        solprop.exceptions.ResponseBudgetError
+            Carrying the last accepted position and state and the calls spent.
+        """
+        backend = self._backend
+        spent = self.ledger.total
+        msg = (
+            f"the source-call budget of {self._policy.max_calls} is spent ({spent} "
+            f"charged) at z = {backend._z:.6g} m: the next trial needs {cost}; "
+            "the run stops at its last accepted step, unfinished"
+        )
+        return ResponseBudgetError(
+            msg, z=backend._z, field=backend._adams_state().copy(), calls=spent
+        )
 
     def _start(self) -> None:
         """Evaluate the source at the accepted field to (re)start the history."""

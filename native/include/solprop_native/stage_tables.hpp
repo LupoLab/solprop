@@ -6,7 +6,10 @@
 
 #include "solprop_native/chebyshev.hpp"
 #include "solprop_native/core.hpp"
+#include "solprop_native/lagrange_basis.hpp"
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <limits>
@@ -49,9 +52,9 @@ struct Table {
 
   /** Write the table's values at `z`, refusing a position outside its span. */
   void at(const double z, double* out) const {
-    const auto bad = chebyshev::clenshaw_points(
-        &z, 1, edges.data(), edges.size(), lower, upper, coefficients.data(), n_terms,
-        n_values, out);
+    const auto bad =
+        chebyshev::clenshaw_points(&z, 1, edges.data(), edges.size(), lower, upper,
+                                   coefficients.data(), n_terms, n_values, out);
     if (bad >= 0)
       throw std::invalid_argument("z = " + std::to_string(z) +
                                   " is outside a stage table's span");
@@ -65,16 +68,16 @@ struct Table {
   }
 
   /**
-   * Write the values at `z` read from the interval ending there when `z` is an
-   * interior edge: `_rate_value(before=True)`, the chosen interval read as a
-   * one-interval table at the same map onto [-1, 1].
+   * Write the values at `z` read as `_rate_value` reads them: the chosen interval as
+   * a one-interval table at the same map onto [-1, 1], from the interval ending at an
+   * interior edge when `before`.
    */
-  void closing(const double z, double* out) const {
+  void closing(const double z, double* out, const bool before = true) const {
     if (z < lower || z > upper)
       throw std::invalid_argument("z = " + std::to_string(z) +
                                   " is outside a stage table's span");
     std::size_t index = chebyshev::interval_index(z, edges.data(), edges.size());
-    if (index > 0 && z <= edges[index])
+    if (before && index > 0 && z <= edges[index])
       --index;
     const double ends[2] = {edges[index], edges[index + 1]};
     constexpr double infinite = std::numeric_limits<double>::infinity();
@@ -135,7 +138,8 @@ struct Row {
   std::vector<double> raman_densities;
 };
 
-/** Return one stage's scalars at `z1`, from the anchor `z0` (`scalars(problem, z0, z1)`). */
+/** Return one stage's scalars at `z1`, from the anchor `z0` (`scalars(problem, z0,
+ * z1)`). */
 inline Row row(const Tables& tables, Anchor& anchor, const double z0, const double z1) {
   Row out;
   if (tables.phi == Terms::constant) {
@@ -170,9 +174,10 @@ inline Row row(const Tables& tables, Anchor& anchor, const double z0, const doub
   out.raman_rates.reserve(tables.raman_rates.size());
   for (const auto& table : tables.raman_rates)
     out.raman_rates.push_back(table.value(z1));
-  out.kerr_density = tables.kerr == KerrDensity::none      ? 0.0
-                     : tables.kerr == KerrDensity::density ? out.density
-                                                           : tables.kerr_density.value(z1);
+  out.kerr_density = tables.kerr == KerrDensity::none ? 0.0
+                     : tables.kerr == KerrDensity::density
+                         ? out.density
+                         : tables.kerr_density.value(z1);
   for (const auto& table : tables.plasma_densities)
     out.plasma_densities.push_back(table.value(z1));
   for (const auto& table : tables.plasma_preionisation)
@@ -210,8 +215,9 @@ inline TrialScalars trial(const Tables& tables, const Row& stage) {
   repeat(out.prefactor, stage.prefactor, stages);
   out.density.assign(stages, stage.density);
   out.taper.assign(stages, stage.taper);
-  out.preionisation.assign(
-      stages, stage.plasma_preionisation.size() == 1 ? stage.plasma_preionisation[0] : 0.0);
+  out.preionisation.assign(stages, stage.plasma_preionisation.size() == 1
+                                       ? stage.plasma_preionisation[0]
+                                       : 0.0);
   repeat(out.raman_rates, stage.raman_rates, stages);
   out.kerr_density.assign(stages, stage.kerr_density);
   repeat(out.plasma_densities, stage.plasma_densities, stages);
@@ -220,12 +226,80 @@ inline TrialScalars trial(const Tables& tables, const Row& stage) {
   return out;
 }
 
-/** Return `D(z)`'s weights over the native `Phi` terms, read on the closing side. */
-inline std::vector<double> rate(const Tables& tables, const double z) {
+/**
+ * Return `D(z)`'s weights over the native `Phi` terms (`rate_weights`), read on the
+ * closing side of an edge when `before`: a trial's endpoint; a startup sample reads
+ * the far side.
+ */
+inline std::vector<double> rate(const Tables& tables, const double z,
+                                const bool before = true) {
   if (tables.phi == Terms::constant)
     return {1.0};
   std::vector<double> out(tables.phi_rate.n_values);
-  tables.phi_rate.closing(z, out.data());
+  tables.phi_rate.closing(z, out.data(), before);
+  return out;
+}
+
+/**
+ * Return an exponential trial's tables formed from its nodes
+ * (`lagrange::trial_tables`): the operations of solprop's `trial_tables` in their
+ * order, laid out as the native trial takes them, with the compensation's when
+ * `compensated`. `nodes` holds the history's normalised positions newest first, `slots`
+ * their rows.
+ */
+inline ExponentialWeights weights(const double* nodes, const std::size_t n,
+                                  const std::size_t* slots, const std::size_t n_slots,
+                                  const std::size_t order, const std::size_t* orders,
+                                  const std::size_t n_orders, const bool compensated) {
+  constexpr std::size_t most = lagrange::max_nodes;
+  std::size_t highest = 0;
+  for (std::size_t index = 0; index < n_orders; ++index)
+    highest = std::max(highest, orders[index]);
+  if (n_orders == 0 || n_orders > 3 || order == 0 || order > highest || highest > n ||
+      highest + 1 > most || highest + 1 > adams_max_samples ||
+      n_slots + 1 < highest + 1 ||
+      std::any_of(orders, orders + n_orders,
+                  [](const std::size_t value) { return value == 0; }))
+    throw std::invalid_argument("Adams coefficient tables have inconsistent extents");
+  const std::size_t width = highest + 1;
+  std::array<double, most * most> predictor{};
+  std::array<double, most * most> corrector{};
+  std::array<double, 3 * 2 * most> factored{};
+  std::array<double, most> spans{};
+  std::array<double, most> carried{};
+  std::array<double, most + 1> endpoint{};
+  std::array<double, 3 * most> defects{};
+  lagrange::trial_tables(nodes, order, orders, n_orders, width, compensated,
+                         predictor.data(), corrector.data(), factored.data(),
+                         spans.data(), carried.data(), endpoint.data(), defects.data());
+  ExponentialWeights out;
+  for (std::size_t t = 0; t < n_slots && t < adams_max_samples; ++t)
+    out.slot[t] = slots[t];
+  for (std::size_t j = 0; j < order; ++j)
+    for (std::size_t k = 0; k < order; ++k)
+      out.predictor[j][k] = predictor[j * order + k];
+  for (std::size_t j = 0; j < width; ++j)
+    for (std::size_t k = 0; k < width; ++k)
+      out.corrector[j][k] = corrector[j * width + k];
+  out.order = order;
+  out.width = width;
+  out.count = width;
+  out.n_rows = n_orders;
+  for (std::size_t row = 0; row < n_orders; ++row)
+    for (std::size_t t = 0; t < 2 * width; ++t)
+      out.rows[row][t] = factored[row * 2 * width + t];
+  out.compensated = compensated;
+  if (compensated) {
+    for (std::size_t t = 0; t + 1 < width; ++t)
+      out.span[t] = spans[t];
+    for (std::size_t t = 0; t < order; ++t)
+      out.comp_predictor[t] = carried[t];
+    for (std::size_t t = 0; t <= order; ++t)
+      out.comp_corrector[t] = endpoint[t];
+    for (std::size_t row = 0; row < n_orders; ++row)
+      for (std::size_t t = 0; t < width; ++t)
+        out.comp_rows[row][t] = defects[row * width + t];
+  }
   return out;
 }
 

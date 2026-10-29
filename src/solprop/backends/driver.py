@@ -2103,6 +2103,52 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         # the history counts rejections, so the index is not `row * period`.
         self._record_step_stats(self._row_spec, self._z, len(self._history) - 1)
 
+    def _record_attempt(
+        self, z: float, dz: float, norm: float, accepted: bool, wall: float
+    ) -> None:
+        """Append one attempt a native Adams march made to the step history (SEP 39).
+
+        :meth:`_record`'s row, with the wall time the march measured. The progress
+        callback is made after the march's commit, and the accepted-step hook's work
+        the native march does itself, so neither is called here.
+
+        Parameters
+        ----------
+        z : float
+            Position at the end of the step, m.
+        dz : float
+            Length of the step, m.
+        norm : float
+            The scaled error norm, infinity for a diverged attempt.
+        accepted : bool
+            Whether the step was kept.
+        wall : float
+            Seconds since the last observation, as :meth:`_record` measures it.
+        """
+        if not math.isfinite(norm):
+            norm = math.inf
+        self._history.append((z, dz, norm, accepted, wall))
+
+    def _skip_step(self, z: float) -> None:
+        """Account an accepted step on which no host work falls (SEP 39 section 4.8).
+
+        What :meth:`_take_step_stats` and :meth:`_natural_stop` do for such a step: the
+        boundary monitor skips it, and the statistics rows and natural stops count it.
+        A native Adams march returns to its host before any step on which either would
+        act.
+
+        Parameters
+        ----------
+        z : float
+            The step's end, m.
+        """
+        monitor = self._monitor
+        if monitor is not None:
+            monitor.skip(z)
+        if self._row_spec is not None:
+            self._accepted_steps += 1
+        self._natural_count += 1
+
     def _record(self, z: float, dz: float, norm: float, accepted: bool) -> None:
         """Append one step to the history since the last observation.
 

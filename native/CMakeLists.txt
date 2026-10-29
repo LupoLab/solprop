@@ -835,7 +835,15 @@ if(SOLPROP_NATIVE_ENABLE_COVERAGE)
 endif()
 
 add_library(solprop_native_core STATIC src/core.cpp src/general.cpp
-  src/general_modal.cpp src/coupled_flow.cpp src/dispersive.cpp src/far_field.cpp)
+  src/general_modal.cpp src/coupled_flow.cpp src/dispersive.cpp src/far_field.cpp
+  src/adams_march.cpp)
+# solprop SEP 39: the Adams march's decisions round as solprop's Python does, so their
+# translation unit takes no contraction on any build (the flag follows the global one,
+# and the last wins). MSVC's /fp:precise does not contract by default.
+if(CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang|AMDClang|IntelLLVM)$")
+  set_source_files_properties(src/adams_march.cpp PROPERTIES COMPILE_OPTIONS
+    "-ffp-contract=off")
+endif()
 target_include_directories(solprop_native_core PUBLIC
   "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>"
 )

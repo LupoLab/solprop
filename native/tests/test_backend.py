@@ -191,6 +191,20 @@ def test_a_stage_bundle_without_a_packed_field_is_refused_by_name(
         check_build()
 
 
+def test_a_march_policy_field_either_way_is_refused_by_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The native march reads exactly the policy it was built against (SEP 39): a field
+    # it lacks, or one solprop added that it would not honour, refuses the build.
+    fields = solprop_native.MARCH_POLICY_FIELDS
+    monkeypatch.setattr(solprop_native, "MARCH_POLICY_FIELDS", (*fields, "gone"))
+    with pytest.raises(BackendError, match=r"has no MarchPolicy\.gone"):
+        check_build()
+    monkeypatch.setattr(solprop_native, "MARCH_POLICY_FIELDS", fields[1:])
+    with pytest.raises(BackendError, match=r"MarchPolicy has order, which this build"):
+        check_build()
+
+
 def test_the_solprop_version_is_recorded_and_never_compared(
     phase_a_case: PhaseACase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -226,7 +240,7 @@ def test_schema_mismatch_names_both_versions(
     # The two independently qualified schema-18 branches are not the combined seam.
     problem, _ = phase_a_case
     spoiled = dataclasses.replace(problem, schema_version=declared)
-    with pytest.raises(BackendError, match=rf"version 38.*version {declared}"):
+    with pytest.raises(BackendError, match=rf"version 39.*version {declared}"):
         check_build(spoiled)
 
 
@@ -681,7 +695,7 @@ def test_metadata_and_memory_ledger_are_self_consistent(
     n = problem.shape[-1]
     stages = problem.stepper.tableau.n_stages
     assert metadata["backend"] == "native"
-    assert metadata["schema_version"] == 38
+    assert metadata["schema_version"] == 39
     assert metadata["openmp_wait_policy"] == solprop_native.WAIT_POLICY
     assert metadata["openmp_proc_bind"] == solprop_native.PROC_BIND
     assert cast(float, metadata["planning_seconds"]) >= 0.0

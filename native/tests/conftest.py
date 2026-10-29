@@ -106,3 +106,15 @@ def writable_initial(phase_a_case: PhaseACase) -> ComplexArray:
     """Return an owning, writable initial field for mutation/lifetime tests."""
     problem, _ = phase_a_case
     return np.array(problem.initial.field0, copy=True)
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Ignore SEP 39's host-march warning while its phases are under way.
+
+    The native backend runs solprop's Python march, with a warning, for the
+    configurations its native march does not yet cover; removed when SEP 39 is Final.
+    """
+    for item in items:
+        item.add_marker(
+            pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
+        )

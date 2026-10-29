@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import overload
+from typing import Any, overload
 
 import numpy as np
 import numpy.typing as npt
@@ -192,6 +192,13 @@ class State:
         carrier: npt.NDArray[np.float64],
     ) -> npt.NDArray[np.float64]: ...
     def adams_stage_scalars(self, z0: float, z1: float) -> dict[str, list[float]]: ...
+    def adams_march_configure(
+        self, policy: dict[str, object], compensated: bool, interpolate: bool
+    ) -> None: ...
+    def adams_march_run(
+        self, state: dict[str, object], bounds: dict[str, object]
+    ) -> dict[str, Any]: ...
+    def adams_march_fault(self, stage: str, after: int, category: str) -> None: ...
     def adams_stage_rate(self, z: float) -> list[float]: ...
     def adams_exponential_accept(
         self, dz: float, free: int, dense: npt.NDArray[np.uint64], interpolate: bool
@@ -370,3 +377,15 @@ class BatchState:
 def available_device_memory() -> int | None: ...
 
 class EnvelopeConvergenceError(RuntimeError): ...
+
+class ScriptedMarch:
+    def __init__(
+        self,
+        policy: dict[str, object],
+        norms: npt.NDArray[np.float64],
+        carrier_rate: float = 0.0,
+    ) -> None: ...
+    def run(
+        self, state: dict[str, object], bounds: dict[str, object]
+    ) -> dict[str, Any]: ...
+    def log(self) -> list[dict[str, Any]]: ...

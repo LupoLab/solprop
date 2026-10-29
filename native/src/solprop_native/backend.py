@@ -10,16 +10,20 @@ import dataclasses
 import functools
 import logging
 import math
+import os
+import time
 import types
+import warnings
 from collections.abc import Callable, Mapping, Sequence
 from importlib.metadata import version
 from types import TracebackType
-from typing import ClassVar, Literal, Protocol, cast
+from typing import Any, ClassVar, Literal, Protocol, cast
 
 import numpy as np
 import numpy.typing as npt
 from solprop._helpers import Helpers
-from solprop.backends.driver import StepDriver
+from solprop._interrupts import committing
+from solprop.backends.driver import StepDriver, reached
 from solprop.backends.exponential import (
     CarrierReference,
     carrier_reference,
@@ -34,8 +38,11 @@ from solprop.backends.memory import (
     z_table_slots,
 )
 from solprop.backends.multistep import (
+    AdamsKernels,
     AdamsMarch,
     CoupledBlock,
+    ExponentialKernels,
+    _Derivative,
     fused_tables,
     source_absent,
     trial_tables,
@@ -61,7 +68,11 @@ from solprop.backends.spatial import (
     signed_fluence_widths,
 )
 from solprop.constants import EPS0, C
-from solprop.exceptions import BackendError, ConvergenceError
+from solprop.exceptions import (
+    BackendError,
+    ConvergenceError,
+    HostMarchWarning,
+)
 from solprop.grid import TimeGrid
 from solprop.modes.protocol import Mode
 from solprop.monitor import BoundaryEnergies, BoundaryMonitor
@@ -268,6 +279,7 @@ class NativeBackend(StepDriver[_core.State]):
         grid: TimeGrid | None = None,
         modes: Sequence[Mode] | None = None,
         profiles: Mapping[str, ZProfile] | None = None,
+        adams_march: Literal["native", "host"] = "native",
     ) -> None:
         if _BENCHMARK_GATED.get():
             raise BackendError("the gated plasma benchmark requires numpy_ref")
@@ -307,7 +319,9 @@ class NativeBackend(StepDriver[_core.State]):
         integrator = problem.stepper.integrator
         self._resident: _ResidentAdams | None = None
         self._adams = (
-            AdamsMarch(self, integrator) if isinstance(integrator, Multistep) else None
+            _NativeAdamsMarch(self, integrator, march=adams_march)
+            if isinstance(integrator, Multistep)
+            else None
         )
         self._host_state: ComplexArray | None = None
         self._adams_held: tuple[float, float, StageScalars, ComplexArray] | None = None
@@ -1551,6 +1565,11 @@ class NativeBackend(StepDriver[_core.State]):
         work = super().metadata()
         if self._adams is None and self._low_storage is None:
             work["source_evaluations"] = self._native_state.rk_source_evaluations
+        march = self._adams
+        if isinstance(march, _NativeAdamsMarch):
+            # Which march stepped the run (solprop SEP 39 section 5): a timing or a
+            # rounding difference is traced to it.
+            work["adams_march"] = "native" if march.native else "host"
         return {
             **work,
             **facts.info,
@@ -2189,6 +2208,338 @@ def _low_storage_payload(problem: KernelProblem, *, device: bool) -> dict[str, o
         "low_storage_stage_register": low_storage_stage_register(problem, "native"),
         "low_storage_flows": flows,
     }
+
+
+_ADAMS_MARCH = os.environ.get("SOLPROP_ADAMS_MARCH", "native")
+"""Which march steps an admitted exponential ``Multistep()`` run: ``"native"``, or
+``"host"`` for solprop's Python march (solprop SEP 39 section 5). A private switch for
+the benchmark harness's A/B comparisons, read once at import."""
+
+_MARCH_COUNTERS = (
+    "startup",
+    "predictor",
+    "rejected",
+    "accepted_steps",
+    "rejected_steps",
+    "restarts",
+    "failure_restarts",
+    "dense_observations",
+)
+"""The call ledger's counters the native march keeps."""
+
+_REACHED, _HOST_STEP, _MONITOR, _BOUND, _BUDGET, _FLOOR, _ERROR = range(7)
+"""Why a native march call returned (``march::Reason``)."""
+
+_CONVERGENCE, _BACKEND, _VALUE = 1, 2, 3
+"""Which error a native failure maps to (``march::Category``)."""
+
+
+class _MarchRunner(Protocol):
+    """What runs the native march: the native state, or a script in the tests."""
+
+    def run(self, state: dict[str, object], bounds: dict[str, object]) -> dict: ...
+
+
+class _NativeAdamsMarch(AdamsMarch):
+    """solprop's exponential Adams march, executed natively (solprop SEP 39 phase 2).
+
+    The algorithm is ``AdamsMarch``'s, which stays the reference; the native march
+    performs it on the resident engine for a run of attempts and returns only at a host
+    event: the target reached or crossed, an accepted step on which the driver has work
+    (a statistics row, a natural stop, a monitor check), the call's bound, the budget,
+    the floor or a native error. Between calls the march's state is this object's, as
+    the Python march keeps it, so a snapshot, a load, a new run and a reset are the
+    reference's own; each call takes the state and hands it back.
+
+    One ``committing()`` spans each call, the state's synchronisation and the step
+    history's rows, so a signal arriving meanwhile is raised with the host's records in
+    step with the native state. The progress callbacks, the debug lines and the event
+    step's work run after it, and an error is raised last.
+
+    A configuration the native march does not cover runs the Python march
+    (:attr:`refusal`), with a warning unless the private switch asked for it.
+    """
+
+    MAX_ATTEMPTS: ClassVar[int] = 256
+    """A call's most attempts, the bound on a signal's wait (solprop SEP 39 Q3)."""
+    MAX_SECONDS: ClassVar[float] = 0.1
+    """A call's most wall time, s."""
+
+    def __init__(
+        self,
+        backend: StepDriver,
+        method: Multistep,
+        *,
+        march: Literal["native", "host"] = "native",
+        runner: _MarchRunner | None = None,
+        kernels: AdamsKernels | None = None,
+        exponential: ExponentialKernels | None = None,
+    ) -> None:
+        """Build the Python march, then decide which march steps the run.
+
+        `runner`, the scripted march of the decision-trace tests, takes the native
+        state's place; `kernels` and `exponential` are the Python march's own.
+        """
+        super().__init__(backend, method, kernels, exponential)
+        self._runner = runner
+        self._configured: tuple[float | None] | None = None
+        refusal, warn = self._native_refusal(march)
+        self.refusal = refusal
+        """Why the Python march steps the run, or ``None`` when the native one does."""
+        if refusal is not None and warn:
+            warnings.warn(
+                f"solprop-native steps this {method.name} run with solprop's Python "
+                f"march: {refusal}. The native march (SEP 39) covers the exponential "
+                "formulation on a constant or expanded operator with PIController's "
+                "norm",
+                HostMarchWarning,
+                stacklevel=4,
+            )
+
+    @property
+    def native(self) -> bool:
+        """Whether the native march steps the run."""
+        return self.refusal is None
+
+    def _native_refusal(self, march: str) -> tuple[str | None, bool]:
+        """Return why the native march does not step the run, and whether to warn."""
+        if march == "host" or _ADAMS_MARCH == "host":
+            return "the private switch asked for it", False
+        method, engine = self._method, self._engine
+        problem = self._backend._problem
+        reasons = (
+            (method.formulation != "exponential", "the interaction formulation"),
+            (type(method) is not Multistep, "a comparison variant"),
+            (problem.stepper.schedule is not None, "a replayed schedule"),
+        )
+        for failed, reason in reasons:
+            if failed:
+                return reason, True
+        if self._runner is not None:
+            return None, False
+        engine_reasons = (
+            (not isinstance(engine, _ResidentAdams), "the host engine's coupled flow"),
+            (_on_device(), "a device build"),
+        )
+        for failed, reason in engine_reasons:
+            if failed:
+                return reason, True
+        assert isinstance(engine, _ResidentAdams)
+        resident = (
+            (
+                not engine.staged,
+                "a trial whose stage rows are not one bundle (a z table, a separable "
+                "operator, dispersive channels, moving maps or a coupled flow)",
+            ),
+            (not engine._device_scale, "a controller with a norm scale of its own"),
+            (self._policy.carrier, "the carrier frame"),
+        )
+        for failed, reason in resident:
+            if failed:
+                return reason, True
+        return None, False
+
+    def march_to(self, target: float) -> None:
+        """Step the backend's state to `target`, natively when the march is admitted.
+
+        Parameters
+        ----------
+        target : float
+            Position to reach, m.
+
+        Raises
+        ------
+        ConvergenceError
+            If the proposal falls below the contract's ``dz_min``, or a native
+            refinement fails.
+        ResponseBudgetError
+            If the next trial would exceed the method's call budget.
+        """
+        if not self.native:
+            super().march_to(target)
+            return
+        backend = self._backend
+        if self._ahead is not None:
+            # The march is ahead of the last observation; resume it there.
+            self._engine.restore(*self._ahead)
+            self._ahead = None
+        if backend._natural_stop_due(target):
+            return
+        self._configure()
+        while not reached(backend._z, target):
+            if self._call(target):
+                return
+        if self._interpolate and backend._z > target:
+            self._ahead = (backend._z, self._engine.hold())
+            backend._state = cast("Any", self._observe(target))
+            backend._z = target
+            self.ledger.dense_observations += 1
+
+    def _configure(self) -> None:
+        """Hand the native state the run's policy, again when the monitor changed."""
+        monitor = self._backend._monitor
+        interval = None if monitor is None else float(monitor.interval)
+        if self._configured == (interval,):
+            return
+        policy = dataclasses.replace(self._policy, quiet_interval=interval)
+        if self._runner is None:
+            backend = cast("NativeBackend", self._backend)
+            engine = cast("_ResidentAdams", self._engine)
+            backend._native_state.adams_march_configure(
+                dataclasses.asdict(policy), engine.compensated, engine.interpolate
+            )
+        self._configured = (interval,)
+
+    def _bounds(self, target: float) -> dict[str, object]:
+        """Return a call's bounds: the target and the steps the driver has work on."""
+        backend = self._backend
+        steps = []
+        if backend._row_spec is not None:
+            period = backend._row_period
+            steps.append(period - backend._accepted_steps % period)
+        every = backend._problem.stepper.step_planes
+        if every:
+            steps.append(every - backend._natural_count % every)
+        monitor = backend._monitor
+        checked = None
+        if monitor is not None:
+            steps.append(monitor.steps_to_check())
+            checked = monitor.checked_at
+        return {
+            "target": float(target),
+            "quiet": bool(backend._collar_quiet),
+            "host_step": min(steps) if steps else 0,
+            "monitor": checked is not None,
+            "first_check": False,
+            "check_interval": 0.0 if monitor is None else float(monitor.interval),
+            "last_check": 0.0 if checked is None else float(checked),
+            "max_attempts": self.MAX_ATTEMPTS,
+            "max_seconds": self.MAX_SECONDS,
+        }
+
+    def _state(self) -> dict[str, object]:
+        """Return the march's state as the native call takes it."""
+        backend, ledger = self._backend, self.ledger
+        return {
+            "z": float(backend._z),
+            "proposal": float(backend._proposal),
+            "order": self._order,
+            "rejections": self._rejections,
+            "last_rejected": self._last_rejected,
+            "collar_was_quiet": self._collar_was_quiet,
+            "history": [
+                (entry.z, entry.identity == "predicted", entry.slot)
+                for entry in self._history
+            ],
+            "ledger": {name: getattr(ledger, name) for name in _MARCH_COUNTERS},
+        }
+
+    def _call(self, target: float) -> bool:
+        """Make one native call and drain it; return whether a natural stop is due."""
+        backend = self._backend
+        bounds = self._bounds(target)
+        started = time.perf_counter() - backend._clock
+        with committing():
+            result = self._native_run(self._state(), bounds)
+            self._synchronise(result)
+            rows = np.asarray(result["rows"], dtype=np.float64).reshape(-1, 6)
+            reason = int(result["reason"])
+            # Only the last accepted row of an event can have the driver's work; the
+            # others take the skip path, as the reference's would.
+            event = reason in (_REACHED, _HOST_STEP, _MONITOR)
+            last = len(rows) - 1
+            for index, (end, dz, norm, accepted, _, wall) in enumerate(rows.tolist()):
+                backend._record_attempt(end, dz, norm, bool(accepted), started + wall)
+                final = index == last and (event or reason == _FLOOR)
+                if accepted and not final:
+                    backend._skip_step(end)
+        progress = backend._progress
+        for end, dz, norm, accepted, order, _ in rows.tolist():
+            progress.step(end, dz, bool(accepted))
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "native Adams attempt to z = %.9g m: dz = %.4g m, order %d, "
+                    "norm %.4g, %s",
+                    end,
+                    dz,
+                    int(order),
+                    norm,
+                    "accepted" if accepted else "rejected",
+                )
+        if event and rows.size and rows[-1, 3]:
+            backend._take_step_stats()
+            if backend._natural_stop(target):
+                return True
+        self._raise(reason, result)
+        return False
+
+    def _native_run(self, state: dict[str, object], bounds: dict[str, object]) -> dict:
+        """Run the native march from `state` to an event within `bounds`."""
+        if self._runner is not None:
+            return self._runner.run(state, bounds)
+        native = cast("NativeBackend", self._backend)._native_state
+        with _envelope_errors():
+            return native.adams_march_run(state, bounds)
+
+    def _synchronise(self, result: dict) -> None:
+        """Adopt the state a native call handed back."""
+        backend, engine = self._backend, self._engine
+        state = result["state"]
+        backend._z = float(state["z"])
+        backend._proposal = float(state["proposal"])
+        self._order = int(state["order"])
+        self._rejections = int(state["rejections"])
+        self._last_rejected = bool(state["last_rejected"])
+        self._collar_was_quiet = bool(state["collar_was_quiet"])
+        self._history = [
+            _Derivative(
+                float(z), None, "predicted" if predicted else "accepted", int(slot)
+            )
+            for z, predicted, slot in state["history"]
+        ]
+        ledger = self.ledger
+        for name, value in state["ledger"].items():
+            setattr(ledger, name, int(value))
+        ledger.orders.extend(int(order) for order in result["orders"])
+        if isinstance(engine, _ResidentAdams):
+            engine._trial = None
+            if result["stepped"]:
+                order = int(result["step_order"])
+                nodes = [float(node) for node in result["step_nodes"]]
+                engine._step = (
+                    (
+                        float(result["step_z"]),
+                        float(result["step_dz"]),
+                        lagrange_coefficients(
+                            [1.0, *nodes[:order]], check=False, helpers=engine.helpers
+                        ),
+                    )
+                    if engine.interpolate
+                    else None
+                )
+                engine._dense_nodes = np.array([1.0, *nodes[:order]])
+                engine._dense_carrier = _NO_CARRIER
+            engine.adopted(None)
+
+    def _raise(self, reason: int, result: dict) -> None:
+        """Raise the error a call returned with, if any."""
+        if reason == _BUDGET:
+            raise self._budget_error(int(result["cost"]))
+        if reason == _FLOOR:
+            proposed = float(result["floor_proposal"])
+            msg = (
+                f"step control asked for {proposed:.3e} m, below the floor dz_min ="
+                f" {self._policy.dz_min:.3e} m; the tolerance cannot be met here"
+            )
+            raise ConvergenceError(msg)
+        if reason == _ERROR:
+            message = str(result["message"])
+            category = int(result["category"])
+            if category == _CONVERGENCE:
+                raise ConvergenceError(message)
+            if category == _VALUE:
+                raise ValueError(message)
+            raise RuntimeError(message)
 
 
 class _ResidentLowStorage:

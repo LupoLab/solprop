@@ -14,13 +14,15 @@ the suite's thread pools.
 Usage::
 
     uv run python -m benchmarks.adams_host CASE [--width N] [--length F] [--stepper S]
-        [--host-stages]
+        [--host-stages] [--host-march]
 
 It prints one JSON record: the wall time, the accepted and rejected steps, the source
 calls, and the host and native time per trial in microseconds. The native backend is
 required; ``--stepper rk`` times a Runge-Kutta run, which has no host figure.
 ``--host-stages`` has the host form a trial's stage rows and tables, as before SEP 39's
-phase 1, so that the phase is compared with its own build.
+phase 1, and ``--host-march`` steps an admitted run with solprop's Python march
+instead of the native one (phase 2), so that each phase is compared with its own
+build.
 """
 
 from __future__ import annotations
@@ -59,19 +61,26 @@ def install() -> HostTotals:
     """
     from solprop_native import backend  # noqa: PLC0415 - optional, after pools
 
-    from solprop.backends.multistep import AdamsMarch  # noqa: PLC0415
-
     totals = HostTotals()
-    march_to = AdamsMarch.march_to
 
-    def timed_march(self: AdamsMarch, target: float) -> None:
-        started = time.perf_counter()
-        try:
-            march_to(self, target)
-        finally:
-            totals.march += time.perf_counter() - started
+    def timed(method: Any, key: str) -> Any:
+        def wrapper(*args: Any, **keywords: Any) -> Any:
+            started = time.perf_counter()
+            try:
+                return method(*args, **keywords)
+            finally:
+                setattr(
+                    totals, key, getattr(totals, key) + time.perf_counter() - started
+                )
 
-    AdamsMarch.march_to = timed_march  # pyright: ignore[reportAttributeAccessIssue]
+        return wrapper
+
+    # Every native run's march is the native backend's (SEP 39), which runs the
+    # Python march itself when it is not admitted; the native march's one call a host
+    # event is its native time.
+    native_march = backend._NativeAdamsMarch
+    native_march.march_to = timed(native_march.march_to, "march")  # pyright: ignore[reportAttributeAccessIssue]
+    native_march._native_run = timed(native_march._native_run, "native")  # pyright: ignore[reportAttributeAccessIssue]
 
     class Native:
         """The native state, its ``adams_*`` calls timed and the rest passed on."""
@@ -104,7 +113,13 @@ def install() -> HostTotals:
 
 
 def _run(
-    case: str, stepper: str, width: int, fraction: float, *, host_stages: bool
+    case: str,
+    stepper: str,
+    width: int,
+    fraction: float,
+    *,
+    host_stages: bool,
+    host_march: bool,
 ) -> dict[str, Any]:
     """Run the case in this process and return its record."""
     import solprop_native  # noqa: F401, PLC0415 - before pyFFTW on macOS
@@ -117,6 +132,10 @@ def _run(
     from solprop.driver.run import field_retention  # noqa: PLC0415
 
     totals = install()
+    if host_march:
+        from solprop_native import backend  # noqa: PLC0415
+
+        backend._ADAMS_MARCH = "host"
     if host_stages:
         NativeBackend._stage_tables = lambda _self: None  # pyright: ignore[reportAttributeAccessIssue]
     configuration = CASES[case].configuration(stepper, width, "native", fraction)
@@ -146,6 +165,7 @@ def _run(
         width=width,
         fraction=fraction,
         host_stages=host_stages,
+        host_march=host_march,
     )
     if totals.march > 0.0:
         record["host_us_per_trial"] = 1e6 * (totals.march - totals.native) / trials
@@ -161,6 +181,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--length", type=float, default=1.0)
     parser.add_argument("--stepper", default="default")
     parser.add_argument("--host-stages", action="store_true")
+    parser.add_argument("--host-march", action="store_true")
     args = parser.parse_args(argv)
     if os.environ.get(CHILD) == "1":
         record = _run(
@@ -169,6 +190,7 @@ def main(argv: list[str] | None = None) -> int:
             args.width,
             args.length,
             host_stages=args.host_stages,
+            host_march=args.host_march,
         )
         print(json.dumps(record))
         return 0

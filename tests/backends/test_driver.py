@@ -32,6 +32,7 @@ from solprop.log import BarReporter, LogReporter, NullReporter
 from solprop.noise import input_noise, modified_noise
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
+from solprop.stepper.multistep import MarchPolicy
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.linop import LinearOperator, delta_phi
 from solprop.translate.problem import SCHEMA_VERSION
@@ -885,6 +886,13 @@ DRIVER_SURFACE = {
     "_dense_stages": "(self) -> list[numpy.ndarray]",
     "_begin_plane": "(self) -> None",
     "_on_accepted_step": "(self) -> None",
+    "_record_attempt": (
+        "(self, z: float, dz: float, norm: float, accepted: bool, wall: float) -> None"
+    ),
+    "_skip_step": "(self, z: float) -> None",
+    "_take_step_stats": "(self) -> None",
+    "_natural_stop": "(self, target: float) -> bool",
+    "_natural_stop_due": "(self, target: float) -> bool",
     "_reset_step_stats": "(self, *, release: bool) -> None",
     "_record_step_stats": (
         "(self, spec: solprop.stats.StatsSpec, z: float, step: int) -> None"
@@ -991,6 +999,37 @@ STAGE_SCALARS_FIELDS = (
 )
 """The stage bundles a backend packs a trial from, field by field, in order."""
 
+MARCH_POLICY_FIELDS = (
+    "order",
+    "variable_order",
+    "safety",
+    "max_growth",
+    "min_factor",
+    "rejection_growth",
+    "hysteresis",
+    "restart_after",
+    "collar_stability",
+    "real_intervals",
+    "collar_rate",
+    "carrier",
+    "carrier_cap",
+    "max_calls",
+    "equal_approach",
+    "interval_cap",
+    "dz_min",
+    "dz_max",
+    "stretch",
+    "z_end",
+    "save_planes",
+    "hard_kinks",
+    "breakpoints",
+    "landing_ulps",
+    "interpolate",
+    "quiet_interval",
+)
+"""Every number the Adams march's algorithm reads, the record a native march takes
+(schema 39, SEP 39 section 4.2)."""
+
 
 def test_a_trials_bundles_taken_together_are_kept_until_the_next_hoist(driver):
     """``_stage_bundles`` reads the tables once and ``_stage_scalars`` takes the kept.
@@ -1065,9 +1104,12 @@ def test_the_surface_a_backend_subclasses_is_frozen(driver):
     Version 36 adds the problem's ``precision`` (SEP 33), without changing these
     driver or stage signatures.
     Version 38 adds ``_bind_monitor`` and ``_boundary_energies``: the boundary
-    monitor's reading is the backend's.
+    monitor's reading is the backend's. Version 39 adds ``_record_attempt`` and
+    ``_skip_step`` and freezes ``_take_step_stats``, ``_natural_stop`` and
+    ``_natural_stop_due``, which a native Adams march books its attempts through, and
+    the march's policy record (SEP 39).
     """
-    assert SCHEMA_VERSION == 38, "the seam changed: rewrite the literals of this test"
+    assert SCHEMA_VERSION == 39, "the seam changed: rewrite the literals of this test"
     for name, signature in {
         "observe_members": (
             "(self) -> tuple[solprop.backends.protocol.Observation, ...]"
@@ -1085,6 +1127,7 @@ def test_the_surface_a_backend_subclasses_is_frozen(driver):
     assert (
         tuple(f.name for f in dataclasses.fields(StageScalars)) == STAGE_SCALARS_FIELDS
     )
+    assert tuple(f.name for f in dataclasses.fields(MarchPolicy)) == MARCH_POLICY_FIELDS
 
 
 def test_separable_operator_fields_are_frozen_with_the_driver_seam():

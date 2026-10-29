@@ -808,6 +808,34 @@ class BoundaryMonitor:
         self._since_check += 1
         self._stale = True
 
+    def steps_to_check(self) -> int:
+        """Return after how many more committed steps the cadence makes a check due.
+
+        One while a guard or the collar is busy, and before the first check; otherwise
+        the steps left to :data:`CADENCE`. The distance rule can make a check due
+        sooner: :attr:`interval` past :attr:`checked_at`. A native Adams march returns
+        to its host at the step either makes due (SEP 39 section 4.8).
+
+        Returns
+        -------
+        int
+            At least one.
+        """
+        if self._busy or self._last is None:
+            return 1
+        return max(CADENCE - self._since_check, 1)
+
+    @property
+    def checked_at(self) -> float | None:
+        """Return the position of the last check, m, or ``None`` before the first.
+
+        Returns
+        -------
+        float or None
+            Where :meth:`due`'s distance rule measures from.
+        """
+        return None if self._last is None else self._last[0]
+
     def _commit(self, z: float) -> None:
         """Move to the committed position `z`, adding the floor's expected removal.
 
