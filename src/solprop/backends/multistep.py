@@ -3137,7 +3137,7 @@ class AdamsMarch:
                 if not self._history:
                     self._start()
                 proposal = self._collar_reentry(
-                    backend._quiet_capped(self._capped(backend._proposal))
+                    self._quiet_capped(self._capped(backend._proposal))
                 )
                 stop = landing(backend._z, proposal, targets)
                 dz, end, kink = adams_core.approach(
@@ -3358,6 +3358,30 @@ class AdamsMarch:
         carrier = cast("CarrierReference", getattr(self._engine, "carrier", None))
         return adams_core.carrier_capped(
             self._policy, self._backend._z, proposal, carrier.chord_phase
+        )
+
+    def _quiet_capped(self, proposal: float) -> float:
+        """Return the proposal held to the monitor's interval while the collar rests.
+
+        :func:`~solprop.backends.adams_core.quiet_capped` of the backend's collar and
+        monitor, the rule of the driver's own ``_quiet_capped``.
+
+        Parameters
+        ----------
+        proposal : float
+            The controller's proposal, m.
+
+        Returns
+        -------
+        float
+            The proposal, or the monitor's interval while the collar is left out, m.
+        """
+        backend = self._backend
+        monitor = backend._monitor
+        return adams_core.quiet_capped(
+            proposal,
+            quiet=backend._collar_quiet,
+            interval=None if monitor is None else monitor.interval,
         )
 
     def _attempt(

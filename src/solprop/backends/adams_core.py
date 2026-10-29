@@ -373,9 +373,12 @@ def carrier_capped(
     -------
     float
         The proposal, or the shorter step the cap allows, m.
+
+    Notes
+    -----
+    Called under a carrier frame only (``policy.carrier``); without one the proposal
+    is not capped.
     """
-    if not policy.carrier:
-        return proposal
     # Measured over the part of the proposal inside the run, where the operator's
     # representation is defined; the landing rule clips the rest.
     end = min(z + proposal, policy.z_end)
@@ -388,8 +391,8 @@ def carrier_capped(
 def quiet_capped(proposal: float, *, quiet: bool, interval: float | None) -> float:
     """Return the proposal, held to the monitor's interval while the collar rests.
 
-    The rule of ``solprop.backends.driver.StepDriver._quiet_capped``, which the
-    Python march calls through its backend, with the interval passed in.
+    The rule of ``solprop.backends.driver.StepDriver._quiet_capped``, with the
+    collar's state and the monitor's interval passed in.
 
     Parameters
     ----------

@@ -313,11 +313,6 @@ class _Harness(StepDriver):
     def _natural_stop(self, target: float) -> bool:
         return False
 
-    def _quiet_capped(self, proposal: float) -> float:
-        if not self._collar_quiet or self._monitor is None:
-            return proposal
-        return min(proposal, self._monitor.interval)
-
     def _take_step_stats(self) -> None:
         self.accepted += 1
         self._collar_quiet = self.scenario.quiet.get(self.accepted, self._collar_quiet)
