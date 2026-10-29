@@ -2567,9 +2567,6 @@ bool GeneralWorkspace::use_packed_radial_blas() const noexcept {
 // modal time field, and a dispersive response its own synthesis, so they keep the
 // time-domain product; skinny capillary maps would multiply the transforms.
 bool GeneralWorkspace::retained_synthesis() const noexcept {
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-  return false;
-#else
   return compiled_gemm_provider() != GemmProvider::custom &&
          problem_.family == FieldFamily::field_analytic &&
          !problem_.spatial_spectral_weights.empty() && !problem_.separable_geometry() &&
@@ -2578,7 +2575,6 @@ bool GeneralWorkspace::retained_synthesis() const noexcept {
          problem_.n_modes == problem_.n_nodes && problem_.n_nodes > 1 &&
          problem_.n_pol_state == 1 && problem_.n_pol_transform == 1 &&
          problem_.n_omega < problem_.n_to;
-#endif
 }
 
 void GeneralWorkspace::synthesise_retained(const std::size_t first_node,
@@ -2592,6 +2588,15 @@ void GeneralWorkspace::synthesise_retained(const std::size_t first_node,
   if (first_node == 0) {
     const auto fine = fine_spectrum_;
     const auto modal = retained_modal_;
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+    // A device takes a thread per element.
+    Kokkos::parallel_for(
+        "solprop_native.transform.retained_gather",
+        Range2(execution_space_, {0, 0}, {problem_.n_modes, n}),
+        KOKKOS_LAMBDA(const std::size_t mode, const std::size_t index) {
+          modal(mode, index) = fine(mode, crop(index));
+        });
+#else
     Kokkos::parallel_for(
         "solprop_native.transform.retained_gather",
         Kokkos::RangePolicy<ExecutionSpace>(temporal_execution_space_, 0,
@@ -2600,6 +2605,7 @@ void GeneralWorkspace::synthesise_retained(const std::size_t first_node,
           for (std::size_t index = 0; index < n; ++index)
             modal(mode, index) = fine(mode, crop(index));
         });
+#endif
   }
   using Interleaved = Kokkos::View<double**, Layout, MemorySpace,
                                    Kokkos::MemoryTraits<Kokkos::Unmanaged>>;
@@ -2617,6 +2623,21 @@ void GeneralWorkspace::synthesise_retained(const std::size_t first_node,
   // complex transform leaves its input as it was.
   const auto node = retained_node_;
   const auto padded = modal_complex_;
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  // A device zeroes the chunk's padded rows first, a fill at its bandwidth, rather
+  // than relying on the modal buffer's other bins staying zero, and pads a thread per
+  // element.
+  Kokkos::deep_copy(execution_space_,
+                    Kokkos::subview(padded, std::make_pair(std::size_t{0}, node_count),
+                                    Kokkos::ALL()),
+                    Complex{});
+  Kokkos::parallel_for(
+      "solprop_native.transform.retained_pad",
+      Range2(execution_space_, {0, 0}, {node_count, n}),
+      KOKKOS_LAMBDA(const std::size_t row, const std::size_t index) {
+        padded(row, crop(index)) = node(row, index);
+      });
+#else
   Kokkos::parallel_for(
       "solprop_native.transform.retained_pad",
       Kokkos::RangePolicy<ExecutionSpace>(temporal_execution_space_, 0, node_count),
@@ -2624,6 +2645,7 @@ void GeneralWorkspace::synthesise_retained(const std::size_t first_node,
         for (std::size_t index = 0; index < n; ++index)
           padded(row, crop(index)) = node(row, index);
       });
+#endif
   const bool tail = node_count != problem_.node_chunk;
   const auto rows = std::make_pair(std::size_t{0}, node_count);
   KokkosFFT::execute(tail ? *retained_tail_inverse_plan_ : *retained_inverse_plan_,
