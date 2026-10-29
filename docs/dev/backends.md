@@ -1463,7 +1463,10 @@ trial from a ring of eight pinned host buffers (`Kokkos::SharedHostPinnedSpace`)
 reuse waiting for the space to drain; an Adams trial's step scalars fill slot 0 and its
 sample's slot 1, and the stage views turn to slot 1 for the source
 ([SEP 39](seps/sep-0039-native-adams-march.md) §6.7). A radial analytic field's node
-chunks take the interleaved real GEMM on a device as on the host. On free space the split-step collar acts on the stored
+chunks take the interleaved real GEMM on a device as on the host, and a square radial
+analytic map synthesises its retained spectrum there too (the gather and the pad a thread
+per element, the chunk's padded rows zeroed first): the product covers `n_omega` complex
+columns rather than `n_to`, which halves the binary64 work that bounds a radial trial. On free space the split-step collar acts on the stored
 transverse-spectrum columns (every build), and a device forms its factor once a step per
 sample. A free-space envelope whose material response is the Kerr term alone, with one
 polarisation, on a time grid the spectrum fills (`n_t = n_to = n_omega`, the crop the

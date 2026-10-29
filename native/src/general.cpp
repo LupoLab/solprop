@@ -2557,7 +2557,7 @@ bool GeneralWorkspace::use_packed_radial_blas() const noexcept {
 #endif
 }
 
-// The CPU experiment's retained-spectrum radial synthesis. A real static synthesis
+// The retained-spectrum radial synthesis, on a host and a device. A real static synthesis
 // commutes with the temporal transform: synthesising the coarse bins the stage entry
 // fills and padding each node's spectrum gives the nodes' fields, so the product
 // covers n_omega complex columns rather than the n_to complex samples of the padded,

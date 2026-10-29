@@ -794,7 +794,13 @@ On an Intel Xeon Gold 6240 at one thread `kerr_beam_192` (half) took 0.920 of th
 of its length, within ±2 %): its trial, 3.3 ms of kernels, is bound by binary64
 arithmetic (the synthesis and projection GEMMs near the device's binary64 peak, the
 φ-functions), so neither the single upload, the GEMM for its node chunks nor one chunk
-in place of two (48 → 31 kernels a trial, not adopted) moved it.
+in place of two (48 → 31 kernels a trial, not adopted) moved it. The retained-spectrum
+synthesis does, by halving the synthesis's product: on the A40, half the run, three
+rounds of three repeats, 0.569 → 0.512 s, ratio 0.902 (0.898–0.903), fields to 3.2e-15,
+kernel time 238 → 200 ms over a 71-trial window.
+The device prefactor with one reciprocal in place of two divisions took the separable
+fold from 29.5 to 21.6 ms (`kerr_beam_384`, kernels 651 → 620 ms a step, wall 0.981,
+0.936–0.984, fields to 2.4e-17).
 
 ### Retained radial synthesis and Raman modal products
 
