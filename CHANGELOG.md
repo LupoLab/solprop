@@ -487,6 +487,11 @@ The first public release. It contains:
   its kernels and its FFTs on at most eight threads (FFTW 3.3.9 or later; with an older
   FFTW its transforms stay serial): on an Intel Xeon Gold 6240 at 16 threads
   `gnlse_raman_shock` takes 0.80 of its time and `h2_raman_averaged` 0.89.
+- **One-mode capillaries with a plasma column run faster on many CPU threads.** Their
+  node synthesis and projection, an outer product and a weighted sum over the radial
+  nodes, went to the vendor BLAS, which threaded each small call over its own pool; they
+  now run as two small kernels on the plasma column's thread team. On an Intel Xeon Gold
+  6240 at 16 threads `argon_blueshift` takes 0.68 of its time; one thread is unchanged.
 - **Native CPU runs no longer re-create OpenMP threads every step.** A four-thread
   kernel between full-width ones made GNU OpenMP end and restart twelve of sixteen
   threads each time; the hydrogen Raman case was slower at 16 threads than at one. A

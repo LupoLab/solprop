@@ -115,6 +115,13 @@ time divided by the native backend's: above 1, the native backend is faster.
   runtime's whole team, which would end and restart threads beside a narrower kernel
   team). On a Xeon Gold 6240 at 16 threads `gnlse_raman_shock` takes 0.80 of its time
   and `h2_raman_averaged` 0.89; one thread is unchanged.
+- **One-mode products on the response team** ([measurements](benchmarks.md#one-mode-products)).
+  One real mode at several nodes synthesised and projected through the vendor GEMM, which
+  threaded each 33 × 1 and 2 × 33 product over its own pool at 2.3 times its one-thread
+  cost; two small kernels now run them on the band column's response team. Plain
+  loops tried earlier ran on the product's serial instance and lost; on the team
+  `argon_blueshift` takes 0.68 of its time at 16 threads on a Xeon Gold 6240, one
+  thread unchanged.
 - **NumPy's BLAS held to one thread while a native backend lives**
   ([measurements](benchmarks.md#numpys-blas-beside-a-native-run)). Its pthreads
   workers, woken by the small host-side products of each saved plane, spun on the native

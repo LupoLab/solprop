@@ -279,6 +279,37 @@ measured-plan floor (at most 6e-14 relative):
 `gnlse_raman_shock` now runs 1.25 times faster at 16 threads than at one (4.76 against
 5.94 s), where it ran at the same speed.
 
+(one-mode-products)=
+### One-mode products on the response team
+
+A one-mode capillary with a field plasma column (`argon_blueshift`: 33 radial nodes,
+6400 fine samples) synthesises its node fields as an outer product (33 × 1 by 1 × 6400)
+and projects three node drives a source evaluation as a stacked 2 × 33 by 33 × 6400
+product. The product sizing keeps them serial on the engine's side (211200 work, below
+the dense threshold), so the vendor GEMM threaded each call over its own pool: at 16
+threads on a Xeon Gold 6240 the 4212 calls of a `--length 0.1` window took 0.46 s, 108 us
+each, against 0.29 s at one thread; the band column, which writes the node rows, runs on
+the full-width response team. Plain loops tried earlier ran on the product's
+serial instance and lost to the threaded library. On a host build with a vendor BLAS,
+one real mode at several nodes in one chunk now synthesises and projects through two
+small kernels on the response team: the projection one contiguous share of the samples
+per thread, both stacked rows from one read of the node rows, written straight into the
+fine and coarse rows (no stacked copy); the synthesis one node row per item. Each element
+sums the nodes in order from zero (within the GEMM rounding bound; a native test holds
+both kernels to `KokkosBlas::gemm`). Label timer at 16 threads: projection 40 us a call
+instead of 112, synthesis 26 instead of about 100; the band column and the held products
+that read the synthesised rows also ran faster (0.35 to 0.29 s, 0.10 to 0.06 s).
+Interleaved `benchmarks ab` against the compact-team commit, Xeon, 3 rounds, `--length
+0.1`, the same steps, fields within 4.4e-15:
+
+| case | 1 thread | 16 threads |
+|---|---:|---:|
+| `argon_blueshift` | 0.999 [0.993, 1.000] | 0.679 [0.672, 0.688] |
+| `rdw` (four modes, unchanged path) | 1.000 | 1.000 |
+
+`argon_blueshift` now runs 4.1 times faster at 16 threads than at one (1.01 against
+4.13 s), where it was 2.8 times.
+
 (host-blas-pool)=
 ### NumPy's BLAS beside a native run
 

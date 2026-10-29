@@ -1273,6 +1273,95 @@ TEST(Gemm, NativeOrderKernelIsKokkosBlasWithinTheGemmBound) {
                std::invalid_argument);
 }
 
+// The one-mode kernels sum each element over the nodes in order from zero, which a
+// GEMM may do in any order: both lie within gamma_{k+1} sum |a| |b| of the exact
+// product, so they differ by at most twice that. A synthesis element is one product.
+TEST(Gemm, OneModeKernelsAreKokkosBlasWithinTheGemmBound) {
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  GTEST_SKIP() << "the one-mode kernels are the host vendor-BLAS build's";
+#endif
+  using RealView2 = Kokkos::View<double**, native::Layout, native::MemorySpace>;
+  std::uint64_t state = 0x2545f4914f6cdd1dULL;
+  const auto uniform = [&state] {
+    state ^= state << 13U;
+    state ^= state >> 7U;
+    state ^= state << 17U;
+    return static_cast<double>(state >> 11U) * 0x1.0p-53 - 0.5;
+  };
+  const auto fill = [&uniform](const RealView2& view) {
+    const auto host = Kokkos::create_mirror_view(view);
+    for (std::size_t row = 0; row < view.extent(0); ++row)
+      for (std::size_t column = 0; column < view.extent(1); ++column)
+        host(row, column) = uniform();
+    Kokkos::deep_copy(view, host);
+  };
+  const auto host = [](const RealView2& view) {
+    return Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, view);
+  };
+  for (const int threads : {1, 3, native::ExecutionSpace().concurrency()})
+    for (const auto& [rows, inner, columns] : std::array<std::array<std::size_t, 3>, 5>{
+             {{1, 33, 6400}, {2, 33, 6400}, {2, 33, 257}, {1, 2, 7}, {2, 5, 1}}}) {
+      SCOPED_TRACE(std::to_string(threads) + " threads, " + std::to_string(rows) + 'x' +
+                   std::to_string(inner) + 'x' + std::to_string(columns));
+      const auto execution = native::execution_instance(threads);
+      RealView2 weights("weights", rows, inner);
+      RealView2 nodes("nodes", inner, columns);
+      RealView2 expected("expected", rows, columns);
+      RealView2 fine("fine", 1, columns);
+      RealView2 coarse("coarse", 1, columns);
+      fill(weights);
+      fill(nodes);
+      native::kokkosblas_gemm(execution, weights, nodes, expected, 0.0);
+      native::one_mode_projection(execution, weights, nodes, fine, coarse);
+      execution.fence("one-mode projection test");
+      const auto a = host(weights);
+      const auto b = host(nodes);
+      const auto reference = host(expected);
+      const auto first = host(fine);
+      const auto second = host(coarse);
+      const double gamma = test::higham_gamma(inner + 1);
+      for (std::size_t row = 0; row < rows; ++row)
+        for (std::size_t column = 0; column < columns; ++column) {
+          double magnitude = 0.0;
+          for (std::size_t node = 0; node < inner; ++node)
+            magnitude += std::abs(a(row, node) * b(node, column));
+          const double actual = row == 0 ? first(0, column) : second(0, column);
+          ASSERT_LE(std::abs(actual - reference(row, column)), 2.0 * gamma * magnitude)
+              << row << ',' << column;
+        }
+      // The synthesis: `inner` node rows from one mode's row.
+      RealView2 column_weights("column_weights", inner, 1);
+      RealView2 mode("mode", 1, columns);
+      RealView2 synthesised("synthesised", inner, columns);
+      RealView2 direct("direct", inner, columns);
+      fill(column_weights);
+      fill(mode);
+      native::kokkosblas_gemm(execution, column_weights, mode, direct, 0.0);
+      native::one_mode_synthesis(execution, column_weights, mode, synthesised);
+      execution.fence("one-mode synthesis test");
+      const auto w = host(column_weights);
+      const auto m = host(mode);
+      const auto out = host(synthesised);
+      const auto blas = host(direct);
+      for (std::size_t node = 0; node < inner; ++node)
+        for (std::size_t column = 0; column < columns; ++column) {
+          ASSERT_EQ(out(node, column), w(node, 0) * m(0, column));
+          ASSERT_LE(std::abs(out(node, column) - blas(node, column)),
+                    2.0 * test::higham_gamma(2) * std::abs(out(node, column)));
+        }
+    }
+  const native::ExecutionSpace execution;
+  RealView2 three("three", 3, 4);
+  RealView2 nodes("nodes", 4, 8);
+  RealView2 row("row", 1, 8);
+  EXPECT_THROW(native::one_mode_projection(execution, three, nodes, row, row),
+               std::invalid_argument);
+  EXPECT_THROW(native::one_mode_projection(execution, nodes, three, row, row),
+               std::invalid_argument);
+  EXPECT_THROW(native::one_mode_synthesis(execution, three, nodes, row),
+               std::invalid_argument);
+}
+
 TEST(Gemm, EngineSelectsTheNativeOrderKernelWithoutAVendorBlas) {
   EXPECT_EQ(native::native_order_gemm_enabled,
             native::selected_blas_provider_name() == "kokkosblas-native-order");

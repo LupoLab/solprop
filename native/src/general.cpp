@@ -1986,6 +1986,11 @@ public:
     identity_crop_ = problem_.crop_index.size() == problem_.n_omega;
     for (std::size_t index = 0; identity_crop_ && index < problem_.n_omega; ++index)
       identity_crop_ = problem_.crop_index[index] == index;
+    one_mode_products_ = one_mode_products_enabled &&
+                         problem_.family == FieldFamily::field_real &&
+                         problem_.n_modes == 1 && problem_.n_pol_state == 1 &&
+                         problem_.n_pol_transform == 1 && problem_.n_nodes > 1 &&
+                         problem_.node_chunk == problem_.n_nodes;
     compact_ = compact_problem(problem_);
     if (compact_)
       for (auto* pool : {&kernel_pool_, &fft_pool_, &raman_pool_, &raman_tail_pool_})
@@ -2447,6 +2452,9 @@ public:
   Problem problem_;
   // A compact problem's pools (`compact_problem`) and the team its FFTW loops take.
   bool compact_{};
+  // One real mode at several nodes in one chunk: synthesis and projection through
+  // the one-mode kernels on the response team (gemm.hpp).
+  bool one_mode_products_{};
   CpuExecutionPool kernel_pool_{CpuPool::kernels};
   CpuExecutionPool fft_pool_{CpuPool::fft};
   CpuExecutionPool raman_pool_{CpuPool::raman_fft};
@@ -9341,6 +9349,9 @@ void GeneralWorkspace::synthesise(const std::size_t first_node,
     if (problem_.family == FieldFamily::envelope)
       selected_gemm(transform_space_for(node_count), scaled_synthesis_complex_,
                     modal_complex_, node_complex_, Complex{}, true);
+    else if (one_mode_products_)
+      one_mode_synthesis(response_space_for(node_count), scaled_synthesis_, modal_real_,
+                         node_real_);
     else
       selected_gemm(transform_space_for(node_count), scaled_synthesis_, modal_real_,
                     node_real_, 0.0, true);
@@ -11786,6 +11797,11 @@ void GeneralWorkspace::project(const std::size_t first_node,
     } else if (problem_.family == FieldFamily::envelope) {
       selected_gemm(transform_space_for(node_count), scaled_projection_complex_,
                     node_source, projected_target, Complex{}, true);
+    } else if (one_mode_products_) {
+      const bool stacked = project_coarse_ && !scaled_projection_stacked_.empty();
+      one_mode_projection(response_space_for(node_count),
+                          stacked ? scaled_projection_stacked_ : scaled_projection_,
+                          real_source, real_target, real_coarse_target);
     } else if (project_coarse_ && !scaled_projection_stacked_.empty()) {
       selected_gemm(transform_space_for(node_count), scaled_projection_stacked_,
                     real_source, real_stacked_target, 0.0, true);
