@@ -629,6 +629,9 @@ native::stage::Tables stage_tables_from(const nb::dict values) {
     tables.plasma_preionisation = stage_table_list(values["plasma_preionisation"]);
     tables.raman_densities = stage_table_list(values["raman_densities"]);
     tables.dispersive_densities = stage_table_list(values["dispersive_densities"]);
+    tables.chord = static_cast<native::stage::Chord>(nb::cast<int>(values["chord"]));
+    tables.chord_rate = nb::cast<double>(values["chord_rate"]);
+    tables.chord_terms = nb::cast<std::vector<double>>(values["chord_terms"]);
   } catch (const nb::cast_error&) {
     throw std::invalid_argument("the stage tables have the wrong types");
   }
@@ -646,7 +649,9 @@ native::stage::Tables stage_tables_from(const nb::dict values) {
        !tables.prefactor_weights.present()) ||
       (tables.kerr == native::stage::KerrDensity::table &&
        !tables.kerr_density.present()) ||
-      tables.plasma_densities.size() != tables.plasma_preionisation.size())
+      tables.plasma_densities.size() != tables.plasma_preionisation.size() ||
+      (tables.chord == native::stage::Chord::expansion &&
+       (!expansion || tables.chord_terms.size() != tables.phi_weights.n_values)))
     throw std::invalid_argument("the stage tables are inconsistent");
   return tables;
 }
@@ -736,9 +741,8 @@ native::ExponentialWeights exponential_weights(const IndexInput slots,
 // A scalar carrier frame's shift and rotations (solprop SEP 35), packed by solprop's
 // adapter as (Im sigma, Re f_0, Im f_0, ..., Re f_{n-1}, Im f_{n-1}) over the `rows`
 // history rows a formula reads; empty for none.
-void carrier_frame(native::ExponentialWeights& weights, const RealInput carrier,
-                   const std::size_t rows) {
-  const auto values = real_vector(carrier);
+void carrier_frame(native::ExponentialWeights& weights,
+                   const std::vector<double>& values, const std::size_t rows) {
   if (values.empty())
     return;
   if (rows > native::adams_max_samples || values.size() != 1 + 2 * rows)
@@ -752,6 +756,11 @@ void carrier_frame(native::ExponentialWeights& weights, const RealInput carrier,
     weights.factor_re[t] = values[1 + 2 * t];
     weights.factor_im[t] = values[2 + 2 * t];
   }
+}
+
+void carrier_frame(native::ExponentialWeights& weights, const RealInput carrier,
+                   const std::size_t rows) {
+  carrier_frame(weights, real_vector(carrier), rows);
 }
 
 // History rows alone, as a transport or a dense copy names them.
@@ -974,6 +983,7 @@ nb::dict march_result_to(const march::Result& result, const march::State& state)
   out["step_nodes"] = std::vector<double>(
       result.step_nodes.begin(),
       result.step_nodes.begin() + static_cast<std::ptrdiff_t>(result.step_order));
+  out["step_carrier"] = result.step_carrier;
   out["state"] = march_state_to(state);
   return out;
 }
@@ -1028,10 +1038,24 @@ public:
                 found.begin() + static_cast<std::ptrdiff_t>(stencil.n_orders), norms);
       return;
     }
-    const auto weights = native::stage::weights(
+    auto weights = native::stage::weights(
         stencil.nodes.data(), stencil.held, stencil.rows.data(), slots, stencil.order,
         stencil.orders.data(), stencil.n_orders, compensated_);
     const double end = z + dz;
+    if (tables_.chord != native::stage::Chord::none) {
+      // The carrier frame (solprop's `_ResidentAdams._carrier`): the chord's shift and
+      // each history row's rotation exp(i shift (1 - theta_t)).
+      const double shift = native::stage::chord(tables_, z, end);
+      const std::size_t rows = weights.width - 1;
+      carrier_.assign(1 + 2 * rows, 0.0);
+      carrier_[0] = shift;
+      for (std::size_t t = 0; t < rows; ++t) {
+        const double span = 1.0 - stencil.nodes[t];
+        carrier_[1 + 2 * t] = std::cos(shift * span);
+        carrier_[2 + 2 * t] = std::sin(shift * span);
+      }
+      carrier_frame(weights, carrier_, rows);
+    }
     const auto row = native::stage::row(tables_, anchor_, z, end);
     const auto step = native::stage::trial(tables_, row);
     auto sample = step;
@@ -1067,8 +1091,16 @@ public:
     state_.promote_fsal();
   }
 
-  double chord_phase(double /*z1*/, double /*z2*/) override {
-    throw std::logic_error("the native march does not form a carrier frame yet");
+  double chord_phase(const double z1, const double z2) override {
+    // One batch member per native state: its phase is the batch's largest.
+    return std::fabs(native::stage::chord(tables_, z1, z2));
+  }
+
+  std::vector<double> step_carrier(const std::size_t order) override {
+    if (carrier_.empty())
+      return {};
+    return {carrier_.begin(),
+            carrier_.begin() + static_cast<std::ptrdiff_t>(1 + 2 * order)};
   }
 
 private:
@@ -1095,6 +1127,8 @@ private:
   bool compensated_;
   bool interpolate_;
   std::optional<MarchFault>& fault_;
+  /** The last trial's carrier rotations, `_trial_carrier`. */
+  std::vector<double> carrier_;
 };
 
 // A script of norms in place of the field arithmetic, logging what the march asked:

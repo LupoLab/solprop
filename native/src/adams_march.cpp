@@ -508,6 +508,7 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
       result.step_dz = step.dz;
       result.step_order = trial.order;
       result.step_nodes = trial.nodes;
+      result.step_carrier = engine.step_carrier(trial.order);
       state.z = step.end;
       if (step.kink) {
         state.history.clear();

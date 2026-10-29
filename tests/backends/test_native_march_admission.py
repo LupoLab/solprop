@@ -133,16 +133,20 @@ def test_an_uncovered_run_takes_the_host_march_and_says_why(route, integrator, r
         backend.close()
 
 
-def test_the_carrier_frame_takes_the_host_march():
+def test_the_carrier_frame_is_native():
+    # The chord of a constant or an expanded operator is formed natively; a z table's
+    # stays solprop's.
     from backends.test_carrier_frame import (  # noqa: PLC0415 - a heavy module
         SCALAR,
         capillary,
     )
 
-    with pytest.warns(HostMarchWarning, match="the carrier frame"):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", HostMarchWarning)
         backend = built(capillary(SCALAR))
     try:
-        assert not backend._adams.native
+        assert backend._adams.native
+        assert backend._adams._policy.carrier
     finally:
         backend.close()
 

@@ -24,6 +24,7 @@ import math
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -62,7 +63,7 @@ def _random_norms(
 def _scenarios() -> list[Scenario]:
     """Return the corpus's scripted marches (SEP 39 section 7.1's list)."""
     planes = [round(0.1 * k, 10) for k in range(1, 10)]
-    common = {
+    common: dict[str, Any] = {
         "z0": 0.0,
         "proposal": 1e-4,
         "dz_min": 1e-12,

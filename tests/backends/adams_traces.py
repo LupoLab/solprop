@@ -266,7 +266,7 @@ class _Harness(StepDriver):
         self._z = scenario.z0
         self._proposal = scenario.proposal
         self._collar_quiet = scenario.quiet.get(0, False)
-        self._monitor = (
+        self._monitor = (  # pyright: ignore[reportAttributeAccessIssue]
             None
             if scenario.quiet_interval is None
             else _Monitor(scenario.quiet_interval)
@@ -301,7 +301,7 @@ class _Harness(StepDriver):
     def _adams_state(self) -> np.ndarray:
         return np.zeros((1, 1, 1, 1), dtype=np.complex128)
 
-    def _reserve_source_calls(self, cost: int) -> None:
+    def _reserve_source_calls(self, count: int) -> None:
         pass
 
     def _release_source_calls(self) -> None:
@@ -322,12 +322,12 @@ class _Harness(StepDriver):
         self.accepted += 1
         self._collar_quiet = self.scenario.quiet.get(self.accepted, self._collar_quiet)
 
-    def _record(self, end: float, dz: float, norm: float, accepted: bool) -> None:
+    def _record(self, z: float, dz: float, norm: float, accepted: bool) -> None:
         march = self.march
         assert march is not None
         row = dict(self.pending)
         row.update(
-            end=end,
+            end=z,
             step=dz,
             norm=norm if math.isfinite(norm) else math.inf,
             accepted=accepted,

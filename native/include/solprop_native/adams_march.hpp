@@ -223,6 +223,9 @@ public:
                       const std::vector<Entry>& kept) = 0;
   /** The carrier chord's largest phase over `[z1, z2]`, rad. */
   virtual double chord_phase(double z1, double z2) = 0;
+  /** The last trial's carrier rotations over its `order` newest rows, for a dense
+      observation of the step; empty without a carrier frame. */
+  virtual std::vector<double> step_carrier(std::size_t /*order*/) { return {}; }
 };
 
 /** Why a call returned to solprop (SEP 39 section 4.8). */
@@ -294,6 +297,7 @@ struct Result {
   double step_dz = 0.0;
   std::size_t step_order = 0;
   std::array<double, max_history> step_nodes{};
+  std::vector<double> step_carrier;
 };
 
 /** Advance `state` under `policy` by the algorithm of SEP 39 section 4, to an event;

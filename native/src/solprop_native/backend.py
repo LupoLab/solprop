@@ -42,7 +42,7 @@ from solprop.backends.multistep import (
     AdamsMarch,
     CoupledBlock,
     ExponentialKernels,
-    _Derivative,
+    _Derivative,  # pyright: ignore[reportPrivateUsage] - the march's history entries
     fused_tables,
     source_absent,
     trial_tables,
@@ -439,7 +439,9 @@ class NativeBackend(StepDriver[_core.State]):
         # repeated, the native state reads the scalar tables itself, uploaded once.
         tables = self._stage_tables()
         if tables is not None:
-            self._native_state.adams_stage_tables(tables)
+            self._native_state.adams_stage_tables(
+                tables | _chord_tables(self._resident.carrier)
+            )
             self._resident.staged = True
         return self._resident
 
@@ -1820,6 +1822,40 @@ class _ResidentAdams:
         """The history's rows: the method's order and two more."""
         return self.method.order + 2
 
+    @property
+    def device_scale(self) -> bool:
+        """Whether the norm's scale is solprop's own, formed in the native state."""
+        return self._device_scale
+
+    def march_stepped(
+        self,
+        step: tuple[float, float, list[float]] | None,
+        *,
+        fused: bool,
+        carrier: Sequence[float],
+    ) -> None:
+        """Adopt what a native march call leaves (solprop SEP 39 phase 2).
+
+        No trial is held, and the last accepted step's anchor, step and nodes ``(1,
+        theta...)``, if the call accepted one, set the dense observation's
+        interpolant: the fused path's nodes, or the exponential corrector's
+        coefficients on them, with the step's carrier rotations.
+        """
+        self._trial = None
+        if step is not None:
+            z, dz, nodes = step
+            interpolant = (
+                np.array(nodes)
+                if fused
+                else lagrange_coefficients(nodes, check=False, helpers=self.helpers)
+            )
+            self._step = (z, dz, interpolant) if self.interpolate else None
+            self._dense_nodes = np.array(nodes)
+            self._dense_carrier = (
+                np.asarray(carrier, dtype=np.float64) if carrier else _NO_CARRIER
+            )
+        self.adopted(None)
+
     def reset(self) -> None:
         """Forget the last accepted step and any trial in flight."""
         self._trial = None
@@ -2218,6 +2254,27 @@ _STAGE_TABLE = 3
 prefactor (``stage::Terms``)."""
 
 
+def _chord_tables(carrier: CarrierReference | None) -> dict[str, object]:
+    """Return the carrier frame's chord as the native stage tables take it.
+
+    The imaginary part of the reference element's operator for the one batch member
+    (`CarrierChord`): a constant's rate, or an expansion's terms over the ``Phi``
+    weights the tables already hold. None without an active frame, and none for a z
+    table's chord, whose run steps solprop's march.
+    """
+    chord = None if carrier is None or not carrier.active else carrier.chord
+    if chord is not None and chord.constant is not None:
+        return {
+            "chord": 1,
+            "chord_rate": float(np.imag(chord.constant)[0]),
+            "chord_terms": [],
+        }
+    if chord is not None and chord.expansion is not None:
+        terms = np.imag(np.asarray(chord.expansion.terms))[:, 0]
+        return {"chord": 2, "chord_rate": 0.0, "chord_terms": terms.tolist()}
+    return {"chord": 0, "chord_rate": 0.0, "chord_terms": []}
+
+
 def _on_device() -> bool:
     """Return whether the installed build executes on an accelerator."""
     return _build_facts().info["device_backend"] != "none"
@@ -2270,7 +2327,9 @@ _CONVERGENCE, _BACKEND, _VALUE = 1, 2, 3
 class _MarchRunner(Protocol):
     """What runs the native march: the native state, or a script in the tests."""
 
-    def run(self, state: dict[str, object], bounds: dict[str, object]) -> dict: ...
+    def run(
+        self, state: dict[str, object], bounds: dict[str, object]
+    ) -> dict[str, Any]: ...
 
 
 class _NativeAdamsMarch(AdamsMarch):
@@ -2300,7 +2359,7 @@ class _NativeAdamsMarch(AdamsMarch):
 
     def __init__(
         self,
-        backend: StepDriver,
+        backend: StepDriver[Any],
         method: Multistep,
         *,
         march: Literal["native", "host"] = "native",
@@ -2313,7 +2372,12 @@ class _NativeAdamsMarch(AdamsMarch):
         `runner`, the scripted march of the decision-trace tests, takes the native
         state's place; `kernels` and `exponential` are the Python march's own.
         """
-        super().__init__(backend, method, kernels, exponential)
+        # solprop's signature names the driver unparameterised.
+        super().__init__(backend, method, kernels, exponential)  # pyright: ignore[reportUnknownMemberType]
+        # The driver's protected bookkeeping, which this march books into exactly as
+        # solprop's does (``DRIVER_SURFACE``): held untyped, since it is the driver's
+        # own surface the march reaches, as `AdamsMarch` itself reaches it.
+        self._driver: Any = backend
         self._runner = runner
         self._configured: tuple[float | None] | None = None
         refusal, warn = self._native_refusal(march)
@@ -2354,14 +2418,18 @@ class _NativeAdamsMarch(AdamsMarch):
         if not isinstance(engine, _ResidentAdams):
             return "the host engine's coupled flow", True
         assert isinstance(engine, _ResidentAdams)
+        chord = None if engine.carrier is None else engine.carrier.chord
         resident = (
             (
                 not engine.staged,
                 "a trial whose stage rows are not one bundle (a moving guide's maps "
                 "or a coupled flow)",
             ),
-            (not engine._device_scale, "a controller with a norm scale of its own"),
-            (self._policy.carrier, "the carrier frame"),
+            (not engine.device_scale, "a controller with a norm scale of its own"),
+            (
+                self._policy.carrier and (chord is None or chord.table is not None),
+                "the carrier frame on a z table",
+            ),
         )
         for failed, reason in resident:
             if failed:
@@ -2387,7 +2455,7 @@ class _NativeAdamsMarch(AdamsMarch):
         if not self.native:
             super().march_to(target)
             return
-        backend = self._backend
+        backend = self._driver
         if self._ahead is not None:
             # The march is ahead of the last observation; resume it there.
             self._engine.restore(*self._ahead)
@@ -2423,13 +2491,13 @@ class _NativeAdamsMarch(AdamsMarch):
 
     def _configure(self) -> None:
         """Hand the native state the run's policy, again when the monitor changed."""
-        monitor = self._backend._monitor
+        monitor = self._driver._monitor
         interval = None if monitor is None else float(monitor.interval)
         if self._configured == (interval,):
             return
         policy = dataclasses.replace(self._policy, quiet_interval=interval)
         if self._runner is None:
-            backend = cast("NativeBackend", self._backend)
+            backend = self._driver
             engine = cast("_ResidentAdams", self._engine)
             schedule = backend._problem.stepper.schedule
             steps = edges = _NO_SCHEDULE
@@ -2449,8 +2517,8 @@ class _NativeAdamsMarch(AdamsMarch):
     def _bounds(self, target: float, slack: float | None) -> dict[str, object]:
         """Return a call's bounds: the target, the steps the driver has work on and,
         for a replay, the edges' slack."""
-        backend = self._backend
-        steps = []
+        backend = self._driver
+        steps: list[int] = []
         if backend._row_spec is not None:
             period = backend._row_period
             steps.append(period - backend._accepted_steps % period)
@@ -2465,7 +2533,7 @@ class _NativeAdamsMarch(AdamsMarch):
         return {
             "target": float(target),
             "quiet": bool(backend._collar_quiet),
-            "host_step": min(steps) if steps else 0,
+            "host_step": int(min(steps)) if steps else 0,
             "monitor": checked is not None,
             "first_check": False,
             "check_interval": 0.0 if monitor is None else float(monitor.interval),
@@ -2478,7 +2546,7 @@ class _NativeAdamsMarch(AdamsMarch):
 
     def _state(self) -> dict[str, object]:
         """Return the march's state as the native call takes it."""
-        backend, ledger = self._backend, self.ledger
+        backend, ledger = self._driver, self.ledger
         return {
             "z": float(backend._z),
             "proposal": float(backend._proposal),
@@ -2500,7 +2568,7 @@ class _NativeAdamsMarch(AdamsMarch):
         `slack` is a replay's (:func:`solprop.backends.driver.replay_tolerance`), or
         ``None`` for an adaptive march.
         """
-        backend = self._backend
+        backend = self._driver
         bounds = self._bounds(target, slack)
         started = time.perf_counter() - backend._clock
         with committing():
@@ -2539,17 +2607,19 @@ class _NativeAdamsMarch(AdamsMarch):
         self._raise(reason, result)
         return False
 
-    def _native_run(self, state: dict[str, object], bounds: dict[str, object]) -> dict:
+    def _native_run(
+        self, state: dict[str, object], bounds: dict[str, object]
+    ) -> dict[str, Any]:
         """Run the native march from `state` to an event within `bounds`."""
         if self._runner is not None:
             return self._runner.run(state, bounds)
-        native = cast("NativeBackend", self._backend)._native_state
+        native = self._driver._native_state
         with _envelope_errors():
             return native.adams_march_run(state, bounds)
 
-    def _synchronise(self, result: dict) -> None:
+    def _synchronise(self, result: dict[str, Any]) -> None:
         """Adopt the state a native call handed back."""
-        backend, engine = self._backend, self._engine
+        backend, engine = self._driver, self._engine
         state = result["state"]
         backend._z = float(state["z"])
         backend._proposal = float(state["proposal"])
@@ -2569,28 +2639,16 @@ class _NativeAdamsMarch(AdamsMarch):
             setattr(ledger, name, int(value))
         ledger.orders.extend(int(order) for order in result["orders"])
         if isinstance(engine, _ResidentAdams):
-            engine._trial = None
+            step = None
             if result["stepped"]:
                 order = int(result["step_order"])
                 nodes = [1.0, *(float(node) for node in result["step_nodes"][:order])]
-                # What the engine's dense observation reads: the exponential
-                # corrector's coefficients, or the fused interpolant's nodes.
-                helpers = engine.helpers
-                interpolant = (
-                    np.array(nodes)
-                    if self._fused
-                    else lagrange_coefficients(nodes, check=False, helpers=helpers)
-                )
-                engine._step = (
-                    (float(result["step_z"]), float(result["step_dz"]), interpolant)
-                    if engine.interpolate
-                    else None
-                )
-                engine._dense_nodes = np.array(nodes)
-                engine._dense_carrier = _NO_CARRIER
-            engine.adopted(None)
+                step = (float(result["step_z"]), float(result["step_dz"]), nodes)
+            engine.march_stepped(
+                step, fused=self._fused, carrier=list(result["step_carrier"])
+            )
 
-    def _raise(self, reason: int, result: dict) -> None:
+    def _raise(self, reason: int, result: dict[str, Any]) -> None:
         """Raise the error a call returned with, if any."""
         if reason == _BUDGET:
             raise self._budget_error(int(result["cost"]))
@@ -2605,7 +2663,7 @@ class _NativeAdamsMarch(AdamsMarch):
             dz, end = float(result["replay_dz"]), float(result["replay_end"])
             norm = float(result["replay_norm"])
             msg = (
-                f"{self._backend.name}: a replayed {self._method.name} step of "
+                f"{self._driver.name}: a replayed {self._method.name} step of "
                 f"{dz:.4g} m ending at z = {end:.6g} m has a non-finite error norm "
                 f"({norm!r}): the field has diverged. A replayed schedule takes "
                 "its steps as given and cannot reject one, so a step beyond an "
