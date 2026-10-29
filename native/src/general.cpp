@@ -1900,18 +1900,23 @@ public:
   }
   std::map<std::string, int> raman_fft_tasks() const {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-    const int full = 0, tail = 0, kernel = 0;
+    const int full = 0, tail = 0, kernel = 0, products = 0;
 #else
     const int full = raman_execution_space_.concurrency(),
               tail = raman_tail_execution_space_.concurrency(),
-              kernel = raman_kernel_execution_space_.concurrency();
+              kernel = raman_kernel_execution_space_.concurrency(),
+              products = raman_product_execution_space_.concurrency();
 #endif
+    // `products` is nonzero when the modal products replace the node drives.
     return {
         {"full",
          raman_drive_forward_plan_ ? raman_drive_forward_plan_->tasks(full) : 0},
         {"tail", raman_tail_forward_plan_ ? raman_tail_forward_plan_->tasks(tail) : 0},
         {"kernel",
-         raman_kernel_forward_plan_ ? raman_kernel_forward_plan_->tasks(kernel) : 0}};
+         raman_kernel_forward_plan_ ? raman_kernel_forward_plan_->tasks(kernel) : 0},
+        {"products", raman_product_forward_plan_
+                         ? raman_product_forward_plan_->tasks(products)
+                         : 0}};
   }
   std::size_t raman_kernel_transforms() const noexcept {
     return raman_kernel_transforms_;
@@ -2017,6 +2022,13 @@ public:
                            const double* densities = nullptr);
   void convolve_raman(std::size_t stage, std::size_t node_count);
   void finish_raman(std::size_t stage, std::size_t node_count);
+  // A scalar state's Raman drive is a quadratic form of its modal fields, so the
+  // causal convolution is applied once per unordered modal product and each node's
+  // convolved drive is reconstructed from them (`raman_modal_products`).
+  [[nodiscard]] std::size_t raman_modal_products() const noexcept;
+  void convolve_raman_products();
+  void finish_raman_products(std::size_t stage, std::size_t first_node,
+                             std::size_t node_count);
   template <FieldFamily Family, std::size_t Components>
   void response_plasma(std::size_t stage, std::size_t first_node,
                        std::size_t node_count);
@@ -2182,6 +2194,7 @@ public:
       raman_rebuild_space_, raman_scale_space_;
   ExecutionSpace raman_execution_space_, raman_tail_execution_space_,
       raman_kernel_execution_space_;
+  ExecutionSpace raman_product_execution_space_, raman_product_space_;
   const ExecutionSpace& response_space_for(std::size_t nodes) const {
     return nodes == problem_.node_chunk ? response_execution_space_
                                         : response_tail_execution_space_;
@@ -2292,6 +2305,11 @@ public:
   RealView2 coarse_time_real_;
   RealView2 node_raman_drive_, node_raman_convolved_, raman_undamped_;
   RealView2 raman_tail_drive_, raman_tail_convolved_;
+  // The modal products' rows, the leading rows of the node drive and its spectrum:
+  // the drive rows hold each product, then its convolution.
+  RealView2 raman_product_drive_;
+  ComplexView2 raman_product_spectrum_;
+  std::size_t raman_products_ = 0;
   RealView2 raman_kernel_time_, stage_raman_rates_, stage_raman_densities_;
   RealView2 raman_tensor_weights_;
   RealView raman_row_component_, raman_component_fraction_;
@@ -2434,6 +2452,8 @@ public:
   std::unique_ptr<RamanInversePlan> raman_convolution_inverse_plan_;
   std::unique_ptr<RamanForwardPlan> raman_tail_forward_plan_;
   std::unique_ptr<RamanInversePlan> raman_tail_inverse_plan_;
+  std::unique_ptr<RamanForwardPlan> raman_product_forward_plan_;
+  std::unique_ptr<RamanInversePlan> raman_product_inverse_plan_;
   std::unique_ptr<RamanForwardPlan> raman_kernel_forward_plan_;
   // solprop's general modal route; null on every other route.
   std::unique_ptr<GeneralModalSource> general_;
@@ -3736,6 +3756,13 @@ void GeneralWorkspace::plan() {
         CpuOperation::response, raman_kernel_time_.size() * problem_.n_raman_terms);
     raman_scale_space_ =
         kernel_pool_.get(CpuOperation::stage, raman_kernel_spectrum_.size());
+    raman_products_ = raman_modal_products();
+    if (raman_products_ != 0) {
+      raman_product_execution_space_ = raman_tail_pool_.get(
+          CpuOperation::raman, raman_products_ * 2 * problem_.n_to);
+      raman_product_space_ =
+          kernel_pool_.get(CpuOperation::stage, raman_products_ * 2 * problem_.n_to);
+    }
   }
   if (general_)
     general_->plan();
@@ -3891,6 +3918,18 @@ void GeneralWorkspace::plan() {
           KokkosFFT::Direction::forward, axis);
       raman_tail_inverse_plan_ = std::make_unique<RamanInversePlan>(
           raman_tail_execution_space_, raman_tail_spectrum_, raman_tail_convolved_,
+          KokkosFFT::Direction::backward, axis);
+    }
+    if (raman_products_ != 0) {
+      const auto rows = std::make_pair(std::size_t{0}, raman_products_);
+      raman_product_drive_ = Kokkos::subview(node_raman_drive_, rows, Kokkos::ALL());
+      raman_product_spectrum_ =
+          Kokkos::subview(node_raman_spectrum_, rows, Kokkos::ALL());
+      raman_product_forward_plan_ = std::make_unique<RamanForwardPlan>(
+          raman_product_execution_space_, raman_product_drive_, raman_product_spectrum_,
+          KokkosFFT::Direction::forward, axis);
+      raman_product_inverse_plan_ = std::make_unique<RamanInversePlan>(
+          raman_product_execution_space_, raman_product_spectrum_, raman_product_drive_,
           KokkosFFT::Direction::backward, axis);
     }
     raman_kernel_forward_plan_ = std::make_unique<RamanForwardPlan>(
@@ -8214,6 +8253,8 @@ bool GeneralWorkspace::modal_core(const std::size_t stage) {
   }
   if (dispersive_)
     dispersive_->begin();
+  if (raman_products_ != 0)
+    convolve_raman_products();
   bool first_chunk = true;
   std::size_t chunk = 0;
   for (std::size_t first_node = 0; first_node < problem_.n_nodes;
@@ -8224,7 +8265,9 @@ bool GeneralWorkspace::modal_core(const std::size_t stage) {
       synthesise(first_node, node_count);
     if (!alone)
       response(stage, first_node, node_count);
-    if (problem_.raman)
+    if (raman_products_ != 0)
+      finish_raman_products(stage, first_node, node_count);
+    else if (problem_.raman)
       convolve_raman(stage, node_count);
     if (dispersive_)
       dispersive_->respond(chunk, first_node, node_count);
@@ -8611,6 +8654,8 @@ void GeneralWorkspace::response_impl(const std::size_t stage,
   const auto out_complex = polarisation_complex_;
   const auto raman_drive = node_raman_drive_;
   const auto raman_drives = problem_.raman_drives();
+  // The modal products replace the nodes' drives (`raman_modal_products`).
+  const bool node_drives = raman_products_ == 0;
   const auto window = time_window_;
   const auto carrier = carrier_;
   const auto rate_coefficients = rate_coefficients_;
@@ -8672,8 +8717,8 @@ void GeneralWorkspace::response_impl(const std::size_t stage,
                        field_min, field_max, rate_max, rate_intervals,
                        ionisation_potential, charge_mass_ratio, density,
                        conjugate_factor, self_factor, harmonic_factor, carrier,
-                       raman_drive, raman_drives, out_real, held_current, window,
-                       out_complex, stash, n_stages, first_node);
+                       raman_drive, raman_drives, node_drives, out_real, held_current,
+                       window, out_complex, stash, n_stages, first_node);
         const std::size_t base = node * Components;
         const double input_scale = folded ? synthesis(0, 0) * taper(stage) : 1.0;
         const double output_scale = folded ? projection(0, 0) / taper(stage) : 1.0;
@@ -8835,8 +8880,9 @@ void GeneralWorkspace::response_impl(const std::size_t stage,
             }
           }
           if constexpr (Raman) {
-            write_raman_drive<Components, RamanThg>(
-                raman_drive, node, time, first_value, second_value, raman_drives);
+            if (node_drives)
+              write_raman_drive<Components, RamanThg>(
+                  raman_drive, node, time, first_value, second_value, raman_drives);
           }
           if constexpr (Family != FieldFamily::envelope) {
             (Plasma ? target_real(base, time) : real_target[base * n_to + time]) =
@@ -10230,6 +10276,131 @@ void GeneralWorkspace::finish_raman(const std::size_t stage,
           return;
         }
         const double factor = epsilon0 * density(stage) * convolved(node, time);
+        if (family == FieldFamily::envelope) {
+          out_complex(node, time) =
+              (out_complex(node, time) + factor * node_complex(node, time)) *
+              window(time);
+        } else {
+          const double field = family == FieldFamily::field_real
+                                   ? node_real(node, time)
+                                   : node_complex(node, time).real();
+          out_real(node, time) = (out_real(node, time) + factor * field) * window(time);
+        }
+      });
+  Kokkos::Profiling::popRegion();
+}
+
+// The modal-product convolution (after the CPU experiment's Raman port). With a real
+// static synthesis S, a scalar node field is x_j = sum_m S_jm a_m, so the Raman drive
+// x_j^2 (or the cycle average |x_j|^2 / 2) is sum_{m <= n} c_mn S_jm S_jn P_mn with
+// P_mn = Re(a_m) Re(a_n) (or (Re(a_m conj a_n)) / 2) and c_mn = 2 off the diagonal.
+// The causal convolution is linear: convolving each of the M (M + 1) / 2 products once
+// and reconstructing each node's convolved drive from them replaces one drive per node.
+// It is chosen where it transforms fewer rows than the nodes and its rows fit the node
+// drive's own scratch; the stage-dependent kernel, its support and the taper (inside
+// S) are those of the node path. The reconstruction sums the products in a different
+// order from squaring the synthesised field: the two agree to rounding of the drive's
+// scale, sum_m |S_jm a_m| squared. Host builds only: a device keeps the node drives.
+std::size_t GeneralWorkspace::raman_modal_products() const noexcept {
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  return 0;
+#else
+  if (!problem_.raman || problem_.general_modal || problem_.dispersive ||
+      problem_.separable_geometry() || problem_.effective_node_pol() != 1 ||
+      problem_.n_pol_state != 1 || problem_.n_pol_transform != 1 ||
+      problem_.raman_drives() != 1 || problem_.n_nodes < 2)
+    return 0;
+  const auto products = problem_.n_modes * (problem_.n_modes + 1) / 2;
+  return products < problem_.n_nodes && products <= problem_.node_chunk ? products : 0;
+#endif
+}
+
+void GeneralWorkspace::convolve_raman_products() {
+  Kokkos::Profiling::pushRegion("solprop_native.raman.products");
+  const auto drive = raman_product_drive_;
+  const auto modal_real = modal_real_;
+  const auto modal_complex = modal_complex_;
+  const auto modes = problem_.n_modes;
+  const auto n_to = problem_.n_to;
+  const bool real_family = problem_.family == FieldFamily::field_real;
+  const bool squared = problem_.raman_thg;
+  Kokkos::parallel_for(
+      "solprop_native.raman.products",
+      Range2(raman_product_space_, {0, 0}, {raman_products_, 2 * n_to}),
+      KOKKOS_LAMBDA(const std::size_t product, const std::size_t time) {
+        if (time >= n_to) {
+          drive(product, time) = 0.0;
+          return;
+        }
+        // The unordered pair (first, second), first <= second, in row-major order.
+        std::size_t first = 0;
+        std::size_t second = product;
+        while (second >= modes - first) {
+          second -= modes - first;
+          ++first;
+        }
+        second += first;
+        const double multiplicity = first == second ? 1.0 : 2.0;
+        double value;
+        if (real_family) {
+          value = modal_real(first, time) * modal_real(second, time);
+          if (!squared)
+            value *= 0.5;
+        } else {
+          const Complex a = modal_complex(first, time);
+          const Complex b = modal_complex(second, time);
+          value = squared ? a.real() * b.real()
+                          : 0.5 * (a.real() * b.real() + a.imag() * b.imag());
+        }
+        drive(product, time) = multiplicity * value;
+      });
+  execute_raman(*raman_product_forward_plan_, raman_product_drive_,
+                raman_product_spectrum_, KokkosFFT::Normalization::none);
+  const auto spectrum = raman_product_spectrum_;
+  const auto kernel_spectrum = raman_kernel_spectrum_;
+  const double inverse_doubled = 1.0 / static_cast<double>(2 * n_to);
+  Kokkos::parallel_for(
+      "solprop_native.raman.products_multiply",
+      Range2(raman_product_space_, {0, 0}, {raman_products_, n_to + 1}),
+      KOKKOS_LAMBDA(const std::size_t product, const std::size_t index) {
+        spectrum(product, index) =
+            (spectrum(product, index) * kernel_spectrum(0, index)) * inverse_doubled;
+      });
+  execute_raman(*raman_product_inverse_plan_, raman_product_spectrum_,
+                raman_product_drive_, KokkosFFT::Normalization::none);
+  Kokkos::Profiling::popRegion();
+}
+
+// `finish_raman`'s scalar form with each node's convolved drive reconstructed from
+// the convolved modal products.
+void GeneralWorkspace::finish_raman_products(const std::size_t stage,
+                                             const std::size_t first_node,
+                                             const std::size_t node_count) {
+  Kokkos::Profiling::pushRegion("solprop_native.raman.finish_products");
+  const auto node_real = node_real_;
+  const auto node_complex = node_complex_;
+  const auto out_real = polarisation_real_;
+  const auto out_complex = polarisation_complex_;
+  const auto convolved = raman_product_drive_;
+  const auto synthesis = scaled_synthesis_;
+  const auto window = time_window_;
+  const auto density = stage_raman_density_;
+  const auto family = problem_.family;
+  const auto modes = problem_.n_modes;
+  const double epsilon0 = problem_.raman_epsilon0;
+  Kokkos::parallel_for(
+      "solprop_native.raman.finish_products",
+      Range2(response_space_for(node_count), {0, 0}, {node_count, problem_.n_to}),
+      KOKKOS_LAMBDA(const std::size_t node, const std::size_t time) {
+        const std::size_t row = first_node + node;
+        double drive = 0.0;
+        std::size_t product = 0;
+        for (std::size_t first = 0; first < modes; ++first) {
+          const double weight = synthesis(row, first);
+          for (std::size_t second = first; second < modes; ++second, ++product)
+            drive += (weight * synthesis(row, second)) * convolved(product, time);
+        }
+        const double factor = epsilon0 * density(stage) * drive;
         if (family == FieldFamily::envelope) {
           out_complex(node, time) =
               (out_complex(node, time) + factor * node_complex(node, time)) *
@@ -13390,6 +13561,10 @@ void GeneralWorkspace::close() noexcept {
   raman_tail_drive_ = {};
   raman_tail_spectrum_ = {};
   raman_tail_convolved_ = {};
+  raman_product_forward_plan_.reset();
+  raman_product_inverse_plan_.reset();
+  raman_product_drive_ = {};
+  raman_product_spectrum_ = {};
   raman_kernel_forward_plan_.reset();
   current_ = {};
   register_accumulator_ = {};
@@ -13558,6 +13733,8 @@ void GeneralWorkspace::close() noexcept {
   raman_tail_execution_space_ = ExecutionSpace();
   raman_execution_space_ = ExecutionSpace();
   raman_kernel_execution_space_ = ExecutionSpace();
+  raman_product_execution_space_ = ExecutionSpace();
+  raman_product_space_ = ExecutionSpace();
   temporal_execution_space_ = ExecutionSpace();
   flow_execution_space_ = ExecutionSpace();
   absorber_execution_space_ = ExecutionSpace();

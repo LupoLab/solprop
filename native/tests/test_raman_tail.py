@@ -128,12 +128,24 @@ def test_raman_partial_chunk_matches_reference_and_repeats(
                 assert metadata["raman_fft_provider"] == (
                     "Accelerate_vDSP" if accelerated else "KokkosFFT"
                 )
+                # One mode at seven nodes: its single modal product replaces the
+                # node drives on the host, in a plan of the tail pool.
+                products = 0
+                if info.device_backend == "none":
+                    products = info.raman_tail_fft_threads
+                    if info.cpu_size_policy_enabled:
+                        products = sizing[f"raman_tail_fft.raman.{2 * grid.n_to}"][
+                            "threads"
+                        ]
+                    if _accelerated(2 * grid.n_to, products):
+                        products = min(1, products)
                 assert metadata["raman_fft_tasks"] == {
                     "full": min(chunk, full) if accelerated else full,
                     "tail": (min(7 % chunk, tail) if tail_accelerated else tail)
                     if 7 % chunk
                     else 0,
                     "kernel": min(1, kernel) if kernel_accelerated else kernel,
+                    "products": products,
                 }
                 ledger = backend.memory_ledger()
                 assert ledger["node_raman_drive"] == chunk * 2 * grid.n_to * 8
@@ -168,6 +180,75 @@ def test_raman_partial_chunk_matches_reference_and_repeats(
         if isinstance(backend, NativeBackend):
             assert backend._native_state.closed  # pyright: ignore[reportPrivateUsage] - native lifetime
     scale = np.max(np.abs(fields[0]))
+    np.testing.assert_allclose(
+        fields[1], fields[0], rtol=0.0, atol=_bound(grid.n_to) * scale
+    )
+
+
+@pytest.mark.parametrize("family", ["real", "analytic", "envelope"])
+@pytest.mark.parametrize(("n_modes", "n_r", "products"), [(3, 9, 6), (3, 5, 0)])
+def test_raman_modal_products_match_reference(
+    family: str, n_modes: int, n_r: int, products: int
+) -> None:
+    """Modal products replace node drives only where they transform fewer rows."""
+    grid_class = EnvelopeGrid if family == "envelope" else FieldGrid
+    grid = grid_class.from_limits(1e-6, 800e-9, (200e-9, 4e-6), 80e-15)
+    thg = family == "real"
+    modes = [
+        MarcatiliMode(125e-6, "H2", 2.0, m=m, cladding=1.45, loss=False)
+        for m in range(1, n_modes + 1)
+    ]
+    quadrature = transverse_quadrature(modes, n_r=n_r, radial_rule="gauss_kronrod")
+    raman = response_for(
+        Gas.H2,
+        thg=thg,
+        selection=MaterialSelection(carrier_wavelength=800e-9),
+        density=float(modes[0].density(np.zeros(1))[0]),
+    )
+    initial = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=20e-6).build(grid)
+    # A field in every mode, so that every cross product contributes.
+    field0 = (
+        np.repeat(initial, n_modes, axis=0)
+        * np.linspace(1.0, 0.4, n_modes)[:, None, None]
+    )
+    problem = assemble(
+        grid,
+        modes,
+        [KerrResponse(chi3=1e-51, thg=thg), raman],
+        field0,
+        quadrature=quadrature,
+        controller=PIController(rtol=1e-8, atol=1e-14),
+        save_planes=[grid.length],
+        dz_init=grid.length / 8,
+        dz_max=grid.length / 8,
+    )
+    problem = dataclasses.replace(
+        problem,
+        stepper=dataclasses.replace(
+            problem.stepper,
+            schedule=FixedSchedule.uniform(0.0, grid.length, grid.length / 8),
+        ),
+    )
+    assert problem.transform.n_nodes == n_r
+    fields: list[ComplexArray] = []
+    for backend_class in (NumpyRefBackend, NativeBackend):
+        backend = backend_class(problem, grid=grid)
+        try:
+            backend.set_initial(problem.initial.field0, None)
+            backend.propagate_to(grid.length)
+            field = backend.observe().require_field().copy()
+            assert np.isfinite(field).all()
+            fields.append(field)
+            if isinstance(backend, NativeBackend):
+                tasks = cast(dict[str, int], backend.metadata()["raman_fft_tasks"])
+                assert (tasks["products"] > 0) == (
+                    products > 0 and build_info().device_backend == "none"
+                )
+        finally:
+            backend.close()
+    scale = np.max(np.abs(fields[0]))
+    # The products sum the drive in another order than squaring the node field:
+    # rounding of the drive's own scale, inside the FFT budget of the steps.
     np.testing.assert_allclose(
         fields[1], fields[0], rtol=0.0, atol=_bound(grid.n_to) * scale
     )
