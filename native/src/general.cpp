@@ -2487,6 +2487,13 @@ public:
     return nodes == problem_.node_chunk ? response_execution_space_
                                         : response_tail_execution_space_;
   }
+  // A compact problem's interleaved one-mode, one-node products scale one row: on a
+  // threaded team they run as the one-mode projection over the stage's team rather
+  // than as a serial 1 x 1 vendor GEMM (docs/dev/benchmarks.md, "Compact CPU teams").
+  bool team_scalings(const std::size_t nodes) const noexcept {
+    return one_mode_products_enabled && compact_ && problem_.n_modes == 1 &&
+           nodes == 1 && execution_space_.concurrency() > 1;
+  }
   const ExecutionSpace& transform_space_for(std::size_t nodes) const {
     return nodes == problem_.node_chunk ? transform_execution_space_
                                         : transform_tail_execution_space_;
@@ -9340,7 +9347,10 @@ void GeneralWorkspace::synthesise(const std::size_t first_node,
                                 node_count, problem_.n_modes);
     const Interleaved node(reinterpret_cast<double*>(node_complex_.data()), node_count,
                            2 * problem_.n_to);
-    engine_gemm(transform_space_for(node_count), synthesis, modal, node, 0.0);
+    if (team_scalings(node_count))
+      one_mode_projection(execution_space_, synthesis, modal, node, node);
+    else
+      engine_gemm(transform_space_for(node_count), synthesis, modal, node, 0.0);
     Kokkos::Profiling::popRegion();
     return;
   }
@@ -11767,12 +11777,21 @@ void GeneralWorkspace::project(const std::size_t first_node,
                             problem_.n_nodes, 2 * problem_.n_to);
     const Interleaved fine(reinterpret_cast<double*>(projected_target.data()),
                            problem_.n_modes, 2 * problem_.n_to);
-    engine_gemm(transform_space_for(node_count), scaled_projection_, nodes, fine, 0.0);
+    const bool scalings = team_scalings(node_count);
+    if (scalings)
+      one_mode_projection(execution_space_, scaled_projection_, nodes, fine, fine);
+    else
+      engine_gemm(transform_space_for(node_count), scaled_projection_, nodes, fine,
+                  0.0);
     if (project_coarse_ && !problem_.projection_coarse_matrix.empty()) {
       const Interleaved coarse(reinterpret_cast<double*>(coarse_target.data()),
                                problem_.n_modes, 2 * problem_.n_to);
-      engine_gemm(transform_space_for(node_count), scaled_projection_coarse_, nodes,
-                  coarse, 0.0);
+      if (scalings)
+        one_mode_projection(execution_space_, scaled_projection_coarse_, nodes, coarse,
+                            coarse);
+      else
+        engine_gemm(transform_space_for(node_count), scaled_projection_coarse_, nodes,
+                    coarse, 0.0);
     }
     Kokkos::Profiling::popRegion();
     return;
