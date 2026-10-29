@@ -13336,19 +13336,44 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
       const auto synthesis = synthesis_;
       const double crop_scale =
           static_cast<double>(problem_.n_t) / static_cast<double>(problem_.n_to);
+      // Each node's field and closure, `S F` and `S G` over the modes, as GEMMs over
+      // interleaved real columns (each sample's real and imaginary parts; a mode's
+      // polarisations are adjacent rows): the field's into the spectrum buffer, free
+      // once both time fields are formed, then the closure's over the field, which
+      // nothing reads after its synthesis. Local statistics hold one node per mode, so
+      // each buffer has the rows.
+      using Interleaved = Kokkos::View<double**, Layout, MemorySpace,
+                                       Kokkos::MemoryTraits<Kokkos::Unmanaged>>;
+      static_assert(sizeof(Complex) == 2 * sizeof(double));
+      const std::size_t width = 2 * n_pol * n_t;
+      if (statistics_spectrum_.size() < n_nodes * n_pol * n_t ||
+          field.size() < n_nodes * n_pol * n_t)
+        throw std::logic_error("radial statistics need a row of each buffer per node");
+      const Interleaved weights(synthesis.data(), n_nodes, n_modes);
+      const Interleaved field_rows(reinterpret_cast<double*>(field.data()), n_modes,
+                                   width);
+      const Interleaved closure_rows(reinterpret_cast<double*>(closure.data()), n_modes,
+                                     width);
+      const Interleaved electric_rows(
+          reinterpret_cast<double*>(statistics_spectrum_.data()), n_nodes, width);
+      const Interleaved magnetic_rows(reinterpret_cast<double*>(field.data()), n_nodes,
+                                      width);
+      engine_gemm(transform_execution_space_, weights, field_rows, electric_rows, 0.0);
+      engine_gemm(transform_execution_space_, weights, closure_rows, magnetic_rows,
+                  0.0);
       Kokkos::parallel_for(
           "solprop_native.spatial.physical_intensity",
           Range2(execution_space_, {0, 0}, {n_nodes, n_t}),
           KOKKOS_LAMBDA(const std::size_t node, const std::size_t time) {
             double total = 0.0, size = 0.0;
             for (std::size_t pol = 0; pol < n_pol; ++pol) {
-              Complex electric{}, magnetic{};
-              for (std::size_t mode = 0; mode < n_modes; ++mode) {
-                electric += synthesis(node, mode) * field(mode * n_pol + pol, time);
-                magnetic += synthesis(node, mode) * closure(mode * n_pol + pol, time);
-              }
-              electric *= crop_scale;
-              magnetic *= crop_scale;
+              const std::size_t at = 2 * (pol * n_t + time);
+              const Complex electric =
+                  crop_scale *
+                  Complex(electric_rows(node, at), electric_rows(node, at + 1));
+              const Complex magnetic =
+                  crop_scale *
+                  Complex(magnetic_rows(node, at), magnetic_rows(node, at + 1));
               total += (electric * Kokkos::conj(magnetic)).real();
               size += Kokkos::sqrt(squared_abs(electric) * squared_abs(magnetic));
             }
