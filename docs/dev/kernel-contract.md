@@ -1111,3 +1111,67 @@ the step history and over the same interval, and a row may not index past it.
 4. Implement in `numpy_ref` first, with a test; then in the other backends, with the
    equivalence test.
 5. Update the memory budget in [architecture.md §8](architecture.md) if a buffer is added.
+
+## 11. The Adams march
+
+*Draft ([SEP 39](seps/sep-0039-native-adams-march.md) phase 0). It becomes normative
+when the native march lands in phase 2; until then the Python march is the only
+execution.*
+
+The step loop of `Multistep()` is one algorithm with one reference implementation,
+solprop's `AdamsMarch` and the controller core it calls (`solprop.backends.adams_core`).
+A backend may execute the same algorithm natively. It then receives every number the
+algorithm reads in one record, and holds no default and no constant of its own
+(`native/AGENTS.md`). [SEP 39](seps/sep-0039-native-adams-march.md) §4 is the algorithm
+in full; this section is its interface.
+
+**The policy record** (`solprop.stepper.multistep.MarchPolicy`, formed once per run by
+`march_policy`):
+
+| field | meaning |
+|---|---|
+| `MarchPolicy.order`, `MarchPolicy.variable_order` | the highest predictor order, 1–6, and whether the order is chosen step by step |
+| `MarchPolicy.safety`, `MarchPolicy.max_growth`, `MarchPolicy.min_factor` | the method's step-size factors |
+| `MarchPolicy.rejection_growth` | the largest factor a rejection's own defect may propose (0.9) |
+| `MarchPolicy.hysteresis` | by how much a neighbouring order's weight must win to be adopted (1.2) |
+| `MarchPolicy.restart_after` | consecutive rejections before the history restarts (3) |
+| `MarchPolicy.collar_stability`, `MarchPolicy.real_intervals` | the share of PEC's negative-real interval, and the intervals by order, that weigh the order choice against an in-stage collar |
+| `MarchPolicy.collar_rate` | the in-stage collar's largest rate over two, 1/m; zero without one |
+| `MarchPolicy.carrier`, `MarchPolicy.carrier_cap` | whether a carrier frame caps each proposal, and the cap, rad |
+| `MarchPolicy.max_calls` | the call budget, or none |
+| `MarchPolicy.equal_approach`, `MarchPolicy.interval_cap` | the method's landing options |
+| `MarchPolicy.dz_min`, `MarchPolicy.dz_max`, `MarchPolicy.stretch`, `MarchPolicy.z_end` | the stepper settings of §7 |
+| `MarchPolicy.save_planes`, `MarchPolicy.hard_kinks`, `MarchPolicy.breakpoints` | the landings and caps; no planes when they are interpolated, and the breakpoints' first and last only without the interval cap |
+| `MarchPolicy.landing_ulps` | the landing and arrival tolerance in ulps (8) |
+| `MarchPolicy.interpolate` | whether the planes are observed densely |
+| `MarchPolicy.quiet_interval` | the boundary monitor's step cap while the collar rests, m, or none |
+
+The norm's scale is not in the record: it is the controller's of §7 (`PIController.scale`
+over `rtol`, `atol`, `weights` and `region`), which the engine already applies.
+
+**The state**: the position and the proposal; the stored order; the history's entries
+(position, identity, engine row), oldest first; the consecutive rejections; whether the
+last attempt was rejected; whether the collar was quiet at the last attempt; and the call
+ledger. A resume carries all of it exactly (`MarchSnapshot`, output schema 28).
+
+**One attempt**, in order (SEP 39 §4.3–§4.6):
+
+1. the budget;
+2. the startup evaluation when the history is empty;
+3. the caps: carrier, quiet, collar re-entry;
+4. the landing;
+5. the stencil and its scored orders;
+6. the trial, charged before it is evaluated;
+7. the decision.
+
+An acceptance commits the engine's state, the history, the ledger, the stored order, the
+position and a kink restart together. Only then is the next proposal tested against the
+floor. A floor so found is raised after the attempt is recorded.
+
+**What a native execution returns** (phase 2):
+
+- per attempt, one row: end, step, norm (non-finite as infinity), accepted, order, wall
+  time;
+- the reason it returned: an accepted-step event, the call bound, the budget, the floor,
+  divergence or exhaustion on a replay, or an error record (stage, category, message);
+- the state above.

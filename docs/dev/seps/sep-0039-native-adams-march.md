@@ -2123,7 +2123,145 @@ recorded beside its question, and the proposal above follows it.
 
 ## Part II — Implementation record
 
-Phase 0 is under way.
+### Phase 0 — report
+
+**Scope.**
+
+- Phase 0, the controller core in solprop, 2026-10-28/29.
+- Opus 5.5 (AI) for John Travers, on `feature/sep-0039-native-adams-march`, based on
+  LupoLab/solprop#56 at a500d2d.
+- The decision-trace oracle was committed first, before any code changed. Then came
+  the core, the general path and the fixes together, then the host timer, the baseline
+  and the contract draft.
+
+**Delivered.**
+
+- **The oracle.**
+  - `tests/backends/adams_traces.py` drives the march through a stub backend and engine
+    on scripted norms, and records every stencil, decision, proposal, order, landing,
+    restart and ledger counter.
+  - `tests/data/generate_adams_traces.py` wrote `tests/data/adams_traces.json.gz` from
+    a500d2d: 35 scenarios and about 2 900 attempts, gzip-compressed to 313 kB, the
+    floats exact. It refuses to overwrite the file without `--force`.
+  - The scenarios: fixed-order startup and post-restart growth at orders 2–6, variable
+    order with the collar cap on and quiet, rejection cascades and failure restarts,
+    the budget's edge, the floor after rejections and after a short landing, equal
+    approach on and off, the carrier cap, non-default factors, threshold norms (1 and
+    its neighbours, 0, ∞, NaN), the interval cap, kinks on and off planes, dense
+    observation, replay (the 160-step schedule 12 ulps short, kinks on edges,
+    exhaustion, divergence) and eight random settings.
+  - `tests/backends/test_adams_traces.py` requires the march to reproduce it.
+- **The policy record.** `MarchPolicy` and `march_policy` are in
+  `src/solprop/stepper/multistep.py`. `RESTART_AFTER`, `ORDER_HYSTERESIS` and
+  `COLLAR_STABILITY` move there from `backends.multistep`. The rejection's growth cap
+  becomes a named constant, `REJECTION_GROWTH`. `LANDING_ULPS` is one public constant in
+  `stepper.schedule`, which `backends.driver` imports; the duplicate is gone.
+- **The core.** `src/solprop/backends/adams_core.py`: `targets`, `factor`, `stencil`,
+  `stable_factor`, `order_weight`, `choose_order`, `rejection`, `carrier_capped`,
+  `quiet_capped`, `collar_reentry`, `next_landing`, `approach` and `replay_kink`. Each is
+  extracted operation for operation. `AdamsMarch` keeps thin methods over them, those the
+  tests and the general path call.
+- **The general path (Q7).** `GeneralPath` in `src/solprop/backends/multistep_general.py`
+  holds the comparison variants' attempt, correction, commit and next order, with
+  `_Trial`, `_defect_at` and `_norm_function`. The march creates it only for those
+  variants.
+- **The fixes.**
+  - *Commit order (§4.4).* An acceptance moves the position, the kink restart, the stored
+    order and `last_rejected` inside its commit before the next proposal is tested,
+    in both paths (`AdamsMarch._propose`). A floor found then is raised once the attempt
+    is recorded (`_raise_floor`): by `march_to`, by `_replay_to` and by the lockstep
+    runner after their records, and by `_afford` before any later attempt, so that it
+    cannot be passed over.
+  - *The collar flag (R9).* `MarchSnapshot.collar_was_quiet` is written to and read from
+    the HDF5 snapshot, restored by `load` and cleared by `begin_run`, with any pending
+    floor. Output schema 28; the tests that pin the schema follow.
+- **Tests.**
+  - The corpus, with the short-landing floor scenario checked against the oracle as the
+    fix changes it: the accepted attempt recorded, the position at its plane.
+  - The flag across the file, its absence refused like the other attributes', a new run
+    clearing it, and a restored flag deciding the re-entry cap.
+  - `tests/backends/test_adams_table_oracle.py`, the exact rational oracle of §7.2.
+- **The baseline.** The measurements of §3.3 are recorded in
+  [benchmarks.md](../benchmarks.md), "Exponential Adams host cost: the SEP 39 baseline".
+  The lean host timer is `python -m benchmarks.adams_host`.
+- **The contract.** [kernel-contract.md](../kernel-contract.md) §11, "The Adams march",
+  drafted: the policy record's fields, the state, an attempt, and what a native
+  execution returns.
+
+**Deviations from the proposal.**
+
+1. **The first proposal is not a policy field.** The record holds no $h_0$: the
+   algorithm reads the proposal from the state, which the driver sets, through its
+   start-up rule (`auto_init`) when no `dz_init` is given.
+2. **The norm's scale is not in the record.** It is the controller's of
+   kernel-contract §7, which the engine already applies to the norms it reduces. §4.2
+   lists it as something the algorithm reads; it reads it through the norms.
+3. **The quiet interval.** The Python march still reads the monitor's interval through
+   the driver (`StepDriver._quiet_capped`), so its own record leaves `quiet_interval`
+   empty. The native adapter fills it when it configures a run, from the attached
+   monitor (phase 2).
+4. **The oracle covers the exponential path.** Its stub engine answers the exponential
+   trial. The fused trial (phase 3) and the general path are covered by the existing
+   suite, which passes unchanged. The general path's half of the commit-order fix goes
+   through the same `_propose` as the exponential path's, and has no test of its own.
+5. **The corpus is compressed**, at 313 kB against 2.5 MB of JSON; `json` keeps its
+   floats exact.
+
+**Decisions.**
+
+- **`march_policy` takes keywords, not the stepper settings.** `stepper` may not import
+  `translate`, which imports it.
+- **The general path is a held object, not a mixin.** `backends.multistep_general`
+  imports from `backends.multistep`, and the march creates it lazily.
+- **The flag's dataclass field defaults to false; the file reader requires it.** A
+  snapshot written before schema 28 is therefore ignored with a warning, and the
+  resumed march restarts its history (ADR-051).
+
+**Verification.**
+
+- **The corpus:** all 35 traces reproduced after the refactor, then 34 unchanged and
+  the 35th changed exactly as the fix describes.
+- **Targeted modules on the Apple M5 Max,** under xdist:
+  - the core alone: 693 passed;
+  - the general path: 374 passed, 1 skipped;
+  - the fixes and the schema: 1 121 passed. Fifteen setup errors (`fixture 'backend_name'
+    not found`) came from mixing test directories in one xdist call, and those modules
+    passed alone.
+- **The changed modules:** basedpyright reports no errors, and ruff, numpydoc lint,
+  codespell and their doctests pass.
+- **The table oracle,** over the 2 090 distinct stencils of the corpus and the review's
+  history of four unit steps and a trial of $10^{-10}$:
+  - every record (Numba and native) is within its bound of the exact tables;
+  - the plain composition's own error is at most $4.5\times10^{-16}$ of a row's weights,
+    about two ulp, on every table. The reference does not inherit the monomial
+    Vandermonde's conditioning (§4.7); the test now holds it to 16 ulp.
+- **Not run:** the full gate and the docs build, which CI runs.
+
+**Sources checked.** No constant or citation is new. The moved constants keep their
+values and docstrings.
+
+**Limitations.** Every execution is still the Python march. The oracle's scenarios use
+a stub engine, so the norms are scripted, not computed.
+
+**Findings for the roadmap**, outside this SEP:
+
+1. **The Adams passes on x86-64.** On the AMD EPYC 7763 the exponential trial's predict
+   and correct passes cost 2.9–3.8 times the M5's per element, against 1.9 times for
+   the source. They are 844 µs of a helium trial (§3.3), the largest single item left
+   on Linux.
+2. **Threading on a shared node.** On a shared 16-core domain of that machine,
+   `he_rdw_averaged` and `h2_raman_averaged` ran slower at sixteen threads than at one,
+   with both steppers. Worth re-measuring on an idle node before it is called a defect.
+
+**Handoff to phase 1.**
+
+- The trial binding's arguments are in `bindings.cpp` (about lines 1839–1905), and its
+  stage rows are read at row `n_stages` (`general.cpp`, about lines 6412 and 6447).
+- `_ResidentAdams.exponential_trial` and `_resident_arrays` are the host side to
+  replace.
+- The scalar tables are the `PiecewiseChebyshev` leaves that `translate.stage.scalars`
+  reads.
+- The baseline to beat is §3.3's.
 
 ## Part III — History
 
