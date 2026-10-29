@@ -2583,7 +2583,7 @@ void GeneralWorkspace::synthesise_retained(const std::size_t first_node,
   const auto n = problem_.n_omega;
   Kokkos::parallel_for(
       "solprop_native.transform.retained_gather",
-      Range2(node_spectral_space_, {0, 0}, {problem_.n_modes, n}),
+      Range2(temporal_execution_space_, {0, 0}, {problem_.n_modes, n}),
       KOKKOS_LAMBDA(const std::size_t mode, const std::size_t index) {
         modal(mode, index) = fine(mode, crop(index));
       });
@@ -2598,13 +2598,15 @@ void GeneralWorkspace::synthesise_retained(const std::size_t first_node,
                            2 * n);
   engine_gemm(transform_space_for(node_count), synthesis, input, output, 0.0);
   // Each node's padded spectrum, every fine bin written: the modal time buffer's
-  // leading rows are free, as no modal transform runs on this path.
+  // leading rows are free, as no modal transform runs on this path. The gather and
+  // the pad take the modal copies' width (`temporal_execution_space_`): at a node
+  // chunk's coarse size they would run serially between threaded products.
   const auto node = retained_node_;
   const auto padded = modal_complex_;
   const auto bins = retained_bin_;
   Kokkos::parallel_for(
       "solprop_native.transform.retained_pad",
-      Range2(node_spectral_space_, {0, 0}, {node_count, problem_.n_to}),
+      Range2(temporal_execution_space_, {0, 0}, {node_count, problem_.n_to}),
       KOKKOS_LAMBDA(const std::size_t row, const std::size_t bin) {
         const auto index = bins(bin);
         padded(row, bin) = index < n ? node(row, index) : Complex{};
