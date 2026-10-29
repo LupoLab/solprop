@@ -251,7 +251,7 @@ The native backend now holds every BLAS but its own to one thread while it lives
 | `he_rdw_averaged` | 1.011 | 0.693 [0.670, 0.773] | 0.997 | 0.343 [0.326, 0.816] |
 | `radial_filament_256` | 0.996 | 0.725 [0.718, 0.726] | 0.992 | 0.610 [0.603, 0.791] |
 | the other nine tracking cases | 0.984-1.019 | 0.979-1.010 | 0.988-1.020 | 0.972-1.017 |
-| geometric mean (12 cases) | 1.000 | 0.886 | 1.001 | 0.836 |
+| geometric mean (12 cases) | 1.000 | 0.886 | 1.001 | 0.855 |
 
 The EPYC rows are 16 cores of a shared node (its averaged-helium spread is the node's).
 
