@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -630,8 +631,8 @@ public:
   State(State&&) = delete;
   State& operator=(State&&) = delete;
 
-  void set_initial(const std::vector<Complex>& field,
-                   const std::vector<Complex>& noise);
+  /** Load the field and noise from host memory, one copy into the memory space. */
+  void set_initial(std::span<const Complex> field, std::span<const Complex> noise);
   [[nodiscard]] std::array<double, 3> trial_step(double dz,
                                                  const TrialScalars& scalars);
   void finish(double dz);
@@ -653,6 +654,8 @@ public:
    */
   [[nodiscard]] std::vector<double> monitor_reading();
   [[nodiscard]] std::vector<Complex> field_to_host() const;
+  /** The field into `destination`, of the field's size: one copy from the space. */
+  void field_to_host(std::span<Complex> destination) const;
   [[nodiscard]] std::map<std::string, std::size_t> memory_ledger() const;
   [[nodiscard]] CpuSizing execution_sizing() const;
   [[nodiscard]] double planning_seconds() const noexcept;
@@ -675,8 +678,8 @@ public:
   GeneralState(GeneralState&&) = delete;
   GeneralState& operator=(GeneralState&&) = delete;
 
-  void set_initial(const std::vector<Complex>& field,
-                   const std::vector<Complex>& noise);
+  /** Load the field and noise from host memory, one copy into the memory space. */
+  void set_initial(std::span<const Complex> field, std::span<const Complex> noise);
   [[nodiscard]] std::vector<double> trial_step(double dz, const TrialScalars& scalars);
   void prepare_trial(double dz, const TrialScalars& scalars);
   /** solprop's Adams source at an anchor-frame field (SEP 14 phase 2). */
@@ -810,6 +813,8 @@ public:
   [[nodiscard]] std::string gemm_shape_policy() const;
   [[nodiscard]] std::size_t response_team_size() const noexcept;
   [[nodiscard]] std::vector<Complex> field_to_host() const;
+  /** The field into `destination`, of the field's size: one copy from the space. */
+  void field_to_host(std::span<Complex> destination) const;
   [[nodiscard]] std::vector<Complex> stage_to_host(std::size_t stage) const;
   /**
    * The last evaluation's projected polarisation spectrum on the fine rule, or on the

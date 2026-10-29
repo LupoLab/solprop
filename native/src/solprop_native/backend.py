@@ -312,6 +312,9 @@ class NativeBackend(StepDriver[_core.State]):
             self._z_tables.upload(self._native_state)
         _upload_flux_table(self._native_state, problem)
         self._last_loaded = np.empty(0, dtype=np.complex128)
+        # Set while `set_initial` runs the driver's load, whose mask step then leaves
+        # the upload to the one with the noise that follows: the state crosses once.
+        self._loading = False
         self._alarm = math.nan
         self._alarm_reported = False
         # solprop's Adams march (SEP 14 phase 2) steps on host arrays, with one native
@@ -333,8 +336,9 @@ class NativeBackend(StepDriver[_core.State]):
 
     def _apply_mask(self, state: ComplexArray) -> _core.State:
         self._last_loaded = np.ascontiguousarray(state.reshape(-1))
-        empty = np.empty(0, dtype=np.complex128)
-        self._native_state.set_initial(self._last_loaded, empty)
+        if not self._loading:
+            empty = np.empty(0, dtype=np.complex128)
+            self._native_state.set_initial(self._last_loaded, empty)
         return self._native_state
 
     def set_initial(
@@ -346,7 +350,11 @@ class NativeBackend(StepDriver[_core.State]):
     ) -> None:
         """Load an exact host `complex128` state and optional noise realization."""
         _require_initial_array(field, self._problem.shape)
-        super().set_initial(field, noise, z=z)
+        self._loading = True
+        try:
+            super().set_initial(field, noise, z=z)
+        finally:
+            self._loading = False
         native_noise = (
             np.empty(0, dtype=np.complex128)
             if self._noise is None

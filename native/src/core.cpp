@@ -12,6 +12,8 @@
 #include <cmath>
 #include <complex>
 #include <cstddef>
+#include <cstdint>
+#include <span>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -245,6 +247,25 @@ KOKKOS_INLINE_FUNCTION Complex exponential(const Complex value) {
                  magnitude * Kokkos::sin(value.imag()));
 }
 
+// A host span as an unmanaged view, for one copy between it and a memory-space view
+// of the same extent: no staging mirror, no element loop. A span whose data is not
+// aligned as `Complex` (a NumPy buffer need not be) is staged in an aligned vector.
+void upload_span(const ExecutionSpace& execution_space, const ComplexView& destination,
+                 const std::span<const Complex> source) {
+  if (destination.extent(0) != source.size())
+    throw std::invalid_argument("fixed problem array has the wrong extent");
+  if (reinterpret_cast<std::uintptr_t>(source.data()) % alignof(Complex) != 0) {
+    const std::vector<Complex> aligned(source.begin(), source.end());
+    upload_span(execution_space, destination, aligned);
+    execution_space.fence("solprop_native unaligned upload");
+    return;
+  }
+  const Kokkos::View<const Complex*, Layout, Kokkos::HostSpace,
+                     Kokkos::MemoryTraits<Kokkos::Unmanaged>>
+      host(source.data(), source.size());
+  Kokkos::deep_copy(execution_space, destination, host);
+}
+
 template <class View, class Value>
 void copy_vector(const ExecutionSpace& execution_space, const View& destination,
                  const std::vector<Value>& source) {
@@ -328,13 +349,13 @@ public:
     execution_space_.fence("solprop_native construction");
   }
 
-  void set_initial(const std::vector<Complex>& field,
-                   const std::vector<Complex>& noise) {
+  void set_initial(const std::span<const Complex> field,
+                   const std::span<const Complex> noise) {
     require_open();
     require_extent(field.size(), problem_.n_omega, "initial field");
     if (!noise.empty())
       require_extent(noise.size(), problem_.n_omega, "noise");
-    copy_vector(execution_space_, current_, field);
+    upload_span(execution_space_, current_, field);
     if (noise.empty()) {
       if (problem_.modified_noise)
         Kokkos::deep_copy(execution_space_, noise_, Complex{});
@@ -343,7 +364,7 @@ public:
       if (!problem_.modified_noise)
         throw std::invalid_argument(
             "a native noise field is valid only for modified noise");
-      copy_vector(execution_space_, noise_, noise);
+      upload_span(execution_space_, noise_, noise);
       has_noise_ = true;
     }
     mask(current_);
@@ -421,17 +442,23 @@ public:
   std::vector<double> monitor_reading();
 
   std::vector<Complex> field_to_host() const {
+    std::vector<Complex> result(problem_.n_omega);
+    field_to_host(result);
+    return result;
+  }
+
+  // One copy from the memory space into the caller's buffer (solprop SEP 39 section
+  // 6.7: no staging mirror and no element loop).
+  void field_to_host(const std::span<Complex> destination) const {
     require_open();
     if (!initialized_)
       throw std::logic_error("no initial field has been loaded");
+    require_extent(destination.size(), problem_.n_omega, "field destination");
     execution_space_.fence("solprop_native field_to_host");
-    const auto host =
-        Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, current_);
-    std::vector<Complex> result(problem_.n_omega);
-    for (std::size_t index = 0; index < result.size(); ++index) {
-      result[index] = host(index);
-    }
-    return result;
+    const Kokkos::View<Complex*, Layout, Kokkos::HostSpace,
+                       Kokkos::MemoryTraits<Kokkos::Unmanaged>>
+        host(destination.data(), destination.size());
+    Kokkos::deep_copy(host, current_);
   }
 
   std::map<std::string, std::size_t> memory_ledger() const;
@@ -1341,8 +1368,8 @@ void Workspace::close() noexcept {
 State::State(Problem problem)
     : workspace_(std::make_unique<Workspace>(std::move(problem))) {}
 State::~State() { close(); }
-void State::set_initial(const std::vector<Complex>& field,
-                        const std::vector<Complex>& noise) {
+void State::set_initial(const std::span<const Complex> field,
+                        const std::span<const Complex> noise) {
   workspace_->set_initial(field, noise);
 }
 std::array<double, 3> State::trial_step(const double dz, const TrialScalars& scalars) {
@@ -1365,6 +1392,9 @@ void State::unbind_monitor() noexcept {
 std::vector<double> State::monitor_reading() { return workspace_->monitor_reading(); }
 std::vector<Complex> State::field_to_host() const {
   return workspace_->field_to_host();
+}
+void State::field_to_host(const std::span<Complex> destination) const {
+  workspace_->field_to_host(destination);
 }
 std::map<std::string, std::size_t> State::memory_ledger() const {
   return workspace_->memory_ledger();

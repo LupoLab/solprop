@@ -45,6 +45,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -93,6 +94,16 @@ std::size_t element_count(const nb::ndarray<T, nb::c_contig, nb::device::cpu>& v
     count *= values.shape(axis);
   }
   return count;
+}
+
+// NumPy's complex128 and `native::Complex` are both two doubles, real part first.
+static_assert(sizeof(native::Complex) == sizeof(std::complex<double>));
+static_assert(__STDCPP_DEFAULT_NEW_ALIGNMENT__ >= alignof(native::Complex));
+
+/** A complex array's own memory as native values, read in place. */
+std::span<const native::Complex> complex_span(const ComplexInput values) {
+  return {reinterpret_cast<const native::Complex*>(values.data()),
+          element_count(values)};
 }
 
 std::vector<native::Complex> complex_vector(const ComplexInput values) {
@@ -799,6 +810,17 @@ ComplexOutput complex_output(const std::vector<native::Complex>& values,
   return ComplexOutput(pointer->data(), shape.size(), shape.data(), owner);
 }
 
+/** A complex array owning `storage`, uninitialised doubles a native copy filled. */
+ComplexOutput complex_buffer_output(std::unique_ptr<double[]> storage,
+                                    std::vector<std::size_t> shape) {
+  auto* pointer = storage.release();
+  nb::capsule owner(pointer, [](void* value) noexcept {
+    const std::unique_ptr<double[]> held(static_cast<double*>(value));
+  });
+  return ComplexOutput(reinterpret_cast<std::complex<double>*>(pointer), shape.size(),
+                       shape.data(), owner);
+}
+
 RealOutput real_output(std::vector<double> values, const std::size_t rows) {
   if (rows == 0 || values.size() % rows != 0)
     throw std::invalid_argument("native output has an invalid packed shape");
@@ -1233,8 +1255,9 @@ class BoundState {
 public:
   explicit BoundState(const nb::dict& problem) : BoundState(problem_from(problem)) {}
   explicit BoundState(native::Problem problem)
-      : columns_(problem.n_columns()), stages_(problem.n_stages),
-        raman_terms_(problem.n_raman_terms), raman_(problem.raman) {
+      : columns_(problem.n_columns()), elements_(problem.n_columns() * problem.n_omega),
+        stages_(problem.n_stages), raman_terms_(problem.n_raman_terms),
+        raman_(problem.raman) {
     if (problem.needs_general_engine())
       general_state_ = std::make_shared<native::GeneralState>(std::move(problem));
     else
@@ -1253,8 +1276,8 @@ public:
   BoundState(const BoundState&) = delete;
   BoundState& operator=(const BoundState&) = delete;
 
-  void set_initial(const std::vector<native::Complex>& field,
-                   const std::vector<native::Complex>& noise) {
+  void set_initial(const std::span<const native::Complex> field,
+                   const std::span<const native::Complex> noise) {
     require_open();
     if (general_state_)
       general_state_->set_initial(field, noise);
@@ -1344,10 +1367,15 @@ public:
     return general_state_->aperture_statistics(flags, apertures, profile_code, exponent,
                                                regions, intensity_factor);
   }
-  std::vector<native::Complex> field_to_host() {
+  void field_to_host(const std::span<native::Complex> destination) {
     require_open();
-    return general_state_ ? general_state_->field_to_host() : state_->field_to_host();
+    if (general_state_)
+      general_state_->field_to_host(destination);
+    else
+      state_->field_to_host(destination);
   }
+  /** The state's element count, `columns * n_omega`. */
+  std::size_t elements() const noexcept { return elements_; }
   std::vector<native::Complex> adams_source(const std::vector<native::Complex>& input,
                                             const native::TrialScalars& scalars) {
     require_open();
@@ -1645,6 +1673,7 @@ private:
       throw std::logic_error("native state is closed");
   }
   std::size_t columns_{};
+  std::size_t elements_{};
   std::size_t stages_{};
   std::size_t raman_terms_{};
   bool raman_{};
@@ -2101,10 +2130,9 @@ NB_MODULE(_core, module_) {
       .def(
           "set_initial",
           [](BoundState& self, const ComplexInput field, const ComplexInput noise) {
-            const auto held_field = complex_vector(field);
-            const auto held_noise = complex_vector(noise);
+            // Read in place: the arguments keep the arrays alive for the call.
             const nb::gil_scoped_release release;
-            self.set_initial(held_field, held_noise);
+            self.set_initial(complex_span(field), complex_span(noise));
           },
           "field"_a.noconvert(), "noise"_a.noconvert())
       .def(
@@ -2848,13 +2876,16 @@ NB_MODULE(_core, module_) {
            })
       .def("field_to_host",
            [](BoundState& self) {
-             std::vector<native::Complex> values;
+             // The state crosses once, straight into the returned array's memory.
+             const auto count = self.elements();
+             auto storage = std::make_unique_for_overwrite<double[]>(2 * count);
              {
                const nb::gil_scoped_release release;
-               values = self.field_to_host();
+               self.field_to_host(
+                   {reinterpret_cast<native::Complex*>(storage.get()), count});
              }
-             return complex_output(values,
-                                   {self.columns(), values.size() / self.columns()});
+             return complex_buffer_output(std::move(storage),
+                                          {self.columns(), count / self.columns()});
            })
       .def(
           "stage_to_host",

@@ -35,6 +35,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <limits>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -765,6 +766,25 @@ void ionisation_rates_within(double* values, const std::size_t live,
   vmath::exp(values, values, live);
 }
 #endif
+
+// A host span as an unmanaged view of a state-shaped memory-space view, for one copy
+// between them: no staging mirror, no element loop. A span whose data is not aligned
+// as `Complex` (a NumPy buffer need not be) is staged in an aligned vector first.
+void upload_span(const ExecutionSpace& execution_space, const ComplexView2& destination,
+                 const std::span<const Complex> source) {
+  if (destination.size() != source.size())
+    throw std::invalid_argument("fixed problem array has the wrong extent");
+  if (reinterpret_cast<std::uintptr_t>(source.data()) % alignof(Complex) != 0) {
+    const std::vector<Complex> aligned(source.begin(), source.end());
+    upload_span(execution_space, destination, aligned);
+    execution_space.fence("solprop_native unaligned upload");
+    return;
+  }
+  const Kokkos::View<const Complex**, Layout, Kokkos::HostSpace,
+                     Kokkos::MemoryTraits<Kokkos::Unmanaged>>
+      host(source.data(), destination.extent(0), destination.extent(1));
+  Kokkos::deep_copy(execution_space, destination, host);
+}
 
 template <class View, class Value>
 void copy_vector(const ExecutionSpace& execution_space, const View& destination,
@@ -1765,8 +1785,7 @@ public:
     execution_space_.fence("solprop_native construction");
   }
 
-  void set_initial(const std::vector<Complex>& field,
-                   const std::vector<Complex>& noise);
+  void set_initial(std::span<const Complex> field, std::span<const Complex> noise);
   std::vector<double> trial_step(double dz, const TrialScalars& scalars);
   void prepare_trial(double dz, const TrialScalars& scalars);
   std::vector<Complex> adams_source(const std::vector<Complex>& input,
@@ -1854,6 +1873,7 @@ public:
   void unbind_monitor() noexcept { monitor_bound_ = false; }
   std::vector<double> monitor_reading();
   std::vector<Complex> field_to_host() const;
+  void field_to_host(std::span<Complex> destination) const;
   std::vector<Complex> stage_to_host(std::size_t stage) const;
   std::vector<Complex> projected_to_host(bool coarse);
   std::map<std::string, bool> dispersive_path() const;
@@ -3872,14 +3892,14 @@ void GeneralWorkspace::plan() {
   }
 }
 
-void GeneralWorkspace::set_initial(const std::vector<Complex>& field,
-                                   const std::vector<Complex>& noise) {
+void GeneralWorkspace::set_initial(const std::span<const Complex> field,
+                                   const std::span<const Complex> noise) {
   require_open();
   require_extent(field.size(), problem_.n_columns() * problem_.n_omega,
                  "initial field");
   if (!noise.empty())
     require_extent(noise.size(), field.size(), "noise");
-  copy_vector(execution_space_, current_, field);
+  upload_span(execution_space_, current_, field);
   if (noise.empty()) {
     if (problem_.modified_noise)
       Kokkos::deep_copy(execution_space_, noise_, Complex{});
@@ -3888,7 +3908,7 @@ void GeneralWorkspace::set_initial(const std::vector<Complex>& field,
     if (!problem_.modified_noise)
       throw std::invalid_argument(
           "a native noise field is valid only for modified noise");
-    copy_vector(execution_space_, noise_, noise);
+    upload_span(execution_space_, noise_, noise);
     has_noise_ = true;
   }
   mask(current_);
@@ -12733,16 +12753,24 @@ void GeneralWorkspace::split_step(const double dz, const ComplexView2& advanced)
 }
 
 std::vector<Complex> GeneralWorkspace::field_to_host() const {
+  std::vector<Complex> result(problem_.n_columns() * problem_.n_omega);
+  field_to_host(result);
+  return result;
+}
+
+// One copy from the memory space into the caller's buffer: no staging mirror and no
+// element loop, so a large state crosses once (a device's one transfer).
+void GeneralWorkspace::field_to_host(const std::span<Complex> destination) const {
   require_open();
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");
+  require_extent(destination.size(), problem_.n_columns() * problem_.n_omega,
+                 "field destination");
   execution_space_.fence("solprop_native field_to_host");
-  const auto host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, current_);
-  std::vector<Complex> result(problem_.n_columns() * problem_.n_omega);
-  for (std::size_t column = 0; column < problem_.n_columns(); ++column)
-    for (std::size_t index = 0; index < problem_.n_omega; ++index)
-      result[column * problem_.n_omega + index] = host(column, index);
-  return result;
+  const Kokkos::View<Complex**, Layout, Kokkos::HostSpace,
+                     Kokkos::MemoryTraits<Kokkos::Unmanaged>>
+      host(destination.data(), problem_.n_columns(), problem_.n_omega);
+  Kokkos::deep_copy(host, current_);
 }
 
 std::vector<Complex> GeneralWorkspace::stage_to_host(const std::size_t stage) const {
@@ -13344,8 +13372,8 @@ void GeneralWorkspace::close() noexcept {
 GeneralState::GeneralState(Problem problem)
     : workspace_(std::make_unique<GeneralWorkspace>(std::move(problem))) {}
 GeneralState::~GeneralState() { close(); }
-void GeneralState::set_initial(const std::vector<Complex>& field,
-                               const std::vector<Complex>& noise) {
+void GeneralState::set_initial(const std::span<const Complex> field,
+                               const std::span<const Complex> noise) {
   workspace_->set_initial(field, noise);
 }
 std::vector<double> GeneralState::trial_step(const double dz,
@@ -13541,6 +13569,9 @@ std::size_t GeneralState::response_team_size() const noexcept {
 }
 std::vector<Complex> GeneralState::field_to_host() const {
   return workspace_->field_to_host();
+}
+void GeneralState::field_to_host(const std::span<Complex> destination) const {
+  workspace_->field_to_host(destination);
 }
 std::vector<Complex> GeneralState::stage_to_host(const std::size_t stage) const {
   return workspace_->stage_to_host(stage);
