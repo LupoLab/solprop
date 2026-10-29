@@ -189,6 +189,22 @@ time divided by the native backend's: above 1, the native backend is faster.
   ([measurements](benchmarks.md#retained-radial-synthesis-and-raman-modal-products)).
   Three-mode CTC: 0.88 at 16 threads on the Xeon; 0.83 at one thread and 0.92 at 16 on
   the EPYC.
+- **The modal stage entry's finish and combination as lanes**
+  ([measurements](benchmarks.md#host-stage-entry-free-space-crossings-and-statistics)),
+  and a block whose phases carry no loss skips its magnitudes' `exp` passes. A 16384-bin
+  GNLSE with Raman takes 0.84 of its time at one thread on the Xeon.
+- **Free space's low-storage fold in the transverse scratch's layout**
+  ([measurements](benchmarks.md#host-stage-entry-free-space-crossings-and-statistics)):
+  only the state crosses layouts, a tile of it at a time. Crossings find their scratch
+  cells without dividing by the polarisation count, the pack stores each row's run at
+  once, the boundary monitor sums runs of a row and a radial run's local statistics
+  synthesise through GEMMs. `kerr_beam_192` takes 0.64 of its time at one thread, the
+  384² beam 0.85 at 16, the radial filament 0.83 at one thread; fields are bitwise
+  equal. What made these kernels slow, worth checking in any other: a 64-bit division by
+  a run-time count in an element's index (GCC folds `n == 1 ? i : i / n` back into the
+  division, so the one-polarisation flag must be a value of its own), and a traversal
+  that reads four arrays 32 columns apart at every bin, which the prefetchers do not
+  follow.
 
 **Tried and not adopted**
 - **Skinny products off the vendor BLAS** (the native-order kernel for small left
@@ -216,6 +232,10 @@ time divided by the native backend's: above 1, the native backend is faster.
 - **An 8×32 Cartesian crossing tile and omitted unused register loads.** Three
   alternating rounds on the 192² Kerr window reduced the initial apparent gain to
   about 2%, below the complexity threshold. The 32×16 traversal remains.
+- **The Kerr-only free-space stage through one rank-3 FFTW transform**, as a device takes
+  it: no faster than the transform pair with the chunks' pack and crop at one thread,
+  after seconds of measured planning
+  ([measurements](benchmarks.md#host-stage-entry-free-space-crossings-and-statistics)).
 - **Vector maths for the band plasma statistics' rates.** The statistics' column takes
   each sample's ionisation rate with the scalar `exp` and `log`; the propagation's column
   passes them in blocks to SLEEF. Moving the statistics to the blocks gave the same

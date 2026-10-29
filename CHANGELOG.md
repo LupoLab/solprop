@@ -471,6 +471,16 @@ The first public release. It contains:
   pool's cores throughout a run. While a native backend lives, every BLAS other than the
   backend's own is now held to one thread (`SOLPROP_BLAS_THREADS` sets another), as
   `numba_cpu` holds its own; the run's metadata records it as `host_blas`.
+- **Free-space Kerr beams, GNLSE fibres and radial filaments run faster on a CPU.** Free
+  space's low-storage fold held its registers in the state's column-major layout, so each
+  element crossed layouts four times over, and every crossing between the state and the
+  transverse scratch divided each column by its polarisation count; the registers now
+  sit in the scratch's layout, the state is folded a tile at a time and the crossings do
+  not divide. The modal stage entry's finish and combination run as vector lanes, the
+  boundary monitor's reading sums runs of a row, and a radial run's local flux
+  statistics synthesise through two GEMMs. On an Intel Xeon Gold 6240 `kerr_beam_192`
+  takes 0.64 of its time at one thread (fields bitwise equal), the 384² beam 0.85 at 16
+  threads, `radial_filament_256` 0.83 and `gnlse_raman_shock` 0.84 at one thread.
 - **Native CPU runs no longer re-create OpenMP threads every step.** A four-thread
   kernel between full-width ones made GNU OpenMP end and restart twelve of sixteen
   threads each time; the hydrogen Raman case was slower at 16 threads than at one. A

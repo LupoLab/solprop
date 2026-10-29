@@ -872,6 +872,94 @@ Not adopted, on the same EPYC allocation:
 - Planning the product rows at the full Raman chunk's width rather than their own:
   CTC 1.001 / 0.980 [0.952, 1.012].
 
+### Host stage entry, free-space crossings and statistics
+
+Host-only changes found by profiling the tracking set at one and sixteen threads (Kokkos
+label timer and `perf`, Intel Xeon Gold 6240, GCC 16.2 `-march=cascadelake`, SLEEF's AVX2
+functions, OpenMP OpenBLAS). Each was measured with `python -m benchmarks ab` (fresh
+interleaved processes on 18 cores of one socket, passive bound threads,
+`SOLPROP_FFTW_PLAN=measure`, three rounds of one repeat at 0.1 of each case's length;
+medians of the per-round pairs, range over rounds). Every pair did the same work.
+
+- **The stage entry's finish and combination as lanes** (the modal routes' host entry
+  kernel). The deferred finish and the combination ran each bin through scalar
+  `Kokkos::complex` code: on `gnlse_raman_shock` (16384 bins, DOPRI5, noise, Raman, a
+  temporal collar) the entry took 2.8 s of a 7.1 s one-thread window, 21 % of it in the
+  lambda's own scalar code. A 64-bin block now runs as real and imaginary lanes, each bin
+  the same operations in the same order (only the crop's gathers stay per bin, and an
+  identity crop reads and writes contiguously), and a lossy problem's block whose phases
+  all have zero real parts takes both magnitudes as exactly one without the two `exp`
+  passes (only 42 of the 256 blocks of `gnlse_raman_shock` carry loss). One trial step
+  from identical input differs by at most 3.4e-18 of the field's peak.
+
+  | case | one thread | sixteen threads |
+  |---|---:|---:|
+  | `gnlse_raman_shock` | 0.836 (0.826–0.840) | 0.962 (0.960–0.987) |
+  | `gnlse_soliton` | 0.955 (0.937–1.042) | 0.939 (0.934–0.959) |
+  | `argon_blueshift_envelope` | 1.011 (0.968–1.019) | 0.984 (0.981–1.013) |
+  | `ctc` | 1.012 (0.982–1.012) | 1.022 (1.001–1.027) |
+
+  Both arms of these sixteen-thread runs predate the hold of
+  [NumPy's BLAS](#numpys-blas-beside-a-native-run).
+- **The separable low-storage fold in the scratch's layout.** The fold read the
+  column-major state, accumulator, stage register and flow table 32 columns apart at each
+  bin beside the transverse scratch, divided each column by the polarisation count and
+  called the element's full spatial value out of line: 63 ns an element at one thread,
+  27.7 s of `kerr_beam_384`'s 69.8 s window. The host's registers now sit at the scratch
+  cell's own position; a work item takes 32 adjacent columns over every bin, loads each
+  16-bin tile of their state a contiguous run at a time and folds it in the scratch's
+  order; a tabulated fold reads only the prefactor. The flow table is formed in the same
+  order. Fields are bitwise equal.
+
+  | case | one thread | sixteen threads |
+  |---|---:|---:|
+  | `kerr_beam_384` | 0.789 (0.788–0.790): 68.6 → 54.2 s | 0.899 (0.895–0.903) |
+  | `kerr_beam_192` | 0.742 (0.732–0.746) | 0.902 (0.900–0.918) |
+
+- **Crossings without divisions, the monitor's runs, the radial statistics' GEMMs.** Every
+  host crossing between state columns and the transverse scratch located its cell with a
+  run-time `% n_pol` and `/ n_pol`; in a microbenchmark of `kerr_beam_384`'s chunk (4468
+  rows of 750 bins) at one thread they doubled the crop's time (17 to 35 ms), and visiting
+  the pack's tile rows outermost took it from 36 to 22 ms. The boundary monitor's reading
+  divided each sample's flat index by the row length (1.76 s of `kerr_beam_384`'s
+  one-thread window); a host work item now sums a run of 512 samples of one row. A radial
+  run's local flux statistics synthesised each node's field and closure with a scalar
+  256-mode sum inside the pointwise kernel (0.57 s of `radial_filament_256`'s 3.65 s
+  window, five planes); they are now two GEMMs over the time fields' interleaved real
+  columns into buffers the statistics already hold, bitwise equal on the host. Against
+  the fold above:
+
+  | case | one thread | sixteen threads |
+  |---|---:|---:|
+  | `radial_filament_256` | 0.834 (0.827–0.840) | 0.945 (0.933–0.954) |
+  | `kerr_beam_384` | 0.830 (0.826–0.856): 53.7 → 44.9 s | 0.943 (0.943–1.190) |
+  | `kerr_beam_192` | 0.855 (0.849–0.861) | 0.951 (0.946–0.973) |
+
+  Together with the fold, `kerr_beam_192` takes 0.635 of its time at one thread (8.04 →
+  5.11 s) and `kerr_beam_384` 0.847 at sixteen (9.36 → 7.93 s); at sixteen threads the
+  384² fold is now bound by memory bandwidth (about 52 GB/s), and about 5 s of that
+  window is solprop's own host work at the saved plane.
+
+On 16 cores of an AMD EPYC 7763 (GCC 16.2 `-march=znver3`, the three changes together,
+same protocol), one / sixteen threads: `gnlse_raman_shock` 0.841 (0.836–0.842) / 0.972,
+`gnlse_soliton` 0.941 / 0.942, `radial_filament_256` 0.838 (0.837–0.850) / 0.938,
+`kerr_beam_384` 0.953 (0.947–0.958) / 1.003, `kerr_beam_192` 0.956 / 0.995, `ctc`
+0.994 / 0.977, `argon_blueshift_envelope` 0.981 / 1.001. The free-space gains are small
+there: Zen 3 ran the 384² window in 30 s at one thread where the Xeon took 69 s, its
+64-bit divisions and strided streams far cheaper.
+
+Not adopted:
+- The Kerr-only free-space stage through one rank-3 FFTW transform, as a device takes it:
+  for 384 × 192² at one thread an estimated plan took 1.03 s a transform and a measured
+  one 0.31 s, the same as the batched planes and a strided temporal transform, after
+  17 s of planning; native's transform pair with the chunks' pack and crop is no slower.
+- The pack and crop through a 32 × 32 tile buffer (as the fold's state): 0.55 → 0.68 s
+  and 0.52 → 0.56 s on `kerr_beam_192` at one thread.
+- A one-element GEMM (one mode, one node) as an elementwise product: no faster than
+  OpenBLAS's small kernel; both are memory-bound.
+- Transparent huge pages through glibc's `glibc.malloc.hugetlb=1` (the workstation's
+  setting is `madvise`): within ±3 % on `kerr_beam_192` at one thread.
+
 (persistent-fftw-wisdom)=
 ### Persistent FFTW wisdom
 
