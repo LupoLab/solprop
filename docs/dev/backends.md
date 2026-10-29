@@ -1421,6 +1421,32 @@ precision nor the discrete transform and adds no packing buffer. In particular,
 chunking must not send this field family through the scalar custom synthesis loop
 while reporting an interleaved provider. Device dispatch retains its own policy.
 
+On a square map (as many nodes as modes) that product moves to the retained spectrum
+(provider `<blas>-retained-interleaved-real`). A real static synthesis commutes with
+the temporal transform, so each evaluation gathers once the coarse bins the stage
+entry wrote, and each chunk multiplies them as `2 n_omega` interleaved real columns
+instead of the padded analytic signal's `2 n_to`, writes each node's retained bins into
+the free leading rows of the modal time buffer (whose other bins stay zero: an
+out-of-place complex transform leaves its input as it was) and transforms the nodes
+(persistent full- and tail-chunk plans). The node
+transforms replace the modal ones one for one; the held radial plasma already projects
+after cropping, so both products cover only retained frequencies. Runs with an
+in-stage absorber or a Raman drive (which read the modal time field), dispersive
+responses, non-square maps and devices keep the time-domain product. The two paths
+agree to rounding (a radial filament stage from the same state to about 1e-15 of its
+peak).
+
+**Raman on the node pipeline (host builds).** A scalar node field is
+`x_j = sum_m S_jm a_m` with a real static synthesis, so its Raman drive (`x_j^2`, or
+the cycle average `|x_j|^2 / 2`) is a quadratic form in the modal fields and the causal
+convolution is linear. When the `M (M + 1) / 2` unordered modal products are fewer than
+the nodes and fit the node drive's leading rows, each product (cross terms doubled) is
+convolved once on the doubled grid and every node's convolved drive is reconstructed
+from them with `S_jm S_jn`, in place of one drive transform pair per node
+(`raman_fft_tasks["products"]` is then nonzero). Three capillary modes at 33 nodes
+transform 6 rows instead of 33. Vector states, tensor drives, the general and
+dispersive routes and devices keep the node drives.
+
 **On a device.** Non-plasma responses distribute time samples within a node team; plasma
 uses the same team shape with a deterministic inclusive scan. Error, quadrature,
 weighted-control and statistics partials use persistent fixed-width device reductions. The

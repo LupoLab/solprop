@@ -166,7 +166,26 @@ time divided by the native backend's: above 1, the native backend is faster.
   went from 29 to 18 field volumes. The projected 384² Kerr-beam peak went from 62.7 to
   48.2 GiB, against `numba_cpu`'s 34.8 GiB.
 
+- **Radial route: square analytic maps synthesise the retained spectrum**
+  ([measurements](benchmarks.md#retained-radial-synthesis-and-raman-modal-products)).
+  The product covers the coarse bins rather than the padded analytic signal; the
+  radial filament took 0.93 of its time at one thread and 0.95 at 16 on an 18-core Xeon,
+  and 0.87 at one thread on an AMD EPYC 7763.
+- **Raman: convolve the modal products, not the node drives**, where they are fewer
+  ([measurements](benchmarks.md#retained-radial-synthesis-and-raman-modal-products)).
+  Three-mode CTC: 0.88 at 16 threads on the Xeon; 0.83 at one thread and 0.92 at 16 on
+  the EPYC.
+
 **Tried and not adopted**
+- **Skinny products off the vendor BLAS** (the native-order kernel for small left
+  matrices; plain loops for one mode). Both lost to the vendor library's threaded GEMM
+  on argon and CTC ([measurements](benchmarks.md#retained-radial-synthesis-and-raman-modal-products)).
+- **The CPU experiment's split Cartesian FFT schedule.** The 384² Kerr beam's transverse
+  pair costs about 0.18 s an evaluation at 16 threads (roughly 50 GFLOP/s), a small
+  share of its step; the experiment's slow direct plans do not occur here.
+- **The CPU experiment's rate-interpolation blocks.** The band column already gathers
+  each block's live samples into one vector-maths pass, which subsumes its zero-block
+  exit and half-active scalar path.
 - **A pooled allocator.** Allocation service in the warmed propagation window is below
   0.25 % of the time, and the native backend makes fewer native requests than `numba_cpu`.
 - **Vector transcendental functions (Accelerate vForce) in the propagator.** They save

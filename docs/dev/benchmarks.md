@@ -796,6 +796,48 @@ arithmetic (the synthesis and projection GEMMs near the device's binary64 peak, 
 φ-functions), so neither the single upload, the GEMM for its node chunks nor one chunk
 in place of two (48 → 31 kernels a trial, not adopted) moved it.
 
+### Retained radial synthesis and Raman modal products
+
+Two work reductions from the CPU experiment's handoff, each measured with
+`python -m benchmarks ab` (fresh interleaved processes, passive-bound threads,
+`SOLPROP_FFTW_PLAN=measure`, three rounds, one repeat; medians of the per-round pairs,
+range over rounds). Each case exercises one of them: the radial filament has no Raman
+term, and the capillary is not a square radial map. Work counts are equal in every pair
+and the final fields agree to 4–10 × 10⁻¹⁵ relative.
+
+- **Retained-spectrum radial synthesis** (square radial analytic maps,
+  [backends.md](backends.md)): the synthesis product covers `2 n_omega` real columns
+  instead of `2 n_to`. `radial_filament_256`, complete guide: on an Intel Xeon Gold 6240
+  (one socket, 18 cores) 0.928 [0.925, 0.945] at one thread and 0.954 [0.936, 0.968] at
+  16; on 16 cores of an AMD EPYC 7763, 0.869 [0.868, 0.891] at one thread, and at
+  `--length 0.05` 0.866 [0.850, 0.868] at one thread and 0.825 [0.653, 0.894] at 16. The
+  EPYC's 16-thread ratios moved by about ±15 % between allocations on a shared node (a
+  complete-guide repeat gave 0.999 [0.735, 1.020]); the Xeon's are the resolved ones.
+  A 16-thread label profile on the EPYC put the synthesis GEMMs at 0.20 s against
+  0.38 s, of which the gather and pad, as first written per chunk and over every fine
+  bin, took back 0.14 s; they now gather once per evaluation and write only the retained
+  bins.
+- **Raman modal products** (three-mode `ctc`, 6 product rows against 33 node drives):
+  `--length 0.05` at 16 threads 0.884 [0.881, 0.899] on the Xeon; on the EPYC 0.833
+  [0.823, 0.837] at one thread and 0.921 [0.861, 0.928] at 16 (`--length 0.02`: 0.850
+  and 0.884). The first reconstruction looped over the products per sample and cost ten
+  times the node path's finish (0.46 s against 0.046 s in a one-thread window); it now
+  accumulates each product over contiguous blocks of 512 samples.
+
+Both add FFT plans (the node transforms; the product rows), measured at construction:
+on the Xeon a CTC worker's wall time, construction included, rose from 16.3 s to 17.7 s.
+
+Not adopted, on the same EPYC allocation:
+- Routing every real product with a left matrix of at most 256 entries through
+  `native_order_gemm` instead of the vendor BLAS: RDW 1.012 / 0.881, argon 1.057 /
+  1.099, CTC 1.070 / 1.377 at one / 16 threads (`--length 0.05`). The vendor library
+  wins on the serial transform spaces the operation-size policy gives these shapes.
+- Plain row-block loops for one-mode synthesis and projection: argon 0.996 at one
+  thread; at 16 the loops took 0.65–0.69 s of a short window where the vendor GEMMs took
+  0.55 s. The vendor pool still costs 0.55 s against 0.23 s at one thread there.
+- Planning the product rows at the full Raman chunk's width rather than their own:
+  CTC 1.001 / 0.980 [0.952, 1.012].
+
 ## Reference tables
 
 These tables back the indicative results above.

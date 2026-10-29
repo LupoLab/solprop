@@ -542,7 +542,10 @@ round-off.
 **Cost.** One fused traversal of $t$ per node column for the whole nonlinear term. The Raman
 term adds one real transform pair on a grid of twice the length, plus one kernel transform
 per distinct decay-rate tuple — against $n_{\rm modes}n_{\rm pol}$ transforms per stage if
-it were recomputed per column. How each backend plans these transforms is
+it were recomputed per column. With a real static synthesis the scalar drive is a
+quadratic form in the modal fields, so the native CPU backend convolves the
+$M(M+1)/2$ modal products once and reconstructs each node's convolution when that is
+fewer transforms than the nodes. How each backend plans these transforms is
 [backends.md](backends.md).
 
 **Traps.** Clip the rate: $(I/I_{\rm ref})^{16}$ overflows on a diverged coarse step and one
