@@ -5,6 +5,7 @@ requires-python = ">=3.14"
 [manifest]
 members = [
     "solprop",
+    "solprop-cpunative",
     "solprop-native",
 ]
 
@@ -1605,6 +1606,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+cpunative = [
+    { name = "solprop-cpunative" },
+]
 mlx = [
     { name = "mlx", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
 ]
@@ -1654,11 +1658,12 @@ requires-dist = [
     { name = "optmat", extras = ["gas"], specifier = ">=0.9.1" },
     { name = "pyfftw", specifier = ">=0.15.1" },
     { name = "scipy", specifier = ">=1.18" },
+    { name = "solprop-cpunative", marker = "extra == 'cpunative'", editable = "cpunative" },
     { name = "solprop-native", marker = "extra == 'native'", editable = "native" },
     { name = "threadpoolctl", specifier = ">=3.1" },
     { name = "tqdm", specifier = ">=4.67" },
 ]
-provides-extras = ["mlx", "native"]
+provides-extras = ["cpunative", "mlx", "native"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1690,6 +1695,16 @@ dev = [
     { name = "sphinx-gallery" },
     { name = "sympy" },
 ]
+
+[[package]]
+name = "solprop-cpunative"
+source = { editable = "cpunative" }
+dependencies = [
+    { name = "numpy" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "numpy", specifier = ">=2.3" }]
 
 [[package]]
 name = "solprop-native"

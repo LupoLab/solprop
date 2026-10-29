@@ -136,17 +136,18 @@ exclude = ["native/"]
 # native package from native/ (editable); a plain `uv sync` leaves it out and removes
 # a copy installed by hand.
 [tool.uv.workspace]
-members = ["native"]
+members = ["native", "cpunative"]
 
 [tool.uv.sources]
 solprop-native = { workspace = true }
+solprop-cpunative = { workspace = true }
 
 # ------------------------------------------------------------------------------ ruff
 [tool.ruff]
 line-length = 88
 target-version = "py314"          # keep equal to requires-python
 src = ["src", "tests"]
-extend-exclude = ["native/build", "native/dist*", "docs/_build", "docs/auto_tutorials", "docs/introduction/lessons", "docs/auto_examples", "docs/api/generated"]
+extend-exclude = ["native/build", "cpunative/build", "native/dist*", "docs/_build", "docs/auto_tutorials", "docs/introduction/lessons", "docs/auto_examples", "docs/api/generated"]
 
 [tool.ruff.lint]
 select = [

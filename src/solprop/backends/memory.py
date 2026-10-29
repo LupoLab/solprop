@@ -134,7 +134,7 @@ __all__ = [
     "z_table_slots",
 ]
 
-ESTIMATED_BACKENDS = ("numpy_ref", "numba_cpu", "native", "mlx")
+ESTIMATED_BACKENDS = ("numpy_ref", "numba_cpu", "native", "cpunative", "mlx")
 """The backends :func:`estimate_memory` has formulas for."""
 
 MEMORY_GROUPS = (
@@ -338,7 +338,23 @@ def estimate_memory(problem: KernelProblem, backend: str) -> MemoryEstimate:
     True
     """
     name = _estimated(backend)
-    groups = dict.fromkeys(MEMORY_GROUPS, 0)
+    groups: dict[str, int] = dict.fromkeys(MEMORY_GROUPS, 0)
+    if name == "cpunative":
+        from solprop_cpunative.backend import (  # noqa: PLC0415 - optional plugin
+            memory_estimate,  # pyright: ignore[reportMissingImports]
+        )
+
+        groups["base"] = memory_estimate(problem)
+        return MemoryEstimate(
+            name,
+            groups,
+            not_counted=(
+                "FFTW plan heap and allocator overhead",
+                "the translated problem's original tables",
+                "temporary observation and checkpoint copies",
+            ),
+            resident=0,
+        )
     base = _reference_base(problem)
     if problem.precision.single:
         base = single_precision_rows(problem, base)

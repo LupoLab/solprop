@@ -86,6 +86,7 @@ BACKENDS: Mapping[str, BackendEntry] = {
     # than raising an ImportError from inside the backend.
     "numba_cpu": BackendEntry(requires=("numba", "pyfftw"), extras=()),
     "native": BackendEntry(requires=("solprop_native",), extras=()),
+    "cpunative": BackendEntry(requires=("solprop_cpunative",), extras=("cpunative",)),
     # Apple-silicon GPUs through MLX, single precision only (SEP 33).
     "mlx": BackendEntry(requires=("mlx",), extras=("mlx",)),
 }
@@ -444,7 +445,7 @@ def select(
     --------
     >>> from solprop.backends.registry import BACKENDS
     >>> sorted(BACKENDS)
-    ['mlx', 'native', 'numba_cpu', 'numpy_ref']
+    ['cpunative', 'mlx', 'native', 'numba_cpu', 'numpy_ref']
     """
     name = resolve_name(name)
     if _BENCHMARK_GATED.get() and name != "numpy_ref":
@@ -520,6 +521,8 @@ def select_batch(owners: Sequence[Backend]) -> BatchBackend:
         )
 
         return NumpyBatchBackend(cast(Sequence[NumpyRefBackend], owners))
+    if name == "cpunative":
+        raise BackendError("cpunative does not support batch execution")
     if name == "mlx":  # pragma: no cover - needs MLX, macOS on Apple silicon
         from solprop.backends.mlx_gpu.backend import (  # noqa: PLC0415 - lazy backend
             MlxBackend,
@@ -645,6 +648,15 @@ def _construct(
         return cast(
             Backend,
             NativeBackend(problem, grid=grid, modes=modes, profiles=profiles),
+        )
+    if name == "cpunative":
+        from solprop_cpunative.backend import (  # noqa: PLC0415 - optional plugin
+            create_backend,  # pyright: ignore[reportMissingImports]
+        )
+
+        return cast(
+            Backend,
+            create_backend(problem, grid=grid, modes=modes, profiles=profiles),
         )
     if name == "mlx":  # pragma: no cover - needs MLX, macOS on Apple silicon
         from solprop.backends.mlx_gpu.backend import MlxBackend  # noqa: PLC0415
