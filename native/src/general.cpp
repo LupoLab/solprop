@@ -2304,10 +2304,8 @@ public:
   // at a trial's positions are written into the term slots above.
   z_table::Table phi_table_, prefactor_table_, rate_table_;
   RealView2 radial_blas_input_, radial_blas_output_;
-  // The retained synthesis's coarse modal and node spectra, and each fine bin's coarse
-  // bin (n_omega where none fills it).
+  // The retained synthesis's coarse modal and node spectra.
   ComplexView2 retained_modal_, retained_node_;
-  IndexView retained_bin_;
   bool retained_synthesis_ = false;
   RealView2 modal_real_, node_real_, polarisation_real_, projected_real_;
   RealView2 projected_coarse_real_, projected_stacked_real_, absorber_real_;
@@ -2577,16 +2575,23 @@ bool GeneralWorkspace::retained_synthesis() const noexcept {
 void GeneralWorkspace::synthesise_retained(const std::size_t first_node,
                                            const std::size_t node_count) {
   Kokkos::Profiling::pushRegion("solprop_native.transform.synthesis.retained");
-  const auto fine = fine_spectrum_;
-  const auto modal = retained_modal_;
   const auto crop = crop_index_;
   const auto n = problem_.n_omega;
-  Kokkos::parallel_for(
-      "solprop_native.transform.retained_gather",
-      Range2(temporal_execution_space_, {0, 0}, {problem_.n_modes, n}),
-      KOKKOS_LAMBDA(const std::size_t mode, const std::size_t index) {
-        modal(mode, index) = fine(mode, crop(index));
-      });
+  // The coarse modal spectra once per evaluation, at its first chunk (the stage core
+  // and the statistics' synthesis both start at node zero). Rows run in parallel at
+  // the modal copies' width (`temporal_execution_space_`), each a contiguous pass.
+  if (first_node == 0) {
+    const auto fine = fine_spectrum_;
+    const auto modal = retained_modal_;
+    Kokkos::parallel_for(
+        "solprop_native.transform.retained_gather",
+        Kokkos::RangePolicy<ExecutionSpace>(temporal_execution_space_, 0,
+                                            problem_.n_modes),
+        KOKKOS_LAMBDA(const std::size_t mode) {
+          for (std::size_t index = 0; index < n; ++index)
+            modal(mode, index) = fine(mode, crop(index));
+        });
+  }
   using Interleaved = Kokkos::View<double**, Layout, MemorySpace,
                                    Kokkos::MemoryTraits<Kokkos::Unmanaged>>;
   static_assert(sizeof(Complex) == 2 * sizeof(double));
@@ -2597,19 +2602,18 @@ void GeneralWorkspace::synthesise_retained(const std::size_t first_node,
   const Interleaved output(reinterpret_cast<double*>(retained_node_.data()), node_count,
                            2 * n);
   engine_gemm(transform_space_for(node_count), synthesis, input, output, 0.0);
-  // Each node's padded spectrum, every fine bin written: the modal time buffer's
-  // leading rows are free, as no modal transform runs on this path. The gather and
-  // the pad take the modal copies' width (`temporal_execution_space_`): at a node
-  // chunk's coarse size they would run serially between threaded products.
+  // Each node's padded spectrum in the modal time buffer's leading rows, which are
+  // free as no modal transform runs on this path. Only the retained bins are
+  // written: the others were zeroed when the plans were made, and an out-of-place
+  // complex transform leaves its input as it was.
   const auto node = retained_node_;
   const auto padded = modal_complex_;
-  const auto bins = retained_bin_;
   Kokkos::parallel_for(
       "solprop_native.transform.retained_pad",
-      Range2(temporal_execution_space_, {0, 0}, {node_count, problem_.n_to}),
-      KOKKOS_LAMBDA(const std::size_t row, const std::size_t bin) {
-        const auto index = bins(bin);
-        padded(row, bin) = index < n ? node(row, index) : Complex{};
+      Kokkos::RangePolicy<ExecutionSpace>(temporal_execution_space_, 0, node_count),
+      KOKKOS_LAMBDA(const std::size_t row) {
+        for (std::size_t index = 0; index < n; ++index)
+          padded(row, crop(index)) = node(row, index);
       });
   const bool tail = node_count != problem_.node_chunk;
   const auto rows = std::make_pair(std::size_t{0}, node_count);
@@ -3325,7 +3329,6 @@ void GeneralWorkspace::allocate() {
                                      temporal_columns, problem_.n_omega);
       retained_node_ = ComplexView2("solprop_native.transform.retained_node",
                                     chunk_rows, problem_.n_omega);
-      retained_bin_ = IndexView("solprop_native.transform.retained_bin", problem_.n_to);
     }
   }
   if (problem_.family == FieldFamily::envelope) {
@@ -3656,12 +3659,6 @@ void GeneralWorkspace::upload() {
     copy_vector(execution_space_, channel_coefficients_, problem_.channel_coefficients);
   }
   copy_vector(execution_space_, crop_index_, problem_.crop_index);
-  if (retained_synthesis_) {
-    std::vector<std::size_t> bins(problem_.n_to, problem_.n_omega);
-    for (std::size_t index = 0; index < problem_.n_omega; ++index)
-      bins[problem_.crop_index[index]] = index;
-    copy_vector(execution_space_, retained_bin_, bins);
-  }
   if (!fine_gaps_.empty()) {
     std::vector<std::size_t> runs;
     std::size_t position = 0;
@@ -3950,11 +3947,14 @@ void GeneralWorkspace::plan() {
       const auto& space = fft_space_for(node.size());
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
       seed_row_fft_wisdom(space, padded, node, KokkosFFT::Direction::backward);
+#endif
+      auto plan = std::make_unique<ComplexPlan>(space, padded, node,
+                                                KokkosFFT::Direction::backward, axis);
+      // The padded rows' unretained bins stay zero from here on
+      // (`synthesise_retained`), whatever planning wrote.
       Kokkos::deep_copy(execution_space_, padded, Complex{});
       Kokkos::deep_copy(execution_space_, node, Complex{});
-#endif
-      return std::make_unique<ComplexPlan>(space, padded, node,
-                                           KokkosFFT::Direction::backward, axis);
+      return plan;
     };
     retained_inverse_plan_ = plan_rows(problem_.node_chunk);
     if (const auto tail = problem_.n_nodes % problem_.node_chunk; tail != 0)
@@ -13418,8 +13418,7 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
       {"stage_inverse", stage_inverse_.size() * complex_bytes},
       {"fine_spectrum", fine_spectrum_.size() * complex_bytes},
       {"retained_synthesis",
-       (retained_modal_.size() + retained_node_.size()) * complex_bytes +
-           retained_bin_.size() * index_bytes},
+       (retained_modal_.size() + retained_node_.size()) * complex_bytes},
       {"fine_gaps", (fine_gaps_.size() + separable_gaps_.size()) * index_bytes},
       {"modal_time", modal},
       {"node_field", node},
@@ -13711,7 +13710,6 @@ void GeneralWorkspace::close() noexcept {
   retained_tail_inverse_plan_.reset();
   retained_modal_ = {};
   retained_node_ = {};
-  retained_bin_ = {};
   raman_product_forward_plan_.reset();
   raman_product_inverse_plan_.reset();
   raman_product_drive_ = {};
