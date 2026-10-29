@@ -388,7 +388,7 @@ def carrier_capped(
 def quiet_capped(proposal: float, *, quiet: bool, interval: float | None) -> float:
     """Return the proposal, held to the monitor's interval while the collar rests.
 
-    The rule of :meth:`solprop.backends.driver.StepDriver._quiet_capped`, which the
+    The rule of ``solprop.backends.driver.StepDriver._quiet_capped``, which the
     Python march calls through its backend, with the interval passed in.
 
     Parameters

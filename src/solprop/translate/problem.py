@@ -1078,7 +1078,7 @@ class KernelProblem:
     ...     dz_max=0.1, dz_init=1e-3, shock=False, prefactor_index=1.0, density=1.0,
     ... )
     >>> problem.shape, problem.grid_kind, problem.schema_version
-    ((1, 1, 1, 3072), 'envelope', 38)
+    ((1, 1, 1, 3072), 'envelope', 39)
     """
 
     schema_version: int
@@ -6397,7 +6397,7 @@ def debug_summary(problem: KernelProblem) -> str:
     ...     width=100e-15, peak_power=9.8, pulseshape="sech", n_save=3,
     ... )
     >>> print(debug_summary(simulation.translate()).splitlines()[0])
-    kernel problem schema 38: envelope grid, route modal
+    kernel problem schema 39: envelope grid, route modal
     """
     linear, transform = problem.linear, problem.transform
     tables, metric = transform.modal_tables, linear.modal_metric
