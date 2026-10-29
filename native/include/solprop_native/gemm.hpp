@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include "solprop_native/launch.hpp"
+
 #include <KokkosBlas3_gemm.hpp>
 #include <Kokkos_Core.hpp>
 
@@ -75,7 +77,7 @@ void custom_gemm(const ExecutionSpace& execution_space, const AView& a, const BV
     throw std::invalid_argument("GEMM view extents are inconsistent");
   }
   const std::size_t inner = a.extent(1);
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.transform.custom_gemm",
       // The last index fastest, as the views store it (a device's default is the
       // first).
@@ -124,7 +126,7 @@ void native_order_gemm_tiles(const ExecutionSpace& execution_space, const AView&
   const std::size_t inner = a.extent(1);
   const std::size_t row_tiles = (rows + Rows - 1) / Rows;
   const std::size_t column_tiles = (columns + Columns - 1) / Columns;
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.transform.native_order_gemm",
       Kokkos::RangePolicy<ExecutionSpace>(execution_space, 0, row_tiles * column_tiles),
       KOKKOS_LAMBDA(const std::size_t item) {

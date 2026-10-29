@@ -217,7 +217,7 @@ std::vector<double> reference_stream_copies(const std::size_t elements,
   using Policy = Kokkos::RangePolicy<ExecutionSpace>;
   // First touch in parallel, on the threads that copy, so that each page lands where
   // the copy reads or writes it.
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.reference.first_touch", Policy(space, 0, elements),
       KOKKOS_LAMBDA(const std::size_t index) {
         source(index) = Complex(static_cast<double>(index % 7U), 1.0);
@@ -229,7 +229,7 @@ std::vector<double> reference_stream_copies(const std::size_t elements,
   for (std::size_t index = 0; index < warm + repeats; ++index) {
     space.fence();
     const auto start = std::chrono::steady_clock::now();
-    Kokkos::parallel_for(
+    launch::parallel_for(
         "solprop_native.reference.scaled_copy", Policy(space, 0, elements),
         KOKKOS_LAMBDA(const std::size_t element) {
           target(element) = scale * source(element);
@@ -428,7 +428,7 @@ public:
     const auto whole = whole_propagator_;
     const auto recycled = recycled_;
     const std::size_t last = problem_.n_stages - 1;
-    Kokkos::parallel_for(
+    launch::parallel_for(
         "solprop_native.stage.promote_fsal",
         Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, problem_.n_omega),
         KOKKOS_LAMBDA(const std::size_t index) {
@@ -756,7 +756,7 @@ void Workspace::add_split_removal(const double dz) {
   const Kokkos::RangePolicy<ExecutionSpace> samples(execution_space_, 0, problem_.n_t);
   if (problem_.family == FieldFamily::envelope) {
     const auto time = coarse_time_complex_;
-    Kokkos::parallel_reduce(
+    launch::parallel_reduce(
         "solprop_native.monitor.split_removal_complex", samples,
         KOKKOS_LAMBDA(const std::size_t index, double& update) {
           const Complex value = time(index);
@@ -767,7 +767,7 @@ void Workspace::add_split_removal(const double dz) {
         monitor_split_sum_);
   } else {
     const auto time = coarse_time_real_;
-    Kokkos::parallel_reduce(
+    launch::parallel_reduce(
         "solprop_native.monitor.split_removal_real", samples,
         KOKKOS_LAMBDA(const std::size_t index, double& update) {
           update +=
@@ -777,7 +777,7 @@ void Workspace::add_split_removal(const double dz) {
   }
   const auto removed = monitor_removed_;
   const auto split = monitor_split_sum_;
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.monitor.split_removal_add",
       Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, 1),
       KOKKOS_LAMBDA(const std::size_t) { removed() += split(); });
@@ -821,7 +821,7 @@ std::vector<double> Workspace::monitor_reading() {
   const auto coarse = coarse_spectrum_;
   const auto n_t = problem_.n_t;
   const double inverse_n = 1.0 / static_cast<double>(n_t);
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.monitor.spectrum",
       Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, problem_.n_omega),
       KOKKOS_LAMBDA(const std::size_t index) {
@@ -835,7 +835,7 @@ std::vector<double> Workspace::monitor_reading() {
     KokkosFFT::execute(*coarse_inverse_complex_plan_, coarse_spectrum_,
                        coarse_time_complex_, KokkosFFT::Normalization::none);
     const auto time = coarse_time_complex_;
-    Kokkos::parallel_reduce(
+    launch::parallel_reduce(
         "solprop_native.monitor.sums", samples,
         KOKKOS_LAMBDA(const std::size_t index, MonitorSums& update) {
           const Complex value = time(index);
@@ -850,7 +850,7 @@ std::vector<double> Workspace::monitor_reading() {
     KokkosFFT::execute(*coarse_inverse_real_plan_, coarse_spectrum_, coarse_time_real_,
                        KokkosFFT::Normalization::none);
     const auto time = coarse_time_real_;
-    Kokkos::parallel_reduce(
+    launch::parallel_reduce(
         "solprop_native.monitor.sums", samples,
         KOKKOS_LAMBDA(const std::size_t index, MonitorSums& update) {
           const double power = weight * time(index) * time(index);
@@ -879,7 +879,7 @@ void Workspace::reuse_fsal() {
   const auto error = error_;
   const double solution_weight = problem_.solution_weights[0];
   const double error_weight = problem_.error_weights[0];
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.stage.reuse_fsal",
       Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, problem_.n_omega),
       KOKKOS_LAMBDA(const std::size_t index) {
@@ -911,7 +911,7 @@ void Workspace::evaluate_stage(const std::size_t stage, const double dz) {
   const bool add_noise = problem_.modified_noise && has_noise_;
   const bool analytic = problem_.family == FieldFamily::field_analytic;
   const double inverse_n_to = 1.0 / static_cast<double>(problem_.n_to);
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.stage.combine_pad",
       Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, n),
       KOKKOS_LAMBDA(const std::size_t index) {
@@ -959,7 +959,7 @@ void Workspace::evaluate_stage(const std::size_t stage, const double dz) {
     const auto error = error_;
     const double solution_weight = problem_.solution_weights[stage];
     const double error_weight = problem_.error_weights[stage];
-    Kokkos::parallel_for(
+    launch::parallel_for(
         "solprop_native.stage.linear_zero",
         Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, n),
         KOKKOS_LAMBDA(const std::size_t index) {
@@ -1012,7 +1012,7 @@ void Workspace::response(const std::size_t stage) {
   const double self_factor = problem_.self_factor;
   const double conjugate_factor = problem_.conjugate_factor;
   const double harmonic_factor = problem_.harmonic_factor;
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.response.kerr_1x1",
       Kokkos::RangePolicy<ExecutionSpace>(response_execution_space_, 0, problem_.n_to),
       KOKKOS_LAMBDA(const std::size_t index) {
@@ -1066,7 +1066,7 @@ void Workspace::form_absorber() {
   const auto absorber_real = absorber_real_;
   const auto absorber_complex = absorber_complex_;
   const auto family = problem_.family;
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.absorber.nonlinear_term",
       Kokkos::RangePolicy<ExecutionSpace>(response_execution_space_, 0, problem_.n_to),
       KOKKOS_LAMBDA(const std::size_t index) {
@@ -1108,7 +1108,7 @@ void Workspace::finish_stage(const std::size_t stage) {
   const bool in_stage_absorber = absorbing();
   const double solution_weight = problem_.solution_weights[stage];
   const double error_weight = problem_.error_weights[stage];
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.stage.finish_accumulate",
       Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, problem_.n_omega),
       KOKKOS_LAMBDA(const std::size_t index) {
@@ -1185,7 +1185,7 @@ struct AcceptScore {
 void Workspace::accept_and_score(const double dz) {
   const AcceptScore score{3,      current_,          advanced_,  solution_,
                           error_, whole_propagator_, norm_mask_, dz};
-  Kokkos::parallel_reduce(
+  launch::parallel_reduce(
       "solprop_native.step.accept_error_partials",
       Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, problem_.n_omega), score,
       partials_);
@@ -1193,7 +1193,7 @@ void Workspace::accept_and_score(const double dz) {
 
 void Workspace::mask(const ComplexView& values) {
   const auto active = active_mask_;
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.mask.accepted",
       Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, problem_.n_omega),
       KOKKOS_LAMBDA(const std::size_t index) {
@@ -1206,7 +1206,7 @@ void Workspace::split_step(const double dz) {
   const auto advanced = advanced_;
   const auto coarse = coarse_spectrum_;
   const double inverse_n = 1.0 / static_cast<double>(problem_.n_t);
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.absorber.split_pad",
       Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, problem_.n_omega),
       KOKKOS_LAMBDA(const std::size_t index) {
@@ -1219,7 +1219,7 @@ void Workspace::split_step(const double dz) {
       add_split_removal(dz);
     const auto time = coarse_time_complex_;
     const auto rate = absorber_coarse_;
-    Kokkos::parallel_for(
+    launch::parallel_for(
         "solprop_native.absorber.split_apply_complex",
         Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, problem_.n_t),
         KOKKOS_LAMBDA(const std::size_t index) {
@@ -1234,7 +1234,7 @@ void Workspace::split_step(const double dz) {
       add_split_removal(dz);
     const auto time = coarse_time_real_;
     const auto rate = absorber_coarse_;
-    Kokkos::parallel_for(
+    launch::parallel_for(
         "solprop_native.absorber.split_apply_real",
         Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, problem_.n_t),
         KOKKOS_LAMBDA(const std::size_t index) {
@@ -1244,7 +1244,7 @@ void Workspace::split_step(const double dz) {
                        KokkosFFT::Normalization::none);
   }
   const auto active = active_mask_;
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.absorber.split_commit",
       Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, problem_.n_omega),
       KOKKOS_LAMBDA(const std::size_t index) {
@@ -1442,7 +1442,7 @@ void multiply_phase(const ExecutionSpace& execution_space,
   if (phase.extent(0) != size || output.extent(0) != size) {
     throw std::invalid_argument("values, phase, and output must have the same length");
   }
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.multiply_phase",
       Kokkos::RangePolicy<ExecutionSpace>(execution_space, 0, size),
       KOKKOS_LAMBDA(const std::size_t index) {

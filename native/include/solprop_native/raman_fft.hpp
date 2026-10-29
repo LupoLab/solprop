@@ -5,6 +5,7 @@
 #pragma once
 
 #include "solprop_native/fft_plan.hpp"
+#include "solprop_native/launch.hpp"
 
 #include <KokkosFFT.hpp>
 
@@ -102,7 +103,7 @@ public:
       if (count == 1)
         plan->execute_task(0);
       else
-        Kokkos::parallel_for(
+        launch::parallel_for(
             "solprop_native.raman.vdsp",
             Kokkos::RangePolicy<Execution>(execution_, 0, count),
             [plan](const std::size_t task) { plan->execute_task(task); });

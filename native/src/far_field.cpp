@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "solprop_native/far_field.hpp"
+#include "solprop_native/launch.hpp"
 
 #include <Kokkos_Core.hpp>
 
@@ -252,7 +253,7 @@ void FarFieldPass::accumulate(const FarFieldLayout& layout, const std::size_t n_
 #else
   const Policy policy(execution_, static_cast<int>(n_bands), 1);
 #endif
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.far_field.bands", policy, KOKKOS_LAMBDA(const Member& team) {
         const auto band = static_cast<std::size_t>(team.league_rank());
         const auto base = band * slots * n;
@@ -401,7 +402,7 @@ void FarFieldPass::finish(const FarFieldLayout& layout, const std::size_t n_band
     return total;
   };
   if (spectral != 0)
-    Kokkos::parallel_for(
+    launch::parallel_for(
         "solprop_native.far_field.finish", Range2(execution_, {0, 0}, {spectral, n}),
         KOKKOS_LAMBDA(const std::size_t row, const std::size_t bin) {
           // Rows in packed order: beam, regions, collected, the apertures' axes, the
@@ -444,7 +445,7 @@ void FarFieldPass::finish(const FarFieldLayout& layout, const std::size_t n_band
   if (absorbed != 0) {
     const auto first = static_cast<std::size_t>(layout.absorbed);
     const auto offset = leading * n;
-    Kokkos::parallel_for(
+    launch::parallel_for(
         "solprop_native.far_field.absorbed",
         Kokkos::RangePolicy<ExecutionSpace>(execution_, 0, absorbed),
         KOKKOS_LAMBDA(const std::size_t channel) {

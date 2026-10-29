@@ -126,7 +126,7 @@ void portable_team_trapezoid_scan(const ExecutionSpace& execution_space,
       Envelope ? TeamPolicy(execution_space, league_size, 1)
                : TeamPolicy(execution_space, league_size, Kokkos::AUTO());
 #endif
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.plasma.portable_team_scan", policy,
       KOKKOS_LAMBDA(const TeamMember& team) {
         const auto row = static_cast<std::size_t>(team.league_rank());
@@ -596,7 +596,7 @@ void portable_tiled_band_scan(const ExecutionSpace& execution_space,
   TeamPolicy local_policy(execution_space, league, threads);
   local_policy.set_scratch_size(0,
                                 Kokkos::PerTeam(band_tile_bytes<ExecutionSpace>(tile)));
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.plasma.portable_tiled_band_local", local_policy,
       KOKKOS_LAMBDA(const TeamMember& team) {
         const auto row = static_cast<std::size_t>(team.league_rank() / row_tiles);
@@ -616,7 +616,7 @@ void portable_tiled_band_scan(const ExecutionSpace& execution_space,
                        [&] { totals(row, static_cast<std::size_t>(index)) = total; });
       });
   const TeamPolicy finish_policy(execution_space, league, threads);
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.plasma.portable_tiled_band_finish", finish_policy,
       KOKKOS_LAMBDA(const TeamMember& team) {
         const auto row = static_cast<std::size_t>(team.league_rank() / row_tiles);
@@ -667,7 +667,7 @@ void portable_tiled_trapezoid_scan(const ExecutionSpace& execution_space,
 #else
   const int threads = team_size > 0 ? team_size : 1;
 #endif
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.plasma.portable_tiled_trapezoid_local",
       TeamPolicy(execution_space, league, threads),
       KOKKOS_LAMBDA(const TeamMember& team) {
@@ -684,7 +684,7 @@ void portable_tiled_trapezoid_scan(const ExecutionSpace& execution_space,
         Kokkos::single(Kokkos::PerTeam(team),
                        [&] { totals(row, static_cast<std::size_t>(index)) = total; });
       });
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.plasma.portable_tiled_trapezoid_finish",
       TeamPolicy(execution_space, league, threads),
       KOKKOS_LAMBDA(const TeamMember& team) {
@@ -749,7 +749,7 @@ void portable_team_band_scan(const ExecutionSpace& execution_space,
   if constexpr (Staged)
     policy.set_scratch_size(
         0, Kokkos::PerTeam(band_staging_bytes<Staged, ExecutionSpace>()));
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.plasma.portable_team_band_scan", policy,
       KOKKOS_LAMBDA(const TeamMember& team) {
         const auto first_row = 2 * static_cast<std::size_t>(team.league_rank());
