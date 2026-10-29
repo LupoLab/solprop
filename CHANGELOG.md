@@ -493,6 +493,17 @@ The first public release. It contains:
   default is `1e-5` and free space's `1e-5` under single precision.
 - **The release wheels' coexistence check** runs noiseless: under the default input noise
   its repeated run drew a second realisation and failed.
+- **Large states cross the seam once, and free-space Kerr beams on a GPU run faster.**
+  An observation copied the native state through three fresh host buffers and a load
+  uploaded it twice; each now crosses once, straight between the memory space and the
+  NumPy array. Free space's split-step collar acts on the stored transverse-spectrum
+  columns, with no transverse transform pair per step, and a device forms its factor once
+  per sample. On a device a Kerr-only free-space envelope on a filled time grid takes its
+  stage through one rank-3 transform each way, without the chunks' transposes; an Adams
+  trial's scalars cross in one copy from pinned memory. `kerr_beam_384` (half its length)
+  runs in 0.79 of the time on an NVIDIA A40, with fields equal to 1e-15, and
+  `kerr_beam_192` in 0.92 at one thread on an Intel Xeon Gold 6240; the radial filament is
+  unchanged there (its trial is bound by the A40's binary64 rate).
 - **A one-mode run on a GPU uses the whole device.** The accepted update, the error norms
   and the response used one team of threads per transverse node, so a fibre or a
   mode-averaged run kept one multiprocessor busy; they now spread over up to 256 teams,

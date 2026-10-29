@@ -1431,6 +1431,22 @@ conversion or allocation. cuFFT plans are persistent and explicitly none-normali
 response column's `if constexpr` blocks carry a capture anchor, because CUDA 13's extended
 lambdas otherwise refuse the capture.
 
+A trial's per-stage scalars (with a Raman run's stage rates and densities and a compensated
+Adams trial's rate weights) live in one packed buffer of two slots and cross in one copy a
+trial from a ring of eight pinned host buffers (`Kokkos::SharedHostPinnedSpace`), the ring's
+reuse waiting for the space to drain; an Adams trial's step scalars fill slot 0 and its
+sample's slot 1, and the stage views turn to slot 1 for the source
+([SEP 39](seps/sep-0039-native-adams-march.md) §6.7). A radial analytic field's node
+chunks take the interleaved real GEMM on a device as on the host. On free space the split-step collar acts on the stored
+transverse-spectrum columns (every build), and a device forms its factor once a step per
+sample. A free-space envelope whose material response is the Kerr term alone, with one
+polarisation, on a time grid the spectrum fills (`n_t = n_to = n_omega`, the crop the
+identity) takes its stage core on a device through one rank-3 transform of the scratch
+volume each way, forming the polarisation in place between them, instead of the chunks'
+transposing pack and crop and their temporal transforms. The state crosses the seam once
+at a load and once at an observation, straight between the memory space and the NumPy
+buffer.
+
 The singleton constructor requires a one-member problem; fixed-schedule fibre batches go
 through `select_batch` over independently loaded member workspaces (§1). The backend
 refuses scalar-only declarations on vector Raman problems, spectral responses other than

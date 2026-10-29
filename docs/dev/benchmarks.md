@@ -671,6 +671,29 @@ steps in both arms): host time per trial 64 → 2.2 µs (`he_rdw_averaged`, 0.3)
 (`argon_blueshift_averaged`, 0.1) and 83 → 5.0 (`rdw`, 0.1), walls −6.7 %, −10.6 % and
 −1.8 %. A trial costs about a millisecond on this FP64-weak device.
 
+### Device transfers and the free-space Kerr stage
+
+On an NVIDIA A40 (CUDA 12.8.1, `AMPERE86`, binary64 at about a sixty-fourth of the
+single-precision rate), `python -m benchmarks ab --device`, three rounds of interleaved
+fresh processes, half of `kerr_beam_384` (two fixed RK4IP steps, 384² × 750):
+
+| change | wall, s | ratio (range) | field difference |
+|---|---|---:|---:|
+| one copy at a load and an observation, the free-space split on the stored columns | 4.775 → 3.878 | 0.812 (0.812–0.815) | 1.0e-15 |
+| the split factor per sample, the pinned single upload | 4.686 → 3.892 (with the above) | 0.830 (0.829–0.832) | 1.0e-15 |
+| the rank-3 Kerr stage | 3.913 → 3.764 | 0.963 (0.957–0.964) | 1.3e-16 |
+| all, against the baseline | 4.732 → 3.747 | 0.792 (0.789–0.798) | 1.0e-15 |
+
+Kernel time fell from 827 to 651 ms a step: the split's transverse pair and transposes
+(about 100 ms) and the chunks' pack, crop and pointwise passes (about 75 ms). An
+observation of the 1.77 GB state took 0.85 s of host time through three fresh buffers.
+On an Intel Xeon Gold 6240 at one thread `kerr_beam_192` (half) took 0.920 of the time
+(0.917–0.922, fields to 6e-16). `radial_filament_256` is unchanged on the A40 (0.3 and 0.5
+of its length, within ±2 %): its trial, 3.3 ms of kernels, is bound by binary64
+arithmetic (the synthesis and projection GEMMs near the device's binary64 peak, the
+φ-functions), so neither the single upload, the GEMM for its node chunks nor one chunk
+in place of two (48 → 31 kernels a trial, not adopted) moved it.
+
 ## Reference tables
 
 These tables back the indicative results above.
