@@ -31,6 +31,14 @@ being implemented.
   identifies a new material contract. Ne/Xe, mixtures, mode-averaged and multimode
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
+- [SEP 39 — A native Adams march: the Multistep step loop in the compiled backend](seps/sep-0039-native-adams-march.md):
+  the exponential `Multistep()` controller, order choice, landings, coefficient tables
+  and stage scalars executed natively under a policy record solprop hands over, with the
+  Python march as the reference. It returns to the host only at planes, monitor checks
+  and statistics rows. It removes most of the 40–210 µs of Python left per trial: 2–11 %
+  of a single-mode CPU run beyond its native-tables phase, and most of a device trial's
+  host time. Configurations it does not cover run the Python march with a warning, and
+  it changes no default. A device-resident controller remains open.
 
 ## Draft enhancement proposals
 
@@ -86,14 +94,6 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
   data and integration questions must be settled before acceptance; shared-level
   ladders, vector saturation and repeated-window histories remain future work.
-- [SEP 39 — A native Adams march: the Multistep step loop in the compiled backend](seps/sep-0039-native-adams-march.md):
-  the exponential `Multistep()` controller, order choice, landings, coefficient tables
-  and stage scalars executed natively under a policy record solprop hands over, with the
-  Python march as the reference, returning to the host only at planes, monitor checks
-  and statistics rows. It removes most of the 0.1–0.5 ms of Python per trial; the
-  native-side optimisations it lists need no SEP. Configurations it does not cover run
-  the Python march with a warning, and it changes no default. A device-resident
-  controller remains open.
 
 The informal items below record work not fully covered by these proposals. When adding
 or revising a SEP, remove an informal item only if the proposal covers it in full;

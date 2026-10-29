@@ -6,12 +6,12 @@
 | **Title** | A native Adams march: the Multistep step loop in the compiled backend |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-10-28) |
-| **Status** | Draft |
-| **Review status** | In review |
-| **Reviewers** | GPT-6 (AI) |
+| **Status** | Accepted |
+| **Review status** | Reviewed |
+| **Reviewers** | John Travers (human); GPT-6 (AI) |
 | **Type** | Change |
 | **Created** | 2026-10-28 |
-| **Resolution** | — |
+| **Resolution** | Accepted 2026-10-28 by John Travers, after his human review, the GPT-6 AI review and the response to it, his decisions Q1–Q14, R9 and R12, and the refresh of Part I against LupoLab/solprop#56 (Part III). The proposal lands with its implementation's single pull request. |
 | **Requires** | [SEP 16](archive/sep-0016-unified-multistep.md) (the march, its engine, ADR-043); [SEP 25](archive/sep-0025-rounding-level-reproducibility.md) (agreement to the error bound); [SEP 29](archive/sep-0029-compiled-backend-distribution.md) (native z tables and the history export) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
@@ -2182,6 +2182,13 @@ No phase has started.
   - **§6.5.5–§6.5.7 and §6.7.** They gain the uncached rate weights, the one-row stage
     staging, the monitor reading that has landed, and the fused trial on devices.
   - **§7.6.** The no-regression rule is judged on an idle machine or a domain held alone.
+- 2026-10-28: Reviewed by John Travers (human), who accepted the proposal and asked
+  for it to be implemented on a branch based on LupoLab/solprop#56. Before setting the
+  status, the drafting agent (Opus 5.5) made a final read of the refreshed Part I
+  against SEP 0's acceptance criteria and the code at a500d2d. That read is the source
+  of §4.6's landing-search correction; it found nothing else to change.
+- 2026-10-28: **Accepted** by John Travers. Part I is frozen from here; deviations go into
+  the phase reports of Part II.
 
 ### AI review — 2026-10-28
 
