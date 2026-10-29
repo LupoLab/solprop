@@ -10388,28 +10388,51 @@ void GeneralWorkspace::finish_raman_products(const std::size_t stage,
   const auto family = problem_.family;
   const auto modes = problem_.n_modes;
   const double epsilon0 = problem_.raman_epsilon0;
+  const auto n_to = problem_.n_to;
+  // Blocks of samples per node, the products accumulated in their order over each
+  // block as contiguous rows: one pass over the block per product, which vectorises,
+  // where a per-sample loop over the products strides between rows.
+  constexpr std::size_t block = 512;
+  const std::size_t blocks = (n_to + block - 1) / block;
+  const double* const products = convolved.data();
+  const std::size_t stride = convolved.stride(0);
   Kokkos::parallel_for(
       "solprop_native.raman.finish_products",
-      Range2(response_space_for(node_count), {0, 0}, {node_count, problem_.n_to}),
-      KOKKOS_LAMBDA(const std::size_t node, const std::size_t time) {
+      Kokkos::RangePolicy<ExecutionSpace>(response_space_for(node_count), 0,
+                                          node_count * blocks),
+      KOKKOS_LAMBDA(const std::size_t item) {
+        const std::size_t node = item / blocks;
+        const std::size_t begin = (item % blocks) * block;
+        const std::size_t count = n_to - begin < block ? n_to - begin : block;
         const std::size_t row = first_node + node;
-        double drive = 0.0;
+        double drive[block];
+        for (std::size_t offset = 0; offset < count; ++offset)
+          drive[offset] = 0.0;
         std::size_t product = 0;
         for (std::size_t first = 0; first < modes; ++first) {
           const double weight = synthesis(row, first);
-          for (std::size_t second = first; second < modes; ++second, ++product)
-            drive += (weight * synthesis(row, second)) * convolved(product, time);
+          for (std::size_t second = first; second < modes; ++second, ++product) {
+            const double pair = weight * synthesis(row, second);
+            const double* const values = products + product * stride + begin;
+            for (std::size_t offset = 0; offset < count; ++offset)
+              drive[offset] += pair * values[offset];
+          }
         }
-        const double factor = epsilon0 * density(stage) * drive;
-        if (family == FieldFamily::envelope) {
-          out_complex(node, time) =
-              (out_complex(node, time) + factor * node_complex(node, time)) *
-              window(time);
-        } else {
-          const double field = family == FieldFamily::field_real
-                                   ? node_real(node, time)
-                                   : node_complex(node, time).real();
-          out_real(node, time) = (out_real(node, time) + factor * field) * window(time);
+        const double scale = epsilon0 * density(stage);
+        for (std::size_t offset = 0; offset < count; ++offset) {
+          const std::size_t time = begin + offset;
+          const double factor = scale * drive[offset];
+          if (family == FieldFamily::envelope) {
+            out_complex(node, time) =
+                (out_complex(node, time) + factor * node_complex(node, time)) *
+                window(time);
+          } else {
+            const double field = family == FieldFamily::field_real
+                                     ? node_real(node, time)
+                                     : node_complex(node, time).real();
+            out_real(node, time) =
+                (out_real(node, time) + factor * field) * window(time);
+          }
         }
       });
   Kokkos::Profiling::popRegion();
