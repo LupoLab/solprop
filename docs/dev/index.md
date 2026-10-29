@@ -43,6 +43,7 @@ accuracy
 benchmarks
 benchmarking
 cpu-performance
+performance-push
 ```
 
 ```{toctree}
