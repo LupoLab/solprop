@@ -187,6 +187,8 @@ def march(route, monkeypatch, *, staged, integrator=None):
         backend.close()
 
 
+# The host-packed arm runs solprop's march, with the warning the admission tests assert.
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
 @pytest.mark.parametrize(
     "integrator",
     [Multistep(), Multistep(formulation="interaction")],
