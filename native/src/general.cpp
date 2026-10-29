@@ -7422,6 +7422,77 @@ struct ExponentialCorrection {
   }
 #endif
 
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  // One device element's pass, `Width` the trial's samples known at compile time: as
+  // the loops below and `adams_defect_block` form it, in the same operations and
+  // order, but with the history rows and moments read once into registers. Through
+  // the views, which the pass also writes, every use reloads them; on an AMD Instinct
+  // MI325X this pass is latency-bound on a single-mode trial's few thousand elements.
+  template <std::size_t Width>
+  KOKKOS_INLINE_FUNCTION void
+  device_element(const std::size_t column, const std::size_t index,
+                 const double magnitude, value_type update) const {
+    const Complex g = stages(0, column, index);
+    source(column, index) = g;
+    Complex history[Width];
+    for (std::size_t t = 0; t + 1 < Width; ++t)
+      history[t] = adams_history(store, weights, t, column, index);
+    Complex moment[Width];
+    for (std::size_t k = 0; k < Width; ++k)
+      if (k < weights.count)
+        moment[k] = moments(k, column, index);
+    Complex total{};
+    for (std::size_t k = 0; k < Width; ++k) {
+      if (k >= weights.count)
+        break;
+      Complex combined = weights.corrector[0][k] * g;
+      for (std::size_t t = 1; t < Width; ++t)
+        combined += weights.corrector[t][k] * history[t - 1];
+      total += moment[k] * combined;
+    }
+    Complex value = flow(column, index) * current(column, index) + dz * total;
+    if (weights.compensated)
+      value = adams_corrected_compensation(weights, n_phi, rate_weights, phi_terms,
+                                           exponent(column, index), inverse_dz,
+                                           lab(column, index), dz, value, endpoint_rate,
+                                           endpoint, carried, column, index);
+    advanced(column, index) = value;
+    if (in_norm(index) == 0)
+      return;
+    const double scale = device_scale
+                             ? (scale_weights.extent(0) != 0
+                                    ? rtol * scale_weights(index) * magnitude + atol
+                                    : rtol * magnitude + atol)
+                             : divisor(index);
+    constexpr std::size_t max_rows = 3;
+    const std::size_t scored = value_count < max_rows ? value_count : max_rows;
+    for (std::size_t row = 0; row < max_rows; ++row) {
+      if (row >= scored)
+        break;
+      Complex difference = strict_scale(weights.rows[row][0], g);
+      for (std::size_t t = 1; t < Width; ++t)
+        difference =
+            strict_accumulate(difference, weights.rows[row][t], history[t - 1]);
+      Complex weight{};
+      for (std::size_t k = 0; k < Width; ++k) {
+        if (k >= weights.count)
+          break;
+        weight = strict_accumulate(weight, weights.rows[row][Width + k], moment[k]);
+      }
+      Complex defect = strict_scale(dz, strict_mul(difference, weight));
+      if (weights.compensated) {
+        Complex compensation =
+            strict_scale(weights.comp_rows[row][0], endpoint(column, index));
+        for (std::size_t t = 0; t + 1 < Width; ++t)
+          compensation = strict_accumulate(compensation, weights.comp_rows[row][t + 1],
+                                           carried(t, column, index));
+        defect = strict_accumulate(defect, dz, compensation);
+      }
+      update[row] += squared_abs(strict_divide(defect, scale));
+    }
+  }
+#endif
+
   KOKKOS_INLINE_FUNCTION void operator()(const std::size_t task,
                                          value_type update) const {
     const auto column = task / blocks;
@@ -7432,6 +7503,31 @@ struct ExponentialCorrection {
     if constexpr (vmath::vectorised) {
       lanes_block(column, first, last, magnitude, update);
       return;
+    }
+#endif
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+    static_assert(adams_block == 1, "a device thread takes one element");
+    if (first < last) {
+      switch (weights.width) {
+      case 1:
+        return device_element<1>(column, first, magnitude, update);
+      case 2:
+        return device_element<2>(column, first, magnitude, update);
+      case 3:
+        return device_element<3>(column, first, magnitude, update);
+      case 4:
+        return device_element<4>(column, first, magnitude, update);
+      case 5:
+        return device_element<5>(column, first, magnitude, update);
+      case 6:
+        return device_element<6>(column, first, magnitude, update);
+      case 7:
+        return device_element<7>(column, first, magnitude, update);
+      case 8:
+        return device_element<8>(column, first, magnitude, update);
+      default:
+        break;
+      }
     }
 #endif
     double scale[adams_block]{};
