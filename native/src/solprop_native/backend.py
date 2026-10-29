@@ -2453,7 +2453,10 @@ class _NativeAdamsMarch(AdamsMarch):
         if self._runner is not None:
             return None, False
         if not isinstance(engine, _ResidentAdams):
-            return "the host engine's coupled flow", True
+            return (
+                "the host engine, which steps a coupled flow off the eigenbasis "
+                "route or wider than 16 channels"
+            ), True
         assert isinstance(engine, _ResidentAdams)
         chord = None if engine.carrier is None else engine.carrier.chord
         resident = (

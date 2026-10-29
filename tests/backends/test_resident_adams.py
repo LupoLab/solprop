@@ -31,6 +31,9 @@ from solprop.stepper.multistep import ComparisonMultistep, Multistep
 pytestmark = [
     pytest.mark.medium,
     pytest.mark.skipif("native" not in available(), reason="native is not installed"),
+    # The host engine these tests compare with runs solprop's march, with the warning
+    # tests/backends/test_native_march_admission.py asserts (SEP 39).
+    pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning"),
 ]
 
 NativeBackend = pytest.importorskip("solprop_native").NativeBackend

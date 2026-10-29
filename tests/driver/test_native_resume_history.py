@@ -196,6 +196,8 @@ def test_the_resident_history_is_restored_exactly_and_continued(build_simulation
 
 
 @quiet
+# The host engine runs solprop's march, with the warning the admission tests assert.
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
 @pytest.mark.parametrize("case", sorted(CASES))
 def test_the_host_engine_on_native_hooks_round_trips_too(
     build_simulation, monkeypatch, case
