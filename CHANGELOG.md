@@ -11,6 +11,15 @@ The first public release. It contains:
 
 ### Added
 
+- **Experimental `cpunative` backend.** An independent C++23/OpenMP/FFTW package for
+  double-precision scalar capillary, constant-medium radial, and fixed-step Cartesian
+  Kerr propagation, selected explicitly alongside `native`.
+  It retains the shared controllers, resident DOPRI5 and exponential Adams arithmetic,
+  real/analytic Kerr, band plasma, molecular Raman, and standard-case diagnostics. See the
+  [manual](https://solprop.readthedocs.io/en/latest/guide/performance/cpunative.html) for
+  its supported subset and the experiment's qualification status. Benchmark A/B runs
+  can now choose separate baseline and candidate backends.
+
 - **Propagation equations.** The unidirectional pulse propagation equation (UPPE) and
   the generalised nonlinear Schrödinger equation (GNLSE), for the real electric field or
   a complex envelope, in waveguides and in free space.

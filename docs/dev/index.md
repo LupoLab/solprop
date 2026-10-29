@@ -43,6 +43,9 @@ accuracy
 benchmarks
 benchmarking
 cpu-performance
+cpunative-experiment
+cpunative-comparison
+cpunative-native-handoff
 ```
 
 ```{toctree}

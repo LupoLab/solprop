@@ -215,6 +215,12 @@ against `src/solprop` by `tests/test_structure_figures.py`.
 repository at solprop's own version and installed through the `native` extra. It depends
 on the versioned seam; solprop does not depend on its native build.
 
+The experimental `solprop-cpunative` distribution is built independently from
+`cpunative/` at the same version. It consumes the unchanged seam through the shared
+step driver and Adams march, with resident C++23/OpenMP arithmetic and direct FFTW.
+It implements the declared scalar field-capillary subset and is selected explicitly;
+see the [experiment report](cpunative-experiment.md).
+
 `driver/scaffold.py` is an independent fixed-step IP-RK4 reference used by tests and
 its tutorial; it is not the production stepper. It propagates a `GnlseProblem`
 directly, without a contract, a backend or an output handler, which is what makes it a
@@ -547,6 +553,10 @@ class Backend(Protocol):
   ([backends.md §3.2](backends.md)), applied by the `njit` wrapper. Fixed fibre batches have a compiled accept
   update over members; other numerical work remains member-owned. An all-compiled march
   is a deferred experiment, subject to a measured dispatch-cost case.
+- `cpunative` (the experimental `solprop-cpunative` distribution, `cpunative/`):
+  CPU-only C++23/OpenMP kernels, persistent direct FFTW plans, and a small measured
+  contraction policy for scalar field-grid capillaries. It shares scalar control
+  with the other backends and owns state-sized DOPRI5 and exponential Adams work.
 - `native` (the `solprop-native` distribution, `native/`): C++20/Kokkos kernels and persistent Kokkos-FFT plans
   behind nanobind. It runs mode-averaged and multimode scalar/two-component problems,
   Kerr, plasma and declared tensor Raman, weighted control, embedded quadrature and

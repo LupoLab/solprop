@@ -1859,3 +1859,13 @@ Which backend and build to choose for a run is the user guide's
   ([SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)).
 - Batches are fixed-schedule only; adaptive and spatial batches, and batches carrying a
   coupled flow, are refused.
+
+## Experimental `cpunative`
+
+The independent package in `cpunative/` consumes the existing scalar capillary seam
+with raw aligned buffers, OpenMP and FFTW, without Kokkos. Selection is explicit and
+automatic backend policy is unchanged. Its resident DOPRI5 and exponential Adams
+implementations use the existing host controllers and march policies. Admission is
+limited to the [documented subset](../guide/performance/cpunative.md); the
+[experiment report](cpunative-experiment.md) records its numerical qualification and
+performance evidence. This experimental consumer does not extend the kernel schema.

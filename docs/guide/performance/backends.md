@@ -13,6 +13,7 @@ configuration; a faster backend does not select a different physical model.
 | `numpy_ref` | plain NumPy, the **reference**: every other backend is tested against it | checking a result; the few representations only it runs (`CoherentWall(method="cf4")`, with `integrator=RungeKutta()`); small problems where compiling costs more than running |
 | `numba_cpu` | compiled kernels shipped with solprop, with its own thread pools | the default when the native backend is not installed; problems the native backend refuses; many single-threaded scan workers |
 | `native` | the [native backend](native.md), the optional solprop-native distribution built from the repository's `native/` directory: OpenMP, FFTW and a vendor BLAS on a CPU, or CUDA/HIP on a GPU | the default when installed, and usually the fastest for large runs, the general modal route, moving solid guides and the coherent wall |
+| `cpunative` | the [experimental CPU backend](cpunative.md), built independently from `cpunative/` with OpenMP and FFTW | explicit double-precision scalar capillary, radial, and Cartesian Kerr comparisons; a deliberately limited subset, never selected by `auto` |
 | `mlx` | the Apple-silicon GPU through Apple's MLX, in **single precision only** ([single precision](single-precision.md)); the `mlx` extra, macOS on Apple silicon | `precision="single"` capillary and fibre runs on a Mac, where it is the `"auto"` choice; it refuses `precision="double"` |
 
 `backend="auto"`, the default of every entry point, is `"native"` when `solprop_native`
