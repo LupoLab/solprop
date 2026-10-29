@@ -613,30 +613,29 @@ inline AdamsWeights fused_weights(const double* nodes, const std::size_t n,
                                   const std::size_t order, const std::size_t* orders,
                                   const std::size_t n_orders) {
   // `basis_rows` is strict; the defects' subtractions cannot contract.
-  constexpr std::size_t most = lagrange::max_nodes;
   std::size_t highest = 0;
   for (std::size_t index = 0; index < n_orders; ++index)
     highest = std::max(highest, orders[index]);
   if (n_orders == 0 || n_orders > 3 || order == 0 || order > highest || highest > n ||
-      highest + 1 > most || highest + 1 > adams_max_samples ||
+      highest + 1 > lagrange::max_nodes || highest + 1 > adams_max_samples ||
       n_slots + 1 < highest + 1 || orders[0] != order ||
       std::any_of(orders, orders + n_orders,
                   [](const std::size_t value) { return value == 0; }))
     throw std::invalid_argument("Adams coefficient tables have inconsistent extents");
   const std::size_t width = highest + 1;
-  std::array<double, most> through{};
-  std::array<double, most * most> scratch{};
-  std::array<double, most> weights{};
-  std::array<double, most> integrated{};
+  std::array<double, lagrange::max_nodes> through{};
+  std::array<double, lagrange::max_nodes * lagrange::max_nodes> scratch{};
+  std::array<double, lagrange::max_nodes> basis{};
+  std::array<double, lagrange::max_nodes> integrated{};
   through[0] = 1.0;
   for (std::size_t t = 0; t + 1 < width; ++t)
     through[t + 1] = nodes[t];
   AdamsWeights out;
   for (std::size_t t = 0; t < n_slots && t < adams_max_samples; ++t)
     out.slot[t] = slots[t];
-  lagrange::basis_rows(nodes, order, 1.0, true, scratch.data(), weights.data());
+  lagrange::basis_rows(nodes, order, 1.0, true, scratch.data(), basis.data());
   for (std::size_t t = 0; t < order; ++t)
-    out.predictor[t] = weights[t];
+    out.predictor[t] = basis[t];
   for (std::size_t index = 0; index < n_orders; ++index) {
     const std::size_t scored = orders[index];
     lagrange::basis_rows(through.data(), scored + 1, 1.0, true, scratch.data(),
@@ -647,9 +646,9 @@ inline AdamsWeights fused_weights(const double* nodes, const std::size_t n,
     if (index == 0)
       for (std::size_t t = 0; t <= scored; ++t)
         out.corrector[t] = integrated[t];
-    lagrange::basis_rows(nodes, scored, 1.0, true, scratch.data(), weights.data());
+    lagrange::basis_rows(nodes, scored, 1.0, true, scratch.data(), basis.data());
     for (std::size_t t = 0; t < scored; ++t)
-      row[t + 1] = row[t + 1] - weights[t];
+      row[t + 1] = row[t + 1] - basis[t];
   }
   out.order = order;
   out.width = width;
