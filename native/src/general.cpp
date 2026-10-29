@@ -596,8 +596,16 @@ struct SpatialCoefficients {
     const Complex linear = active ? Complex(-attenuation - 0.5 * transverse_rate(mode),
                                             -(root.real() - frame(omega)))
                                   : Complex{};
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+    // One binary64 reciprocal and two products in place of two divisions, at every
+    // element of the stage passes: a device's division is several fused steps (at
+    // most an ulp from the quotients).
+    const Complex prefactor =
+        propagating ? numerator(omega) * (1.0 / root.real()) : clamped(omega);
+#else
     const Complex prefactor =
         propagating ? numerator(omega) / root.real() : clamped(omega);
+#endif
     return {linear - 0.5 * spectral_rate(omega), active ? prefactor : Complex{}};
   }
 };
