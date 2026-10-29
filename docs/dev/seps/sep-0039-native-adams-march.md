@@ -2428,7 +2428,11 @@ The M5 was otherwise idle but for one indexing process (load 2.3–4.6). The EPY
 are from a shared node (load 80–97, the task's cores spread over its NUMA domains):
 its one-thread walls are consistent, its sixteen-thread ones bimodal and not reported
 here. `rdw` on that node read 6–9 % slower natively at both widths, against host times
-of 185 → 17 µs a trial; re-timed on a quiet node, EPYC_RDW_RETIME.
+of 185 → 17 µs a trial. Re-timed on a quiet node (load 3–5, sixteen cores of one NUMA
+domain), nine rounds: −1.7 % at one thread (medians); at sixteen, +2.7 % by medians
+and −3.3 % by minima, inside that node's run-to-run spread of ±6 %. The host time
+saved there, 280 µs on each of 394 trials, is 3 % of the run: below what the node can
+resolve, and no regression is measurable.
 
 The gain is §6.1's estimate for phase 2 on helium and argon (60–85 and 50–75 µs a
 trial on the EPYC), and the native march's own host time, 0.4–2.7 µs a trial, is the
@@ -2440,6 +2444,118 @@ booking), amortised over the attempts between events. On `rdw` a statistics row 
 due every step, so every attempt is its own call (2–3 µs). A cheaper booking path (one
 `_record_attempts` call per call's rows) would trim the latter; nothing else on the
 host is above a microsecond a trial.
+
+### Phase 3 — report
+
+**Scope.** Phase 3, the interaction formulation, the one-order-higher PEC comparisons
+and replayed schedules natively, 2026-10-29 (115c12d). Opus 5.5 (AI) for John Travers.
+
+**Delivered.**
+
+- **The fused trial staged.** `stage::fused_weights` forms `fused_tables`' predictor,
+  corrector and defect rows over the strict `lagrange::basis_rows`, operation for
+  operation; `adams_fused_trial_at` reads the stage row from the uploaded tables, which
+  interaction-formulation runs now upload too. The Python march takes it as well
+  (`_ResidentAdams.fused_trial` when staged).
+- **The fused path in the native march.** `ResidentEngine` runs the fused trial and
+  accept for `Multistep(formulation="interaction")` and for `ComparisonMultistep` with
+  `corrector="pec"`, `corrector_order = order + 1` (Adams or Hermite interpolant);
+  `Engine::accept` receives the kept history, which the fused accept transports.
+- **Replay** (§4.3): the schedule's steps and edges at configuration, the cursor (the
+  driver's schedule index) in the state, the slack (`replay_tolerance`) in the bounds;
+  kinks within the slack restart, a non-finite norm returns `diverged` (raised with the
+  reference's message, unrecorded) and exhaustion is the host's `BackendError`, as
+  before. Lockstep batches keep `replay_step` on the host (Q14).
+
+**Deviations.** The fused trial's tables are formed natively rather than shipped (a
+small extension of phase 1's scope to the interaction formulation).
+
+**Verification.**
+
+- The corpus's four replay scenarios (the 160-step schedule 12 ulps short, kinks on
+  edges, exhaustion, divergence) run through the scripted native march and match the
+  reference exactly, messages included; every corpus scenario is asserted native.
+- Same build, estimate plans: the native march, the staged Python march and the
+  host-packed Python march agree bit for bit in the interaction formulation on the
+  four tracking cases, and with PEC4/5 (both interpolants) on two (recorded). The
+  staged-march test holds both formulations to a rounding bound.
+- The resident, helper-ownership, z-table and driver modules on the M5 Max.
+
+**Measured** (Apple M5 Max, interaction formulation; medians of three, the same steps
+in every arm):
+
+| threads | case | host µs/trial: before → host → native | wall vs host | wall vs before |
+|---|---|---|---|---|
+| 1 | `he_rdw_averaged` | 41 → 12 → 0.5 | −4.0 % | −11.8 % |
+| | `argon_blueshift_averaged` | 33 → 11 → 0.5 | −5.4 % | −16.7 % |
+| | `h2_raman_averaged` (0.4) | 40 → 11 → 0.5 | −5.6 % | −18.3 % |
+| | `rdw` (0.25) | 85 → 43 → 1.5 | −1.3 % | −2.9 % |
+| 16 | `he_rdw_averaged` | 41 → 12 → 0.5 | −3.9 % | −12.9 % |
+| | `argon_blueshift_averaged` | 33 → 11 → 0.4 | −8.6 % | −18.2 % |
+| | `h2_raman_averaged` (0.4) | 42 → 11 → 0.5 | −34.1 % | −15.0 % |
+| | `rdw` (0.25) | 165 → 119 → 1.5 | −2.1 % | −4.7 % |
+
+**Mac lead.** `h2_raman_averaged` at sixteen threads took 2.24 s on the Python march
+with the staged trial in all three rounds, against 1.74 s with the host packing and
+1.48 s natively: the staged host march is slower there than the unstaged one, which
+nothing in its arithmetic explains. Suspected: the OpenMP workers' idle policy
+(ADR-056) meeting the shorter host gaps between native calls. Not investigated; the
+native march, the default, does not show it.
+
+### Phase 4 — report
+
+**Scope.** Phase 4, every route staged and native, 2026-10-29 (2ddea85, f8ccd06,
+86e6c55). Opus 5.5 (AI) for John Travers.
+
+**Delivered.**
+
+- **Separable operators** (the Cartesian, line and planar routes) stage as a constant:
+  the distance and the position, a unit prefactor, no span (`_trial_arrays`' packing).
+- **SEP 6's dispersive channels**: their densities are stage tables of their own.
+- **z tables**: the slot cache moves into the native state (`stage::ZSlots`), one
+  cache for both marches and every consumer, with the rate slot's memo; `_ZTables`
+  keeps its interface over it. The stage rows read `e_1 - e_0` and `e_1` over the slots,
+  loaded as `_weight_rows` loads them.
+- **Coupled flows** (the eigenbasis route, at most 16 channels) **and moving maps**:
+  the flow's section (its anchor's) and a frozen residual's weights, and a moving
+  guide's map weights, are sectioned Chebyshev rows formed natively (`stage::Sections`:
+  NumPy's `chebvander` recursion, strict, in the section `flow_section` and
+  `transform_section` find, with the step's own section kept as `flow_weights` keeps
+  it). Beside a flow the lab-frame sample is a stage anchored at the step's end, as
+  `_resident_sample` forms it.
+- **The carrier frame** (phase 2's row): the chord's imaginary part at the reference
+  element (a constant's rate, or an expansion's terms) uploads with the tables; the
+  engine forms the shift, the rows' rotations and the cap's phase, and returns the
+  accepted step's rotations for dense observation. A z table's chord stays solprop's.
+
+**What remains on solprop's march**, with the warning: the comparison methods' general
+path; a coupled flow on the host engine (off the eigenbasis route or wider than 16
+channels, ADR-044); a norm scale other than `PIController`'s; a z table's carrier
+frame; lockstep batch replay.
+
+**Deviations from the matrix (§6.6).**
+
+1. **A z table's carrier frame** is on solprop's march (warned), where the matrix puts
+   it on the native one: its chord is the table's value at the reference element,
+   which the native state would have to evaluate per position from the table's element
+   column. Not built; a small follow-up if a z-table carrier run is ever wanted.
+2. **Lockstep batch replay is not warned.** The batch runner calls each member's
+   `replay_step`, the Python march, as before (Q14); the members' `native` flag still
+   reads true, and no `HostMarchWarning` is issued.
+
+**Verification.**
+
+- Every capability route is staged, and its native scalars equal solprop's exactly
+  (`test_native_stage_tables.py`, the flow's and the maps' rows included); a staged
+  march takes the host-packed march's steps, fields within a rounding bound, in both
+  formulations where the formulation is admitted.
+- Same build, estimate plans: the coherent wall, the taper coupling (92 attempts), the
+  moving guide (211) and the separable routes take the Python march's steps with fields
+  bit for bit; the carrier frame's hydrogen capillary takes its steps, fields bit for
+  bit on a short window and 5.7e-16 apart on a longer one (the chord's rounding: the
+  reference's `tensordot` sums in its BLAS's order).
+- The z-table, coupled-flow, moving-guide, carrier-frame, dispersive and driver modules
+  on the M5 Max; the full gate on CI.
 
 ## Part III — History
 

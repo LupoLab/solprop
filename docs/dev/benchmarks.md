@@ -620,6 +620,52 @@ On the EPYC the two passes cost 1.5–2.9 source evaluations a trial, against 0.
 the host. Their per-element cost is 2.9–3.8 times the M5's, against about 1.9 times for
 the source.
 
+### The native Adams march
+
+[SEP 39](seps/sep-0039-native-adams-march.md)'s native march against solprop's Python
+march on the same build (`benchmarks.adams_host --host-march`), and against the march
+with the host packing the stage rows, as before the SEP's phase 1 (`--host-stages`).
+Interleaved fresh processes, the arm order reversed every round, medians; every arm
+took the same steps and calls (the counts above). Host time per trial as in the
+baseline above.
+
+**Exponential formulation** (the default `Multistep()`):
+
+| machine, threads | case | host µs/trial: packed → staged → native | wall, native vs staged | wall, native vs packed |
+|---|---|---|---:|---:|
+| M5 Max, 1 | `he_rdw_averaged` | 43 → 13 → 0.6 | −3.3 % | −7.6 % |
+| | `argon_blueshift_averaged` | 30 → 11 → 0.4 | −6.0 % | −13.6 % |
+| | `h2_raman_averaged` (0.4) | 37 → 11 → 0.5 | −3.9 % | −11.6 % |
+| | `rdw` (0.25) | 91 → 47 → 2.7 | −0.6 % | +0.4 % |
+| M5 Max, 16 | `he_rdw_averaged` | 47 → 13 → 0.6 | −4.2 % | −13.2 % |
+| | `argon_blueshift_averaged` | 32 → 12 → 0.4 | −9.2 % | −17.2 % |
+| | `h2_raman_averaged` (0.4) | 39 → 12 → 0.6 | −6.2 % | −16.2 % |
+| | `rdw` (0.25) | 171 → 122 → 1.9 | −2.2 % | −4.5 % |
+| EPYC 7763, 1 | `he_rdw_averaged` | 208 → 65 → 1.7 | −6.1 % | −14.0 % |
+| | `argon_blueshift_averaged` | 148 → 58 → 1.1 | −11.5 % | −24.2 % |
+| | `h2_raman_averaged` (0.4) | 168 → 58 → 1.2 | −9.5 % | −22.7 % |
+| | `rdw` (0.25) | 168 → 8 (staged → native) | −1.7 % | — |
+
+The EPYC's first three rows are from a shared node (load 80–97), whose one-thread
+walls were consistent; its `rdw` row is from a quiet node, nine rounds, where the
+sixteen-thread median read +2.7 % and the minimum −3.3 % inside a ±6 % spread.
+
+**Interaction formulation** (`Multistep(formulation="interaction")`, M5 Max):
+
+| threads | case | host µs/trial: packed → staged → native | wall, native vs staged | wall, native vs packed |
+|---|---|---|---:|---:|
+| 1 | `he_rdw_averaged` | 41 → 12 → 0.5 | −4.0 % | −11.8 % |
+| | `argon_blueshift_averaged` | 33 → 11 → 0.5 | −5.4 % | −16.7 % |
+| | `h2_raman_averaged` (0.4) | 40 → 11 → 0.5 | −5.6 % | −18.3 % |
+| | `rdw` (0.25) | 85 → 43 → 1.5 | −1.3 % | −2.9 % |
+| 16 | `he_rdw_averaged` | 41 → 12 → 0.5 | −3.9 % | −12.9 % |
+| | `argon_blueshift_averaged` | 33 → 11 → 0.4 | −8.6 % | −18.2 % |
+| | `h2_raman_averaged` (0.4) | 42 → 11 → 0.5 | −34.1 % | −15.0 % |
+| | `rdw` (0.25) | 165 → 119 → 1.5 | −2.1 % | −4.7 % |
+
+The staged Python march's sixteen-thread `h2_raman_averaged` (2.24 s, slower than the
+packed march's 1.74 s, in every round) is unexplained; see SEP 39's phase 3 report.
+
 ## Reference tables
 
 These tables back the indicative results above.
