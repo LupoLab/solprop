@@ -48,7 +48,7 @@ Complex flow_of(const Complex x) {
 void expect_block(const std::vector<Complex>& values, const std::size_t order,
                   const native::ExponentialWeights& weights) {
   ASSERT_LE(values.size(), native::adams_lane_width);
-  native::AdamsLanes lanes;
+  native::AdamsLanes lanes{};
   lanes.count = values.size();
   for (std::size_t b = 0; b < values.size(); ++b) {
     lanes.xr[b] = values[b].real();
@@ -74,7 +74,7 @@ void expect_block(const std::vector<Complex>& values, const std::size_t order,
     if (weights.shifted)
       exp_x =
           native::strict_mul(exp_x, Complex(weights.unshift_re, weights.unshift_im));
-    Complex phi[native::adams_max_samples + 1];
+    Complex phi[native::adams_max_samples + 1]{};
     native::adams_phi(argument, Kokkos::abs(argument), exp_x, order, phi);
     for (std::size_t k = 0; k <= order; ++k) {
       EXPECT_TRUE(same(lanes.pr[k][b], phi[k].real()) &&
