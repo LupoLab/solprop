@@ -6447,7 +6447,11 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
             phi_delta(n_stages) *
             spatial.value(column / n_pol, index, active(index) != 0U).linear;
         exponent(column, index) = x;
+      // A device lambda may not first capture a view inside `if constexpr` (nvcc):
+      // devices never form passes, so the guard is the host's alone.
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
         if constexpr (!passes)
+#endif
           flow(column, index) = exponential(x);
       }
     else
