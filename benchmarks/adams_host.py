@@ -155,7 +155,7 @@ def _run(
 
 def main(argv: list[str] | None = None) -> int:
     """Run one case in a fresh process and print its record."""
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(description="SEP 39: an Adams run's host time")
     parser.add_argument("case")
     parser.add_argument("--width", type=int, default=1)
     parser.add_argument("--length", type=float, default=1.0)
