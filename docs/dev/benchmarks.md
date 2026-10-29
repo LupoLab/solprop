@@ -707,6 +707,72 @@ steps in both arms): host time per trial 64 → 2.2 µs (`he_rdw_averaged`, 0.3)
 (`argon_blueshift_averaged`, 0.1) and 83 → 5.0 (`rdw`, 0.1), walls −6.7 %, −10.6 % and
 −1.8 %. A trial costs about a millisecond on this FP64-weak device.
 
+### The Adams passes on x86-64 lanes
+
+The exponential Adams trial's predict and correct passes on a host block of 32 elements
+held as lanes (`include/solprop_native/adams_phi.hpp`, `adams_lanes_*` in
+`src/general.cpp`) against the element-by-element form, at 740b24d. Before the change
+the passes ran each element through latency-bound scalar strict code (the
+phi-functions' series, Horner pass and squarings, the compensation and the defects),
+GCC calling every strict helper out of line from the contracting kernels; per element
+they cost 2.9–3.8 times the Apple M5 Max's on the AMD EPYC 7763 (§ "Exponential Adams
+host cost" above). Now every lane loop vectorises on x86-64-v3, Zen 3 and Cascade Lake
+(checked with GCC 16.2's vectoriser report): the selections are bitwise, the
+comparisons quiet, and the corrector's endpoint rate is formed beside the step's
+phase, in one pass over the operator's terms. The strict parts keep each element's
+operations and their rounding (a native test holds the lanes' phi-functions to
+`adams_phi`'s bits); the predictor's and corrector's sums may contract differently, so
+the first step whose inputs differ differs by about 2e-16 in its norm. Every case
+below took the same steps and trials in both arms; final fields differ by 2e-15 to
+5e-12 relative (`he_rdw_averaged` at 0.3 of its length: 4.6e-12, the step sizes
+apart by up to 5e-5 relative after the pulse's compression amplifies the rounding).
+
+**AMD EPYC 7763** (16 cores of a shared node, GCC 16.2, SLEEF's AVX2 functions,
+OpenMP OpenBLAS), one thread, three interleaved rounds, medians; the passes in µs per
+call (host-only Kokkos label timer), the wall of the timed window:
+
+| case (fraction) | predict | correct | wall |
+|---|---:|---:|---:|
+| `he_rdw_averaged` (0.3) | 562 → 273 | 293 → 109 | −32 % |
+| `argon_blueshift_averaged` (0.1) | 190 → 82 | 112 → 45 | −30 % |
+| `h2_raman_averaged` (0.2) | 269 → 115 | 164 → 65 | −37 % |
+| `rdw` (0.1) | 2430 → 1373 | 1222 → 530 | −16 % |
+| `radial_filament_256` (0.05) | 13 470 → 7 050 | 9 890 → 4 430 | −16 % |
+| `argon_blueshift` (0.05) | 189 → 83 | 111 → 48 | −7 % |
+
+Per element the predict pass now costs about 1.6 times the M5 Max's figure of § 3.3
+of SEP 39, and the correct pass about 1.1 times. A stage clock (rdtsc around each lane
+step, a profiling build) puts the rest of `he_rdw_averaged`'s predict pass at about a
+third in SLEEF's six complex exponentials an element (the flow, the series argument and
+four spans), a sixth in the 18-term phase and rate sum, which is memory-bound, an eighth
+in the phi-functions and the rest in the history sums and stores. That node's
+sixteen-thread runs scattered by more than the effect and are not reported.
+
+**Intel Xeon Gold 6240** (18 physical cores of one socket, the other socket in use, GCC
+16.2 `-march=cascadelake`, SLEEF's AVX2 functions, OpenMP OpenBLAS), complete windows at
+0.1 of each case's length, `python -m benchmarks ab` with passive bound threads, three
+rounds, medians of the paired ratios (range over rounds); every pair did the same work,
+final fields within 6.2e-15:
+
+| case | one thread | sixteen threads |
+|---|---:|---:|
+| `he_rdw_averaged` | 0.786 (0.779–0.809) | 0.879 (0.775–0.885) |
+| `argon_blueshift_averaged` | 0.752 (0.747–0.759) | 0.946 (0.920–1.057) |
+| `h2_raman_averaged` | 0.697 (0.696–0.710) | 0.936 (0.921–0.952) |
+| `rdw` | 0.827 (0.816–0.829) | 0.974 (0.961–0.974) |
+| `radial_filament_256` | 0.839 (0.836–0.849) | 0.937 (0.932–0.945) |
+| `argon_blueshift` | 0.936 (0.934–0.963) | 0.953 (0.946–0.975) |
+
+The geometric mean of the twelve ratios is 0.867. At sixteen threads the single-column
+passes run on four threads (the size class above), so less of the gain shows.
+
+SLEEF's AVX-512F functions (`SOLPROP_NATIVE_VECTOR_MATH_AVX512`, opt-in) took a further
+5–8 % off these windows at one thread on the Xeon, and were 6 % slower on
+`he_rdw_averaged` at sixteen threads (one round); they stay opt-in.
+
+Tried and not adopted: blocks of 16 elements (5–15 % slower on the EPYC) and of 64
+(within 2 % of 32 on single columns, 5 % faster on `rdw`).
+
 ### Device transfers and the free-space Kerr stage
 
 On an NVIDIA A40 (CUDA 12.8.1, `AMPERE86`, binary64 at about a sixty-fourth of the

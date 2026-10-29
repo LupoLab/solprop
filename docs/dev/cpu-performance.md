@@ -147,6 +147,20 @@ time divided by the native backend's: above 1, the native backend is faster.
   values and peaks survive rejected trials, and existing scratch is reused without
   a new field allocation. The [lightweight measurements](benchmarks.md#native-cpu-fft-and-diagnostic-scheduling)
   record the affected windows and their limits.
+- **The exponential Adams passes as vector lanes on x86-64**
+  ([measurements](benchmarks.md#the-adams-passes-on-x86-64-lanes)). A host block of 32
+  elements is a structure of arrays and every step of the predict and correct passes a
+  loop over its lanes; the strict parts keep each element's operations and rounding.
+  The passes are 2–2.7 times faster on the AMD EPYC 7763 at one thread, single-mode
+  capillary windows 30–37 % faster. What kept GCC's loops scalar, worth knowing for any
+  lane kernel: a strict helper called from a contracting kernel is an out-of-line call
+  (GCC will not inline across `optimize` attributes); a selection whose kept value
+  depends on a lane flag becomes a conditional store, which GCC if-converts only with
+  masked stores (AVX-512, not AVX2 under its Zen tuning), so select by bits; an ordered
+  comparison taken on some lanes only "could trap" and blocks if-conversion, so use the
+  quiet `std::isless`-family; AVX2 has no int64-to-double conversion; and under LTO or
+  the `optimize` attribute `-fopt-info` reports nothing, so check a kernel with a copy
+  compiled without them.
 - **Resident Adams history: no dense-output volumes when planes are landed on**
   ([measurements](benchmarks.md#resident-adams-storage)). Storage
   went from 29 to 18 field volumes. The projected 384² Kerr-beam peak went from 62.7 to

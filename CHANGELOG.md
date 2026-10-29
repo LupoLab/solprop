@@ -639,6 +639,17 @@ The first public release. It contains:
   change only by rounding. At one thread the tracking cases run 11 % faster on an AMD
   EPYC 7763 (geometric mean; 6 to 19 %, `gnlse_raman_shock` most) and 7 % on an AMD EPYC
   9B45, and 5 % at sixteen threads there; an Apple M5 Max is unchanged.
+- **Native CPU cost of the exponential Adams passes on x86-64.** The predict and correct
+  passes ran each element through scalar strict code: the phi-functions' series and
+  squarings, the compensation and the defects. A host block of 32 elements is now
+  processed as vector lanes, every element keeping its operations and rounding in the
+  protected parts, and the corrector's endpoint rate is formed in the same pass over
+  the operator's terms as the step's phase. Steps taken are the same; results move by
+  rounding only. At one thread on an AMD EPYC 7763 the passes are 2–2.7 times faster,
+  `he_rdw_averaged`, `argon_blueshift_averaged` and `h2_raman_averaged` run 30–37 %
+  faster and `rdw` and `radial_filament_256` 16 % faster; on an Intel Xeon Gold 6240
+  those windows run 21–30 % and 16–17 % faster at one thread and 3–12 % at sixteen. Arm
+  and device builds are unchanged.
 - **A single-precision step that overflows is rejected, not fatal.** An adaptive trial
   whose propagator passed binary32's `exp(88.72)` (a long step under a strong collar)
   scored a non-finite error norm, which the controller rejected and the step history
