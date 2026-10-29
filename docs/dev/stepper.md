@@ -358,7 +358,7 @@ predictor, the corrector and the neighbouring orders' defects in the monomial ba
 their interpolants (`ExponentialKernels`): the defects are already at the step's end,
 so no propagator multiplies them. The defect, the norm's scale and the lifecycle are
 the transported formulation's; so is the order choice, but for the in-stage collar's
-stability, which it weighs (`AdamsMarch._order_weight`): each order's
+stability, which it weighs (`adams_core.order_weight`): each order's
 step factor is capped at `COLLAR_STABILITY` times PEC's negative-real interval over
 `h max(α) / 2`, the step itself left to the chosen order's defect. **Beside a coupled flow** (ADR-044) the backend's hook `_adams_block` returns the frozen block of the step's
 section (`CoupledBlock`); `coupled_moments` forms the trial's flow and moments as

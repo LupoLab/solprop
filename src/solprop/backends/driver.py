@@ -60,7 +60,7 @@ from solprop.stepper.controller import (
 )
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
-from solprop.stepper.schedule import FixedSchedule, StepTargets, landing
+from solprop.stepper.schedule import LANDING_ULPS, FixedSchedule, StepTargets, landing
 from solprop.stepper.tableau import extension_coefficients, extension_value
 from solprop.translate.linop import delta_phi, unitary_phase
 from solprop.translate.masks import noise_spectrum
@@ -83,7 +83,6 @@ if TYPE_CHECKING:
 
 __all__ = [
     "INITIAL_STEP_STATS_CAPACITY",
-    "LANDING_ULPS",
     "StepDriver",
     "reached",
     "refuse_general_leaves",
@@ -91,14 +90,6 @@ __all__ = [
 ]
 
 _StateT = TypeVar("_StateT")
-
-LANDING_ULPS = 8
-"""How many ulps of slack a march allows itself when deciding it has arrived.
-
-The same guard :func:`solprop.stepper.schedule.landing` uses to decide that a position
-has already reached a target, so the march stops exactly where landing would refuse to
-take another step rather than one round-off-sized sliver short of it.
-"""
 
 
 def reached(position: float, target: float) -> bool:
@@ -132,9 +123,9 @@ def replay_tolerance(schedule: FixedSchedule, position: float) -> float:
     A schedule's edges are the running sum of its steps, and a sum of ``n`` rounded
     steps can drift from the position they were chosen to reach by about ``n`` ulps:
     ``FixedSchedule(np.full(160, L / 160))`` ends 12 ulps short of ``L``. The slack
-    is therefore :data:`LANDING_ULPS` or the step count, whichever is larger, in ulps
-    of the larger of the position and the schedule's length -- still far inside the
-    ``1e-9`` of the length that
+    is therefore :data:`~solprop.stepper.schedule.LANDING_ULPS` or the step count,
+    whichever is larger, in ulps of the larger of the position and the schedule's
+    length -- still far inside the ``1e-9`` of the length that
     :meth:`~solprop.translate.problem.KernelProblem.validate` allows an edge to miss a
     save plane by, so no step is ever skipped.
 

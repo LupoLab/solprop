@@ -139,6 +139,7 @@ def assert_same_snapshot(found: MarchSnapshot | None, stored: MarchSnapshot) -> 
     assert found.order == stored.order
     assert found.rejections == stored.rejections
     assert found.last_rejected == stored.last_rejected
+    assert found.collar_was_quiet == stored.collar_was_quiet
     assert np.array_equal(found.positions, stored.positions)
     assert found.identities == stored.identities
     assert np.array_equal(found.slots, stored.slots)

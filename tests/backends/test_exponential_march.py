@@ -45,7 +45,12 @@ from solprop.exceptions import (
 from solprop.grid import EnvelopeGrid
 from solprop.noise import modified_noise
 from solprop.stepper import FixedSchedule, PIController, RungeKutta
-from solprop.stepper.multistep import PEC_REAL_INTERVAL, ComparisonMultistep, Multistep
+from solprop.stepper.multistep import (
+    PEC_REAL_INTERVAL,
+    ComparisonMultistep,
+    Multistep,
+    march_policy,
+)
 from solprop.translate.coupled import constant_schur_flow
 from solprop.translate.linop import delta_phi
 
@@ -707,7 +712,18 @@ def _chooser(method, collar_rate, *, quiet=False):
     """
     march = object.__new__(AdamsMarch)
     march._method = method
-    march._collar_rate = collar_rate
+    march._policy = march_policy(
+        method,
+        dz_min=0.0,
+        dz_max=1.0,
+        stretch=1.1,
+        z_end=1.0,
+        save_planes=[],
+        hard_kinks=[],
+        breakpoints=[0.0, 1.0],
+        interpolate=False,
+        collar_rate=collar_rate,
+    )
     march._order = 5
     # A stand-in, not a StepDriver: the order choice reads one flag from it.
     march._backend = cast("Any", SimpleNamespace(_collar_quiet=quiet))
@@ -753,6 +769,33 @@ def test_the_step_after_a_collar_returns_is_held_to_its_stable_step():
     assert _chooser(EXPONENTIAL, 0.0)._collar_reentry(1.0) == 1.0
 
 
+def test_a_new_run_clears_the_collar_flag_and_a_pending_floor():
+    # A backend reused for another run starts it as a fresh one would (SEP 39 R9): the
+    # collar flag of the last run's last attempt does not cap the new run's first
+    # step after a collar returns.
+    march = _chooser(EXPONENTIAL, 1.0e3, quiet=True)
+    march._collar_was_quiet = True
+    march._last_rejected = True
+    march._floor = ConvergenceError("pending")
+    march.begin_run()
+    assert march._collar_was_quiet is False
+    assert march._last_rejected is False
+    assert march._floor is None
+    march._raise_floor()
+
+
+def test_a_resumed_collar_flag_caps_the_step_after_the_collar_returns():
+    # The flag a snapshot restores decides the re-entry cap exactly as the
+    # uninterrupted march's would: restored quiet, the first attempt with the term
+    # back is held to the stable step; restored active, it is not.
+    rate = 1.0e3
+    stable = PEC_REAL_INTERVAL[4] / rate
+    for restored, expected in ((True, stable), (False, 1.0)):
+        march = _chooser(EXPONENTIAL, rate, quiet=False)
+        march._collar_was_quiet = restored
+        assert march._collar_reentry(1.0) == pytest.approx(expected)
+
+
 @pytest.mark.parametrize("integrator", FORMULATIONS, ids=["interaction", "exponential"])
 def test_only_the_exponential_formulation_reads_the_collar(integrator):
     # In the exponential formulation the in-stage collar is the one stiff term the
@@ -776,7 +819,7 @@ def test_only_the_exponential_formulation_reads_the_collar(integrator):
         collar = problem.responses.temporal_absorber
         assert collar is not None
         expected = 0.5 * float(np.max(collar))
-        assert march._collar_rate == (
+        assert march._policy.collar_rate == (
             expected if integrator.formulation == "exponential" else 0.0
         )
     finally:
