@@ -99,7 +99,7 @@ time divided by the native backend's: above 1, the native backend is faster.
   - Two interactions were found and corrected during qualification:
     - a narrow response stage followed by a full-width FFT on the Cartesian filament;
     - a serialised coupled-flow matrix on the scalar wall.
-- **A stable kernel team** ([measurements](benchmarks.md#stable-kernel-team)). GNU OpenMP
+- **A stable kernel team** ([measurements](benchmarks.md#a-stable-kernel-team)). GNU OpenMP
   ends surplus pool threads whenever a narrower region follows a wider one, so a
   four-thread kernel between full-width ones re-created twelve threads each time (about
   0.45 ms at 16 threads). A kernel pool with a full-width instance now gives it to its
