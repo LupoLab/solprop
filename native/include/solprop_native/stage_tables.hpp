@@ -623,10 +623,12 @@ inline AdamsWeights fused_weights(const double* nodes, const std::size_t n,
                   [](const std::size_t value) { return value == 0; }))
     throw std::invalid_argument("Adams coefficient tables have inconsistent extents");
   const std::size_t width = highest + 1;
-  std::array<double, lagrange::max_nodes> through{};
-  std::array<double, lagrange::max_nodes * lagrange::max_nodes> scratch{};
-  std::array<double, lagrange::max_nodes> basis{};
-  std::array<double, lagrange::max_nodes> integrated{};
+  // Sized at run time: nvcc 12.8's host pass re-emitted these arrays' constant bounds
+  // as `unsigned long(...)`, which GCC refuses (SEP 39 phase 5).
+  std::vector<double> through(width, 0.0);
+  std::vector<double> scratch(width * width, 0.0);
+  std::vector<double> basis(width, 0.0);
+  std::vector<double> integrated(width, 0.0);
   through[0] = 1.0;
   for (std::size_t t = 0; t + 1 < width; ++t)
     through[t + 1] = nodes[t];
