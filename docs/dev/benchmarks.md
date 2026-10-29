@@ -879,29 +879,38 @@ At one thread, the default plans every row transform with FFTW's measured search
 is most of a short run's backend construction: about 1.3 s for averaged helium's
 6400-sample real pair alone. `SOLPROP_FFTW_WISDOM` now keeps those plans for the next
 process ([tuning](../guide/performance/tuning.md)). Fresh processes at one thread,
-`SOLPROP_FFTW_PLAN=measure`, passive-bound, `--length 0.1` windows through the
-benchmark worker's own `timed_run`; for each case one process stores the wisdom, then
-three rounds alternate a process without the variable (cold) and one with it (warm);
-medians, and the warm/cold window ratio's median and range over the rounds. Step counts
-are equal in every pair. Intel Xeon Gold 6240 (one core of an otherwise idle socket):
+`SOLPROP_FFTW_PLAN=measure`, passive-bound, through the benchmark worker's own
+`timed_run` (`--length 0.1`; `ctc`, `kerr_beam_192` and `grin_nonlinear` on the EPYC
+and `ctc` on the Xeon `--length 0.05`). For each case one process stores the wisdom,
+then three rounds alternate a process without the variable (cold) and one with it
+(warm): medians of the backend's construction, cold → warm, and the warm/cold window
+ratio's median and range over the rounds. Step counts are equal in every pair. One core
+of an Intel Xeon Gold 6240 (an otherwise idle socket) and of a 16-core allocation of an
+AMD EPYC 7763:
 
-| case | backend construction, cold | warm | window, cold | warm/cold window |
+| case | Xeon construction | Xeon window | EPYC construction | EPYC window |
 |---|---:|---:|---:|---:|
-| `he_rdw_averaged` | 1.398 s | 0.033 s | 0.266 s | 0.985 [0.945, 0.988] |
-| `argon_blueshift_averaged` | 1.330 s | 0.032 s | 0.540 s | 1.006 [0.987, 1.009] |
-| `h2_raman_averaged` | 4.003 s | 0.029 s | 0.778 s | 1.003 [0.996, 1.025] |
-| `gnlse_raman_shock` | 2.097 s | 0.033 s | 7.462 s | 1.002 [0.926, 1.010] |
-| `gnlse_soliton` | 0.453 s | 0.022 s | 0.115 s | 0.999 [0.995, 1.005] |
-| `rdw` | 1.405 s | 0.051 s | 2.052 s | 0.992 [0.985, 1.003] |
-| `argon_blueshift` | 1.321 s | 0.035 s | 4.026 s | 0.995 [0.985, 0.999] |
-| `argon_blueshift_envelope` | 0.473 s | 0.024 s | 0.102 s | 0.989 [0.976, 1.021] |
-| `radial_filament_256` | 0.613 s | 0.093 s | 3.620 s | 0.994 [0.986, 1.022] |
+| `he_rdw_averaged` | 1.398 → 0.033 s | 0.985 [0.945, 0.988] | 1.777 → 0.049 s | 1.002 [0.973, 1.004] |
+| `argon_blueshift_averaged` | 1.330 → 0.032 s | 1.006 [0.987, 1.009] | 1.708 → 0.040 s | 0.987 [0.961, 1.001] |
+| `h2_raman_averaged` | 4.003 → 0.029 s | 1.003 [0.996, 1.025] | 5.224 → 0.040 s | 0.999 [0.987, 1.009] |
+| `gnlse_raman_shock` | 2.097 → 0.033 s | 1.002 [0.926, 1.010] | 2.801 → 0.048 s | 1.004 [0.987, 1.005] |
+| `gnlse_soliton` | 0.453 → 0.022 s | 0.999 [0.995, 1.005] | 0.636 → 0.035 s | 0.995 [0.990, 1.019] |
+| `rdw` | 1.405 → 0.051 s | 0.992 [0.985, 1.003] | 1.827 → 0.068 s | 0.993 [0.990, 1.005] |
+| `argon_blueshift` | 1.321 → 0.035 s | 0.995 [0.985, 0.999] | 1.735 → 0.048 s | 0.998 [0.996, 1.002] |
+| `argon_blueshift_envelope` | 0.473 → 0.024 s | 0.989 [0.976, 1.021] | 0.678 → 0.038 s | 1.007 [0.995, 1.016] |
+| `radial_filament_256` | 0.613 → 0.093 s | 0.994 [0.986, 1.022] | 0.820 → 0.107 s | 1.008 [1.004, 1.011] |
+| `ctc` | 5.033 → 0.056 s | 0.985 [0.983, 1.016] | 6.565 → 0.068 s | 1.002 [1.001, 1.004] |
+| `kerr_beam_192` | 1.248 → 0.657 s | 0.993 [0.972, 1.006] | 1.079 → 0.255 s | 0.995 [0.973, 1.126] |
+| `grin_nonlinear` | | | 1.984 → 0.309 s | 1.015 [1.000, 1.040] |
 
-Warm windows run as fast as cold ones: the plans are the ones a measurement chose,
-whether in this process or an earlier one. A warm backend's construction is the rest of
-its setup, tens of milliseconds. A job of a one-thread scan still pays solprop's own
-import, case construction and translation (0.7 s and 3.0 s for averaged helium here),
-which the native backend does not own.
+Warm windows run as fast as cold ones: the plans are those a measurement chose, in this
+process or an earlier one. A warm process given the seeding process's wisdom reproduced
+its final field bit for bit (averaged helium), where two cold processes differ by
+measured plans (5.8 × 10⁻¹⁵ relative). What remains of a warm construction is allocation
+and setup: tens of milliseconds, a few tenths of a second for the free-space Kerr beam's
+1.4 GB of state. A job of a one-thread scan still pays solprop's own import, case
+construction and translation (0.7 s and 3.0 s for averaged helium on the Xeon), which
+the native backend does not own.
 
 ## Reference tables
 
