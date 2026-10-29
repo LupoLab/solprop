@@ -432,16 +432,17 @@ caps, the budget, the floor and ceiling, the landings and the run's end -- is on
 record, `MarchPolicy`, formed by `march_policy` from the method and the settings, and
 the decisions are pure functions of the policy, the march's state and a trial's norms
 (`backends/adams_core.py`). The kernel contract's section 11 specifies them. `native`
-executes the exponential `Multistep()` from that record on its resident engine
+executes `Multistep()` in either formulation, the one-order-higher PEC comparisons and
+replayed schedules from that record on its resident engine
 (`native/src/adams_march.cpp`), a run of attempts per call, and returns to solprop
 only at an event: the target reached or crossed, an accepted step on which the driver
 has work (a statistics row, a natural stop, a monitor check), the call's bound, the
 budget, the floor or a native error. The driver books the call's attempts through
 `_record_attempt` and `_skip_step`, inside one commit. `AdamsMarch` is the reference
-and steps every configuration the native march does not cover (the interaction
-formulation, the comparison variants, replayed schedules, a z table, separable,
-dispersive, moving or coupled stage rows, the carrier frame and device builds, for
-now), with a `HostMarchWarning` naming the reason.
+and steps every configuration the native march does not cover (the comparison
+methods' general path, a z table, separable, dispersive, moving or coupled stage rows,
+the carrier frame and device builds, for now), with a `HostMarchWarning` naming the
+reason. Lockstep batches replay on the host (`replay_step`).
 
 **Resume** (ADR-046): an engine that can export its rows (`snapshot_rows`, and
 `load_rows` to install them) lets `AdamsMarch.snapshot` return a `MarchSnapshot` -- the

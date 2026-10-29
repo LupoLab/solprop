@@ -385,10 +385,11 @@ The first public release. It contains:
   `ctc_reduced` is the comb-to-continuum tests' one-mode case (the two-mode case is
   `ctc_reduced_two_mode`), the mode-averaged cases ask for `mode_average=True`, and the
   declared array sizes and costs are those of the current grids.
-- **The exponential Adams march runs natively**
+- **The Adams march runs natively**
   ([SEP 39](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0039-native-adams-march.html),
-  in progress). On the native CPU backend the default `Multistep()`'s stage scalars,
-  coefficient tables and controller run in compiled code, one native call for many
+  in progress). On the native CPU backend `Multistep()` (in either formulation, and the
+  one-order-higher PEC comparisons, adaptive or replayed) runs its stage scalars,
+  coefficient tables and controller in compiled code, one native call for many
   steps, returning to Python only when a statistics row, a save plane, a monitor check,
   the budget, the floor or an error needs it; the native backend's Python time per step
   falls from tens or hundreds of microseconds to about one. The algorithm is solprop's,

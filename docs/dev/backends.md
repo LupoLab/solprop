@@ -1728,10 +1728,12 @@ A test asserts which entries are field-sized, that everything is named even when
 that the total is within the documented budget for the standard cases.
 
 **The native Adams march** (ADR-060, [SEP 39](seps/sep-0039-native-adams-march.md)).
-`native` steps the exponential `Multistep()` itself: `_NativeAdamsMarch` hands the
-native state solprop's `MarchPolicy` once, then each call runs attempts on the resident
-engine -- stage scalars and tables evaluated natively from the run's uploaded
-expansions, the trial, the decision, the accept -- until a host event, and returns the
+`native` steps `Multistep()` itself, in either formulation, the one-order-higher PEC
+comparisons and replayed schedules: `_NativeAdamsMarch` hands the native state
+solprop's `MarchPolicy` (and a replay's schedule) once, then each call runs attempts on
+the resident engine -- stage scalars and tables evaluated natively from the run's
+uploaded expansions, the trial, the decision, the accept -- until a host event, and
+returns the
 march's state and one row per attempt (its end, step, norm, verdict, order and wall
 time). The decisions are compiled without contraction in their own translation unit,
 so that they round as solprop's do; within one build the two marches take the same

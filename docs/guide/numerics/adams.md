@@ -648,8 +648,8 @@ times at loose and medium accuracy, falling to about two at the tightest:
 On a cheap source, calls are not run time. On the compiled backends one source
 evaluation can cost less than a Runge–Kutta step's own linear work, and the Adams march
 takes more steps, so the call saving shrinks in wall time or disappears: a
-single-mode capillary, a coupled wall. On `native` the exponential `Multistep()`'s
-controller runs natively as well ([SEP 39](../../dev/seps/sep-0039-native-adams-march.md)),
+single-mode capillary, a coupled wall. On `native` the `Multistep()` controller runs
+natively as well ([SEP 39](../../dev/seps/sep-0039-native-adams-march.md)),
 so a step costs its kernels and almost no Python. [Choosing a stepper](choosing-a-stepper.md)
 gives the measured ranking by regime, on both compiled backends and on devices.
 
@@ -662,10 +662,11 @@ gives the measured ranking by regime, on both compiled backends and on devices.
   the AMD CDNA 3 and NVIDIA Hopper devices SEP 16 qualified, beside a coupled flow too
   when every bin of its sections is on the flow's eigenbasis route and it has at most
   16 channels (otherwise its matrix passes run on the host). On the CPU build the
-  default `Multistep()`'s march runs natively too; the configurations it does not cover
-  yet (the interaction formulation and the comparison methods, a replayed schedule, a
-  z table, separable, dispersive, moving or coupled stage rows, the carrier frame, a
-  device build) step solprop's march on the same engine, with a
+  march itself runs natively too, for `Multistep()` in either formulation and the
+  one-order-higher PEC comparisons, adaptive or replayed; the configurations it does
+  not cover yet (the other comparison methods, a z table, separable, dispersive,
+  moving or coupled stage rows, the carrier frame, a device build) step solprop's
+  march on the same engine, with a
   {py:class}`~solprop.exceptions.HostMarchWarning` that names the reason. Either march
   takes the same steps.
 - **Resume across backends.** A frozen-residual coupled flow's history is kept in a

@@ -105,6 +105,15 @@ struct State {
   bool last_rejected = false;
   bool collar_was_quiet = false;
   Ledger ledger;
+  /** A replay's next step: the driver's schedule index. */
+  std::size_t cursor = 0;
+};
+
+/** A replayed schedule's steps and their edges, one more than the steps (SEP 39 4.3).
+ */
+struct Schedule {
+  std::vector<double> steps;
+  std::vector<double> edges;
 };
 
 /** A trial's history, newest first, and the orders it scores. */
@@ -186,6 +195,9 @@ struct Rejection {
 [[nodiscard]] double proposal(const Policy& policy, double dz, double factor);
 /** `solprop.backends.driver.reached`. */
 [[nodiscard]] bool reached(double position, double target, int ulps);
+/** Whether a replayed step's end is a hard kink: one within `slack` of it
+    (`adams_core.replay_kink`). */
+[[nodiscard]] bool replay_kink(const Policy& policy, double end, double slack);
 /** The spacing of binary64 at a non-negative `x`: `math.ulp`, `numpy.spacing`. */
 [[nodiscard]] double ulp(double x);
 /** `a b + c` as this translation unit rounds it: the strictness test's witness that the
@@ -205,8 +217,10 @@ public:
   virtual void start(double z) = 0;
   /** Form a trial from `z` over `dz`; write its scored orders' norms into `norms`. */
   virtual void trial(double z, double dz, const Stencil& stencil, double* norms) = 0;
-  /** Adopt the held trial; the new sample takes row `free`. */
-  virtual void accept(double dz, std::size_t free, const Stencil& stencil) = 0;
+  /** Adopt the held trial; the new sample takes row `free`. `kept` is the history the
+      step keeps, oldest first, which the interaction formulation transports. */
+  virtual void accept(double dz, std::size_t free, const Stencil& stencil,
+                      const std::vector<Entry>& kept) = 0;
   /** The carrier chord's largest phase over `[z1, z2]`, rad. */
   virtual double chord_phase(double z1, double z2) = 0;
 };
@@ -220,6 +234,7 @@ enum class Reason : int {
   budget = 4,    ///< the next attempt would exceed the call budget
   floor = 5,     ///< a proposal fell below the floor
   error = 6,     ///< a native failure; the steps committed before it stand
+  diverged = 7,  ///< a replayed step's norm is not finite: it cannot be rejected
 };
 
 /** Where a native failure happened. */
@@ -242,6 +257,9 @@ struct Bounds {
   /** The call's own bound: its attempts and its wall time, s. */
   std::size_t max_attempts = 256;
   double max_seconds = 0.1;
+  /** A replay: the schedule's steps are taken as given, its edges within `slack`. */
+  bool replay = false;
+  double slack = 0.0;
 };
 
 /** Columns of one attempt's row. */
@@ -266,6 +284,10 @@ struct Result {
   Stage stage = Stage::none;       ///< where the failure happened (error)
   Category category = Category::none;
   std::string message;
+  /** The replayed step whose norm was not finite (diverged): its step, end and norm. */
+  double replay_dz = 0.0;
+  double replay_end = 0.0;
+  double replay_norm = 0.0;
   /** The last accepted step: its anchor, step, order and nodes, for an observation. */
   bool stepped = false;
   double step_z = 0.0;
@@ -274,7 +296,9 @@ struct Result {
   std::array<double, max_history> step_nodes{};
 };
 
-/** Advance `state` under `policy` by the algorithm of SEP 39 section 4, to an event. */
-Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bounds);
+/** Advance `state` under `policy` by the algorithm of SEP 39 section 4, to an event;
+    a replay takes `schedule`'s steps from `state.cursor`. */
+Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bounds,
+           const Schedule& schedule);
 
 } // namespace solprop_native::march

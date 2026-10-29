@@ -23,7 +23,7 @@ import numpy as np
 import numpy.typing as npt
 from solprop._helpers import Helpers
 from solprop._interrupts import committing
-from solprop.backends.driver import StepDriver, reached
+from solprop.backends.driver import StepDriver, reached, replay_tolerance
 from solprop.backends.exponential import (
     CarrierReference,
     carrier_reference,
@@ -435,16 +435,16 @@ class NativeBackend(StepDriver[_core.State]):
             interpolate=self._problem.stepper.interpolate_planes,
             carrier=carrier_reference(self._problem, method),
         )
-        # solprop SEP 39 phase 1: where the trial's stage rows are one bundle repeated,
-        # the native state reads the scalar tables itself, uploaded once.
-        tables = self._stage_tables() if method.formulation == "exponential" else None
+        # solprop SEP 39 phases 1 and 3: where the trial's stage rows are one bundle
+        # repeated, the native state reads the scalar tables itself, uploaded once.
+        tables = self._stage_tables()
         if tables is not None:
             self._native_state.adams_stage_tables(tables)
             self._resident.staged = True
         return self._resident
 
     def _stage_tables(self) -> dict[str, object] | None:
-        """Return the tables a resident exponential trial reads natively, or ``None``.
+        """Return the tables a resident Adams trial reads natively, or ``None``.
 
         solprop SEP 39 phase 1: every scalar table ``translate.stage.scalars`` reads at
         a stage -- the weights of a constant or expanded ``Phi`` and prefactor, the
@@ -1941,7 +1941,26 @@ class _ResidentAdams:
         order: int,
         orders: list[int],
     ) -> RealArray:
-        """Form an interaction-formulation trial natively; return its scored norms."""
+        """Form an interaction-formulation trial natively; return its scored norms.
+
+        A staged engine forms the tables and the stage scalars in the native state from
+        the nodes alone (solprop SEP 39 phase 3), by the same operations as the host's.
+        """
+        if self.staged:
+            with _envelope_errors():
+                norms = self.native.adams_fused_trial_at(
+                    z,
+                    dz,
+                    np.asarray(nodes, dtype=np.float64),
+                    np.ascontiguousarray(
+                        slots[: max(max(orders), order)], dtype=np.uint64
+                    ),
+                    order,
+                    list(orders),
+                    self._divisor(),
+                )
+            self._trial = (z, dz, nodes, slots, order)
+            return np.asarray(norms, dtype=np.float64).reshape(-1)
         self.hoist(z)
         predictor, corrector, rows = fused_tables(
             nodes, order, orders, helpers=self.helpers
@@ -2171,6 +2190,9 @@ class _ResidentAdams:
 _NO_DIVISOR = np.empty(0, dtype=np.float64)
 """The empty divisor that asks the native trial to form the scale itself."""
 
+_NO_SCHEDULE = np.empty(0, dtype=np.float64)
+"""The empty schedule of an adaptive march's configuration."""
+
 _NO_CARRIER = np.empty(0, dtype=np.float64)
 """The empty carrier frame: the native trial takes the unshifted arithmetic."""
 
@@ -2227,7 +2249,7 @@ _MARCH_COUNTERS = (
 )
 """The call ledger's counters the native march keeps."""
 
-_REACHED, _HOST_STEP, _MONITOR, _BOUND, _BUDGET, _FLOOR, _ERROR = range(7)
+_REACHED, _HOST_STEP, _MONITOR, _BOUND, _BUDGET, _FLOOR, _ERROR, _DIVERGED = range(8)
 """Why a native march call returned (``march::Reason``)."""
 
 _CONVERGENCE, _BACKEND, _VALUE = 1, 2, 3
@@ -2289,9 +2311,9 @@ class _NativeAdamsMarch(AdamsMarch):
         if refusal is not None and warn:
             warnings.warn(
                 f"solprop-native steps this {method.name} run with solprop's Python "
-                f"march: {refusal}. The native march (SEP 39) covers the exponential "
-                "formulation on a constant or expanded operator with PIController's "
-                "norm",
+                f"march: {refusal}. The native march (SEP 39) covers Multistep() in "
+                "either formulation and the one-order-higher PEC comparisons, on a "
+                "constant or expanded operator with PIController's norm",
                 HostMarchWarning,
                 stacklevel=4,
             )
@@ -2305,12 +2327,12 @@ class _NativeAdamsMarch(AdamsMarch):
         """Return why the native march does not step the run, and whether to warn."""
         if march == "host" or _ADAMS_MARCH == "host":
             return "the private switch asked for it", False
-        method, engine = self._method, self._engine
-        problem = self._backend._problem
+        engine = self._engine
         reasons = (
-            (method.formulation != "exponential", "the interaction formulation"),
-            (type(method) is not Multistep, "a comparison variant"),
-            (problem.stepper.schedule is not None, "a replayed schedule"),
+            (
+                self._general is not None,
+                "a comparison method's general path (PECE, explicit or matched pairs)",
+            ),
         )
         for failed, reason in reasons:
             if failed:
@@ -2366,6 +2388,23 @@ class _NativeAdamsMarch(AdamsMarch):
         if backend._natural_stop_due(target):
             return
         self._configure()
+        schedule = backend._problem.stepper.schedule
+        if schedule is not None:
+            # A replay takes the schedule's steps as given (`AdamsMarch._replay_to`).
+            slack = replay_tolerance(schedule, target)
+            while (
+                backend._schedule_index < schedule.n_steps
+                and backend._z < target - slack
+            ):
+                if self._call(target, slack):
+                    return
+            if backend._z < target - slack:
+                msg = (
+                    f"the replayed schedule ends at {float(schedule.z_end):.6g} m and "
+                    f"cannot reach z = {target:.6g} m"
+                )
+                raise BackendError(msg)
+            return
         while not reached(backend._z, target):
             if self._call(target):
                 return
@@ -2385,13 +2424,24 @@ class _NativeAdamsMarch(AdamsMarch):
         if self._runner is None:
             backend = cast("NativeBackend", self._backend)
             engine = cast("_ResidentAdams", self._engine)
+            schedule = backend._problem.stepper.schedule
+            steps = edges = _NO_SCHEDULE
+            if schedule is not None:
+                steps = np.ascontiguousarray(schedule.steps, dtype=np.float64)
+                edges = np.ascontiguousarray(schedule.edges, dtype=np.float64)
             backend._native_state.adams_march_configure(
-                dataclasses.asdict(policy), engine.compensated, engine.interpolate
+                dataclasses.asdict(policy),
+                self._fused,
+                engine.compensated,
+                engine.interpolate,
+                steps,
+                edges,
             )
         self._configured = (interval,)
 
-    def _bounds(self, target: float) -> dict[str, object]:
-        """Return a call's bounds: the target and the steps the driver has work on."""
+    def _bounds(self, target: float, slack: float | None) -> dict[str, object]:
+        """Return a call's bounds: the target, the steps the driver has work on and,
+        for a replay, the edges' slack."""
         backend = self._backend
         steps = []
         if backend._row_spec is not None:
@@ -2415,6 +2465,8 @@ class _NativeAdamsMarch(AdamsMarch):
             "last_check": 0.0 if checked is None else float(checked),
             "max_attempts": self.MAX_ATTEMPTS,
             "max_seconds": self.MAX_SECONDS,
+            "replay": slack is not None,
+            "slack": 0.0 if slack is None else float(slack),
         }
 
     def _state(self) -> dict[str, object]:
@@ -2427,6 +2479,7 @@ class _NativeAdamsMarch(AdamsMarch):
             "rejections": self._rejections,
             "last_rejected": self._last_rejected,
             "collar_was_quiet": self._collar_was_quiet,
+            "cursor": backend._schedule_index,
             "history": [
                 (entry.z, entry.identity == "predicted", entry.slot)
                 for entry in self._history
@@ -2434,10 +2487,14 @@ class _NativeAdamsMarch(AdamsMarch):
             "ledger": {name: getattr(ledger, name) for name in _MARCH_COUNTERS},
         }
 
-    def _call(self, target: float) -> bool:
-        """Make one native call and drain it; return whether a natural stop is due."""
+    def _call(self, target: float, slack: float | None = None) -> bool:
+        """Make one native call and drain it; return whether a natural stop is due.
+
+        `slack` is a replay's (:func:`solprop.backends.driver.replay_tolerance`), or
+        ``None`` for an adaptive march.
+        """
         backend = self._backend
-        bounds = self._bounds(target)
+        bounds = self._bounds(target, slack)
         started = time.perf_counter() - backend._clock
         with committing():
             result = self._native_run(self._state(), bounds)
@@ -2450,6 +2507,8 @@ class _NativeAdamsMarch(AdamsMarch):
             last = len(rows) - 1
             for index, (end, dz, norm, accepted, _, wall) in enumerate(rows.tolist()):
                 backend._record_attempt(end, dz, norm, bool(accepted), started + wall)
+                if slack is not None:
+                    backend._accepted_norms.append(norm)
                 final = index == last and (event or reason == _FLOOR)
                 if accepted and not final:
                     backend._skip_step(end)
@@ -2487,6 +2546,7 @@ class _NativeAdamsMarch(AdamsMarch):
         state = result["state"]
         backend._z = float(state["z"])
         backend._proposal = float(state["proposal"])
+        backend._schedule_index = int(state["cursor"])
         self._order = int(state["order"])
         self._rejections = int(state["rejections"])
         self._last_rejected = bool(state["last_rejected"])
@@ -2505,19 +2565,21 @@ class _NativeAdamsMarch(AdamsMarch):
             engine._trial = None
             if result["stepped"]:
                 order = int(result["step_order"])
-                nodes = [float(node) for node in result["step_nodes"]]
+                nodes = [1.0, *(float(node) for node in result["step_nodes"][:order])]
+                # What the engine's dense observation reads: the exponential
+                # corrector's coefficients, or the fused interpolant's nodes.
+                helpers = engine.helpers
+                interpolant = (
+                    np.array(nodes)
+                    if self._fused
+                    else lagrange_coefficients(nodes, check=False, helpers=helpers)
+                )
                 engine._step = (
-                    (
-                        float(result["step_z"]),
-                        float(result["step_dz"]),
-                        lagrange_coefficients(
-                            [1.0, *nodes[:order]], check=False, helpers=engine.helpers
-                        ),
-                    )
+                    (float(result["step_z"]), float(result["step_dz"]), interpolant)
                     if engine.interpolate
                     else None
                 )
-                engine._dense_nodes = np.array([1.0, *nodes[:order]])
+                engine._dense_nodes = np.array(nodes)
                 engine._dense_carrier = _NO_CARRIER
             engine.adopted(None)
 
@@ -2530,6 +2592,21 @@ class _NativeAdamsMarch(AdamsMarch):
             msg = (
                 f"step control asked for {proposed:.3e} m, below the floor dz_min ="
                 f" {self._policy.dz_min:.3e} m; the tolerance cannot be met here"
+            )
+            raise ConvergenceError(msg)
+        if reason == _DIVERGED:
+            dz, end = float(result["replay_dz"]), float(result["replay_end"])
+            norm = float(result["replay_norm"])
+            msg = (
+                f"{self._backend.name}: a replayed {self._method.name} step of "
+                f"{dz:.4g} m ending at z = {end:.6g} m has a non-finite error norm "
+                f"({norm!r}): the field has diverged. A replayed schedule takes "
+                "its steps as given and cannot reject one, so a step beyond an "
+                "explicit stability limit -- the in-stage temporal collar's or a "
+                "coupled flow's advisory step -- grows until it overflows; the "
+                "translation refuses a declared step past the collar's limit and "
+                "warns on one past the flow's. Take shorter steps, or let the "
+                "controller choose them"
             )
             raise ConvergenceError(msg)
         if reason == _ERROR:

@@ -28,6 +28,7 @@ from solprop.backends.multistep import AdamsKernels, ExponentialKernels
 from solprop.exceptions import BackendError, ConvergenceError, ResponseBudgetError
 from solprop.log import NullReporter
 from solprop.stepper.multistep import Multistep
+from solprop.stepper.schedule import FixedSchedule
 
 pytestmark = pytest.mark.skipif(
     "native" not in available(), reason="native is not installed"
@@ -90,8 +91,14 @@ class _Runner:
                 for name in march._policy.__dataclass_fields__
             }
             policy["quiet_interval"] = harness.scenario.quiet_interval
+            schedule = harness.scenario.schedule
+            steps = edges = np.empty(0, dtype=np.float64)
+            if schedule is not None:
+                replayed = FixedSchedule(np.array(schedule, dtype=np.float64))
+                steps = np.ascontiguousarray(replayed.steps, dtype=np.float64)
+                edges = np.ascontiguousarray(replayed.edges, dtype=np.float64)
             self.scripted = _core.ScriptedMarch(
-                policy, self.norms, harness.scenario.carrier_rate or 0.0
+                policy, self.norms, harness.scenario.carrier_rate or 0.0, steps, edges
             )
         bounds = {**bounds, "max_attempts": harness.max_attempts}
         result = self.scripted.run(state, bounds)
@@ -151,6 +158,8 @@ def run_native(scenario: Scenario, max_attempts: int) -> dict[str, Any]:
         exponential=ExponentialKernels(helpers=PLAIN),
     )
     harness.march = march
+    # Every scenario, a replay's too, runs on the native march.
+    assert march.native, march.refusal
     if scenario.targets is not None:
         targets = list(scenario.targets)
     elif scenario.interpolate or not scenario.save_planes:

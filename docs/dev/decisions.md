@@ -1599,8 +1599,9 @@ Withdrawn (development-process record, not a design decision).
     (`stepper.multistep.MarchPolicy`); its decisions are pure functions of the policy,
     the march's state and the trial's norms (`backends.adams_core`), and the kernel
     contract's section 11 specifies them in full.
-  - `native` executes the exponential `Multistep()` on its resident engine for a run
-    of attempts per call (`native/src/adams_march.cpp`, compiled without contraction
+  - `native` executes `Multistep()` in either formulation, the one-order-higher PEC
+    comparisons and replayed schedules on its resident engine for a run of attempts
+    per call (`native/src/adams_march.cpp`, compiled without contraction
     or fast-math), returning only at a host event: a reached target, an accepted step
     on which the driver has work, the monitor, the call's bound (256 attempts or
     0.1 s), the budget, the floor or a native error. solprop books the call's attempts

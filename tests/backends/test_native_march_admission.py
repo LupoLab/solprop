@@ -4,8 +4,9 @@
 
 """Which march steps a native Adams run (solprop SEP 39 section 6.6).
 
-The native march steps the exponential ``Multistep()`` on the routes whose trial is one
-bundle of stage rows; any other configuration runs solprop's Python march on the same
+The native march steps ``Multistep()`` in either formulation, and the one-order-higher
+PEC comparisons, adaptive or replayed, on the routes whose trial is one bundle of stage
+rows; any other configuration runs solprop's Python march on the same
 resident engine, with a ``HostMarchWarning`` that names the reason, and the run's
 metadata records which march stepped it. The private switch the benchmark harness uses
 selects the Python march without a warning.
@@ -14,12 +15,15 @@ selects the Python march without a warning.
 import dataclasses
 import warnings
 
+import numpy as np
 import pytest
 
 from capability_routes import ROUTES
 from solprop.backends import available
+from solprop.driver import Simulation
 from solprop.exceptions import HostMarchWarning
 from solprop.stepper.multistep import ComparisonMultistep, Multistep
+from solprop.stepper.schedule import FixedSchedule
 
 pytestmark = pytest.mark.skipif(
     "native" not in available(), reason="native is not installed"
@@ -36,7 +40,7 @@ def built(simulation, **keywords):
     )
 
 
-def on_route(route: str, integrator) -> object:
+def on_route(route: str, integrator) -> Simulation:
     """Return `route`'s simulation stepped by `integrator`."""
     simulation = ROUTES[route](None)
     settings = dataclasses.replace(simulation.settings, integrator=integrator)
@@ -66,18 +70,57 @@ def test_the_default_march_is_native_without_a_warning(route):
 
 
 @pytest.mark.parametrize(
+    "integrator",
+    [
+        Multistep(formulation="interaction"),
+        ComparisonMultistep(corrector="pec", order=4, corrector_order=5),
+        ComparisonMultistep(
+            corrector="pec", order=4, corrector_order=5, interpolant="hermite"
+        ),
+    ],
+    ids=["interaction", "pec4/5", "pec4/5 hermite"],
+)
+def test_the_fused_methods_are_native(integrator):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", HostMarchWarning)
+        backend = built(on_route("gnlse", integrator))
+    try:
+        assert backend._adams.native
+    finally:
+        backend.close()
+
+
+def test_a_replayed_schedule_is_native():
+    stepper = on_route("capillary (mode-averaged)", Multistep()).translate().stepper
+    simulation = on_route("capillary (mode-averaged)", Multistep())
+    schedule = FixedSchedule.uniform(
+        0.0,
+        float(stepper.z_end),
+        # Below the in-stage collar's stable step, which a replay must respect.
+        1e-7,
+        save_planes=np.asarray(stepper.save_planes).tolist(),
+    )
+    simulation.settings = dataclasses.replace(simulation.settings, schedule=schedule)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", HostMarchWarning)
+        backend = built(simulation)
+    try:
+        assert backend._adams.native
+    finally:
+        backend.close()
+
+
+@pytest.mark.parametrize(
     ("route", "integrator", "reason"),
     [
-        ("gnlse", Multistep(formulation="interaction"), "the interaction formulation"),
-        # The comparison variants take the interaction formulation only.
         (
             "gnlse",
-            ComparisonMultistep(corrector="pec", order=4, corrector_order=5),
-            "the interaction formulation",
+            ComparisonMultistep(corrector="pece", order=4),
+            "a comparison method's general path",
         ),
         ("general guide (moving)", Multistep(), "stage rows are not one bundle"),
     ],
-    ids=["interaction", "comparison", "moving maps"],
+    ids=["pece", "moving maps"],
 )
 def test_an_uncovered_run_takes_the_host_march_and_says_why(route, integrator, reason):
     with pytest.warns(HostMarchWarning, match=reason):

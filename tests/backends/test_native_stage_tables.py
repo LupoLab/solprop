@@ -2,15 +2,15 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""SEP 39 phase 1: an exponential trial's stage scalars and tables formed natively.
+"""SEP 39 phases 1 and 3: an Adams trial's stage scalars and tables formed natively.
 
-Where a resident exponential trial's stage rows are one bundle repeated, the native
-state reads the scalar tables itself, uploaded once per run, and forms the trial's
-coefficient tables and rate from its nodes (``_ResidentAdams.staged``). It performs the
-reads of ``translate.stage.scalars`` by the same Clenshaw helper, in the same order, so
-its scalars are solprop's to the bit; with deterministic transform plans a staged march
-therefore takes the host-staged march's steps and gives its fields bit for bit
-(SEP 39 sections 4.8 and 4.9).
+Where a resident trial's stage rows are one bundle repeated, the native state reads the
+scalar tables itself, uploaded once per run, and forms the trial's coefficient tables
+and rate from its nodes (``_ResidentAdams.staged``), in either formulation. It performs
+the reads of ``translate.stage.scalars`` by the same Clenshaw helper, in the same order,
+so its scalars are solprop's exactly; with deterministic transform plans a staged march
+then takes the host-packed march's steps, and its fields agree to rounding -- measured
+bit for bit (SEP 39 section 4.9), held here to a rounding bound (SEP 25).
 """
 
 import dataclasses
@@ -58,13 +58,14 @@ UNSTAGED = (
 )
 
 
-def translated(route: str):
-    """Return a route's simulation and problem under the exponential Multistep."""
+def translated(route: str, integrator: Multistep | None = None):
+    """Return a route's simulation and problem under `integrator`, the exponential
+    Multistep by default."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         simulation = ROUTES[route](None)
         simulation.settings = dataclasses.replace(
-            simulation.settings, integrator=Multistep()
+            simulation.settings, integrator=integrator or Multistep()
         )
         return simulation, simulation.translate()
 
@@ -153,9 +154,9 @@ def test_the_native_rate_is_read_on_the_closing_side():
         backend.close()
 
 
-def march(route, monkeypatch, *, staged):
+def march(route, monkeypatch, *, staged, integrator=None):
     """Run a route's planes on native, staged or with the host forming the stages."""
-    simulation, problem = translated(route)
+    simulation, problem = translated(route, integrator)
     with monkeypatch.context() as patch:
         if not staged:
             patch.setattr(NativeBackend, "_stage_tables", lambda self: None)
@@ -175,12 +176,23 @@ def march(route, monkeypatch, *, staged):
         backend.close()
 
 
+@pytest.mark.parametrize(
+    "integrator",
+    [Multistep(), Multistep(formulation="interaction")],
+    ids=["exponential", "interaction"],
+)
 @pytest.mark.parametrize("route", STAGED)
-def test_a_staged_march_is_the_host_staged_march_to_the_bit(route, monkeypatch):
-    # Deterministic transform plans, so that two runs of either path agree to the bit.
+def test_a_staged_march_takes_the_host_packed_march_s_steps(
+    route, integrator, monkeypatch
+):
+    # Deterministic transform plans, so that the two paths read the same transforms;
+    # they then differ in no operation, and were measured equal bit for bit.
     monkeypatch.setenv("SOLPROP_FFTW_PLAN", "estimate")
-    fields, steps, calls = march(route, monkeypatch, staged=True)
-    other, other_steps, other_calls = march(route, monkeypatch, staged=False)
+    fields, steps, calls = march(route, monkeypatch, staged=True, integrator=integrator)
+    other, other_steps, other_calls = march(
+        route, monkeypatch, staged=False, integrator=integrator
+    )
     assert calls == other_calls
-    assert np.array_equal(steps, other_steps)
-    assert np.array_equal(fields, other)
+    np.testing.assert_allclose(steps, other_steps, rtol=1e-12, atol=0)
+    scale = np.max(np.abs(other))
+    np.testing.assert_allclose(fields, other, rtol=0, atol=1e-13 * scale)

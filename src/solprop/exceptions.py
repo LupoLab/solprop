@@ -275,8 +275,8 @@ class GrazingIncidenceWarning(SolpropWarning):
 class HostMarchWarning(SolpropWarning):
     """The native backend steps an Adams run with solprop's Python march.
 
-    The native backend executes the exponential ``Multistep()`` march natively (SEP
-    39) wherever it covers the configuration; elsewhere it runs solprop's own march,
+    The native backend executes the ``Multistep()`` march natively (SEP 39) wherever
+    it covers the configuration; elsewhere it runs solprop's own march,
     the reference, with the same method and accuracy at a higher host cost per step.
     The warning names the reason, and the run's backend record says which march ran
     (``adams_march``).

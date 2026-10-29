@@ -56,8 +56,8 @@ public:
     for (std::size_t index = 0; index < stencil.n_orders; ++index)
       norms[index] = 0.25;
   }
-  void accept(double /*dz*/, std::size_t /*free*/,
-              const march::Stencil& /*stencil*/) override {
+  void accept(double /*dz*/, std::size_t /*free*/, const march::Stencil& /*stencil*/,
+              const std::vector<march::Entry>& /*kept*/) override {
     ++accepts;
   }
   double chord_phase(double /*z1*/, double /*z2*/) override { return 0.0; }
@@ -92,7 +92,7 @@ TEST(AdamsMarch, ARunKeepsItsLedgerAndLandsOnItsTarget) {
   bounds.target = 0.05;
   bounds.max_attempts = 1000;
   bounds.max_seconds = 10.0;
-  const auto result = march::run(rules, state, engine, bounds);
+  const auto result = march::run(rules, state, engine, bounds, march::Schedule{});
   ASSERT_EQ(result.reason, march::Reason::reached);
   EXPECT_TRUE(march::reached(state.z, bounds.target, rules.landing_ulps));
   EXPECT_EQ(engine.starts, 1);

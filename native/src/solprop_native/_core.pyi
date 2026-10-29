@@ -193,8 +193,24 @@ class State:
     ) -> npt.NDArray[np.float64]: ...
     def adams_stage_scalars(self, z0: float, z1: float) -> dict[str, list[float]]: ...
     def adams_march_configure(
-        self, policy: dict[str, object], compensated: bool, interpolate: bool
+        self,
+        policy: dict[str, object],
+        fused: bool,
+        compensated: bool,
+        interpolate: bool,
+        steps: npt.NDArray[np.float64],
+        edges: npt.NDArray[np.float64],
     ) -> None: ...
+    def adams_fused_trial_at(
+        self,
+        z: float,
+        dz: float,
+        nodes: npt.NDArray[np.float64],
+        slots: npt.NDArray[np.uint64],
+        order: int,
+        orders: list[int],
+        divisor: npt.NDArray[np.float64],
+    ) -> npt.NDArray[np.float64]: ...
     def adams_march_run(
         self, state: dict[str, object], bounds: dict[str, object]
     ) -> dict[str, Any]: ...
@@ -383,7 +399,9 @@ class ScriptedMarch:
         self,
         policy: dict[str, object],
         norms: npt.NDArray[np.float64],
-        carrier_rate: float = 0.0,
+        carrier_rate: float,
+        steps: npt.NDArray[np.float64],
+        edges: npt.NDArray[np.float64],
     ) -> None: ...
     def run(
         self, state: dict[str, object], bounds: dict[str, object]

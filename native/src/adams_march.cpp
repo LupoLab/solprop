@@ -332,6 +332,11 @@ double proposal(const Policy& policy, const double dz, const double factor) {
   return py_min(dz * factor, policy.dz_max);
 }
 
+bool replay_kink(const Policy& policy, const double end, const double slack) {
+  return std::any_of(policy.hard_kinks.begin(), policy.hard_kinks.end(),
+                     [&](const double kink) { return std::fabs(kink - end) <= slack; });
+}
+
 bool reached(const double position, const double target, const int ulps) {
   const double tolerance = ulps * ulp(py_max(std::fabs(position), std::fabs(target)));
   return position >= target - tolerance;
@@ -354,7 +359,8 @@ void fail(Result& result, const Stage stage, const std::exception& error) {
 
 } // namespace
 
-Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bounds) {
+Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bounds,
+           const Schedule& schedule) {
   using Clock = std::chrono::steady_clock;
   const auto started = Clock::now();
   Result result;
@@ -374,7 +380,17 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
         {end, dz, std::isfinite(norm) ? norm : std::numeric_limits<double>::infinity(),
          kept ? 1.0 : 0.0, static_cast<double>(order), elapsed()});
   };
-  while (!reached(state.z, target, policy.landing_ulps)) {
+  // A replay runs while the schedule has steps and its target is not within the
+  // slack (`AdamsMarch._replay_to`); an adaptive march until the target is reached.
+  const std::size_t n_steps = schedule.steps.size();
+  const auto running = [&]() {
+    if (bounds.replay)
+      return state.cursor < n_steps && state.z < target - bounds.slack;
+    return !reached(state.z, target, policy.landing_ulps);
+  };
+  if (bounds.replay && schedule.edges.size() != n_steps + 1)
+    throw std::invalid_argument("a replayed schedule has one more edge than steps");
+  while (running()) {
     // The budget, before any call is made (`_afford`).
     const std::uint64_t cost = (state.history.empty() ? 1 : 0) + 1;
     if (policy.has_budget && state.ledger.total() + cost > policy.max_calls) {
@@ -394,25 +410,31 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
       state.history = {Entry{state.z, Identity::accepted, 0}};
       state.order = policy.variable_order ? 1 : policy.order;
     }
-    // The caps: the carrier frame's, the quiet collar's, the collar's re-entry.
-    double proposed = state.proposal;
-    if (policy.carrier) {
-      const double end = py_min(state.z + proposed, policy.z_end);
-      proposed =
-          carrier_capped(policy, state.z, proposed, engine.chord_phase(state.z, end));
-    }
-    proposed = quiet_capped(policy, proposed, bounds.quiet);
-    proposed = collar_reentry(policy, proposed, state.order, state.collar_was_quiet,
-                              bounds.quiet);
-    state.collar_was_quiet = bounds.quiet;
-    Landing stop;
     Approach step;
-    try {
-      stop = landing(policy, state.z, proposed, z_end);
-      step = approach(policy, state.z, stop, target);
-    } catch (const std::exception& error) {
-      fail(result, Stage::trial, error);
-      return result;
+    if (bounds.replay) {
+      // The schedule's step, ending on its edge; a kink within the slack restarts.
+      step.dz = schedule.steps[state.cursor];
+      step.end = schedule.edges[state.cursor + 1];
+      step.kink = replay_kink(policy, step.end, bounds.slack);
+    } else {
+      // The caps: the carrier frame's, the quiet collar's, the collar's re-entry.
+      double proposed = state.proposal;
+      if (policy.carrier) {
+        const double end = py_min(state.z + proposed, policy.z_end);
+        proposed =
+            carrier_capped(policy, state.z, proposed, engine.chord_phase(state.z, end));
+      }
+      proposed = quiet_capped(policy, proposed, bounds.quiet);
+      proposed = collar_reentry(policy, proposed, state.order, state.collar_was_quiet,
+                                bounds.quiet);
+      state.collar_was_quiet = bounds.quiet;
+      try {
+        const Landing stop = landing(policy, state.z, proposed, z_end);
+        step = approach(policy, state.z, stop, target);
+      } catch (const std::exception& error) {
+        fail(result, Stage::trial, error);
+        return result;
+      }
     }
     const Stencil trial = stencil(policy, state.z, step.dz, state.history, state.order,
                                   state.last_rejected);
@@ -424,7 +446,8 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
       return result;
     }
     const double norm = norms[0];
-    if (!(norm <= 1.0)) {
+    // A replayed step is accepted whatever its finite norm.
+    if (!(norm <= 1.0) && !(bounds.replay && std::isfinite(norm))) {
       // A rejection leaves the accepted history; three in a row restart it.
       ++state.ledger.rejected;
       ++state.ledger.rejected_steps;
@@ -444,6 +467,15 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
         return result;
       }
       state.proposal = next;
+      if (bounds.replay) {
+        // A replay cannot reject: the field has diverged (`replay_step`), and the
+        // attempt is not recorded.
+        result.reason = Reason::diverged;
+        result.replay_dz = step.dz;
+        result.replay_end = step.end;
+        result.replay_norm = norm;
+        return result;
+      }
       record(step.end, step.dz, norm, false, trial.order);
     } else {
       // The new sample takes the lowest row the kept entries do not use.
@@ -456,7 +488,7 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
                          [free](const Entry& entry) { return entry.row == free; }))
           break;
       try {
-        engine.accept(step.dz, free, trial);
+        engine.accept(step.dz, free, trial, kept);
       } catch (const std::exception& error) {
         fail(result, Stage::accept, error);
         return result;
@@ -492,7 +524,9 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
       }
       state.proposal = next;
       ++accepted;
-      if (reached(state.z, target, policy.landing_ulps)) {
+      if (bounds.replay)
+        ++state.cursor;
+      if (!running()) {
         result.reason = Reason::reached;
         return result;
       }

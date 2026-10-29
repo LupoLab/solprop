@@ -1115,8 +1115,9 @@ the step history and over the same interval, and a row may not index past it.
 ## 11. The Adams march
 
 *Normative since kernel schema 39 ([SEP 39](seps/sep-0039-native-adams-march.md),
-ADR-060). The native backend executes it for the exponential `Multistep()` on its CPU
-build; every other configuration and backend runs the reference.*
+ADR-060). The native backend executes it on its CPU build for `Multistep()` in either
+formulation and the one-order-higher PEC comparisons, adaptive or replayed; every other
+configuration and backend runs the reference.*
 
 The step loop of `Multistep()` is one algorithm with one reference implementation,
 solprop's `AdamsMarch` and the controller core it calls (`solprop.backends.adams_core`).
@@ -1169,8 +1170,10 @@ position and a kink restart together. Only then is the next proposal tested agai
 floor. A floor so found is raised after the attempt is recorded.
 
 **What a native call takes**: the policy, once per run and again when the monitor's
-interval changes (`MARCH_POLICY_FIELDS`, exactly the record's fields); the state above;
-and its bounds: the target; whether the collar rests; the accepted steps after which the
+interval changes (`MARCH_POLICY_FIELDS`, exactly the record's fields), with a replay's
+schedule (its steps and edges); the state above, with a replay's cursor (the driver's
+schedule index); and its bounds: the target; for a replay, the edges' slack
+(`replay_tolerance`); whether the collar rests; the accepted steps after which the
 driver has work (the next statistics row, natural stop or monitor check, whichever comes
 first; none for zero); the monitor's last check and interval; and the call's own bound,
 256 attempts or 0.1 s of wall time, which bounds a signal's wait.
@@ -1184,8 +1187,9 @@ first; none for zero); the monitor's last check and interval; and the call's own
 - the reason it returned (`march::Reason`): the target reached, or crossed with planes
   interpolated; an accepted step on which the driver has work; the monitor's distance;
   the call's bound; the budget, with the refused attempt's cost; the floor, with the
-  proposal below it; or a native error, with its stage (startup, trial, accept),
-  category (convergence, value, backend) and message;
+  proposal below it; a replayed step whose norm is not finite, with its step, end and
+  norm; or a native error, with its stage (startup, trial, accept), category
+  (convergence, value, backend) and message;
 - the state above, every step before the event committed.
 
 **What solprop does with a call** (`_NativeAdamsMarch`): inside one `committing()` it

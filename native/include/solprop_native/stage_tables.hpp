@@ -303,4 +303,63 @@ inline ExponentialWeights weights(const double* nodes, const std::size_t n,
   return out;
 }
 
+/**
+ * Return an interaction-formulation (fused) trial's tables formed from its nodes:
+ * solprop's `backends.multistep.fused_tables` over `lagrange::basis_rows`, the
+ * operations in their order. The predictor's integrated weights on the `order` newest
+ * nodes; the step's own corrector's on `(1, nodes[:order])`, zero past them; and per
+ * scored order `k` its corrector's weights on `(1, nodes[:k])` less, from the second
+ * sample on, its predictor's on `nodes[:k]`. `nodes` holds the history's normalised
+ * positions newest first, `slots` their rows.
+ */
+SOLPROP_NATIVE_STRICT_FUNCTION
+inline AdamsWeights fused_weights(const double* nodes, const std::size_t n,
+                                  const std::size_t* slots, const std::size_t n_slots,
+                                  const std::size_t order, const std::size_t* orders,
+                                  const std::size_t n_orders) {
+  SOLPROP_NATIVE_STRICT_BLOCK
+  constexpr std::size_t most = lagrange::max_nodes;
+  std::size_t highest = 0;
+  for (std::size_t index = 0; index < n_orders; ++index)
+    highest = std::max(highest, orders[index]);
+  if (n_orders == 0 || n_orders > 3 || order == 0 || order > highest || highest > n ||
+      highest + 1 > most || highest + 1 > adams_max_samples ||
+      n_slots + 1 < highest + 1 || orders[0] != order ||
+      std::any_of(orders, orders + n_orders,
+                  [](const std::size_t value) { return value == 0; }))
+    throw std::invalid_argument("Adams coefficient tables have inconsistent extents");
+  const std::size_t width = highest + 1;
+  std::array<double, most> through{};
+  std::array<double, most * most> scratch{};
+  std::array<double, most> weights{};
+  std::array<double, most> integrated{};
+  through[0] = 1.0;
+  for (std::size_t t = 0; t + 1 < width; ++t)
+    through[t + 1] = nodes[t];
+  AdamsWeights out;
+  for (std::size_t t = 0; t < n_slots && t < adams_max_samples; ++t)
+    out.slot[t] = slots[t];
+  lagrange::basis_rows(nodes, order, 1.0, true, scratch.data(), weights.data());
+  for (std::size_t t = 0; t < order; ++t)
+    out.predictor[t] = weights[t];
+  for (std::size_t index = 0; index < n_orders; ++index) {
+    const std::size_t scored = orders[index];
+    lagrange::basis_rows(through.data(), scored + 1, 1.0, true, scratch.data(),
+                         integrated.data());
+    double* const row = out.rows[index];
+    for (std::size_t t = 0; t <= scored; ++t)
+      row[t] = integrated[t];
+    if (index == 0)
+      for (std::size_t t = 0; t <= scored; ++t)
+        out.corrector[t] = integrated[t];
+    lagrange::basis_rows(nodes, scored, 1.0, true, scratch.data(), weights.data());
+    for (std::size_t t = 0; t < scored; ++t)
+      row[t + 1] = row[t + 1] - weights[t];
+  }
+  out.order = order;
+  out.width = width;
+  out.n_rows = n_orders;
+  return out;
+}
+
 } // namespace solprop_native::stage

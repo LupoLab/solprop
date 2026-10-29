@@ -152,9 +152,9 @@ def test_native_runs_never_reach_the_numba_dispatchers(monkeypatch, integrator):
     tally = count(monkeypatch, NATIVE)
     propagate(native.NativeBackend, prepared)
     assert tally["points"] > 0, tally
-    if integrator == "adams-exponential":
+    if integrator.startswith("adams"):
         # A staged trial forms its tables in the native state from its nodes alone
-        # (SEP 39 phase 1): none crosses from the host.
+        # (SEP 39 phases 1 and 3), in either formulation: none crosses from the host.
         assert tally["tables"] == 0, tally
         return
     adams = tally["basis"] + tally["tables"]

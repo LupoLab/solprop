@@ -870,6 +870,7 @@ march::State march_state_from(const nb::dict values) {
     state.rejections = nb::cast<std::size_t>(values["rejections"]);
     state.last_rejected = nb::cast<bool>(values["last_rejected"]);
     state.collar_was_quiet = nb::cast<bool>(values["collar_was_quiet"]);
+    state.cursor = nb::cast<std::size_t>(values["cursor"]);
     for (const auto entry : nb::cast<nb::list>(values["history"])) {
       const auto parts = nb::cast<nb::tuple>(entry);
       state.history.push_back({nb::cast<double>(parts[0]),
@@ -903,6 +904,7 @@ nb::dict march_state_to(const march::State& state) {
   out["rejections"] = state.rejections;
   out["last_rejected"] = state.last_rejected;
   out["collar_was_quiet"] = state.collar_was_quiet;
+  out["cursor"] = state.cursor;
   nb::list history;
   for (const auto& entry : state.history)
     history.append(nb::make_tuple(entry.z, entry.identity == march::Identity::predicted,
@@ -933,6 +935,8 @@ march::Bounds march_bounds_from(const nb::dict values) {
     bounds.last_check = nb::cast<double>(values["last_check"]);
     bounds.max_attempts = nb::cast<std::size_t>(values["max_attempts"]);
     bounds.max_seconds = nb::cast<double>(values["max_seconds"]);
+    bounds.replay = nb::cast<bool>(values["replay"]);
+    bounds.slack = nb::cast<double>(values["slack"]);
   } catch (const nb::cast_error&) {
     throw std::invalid_argument("the Adams march's bounds have the wrong types");
   } catch (const nb::python_error&) {
@@ -956,6 +960,9 @@ nb::dict march_result_to(const march::Result& result, const march::State& state)
   out["stage"] = static_cast<int>(result.stage);
   out["category"] = static_cast<int>(result.category);
   out["message"] = result.message;
+  out["replay_dz"] = result.replay_dz;
+  out["replay_end"] = result.replay_end;
+  out["replay_norm"] = result.replay_norm;
   out["stepped"] = result.stepped;
   out["step_z"] = result.step_z;
   out["step_dz"] = result.step_dz;
@@ -980,10 +987,11 @@ struct MarchFault {
 class ResidentEngine final : public march::Engine {
 public:
   ResidentEngine(native::GeneralState& state, const native::stage::Tables& tables,
-                 native::stage::Anchor& anchor, const bool compensated,
-                 const bool interpolate, std::optional<MarchFault>& fault)
-      : state_(state), tables_(tables), anchor_(anchor), compensated_(compensated),
-        interpolate_(interpolate), fault_(fault) {}
+                 native::stage::Anchor& anchor, const bool fused,
+                 const bool compensated, const bool interpolate,
+                 std::optional<MarchFault>& fault)
+      : state_(state), tables_(tables), anchor_(anchor), fused_(fused),
+        compensated_(compensated), interpolate_(interpolate), fault_(fault) {}
 
   void start(const double z) override {
     inject(march::Stage::startup);
@@ -1001,6 +1009,21 @@ public:
     for (std::size_t index = 0; index < stencil.n_orders; ++index)
       highest = std::max(highest, stencil.orders[index]);
     const std::size_t slots = std::min(std::max(highest, stencil.order), stencil.held);
+    if (fused_) {
+      // The interaction formulation: the history transported to the anchor, the
+      // source evaluated at the step's end (solprop's `_ResidentAdams.fused_trial`).
+      const auto weights = native::stage::fused_weights(
+          stencil.nodes.data(), stencil.held, stencil.rows.data(), slots, stencil.order,
+          stencil.orders.data(), stencil.n_orders);
+      const auto row = native::stage::row(tables_, anchor_, z, z + dz);
+      const auto found =
+          state_.adams_fused_trial(dz, weights, {}, native::stage::trial(tables_, row));
+      if (found.size() < stencil.n_orders)
+        throw std::logic_error("the trial returned fewer norms than it scored");
+      std::copy(found.begin(),
+                found.begin() + static_cast<std::ptrdiff_t>(stencil.n_orders), norms);
+      return;
+    }
     const auto weights = native::stage::weights(
         stencil.nodes.data(), stencil.held, stencil.rows.data(), slots, stencil.order,
         stencil.orders.data(), stencil.n_orders, compensated_);
@@ -1019,14 +1042,23 @@ public:
               found.begin() + static_cast<std::ptrdiff_t>(stencil.n_orders), norms);
   }
 
-  void accept(const double dz, const std::size_t free,
-              const march::Stencil& stencil) override {
+  void accept(const double dz, const std::size_t free, const march::Stencil& stencil,
+              const std::vector<march::Entry>& kept) override {
     inject(march::Stage::accept);
     native::AdamsWeights dense;
     for (std::size_t t = 0; t < stencil.order; ++t)
       dense.slot[t] = stencil.rows[t];
     dense.width = interpolate_ ? stencil.order + 1 : 0;
-    state_.adams_exponential_accept(dz, free, dense);
+    if (fused_) {
+      // The kept rows are transported to the step's end, oldest first.
+      native::AdamsWeights keep;
+      for (std::size_t t = 0; t < kept.size(); ++t)
+        keep.slot[t] = kept[t].row;
+      keep.width = kept.size();
+      state_.adams_fused_accept(dz, keep, free, dense);
+    } else {
+      state_.adams_exponential_accept(dz, free, dense);
+    }
     // The step's quadrature score, which solprop's accepted-step hook reads.
     state_.promote_fsal();
   }
@@ -1055,6 +1087,7 @@ private:
   native::GeneralState& state_;
   const native::stage::Tables& tables_;
   native::stage::Anchor& anchor_;
+  bool fused_;
   bool compensated_;
   bool interpolate_;
   std::optional<MarchFault>& fault_;
@@ -1097,8 +1130,8 @@ public:
     ++next_;
   }
 
-  void accept(double /*dz*/, const std::size_t free,
-              const march::Stencil& stencil) override {
+  void accept(double /*dz*/, const std::size_t free, const march::Stencil& stencil,
+              const std::vector<march::Entry>& /*kept*/) override {
     nb::dict event = nb::cast<nb::dict>(log_[log_.size() - 1]);
     event["free"] = free;
     (void)stencil;
@@ -1122,9 +1155,10 @@ private:
 // The scripted march solprop's decision-trace tests drive.
 class ScriptedMarch {
 public:
-  ScriptedMarch(const nb::dict policy, const RealInput norms, const double carrier_rate)
+  ScriptedMarch(const nb::dict policy, const RealInput norms, const double carrier_rate,
+                const RealInput steps, const RealInput edges)
       : policy_(march_policy_from(policy)), norms_(real_vector(norms)),
-        carrier_rate_(carrier_rate) {
+        carrier_rate_(carrier_rate), schedule_{real_vector(steps), real_vector(edges)} {
     if (norms_.size() % 3 != 0)
       throw std::invalid_argument("a script of norms is (attempts, 3)");
   }
@@ -1134,7 +1168,7 @@ public:
     std::vector<double> remaining(
         norms_.begin() + static_cast<std::ptrdiff_t>(used_ * 3), norms_.end());
     ScriptedEngine engine(std::move(remaining), carrier_rate_, log_);
-    const auto result = march::run(policy_, state, engine, bounds);
+    const auto result = march::run(policy_, state, engine, bounds, schedule_);
     used_ += engine.used();
     return march_result_to(result, state);
   }
@@ -1144,6 +1178,7 @@ private:
   march::Policy policy_;
   std::vector<double> norms_;
   double carrier_rate_;
+  march::Schedule schedule_;
   nb::list log_;
   std::size_t used_ = 0;
 };
@@ -1323,12 +1358,16 @@ public:
     return native::stage::rate(*stage_tables_, z);
   }
   // solprop SEP 39 phase 2: the native march over the resident engine.
-  void march_configure(march::Policy policy, const bool compensated,
-                       const bool interpolate) {
+  void march_configure(march::Policy policy, const bool fused, const bool compensated,
+                       const bool interpolate, march::Schedule schedule) {
     adams_state();
     if (!stage_tables_)
       throw std::logic_error("the native Adams march needs the stage tables");
+    if (!schedule.steps.empty() && schedule.edges.size() != schedule.steps.size() + 1)
+      throw std::invalid_argument("a replayed schedule has one more edge than steps");
     march_policy_ = std::move(policy);
+    march_schedule_ = std::move(schedule);
+    march_fused_ = fused;
     march_compensated_ = compensated;
     march_interpolate_ = interpolate;
   }
@@ -1338,12 +1377,12 @@ public:
     auto state = march_state_from(state_values);
     const auto bounds = march_bounds_from(bounds_values);
     auto& general = adams_state();
-    ResidentEngine engine(general, *stage_tables_, stage_anchor_, march_compensated_,
-                          march_interpolate_, march_fault_);
+    ResidentEngine engine(general, *stage_tables_, stage_anchor_, march_fused_,
+                          march_compensated_, march_interpolate_, march_fault_);
     march::Result result;
     {
       const nb::gil_scoped_release release;
-      result = march::run(*march_policy_, state, engine, bounds);
+      result = march::run(*march_policy_, state, engine, bounds, march_schedule_);
     }
     return march_result_to(result, state);
   }
@@ -1543,6 +1582,8 @@ private:
   std::optional<native::stage::Tables> stage_tables_;
   native::stage::Anchor stage_anchor_;
   std::optional<march::Policy> march_policy_;
+  march::Schedule march_schedule_;
+  bool march_fused_ = false;
   bool march_compensated_ = false;
   bool march_interpolate_ = false;
   std::optional<MarchFault> march_fault_;
@@ -1978,8 +2019,9 @@ NB_MODULE(_core, module_) {
   module_.def("build_record", &build_record);
   native::bindings::bind_helpers(module_);
   nb::class_<ScriptedMarch>(module_, "ScriptedMarch")
-      .def(nb::init<nb::dict, RealInput, double>(), "policy"_a, "norms"_a.noconvert(),
-           "carrier_rate"_a = 0.0)
+      .def(nb::init<nb::dict, RealInput, double, RealInput, RealInput>(), "policy"_a,
+           "norms"_a.noconvert(), "carrier_rate"_a, "steps"_a.noconvert(),
+           "edges"_a.noconvert())
       .def("run", &ScriptedMarch::run, "state"_a, "bounds"_a)
       .def("log", &ScriptedMarch::log);
   nb::class_<BoundState>(module_, "State")
@@ -2429,11 +2471,14 @@ NB_MODULE(_core, module_) {
       // solprop SEP 39 phase 2: the native Adams march.
       .def(
           "adams_march_configure",
-          [](BoundState& self, const nb::dict policy, const bool compensated,
-             const bool interpolate) {
-            self.march_configure(march_policy_from(policy), compensated, interpolate);
+          [](BoundState& self, const nb::dict policy, const bool fused,
+             const bool compensated, const bool interpolate, const RealInput steps,
+             const RealInput edges) {
+            self.march_configure(march_policy_from(policy), fused, compensated,
+                                 interpolate, {real_vector(steps), real_vector(edges)});
           },
-          "policy"_a, "compensated"_a, "interpolate"_a)
+          "policy"_a, "fused"_a, "compensated"_a, "interpolate"_a,
+          "steps"_a.noconvert(), "edges"_a.noconvert())
       .def("adams_march_run", &BoundState::march_run, "state"_a, "bounds"_a)
       // A test hook: fail the resident engine's `stage` after `after` more calls.
       .def("adams_march_fault", &BoundState::march_fault, "stage"_a, "after"_a,
@@ -2462,6 +2507,27 @@ NB_MODULE(_core, module_) {
           },
           "z"_a, "dz"_a, "nodes"_a.noconvert(), "slots"_a.noconvert(), "order"_a,
           "orders"_a, "compensated"_a, "divisor"_a.noconvert(), "carrier"_a.noconvert())
+      .def(
+          "adams_fused_trial_at",
+          [](BoundState& self, const double z, const double dz, const RealInput nodes,
+             const IndexInput slots, const std::size_t order,
+             const std::vector<std::size_t>& orders, const RealInput divisor) {
+            const auto slot_values = index_vector(slots);
+            const auto weights = native::stage::fused_weights(
+                nodes.data(), element_count(nodes), slot_values.data(),
+                slot_values.size(), order, orders.data(), orders.size());
+            const auto scale = real_vector(divisor);
+            const auto trial = self.stage_trial(z, z + dz);
+            std::vector<double> norms;
+            {
+              const nb::gil_scoped_release release;
+              norms =
+                  self.adams_state().adams_fused_trial(dz, weights, scale, trial.step);
+            }
+            return real_output(std::move(norms), 1);
+          },
+          "z"_a, "dz"_a, "nodes"_a.noconvert(), "slots"_a.noconvert(), "order"_a,
+          "orders"_a, "divisor"_a.noconvert())
       .def(
           "adams_stage_scalars",
           [](BoundState& self, const double z0, const double z1) {
