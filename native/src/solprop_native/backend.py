@@ -2491,10 +2491,6 @@ class _NativeAdamsMarch(AdamsMarch):
                 "the host engine, which steps a coupled flow off the eigenbasis "
                 "route or wider than 16 channels"
             ), True
-        # Device builds are qualified one vendor at a time (SEP 39 section 6.7): CUDA
-        # on NVIDIA A40s; HIP waits for its own GPU segment.
-        if _build_facts().info["device_backend"] == "hip":
-            return "a HIP build, which the native march is not yet qualified on", True
         assert isinstance(engine, _ResidentAdams)
         chord = None if engine.carrier is None else engine.carrier.chord
         resident = (
