@@ -139,6 +139,7 @@ from . import (
     WAIT_POLICY,
     _core,
     _host_blas,
+    _wisdom,
     build_info,
     check_build,
 )
@@ -312,10 +313,16 @@ class NativeBackend(StepDriver[_core.State]):
         # solprop SEP 23: the far-field tables are formed once, which refuses a
         # geometry the far-field statistics do not admit before anything is built.
         self._far_field = FarFieldTables(problem)
+        # solprop's opt-in SOLPROP_FFTW_WISDOM: the plans a run of this build measured
+        # before are imported before planning, and new ones are kept after it.
+        wisdom = _wisdom.wisdom_file()
+        self._wisdom_loaded = _wisdom.load(wisdom)
         self._native_state = _core.State(
             _native_problem(problem, self._terms, self._flow, self._z_tables)
             | _low_storage_payload(problem, device=_on_device())
         )
+        _wisdom.store(wisdom)
+        self._wisdom_digest: str | None = None
         if self._z_tables is not None:
             self._z_tables.upload(self._native_state)
         _upload_flux_table(self._native_state, problem)
@@ -1599,6 +1606,8 @@ class NativeBackend(StepDriver[_core.State]):
         """
         facts = _build_facts()
         work = super().metadata()
+        if self._wisdom_digest is None:
+            self._wisdom_digest = _wisdom.digest()
         if self._adams is None and self._low_storage is None:
             work["source_evaluations"] = self._native_state.rk_source_evaluations
         march = self._adams
@@ -1616,6 +1625,8 @@ class NativeBackend(StepDriver[_core.State]):
             "openmp_proc_bind": PROC_BIND,
             "host_blas": self._host_blas,
             "planning_seconds": self._native_state.planning_seconds,
+            "wisdom_loaded": self._wisdom_loaded,
+            "wisdom_digest": self._wisdom_digest,
             "raman_fft_provider": self._native_state.raman_fft_provider,
             "raman_fft_tasks": self._native_state.raman_fft_tasks,
             "execution_sizing": self._native_state.execution_sizing,

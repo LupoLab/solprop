@@ -124,6 +124,14 @@ time divided by the native backend's: above 1, the native backend is faster.
     happens before the first plan is made; the plasma streams' plans were made earlier
     and stayed at estimate.
 
+- **Measured plans kept across processes** (`SOLPROP_FFTW_WISDOM`, opt-in;
+  [measurements](benchmarks.md#persistent-fftw-wisdom)). A scan of one-thread jobs
+  measured the same plans in every job: 0.5–4 s of construction against windows of 0.1–8
+  s on a Xeon Gold 6240. With the wisdom file in place a job constructs its backend in
+  tens of milliseconds and runs its window as fast. A shorter search instead
+  (`fftw_set_timelimit` of 0.01–0.2 s) gave plans 10–30 % slower to execute, and
+  estimate plans ran one-thread windows up to 1.6 times slower on an AMD EPYC 7763.
+
 **Tried and not adopted**
 - **`FFTW_PATIENT` planning.** It adds seconds of construction and gave no measured
   throughput gain.

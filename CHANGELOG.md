@@ -328,6 +328,14 @@ The first public release. It contains:
   - Threads: a process cap (`SOLPROP_NATIVE_THREADS`) and kernel, FFT and Raman pools,
     read once at import, with per-operation widths chosen by problem size; a host
     OpenBLAS is fitted to the same pool.
+  - Measured FFT plans kept across runs: `SOLPROP_FFTW_WISDOM`, the file `numba_cpu`
+    keeps its FFTW wisdom in, also keeps the native backend's, in a file of its own
+    beside it keyed by the FFTW library and the processor model. The processes of a scan
+    can share it: readers take no lock, and a writer merges under a lock and replaces
+    the file whole. A one-thread job then constructs its backend without measuring the
+    plans again (the averaged helium capillary on a Xeon Gold 6240: 1.40 s, then
+    0.03 s). Nothing is read or written unless the variable is set; the run's metadata
+    records `wisdom_loaded` and `wisdom_digest`, as on `numba_cpu`.
   - Introspection: `build_info()` and `python -m solprop_native` report provenance,
     providers, libraries and thread settings; `check_build()` checks the build against
     the installed solprop's kernel-contract schema and named members.

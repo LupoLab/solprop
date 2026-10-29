@@ -125,7 +125,7 @@ Each pool can be fixed from the environment:
 | `SOLPROP_TRANSVERSE_FFTW_THREADS` | FFTW threads for the transverse transforms of free-space runs | the same rule |
 | `SOLPROP_BLAS_THREADS` | BLAS threads | 2 above 262 144 elements, else 1 |
 | `SOLPROP_FFTW_PLAN` | FFTW planner effort: `estimate`, `measure` or `patient` | `measure` |
-| `SOLPROP_FFTW_WISDOM` | a file of FFTW wisdom to import before planning and export after | none |
+| `SOLPROP_FFTW_WISDOM` | a file of FFTW wisdom to import before planning and export after (the native backend keeps its own beside it) | none |
 
 **Free-space node groups.** A free-space, line or planar evaluation works through the
 plane's columns in node chunks, each paying a fixed cost for its launches, its temporal
@@ -191,7 +191,8 @@ otherwise idle machine, and planning a large multimode problem can take seconds.
 `SOLPROP_FFTW_PLAN=estimate` for short runs, tests and busy shared machines, and
 `SOLPROP_FFTW_WISDOM=~/.cache/solprop/wisdom` to plan once and reuse the plans across
 runs of the same shapes (the wisdom's digest is recorded in each run, since plans chosen
-from different wisdom are different executions).
+from different wisdom are different executions). The native backend keeps its plans
+under the same variable, in a file of its own (below).
 
 ## The native backend's pools
 
@@ -277,11 +278,41 @@ holds them to its rounding bounds, not to identical bits
 Contiguous modal and Raman FFTW plans default to measured planning at one thread and
 estimate planning at wider widths; the explicit effort overrides both, including
 long Raman rows and partial chunks. Measured planning can add substantial construction
-time even when the warmed propagation is faster. Use `SOLPROP_FFTW_PLAN=estimate`
-when construction dominates a short run. On macOS with NEON FFTW, serial and long
+time even when the warmed propagation is faster. When construction dominates a short
+run, keep the plans in a wisdom file (below) rather than give up measuring them;
+`SOLPROP_FFTW_PLAN=estimate` skips planning altogether, but its plans ran one-thread
+windows up to 1.6 times slower on an AMD EPYC 7763. On macOS with NEON FFTW, serial and long
 Raman rows use Kokkos-FFT, while parallel power-of-two rows of at most 16,384 samples
 retain vDSP. The [build guide](building-native.md) describes the coherent dependency
 recipe and the fallback for a library without NEON codelets.
+
+**Reusing the native backend's plans.** `SOLPROP_FFTW_WISDOM`, the variable `numba_cpu`
+reads, also keeps the native backend's measured plans: a backend imports them before it
+plans and adds the plans it measured after. Nothing is read or written unless the
+variable names a file. The native backend links its own FFTW, so its plans go to a file
+of their own beside the named one, `<name>.native-<key>`, whose key digests the FFTW
+library's version and configuration and the processor model: machines of different
+kinds that share a home directory keep separate plans, and FFTW refuses wisdom another
+build of it wrote. The processes of a scan can share one file. Readers take no lock,
+since the file is only ever replaced whole; a writer takes `<file>.lock`, merges what
+others stored, and writes only when that adds a plan. A file that cannot be read or
+written is reported in the log and costs only the measurement. Wisdom chooses among
+FFTW's exact algorithms, so it changes no result beyond the rounding a fresh
+measurement can change; the run's metadata records `wisdom_loaded` and the
+`wisdom_digest` of the plans in force. For a scan of one-thread jobs it removes most of
+each job's construction: on a Xeon Gold 6240, constructing the averaged helium
+capillary took 1.40 s cold and 0.03 s with the wisdom in place, beside a 0.27 s window
+([measurements](../../dev/benchmarks.md#persistent-fftw-wisdom)). For example:
+
+```sh
+export SOLPROP_FFTW_WISDOM=~/.cache/solprop/wisdom
+```
+
+The first job of each shape measures and stores its plans; every later one, in any
+process, finds them. Threaded row transforms are planned at estimate unless
+`SOLPROP_FFTW_PLAN` asks otherwise, so they have no measured plans to keep; but plans
+that a run under an explicit `measure` stored for a width are found by later runs at
+that width, whatever their effort.
 
 `OMP_NUM_THREADS` and `KOKKOS_NUM_THREADS` do **not** size the Kokkos pool — the backend
 initialises Kokkos with an explicit thread count, which takes precedence; set

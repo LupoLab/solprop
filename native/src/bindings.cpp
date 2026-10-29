@@ -5,6 +5,7 @@
 #include "helpers.hpp"
 #include "solprop_native/adams_march.hpp"
 #include "solprop_native/core.hpp"
+#include "solprop_native/fft_plan.hpp"
 #include "solprop_native/lagrange_basis.hpp"
 #include "solprop_native/stage_tables.hpp"
 #include "solprop_native/vmath.hpp"
@@ -2118,6 +2119,28 @@ NB_MODULE(_core, module_) {
               "warm"_a, "repeats"_a);
   module_.def("shutdown_runtime", &shutdown_kokkos);
   module_.def("build_record", &build_record);
+  // FFTW's wisdom as text for solprop's SOLPROP_FFTW_WISDOM, whose file the adapter
+  // owns (solprop_native._wisdom). None where there is none to keep: a device build,
+  // which plans with the device FFT, or a provider without FFTW's wisdom.
+  module_.def("export_fftw_wisdom", []() -> nb::object {
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+    return nb::none();
+#else
+    std::string text = native::export_fftw_wisdom();
+    return text.empty() ? nb::none() : nb::cast(std::move(text));
+#endif
+  });
+  module_.def(
+      "import_fftw_wisdom",
+      [](const std::string& text) -> bool {
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+        static_cast<void>(text);
+        return false;
+#else
+        return native::import_fftw_wisdom(text);
+#endif
+      },
+      "text"_a);
   native::bindings::bind_helpers(module_);
   nb::class_<ScriptedMarch>(module_, "ScriptedMarch")
       .def(nb::init<nb::dict, RealInput, double, RealInput, RealInput>(), "policy"_a,

@@ -17,6 +17,7 @@
 #include <limits>
 #include <memory>
 #include <numbers>
+#include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -231,6 +232,52 @@ TEST(RamanFftProvider, LongFallbackRowsHonorPlannerEffort) {
                               : std::string_view(requested) != "estimate";
     EXPECT_EQ(static_cast<bool>(witness), measured);
   }
+}
+
+TEST(FftProvider, WisdomTextRoundTripsAndForeignTextIsRefused) {
+  if (native::export_fftw_wisdom().empty())
+    GTEST_SKIP() << "The linked FFT provider does not export FFTW wisdom";
+  using Plan =
+      std::unique_ptr<std::remove_pointer_t<fftw_plan>, decltype(&fftw_destroy_plan)>;
+  constexpr int rows = 2;
+  const int samples = 48;
+  const ComplexRows input("fft_contract.text_input", rows, samples);
+  const ComplexRows output("fft_contract.text_output", rows, samples);
+  const auto witness = [&] {
+    fftw_plan_with_nthreads(1);
+    return Plan(fftw_plan_many_dft(
+                    1, &samples, rows, reinterpret_cast<fftw_complex*>(input.data()),
+                    &samples, 1, samples,
+                    reinterpret_cast<fftw_complex*>(output.data()), &samples, 1,
+                    samples, FFTW_FORWARD, FFTW_WISDOM_ONLY | FFTW_MEASURE),
+                fftw_destroy_plan);
+  };
+  // A fresh process's wisdom: the preamble alone, whose signature must already be
+  // that of the planner the seeds use, threaded solvers included.
+  fftw_forget_wisdom();
+  const std::string empty = native::export_fftw_wisdom();
+  fftw_plan_with_nthreads(1);
+  const Plan measured(
+      fftw_plan_many_dft(1, &samples, rows,
+                         reinterpret_cast<fftw_complex*>(input.data()), &samples, 1,
+                         samples, reinterpret_cast<fftw_complex*>(output.data()),
+                         &samples, 1, samples, FFTW_FORWARD, FFTW_MEASURE),
+      fftw_destroy_plan);
+  ASSERT_TRUE(measured);
+  const std::string text = native::export_fftw_wisdom();
+  EXPECT_EQ(text.substr(0, text.find('\n')), empty.substr(0, empty.find('\n')));
+  EXPECT_GT(text.size(), empty.size());
+  fftw_forget_wisdom();
+  EXPECT_FALSE(witness());
+  EXPECT_TRUE(native::import_fftw_wisdom(text));
+  EXPECT_TRUE(witness());
+  // FFTW keeps its wisdom when it refuses text: neither garbage nor another
+  // configuration's preamble is merged.
+  EXPECT_FALSE(native::import_fftw_wisdom("not wisdom"));
+  const std::string foreign = text.substr(0, text.find(" #x")) + " #x0 #x0 #x0 #x0\n)";
+  EXPECT_FALSE(native::import_fftw_wisdom(foreign));
+  EXPECT_TRUE(witness());
+  fftw_forget_wisdom();
 }
 #endif
 

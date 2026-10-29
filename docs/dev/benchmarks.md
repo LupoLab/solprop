@@ -872,6 +872,37 @@ Not adopted, on the same EPYC allocation:
 - Planning the product rows at the full Raman chunk's width rather than their own:
   CTC 1.001 / 0.980 [0.952, 1.012].
 
+(persistent-fftw-wisdom)=
+### Persistent FFTW wisdom
+
+At one thread, the default plans every row transform with FFTW's measured search, which
+is most of a short run's backend construction: about 1.3 s for averaged helium's
+6400-sample real pair alone. `SOLPROP_FFTW_WISDOM` now keeps those plans for the next
+process ([tuning](../guide/performance/tuning.md)). Fresh processes at one thread,
+`SOLPROP_FFTW_PLAN=measure`, passive-bound, `--length 0.1` windows through the
+benchmark worker's own `timed_run`; for each case one process stores the wisdom, then
+three rounds alternate a process without the variable (cold) and one with it (warm);
+medians, and the warm/cold window ratio's median and range over the rounds. Step counts
+are equal in every pair. Intel Xeon Gold 6240 (one core of an otherwise idle socket):
+
+| case | backend construction, cold | warm | window, cold | warm/cold window |
+|---|---:|---:|---:|---:|
+| `he_rdw_averaged` | 1.398 s | 0.033 s | 0.266 s | 0.985 [0.945, 0.988] |
+| `argon_blueshift_averaged` | 1.330 s | 0.032 s | 0.540 s | 1.006 [0.987, 1.009] |
+| `h2_raman_averaged` | 4.003 s | 0.029 s | 0.778 s | 1.003 [0.996, 1.025] |
+| `gnlse_raman_shock` | 2.097 s | 0.033 s | 7.462 s | 1.002 [0.926, 1.010] |
+| `gnlse_soliton` | 0.453 s | 0.022 s | 0.115 s | 0.999 [0.995, 1.005] |
+| `rdw` | 1.405 s | 0.051 s | 2.052 s | 0.992 [0.985, 1.003] |
+| `argon_blueshift` | 1.321 s | 0.035 s | 4.026 s | 0.995 [0.985, 0.999] |
+| `argon_blueshift_envelope` | 0.473 s | 0.024 s | 0.102 s | 0.989 [0.976, 1.021] |
+| `radial_filament_256` | 0.613 s | 0.093 s | 3.620 s | 0.994 [0.986, 1.022] |
+
+Warm windows run as fast as cold ones: the plans are the ones a measurement chose,
+whether in this process or an earlier one. A warm backend's construction is the rest of
+its setup, tens of milliseconds. A job of a one-thread scan still pays solprop's own
+import, case construction and translation (0.7 s and 3.0 s for averaged helium here),
+which the native backend does not own.
+
 ## Reference tables
 
 These tables back the indicative results above.

@@ -5,11 +5,13 @@
 #pragma once
 
 #include <KokkosFFT.hpp>
+#include <memory>
 
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
 #include <cstdlib>
 #include <fftw3.h>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <type_traits>
 
@@ -91,10 +93,31 @@ void seed_row_fft_wisdom(const Execution& execution, const Input& input,
   fftw_destroy_plan(seeded);
 }
 
+// FFTW's process-wide wisdom as text, for solprop's opt-in SOLPROP_FFTW_WISDOM: the
+// Python adapter owns the file, its key and its lock, and calls these with the GIL
+// held, so they never race the planner. Empty when the provider implements FFTW's API
+// without its wisdom (MKL). Both first register the threaded solvers, as every seed
+// does: they are part of the planner's configuration, whose signature heads exported
+// wisdom and must match for an import.
+inline std::string export_fftw_wisdom() {
+  fftw_init_threads();
+  const std::unique_ptr<char, decltype(&fftw_free)> text(fftw_export_wisdom_to_string(),
+                                                         fftw_free);
+  return text ? std::string(text.get()) : std::string();
+}
+
+// Merge `text` into the process's wisdom. FFTW refuses, leaving its wisdom as it was,
+// text that is not wisdom or that another FFTW version or configuration wrote (its
+// preamble carries the planner's signature). Wisdom only chooses among FFTW's exact
+// algorithms, so a plan taken from it computes the same transform.
+inline bool import_fftw_wisdom(const std::string& text) {
+  fftw_init_threads();
+  return fftw_import_wisdom_from_string(text.c_str()) != 0;
+}
+
 } // namespace solprop_native
 #endif
 
-#include <memory>
 #include <utility>
 #include <vector>
 

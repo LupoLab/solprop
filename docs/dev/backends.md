@@ -1363,6 +1363,16 @@ threaded plans; free space's transverse planes are measured at any width. An exp
 planning, `measure` and experimental `patient` time it. Estimate can still consume
 matching wisdom already present in the process; the backend does not clear shared FFTW
 wisdom. Planning is destructive and precedes state initialization.
+Wisdom outlives the process only when `SOLPROP_FFTW_WISDOM` names a file: the adapter
+(`solprop_native._wisdom`) imports this build's file, `<name>.native-<key>`, before the
+state plans, and afterwards merges the file into the process's wisdom and replaces it
+whole when that adds a plan. The key digests FFTW's wisdom preamble (its version and
+planner signature, which FFTW checks again on import) and the processor model. Readers
+take no lock, since the file only ever changes by an atomic rename; writers serialise on
+`<file>.lock` (`flock` on POSIX). The C++ side only converts wisdom to and from text
+(`export_fftw_wisdom`, `import_fftw_wisdom` in `fft_plan.hpp`), registering FFTW's
+threaded solvers first, since they are part of the planner signature an import must
+match. Metadata records `wisdom_loaded` and `wisdom_digest`, as `numba_cpu` does.
 Contiguous Raman transforms use the same planning policy, including long doubled
 rows and partial chunks. On macOS, NEON FFTW handles serial and long Raman rows;
 short parallel power-of-two rows (at most 16384 samples) retain Accelerate. Selection
