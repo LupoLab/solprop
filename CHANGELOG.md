@@ -385,6 +385,24 @@ The first public release. It contains:
   `ctc_reduced` is the comb-to-continuum tests' one-mode case (the two-mode case is
   `ctc_reduced_two_mode`), the mode-averaged cases ask for `mode_average=True`, and the
   declared array sizes and costs are those of the current grids.
+- **The Adams march runs natively**
+  ([SEP 39](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0039-native-adams-march.html),
+  in progress). On the native CPU backend `Multistep()` (in either formulation, and the
+  one-order-higher PEC comparisons, adaptive or replayed) runs its stage scalars,
+  coefficient tables and controller in compiled code, one native call for many
+  steps, returning to Python only when a statistics row, a save plane, a monitor check,
+  the budget, the floor or an error needs it; the native backend's Python time per step
+  falls from tens or hundreds of microseconds to about one. The algorithm is solprop's,
+  specified in the kernel contract and handed over as a policy record
+  (`MarchPolicy`); solprop's march stays the reference and steps the configurations
+  the native one does not yet cover, with a `HostMarchWarning` naming the reason, and
+  a run's metadata records which march stepped it (`adams_march`). A march snapshot
+  keeps whether the collar was quiet, so a resume restores the order choice exactly.
+  Two defects of the march are fixed on every backend: an accepted step shorter than
+  the floor allows is committed before the floor is tested, so its terminal checkpoint
+  holds it, and a resumed run no longer takes its first order choice from a stale
+  collar flag. Kernel schema 39 (`_record_attempt`, `_skip_step`), output schema 28
+  (`collar_was_quiet`).
 - **Ensemble and replay helpers.** `processing.coherence.band_coherence` and
   `spectral_bands` reduce an ensemble's coherence to one value per spectral band, weighted
   by a reference ensemble's mean spectrum, to compare two ensembles band by band;

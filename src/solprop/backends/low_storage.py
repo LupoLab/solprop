@@ -66,10 +66,10 @@ import numpy as np
 from jaxtyping import Complex, Float
 
 from solprop._interrupts import committing
-from solprop.backends.driver import LANDING_ULPS, StepDriver, replay_tolerance
+from solprop.backends.driver import StepDriver, replay_tolerance
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.stepper.low_storage import LowStorageRungeKutta
-from solprop.stepper.schedule import FixedSchedule
+from solprop.stepper.schedule import LANDING_ULPS, FixedSchedule
 
 __all__ = [
     "HostLowStorage",
@@ -88,7 +88,7 @@ def table_steps(schedule: FixedSchedule) -> Float[np.ndarray, " n_steps"]:
     """Return the step each of a schedule's steps builds and keys the flow table on.
 
     SEP 24 Q10, decided in phase 2: the mean step of the step's **run**, the longest
-    stretch of consecutive steps within :data:`~solprop.backends.driver.LANDING_ULPS`
+    stretch of consecutive steps within :data:`~solprop.stepper.schedule.LANDING_ULPS`
     ulps of the run's first, the ulps being of the run's farthest position (or of the
     step, near the origin). :meth:`~solprop.stepper.schedule.FixedSchedule.uniform`
     takes a segment's steps from differences of rounded positions, which differ in their

@@ -6,17 +6,17 @@
 | **Title** | A native Adams march: the Multistep step loop in the compiled backend |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-10-28) |
-| **Status** | Draft |
-| **Review status** | In review |
-| **Reviewers** | GPT-6 (AI) |
+| **Status** | In progress |
+| **Review status** | Reviewed |
+| **Reviewers** | John Travers (human); GPT-6 (AI) |
 | **Type** | Change |
 | **Created** | 2026-10-28 |
-| **Resolution** | — |
+| **Resolution** | Accepted 2026-10-28 by John Travers, after his human review, the GPT-6 AI review and the response to it, his decisions Q1–Q14, R9 and R12, and the refresh of Part I against LupoLab/solprop#56 (Part III). The proposal lands with its implementation's single pull request. |
 | **Requires** | [SEP 16](archive/sep-0016-unified-multistep.md) (the march, its engine, ADR-043); [SEP 25](archive/sep-0025-rounding-level-reproducibility.md) (agreement to the error bound); [SEP 29](archive/sep-0029-compiled-backend-distribution.md) (native z tables and the history export) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | — |
-| **Manual pages** | — |
+| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0039-native-adams-march` (LupoLab/solprop#58), based on LupoLab/solprop#56 and on `main` once it merged: started 2026-10-28; phases 0–4 complete, phase 5 in progress (2026-10-29) |
+| **Manual pages** | [The Adams methods](../../guide/numerics/adams.md) |
 
 ## Part I — Proposal
 
@@ -27,8 +27,10 @@ Move the step loop of `Multistep()` from solprop's Python `AdamsMarch` into
 proposal caps and landings, the coefficient tables and the stage scalars of every trial.
 On the native backend a run of accepted steps would then cross the nanobind seam once
 per **host event**: a save plane, a boundary-monitor check, a statistics row, the end of
-a march. Today it crosses two to four times per trial and spends 0.1–0.5 ms of Python
-on each one.
+a march. Today, on the head of LupoLab/solprop#56, it crosses $k + 2$ to $k + 5$ times
+per trial, where $k$ is the number of scalar tables read (typically four to six). It also
+spends 40–50 µs of Python per trial on an Apple M5 Max and 170–210 µs on an AMD EPYC 7763.
+At drafting, before LupoLab/solprop#55, those figures were 110–140 µs and 390–510 µs.
 
 The recommended design (option B, §6.2) keeps every policy in solprop. solprop hands
 the backend one record holding every controller and landing parameter, plus the events
@@ -36,12 +38,19 @@ at which it must return. Native then executes an algorithm that this SEP (§4) a
 kernel contract specify in full. The Python march stays: it is the reference, and it
 still runs on `numpy_ref` and `numba_cpu`.
 
-The case for it, from a profiling study of 2026-10-28:
+The case for it, from a profiling study of 2026-10-28 and its re-measurement at the
+refresh (§3.3):
 
-- The Python side of a trial costs 110–140 µs on an Apple M5 Max and 390–510 µs on an
-  AMD EPYC 7763. On the EPYC that is 1.5 to 1.7 source evaluations for the cheap
-  mode-averaged capillaries.
-- The native march would remove about nine tenths of it.
+- At drafting the Python side of a trial cost 110–140 µs on an Apple M5 Max and
+  390–510 µs on an AMD EPYC 7763: 1.5 to 1.7 source evaluations on the EPYC for the
+  cheap mode-averaged capillaries. LupoLab/solprop#55 has since removed more than half
+  of it. What remains is 38–51 µs (M5) and 170–210 µs (EPYC), or 9–17 % and 15–22 % of
+  a single-mode trial.
+- The native march would remove about nine tenths of what remains: 6–7 % of a
+  single-mode run with phase 1 alone, and a further 2–11 % with the march, by case and
+  machine (§6.1).
+- On device builds the host's share of a trial is far larger (§6.7), and the march is
+  what removes it.
 
 Success means:
 
@@ -53,12 +62,15 @@ Success means:
 - it is nowhere slower than the Python march beyond the A/B spread, including on
   expensive sources and runs that return every step (§7.6).
 
-Together with the native-side work that needs no SEP (§6.9), the estimates are:
+With the native-side work of §6.9, nearly all of which has landed, the estimates at one
+thread are:
 
-- the single-mode helium capillary comes level with `RungeKutta()` on Apple silicon, and
-  within 1.2–1.3 times of it at one thread on the EPYC;
-- the argon blue-shift capillary stays about twice as slow as Runge–Kutta, because it
-  takes more source calls than Runge–Kutta does.
+- the single-mode helium capillary comes within 1.15–1.2 times of `RungeKutta()` on both
+  machines. At sixteen threads on the M5 it is already level.
+- the argon blue-shift capillary stays 1.8–1.9 times behind on the M5 and about three
+  times behind on the EPYC. It takes more source calls than Runge–Kutta does. On the
+  EPYC the native Adams passes, not the host, are now the larger part of the gap (§3.3):
+  native work that needs no SEP.
 
 This SEP changes no default, and it does not decide the capillary default.
 
@@ -72,7 +84,7 @@ The maintainers kept the capillary default and asked where Multistep's per-step 
 goes.
 
 The 2026-10-28 profiling study of the native CPU backend measured that time
-(§3.3, with hardware). Its findings:
+(§3.3, with hardware). Its findings, at drafting:
 
 - **Host cost per trial.** A Multistep trial spends 110–140 µs in Python on the M5
   and 390–510 µs on the EPYC. The EPYC's host side alone is 0.4–0.5 ms of a 1.1–2.1 ms
@@ -92,6 +104,23 @@ The 2026-10-28 profiling study of the native CPU backend measured that time
 - **Moving the step loop** to native removes the largest remaining host item on every
   single-mode case. `native/AGENTS.md` keeps the controller in solprop, which is why
   this is a SEP.
+
+**At the refresh** (head of LupoLab/solprop#56, §3.3):
+
+- The tables are one native call, and the stage scalars are one bundle packed once.
+- Per helium trial on the EPYC, the largest remaining Python pieces are:
+  - the stage arrays, about 113 µs instrumented, of which the bundle's Clenshaw reads
+    are 73;
+  - the decision and the accept call's wrapper, about 48;
+  - the rate weights, 26;
+  - the landing and the approach, 30;
+  - the order choice and the stencil, 17.
+- The Python host time per trial, measured lean, is 212 µs for helium and 151–177 µs
+  for argon on the EPYC, and 51 and 38 µs on the M5.
+- The native passes' cost beyond the source has become the larger item on the EPYC.
+  There, the predict and correct passes take 844 µs of a helium trial and 304 µs of an
+  argon one, against a source of about 290 and 200 µs. On the M5 they take 269 and
+  85 µs, against about 155 and 110 µs.
 
 **Who needs it.** Every native-backend run with `Multistep()` on a source cheap enough
 for the host to matter. The method is the default of `prop_capillary`, `prop_radial` and
@@ -150,6 +179,8 @@ host-side lever, and §6.9 places it among the native levers.
 - **A controller resident on a GPU.** On device builds the controller runs on the host
   thread (§6.7).
 - **The native optimisations of §6.9.** They need no SEP and proceed independently.
+  That includes the cost of the exponential Adams passes themselves, which on the EPYC
+  is now larger than the host's share (§3.3).
 
 ### 3. Context
 
@@ -170,26 +201,43 @@ On `native` the engine is `_ResidentAdams` (`native/src/solprop_native/backend.p
 history, the predictor, the source, the corrector and the defect norms are resident.
 `GeneralWorkspace::adams_exponential_trial` (`native/src/general.cpp`) evaluates the
 source in C++ inside the same call: it runs the stage pipeline with the GIL released and
-returns at most three norms. What Python still does per exponential trial:
+returns at most three norms. Since the drafting, the trial runs as two fused passes
+around its source and the accept as one (LupoLab/solprop#55). What Python still does per
+exponential trial, as of LupoLab/solprop#56:
 
-1. hoists the anchor (a Clenshaw pass per expansion);
-2. forms `exponential_tables`, plus `compensation_tables` and the endpoint's rate
-   weights on a varying operator;
-3. forms two stage-scalar bundles, one for the step and one for the lab-frame sample,
-   packed into fresh arrays (`_resident_arrays`, `_trial_arrays`, `_weight_rows`);
-4. forms the carrier shift from the reference element's chord;
-5. makes the one native trial call, whose binding copies about 28 arguments;
+1. hoists the anchor. This is normally a cached Clenshaw value, with no native call.
+2. forms all of the trial's coefficient tables in one native helper call
+   (`_core.trial_tables`, the strict `lagrange::trial_tables`; LupoLab/solprop#55).
+   On a varying operator it also forms the endpoint's rate weights, which is one more
+   Clenshaw call, uncached (`_rate_value`).
+3. forms one stage-scalar bundle (`translate.stage.scalars`): one native Clenshaw call
+   per scalar table whose cache misses, typically four to six. The bundle is packed into
+   one stage row and repeated into the Runge–Kutta-shaped stage arrays the trial binding
+   takes (`_repeated_arrays`). The lab-frame sample reuses the step's arrays with the
+   $\Phi$ increment zeroed (`_resident_sample`). z tables, the separable operator,
+   SEP 6's dispersive channels and moving maps keep the general packing
+   (`_trial_arrays`, `_weight_rows`).
+4. forms the carrier shift from the reference element's chord, on the host, through
+   Numba's Clenshaw.
+5. makes the one native trial call, whose binding converts 28 arguments.
 6. runs the controller (`_stencil`, `_decide`, `_choose_order`, `_reject`, `_factor`,
    `limit_step`), the proposal caps (`_capped`, `_quiet_capped`, `_collar_reentry`) and
-   the landing rule (`stepper.schedule.landing`, `_approach`);
-7. makes one native accept call when the trial is accepted;
-8. adds one or two `table_evaluate` calls on a z-table run;
+   the landing rule (`stepper.schedule.landing`, `_approach`), which now search float
+   tuples with `bisect`.
+7. makes one native accept call when the trial is accepted.
+8. adds a `table_evaluate` call, and a `table_rate` call when compensated, on a
+   z-table run.
 9. runs the driver's per-step bookkeeping:
-   - `_record` on every attempt (history row, progress);
+   - `_record` on every attempt (history row, progress), whose backend hook calls the
+     native `promote_fsal` on every accepted step;
    - `_take_step_stats` on every accepted step (the monitor's `due`/`skip`, statistics
      rows);
    - `_natural_stop`;
    - `committing()` around the accept.
+
+So an exponential trial crosses the seam $k + 2$ times when rejected and $k + 4$ times
+when accepted, where $k$ is the number of scalar tables it reads. A compensated trial
+adds one crossing for the rate.
 
 The low-storage march of
 [SEP 24](archive/sep-0024-low-storage-interaction-picture-runge-kutta.md) already makes
@@ -298,7 +346,76 @@ interleaved with the others.
 
 The helium and `rdw` counts are inferred from each run's time and its per-trial or
 per-call cost, so read them as about ±5 %. Phase 0 replaces them with counted values,
-in a public benchmark entry (§7.6).
+in a public benchmark entry (§7.6). The counted values below show that the `rdw`
+Runge–Kutta count was overestimated by about 2.5 times.
+
+**At the refresh: the head of LupoLab/solprop#56 (a500d2d), 2026-10-28.** LupoLab/solprop#51,
+#55 and #56 had landed: the φ-functions' stopping test, `Range2` tiling, the host-cost
+work, the fused two-pass trial, and SLEEF vector maths on x86-64 (§6.9).
+
+**Method.**
+
+- The benchmark cases at their registry definitions, run by `benchmarks.worker.timed_run`
+  after its warm-up, with the suite's thread pools and passive policy.
+- Fresh processes, Multistep and Runge–Kutta interleaved in alternating order over three
+  rounds, medians reported.
+- `h2_raman_averaged` runs at a length fraction of 0.4, and `rdw` at 0.25.
+- Host time per trial is measured lean: the march's wall time less its native
+  `adams_*` calls, with no other wrappers.
+- Steps and calls are counted, not inferred.
+- The AMD EPYC 7763 machine is as at drafting (GCC 16.2, SLEEF's AVX2 functions), on
+  16 cores of one NUMA domain of a node shared with other jobs.
+- The Apple M5 Max (Homebrew Clang 23.1.3, FFTW with NEON codelets, the system libm)
+  was otherwise idle.
+- The EPYC's sixteen-thread rows scattered by more than their effects on the shared
+  node, several of them slower than at one thread, so only its one-thread rows are
+  used.
+
+**Complete runs, one thread (s), and the host and native time per trial (µs).**
+
+| Case | Machine | `Multistep()` | `RungeKutta()` | MS / RK | Host | Native |
+|---|---|---:|---:|---:|---:|---:|
+| `he_rdw_averaged` | Apple M5 Max | 0.815 | 0.650 | 1.25 | 51 | 448 |
+| `argon_blueshift_averaged` | Apple M5 Max | 2.920 | 1.419 | 2.06 | 38 | 213 |
+| `h2_raman_averaged` (0.4) | Apple M5 Max | 1.755 | 1.311 | 1.34 | 40 | 263 |
+| `rdw` (0.25) | Apple M5 Max | 1.711 | 2.736 | 0.63 | 129 | 3 730 |
+| `he_rdw_averaged` | AMD EPYC 7763 | 2.126 | 1.528 | 1.39 | 212 | 1 182 |
+| `argon_blueshift_averaged` | AMD EPYC 7763 | 9.17 (7.83–9.47) | 2.460 | 3.7 (3.2–3.9) | 177 | 632 |
+| `h2_raman_averaged` (0.4) | AMD EPYC 7763 | 4.820 | 2.146 | 2.25 | 173 | 695 |
+| `rdw` (0.25) | AMD EPYC 7763 | 4.157 | 5.440 | 0.76 | 372 | 9 245 |
+
+At sixteen threads on the M5:
+
+| Case | `Multistep()` | `RungeKutta()` | MS / RK |
+|---|---:|---:|---:|
+| `he_rdw_averaged` | 0.636 | 0.650 | 0.98 |
+| `argon_blueshift_averaged` | 2.474 | 1.381 | 1.79 |
+| `h2_raman_averaged` (0.4) | 1.697 | 1.652 | 1.03 |
+| `rdw` (0.25) | 0.862 | 1.256 | 0.69 |
+
+**Steps and calls, counted** (accepted/rejected, then source calls):
+
+| Case | `Multistep()` | `RungeKutta()` |
+|---|---|---|
+| `he_rdw_averaged` | 1 434/3, 1 438 | 480/1, 2 887 |
+| `argon_blueshift_averaged` | 11 166/2, 11 169 | 1 684/0, 10 105 |
+| `h2_raman_averaged` (0.4) | 5 417/2, 5 420 | 1 308/0, 7 849 |
+| `rdw` (0.25) | 393/1, 395 | 175/0, 1 051 |
+
+**Where a trial's native time goes.** Per trial, from a host-only Kokkos label timer
+(µs). "Source" is the rest of the Kokkos-active time.
+
+| Case | Machine | Predict pass | Correct pass | Source |
+|---|---|---:|---:|---:|
+| `he_rdw_averaged` | Apple M5 Max | 169 | 100 | ≈155 |
+| `argon_blueshift_averaged` | Apple M5 Max | 51 | 34 | ≈110 |
+| `he_rdw_averaged` | AMD EPYC 7763 | 557 | 287 | ≈290 |
+| `argon_blueshift_averaged` | AMD EPYC 7763 | 192 | 112 | ≈200 |
+
+On the EPYC the two Adams passes now cost 1.5 to 2.9 source evaluations a trial, while
+the host costs 0.6 to 0.9. Their per-element cost is 2.9–3.8 times the M5's, against
+about 1.9 times for the source. That is native work outside this SEP (§6.9): the march
+removes the host's share, not the passes'.
 
 **Prototypes.** Every prototype took the baseline's accepted and rejected steps on every
 case, with final fields within 4e-10 of the baseline. They are listed with their results
@@ -357,7 +474,8 @@ $$
 \frac{n_{\mathrm{MS}}}{n_{\mathrm{RK}}} < \frac{T_{\mathrm{RK}}}{T_{\mathrm{MS}}},
 $$
 
-with $n$ the source calls of each method. The measurements of §3.3 give these ratios:
+with $n$ the source calls of each method. The drafting measurements of §3.3 gave these
+ratios:
 
 | Case | $n_{\mathrm{MS}}/n_{\mathrm{RK}}$ | $T_{\mathrm{RK}}/T_{\mathrm{MS}}$, M5 | $T_{\mathrm{RK}}/T_{\mathrm{MS}}$, EPYC | The same with $C_A = C_H = 0$, M5 / EPYC |
 |---|---:|---:|---:|---:|
@@ -365,12 +483,22 @@ with $n$ the source calls of each method. The measurements of §3.3 give these r
 | `argon_blueshift_averaged` | 1.105 | 0.41 | 0.26 | 1.14 / 1.22 |
 | `rdw` (M5 at 16 threads) | ≈0.17 | 0.43 | — | 0.78 / — |
 
-Three conclusions follow.
+The refresh's counted runs (§3.3, one thread) give these, with the fixed cost per run
+(0.09 s on the M5, 0.12 s on the EPYC) taken off before dividing:
 
-- **Helium:** Multistep makes half the calls and loses only through $C_A + C_H$. The
-  host is $C_H/T_{\mathrm{MS}}$ = 22 % of a trial on the M5 and 24 % on the EPYC.
-- **Argon:** even at zero overhead Multistep would be at most 3–10 % faster (1.105
-  against 1.14–1.22), and any real $C_A$ loses that. That case needs fewer steps.
+| Case | $n_{\mathrm{MS}}/n_{\mathrm{RK}}$ | $T_{\mathrm{RK}}/T_{\mathrm{MS}}$, M5 | $T_{\mathrm{RK}}/T_{\mathrm{MS}}$, EPYC | The same with $C_A = C_H = 0$, M5 / EPYC |
+|---|---:|---:|---:|---:|
+| `he_rdw_averaged` | 0.498 | 0.38 | 0.35 | 1.25 / 1.68 |
+| `argon_blueshift_averaged` | 1.105 | 0.52 | 0.29 | 1.20 / 1.16 |
+| `rdw` (0.25) | 0.376 | 0.61 | 0.49 | — |
+
+Three conclusions follow, and they hold at the refresh.
+
+- **Helium:** Multistep makes half the calls and loses only through $C_A + C_H$. At
+  drafting the host was $C_H/T_{\mathrm{MS}}$ = 22 % of a trial on the M5 and 24 % on the
+  EPYC. At the refresh it is 10 % and 15 %, and the passes $C_A$ are 53 % and 60 %.
+- **Argon:** even at zero overhead Multistep would be at most 4–9 % faster (1.105
+  against 1.16–1.20), and any real $C_A$ loses that. That case needs fewer steps.
 - **`rdw`:** Multistep already wins, and cutting $C_A$ or $C_H$ only widens the margin.
 
 #### 4.2 The march's policy and state
@@ -385,18 +513,18 @@ forms it once per run, from the method (`Multistep`), the run's stepper settings
 | — | variable order | `Multistep.variable_order` (true) |
 | $s$, $g$, $f_{\min}$ | safety, growth cap, smallest factor | `Multistep.safety` (0.8), `max_growth` (2), `min_factor` (0.2) |
 | $g_{\mathrm{rej}}$ | growth cap of a rejection's factor | the literal 0.9 in `AdamsMarch._reject` |
-| $H$ | order hysteresis | `ORDER_HYSTERESIS` (1.2) |
-| $R$ | consecutive rejections before a history restart | `RESTART_AFTER` (3) |
-| $c$, $P_k$ | collar stability share; PEC negative-real interval of order $k$ | `COLLAR_STABILITY` (1); `PEC_REAL_INTERVAL` |
+| $H$ | order hysteresis | `ORDER_HYSTERESIS` (1.2, `backends.multistep`) |
+| $R$ | consecutive rejections before a history restart | `RESTART_AFTER` (3, `backends.multistep`) |
+| $c$, $P_k$ | collar stability share; PEC negative-real interval of order $k$ | `COLLAR_STABILITY` (1, `backends.multistep`); `PEC_REAL_INTERVAL` (`stepper.multistep`) |
 | $\rho$ | the in-stage collar's largest rate, $\max\alpha/2$ in m⁻¹; 0 without one, outside the exponential formulation, or under the split scheme | `AdamsMarch._collar_rate` |
-| $C_\kappa$ | carrier phase cap, rad, when a carrier frame is active | `CARRIER_PHASE_CAP` (1) |
+| $C_\kappa$ | carrier phase cap, rad, when a carrier frame is active | `CARRIER_PHASE_CAP` (1, `stepper.multistep`) |
 | $B$ | the call budget, or none | `Multistep.max_calls` |
 | — | equal approach; interval cap | `Multistep.equal_approach`; `interval_cap` |
 | $h_0$, $h_{\min}$, $h_{\max}$, $\sigma$ | first proposal, floor, cap, stretch | `dz_init`, `dz_min`, `dz_max`, `stretch` |
 | $z_{\mathrm{end}}$ | end of the run | `z_end` |
 | $\mathcal{Z}_s$, $\mathcal{Z}_k$, $\mathcal{Z}_b$ | save planes, hard kinks, interval edges | `save_planes` (empty when planes are interpolated), `linear.hard_kinks`, `linear.phi_breakpoints` (or its first and last entry without the interval cap) |
-| $u$ | the landing tolerance in units in the last place | `LANDING_ULPS` (8) |
-| $r_{\mathrm{tol}}$, $a_{\mathrm{tol}}$, $w$ | the norm's scale | `PIController.scale` (the PI gains are Runge–Kutta's and unused here) |
+| $u$ | the landing tolerance in units in the last place | `LANDING_ULPS` (8, `backends.driver`; repeated as `_LANDING_ULPS` in `stepper.schedule`, which phase 0 makes one constant) |
+| $r_{\mathrm{tol}}$, $a_{\mathrm{tol}}$, $w$, region | the norm's scale and the bins it covers | `PIController.scale`: `rtol`, `atol`, `weights` and `region`, the only controller fields `Multistep()` reads (the PI gains and factors are Runge–Kutta's and unused here) |
 | $I_Q$ | the quiet collar's step cap | `BoundaryMonitor.interval` |
 
 **The state** $\mathcal{S}$ is everything the algorithm changes:
@@ -540,7 +668,8 @@ On an acceptance, in one commit (§6.5.7):
 
 **A defect in the reference's commit order.** `AdamsMarch._decide` tests the floor in
 step 7 before it moves the position in step 8. A floor raised there leaves the adopted
-state at $z + h$ with the position still at $z$.
+state at $z + h$ with the position still at $z$, and the stored order already changed
+by `_choose_order`. The general path's `_commit` has the same order.
 
 It can happen. A landing may be shorter than $h_{\min}$, since `landing` never consults
 the floor, and the next proposal is formed from the step taken. So an accepted landing
@@ -549,8 +678,9 @@ shorter than $h_{\min}/g$ always raises the floor.
 The Runge–Kutta march does neither: it commits the state and position first, and grows
 its next proposal from the proposal rather than from the landed step.
 
-Phase 0 moves the position into the commit before the floor is tested, so that the state
-and position always agree, and the native march follows that order. Before the floor is
+Phase 0 moves the position into the commit before the floor is tested, in both paths, so
+that the state, the position, the history and the stored order always agree, and the
+native march follows that order. Before the floor is
 raised, the accepted attempt's row, the kink restart and the ledger are published to the
 host like any other accepted step (§6.5.7, R3). The rule itself stays for now. If the
 implementation finds short landings in practice, it may change the rule, recording the
@@ -605,7 +735,7 @@ The rule:
 - **Caps.** $(h_3, \text{none})$, $(h_{\max}, \text{max step})$ and (the width of the
   interval of $\mathcal{Z}_b$ containing $z$, interval width).
 - **Landings.** The first hard kink, the first save plane, and $z_{\mathrm{end},T}$, each
-  taken strictly beyond $z + \tau$.
+  the first at or beyond $z + \tau$ (`bisect_left`).
 - **Choice.** Both sets choose the shortest, with ties going to the later of
   none < max step < interval width < hard kink < save plane < end.
 - If the shortest landing gap is within the shortest cap, land on it.
@@ -614,8 +744,9 @@ The rule:
 - Otherwise take the cap and land nowhere.
 
 **Equal approach.** If the step lands nowhere and equal approach is on, find the next
-forced landing $a$: the nearest of $z_T$, the next save plane and the next kink beyond
-$z + \tau'$, with $\tau' = u\,\mathrm{ulp}(\max(|z|, |z_T|))$. If $h < a - z < 2h$, take
+forced landing $a$: the nearest of $z_T$, the next save plane and the next kink strictly
+beyond $z + \tau'$ (`bisect_right`), with $\tau' = u\,\mathrm{ulp}(\max(|z|, |z_T|))$, or
+none if that nearest is not beyond $z + \tau'$. If $h < a - z < 2h$, take
 $h = (a - z)/2$, end at $z + h$, with no kink.
 
 **Kinks.** Otherwise the end is the landing's target, or $z + h$. It is a kink when:
@@ -680,11 +811,15 @@ an $\infty$-norm condition estimate of about $2\times10^{53}$. That bound says n
 useful about the error of the algorithms actually used (products of roots and divided
 differences), or of the weights a trial applies.
 
-The native tables use the algorithm of `stepper.multistep` (`_basis_rows`, already
-native and strict as `_core.basis_rows`). They are therefore not held to a
-condition-number budget. Instead, both the native tables and the reference's are
-compared with an exact oracle: the same tables computed in rational arithmetic from the
-binary64 nodes, with Python's `fractions.Fraction` and no new dependency (§7.2).
+The native tables use the algorithm of `stepper.multistep` (`_basis_rows`). Since
+LupoLab/solprop#55 the native backend forms all of a trial's tables in one strict C++
+call, `lagrange::trial_tables` (bound as `_core.trial_tables`), which performs the plain
+composition's operations in the same order. The host march on native already reads its
+tables from it, and the native march calls the same function in-process. The `numpy_ref`
+and `numba_cpu` helpers still compose the tables from `_basis_rows`. None of them is held
+to a condition-number budget. Instead, every helper record's tables are compared with an
+exact oracle: the same tables computed in rational arithmetic from the binary64 nodes,
+with Python's `fractions.Fraction` and no new dependency (§7.2).
 
 This SEP proposes no new restart or admission rule for extreme node ratios. If the
 corpus shows the reference losing accuracy on histories the march admits, that is
@@ -711,6 +846,11 @@ native backend's `Helpers` already use (`_core.clenshaw_points`). Its bundles th
 equal the ones the backend forms today through `translate.stage.scalars_at`, to the bit.
 That is a structural property, tested exactly (§7.1). The tables are uploaded once per
 run.
+
+One input is formed differently. The carrier frame's chord is evaluated today on the
+host through Numba's Clenshaw (`CarrierChord.exponent`). Native forms it from its
+resident $\Phi$ terms, or from a z table's slots, so the carrier cap and the carrier
+shift may differ from the host's by rounding.
 
 **Host events.** The march returns to the host only when the host has work, and every
 return is drained completely (R5).
@@ -787,14 +927,29 @@ current, and the host's ingestion does not call the hook.
 
 #### 4.9 What "the same steps" means
 
-Both marches read norms from the same native kernels. They differ only in:
+On the native backend, both marches read:
 
-- the coefficient tables, and so the norms formed with them;
-- the order of the scalar operations that combine them.
+- their norms from the same native kernels;
+- their tables from the same strict `lagrange::trial_tables` (§4.7);
+- their stage scalars from the same strict Clenshaw helper (§4.8).
+
+They differ only in:
+
+- the carrier chord, and so the carrier cap and shift (§4.8);
+- the order of the scalar operations that combine the norms, wherever the two
+  implementations order them differently.
+
+On one build, with deterministic transform plans (`SOLPROP_FFTW_PLAN=estimate`), the
+two marches are therefore expected to take the same steps and to produce the same fields
+bit for bit outside the carrier frame. Under the default measured plans, two runs of the
+*same* march already differ by up to about 5e-10 on the helium gradient case, because
+FFTW's planner picks codelets by timing (LupoLab/solprop#54). This expectation is a
+diagnostic that phase 2 records; it is never asserted (SEP 25).
 
 How far the norms differ is measured per case, not assumed (R8). Phase 1 records, on
 every qualification case, the distribution of $|\Delta\varepsilon|/\varepsilon$
-between trials run with the host's tables and with the native ones.
+between trials run with the host's inputs and with the native ones. It is expected to be
+zero outside the carrier frame.
 
 The controller's own arithmetic is the same IEEE operations on the same inputs: strict,
 with the platform's `pow` (§6.5.1) [7, 8]. Its outputs are discontinuous functions of
@@ -825,15 +980,22 @@ configuration is admitted (§6.6). Otherwise it runs through the Python march as
 and warns once per run with a new `SolpropWarning` subclass in `solprop.exceptions`,
 the one public addition, naming the reason (Q2).
 
-The run's metadata records which march ran, so that a timing or a rounding difference
-can be traced:
+The run's backend record says which march ran, so that a timing or a rounding
+difference can be traced. It is one more entry in the settings the native backend's
+`metadata()` reports, which `BackendRecord` stores outside the resume key, as it stores
+the thread pools:
 
 ```text
-RunMetadata.adams_march: "native" | "host" | None   # None for Runge–Kutta runs
+BackendRecord.settings["adams_march"]: "native" | "host"   # absent for Runge–Kutta runs
 ```
 
+The record is written when the run starts, so a resumed file names the march that
+started the run, as it names the backend.
+
 A private keyword on the native backend's constructor (`adams_march="host"`) forces the
-Python march. Its users:
+Python march. For the benchmark harness, which builds backends through
+`solprop.backends.select`, the same switch is a private environment variable read once
+at import. Its users:
 
 - the parity tests;
 - the benchmark harness's A/B comparisons;
@@ -939,6 +1101,30 @@ B's gain over a completed phase 1, not over today (R12). From the same pieces:
 That is 7–14 % of the helium run and 9–23 % of the argon run once the items of §6.9 have
 landed. These are estimates; phase 2 measures them with N1–N7 held fixed (§7.6).
 
+**The same costing at the refresh.** LupoLab/solprop#55 took the tables, most of the
+packing and the landing searches out of the Python per trial, so the remaining host
+cost is smaller and both phases save less. The pieces come from §3.3's per-piece
+profiles, scaled to the lean host time:
+
+- **C (phase 1)** removes the stage arrays (bundle, packing, sample), the rate weights,
+  the tables call's crossing, the hoist and the carrier shift. It adds back the native
+  evaluation, a few µs.
+- **B over C (phase 2)** removes the rest but the residual of 5–15 µs (M5) or 15–40 µs
+  (EPYC).
+
+| | C | B over C | B over today |
+|---|---:|---:|---:|
+| Saving per trial, Apple M5 Max (helium / argon), µs | 25–29 / 15–19 | 10–20 / 6–16 | 36–46 / 22–33 |
+| Saving per trial, AMD EPYC 7763 (helium / argon), µs | 90–110 / 60–80 | 70–95 / 65–90 | 170–195 / 135–160 |
+| Run-level, Apple M5 Max, one thread (helium / argon) | 4–5 % / 6–7 % | 2–3.5 % / 2.5–6 % | 6.5–8 % / 8.5–12.5 % |
+| Run-level, AMD EPYC 7763, one thread (helium / argon) | 6–7.5 % / 7–10 % | 5–6.5 % / 8–11 % | 11.5–13 % / 16–20 % |
+
+The case for B over C is therefore about half what it was at drafting: 2–11 % of a
+single-mode run on the CPU, by case and machine. The author decided to build every
+phase with this figure in hand (2026-10-28). The no-regression rule of §7.6 is the guard
+against the march costing more than it saves. On device builds the comparison is
+different in kind (§6.7).
+
 #### 6.2 Recommendation: B, built on C
 
 B and A cost the same in time and in C++, since both put the whole loop in native code.
@@ -955,7 +1141,7 @@ must be native before the loop can be. As a stopping point, C is weaker for thre
 reasons:
 
 - On the EPYC it leaves 125–235 µs of Python per trial, still 0.5–0.7 source calls on
-  the cheap cases.
+  the cheap cases. At the refresh it would leave about 100–115 µs, half a source call.
 - It keeps two crossings per accepted trial.
 - On a GPU it keeps the Python decision between the norm read-back and the next launch.
 
@@ -1011,26 +1197,43 @@ recommended.
 | Backends (B), solprop | `stepper.multistep` gains `MarchPolicy`, a frozen dataclass of §4.2's fields, formed by `march_policy(method, settings, …)`. `backends.multistep` gains a pure controller core (§11, phase 0), which `AdamsMarch` calls. |
 | Backends (B), native adapter | `_NativeAdamsMarch` in `solprop_native.backend`. It configures the native march once per run, calls it per march, applies the host events, and maps events to solprop's exceptions. |
 | Backends (B), C++ | The march, beside `GeneralWorkspace`'s Adams methods. It owns the state $\mathcal{S}$ and reuses the resident engine's trial and accept passes. |
-| Driver (D) | `run_problem` and the record are unchanged, but for `RunMetadata.adams_march`. |
+| Driver (D) | `run_problem` and the record are unchanged. The backend record's settings gain `adams_march`. |
 
 The seam changes:
 
+- **Phase 0.** Output schema +1, for the collar flag in `MarchSnapshot` (§6.5.9).
 - **Phase 1.** Kernel schema +1:
   - the scalar tables leaf;
-  - the trial call takes the nodes and the scored orders instead of the tables.
+  - the trial call takes the positions, the nodes and the scored orders instead of the
+    tables and the stage arrays, and writes one stage row instead of the Runge–Kutta
+    tableau's rows (§6.5.6).
   - A contract tuple `SCALAR_TABLES_FIELDS` is added.
-- **Phase 2.** Kernel schema +1 and output schema +1:
+- **Phase 2.** Kernel schema +1:
   - `MarchPolicy` and its tuple `MARCH_POLICY_FIELDS`;
   - the driver's bulk bookkeeping hooks, which join `DRIVER_SURFACE` (for example
     `_record_attempts`, and a counted form of `_take_step_stats`; the names are the
-    implementer's);
-  - `RunMetadata.adams_march`.
+    implementer's).
   - `check_build()` checks the new tuples at import, as it does the others.
 - **Phase 3.** The interaction formulation's fused trial needs no seam change. A replay
   passes the schedule's steps and edges, which the stepper settings already carry.
 
-The exact schema numbers are those current at each phase; a change under review at the
-time of drafting moves the kernel schema to 38.
+The exact schema numbers are those current at each phase. At the refresh of
+2026-10-28 the kernel schema is 38 and the output schema 27. ADR-058 restarts the output
+schema at 1 and renames the kernel's constant `KERNEL_SCHEMA_VERSION` before the first
+tag; this SEP's bumps are relative to whatever is current.
+
+**The step-loop protocol.** ADR-058 reserves two seams for change before 1.0: "the two
+step loops that one march protocol would replace", and the split of the integrator from
+the controller. This SEP touches both, and is meant to make them easier:
+
+- The policy record is that split for the Adams march. It holds every number the
+  algorithm reads, separate from the norm's scale (`PIController.scale`).
+- The native march returns to the host only at events. A later protocol shared by the
+  Runge–Kutta and Adams loops should express those events, rather than the per-trial
+  calls of today.
+
+A redesign of the protocol that changes the event set is that later change's work. It
+would amend the kernel-contract section this SEP writes.
 
 #### 6.5 The native march, item by item
 
@@ -1089,10 +1292,14 @@ march target passed per call. Under interpolated planes:
 ##### 6.5.5 Varying operators
 
 - **z tables.** Their native slots (SEP 29 G1) are read in-process instead of through
-  `_ZTables.load`. The least-recently-used slot set moves into the march.
+  `_ZTables.load`, which today makes a `table_evaluate` call per trial, and a
+  `table_rate` call when compensated. The least-recently-used slot set moves into the
+  march (phase 2; phase 1 keeps `_ZTables`).
 - **Rate weights.** For an expansion, the closing-side derivative of the integrated
   weight tables. The host precomputes the derivative tables at translation and uploads
-  them with the scalar tables. For a z table, the rate slot native already evaluates.
+  them with the scalar tables (phase 1). Today this is an uncached Clenshaw call per
+  compensated trial (`_rate_value`). For a z table, the rate slot native already
+  evaluates.
 - **The transported compensation.** The engine's existing passes (ADR-042), with the
   spans and weights of §4.7 formed natively. The sample's rate row is stored by the
   accept from the endpoint rate the trial formed.
@@ -1106,9 +1313,18 @@ Three ways were weighed:
 - **Tabulate** on a fine grid at translation. Rejected: the values would differ beyond
   rounding, the grid would need its own error control, and memory grows with profile
   detail.
-- **Keep on the host.** Rejected: it is the largest single host item on the EPYC, and it
-  would need a host callback per trial, which `native/AGENTS.md` forbids from native
-  code.
+- **Keep on the host.** Rejected: since LupoLab/solprop#55 it is the largest single host
+  item (the stage arrays were 94 of a helium trial's 233 instrumented µs on the EPYC,
+  the bundle's Clenshaw reads 58 of them), and it would need a host callback per trial,
+  which `native/AGENTS.md` forbids from native code.
+
+**One stage row.** The trial binding still takes Runge–Kutta-shaped stage arrays: the
+Adams passes read row `n_stages` of the stage buffer it shares with Runge–Kutta, and the
+step and the lab-frame sample are uploaded separately. LupoLab/solprop#54 left the
+one-row form to this SEP, because it is a seam change. In phase 1 the native evaluation
+writes the one row the Adams passes read straight into the stage staging. z tables keep
+`_ZTables` until phase 2. The separable operator, SEP 6's dispersive channels and moving
+maps keep the general packing until phase 4.
 
 The Raman decay rates already drive a native rebuild of the transformed kernel spectrum
 when they change (`prepare_raman_stage`), so nothing moves there.
@@ -1186,8 +1402,8 @@ thresholds, the quiet verdict and the stop.
 
 - The march returns when a check is due (§4.8). Busy edges therefore return every step,
   and quiet ones every `CADENCE` steps or by distance.
-- A change under review moves the monitor's reading into the backend, which then hands
-  only five numbers and the split's removal to the host. With it, a check costs one
+- The backend reads the monitor's numbers itself (LupoLab/solprop#49): it hands the
+  host five numbers and the split's removal (`monitor_reading`), so a check costs one
   crossing and a few µs of Python.
 - The quiet flag $Q$ is passed at every entry. A change of verdict reaches the stages
   through `_collar_changed`, as today.
@@ -1206,8 +1422,8 @@ thresholds, the quiet verdict and the stop.
 - **The per-step debug log** of the Python march is kept. When the `DEBUG` level is
   enabled, the host writes one line per attempt from the rows at each event, guarded by
   `isEnabledFor`, so the lines cost nothing otherwise (decided, Q12).
-- **The record and the configuration hash** are unchanged. The metadata adds
-  `adams_march`.
+- **The record and the configuration hash** are unchanged. The backend record's
+  settings add `adams_march` (§5), outside the resume key.
 
 ##### 6.5.9 Resume snapshots
 
@@ -1323,9 +1539,13 @@ The divisor is already formed on the device (`adams_upload_divisor`), so the onl
 read-back is the norms.
 
 SEP 16 measured 0.13–0.2 ms of host Python per trial on a device, against kernels of
-3–9 µs. The march removes nearly all of that. About 26 launches per trial remain, which
-kernel fusion (§6.9) or graph capture would address later. A controller resident on the
-device is out of scope (§10).
+3–9 µs. LupoLab/solprop#55 has since cut the host's share by more than half on the CPU,
+and the march removes nearly all of what is left.
+
+The fused trial of LupoLab/solprop#55 also runs on devices, with blocks of one element.
+The trial's own work is two launches around the source, and the accept is one. The
+source's own launches remain; phase 5 counts them. Graph capture would address them
+later. A controller resident on the device is out of scope (§10).
 
 Device qualification follows the standing policy ([backends.md](../backends.md)): in one
 pass, in a GPU segment with its own budget, as phase 5 and before `Final` (Q6). Until then
@@ -1353,18 +1573,21 @@ host march stays available on native for controller research.
 
 These items change no algorithm and leave results unchanged to rounding, or exactly.
 They follow the working agreement of `AGENTS.md`, each with a benchmark ledger entry.
-Two are already under way as ordinary changes.
+At the refresh of 2026-10-28 all but N6 had landed as ordinary changes, three of them
+together in LupoLab/solprop#55. The table keeps the draft's description and its
+prototype's figures, with the status and the merged change's own measurements beside
+them.
 
-| Item | Results | Measured or estimated gain |
-|---|---|---|
-| **N1. Fewer threaded regions.** The trial as three passes: phase, magnitude, moments and prediction as one reduction; the source; correction and defect norms as one reduction, with the divisor inline. The restore copy becomes a view swap, and the accept's mask and store become one pass. Cheap passes stay separate where they do not thread. | rounding | `rdw` at 16 threads: −25 % (M5), −29 % (EPYC). Nothing at one thread, where the passes are compute-bound. |
-| **N2. A threading size class for the Adams passes.** Sized by elements × moments: per element the passes cost about ten times a stage entry, so the stage pool's threshold leaves them serial on every single-column case. | rounding (reduction order) | On top of N1 at 16 threads: helium −24 points (M5, a tie with RK), −8 (EPYC); argon 0 (M5), −7 (EPYC). |
-| **N3. `Range2` tiling.** Host tiles of (1, 256) instead of Kokkos' default, which gives OpenMP ⌈rows/2⌉ tiles. Under way. | exact | `rdw` at 16 threads: −14 % (M5), −19 % (EPYC). It also reaches Runge–Kutta's `Range2` kernels. |
-| **N4. The φ-functions' stopping test and bookkeeping.** Squared magnitudes, exact `2^-k` and `1/n` tables, no `pow`, `log2` or `hypot`. Under way. | rounding (bit-identical on `rdw` on the EPYC) | One thread: −4 to −6 % (M5), −8 to −11 % (EPYC). |
-| **N5a. The newest sample's carry is the flow.** $e^{(1-\theta_0)x}$ with $\theta_0 = 0$ is $e^{x}$, already formed, so one of the compensation's six exponentials per element is free. | exact | about 1/6 of the compensation's exponentials (≈40 µs of the helium trial on the EPYC; estimated) |
-| **N5b. Vector `exp`/`sincos`.** Over a pass that writes all of a step's exponentials to a buffer: glibc's libmvec on Linux, Accelerate's vForce on macOS. GCC uses libmvec only under fast-math, which is forbidden, so the calls are explicit. | changes values by a few units in the last place per exponential: requalified under SEP 25 (budgets re-derived, work–precision cases re-run) | The largest native lever left on Linux for the gradient cases. On the EPYC, transcendentals are about two thirds of the 0.77 ms helium predict pass: compensation 43 %, the phase and propagator remainder 24 %. On the M5 they are about a third. Estimated −0.25 to −0.35 ms per helium trial on the EPYC. SEP 25 measured libmvec at about 3 % on the RK cases and did not adopt it; here the share is far larger. |
-| **N6. `-fno-math-errno`.** | **not value-identical under GCC**: with the same steps the final helium field moved by 1.9e-10 relative and argon's by 9e-14 (GCC 16.2), within SEP 25's rules but to be stated when adopted | −1.9 to −2.7 % alone, −12 to −14 % with N4 (EPYC, one thread) |
-| **N7. Host micro-work.** The factored defect rows without `numpy.polynomial.polyfromroots` (25 → 5 µs a call, coefficients within 2 ulp), and the resident trial's stage rows packed once (identical arrays). Subsumed by this SEP's phase 1. | rounding / exact | −19 and −10 µs a step (M5) |
+| Item | Results | Prototype's gain | Status and the landed change's measurement |
+|---|---|---|---|
+| **N1. Fewer threaded regions.** The trial as three passes: phase, magnitude, moments and prediction as one reduction; the source; correction and defect norms as one reduction, with the divisor inline. The restore copy becomes a view swap, and the accept's mask and store become one pass. Cheap passes stay separate where they do not thread. | rounding | `rdw` at 16 threads: −25 % (M5), −29 % (EPYC). Nothing at one thread, where the passes are compute-bound. | **Landed** with N2 (LupoLab/solprop#55): two passes around the source, blocked by 32 elements. At 16 threads `rdw`, helium and argon −31/−23/−23 % (EPYC) and −25/−25/−10 % (M5); within 2 % at one thread. |
+| **N2. A threading size class for the Adams passes.** Sized by elements × moments: per element the passes cost about ten times a stage entry, so the stage pool's threshold leaves them serial on every single-column case. | rounding (reduction order) | On top of N1 at 16 threads: helium −24 points (M5, a tie with RK), −8 (EPYC); argon 0 (M5), −7 (EPYC). | **Landed** as `CpuOperation::adams` (four threads from 8,192 element-rows, the pool from 65,536), in N1's figures. |
+| **N3. `Range2` tiling.** Host tiles of (1, 256) instead of Kokkos' default, which gives OpenMP ⌈rows/2⌉ tiles. | exact | `rdw` at 16 threads: −14 % (M5), −19 % (EPYC). It also reaches Runge–Kutta's `Range2` kernels. | **Landed** (LupoLab/solprop#55) with tiles of about 64 samples: `rdw` at 16 threads −21 % (EPYC), −16 to −18 % (M5). |
+| **N4. The φ-functions' stopping test and bookkeeping.** Squared magnitudes, exact `2^-k` and `1/n` tables, no `pow`, `log2` or `hypot`. | rounding (bit-identical on `rdw` on the EPYC) | One thread: −4 to −6 % (M5), −8 to −11 % (EPYC). | **Landed** (LupoLab/solprop#51): one thread on the M5, argon −7 %, helium −9 %. |
+| **N5a. The newest sample's carry is the flow.** $e^{(1-\theta_0)x}$ with $\theta_0 = 0$ is $e^{x}$, already formed, so one of the compensation's six exponentials per element is free. | exact | about 1/6 of the compensation's exponentials (≈40 µs of the helium trial on the EPYC; estimated) | **Landed** in N1's change, bit for bit. |
+| **N5b. Vector `exp`/`sincos`.** Over a pass that writes all of a step's exponentials to a buffer. The draft named glibc's libmvec on Linux and Accelerate's vForce on macOS. | the draft expected a few units in the last place per exponential, requalified under SEP 25 | Estimated −0.25 to −0.35 ms per helium trial on the EPYC. | **Landed** differently (LupoLab/solprop#56, ADR-059): SLEEF's 1.0-ulp functions on x86-64 only; Arm keeps the system libm, since SLEEF's AdvSIMD was 11.6 % slower on the M5. Within the 1-ulp bound the budgets already assume. One thread on the EPYC: −8.8 % geometric mean over eleven tracking cases. |
+| **N6. `-fno-math-errno`.** | **not value-identical under GCC**: with the same steps the final helium field moved by 1.9e-10 relative and argon's by 9e-14 (GCC 16.2), within SEP 25's rules but to be stated when adopted | −1.9 to −2.7 % alone, −12 to −14 % with N4 (EPYC, one thread) | **Not adopted**; a roadmap item. |
+| **N7. Host micro-work.** The factored defect rows without `numpy.polynomial.polyfromroots` (25 → 5 µs a call, coefficients within 2 ulp), and the resident trial's stage rows packed once (identical arrays). | rounding / exact | −19 and −10 µs a step (M5) | **Landed** and extended (LupoLab/solprop#55): every table in one native call, one stage row repeated, the sample reusing the step's arrays, the landing searches on tuples. Host per trial 471 → 208 µs (helium) and 374 → 151 µs (argon) on the EPYC, 179 → 65 and 131 → 51 µs on the M5. |
 
 **Where the march sits.** The table below estimates complete runs with everything done:
 
@@ -1418,6 +1641,31 @@ What the table shows:
   is not planned (§10, Q8).
 - **On short runs the fixed 90–190 ms per run is then a large share** of both methods'
   time: 0.12 s of a 0.7 s helium run.
+
+**At the refresh.** With the N items landed, measured, and the two phases of this SEP
+estimated from §6.1's refreshed costing ("B over today"):
+
+| Case | Machine | Threads | MS measured | Drafting's estimate for N items | MS, + phases 1–2 | RK measured | MS / RK after |
+|---|---|---:|---:|---:|---:|---:|---:|
+| `he_rdw_averaged` | M5 Max | 1 | 0.815 | 0.86–0.90 | 0.75–0.76 | 0.650 | 1.15–1.17 |
+| `he_rdw_averaged` | M5 Max | 16 | 0.636 | 0.665–0.69 | 0.57–0.59 | 0.650 | 0.88–0.91 |
+| `argon_blueshift_averaged` | M5 Max | 1 | 2.920 | 3.18–3.30 | 2.55–2.67 | 1.419 | 1.80–1.88 |
+| `argon_blueshift_averaged` | M5 Max | 16 | 2.474 | 3.25–3.50 | 2.10–2.22 | 1.381 | 1.52–1.61 |
+| `he_rdw_averaged` | EPYC 7763 | 1 | 2.126 | 2.21–2.35 | 1.85–1.88 | 1.528 | 1.21–1.23 |
+| `argon_blueshift_averaged` | EPYC 7763 | 1 | 9.17 | 9.8–10.0 | 7.4–7.7 | 2.460 | 3.0–3.1 |
+
+What it shows:
+
+- **The landed items beat their estimates** on every row.
+- **Runge–Kutta gained as well.** The vector maths took 18 % off argon's Runge–Kutta
+  run on the EPYC. So the remaining gap there is wider than the drafting estimated.
+- **What the march takes.** Both phases of this SEP together take 11.5–13 % of helium's
+  run and 16–20 % of argon's on the EPYC, and 6.5–8 % and 8.5–12.5 % on the M5.
+- **The largest single item on the EPYC is now the Adams passes**, 844 µs of a helium
+  trial (§3.3). That is native work outside this SEP.
+- **`rdw`.** Its host time is 129 µs per trial on the M5 and 372 µs on the EPYC, of
+  trials of 4 and 10 ms, so the march takes 2–3 % from it. It stays 1.4–1.6 times ahead
+  of Runge–Kutta.
 
 ### 7. Verification and validation
 
@@ -1490,10 +1738,11 @@ requires.
 
 #### 7.2 Rounding budgets and the table oracle
 
-- **Coefficient tables** (R7). Native and reference tables are both compared with exact
-  tables. These are computed in rational arithmetic (`fractions.Fraction`) from the same
-  binary64 nodes, for `exponential_tables`, `compensation_tables`,
-  `factored_defect_rows` and `fused_tables`.
+- **Coefficient tables** (R7). The native tables (`_core.trial_tables`) and the
+  reference's (the composition the `numpy_ref` and `numba_cpu` helpers use) are both
+  compared with exact tables. These are computed in rational arithmetic
+  (`fractions.Fraction`) from the same binary64 nodes, for `exponential_tables`,
+  `compensation_tables`, `factored_defect_rows` and `fused_tables`.
   - *The node sets* come from real histories, not only random ones: landings that
     shorten a step by $10^{-1}$ to $10^{-10}$ with `equal_approach=False`, rejection
     cascades up to the restart, non-default growth and smallest factors, orders 1–6.
@@ -1509,8 +1758,9 @@ requires.
   count and the per-step rounding of SEP 25 §4.3. This is the R-comparison SEP 25 asks
   for (phase 3, when replay is native).
 - **The norms' spread** (R8). Phase 1 records, per qualification case, the distribution
-  of $|\Delta\varepsilon|/\varepsilon$ between trials with host and native tables.
-  These are the inputs of §4.9's margins.
+  of $|\Delta\varepsilon|/\varepsilon$ between trials with host-formed and natively
+  formed inputs, under deterministic transform plans. It is expected to be zero outside
+  the carrier frame (§4.9). These are the inputs of §4.9's margins.
 
 #### 7.3 Accuracy envelopes for adaptive runs and resume
 
@@ -1606,13 +1856,17 @@ of this SEP's qualification.
 
 **Baseline.** Phase 0 records the baseline in [benchmarks.md](../benchmarks.md): the
 invocation, the lengths, the counted attempts and calls per case, and the host cost by
-piece. The decision to go on to phase 2 then rests on public numbers. Each later phase
-adds its own entry.
+piece. The refresh's measurements of §3.3 are that baseline. The lean host timer they
+used is committed with it, so that the invocation can be repeated. The decision to go on
+to phase 2 then rests on public numbers. Each later phase adds its own entry.
 
 **Acceptance rule** (decided, R12). On every case above, the native march must not be
-slower than the host march by more than the A/B's own measured spread, about 2 %. That includes the
-expensive-source and frequent-event cases. A regression beyond that blocks `Final` until
-it is understood and fixed.
+slower than the host march by more than the A/B's own measured spread, about 2 %. That
+includes the expensive-source and frequent-event cases. A regression beyond that blocks
+`Final` until it is understood and fixed. The rule is judged where the A/B's own spread
+is of that size: an idle machine, or one NUMA domain held alone. A shared node's rows,
+such as the EPYC's sixteen-thread rows at the refresh (§3.3), are reported but do not
+decide.
 
 ### 8. Documentation
 
@@ -1643,8 +1897,9 @@ No tutorial or worked example is needed: nothing a user writes changes.
 - **Defaults.** None changes. `Multistep()` stays the method, with its fields and
   constants.
 - **Results.**
-  - On the native backend, the native march's tables differ from the host's by rounding
-    (measured, §7.2).
+  - On the native backend, the two marches read the same tables and stage scalars. Only
+    the carrier chord, and the order of the controller's scalar operations, can differ by
+    rounding (§4.9; measured, §7.2).
   - A decision can flip at a knife edge, after which the run meets the case's accuracy
     envelope rather than the host march's steps (§4.9, R10).
   - Validated results elsewhere are unchanged: `numpy_ref` and `numba_cpu` run the same
@@ -1652,11 +1907,13 @@ No tutorial or worked example is needed: nothing a user writes changes.
 - **Seam.** Kernel schema +1 in phase 1 and +1 in phase 2. New contract tuples
   `SCALAR_TABLES_FIELDS` and `MARCH_POLICY_FIELDS`, and additions to `DRIVER_SURFACE`.
 - **Output.** Output schema +1 in phase 0, for the collar flag $w_Q$ in
-  `MarchSnapshot` (R9), and +1 in phase 2, for `RunMetadata.adams_march`. Older files read
-  as before, since breaking changes are allowed before the first release and there are no
-  compatibility shims (ADR-051).
+  `MarchSnapshot` (R9). The march's name goes into the backend record's free-form
+  settings and needs no bump. A snapshot written before phase 0 lacks the flag. It is
+  treated as any older schema is: breaking changes are allowed before the first release,
+  and there are no compatibility shims (ADR-051, ADR-058).
 - **Rules.** `native/AGENTS.md`'s policy rule is amended, and ADR-043 is amended by a new
-  ADR (§6.3).
+  ADR (§6.3). The step-loop protocol and the integrator–controller split that ADR-058
+  reserves for change are touched as §6.4 describes.
 - **Warnings.** A run on native that the native march does not cover warns
   (`HostMarchWarning` or similar, §6.6).
 - **What it breaks:**
@@ -1672,8 +1929,9 @@ No tutorial or worked example is needed: nothing a user writes changes.
 
 - **Option A, the controller owned by C++** (§6.1). The same speed as B, but it puts the
   policy in native code and keeps two sets of constants.
-- **Option C alone** (§6.1). It keeps a third of the EPYC's host cost and one crossing
-  per trial. It is kept as phase 1.
+- **Option C alone** (§6.1). At drafting it kept a third of the EPYC's host cost; at
+  the refresh it keeps about half of what is left, and two crossings per accepted trial.
+  It is kept as phase 1.
 - **A native loop that calls back into Python for each decision.** It saves nothing,
   since the crossings stay. It also holds the GIL across native work, and
   `native/AGENTS.md` forbids calling Python from native code.
@@ -1727,16 +1985,21 @@ pre-refactor corpus exactly.
 **Phase 1: native tables and stage scalars** (option C's pieces).
 
 - The scalar tables leaf, with derivative tables for the rate weights.
-- Native coefficient tables formed from the nodes inside the trial call.
-- Lean trial arguments: positions and phase increment only.
+- Native coefficient tables formed from the nodes inside the trial call. Since
+  LupoLab/solprop#55 this is the existing `lagrange::trial_tables` called in-process.
+- Native stage scalars, the rate weights and the carrier chord.
+- Lean trial arguments: the positions, the nodes and the scored orders, with one stage
+  row written into the staging the Adams passes read (§6.5.6).
 - The trial and the accept stay separate calls (R2).
 - Kernel schema +1.
 - The Python march still decides.
 
 Verified by §7.1's scalar equality, §7.2's table oracle and the norms' spread, the
-existing suite, and the benchmarks. Expected −265 to −335 µs per helium trial on the
-EPYC. Phase 1 stays in
-this SEP and lands with the rest in its one pull request (decided, Q11).
+existing suite, and the benchmarks. Expected, at the refresh, −90 to −110 µs per helium
+trial and −60 to −80 µs per argon trial on the EPYC, and −25 to −29 and −15 to −19 µs on
+the M5 (§6.1). At drafting the expectation was −265 to −335 µs per helium trial on the
+EPYC. Phase 1 stays in this SEP and lands with the rest in its one pull request
+(decided, Q11).
 
 **Phase 2: the native march**, for the exponential formulation on diagonal operators,
 with everything of §6.5:
@@ -1748,7 +2011,7 @@ with everything of §6.5:
 - admission and the host march elsewhere.
 
 Also in phase 2: the new ADR, the `native/AGENTS.md` amendment, the documentation of §8,
-and kernel and output schema +1. The two marches are compared on the same revision with
+and kernel schema +1. The two marches are compared on the same revision with
 N1–N7 held fixed, under §7.6's acceptance rule. Verified by §7.1, §7.3, §7.4, §7.5 and
 §7.6.
 
@@ -1860,7 +2123,499 @@ recorded beside its question, and the proposal above follows it.
 
 ## Part II — Implementation record
 
-No phase has started.
+### Phase 0 — report
+
+**Scope.**
+
+- Phase 0, the controller core in solprop, 2026-10-28/29.
+- Opus 5.5 (AI) for John Travers, on `feature/sep-0039-native-adams-march`, based on
+  LupoLab/solprop#56 at a500d2d.
+- The decision-trace oracle was committed first, before any code changed. Then came
+  the core, the general path and the fixes together, then the host timer, the baseline
+  and the contract draft.
+
+**Delivered.**
+
+- **The oracle.**
+  - `tests/backends/adams_traces.py` drives the march through a stub backend and engine
+    on scripted norms, and records every stencil, decision, proposal, order, landing,
+    restart and ledger counter.
+  - `tests/data/generate_adams_traces.py` wrote `tests/data/adams_traces.json.gz` from
+    a500d2d: 35 scenarios and about 2 900 attempts, gzip-compressed to 313 kB, the
+    floats exact. It refuses to overwrite the file without `--force`.
+  - The scenarios: fixed-order startup and post-restart growth at orders 2–6, variable
+    order with the collar cap on and quiet, rejection cascades and failure restarts,
+    the budget's edge, the floor after rejections and after a short landing, equal
+    approach on and off, the carrier cap, non-default factors, threshold norms (1 and
+    its neighbours, 0, ∞, NaN), the interval cap, kinks on and off planes, dense
+    observation, replay (the 160-step schedule 12 ulps short, kinks on edges,
+    exhaustion, divergence) and eight random settings.
+  - `tests/backends/test_adams_traces.py` requires the march to reproduce it.
+- **The policy record.** `MarchPolicy` and `march_policy` are in
+  `src/solprop/stepper/multistep.py`. `RESTART_AFTER`, `ORDER_HYSTERESIS` and
+  `COLLAR_STABILITY` move there from `backends.multistep`. The rejection's growth cap
+  becomes a named constant, `REJECTION_GROWTH`. `LANDING_ULPS` is one public constant in
+  `stepper.schedule`, which `backends.driver` imports; the duplicate is gone.
+- **The core.** `src/solprop/backends/adams_core.py`: `targets`, `factor`, `stencil`,
+  `stable_factor`, `order_weight`, `choose_order`, `rejection`, `carrier_capped`,
+  `quiet_capped`, `collar_reentry`, `next_landing`, `approach` and `replay_kink`. Each is
+  extracted operation for operation. `AdamsMarch` keeps thin methods over them, those the
+  tests and the general path call.
+- **The general path (Q7).** `GeneralPath` in `src/solprop/backends/multistep_general.py`
+  holds the comparison variants' attempt, correction, commit and next order, with
+  `_Trial`, `_defect_at` and `_norm_function`. The march creates it only for those
+  variants.
+- **The fixes.**
+  - *Commit order (§4.4).* An acceptance moves the position, the kink restart, the stored
+    order and `last_rejected` inside its commit before the next proposal is tested,
+    in both paths (`AdamsMarch._propose`). A floor found then is raised once the attempt
+    is recorded (`_raise_floor`): by `march_to`, by `_replay_to` and by the lockstep
+    runner after their records, and by `_afford` before any later attempt, so that it
+    cannot be passed over.
+  - *The collar flag (R9).* `MarchSnapshot.collar_was_quiet` is written to and read from
+    the HDF5 snapshot, restored by `load` and cleared by `begin_run`, with any pending
+    floor. Output schema 28; the tests that pin the schema follow.
+- **Tests.**
+  - The corpus, with the short-landing floor scenario checked against the oracle as the
+    fix changes it: the accepted attempt recorded, the position at its plane.
+  - The flag across the file, its absence refused like the other attributes', a new run
+    clearing it, and a restored flag deciding the re-entry cap.
+  - `tests/backends/test_adams_table_oracle.py`, the exact rational oracle of §7.2.
+- **The baseline.** The measurements of §3.3 are recorded in
+  [benchmarks.md](../benchmarks.md), "Exponential Adams host cost: the SEP 39 baseline".
+  The lean host timer is `python -m benchmarks.adams_host`.
+- **The contract.** [kernel-contract.md](../kernel-contract.md) §11, "The Adams march",
+  drafted: the policy record's fields, the state, an attempt, and what a native
+  execution returns.
+
+**Deviations from the proposal.**
+
+1. **The first proposal is not a policy field.** The record holds no $h_0$: the
+   algorithm reads the proposal from the state, which the driver sets, through its
+   start-up rule (`auto_init`) when no `dz_init` is given.
+2. **The norm's scale is not in the record.** It is the controller's of
+   kernel-contract §7, which the engine already applies to the norms it reduces. §4.2
+   lists it as something the algorithm reads; it reads it through the norms.
+3. **The quiet interval.** The Python march still reads the monitor's interval through
+   the driver (`StepDriver._quiet_capped`), so its own record leaves `quiet_interval`
+   empty. The native adapter fills it when it configures a run, from the attached
+   monitor (phase 2).
+4. **The oracle covers the exponential path.** Its stub engine answers the exponential
+   trial. The fused trial (phase 3) and the general path are covered by the existing
+   suite, which passes unchanged. The general path's half of the commit-order fix goes
+   through the same `_propose` as the exponential path's, and has no test of its own.
+5. **The corpus is compressed**, at 313 kB against 2.5 MB of JSON; `json` keeps its
+   floats exact.
+
+**Decisions.**
+
+- **`march_policy` takes keywords, not the stepper settings.** `stepper` may not import
+  `translate`, which imports it.
+- **The general path is a held object, not a mixin.** `backends.multistep_general`
+  imports from `backends.multistep`, and the march creates it lazily.
+- **The flag's dataclass field defaults to false; the file reader requires it.** A
+  snapshot written before schema 28 is therefore ignored with a warning, and the
+  resumed march restarts its history (ADR-051).
+
+**Verification.**
+
+- **The corpus:** all 35 traces reproduced after the refactor, then 34 unchanged and
+  the 35th changed exactly as the fix describes.
+- **Targeted modules on the Apple M5 Max,** under xdist:
+  - the core alone: 693 passed;
+  - the general path: 374 passed, 1 skipped;
+  - the fixes and the schema: 1 121 passed. Fifteen setup errors (`fixture 'backend_name'
+    not found`) came from mixing test directories in one xdist call, and those modules
+    passed alone.
+- **The changed modules:** basedpyright reports no errors, and ruff, numpydoc lint,
+  codespell and their doctests pass.
+- **The table oracle,** over the 2 090 distinct stencils of the corpus and the review's
+  history of four unit steps and a trial of $10^{-10}$:
+  - every record (Numba and native) is within its bound of the exact tables;
+  - the plain composition's own error is at most $4.5\times10^{-16}$ of a row's weights,
+    about two ulp, on every table. The reference does not inherit the monomial
+    Vandermonde's conditioning (§4.7); the test now holds it to 16 ulp.
+- **Not run:** the full gate and the docs build, which CI runs.
+
+**Sources checked.** No constant or citation is new. The moved constants keep their
+values and docstrings.
+
+**Limitations.** Every execution is still the Python march. The oracle's scenarios use
+a stub engine, so the norms are scripted, not computed.
+
+**Findings for the roadmap**, outside this SEP:
+
+1. **The Adams passes on x86-64.** On the AMD EPYC 7763 the exponential trial's predict
+   and correct passes cost 2.9–3.8 times the M5's per element, against 1.9 times for
+   the source. They are 844 µs of a helium trial (§3.3), the largest single item left
+   on Linux.
+2. **Threading on a shared node.** On a shared 16-core domain of that machine,
+   `he_rdw_averaged` and `h2_raman_averaged` ran slower at sixteen threads than at one,
+   with both steppers. Worth re-measuring on an idle node before it is called a defect.
+
+**Handoff to phase 1.**
+
+- The trial binding's arguments are in `bindings.cpp` (about lines 1839–1905), and its
+  stage rows are read at row `n_stages` (`general.cpp`, about lines 6412 and 6447).
+- `_ResidentAdams.exponential_trial` and `_resident_arrays` are the host side to
+  replace.
+- The scalar tables are the `PiecewiseChebyshev` leaves that `translate.stage.scalars`
+  reads.
+- The baseline to beat is §3.3's.
+
+### Phase 1 — report
+
+**Scope.**
+
+- Phase 1, native stage scalars and the lean trial, 2026-10-29.
+- Opus 5.5 (AI) for John Travers, on the same branch (b97bdbd, c164e3b).
+
+**Delivered.**
+
+- **The tables, natively** (`native/include/solprop_native/stage_tables.hpp`). Where a
+  resident exponential trial's stage rows are one bundle repeated, the native backend
+  uploads the run's scalar tables once (`NativeBackend._stage_tables`, through
+  `PiecewiseChebyshev.packed`, the batch pass's own view of the expansions): the weights
+  of a constant or expanded $\Phi$ and prefactor, the density, the taper, the Raman
+  decay rates and densities, the Kerr density, the plasma channels' densities and
+  fractions, and an expansion's rate table. The native state evaluates them by the reads
+  of `translate.stage.scalars`, through the same strict Clenshaw helper in the same
+  order.
+- **The lean trial.** `adams_exponential_trial_at` takes the anchor, the step, the nodes,
+  the history's rows and the scored orders, and forms in-process the coefficient tables
+  (`lagrange::trial_tables`), the step's stage row and the lab-frame sample's, and the
+  endpoint rate (`stage::rate`). Only the nodes cross.
+- **The host side.** `_ResidentAdams.staged` selects the lean call; z tables, separable
+  operators, SEP 6's dispersive channels, moving maps and coupled flows keep the host's
+  packing until phase 4. The carrier frame's shift is still formed on the host.
+- **Bindings for the tests**: `adams_stage_scalars` and `adams_stage_rate`.
+- `benchmarks.adams_host --host-stages` restores the host packing, for this phase's A/B.
+
+**Deviations from the proposal.**
+
+1. **No kernel-schema bump, no `SCALAR_TABLES_FIELDS`.** The tables are the problem's
+   own `PiecewiseChebyshev` leaves, which the native backend already receives; they are
+   packed and uploaded by the native backend's adapter, not carried in a new
+   `KernelProblem` leaf. No contract field moved, so phase 2's bump (schema 39) is the
+   SEP's only one.
+2. **The carrier chord stays on the host.** It runs only with the carrier frame, which
+   the native march refuses until it forms the chord natively (phase 4's list).
+
+**Verification.**
+
+- `tests/backends/test_native_stage_tables.py`: the native bundles equal
+  `translate.stage.scalars` field for field, exactly (constant, gradient, profile,
+  multi-gas, Raman, plasma), and the endpoint rate equals `phi_rate`.
+- On one build with `SOLPROP_FFTW_PLAN=estimate`, the staged march's steps and fields
+  equal the host-staged march's bit for bit on four cases and seven routes (a recorded
+  expectation, §4.9; the norms' spread is zero).
+- The backend modules on the Apple M5 Max: 313 passed and one failure, the helper
+  ownership test, which counted the host's table calls and now counts the native ones.
+
+**Measured** (interleaved fresh processes, medians of three, the same steps in both
+arms):
+
+| machine | case | host µs/trial, host packing → staged | wall |
+|---|---|---|---|
+| AMD EPYC 7763, 1 thread | `he_rdw_averaged` | 211 → 66 | −9.8 % |
+| | `argon_blueshift_averaged` | 150 → 59 | −13.9 % |
+| | `h2_raman_averaged` (0.4) | 169 → 58 | −7.7 % |
+| | `rdw` (0.25) | 358 → 178 | −2.7 % |
+| Apple M5 Max, 1 thread | `he_rdw_averaged` | 43 → 12 | −5.0 % |
+| | `argon_blueshift_averaged` | 30 → 11 | −8.5 % |
+| | `h2_raman_averaged` (0.4) | 36 → 11 | −4.4 % |
+| | `rdw` (0.25) | 88 → 46 | −0.8 % |
+
+The EPYC node was shared (load 81–93), so its walls carry that node's noise; the host
+times are the timer's own. The gain is about what §6.1 estimated for phase 1 (−110 and
+−60 µs a trial on helium and argon).
+
+**Handoff to phase 2.** The march loop's engine calls are `adams_start`, the staged
+trial and `adams_exponential_accept`; the state the march must hand back is
+`AdamsMarch`'s (§4.2).
+
+### Phase 2 — report
+
+**Scope.**
+
+- Phase 2, the native march for the exponential formulation, 2026-10-29.
+- Opus 5.5 (AI) for John Travers (b1290af, 124c3d7). LupoLab/solprop#56 merged to
+  `main` during the phase; the branch took `main` (d3af6df) and #58 now targets it.
+
+**Delivered.**
+
+- **The march** (`native/include/solprop_native/adams_march.hpp`,
+  `native/src/adams_march.cpp`): `Policy`, `State`, the decisions transcribed from
+  `adams_core` operation for operation (Python's `min`/`max` NaN semantics included), the
+  engine interface, and `run`, which performs §4's attempt loop to an event: reached,
+  host step, monitor, bound (256 attempts, 0.1 s on a steady clock), budget, floor or a
+  native error recorded with its stage and category. The unit is compiled with
+  `-ffp-contract=off` on every compiler that contracts, and calls only `pow`.
+- **The engines** (`bindings.cpp`): `ResidentEngine` over the general state and the
+  phase-1 tables (startup, staged trial, accept with `promote_fsal`), with a test hook
+  that fails a chosen stage (`adams_march_fault`); `ScriptedEngine` and `ScriptedMarch`,
+  which replay the decision corpus's norms.
+- **The adapter** (`_NativeAdamsMarch`, a subclass of `AdamsMarch`): the admission of
+  §6.6 with `HostMarchWarning`; one `committing()` per call around the native run, the
+  state's adoption and the rows' booking; progress, debug lines and the event step's
+  statistics and natural stop after it; the errors raised last, with the reference's
+  messages. A snapshot, a load and a new run are the Python march's own.
+- **The driver** gains `_record_attempt` and `_skip_step`;
+  `BoundaryMonitor.steps_to_check` and `checked_at` give a call its monitor bounds.
+- **The seam** (kernel schema 39): the two hooks join `DRIVER_SURFACE`, with
+  `_take_step_stats`, `_natural_stop` and `_natural_stop_due` frozen beside them;
+  `MARCH_POLICY_FIELDS` is checked exactly (a field either way is refused by name) and
+  `ADAMS_MARCH_SURFACE` names the march's methods the adapter relies on.
+- **Docs**: ADR-060 (amending ADR-043), the `native/AGENTS.md` rule in §6.3's words,
+  kernel-contract §11 normative, stepper.md, backends.md §4, the Adams guide (coverage,
+  cost, the resume envelope), the changelog.
+
+**Deviations from the proposal.**
+
+1. **Bulk hooks are per attempt.** The driver books each row through
+   `_record_attempt`, not one bulk call: a call's rows are few (an event comes within
+   256 attempts), and the per-row hook keeps the reference's bookkeeping in one place.
+2. **The monitor's first check** is the monitor's own (`steps_to_check` returns one
+   while it has not checked); the bounds' `first_check` stays false.
+3. **No `adams_march_state`/`adams_march_load`.** The state crosses with every call, so
+   a snapshot is the Python march's and nothing native needs saving.
+4. **`benchmarks/ab.py` has no per-arm environment.** The A/B used
+   `benchmarks.adams_host --host-march` in interleaved fresh processes instead.
+
+**Verification.**
+
+- **The decision corpus through the native march** on its own norms
+  (`test_native_march_traces.py`): all 35 scenarios, each call bound to one attempt so
+  that every stencil, decision, proposal, landing, restart and ledger counter is
+  compared with the reference's exactly, and again with the production bound,
+  comparing the attempts and the end state.
+- **Lifecycle** (`test_native_march_lifecycle.py`, §7.5): failures injected at the
+  startup, a trial and an accept raise their class at the last accepted step, with the
+  checkpoint and the march's state at one position and a resume that meets the
+  accuracy envelope; a progress reporter's exception and SIGTERM during a call likewise;
+  the floor and the budget stop both marches at the same step with the same message.
+- **Admission** (`test_native_march_admission.py`): the native routes run without a
+  warning, the uncovered ones warn naming the reason, the private switch is quiet, and
+  the metadata records the march.
+- **The unit** (`test_adams_march.cpp`): it rounds a product and a sum separately
+  (checked at -O3 on the Apple M5 Max: without the per-file flag it fuses), refuses a
+  policy by the field at fault, and keeps its ledger on a steady engine.
+- **Same build, estimate plans** (§4.9): the native march's steps, ledger and fields
+  equal the Python march's bit for bit on the four tracking cases (recorded, not
+  asserted).
+- The backend and driver modules touching Adams runs on the M5 Max; the full gate on
+  CI.
+
+**Measured** (interleaved fresh processes, medians of three; every arm took the same
+steps and calls; "host" is solprop's march on the phase-1 staged trial, "before" the
+march with host packing, as before phase 1):
+
+| machine, threads | case | host µs/trial: before → host → native | wall vs host | wall vs before |
+|---|---|---|---|---|
+| Apple M5 Max, 1 | `he_rdw_averaged` | 43 → 13 → 0.6 | −3.3 % | −7.6 % |
+| | `argon_blueshift_averaged` | 30 → 11 → 0.4 | −6.0 % | −13.6 % |
+| | `h2_raman_averaged` (0.4) | 37 → 11 → 0.5 | −3.9 % | −11.6 % |
+| | `rdw` (0.25) | 91 → 47 → 2.7 | −0.6 % | +0.4 % |
+| Apple M5 Max, 16 | `he_rdw_averaged` | 47 → 13 → 0.6 | −4.2 % | −13.2 % |
+| | `argon_blueshift_averaged` | 32 → 12 → 0.4 | −9.2 % | −17.2 % |
+| | `h2_raman_averaged` (0.4) | 39 → 12 → 0.6 | −6.2 % | −16.2 % |
+| | `rdw` (0.25) | 171 → 122 → 1.9 | −2.2 % | −4.5 % |
+| AMD EPYC 7763, 1 | `he_rdw_averaged` | 208 → 65 → 1.7 | −6.1 % | −14.0 % |
+| | `argon_blueshift_averaged` | 148 → 58 → 1.1 | −11.5 % | −24.2 % |
+| | `h2_raman_averaged` (0.4) | 168 → 58 → 1.2 | −9.5 % | −22.7 % |
+
+The M5 was otherwise idle but for one indexing process (load 2.3–4.6). The EPYC rows
+are from a shared node (load 80–97, the task's cores spread over its NUMA domains):
+its one-thread walls are consistent, its sixteen-thread ones bimodal and not reported
+here. `rdw` on that node read 6–9 % slower natively at both widths, against host times
+of 185 → 17 µs a trial. Re-timed on a quiet node (load 3–5, sixteen cores of one NUMA
+domain), nine rounds: −1.7 % at one thread (medians); at sixteen, +2.7 % by medians
+and −3.3 % by minima, inside that node's run-to-run spread of ±6 %. The host time
+saved there, 280 µs on each of 394 trials, is 3 % of the run: below what the node can
+resolve, and no regression is measurable.
+
+The gain is §6.1's estimate for phase 2 on helium and argon (60–85 and 50–75 µs a
+trial on the EPYC), and the native march's own host time, 0.4–2.7 µs a trial, is the
+adapter's per-call work and the rows' booking.
+
+**Mac performance leads.** The residual host time on the M5 is 0.4–0.6 µs a trial on
+the mode-averaged cases: the per-call Python (bounds, state dictionaries, the rows'
+booking), amortised over the attempts between events. On `rdw` a statistics row falls
+due every step, so every attempt is its own call (2–3 µs). A cheaper booking path (one
+`_record_attempts` call per call's rows) would trim the latter; nothing else on the
+host is above a microsecond a trial.
+
+What a native run spends now, sampled with macOS `sample` over twelve whole
+`he_rdw_averaged` runs at one thread (each run's translation included): the native
+kernels 58 %, the system libm's `exp` and `sincos` 16 %, FFTW 11 %, Python and NumPy
+13 % (mostly the per-run translation). The libm share is the Adams predict pass's and
+the stage entry's complex exponentials, element by element: on Apple silicon the vector
+maths layer keeps the libm (ADR-059: SLEEF's AdvSIMD functions gained nothing there,
+and Accelerate's vForce a fifth at 1.7 ulp). It is the largest single item left on the
+M5, and the lead for Mac tuning; a symbolised profile of the native share is the next
+step (the shipped `_core` is stripped).
+
+### Phase 3 — report
+
+**Scope.** Phase 3, the interaction formulation, the one-order-higher PEC comparisons
+and replayed schedules natively, 2026-10-29 (115c12d). Opus 5.5 (AI) for John Travers.
+
+**Delivered.**
+
+- **The fused trial staged.** `stage::fused_weights` forms `fused_tables`' predictor,
+  corrector and defect rows over the strict `lagrange::basis_rows`, operation for
+  operation; `adams_fused_trial_at` reads the stage row from the uploaded tables, which
+  interaction-formulation runs now upload too. The Python march takes it as well
+  (`_ResidentAdams.fused_trial` when staged).
+- **The fused path in the native march.** `ResidentEngine` runs the fused trial and
+  accept for `Multistep(formulation="interaction")` and for `ComparisonMultistep` with
+  `corrector="pec"`, `corrector_order = order + 1` (Adams or Hermite interpolant);
+  `Engine::accept` receives the kept history, which the fused accept transports.
+- **Replay** (§4.3): the schedule's steps and edges at configuration, the cursor (the
+  driver's schedule index) in the state, the slack (`replay_tolerance`) in the bounds;
+  kinks within the slack restart, a non-finite norm returns `diverged` (raised with the
+  reference's message, unrecorded) and exhaustion is the host's `BackendError`, as
+  before. Lockstep batches keep `replay_step` on the host (Q14).
+
+**Deviations.** The fused trial's tables are formed natively rather than shipped (a
+small extension of phase 1's scope to the interaction formulation).
+
+**Verification.**
+
+- The corpus's four replay scenarios (the 160-step schedule 12 ulps short, kinks on
+  edges, exhaustion, divergence) run through the scripted native march and match the
+  reference exactly, messages included; every corpus scenario is asserted native.
+- Same build, estimate plans: the native march, the staged Python march and the
+  host-packed Python march agree bit for bit in the interaction formulation on the
+  four tracking cases, and with PEC4/5 (both interpolants) on two (recorded). The
+  staged-march test holds both formulations to a rounding bound.
+- The resident, helper-ownership, z-table and driver modules on the M5 Max.
+
+**Measured** (Apple M5 Max, interaction formulation; medians of three, the same steps
+in every arm):
+
+| threads | case | host µs/trial: before → host → native | wall vs host | wall vs before |
+|---|---|---|---|---|
+| 1 | `he_rdw_averaged` | 41 → 12 → 0.5 | −4.0 % | −11.8 % |
+| | `argon_blueshift_averaged` | 33 → 11 → 0.5 | −5.4 % | −16.7 % |
+| | `h2_raman_averaged` (0.4) | 40 → 11 → 0.5 | −5.6 % | −18.3 % |
+| | `rdw` (0.25) | 85 → 43 → 1.5 | −1.3 % | −2.9 % |
+| 16 | `he_rdw_averaged` | 41 → 12 → 0.5 | −3.9 % | −12.9 % |
+| | `argon_blueshift_averaged` | 33 → 11 → 0.4 | −8.6 % | −18.2 % |
+| | `h2_raman_averaged` (0.4) | 42 → 11 → 0.5 | −34.1 % | −15.0 % |
+| | `rdw` (0.25) | 165 → 119 → 1.5 | −2.1 % | −4.7 % |
+
+**Mac lead.** `h2_raman_averaged` at sixteen threads took 2.24 s on the Python march
+with the staged trial in all three rounds, against 1.74 s with the host packing and
+1.48 s natively: the staged host march is slower there than the unstaged one, which
+nothing in its arithmetic explains. Suspected: the OpenMP workers' idle policy
+(ADR-056) meeting the shorter host gaps between native calls. Not investigated; the
+native march, the default, does not show it.
+
+### Phase 4 — report
+
+**Scope.** Phase 4, every route staged and native, 2026-10-29 (2ddea85, f8ccd06,
+86e6c55). Opus 5.5 (AI) for John Travers.
+
+**Delivered.**
+
+- **Separable operators** (the Cartesian, line and planar routes) stage as a constant:
+  the distance and the position, a unit prefactor, no span (`_trial_arrays`' packing).
+- **SEP 6's dispersive channels**: their densities are stage tables of their own.
+- **z tables**: the slot cache moves into the native state (`stage::ZSlots`), one
+  cache for both marches and every consumer, with the rate slot's memo; `_ZTables`
+  keeps its interface over it. The stage rows read `e_1 - e_0` and `e_1` over the slots,
+  loaded as `_weight_rows` loads them.
+- **Coupled flows** (the eigenbasis route, at most 16 channels) **and moving maps**:
+  the flow's section (its anchor's) and a frozen residual's weights, and a moving
+  guide's map weights, are sectioned Chebyshev rows formed natively (`stage::Sections`:
+  NumPy's `chebvander` recursion, strict, in the section `flow_section` and
+  `transform_section` find, with the step's own section kept as `flow_weights` keeps
+  it). Beside a flow the lab-frame sample is a stage anchored at the step's end, as
+  `_resident_sample` forms it.
+- **The carrier frame** (phase 2's row): the chord's imaginary part at the reference
+  element (a constant's rate, or an expansion's terms) uploads with the tables; the
+  engine forms the shift, the rows' rotations and the cap's phase, and returns the
+  accepted step's rotations for dense observation. A z table's chord stays solprop's.
+
+**What remains on solprop's march**, with the warning: the comparison methods' general
+path; a coupled flow on the host engine (off the eigenbasis route or wider than 16
+channels, ADR-044); a norm scale other than `PIController`'s; a z table's carrier
+frame; lockstep batch replay.
+
+**Deviations from the matrix (§6.6).**
+
+1. **A z table's carrier frame** is on solprop's march (warned), where the matrix puts
+   it on the native one: its chord is the table's value at the reference element,
+   which the native state would have to evaluate per position from the table's element
+   column. Not built; a small follow-up if a z-table carrier run is ever wanted.
+2. **Lockstep batch replay** was at first not warned; it is now: the native batch
+   marks its Adams members' marches as host-stepped (`refusal`, so the metadata says
+   `host`) and warns once, as the matrix asks.
+
+**Verification.**
+
+- Every capability route is staged, and its native scalars equal solprop's exactly
+  (`test_native_stage_tables.py`, the flow's and the maps' rows included); a staged
+  march takes the host-packed march's steps, fields within a rounding bound, in both
+  formulations where the formulation is admitted.
+- Same build, estimate plans: the coherent wall, the taper coupling (92 attempts), the
+  moving guide (211) and the separable routes take the Python march's steps with fields
+  bit for bit; the carrier frame's hydrogen capillary takes its steps, fields bit for
+  bit on a short window and 5.7e-16 apart on a longer one (the chord's rounding: the
+  reference's `tensordot` sums in its BLAS's order).
+- The z-table, coupled-flow, moving-guide, carrier-frame, dispersive and driver modules
+  on the M5 Max; the full gate on CI.
+
+### Phase 5 — report (CUDA on NVIDIA A40s; HIP to come)
+
+**Scope.** Device builds, 2026-10-29: CUDA on NVIDIA A40s only (John Travers's budget
+for the night: no rented devices). Opus 5.5 (AI) for John Travers.
+
+**Delivered.**
+
+- **CUDA builds take the native march.** The march is host code; its engine calls the
+  device kernels the Python march calls, one norm read-back a trial as before. z tables
+  and the carrier frame stay refused on devices by name, as before.
+- **HIP builds keep the warned host march** until their own qualification (§6.7).
+- **Two compile fixes found building for the A40:**
+  1. `general.cpp` (from LupoLab/solprop#56, already on `main`): nvcc refuses a device
+     lambda's first capture of a view inside `if constexpr`; the host-only branch is
+     now guarded for host compilers alone. Device builds of `main` do not compile
+     without it.
+  2. nvcc 12.8's front end re-emitted the fused tables' constant `std::array` bounds
+     as `unsigned long(...)`, which GCC refuses, where the exponential tables' twin is
+     emitted plainly (not reproduced in isolation); their host-side scratch is sized at
+     run time instead. It was first misread as GCC refusing the strict-function
+     attribute there: that attribute went (harmlessly, since the fused tables only
+     subtract), and the sections' recursion became a free strict function.
+
+**Verification** (NVIDIA A40, CUDA 12.8.1, GCC 14.4 host, `AMPERE86`; one job):
+
+- The native package's device tests: 31 passed. solprop's device tests: 63 passed.
+- The native march's modules on the device build (the decision traces, the lifecycle
+  and admission tests, the staged-march comparisons, the resident-Adams and resume
+  modules, `test_native_gpu.py`): 203 passed. Four failed, each a configuration device
+  builds refuse by name: the carrier frame's admission test (now skipped on devices)
+  and three z-table resume cases that were not device-aware before this SEP (now
+  skipped there too).
+
+**Measured** (A40, interleaved fresh processes, medians of three; the same steps in
+both arms):
+
+| case | host µs/trial: Python march → native | wall |
+|---|---|---:|
+| `he_rdw_averaged` (0.3) | 64 → 2.2 | −6.7 % |
+| `argon_blueshift_averaged` (0.1) | 61 → 1.6 | −10.6 % |
+| `rdw` (0.1) | 83 → 5.0 | −1.8 % |
+
+A trial costs about a millisecond on this device, whose FP64 rate is a sixtieth of its
+FP32's, so the host's share is small there; on the FP64 devices SEP 16 measured
+(kernels of 3–9 µs), the same saving is most of the trial.
+
+**Not done.** The pinned single upload a trial (§6.7, item 2) was not built: the trial
+still uploads its scalars as before. HIP (AMD MI325X) and H100-class timings wait for a
+GPU budget.
 
 ## Part III — History
 
@@ -1892,6 +2647,43 @@ No phase has started.
   collar flag $w_Q$ is kept in `MarchSnapshot` and reset by `begin_run` (R9), and the
   native march may not be slower than the host march beyond the A/B spread of about 2 %
   (R12).
+- 2026-10-28: Refreshed by Opus 5.5 against the head of LupoLab/solprop#56 (a500d2d),
+  after LupoLab/solprop#51 and #55 had merged, so that Part I describes the code it will
+  be implemented on. No decision of the author's is changed. The changes:
+  - **Measurements.** §3.3 keeps the drafting tables and adds counted re-measurements on
+    both machines. These cover walls, steps and calls, the lean host time per trial, and
+    where a trial's native time goes. The `rdw` Runge–Kutta call count had been inferred
+    about 2.5 times too high.
+  - **Derived figures.** §1, §2, §4.1, §6.1, §6.2, §6.9, §10 and §11 restate their
+    figures from those measurements. The host cost left per trial is about half the
+    drafting's, so B's gain over phase 1 is 2–11 % of a single-mode CPU run.
+  - **§6.9.** It records which items landed, and how.
+  - **§3.1.** The per-trial host work is rewritten to the current path.
+  - **§4.7–§4.9 and §7.2.** On native both marches now read the same strict tables and
+    Clenshaw values. Only the carrier chord differs, so the same steps are expected bit
+    for bit on one build under estimate plans: recorded, never asserted.
+  - **§4.2.** It gains the norm's `region` and where each constant lives.
+  - **§4.4.** The floor fix also covers the stored order and the general path's commit.
+  - **§4.6.** It corrects the landing search to "at or beyond $z + \tau$", and the
+    equal approach's to "strictly beyond".
+  - **§5 and §6.4.** The march's name goes into the backend record's settings rather
+    than a new `RunMetadata` field: the record that holds how a run executed, outside the
+    resume key, with no output-schema bump. §6.4 also records the current schema
+    numbers, ADR-058's restart of the output schema, and how this SEP relates to
+    ADR-058's reserved step-loop protocol.
+  - **§6.5.5–§6.5.7 and §6.7.** They gain the uncached rate weights, the one-row stage
+    staging, the monitor reading that has landed, and the fused trial on devices.
+  - **§7.6.** The no-regression rule is judged on an idle machine or a domain held alone.
+- 2026-10-28: Reviewed by John Travers (human), who accepted the proposal and asked
+  for it to be implemented on a branch based on LupoLab/solprop#56. Before setting the
+  status, the drafting agent (Opus 5.5) made a final read of the refreshed Part I
+  against SEP 0's acceptance criteria and the code at a500d2d. That read is the source
+  of §4.6's landing-search correction; it found nothing else to change.
+- 2026-10-28: **Accepted** by John Travers. Part I is frozen from here; deviations go into
+  the phase reports of Part II.
+- 2026-10-28: **In progress.** Implementation started by Opus 5.5 for John Travers on
+  `feature/sep-0039-native-adams-march`, based on LupoLab/solprop#56, with one draft
+  pull request opened early so that CI tests each push.
 
 ### AI review — 2026-10-28
 

@@ -74,10 +74,12 @@ if TYPE_CHECKING:
     from .batch import NativeBatchBackend
 
 __all__ = [
+    "ADAMS_MARCH_SURFACE",
     "COUPLED_FLOW_FIELDS",
     "DISPERSIVE_KERR_FIELDS",
     "DRIVER_SURFACE",
     "LINEAR_OPERATOR_FIELDS",
+    "MARCH_POLICY_FIELDS",
     "MODAL_TABLES_FIELDS",
     "REGIONAL_RESPONSE_FIELDS",
     "RESPONSE_FIELDS",
@@ -170,14 +172,19 @@ DRIVER_SURFACE: tuple[str, ...] = (
     "_hold",
     "_low_storage_engine",
     "_observed_field",
+    "_natural_stop",
+    "_natural_stop_due",
     "_on_accepted_step",
     "_on_axis_synthesis",
+    "_record_attempt",
     "_release_source_calls",
     "_require_grid",
     "_require_state",
     "_reserve_source_calls",
+    "_skip_step",
     "_stage_bundles",
     "_stage_scalars",
+    "_take_step_stats",
     "_trial_step",
     "metadata",
     "observe",
@@ -224,11 +231,63 @@ device builds refuse it by name until they are qualified. Schema 38 adds
 ``_bind_monitor`` and ``_boundary_energies``: this backend reduces the boundary
 monitor's five numbers in its memory space and adds a split-step collar's removal at
 every accepted step there, so a check copies five numbers rather than the field.
+Schema 39 (solprop SEP 39 phase 2) adds ``_record_attempt`` and ``_skip_step``, the
+bookkeeping of one attempt and of an accepted step on which the driver has no work, and
+freezes ``_take_step_stats``, ``_natural_stop`` and ``_natural_stop_due``: this
+backend's native Adams march runs many attempts per call and books them through these,
+with the policy of :data:`MARCH_POLICY_FIELDS` and the march's members of
+:data:`ADAMS_MARCH_SURFACE`.
 
 solprop freezes this surface under its ``SCHEMA_VERSION`` (the test in its
 ``tests/backends/test_driver.py``); :func:`check_build` looks each member up so a
 solprop that renamed one is refused by name rather than failing inside a step.
 """
+
+MARCH_POLICY_FIELDS: tuple[str, ...] = (
+    "order",
+    "variable_order",
+    "safety",
+    "max_growth",
+    "min_factor",
+    "rejection_growth",
+    "hysteresis",
+    "restart_after",
+    "collar_stability",
+    "real_intervals",
+    "collar_rate",
+    "carrier",
+    "carrier_cap",
+    "max_calls",
+    "equal_approach",
+    "interval_cap",
+    "dz_min",
+    "dz_max",
+    "stretch",
+    "z_end",
+    "save_planes",
+    "hard_kinks",
+    "breakpoints",
+    "landing_ulps",
+    "interpolate",
+    "quiet_interval",
+)
+"""``solprop.stepper.multistep.MarchPolicy``'s fields, exactly, since schema 39.
+
+The native Adams march reads every number of its algorithm from this record (solprop
+SEP 39 section 4.2), so a field solprop adds is one the native march would not honour:
+:func:`check_build` refuses a solprop whose record differs in either direction."""
+
+ADAMS_MARCH_SURFACE: tuple[str, ...] = (
+    "_budget_error",
+    "_observe",
+    "_raise_floor",
+    "begin_run",
+    "load",
+    "march_to",
+    "snapshot",
+)
+"""The ``solprop.backends.multistep.AdamsMarch`` methods the native march's adapter
+overrides or calls (schema 39); its state attributes are the snapshot's."""
 
 LINEAR_OPERATOR_FIELDS: tuple[str, ...] = (
     "power_weight_representation",
@@ -703,7 +762,8 @@ def check_build(problem: object | None = None) -> None:
     ------
     solprop.exceptions.BackendError
         If the installed solprop lacks a seam member this backend relies on
-        (:data:`DRIVER_SURFACE`, :data:`STAGE_TERMS_FIELDS`,
+        (:data:`DRIVER_SURFACE`, :data:`ADAMS_MARCH_SURFACE`,
+        :data:`MARCH_POLICY_FIELDS`, :data:`STAGE_TERMS_FIELDS`,
         :data:`STAGE_SCALARS_FIELDS`, :data:`SEPARABLE_OPERATOR_FIELDS`,
         :data:`LINEAR_OPERATOR_FIELDS`, :data:`TRANSFORM_FIELDS`,
         :data:`RESPONSE_FIELDS`, or the leaves' members in :data:`MODAL_TABLES_FIELDS`,
@@ -786,7 +846,9 @@ def _check_seam(info: BuildInfo, error: type[Exception]) -> None:
     import dataclasses as _dataclasses
 
     from solprop.backends.driver import StepDriver
+    from solprop.backends.multistep import AdamsMarch
     from solprop.backends.protocol import BatchBackend
+    from solprop.stepper.multistep import MarchPolicy
     from solprop.translate.coupled import CoupledFlowTables
     from solprop.translate.linop import LinearOperator
     from solprop.translate.masks import Grids
@@ -807,6 +869,17 @@ def _check_seam(info: BuildInfo, error: type[Exception]) -> None:
     ]
     if not hasattr(StepDriver, "helpers"):
         missing.append("StepDriver.helpers")
+    missing.extend(
+        f"AdamsMarch.{name}"
+        for name in ADAMS_MARCH_SURFACE
+        if not callable(getattr(AdamsMarch, name, None))
+    )
+    # The policy is exact: a field the native march does not read is not honoured.
+    policy = tuple(field.name for field in _dataclasses.fields(MarchPolicy))
+    missing.extend(
+        f"MarchPolicy.{name}" for name in MARCH_POLICY_FIELDS if name not in policy
+    )
+    extra = [name for name in policy if name not in MARCH_POLICY_FIELDS]
     missing.extend(
         f"BatchBackend.{name}"
         for name in ("observe_members", "member_metadata", "available_device_memory")
@@ -838,12 +911,18 @@ def _check_seam(info: BuildInfo, error: type[Exception]) -> None:
         missing.extend(
             f"{bundle.__name__}.{name}" for name in wanted if name not in present
         )
-    if missing:
+    if missing or extra:
+        lacks = f"it has no {', '.join(missing)}" if missing else ""
+        reads = (
+            f"its MarchPolicy has {', '.join(extra)}, which this build does not read"
+            if extra
+            else ""
+        )
         raise error(
             f"solprop-native {__version__} (built beside solprop "
             f"{info.solprop_version_built_against}) does not fit the installed "
-            f"solprop {version('solprop')}: it has no {', '.join(missing)}; "
-            "rebuild the backend against this solprop or install the one it was "
+            f"solprop {version('solprop')}: {'; '.join(filter(None, (lacks, reads)))};"
+            " rebuild the backend against this solprop or install the one it was "
             "built beside"
         )
 

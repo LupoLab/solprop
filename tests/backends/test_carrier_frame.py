@@ -875,7 +875,7 @@ def test_the_in_stage_collar_shows_no_growth_under_the_frame():
     # the step. No growth beyond the reference's: the policy's field meets its
     # accuracy envelope and its energy is the reference's.
     run = window(SCALAR, collar="default")
-    assert run.march._collar_rate > 0.0
+    assert run.march._policy.collar_rate > 0.0
     reference = converged(collar="default")
     assert within_envelope(run, reference)
     energy = np.sum(np.abs(run.fields[-1]) ** 2)

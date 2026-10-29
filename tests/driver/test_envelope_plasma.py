@@ -261,7 +261,7 @@ def test_envelope_hdf5_resume_and_reconstruction(
             budget = max(budget, fresh)
             np.testing.assert_allclose(actual, expected, rtol=0, atol=budget * scale)
         assert restored.metadata is not None
-        assert restored.metadata.schema_version == 27
+        assert restored.metadata.schema_version == 28
         assert restored.metadata.configuration["statistic_rate_conventions"] == {
             "peak_ionisation_rate": "cycle-averaged",
             "species_peak_ionisation_rate": "cycle-averaged",
@@ -323,6 +323,9 @@ def scan_point(point, backend):
     )
 
 
+# A native lockstep batch replays its Adams members on solprop's march, with the
+# warning native/tests/test_batch.py asserts (SEP 39).
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
 @pytest.mark.medium
 @pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
 def test_envelope_scan_batches_match_singletons_and_partial_tail(tmp_path, backend):

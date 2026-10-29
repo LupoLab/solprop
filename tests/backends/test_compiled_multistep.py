@@ -60,7 +60,13 @@ def run(backend_class, problem, grid):
     [
         Multistep(formulation="interaction"),
         Multistep(order=3, variable_order=False, formulation="interaction"),
-        ComparisonMultistep(corrector="pece", order=4),
+        # The general path runs solprop's march on native, with its warning (SEP 39).
+        pytest.param(
+            ComparisonMultistep(corrector="pece", order=4),
+            marks=pytest.mark.filterwarnings(
+                "ignore::solprop.exceptions.HostMarchWarning"
+            ),
+        ),
         "interpolated",
     ],
     ids=["selected", "pec3/4", "pece4", "dense"],

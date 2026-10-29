@@ -60,7 +60,7 @@ from solprop.stepper.controller import (
 )
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
-from solprop.stepper.schedule import FixedSchedule, StepTargets, landing
+from solprop.stepper.schedule import LANDING_ULPS, FixedSchedule, StepTargets, landing
 from solprop.stepper.tableau import extension_coefficients, extension_value
 from solprop.translate.linop import delta_phi, unitary_phase
 from solprop.translate.masks import noise_spectrum
@@ -83,7 +83,6 @@ if TYPE_CHECKING:
 
 __all__ = [
     "INITIAL_STEP_STATS_CAPACITY",
-    "LANDING_ULPS",
     "StepDriver",
     "reached",
     "refuse_general_leaves",
@@ -91,14 +90,6 @@ __all__ = [
 ]
 
 _StateT = TypeVar("_StateT")
-
-LANDING_ULPS = 8
-"""How many ulps of slack a march allows itself when deciding it has arrived.
-
-The same guard :func:`solprop.stepper.schedule.landing` uses to decide that a position
-has already reached a target, so the march stops exactly where landing would refuse to
-take another step rather than one round-off-sized sliver short of it.
-"""
 
 
 def reached(position: float, target: float) -> bool:
@@ -132,9 +123,9 @@ def replay_tolerance(schedule: FixedSchedule, position: float) -> float:
     A schedule's edges are the running sum of its steps, and a sum of ``n`` rounded
     steps can drift from the position they were chosen to reach by about ``n`` ulps:
     ``FixedSchedule(np.full(160, L / 160))`` ends 12 ulps short of ``L``. The slack
-    is therefore :data:`LANDING_ULPS` or the step count, whichever is larger, in ulps
-    of the larger of the position and the schedule's length -- still far inside the
-    ``1e-9`` of the length that
+    is therefore :data:`~solprop.stepper.schedule.LANDING_ULPS` or the step count,
+    whichever is larger, in ulps of the larger of the position and the schedule's
+    length -- still far inside the ``1e-9`` of the length that
     :meth:`~solprop.translate.problem.KernelProblem.validate` allows an edge to miss a
     save plane by, so no step is ever skipped.
 
@@ -2111,6 +2102,51 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         # The attempt this row belongs to is the one `_record` has just appended, and
         # the history counts rejections, so the index is not `row * period`.
         self._record_step_stats(self._row_spec, self._z, len(self._history) - 1)
+
+    def _record_attempt(
+        self, z: float, dz: float, norm: float, accepted: bool, wall: float
+    ) -> None:
+        """Append one attempt a native Adams march made to the step history (SEP 39).
+
+        :meth:`_record`'s row, with the wall time the march measured. The progress
+        callback is made after the march's commit, and the accepted-step hook's work
+        the native march does itself, so neither is called here.
+
+        Parameters
+        ----------
+        z : float
+            Position at the end of the step, m.
+        dz : float
+            Length of the step, m.
+        norm : float
+            The scaled error norm; the native march records a non-finite one as
+            infinity, as :meth:`_record` does.
+        accepted : bool
+            Whether the step was kept.
+        wall : float
+            Seconds since the last observation, as :meth:`_record` measures it.
+        """
+        self._history.append((z, dz, norm, accepted, wall))
+
+    def _skip_step(self, z: float) -> None:
+        """Account an accepted step on which no host work falls (SEP 39 section 4.8).
+
+        What :meth:`_take_step_stats` and :meth:`_natural_stop` do for such a step: the
+        boundary monitor skips it, and the statistics rows and natural stops count it.
+        A native Adams march returns to its host before any step on which either would
+        act.
+
+        Parameters
+        ----------
+        z : float
+            The step's end, m.
+        """
+        monitor = self._monitor
+        if monitor is not None:
+            monitor.skip(z)
+        if self._row_spec is not None:
+            self._accepted_steps += 1
+        self._natural_count += 1
 
     def _record(self, z: float, dz: float, norm: float, accepted: bool) -> None:
         """Append one step to the history since the last observation.

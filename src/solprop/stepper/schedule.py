@@ -36,6 +36,7 @@ from solprop.exceptions import ConvergenceError, StepperError
 
 __all__ = [
     "CONCLUSIVE_FACTOR",
+    "LANDING_ULPS",
     "ORDER_MARGIN",
     "Calibration",
     "FixedSchedule",
@@ -68,11 +69,18 @@ the ratio means nothing; the same protocol has returned an observed order of -0.
 and would have been read as healthy.
 """
 
-# A landing target within this many ulp of the current position counts as already
-# passed. Eight covers the rounding of a snap onto the target plus the addition that
-# put the position there; without it, landing exactly on a save plane would make the
-# next step zero-length and the march would stall.
-_LANDING_ULPS = 8
+LANDING_ULPS = 8
+"""How many ulps of slack a march allows itself at a landing or an arrival.
+
+A landing target within this many ulp of the current position counts as already
+passed. Eight covers the rounding of a snap onto the target plus the addition that put
+the position there; without it, landing exactly on a save plane would make the next
+step zero-length and the march would stall. The marches use the same guard to decide
+that they have arrived (:func:`solprop.backends.driver.reached`), so a march stops
+exactly where :func:`landing` would refuse to take another step rather than one
+round-off-sized sliver short of it, and the Adams march to find its kinks and its next
+forced landing (SEP 39 section 4.6).
+"""
 
 # Relative guard on the step count of a uniform segment (see FixedSchedule.uniform).
 _UNIFORM_GUARD = 1e-12
@@ -1028,7 +1036,7 @@ def landing(z: float, dz: float, targets: StepTargets) -> Landing:
             f" [{float(edges[0]):.6g}, {float(edges[-1]):.6g}] m"
         )
     # `math.ulp` is `np.spacing` of a non-negative float.
-    tolerance = _LANDING_ULPS * math.ulp(max(abs(z), abs(targets.z_end)))
+    tolerance = LANDING_ULPS * math.ulp(max(abs(z), abs(targets.z_end)))
     if z >= targets.z_end - tolerance:
         raise StepperError(f"z = {z:.6g} m is already at or past z_end")
 

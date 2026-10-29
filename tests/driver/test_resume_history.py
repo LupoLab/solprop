@@ -394,6 +394,17 @@ def test_a_rewritten_snapshot_holds_only_its_own_rows(tmp_path):
     assert np.array_equal(snapshot.rows["store"], store + 3)
 
 
+@pytest.mark.parametrize("quiet", [False, True])
+def test_the_collar_flag_crosses_the_file(tmp_path, quiet):
+    # Whether the collar was quiet at the last attempt holds the first step after it
+    # returns to its stable step (SEP 39 R9), so a resume carries it exactly.
+    path = tmp_path / "run.h5"
+    saved_with(path, march(collar_was_quiet=quiet))
+    snapshot = resume(path).march
+    assert snapshot is not None
+    assert snapshot.collar_was_quiet is quiet
+
+
 def test_a_snapshot_taken_elsewhere_is_not_returned(tmp_path):
     # A snapshot not at the resume position -- the plane after it was saved, the
     # snapshot's own rewrite was not -- describes another state.
@@ -408,6 +419,8 @@ def test_a_snapshot_taken_elsewhere_is_not_returned(tmp_path):
         (lambda group: group.attrs.__delitem__("method"), "method"),
         (lambda group: group.__delitem__("slots"), "slots"),
         (lambda group: group.attrs.__setitem__("identities", "not json"), "Expecting"),
+        # A snapshot written before output schema 28 has no collar flag (SEP 39).
+        (lambda group: group.attrs.__delitem__("collar_was_quiet"), "collar_was_quiet"),
     ],
 )
 def test_an_unreadable_snapshot_is_ignored_with_a_warning(

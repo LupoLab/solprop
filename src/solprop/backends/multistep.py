@@ -40,13 +40,11 @@ section 6.1):
 - a load or a resume starts afresh, at order one, and its startup calls are counted.
 """
 
-import bisect
-import functools
 import logging
 import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, fields
-from typing import Any, Literal, Protocol, cast
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
 import numpy as np
 from jaxtyping import Complex
@@ -54,6 +52,7 @@ from scipy.linalg import expm
 
 from solprop._helpers import NUMBA, Helpers
 from solprop._interrupts import committing
+from solprop.backends import adams_core
 from solprop.backends.driver import StepDriver
 from solprop.backends.exponential import (
     CarrierReference,
@@ -65,27 +64,23 @@ from solprop.exceptions import BackendError, ConvergenceError, ResponseBudgetErr
 from solprop.output.schema import MarchSnapshot
 from solprop.stepper.controller import limit_step
 from solprop.stepper.multistep import (
-    CARRIER_PHASE_CAP,
-    PEC_REAL_INTERVAL,
+    MarchPolicy,
     Multistep,
     integrated_weights,
     lagrange_coefficients,
-    milne_factor,
+    march_policy,
 )
 from solprop.stepper.schedule import (
     FixedSchedule,
-    Landing,
-    LandingTarget,
-    StepTargets,
     landing,
 )
 from solprop.translate.linop import phi_rate
 from solprop.translate.tdse import TDSEPurpose
 
+if TYPE_CHECKING:
+    from solprop.backends.multistep_general import GeneralPath
+
 __all__ = [
-    "COLLAR_STABILITY",
-    "ORDER_HYSTERESIS",
-    "RESTART_AFTER",
     "AdamsEngine",
     "AdamsKernels",
     "AdamsMarch",
@@ -102,16 +97,6 @@ __all__ = [
     "source_absent",
     "trial_tables",
 ]
-
-RESTART_AFTER = 3
-"""Consecutive rejections after which the history is restarted at order one."""
-
-ORDER_HYSTERESIS = 1.2
-"""Factor by which a neighbouring order's predicted step must win to be adopted."""
-
-COLLAR_STABILITY = 1.0
-"""Share of an order's negative-real stability interval the order choice allows."""
-
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +127,8 @@ class CallLedger:
     restarts : int
         History restarts at hard kinks.
     failure_restarts : int
-        History restarts after :data:`RESTART_AFTER` consecutive rejections.
+        History restarts after :data:`~solprop.stepper.multistep.RESTART_AFTER`
+        consecutive rejections.
     dense_observations : int
         Save planes observed by interpolation instead of a landing; none costs a call.
     orders : list of int
@@ -267,101 +253,6 @@ def _hermite(step: _DenseStep, theta: float) -> _State:
         + h01 * step.end
         + h11 * step.dz * step.end_slope
     )
-
-
-@dataclass
-class _Trial:
-    """One trial step: its stencil, its propagator and its predictor."""
-
-    z: float
-    dz: float
-    order: int
-    nodes: np.ndarray
-    values: list[_State]
-    state: _State
-    propagator: _State
-    predictor: _State
-    scale: Callable[[_State], float]
-
-    @classmethod
-    def start(
-        cls,
-        history: list[_Derivative],
-        order: int,
-        z: float,
-        dz: float,
-        state: _State,
-        backend: StepDriver,
-    ) -> "_Trial":  # noqa: UP037 - a runtime hook evaluates it
-        """Form the predictor of a step from the history, newest derivative first.
-
-        Parameters
-        ----------
-        history : list
-            The accepted derivatives, oldest first, in the anchor's frame.
-        order : int
-            The order asked for; fewer derivatives during startup lower it.
-        z, dz : float
-            The anchor and the step, m.
-        state : numpy.ndarray
-            The accepted state at the anchor.
-        backend : solprop.backends.driver.StepDriver
-            The backend, for the step's propagator and norm.
-
-        Returns
-        -------
-        _Trial
-            The trial, with its predictor formed.
-        """
-        recent = history[::-1]
-        nodes = np.array([(entry.z - z) / dz for entry in recent])
-        values = [cast("_State", entry.value) for entry in recent]
-        used = min(order, len(history))
-        return cls(
-            z=z,
-            dz=dz,
-            order=used,
-            nodes=nodes,
-            values=values,
-            state=state,
-            propagator=backend._adams_propagator(z, z + dz),
-            predictor=_combine(
-                integrated_weights(nodes[:used], check=False, helpers=backend.helpers),
-                values[:used],
-                dz,
-            ),
-            scale=_norm_function(backend, state),
-        )
-
-    def lab(self, increment: _State) -> _State:
-        """Return the lab-frame field at the end of the step for an increment.
-
-        Parameters
-        ----------
-        increment : numpy.ndarray
-            ``v - a_n`` in the anchor's frame.
-
-        Returns
-        -------
-        numpy.ndarray
-            ``U(z + dz, z) (a_n + increment)``.
-        """
-        return self.propagator * (self.state + increment)
-
-    def norm(self, defect: _State) -> float:
-        """Return the weak norm of a defect, carried to the end of the step.
-
-        Parameters
-        ----------
-        defect : numpy.ndarray
-            A local-defect estimate in the anchor's frame.
-
-        Returns
-        -------
-        float
-            The scaled norm; one is the tolerance.
-        """
-        return self.scale(self.propagator * defect)
 
 
 class AdamsKernels:
@@ -2866,7 +2757,8 @@ def _rows_read(
 def _divisor(backend: StepDriver, state: _State) -> np.ndarray:
     """Return the defect norm's scale per bin, the accepted state's before the step.
 
-    See :func:`_norm_function` for why the state before the step is the scale.
+    See :func:`solprop.backends.multistep_general._norm_function` for why the state
+    before the step is the scale.
 
     Parameters
     ----------
@@ -2964,6 +2856,13 @@ class AdamsMarch:
             if resident is None
             else cast("AdamsEngine", resident)
         )
+        # The comparison variants' general path keeps its arithmetic in a class of its
+        # own (SEP 39 Q7); the selected method's paths never reach it.
+        self._general: GeneralPath | None = None
+        if not (self._fused or self._exponential is not None):
+            from solprop.backends import multistep_general  # noqa: PLC0415 - cycle
+
+            self._general = multistep_general.GeneralPath(self)
         self._history: list[_Derivative] = []
         self._rejections = 0
         self._last_rejected = False
@@ -2976,16 +2875,37 @@ class AdamsMarch:
         # stable step, which the order choice weighs (`_choose_order`).
         responses = backend._problem.responses
         collar = responses.temporal_absorber
-        self._collar_rate = (
+        collar_rate = (
             0.5 * float(np.max(collar))
             if collar is not None
             and responses.absorber_scheme == "nonlinear"
             and method.formulation == "exponential"
             else 0.0
         )
+        # Every number the controller and the landings read, from one record (SEP 39
+        # section 4.2); the decisions are `adams_core`'s functions of it.
+        settings = backend._problem.stepper
+        linear = backend._problem.linear
+        carrier = getattr(self._engine, "carrier", None)
+        self._policy: MarchPolicy = march_policy(
+            method,
+            dz_min=settings.dz_min,
+            dz_max=settings.dz_max,
+            stretch=settings.stretch,
+            z_end=settings.z_end,
+            save_planes=np.asarray(settings.save_planes, dtype=np.float64).tolist(),
+            hard_kinks=np.asarray(linear.hard_kinks, dtype=np.float64).tolist(),
+            breakpoints=np.asarray(linear.phi_breakpoints, dtype=np.float64).tolist(),
+            interpolate=self._interpolate,
+            collar_rate=collar_rate,
+            carrier=isinstance(carrier, CarrierReference) and carrier.active,
+        )
         # Whether the stages left a quiet collar out at the last attempt: the step
         # after it returns is held to the collar's stable step (`_collar_reentry`).
         self._collar_was_quiet = False
+        # A floor an accepted step's next proposal fell below, raised once the step is
+        # recorded (`_decide`, `_raise_floor`).
+        self._floor: ConvergenceError | None = None
 
     def reset(self) -> None:
         """Forget the history: the state was loaded or changed outside the march."""
@@ -2995,15 +2915,18 @@ class AdamsMarch:
         self._ahead = None
 
     def begin_run(self) -> None:
-        """Start a run's accounting afresh: the call ledger and the last rejection.
+        """Start a run's accounting afresh: the ledger and the last attempt's flags.
 
         Called by :meth:`~solprop.backends.driver.StepDriver.set_initial`, so that a
         backend loaded for another run counts that run's calls alone and chooses its
-        first order as a fresh backend would (SEP 22 section 4.7). A resume restores
-        its persisted ledger afterwards.
+        first order and step as a fresh backend would (SEP 22 section 4.7, SEP 39
+        R9): the last rejection and the collar's flag are cleared. A resume restores
+        its persisted ledger and flags afterwards.
         """
         self.ledger = CallLedger()
         self._last_rejected = False
+        self._collar_was_quiet = False
+        self._floor = None
 
     def snapshot(self) -> MarchSnapshot | None:
         """Return the march's state at its accepted position, for a resume.
@@ -3035,6 +2958,7 @@ class AdamsMarch:
             identities=tuple(entry.identity for entry in self._history),
             slots=np.array([entry.slot for entry in self._history], dtype=np.int64),
             rows=export(),
+            collar_was_quiet=self._collar_was_quiet,
         )
 
     def export_refusal(self) -> str | None:
@@ -3095,6 +3019,7 @@ class AdamsMarch:
         self._order = snapshot.order
         self._rejections = snapshot.rejections
         self._last_rejected = snapshot.last_rejected
+        self._collar_was_quiet = snapshot.collar_was_quiet
         self._ahead = None
         backend._proposal = snapshot.proposal
         return None
@@ -3195,7 +3120,6 @@ class AdamsMarch:
 
         backend = self._backend
         settings = backend._problem.stepper
-        method = self._method
         dense = self._interpolate
         if self._ahead is not None:
             # The march is ahead of the last observation; resume it there.
@@ -3206,35 +3130,24 @@ class AdamsMarch:
         if settings.schedule is not None:
             self._replay_to(settings.schedule, target)
             return
-        breakpoints = backend._problem.linear.phi_breakpoints
-        if not method.interval_cap:
-            breakpoints = np.array([breakpoints[0], breakpoints[-1]])
-        targets = StepTargets(
-            # Dense observation steps across the save planes (SEP 13 section 6.4);
-            # hard kinks and the end of the run are still landed on.
-            save_planes=np.empty(0)
-            if dense
-            else np.asarray(settings.save_planes, dtype=np.float64),
-            hard_kinks=backend._problem.linear.hard_kinks,
-            breakpoints=breakpoints,
-            dz_max=settings.dz_max,
-            z_end=settings.z_end if dense else target,
-            stretch=settings.stretch,
-        )
+        targets = adams_core.targets(self._policy, target)
         while not reached(backend._z, target):
             self._afford()
             try:
                 if not self._history:
                     self._start()
                 proposal = self._collar_reentry(
-                    backend._quiet_capped(self._capped(backend._proposal))
+                    self._quiet_capped(self._capped(backend._proposal))
                 )
                 stop = landing(backend._z, proposal, targets)
-                dz, end, kink = self._approach(stop, targets, target)
+                dz, end, kink = adams_core.approach(
+                    self._policy, backend._z, stop, targets, target
+                )
                 # The accepted step moves the position with the state, and restarts
                 # the history at a kink, in one commit (`_land`).
                 accepted, norm = self._attempt(dz, landing=(end, kink))
                 backend._record(end, dz, norm, accepted)
+                self._raise_floor()
                 if accepted:
                     backend._take_step_stats()
                     if backend._natural_stop(target):
@@ -3286,6 +3199,7 @@ class AdamsMarch:
             backend._schedule_index += 1
             backend._record(end, dz, norm, accepted=True)
             backend._accepted_norms.append(norm)
+            self._raise_floor()
             backend._take_step_stats()
             if backend._natural_stop(target):
                 return
@@ -3327,8 +3241,7 @@ class AdamsMarch:
         try:
             if not self._history:
                 self._start()
-            kinks = self._backend._problem.linear.hard_kinks
-            kink = bool(np.any(np.abs(np.asarray(kinks) - end) <= slack))
+            kink = adams_core.replay_kink(self._policy, end, slack)
             _, norm = self._attempt(dz, fixed=True, landing=(end, kink))
             if not math.isfinite(norm):
                 msg = (
@@ -3374,23 +3287,40 @@ class AdamsMarch:
         ResponseBudgetError
             Carrying the last accepted position and state and the calls spent.
         """
-        budget = self._method.max_calls
+        self._raise_floor()
+        budget = self._policy.max_calls
         cost = (0 if self._history else 1) + (
             2 if self._method.corrector == "pece" else 1
         )
         spent = self.ledger.total
         backend = self._backend
         if budget is not None and spent + cost > budget:
-            msg = (
-                f"the source-call budget of {budget} is spent ({spent} charged) at "
-                f"z = {backend._z:.6g} m: the next trial needs {cost}; "
-                "the run stops at "
-                "its last accepted step, unfinished"
-            )
-            raise ResponseBudgetError(
-                msg, z=backend._z, field=backend._adams_state().copy(), calls=spent
-            )
+            raise self._budget_error(cost)
         backend._reserve_source_calls(cost)
+
+    def _budget_error(self, cost: int) -> ResponseBudgetError:
+        """Return the error of a trial the call budget cannot pay for.
+
+        Parameters
+        ----------
+        cost : int
+            The calls the refused trial needs.
+
+        Returns
+        -------
+        solprop.exceptions.ResponseBudgetError
+            Carrying the last accepted position and state and the calls spent.
+        """
+        backend = self._backend
+        spent = self.ledger.total
+        msg = (
+            f"the source-call budget of {self._policy.max_calls} is spent ({spent} "
+            f"charged) at z = {backend._z:.6g} m: the next trial needs {cost}; "
+            "the run stops at its last accepted step, unfinished"
+        )
+        return ResponseBudgetError(
+            msg, z=backend._z, field=backend._adams_state().copy(), calls=spent
+        )
 
     def _start(self) -> None:
         """Evaluate the source at the accepted field to (re)start the history."""
@@ -3400,17 +3330,18 @@ class AdamsMarch:
         stored = self._fused or self._exponential is not None
         value = self._engine.start(z, stored=stored)
         self._history = [_Derivative(z, value, "accepted", 0 if stored else -1)]
-        self._order = 1 if self._method.variable_order else self._method.order
+        self._order = 1 if self._policy.variable_order else self._policy.order
 
     def _capped(self, proposal: float) -> float:
         """Return the proposal shortened to the carrier frame's phase cap.
 
-        Under a carrier frame no step covers more than :data:`CARRIER_PHASE_CAP` of
-        carrier phase (SEP 35 section 6.4), measured by one chord of the reference
-        element's operator over the proposal (:class:`CarrierChord`), the largest over
-        the batch. Applied before
-        the landing rule, so a shortened step is not a landing; a fixed schedule's
-        replay is not capped.
+        Under a carrier frame no step covers more than
+        :data:`~solprop.stepper.multistep.CARRIER_PHASE_CAP` of carrier phase (SEP 35
+        section 6.4), measured by one chord of the reference element's operator over
+        the proposal (:class:`CarrierChord`), the largest over the batch
+        (:func:`~solprop.backends.adams_core.carrier_capped`). Applied before the
+        landing rule, so a shortened step is not a landing; a fixed schedule's replay
+        is not capped.
 
         Parameters
         ----------
@@ -3422,61 +3353,36 @@ class AdamsMarch:
         float
             The proposal, or the shorter step the cap allows, m.
         """
-        carrier = getattr(self._engine, "carrier", None)
-        if not isinstance(carrier, CarrierReference) or not carrier.active:
+        if not self._policy.carrier:
             return proposal
-        backend = self._backend
-        z = backend._z
-        # Measured over the part of the proposal inside the run, where the operator's
-        # representation is defined; the landing rule clips the rest. One scalar per
-        # member, from the reference element's own representation.
-        end = min(z + proposal, backend._problem.stepper.z_end)
-        phase = carrier.chord_phase(z, end)
-        if phase <= CARRIER_PHASE_CAP:
-            return proposal
-        return (end - z) * (CARRIER_PHASE_CAP / phase)
+        carrier = cast("CarrierReference", getattr(self._engine, "carrier", None))
+        return adams_core.carrier_capped(
+            self._policy, self._backend._z, proposal, carrier.chord_phase
+        )
 
-    def _approach(
-        self, stop: Landing, targets: StepTargets, target: float
-    ) -> tuple[float, float, bool]:
-        """Return the step to take, where it ends and whether it lands on a kink.
+    def _quiet_capped(self, proposal: float) -> float:
+        """Return the proposal held to the monitor's interval while the collar rests.
+
+        :func:`~solprop.backends.adams_core.quiet_capped` of the backend's collar and
+        monitor, the rule of the driver's own ``_quiet_capped``.
 
         Parameters
         ----------
-        stop : solprop.stepper.schedule.Landing
-            The landing the shared rule chose for the proposal.
-        targets : solprop.stepper.schedule.StepTargets
-            The caps and landings.
-        target : float
-            The end of this march, m.
+        proposal : float
+            The controller's proposal, m.
 
         Returns
         -------
-        tuple
-            The step, m; its end position, m; and whether that end is a hard kink.
+        float
+            The proposal, or the monitor's interval while the collar is left out, m.
         """
         backend = self._backend
-        z = backend._z
-        landed = stop.z_target is not None
-        if not landed and self._method.equal_approach:
-            # A full step followed by a sliver to a forced landing is a large step
-            # ratio, which variable-step Adams tolerates poorly (SEP 13 section 4.4):
-            # between one and two proposals away, take two equal steps instead.
-            ahead = _next_landing(z, targets, target)
-            if ahead is not None and stop.dz < ahead - z < 2.0 * stop.dz:
-                half = 0.5 * (ahead - z)
-                return half, z + half, False
-        end = stop.z_target if landed else z + stop.dz
-        assert end is not None
-        # A kink that is also a save plane may be reported as the plane; it still
-        # restarts the history, which must not interpolate across a jump in D.
-        # The run's own end is not one: nothing follows it to restart.
-        tolerance = 8 * math.ulp(max(abs(end), 1.0))
-        interior = end < backend._problem.stepper.z_end - tolerance
-        on_kink = interior and any(
-            abs(kink - end) <= tolerance for kink in targets.kinks
+        monitor = backend._monitor
+        return adams_core.quiet_capped(
+            proposal,
+            quiet=backend._collar_quiet,
+            interval=None if monitor is None else monitor.interval,
         )
-        return stop.dz, end, stop.target is LandingTarget.HARD_KINK or on_kink
 
     def _attempt(
         self,
@@ -3506,35 +3412,8 @@ class AdamsMarch:
             return self._attempt_exponential(dz, fixed=fixed, landing=landing)
         if self._fused:
             return self._attempt_fused(dz, fixed=fixed, landing=landing)
-        backend = self._backend
-        state = backend._adams_state()
-        z = backend._z
-        backend._hoist(z)
-        trial = _Trial.start(self._history, self._order, z, dz, state, backend)
-        if self._method.corrector == "none" and len(trial.values) > trial.order:
-            # Free rejection on the history alone: the next Adams-Bashforth formula's
-            # difference from this one is this one's defect (SEP 13 section 4.3).
-            wider = integrated_weights(
-                trial.nodes[: trial.order + 1], check=False, helpers=backend.helpers
-            )
-            early = _combine(wider, trial.values[: trial.order + 1], dz)
-            norm = trial.norm(early - trial.predictor)
-            if not norm <= 1.0 and not (fixed and math.isfinite(norm)):
-                self._reject(dz, norm, trial.order)
-                return False, norm
-
-        self.ledger.predictor += 1
-        source, _ = self._source(
-            trial.lab(trial.predictor), z, z + dz, purpose="predictor"
-        )
-        increment, defect, formula = self._correct(trial, source)
-        norm = trial.norm(defect)
-        if not norm <= 1.0 and not (fixed and math.isfinite(norm)):
-            self.ledger.rejected += 1
-            self._reject(dz, norm, trial.order)
-            return False, norm
-        self._commit(trial, trial.lab(increment), source, norm, formula, landing)
-        return True, norm
+        assert self._general is not None
+        return self._general.attempt(dz, fixed=fixed, landing=landing)
 
     def _attempt_fused(
         self,
@@ -3575,9 +3454,7 @@ class AdamsMarch:
     ) -> tuple[float, list[float], np.ndarray, int, list[int]]:
         """Return a trial's anchor, nodes, rows, order and scored orders.
 
-        Each order's defect is its ``k + 1``-node corrector through the new source less
-        its ``k``-node predictor; a neighbour is scored when the history can form it,
-        and the order never rises straight after a rejection.
+        :func:`~solprop.backends.adams_core.stencil` of the history.
 
         Parameters
         ----------
@@ -3590,26 +3467,18 @@ class AdamsMarch:
             The anchor, m; the history's normalised positions and store rows, newest
             first; the step's order; and the orders scored, its own first.
         """
-        method = self._method
         z = self._backend._z
-        recent = self._history[::-1]
-        nodes = [(entry.z - z) / dz for entry in recent]
-        slots = np.array([entry.slot for entry in recent], dtype=np.int64)
-        held = len(recent)
-        order = min(self._order, held)
-        rising = not self._last_rejected and held > order
-        orders = [order] + (
-            [
-                other
-                for other in (order - 1, order + 1)
-                if 1 <= other <= method.order
-                and other <= held
-                and (other < order or rising)
-            ]
-            if method.variable_order
-            else []
+        history = self._history
+        stencil = adams_core.stencil(
+            self._policy,
+            z,
+            dz,
+            [entry.z for entry in history],
+            [entry.slot for entry in history],
+            self._order,
+            last_rejected=self._last_rejected,
         )
-        return z, nodes, slots, order, orders
+        return z, stencil.nodes, stencil.rows, stencil.order, stencil.orders
 
     def _decide(
         self,
@@ -3646,14 +3515,14 @@ class AdamsMarch:
         tuple
             Whether the step was accepted, and its scaled error norm.
         """
-        backend, method, engine = self._backend, self._method, self._engine
+        backend, policy, engine = self._backend, self._policy, self._engine
         norm = float(norms[0])
         if not norm <= 1.0 and not (fixed and math.isfinite(norm)):
             self.ledger.rejected += 1
             self._reject(dz, norm, order)
             return False, norm
         z = backend._z
-        keep = self._history[-method.order :] if method.order else []
+        keep = self._history[-policy.order :] if policy.order else []
         used = {entry.slot for entry in keep}
         free = next(slot for slot in range(engine.n_slots) if slot not in used)
         rows = np.array([entry.slot for entry in keep], dtype=np.int64)
@@ -3672,15 +3541,54 @@ class AdamsMarch:
             next_order, control = self._choose_order(
                 order, dict(zip(orders, norms.tolist(), strict=True)), dz
             )
-            backend._proposal = limit_step(
-                dz,
-                _factor(method, control, next_order, growth=method.max_growth),
-                backend._problem.stepper.dz_min,
-                backend._problem.stepper.dz_max,
-            )
             self._last_rejected = False
             self._land(z, dz, landing)
+            self._propose(
+                dz,
+                adams_core.factor(
+                    policy, control, next_order, growth=policy.max_growth
+                ),
+            )
         return True, norm
+
+    def _propose(self, dz: float, factor: float) -> None:
+        """Set an accepted step's next proposal, deferring a floor it falls below.
+
+        Called inside an accepted step's commit, after the position, the history and
+        the order have moved, so that a run stopped by the floor leaves the state of the
+        step it accepted at that step's end (SEP 39 section 4.4). The floor is raised
+        once the march has recorded the step (:meth:`_raise_floor`).
+
+        Parameters
+        ----------
+        dz : float
+            The accepted step, m.
+        factor : float
+            The factor its defect allows.
+        """
+        policy = self._policy
+        try:
+            self._backend._proposal = limit_step(
+                dz, factor, policy.dz_min, policy.dz_max
+            )
+        except ConvergenceError as error:
+            self._floor = error
+
+    def _raise_floor(self) -> None:
+        """Raise the floor an accepted step's proposal fell below, once it is recorded.
+
+        Every caller that records an accepted step calls this straight after, and every
+        attempt calls it before it starts (:meth:`_afford`), so a floor is never
+        passed over.
+
+        Raises
+        ------
+        ConvergenceError
+            The floor's error, if one is pending.
+        """
+        error, self._floor = self._floor, None
+        if error is not None:
+            raise error
 
     def _land(self, z: float, dz: float, landing: tuple[float, bool] | None) -> None:
         """Move the backend to an accepted step's end, restarting at a kink.
@@ -3736,203 +3644,11 @@ class AdamsMarch:
         norms = self._engine.exponential_trial(z, dz, nodes, slots, order, orders)
         return self._decide(dz, order, orders, norms, fixed=fixed, landing=landing)
 
-    def _correct(
-        self, trial: _Trial, source: _State
-    ) -> tuple[_State, _State, tuple[np.ndarray, list[_State]]]:
-        """Return the accepted increment and its local-defect estimate.
-
-        Parameters
-        ----------
-        trial : _Trial
-            The step being tried.
-        source : numpy.ndarray
-            The source at the predicted field, in the anchor's frame.
-
-        Returns
-        -------
-        tuple
-            The increment ``v - a_n`` the step would accept and the estimate of its
-            local defect, both in the anchor's frame, and the nodes and derivatives of
-            the formula that produced the increment, for dense observation.
-        """
-        order, nodes, values, dz = trial.order, trial.nodes, trial.values, trial.dz
-        if self._method.corrector == "none":
-            # Explicit Adams-Bashforth keeps its predictor; the stencil that ends at the
-            # new derivative rechecks it after the call (SEP 13 section 4.3).
-            check = np.concatenate(([1.0], nodes[:order]))
-            corrected = _combine(
-                integrated_weights(check, check=False, helpers=self._backend.helpers),
-                [source, *values[:order]],
-                dz,
-            )
-            predictor = (nodes[:order], values[:order])
-            return trial.predictor, corrected - trial.predictor, predictor
-        count = self._method.corrector_nodes(order)
-        corrector_nodes = np.concatenate(([1.0], nodes[: count - 1]))
-        corrected = _combine(
-            integrated_weights(
-                corrector_nodes, check=False, helpers=self._backend.helpers
-            ),
-            [source, *values[: count - 1]],
-            dz,
-        )
-        difference = corrected - trial.predictor
-        formula = (corrector_nodes, [source, *values[: count - 1]])
-        if count == order:
-            factor = milne_factor(nodes[:order], corrector_nodes)
-            return corrected, factor * difference, formula
-        # A corrector one order higher: the difference is the predictor's defect, a
-        # conservative estimate of the accepted corrector's.
-        return corrected, difference, formula
-
-    def _commit(
-        self,
-        trial: _Trial,
-        advanced: _State,
-        source: _State,
-        norm: float,
-        formula: tuple[np.ndarray, list[_State]],
-        landing: tuple[float, bool] | None = None,
-    ) -> None:
-        """Adopt an accepted step: the state, the re-anchored history and the proposal.
-
-        Parameters
-        ----------
-        trial : _Trial
-            The accepted step.
-        advanced : numpy.ndarray
-            The state at its end, before the boundary treatments.
-        source : numpy.ndarray
-            The source at the predicted field, in the step's anchor frame.
-        norm : float
-            The step's scaled error norm.
-        formula : tuple
-            The nodes and anchor-frame derivatives of the accepted formula.
-        landing : tuple or None, optional
-            Where the step ends and whether it is a hard kink (:meth:`_attempt`).
-        """
-        backend = self._backend
-        method = self._method
-        settings = backend._problem.stepper
-        z, dz, propagator = trial.z, trial.dz, trial.propagator
-        # The comparison variants' corrected evaluation is inside the commit too.
-        with committing():
-            finished = backend._adams_adopt(advanced, dz)
-            if method.corrector == "pece":
-                self.ledger.corrected += 1
-                try:
-                    stored, _ = self._source(finished, z, z + dz, purpose="corrected")
-                except BaseException:
-                    # Adoption installs the candidate before its corrected response. A
-                    # failed response must leave the checkpoint at the previous state.
-                    backend._adams_restore(z, trial.state)
-                    raise
-                identity = "accepted"
-            else:
-                stored = source
-                identity = "predicted" if method.corrector == "pec" else "accepted"
-            for entry in self._history:
-                entry.value = propagator * cast("_State", entry.value)
-            self._history.append(_Derivative(z + dz, propagator * stored, identity))
-            self._history = self._history[-(method.order + 1) :]
-            if self._interpolate:
-                self._engine.dense = _DenseStep(
-                    z=z,
-                    dz=dz,
-                    start=trial.state,
-                    end=finished / propagator,
-                    start_slope=trial.values[0],
-                    end_slope=stored,
-                    nodes=formula[0],
-                    slopes=formula[1],
-                )
-            self.ledger.accepted_steps += 1
-            self._rejections = 0
-            self.ledger.orders.append(trial.order)
-            order, norm = self._next_order(trial, source, norm)
-            backend._proposal = limit_step(
-                dz,
-                _factor(method, norm, order, growth=method.max_growth),
-                settings.dz_min,
-                settings.dz_max,
-            )
-            self._last_rejected = False
-            self._land(z, dz, landing)
-
-    def _next_order(
-        self, trial: _Trial, source: _State, norm: float
-    ) -> tuple[int, float]:
-        """Choose the next step's order from neighbouring estimates; no extra call.
-
-        For the one-order-higher PEC/PECE family the defect of order ``k`` is the
-        difference between the ``k + 1``-derivative corrector through the new source
-        and the ``k``-derivative predictor, so orders ``q - 1`` and ``q + 1`` are
-        estimated from the same history and source as the step itself (SEP 13 section
-        4.4). The order maximising the predicted step wins if it beats the current one
-        by :data:`ORDER_HYSTERESIS`; the order never rises straight after a rejection.
-
-        Parameters
-        ----------
-        trial : _Trial
-            The accepted step.
-        source : numpy.ndarray
-            Its predicted-state source, in the step's anchor frame.
-        norm : float
-            Its scaled defect at its own order.
-
-        Returns
-        -------
-        tuple
-            The next order and the norm it is controlled with.
-        """
-        method = self._method
-        current = trial.order
-        if not method.variable_order:
-            self._order = method.order
-            return current, norm
-        # A neighbour is scored when the history can form it; the order never rises
-        # straight after a rejection, nor beyond the derivatives the history holds.
-        rising = not self._last_rejected and len(trial.values) > current
-        scores = {current: norm} | {
-            order: _defect_at(trial, source, order, self._backend.helpers)
-            for order in (current - 1, current + 1)
-            if 1 <= order <= method.order
-            and order <= len(trial.values)
-            and (order < current or rising)
-        }
-        return self._choose_order(current, scores, trial.dz)
-
-    def _stable_factor(self, order: int, dz: float) -> float:
-        """Return the largest factor on `dz` an in-stage collar leaves an order stable.
-
-        Parameters
-        ----------
-        order : int
-            The predictor order.
-        dz : float
-            The step, m.
-
-        Returns
-        -------
-        float
-            ``COLLAR_STABILITY * PEC_REAL_INTERVAL[order - 1] / (dz max(alpha) / 2)``,
-            infinite without an in-stage collar.
-        """
-        if self._collar_rate <= 0.0 or self._backend._collar_quiet:
-            # No in-stage collar, or one the stages leave out while it is quiet: no
-            # stiff term to weigh the orders by.
-            return math.inf
-        interval = COLLAR_STABILITY * PEC_REAL_INTERVAL[order - 1]
-        return interval / (self._collar_rate * dz)
-
     def _collar_reentry(self, proposal: float) -> float:
         """Return the proposal held to the collar's stable step as its term returns.
 
-        While a quiet collar is left out of the stages the order choice ignores its
-        stability limit (:meth:`_stable_factor`), so the march may hold a high order
-        and a long step; on the first attempt after the term returns that step would
-        be unstable for it. That attempt is held to the stable step of the current
-        order, and the order choice weighs the limit again from there.
+        :func:`~solprop.backends.adams_core.collar_reentry`, recording the collar's
+        flag at this attempt.
 
         Parameters
         ----------
@@ -3946,44 +3662,28 @@ class AdamsMarch:
             returned, m.
         """
         quiet = self._backend._collar_quiet
-        returning = self._collar_was_quiet and not quiet
+        capped = adams_core.collar_reentry(
+            self._policy,
+            proposal,
+            self._order,
+            was_quiet=self._collar_was_quiet,
+            quiet=quiet,
+        )
         self._collar_was_quiet = quiet
-        if not returning or self._collar_rate <= 0.0:
-            return proposal
-        interval = COLLAR_STABILITY * PEC_REAL_INTERVAL[self._order - 1]
-        return min(proposal, interval / self._collar_rate)
-
-    def _order_weight(self, scores: dict[int, float], dz: float, order: int) -> float:
-        """Return an order's weight: its defect's step factor, capped for stability.
-
-        Parameters
-        ----------
-        scores : dict
-            The scaled defect of every scored order.
-        dz : float
-            The accepted step, m.
-        order : int
-            One of the scored orders.
-
-        Returns
-        -------
-        float
-            ``safety norm ** (-1 / (order + 1))``, at most :meth:`_stable_factor`.
-        """
-        allowed = self._method.safety * _order_rate(scores, order)
-        return min(allowed, self._stable_factor(order, dz))
+        return capped
 
     def _choose_order(
         self, current: int, scores: dict[int, float], dz: float
     ) -> tuple[int, float]:
-        """Adopt the scored order with the largest predicted step, with hysteresis.
+        """Store the next order; return the order and norm that set the next step.
 
-        In the exponential formulation each order is weighed by the step its defect
-        allows capped at the step an in-stage collar leaves it stable at: near that
-        limit the higher orders' defects carry the collar's growing mode, and a choice
-        on them alone was decided by rounding -- runs a rounding apart settled in
-        different orders, with calls 40 % apart. The cap weighs the choice only; the
-        step is the chosen order's defect's, as before.
+        :func:`~solprop.backends.adams_core.choose_order`. In the exponential
+        formulation each order is weighed by the step its defect allows capped at the
+        step an in-stage collar leaves it stable at: near that limit the higher orders'
+        defects carry the collar's growing mode, and a choice on them alone was decided
+        by rounding -- runs a rounding apart settled in different orders, with calls
+        40 % apart. The cap weighs the choice only; the step is the chosen order's
+        defect's, as before.
 
         Parameters
         ----------
@@ -3997,28 +3697,21 @@ class AdamsMarch:
         Returns
         -------
         tuple
-            The next order and the norm it is controlled with.
+            The order and the norm the next step is controlled with.
         """
-        if not self._method.variable_order:
-            self._order = self._method.order
-            return current, scores[current]
-
-        rate = functools.partial(self._order_weight, scores, dz)
-        best = max(scores, key=rate)
-        if best != current and rate(best) > ORDER_HYSTERESIS * rate(current):
-            self._order = best
-            return best, scores[best]
-        self._order = current
-        return current, scores[current]
+        stored, control, norm = adams_core.choose_order(
+            self._policy, current, scores, dz, quiet=self._backend._collar_quiet
+        )
+        self._order = stored
+        return control, norm
 
     def _reject(self, dz: float, norm: float, order: int) -> None:
         """Shrink the proposal after a rejected step; restart a failing history.
 
-        A rejection leaves the accepted history untouched. Repeated rejections mean the
-        history itself is the problem -- a parasitic mode of the multistep recurrence
-        that a smaller step cannot remove, because every stencil still interpolates it
-        -- so after :data:`RESTART_AFTER` in a row the method restarts at order one from
-        the accepted state, paying one startup call.
+        :func:`~solprop.backends.adams_core.rejection`: a rejection leaves the accepted
+        history untouched, and after
+        :data:`~solprop.stepper.multistep.RESTART_AFTER` in a row the method restarts
+        at order one from the accepted state, paying one startup call.
 
         Parameters
         ----------
@@ -4029,43 +3722,19 @@ class AdamsMarch:
         order : int
             Its order.
         """
-        backend = self._backend
-        settings = backend._problem.stepper
+        policy = self._policy
         self.ledger.rejected_steps += 1
-        self._rejections += 1
         self._last_rejected = True
-        if self._rejections >= RESTART_AFTER and len(self._history) > 1:
-            self._history = []
-            self._rejections = 0
-            self.ledger.failure_restarts += 1
-        factor = (
-            self._method.min_factor
-            if not math.isfinite(norm)
-            else _factor(self._method, norm, order, growth=0.9)
+        outcome = adams_core.rejection(
+            policy, norm, order, rejections=self._rejections, held=len(self._history)
         )
-        backend._proposal = limit_step(dz, factor, settings.dz_min, settings.dz_max)
-
-
-def _order_rate(scores: dict[int, float], order: int) -> float:
-    """Return the step-size factor an order's defect would allow.
-
-    A module function rather than a closure in :meth:`AdamsMarch._choose_order`, whose
-    branch into a nested definition Python 3.14's coverage does not record.
-
-    Parameters
-    ----------
-    scores : dict
-        The scaled defect of every scored order.
-    order : int
-        One of the scored orders.
-
-    Returns
-    -------
-    float
-        ``norm ** (-1 / (order + 1))``, infinite for a zero defect.
-    """
-    value = scores[order]
-    return math.inf if value <= 0.0 else value ** (-1.0 / (order + 1))
+        self._rejections = outcome.rejections
+        if outcome.restart:
+            self._history = []
+            self.ledger.failure_restarts += 1
+        self._backend._proposal = limit_step(
+            dz, outcome.factor, policy.dz_min, policy.dz_max
+        )
 
 
 def _defect_rows(
@@ -4390,70 +4059,6 @@ def _exponential_corrector(
     return corrector
 
 
-def _defect_at(trial: _Trial, source: _State, order: int, helpers: Helpers) -> float:
-    """Return the scaled defect an accepted step would have had at another order.
-
-    The order's predictor and its one-order-higher corrector are formed from the same
-    history and the same predicted-state source, so scoring a neighbour costs no call.
-
-    Parameters
-    ----------
-    trial : _Trial
-        The accepted step.
-    source : numpy.ndarray
-        Its predicted-state source, in the step's anchor frame.
-    order : int
-        The neighbouring order, no more than the derivatives the trial holds.
-    helpers : solprop._helpers.Helpers
-        The owning backend's implementation of the Adams basis.
-
-    Returns
-    -------
-    float
-        The scaled predictor-corrector difference at that order.
-    """
-    nodes, values = trial.nodes[:order], trial.values[:order]
-    predicted = _combine(
-        integrated_weights(nodes, check=False, helpers=helpers), values, trial.dz
-    )
-    corrected = _combine(
-        integrated_weights(
-            np.concatenate(([1.0], nodes)), check=False, helpers=helpers
-        ),
-        [source, *values],
-        trial.dz,
-    )
-    return trial.norm(corrected - predicted)
-
-
-def _factor(method: Multistep, norm: float, order: int, *, growth: float) -> float:
-    """Return the elementary step-size factor of an order-`order` local defect.
-
-    The defect scales as ``h^{order+1}`` (SEP 13 section 4.4), so the exponent is
-    ``1/(order + 1)``, not the Runge-Kutta pair's fixed one.
-
-    Parameters
-    ----------
-    method : solprop.stepper.multistep.Multistep
-        The method, for its safety and smallest factor.
-    norm : float
-        The scaled defect.
-    order : int
-        The order the defect belongs to.
-    growth : float
-        The largest factor allowed.
-
-    Returns
-    -------
-    float
-        The factor on the step.
-    """
-    if norm <= 0.0:
-        return growth
-    raw = method.safety * norm ** (-1.0 / (order + 1))
-    return min(growth, max(method.min_factor, raw))
-
-
 def _combine(weights: np.ndarray, values: list[_State], dz: float) -> _State:
     """Return ``dz * sum_j w_j g_j``.
 
@@ -4475,83 +4080,3 @@ def _combine(weights: np.ndarray, values: list[_State], dz: float) -> _State:
     for weight, value in zip(weights, values, strict=True):
         total = passes.accumulate(total, value, float(weight))
     return dz * total
-
-
-def _norm_function(
-    backend: StepDriver,
-    state: _State,
-) -> Callable[[_State], float]:
-    """Return the weak norm of a defect, scaled by the accepted state before the step.
-
-    The Runge-Kutta march scales by the larger of the states before and after the step.
-    An Adams step outside its stability region can multiply the state many times over
-    while its predictor and corrector still agree to a fraction of the *new* state, so
-    that scale lets a divergence pass as accurate: SEP 13 phase 2 measured PEC4 growing
-    from 1e7 to 1e236 in five accepted steps with every scaled norm below 0.6. The state
-    the step starts from is the scale that cannot grow with the step it judges.
-
-    Parameters
-    ----------
-    backend : solprop.backends.driver.StepDriver
-        The backend, for the controller and the in-band mask.
-    state : numpy.ndarray
-        The accepted state before the step.
-
-    Returns
-    -------
-    callable
-        ``defect -> norm`` for a defect carried to the end of the step.
-    """
-    problem = backend._problem
-    mask, controller = problem.grids.norm_mask, problem.stepper.controller
-    # The scale is the state's, the same for every defect of the step, so it is
-    # reduced once: :func:`passes.error_norm`'s arithmetic, with the two state norms
-    # it would take per call hoisted out.
-    magnitude = float(np.linalg.norm(state[..., mask]))
-    scale = controller.scale(magnitude, magnitude)
-    divisor = scale[mask] if isinstance(scale, np.ndarray) else scale
-
-    def scaled(defect: _State) -> float:
-        """Return the scaled norm of a defect at the end of the step.
-
-        Parameters
-        ----------
-        defect : numpy.ndarray
-            The defect, carried to the end of the step.
-
-        Returns
-        -------
-        float
-            The scaled norm.
-        """
-        return float(np.linalg.norm(defect[..., mask] / divisor))
-
-    return scaled
-
-
-def _next_landing(z: float, targets: StepTargets, target: float) -> float | None:
-    """Return the next forced landing after `z`: save plane, hard kink or end.
-
-    Parameters
-    ----------
-    z : float
-        The current position, m.
-    targets : solprop.stepper.schedule.StepTargets
-        The planes and kinks.
-    target : float
-        The end of the current march, m.
-
-    Returns
-    -------
-    float or None
-        The nearest landing ahead, or ``None`` when none lies ahead.
-    """
-    tolerance = 8 * math.ulp(max(abs(z), abs(target)))
-    candidates = [target]
-    for positions in (targets.planes, targets.kinks):
-        # The first strictly beyond `z + tolerance`; the positions increase strictly.
-        index = bisect.bisect_right(positions, z + tolerance)
-        if index < len(positions):
-            candidates.append(positions[index])
-    nearest = min(candidates)
-    return nearest if nearest > z + tolerance else None

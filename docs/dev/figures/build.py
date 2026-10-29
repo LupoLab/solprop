@@ -711,6 +711,8 @@ MODULES = {
                 "populations",
                 "memory",
                 "multistep",
+                "multistep_general",
+                "adams_core",
                 "exponential",
                 "low_storage",
             ),

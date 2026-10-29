@@ -543,6 +543,134 @@ default (the system libm, each element's own calls) against the parent, geometri
 functions forced on (`SOLPROP_NATIVE_VECTOR_MATH=SLEEF`) +11.6 %, `gnlse_raman_shock`
 +56 %.
 
+### Exponential Adams host cost: the SEP 39 baseline
+
+The host side of an exponential `Multistep()` trial on the native CPU backend, before
+[SEP 39](seps/sep-0039-native-adams-march.md)'s native march, at the head of the vector
+maths change (a500d2d). The SEP's §3.3 reads these figures.
+
+**Method.**
+
+- Complete runs of the tracking cases, with the fraction of the guide in brackets
+  where it is not the whole, timed by the suite's worker after its warm-up.
+- The default stepper and `RungeKutta()` interleaved over three rounds of fresh
+  processes, the order reversed every round; medians reported.
+- Host time per trial: `python -m benchmarks.adams_host CASE [--length F]` (SEP 39),
+  the march's wall time less its native `adams_*` calls, with no other wrappers.
+- The per-piece split comes from one run with `perf_counter` wrappers on about
+  twenty-five host functions, which inflate the total by about half, so it gives the
+  shares, not the sum.
+- Steps and calls are counted.
+
+**AMD EPYC 7763** (Zen 3, 16 cores of one NUMA domain of a shared node, GCC 16.2,
+SLEEF's AVX2 functions, FFTW 3.3.11, OpenBLAS 0.3.34), one thread:
+
+| case | `Multistep()` (s) | `RungeKutta()` (s) | host / native per trial (µs) | steps (acc/rej), calls: MS · RK |
+|---|---:|---:|---:|---|
+| `he_rdw_averaged` | 2.126 | 1.528 | 212 / 1 182 | 1 434/3, 1 438 · 480/1, 2 887 |
+| `argon_blueshift_averaged` | 9.17 (7.83–9.47) | 2.460 | 177 / 632 | 11 166/2, 11 169 · 1 684/0, 10 105 |
+| `h2_raman_averaged` (0.4) | 4.820 | 2.146 | 173 / 695 | 5 417/2, 5 420 · 1 308/0, 7 849 |
+| `rdw` (0.25) | 4.157 | 5.440 | 372 / 9 245 | 393/1, 395 · 175/0, 1 051 |
+
+The node's sixteen-thread runs, which other jobs shared, were slower than one thread on
+several cases and are not reported.
+
+**Apple M5 Max** (Homebrew Clang 23.1.3, FFTW 3.3.11 with NEON codelets, the system
+libm, an otherwise idle machine):
+
+| case | threads | `Multistep()` (s) | `RungeKutta()` (s) | host / native per trial (µs) |
+|---|---:|---:|---:|---:|
+| `he_rdw_averaged` | 1 | 0.815 | 0.650 | 51 / 448 |
+| `argon_blueshift_averaged` | 1 | 2.920 | 1.419 | 38 / 213 |
+| `h2_raman_averaged` (0.4) | 1 | 1.755 | 1.311 | 40 / 263 |
+| `rdw` (0.25) | 1 | 1.711 | 2.736 | 129 / 3 730 |
+| `he_rdw_averaged` | 16 | 0.636 | 0.650 | 53 / 282 |
+| `argon_blueshift_averaged` | 16 | 2.474 | 1.381 | 36 / 175 |
+| `h2_raman_averaged` (0.4) | 16 | 1.697 | 1.652 | 44 / 254 |
+| `rdw` (0.25) | 16 | 0.862 | 1.256 | 205 / 1 555 |
+
+The step and call counts are the EPYC's on both machines.
+
+**Host pieces, helium, one thread** (µs per trial, instrumented):
+
+| piece | EPYC 7763 | M5 Max |
+|---|---:|---:|
+| stage arrays (bundle, packing, sample) | 113 | 21 |
+| … of which the bundle's Clenshaw reads | 73 | 14 |
+| the decision, less the native accept | 48 | 7 |
+| rate weights (uncached Clenshaw) | 26 | 4 |
+| landing and approach | 30 | 5 |
+| the tables call (one native helper) | 18 | 4 |
+| order choice and stencil | 17 | 3 |
+| sample, hoist, record and the rest | 22 | 4 |
+
+On the four-mode `rdw` the step history's record costs 67 µs a trial on the EPYC: its
+backend hook scores the quadrature alarm natively.
+
+**Native time per trial** (µs, host-only Kokkos label timer, one thread):
+
+| case | machine | predict pass | correct pass | the source and the rest |
+|---|---|---:|---:|---:|
+| `he_rdw_averaged` | EPYC 7763 | 557 | 287 | ≈290 |
+| `argon_blueshift_averaged` | EPYC 7763 | 192 | 112 | ≈200 |
+| `he_rdw_averaged` | M5 Max | 169 | 100 | ≈155 |
+| `argon_blueshift_averaged` | M5 Max | 51 | 34 | ≈110 |
+
+On the EPYC the two passes cost 1.5–2.9 source evaluations a trial, against 0.6–0.9 for
+the host. Their per-element cost is 2.9–3.8 times the M5's, against about 1.9 times for
+the source.
+
+### The native Adams march
+
+[SEP 39](seps/sep-0039-native-adams-march.md)'s native march against solprop's Python
+march on the same build (`benchmarks.adams_host --host-march`), and against the march
+with the host packing the stage rows, as before the SEP's phase 1 (`--host-stages`).
+Interleaved fresh processes, the arm order reversed every round, medians; every arm
+took the same steps and calls (the counts above). Host time per trial as in the
+baseline above.
+
+**Exponential formulation** (the default `Multistep()`):
+
+| machine, threads | case | host µs/trial: packed → staged → native | wall, native vs staged | wall, native vs packed |
+|---|---|---|---:|---:|
+| M5 Max, 1 | `he_rdw_averaged` | 43 → 13 → 0.6 | −3.3 % | −7.6 % |
+| | `argon_blueshift_averaged` | 30 → 11 → 0.4 | −6.0 % | −13.6 % |
+| | `h2_raman_averaged` (0.4) | 37 → 11 → 0.5 | −3.9 % | −11.6 % |
+| | `rdw` (0.25) | 91 → 47 → 2.7 | −0.6 % | +0.4 % |
+| M5 Max, 16 | `he_rdw_averaged` | 47 → 13 → 0.6 | −4.2 % | −13.2 % |
+| | `argon_blueshift_averaged` | 32 → 12 → 0.4 | −9.2 % | −17.2 % |
+| | `h2_raman_averaged` (0.4) | 39 → 12 → 0.6 | −6.2 % | −16.2 % |
+| | `rdw` (0.25) | 171 → 122 → 1.9 | −2.2 % | −4.5 % |
+| EPYC 7763, 1 | `he_rdw_averaged` | 208 → 65 → 1.7 | −6.1 % | −14.0 % |
+| | `argon_blueshift_averaged` | 148 → 58 → 1.1 | −11.5 % | −24.2 % |
+| | `h2_raman_averaged` (0.4) | 168 → 58 → 1.2 | −9.5 % | −22.7 % |
+| | `rdw` (0.25) | 168 → 8 (staged → native) | −1.7 % | — |
+
+The EPYC's first three rows are from a shared node (load 80–97), whose one-thread
+walls were consistent; its `rdw` row is from a quiet node, nine rounds, where the
+sixteen-thread median read +2.7 % and the minimum −3.3 % inside a ±6 % spread.
+
+**Interaction formulation** (`Multistep(formulation="interaction")`, M5 Max):
+
+| threads | case | host µs/trial: packed → staged → native | wall, native vs staged | wall, native vs packed |
+|---|---|---|---:|---:|
+| 1 | `he_rdw_averaged` | 41 → 12 → 0.5 | −4.0 % | −11.8 % |
+| | `argon_blueshift_averaged` | 33 → 11 → 0.5 | −5.4 % | −16.7 % |
+| | `h2_raman_averaged` (0.4) | 40 → 11 → 0.5 | −5.6 % | −18.3 % |
+| | `rdw` (0.25) | 85 → 43 → 1.5 | −1.3 % | −2.9 % |
+| 16 | `he_rdw_averaged` | 41 → 12 → 0.5 | −3.9 % | −12.9 % |
+| | `argon_blueshift_averaged` | 33 → 11 → 0.4 | −8.6 % | −18.2 % |
+| | `h2_raman_averaged` (0.4) | 42 → 11 → 0.5 | −34.1 % | −15.0 % |
+| | `rdw` (0.25) | 165 → 119 → 1.5 | −2.1 % | −4.7 % |
+
+The staged Python march's sixteen-thread `h2_raman_averaged` (2.24 s, slower than the
+packed march's 1.74 s, in every round) is unexplained; see SEP 39's phase 3 report.
+
+**On an NVIDIA A40** (CUDA 12.8.1; exponential formulation, short windows; the same
+steps in both arms): host time per trial 64 → 2.2 µs (`he_rdw_averaged`, 0.3), 61 → 1.6
+(`argon_blueshift_averaged`, 0.1) and 83 → 5.0 (`rdw`, 0.1), walls −6.7 %, −10.6 % and
+−1.8 %. A trial costs about a millisecond on this FP64-weak device.
+
 ## Reference tables
 
 These tables back the indicative results above.

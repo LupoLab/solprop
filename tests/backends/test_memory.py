@@ -30,7 +30,7 @@ from solprop.backends.memory import (
 )
 from solprop.backends.registry import available, select
 from solprop.driver import Simulation
-from solprop.exceptions import BackendError, SolpropWarning
+from solprop.exceptions import BackendError, HostMarchWarning, SolpropWarning
 from solprop.stepper import FixedSchedule, Multistep
 from solprop.stepper.controller import PIController
 
@@ -183,6 +183,8 @@ def test_reference_base_memory_counts_noise_and_the_embedded_projection(
 
 
 @pytest.mark.medium
+# A flow on the host engine runs solprop's march on native, with its warning (SEP 39).
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
 @pytest.mark.parametrize("backend", BACKENDS)
 def test_estimate_memory_counts_the_bins_formed_by_scaling_and_squaring(
     problems, backend, monkeypatch
@@ -431,7 +433,11 @@ def test_a_controller_s_own_scale_is_not_held_in_the_native_engine():
         ),
     )
     estimate = estimate_memory(own, "native").groups["adams_history"]
-    constructed = select("native", own, grid=simulation.grid, modes=simulation.modes)
+    # A scale of its own runs solprop's march, and says so (SEP 39).
+    with pytest.warns(HostMarchWarning, match="norm scale of its own"):
+        constructed = select(
+            "native", own, grid=simulation.grid, modes=simulation.modes
+        )
     try:
         held = ledger_groups(constructed.memory_ledger())["adams_history"]
     finally:

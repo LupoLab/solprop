@@ -19,6 +19,7 @@ import numpy as np
 from jaxtyping import Complex
 
 from solprop.backends.driver import StepDriver, replay_tolerance
+from solprop.backends.multistep import AdamsMarch
 from solprop.backends.protocol import Backend, Observation
 from solprop.exceptions import BackendError, BoundaryError
 from solprop.monitor import BoundaryMonitor
@@ -189,6 +190,11 @@ class LockstepRunner(StepDriver[tuple[object, ...]]):
             self._z = end
             self._record(end, dz, max(self._member_norms), accepted=True)
             self._accepted_norms.append(max(self._member_norms))
+            # A member whose next proposal fell below the floor raises it once the
+            # common step is recorded (SEP 39 section 4.4).
+            for march in marches:
+                if isinstance(march, AdamsMarch):
+                    march._raise_floor()
             self._take_step_stats()
             if self._natural_stop(target):
                 return

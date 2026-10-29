@@ -128,7 +128,7 @@ _ELEMENT_INDICES = re.compile(r"(?:\[\d+\])+$")
 _ARRAY_PART = re.compile(r"\.__(?:ndarray|imaginary)__$")
 """The key of an array record's real or imaginary part, dropped from its stem."""
 
-SCHEMA_VERSION = 27
+SCHEMA_VERSION = 28
 """Version of the record layout; incremented whenever a stored field changes meaning.
 
 Version 9 adds the SEP 13 stepping method. Independent version-10 branches added
@@ -205,6 +205,11 @@ none.
 
 Version 27 (SEP 21) records ``Absorber.spatial``, and a GNLSE or spatial run that
 declares no absorber records the default collar it now has rather than none.
+
+Version 28 (SEP 39) adds the in-stage collar's flag at the last attempt to an Adams
+march snapshot (:attr:`MarchSnapshot.collar_was_quiet`), which decides the step after a
+quiet collar returns. A snapshot of an earlier file has none and is not used: the
+resumed march restarts its history.
 """
 
 INLINE_ARRAY_LIMIT = 2**20
@@ -2018,6 +2023,10 @@ class MarchSnapshot:  # numpydoc ignore=PR02
         The engine's rows by name: the samples (``"store"``) and, for a compensated
         exponential march, the sampled states and rates and each sample's flow
         weights.
+    collar_was_quiet : bool
+        Whether the in-stage collar was left out, quiet, at the last attempt, which
+        holds the first step after it returns to its stable step (SEP 39 section
+        6.5.9).
 
     Raises
     ------
@@ -2049,6 +2058,7 @@ class MarchSnapshot:  # numpydoc ignore=PR02
     identities: tuple[str, ...]
     slots: Int[np.ndarray, " n_entries"]
     rows: Mapping[str, np.ndarray]
+    collar_was_quiet: bool = False
 
     def __post_init__(self) -> None:
         """Refuse a snapshot whose entries disagree or whose numbers are not finite.

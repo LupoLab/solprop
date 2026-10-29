@@ -55,10 +55,12 @@ class PhaseBThreadRecord(ThreadRecord):
 
 def test_public_surface_is_exact() -> None:
     assert native.__all__ == [
+        "ADAMS_MARCH_SURFACE",
         "COUPLED_FLOW_FIELDS",
         "DISPERSIVE_KERR_FIELDS",
         "DRIVER_SURFACE",
         "LINEAR_OPERATOR_FIELDS",
+        "MARCH_POLICY_FIELDS",
         "MODAL_TABLES_FIELDS",
         "REGIONAL_RESPONSE_FIELDS",
         "RESPONSE_FIELDS",
@@ -84,7 +86,7 @@ def test_build_info_is_frozen_and_complete() -> None:
     assert dataclasses.is_dataclass(info)
     with pytest.raises(dataclasses.FrozenInstanceError):
         info.thread_count = 99  # type: ignore[misc]
-    assert info.schema_version == 38
+    assert info.schema_version == 39
     assert info.response_full_thread_columns > 0
     assert (
         info.response_full_thread_columns
@@ -241,7 +243,7 @@ def test_module_entry_point_prints_one_json_record() -> None:
     assert completed.returncode == 0, completed.stderr
     lines = completed.stdout.splitlines()
     assert len(lines) == 1
-    assert json.loads(lines[0])["schema_version"] == 38
+    assert json.loads(lines[0])["schema_version"] == 39
 
 
 @pytest.mark.parametrize(

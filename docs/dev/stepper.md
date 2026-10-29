@@ -358,7 +358,7 @@ predictor, the corrector and the neighbouring orders' defects in the monomial ba
 their interpolants (`ExponentialKernels`): the defects are already at the step's end,
 so no propagator multiplies them. The defect, the norm's scale and the lifecycle are
 the transported formulation's; so is the order choice, but for the in-stage collar's
-stability, which it weighs (`AdamsMarch._order_weight`): each order's
+stability, which it weighs (`adams_core.order_weight`): each order's
 step factor is capped at `COLLAR_STABILITY` times PEC's negative-real interval over
 `h max(α) / 2`, the step itself left to the chosen order's defect. **Beside a coupled flow** (ADR-044) the backend's hook `_adams_block` returns the frozen block of the step's
 section (`CoupledBlock`); `coupled_moments` forms the trial's flow and moments as
@@ -424,6 +424,25 @@ native state -- beside a coupled flow too, whose block functions, coupled predic
 corrector, carry and defect norms are native passes over its resident eigenbasis, a
 frozen-residual flow's generator applied once per sample. The general
 path (PECE and the comparison variants) keeps host arrays.
+
+**The policy and the native march** (ADR-060, [SEP 39](seps/sep-0039-native-adams-march.md)):
+every number the controller reads -- the order and its variability, the safety and
+growth factors, the restart and hysteresis constants, the collar's and the carrier's
+caps, the budget, the floor and ceiling, the landings and the run's end -- is one
+record, `MarchPolicy`, formed by `march_policy` from the method and the settings, and
+the decisions are pure functions of the policy, the march's state and a trial's norms
+(`backends/adams_core.py`). The kernel contract's section 11 specifies them. `native`
+executes `Multistep()` in either formulation, the one-order-higher PEC comparisons and
+replayed schedules from that record on its resident engine
+(`native/src/adams_march.cpp`), a run of attempts per call, and returns to solprop
+only at an event: the target reached or crossed, an accepted step on which the driver
+has work (a statistics row, a natural stop, a monitor check), the call's bound, the
+budget, the floor or a native error. The driver books the call's attempts through
+`_record_attempt` and `_skip_step`, inside one commit. `AdamsMarch` is the reference
+and steps every configuration the native march does not cover (the comparison
+methods' general path, a coupled flow on the host engine (off the eigenbasis route or
+wider than 16 channels), a norm scale other than `PIController`'s, and a z table's
+carrier frame), with a `HostMarchWarning` naming the reason. Lockstep batches replay on the host (`replay_step`).
 
 **Resume** (ADR-046): an engine that can export its rows (`snapshot_rows`, and
 `load_rows` to install them) lets `AdamsMarch.snapshot` return a `MarchSnapshot` -- the

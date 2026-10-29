@@ -42,7 +42,7 @@ from bounds import (
     propagation_growth,
     step_budget,
 )
-from solprop.backends.driver import LANDING_ULPS, StepDriver
+from solprop.backends.driver import StepDriver
 from solprop.backends.low_storage import HostLowStorage, schedule_key, table_steps
 from solprop.backends.memory import estimate_memory, ledger_groups
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -71,6 +71,7 @@ from solprop.stepper import (
     PIController,
     calibrate,
 )
+from solprop.stepper.schedule import LANDING_ULPS
 from solprop.translate.linop import delta_phi
 from solprop.translate.problem import PropagatorMode, StepperSettings, assemble
 

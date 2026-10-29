@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import overload
+from typing import Any, overload
 
 import numpy as np
 import numpy.typing as npt
@@ -177,6 +177,45 @@ class State:
         rate: npt.NDArray[np.float64],
         carrier: npt.NDArray[np.float64],
     ) -> npt.NDArray[np.float64]: ...
+    def adams_stage_tables(self, tables: dict[str, object]) -> None: ...
+    def has_stage_tables(self) -> bool: ...
+    def adams_exponential_trial_at(
+        self,
+        z: float,
+        dz: float,
+        nodes: npt.NDArray[np.float64],
+        slots: npt.NDArray[np.uint64],
+        order: int,
+        orders: list[int],
+        compensated: bool,
+        divisor: npt.NDArray[np.float64],
+        carrier: npt.NDArray[np.float64],
+    ) -> npt.NDArray[np.float64]: ...
+    def adams_stage_scalars(self, z0: float, z1: float) -> dict[str, list[float]]: ...
+    def adams_march_configure(
+        self,
+        policy: dict[str, object],
+        fused: bool,
+        compensated: bool,
+        interpolate: bool,
+        steps: npt.NDArray[np.float64],
+        edges: npt.NDArray[np.float64],
+    ) -> None: ...
+    def adams_fused_trial_at(
+        self,
+        z: float,
+        dz: float,
+        nodes: npt.NDArray[np.float64],
+        slots: npt.NDArray[np.uint64],
+        order: int,
+        orders: list[int],
+        divisor: npt.NDArray[np.float64],
+    ) -> npt.NDArray[np.float64]: ...
+    def adams_march_run(
+        self, state: dict[str, object], bounds: dict[str, object]
+    ) -> dict[str, Any]: ...
+    def adams_march_fault(self, stage: str, after: int, category: str) -> None: ...
+    def adams_stage_rate(self, z: float) -> list[float]: ...
     def adams_exponential_accept(
         self, dz: float, free: int, dense: npt.NDArray[np.uint64], interpolate: bool
     ) -> None: ...
@@ -208,6 +247,12 @@ class State:
         self, slots: npt.NDArray[np.uint64], positions: npt.NDArray[np.float64]
     ) -> None: ...
     def table_rate(self, slot: int, z: float, before: bool) -> None: ...
+    def table_slots(
+        self, phi: bool, prefactor: bool, slots: int, rate: bool
+    ) -> None: ...
+    def table_load(self, positions: list[float]) -> list[int]: ...
+    def table_rate_at(self, z: float, before: bool) -> None: ...
+    def table_evaluations(self) -> int: ...
     def table_terms_to_host(
         self, kind: str, slot: int
     ) -> npt.NDArray[np.complex128]: ...
@@ -354,3 +399,17 @@ class BatchState:
 def available_device_memory() -> int | None: ...
 
 class EnvelopeConvergenceError(RuntimeError): ...
+
+class ScriptedMarch:
+    def __init__(
+        self,
+        policy: dict[str, object],
+        norms: npt.NDArray[np.float64],
+        carrier_rate: float,
+        steps: npt.NDArray[np.float64],
+        edges: npt.NDArray[np.float64],
+    ) -> None: ...
+    def run(
+        self, state: dict[str, object], bounds: dict[str, object]
+    ) -> dict[str, Any]: ...
+    def log(self) -> list[dict[str, Any]]: ...

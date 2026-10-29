@@ -195,7 +195,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 38
+SCHEMA_VERSION = 39
 """Version of the kernel contract this module implements.
 
 Incremented on every change to the field list of ``docs/dev/kernel-contract.md``. A
@@ -444,6 +444,14 @@ monitor (or ``None``), and ``StepDriver._boundary_energies`` returns the monitor
 numbers of a state and what a split-step collar took since the last reading
 (:class:`solprop.monitor.BoundaryEnergies`), so a device backend reduces where its state
 lives; no ``KernelProblem`` field or stage bundle moves.
+
+Version 39 (SEP 39) lets a backend run the exponential Adams march natively: the
+march's policy is a record (:class:`solprop.stepper.multistep.MarchPolicy`), every
+number its algorithm reads, and the driver's protected surface gains
+``StepDriver._record_attempt`` and ``StepDriver._skip_step``, the bookkeeping of one
+attempt and of an accepted step on which the driver has no work, beside the frozen
+``_take_step_stats``, ``_natural_stop`` and ``_natural_stop_due``; no ``KernelProblem``
+field or stage bundle moves.
 """
 
 DEFAULT_COMPONENTS = ("x",)
@@ -1070,7 +1078,7 @@ class KernelProblem:
     ...     dz_max=0.1, dz_init=1e-3, shock=False, prefactor_index=1.0, density=1.0,
     ... )
     >>> problem.shape, problem.grid_kind, problem.schema_version
-    ((1, 1, 1, 3072), 'envelope', 38)
+    ((1, 1, 1, 3072), 'envelope', 39)
     """
 
     schema_version: int
@@ -6389,7 +6397,7 @@ def debug_summary(problem: KernelProblem) -> str:
     ...     width=100e-15, peak_power=9.8, pulseshape="sech", n_save=3,
     ... )
     >>> print(debug_summary(simulation.translate()).splitlines()[0])
-    kernel problem schema 38: envelope grid, route modal
+    kernel problem schema 39: envelope grid, route modal
     """
     linear, transform = problem.linear, problem.transform
     tables, metric = transform.modal_tables, linear.modal_metric

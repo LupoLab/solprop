@@ -40,20 +40,27 @@ from numpy.polynomial import polynomial
 
 from solprop._helpers import NUMBA, Helpers
 from solprop.exceptions import StepperError
+from solprop.stepper.schedule import LANDING_ULPS
 
 __all__ = [
     "CARRIER_PHASE_CAP",
+    "COLLAR_STABILITY",
     "MAX_ADAMS_ORDER",
+    "ORDER_HYSTERESIS",
     "PEC_REAL_INTERVAL",
+    "REJECTION_GROWTH",
+    "RESTART_AFTER",
     "CarrierFrame",
     "ComparisonMultistep",
     "Corrector",
     "Formulation",
     "Interpolant",
+    "MarchPolicy",
     "Multistep",
     "defect_integral",
     "integrated_weights",
     "lagrange_coefficients",
+    "march_policy",
     "milne_factor",
 ]
 
@@ -79,6 +86,21 @@ interval stays stable for ``|Im x'|`` up to about 5.9, 5.1, 3.5, 3.2 and 3.0 at
 ``q = 1..5`` without loss, and further with it (SEP 35 section 4.4, reproduced in
 ``tests/backends/test_carrier_frame.py``). Neither formulation enforces that condition;
 the temporal collar couples bins, so the bound is a heuristic in both."""
+
+RESTART_AFTER = 3
+"""Consecutive rejections after which the history is restarted at order one."""
+
+ORDER_HYSTERESIS = 1.2
+"""Factor by which a neighbouring order's predicted step must win to be adopted."""
+
+COLLAR_STABILITY = 1.0
+"""Share of an order's negative-real stability interval the order choice allows."""
+
+REJECTION_GROWTH = 0.9
+"""Largest factor a rejected step's own defect may propose for its retry.
+
+Below one, so that a retry is always shorter than the step it replaces, whatever the
+defect's exponent makes of a norm just above one."""
 
 CARRIER_PHASE_CAP = 1.0
 """Largest carrier phase ``h |kappa|`` a step may cover under a carrier frame, rad.
@@ -436,6 +458,209 @@ class ComparisonMultistep(Multistep):
         if self.corrector_order is None or self.corrector_order == self.order:
             return order
         return order + 1
+
+
+@dataclass(frozen=True)
+class MarchPolicy:
+    """Every number the Adams march reads and never changes during a run (SEP 39).
+
+    solprop forms one per run, from the method, the run's stepper settings, the
+    operator's breakpoints and kinks, the in-stage collar and this module's constants
+    (:func:`march_policy`). The Python march reads its controller and landing numbers
+    from it. The native march receives it whole and holds no default and no constant
+    of its own, so every number either execution uses has this one source (SEP 39
+    section 6.2).
+
+    Attributes
+    ----------
+    order : int
+        Highest predictor order, ``q_max``.
+    variable_order : bool
+        Whether the order is chosen step by step.
+    safety, max_growth, min_factor : float
+        The method's safety factor, largest growth and smallest factor.
+    rejection_growth : float
+        Largest factor a rejection's own defect may propose (:data:`REJECTION_GROWTH`).
+    hysteresis : float
+        :data:`ORDER_HYSTERESIS`.
+    restart_after : int
+        :data:`RESTART_AFTER`.
+    collar_stability : float
+        :data:`COLLAR_STABILITY`.
+    real_intervals : tuple of float
+        :data:`PEC_REAL_INTERVAL`, by order.
+    collar_rate : float
+        The in-stage collar's largest rate over two, 1/m; zero without one, outside the
+        exponential formulation, or under the split scheme.
+    carrier : bool
+        Whether a carrier frame caps each proposal (:data:`CarrierFrame`).
+    carrier_cap : float
+        :data:`CARRIER_PHASE_CAP`, rad.
+    max_calls : int or None
+        The call budget.
+    equal_approach, interval_cap : bool
+        The method's landing options.
+    dz_min, dz_max, stretch, z_end : float
+        The stepper settings: the floor, the cap, the landing stretch and the run's end,
+        m (the stretch is a ratio).
+    save_planes : tuple of float
+        The planes to land on, m; empty when the planes are interpolated.
+    hard_kinks : tuple of float
+        The operator's hard kinks, m.
+    breakpoints : tuple of float
+        The edges whose intervals cap a step, m: the operator's breakpoints with the
+        interval cap, otherwise only its first and last.
+    landing_ulps : int
+        :data:`~solprop.stepper.schedule.LANDING_ULPS`.
+    interpolate : bool
+        Whether the save planes are observed densely.
+    quiet_interval : float or None
+        The boundary monitor's interval, m, which caps a step while the collar rests;
+        ``None`` without a monitor. The Python march reads the same number from the
+        monitor through the driver (``StepDriver._quiet_capped``).
+
+    Raises
+    ------
+    StepperError
+        If an order, factor, interval, ulp count or position set is out of range.
+    """
+
+    order: int
+    variable_order: bool
+    safety: float
+    max_growth: float
+    min_factor: float
+    rejection_growth: float
+    hysteresis: float
+    restart_after: int
+    collar_stability: float
+    real_intervals: tuple[float, ...]
+    collar_rate: float
+    carrier: bool
+    carrier_cap: float
+    max_calls: int | None
+    equal_approach: bool
+    interval_cap: bool
+    dz_min: float
+    dz_max: float
+    stretch: float
+    z_end: float
+    save_planes: tuple[float, ...]
+    hard_kinks: tuple[float, ...]
+    breakpoints: tuple[float, ...]
+    landing_ulps: int
+    interpolate: bool
+    quiet_interval: float | None
+
+    def __post_init__(self) -> None:
+        """Refuse a record the march could not execute, by field."""
+        checks = (
+            ("order", 1 <= self.order <= MAX_ADAMS_ORDER),
+            ("real_intervals", len(self.real_intervals) >= self.order),
+            ("safety", 0.0 < self.safety <= 1.0),
+            ("max_growth", self.max_growth > 1.0),
+            ("min_factor", 0.0 < self.min_factor < 1.0),
+            ("rejection_growth", 0.0 < self.rejection_growth <= 1.0),
+            ("hysteresis", self.hysteresis >= 1.0),
+            ("restart_after", self.restart_after >= 1),
+            ("collar_stability", self.collar_stability > 0.0),
+            ("collar_rate", self.collar_rate >= 0.0),
+            ("carrier_cap", self.carrier_cap > 0.0),
+            ("max_calls", self.max_calls is None or self.max_calls >= 1),
+            ("dz_min", 0.0 <= self.dz_min <= self.dz_max),
+            ("stretch", self.stretch >= 1.0),
+            ("breakpoints", len(self.breakpoints) >= 2),
+            ("landing_ulps", self.landing_ulps >= 1),
+            (
+                "quiet_interval",
+                self.quiet_interval is None or self.quiet_interval > 0.0,
+            ),
+        )
+        for name, valid in checks:
+            if not valid:
+                msg = f"the Adams march's policy has {name} = {getattr(self, name)!r}"
+                raise StepperError(msg)
+
+
+def march_policy(  # noqa: PLR0913 - one record of a run's settings, by name
+    method: Multistep,
+    *,
+    dz_min: float,
+    dz_max: float,
+    stretch: float,
+    z_end: float,
+    save_planes: Sequence[float],
+    hard_kinks: Sequence[float],
+    breakpoints: Sequence[float],
+    interpolate: bool,
+    collar_rate: float = 0.0,
+    carrier: bool = False,
+    quiet_interval: float | None = None,
+) -> MarchPolicy:
+    """Return the policy of one run of `method` (:class:`MarchPolicy`).
+
+    Parameters
+    ----------
+    method : Multistep
+        The method.
+    dz_min, dz_max, stretch, z_end : float
+        The run's stepper settings.
+    save_planes, hard_kinks, breakpoints : sequence of float
+        The run's save planes and the operator's kinks and breakpoints, m, in order.
+    interpolate : bool
+        Whether the planes are interpolated rather than landed on.
+    collar_rate : float, optional
+        The in-stage collar's largest rate over two, 1/m.
+    carrier : bool, optional
+        Whether a carrier frame is active.
+    quiet_interval : float or None, optional
+        The boundary monitor's interval, m.
+
+    Returns
+    -------
+    MarchPolicy
+        The record, with this module's constants filled in.
+
+    Examples
+    --------
+    >>> from solprop.stepper.multistep import Multistep, march_policy
+    >>> policy = march_policy(
+    ...     Multistep(), dz_min=1e-9, dz_max=1e-2, stretch=1.1, z_end=1.0,
+    ...     save_planes=[0.5, 1.0], hard_kinks=[], breakpoints=[0.0, 0.3, 1.0],
+    ...     interpolate=False,
+    ... )
+    >>> policy.order, policy.hysteresis, policy.breakpoints
+    (5, 1.2, (0.0, 1.0))
+    """
+    edges = tuple(float(edge) for edge in breakpoints)
+    return MarchPolicy(
+        order=method.order,
+        variable_order=method.variable_order,
+        safety=method.safety,
+        max_growth=method.max_growth,
+        min_factor=method.min_factor,
+        rejection_growth=REJECTION_GROWTH,
+        hysteresis=ORDER_HYSTERESIS,
+        restart_after=RESTART_AFTER,
+        collar_stability=COLLAR_STABILITY,
+        real_intervals=PEC_REAL_INTERVAL,
+        collar_rate=float(collar_rate),
+        carrier=carrier,
+        carrier_cap=CARRIER_PHASE_CAP,
+        max_calls=method.max_calls,
+        equal_approach=method.equal_approach,
+        interval_cap=method.interval_cap,
+        dz_min=float(dz_min),
+        dz_max=float(dz_max),
+        stretch=float(stretch),
+        z_end=float(z_end),
+        save_planes=() if interpolate else tuple(float(z) for z in save_planes),
+        hard_kinks=tuple(float(z) for z in hard_kinks),
+        breakpoints=edges if method.interval_cap else (edges[0], edges[-1]),
+        landing_ulps=LANDING_ULPS,
+        interpolate=interpolate,
+        quiet_interval=None if quiet_interval is None else float(quiet_interval),
+    )
 
 
 def _basis_rows(

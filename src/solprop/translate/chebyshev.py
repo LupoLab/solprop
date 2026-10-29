@@ -531,21 +531,10 @@ class PiecewiseChebyshev:
         True
         """
         positions = np.ascontiguousarray(z, dtype=np.float64)
-        held = self.__dict__.get("_batch")
-        if held is None:
-            # Formed at the first batch rather than at construction: only the scalar
-            # tables are read this way, and a z table's coefficients are large.
-            n_intervals, n_deg = self.coefficients.shape[:2]
-            held = (
-                *self.z_span,
-                np.ascontiguousarray(self.breakpoints),
-                np.ascontiguousarray(self.coefficients).reshape(n_intervals, n_deg, -1),
-            )
-            object.__setattr__(self, "_batch", held)
-        lo, hi, edges, flat = held
-        slack = _EDGE_SLACK_FRACTION * (hi - lo)
+        edges, lower, upper, flat = self.packed()
+        lo, hi = self.z_span
         values = np.empty((positions.size, flat.shape[2]), dtype=flat.dtype)
-        bad = helpers.points(positions, edges, lo - slack, hi + slack, flat, values)
+        bad = helpers.points(positions, edges, lower, upper, flat, values)
         if bad >= 0:
             msg = (
                 f"z = {float(positions[bad])!r} is outside the represented span "
@@ -560,6 +549,35 @@ class PiecewiseChebyshev:
         for row in range(max(positions.size - _RECENT_POSITIONS, 0), positions.size):
             recent[float(positions[row])] = values[row, ...]
         return values
+
+    def packed(self) -> tuple[np.ndarray, float, float, np.ndarray]:
+        """Return the table as a batch pass reads it: edges, span and coefficients.
+
+        The breakpoints; the span widened by the slack a position may lie outside it
+        by; and the coefficients flattened to ``(n_intervals, n_terms, n_values)``,
+        C-contiguous. :meth:`at_positions` hands these to a backend's Clenshaw pass,
+        and a native backend that reads the table itself is handed the same (SEP 39).
+        Formed at the first call rather than at construction: only the scalar tables
+        are read this way, and a z table's coefficients are large.
+
+        Returns
+        -------
+        tuple
+            ``(edges, lower, upper, coefficients)``.
+        """
+        held = self.__dict__.get("_batch")
+        if held is None:
+            n_intervals, n_deg = self.coefficients.shape[:2]
+            lo, hi = self.z_span
+            slack = _EDGE_SLACK_FRACTION * (hi - lo)
+            held = (
+                np.ascontiguousarray(self.breakpoints),
+                lo - slack,
+                hi + slack,
+                np.ascontiguousarray(self.coefficients).reshape(n_intervals, n_deg, -1),
+            )
+            object.__setattr__(self, "_batch", held)
+        return held
 
     def interval_containing(self, z: float) -> int:
         """Return the index of the interval that contains ``z``.

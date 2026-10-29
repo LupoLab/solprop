@@ -10,16 +10,20 @@ import dataclasses
 import functools
 import logging
 import math
+import os
+import time
 import types
+import warnings
 from collections.abc import Callable, Mapping, Sequence
 from importlib.metadata import version
 from types import TracebackType
-from typing import ClassVar, Literal, Protocol, cast
+from typing import Any, ClassVar, Literal, Protocol, cast
 
 import numpy as np
 import numpy.typing as npt
 from solprop._helpers import Helpers
-from solprop.backends.driver import StepDriver
+from solprop._interrupts import committing
+from solprop.backends.driver import StepDriver, reached, replay_tolerance
 from solprop.backends.exponential import (
     CarrierReference,
     carrier_reference,
@@ -34,8 +38,11 @@ from solprop.backends.memory import (
     z_table_slots,
 )
 from solprop.backends.multistep import (
+    AdamsKernels,
     AdamsMarch,
     CoupledBlock,
+    ExponentialKernels,
+    _Derivative,  # pyright: ignore[reportPrivateUsage] - the march's history entries
     fused_tables,
     source_absent,
     trial_tables,
@@ -61,7 +68,11 @@ from solprop.backends.spatial import (
     signed_fluence_widths,
 )
 from solprop.constants import EPS0, C
-from solprop.exceptions import BackendError, ConvergenceError
+from solprop.exceptions import (
+    BackendError,
+    ConvergenceError,
+    HostMarchWarning,
+)
 from solprop.grid import TimeGrid
 from solprop.modes.protocol import Mode
 from solprop.monitor import BoundaryEnergies, BoundaryMonitor
@@ -90,7 +101,11 @@ from solprop.stats import (
 )
 from solprop.stepper.controller import PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
-from solprop.stepper.multistep import Multistep, integrated_weights
+from solprop.stepper.multistep import (
+    Multistep,
+    integrated_weights,
+    lagrange_coefficients,
+)
 from solprop.translate.chebyshev import (
     _EDGE_SLACK_FRACTION,  # pyright: ignore[reportPrivateUsage] - the tables' own admitted span
     PiecewiseChebyshev,
@@ -98,6 +113,7 @@ from solprop.translate.chebyshev import (
 from solprop.translate.coupled import (
     CoupledFlowTables,
     SectionMethod,
+    flow_edge_slack,
     frozen_generator,
     metric_at,
     schur_blocks,
@@ -264,6 +280,7 @@ class NativeBackend(StepDriver[_core.State]):
         grid: TimeGrid | None = None,
         modes: Sequence[Mode] | None = None,
         profiles: Mapping[str, ZProfile] | None = None,
+        adams_march: Literal["native", "host"] = "native",
     ) -> None:
         if _BENCHMARK_GATED.get():
             raise BackendError("the gated plasma benchmark requires numpy_ref")
@@ -303,7 +320,9 @@ class NativeBackend(StepDriver[_core.State]):
         integrator = problem.stepper.integrator
         self._resident: _ResidentAdams | None = None
         self._adams = (
-            AdamsMarch(self, integrator) if isinstance(integrator, Multistep) else None
+            _NativeAdamsMarch(self, integrator, march=adams_march)
+            if isinstance(integrator, Multistep)
+            else None
         )
         self._host_state: ComplexArray | None = None
         self._adams_held: tuple[float, float, StageScalars, ComplexArray] | None = None
@@ -417,7 +436,102 @@ class NativeBackend(StepDriver[_core.State]):
             interpolate=self._problem.stepper.interpolate_planes,
             carrier=carrier_reference(self._problem, method),
         )
+        # solprop SEP 39 phases 1 and 3: where the trial's stage rows are one bundle
+        # repeated, the native state reads the scalar tables itself, uploaded once.
+        tables = self._stage_tables()
+        if tables is not None:
+            self._native_state.adams_stage_tables(
+                tables | _chord_tables(self._resident.carrier)
+            )
+            self._resident.staged = True
         return self._resident
+
+    def _stage_tables(self) -> dict[str, object] | None:
+        """Return the tables a resident Adams trial reads natively, or ``None``.
+
+        solprop SEP 39 phases 1 and 4: every scalar table ``translate.stage.scalars``
+        reads at a stage -- the weights of a constant or expanded ``Phi`` and
+        prefactor, the density, the taper scale, the Raman decay rates and densities,
+        the Kerr density, the plasma channels' densities and fractions, SEP 6's
+        channel densities -- and an expansion's rate table, each packed as its batch
+        pass reads it (``PiecewiseChebyshev.packed``). A separable operator's rows are
+        a constant's, the distance and the position with a unit prefactor
+        (`_trial_arrays`), and read no span. A z table's rows are its slots, which the
+        native state loads through the cache `_ZTables` shares. A coupled flow's
+        section and residual weights and a moving guide's map weights are sectioned
+        Chebyshev rows (`flow_weights`, `transform_weights`), formed natively from
+        their edges.
+        """
+        problem = self._problem
+        linear, responses = problem.linear, problem.responses
+        phi_weights = phi_rate = prefactor_weights = None
+        separable = self._terms.separable is not None
+        tables = self._z_tables
+        if tables is not None and tables.phi:
+            phi = _STAGE_TABLE
+        elif separable or linear.phi_constant is not None:
+            phi = _STAGE_CONSTANT
+        elif linear.phi_expansion is not None:
+            phi = _STAGE_EXPANSION
+            phi_weights = linear.phi_expansion.weights.packed()
+            phi_rate = linear.rate.packed()
+        else:
+            return None
+        low = high = 0.0
+        if tables is not None and tables.prefactor:
+            prefactor = _STAGE_TABLE
+        elif separable:
+            prefactor = _STAGE_CONSTANT
+            low, high = -math.inf, math.inf
+        elif responses.prefactor_constant is not None:
+            prefactor = _STAGE_CONSTANT
+            low, high = responses.prefactor_span
+        elif responses.prefactor_expansion is not None:
+            prefactor = _STAGE_EXPANSION
+            prefactor_weights = responses.prefactor_expansion.weights.packed()
+        else:
+            return None
+        kerr = responses.kerr_coefficients
+        taper = problem.transform.taper_scale
+        return {
+            "n_stages": problem.stepper.tableau.n_stages,
+            "phi": phi,
+            "phi_weights": phi_weights,
+            "phi_rate": phi_rate,
+            "prefactor": prefactor,
+            "prefactor_weights": prefactor_weights,
+            "prefactor_low": float(low),
+            "prefactor_high": float(high),
+            "density": responses.density.packed(),
+            "taper": None if taper is None else taper.packed(),
+            "raman_rates": [
+                table.packed()
+                for term in responses.raman_terms
+                for table in term.decay_rates
+            ],
+            "kerr": 0 if kerr is None else 1 if kerr.density is None else 2,
+            "kerr_density": None
+            if kerr is None or kerr.density is None
+            else kerr.density.packed(),
+            "plasma_densities": [
+                channel.density.packed() for channel in responses.population_channels
+            ],
+            "plasma_preionisation": [
+                channel.preionisation.packed()
+                for channel in responses.population_channels
+            ],
+            "raman_densities": [
+                None if term.density is None else term.density.packed()
+                for term in responses.raman_terms
+            ],
+            "dispersive_densities": []
+            if responses.dispersive_kerr is None
+            else [table.packed() for table in responses.dispersive_kerr.densities],
+        } | _section_tables(
+            problem,
+            moving=self._moving_maps,
+            residual=self._flow is not None and self._flow.residual_terms is not None,
+        )
 
     def _low_storage_engine(self, method: LowStorageRungeKutta) -> object:
         """Return the resident low-storage engine (solprop SEP 24 section 6.7).
@@ -1466,6 +1580,11 @@ class NativeBackend(StepDriver[_core.State]):
         work = super().metadata()
         if self._adams is None and self._low_storage is None:
             work["source_evaluations"] = self._native_state.rk_source_evaluations
+        march = self._adams
+        if isinstance(march, _NativeAdamsMarch):
+            # Which march stepped the run (solprop SEP 39 section 5): a timing or a
+            # rounding difference is traced to it.
+            work["adams_march"] = "native" if march.native else "host"
         return {
             **work,
             **facts.info,
@@ -1668,6 +1787,9 @@ class _ResidentAdams:
     carrier: CarrierReference | None = None
     """The run's carrier frame (solprop SEP 35): its shift is formed on the host from
     the reference element's chord, one scalar a trial, and nothing is read back."""
+    staged: bool = False
+    """Whether the native state forms an exponential trial's tables, stage scalars
+    and rate itself, from tables uploaded once (solprop SEP 39 phase 1)."""
     dense: None = None
     _trial: tuple[float, float, list[float], npt.NDArray[np.int64], int] | None = None
     _step: tuple[float, float, npt.NDArray[np.float64]] | None = None
@@ -1703,6 +1825,40 @@ class _ResidentAdams:
     def n_slots(self) -> int:
         """The history's rows: the method's order and two more."""
         return self.method.order + 2
+
+    @property
+    def device_scale(self) -> bool:
+        """Whether the norm's scale is solprop's own, formed in the native state."""
+        return self._device_scale
+
+    def march_stepped(
+        self,
+        step: tuple[float, float, list[float]] | None,
+        *,
+        fused: bool,
+        carrier: Sequence[float],
+    ) -> None:
+        """Adopt what a native march call leaves (solprop SEP 39 phase 2).
+
+        No trial is held, and the last accepted step's anchor, step and nodes ``(1,
+        theta...)``, if the call accepted one, set the dense observation's
+        interpolant: the fused path's nodes, or the exponential corrector's
+        coefficients on them, with the step's carrier rotations.
+        """
+        self._trial = None
+        if step is not None:
+            z, dz, nodes = step
+            interpolant = (
+                np.array(nodes)
+                if fused
+                else lagrange_coefficients(nodes, check=False, helpers=self.helpers)
+            )
+            self._step = (z, dz, interpolant) if self.interpolate else None
+            self._dense_nodes = np.array(nodes)
+            self._dense_carrier = (
+                np.asarray(carrier, dtype=np.float64) if carrier else _NO_CARRIER
+            )
+        self.adopted(None)
 
     def reset(self) -> None:
         """Forget the last accepted step and any trial in flight."""
@@ -1834,7 +1990,26 @@ class _ResidentAdams:
         order: int,
         orders: list[int],
     ) -> RealArray:
-        """Form an interaction-formulation trial natively; return its scored norms."""
+        """Form an interaction-formulation trial natively; return its scored norms.
+
+        A staged engine forms the tables and the stage scalars in the native state from
+        the nodes alone (solprop SEP 39 phase 3), by the same operations as the host's.
+        """
+        if self.staged:
+            with _envelope_errors():
+                norms = self.native.adams_fused_trial_at(
+                    z,
+                    dz,
+                    np.asarray(nodes, dtype=np.float64),
+                    np.ascontiguousarray(
+                        slots[: max(max(orders), order)], dtype=np.uint64
+                    ),
+                    order,
+                    list(orders),
+                    self._divisor(),
+                )
+            self._trial = (z, dz, nodes, slots, order)
+            return np.asarray(norms, dtype=np.float64).reshape(-1)
         self.hoist(z)
         predictor, corrector, rows = fused_tables(
             nodes, order, orders, helpers=self.helpers
@@ -1899,8 +2074,12 @@ class _ResidentAdams:
 
         The step's exponent, flow and moments come from the trial's own arrays; the
         predicted field's source is evaluated in the laboratory frame, at a trial
-        whose anchor is the step's end.
+        whose anchor is the step's end. A staged engine forms the tables, the stage
+        scalars and the rate in the native state from the nodes alone (solprop SEP 39
+        phase 1), by the same operations as the host's.
         """
+        if self.staged:
+            return self._staged_trial(z, dz, nodes, slots, order, orders)
         self.hoist(z)
         # Every table in one call of the backend's helpers; each is a fresh
         # C-contiguous float64 array, as the native call takes it.
@@ -1939,6 +2118,49 @@ class _ResidentAdams:
         self._trial = (z, dz, nodes, slots, order)
         self._trial_carrier = carrier
         self._coefficients = corrector[: order + 1, : order + 1].copy()
+        self._dense_nodes = np.array([1.0, *nodes[:order]])
+        return np.asarray(norms, dtype=np.float64).reshape(-1)
+
+    def _staged_trial(
+        self,
+        z: float,
+        dz: float,
+        nodes: list[float],
+        slots: npt.NDArray[np.int64],
+        order: int,
+        orders: list[int],
+    ) -> RealArray:
+        """Form an exponential trial from its nodes alone; return its scored norms.
+
+        The native state forms the coefficient tables (``lagrange::trial_tables``),
+        the stage scalars and the rate from the tables uploaded once; the divisor and
+        the carrier frame's shift are the host's, as on the other path. A run that
+        interpolates its planes keeps the corrector's coefficients on the host for its
+        observations, from the same basis.
+        """
+        width = 1 + max(orders)
+        carrier = self._carrier(z, dz, nodes, width - 1)
+        with _envelope_errors():
+            norms = self.native.adams_exponential_trial_at(
+                z,
+                dz,
+                np.asarray(nodes, dtype=np.float64),
+                np.ascontiguousarray(slots[: max(width - 1, order)], dtype=np.uint64),
+                order,
+                list(orders),
+                self.compensated,
+                self._divisor(),
+                carrier,
+            )
+        self._trial = (z, dz, nodes, slots, order)
+        self._trial_carrier = carrier
+        self._coefficients = (
+            lagrange_coefficients(
+                [1.0, *nodes[:order]], check=False, helpers=self.helpers
+            )
+            if self.interpolate
+            else _NO_COEFFICIENTS
+        )
         self._dense_nodes = np.array([1.0, *nodes[:order]])
         return np.asarray(norms, dtype=np.float64).reshape(-1)
 
@@ -2017,11 +2239,78 @@ class _ResidentAdams:
 _NO_DIVISOR = np.empty(0, dtype=np.float64)
 """The empty divisor that asks the native trial to form the scale itself."""
 
+_NO_SCHEDULE = np.empty(0, dtype=np.float64)
+"""The empty schedule of an adaptive march's configuration."""
+
 _NO_CARRIER = np.empty(0, dtype=np.float64)
 """The empty carrier frame: the native trial takes the unshifted arithmetic."""
 
 _NO_RATE = np.empty(0, dtype=np.float64)
 """The empty endpoint rate of an uncompensated trial."""
+
+_NO_COEFFICIENTS = np.empty((0, 0), dtype=np.float64)
+"""The corrector's coefficients a staged trial keeps when no plane is interpolated."""
+
+_STAGE_CONSTANT = 1
+_STAGE_EXPANSION = 2
+_STAGE_TABLE = 3
+"""How the stage tables name a constant, an expanded or a z table's ``Phi`` and
+prefactor (``stage::Terms``)."""
+
+
+def _section_tables(
+    problem: KernelProblem, *, moving: bool, residual: bool
+) -> dict[str, object]:
+    """Return a coupled flow's and a moving guide's sections as the stage tables take
+    them: their edges, degrees and the edges' slack (`flow_edge_slack`,
+    `transform_section`), and whether the flow carries a frozen residual."""
+    flow = problem.linear.coupled_flow
+    maps = problem.transform.modal_tables if moving else None
+    out: dict[str, object] = {
+        "flow_edges": [],
+        "flow_degrees": 0,
+        "flow_slack": 0.0,
+        "flow_residual": False,
+        "transform_edges": [],
+        "transform_degrees": 0,
+        "transform_slack": 0.0,
+    }
+    if flow is not None:
+        out |= {
+            "flow_edges": np.asarray(flow.z_edges, dtype=np.float64).tolist(),
+            "flow_degrees": int(flow.n_deg),
+            "flow_slack": float(flow_edge_slack(flow)),
+            "flow_residual": residual,
+        }
+    if maps is not None and maps.synthesis is not None:
+        edges = np.asarray(maps.z_edges, dtype=np.float64)
+        out |= {
+            "transform_edges": edges.tolist(),
+            "transform_degrees": int(maps.synthesis.shape[1]),
+            "transform_slack": _EDGE_SLACK_FRACTION * float(edges[-1] - edges[0]),
+        }
+    return out
+
+
+def _chord_tables(carrier: CarrierReference | None) -> dict[str, object]:
+    """Return the carrier frame's chord as the native stage tables take it.
+
+    The imaginary part of the reference element's operator for the one batch member
+    (`CarrierChord`): a constant's rate, or an expansion's terms over the ``Phi``
+    weights the tables already hold. None without an active frame, and none for a z
+    table's chord, whose run steps solprop's march.
+    """
+    chord = None if carrier is None or not carrier.active else carrier.chord
+    if chord is not None and chord.constant is not None:
+        return {
+            "chord": 1,
+            "chord_rate": float(np.imag(chord.constant)[0]),
+            "chord_terms": [],
+        }
+    if chord is not None and chord.expansion is not None:
+        terms = np.imag(np.asarray(chord.expansion.terms))[:, 0]
+        return {"chord": 2, "chord_rate": 0.0, "chord_terms": terms.tolist()}
+    return {"chord": 0, "chord_rate": 0.0, "chord_terms": []}
 
 
 def _on_device() -> bool:
@@ -2047,6 +2336,396 @@ def _low_storage_payload(problem: KernelProblem, *, device: bool) -> dict[str, o
         "low_storage_stage_register": low_storage_stage_register(problem, "native"),
         "low_storage_flows": flows,
     }
+
+
+_ADAMS_MARCH = os.environ.get("SOLPROP_ADAMS_MARCH", "native")
+"""Which march steps an admitted exponential ``Multistep()`` run: ``"native"``, or
+``"host"`` for solprop's Python march (solprop SEP 39 section 5). A private switch for
+the benchmark harness's A/B comparisons, read once at import."""
+
+_MARCH_COUNTERS = (
+    "startup",
+    "predictor",
+    "rejected",
+    "accepted_steps",
+    "rejected_steps",
+    "restarts",
+    "failure_restarts",
+    "dense_observations",
+)
+"""The call ledger's counters the native march keeps."""
+
+_REACHED, _HOST_STEP, _MONITOR, _BOUND, _BUDGET, _FLOOR, _ERROR, _DIVERGED = range(8)
+"""Why a native march call returned (``march::Reason``)."""
+
+_CONVERGENCE, _BACKEND, _VALUE = 1, 2, 3
+"""Which error a native failure maps to (``march::Category``)."""
+
+
+class _MarchRunner(Protocol):
+    """What runs the native march: the native state, or a script in the tests."""
+
+    def run(
+        self, state: dict[str, object], bounds: dict[str, object]
+    ) -> dict[str, Any]: ...
+
+
+class _NativeAdamsMarch(AdamsMarch):
+    """solprop's exponential Adams march, executed natively (solprop SEP 39 phase 2).
+
+    The algorithm is ``AdamsMarch``'s, which stays the reference; the native march
+    performs it on the resident engine for a run of attempts and returns only at a host
+    event: the target reached or crossed, an accepted step on which the driver has work
+    (a statistics row, a natural stop, a monitor check), the call's bound, the budget,
+    the floor or a native error. Between calls the march's state is this object's, as
+    the Python march keeps it, so a snapshot, a load, a new run and a reset are the
+    reference's own; each call takes the state and hands it back.
+
+    One ``committing()`` spans each call, the state's synchronisation and the step
+    history's rows, so a signal arriving meanwhile is raised with the host's records in
+    step with the native state. The progress callbacks, the debug lines and the event
+    step's work run after it, and an error is raised last.
+
+    A configuration the native march does not cover runs the Python march
+    (:attr:`refusal`), with a warning unless the private switch asked for it.
+    """
+
+    MAX_ATTEMPTS: ClassVar[int] = 256
+    """A call's most attempts, the bound on a signal's wait (solprop SEP 39 Q3)."""
+    MAX_SECONDS: ClassVar[float] = 0.1
+    """A call's most wall time, s."""
+
+    def __init__(
+        self,
+        backend: StepDriver[Any],
+        method: Multistep,
+        *,
+        march: Literal["native", "host"] = "native",
+        runner: _MarchRunner | None = None,
+        kernels: AdamsKernels | None = None,
+        exponential: ExponentialKernels | None = None,
+    ) -> None:
+        """Build the Python march, then decide which march steps the run.
+
+        `runner`, the scripted march of the decision-trace tests, takes the native
+        state's place; `kernels` and `exponential` are the Python march's own.
+        """
+        # solprop's signature names the driver unparameterised.
+        super().__init__(backend, method, kernels, exponential)  # pyright: ignore[reportUnknownMemberType]
+        # The driver's protected bookkeeping, which this march books into exactly as
+        # solprop's does (``DRIVER_SURFACE``): held untyped, since it is the driver's
+        # own surface the march reaches, as `AdamsMarch` itself reaches it.
+        self._driver: Any = backend
+        self._runner = runner
+        self._configured: tuple[float | None] | None = None
+        refusal, warn = self._native_refusal(march)
+        self.refusal = refusal
+        """Why the Python march steps the run, or ``None`` when the native one does."""
+        if refusal is not None and warn:
+            warnings.warn(
+                f"solprop-native steps this {method.name} run with solprop's Python "
+                f"march: {refusal}. The native march (SEP 39) covers Multistep() in "
+                "either formulation and the one-order-higher PEC comparisons on "
+                "every route with the resident engine and PIController's norm",
+                HostMarchWarning,
+                stacklevel=4,
+            )
+
+    @property
+    def native(self) -> bool:
+        """Whether the native march steps the run."""
+        return self.refusal is None
+
+    def _native_refusal(self, march: str) -> tuple[str | None, bool]:
+        """Return why the native march does not step the run, and whether to warn."""
+        if march == "host" or _ADAMS_MARCH == "host":
+            return "the private switch asked for it", False
+        engine = self._engine
+        reasons = (
+            (
+                self._general is not None,
+                "a comparison method's general path (PECE, explicit or matched pairs)",
+            ),
+        )
+        for failed, reason in reasons:
+            if failed:
+                return reason, True
+        if self._runner is not None:
+            return None, False
+        if not isinstance(engine, _ResidentAdams):
+            return (
+                "the host engine, which steps a coupled flow off the eigenbasis "
+                "route or wider than 16 channels"
+            ), True
+        # Device builds are qualified one vendor at a time (SEP 39 section 6.7): CUDA
+        # on NVIDIA A40s; HIP waits for its own GPU segment.
+        if _build_facts().info["device_backend"] == "hip":
+            return "a HIP build, which the native march is not yet qualified on", True
+        assert isinstance(engine, _ResidentAdams)
+        chord = None if engine.carrier is None else engine.carrier.chord
+        resident = (
+            (
+                not engine.staged,
+                "an operator or prefactor representation the native stage tables "
+                "do not read",
+            ),
+            (not engine.device_scale, "a controller with a norm scale of its own"),
+            (
+                self._policy.carrier and (chord is None or chord.table is not None),
+                "the carrier frame on a z table",
+            ),
+        )
+        for failed, reason in resident:
+            if failed:
+                return reason, True
+        return None, False
+
+    def march_to(self, target: float) -> None:
+        """Step the backend's state to `target`, natively when the march is admitted.
+
+        Parameters
+        ----------
+        target : float
+            Position to reach, m.
+
+        Raises
+        ------
+        ConvergenceError
+            If the proposal falls below the contract's ``dz_min``, or a native
+            refinement fails.
+        ResponseBudgetError
+            If the next trial would exceed the method's call budget.
+        """
+        if not self.native:
+            super().march_to(target)
+            return
+        backend = self._driver
+        if self._ahead is not None:
+            # The march is ahead of the last observation; resume it there.
+            self._engine.restore(*self._ahead)
+            self._ahead = None
+        if backend._natural_stop_due(target):
+            return
+        self._configure()
+        schedule = backend._problem.stepper.schedule
+        if schedule is not None:
+            # A replay takes the schedule's steps as given (`AdamsMarch._replay_to`).
+            slack = replay_tolerance(schedule, target)
+            while (
+                backend._schedule_index < schedule.n_steps
+                and backend._z < target - slack
+            ):
+                if self._call(target, slack):
+                    return
+            if backend._z < target - slack:
+                msg = (
+                    f"the replayed schedule ends at {float(schedule.z_end):.6g} m and "
+                    f"cannot reach z = {target:.6g} m"
+                )
+                raise BackendError(msg)
+            return
+        while not reached(backend._z, target):
+            if self._call(target):
+                return
+        if self._interpolate and backend._z > target:
+            self._ahead = (backend._z, self._engine.hold())
+            backend._state = cast("Any", self._observe(target))
+            backend._z = target
+            self.ledger.dense_observations += 1
+
+    def _configure(self) -> None:
+        """Hand the native state the run's policy, again when the monitor changed."""
+        monitor = self._driver._monitor
+        interval = None if monitor is None else float(monitor.interval)
+        if self._configured == (interval,):
+            return
+        policy = dataclasses.replace(self._policy, quiet_interval=interval)
+        if self._runner is None:
+            backend = self._driver
+            engine = cast("_ResidentAdams", self._engine)
+            schedule = backend._problem.stepper.schedule
+            steps = edges = _NO_SCHEDULE
+            if schedule is not None:
+                steps = np.ascontiguousarray(schedule.steps, dtype=np.float64)
+                edges = np.ascontiguousarray(schedule.edges, dtype=np.float64)
+            backend._native_state.adams_march_configure(
+                dataclasses.asdict(policy),
+                self._fused,
+                engine.compensated,
+                engine.interpolate,
+                steps,
+                edges,
+            )
+        self._configured = (interval,)
+
+    def _bounds(self, target: float, slack: float | None) -> dict[str, object]:
+        """Return a call's bounds: the target, the steps the driver has work on and,
+        for a replay, the edges' slack."""
+        backend = self._driver
+        steps: list[int] = []
+        if backend._row_spec is not None:
+            period = backend._row_period
+            steps.append(period - backend._accepted_steps % period)
+        every = backend._problem.stepper.step_planes
+        if every:
+            steps.append(every - backend._natural_count % every)
+        monitor = backend._monitor
+        checked = None
+        if monitor is not None:
+            steps.append(monitor.steps_to_check())
+            checked = monitor.checked_at
+        return {
+            "target": float(target),
+            "quiet": bool(backend._collar_quiet),
+            "host_step": int(min(steps)) if steps else 0,
+            "monitor": checked is not None,
+            "first_check": False,
+            "check_interval": 0.0 if monitor is None else float(monitor.interval),
+            "last_check": 0.0 if checked is None else float(checked),
+            "max_attempts": self.MAX_ATTEMPTS,
+            "max_seconds": self.MAX_SECONDS,
+            "replay": slack is not None,
+            "slack": 0.0 if slack is None else float(slack),
+        }
+
+    def _state(self) -> dict[str, object]:
+        """Return the march's state as the native call takes it."""
+        backend, ledger = self._driver, self.ledger
+        return {
+            "z": float(backend._z),
+            "proposal": float(backend._proposal),
+            "order": self._order,
+            "rejections": self._rejections,
+            "last_rejected": self._last_rejected,
+            "collar_was_quiet": self._collar_was_quiet,
+            "cursor": backend._schedule_index,
+            "history": [
+                (entry.z, entry.identity == "predicted", entry.slot)
+                for entry in self._history
+            ],
+            "ledger": {name: getattr(ledger, name) for name in _MARCH_COUNTERS},
+        }
+
+    def _call(self, target: float, slack: float | None = None) -> bool:
+        """Make one native call and drain it; return whether a natural stop is due.
+
+        `slack` is a replay's (:func:`solprop.backends.driver.replay_tolerance`), or
+        ``None`` for an adaptive march.
+        """
+        backend = self._driver
+        bounds = self._bounds(target, slack)
+        started = time.perf_counter() - backend._clock
+        with committing():
+            result = self._native_run(self._state(), bounds)
+            self._synchronise(result)
+            rows = np.asarray(result["rows"], dtype=np.float64).reshape(-1, 6)
+            reason = int(result["reason"])
+            # Only the last accepted row of an event can have the driver's work; the
+            # others take the skip path, as the reference's would.
+            event = reason in (_REACHED, _HOST_STEP, _MONITOR)
+            last = len(rows) - 1
+            for index, (end, dz, norm, accepted, _, wall) in enumerate(rows.tolist()):
+                backend._record_attempt(end, dz, norm, bool(accepted), started + wall)
+                if slack is not None:
+                    backend._accepted_norms.append(norm)
+                final = index == last and (event or reason == _FLOOR)
+                if accepted and not final:
+                    backend._skip_step(end)
+        progress = backend._progress
+        for end, dz, norm, accepted, order, _ in rows.tolist():
+            progress.step(end, dz, bool(accepted))
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "native Adams attempt to z = %.9g m: dz = %.4g m, order %d, "
+                    "norm %.4g, %s",
+                    end,
+                    dz,
+                    int(order),
+                    norm,
+                    "accepted" if accepted else "rejected",
+                )
+        if event and rows.size and rows[-1, 3]:
+            backend._take_step_stats()
+            if backend._natural_stop(target):
+                return True
+        self._raise(reason, result)
+        return False
+
+    def _native_run(
+        self, state: dict[str, object], bounds: dict[str, object]
+    ) -> dict[str, Any]:
+        """Run the native march from `state` to an event within `bounds`."""
+        if self._runner is not None:
+            return self._runner.run(state, bounds)
+        native = self._driver._native_state
+        with _envelope_errors():
+            return native.adams_march_run(state, bounds)
+
+    def _synchronise(self, result: dict[str, Any]) -> None:
+        """Adopt the state a native call handed back."""
+        backend, engine = self._driver, self._engine
+        state = result["state"]
+        backend._z = float(state["z"])
+        backend._proposal = float(state["proposal"])
+        backend._schedule_index = int(state["cursor"])
+        self._order = int(state["order"])
+        self._rejections = int(state["rejections"])
+        self._last_rejected = bool(state["last_rejected"])
+        self._collar_was_quiet = bool(state["collar_was_quiet"])
+        self._history = [
+            _Derivative(
+                float(z), None, "predicted" if predicted else "accepted", int(slot)
+            )
+            for z, predicted, slot in state["history"]
+        ]
+        ledger = self.ledger
+        for name, value in state["ledger"].items():
+            setattr(ledger, name, int(value))
+        ledger.orders.extend(int(order) for order in result["orders"])
+        if isinstance(engine, _ResidentAdams):
+            step = None
+            if result["stepped"]:
+                order = int(result["step_order"])
+                nodes = [1.0, *(float(node) for node in result["step_nodes"][:order])]
+                step = (float(result["step_z"]), float(result["step_dz"]), nodes)
+            engine.march_stepped(
+                step, fused=self._fused, carrier=list(result["step_carrier"])
+            )
+
+    def _raise(self, reason: int, result: dict[str, Any]) -> None:
+        """Raise the error a call returned with, if any."""
+        if reason == _BUDGET:
+            raise self._budget_error(int(result["cost"]))
+        if reason == _FLOOR:
+            proposed = float(result["floor_proposal"])
+            msg = (
+                f"step control asked for {proposed:.3e} m, below the floor dz_min ="
+                f" {self._policy.dz_min:.3e} m; the tolerance cannot be met here"
+            )
+            raise ConvergenceError(msg)
+        if reason == _DIVERGED:
+            dz, end = float(result["replay_dz"]), float(result["replay_end"])
+            norm = float(result["replay_norm"])
+            msg = (
+                f"{self._driver.name}: a replayed {self._method.name} step of "
+                f"{dz:.4g} m ending at z = {end:.6g} m has a non-finite error norm "
+                f"({norm!r}): the field has diverged. A replayed schedule takes "
+                "its steps as given and cannot reject one, so a step beyond an "
+                "explicit stability limit -- the in-stage temporal collar's or a "
+                "coupled flow's advisory step -- grows until it overflows; the "
+                "translation refuses a declared step past the collar's limit and "
+                "warns on one past the flow's. Take shorter steps, or let the "
+                "controller choose them"
+            )
+            raise ConvergenceError(msg)
+        if reason == _ERROR:
+            message = str(result["message"])
+            category = int(result["category"])
+            if category == _CONVERGENCE:
+                raise ConvergenceError(message)
+            if category == _VALUE:
+                raise ValueError(message)
+            raise RuntimeError(message)
 
 
 class _ResidentLowStorage:
@@ -2200,9 +2879,11 @@ class _ZTables:
     unchanged, as one rounded subtraction of two values, as solprop's reference forms
     it. The prefactor's slots are its values at the same positions, one-hot weighted.
 
-    The slots are kept as a least-recently-used set of positions: each native call's
-    positions are evaluated only where no slot holds them yet, so an accepted step's
-    end, which is the next step's anchor, is never evaluated twice. A call's positions
+    The slots are kept as a least-recently-used set of positions, in the native state
+    (``stage::ZSlots``, solprop SEP 39 phase 4), where the native Adams march reads
+    them too: each call's positions are evaluated only where no slot holds them yet,
+    so an accepted step's end, which is the next step's anchor, is never evaluated
+    twice. A call's positions
     number at most ``slots`` (the tableau's distinct stage fractions, five for the
     low-storage march), so none of one call's positions is evicted by another of its
     own. A compensated Adams march reads ``D = dPhi/dz`` from the derivative table
@@ -2221,8 +2902,6 @@ class _ZTables:
         The position slots, each one value of each table.
     rate_slot : int or None
         The ``Phi`` term that holds the rate, or ``None`` when no march reads it.
-    evaluations : int
-        Positions evaluated so far, a count for the tests and the benchmarks.
     """
 
     def __init__(self, problem: KernelProblem) -> None:
@@ -2244,13 +2923,12 @@ class _ZTables:
             and not source_absent(problem)
         )
         self.rate_slot = self.slots if compensated else None
-        self.evaluations = 0
         self._native: _core.State | None = None
-        self._slot_of: dict[float, int] = {}
-        self._held: list[float | None] = [None] * self.slots
-        # Least recently used first.
-        self._order = list(range(self.slots))
-        self._rate_at: tuple[float, bool] | None = None
+
+    @property
+    def evaluations(self) -> int:
+        """Positions evaluated so far, a count for the tests and the benchmarks."""
+        return 0 if self._native is None else self._native.table_evaluations()
 
     @property
     def n_phi(self) -> int:
@@ -2276,6 +2954,9 @@ class _ZTables:
     def upload(self, native: _core.State) -> None:
         """Make the tables resident in `native`, once, before its first trial."""
         self._native = native
+        native.table_slots(
+            self.phi, self.prefactor, self.slots, self.rate_slot is not None
+        )
         if self.phi:
             self._upload("phi", self._problem.linear.polynomial)
             if self.rate_slot is not None:
@@ -2315,41 +2996,12 @@ class _ZTables:
             Position to slot.
         """
         assert self._native is not None
-        wanted = list(dict.fromkeys(float(z) for z in positions))
-        if len(wanted) > self.slots:
-            raise BackendError(
-                f"a native call reads the z table at {len(wanted)} positions, more "
-                f"than the {self.slots} slots this problem holds"
-            )
-        found = {z: self._slot_of[z] for z in wanted if z in self._slot_of}
-        for slot in found.values():
-            self._touch(slot)
-        missing = [z for z in wanted if z not in found]
-        if missing:
-            taken = set(found.values())
-            slots: list[int] = []
-            for z in missing:
-                slot = next(one for one in self._order if one not in taken)
-                old = self._held[slot]
-                if old is not None:
-                    del self._slot_of[old]
-                self._held[slot] = z
-                self._slot_of[z] = slot
-                found[z] = slot
-                taken.add(slot)
-                slots.append(slot)
-                self._touch(slot)
-            self._native.table_evaluate(
-                np.asarray(slots, dtype=np.uint64),
-                np.asarray(missing, dtype=np.float64),
-            )
-            self.evaluations += len(missing)
-        return found
-
-    def _touch(self, slot: int) -> None:
-        """Make `slot` the most recently used."""
-        self._order.remove(slot)
-        self._order.append(slot)
+        wanted = [float(z) for z in positions]
+        try:
+            slots = self._native.table_load(wanted)
+        except ValueError as error:
+            raise BackendError(str(error)) from error
+        return dict(zip(wanted, slots, strict=True))
 
     def phi_row(self, slot_of: Mapping[float, int], z0: float, z1: float) -> RealArray:
         """Return the weights of ``Phi(z1) - Phi(z0)`` over the native terms."""
@@ -2381,9 +3033,7 @@ class _ZTables:
         """
         assert self._native is not None
         assert self.rate_slot is not None
-        if self._rate_at != (z, before):
-            self._native.table_rate(self.rate_slot, float(z), before)
-            self._rate_at = (z, before)
+        self._native.table_rate_at(float(z), before)
         row = np.zeros(self.n_phi)
         row[self.rate_slot] = 1.0
         return row

@@ -99,6 +99,28 @@ ROWS = {
 }
 """The rows each history exports."""
 
+
+def _on_device() -> bool:
+    """Whether the installed native build executes on an accelerator."""
+    if "native" not in available():
+        return False
+    import solprop_native  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+
+    return solprop_native.build_info().device_backend != "none"
+
+
+CASE_PARAMS = [
+    pytest.param(
+        name,
+        marks=pytest.mark.skipif(
+            name == "z_table" and _on_device(),
+            reason="device builds refuse a z table by name",
+        ),
+    )
+    for name in sorted(CASES)
+]
+"""The cases, a z table's skipped on a device build, which refuses it."""
+
 QUIET = (
     # The coupled case's short window and marginal wall, as its parity cases run them.
     pytest.mark.filterwarnings("ignore:the temporal absorber attenuates a packet"),
@@ -139,6 +161,7 @@ def assert_same_snapshot(found: MarchSnapshot | None, stored: MarchSnapshot) -> 
     assert found.order == stored.order
     assert found.rejections == stored.rejections
     assert found.last_rejected == stored.last_rejected
+    assert found.collar_was_quiet == stored.collar_was_quiet
     assert np.array_equal(found.positions, stored.positions)
     assert found.identities == stored.identities
     assert np.array_equal(found.slots, stored.slots)
@@ -149,21 +172,18 @@ def assert_same_snapshot(found: MarchSnapshot | None, stored: MarchSnapshot) -> 
 
 
 def counted_starts(backend):
-    """Count the engine's startup samples, which only a (re)started history takes."""
-    engine = backend._adams._engine
-    calls = []
-    start = engine.start
+    """Count the startup samples, which only a (re)started history takes.
 
-    def counting(*args, **keywords):
-        calls.append(args)
-        return start(*args, **keywords)
-
-    engine.start = counting
-    return calls
+    The march charges each to its ledger before the engine evaluates it, so the count
+    holds on the native march, which calls its engine natively, as on the host one; a
+    restored history does not carry the ledger, so the count starts here.
+    """
+    before = backend._adams.ledger.startup
+    return lambda: backend._adams.ledger.startup - before
 
 
 @quiet
-@pytest.mark.parametrize("case", sorted(CASES))
+@pytest.mark.parametrize("case", CASE_PARAMS)
 def test_the_resident_history_is_restored_exactly_and_continued(build_simulation, case):
     simulation = CASES[case](build_simulation, "native")()
     problem, first = opened(simulation, "native")
@@ -191,14 +211,16 @@ def test_the_resident_history_is_restored_exactly_and_continued(build_simulation
         assert_same_snapshot(second.march_snapshot(), stored)
         second.propagate_to(planes[1])
         # The restored history was continued: no startup sample was evaluated.
-        assert starts == []
+        assert starts() == 0
         assert np.all(np.isfinite(second._adams_state()))
     finally:
         second.close()
 
 
 @quiet
-@pytest.mark.parametrize("case", sorted(CASES))
+# The host engine runs solprop's march, with the warning the admission tests assert.
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
+@pytest.mark.parametrize("case", CASE_PARAMS)
 def test_the_host_engine_on_native_hooks_round_trips_too(
     build_simulation, monkeypatch, case
 ):
@@ -229,7 +251,7 @@ def test_the_host_engine_on_native_hooks_round_trips_too(
         assert second.restore_march(stored) is None
         assert_same_snapshot(second.march_snapshot(), stored)
         second.propagate_to(float(problem.stepper.save_planes[1]))
-        assert starts == []
+        assert starts() == 0
     finally:
         second.close()
 
@@ -244,14 +266,14 @@ def test_a_resume_without_the_snapshot_restarts_the_history(build_simulation, ca
     try:
         starts = counted_starts(backend)
         backend.propagate_to(float(problem.stepper.save_planes[0]))
-        assert len(starts) == 1
+        assert starts() == 1
     finally:
         backend.close()
 
 
 @quiet
 @pytest.mark.medium
-@pytest.mark.parametrize("case", sorted(CASES))
+@pytest.mark.parametrize("case", CASE_PARAMS)
 def test_a_resumed_native_run_is_the_uninterrupted_one(
     build_simulation, tmp_path, case, caplog
 ):
@@ -278,11 +300,18 @@ def test_a_native_run_stopped_between_planes_continues_from_its_checkpoint(
     build_simulation, tmp_path, monkeypatch, caplog
 ):
     # The resident engine evaluates its sources itself, so the failure is injected at
-    # its trial: the run stops at its last accepted step, strictly between two planes
-    # past the first, and keeps the march's state beside the terminal checkpoint.
+    # its trial, which only the host march calls from Python: the run stops at its last
+    # accepted step, strictly between two planes past the first, and keeps the march's
+    # state beside the terminal checkpoint. The native march's failures are injected
+    # natively (tests/backends/test_native_march_lifecycle.py).
+    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        backend,
+    )
     from solprop_native.backend import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
         _ResidentAdams,
     )
+
+    monkeypatch.setattr(backend, "_ADAMS_MARCH", "host")
 
     build = soliton(build_simulation, "native")
     whole, part = tmp_path / "whole.h5", tmp_path / "part.h5"

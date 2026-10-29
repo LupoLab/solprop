@@ -889,7 +889,8 @@ Withdrawn (development-process record, not a design decision).
   (SEP 16 §4.2) remains a cost target.
 
 ## ADR-043 — The Adams march hands its state-sized work to an engine
-- **Status:** accepted ([SEP 16](seps/archive/sep-0016-unified-multistep.md))
+- **Status:** accepted ([SEP 16](seps/archive/sep-0016-unified-multistep.md)); amended by
+  ADR-060, under which `native` executes the exponential march's controller itself
 - **Context:** a march that does its field arithmetic on host arrays and asks a backend
   only for a source and an adoption makes `native` copy the state, the predicted field and
   every source between its engine and the host each step, keep the history in host
@@ -1584,3 +1585,38 @@ Withdrawn (development-process record, not a design decision).
   - Open, on the roadmap: SLEEF on Linux aarch64, AVX-512 against AVX2 end to end, and
     the kernels still per element (the trapezoid and envelope plasma columns, the Adams
     corrector and dense observation, the separable stage propagators).
+
+## ADR-060 — The exponential Adams march executes natively; solprop's is the reference
+- **Status:** accepted ([SEP 39](seps/sep-0039-native-adams-march.md)); amends ADR-043
+- **Context:** ADR-043 keeps the Adams controller in solprop and hands the state-sized
+  work to an engine, so each trial of a native run crosses the seam several times and
+  runs Python on the host: 150 to 210 µs per trial on an AMD EPYC 7763 before SEP 39,
+  and 10 to 120 µs on an Apple M5 Max after its phase 1. On the single-mode capillaries
+  a trial's kernels take 100 to 300 µs, so the host is a few per cent to a tenth of a
+  CPU run, and most of a device run.
+- **Decision:**
+  - Every number the march's algorithm reads is a record solprop forms
+    (`stepper.multistep.MarchPolicy`); its decisions are pure functions of the policy,
+    the march's state and the trial's norms (`backends.adams_core`), and the kernel
+    contract's section 11 specifies them in full.
+  - `native` executes `Multistep()` in either formulation, the one-order-higher PEC
+    comparisons and replayed schedules on its resident engine for a run of attempts
+    per call (`native/src/adams_march.cpp`, compiled without contraction
+    or fast-math), returning only at a host event: a reached target, an accepted step
+    on which the driver has work, the monitor, the call's bound (256 attempts or
+    0.1 s), the budget, the floor or a native error. solprop books the call's attempts
+    through `StepDriver._record_attempt` and `_skip_step`.
+  - solprop's `AdamsMarch` stays the reference and steps every configuration the
+    native march does not cover, with a `HostMarchWarning` that names the reason.
+- **Why:** ADR-043's "one controller ... tested once" becomes one specification of the
+  controller (the kernel contract), one reference implementation (solprop's) and one
+  native execution, held to the reference by exact decision traces on prescribed norms
+  and by accuracy envelopes on whole runs. Every choice a user sees or sets -- the
+  method, tolerances, defaults, landings, admission, warnings and messages -- is still
+  solprop's (`native/AGENTS.md`).
+- **Consequences:**
+  - The controller exists twice; a change to it changes the contract, the policy record
+    (`MARCH_POLICY_FIELDS`, checked exactly) and both implementations together.
+  - Within one build the two marches read the same tables and norms and take the same
+    steps; across builds they differ by rounding, as any two builds do.
+  - A native run's metadata records which march stepped it (`adams_march`).

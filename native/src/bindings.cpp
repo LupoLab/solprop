@@ -3,7 +3,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "helpers.hpp"
+#include "solprop_native/adams_march.hpp"
 #include "solprop_native/core.hpp"
+#include "solprop_native/lagrange_basis.hpp"
+#include "solprop_native/stage_tables.hpp"
 #include "solprop_native/vmath.hpp"
 
 #include <Kokkos_Core.hpp>
@@ -563,6 +566,117 @@ native::TrialScalars adams_scalars(const RealInput phi_delta, const RealInput ph
   return scalars;
 }
 
+// One of solprop's piecewise Chebyshev tables of real values, as solprop's adapter
+// packs it: (edges, lower, upper, coefficients) with the coefficients
+// (n_intervals, n_terms, n_values); `None` for an absent table (solprop SEP 39).
+native::stage::Table stage_table_from(const nb::handle value) {
+  native::stage::Table table;
+  if (value.is_none())
+    return table;
+  using Coefficients =
+      nb::ndarray<const double, nb::ndim<3>, nb::c_contig, nb::device::cpu>;
+  try {
+    const auto parts = nb::cast<nb::tuple>(value);
+    if (parts.size() != 4)
+      throw std::invalid_argument(
+          "a stage table is (edges, lower, upper, coefficients)");
+    table.edges = real_vector(exact_array<RealInput>(parts[0]));
+    table.lower = nb::cast<double>(parts[1]);
+    table.upper = nb::cast<double>(parts[2]);
+    const auto coefficients = exact_array<Coefficients>(parts[3]);
+    if (table.edges.size() < 2 || coefficients.shape(0) + 1 != table.edges.size() ||
+        coefficients.shape(1) < 1 || coefficients.shape(2) < 1)
+      throw std::invalid_argument(
+          "a stage table's coefficients do not match its breakpoints");
+    table.n_terms = coefficients.shape(1);
+    table.n_values = coefficients.shape(2);
+    table.coefficients.assign(coefficients.data(),
+                              coefficients.data() + coefficients.size());
+  } catch (const nb::cast_error&) {
+    throw std::invalid_argument("a stage table has the wrong types");
+  }
+  return table;
+}
+
+std::vector<native::stage::Table> stage_table_list(const nb::handle values) {
+  std::vector<native::stage::Table> tables;
+  for (const auto value : nb::cast<nb::list>(values))
+    tables.push_back(stage_table_from(value));
+  return tables;
+}
+
+// Every table an exponential Adams trial's stage scalars read (solprop SEP 39 phase 1):
+// solprop's adapter packs them once per run from the problem's own leaves.
+native::stage::Tables stage_tables_from(const nb::dict values) {
+  native::stage::Tables tables;
+  try {
+    tables.n_stages = nb::cast<std::size_t>(values["n_stages"]);
+    tables.phi = static_cast<native::stage::Terms>(nb::cast<int>(values["phi"]));
+    tables.phi_weights = stage_table_from(values["phi_weights"]);
+    tables.phi_rate = stage_table_from(values["phi_rate"]);
+    tables.prefactor =
+        static_cast<native::stage::Terms>(nb::cast<int>(values["prefactor"]));
+    tables.prefactor_weights = stage_table_from(values["prefactor_weights"]);
+    tables.prefactor_low = nb::cast<double>(values["prefactor_low"]);
+    tables.prefactor_high = nb::cast<double>(values["prefactor_high"]);
+    tables.density = stage_table_from(values["density"]);
+    tables.taper = stage_table_from(values["taper"]);
+    tables.raman_rates = stage_table_list(values["raman_rates"]);
+    tables.kerr =
+        static_cast<native::stage::KerrDensity>(nb::cast<int>(values["kerr"]));
+    tables.kerr_density = stage_table_from(values["kerr_density"]);
+    tables.plasma_densities = stage_table_list(values["plasma_densities"]);
+    tables.plasma_preionisation = stage_table_list(values["plasma_preionisation"]);
+    tables.raman_densities = stage_table_list(values["raman_densities"]);
+    tables.dispersive_densities = stage_table_list(values["dispersive_densities"]);
+    tables.chord = static_cast<native::stage::Chord>(nb::cast<int>(values["chord"]));
+    tables.chord_rate = nb::cast<double>(values["chord_rate"]);
+    tables.chord_terms = nb::cast<std::vector<double>>(values["chord_terms"]);
+    tables.flow.edges = nb::cast<std::vector<double>>(values["flow_edges"]);
+    tables.flow.degrees = nb::cast<std::size_t>(values["flow_degrees"]);
+    tables.flow.slack = nb::cast<double>(values["flow_slack"]);
+    tables.flow_residual = nb::cast<bool>(values["flow_residual"]);
+    tables.transform.edges = nb::cast<std::vector<double>>(values["transform_edges"]);
+    tables.transform.degrees = nb::cast<std::size_t>(values["transform_degrees"]);
+    tables.transform.slack = nb::cast<double>(values["transform_slack"]);
+  } catch (const nb::cast_error&) {
+    throw std::invalid_argument("the stage tables have the wrong types");
+  }
+  const bool expansion = tables.phi == native::stage::Terms::expansion;
+  const auto known_terms = [](const native::stage::Terms terms) {
+    return terms == native::stage::Terms::constant ||
+           terms == native::stage::Terms::expansion ||
+           terms == native::stage::Terms::table;
+  };
+  const bool known = known_terms(tables.phi) && known_terms(tables.prefactor);
+  if (!known || tables.n_stages == 0 || !tables.density.present() ||
+      (expansion && (!tables.phi_weights.present() || !tables.phi_rate.present() ||
+                     tables.phi_rate.n_values != tables.phi_weights.n_values)) ||
+      (tables.prefactor == native::stage::Terms::expansion &&
+       !tables.prefactor_weights.present()) ||
+      (tables.kerr == native::stage::KerrDensity::table &&
+       !tables.kerr_density.present()) ||
+      tables.plasma_densities.size() != tables.plasma_preionisation.size() ||
+      (tables.chord == native::stage::Chord::expansion &&
+       (!expansion || tables.chord_terms.size() != tables.phi_weights.n_values)) ||
+      (tables.flow.present() && tables.flow.edges.size() < 2) ||
+      (tables.transform.present() && tables.transform.edges.size() < 2))
+    throw std::invalid_argument("the stage tables are inconsistent");
+  return tables;
+}
+
+// One exponential trial's tables formed natively from its nodes (solprop SEP 39
+// phase 1): `stage::weights` of the arrays solprop passes.
+native::ExponentialWeights
+exponential_weights_at(const RealInput nodes, const IndexInput slots,
+                       const std::size_t order, const std::vector<std::size_t>& orders,
+                       const bool compensated) {
+  const auto slot_values = index_vector(slots);
+  return native::stage::weights(nodes.data(), element_count(nodes), slot_values.data(),
+                                slot_values.size(), order, orders.data(), orders.size(),
+                                compensated);
+}
+
 // One Adams trial's coefficient tables (solprop SEP 16 phase 3b): the history rows,
 // newest first, and the weights over them; `rows` is (n_rows, width), at most three.
 native::AdamsWeights adams_weights(const IndexInput slots, const RealInput predictor,
@@ -636,9 +750,8 @@ native::ExponentialWeights exponential_weights(const IndexInput slots,
 // A scalar carrier frame's shift and rotations (solprop SEP 35), packed by solprop's
 // adapter as (Im sigma, Re f_0, Im f_0, ..., Re f_{n-1}, Im f_{n-1}) over the `rows`
 // history rows a formula reads; empty for none.
-void carrier_frame(native::ExponentialWeights& weights, const RealInput carrier,
-                   const std::size_t rows) {
-  const auto values = real_vector(carrier);
+void carrier_frame(native::ExponentialWeights& weights,
+                   const std::vector<double>& values, const std::size_t rows) {
   if (values.empty())
     return;
   if (rows > native::adams_max_samples || values.size() != 1 + 2 * rows)
@@ -652,6 +765,11 @@ void carrier_frame(native::ExponentialWeights& weights, const RealInput carrier,
     weights.factor_re[t] = values[1 + 2 * t];
     weights.factor_im[t] = values[2 + 2 * t];
   }
+}
+
+void carrier_frame(native::ExponentialWeights& weights, const RealInput carrier,
+                   const std::size_t rows) {
+  carrier_frame(weights, real_vector(carrier), rows);
 }
 
 // History rows alone, as a transport or a dense copy names them.
@@ -715,6 +833,401 @@ void initialize_kokkos(const int threads, const int kernels, const int fft,
   native::configure_thread_policy(
       {kernels, fft, raman_fft, raman_tail_fft, threaded_fft_min_samples, band_tiles});
 }
+
+// ------------------------------------------------------------- the native Adams march
+// solprop SEP 39 phase 2: the march's policy, state, bounds and result as solprop's
+// adapter passes and reads them, its resident engine over the general state, and a
+// scripted engine for the decision-trace tests.
+
+namespace march = native::march;
+
+march::Policy march_policy_from(const nb::dict values) {
+  march::Policy policy;
+  try {
+    policy.order = nb::cast<std::size_t>(values["order"]);
+    policy.variable_order = nb::cast<bool>(values["variable_order"]);
+    policy.safety = nb::cast<double>(values["safety"]);
+    policy.max_growth = nb::cast<double>(values["max_growth"]);
+    policy.min_factor = nb::cast<double>(values["min_factor"]);
+    policy.rejection_growth = nb::cast<double>(values["rejection_growth"]);
+    policy.hysteresis = nb::cast<double>(values["hysteresis"]);
+    policy.restart_after = nb::cast<std::size_t>(values["restart_after"]);
+    policy.collar_stability = nb::cast<double>(values["collar_stability"]);
+    policy.real_intervals = nb::cast<std::vector<double>>(values["real_intervals"]);
+    policy.collar_rate = nb::cast<double>(values["collar_rate"]);
+    policy.carrier = nb::cast<bool>(values["carrier"]);
+    policy.carrier_cap = nb::cast<double>(values["carrier_cap"]);
+    policy.has_budget = !values["max_calls"].is_none();
+    policy.max_calls =
+        policy.has_budget ? nb::cast<std::uint64_t>(values["max_calls"]) : 0;
+    policy.equal_approach = nb::cast<bool>(values["equal_approach"]);
+    policy.interval_cap = nb::cast<bool>(values["interval_cap"]);
+    policy.dz_min = nb::cast<double>(values["dz_min"]);
+    policy.dz_max = nb::cast<double>(values["dz_max"]);
+    policy.stretch = nb::cast<double>(values["stretch"]);
+    policy.z_end = nb::cast<double>(values["z_end"]);
+    policy.save_planes = nb::cast<std::vector<double>>(values["save_planes"]);
+    policy.hard_kinks = nb::cast<std::vector<double>>(values["hard_kinks"]);
+    policy.breakpoints = nb::cast<std::vector<double>>(values["breakpoints"]);
+    policy.landing_ulps = nb::cast<int>(values["landing_ulps"]);
+    policy.interpolate = nb::cast<bool>(values["interpolate"]);
+    policy.has_quiet_interval = !values["quiet_interval"].is_none();
+    policy.quiet_interval =
+        policy.has_quiet_interval ? nb::cast<double>(values["quiet_interval"]) : 0.0;
+  } catch (const nb::cast_error&) {
+    throw std::invalid_argument("the Adams march's policy has the wrong types");
+  } catch (const nb::python_error&) {
+    throw std::invalid_argument("the Adams march's policy lacks a field");
+  }
+  march::validate(policy);
+  return policy;
+}
+
+march::State march_state_from(const nb::dict values) {
+  march::State state;
+  try {
+    state.z = nb::cast<double>(values["z"]);
+    state.proposal = nb::cast<double>(values["proposal"]);
+    state.order = nb::cast<std::size_t>(values["order"]);
+    state.rejections = nb::cast<std::size_t>(values["rejections"]);
+    state.last_rejected = nb::cast<bool>(values["last_rejected"]);
+    state.collar_was_quiet = nb::cast<bool>(values["collar_was_quiet"]);
+    state.cursor = nb::cast<std::size_t>(values["cursor"]);
+    for (const auto entry : nb::cast<nb::list>(values["history"])) {
+      const auto parts = nb::cast<nb::tuple>(entry);
+      state.history.push_back({nb::cast<double>(parts[0]),
+                               nb::cast<bool>(parts[1]) ? march::Identity::predicted
+                                                        : march::Identity::accepted,
+                               nb::cast<std::size_t>(parts[2])});
+    }
+    const auto ledger = nb::cast<nb::dict>(values["ledger"]);
+    state.ledger.startup = nb::cast<std::uint64_t>(ledger["startup"]);
+    state.ledger.predictor = nb::cast<std::uint64_t>(ledger["predictor"]);
+    state.ledger.rejected = nb::cast<std::uint64_t>(ledger["rejected"]);
+    state.ledger.accepted_steps = nb::cast<std::uint64_t>(ledger["accepted_steps"]);
+    state.ledger.rejected_steps = nb::cast<std::uint64_t>(ledger["rejected_steps"]);
+    state.ledger.restarts = nb::cast<std::uint64_t>(ledger["restarts"]);
+    state.ledger.failure_restarts = nb::cast<std::uint64_t>(ledger["failure_restarts"]);
+    state.ledger.dense_observations =
+        nb::cast<std::uint64_t>(ledger["dense_observations"]);
+  } catch (const nb::cast_error&) {
+    throw std::invalid_argument("the Adams march's state has the wrong types");
+  }
+  if (state.history.size() > march::max_history)
+    throw std::invalid_argument("the Adams march's history is too long");
+  return state;
+}
+
+nb::dict march_state_to(const march::State& state) {
+  nb::dict out;
+  out["z"] = state.z;
+  out["proposal"] = state.proposal;
+  out["order"] = state.order;
+  out["rejections"] = state.rejections;
+  out["last_rejected"] = state.last_rejected;
+  out["collar_was_quiet"] = state.collar_was_quiet;
+  out["cursor"] = state.cursor;
+  nb::list history;
+  for (const auto& entry : state.history)
+    history.append(nb::make_tuple(entry.z, entry.identity == march::Identity::predicted,
+                                  entry.row));
+  out["history"] = history;
+  nb::dict ledger;
+  ledger["startup"] = state.ledger.startup;
+  ledger["predictor"] = state.ledger.predictor;
+  ledger["rejected"] = state.ledger.rejected;
+  ledger["accepted_steps"] = state.ledger.accepted_steps;
+  ledger["rejected_steps"] = state.ledger.rejected_steps;
+  ledger["restarts"] = state.ledger.restarts;
+  ledger["failure_restarts"] = state.ledger.failure_restarts;
+  ledger["dense_observations"] = state.ledger.dense_observations;
+  out["ledger"] = ledger;
+  return out;
+}
+
+march::Bounds march_bounds_from(const nb::dict values) {
+  march::Bounds bounds;
+  try {
+    bounds.target = nb::cast<double>(values["target"]);
+    bounds.quiet = nb::cast<bool>(values["quiet"]);
+    bounds.host_step = nb::cast<std::uint64_t>(values["host_step"]);
+    bounds.monitor = nb::cast<bool>(values["monitor"]);
+    bounds.first_check = nb::cast<bool>(values["first_check"]);
+    bounds.check_interval = nb::cast<double>(values["check_interval"]);
+    bounds.last_check = nb::cast<double>(values["last_check"]);
+    bounds.max_attempts = nb::cast<std::size_t>(values["max_attempts"]);
+    bounds.max_seconds = nb::cast<double>(values["max_seconds"]);
+    bounds.replay = nb::cast<bool>(values["replay"]);
+    bounds.slack = nb::cast<double>(values["slack"]);
+  } catch (const nb::cast_error&) {
+    throw std::invalid_argument("the Adams march's bounds have the wrong types");
+  } catch (const nb::python_error&) {
+    throw std::invalid_argument("the Adams march's bounds lack a field");
+  }
+  if (bounds.max_attempts < 1)
+    throw std::invalid_argument("a march call needs at least one attempt");
+  return bounds;
+}
+
+nb::dict march_result_to(const march::Result& result, const march::State& state) {
+  nb::dict out;
+  out["reason"] = static_cast<int>(result.reason);
+  const std::size_t n_rows = result.rows.size() / march::row_columns;
+  std::vector<double> rows = result.rows;
+  out["rows"] = n_rows == 0 ? nb::cast(nb::list())
+                            : nb::cast(real_output(std::move(rows), n_rows));
+  out["orders"] = result.orders;
+  out["cost"] = result.cost;
+  out["floor_proposal"] = result.floor_proposal;
+  out["stage"] = static_cast<int>(result.stage);
+  out["category"] = static_cast<int>(result.category);
+  out["message"] = result.message;
+  out["replay_dz"] = result.replay_dz;
+  out["replay_end"] = result.replay_end;
+  out["replay_norm"] = result.replay_norm;
+  out["stepped"] = result.stepped;
+  out["step_z"] = result.step_z;
+  out["step_dz"] = result.step_dz;
+  out["step_order"] = result.step_order;
+  out["step_nodes"] = std::vector<double>(
+      result.step_nodes.begin(),
+      result.step_nodes.begin() + static_cast<std::ptrdiff_t>(result.step_order));
+  out["step_carrier"] = result.step_carrier;
+  out["state"] = march_state_to(state);
+  return out;
+}
+
+// A failure injected at one of the resident engine's stages, after that stage has run
+// `after` more times: solprop's lifecycle tests fail the native march with it.
+struct MarchFault {
+  march::Stage stage = march::Stage::none;
+  std::size_t after = 0;
+  march::Category category = march::Category::backend;
+};
+
+// The resident engine: the general state's startup, exponential trial and accept,
+// with the stage tables of phase 1 (solprop's `_ResidentAdams`).
+class ResidentEngine final : public march::Engine {
+public:
+  ResidentEngine(native::GeneralState& state, const native::stage::Tables& tables,
+                 native::stage::Anchor& anchor, const bool fused,
+                 const bool compensated, const bool interpolate,
+                 std::optional<MarchFault>& fault)
+      : state_(state), tables_(tables), anchor_(anchor), fused_(fused),
+        compensated_(compensated), interpolate_(interpolate), fault_(fault) {}
+
+  void start(const double z) override {
+    inject(march::Stage::startup);
+    const auto row = native::stage::row(tables_, anchor_, z, z);
+    state_.adams_start(0, native::stage::trial(tables_, row));
+    if (compensated_)
+      // The startup sample's rate is read on the far side of a kink.
+      state_.adams_compensation_start(0, native::stage::rate(tables_, z, false));
+  }
+
+  void trial(const double z, const double dz, const march::Stencil& stencil,
+             double* norms) override {
+    inject(march::Stage::trial);
+    std::size_t highest = 0;
+    for (std::size_t index = 0; index < stencil.n_orders; ++index)
+      highest = std::max(highest, stencil.orders[index]);
+    const std::size_t slots = std::min(std::max(highest, stencil.order), stencil.held);
+    if (fused_) {
+      // The interaction formulation: the history transported to the anchor, the
+      // source evaluated at the step's end (solprop's `_ResidentAdams.fused_trial`).
+      const auto weights = native::stage::fused_weights(
+          stencil.nodes.data(), stencil.held, stencil.rows.data(), slots, stencil.order,
+          stencil.orders.data(), stencil.n_orders);
+      const auto row = native::stage::row(tables_, anchor_, z, z + dz);
+      const auto found =
+          state_.adams_fused_trial(dz, weights, {}, native::stage::trial(tables_, row));
+      if (found.size() < stencil.n_orders)
+        throw std::logic_error("the trial returned fewer norms than it scored");
+      std::copy(found.begin(),
+                found.begin() + static_cast<std::ptrdiff_t>(stencil.n_orders), norms);
+      return;
+    }
+    auto weights = native::stage::weights(
+        stencil.nodes.data(), stencil.held, stencil.rows.data(), slots, stencil.order,
+        stencil.orders.data(), stencil.n_orders, compensated_);
+    const double end = z + dz;
+    if (tables_.chord != native::stage::Chord::none) {
+      // The carrier frame (solprop's `_ResidentAdams._carrier`): the chord's shift and
+      // each history row's rotation exp(i shift (1 - theta_t)).
+      const double shift = native::stage::chord(tables_, z, end);
+      const std::size_t rows = weights.width - 1;
+      carrier_.assign(1 + 2 * rows, 0.0);
+      carrier_[0] = shift;
+      for (std::size_t t = 0; t < rows; ++t) {
+        const double span = 1.0 - stencil.nodes[t];
+        carrier_[1 + 2 * t] = std::cos(shift * span);
+        carrier_[2 + 2 * t] = std::sin(shift * span);
+      }
+      carrier_frame(weights, carrier_, rows);
+    }
+    const auto row = native::stage::row(tables_, anchor_, z, end);
+    const auto step = native::stage::trial(tables_, row);
+    const auto sample = native::stage::sample(tables_, anchor_, step, end);
+    const auto rate =
+        compensated_ ? native::stage::rate(tables_, end) : std::vector<double>{};
+    const auto found =
+        state_.adams_exponential_trial(dz, weights, {}, step, sample, rate);
+    if (found.size() < stencil.n_orders)
+      throw std::logic_error("the trial returned fewer norms than it scored");
+    std::copy(found.begin(),
+              found.begin() + static_cast<std::ptrdiff_t>(stencil.n_orders), norms);
+  }
+
+  void accept(const double dz, const std::size_t free, const march::Stencil& stencil,
+              const std::vector<march::Entry>& kept) override {
+    inject(march::Stage::accept);
+    native::AdamsWeights dense;
+    for (std::size_t t = 0; t < stencil.order; ++t)
+      dense.slot[t] = stencil.rows[t];
+    dense.width = interpolate_ ? stencil.order + 1 : 0;
+    if (fused_) {
+      // The kept rows are transported to the step's end, oldest first.
+      native::AdamsWeights keep;
+      for (std::size_t t = 0; t < kept.size(); ++t)
+        keep.slot[t] = kept[t].row;
+      keep.width = kept.size();
+      state_.adams_fused_accept(dz, keep, free, dense);
+    } else {
+      state_.adams_exponential_accept(dz, free, dense);
+    }
+    // The step's quadrature score, which solprop's accepted-step hook reads.
+    state_.promote_fsal();
+  }
+
+  double chord_phase(const double z1, const double z2) override {
+    // One batch member per native state: its phase is the batch's largest.
+    return std::fabs(native::stage::chord(tables_, z1, z2));
+  }
+
+  std::vector<double> step_carrier(const std::size_t order) override {
+    if (carrier_.empty())
+      return {};
+    return {carrier_.begin(),
+            carrier_.begin() + static_cast<std::ptrdiff_t>(1 + 2 * order)};
+  }
+
+private:
+  void inject(const march::Stage stage) {
+    if (!fault_ || fault_->stage != stage)
+      return;
+    if (fault_->after > 0) {
+      --fault_->after;
+      return;
+    }
+    const auto category = fault_->category;
+    fault_.reset();
+    if (category == march::Category::convergence)
+      throw native::EnvelopeConvergenceError("an injected native failure");
+    if (category == march::Category::value)
+      throw std::invalid_argument("an injected native failure");
+    throw std::runtime_error("an injected native failure");
+  }
+
+  native::GeneralState& state_;
+  const native::stage::Tables& tables_;
+  native::stage::Anchor& anchor_;
+  bool fused_;
+  bool compensated_;
+  bool interpolate_;
+  std::optional<MarchFault>& fault_;
+  /** The last trial's carrier rotations, `_trial_carrier`. */
+  std::vector<double> carrier_;
+};
+
+// A script of norms in place of the field arithmetic, logging what the march asked:
+// the decision-trace tests run solprop's corpus through it.
+class ScriptedEngine final : public march::Engine {
+public:
+  ScriptedEngine(std::vector<double> norms, const double carrier_rate, nb::list& log)
+      : norms_(std::move(norms)), carrier_rate_(carrier_rate), log_(log) {}
+
+  void start(const double z) override {
+    nb::dict event;
+    event["start"] = z;
+    event["stored"] = true;
+    log_.append(event);
+  }
+
+  void trial(const double z, const double dz, const march::Stencil& stencil,
+             double* norms) override {
+    if ((next_ + 1) * 3 > norms_.size())
+      throw std::runtime_error("the script ran out of norms");
+    nb::dict event;
+    event["z"] = z;
+    event["dz"] = dz;
+    event["nodes"] = std::vector<double>(stencil.nodes.begin(),
+                                         stencil.nodes.begin() +
+                                             static_cast<std::ptrdiff_t>(stencil.held));
+    event["slots"] = std::vector<std::size_t>(
+        stencil.rows.begin(),
+        stencil.rows.begin() + static_cast<std::ptrdiff_t>(stencil.held));
+    event["order"] = stencil.order;
+    event["orders"] = std::vector<std::size_t>(
+        stencil.orders.begin(),
+        stencil.orders.begin() + static_cast<std::ptrdiff_t>(stencil.n_orders));
+    log_.append(event);
+    for (std::size_t index = 0; index < stencil.n_orders; ++index)
+      norms[index] = norms_[next_ * 3 + index];
+    ++next_;
+  }
+
+  void accept(double /*dz*/, const std::size_t free, const march::Stencil& stencil,
+              const std::vector<march::Entry>& /*kept*/) override {
+    nb::dict event = nb::cast<nb::dict>(log_[log_.size() - 1]);
+    event["free"] = free;
+    (void)stencil;
+  }
+
+  double chord_phase(const double z1, const double z2) override {
+    // A constant chord turning by `carrier_rate` per metre, as solprop's harness
+    // forms it: the imaginary part of (1j rate)(z2 - z1).
+    return std::fabs(carrier_rate_ * (z2 - z1));
+  }
+
+  [[nodiscard]] std::size_t used() const { return next_; }
+
+private:
+  std::vector<double> norms_;
+  double carrier_rate_;
+  nb::list& log_;
+  std::size_t next_ = 0;
+};
+
+// The scripted march solprop's decision-trace tests drive.
+class ScriptedMarch {
+public:
+  ScriptedMarch(const nb::dict policy, const RealInput norms, const double carrier_rate,
+                const RealInput steps, const RealInput edges)
+      : policy_(march_policy_from(policy)), norms_(real_vector(norms)),
+        carrier_rate_(carrier_rate), schedule_{real_vector(steps), real_vector(edges)} {
+    if (norms_.size() % 3 != 0)
+      throw std::invalid_argument("a script of norms is (attempts, 3)");
+  }
+  nb::dict run(const nb::dict state_values, const nb::dict bounds_values) {
+    auto state = march_state_from(state_values);
+    const auto bounds = march_bounds_from(bounds_values);
+    std::vector<double> remaining(
+        norms_.begin() + static_cast<std::ptrdiff_t>(used_ * 3), norms_.end());
+    ScriptedEngine engine(std::move(remaining), carrier_rate_, log_);
+    const auto result = march::run(policy_, state, engine, bounds, schedule_);
+    used_ += engine.used();
+    return march_result_to(result, state);
+  }
+  nb::list log() const { return log_; }
+
+private:
+  march::Policy policy_;
+  std::vector<double> norms_;
+  double carrier_rate_;
+  march::Schedule schedule_;
+  nb::list log_;
+  std::size_t used_ = 0;
+};
 
 class BoundState {
 public:
@@ -866,6 +1379,106 @@ public:
       throw std::logic_error(
           "the resident Adams history requires the general native state");
     return *general_state_;
+  }
+  // The stage tables an exponential Adams trial reads natively (solprop SEP 39).
+  void set_stage_tables(native::stage::Tables tables) {
+    adams_state();
+    if (tables.n_stages != stages_)
+      throw std::invalid_argument("the stage tables name another tableau's stages");
+    // A z table's rows are its slots: the tables read the state's one cache.
+    const bool phi_table = tables.phi == native::stage::Terms::table;
+    const bool prefactor_table = tables.prefactor == native::stage::Terms::table;
+    if (phi_table != z_slots_.phi || prefactor_table != z_slots_.prefactor)
+      throw std::invalid_argument("the stage tables and the z table's slots disagree");
+    if (phi_table || prefactor_table) {
+      tables.z_slots = &z_slots_;
+      tables.z_state = &general_state();
+    }
+    stage_tables_ = std::move(tables);
+    stage_anchor_ = {};
+  }
+  // solprop SEP 39 phase 4: the z table's slots, one cache for every consumer.
+  void table_slots(const bool phi, const bool prefactor, const std::size_t slots,
+                   const bool rate) {
+    general_state();
+    z_slots_.configure(phi, prefactor, slots, rate);
+  }
+  std::vector<std::size_t> table_load(const std::vector<double>& positions) {
+    if (!z_slots_.present())
+      throw std::logic_error("no z table's slots were configured");
+    return z_slots_.load(general_state(), positions);
+  }
+  void table_rate_at(const double z, const bool before) {
+    if (!z_slots_.has_rate)
+      throw std::logic_error("the z table reads no rate");
+    z_slots_.rate(general_state(), z, before);
+  }
+  [[nodiscard]] std::uint64_t table_evaluations() const { return z_slots_.evaluations; }
+  [[nodiscard]] bool has_stage_tables() const { return stage_tables_.has_value(); }
+  native::stage::Trial stage_trial(const double z0, const double z1) {
+    if (!stage_tables_)
+      throw std::logic_error("no stage tables were uploaded");
+    const auto row = native::stage::row(*stage_tables_, stage_anchor_, z0, z1);
+    auto step = native::stage::trial(*stage_tables_, row);
+    auto sample = native::stage::sample(*stage_tables_, stage_anchor_, step, z1);
+    return {std::move(step), std::move(sample)};
+  }
+  std::vector<double> stage_rate(const double z) const {
+    if (!stage_tables_)
+      throw std::logic_error("no stage tables were uploaded");
+    return native::stage::rate(*stage_tables_, z);
+  }
+  // solprop SEP 39 phase 2: the native march over the resident engine.
+  void march_configure(march::Policy policy, const bool fused, const bool compensated,
+                       const bool interpolate, march::Schedule schedule) {
+    adams_state();
+    if (!stage_tables_)
+      throw std::logic_error("the native Adams march needs the stage tables");
+    if (!schedule.steps.empty() && schedule.edges.size() != schedule.steps.size() + 1)
+      throw std::invalid_argument("a replayed schedule has one more edge than steps");
+    march_policy_ = std::move(policy);
+    march_schedule_ = std::move(schedule);
+    march_fused_ = fused;
+    march_compensated_ = compensated;
+    march_interpolate_ = interpolate;
+  }
+  nb::dict march_run(const nb::dict state_values, const nb::dict bounds_values) {
+    if (!march_policy_)
+      throw std::logic_error("the native Adams march is not configured");
+    auto state = march_state_from(state_values);
+    const auto bounds = march_bounds_from(bounds_values);
+    auto& general = adams_state();
+    ResidentEngine engine(general, *stage_tables_, stage_anchor_, march_fused_,
+                          march_compensated_, march_interpolate_, march_fault_);
+    march::Result result;
+    {
+      const nb::gil_scoped_release release;
+      result = march::run(*march_policy_, state, engine, bounds, march_schedule_);
+    }
+    return march_result_to(result, state);
+  }
+  void march_fault(const std::string& stage, const std::size_t after,
+                   const std::string& category) {
+    MarchFault fault;
+    if (stage == "startup")
+      fault.stage = march::Stage::startup;
+    else if (stage == "trial")
+      fault.stage = march::Stage::trial;
+    else if (stage == "accept")
+      fault.stage = march::Stage::accept;
+    else
+      throw std::invalid_argument("a march fault's stage is startup, trial or accept");
+    if (category == "convergence")
+      fault.category = march::Category::convergence;
+    else if (category == "value")
+      fault.category = march::Category::value;
+    else if (category == "backend")
+      fault.category = march::Category::backend;
+    else
+      throw std::invalid_argument(
+          "a march fault's category is convergence, value or backend");
+    fault.after = after;
+    march_fault_ = fault;
   }
   std::vector<native::Complex> stage_to_host(const std::size_t stage) {
     require_open();
@@ -1037,6 +1650,15 @@ private:
   bool raman_{};
   std::unique_ptr<native::State> state_;
   std::shared_ptr<native::GeneralState> general_state_;
+  std::optional<native::stage::Tables> stage_tables_;
+  native::stage::Anchor stage_anchor_;
+  native::stage::ZSlots z_slots_;
+  std::optional<march::Policy> march_policy_;
+  march::Schedule march_schedule_;
+  bool march_fused_ = false;
+  bool march_compensated_ = false;
+  bool march_interpolate_ = false;
+  std::optional<MarchFault> march_fault_;
 };
 
 class BoundBatch {
@@ -1243,7 +1865,7 @@ nb::dict build_record() {
   nb::dict result;
   result["backend_commit"] = SOLPROP_NATIVE_BACKEND_COMMIT;
   result["solprop_built_against"] = SOLPROP_NATIVE_SOLPROP_BUILT_AGAINST;
-  result["schema_version"] = 38;
+  result["schema_version"] = 39;
   result["kokkos_version"] = SOLPROP_NATIVE_KOKKOS_VERSION;
   result["kokkos_fft_version"] = SOLPROP_NATIVE_KOKKOSFFT_VERSION;
   result["kokkos_kernels_version"] = SOLPROP_NATIVE_KOKKOSKERNELS_VERSION;
@@ -1468,6 +2090,12 @@ NB_MODULE(_core, module_) {
   module_.def("shutdown_runtime", &shutdown_kokkos);
   module_.def("build_record", &build_record);
   native::bindings::bind_helpers(module_);
+  nb::class_<ScriptedMarch>(module_, "ScriptedMarch")
+      .def(nb::init<nb::dict, RealInput, double, RealInput, RealInput>(), "policy"_a,
+           "norms"_a.noconvert(), "carrier_rate"_a, "steps"_a.noconvert(),
+           "edges"_a.noconvert())
+      .def("run", &ScriptedMarch::run, "state"_a, "bounds"_a)
+      .def("log", &ScriptedMarch::log);
   nb::class_<BoundState>(module_, "State")
       .def(nb::init<const nb::dict&>())
       .def(
@@ -1903,6 +2531,121 @@ NB_MODULE(_core, module_) {
           "sample_material"_a, "spans"_a.noconvert(), "comp_predictor"_a.noconvert(),
           "comp_corrector"_a.noconvert(), "comp_rows"_a.noconvert(),
           "rate"_a.noconvert(), "carrier"_a.noconvert())
+      // solprop SEP 39 phase 1: the trial's tables, stage scalars and rate formed
+      // natively from the nodes and the tables uploaded once per run.
+      .def(
+          "adams_stage_tables",
+          [](BoundState& self, const nb::dict tables) {
+            self.set_stage_tables(stage_tables_from(tables));
+          },
+          "tables"_a)
+      .def("has_stage_tables", &BoundState::has_stage_tables)
+      .def("table_slots", &BoundState::table_slots, "phi"_a, "prefactor"_a, "slots"_a,
+           "rate"_a)
+      .def(
+          "table_load",
+          [](BoundState& self, const std::vector<double>& positions) {
+            const nb::gil_scoped_release release;
+            return self.table_load(positions);
+          },
+          "positions"_a)
+      .def(
+          "table_rate_at",
+          [](BoundState& self, const double z, const bool before) {
+            const nb::gil_scoped_release release;
+            self.table_rate_at(z, before);
+          },
+          "z"_a, "before"_a)
+      .def("table_evaluations", &BoundState::table_evaluations)
+      // solprop SEP 39 phase 2: the native Adams march.
+      .def(
+          "adams_march_configure",
+          [](BoundState& self, const nb::dict policy, const bool fused,
+             const bool compensated, const bool interpolate, const RealInput steps,
+             const RealInput edges) {
+            self.march_configure(march_policy_from(policy), fused, compensated,
+                                 interpolate, {real_vector(steps), real_vector(edges)});
+          },
+          "policy"_a, "fused"_a, "compensated"_a, "interpolate"_a,
+          "steps"_a.noconvert(), "edges"_a.noconvert())
+      .def("adams_march_run", &BoundState::march_run, "state"_a, "bounds"_a)
+      // A test hook: fail the resident engine's `stage` after `after` more calls.
+      .def("adams_march_fault", &BoundState::march_fault, "stage"_a, "after"_a,
+           "category"_a)
+      .def(
+          "adams_exponential_trial_at",
+          [](BoundState& self, const double z, const double dz, const RealInput nodes,
+             const IndexInput slots, const std::size_t order,
+             const std::vector<std::size_t>& orders, const bool compensated,
+             const RealInput divisor, const RealInput carrier) {
+            auto weights =
+                exponential_weights_at(nodes, slots, order, orders, compensated);
+            carrier_frame(weights, carrier, weights.width - 1);
+            const auto scale = real_vector(divisor);
+            const double end = z + dz;
+            auto trial = self.stage_trial(z, end);
+            const auto rate =
+                compensated ? self.stage_rate(end) : std::vector<double>{};
+            std::vector<double> norms;
+            {
+              const nb::gil_scoped_release release;
+              norms = self.adams_state().adams_exponential_trial(
+                  dz, weights, scale, trial.step, trial.sample, rate);
+            }
+            return real_output(std::move(norms), 1);
+          },
+          "z"_a, "dz"_a, "nodes"_a.noconvert(), "slots"_a.noconvert(), "order"_a,
+          "orders"_a, "compensated"_a, "divisor"_a.noconvert(), "carrier"_a.noconvert())
+      .def(
+          "adams_fused_trial_at",
+          [](BoundState& self, const double z, const double dz, const RealInput nodes,
+             const IndexInput slots, const std::size_t order,
+             const std::vector<std::size_t>& orders, const RealInput divisor) {
+            const auto slot_values = index_vector(slots);
+            const auto weights = native::stage::fused_weights(
+                nodes.data(), element_count(nodes), slot_values.data(),
+                slot_values.size(), order, orders.data(), orders.size());
+            const auto scale = real_vector(divisor);
+            const auto trial = self.stage_trial(z, z + dz);
+            std::vector<double> norms;
+            {
+              const nb::gil_scoped_release release;
+              norms =
+                  self.adams_state().adams_fused_trial(dz, weights, scale, trial.step);
+            }
+            return real_output(std::move(norms), 1);
+          },
+          "z"_a, "dz"_a, "nodes"_a.noconvert(), "slots"_a.noconvert(), "order"_a,
+          "orders"_a, "divisor"_a.noconvert())
+      .def(
+          "adams_stage_scalars",
+          [](BoundState& self, const double z0, const double z1) {
+            const auto trial = self.stage_trial(z0, z1);
+            const auto& step = trial.step;
+            // The first stage row's values; the test of the native evaluation reads
+            // them against solprop's bundle.
+            nb::dict out;
+            out["phi_delta"] = step.phi_delta;
+            out["phi_at"] = step.phi_at;
+            out["prefactor"] = step.prefactor;
+            out["density"] = step.density;
+            out["taper"] = step.taper;
+            out["preionisation"] = step.preionisation;
+            out["raman_rates"] = step.raman_rates;
+            out["kerr_density"] = step.kerr_density;
+            out["plasma_densities"] = step.plasma_densities;
+            out["plasma_preionisation"] = step.plasma_preionisation;
+            out["raman_densities"] = step.raman_densities;
+            out["dispersive_densities"] = step.dispersive_densities;
+            out["flow_section"] = step.flow_section;
+            out["flow_weights"] = step.flow_weights;
+            out["transform_weights"] = step.transform_weights;
+            return out;
+          },
+          "z0"_a, "z1"_a)
+      .def(
+          "adams_stage_rate",
+          [](BoundState& self, const double z) { return self.stage_rate(z); }, "z"_a)
       .def(
           "adams_exponential_accept",
           [](BoundState& self, const double dz, const std::size_t free,
