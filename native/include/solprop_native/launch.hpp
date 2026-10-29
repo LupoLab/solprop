@@ -7,6 +7,7 @@
 #include <Kokkos_Core.hpp>
 
 #include <cstddef>
+#include <type_traits>
 #include <utility>
 
 /** The backend's top-level dispatches: `Kokkos::parallel_for`, `parallel_reduce` and
@@ -52,10 +53,36 @@ void parallel_for(const Label& label, const Policy& policy, const Functor& funct
   Kokkos::parallel_for(label, policy_for<Functor>(policy), functor);
 }
 
+/** The policy of a reduction: as `policy_for`, but on HIP only for a plain
+    `RangePolicy`, which takes launch bounds of 256 threads besides. Kokkos's HIP
+    backend gives a light-weight range reduction its largest block, 1024 threads, where
+    it otherwise prefers 256: on the few thousand elements of a single-mode trial that
+    left three of the device's compute units to do the work. */
+template <typename Functor, typename Policy>
+[[nodiscard]] auto reduce_policy_for(const Policy& policy) {
+#if defined(KOKKOS_ENABLE_HIP)
+  if constexpr (Kokkos::is_execution_policy_v<Policy>) {
+    using Space = typename Policy::execution_space;
+    if constexpr (std::is_same_v<Policy, Kokkos::RangePolicy<Space>> &&
+                  sizeof(Functor) <= argument_functor_limit)
+      return Kokkos::RangePolicy<
+          Space, Kokkos::LaunchBounds<256, 1>,
+          Kokkos::Experimental::WorkItemProperty::HintLightWeight_t>(
+          policy.space(), policy.begin(), policy.end());
+    else
+      return policy;
+  } else {
+    return policy;
+  }
+#else
+  return policy_for<Functor>(policy);
+#endif
+}
+
 template <typename Label, typename Policy, typename Functor, typename... Results>
 void parallel_reduce(const Label& label, const Policy& policy, const Functor& functor,
                      Results&&... results) {
-  Kokkos::parallel_reduce(label, policy_for<Functor>(policy), functor,
+  Kokkos::parallel_reduce(label, reduce_policy_for<Functor>(policy), functor,
                           std::forward<Results>(results)...);
 }
 
