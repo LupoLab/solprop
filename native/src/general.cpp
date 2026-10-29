@@ -2277,7 +2277,7 @@ public:
   void separable_finish_transform(std::size_t stage, bool material);
   void separable_time_statistics(std::size_t axis_peak, std::size_t peak,
                                  std::size_t fluence, double intensity_factor);
-  void scale_transform(std::size_t stage);
+  void scale_transform(std::size_t stage, double taper);
   void synthesise(std::size_t first_node, std::size_t node_count);
   void response(std::size_t stage, std::size_t first_node, std::size_t node_count);
   void prepare_raman_stage(std::size_t stage, const double* rates,
@@ -2492,6 +2492,11 @@ public:
   bool finish_pending_{};
   // `problem_.crop_index` is the identity (`StageTerms::identity_crop`).
   bool identity_crop_{};
+  // The bound trial's tapers on the host, and the one the scaled transforms hold
+  // (`scale_transform`).
+  std::vector<double> trial_taper_;
+  double scaled_taper_{};
+  bool scaled_taper_ready_{};
   std::size_t pending_stage_{};
   bool stash_is_current_{};
   std::size_t plan_heap_growth_{}, plan_device_growth_{};
@@ -3432,6 +3437,8 @@ void GeneralWorkspace::allocate() {
     stage_slot_size_ = total;
     stage_scalars_ = RealView("solprop_native.step.scalars", 2 * total);
     bind_stage_scalars(0);
+    // No trial's tapers yet: every scaling runs until one is bound.
+    trial_taper_.assign(problem_.n_stages, std::numeric_limits<double>::quiet_NaN());
     // A pinned buffer's copy is asynchronous, so its source must not be rewritten
     // until the copy has run: `upload_trial` fences before the ring comes round again.
     // A host build's mirror is the buffer itself.
@@ -4516,6 +4523,7 @@ void GeneralWorkspace::note_trial_scalars(const TrialScalars& scalars) {
         scalars.phi_delta.begin() + static_cast<std::ptrdiff_t>((row + 1) * n_phi),
         scalars.phi_delta.begin() + static_cast<std::ptrdiff_t>((row - 1) * n_phi));
   };
+  trial_taper_.assign(scalars.taper.begin(), scalars.taper.end());
   phase_repeats_.assign(problem_.n_stages, false);
   for (std::size_t stage = 1; stage < problem_.n_stages; ++stage)
     phase_repeats_[stage] = same_row(stage);
@@ -9097,7 +9105,7 @@ bool GeneralWorkspace::modal_core(const std::size_t stage) {
   // A single node's synthesis and projection are folded into its response column.
   const bool folded = folds_single_node();
   if (!folded)
-    scale_transform(stage);
+    scale_transform(stage, trial_taper_[stage]);
   // Alone, the response is the stage's only source: no response column runs, and
   // unless its product is the stage's polarisation nothing is projected or
   // transformed but its own.
@@ -9209,7 +9217,15 @@ void GeneralWorkspace::general_core(const std::size_t stage) {
     Kokkos::deep_copy(execution_space_, general_->source(), Complex{});
 }
 
-void GeneralWorkspace::scale_transform(const std::size_t stage) {
+// The transforms scaled by stage `stage`'s taper, whose value `taper` the host holds.
+// They depend on that value alone: a stage whose taper equals the last one scaled (a
+// guide without a taper has one throughout) keeps them, the same bits.
+void GeneralWorkspace::scale_transform(const std::size_t stage,
+                                       const double taper_value) {
+  if (scaled_taper_ready_ && taper_value == scaled_taper_)
+    return;
+  scaled_taper_ready_ = true;
+  scaled_taper_ = taper_value;
   const auto synthesis = synthesis_;
   const auto projection = projection_;
   const auto projection_coarse = projection_coarse_;
@@ -12853,7 +12869,7 @@ std::vector<double> GeneralWorkspace::statistics(
           KokkosFFT::execute(*inverse_complex_plan_, fine_spectrum_, modal_complex_,
                              KokkosFFT::Normalization::none);
         Kokkos::deep_copy(execution_space_, stage_taper_, taper);
-        scale_transform(problem_.n_stages - 1);
+        scale_transform(problem_.n_stages - 1, taper);
         for (std::size_t first = 0; first < problem_.n_nodes;
              first += problem_.node_chunk) {
           const auto count = std::min(problem_.node_chunk, problem_.n_nodes - first);
