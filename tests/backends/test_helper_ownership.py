@@ -197,14 +197,14 @@ def test_a_native_z_table_run_never_reaches_the_numba_dispatchers(
     monkeypatch, integrator
 ):
     # The exponential Adams march on a varying operator reads its compensation's rate
-    # from the native derivative table too.
+    # from the native derivative table too, and the native march forms the trial's
+    # tables from the table's slots itself (SEP 39 phase 4): none crosses.
     prepared = z_table(integrator)
     forbid_numba(monkeypatch)
     forbid(monkeypatch, _helpers.PLAIN)
     tally = count(monkeypatch, NATIVE)
     propagate(native.NativeBackend, prepared)
-    adams = tally["basis"] + tally["tables"]
-    assert adams > 0 or not integrator.startswith("adams"), tally
+    assert tally["tables"] == 0, tally
 
 
 @pytest.mark.parametrize(

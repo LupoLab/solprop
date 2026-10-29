@@ -43,16 +43,15 @@ STAGED = (
     "capillary (pressure gradient)",
     "general guide (constant)",
     "radial",
-)
-"""The routes whose trial rows are one bundle repeated: a constant or expanded
-operator and prefactor, with no z table, separable operator, dispersive channel,
-moving map or coupled flow."""
-
-UNSTAGED = (
-    "general guide (moving)",
     "cartesian",
     "line",
     "planar",
+)
+"""The routes whose trial rows are one bundle repeated: a constant, expanded or
+separable operator and prefactor, with no z table, moving map or coupled flow."""
+
+UNSTAGED = (
+    "general guide (moving)",
     "capillary (coherent wall)",
     "capillary (taper coupling)",
 )
@@ -128,6 +127,9 @@ def test_the_native_stage_scalars_are_solprop_s_bundle(route):
                 "plasma_densities": material["plasma_densities"],
                 "plasma_preionisation": material["plasma_preionisation"],
                 "raman_densities": material["raman_densities"],
+                "dispersive_densities": material.get(
+                    "dispersive_densities", np.empty(0)
+                ),
             }
             found = state.adams_stage_scalars(z0, z1)
             for name, values in expected.items():

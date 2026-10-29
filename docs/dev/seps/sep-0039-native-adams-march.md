@@ -2334,6 +2334,113 @@ times are the timer's own. The gain is about what §6.1 estimated for phase 1 (�
 trial and `adams_exponential_accept`; the state the march must hand back is
 `AdamsMarch`'s (§4.2).
 
+### Phase 2 — report
+
+**Scope.**
+
+- Phase 2, the native march for the exponential formulation, 2026-10-29.
+- Opus 5.5 (AI) for John Travers (b1290af, 124c3d7). LupoLab/solprop#56 merged to
+  `main` during the phase; the branch took `main` (d3af6df) and #58 now targets it.
+
+**Delivered.**
+
+- **The march** (`native/include/solprop_native/adams_march.hpp`,
+  `native/src/adams_march.cpp`): `Policy`, `State`, the decisions transcribed from
+  `adams_core` operation for operation (Python's `min`/`max` NaN semantics included), the
+  engine interface, and `run`, which performs §4's attempt loop to an event: reached,
+  host step, monitor, bound (256 attempts, 0.1 s on a steady clock), budget, floor or a
+  native error recorded with its stage and category. The unit is compiled with
+  `-ffp-contract=off` on every compiler that contracts, and calls only `pow`.
+- **The engines** (`bindings.cpp`): `ResidentEngine` over the general state and the
+  phase-1 tables (startup, staged trial, accept with `promote_fsal`), with a test hook
+  that fails a chosen stage (`adams_march_fault`); `ScriptedEngine` and `ScriptedMarch`,
+  which replay the decision corpus's norms.
+- **The adapter** (`_NativeAdamsMarch`, a subclass of `AdamsMarch`): the admission of
+  §6.6 with `HostMarchWarning`; one `committing()` per call around the native run, the
+  state's adoption and the rows' booking; progress, debug lines and the event step's
+  statistics and natural stop after it; the errors raised last, with the reference's
+  messages. A snapshot, a load and a new run are the Python march's own.
+- **The driver** gains `_record_attempt` and `_skip_step`;
+  `BoundaryMonitor.steps_to_check` and `checked_at` give a call its monitor bounds.
+- **The seam** (kernel schema 39): the two hooks join `DRIVER_SURFACE`, with
+  `_take_step_stats`, `_natural_stop` and `_natural_stop_due` frozen beside them;
+  `MARCH_POLICY_FIELDS` is checked exactly (a field either way is refused by name) and
+  `ADAMS_MARCH_SURFACE` names the march's methods the adapter relies on.
+- **Docs**: ADR-060 (amending ADR-043), the `native/AGENTS.md` rule in §6.3's words,
+  kernel-contract §11 normative, stepper.md, backends.md §4, the Adams guide (coverage,
+  cost, the resume envelope), the changelog.
+
+**Deviations from the proposal.**
+
+1. **Bulk hooks are per attempt.** The driver books each row through
+   `_record_attempt`, not one bulk call: a call's rows are few (an event comes within
+   256 attempts), and the per-row hook keeps the reference's bookkeeping in one place.
+2. **The monitor's first check** is the monitor's own (`steps_to_check` returns one
+   while it has not checked); the bounds' `first_check` stays false.
+3. **No `adams_march_state`/`adams_march_load`.** The state crosses with every call, so
+   a snapshot is the Python march's and nothing native needs saving.
+4. **`benchmarks/ab.py` has no per-arm environment.** The A/B used
+   `benchmarks.adams_host --host-march` in interleaved fresh processes instead.
+
+**Verification.**
+
+- **The decision corpus through the native march** on its own norms
+  (`test_native_march_traces.py`): all 35 scenarios, each call bound to one attempt so
+  that every stencil, decision, proposal, landing, restart and ledger counter is
+  compared with the reference's exactly, and again with the production bound,
+  comparing the attempts and the end state.
+- **Lifecycle** (`test_native_march_lifecycle.py`, §7.5): failures injected at the
+  startup, a trial and an accept raise their class at the last accepted step, with the
+  checkpoint and the march's state at one position and a resume that meets the
+  accuracy envelope; a progress reporter's exception and SIGTERM during a call likewise;
+  the floor and the budget stop both marches at the same step with the same message.
+- **Admission** (`test_native_march_admission.py`): the native routes run without a
+  warning, the uncovered ones warn naming the reason, the private switch is quiet, and
+  the metadata records the march.
+- **The unit** (`test_adams_march.cpp`): it rounds a product and a sum separately
+  (checked at -O3 on the Apple M5 Max: without the per-file flag it fuses), refuses a
+  policy by the field at fault, and keeps its ledger on a steady engine.
+- **Same build, estimate plans** (§4.9): the native march's steps, ledger and fields
+  equal the Python march's bit for bit on the four tracking cases (recorded, not
+  asserted).
+- The backend and driver modules touching Adams runs on the M5 Max; the full gate on
+  CI.
+
+**Measured** (interleaved fresh processes, medians of three; every arm took the same
+steps and calls; "host" is solprop's march on the phase-1 staged trial, "before" the
+march with host packing, as before phase 1):
+
+| machine, threads | case | host µs/trial: before → host → native | wall vs host | wall vs before |
+|---|---|---|---|---|
+| Apple M5 Max, 1 | `he_rdw_averaged` | 43 → 13 → 0.6 | −3.3 % | −7.6 % |
+| | `argon_blueshift_averaged` | 30 → 11 → 0.4 | −6.0 % | −13.6 % |
+| | `h2_raman_averaged` (0.4) | 37 → 11 → 0.5 | −3.9 % | −11.6 % |
+| | `rdw` (0.25) | 91 → 47 → 2.7 | −0.6 % | +0.4 % |
+| Apple M5 Max, 16 | `he_rdw_averaged` | 47 → 13 → 0.6 | −4.2 % | −13.2 % |
+| | `argon_blueshift_averaged` | 32 → 12 → 0.4 | −9.2 % | −17.2 % |
+| | `h2_raman_averaged` (0.4) | 39 → 12 → 0.6 | −6.2 % | −16.2 % |
+| | `rdw` (0.25) | 171 → 122 → 1.9 | −2.2 % | −4.5 % |
+| AMD EPYC 7763, 1 | `he_rdw_averaged` | 208 → 65 → 1.7 | −6.1 % | −14.0 % |
+| | `argon_blueshift_averaged` | 148 → 58 → 1.1 | −11.5 % | −24.2 % |
+| | `h2_raman_averaged` (0.4) | 168 → 58 → 1.2 | −9.5 % | −22.7 % |
+
+The M5 was otherwise idle but for one indexing process (load 2.3–4.6). The EPYC rows
+are from a shared node (load 80–97, the task's cores spread over its NUMA domains):
+its one-thread walls are consistent, its sixteen-thread ones bimodal and not reported
+here. `rdw` on that node read 6–9 % slower natively at both widths, against host times
+of 185 → 17 µs a trial; re-timed on a quiet node, EPYC_RDW_RETIME.
+
+The gain is §6.1's estimate for phase 2 on helium and argon (60–85 and 50–75 µs a
+trial on the EPYC), and the native march's own host time, 0.4–2.7 µs a trial, is the
+adapter's per-call work and the rows' booking.
+
+**Mac performance leads.** The residual host time on the M5 is 0.4–0.6 µs a trial on
+the mode-averaged cases: the per-call Python (bounds, state dictionaries, the rows'
+booking), amortised over the attempts between events. On `rdw` a statistics row falls
+due every step, so every attempt is its own call (2–3 µs). A cheaper booking path (one
+`_record_attempts` call per call's rows) would trim the latter; nothing else on the
+host is above a microsecond a trial.
+
 ## Part III — History
 
 - 2026-10-28: Drafted by Opus 5.5 for John Travers, from a profiling study of the

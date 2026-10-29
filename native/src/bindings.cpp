@@ -628,13 +628,17 @@ native::stage::Tables stage_tables_from(const nb::dict values) {
     tables.plasma_densities = stage_table_list(values["plasma_densities"]);
     tables.plasma_preionisation = stage_table_list(values["plasma_preionisation"]);
     tables.raman_densities = stage_table_list(values["raman_densities"]);
+    tables.dispersive_densities = stage_table_list(values["dispersive_densities"]);
   } catch (const nb::cast_error&) {
     throw std::invalid_argument("the stage tables have the wrong types");
   }
   const bool expansion = tables.phi == native::stage::Terms::expansion;
-  const bool known = (tables.phi == native::stage::Terms::constant || expansion) &&
-                     (tables.prefactor == native::stage::Terms::constant ||
-                      tables.prefactor == native::stage::Terms::expansion);
+  const auto known_terms = [](const native::stage::Terms terms) {
+    return terms == native::stage::Terms::constant ||
+           terms == native::stage::Terms::expansion ||
+           terms == native::stage::Terms::table;
+  };
+  const bool known = known_terms(tables.phi) && known_terms(tables.prefactor);
   if (!known || tables.n_stages == 0 || !tables.density.present() ||
       (expansion && (!tables.phi_weights.present() || !tables.phi_rate.present() ||
                      tables.phi_rate.n_values != tables.phi_weights.n_values)) ||
@@ -1339,9 +1343,35 @@ public:
     adams_state();
     if (tables.n_stages != stages_)
       throw std::invalid_argument("the stage tables name another tableau's stages");
+    // A z table's rows are its slots: the tables read the state's one cache.
+    const bool phi_table = tables.phi == native::stage::Terms::table;
+    const bool prefactor_table = tables.prefactor == native::stage::Terms::table;
+    if (phi_table != z_slots_.phi || prefactor_table != z_slots_.prefactor)
+      throw std::invalid_argument("the stage tables and the z table's slots disagree");
+    if (phi_table || prefactor_table) {
+      tables.z_slots = &z_slots_;
+      tables.z_state = &general_state();
+    }
     stage_tables_ = std::move(tables);
     stage_anchor_ = {};
   }
+  // solprop SEP 39 phase 4: the z table's slots, one cache for every consumer.
+  void table_slots(const bool phi, const bool prefactor, const std::size_t slots,
+                   const bool rate) {
+    general_state();
+    z_slots_.configure(phi, prefactor, slots, rate);
+  }
+  std::vector<std::size_t> table_load(const std::vector<double>& positions) {
+    if (!z_slots_.present())
+      throw std::logic_error("no z table's slots were configured");
+    return z_slots_.load(general_state(), positions);
+  }
+  void table_rate_at(const double z, const bool before) {
+    if (!z_slots_.has_rate)
+      throw std::logic_error("the z table reads no rate");
+    z_slots_.rate(general_state(), z, before);
+  }
+  [[nodiscard]] std::uint64_t table_evaluations() const { return z_slots_.evaluations; }
   [[nodiscard]] bool has_stage_tables() const { return stage_tables_.has_value(); }
   native::stage::Trial stage_trial(const double z0, const double z1) {
     if (!stage_tables_)
@@ -1581,6 +1611,7 @@ private:
   std::shared_ptr<native::GeneralState> general_state_;
   std::optional<native::stage::Tables> stage_tables_;
   native::stage::Anchor stage_anchor_;
+  native::stage::ZSlots z_slots_;
   std::optional<march::Policy> march_policy_;
   march::Schedule march_schedule_;
   bool march_fused_ = false;
@@ -2468,6 +2499,23 @@ NB_MODULE(_core, module_) {
           },
           "tables"_a)
       .def("has_stage_tables", &BoundState::has_stage_tables)
+      .def("table_slots", &BoundState::table_slots, "phi"_a, "prefactor"_a, "slots"_a,
+           "rate"_a)
+      .def(
+          "table_load",
+          [](BoundState& self, const std::vector<double>& positions) {
+            const nb::gil_scoped_release release;
+            return self.table_load(positions);
+          },
+          "positions"_a)
+      .def(
+          "table_rate_at",
+          [](BoundState& self, const double z, const bool before) {
+            const nb::gil_scoped_release release;
+            self.table_rate_at(z, before);
+          },
+          "z"_a, "before"_a)
+      .def("table_evaluations", &BoundState::table_evaluations)
       // solprop SEP 39 phase 2: the native Adams march.
       .def(
           "adams_march_configure",
@@ -2547,6 +2595,7 @@ NB_MODULE(_core, module_) {
             out["plasma_densities"] = step.plasma_densities;
             out["plasma_preionisation"] = step.plasma_preionisation;
             out["raman_densities"] = step.raman_densities;
+            out["dispersive_densities"] = step.dispersive_densities;
             return out;
           },
           "z0"_a, "z1"_a)

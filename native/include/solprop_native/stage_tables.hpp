@@ -87,11 +87,15 @@ struct Table {
   }
 };
 
-/** How `Phi` and the prefactor are represented: a constant or an expansion. */
-enum class Terms : int { constant = 1, expansion = 2 };
+/** How `Phi` and the prefactor are represented: a constant, an expansion, or a z
+    table's slots (`ZSlots`). A separable operator's are a constant's: the distance and
+    the position, and a unit prefactor, with no span. */
+enum class Terms : int { constant = 1, expansion = 2, table = 3 };
 
 /** How the Kerr density is read: none, the density itself, or a table of its own. */
 enum class KerrDensity : int { none = 0, density = 1, table = 2 };
+
+struct ZSlots;
 
 /** Every table a trial's stage scalars read, uploaded once per run. */
 struct Tables {
@@ -116,6 +120,125 @@ struct Tables {
   std::vector<Table> plasma_preionisation;
   /** One per Raman term; an absent table reads the density. */
   std::vector<Table> raman_densities;
+  /** SEP 6's dispersive channels' number densities, one per channel. */
+  std::vector<Table> dispersive_densities;
+  /** A z table's slots and the state they are evaluated in, not owned. */
+  ZSlots* z_slots = nullptr;
+  GeneralState* z_state = nullptr;
+};
+
+/**
+ * A z table's position slots (solprop's `_ZTables`, SEP 29 G1), least recently used
+ * first: the positions a trial reads are evaluated into the native state's term slots
+ * only where no slot holds them, so a step's end, the next step's anchor, is evaluated
+ * once. Both Adams marches and every other consumer share this one cache, and its
+ * memo of the rate slot's position.
+ */
+struct ZSlots {
+  bool phi = false;
+  bool prefactor = false;
+  std::size_t slots = 0;
+  /** A compensated march reads `D(z)` into one more `Phi` term. */
+  bool has_rate = false;
+  std::uint64_t evaluations = 0;
+
+  void configure(const bool phi_table, const bool prefactor_table,
+                 const std::size_t count, const bool rate) {
+    phi = phi_table;
+    prefactor = prefactor_table;
+    slots = count;
+    has_rate = rate;
+    held.assign(count, std::numeric_limits<double>::quiet_NaN());
+    order.resize(count);
+    for (std::size_t slot = 0; slot < count; ++slot)
+      order[slot] = slot;
+    evaluations = 0;
+    rate_known = false;
+  }
+
+  [[nodiscard]] bool present() const { return phi || prefactor; }
+  /** The native `Phi` term count: the slots, and the rate's when it is read. */
+  [[nodiscard]] std::size_t n_phi() const { return slots + (has_rate ? 1 : 0); }
+  [[nodiscard]] std::size_t rate_slot() const { return slots; }
+
+  /**
+   * Return each of `positions`' slots, evaluating in one call those no slot holds:
+   * `_ZTables.load`, the slots touched in the same order.
+   */
+  std::vector<std::size_t> load(GeneralState& state,
+                                const std::vector<double>& positions) {
+    std::vector<double> wanted;
+    for (const double z : positions)
+      if (std::find(wanted.begin(), wanted.end(), z) == wanted.end())
+        wanted.push_back(z);
+    if (wanted.size() > slots)
+      throw std::invalid_argument("a native call reads the z table at " +
+                                  std::to_string(wanted.size()) +
+                                  " positions, more than the " + std::to_string(slots) +
+                                  " slots this problem holds");
+    std::vector<std::size_t> slot_of(wanted.size(), slots);
+    std::vector<bool> taken(slots, false);
+    for (std::size_t index = 0; index < wanted.size(); ++index) {
+      const auto at = std::find(held.begin(), held.end(), wanted[index]);
+      if (at != held.end()) {
+        slot_of[index] = static_cast<std::size_t>(at - held.begin());
+        taken[slot_of[index]] = true;
+        touch(slot_of[index]);
+      }
+    }
+    std::vector<std::size_t> evaluate_slots;
+    std::vector<double> evaluate_positions;
+    for (std::size_t index = 0; index < wanted.size(); ++index) {
+      if (slot_of[index] != slots)
+        continue;
+      std::size_t slot = slots;
+      for (const std::size_t candidate : order)
+        if (!taken[candidate]) {
+          slot = candidate;
+          break;
+        }
+      held[slot] = wanted[index];
+      slot_of[index] = slot;
+      taken[slot] = true;
+      touch(slot);
+      evaluate_slots.push_back(slot);
+      evaluate_positions.push_back(wanted[index]);
+    }
+    if (!evaluate_slots.empty()) {
+      state.table_evaluate(evaluate_slots, evaluate_positions);
+      evaluations += evaluate_slots.size();
+    }
+    std::vector<std::size_t> out;
+    out.reserve(positions.size());
+    for (const double z : positions)
+      out.push_back(slot_of[static_cast<std::size_t>(
+          std::find(wanted.begin(), wanted.end(), z) - wanted.begin())]);
+    return out;
+  }
+
+  /** Evaluate `D(z)` into the rate slot unless it holds it already (`_ZTables.rate`).
+   */
+  void rate(GeneralState& state, const double z, const bool before) {
+    if (rate_known && rate_z == z && rate_before == before)
+      return;
+    state.table_rate(rate_slot(), z, before);
+    rate_known = true;
+    rate_z = z;
+    rate_before = before;
+  }
+
+private:
+  void touch(const std::size_t slot) {
+    order.erase(std::find(order.begin(), order.end(), slot));
+    order.push_back(slot);
+  }
+
+  std::vector<double> held;
+  /** Least recently used first. */
+  std::vector<std::size_t> order;
+  bool rate_known = false;
+  double rate_z = 0.0;
+  bool rate_before = false;
 };
 
 /** The anchor's `Phi` weights, kept for every stage of one step. */
@@ -136,13 +259,35 @@ struct Row {
   std::vector<double> plasma_densities;
   std::vector<double> plasma_preionisation;
   std::vector<double> raman_densities;
+  std::vector<double> dispersive_densities;
 };
 
 /** Return one stage's scalars at `z1`, from the anchor `z0` (`scalars(problem, z0,
  * z1)`). */
 inline Row row(const Tables& tables, Anchor& anchor, const double z0, const double z1) {
   Row out;
-  if (tables.phi == Terms::constant) {
+  // A z table's positions, loaded together as `_weight_rows` loads them: the anchor
+  // for `Phi`, then the stage.
+  std::size_t from_slot = 0;
+  std::size_t at_slot = 0;
+  if (tables.phi == Terms::table || tables.prefactor == Terms::table) {
+    std::vector<double> positions;
+    if (tables.phi == Terms::table)
+      positions.push_back(z0);
+    positions.push_back(z1);
+    const auto slots = tables.z_slots->load(*tables.z_state, positions);
+    from_slot = slots.front();
+    at_slot = slots.back();
+  }
+  if (tables.phi == Terms::table) {
+    // `phi_row` and `at_row`: the increment `e_1 - e_0`, the value `e_1`.
+    const std::size_t terms = tables.z_slots->n_phi();
+    out.phi_delta.assign(terms, 0.0);
+    out.phi_delta[at_slot] += 1.0;
+    out.phi_delta[from_slot] -= 1.0;
+    out.phi_at.assign(terms, 0.0);
+    out.phi_at[at_slot] = 1.0;
+  } else if (tables.phi == Terms::constant) {
     // Phi(z) = D z: the increment's weight is the distance and the position's the
     // position, as `_phi_weights` forms them.
     out.phi_delta = {chebyshev::sub(z1, z0)};
@@ -160,7 +305,10 @@ inline Row row(const Tables& tables, Anchor& anchor, const double z0, const doub
     for (std::size_t j = 0; j < weights.n_values; ++j)
       out.phi_delta[j] = chebyshev::sub(out.phi_at[j], anchor.phi[j]);
   }
-  if (tables.prefactor == Terms::constant) {
+  if (tables.prefactor == Terms::table) {
+    out.prefactor.assign(tables.z_slots->slots, 0.0);
+    out.prefactor[at_slot] = 1.0;
+  } else if (tables.prefactor == Terms::constant) {
     if (!(tables.prefactor_low <= z1 && z1 <= tables.prefactor_high))
       throw std::invalid_argument("z = " + std::to_string(z1) +
                                   " lies outside the prefactor's table");
@@ -184,6 +332,8 @@ inline Row row(const Tables& tables, Anchor& anchor, const double z0, const doub
     out.plasma_preionisation.push_back(table.value(z1));
   for (const auto& table : tables.raman_densities)
     out.raman_densities.push_back(table.present() ? table.value(z1) : out.density);
+  for (const auto& table : tables.dispersive_densities)
+    out.dispersive_densities.push_back(table.value(z1));
   return out;
 }
 
@@ -223,6 +373,7 @@ inline TrialScalars trial(const Tables& tables, const Row& stage) {
   repeat(out.plasma_densities, stage.plasma_densities, stages);
   repeat(out.plasma_preionisation, stage.plasma_preionisation, stages);
   repeat(out.raman_densities, stage.raman_densities, stages);
+  repeat(out.dispersive_densities, stage.dispersive_densities, stages);
   return out;
 }
 
@@ -235,6 +386,13 @@ inline std::vector<double> rate(const Tables& tables, const double z,
                                 const bool before = true) {
   if (tables.phi == Terms::constant)
     return {1.0};
+  if (tables.phi == Terms::table) {
+    // `_ZTables.rate`: `D(z)` evaluated into its slot, one at that slot.
+    tables.z_slots->rate(*tables.z_state, z, before);
+    std::vector<double> out(tables.z_slots->n_phi(), 0.0);
+    out[tables.z_slots->rate_slot()] = 1.0;
+    return out;
+  }
   std::vector<double> out(tables.phi_rate.n_values);
   tables.phi_rate.closing(z, out.data(), before);
   return out;

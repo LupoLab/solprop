@@ -446,27 +446,28 @@ class NativeBackend(StepDriver[_core.State]):
     def _stage_tables(self) -> dict[str, object] | None:
         """Return the tables a resident Adams trial reads natively, or ``None``.
 
-        solprop SEP 39 phase 1: every scalar table ``translate.stage.scalars`` reads at
-        a stage -- the weights of a constant or expanded ``Phi`` and prefactor, the
-        density, the taper scale, the Raman decay rates and densities, the Kerr
-        density, the plasma channels' densities and fractions -- and an expansion's
-        rate table, each packed as its batch pass reads it
-        (``PiecewiseChebyshev.packed``). ``None`` for the problems whose trial arrays
-        are not one bundle repeated (`_repeated_arrays`): z tables, a separable
-        operator, SEP 6's dispersive channels, moving maps and a coupled flow.
+        solprop SEP 39 phases 1 and 4: every scalar table ``translate.stage.scalars``
+        reads at a stage -- the weights of a constant or expanded ``Phi`` and
+        prefactor, the density, the taper scale, the Raman decay rates and densities,
+        the Kerr density, the plasma channels' densities and fractions, SEP 6's
+        channel densities -- and an expansion's rate table, each packed as its batch
+        pass reads it (``PiecewiseChebyshev.packed``). A separable operator's rows are
+        a constant's, the distance and the position with a unit prefactor
+        (`_trial_arrays`), and read no span. A z table's rows are its slots, which the
+        native state loads through the cache `_ZTables` shares. ``None`` for the
+        problems whose trial arrays are not one bundle repeated (`_repeated_arrays`):
+        moving maps and a coupled flow.
         """
         problem = self._problem
         linear, responses = problem.linear, problem.responses
-        if (
-            self._z_tables is not None
-            or self._terms.separable is not None
-            or responses.dispersive_kerr is not None
-            or self._moving_maps
-            or self._flow is not None
-        ):
+        if self._moving_maps or self._flow is not None:
             return None
         phi_weights = phi_rate = prefactor_weights = None
-        if linear.phi_constant is not None:
+        separable = self._terms.separable is not None
+        tables = self._z_tables
+        if tables is not None and tables.phi:
+            phi = _STAGE_TABLE
+        elif separable or linear.phi_constant is not None:
             phi = _STAGE_CONSTANT
         elif linear.phi_expansion is not None:
             phi = _STAGE_EXPANSION
@@ -475,7 +476,12 @@ class NativeBackend(StepDriver[_core.State]):
         else:
             return None
         low = high = 0.0
-        if responses.prefactor_constant is not None:
+        if tables is not None and tables.prefactor:
+            prefactor = _STAGE_TABLE
+        elif separable:
+            prefactor = _STAGE_CONSTANT
+            low, high = -math.inf, math.inf
+        elif responses.prefactor_constant is not None:
             prefactor = _STAGE_CONSTANT
             low, high = responses.prefactor_span
         elif responses.prefactor_expansion is not None:
@@ -516,6 +522,9 @@ class NativeBackend(StepDriver[_core.State]):
                 None if term.density is None else term.density.packed()
                 for term in responses.raman_terms
             ],
+            "dispersive_densities": []
+            if responses.dispersive_kerr is None
+            else [table.packed() for table in responses.dispersive_kerr.densities],
         }
 
     def _low_storage_engine(self, method: LowStorageRungeKutta) -> object:
@@ -2204,7 +2213,9 @@ _NO_COEFFICIENTS = np.empty((0, 0), dtype=np.float64)
 
 _STAGE_CONSTANT = 1
 _STAGE_EXPANSION = 2
-"""How the stage tables name a constant or an expanded ``Phi`` and prefactor."""
+_STAGE_TABLE = 3
+"""How the stage tables name a constant, an expanded or a z table's ``Phi`` and
+prefactor (``stage::Terms``)."""
 
 
 def _on_device() -> bool:
@@ -2313,7 +2324,8 @@ class _NativeAdamsMarch(AdamsMarch):
                 f"solprop-native steps this {method.name} run with solprop's Python "
                 f"march: {refusal}. The native march (SEP 39) covers Multistep() in "
                 "either formulation and the one-order-higher PEC comparisons, on a "
-                "constant or expanded operator with PIController's norm",
+                "constant, expanded, separable or z-table operator with "
+                "PIController's norm",
                 HostMarchWarning,
                 stacklevel=4,
             )
@@ -2350,8 +2362,8 @@ class _NativeAdamsMarch(AdamsMarch):
         resident = (
             (
                 not engine.staged,
-                "a trial whose stage rows are not one bundle (a z table, a separable "
-                "operator, dispersive channels, moving maps or a coupled flow)",
+                "a trial whose stage rows are not one bundle (a moving guide's maps "
+                "or a coupled flow)",
             ),
             (not engine._device_scale, "a controller with a norm scale of its own"),
             (self._policy.carrier, "the carrier frame"),
@@ -2770,9 +2782,11 @@ class _ZTables:
     unchanged, as one rounded subtraction of two values, as solprop's reference forms
     it. The prefactor's slots are its values at the same positions, one-hot weighted.
 
-    The slots are kept as a least-recently-used set of positions: each native call's
-    positions are evaluated only where no slot holds them yet, so an accepted step's
-    end, which is the next step's anchor, is never evaluated twice. A call's positions
+    The slots are kept as a least-recently-used set of positions, in the native state
+    (``stage::ZSlots``, solprop SEP 39 phase 4), where the native Adams march reads
+    them too: each call's positions are evaluated only where no slot holds them yet,
+    so an accepted step's end, which is the next step's anchor, is never evaluated
+    twice. A call's positions
     number at most ``slots`` (the tableau's distinct stage fractions, five for the
     low-storage march), so none of one call's positions is evicted by another of its
     own. A compensated Adams march reads ``D = dPhi/dz`` from the derivative table
@@ -2791,8 +2805,6 @@ class _ZTables:
         The position slots, each one value of each table.
     rate_slot : int or None
         The ``Phi`` term that holds the rate, or ``None`` when no march reads it.
-    evaluations : int
-        Positions evaluated so far, a count for the tests and the benchmarks.
     """
 
     def __init__(self, problem: KernelProblem) -> None:
@@ -2814,13 +2826,12 @@ class _ZTables:
             and not source_absent(problem)
         )
         self.rate_slot = self.slots if compensated else None
-        self.evaluations = 0
         self._native: _core.State | None = None
-        self._slot_of: dict[float, int] = {}
-        self._held: list[float | None] = [None] * self.slots
-        # Least recently used first.
-        self._order = list(range(self.slots))
-        self._rate_at: tuple[float, bool] | None = None
+
+    @property
+    def evaluations(self) -> int:
+        """Positions evaluated so far, a count for the tests and the benchmarks."""
+        return 0 if self._native is None else self._native.table_evaluations()
 
     @property
     def n_phi(self) -> int:
@@ -2846,6 +2857,9 @@ class _ZTables:
     def upload(self, native: _core.State) -> None:
         """Make the tables resident in `native`, once, before its first trial."""
         self._native = native
+        native.table_slots(
+            self.phi, self.prefactor, self.slots, self.rate_slot is not None
+        )
         if self.phi:
             self._upload("phi", self._problem.linear.polynomial)
             if self.rate_slot is not None:
@@ -2885,41 +2899,12 @@ class _ZTables:
             Position to slot.
         """
         assert self._native is not None
-        wanted = list(dict.fromkeys(float(z) for z in positions))
-        if len(wanted) > self.slots:
-            raise BackendError(
-                f"a native call reads the z table at {len(wanted)} positions, more "
-                f"than the {self.slots} slots this problem holds"
-            )
-        found = {z: self._slot_of[z] for z in wanted if z in self._slot_of}
-        for slot in found.values():
-            self._touch(slot)
-        missing = [z for z in wanted if z not in found]
-        if missing:
-            taken = set(found.values())
-            slots: list[int] = []
-            for z in missing:
-                slot = next(one for one in self._order if one not in taken)
-                old = self._held[slot]
-                if old is not None:
-                    del self._slot_of[old]
-                self._held[slot] = z
-                self._slot_of[z] = slot
-                found[z] = slot
-                taken.add(slot)
-                slots.append(slot)
-                self._touch(slot)
-            self._native.table_evaluate(
-                np.asarray(slots, dtype=np.uint64),
-                np.asarray(missing, dtype=np.float64),
-            )
-            self.evaluations += len(missing)
-        return found
-
-    def _touch(self, slot: int) -> None:
-        """Make `slot` the most recently used."""
-        self._order.remove(slot)
-        self._order.append(slot)
+        wanted = [float(z) for z in positions]
+        try:
+            slots = self._native.table_load(wanted)
+        except ValueError as error:
+            raise BackendError(str(error)) from error
+        return dict(zip(wanted, slots, strict=True))
 
     def phi_row(self, slot_of: Mapping[float, int], z0: float, z1: float) -> RealArray:
         """Return the weights of ``Phi(z1) - Phi(z0)`` over the native terms."""
@@ -2951,9 +2936,7 @@ class _ZTables:
         """
         assert self._native is not None
         assert self.rate_slot is not None
-        if self._rate_at != (z, before):
-            self._native.table_rate(self.rate_slot, float(z), before)
-            self._rate_at = (z, before)
+        self._native.table_rate_at(float(z), before)
         row = np.zeros(self.n_phi)
         row[self.rate_slot] = 1.0
         return row
