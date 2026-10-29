@@ -216,6 +216,23 @@ time divided by the native backend's: above 1, the native backend is faster.
 - **An 8×32 Cartesian crossing tile and omitted unused register loads.** Three
   alternating rounds on the 192² Kerr window reduced the initial apparent gain to
   about 2%, below the complexity threshold. The 32×16 traversal remains.
+- **Vector maths for the band plasma statistics' rates.** The statistics' column takes
+  each sample's ionisation rate with the scalar `exp` and `log`; the propagation's column
+  passes them in blocks to SLEEF. Moving the statistics to the blocks gave the same
+  statistics to the bit on the four-mode capillary and took its statistics pass from
+  8.1 to 7.9 ms a saved plane at one thread on a Xeon Gold 6240: the pass's cost is its
+  whole-row band filter, prefix sum and reductions (the propagation's column restricts
+  them to the live window), not its rates.
+- **An errno-free square root for the free-space Kerr beam.** A build with
+  `-fno-math-errno` ran the 192² Kerr window 7 % faster on a Xeon Gold 6240 and no faster
+  on an AMD EPYC 7763. No element loop calls the library's `sqrt`: the separable
+  operator's real roots compile to the instruction already, and its complex root (lossy
+  media) is a cold call. The separable fold, where the time went, compiles to the same
+  instructions in both builds; front-end counters put the difference in the uop cache
+  (MITE uops 10.3 against 8.8 G, DSB misses 229 against 155 M, the same instruction
+  count), a layout effect of the whole binary. Declaring the complex root pure, which
+  lets the compiler treat the operator as side-effect free as the flag does, changed no
+  instruction of the fold and measured 1.00–1.01.
 - **A forced one-thread Accelerate BLAS limit.** An initial RDW gain disappeared
   over three alternating rounds on RDW, radial 256, two wall cases and general modal:
   the geometric mean ratio was 1.000. Existing process-start settings remain.
