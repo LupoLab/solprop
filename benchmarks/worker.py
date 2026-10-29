@@ -89,6 +89,16 @@ def runtime(backend: str, device: bool = False) -> Record:
             raise SuiteError("a native GPU build times device runs only (--device)")
         extension = Path(importlib.import_module("solprop_native._core").__file__ or "")
         info.update(build_info=build, extension_hash=file_hash(extension))
+    if backend == "cpunative":
+        import solprop_cpunative  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+
+        extension = Path(
+            importlib.import_module("solprop_cpunative._core").__file__ or ""
+        )
+        info.update(
+            build_info=solprop_cpunative.build_info(),
+            extension_hash=file_hash(extension),
+        )
     from threadpoolctl import threadpool_info  # noqa: PLC0415
 
     import solprop  # noqa: PLC0415
@@ -315,6 +325,21 @@ def measure(configuration: Record, repeats: int, fields: Path | None) -> Record:
             if simulation.noise_resolution is not None
             else None,
             "shape": list(problem.shape),
+            "workspace_bytes": sum(engine.memory_ledger().values()),
+            "effective_threads": engine.metadata().get(
+                "threads", engine.metadata().get("thread_count")
+            ),
+            "execution_sizing": engine.metadata().get("execution_sizing"),
+            "planning_seconds": engine.metadata().get("planning_seconds"),
+            "kernel_seconds": engine.metadata().get("kernel_seconds"),
+            "fft_schedule": engine.metadata().get("fft_schedule"),
+            "contraction": engine.metadata().get("contraction"),
+            "translated_grid": {
+                "n_t": problem.grids.n_t,
+                "n_to": problem.grids.n_to,
+                "n_nodes": problem.transform.n_nodes,
+                "node_chunk": problem.transform.node_chunk,
+            },
             "resolution": metadata_value(
                 {
                     "integrator": serialise(problem.stepper.integrator),

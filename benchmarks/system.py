@@ -49,6 +49,7 @@ POOL_VARIABLES = (
     "SOLPROP_THREADS",
     "SOLPROP_OVERSUBSCRIBE",
     "SOLPROP_NATIVE_THREADS",
+    "SOLPROP_CPUNATIVE_THREADS",
     "SOLPROP_NATIVE_KERNEL_THREADS",
     "SOLPROP_NATIVE_FFT_THREADS",
     "SOLPROP_NATIVE_RAMAN_FFT_THREADS",
@@ -102,6 +103,19 @@ THREADING: dict[str, dict[str, str]] = {
     # Pinned, and spinning.
     "bound-active": {
         "OMP_PROC_BIND": "close",
+        "OMP_PLACES": "cores",
+        "OMP_WAIT_POLICY": "ACTIVE",
+    },
+    "passive-spread": {
+        "OMP_PROC_BIND": "spread",
+        "OMP_PLACES": "cores",
+        "OMP_WAIT_POLICY": "PASSIVE",
+        "KMP_BLOCKTIME": "0",
+        "GOMP_SPINCOUNT": "0",
+    },
+    "spread": {"OMP_PROC_BIND": "spread", "OMP_PLACES": "cores", **_RUNTIME_WAITING},
+    "spread-active": {
+        "OMP_PROC_BIND": "spread",
         "OMP_PLACES": "cores",
         "OMP_WAIT_POLICY": "ACTIVE",
     },
@@ -283,6 +297,7 @@ def thread_environment(
     for key in (
         "SOLPROP_THREADS",
         "SOLPROP_NATIVE_THREADS",
+        "SOLPROP_CPUNATIVE_THREADS",
         "SOLPROP_NUMBA_THREADS",
         "NUMBA_NUM_THREADS",
         "OMP_NUM_THREADS",
@@ -370,7 +385,7 @@ def git_receipt(directory: Path) -> Record:
         # settings directory does not make every run dirty.
         untracked = git(
             "ls-files", "--others", "--exclude-standard", "-z", "--",
-            "src", "native", "benchmarks",
+            "src", "native", "cpunative", "benchmarks",
         ).split(b"\0")  # fmt: skip
         from benchmarks.records import file_hash  # noqa: PLC0415
 

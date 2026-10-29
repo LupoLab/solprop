@@ -52,6 +52,12 @@ def ab_options(parser: argparse.ArgumentParser) -> None:
     """Declare the A/B selection, builds, length, rounds and repetitions."""
     selection_options(parser)
     parser.add_argument("--baseline-python", required=True)
+    parser.add_argument(
+        "--baseline-backend", choices=("numpy_ref", "numba_cpu", "native", "cpunative")
+    )
+    parser.add_argument(
+        "--candidate-backend", choices=("numpy_ref", "numba_cpu", "native", "cpunative")
+    )
     parser.add_argument("--candidate-python", default=sys.executable)
     parser.add_argument(
         "--length",
@@ -183,6 +189,9 @@ def ab(args: argparse.Namespace) -> int:
     """Collect and summarise a paired comparison of two prepared builds."""
     if args.rounds < 1 or args.repeats < 1 or args.timeout <= 0:
         raise SuiteError("rounds, repeats and timeout must be positive")
+    backends = {
+        arm: getattr(args, f"{arm}_backend", None) or args.backend for arm in ARMS
+    }
     started = time.perf_counter()
     rows, skipped = plan_rows(
         select(tuple(args.case), tuple(args.set), all_cases=args.all),
@@ -211,6 +220,7 @@ def ab(args: argparse.Namespace) -> int:
             "created": now(),
             "purpose": "exploratory A/B",
             "pythons": pythons,
+            "backends": backends,
             "rounds": args.rounds,
             "repeats": args.repeats,
             "length": args.length,
@@ -236,7 +246,8 @@ def ab(args: argparse.Namespace) -> int:
                 events, elapsed = launch_worker(
                     pythons[arm],
                     {
-                        "configuration": row["configuration"],
+                        "configuration": row["configuration"]
+                        | {"backend": backends[arm]},
                         "repeats": args.repeats,
                         "fields": str(
                             (output / "fields" / arm / f"{row['id']}.npy").resolve()
@@ -282,7 +293,10 @@ def ab(args: argparse.Namespace) -> int:
         print(canonical(summary))
     else:
         show_summary(summary)
-        same = pythons["baseline"] == pythons["candidate"]
+        same = (
+            pythons["baseline"] == pythons["candidate"]
+            and backends["baseline"] == backends["candidate"]
+        )
         print(
             ("A/A control: the same interpreter for both arms. " if same else "")
             + (f"Results: {output.resolve()} ({time.perf_counter() - started:.0f} s)")

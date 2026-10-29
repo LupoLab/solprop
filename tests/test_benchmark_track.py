@@ -329,6 +329,17 @@ def test_threading_policies_replace_the_callers_openmp_settings():
     assert (bound["OMP_PROC_BIND"], bound["OMP_PLACES"]) == ("close", "cores")
     assert "OMP_WAIT_POLICY" not in bound
     assert bound["GOMP_SPINCOUNT"] == "300000"
+    for policy in ("passive-spread", "spread", "spread-active"):
+        spread = system.thread_environment(4, incoming, policy)
+        assert (spread["OMP_PROC_BIND"], spread["OMP_PLACES"]) == ("spread", "cores")
+    assert (
+        system.thread_environment(4, incoming, "passive-spread")["GOMP_SPINCOUNT"]
+        == "0"
+    )
+    assert (
+        system.thread_environment(4, incoming, "spread-active")["OMP_WAIT_POLICY"]
+        == "ACTIVE"
+    )
     # Every policy names its waiting, so the native backend's own default never applies.
     waiting = {"OMP_WAIT_POLICY", "GOMP_SPINCOUNT", "KMP_BLOCKTIME"}
     for policy in system.THREADING:

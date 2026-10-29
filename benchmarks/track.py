@@ -72,7 +72,9 @@ def selection_options(parser: argparse.ArgumentParser) -> None:
         "--production", type=int, help="production width; default: physical cores"
     )
     parser.add_argument(
-        "--backend", choices=("numpy_ref", "numba_cpu", "native"), default="native"
+        "--backend",
+        choices=("numpy_ref", "numba_cpu", "native", "cpunative"),
+        default="native",
     )
     parser.add_argument(
         "--device",
