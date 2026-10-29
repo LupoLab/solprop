@@ -6360,22 +6360,24 @@ KOKKOS_INLINE_FUNCTION Complex adams_moment_argument(const ExponentialWeights& w
   return weights.shifted ? x - Complex(0.0, weights.shift) : x;
 }
 
-/** `adams_phi` at `adams_moment_argument`, with the flow `exp_x`. */
+/** `adams_phi` at `adams_moment_argument`, with the flow `exp_x`; `Fixed`, when not
+    zero, is `order` known at compile time (`adams_phi_fixed`). */
+template <std::size_t Fixed = 0>
 KOKKOS_INLINE_FUNCTION void adams_moment_phi(const ExponentialWeights& weights,
                                              const Complex x, const Complex exp_x,
                                              const std::size_t order, Complex* out) {
   const Complex argument = adams_moment_argument(weights, x);
   const double size = Kokkos::abs(argument);
   if (!weights.shifted) {
-    adams_phi(argument, size, exp_x, order, out);
+    adams_phi_fixed<Fixed>(argument, size, exp_x, order, out);
     return;
   }
   // exp(x - sigma) = exp(x) exp(-sigma): one product with the trial's exp(-sigma)
   // rather than a second exponential per element (a few ulp, inside the moments'
   // share of the rounding budget).
-  adams_phi(argument, size,
-            strict_mul(exp_x, Complex(weights.unshift_re, weights.unshift_im)), order,
-            out);
+  adams_phi_fixed<Fixed>(
+      argument, size,
+      strict_mul(exp_x, Complex(weights.unshift_re, weights.unshift_im)), order, out);
 }
 
 /**
@@ -6394,6 +6396,84 @@ KOKKOS_INLINE_FUNCTION Complex adams_history(const Store& store,
     return value;
   return strict_mul(Complex(weights.factor_re[t], weights.factor_im[t]), value);
 }
+
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+/**
+ * A device element's moments, written to `moments`, and its prediction
+ * `exp(x) u + dz sum_k M_k sum_j c_jk F_j`, as the elementwise trial's predict pass
+ * forms them, with `formed` phi-functions. `Fixed`, when not zero, is `formed` known at
+ * compile time: the loops over the phi-functions unroll and the thread holds them in
+ * registers, where an indexed array lives in private (scratch) memory, which on an
+ * AMD Instinct MI325X made this the costliest kernel of a small trial.
+ */
+template <std::size_t Fixed, class Moments, class Store>
+KOKKOS_INLINE_FUNCTION Complex adams_device_prediction(
+    const ExponentialWeights& weights, const std::size_t formed, const Complex x,
+    const Complex propagate, const Complex accepted, const double dz,
+    const Moments& moments, const Store& store, const std::size_t column,
+    const std::size_t index) {
+  constexpr std::size_t bound = Fixed != 0 ? Fixed : 2 * adams_max_samples;
+  Complex phi[bound + 1];
+  adams_moment_phi<Fixed>(weights, x, propagate, formed, phi);
+  for (std::size_t k = 0; k < bound; ++k) {
+    if (k >= weights.count)
+      break;
+    moments(k, column, index) = adams_factorial(k) * phi[k + 1];
+  }
+  Complex total{};
+  for (std::size_t k = 0; k < bound; ++k) {
+    if (k >= weights.order)
+      break;
+    Complex combined{};
+    for (std::size_t t = 0; t < weights.order; ++t)
+      combined +=
+          weights.predictor[t][k] * adams_history(store, weights, t, column, index);
+    const Complex moment = adams_factorial(k) * phi[k + 1];
+    total += moment * combined;
+  }
+  return propagate * accepted + dz * total;
+}
+
+/** `adams_device_prediction` at the compile-time bound equal to `formed`, or at a
+    run-time one past the table's eight samples. */
+template <class Moments, class Store>
+KOKKOS_INLINE_FUNCTION Complex
+adams_device_predict(const ExponentialWeights& weights, const std::size_t formed,
+                     const Complex x, const Complex propagate, const Complex accepted,
+                     const double dz, const Moments& moments, const Store& store,
+                     const std::size_t column, const std::size_t index) {
+  static_assert(adams_max_samples == 8, "one case per sample count");
+  switch (formed) {
+  case 1:
+    return adams_device_prediction<1>(weights, formed, x, propagate, accepted, dz,
+                                      moments, store, column, index);
+  case 2:
+    return adams_device_prediction<2>(weights, formed, x, propagate, accepted, dz,
+                                      moments, store, column, index);
+  case 3:
+    return adams_device_prediction<3>(weights, formed, x, propagate, accepted, dz,
+                                      moments, store, column, index);
+  case 4:
+    return adams_device_prediction<4>(weights, formed, x, propagate, accepted, dz,
+                                      moments, store, column, index);
+  case 5:
+    return adams_device_prediction<5>(weights, formed, x, propagate, accepted, dz,
+                                      moments, store, column, index);
+  case 6:
+    return adams_device_prediction<6>(weights, formed, x, propagate, accepted, dz,
+                                      moments, store, column, index);
+  case 7:
+    return adams_device_prediction<7>(weights, formed, x, propagate, accepted, dz,
+                                      moments, store, column, index);
+  case 8:
+    return adams_device_prediction<8>(weights, formed, x, propagate, accepted, dz,
+                                      moments, store, column, index);
+  default:
+    return adams_device_prediction<0>(weights, formed, x, propagate, accepted, dz,
+                                      moments, store, column, index);
+  }
+}
+#endif
 
 // The defects' norms beside a coupled flow (solprop SEP 16 phase 6): per bin, the
 // samples' channel vectors; off the block each channel's defect is the diagonal one,
@@ -7510,6 +7590,13 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
     for (std::size_t index = first; index < last; ++index) {
       const Complex x = exponent(column, index);
       const Complex propagate = flow(column, index);
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+      const Complex accepted = current(column, index);
+      if (in_norm(index) != 0)
+        squares += squared_abs(accepted);
+      Complex value = adams_device_predict(weights, formed, x, propagate, accepted, dz,
+                                           moments, store, column, index);
+#else
       Complex phi[2 * adams_max_samples + 1];
       adams_moment_phi(weights, x, propagate, formed, phi);
       for (std::size_t k = 0; k < count; ++k)
@@ -7527,6 +7614,7 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
         total += moment * combined;
       }
       Complex value = propagate * accepted + dz * total;
+#endif
       if (compensated) {
         value =
             adams_predicted_compensation(weights, x, propagate, inverse_dz, dz, value,
