@@ -6436,24 +6436,19 @@ adams_lanes_predicted_compensation(AdamsLanes& lanes, const ExponentialWeights& 
   }
 }
 
-// The corrector's endpoint rate `sum_t w_t Phi_t` and compensation `(R - x / dz) u`,
-// into `endpoint_rate` and `nr`/`ni`, and the correction in `vr`/`vi` plus
-// `dz (c_0 endpoint + sum_t c_{t+1} carried_t)`, as `adams_corrected_compensation`;
-// `ur`/`ui` hold the lab-frame field. Strict.
+// A varying operator's endpoint rate `sum_t w_t Phi_t` into `dr`/`di` and
+// `endpoint_rate`, as `adams_corrected_compensation` forms it. Strict.
 template <class Weights, class Terms, class Points>
 SOLPROP_NATIVE_STRICT_FUNCTION inline void
-adams_lanes_corrected_compensation(AdamsLanes& lanes, const ExponentialWeights& weights,
-                                   const std::size_t n_phi, const Weights& rate_weights,
-                                   const Terms& phi_terms, const double inverse_dz,
-                                   const double dz, const Points& endpoint_rate,
-                                   const std::size_t column, const std::size_t first) {
+adams_lanes_rate(AdamsLanes& lanes, const std::size_t n_phi,
+                 const Weights& rate_weights, const Terms& phi_terms,
+                 const Points& endpoint_rate, const std::size_t column,
+                 const std::size_t first) {
   SOLPROP_NATIVE_STRICT_BLOCK
-  constexpr std::size_t B = AdamsLanes::B;
   const std::size_t count = lanes.count;
-  double rate_r[B], rate_i[B];
   for (std::size_t b = 0; b < count; ++b) {
-    rate_r[b] = 0.0;
-    rate_i[b] = 0.0;
+    lanes.dr[b] = 0.0;
+    lanes.di[b] = 0.0;
   }
   for (std::size_t term = 0; term < n_phi; ++term) {
     const double weight = rate_weights(term);
@@ -6461,20 +6456,34 @@ adams_lanes_corrected_compensation(AdamsLanes& lanes, const ExponentialWeights& 
     for (std::size_t b = 0; b < count; ++b) {
       const double real = weight * fixed[b].real();
       const double imag = weight * fixed[b].imag();
-      rate_r[b] = rate_r[b] + real;
-      rate_i[b] = rate_i[b] + imag;
+      lanes.dr[b] = lanes.dr[b] + real;
+      lanes.di[b] = lanes.di[b] + imag;
     }
   }
   Complex* rate_out = &endpoint_rate(column, first);
   for (std::size_t b = 0; b < count; ++b)
-    rate_out[b] = Complex(rate_r[b], rate_i[b]);
+    rate_out[b] = Complex(lanes.dr[b], lanes.di[b]);
+}
+
+// The corrector's compensation `(R - x / dz) u` at the endpoint rate `dr`/`di` into
+// `nr`/`ni`, and the correction in `vr`/`vi` plus `dz (c_0 endpoint + sum_t c_{t+1}
+// carried_t)`, as `adams_corrected_compensation`; `ur`/`ui` hold the lab-frame field.
+// Strict.
+SOLPROP_NATIVE_STRICT_FUNCTION
+inline void adams_lanes_corrected_compensation(AdamsLanes& lanes,
+                                               const ExponentialWeights& weights,
+                                               const double inverse_dz,
+                                               const double dz) {
+  SOLPROP_NATIVE_STRICT_BLOCK
+  constexpr std::size_t B = AdamsLanes::B;
+  const std::size_t count = lanes.count;
   double total_r[B], total_i[B];
   const double weight0 = weights.comp_corrector[0];
   for (std::size_t b = 0; b < count; ++b) {
     const double scaled_r = inverse_dz * lanes.xr[b];
     const double scaled_i = inverse_dz * lanes.xi[b];
-    const double difference_r = rate_r[b] - scaled_r;
-    const double difference_i = rate_i[b] - scaled_i;
+    const double difference_r = lanes.dr[b] - scaled_r;
+    const double difference_i = lanes.di[b] - scaled_i;
     const double rr = difference_r * lanes.ur[b];
     const double ii = difference_i * lanes.ui[b];
     const double ri = difference_r * lanes.ui[b];
@@ -6585,27 +6594,48 @@ inline void adams_lanes_defects(AdamsLanes& lanes, const ExponentialWeights& wei
 
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
 // The whole step's phase increment `sum_t dPhi_t Phi_t` of every lane into `xr`/`xi`,
-// as `adams_phase_sum` forms it. Strict.
-template <class Terms, class Weights>
+// as `adams_phase_sum` forms it, and with `Rate` a varying operator's endpoint rate
+// `sum_t w_t Phi_t` into `dr`/`di`, as `adams_corrected_compensation` forms it, in the
+// same pass over the terms. Strict.
+template <bool Rate, class Terms, class Weights, class RateWeights>
 SOLPROP_NATIVE_STRICT_FUNCTION inline void
 adams_lanes_phase(AdamsLanes& lanes, const Terms& phi_terms, const Weights& phi_delta,
-                  const std::size_t offset, const std::size_t n_phi,
-                  const std::size_t column, const std::size_t first) {
+                  const RateWeights& rate_weights, const std::size_t offset,
+                  const std::size_t n_phi, const std::size_t column,
+                  const std::size_t first) {
   SOLPROP_NATIVE_STRICT_BLOCK
   const std::size_t count = lanes.count;
   for (std::size_t b = 0; b < count; ++b) {
     lanes.xr[b] = 0.0;
     lanes.xi[b] = 0.0;
+    lanes.dr[b] = 0.0;
+    lanes.di[b] = 0.0;
   }
   for (std::size_t term = 0; term < n_phi; ++term) {
     const double weight = phi_delta(offset + term);
-    // Exact, as in `StageTerms::phase_sum`.
-    if (weight == 0.0)
-      continue;
     const Complex* fixed = &phi_terms(term, column, first);
-    for (std::size_t b = 0; b < count; ++b) {
-      lanes.xr[b] = lanes.xr[b] + weight * fixed[b].real();
-      lanes.xi[b] = lanes.xi[b] + weight * fixed[b].imag();
+    // A zero weight is skipped, exactly, as in `StageTerms::phase_sum`.
+    if constexpr (Rate) {
+      const double rate = rate_weights(term);
+      if (weight == 0.0)
+        for (std::size_t b = 0; b < count; ++b) {
+          lanes.dr[b] = lanes.dr[b] + rate * fixed[b].real();
+          lanes.di[b] = lanes.di[b] + rate * fixed[b].imag();
+        }
+      else
+        for (std::size_t b = 0; b < count; ++b) {
+          lanes.xr[b] = lanes.xr[b] + weight * fixed[b].real();
+          lanes.xi[b] = lanes.xi[b] + weight * fixed[b].imag();
+          lanes.dr[b] = lanes.dr[b] + rate * fixed[b].real();
+          lanes.di[b] = lanes.di[b] + rate * fixed[b].imag();
+        }
+    } else {
+      if (weight == 0.0)
+        continue;
+      for (std::size_t b = 0; b < count; ++b) {
+        lanes.xr[b] = lanes.xr[b] + weight * fixed[b].real();
+        lanes.xi[b] = lanes.xi[b] + weight * fixed[b].imag();
+      }
     }
   }
 }
@@ -6618,21 +6648,34 @@ adams_lanes_phase(AdamsLanes& lanes, const Terms& phi_terms, const Weights& phi_
  * and the prediction, as the element-by-element form writes them. Returns the block's
  * share of the accepted state's squared magnitude, summed in element order.
  */
-template <bool Phase, class Terms, class Weights, class Points, class Cube, class Mask>
+template <bool Phase, class Terms, class Weights, class RateWeights, class Points,
+          class Cube, class Mask>
 inline double adams_lanes_predict(
-    const Terms& phi_terms, const Weights& phi_delta, const std::size_t offset,
-    const std::size_t n_phi, const ExponentialWeights& weights,
-    const std::size_t formed, const double dz, const double inverse_dz,
-    const Points& exponent, const Points& flow, const Points& current,
-    const Points& predicted, const Points& lab, const Cube& moments, const Cube& store,
-    const Cube& carried, const Cube& states, const Cube& rates, const Mask& in_norm,
-    const std::size_t column, const std::size_t first, const std::size_t last) {
+    const Terms& phi_terms, const Weights& phi_delta, const RateWeights& rate_weights,
+    const Points& endpoint_rate, const std::size_t offset, const std::size_t n_phi,
+    const ExponentialWeights& weights, const std::size_t formed, const double dz,
+    const double inverse_dz, const Points& exponent, const Points& flow,
+    const Points& current, const Points& predicted, const Points& lab,
+    const Cube& moments, const Cube& store, const Cube& carried, const Cube& states,
+    const Cube& rates, const Mask& in_norm, const std::size_t column,
+    const std::size_t first, const std::size_t last) {
   constexpr std::size_t B = AdamsLanes::B;
   AdamsLanes lanes;
   const std::size_t n = last - first;
   lanes.count = n;
   if constexpr (Phase) {
-    adams_lanes_phase(lanes, phi_terms, phi_delta, offset, n_phi, column, first);
+    // The corrector's endpoint rate reads the same terms: formed here, in the same
+    // pass, and read back by the correct pass.
+    if (weights.compensated) {
+      adams_lanes_phase<true>(lanes, phi_terms, phi_delta, rate_weights, offset, n_phi,
+                              column, first);
+      Complex* rate = &endpoint_rate(column, first);
+      for (std::size_t b = 0; b < n; ++b)
+        rate[b] = Complex(lanes.dr[b], lanes.di[b]);
+    } else {
+      adams_lanes_phase<false>(lanes, phi_terms, phi_delta, rate_weights, offset, n_phi,
+                               column, first);
+    }
     Complex* x = &exponent(column, first);
     for (std::size_t b = 0; b < n; ++b)
       x[b] = Complex(lanes.xr[b], lanes.xi[b]);
@@ -6803,6 +6846,8 @@ struct ExponentialCorrection {
   double dz, inverse_dz, rtol, atol;
   std::size_t n, blocks, n_phi;
   bool device_scale;
+  // The host lanes' predict pass formed the endpoint rate (off a separable route).
+  bool rate_formed;
 
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
   // The pass on a host block's lanes (`AdamsLanes`), as the element-by-element form
@@ -6877,8 +6922,17 @@ struct ExponentialCorrection {
           lanes.ci[t][b] = row[b].imag();
         }
       }
-      adams_lanes_corrected_compensation(lanes, weights, n_phi, rate_weights, phi_terms,
-                                         inverse_dz, dz, endpoint_rate, column, first);
+      if (rate_formed) {
+        const Complex* rate = &endpoint_rate(column, first);
+        for (std::size_t b = 0; b < count; ++b) {
+          lanes.dr[b] = rate[b].real();
+          lanes.di[b] = rate[b].imag();
+        }
+      } else {
+        adams_lanes_rate(lanes, n_phi, rate_weights, phi_terms, endpoint_rate, column,
+                         first);
+      }
+      adams_lanes_corrected_compensation(lanes, weights, inverse_dz, dz);
       Complex* out = &endpoint(column, first);
       for (std::size_t b = 0; b < count; ++b)
         out[b] = Complex(lanes.nr[b], lanes.ni[b]);
@@ -7020,6 +7074,11 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
   const std::size_t count = weights.count;
   const std::size_t formed = count > weights.order ? count : weights.order;
   const double inverse_dz = 1.0 / dz;
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+  // A host block's predict pass forms the corrector's endpoint rate beside the phase.
+  const auto endpoint_rates = adams_rate_weights_;
+  const auto endpoint_rate = adams_endpoint_rate_;
+#endif
   // The step's exponent, on a separable route the step's length times each element's
   // operator as the stage kernel forms the whole propagator, and its flow; its
   // moments (kept for the corrector and the norms); a varying operator's carried
@@ -7052,15 +7111,17 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
       }
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
     if constexpr (passes) {
-      magnitude +=
-          separable ? adams_lanes_predict<false>(
-                          phi_terms, phi_delta, offset, n_phi, weights, formed, dz,
-                          inverse_dz, exponent, flow, current, predicted, lab, moments,
-                          store, carried, states, rates, in_norm, column, first, last)
-                    : adams_lanes_predict<true>(
-                          phi_terms, phi_delta, offset, n_phi, weights, formed, dz,
-                          inverse_dz, exponent, flow, current, predicted, lab, moments,
-                          store, carried, states, rates, in_norm, column, first, last);
+      magnitude += separable
+                       ? adams_lanes_predict<false>(
+                             phi_terms, phi_delta, endpoint_rates, endpoint_rate,
+                             offset, n_phi, weights, formed, dz, inverse_dz, exponent,
+                             flow, current, predicted, lab, moments, store, carried,
+                             states, rates, in_norm, column, first, last)
+                       : adams_lanes_predict<true>(
+                             phi_terms, phi_delta, endpoint_rates, endpoint_rate,
+                             offset, n_phi, weights, formed, dz, inverse_dz, exponent,
+                             flow, current, predicted, lab, moments, store, carried,
+                             states, rates, in_norm, column, first, last);
       return;
     }
 #endif
@@ -7142,7 +7203,8 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
                                       n,
                                       blocks,
                                       n_phi,
-                                      device_scale};
+                                      device_scale,
+                                      !separable};
   Kokkos::parallel_reduce("solprop_native.adams.exponential_correct", tasks, reducer,
                           result);
   adams_execution_space_.fence("solprop_native Adams trial boundary");

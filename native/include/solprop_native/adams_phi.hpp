@@ -189,6 +189,8 @@ struct AdamsLanes {
   double vr[B], vi[B], ur[B], ui[B], wr[B], wi[B];
   // The endpoint's compensation, and the norms' divisors and squared defects.
   double nr[B], ni[B], scale[B];
+  // A varying operator's endpoint rate.
+  double dr[B], di[B];
   double defect[3][B];
 };
 
