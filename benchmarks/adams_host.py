@@ -59,9 +59,10 @@ def install() -> HostTotals:
     HostTotals
         The totals the wrappers add to.
     """
-    from solprop_native import (  # noqa: PLC0415 - optional, after pools
-        backend,  # pyright: ignore[reportMissingImports]
-    )
+    # Optional, and imported after the pools are set.
+    import solprop_native.backend  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+
+    backend = solprop_native.backend
 
     totals = HostTotals()
 
@@ -125,10 +126,8 @@ def _run(
 ) -> dict[str, Any]:
     """Run the case in this process and return its record."""
     # Before pyFFTW on macOS.
-    import solprop_native  # noqa: F401, PLC0415  # pyright: ignore[reportMissingImports]
-    from solprop_native.backend import (  # noqa: PLC0415
-        NativeBackend,  # pyright: ignore[reportMissingImports]
-    )
+    import solprop_native  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+    import solprop_native.backend  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
 
     from benchmarks.builders import build  # noqa: PLC0415
     from benchmarks.registry import CASES  # noqa: PLC0415
@@ -138,13 +137,9 @@ def _run(
 
     totals = install()
     if host_march:
-        from solprop_native import (  # noqa: PLC0415
-            backend,  # pyright: ignore[reportMissingImports]
-        )
-
-        backend._ADAMS_MARCH = "host"
+        solprop_native.backend._ADAMS_MARCH = "host"
     if host_stages:
-        NativeBackend._stage_tables = lambda _self: None  # pyright: ignore[reportAttributeAccessIssue]
+        solprop_native.backend.NativeBackend._stage_tables = lambda _self: None  # pyright: ignore[reportAttributeAccessIssue]
     configuration = CASES[case].configuration(stepper, width, "native", fraction)
     simulation = build(configuration)
     problem = simulation.translate()
