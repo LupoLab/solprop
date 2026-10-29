@@ -2445,6 +2445,16 @@ due every step, so every attempt is its own call (2–3 µs). A cheaper booking 
 `_record_attempts` call per call's rows) would trim the latter; nothing else on the
 host is above a microsecond a trial.
 
+What a native run spends now, sampled with macOS `sample` over twelve whole
+`he_rdw_averaged` runs at one thread (each run's translation included): the native
+kernels 58 %, the system libm's `exp` and `sincos` 16 %, FFTW 11 %, Python and NumPy
+13 % (mostly the per-run translation). The libm share is the Adams predict pass's and
+the stage entry's complex exponentials, element by element: on Apple silicon the vector
+maths layer keeps the libm (ADR-059: SLEEF's AdvSIMD functions gained nothing there,
+and Accelerate's vForce a fifth at 1.7 ulp). It is the largest single item left on the
+M5, and the lead for Mac tuning; a symbolised profile of the native share is the next
+step (the shipped `_core` is stripped).
+
 ### Phase 3 — report
 
 **Scope.** Phase 3, the interaction formulation, the one-order-higher PEC comparisons
