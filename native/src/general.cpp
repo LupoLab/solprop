@@ -7471,7 +7471,8 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
     constexpr bool passes = vmath::vectorised;
 #else
-    constexpr bool passes = false;
+    // Read only by the host's lanes (Clang's -Wunused-variable on HIP builds).
+    [[maybe_unused]] constexpr bool passes = false;
 #endif
     if (separable)
       for (std::size_t index = first; index < last; ++index) {
