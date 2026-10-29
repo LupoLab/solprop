@@ -1594,7 +1594,7 @@ struct StageTerms {
       vmath::exp(negated, block.inverse, count);
     }
     if (add_noise) {
-      double angle[stage_block];
+      double angle[stage_block]{};
       for (std::size_t bin = 0; bin < count; ++bin)
         angle[bin] = noise_phase(stage, column, first + bin).imag();
       vmath::sincos(angle, block.noise_sine, block.noise_cosine, count);
