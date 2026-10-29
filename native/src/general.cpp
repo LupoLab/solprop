@@ -2557,12 +2557,12 @@ bool GeneralWorkspace::use_packed_radial_blas() const noexcept {
 #endif
 }
 
-// The retained-spectrum radial synthesis, on a host and a device. A real static synthesis
-// commutes with the temporal transform: synthesising the coarse bins the stage entry
-// fills and padding each node's spectrum gives the nodes' fields, so the product
-// covers n_omega complex columns rather than the n_to complex samples of the padded,
-// oversampled analytic signal. On a square map the node transforms replace the modal
-// ones one for one; the held radial plasma's projection already contracts after
+// The retained-spectrum radial synthesis, on a host and a device. A real static
+// synthesis commutes with the temporal transform: synthesising the coarse bins the
+// stage entry fills and padding each node's spectrum gives the nodes' fields, so the
+// product covers n_omega complex columns rather than the n_to complex samples of the
+// padded, oversampled analytic signal. On a square map the node transforms replace the
+// modal ones one for one; the held radial plasma's projection already contracts after
 // cropping (`held_radial_projection`). An in-stage absorber or a Raman drive reads the
 // modal time field, and a dispersive response its own synthesis, so they keep the
 // time-domain product; skinny capillary maps would multiply the transforms.
