@@ -2122,8 +2122,10 @@ public:
                               double preionisation = 0.0);
   void form_absorber();
   void split_step(double dz, const ComplexView2& values);
-  void split_columns(double dz, std::size_t active_rows = 0, double parseval = 0.0);
-  void add_split_removal(double dz, std::size_t active_rows, double parseval);
+  void split_columns(double dz, std::size_t active_rows = 0, double parseval = 0.0,
+                     std::size_t first_column = 0);
+  void add_split_removal(double dz, std::size_t active_rows, double parseval,
+                         std::size_t first_column);
   void separable_to_time(const TransverseChunk& chunk);
   void separable_to_frequency(const TransverseChunk& chunk);
   void separable_split_step(double dz, const ComplexView2& values);
@@ -12439,7 +12441,8 @@ void split_apply(const char* label, const ExecutionSpace& execution,
 } // namespace
 
 void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
-                                     const double parseval) {
+                                     const double parseval,
+                                     const std::size_t first_column) {
   const bool tail = temporal_tail_rows_ != 0 && active_rows == temporal_tail_rows_;
   if (active_rows == 0)
     active_rows = coarse_spectrum_.extent(0);
@@ -12450,7 +12453,7 @@ void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
       KokkosFFT::execute(*coarse_inverse_complex_plan_, coarse_spectrum_,
                          coarse_time_complex_, KokkosFFT::Normalization::none);
     if (monitoring_split())
-      add_split_removal(dz, active_rows, parseval);
+      add_split_removal(dz, active_rows, parseval, first_column);
     split_apply("solprop_native.absorber.split_apply_complex", execution_space_,
                 coarse_time_complex_, absorber_coarse_, dz, active_rows, problem_.n_t);
     if (tail)
@@ -12465,7 +12468,7 @@ void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
       KokkosFFT::execute(*coarse_inverse_real_plan_, coarse_spectrum_,
                          coarse_time_real_, KokkosFFT::Normalization::none);
     if (monitoring_split())
-      add_split_removal(dz, active_rows, parseval);
+      add_split_removal(dz, active_rows, parseval, first_column);
     split_apply("solprop_native.absorber.split_apply_real", execution_space_,
                 coarse_time_real_, absorber_coarse_, dz, active_rows, problem_.n_t);
     if (tail)
@@ -12481,9 +12484,10 @@ void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
 // accumulator in the memory space (solprop SEP 21, ADR-057): the monitor's reading
 // drains it at a check, so every accepted step is counted, checked or not. A
 // separable route's rows are real-space rows, measured by `parseval`; zero means the
-// rows are the stored columns themselves, weighted by the columns' quadrature.
+// rows are the stored columns from `first_column` on, weighted by their quadrature.
 void GeneralWorkspace::add_split_removal(const double dz, const std::size_t active_rows,
-                                         const double parseval) {
+                                         const double parseval,
+                                         const std::size_t first_column) {
   const auto rate = absorber_coarse_;
   const auto share = monitor_share_;
   const auto weights = monitor_column_weights_;
@@ -12501,8 +12505,8 @@ void GeneralWorkspace::add_split_removal(const double dz, const std::size_t acti
     Kokkos::parallel_reduce(
         "solprop_native.monitor.split_removal_complex", samples,
         KOKKOS_LAMBDA(const std::size_t row, const std::size_t index, double& update) {
-          update += (stored ? weights(row) : parseval) * squared_abs(time(row, index)) *
-                    share(index);
+          update += (stored ? weights(first_column + row) : parseval) *
+                    squared_abs(time(row, index)) * share(index);
         },
         monitor_split_sum_);
   } else {
@@ -12511,7 +12515,8 @@ void GeneralWorkspace::add_split_removal(const double dz, const std::size_t acti
         "solprop_native.monitor.split_removal_real", samples,
         KOKKOS_LAMBDA(const std::size_t row, const std::size_t index, double& update) {
           const double value = time(row, index);
-          update += (stored ? weights(row) : parseval) * value * value * share(index);
+          update += (stored ? weights(first_column + row) : parseval) * value * value *
+                    share(index);
         },
         monitor_split_sum_);
   }
@@ -12673,6 +12678,40 @@ std::vector<double> GeneralWorkspace::monitor_reading() {
 // y rows of slab amplitudes) between the two transverse transforms.
 void GeneralWorkspace::separable_split_step(const double dz,
                                             const ComplexView2& advanced) {
+  if (problem_.free_geometry()) {
+    // The split's factor depends on time alone, so it acts alike on every column of
+    // any transverse basis (solprop's reference measures its removal on the stored
+    // columns for this reason): free space splits its stored transverse-spectrum
+    // columns directly, chunk by chunk of the temporal rows, as a modal route splits
+    // its modes, with no transverse transform pair. Equal to the reference's split in
+    // real space up to the transforms' rounding.
+    const auto coarse = coarse_spectrum_;
+    const auto active = active_mask_;
+    const auto n_pol = problem_.n_pol_state;
+    const auto n = problem_.n_omega;
+    const double inverse_time = 1.0 / static_cast<double>(problem_.n_t);
+    for (std::size_t unit = 0; unit < transverse_units();
+         unit += transverse_units_per_chunk()) {
+      const auto chunk = transverse_chunk(unit);
+      const auto first = chunk.first_row * n_pol;
+      const auto rows = chunk.rows * n_pol;
+      Kokkos::parallel_for(
+          "solprop_native.free.split_columns_input",
+          Range2(execution_space_, {0, 0}, {rows, n}),
+          KOKKOS_LAMBDA(const std::size_t row, const std::size_t omega) {
+            coarse(row, omega) = inverse_time * advanced(first + row, omega);
+          });
+      split_columns(dz, rows, 0.0, first);
+      Kokkos::parallel_for(
+          "solprop_native.free.split_columns_output",
+          Range2(execution_space_, {0, 0}, {rows, n}),
+          KOKKOS_LAMBDA(const std::size_t row, const std::size_t omega) {
+            advanced(first + row, omega) =
+                active(omega) != 0U ? coarse(row, omega) : Complex{};
+          });
+    }
+    return;
+  }
   const auto scratch = transverse_;
   const auto coarse = coarse_spectrum_;
   const auto active = active_mask_;
