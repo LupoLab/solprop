@@ -2122,6 +2122,7 @@ public:
                               double preionisation = 0.0);
   void form_absorber();
   void split_step(double dz, const ComplexView2& values);
+  void form_split_factor(double dz);
   void split_columns(double dz, std::size_t active_rows = 0, double parseval = 0.0,
                      std::size_t first_column = 0);
   void add_split_removal(double dz, std::size_t active_rows, double parseval,
@@ -2421,6 +2422,8 @@ public:
   RealView2 monitor_weights_;
   RealView monitor_column_weights_;
   RealView monitor_share_;
+  // A device's split factor per coarse sample, formed once an accepted step.
+  RealView split_factor_;
   Kokkos::View<double, Layout, MemorySpace> monitor_removed_;
   Kokkos::View<double, Layout, MemorySpace> monitor_split_sum_;
   [[nodiscard]] bool monitoring_split() const noexcept {
@@ -3428,6 +3431,9 @@ void GeneralWorkspace::allocate() {
     }
   }
   if (problem_.split_step_absorber) {
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+    split_factor_ = RealView("solprop_native.absorber.split_factor", problem_.n_t);
+#endif
     coarse_spectrum_ =
         ComplexView2("solprop_native.absorber.coarse_spectrum", temporal_columns, n);
     if (problem_.family == FieldFamily::envelope)
@@ -12401,21 +12407,27 @@ void GeneralWorkspace::mask(const ComplexView2& values) {
 
 namespace {
 // The absorber split's factor `exp(-rate h / 2)` on `rows` rows of `time`. The factor
-// depends on the sample alone: a device forms it at every element, and a host task
-// forms it once for a tile of samples, through the vector-maths layer (solprop
-// ADR-059), and applies it to a block of rows, the same expression to the bit on the
-// libm route.
+// depends on the sample alone: a device forms it once a step for every sample, and a
+// host task forms it once for a tile of samples, through the vector-maths layer
+// (solprop ADR-059), and applies it to a block of rows, the same expression to the bit
+// on the libm route. A device reads each sample's factor from `factor`, formed once a
+// step by `form_split_factor` with the same expression: one binary64 exponential per
+// sample rather than per element, which on a device with a reduced binary64 rate is
+// most of the pass.
 template <class TimeView>
 void split_apply(const char* label, const ExecutionSpace& execution,
-                 const TimeView& time, const RealView& rate, const double dz,
-                 const std::size_t rows, const std::size_t samples) {
+                 const TimeView& time, const RealView& rate, const RealView& factors,
+                 const double dz, const std::size_t rows, const std::size_t samples) {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  static_cast<void>(rate);
+  static_cast<void>(dz);
   Kokkos::parallel_for(
       label, Range2(execution, {0, 0}, {rows, samples}),
       KOKKOS_LAMBDA(const std::size_t row, const std::size_t index) {
-        time(row, index) *= Kokkos::exp(-0.5 * rate(index) * dz);
+        time(row, index) *= factors(index);
       });
 #else
+  static_cast<void>(factors);
   constexpr std::size_t tile = 256;
   constexpr std::size_t row_block = 64;
   const std::size_t tiles = (samples + tile - 1) / tile;
@@ -12455,7 +12467,8 @@ void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
     if (monitoring_split())
       add_split_removal(dz, active_rows, parseval, first_column);
     split_apply("solprop_native.absorber.split_apply_complex", execution_space_,
-                coarse_time_complex_, absorber_coarse_, dz, active_rows, problem_.n_t);
+                coarse_time_complex_, absorber_coarse_, split_factor_, dz, active_rows,
+                problem_.n_t);
     if (tail)
       coarse_tail_forward_complex_.execute();
     else
@@ -12470,7 +12483,8 @@ void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
     if (monitoring_split())
       add_split_removal(dz, active_rows, parseval, first_column);
     split_apply("solprop_native.absorber.split_apply_real", execution_space_,
-                coarse_time_real_, absorber_coarse_, dz, active_rows, problem_.n_t);
+                coarse_time_real_, absorber_coarse_, split_factor_, dz, active_rows,
+                problem_.n_t);
     if (tail)
       coarse_tail_forward_real_.execute();
     else
@@ -12767,7 +12781,23 @@ void GeneralWorkspace::separable_split_step(const double dz,
       });
 }
 
+void GeneralWorkspace::form_split_factor(const double dz) {
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  const auto rate = absorber_coarse_;
+  const auto factor = split_factor_;
+  Kokkos::parallel_for(
+      "solprop_native.absorber.split_factor",
+      Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, problem_.n_t),
+      KOKKOS_LAMBDA(const std::size_t index) {
+        factor(index) = Kokkos::exp(-0.5 * rate(index) * dz);
+      });
+#else
+  static_cast<void>(dz);
+#endif
+}
+
 void GeneralWorkspace::split_step(const double dz, const ComplexView2& advanced) {
+  form_split_factor(dz);
   if (problem_.separable_geometry()) {
     separable_split_step(dz, advanced);
     return;
@@ -13075,7 +13105,8 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
       {"raman_kernel_spectrum", raman_kernel_spectrum_.size() * complex_bytes},
       {"stage_raman_rates", stage_raman_rates_.size() * real_bytes},
       {"absorber_rates",
-       (absorber_fine_.size() + absorber_coarse_.size()) * real_bytes},
+       (absorber_fine_.size() + absorber_coarse_.size() + split_factor_.size()) *
+           real_bytes},
       {"spatial_absorber_matrix", spatial_absorber_real_.size() * real_bytes +
                                       spatial_absorber_complex_.size() * complex_bytes},
       {"plasma_rate_table", rate_coefficients_.size() * real_bytes},
@@ -13264,6 +13295,7 @@ void GeneralWorkspace::close() noexcept {
   projected_coarse_complex_ = {};
   absorber_complex_ = {};
   coarse_spectrum_ = {};
+  split_factor_ = {};
   coarse_time_complex_ = {};
   scaled_synthesis_complex_ = {};
   scaled_projection_complex_ = {};
