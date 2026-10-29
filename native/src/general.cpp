@@ -5074,20 +5074,46 @@ void GeneralWorkspace::low_storage_flows_formed(const bool rebuild_table) {
   const auto n = problem_.n_omega;
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
   // With vector maths a host task forms a column's exponents a block of bins at a
-  // time and their exponentials in one pass (solprop ADR-059).
+  // time and their exponentials in one pass (solprop ADR-059); a separable route's
+  // task, a block of adjacent columns at one bin, its table's run in the scratch's
+  // layout (`RegisterIndex`).
   if constexpr (vmath::vectorised) {
-    const bool separable = problem_.separable_geometry();
-    const auto spatial = spatial_;
-    const auto delta = stage_phi_delta_;
-    const auto active = active_mask_;
-    const auto n_pol = problem_.n_pol_state;
+    if (problem_.separable_geometry()) {
+      const auto spatial = spatial_;
+      const auto delta = stage_phi_delta_;
+      const auto active = active_mask_;
+      const auto index = register_index();
+      const auto columns = problem_.n_columns();
+      const std::size_t blocks = (columns + stage_block - 1) / stage_block;
+      Kokkos::parallel_for(
+          "solprop_native.low_storage.separable_table",
+          Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, n * blocks),
+          KOKKOS_LAMBDA(const std::size_t item) {
+            const std::size_t omega = item / blocks;
+            const std::size_t first = (item % blocks) * stage_block;
+            const std::size_t width =
+                columns - first < stage_block ? columns - first : stage_block;
+            const bool in_band = active(omega) != 0U;
+            double real[stage_block], imag[stage_block];
+            for (std::size_t offset = 0; offset < width; ++offset) {
+              const Complex x =
+                  delta(2) *
+                  spatial.value(index.mode(first + offset), omega, in_band).linear;
+              real[offset] = x.real();
+              imag[offset] = x.imag();
+            }
+            vmath::exp_complex(real, imag, real, imag, width);
+            for (std::size_t offset = 0; offset < width; ++offset)
+              flows.data()[index(first + offset, omega)] =
+                  Complex(real[offset], imag[offset]);
+          });
+      return;
+    }
     const auto terms = stage_terms(0);
     const auto n_phi = problem_.n_phi_terms;
-    const auto index = register_index();
     const std::size_t blocks = (n + stage_block - 1) / stage_block;
     Kokkos::parallel_for(
-        separable ? "solprop_native.low_storage.separable_table"
-                  : "solprop_native.low_storage.modal_flows",
+        "solprop_native.low_storage.modal_flows",
         Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0,
                                             problem_.n_columns() * blocks),
         KOKKOS_LAMBDA(const std::size_t item) {
@@ -5096,28 +5122,12 @@ void GeneralWorkspace::low_storage_flows_formed(const bool rebuild_table) {
           const std::size_t bins = n - first < stage_block ? n - first : stage_block;
           double real[stage_block], imag[stage_block];
           const auto form = [&](const std::size_t flow, const std::size_t offset) {
-            if (separable) {
-              for (std::size_t bin = 0; bin < bins; ++bin) {
-                const auto omega = first + bin;
-                const Complex x =
-                    delta(2) *
-                    spatial.value(column / n_pol, omega, active(omega) != 0U).linear;
-                real[bin] = x.real();
-                imag[bin] = x.imag();
-              }
-            } else {
-              terms.phase_block(offset, column, first, bins, real, imag);
-            }
+            terms.phase_block(offset, column, first, bins, real, imag);
             vmath::exp_complex(real, imag, real, imag, bins);
-            if (separable)
-              for (std::size_t bin = 0; bin < bins; ++bin)
-                flows.data()[index(column, first + bin)] =
-                    Complex(real[bin], imag[bin]);
-            else
-              for (std::size_t bin = 0; bin < bins; ++bin)
-                flows(flow, column, first + bin) = Complex(real[bin], imag[bin]);
+            for (std::size_t bin = 0; bin < bins; ++bin)
+              flows(flow, column, first + bin) = Complex(real[bin], imag[bin]);
           };
-          if (separable || count == 1)
+          if (count == 1)
             form(0, 2 * n_phi);
           else {
             form(0, 0);
