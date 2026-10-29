@@ -325,11 +325,14 @@ The native CPU backend runs on OpenMP, whose standard variables apply:
   those spare threads; set it for a run on a machine it has to itself. LLVM's OpenMP runtime (used on macOS) also
   honours `KMP_BLOCKTIME`, the time a thread spins before sleeping; do not set it for
   GNU OpenMP.
-- On a machine your run has to itself, also pinning the threads helps: with idle
-  threads sleeping, `OMP_PROC_BIND=close OMP_PLACES=cores` made the capillary and
-  filament cases 6 to 30 % faster on the EPYC allocation above. Leave it unset where
-  several processes share a machine, since each would pin its threads to the same
-  first cores.
+- On cores your run has to itself, such as a batch job's allocation, also pinning the
+  threads helps: with idle threads sleeping, `OMP_PROC_BIND=close OMP_PLACES=cores` ran
+  the tracking cases 11 % faster (geometric mean) on 16 cores of a shared AMD EPYC 7763
+  node, the comb-to-continuum and graded-index cases 28 % and the radial filament 17 %,
+  while on a dedicated socket of a Xeon Gold 6240 it changed little (1 % slower overall).
+  Keep `close`: `spread` scatters a four-thread kernel over the EPYC's core complexes.
+  Leave it unset where several processes share a machine, since each would pin its
+  threads to the same first cores.
 
 ## BLAS and vendor libraries
 
