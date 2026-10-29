@@ -586,9 +586,10 @@ backend held it, the history's samples, the order and the proposed step
 256 MiB). A resume at that position carries on from it, with no startup call and
 no climb from order one, so on every backend a resumed run continues the
 uninterrupted run's computation, between planes too when it stopped at a terminal
-checkpoint (a spent call budget, a failed source), and agrees with it to rounding;
-solprop does not promise identical bits ([SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md)), and a rounding
-difference can occasionally change an adaptive step. That is what makes a run
+checkpoint (a spent call budget, a failed source), and agrees with it within its
+accuracy envelope: to rounding while the steps are the same, and to the tolerance where
+a rounding difference changes an adaptive step, as one occasionally does. solprop does
+not promise identical bits ([SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md)). That is what makes a run
 with a minutes-long source cheap to continue ([ADR-046](../../dev/decisions.md)). The
 native backend keeps its history resident and copies it to the host only for the
 snapshot. Without a snapshot -- `resume_history=False`, a file written before, or one
@@ -647,7 +648,9 @@ times at loose and medium accuracy, falling to about two at the tightest:
 On a cheap source, calls are not run time. On the compiled backends one source
 evaluation can cost less than a Runge–Kutta step's own linear work, and the Adams march
 takes more steps, so the call saving shrinks in wall time or disappears: a
-single-mode capillary, a coupled wall. [Choosing a stepper](choosing-a-stepper.md)
+single-mode capillary, a coupled wall. On `native` the exponential `Multistep()`'s
+controller runs natively as well ([SEP 39](../../dev/seps/sep-0039-native-adams-march.md)),
+so a step costs its kernels and almost no Python. [Choosing a stepper](choosing-a-stepper.md)
 gives the measured ranking by regime, on both compiled backends and on devices.
 
 ## Limitations
@@ -658,7 +661,13 @@ gives the measured ranking by regime, on both compiled backends and on devices.
   the history and the step's arithmetic are resident in the engine, on the CPU and on
   the AMD CDNA 3 and NVIDIA Hopper devices SEP 16 qualified, beside a coupled flow too
   when every bin of its sections is on the flow's eigenbasis route and it has at most
-  16 channels (otherwise its matrix passes run on the host).
+  16 channels (otherwise its matrix passes run on the host). On the CPU build the
+  default `Multistep()`'s march runs natively too; the configurations it does not cover
+  yet (the interaction formulation and the comparison methods, a replayed schedule, a
+  z table, separable, dispersive, moving or coupled stage rows, the carrier frame, a
+  device build) step solprop's march on the same engine, with a
+  {py:class}`~solprop.exceptions.HostMarchWarning` that names the reason. Either march
+  takes the same steps.
 - **Resume across backends.** A frozen-residual coupled flow's history is kept in a
   native form on `native` and as per-sample weights on the host engines, so its snapshot
   continues only on a backend of the same kind; a resume elsewhere starts the history

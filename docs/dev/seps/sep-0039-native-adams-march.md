@@ -2263,6 +2263,77 @@ a stub engine, so the norms are scripted, not computed.
   reads.
 - The baseline to beat is §3.3's.
 
+### Phase 1 — report
+
+**Scope.**
+
+- Phase 1, native stage scalars and the lean trial, 2026-10-29.
+- Opus 5.5 (AI) for John Travers, on the same branch (b97bdbd, c164e3b).
+
+**Delivered.**
+
+- **The tables, natively** (`native/include/solprop_native/stage_tables.hpp`). Where a
+  resident exponential trial's stage rows are one bundle repeated, the native backend
+  uploads the run's scalar tables once (`NativeBackend._stage_tables`, through
+  `PiecewiseChebyshev.packed`, the batch pass's own view of the expansions): the weights
+  of a constant or expanded $\Phi$ and prefactor, the density, the taper, the Raman
+  decay rates and densities, the Kerr density, the plasma channels' densities and
+  fractions, and an expansion's rate table. The native state evaluates them by the reads
+  of `translate.stage.scalars`, through the same strict Clenshaw helper in the same
+  order.
+- **The lean trial.** `adams_exponential_trial_at` takes the anchor, the step, the nodes,
+  the history's rows and the scored orders, and forms in-process the coefficient tables
+  (`lagrange::trial_tables`), the step's stage row and the lab-frame sample's, and the
+  endpoint rate (`stage::rate`). Only the nodes cross.
+- **The host side.** `_ResidentAdams.staged` selects the lean call; z tables, separable
+  operators, SEP 6's dispersive channels, moving maps and coupled flows keep the host's
+  packing until phase 4. The carrier frame's shift is still formed on the host.
+- **Bindings for the tests**: `adams_stage_scalars` and `adams_stage_rate`.
+- `benchmarks.adams_host --host-stages` restores the host packing, for this phase's A/B.
+
+**Deviations from the proposal.**
+
+1. **No kernel-schema bump, no `SCALAR_TABLES_FIELDS`.** The tables are the problem's
+   own `PiecewiseChebyshev` leaves, which the native backend already receives; they are
+   packed and uploaded by the native backend's adapter, not carried in a new
+   `KernelProblem` leaf. No contract field moved, so phase 2's bump (schema 39) is the
+   SEP's only one.
+2. **The carrier chord stays on the host.** It runs only with the carrier frame, which
+   the native march refuses until it forms the chord natively (phase 4's list).
+
+**Verification.**
+
+- `tests/backends/test_native_stage_tables.py`: the native bundles equal
+  `translate.stage.scalars` field for field, exactly (constant, gradient, profile,
+  multi-gas, Raman, plasma), and the endpoint rate equals `phi_rate`.
+- On one build with `SOLPROP_FFTW_PLAN=estimate`, the staged march's steps and fields
+  equal the host-staged march's bit for bit on four cases and seven routes (a recorded
+  expectation, §4.9; the norms' spread is zero).
+- The backend modules on the Apple M5 Max: 313 passed and one failure, the helper
+  ownership test, which counted the host's table calls and now counts the native ones.
+
+**Measured** (interleaved fresh processes, medians of three, the same steps in both
+arms):
+
+| machine | case | host µs/trial, host packing → staged | wall |
+|---|---|---|---|
+| AMD EPYC 7763, 1 thread | `he_rdw_averaged` | 211 → 66 | −9.8 % |
+| | `argon_blueshift_averaged` | 150 → 59 | −13.9 % |
+| | `h2_raman_averaged` (0.4) | 169 → 58 | −7.7 % |
+| | `rdw` (0.25) | 358 → 178 | −2.7 % |
+| Apple M5 Max, 1 thread | `he_rdw_averaged` | 43 → 12 | −5.0 % |
+| | `argon_blueshift_averaged` | 30 → 11 | −8.5 % |
+| | `h2_raman_averaged` (0.4) | 36 → 11 | −4.4 % |
+| | `rdw` (0.25) | 88 → 46 | −0.8 % |
+
+The EPYC node was shared (load 81–93), so its walls carry that node's noise; the host
+times are the timer's own. The gain is about what §6.1 estimated for phase 1 (−110 and
+−60 µs a trial on helium and argon).
+
+**Handoff to phase 2.** The march loop's engine calls are `adams_start`, the staged
+trial and `adams_exponential_accept`; the state the march must hand back is
+`AdamsMarch`'s (§4.2).
+
 ## Part III — History
 
 - 2026-10-28: Drafted by Opus 5.5 for John Travers, from a profiling study of the

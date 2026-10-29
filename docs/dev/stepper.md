@@ -425,6 +425,24 @@ corrector, carry and defect norms are native passes over its resident eigenbasis
 frozen-residual flow's generator applied once per sample. The general
 path (PECE and the comparison variants) keeps host arrays.
 
+**The policy and the native march** (ADR-060, [SEP 39](seps/sep-0039-native-adams-march.md)):
+every number the controller reads -- the order and its variability, the safety and
+growth factors, the restart and hysteresis constants, the collar's and the carrier's
+caps, the budget, the floor and ceiling, the landings and the run's end -- is one
+record, `MarchPolicy`, formed by `march_policy` from the method and the settings, and
+the decisions are pure functions of the policy, the march's state and a trial's norms
+(`backends/adams_core.py`). The kernel contract's section 11 specifies them. `native`
+executes the exponential `Multistep()` from that record on its resident engine
+(`native/src/adams_march.cpp`), a run of attempts per call, and returns to solprop
+only at an event: the target reached or crossed, an accepted step on which the driver
+has work (a statistics row, a natural stop, a monitor check), the call's bound, the
+budget, the floor or a native error. The driver books the call's attempts through
+`_record_attempt` and `_skip_step`, inside one commit. `AdamsMarch` is the reference
+and steps every configuration the native march does not cover (the interaction
+formulation, the comparison variants, replayed schedules, a z table, separable,
+dispersive, moving or coupled stage rows, the carrier frame and device builds, for
+now), with a `HostMarchWarning` naming the reason.
+
 **Resume** (ADR-046): an engine that can export its rows (`snapshot_rows`, and
 `load_rows` to install them) lets `AdamsMarch.snapshot` return a `MarchSnapshot` -- the
 accepted state, the rows, each history entry's position, kind and row, the order, the

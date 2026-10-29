@@ -1114,9 +1114,9 @@ the step history and over the same interval, and a row may not index past it.
 
 ## 11. The Adams march
 
-*Draft ([SEP 39](seps/sep-0039-native-adams-march.md) phase 0). It becomes normative
-when the native march lands in phase 2; until then the Python march is the only
-execution.*
+*Normative since kernel schema 39 ([SEP 39](seps/sep-0039-native-adams-march.md),
+ADR-060). The native backend executes it for the exponential `Multistep()` on its CPU
+build; every other configuration and backend runs the reference.*
 
 The step loop of `Multistep()` is one algorithm with one reference implementation,
 solprop's `AdamsMarch` and the controller core it calls (`solprop.backends.adams_core`).
@@ -1168,10 +1168,33 @@ An acceptance commits the engine's state, the history, the ledger, the stored or
 position and a kink restart together. Only then is the next proposal tested against the
 floor. A floor so found is raised after the attempt is recorded.
 
-**What a native execution returns** (phase 2):
+**What a native call takes**: the policy, once per run and again when the monitor's
+interval changes (`MARCH_POLICY_FIELDS`, exactly the record's fields); the state above;
+and its bounds: the target; whether the collar rests; the accepted steps after which the
+driver has work (the next statistics row, natural stop or monitor check, whichever comes
+first; none for zero); the monitor's last check and interval; and the call's own bound,
+256 attempts or 0.1 s of wall time, which bounds a signal's wait.
 
-- per attempt, one row: end, step, norm (non-finite as infinity), accepted, order, wall
-  time;
-- the reason it returned: an accepted-step event, the call bound, the budget, the floor,
-  divergence or exhaustion on a replay, or an error record (stage, category, message);
-- the state above.
+**What it returns**:
+
+- per attempt, one row: end, step, norm (non-finite as infinity), accepted, order, and
+  wall time since the call began;
+- each accepted step's order, and the last accepted step's anchor, step, order and
+  nodes, for a dense observation;
+- the reason it returned (`march::Reason`): the target reached, or crossed with planes
+  interpolated; an accepted step on which the driver has work; the monitor's distance;
+  the call's bound; the budget, with the refused attempt's cost; the floor, with the
+  proposal below it; or a native error, with its stage (startup, trial, accept),
+  category (convergence, value, backend) and message;
+- the state above, every step before the event committed.
+
+**What solprop does with a call** (`_NativeAdamsMarch`): inside one `committing()` it
+adopts the state and books each row, an accepted row on which the driver has no work
+through `StepDriver._skip_step` and the rest through `StepDriver._record_attempt`; after
+the commit it reports progress per attempt, takes the event step's statistics and natural
+stop, and raises the error the reason names, with the reference's message.
+
+**Rounding.** The decisions are compiled without contraction or fast-math in their own
+translation unit and call no elementary function but `pow`, so that they round as
+solprop's Python does; on one build the native and reference marches read the same
+tables and norms and take the same steps.

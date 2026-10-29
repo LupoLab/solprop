@@ -1727,6 +1727,19 @@ Every backend reports `memory_ledger()`: buffer name → bytes, including transf
 A test asserts which entries are field-sized, that everything is named even when empty, and
 that the total is within the documented budget for the standard cases.
 
+**The native Adams march** (ADR-060, [SEP 39](seps/sep-0039-native-adams-march.md)).
+`native` steps the exponential `Multistep()` itself: `_NativeAdamsMarch` hands the
+native state solprop's `MarchPolicy` once, then each call runs attempts on the resident
+engine -- stage scalars and tables evaluated natively from the run's uploaded
+expansions, the trial, the decision, the accept -- until a host event, and returns the
+march's state and one row per attempt (its end, step, norm, verdict, order and wall
+time). The decisions are compiled without contraction in their own translation unit,
+so that they round as solprop's do; within one build the two marches take the same
+steps. A configuration it does not cover runs solprop's march on the same engine with a
+`HostMarchWarning`, and the metadata's `adams_march` says which stepped a run. The
+private environment variable `SOLPROP_ADAMS_MARCH=host`, read at import, selects
+solprop's march for an A/B comparison.
+
 **Resident Adams storage.** `native` allocates dense-output storage only when
 `interpolate_planes=True`. For maximum predictor order `q`, its ordinary resident
 history owns `2 (q + 2) + 4` complex field volumes, plus the norm's small scalar arrays.

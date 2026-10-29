@@ -20,12 +20,15 @@ contract and its conventions; where both apply, follow the stricter rule.
   `build_info`, `check_build`, `__version__`, and the contract tuples
   `DRIVER_SURFACE`, `LINEAR_OPERATOR_FIELDS`, `TRANSFORM_FIELDS`, `RESPONSE_FIELDS`,
   `SEPARABLE_OPERATOR_FIELDS`, `STAGE_TERMS_FIELDS`, `STAGE_SCALARS_FIELDS`,
-  `MODAL_TABLES_FIELDS`, `REGIONAL_RESPONSE_FIELDS`, `COUPLED_FLOW_FIELDS` and
-  `DISPERSIVE_KERR_FIELDS`. The
+  `MODAL_TABLES_FIELDS`, `REGIONAL_RESPONSE_FIELDS`, `COUPLED_FLOW_FIELDS`,
+  `DISPERSIVE_KERR_FIELDS`, `MARCH_POLICY_FIELDS` and `ADAMS_MARCH_SURFACE`. The
   compiled `_core` module and the C++ API are private.
 - The layers are solprop -> Python backend adapter -> nanobind seam -> a Python-free
   C++20 core. Native code never imports Python or solprop concepts and never owns
-  user-facing policy.
+  user-facing policy: it may execute an algorithm the kernel contract specifies in
+  full -- the Adams march's controller, order choice and landings among them (SEP 39)
+  -- with every parameter handed over by solprop and solprop's implementation as the
+  reference, and it never chooses or defaults a parameter itself.
 - solprop imports this package only lazily, through its backend registry. The wheel
   does not depend on solprop at run time; the contract is solprop's kernel-contract
   schema plus the members named by the tuples above, which `check_build()` checks at

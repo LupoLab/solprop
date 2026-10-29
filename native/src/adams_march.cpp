@@ -70,6 +70,11 @@ double ulp(const double x) {
   return std::nextafter(magnitude, std::numeric_limits<double>::infinity()) - magnitude;
 }
 
+double strict_probe(const double a, const double b, const double c) {
+  const double product = a * b;
+  return product + c;
+}
+
 void validate(const Policy& policy) {
   if (policy.order < 1 || policy.order > 6)
     refuse("order", static_cast<double>(policy.order));

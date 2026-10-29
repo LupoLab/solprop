@@ -188,6 +188,9 @@ struct Rejection {
 [[nodiscard]] bool reached(double position, double target, int ulps);
 /** The spacing of binary64 at a non-negative `x`: `math.ulp`, `numpy.spacing`. */
 [[nodiscard]] double ulp(double x);
+/** `a b + c` as this translation unit rounds it: the strictness test's witness that the
+    decisions' products and sums are rounded separately. */
+[[nodiscard]] double strict_probe(double a, double b, double c);
 
 /** The field arithmetic a march hands its trials to. */
 class Engine {
