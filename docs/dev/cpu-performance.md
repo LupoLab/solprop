@@ -116,7 +116,7 @@ time divided by the native backend's: above 1, the native backend is faster.
   team), its threaded transforms at the team's width. On a Xeon Gold 6240 at 16 threads
   `gnlse_raman_shock` takes 0.70 of its time and `h2_raman_averaged` 0.87; one thread is
   unchanged.
-- **One-mode products on the response team** ([measurements](benchmarks.md#one-mode-products)).
+- **One-mode products on the response team** ([measurements](benchmarks.md#one-mode-products-on-the-response-team)).
   One real mode at several nodes synthesised and projected through the vendor GEMM, which
   threaded each 33 × 1 and 2 × 33 product over its own pool at 2.3 times its one-thread
   cost; two small kernels now run them on the band column's response team. Plain
