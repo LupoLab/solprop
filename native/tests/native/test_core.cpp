@@ -1166,8 +1166,9 @@ TEST(GeneralState, RamanMemoryLedgerMatchesTheConditionalViewFormulae) {
             problem.n_raman_terms * 2 * problem.n_to * real);
   EXPECT_EQ(ledger.at("raman_kernel_time"), 2 * problem.n_to * real);
   EXPECT_EQ(ledger.at("raman_kernel_spectrum"), (problem.n_to + 1) * complex);
+  // Two slots of the packed stage scalars, the trial's step and its sample.
   EXPECT_EQ(ledger.at("stage_raman_rates"),
-            problem.n_stages * problem.n_raman_terms * real);
+            2 * problem.n_stages * problem.n_raman_terms * real);
 
   native::GeneralState ordinary(multimode_problem());
   const auto absent = ordinary.memory_ledger();
@@ -1317,7 +1318,12 @@ struct SynthesisCapture {
   ~SynthesisCapture() { Kokkos::Tools::Experimental::set_callbacks(previous); }
 };
 
-TEST(GeneralState, RadialAnalyticChunksUseInterleavedGemmIncludingTheTail) {
+// Five nodes and modes in chunks of three, the tail two. The square map takes the
+// retained-spectrum synthesis; with an in-stage absorber, which reads the modal time
+// field, it keeps the interleaved real GEMM over the time samples. Both must reach
+// BLAS for the full chunk and the tail rather than the scalar custom loop, and agree
+// with the whole transform.
+void check_radial_analytic_chunks(const bool absorber, const char* expected_region) {
   auto problem = general_problem(native::FieldFamily::field_analytic);
   problem.n_modes = 5;
   problem.n_nodes = 5;
@@ -1326,6 +1332,12 @@ TEST(GeneralState, RadialAnalyticChunksUseInterleavedGemmIncludingTheTail) {
   problem.spatial_on_axis.assign(problem.n_modes, 1.0);
   problem.phi_terms.assign(problem.n_modes * problem.n_omega, Complex{});
   problem.prefactor_terms.assign(problem.n_modes * problem.n_omega, Complex(1.0, 0.0));
+  problem.in_stage_absorber = absorber;
+  if (absorber) {
+    problem.absorber_fine.resize(problem.n_to);
+    for (std::size_t time = 0; time < problem.n_to; ++time)
+      problem.absorber_fine[time] = 0.01 * static_cast<double>(time % 3);
+  }
   problem.synthesis_matrix.resize(problem.n_nodes * problem.n_modes);
   problem.projection_matrix.resize(problem.n_modes * problem.n_nodes);
   for (std::size_t row = 0; row < problem.n_nodes; ++row) {
@@ -1354,15 +1366,16 @@ TEST(GeneralState, RadialAnalyticChunksUseInterleavedGemmIncludingTheTail) {
     const SynthesisCapture capture;
     static_cast<void>(chunked.trial_step(0.01, trial(problem)));
   }
-  const auto interleaved =
-      std::count(synthesis_regions.begin(), synthesis_regions.end(),
-                 "solprop_native.transform.synthesis.kokkosblas_interleaved");
+  const auto selected =
+      std::count(synthesis_regions.begin(), synthesis_regions.end(), expected_region);
   const auto custom = std::count(synthesis_regions.begin(), synthesis_regions.end(),
                                  "solprop_native.transform.synthesis.custom");
   const bool uses_blas =
       native::compiled_gemm_provider() != native::GemmProvider::custom;
-  EXPECT_EQ(interleaved, uses_blas ? 2 : 0);
+  EXPECT_EQ(selected, uses_blas ? 2 : 0);
   EXPECT_EQ(custom, uses_blas ? 0 : 2);
+  // Only the absorber-free map keeps the retained spectra.
+  EXPECT_EQ(ledger.at("retained_synthesis") > 0, uses_blas && !absorber);
   chunked.finish(0.01);
   const auto actual = chunked.field_to_host();
   // Both computations have one inverse/forward FFT and two length-five products;
@@ -1376,6 +1389,15 @@ TEST(GeneralState, RadialAnalyticChunksUseInterleavedGemmIncludingTheTail) {
     expect_complex_near(actual[index], expected[index],
                         tolerance * std::max(1.0, Kokkos::abs(expected[index])));
   EXPECT_EQ(chunked.memory_ledger(), ledger);
+}
+
+TEST(GeneralState, RadialAnalyticChunksUseInterleavedGemmIncludingTheTail) {
+  check_radial_analytic_chunks(
+      true, "solprop_native.transform.synthesis.kokkosblas_interleaved");
+}
+
+TEST(GeneralState, SquareRadialAnalyticChunksSynthesiseRetainedSpectra) {
+  check_radial_analytic_chunks(false, "solprop_native.transform.synthesis.retained");
 }
 #endif
 
