@@ -13787,6 +13787,54 @@ void GeneralWorkspace::bind_monitor(const std::vector<double>& weights,
 // field grid under the split scheme the collar's coarse pair, whose inverse real
 // transform is the one solprop's reference takes; otherwise the statistics buffers,
 // with the analytic signal's spectrum, whose real part is that transform's result.
+namespace {
+// The boundary monitor's sums over `count` rows of `n_t` samples: each sample's power,
+// `power(row, index)`, in total and weighed by each of the four regions' weights. A
+// host work item takes a run of one row's samples, its sums in sample order, so that
+// no sample divides its flat index by the row length; a device takes one sample.
+template <class Power>
+MonitorSums monitor_sums(const char* label, const ExecutionSpace& execution,
+                         const std::size_t count, const std::size_t n_t,
+                         const RealView2& weights, const Power& power) {
+  MonitorSums sums;
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  Kokkos::parallel_reduce(
+      label, Kokkos::RangePolicy<ExecutionSpace>(execution, 0, count * n_t),
+      KOKKOS_LAMBDA(const std::size_t item, MonitorSums& update) {
+        const auto index = item % n_t;
+        const double value = power(item / n_t, index);
+        update.values[0] += value;
+        for (std::size_t region = 0; region < 4; ++region)
+          update.values[region + 1] += weights(region, index) * value;
+      },
+      Kokkos::Sum<MonitorSums>(sums));
+#else
+  constexpr std::size_t run = 512;
+  const std::size_t runs = (n_t + run - 1) / run;
+  Kokkos::parallel_reduce(
+      label, Kokkos::RangePolicy<ExecutionSpace>(execution, 0, count * runs),
+      KOKKOS_LAMBDA(const std::size_t item, MonitorSums& update) {
+        const std::size_t row = item / runs;
+        const std::size_t first = (item % runs) * run;
+        const std::size_t last = n_t - first < run ? n_t : first + run;
+        double total = 0.0;
+        double regions[4] = {0.0, 0.0, 0.0, 0.0};
+        for (std::size_t index = first; index < last; ++index) {
+          const double value = power(row, index);
+          total += value;
+          for (std::size_t region = 0; region < 4; ++region)
+            regions[region] += weights(region, index) * value;
+        }
+        update.values[0] += total;
+        for (std::size_t region = 0; region < 4; ++region)
+          update.values[region + 1] += regions[region];
+      },
+      Kokkos::Sum<MonitorSums>(sums));
+#endif
+  return sums;
+}
+} // namespace
+
 std::vector<double> GeneralWorkspace::monitor_reading() {
   require_open();
   if (!initialized_)
@@ -13821,21 +13869,12 @@ std::vector<double> GeneralWorkspace::monitor_reading() {
           });
       KokkosFFT::execute(*coarse_inverse_real_plan_, coarse, samples,
                          KokkosFFT::Normalization::none);
-      MonitorSums chunk;
-      Kokkos::parallel_reduce(
-          "solprop_native.monitor.sums_real",
-          Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, count * n_t),
-          KOKKOS_LAMBDA(const std::size_t item, MonitorSums& update) {
-            const auto row = item / n_t;
-            const auto index = item % n_t;
+      sums += monitor_sums(
+          "solprop_native.monitor.sums_real", execution_space_, count, n_t, weights,
+          KOKKOS_LAMBDA(const std::size_t row, const std::size_t index) {
             const double value = samples(row, index);
-            const double power = column_weights(first + row) * value * value;
-            update.values[0] += power;
-            for (std::size_t region = 0; region < 4; ++region)
-              update.values[region + 1] += weights(region, index) * power;
-          },
-          Kokkos::Sum<MonitorSums>(chunk));
-      sums += chunk;
+            return column_weights(first + row) * value * value;
+          });
     }
   }
   const auto rows = statistics_spectrum_.extent(0);
@@ -13858,23 +13897,13 @@ std::vector<double> GeneralWorkspace::monitor_reading() {
         });
     KokkosFFT::execute(*statistics_inverse_plan_, spectrum, time,
                        KokkosFFT::Normalization::none);
-    MonitorSums chunk;
-    Kokkos::parallel_reduce(
-        "solprop_native.monitor.sums",
-        Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, count * n_t),
-        KOKKOS_LAMBDA(const std::size_t item, MonitorSums& update) {
-          const auto row = item / n_t;
-          const auto index = item % n_t;
+    sums += monitor_sums(
+        "solprop_native.monitor.sums", execution_space_, count, n_t, weights,
+        KOKKOS_LAMBDA(const std::size_t row, const std::size_t index) {
           const Complex value = time(row, index);
-          const double power =
-              column_weights(first + row) *
-              (envelope ? squared_abs(value) : value.real() * value.real());
-          update.values[0] += power;
-          for (std::size_t region = 0; region < 4; ++region)
-            update.values[region + 1] += weights(region, index) * power;
-        },
-        Kokkos::Sum<MonitorSums>(chunk));
-    sums += chunk;
+          return column_weights(first + row) *
+                 (envelope ? squared_abs(value) : value.real() * value.real());
+        });
   }
   double removed = 0.0;
   if (problem_.split_step_absorber) {
