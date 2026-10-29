@@ -1490,6 +1490,8 @@ struct StageTerms {
   bool add_noise = false, analytic = false, general = false, flow = false;
   bool carried = false, keep_lab = false, zero_response = false;
   bool in_stage_absorber = false;
+  // Every coarse bin is the fine bin of its own index (`crop` is the identity).
+  bool identity_crop = false;
 
   // The stage's phase increment `sum_t dPhi_t Phi_t` at one bin: strict (solprop SEP
   // 25 section 4.2), each product and sum rounded in term order. A zero weight's term
@@ -1583,6 +1585,15 @@ struct StageTerms {
   }
 
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+  // Whether the first `count` of a block's phases have real parts that are all zeros.
+  static bool lossless_block(const double (&real)[stage_block],
+                             const std::size_t count) {
+    bool zero = true;
+    for (std::size_t bin = 0; bin < count; ++bin)
+      zero = zero && real[bin] == 0.0;
+    return zero;
+  }
+
   // A host work item's factors for its `count` bins from `first`, each function one
   // pass of the vector-maths layer over the block (solprop ADR-059): the phases' sines
   // and cosines, their magnitudes and inverse magnitudes, and the noise phases'.
@@ -1595,11 +1606,21 @@ struct StageTerms {
     if constexpr (Mode != EntryPhase::repeated)
       vmath::sincos(imag, block.sine, block.cosine, count);
     if constexpr (Mode == EntryPhase::general) {
-      double negated[stage_block];
-      for (std::size_t bin = 0; bin < count; ++bin)
-        negated[bin] = -real[bin];
-      vmath::exp(real, block.magnitude, count);
-      vmath::exp(negated, block.inverse, count);
+      // A block whose phases' real parts are all (signed) zeros -- a lossy problem's
+      // loss often lies in a few bands -- has both magnitudes `exp(+-0)`, exactly one,
+      // without the calls.
+      if (lossless_block(real, count)) {
+        for (std::size_t bin = 0; bin < count; ++bin) {
+          block.magnitude[bin] = 1.0;
+          block.inverse[bin] = 1.0;
+        }
+      } else {
+        double negated[stage_block];
+        for (std::size_t bin = 0; bin < count; ++bin)
+          negated[bin] = -real[bin];
+        vmath::exp(real, block.magnitude, count);
+        vmath::exp(negated, block.inverse, count);
+      }
     }
     if (add_noise) {
       double angle[stage_block]{};
@@ -1734,6 +1755,171 @@ struct StageTerms {
       error(column, index) += error_weight * value;
     }
   }
+
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+  // Whether a host work item takes its finish and combination as the block forms
+  // below: a stage that projects a source into the stage rows, off a coupled flow and
+  // the general route, whose stores the per-bin forms keep.
+  [[nodiscard]] bool blocks_vectorise() const noexcept {
+    return !flow && !general && !zero_response;
+  }
+
+  // `finish` over the `count` bins of a block from `first`, each bin the same
+  // arithmetic in the same order, the block's parts held as separate real and
+  // imaginary lanes so that the bins vectorise; only the crop's gathers stay per bin.
+  [[maybe_unused]] void finish_block(const std::size_t stage,
+                                     const double solution_weight,
+                                     const double error_weight,
+                                     const std::size_t column, const std::size_t first,
+                                     const std::size_t count) const {
+    double real[stage_block], imag[stage_block];
+    double source_real[stage_block], source_imag[stage_block];
+    for (std::size_t bin = 0; bin < count; ++bin) {
+      real[bin] = 0.0;
+      imag[bin] = 0.0;
+    }
+    for (std::size_t term = 0; term < n_prefactor; ++term) {
+      const double weight = prefactor_weights(stage * n_prefactor + term);
+      if (weight == 0.0)
+        continue;
+      const Complex* values = &prefactor_terms(term, column, first);
+      for (std::size_t bin = 0; bin < count; ++bin) {
+        real[bin] += weight * values[bin].real();
+        imag[bin] += weight * values[bin].imag();
+      }
+    }
+    const std::size_t* bins = &crop(first);
+    const auto gather = [&](const Complex* row) {
+      if (identity_crop)
+        for (std::size_t bin = 0; bin < count; ++bin) {
+          source_real[bin] = row[first + bin].real();
+          source_imag[bin] = row[first + bin].imag();
+        }
+      else
+        for (std::size_t bin = 0; bin < count; ++bin) {
+          source_real[bin] = row[bins[bin]].real();
+          source_imag[bin] = row[bins[bin]].imag();
+        }
+    };
+    gather(&projected(column, 0));
+    const double* weights = &window(first);
+    for (std::size_t bin = 0; bin < count; ++bin) {
+      const double scaled_real = real[bin] * weights[bin];
+      const double scaled_imag = imag[bin] * weights[bin];
+      real[bin] = scaled_real * source_real[bin] - scaled_imag * source_imag[bin];
+      imag[bin] = scaled_real * source_imag[bin] + scaled_imag * source_real[bin];
+    }
+    if (in_stage_absorber) {
+      gather(&absorber(column, 0));
+      const unsigned char* band = &active(first);
+      for (std::size_t bin = 0; bin < count; ++bin) {
+        const bool inside = band[bin] != 0U;
+        real[bin] = inside ? real[bin] + source_real[bin] : real[bin];
+        imag[bin] = inside ? imag[bin] + source_imag[bin] : imag[bin];
+      }
+    }
+    const Complex* inverse = &stage_inverse(column, first);
+    Complex* row = &stages(stage, column, first);
+    Complex* total = &solution(column, first);
+    Complex* estimate = &error(column, first);
+    for (std::size_t bin = 0; bin < count; ++bin) {
+      const double value_real =
+          real[bin] * inverse[bin].real() - imag[bin] * inverse[bin].imag();
+      const double value_imag =
+          real[bin] * inverse[bin].imag() + imag[bin] * inverse[bin].real();
+      row[bin] = Complex(value_real, value_imag);
+      if (stage == 0) {
+        total[bin] =
+            Complex(solution_weight * value_real, solution_weight * value_imag);
+        estimate[bin] = Complex(error_weight * value_real, error_weight * value_imag);
+      } else {
+        total[bin] = Complex(total[bin].real() + solution_weight * value_real,
+                             total[bin].imag() + solution_weight * value_imag);
+        estimate[bin] = Complex(estimate[bin].real() + error_weight * value_real,
+                                estimate[bin].imag() + error_weight * value_imag);
+      }
+    }
+  }
+
+  // `combine` over the `count` bins of a block from `first`, from the block's factors,
+  // in the lanes of `finish_block`; with `store_whole`, each propagator is also the
+  // whole step's.
+  template <EntryPhase Mode>
+  [[maybe_unused]] void
+  combine_block(const std::size_t stage, const double dz, const std::size_t column,
+                const std::size_t first, const std::size_t count,
+                const EntryBlock& factors, const bool store_whole) const {
+    double real[stage_block], imag[stage_block];
+    double sum_real[stage_block], sum_imag[stage_block];
+    Complex* inverse = &stage_inverse(column, first);
+    for (std::size_t bin = 0; bin < count; ++bin) {
+      if constexpr (Mode == EntryPhase::repeated) {
+        real[bin] = inverse[bin].real();
+        imag[bin] = -inverse[bin].imag();
+      } else if constexpr (Mode == EntryPhase::lossless) {
+        real[bin] = factors.cosine[bin];
+        imag[bin] = factors.sine[bin];
+        inverse[bin] = Complex(factors.cosine[bin], -factors.sine[bin]);
+      } else {
+        real[bin] = factors.magnitude[bin] * factors.cosine[bin];
+        imag[bin] = factors.magnitude[bin] * factors.sine[bin];
+        inverse[bin] = Complex(factors.inverse[bin] * factors.cosine[bin],
+                               -(factors.inverse[bin] * factors.sine[bin]));
+      }
+    }
+    if (store_whole) {
+      Complex* propagator = &whole(column, first);
+      for (std::size_t bin = 0; bin < count; ++bin)
+        propagator[bin] = Complex(real[bin], imag[bin]);
+    }
+    for (std::size_t bin = 0; bin < count; ++bin) {
+      sum_real[bin] = 0.0;
+      sum_imag[bin] = 0.0;
+    }
+    for (std::size_t previous = 0; previous < stage; ++previous) {
+      const double weight = tableau(stage * n_stages + previous);
+      const Complex* earlier = &stages(previous, column, first);
+      for (std::size_t bin = 0; bin < count; ++bin) {
+        sum_real[bin] += weight * earlier[bin].real();
+        sum_imag[bin] += weight * earlier[bin].imag();
+      }
+    }
+    const Complex* state = &current(column, first);
+    for (std::size_t bin = 0; bin < count; ++bin) {
+      const double input_real = state[bin].real() + dz * sum_real[bin];
+      const double input_imag = state[bin].imag() + dz * sum_imag[bin];
+      const double value_real = real[bin] * input_real - imag[bin] * input_imag;
+      const double value_imag = real[bin] * input_imag + imag[bin] * input_real;
+      real[bin] = value_real;
+      imag[bin] = value_imag;
+    }
+    if (add_noise) {
+      const Complex* draw = &noise(column, first);
+      for (std::size_t bin = 0; bin < count; ++bin) {
+        const double noise_real = draw[bin].real() * factors.noise_cosine[bin] -
+                                  draw[bin].imag() * factors.noise_sine[bin];
+        const double noise_imag = draw[bin].real() * factors.noise_sine[bin] +
+                                  draw[bin].imag() * factors.noise_cosine[bin];
+        real[bin] += noise_real;
+        imag[bin] += noise_imag;
+      }
+    }
+    Complex* padded = &fine(column, 0);
+    const std::size_t* bins = &crop(first);
+    if (identity_crop && !analytic) {
+      for (std::size_t bin = 0; bin < count; ++bin)
+        padded[first + bin] =
+            Complex(inverse_n_to * real[bin], inverse_n_to * imag[bin]);
+      return;
+    }
+    for (std::size_t bin = 0; bin < count; ++bin) {
+      const double analytic_scale =
+          analytic && first + bin > 0 && 2 * bins[bin] < n_to ? 2.0 : 1.0;
+      const double scale = analytic_scale * inverse_n_to;
+      padded[bins[bin]] = Complex(scale * real[bin], scale * imag[bin]);
+    }
+  }
+#endif
 };
 
 } // namespace
@@ -1742,6 +1928,9 @@ class GeneralWorkspace {
 public:
   explicit GeneralWorkspace(Problem problem) : problem_(std::move(problem)) {
     require_general_problem(problem_);
+    identity_crop_ = problem_.crop_index.size() == problem_.n_omega;
+    for (std::size_t index = 0; identity_crop_ && index < problem_.n_omega; ++index)
+      identity_crop_ = problem_.crop_index[index] == index;
     execution_space_ =
         kernel_pool_.get(CpuOperation::stage, problem_.n_columns() * problem_.n_omega);
     const auto nodes = problem_.node_chunk;
@@ -2237,6 +2426,8 @@ public:
   // `finish_pending_` names the stage's finish still to run there.
   bool defer_finish_{};
   bool finish_pending_{};
+  // `problem_.crop_index` is the identity (`StageTerms::identity_crop`).
+  bool identity_crop_{};
   std::size_t pending_stage_{};
   bool stash_is_current_{};
   std::size_t plan_heap_growth_{}, plan_device_growth_{};
@@ -8567,6 +8758,7 @@ StageTerms GeneralWorkspace::stage_terms(const std::size_t stage) const {
                             : !problem_.nonlinear && !problem_.plasma &&
                                   !problem_.raman && !absorbing() && !dispersive_;
   terms.in_stage_absorber = absorbing();
+  terms.identity_crop = identity_crop_;
   return terms;
 }
 
@@ -8638,6 +8830,7 @@ void GeneralWorkspace::stage_entry_with(const std::size_t stage, const double dz
       });
 #else
   const std::size_t blocks = (n + stage_block - 1) / stage_block;
+  const bool block_forms = terms.blocks_vectorise();
   Kokkos::parallel_for(
       "solprop_native.stage.entry",
       Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0,
@@ -8647,7 +8840,10 @@ void GeneralWorkspace::stage_entry_with(const std::size_t stage, const double dz
         const std::size_t block = item % blocks;
         const std::size_t first = block * stage_block;
         const std::size_t count = n - first < stage_block ? n - first : stage_block;
-        if (finish_previous)
+        if (finish_previous && block_forms)
+          terms.finish_block(previous, previous_solution, previous_error, column, first,
+                             count);
+        else if (finish_previous)
           for (std::size_t bin = 0; bin < count; ++bin)
             terms.finish(previous, previous_solution, previous_error, column,
                          first + bin);
@@ -8661,17 +8857,22 @@ void GeneralWorkspace::stage_entry_with(const std::size_t stage, const double dz
           EntryBlock factors{};
           terms.template entry_factors_block<Mode>(stage, column, first, count, real,
                                                    imag, factors);
-          for (std::size_t bin = 0; bin < count; ++bin) {
-            const Complex propagator = terms.template combine<Mode>(
-                stage, dz, solution_weight, error_weight, column, first + bin,
-                Complex(real[bin], imag[bin]), factors.at(bin));
-            if (reuse_whole)
-              terms.whole(column, first + bin) = propagator;
-          }
+          if (block_forms)
+            terms.template combine_block<Mode>(stage, dz, column, first, count, factors,
+                                               reuse_whole);
+          else
+            for (std::size_t bin = 0; bin < count; ++bin) {
+              const Complex propagator = terms.template combine<Mode>(
+                  stage, dz, solution_weight, error_weight, column, first + bin,
+                  Complex(real[bin], imag[bin]), factors.at(bin));
+              if (reuse_whole)
+                terms.whole(column, first + bin) = propagator;
+            }
           if (last && !reuse_whole) {
             // The whole step's propagator, `entry_exponential` over the block.
             terms.phase_block(n_stages * n_phi, column, first, count, real, imag);
-            if constexpr (lossless)
+            // `e^{+-0} (cos b, sin b)` is `(cos b, sin b)` to the bit.
+            if (lossless || StageTerms::lossless_block(real, count))
               vmath::sincos(imag, factors.sine, factors.cosine, count);
             else
               vmath::exp_complex(real, imag, factors.cosine, factors.sine, count);
@@ -11679,6 +11880,23 @@ void GeneralWorkspace::finish_stage(const std::size_t stage) {
   const auto terms = stage_terms(stage);
   const double solution_weight = problem_.solution_weights[stage];
   const double error_weight = problem_.error_weights[stage];
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+  // The host's blocks of bins, as the stage's entry kernel takes them.
+  if (terms.blocks_vectorise()) {
+    const auto n = problem_.n_omega;
+    const std::size_t blocks = (n + stage_block - 1) / stage_block;
+    Kokkos::parallel_for(
+        "solprop_native.stage.finish_accumulate",
+        Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0,
+                                            problem_.n_columns() * blocks),
+        KOKKOS_LAMBDA(const std::size_t item) {
+          const std::size_t first = (item % blocks) * stage_block;
+          terms.finish_block(stage, solution_weight, error_weight, item / blocks, first,
+                             n - first < stage_block ? n - first : stage_block);
+        });
+    return;
+  }
+#endif
   Kokkos::parallel_for(
       "solprop_native.stage.finish_accumulate",
       Range2(execution_space_, {0, 0}, {problem_.n_columns(), problem_.n_omega}),
