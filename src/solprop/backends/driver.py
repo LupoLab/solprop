@@ -2119,14 +2119,13 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         dz : float
             Length of the step, m.
         norm : float
-            The scaled error norm, infinity for a diverged attempt.
+            The scaled error norm; the native march records a non-finite one as
+            infinity, as :meth:`_record` does.
         accepted : bool
             Whether the step was kept.
         wall : float
             Seconds since the last observation, as :meth:`_record` measures it.
         """
-        if not math.isfinite(norm):
-            norm = math.inf
         self._history.append((z, dz, norm, accepted, wall))
 
     def _skip_step(self, z: float) -> None:
