@@ -256,12 +256,9 @@ struct FieldCurrentStream {
   RealView2 node, projected, coarse, stacked;
   ComplexView2 spectrum, coarse_spectrum;
   std::unique_ptr<ForwardRealPlan> forward, coarse_forward;
-  // `stacked` is the fine and coarse rows themselves (a device's packed currents),
-  // not storage of its own.
-  bool stacked_aliases{};
   std::size_t bytes() const {
-    return sizeof(double) * (node.size() + projected.size() + coarse.size() +
-                             (stacked_aliases ? 0 : stacked.size())) +
+    return sizeof(double) *
+               (node.size() + projected.size() + coarse.size() + stacked.size()) +
            sizeof(Complex) * (spectrum.size() + coarse_spectrum.size());
   }
 };
@@ -3671,10 +3668,10 @@ void GeneralWorkspace::allocate() {
     const auto rows = radial ? chunk_rows : temporal_columns;
     const bool coarse = !problem_.projection_coarse_matrix.empty();
     // On a device the two currents' fine and coarse rows are one buffer, a stream's
-    // fine rows then its coarse ones (its stacked projection's own order), so that one
-    // transform takes all four: on an AMD Instinct MI325X each transform of a
-    // single-mode run was four library kernels of a few microseconds, launched one by
-    // one. The radial route transforms its streams one at a time.
+    // fine rows then its coarse ones, so that one transform takes all four: on an AMD
+    // Instinct MI325X each transform of a single-mode run was four library kernels of a
+    // few microseconds, launched one by one. The radial route transforms its streams
+    // one at a time.
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
     const bool packed = !radial;
 #else
@@ -3706,14 +3703,7 @@ void GeneralWorkspace::allocate() {
               Kokkos::subview(held_pack_, rows_from(first + rows, rows), Kokkos::ALL);
           stream.coarse_spectrum = Kokkos::subview(
               held_pack_spectrum_, rows_from(first + rows, rows), Kokkos::ALL);
-          // The stacked projection writes its coarse rows after the problem's
-          // columns: in place when those are the stream's rows.
-          stream.stacked_aliases = rows == problem_.n_columns();
-          stream.stacked =
-              stream.stacked_aliases
-                  ? RealView2(Kokkos::subview(held_pack_, rows_from(first, 2 * rows),
-                                              Kokkos::ALL))
-                  : RealView2(label + "stacked", 2 * rows, problem_.n_to);
+          stream.stacked = RealView2(label + "stacked", 2 * rows, problem_.n_to);
         }
         continue;
       }
@@ -12030,12 +12020,6 @@ void GeneralWorkspace::project(const std::size_t first_node,
     } else if (project_coarse_ && !scaled_projection_stacked_.empty()) {
       selected_gemm(transform_space_for(node_count), scaled_projection_stacked_,
                     real_source, real_stacked_target, 0.0, true);
-      // A device's packed current holds its fine and coarse rows in the stacked
-      // product itself.
-      if (field_stream != nullptr && field_stream->stacked_aliases) {
-        Kokkos::Profiling::popRegion();
-        return;
-      }
       const auto& stacked = real_stacked_target;
       const auto& fine = real_target;
       const auto& coarse = real_coarse_target;
