@@ -457,6 +457,12 @@ The first public release. It contains:
   `GOMP_CPU_AFFINITY` or `KMP_AFFINITY`), the import sets `OMP_PROC_BIND=false`, which
   leaves them unbound as before; the run's metadata records what applied as
   `openmp_proc_bind`.
+- **A main thread bound to one core's hardware threads is recognised.** With
+  `OMP_PLACES=cores` on a machine with two threads per core, the native backend's
+  OpenMP runtime binds the main thread to its first core, two CPUs, which solprop took
+  as the process's grant: its thread budget and the `Pool` executor's worker count fell
+  to one core. Such a binding now reads as the grant the process had at import, as a
+  single CPU already did.
 - **Native FFT plans made before their wisdom.** The plasma streams' plans were made
   before the measured wisdom was seeded and stayed at `FFTW_ESTIMATE`; every seed now
   comes first. One plan policy decides every seed by the transform's shape and width,
