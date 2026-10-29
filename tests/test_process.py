@@ -7,6 +7,7 @@
 import importlib.util
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -108,6 +109,7 @@ def test_an_unbound_thread_is_left_alone(monkeypatch, granted):
 def test_a_grant_recorded_before_native_bound_the_main_thread_is_taken(monkeypatch):
     # solprop_native imported first records the process's CPUs before its OpenMP
     # runtime binds the main thread to one of them.
+    monkeypatch.delitem(_process.sys.modules, "solprop_cpunative", raising=False)
     monkeypatch.setitem(
         _process.sys.modules,
         "solprop_native",
@@ -117,8 +119,33 @@ def test_a_grant_recorded_before_native_bound_the_main_thread_is_taken(monkeypat
     assert _process._at_import() == tuple(range(18))
 
 
+def test_cpunative_preserves_a_grant_before_binding_an_smt_core(monkeypatch):
+    monkeypatch.delitem(_process.sys.modules, "solprop_native", raising=False)
+    monkeypatch.setitem(
+        _process.sys.modules,
+        "solprop_cpunative",
+        type(
+            "CPU",
+            (),
+            {
+                "PROCESS_CPUS": tuple(range(72)),
+                "OPENMP_INITIAL_CPUS": (0, 36),
+            },
+        ),
+    )
+    monkeypatch.setenv("OMP_PROC_BIND", "close")
+    _affinity(monkeypatch, {0, 36})
+    assert _process._at_import() == tuple(range(72))
+    monkeypatch.setattr(_process, "_AT_IMPORT", tuple(range(72)))
+    assert _process.allowed_cpus() == tuple(range(72))
+    # A different, deliberate restriction is still respected.
+    _affinity(monkeypatch, {2, 4})
+    assert _process.allowed_cpus() == (2, 4)
+
+
 @pytest.mark.parametrize("recorded", [(), (5, 6), (1, 2, 3)])
 def test_an_earlier_record_that_is_not_a_wider_grant_is_ignored(monkeypatch, recorded):
+    monkeypatch.delitem(_process.sys.modules, "solprop_cpunative", raising=False)
     monkeypatch.setitem(
         _process.sys.modules,
         "solprop_native",
@@ -287,6 +314,21 @@ def native_budget(monkeypatch):
     monkeypatch.setitem(sys.modules, "_native_budget", module)
     spec.loader.exec_module(module)
     return module
+
+
+def test_native_import_recovers_cpunative_binding(monkeypatch, native_budget):
+    monkeypatch.setattr(native_budget.sys, "platform", "linux")
+    _affinity(monkeypatch, {0, 36})
+    monkeypatch.setitem(
+        sys.modules,
+        "solprop_cpunative",
+        SimpleNamespace(PROCESS_CPUS=tuple(range(72)), OPENMP_INITIAL_CPUS=(0, 36)),
+    )
+    assert native_budget.process_cpus() == tuple(range(72))
+    _affinity(monkeypatch, {2, 4})
+    assert native_budget.process_cpus() == (2, 4)
+    monkeypatch.setattr(native_budget.sys, "platform", "darwin")
+    assert native_budget.process_cpus() == ()
 
 
 @pytest.mark.parametrize(("line", "groups", "expected"), CGROUP_CASES)

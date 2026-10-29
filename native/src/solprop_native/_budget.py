@@ -18,6 +18,22 @@ import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
+
+
+def process_cpus() -> tuple[int, ...]:
+    """Read the Linux grant before sizing Kokkos, including an earlier CPU plugin.
+
+    Importing cpunative can load libgomp and bind this thread to a core place.
+    Recover only that recorded binding; a different caller restriction wins.
+    """
+    current = tuple(sorted(os.sched_getaffinity(0))) if sys.platform == "linux" else ()
+    earlier = sys.modules.get("solprop_cpunative")
+    grant = cast(tuple[int, ...], getattr(earlier, "PROCESS_CPUS", ()))
+    bound = cast(tuple[int, ...], getattr(earlier, "OPENMP_INITIAL_CPUS", ()))
+    if current == bound and len(grant) > len(current) and set(current) <= set(grant):
+        return grant
+    return current
 
 
 @dataclass(frozen=True)

@@ -54,9 +54,10 @@ def _at_import() -> tuple[int, ...]:
         Sorted CPU indices.
     """
     own = _query()
-    earlier = getattr(sys.modules.get("solprop_native"), "PROCESS_CPUS", ())
-    if len(earlier) > len(own) and set(own) <= set(earlier):
-        return tuple(earlier)
+    for package in ("solprop_native", "solprop_cpunative"):
+        earlier = getattr(sys.modules.get(package), "PROCESS_CPUS", ())
+        if len(earlier) > len(own) and set(own) <= set(earlier):
+            own = tuple(earlier)
     return own
 
 
@@ -106,7 +107,11 @@ def allowed_cpus() -> tuple[int, ...]:
     binding = os.environ.get("OMP_PROC_BIND", "").strip().lower()
     if (
         binding not in {"", "false"}
-        and len(current) == 1
+        and (
+            len(current) == 1
+            or current
+            == getattr(sys.modules.get("solprop_cpunative"), "OPENMP_INITIAL_CPUS", ())
+        )
         and len(_AT_IMPORT) > 1
         and set(current) <= set(_AT_IMPORT)
     ):

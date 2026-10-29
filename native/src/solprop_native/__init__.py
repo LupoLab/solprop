@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ._budget import native_threads, physical_cores, thread_budget
+from ._budget import native_threads, physical_cores, process_cpus, thread_budget
 from ._cpu import check_cpu_baseline
 from ._wait import wait_policy
 
@@ -40,9 +40,7 @@ check_cpu_baseline(Path(__file__).parent)
 # OpenMP runtime binds the main thread to one CPU, and solprop, imported after this
 # package, would otherwise read that binding as the process's grant (its
 # ``_process.allowed_cpus``).
-PROCESS_CPUS: tuple[int, ...] = (
-    tuple(sorted(os.sched_getaffinity(0))) if sys.platform == "linux" else ()
-)
+PROCESS_CPUS: tuple[int, ...] = process_cpus()
 
 # The process's thread budget (solprop ADR-052): the smallest of those CPUs, their
 # physical cores, its control groups' quota and SOLPROP_THREADS, as solprop reads it.
