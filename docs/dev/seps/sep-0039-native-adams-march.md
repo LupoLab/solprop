@@ -15,8 +15,8 @@
 | **Requires** | [SEP 16](archive/sep-0016-unified-multistep.md) (the march, its engine, ADR-043); [SEP 25](archive/sep-0025-rounding-level-reproducibility.md) (agreement to the error bound); [SEP 29](archive/sep-0029-compiled-backend-distribution.md) (native z tables and the history export) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0039-native-adams-march`, based on LupoLab/solprop#56: started 2026-10-28 |
-| **Manual pages** | — |
+| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0039-native-adams-march` (LupoLab/solprop#58), based on LupoLab/solprop#56 and on `main` once it merged: started 2026-10-28; phases 0–4 complete, phase 5 in progress (2026-10-29) |
+| **Manual pages** | [The Adams methods](../../guide/numerics/adams.md) |
 
 ## Part I — Proposal
 
