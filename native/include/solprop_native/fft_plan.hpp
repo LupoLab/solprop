@@ -101,8 +101,11 @@ void seed_row_fft_wisdom(const Execution& execution, const Input& input,
 // wisdom and must match for an import.
 inline std::string export_fftw_wisdom() {
   fftw_init_threads();
-  const std::unique_ptr<char, decltype(&fftw_free)> text(fftw_export_wisdom_to_string(),
-                                                         fftw_free);
+  // FFTW allocates the text with plain malloc and documents free() for it: fftw_free
+  // pairs with fftw_malloc's aligned allocator, which on Windows is another heap.
+  const auto release = [](char* pointer) { std::free(pointer); };
+  const std::unique_ptr<char, decltype(release)> text(fftw_export_wisdom_to_string(),
+                                                      release);
   return text ? std::string(text.get()) : std::string();
 }
 
