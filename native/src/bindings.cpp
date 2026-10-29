@@ -632,6 +632,13 @@ native::stage::Tables stage_tables_from(const nb::dict values) {
     tables.chord = static_cast<native::stage::Chord>(nb::cast<int>(values["chord"]));
     tables.chord_rate = nb::cast<double>(values["chord_rate"]);
     tables.chord_terms = nb::cast<std::vector<double>>(values["chord_terms"]);
+    tables.flow.edges = nb::cast<std::vector<double>>(values["flow_edges"]);
+    tables.flow.degrees = nb::cast<std::size_t>(values["flow_degrees"]);
+    tables.flow.slack = nb::cast<double>(values["flow_slack"]);
+    tables.flow_residual = nb::cast<bool>(values["flow_residual"]);
+    tables.transform.edges = nb::cast<std::vector<double>>(values["transform_edges"]);
+    tables.transform.degrees = nb::cast<std::size_t>(values["transform_degrees"]);
+    tables.transform.slack = nb::cast<double>(values["transform_slack"]);
   } catch (const nb::cast_error&) {
     throw std::invalid_argument("the stage tables have the wrong types");
   }
@@ -651,7 +658,9 @@ native::stage::Tables stage_tables_from(const nb::dict values) {
        !tables.kerr_density.present()) ||
       tables.plasma_densities.size() != tables.plasma_preionisation.size() ||
       (tables.chord == native::stage::Chord::expansion &&
-       (!expansion || tables.chord_terms.size() != tables.phi_weights.n_values)))
+       (!expansion || tables.chord_terms.size() != tables.phi_weights.n_values)) ||
+      (tables.flow.present() && tables.flow.edges.size() < 2) ||
+      (tables.transform.present() && tables.transform.edges.size() < 2))
     throw std::invalid_argument("the stage tables are inconsistent");
   return tables;
 }
@@ -1058,8 +1067,7 @@ public:
     }
     const auto row = native::stage::row(tables_, anchor_, z, end);
     const auto step = native::stage::trial(tables_, row);
-    auto sample = step;
-    std::fill(sample.phi_delta.begin(), sample.phi_delta.end(), 0.0);
+    const auto sample = native::stage::sample(tables_, anchor_, step, end);
     const auto rate =
         compensated_ ? native::stage::rate(tables_, end) : std::vector<double>{};
     const auto found =
@@ -1412,8 +1420,7 @@ public:
       throw std::logic_error("no stage tables were uploaded");
     const auto row = native::stage::row(*stage_tables_, stage_anchor_, z0, z1);
     auto step = native::stage::trial(*stage_tables_, row);
-    auto sample = step;
-    std::fill(sample.phi_delta.begin(), sample.phi_delta.end(), 0.0);
+    auto sample = native::stage::sample(*stage_tables_, stage_anchor_, step, z1);
     return {std::move(step), std::move(sample)};
   }
   std::vector<double> stage_rate(const double z) const {
@@ -2630,6 +2637,9 @@ NB_MODULE(_core, module_) {
             out["plasma_preionisation"] = step.plasma_preionisation;
             out["raman_densities"] = step.raman_densities;
             out["dispersive_densities"] = step.dispersive_densities;
+            out["flow_section"] = step.flow_section;
+            out["flow_weights"] = step.flow_weights;
+            out["transform_weights"] = step.transform_weights;
             return out;
           },
           "z0"_a, "z1"_a)

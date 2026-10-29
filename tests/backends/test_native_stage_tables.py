@@ -24,7 +24,6 @@ from capability_routes import ROUTES
 from solprop.backends import available
 from solprop.stepper.multistep import Multistep
 from solprop.translate.linop import rate_weights
-from solprop.translate.stage import scalars
 
 pytestmark = [
     pytest.mark.medium,
@@ -46,15 +45,21 @@ STAGED = (
     "cartesian",
     "line",
     "planar",
-)
-"""The routes whose trial rows are one bundle repeated: a constant, expanded or
-separable operator and prefactor, with no z table, moving map or coupled flow."""
-
-UNSTAGED = (
     "general guide (moving)",
     "capillary (coherent wall)",
     "capillary (taper coupling)",
 )
+"""Every route: a constant, expanded or separable operator and prefactor, beside a
+coupled flow or a moving guide's maps too (SEP 39 phase 4)."""
+
+UNSTAGED: tuple[str, ...] = ()
+
+COUPLED = (
+    "general guide (moving)",
+    "capillary (coherent wall)",
+    "capillary (taper coupling)",
+)
+"""The routes beside a coupled flow, which the exponential formulation alone steps."""
 
 
 def translated(route: str, integrator: Multistep | None = None):
@@ -105,8 +110,8 @@ def test_the_native_stage_scalars_are_solprop_s_bundle(route):
         state = backend._native_state
         stages = problem.stepper.tableau.n_stages
         for z0, z1 in positions(problem):
-            bundle = scalars(problem, z0, z1, helpers=NATIVE)
-            arrays, material = backend._repeated_arrays(bundle)
+            backend._hoist(z0)
+            arrays, material = backend._resident_arrays(z0, z1)
             expected = dict(
                 zip(
                     (
@@ -130,12 +135,16 @@ def test_the_native_stage_scalars_are_solprop_s_bundle(route):
                 "dispersive_densities": material.get(
                     "dispersive_densities", np.empty(0)
                 ),
+                "flow_weights": material.get("flow_weights", np.empty(0)),
+                "transform_weights": material.get("transform_weights", np.empty(0)),
             }
             found = state.adams_stage_scalars(z0, z1)
             for name, values in expected.items():
                 flat = np.asarray(values, dtype=np.float64).reshape(-1)
                 assert np.array_equal(np.asarray(found[name]), flat), (name, z0, z1)
             assert len(found["density"]) == stages
+            if "flow_section" in material:
+                assert found["flow_section"] == material["flow_section"]
     finally:
         backend.close()
 
@@ -187,6 +196,8 @@ def march(route, monkeypatch, *, staged, integrator=None):
 def test_a_staged_march_takes_the_host_packed_march_s_steps(
     route, integrator, monkeypatch
 ):
+    if integrator.formulation == "interaction" and route in COUPLED:
+        pytest.skip("the interaction formulation is refused beside a coupled flow")
     # Deterministic transform plans, so that the two paths read the same transforms;
     # they then differ in no operation, and were measured equal bit for bit.
     monkeypatch.setenv("SOLPROP_FFTW_PLAN", "estimate")

@@ -440,8 +440,9 @@ has work (a statistics row, a natural stop, a monitor check), the call's bound, 
 budget, the floor or a native error. The driver books the call's attempts through
 `_record_attempt` and `_skip_step`, inside one commit. `AdamsMarch` is the reference
 and steps every configuration the native march does not cover (the comparison
-methods' general path, moving maps or a coupled flow, the carrier frame and device
-builds, for now), with a `HostMarchWarning` naming the reason. Lockstep batches replay on the host (`replay_step`).
+methods' general path, a coupled flow on the host engine (off the eigenbasis route or
+wider than 16 channels), a norm scale other than `PIController`'s, and a z table's
+carrier frame), with a `HostMarchWarning` naming the reason. Lockstep batches replay on the host (`replay_step`).
 
 **Resume** (ADR-046): an engine that can export its rows (`snapshot_rows`, and
 `load_rows` to install them) lets `AdamsMarch.snapshot` return a `MarchSnapshot` -- the

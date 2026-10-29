@@ -118,9 +118,8 @@ def test_a_replayed_schedule_is_native():
             ComparisonMultistep(corrector="pece", order=4),
             "a comparison method's general path",
         ),
-        ("general guide (moving)", Multistep(), "stage rows are not one bundle"),
     ],
-    ids=["pece", "moving maps"],
+    ids=["pece"],
 )
 def test_an_uncovered_run_takes_the_host_march_and_says_why(route, integrator, reason):
     with pytest.warns(HostMarchWarning, match=reason):
@@ -129,6 +128,31 @@ def test_an_uncovered_run_takes_the_host_march_and_says_why(route, integrator, r
         assert not backend._adams.native
         assert reason in backend._adams.refusal
         assert backend.metadata()["adams_march"] == "host"
+    finally:
+        backend.close()
+
+
+@pytest.mark.parametrize(
+    "route", ["general guide (moving)", "capillary (coherent wall)", "radial"]
+)
+def test_moving_maps_and_coupled_flows_are_native(route):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", HostMarchWarning)
+        backend = built(on_route(route, Multistep()))
+    try:
+        assert backend._adams.native
+    finally:
+        backend.close()
+
+
+def test_the_host_engine_takes_the_host_march(monkeypatch):
+    # A coupled flow off the eigenbasis route or wider than sixteen channels keeps the
+    # host engine (ADR-044), whose history the native march cannot reach.
+    monkeypatch.setattr(NativeBackend, "_adams_engine", lambda *_: None)
+    with pytest.warns(HostMarchWarning, match="the host engine's coupled flow"):
+        backend = built(on_route("capillary (coherent wall)", Multistep()))
+    try:
+        assert not backend._adams.native
     finally:
         backend.close()
 

@@ -97,6 +97,67 @@ enum class KerrDensity : int { none = 0, density = 1, table = 2 };
 
 struct ZSlots;
 
+/**
+ * A Chebyshev basis in sections along z: a coupled flow's residual weights
+ * (`translate.coupled.flow_weights`) and a moving guide's map weights
+ * (`translate.modal_path.transform_weights`). Each position's weights are its
+ * section's `chebvander` row at the section's mapped coordinate, zero elsewhere.
+ */
+struct Sections {
+  std::vector<double> edges;
+  std::size_t degrees = 0;
+  /** How far outside an edge a position still belongs to the section, m. */
+  double slack = 0.0;
+
+  [[nodiscard]] bool present() const { return degrees > 0; }
+  [[nodiscard]] std::size_t terms() const { return (edges.size() - 1) * degrees; }
+
+  /** `flow_section`/`transform_section`: the section starting at or below the
+      position widened by the slack, clamped to the ends. */
+  [[nodiscard]] std::size_t section(const double z) const { return clamped(z + slack); }
+
+  /** The section a stage reads at `z` from its step's `own` (`flow_weights`): its own
+      while `z` lies in it widened by the slack, else the one closing at `z`. */
+  [[nodiscard]] std::size_t reading(const double z, const std::size_t own) const {
+    if (edges[own] - slack <= z && z <= edges[own + 1] + slack)
+      return own;
+    return clamped(z - slack);
+  }
+
+  /** The weights at `z` in section `index`: `chebvander`'s forward recursion. */
+  SOLPROP_NATIVE_STRICT_FUNCTION
+  [[nodiscard]] std::vector<double> weights(const double z,
+                                            const std::size_t index) const {
+    SOLPROP_NATIVE_STRICT_BLOCK
+    std::vector<double> out(terms(), 0.0);
+    const double lo = edges[index];
+    const double hi = edges[index + 1];
+    const double doubled = 2.0 * z;
+    const double x = ((doubled - lo) - hi) / (hi - lo);
+    double* const row = out.data() + index * degrees;
+    const double zero = x * 0.0;
+    row[0] = zero + 1.0;
+    if (degrees > 1) {
+      const double x2 = 2.0 * x;
+      row[1] = x;
+      for (std::size_t i = 2; i < degrees; ++i) {
+        const double product = row[i - 1] * x2;
+        row[i] = product - row[i - 2];
+      }
+    }
+    return out;
+  }
+
+private:
+  [[nodiscard]] std::size_t clamped(const double key) const {
+    // `numpy.searchsorted(edges, key, side="right") - 1`, clamped to the sections.
+    const auto above = std::upper_bound(edges.begin(), edges.end(), key);
+    const auto raw = static_cast<std::ptrdiff_t>(above - edges.begin()) - 1;
+    const auto last = static_cast<std::ptrdiff_t>(edges.size()) - 2;
+    return static_cast<std::size_t>(std::min(std::max(raw, std::ptrdiff_t{0}), last));
+  }
+};
+
 /** How the carrier frame's chord is represented (SEP 35 section 6.1). */
 enum class Chord : int { none = 0, constant = 1, expansion = 2 };
 
@@ -134,6 +195,11 @@ struct Tables {
   Chord chord = Chord::none;
   double chord_rate = 0.0;
   std::vector<double> chord_terms;
+  /** A coupled flow's sections (the step's section, and a frozen-residual flow's
+      weights), and a moving guide's maps. */
+  Sections flow;
+  bool flow_residual = false;
+  Sections transform;
 };
 
 /**
@@ -269,6 +335,9 @@ struct Row {
   std::vector<double> plasma_preionisation;
   std::vector<double> raman_densities;
   std::vector<double> dispersive_densities;
+  std::size_t flow_section = 0;
+  std::vector<double> flow_weights;
+  std::vector<double> transform_weights;
 };
 
 /** Return one stage's scalars at `z1`, from the anchor `z0` (`scalars(problem, z0,
@@ -343,6 +412,15 @@ inline Row row(const Tables& tables, Anchor& anchor, const double z0, const doub
     out.raman_densities.push_back(table.present() ? table.value(z1) : out.density);
   for (const auto& table : tables.dispersive_densities)
     out.dispersive_densities.push_back(table.value(z1));
+  if (tables.flow.present()) {
+    // The step's section is its anchor's; a frozen residual reads it at the stage.
+    out.flow_section = tables.flow.section(z0);
+    if (tables.flow_residual)
+      out.flow_weights =
+          tables.flow.weights(z1, tables.flow.reading(z1, out.flow_section));
+  }
+  if (tables.transform.present())
+    out.transform_weights = tables.transform.weights(z1, tables.transform.section(z1));
   return out;
 }
 
@@ -383,6 +461,23 @@ inline TrialScalars trial(const Tables& tables, const Row& stage) {
   repeat(out.plasma_preionisation, stage.plasma_preionisation, stages);
   repeat(out.raman_densities, stage.raman_densities, stages);
   repeat(out.dispersive_densities, stage.dispersive_densities, stages);
+  out.flow_section = stage.flow_section;
+  repeat(out.flow_weights, stage.flow_weights, stages);
+  repeat(out.transform_weights, stage.transform_weights, stages);
+  return out;
+}
+
+/**
+ * Return a trial's lab-frame sample's arrays: the step's with the increment of `Phi`
+ * zeroed (`_resident_sample`), or, beside a coupled flow, whose section follows the
+ * anchor, a stage anchored at the step's end.
+ */
+inline TrialScalars sample(const Tables& tables, Anchor& anchor,
+                           const TrialScalars& step, const double end) {
+  if (tables.flow.present())
+    return trial(tables, row(tables, anchor, end, end));
+  auto out = step;
+  std::fill(out.phi_delta.begin(), out.phi_delta.end(), 0.0);
   return out;
 }
 

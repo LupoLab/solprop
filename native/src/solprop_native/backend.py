@@ -113,6 +113,7 @@ from solprop.translate.chebyshev import (
 from solprop.translate.coupled import (
     CoupledFlowTables,
     SectionMethod,
+    flow_edge_slack,
     frozen_generator,
     metric_at,
     schur_blocks,
@@ -456,14 +457,13 @@ class NativeBackend(StepDriver[_core.State]):
         pass reads it (``PiecewiseChebyshev.packed``). A separable operator's rows are
         a constant's, the distance and the position with a unit prefactor
         (`_trial_arrays`), and read no span. A z table's rows are its slots, which the
-        native state loads through the cache `_ZTables` shares. ``None`` for the
-        problems whose trial arrays are not one bundle repeated (`_repeated_arrays`):
-        moving maps and a coupled flow.
+        native state loads through the cache `_ZTables` shares. A coupled flow's
+        section and residual weights and a moving guide's map weights are sectioned
+        Chebyshev rows (`flow_weights`, `transform_weights`), formed natively from
+        their edges.
         """
         problem = self._problem
         linear, responses = problem.linear, problem.responses
-        if self._moving_maps or self._flow is not None:
-            return None
         phi_weights = phi_rate = prefactor_weights = None
         separable = self._terms.separable is not None
         tables = self._z_tables
@@ -527,7 +527,11 @@ class NativeBackend(StepDriver[_core.State]):
             "dispersive_densities": []
             if responses.dispersive_kerr is None
             else [table.packed() for table in responses.dispersive_kerr.densities],
-        }
+        } | _section_tables(
+            problem,
+            moving=self._moving_maps,
+            residual=self._flow is not None and self._flow.residual_terms is not None,
+        )
 
     def _low_storage_engine(self, method: LowStorageRungeKutta) -> object:
         """Return the resident low-storage engine (solprop SEP 24 section 6.7).
@@ -2254,6 +2258,40 @@ _STAGE_TABLE = 3
 prefactor (``stage::Terms``)."""
 
 
+def _section_tables(
+    problem: KernelProblem, *, moving: bool, residual: bool
+) -> dict[str, object]:
+    """Return a coupled flow's and a moving guide's sections as the stage tables take
+    them: their edges, degrees and the edges' slack (`flow_edge_slack`,
+    `transform_section`), and whether the flow carries a frozen residual."""
+    flow = problem.linear.coupled_flow
+    maps = problem.transform.modal_tables if moving else None
+    out: dict[str, object] = {
+        "flow_edges": [],
+        "flow_degrees": 0,
+        "flow_slack": 0.0,
+        "flow_residual": False,
+        "transform_edges": [],
+        "transform_degrees": 0,
+        "transform_slack": 0.0,
+    }
+    if flow is not None:
+        out |= {
+            "flow_edges": np.asarray(flow.z_edges, dtype=np.float64).tolist(),
+            "flow_degrees": int(flow.n_deg),
+            "flow_slack": float(flow_edge_slack(flow)),
+            "flow_residual": residual,
+        }
+    if maps is not None and maps.synthesis is not None:
+        edges = np.asarray(maps.z_edges, dtype=np.float64)
+        out |= {
+            "transform_edges": edges.tolist(),
+            "transform_degrees": int(maps.synthesis.shape[1]),
+            "transform_slack": _EDGE_SLACK_FRACTION * float(edges[-1] - edges[0]),
+        }
+    return out
+
+
 def _chord_tables(carrier: CarrierReference | None) -> dict[str, object]:
     """Return the carrier frame's chord as the native stage tables take it.
 
@@ -2387,9 +2425,8 @@ class _NativeAdamsMarch(AdamsMarch):
             warnings.warn(
                 f"solprop-native steps this {method.name} run with solprop's Python "
                 f"march: {refusal}. The native march (SEP 39) covers Multistep() in "
-                "either formulation and the one-order-higher PEC comparisons, on a "
-                "constant, expanded, separable or z-table operator with "
-                "PIController's norm",
+                "either formulation and the one-order-higher PEC comparisons on "
+                "every route with the resident engine and PIController's norm",
                 HostMarchWarning,
                 stacklevel=4,
             )
@@ -2422,8 +2459,8 @@ class _NativeAdamsMarch(AdamsMarch):
         resident = (
             (
                 not engine.staged,
-                "a trial whose stage rows are not one bundle (a moving guide's maps "
-                "or a coupled flow)",
+                "an operator or prefactor representation the native stage tables "
+                "do not read",
             ),
             (not engine.device_scale, "a controller with a norm scale of its own"),
             (
