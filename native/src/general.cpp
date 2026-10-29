@@ -2154,6 +2154,10 @@ public:
   void separable_split_step(double dz, const ComplexView2& values);
   void mask(const ComplexView2& values);
   bool use_packed_radial_blas() const noexcept;
+  // A square radial analytic map synthesises the retained spectrum, before padding,
+  // and transforms each node (`retained_synthesis`).
+  bool retained_synthesis() const noexcept;
+  void synthesise_retained(std::size_t first_node, std::size_t node_count);
   void packed_radial_gemm(const RealView2& matrix, const ComplexView2& source,
                           const ComplexView2& destination);
   bool use_blas_for_synthesis() const noexcept;
@@ -2300,6 +2304,11 @@ public:
   // at a trial's positions are written into the term slots above.
   z_table::Table phi_table_, prefactor_table_, rate_table_;
   RealView2 radial_blas_input_, radial_blas_output_;
+  // The retained synthesis's coarse modal and node spectra, and each fine bin's coarse
+  // bin (n_omega where none fills it).
+  ComplexView2 retained_modal_, retained_node_;
+  IndexView retained_bin_;
+  bool retained_synthesis_ = false;
   RealView2 modal_real_, node_real_, polarisation_real_, projected_real_;
   RealView2 projected_coarse_real_, projected_stacked_real_, absorber_real_;
   RealView2 coarse_time_real_;
@@ -2455,6 +2464,9 @@ public:
   std::unique_ptr<RamanForwardPlan> raman_product_forward_plan_;
   std::unique_ptr<RamanInversePlan> raman_product_inverse_plan_;
   std::unique_ptr<RamanForwardPlan> raman_kernel_forward_plan_;
+  // The retained synthesis's node transforms, full and tail chunks: from the leading
+  // rows of the modal time buffer, which then holds node spectra, to the node field.
+  std::unique_ptr<ComplexPlan> retained_inverse_plan_, retained_tail_inverse_plan_;
   // solprop's general modal route; null on every other route.
   std::unique_ptr<GeneralModalSource> general_;
   bool absorber_quiet_ = false;
@@ -2536,6 +2548,74 @@ bool GeneralWorkspace::use_packed_radial_blas() const noexcept {
          problem_.projection_coarse_matrix.empty() && problem_.n_nodes >= 256 &&
          problem_.n_to >= 256 && problem_.n_nodes <= max_samples / problem_.n_to;
 #endif
+}
+
+// The CPU experiment's retained-spectrum radial synthesis. A real static synthesis
+// commutes with the temporal transform: synthesising the coarse bins the stage entry
+// fills and padding each node's spectrum gives the nodes' fields, so the product
+// covers n_omega complex columns rather than the n_to complex samples of the padded,
+// oversampled analytic signal. On a square map the node transforms replace the modal
+// ones one for one; the held radial plasma's projection already contracts after
+// cropping (`held_radial_projection`). An in-stage absorber or a Raman drive reads the
+// modal time field, and a dispersive response its own synthesis, so they keep the
+// time-domain product; skinny capillary maps would multiply the transforms.
+bool GeneralWorkspace::retained_synthesis() const noexcept {
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  return false;
+#else
+  return compiled_gemm_provider() != GemmProvider::custom &&
+         problem_.family == FieldFamily::field_analytic &&
+         !problem_.spatial_spectral_weights.empty() && !problem_.separable_geometry() &&
+         !problem_.general_modal && !problem_.dispersive &&
+         !problem_.in_stage_absorber && !problem_.raman &&
+         problem_.n_modes == problem_.n_nodes && problem_.n_nodes > 1 &&
+         problem_.n_pol_state == 1 && problem_.n_pol_transform == 1 &&
+         problem_.n_omega < problem_.n_to;
+#endif
+}
+
+void GeneralWorkspace::synthesise_retained(const std::size_t first_node,
+                                           const std::size_t node_count) {
+  Kokkos::Profiling::pushRegion("solprop_native.transform.synthesis.retained");
+  const auto fine = fine_spectrum_;
+  const auto modal = retained_modal_;
+  const auto crop = crop_index_;
+  const auto n = problem_.n_omega;
+  Kokkos::parallel_for(
+      "solprop_native.transform.retained_gather",
+      Range2(node_spectral_space_, {0, 0}, {problem_.n_modes, n}),
+      KOKKOS_LAMBDA(const std::size_t mode, const std::size_t index) {
+        modal(mode, index) = fine(mode, crop(index));
+      });
+  using Interleaved = Kokkos::View<double**, Layout, MemorySpace,
+                                   Kokkos::MemoryTraits<Kokkos::Unmanaged>>;
+  static_assert(sizeof(Complex) == 2 * sizeof(double));
+  const Interleaved synthesis(scaled_synthesis_.data() + first_node * problem_.n_modes,
+                              node_count, problem_.n_modes);
+  const Interleaved input(reinterpret_cast<double*>(retained_modal_.data()),
+                          problem_.n_modes, 2 * n);
+  const Interleaved output(reinterpret_cast<double*>(retained_node_.data()), node_count,
+                           2 * n);
+  engine_gemm(transform_space_for(node_count), synthesis, input, output, 0.0);
+  // Each node's padded spectrum, every fine bin written: the modal time buffer's
+  // leading rows are free, as no modal transform runs on this path.
+  const auto node = retained_node_;
+  const auto padded = modal_complex_;
+  const auto bins = retained_bin_;
+  Kokkos::parallel_for(
+      "solprop_native.transform.retained_pad",
+      Range2(node_spectral_space_, {0, 0}, {node_count, problem_.n_to}),
+      KOKKOS_LAMBDA(const std::size_t row, const std::size_t bin) {
+        const auto index = bins(bin);
+        padded(row, bin) = index < n ? node(row, index) : Complex{};
+      });
+  const bool tail = node_count != problem_.node_chunk;
+  const auto rows = std::make_pair(std::size_t{0}, node_count);
+  KokkosFFT::execute(tail ? *retained_tail_inverse_plan_ : *retained_inverse_plan_,
+                     Kokkos::subview(modal_complex_, rows, Kokkos::ALL()),
+                     Kokkos::subview(node_complex_, rows, Kokkos::ALL()),
+                     KokkosFFT::Normalization::none);
+  Kokkos::Profiling::popRegion();
 }
 
 void GeneralWorkspace::packed_radial_gemm(const RealView2& matrix,
@@ -2695,6 +2775,8 @@ std::string GeneralWorkspace::synthesis_provider() const {
     return std::string(provider) + "-packed-real";
   if (problem_.free_geometry())
     return "kokkos-fft";
+  if (retained_synthesis_)
+    return std::string(provider) + "-retained-interleaved-real";
   if (use_interleaved_synthesis())
     return std::string(provider) + "-interleaved-real";
   return std::string(use_blas_for_synthesis() ? provider : std::string_view("custom"));
@@ -3235,6 +3317,14 @@ void GeneralWorkspace::allocate() {
                         ? modal_complex_
                         : ComplexView2("solprop_native.response.node_complex",
                                        chunk_rows, problem_.n_to);
+    retained_synthesis_ = retained_synthesis();
+    if (retained_synthesis_) {
+      retained_modal_ = ComplexView2("solprop_native.transform.retained_modal",
+                                     temporal_columns, problem_.n_omega);
+      retained_node_ = ComplexView2("solprop_native.transform.retained_node",
+                                    chunk_rows, problem_.n_omega);
+      retained_bin_ = IndexView("solprop_native.transform.retained_bin", problem_.n_to);
+    }
   }
   if (problem_.family == FieldFamily::envelope) {
     projected_complex_ = ComplexView2("solprop_native.response.projected_complex",
@@ -3564,6 +3654,12 @@ void GeneralWorkspace::upload() {
     copy_vector(execution_space_, channel_coefficients_, problem_.channel_coefficients);
   }
   copy_vector(execution_space_, crop_index_, problem_.crop_index);
+  if (retained_synthesis_) {
+    std::vector<std::size_t> bins(problem_.n_to, problem_.n_omega);
+    for (std::size_t index = 0; index < problem_.n_omega; ++index)
+      bins[problem_.crop_index[index]] = index;
+    copy_vector(execution_space_, retained_bin_, bins);
+  }
   if (!fine_gaps_.empty()) {
     std::vector<std::size_t> runs;
     std::size_t position = 0;
@@ -3843,6 +3939,24 @@ void GeneralWorkspace::plan() {
     inverse_complex_plan_ = std::make_unique<ComplexPlan>(
         fft_space_for(modal_complex_.size()), fine_spectrum_, modal_complex_,
         KokkosFFT::Direction::backward, axis);
+  }
+  if (retained_synthesis_) {
+    const auto plan_rows = [&](const std::size_t count) {
+      const auto rows = std::make_pair(std::size_t{0}, count);
+      const ComplexView2 padded = Kokkos::subview(modal_complex_, rows, Kokkos::ALL());
+      const ComplexView2 node = Kokkos::subview(node_complex_, rows, Kokkos::ALL());
+      const auto& space = fft_space_for(node.size());
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+      seed_row_fft_wisdom(space, padded, node, KokkosFFT::Direction::backward);
+      Kokkos::deep_copy(execution_space_, padded, Complex{});
+      Kokkos::deep_copy(execution_space_, node, Complex{});
+#endif
+      return std::make_unique<ComplexPlan>(space, padded, node,
+                                           KokkosFFT::Direction::backward, axis);
+    };
+    retained_inverse_plan_ = plan_rows(problem_.node_chunk);
+    if (const auto tail = problem_.n_nodes % problem_.node_chunk; tail != 0)
+      retained_tail_inverse_plan_ = plan_rows(tail);
   }
   if (problem_.family == FieldFamily::envelope) {
     forward_complex_plan_ = std::make_unique<ComplexPlan>(
@@ -8223,7 +8337,7 @@ bool GeneralWorkspace::modal_core(const std::size_t stage) {
   if (problem_.family == FieldFamily::field_real)
     KokkosFFT::execute(*inverse_real_plan_, fine_spectrum_, modal_real_,
                        KokkosFFT::Normalization::none);
-  else
+  else if (!retained_synthesis_)
     KokkosFFT::execute(*inverse_complex_plan_, fine_spectrum_, modal_complex_,
                        KokkosFFT::Normalization::none);
   // A single node's synthesis and projection are folded into its response column.
@@ -8390,6 +8504,10 @@ void GeneralWorkspace::scale_transform(const std::size_t stage) {
 
 void GeneralWorkspace::synthesise(const std::size_t first_node,
                                   const std::size_t node_count) {
+  if (retained_synthesis_) {
+    synthesise_retained(first_node, node_count);
+    return;
+  }
   const bool whole_transform =
       first_node == 0 && node_count == problem_.n_nodes && problem_.n_pol_state == 1;
   if (whole_transform && !radial_blas_input_.empty()) {
@@ -11960,7 +12078,7 @@ std::vector<double> GeneralWorkspace::statistics(
         if (problem_.family == FieldFamily::field_real)
           KokkosFFT::execute(*inverse_real_plan_, fine_spectrum_, modal_real_,
                              KokkosFFT::Normalization::none);
-        else
+        else if (!retained_synthesis_)
           KokkosFFT::execute(*inverse_complex_plan_, fine_spectrum_, modal_complex_,
                              KokkosFFT::Normalization::none);
         Kokkos::deep_copy(execution_space_, stage_taper_, taper);
@@ -13297,6 +13415,9 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
       {"stage_phase", stage_phase_.size() * complex_bytes},
       {"stage_inverse", stage_inverse_.size() * complex_bytes},
       {"fine_spectrum", fine_spectrum_.size() * complex_bytes},
+      {"retained_synthesis",
+       (retained_modal_.size() + retained_node_.size()) * complex_bytes +
+           retained_bin_.size() * index_bytes},
       {"fine_gaps", (fine_gaps_.size() + separable_gaps_.size()) * index_bytes},
       {"modal_time", modal},
       {"node_field", node},
@@ -13584,6 +13705,11 @@ void GeneralWorkspace::close() noexcept {
   raman_tail_drive_ = {};
   raman_tail_spectrum_ = {};
   raman_tail_convolved_ = {};
+  retained_inverse_plan_.reset();
+  retained_tail_inverse_plan_.reset();
+  retained_modal_ = {};
+  retained_node_ = {};
+  retained_bin_ = {};
   raman_product_forward_plan_.reset();
   raman_product_inverse_plan_.reset();
   raman_product_drive_ = {};
