@@ -5543,9 +5543,12 @@ void GeneralWorkspace::hold_plane() {
   require_open();
   if (!initialized_)
     throw std::logic_error("no initial field has been loaded");
+  // The copy writes every element: no initialising pass first.
   if (!held_plane_.is_allocated())
-    held_plane_ = ComplexView2("solprop_native.low_storage.held_plane",
-                               problem_.n_columns(), problem_.n_omega);
+    held_plane_ = ComplexView2(
+        Kokkos::view_alloc(Kokkos::WithoutInitializing,
+                           std::string("solprop_native.low_storage.held_plane")),
+        problem_.n_columns(), problem_.n_omega);
   Kokkos::deep_copy(execution_space_, held_plane_, current_);
   held_ready_ = true;
 }
