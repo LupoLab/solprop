@@ -15,7 +15,7 @@
 | **Requires** | [SEP 16](archive/sep-0016-unified-multistep.md) (the march, its engine, ADR-043); [SEP 25](archive/sep-0025-rounding-level-reproducibility.md) (agreement to the error bound); [SEP 29](archive/sep-0029-compiled-backend-distribution.md) (native z tables and the history export) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0039-native-adams-march` (LupoLab/solprop#58), based on LupoLab/solprop#56 and on `main` once it merged: started 2026-10-28; phases 0–4 complete, phase 5 in progress (2026-10-29) |
+| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0039-native-adams-march` (LupoLab/solprop#58), based on LupoLab/solprop#56 and on `main` once it merged: started 2026-10-28; phases 0–5 complete (2026-10-29; phase 5 on NVIDIA A40s and an AMD Instinct MI325X) |
 | **Manual pages** | [The Adams methods](../../guide/numerics/adams.md) |
 
 ## Part I — Proposal
@@ -2616,6 +2616,60 @@ FP32's, so the host's share is small there; on the FP64 devices SEP 16 measured
 **Not done.** The pinned single upload a trial (§6.7, item 2) was not built: the trial
 still uploads its scalars as before. HIP (AMD MI325X) and H100-class timings wait for a
 GPU budget.
+
+### Phase 5 — report, part 2 (HIP on an AMD Instinct MI325X)
+
+**Scope.** HIP builds, 2026-10-29: one AMD Instinct MI325X (`gfx942`, 304 compute units)
+with a ROCm 7 prerelease stack (HIP 7.14, AMD Clang 23), within the maintainer's GPU
+budget for the night. Opus 5.5 (AI) for John Travers.
+
+**Delivered.**
+
+- **HIP builds take the native march**, as CUDA builds do: the refusal that kept them on
+  solprop's Python march with a `HostMarchWarning` is gone. z tables and the carrier
+  frame stay refused on devices by name.
+- **A HIP compile fix.** Since the x86-64 Adams lanes, the device predict pass declared
+  a flag only the host lanes read; Clang (`-Werror`, `-Wunused-variable`) refused the HIP
+  build. GCC's host pass of nvcc does not warn on the constant, so CUDA builds were not
+  affected. The flag is marked `[[maybe_unused]]`.
+- **The pinned single upload a trial** (§6.7, item 2), which part 1 left undone, has
+  since been built: a trial's scalars cross in one copy from a ring of pinned buffers.
+
+**Verification** (AMD Instinct MI325X, HIP, `AMD_GFX942`, band staging on; one session):
+
+- The native package's device tests: 31 passed. solprop's device tests: 63 passed (one
+  skipped: `mlx`). The native march's modules on the device build (as in part 1): 203
+  passed, 7 skipped (the z-table and coupled-interaction refusals). The native radial and
+  backend modules: 103 passed.
+- On the same device the previous HIP default fails those lanes: 71 of the targeted
+  modules, 6 native device tests and 27 of solprop's, every one the `HostMarchWarning`
+  that the suites raise as an error.
+- The native and the Python march on the same build took the same steps and calls on
+  every case below, and their fields were bitwise equal.
+
+**Measured** (MI325X, `python -m benchmarks ab --device` and `benchmarks.adams_host`,
+interleaved fresh processes, medians of three; the same steps in both arms):
+
+| case | host µs/trial: Python march → native | wall, native vs Python march |
+|---|---|---:|
+| `he_rdw_averaged` (0.3) | 22 → 1.3 | −2.9 % |
+| `argon_blueshift_averaged` (0.1) | 17 → 0.8 | −3.4 % |
+| `rdw` (0.1) | 40 → 3.0 | −2.0 % |
+| `h2_raman_averaged` (0.4) | 15 → 0.5 | −3.0 % |
+| `radial_filament_256` (0.5) | 29 → 2.8 | −0.8 % |
+
+A trial there is 160 to 550 µs of device time in 25 to 70 kernels of a few microseconds,
+which the host launches one by one, so the Python march's 15 to 40 µs a trial was a
+smaller share than SEP 16's measurements suggested. The rest of a trial was launch and
+synchronisation overhead in the native backend's own device code, which the
+performance work that followed reduced (the benchmark ledger, "Device launches and the
+Adams passes on an AMD Instinct MI325X").
+
+**Not done.** HIP's device sanitizer does not exist (ROCm ships none), so the CUDA
+sanitizers' role is not filled on HIP. An NVIDIA H100-class device has not run the
+march.
+
+**Handoff.** Phase 5 is complete on both vendors' devices; the SEP is ready for `Final`.
 
 ## Part III — History
 
