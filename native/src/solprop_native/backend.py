@@ -90,7 +90,11 @@ from solprop.stats import (
 )
 from solprop.stepper.controller import PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
-from solprop.stepper.multistep import Multistep, integrated_weights
+from solprop.stepper.multistep import (
+    Multistep,
+    integrated_weights,
+    lagrange_coefficients,
+)
 from solprop.translate.chebyshev import (
     _EDGE_SLACK_FRACTION,  # pyright: ignore[reportPrivateUsage] - the tables' own admitted span
     PiecewiseChebyshev,
@@ -417,7 +421,88 @@ class NativeBackend(StepDriver[_core.State]):
             interpolate=self._problem.stepper.interpolate_planes,
             carrier=carrier_reference(self._problem, method),
         )
+        # solprop SEP 39 phase 1: where the trial's stage rows are one bundle repeated,
+        # the native state reads the scalar tables itself, uploaded once.
+        tables = self._stage_tables() if method.formulation == "exponential" else None
+        if tables is not None:
+            self._native_state.adams_stage_tables(tables)
+            self._resident.staged = True
         return self._resident
+
+    def _stage_tables(self) -> dict[str, object] | None:
+        """Return the tables a resident exponential trial reads natively, or ``None``.
+
+        solprop SEP 39 phase 1: every scalar table ``translate.stage.scalars`` reads at
+        a stage -- the weights of a constant or expanded ``Phi`` and prefactor, the
+        density, the taper scale, the Raman decay rates and densities, the Kerr
+        density, the plasma channels' densities and fractions -- and an expansion's
+        rate table, each packed as its batch pass reads it
+        (``PiecewiseChebyshev.packed``). ``None`` for the problems whose trial arrays
+        are not one bundle repeated (`_repeated_arrays`): z tables, a separable
+        operator, SEP 6's dispersive channels, moving maps and a coupled flow.
+        """
+        problem = self._problem
+        linear, responses = problem.linear, problem.responses
+        if (
+            self._z_tables is not None
+            or self._terms.separable is not None
+            or responses.dispersive_kerr is not None
+            or self._moving_maps
+            or self._flow is not None
+        ):
+            return None
+        phi_weights = phi_rate = prefactor_weights = None
+        if linear.phi_constant is not None:
+            phi = _STAGE_CONSTANT
+        elif linear.phi_expansion is not None:
+            phi = _STAGE_EXPANSION
+            phi_weights = linear.phi_expansion.weights.packed()
+            phi_rate = linear.rate.packed()
+        else:
+            return None
+        low = high = 0.0
+        if responses.prefactor_constant is not None:
+            prefactor = _STAGE_CONSTANT
+            low, high = responses.prefactor_span
+        elif responses.prefactor_expansion is not None:
+            prefactor = _STAGE_EXPANSION
+            prefactor_weights = responses.prefactor_expansion.weights.packed()
+        else:
+            return None
+        kerr = responses.kerr_coefficients
+        taper = problem.transform.taper_scale
+        return {
+            "n_stages": problem.stepper.tableau.n_stages,
+            "phi": phi,
+            "phi_weights": phi_weights,
+            "phi_rate": phi_rate,
+            "prefactor": prefactor,
+            "prefactor_weights": prefactor_weights,
+            "prefactor_low": float(low),
+            "prefactor_high": float(high),
+            "density": responses.density.packed(),
+            "taper": None if taper is None else taper.packed(),
+            "raman_rates": [
+                table.packed()
+                for term in responses.raman_terms
+                for table in term.decay_rates
+            ],
+            "kerr": 0 if kerr is None else 1 if kerr.density is None else 2,
+            "kerr_density": None
+            if kerr is None or kerr.density is None
+            else kerr.density.packed(),
+            "plasma_densities": [
+                channel.density.packed() for channel in responses.population_channels
+            ],
+            "plasma_preionisation": [
+                channel.preionisation.packed()
+                for channel in responses.population_channels
+            ],
+            "raman_densities": [
+                None if term.density is None else term.density.packed()
+                for term in responses.raman_terms
+            ],
+        }
 
     def _low_storage_engine(self, method: LowStorageRungeKutta) -> object:
         """Return the resident low-storage engine (solprop SEP 24 section 6.7).
@@ -1668,6 +1753,9 @@ class _ResidentAdams:
     carrier: CarrierReference | None = None
     """The run's carrier frame (solprop SEP 35): its shift is formed on the host from
     the reference element's chord, one scalar a trial, and nothing is read back."""
+    staged: bool = False
+    """Whether the native state forms an exponential trial's tables, stage scalars
+    and rate itself, from tables uploaded once (solprop SEP 39 phase 1)."""
     dense: None = None
     _trial: tuple[float, float, list[float], npt.NDArray[np.int64], int] | None = None
     _step: tuple[float, float, npt.NDArray[np.float64]] | None = None
@@ -1899,8 +1987,12 @@ class _ResidentAdams:
 
         The step's exponent, flow and moments come from the trial's own arrays; the
         predicted field's source is evaluated in the laboratory frame, at a trial
-        whose anchor is the step's end.
+        whose anchor is the step's end. A staged engine forms the tables, the stage
+        scalars and the rate in the native state from the nodes alone (solprop SEP 39
+        phase 1), by the same operations as the host's.
         """
+        if self.staged:
+            return self._staged_trial(z, dz, nodes, slots, order, orders)
         self.hoist(z)
         # Every table in one call of the backend's helpers; each is a fresh
         # C-contiguous float64 array, as the native call takes it.
@@ -1939,6 +2031,49 @@ class _ResidentAdams:
         self._trial = (z, dz, nodes, slots, order)
         self._trial_carrier = carrier
         self._coefficients = corrector[: order + 1, : order + 1].copy()
+        self._dense_nodes = np.array([1.0, *nodes[:order]])
+        return np.asarray(norms, dtype=np.float64).reshape(-1)
+
+    def _staged_trial(
+        self,
+        z: float,
+        dz: float,
+        nodes: list[float],
+        slots: npt.NDArray[np.int64],
+        order: int,
+        orders: list[int],
+    ) -> RealArray:
+        """Form an exponential trial from its nodes alone; return its scored norms.
+
+        The native state forms the coefficient tables (``lagrange::trial_tables``),
+        the stage scalars and the rate from the tables uploaded once; the divisor and
+        the carrier frame's shift are the host's, as on the other path. A run that
+        interpolates its planes keeps the corrector's coefficients on the host for its
+        observations, from the same basis.
+        """
+        width = 1 + max(orders)
+        carrier = self._carrier(z, dz, nodes, width - 1)
+        with _envelope_errors():
+            norms = self.native.adams_exponential_trial_at(
+                z,
+                dz,
+                np.asarray(nodes, dtype=np.float64),
+                np.ascontiguousarray(slots[: max(width - 1, order)], dtype=np.uint64),
+                order,
+                list(orders),
+                self.compensated,
+                self._divisor(),
+                carrier,
+            )
+        self._trial = (z, dz, nodes, slots, order)
+        self._trial_carrier = carrier
+        self._coefficients = (
+            lagrange_coefficients(
+                [1.0, *nodes[:order]], check=False, helpers=self.helpers
+            )
+            if self.interpolate
+            else _NO_COEFFICIENTS
+        )
         self._dense_nodes = np.array([1.0, *nodes[:order]])
         return np.asarray(norms, dtype=np.float64).reshape(-1)
 
@@ -2022,6 +2157,13 @@ _NO_CARRIER = np.empty(0, dtype=np.float64)
 
 _NO_RATE = np.empty(0, dtype=np.float64)
 """The empty endpoint rate of an uncompensated trial."""
+
+_NO_COEFFICIENTS = np.empty((0, 0), dtype=np.float64)
+"""The corrector's coefficients a staged trial keeps when no plane is interpolated."""
+
+_STAGE_CONSTANT = 1
+_STAGE_EXPANSION = 2
+"""How the stage tables name a constant or an expanded ``Phi`` and prefactor."""
 
 
 def _on_device() -> bool:

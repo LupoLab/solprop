@@ -14,10 +14,13 @@ the suite's thread pools.
 Usage::
 
     uv run python -m benchmarks.adams_host CASE [--width N] [--length F] [--stepper S]
+        [--host-stages]
 
 It prints one JSON record: the wall time, the accepted and rejected steps, the source
 calls, and the host and native time per trial in microseconds. The native backend is
 required; ``--stepper rk`` times a Runge-Kutta run, which has no host figure.
+``--host-stages`` has the host form a trial's stage rows and tables, as before SEP 39's
+phase 1, so that the phase is compared with its own build.
 """
 
 from __future__ import annotations
@@ -100,9 +103,12 @@ def install() -> HostTotals:
     return totals
 
 
-def _run(case: str, stepper: str, width: int, fraction: float) -> dict[str, Any]:
+def _run(
+    case: str, stepper: str, width: int, fraction: float, *, host_stages: bool
+) -> dict[str, Any]:
     """Run the case in this process and return its record."""
     import solprop_native  # noqa: F401, PLC0415 - before pyFFTW on macOS
+    from solprop_native.backend import NativeBackend  # noqa: PLC0415
 
     from benchmarks.builders import build  # noqa: PLC0415
     from benchmarks.registry import CASES  # noqa: PLC0415
@@ -111,6 +117,8 @@ def _run(case: str, stepper: str, width: int, fraction: float) -> dict[str, Any]
     from solprop.driver.run import field_retention  # noqa: PLC0415
 
     totals = install()
+    if host_stages:
+        NativeBackend._stage_tables = lambda _self: None  # pyright: ignore[reportAttributeAccessIssue]
     configuration = CASES[case].configuration(stepper, width, "native", fraction)
     simulation = build(configuration)
     problem = simulation.translate()
@@ -132,7 +140,13 @@ def _run(case: str, stepper: str, width: int, fraction: float) -> dict[str, Any]
     finally:
         engine.close()
     trials = record["accepted"] + record["rejected"]
-    record.update(case=case, stepper=stepper, width=width, fraction=fraction)
+    record.update(
+        case=case,
+        stepper=stepper,
+        width=width,
+        fraction=fraction,
+        host_stages=host_stages,
+    )
     if totals.march > 0.0:
         record["host_us_per_trial"] = 1e6 * (totals.march - totals.native) / trials
         record["native_us_per_trial"] = 1e6 * totals.native / trials
@@ -146,9 +160,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--width", type=int, default=1)
     parser.add_argument("--length", type=float, default=1.0)
     parser.add_argument("--stepper", default="default")
+    parser.add_argument("--host-stages", action="store_true")
     args = parser.parse_args(argv)
     if os.environ.get(CHILD) == "1":
-        record = _run(args.case, args.stepper, args.width, args.length)
+        record = _run(
+            args.case,
+            args.stepper,
+            args.width,
+            args.length,
+            host_stages=args.host_stages,
+        )
         print(json.dumps(record))
         return 0
     environment = thread_environment(args.width, dict(os.environ))

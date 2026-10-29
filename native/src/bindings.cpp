@@ -4,6 +4,8 @@
 
 #include "helpers.hpp"
 #include "solprop_native/core.hpp"
+#include "solprop_native/lagrange_basis.hpp"
+#include "solprop_native/stage_tables.hpp"
 #include "solprop_native/vmath.hpp"
 
 #include <Kokkos_Core.hpp>
@@ -563,6 +565,149 @@ native::TrialScalars adams_scalars(const RealInput phi_delta, const RealInput ph
   return scalars;
 }
 
+// One of solprop's piecewise Chebyshev tables of real values, as solprop's adapter
+// packs it: (edges, lower, upper, coefficients) with the coefficients
+// (n_intervals, n_terms, n_values); `None` for an absent table (solprop SEP 39).
+native::stage::Table stage_table_from(const nb::handle value) {
+  native::stage::Table table;
+  if (value.is_none())
+    return table;
+  using Coefficients =
+      nb::ndarray<const double, nb::ndim<3>, nb::c_contig, nb::device::cpu>;
+  try {
+    const auto parts = nb::cast<nb::tuple>(value);
+    if (parts.size() != 4)
+      throw std::invalid_argument("a stage table is (edges, lower, upper, coefficients)");
+    table.edges = real_vector(exact_array<RealInput>(parts[0]));
+    table.lower = nb::cast<double>(parts[1]);
+    table.upper = nb::cast<double>(parts[2]);
+    const auto coefficients = exact_array<Coefficients>(parts[3]);
+    if (table.edges.size() < 2 || coefficients.shape(0) + 1 != table.edges.size() ||
+        coefficients.shape(1) < 1 || coefficients.shape(2) < 1)
+      throw std::invalid_argument(
+          "a stage table's coefficients do not match its breakpoints");
+    table.n_terms = coefficients.shape(1);
+    table.n_values = coefficients.shape(2);
+    table.coefficients.assign(coefficients.data(),
+                              coefficients.data() + coefficients.size());
+  } catch (const nb::cast_error&) {
+    throw std::invalid_argument("a stage table has the wrong types");
+  }
+  return table;
+}
+
+std::vector<native::stage::Table> stage_table_list(const nb::handle values) {
+  std::vector<native::stage::Table> tables;
+  for (const auto value : nb::cast<nb::list>(values))
+    tables.push_back(stage_table_from(value));
+  return tables;
+}
+
+// Every table an exponential Adams trial's stage scalars read (solprop SEP 39 phase 1):
+// solprop's adapter packs them once per run from the problem's own leaves.
+native::stage::Tables stage_tables_from(const nb::dict values) {
+  native::stage::Tables tables;
+  try {
+    tables.n_stages = nb::cast<std::size_t>(values["n_stages"]);
+    tables.phi = static_cast<native::stage::Terms>(nb::cast<int>(values["phi"]));
+    tables.phi_weights = stage_table_from(values["phi_weights"]);
+    tables.phi_rate = stage_table_from(values["phi_rate"]);
+    tables.prefactor =
+        static_cast<native::stage::Terms>(nb::cast<int>(values["prefactor"]));
+    tables.prefactor_weights = stage_table_from(values["prefactor_weights"]);
+    tables.prefactor_low = nb::cast<double>(values["prefactor_low"]);
+    tables.prefactor_high = nb::cast<double>(values["prefactor_high"]);
+    tables.density = stage_table_from(values["density"]);
+    tables.taper = stage_table_from(values["taper"]);
+    tables.raman_rates = stage_table_list(values["raman_rates"]);
+    tables.kerr = static_cast<native::stage::KerrDensity>(nb::cast<int>(values["kerr"]));
+    tables.kerr_density = stage_table_from(values["kerr_density"]);
+    tables.plasma_densities = stage_table_list(values["plasma_densities"]);
+    tables.plasma_preionisation = stage_table_list(values["plasma_preionisation"]);
+    tables.raman_densities = stage_table_list(values["raman_densities"]);
+  } catch (const nb::cast_error&) {
+    throw std::invalid_argument("the stage tables have the wrong types");
+  }
+  const bool expansion = tables.phi == native::stage::Terms::expansion;
+  const bool known = (tables.phi == native::stage::Terms::constant || expansion) &&
+                     (tables.prefactor == native::stage::Terms::constant ||
+                      tables.prefactor == native::stage::Terms::expansion);
+  if (!known || tables.n_stages == 0 || !tables.density.present() ||
+      (expansion && (!tables.phi_weights.present() || !tables.phi_rate.present() ||
+                     tables.phi_rate.n_values != tables.phi_weights.n_values)) ||
+      (tables.prefactor == native::stage::Terms::expansion &&
+       !tables.prefactor_weights.present()) ||
+      (tables.kerr == native::stage::KerrDensity::table &&
+       !tables.kerr_density.present()) ||
+      tables.plasma_densities.size() != tables.plasma_preionisation.size())
+    throw std::invalid_argument("the stage tables are inconsistent");
+  return tables;
+}
+
+// One exponential trial's tables formed natively from its nodes
+// (`lagrange::trial_tables`, solprop SEP 39 phase 1): the same operations in the same
+// order as `exponential_weights` of the tables solprop's helpers form, then the
+// compensation's when `compensated`.
+native::ExponentialWeights exponential_weights_at(const RealInput nodes,
+                                                  const IndexInput slots,
+                                                  const std::size_t order,
+                                                  const std::vector<std::size_t>& orders,
+                                                  const bool compensated) {
+  constexpr std::size_t most = native::lagrange::max_nodes;
+  const std::size_t n = element_count(nodes);
+  const std::size_t n_orders = orders.size();
+  const std::size_t highest =
+      orders.empty() ? 0 : *std::max_element(orders.begin(), orders.end());
+  const auto slot_values = index_vector(slots);
+  if (n_orders == 0 || n_orders > 3 || order == 0 || order > highest || highest > n ||
+      highest + 1 > most || highest + 1 > native::adams_max_samples ||
+      std::any_of(orders.begin(), orders.end(),
+                  [](const std::size_t value) { return value == 0; }) ||
+      slot_values.size() + 1 < highest + 1)
+    throw std::invalid_argument("Adams coefficient tables have inconsistent extents");
+  const std::size_t width = highest + 1;
+  std::array<double, most * most> predictor{};
+  std::array<double, most * most> corrector{};
+  std::array<double, 3 * 2 * most> factored{};
+  std::array<double, most> spans{};
+  std::array<double, most> carried{};
+  std::array<double, most + 1> endpoint{};
+  std::array<double, 3 * most> defects{};
+  native::lagrange::trial_tables(nodes.data(), order, orders.data(), n_orders, width,
+                                 compensated, predictor.data(), corrector.data(),
+                                 factored.data(), spans.data(), carried.data(),
+                                 endpoint.data(), defects.data());
+  native::ExponentialWeights weights;
+  for (std::size_t t = 0; t < slot_values.size() && t < native::adams_max_samples; ++t)
+    weights.slot[t] = slot_values[t];
+  for (std::size_t j = 0; j < order; ++j)
+    for (std::size_t k = 0; k < order; ++k)
+      weights.predictor[j][k] = predictor[j * order + k];
+  for (std::size_t j = 0; j < width; ++j)
+    for (std::size_t k = 0; k < width; ++k)
+      weights.corrector[j][k] = corrector[j * width + k];
+  weights.order = order;
+  weights.width = width;
+  weights.count = width;
+  weights.n_rows = n_orders;
+  for (std::size_t row = 0; row < n_orders; ++row)
+    for (std::size_t t = 0; t < 2 * width; ++t)
+      weights.rows[row][t] = factored[row * 2 * width + t];
+  weights.compensated = compensated;
+  if (compensated) {
+    for (std::size_t t = 0; t + 1 < width; ++t)
+      weights.span[t] = spans[t];
+    for (std::size_t t = 0; t < order; ++t)
+      weights.comp_predictor[t] = carried[t];
+    for (std::size_t t = 0; t <= order; ++t)
+      weights.comp_corrector[t] = endpoint[t];
+    for (std::size_t row = 0; row < n_orders; ++row)
+      for (std::size_t t = 0; t < width; ++t)
+        weights.comp_rows[row][t] = defects[row * width + t];
+  }
+  return weights;
+}
+
 // One Adams trial's coefficient tables (solprop SEP 16 phase 3b): the history rows,
 // newest first, and the weights over them; `rows` is (n_rows, width), at most three.
 native::AdamsWeights adams_weights(const IndexInput slots, const RealInput predictor,
@@ -867,6 +1012,29 @@ public:
           "the resident Adams history requires the general native state");
     return *general_state_;
   }
+  // The stage tables an exponential Adams trial reads natively (solprop SEP 39).
+  void set_stage_tables(native::stage::Tables tables) {
+    adams_state();
+    if (tables.n_stages != stages_)
+      throw std::invalid_argument("the stage tables name another tableau's stages");
+    stage_tables_ = std::move(tables);
+    stage_anchor_ = {};
+  }
+  [[nodiscard]] bool has_stage_tables() const { return stage_tables_.has_value(); }
+  native::stage::Trial stage_trial(const double z0, const double z1) {
+    if (!stage_tables_)
+      throw std::logic_error("no stage tables were uploaded");
+    const auto row = native::stage::row(*stage_tables_, stage_anchor_, z0, z1);
+    auto step = native::stage::trial(*stage_tables_, row);
+    auto sample = step;
+    std::fill(sample.phi_delta.begin(), sample.phi_delta.end(), 0.0);
+    return {std::move(step), std::move(sample)};
+  }
+  std::vector<double> stage_rate(const double z) const {
+    if (!stage_tables_)
+      throw std::logic_error("no stage tables were uploaded");
+    return native::stage::rate(*stage_tables_, z);
+  }
   std::vector<native::Complex> stage_to_host(const std::size_t stage) {
     require_open();
     if (!general_state_)
@@ -1037,6 +1205,8 @@ private:
   bool raman_{};
   std::unique_ptr<native::State> state_;
   std::shared_ptr<native::GeneralState> general_state_;
+  std::optional<native::stage::Tables> stage_tables_;
+  native::stage::Anchor stage_anchor_;
 };
 
 class BoundBatch {
@@ -1903,6 +2073,62 @@ NB_MODULE(_core, module_) {
           "sample_material"_a, "spans"_a.noconvert(), "comp_predictor"_a.noconvert(),
           "comp_corrector"_a.noconvert(), "comp_rows"_a.noconvert(),
           "rate"_a.noconvert(), "carrier"_a.noconvert())
+      // solprop SEP 39 phase 1: the trial's tables, stage scalars and rate formed
+      // natively from the nodes and the tables uploaded once per run.
+      .def(
+          "adams_stage_tables",
+          [](BoundState& self, const nb::dict tables) {
+            self.set_stage_tables(stage_tables_from(tables));
+          },
+          "tables"_a)
+      .def("has_stage_tables", &BoundState::has_stage_tables)
+      .def(
+          "adams_exponential_trial_at",
+          [](BoundState& self, const double z, const double dz, const RealInput nodes,
+             const IndexInput slots, const std::size_t order,
+             const std::vector<std::size_t>& orders, const bool compensated,
+             const RealInput divisor, const RealInput carrier) {
+            auto weights = exponential_weights_at(nodes, slots, order, orders, compensated);
+            carrier_frame(weights, carrier, weights.width - 1);
+            const auto scale = real_vector(divisor);
+            const double end = z + dz;
+            auto trial = self.stage_trial(z, end);
+            const auto rate = compensated ? self.stage_rate(end) : std::vector<double>{};
+            std::vector<double> norms;
+            {
+              const nb::gil_scoped_release release;
+              norms = self.adams_state().adams_exponential_trial(
+                  dz, weights, scale, trial.step, trial.sample, rate);
+            }
+            return real_output(std::move(norms), 1);
+          },
+          "z"_a, "dz"_a, "nodes"_a.noconvert(), "slots"_a.noconvert(), "order"_a,
+          "orders"_a, "compensated"_a, "divisor"_a.noconvert(), "carrier"_a.noconvert())
+      .def(
+          "adams_stage_scalars",
+          [](BoundState& self, const double z0, const double z1) {
+            const auto trial = self.stage_trial(z0, z1);
+            const auto& step = trial.step;
+            // The first stage row's values; the test of the native evaluation reads
+            // them against solprop's bundle.
+            nb::dict out;
+            out["phi_delta"] = step.phi_delta;
+            out["phi_at"] = step.phi_at;
+            out["prefactor"] = step.prefactor;
+            out["density"] = step.density;
+            out["taper"] = step.taper;
+            out["preionisation"] = step.preionisation;
+            out["raman_rates"] = step.raman_rates;
+            out["kerr_density"] = step.kerr_density;
+            out["plasma_densities"] = step.plasma_densities;
+            out["plasma_preionisation"] = step.plasma_preionisation;
+            out["raman_densities"] = step.raman_densities;
+            return out;
+          },
+          "z0"_a, "z1"_a)
+      .def(
+          "adams_stage_rate",
+          [](BoundState& self, const double z) { return self.stage_rate(z); }, "z"_a)
       .def(
           "adams_exponential_accept",
           [](BoundState& self, const double dz, const std::size_t free,
