@@ -2852,6 +2852,58 @@ TEST(CpuThreadPolicy, AKernelPoolAtFullWidthKeepsItsTeam) {
             native::cpu_medium_threads);
 }
 
+TEST(CpuThreadPolicy, ACompactPoolKeepsAFewThreads) {
+  // A compact problem's kernels share a team of at most cpu_compact_threads, medium
+  // widths promoted to it; its transforms take that team only where FFTW's loops
+  // follow a scope, and run serially otherwise.
+  const auto policy = native::thread_policy();
+  if (!native::cpu_size_policy_enabled || policy.explicit_pools != 0)
+    GTEST_SKIP() << "needs automatic per-operation sizing";
+  const int team = std::min(policy.kernels, native::cpu_compact_threads);
+  native::CpuExecutionPool kernels(native::CpuPool::kernels);
+  kernels.compact();
+  EXPECT_EQ(kernels.widest(), 0);
+  EXPECT_EQ(kernels.get(native::CpuOperation::stage, 1U << 20).concurrency(), team);
+  EXPECT_EQ(kernels.get(native::CpuOperation::response, std::size_t{33} * 4096, 4096)
+                .concurrency(),
+            team);
+  EXPECT_EQ(kernels.get(native::CpuOperation::stage, 1).concurrency(), 1);
+  EXPECT_EQ(kernels.widest(), team);
+  native::CpuExecutionPool transforms(native::CpuPool::fft);
+  transforms.compact();
+  EXPECT_EQ(transforms.get(native::CpuOperation::fft, 1U << 20).concurrency(),
+            native::fftw_team_loops() ? team : 1);
+  native::CpuExecutionPool full(native::CpuPool::kernels);
+  EXPECT_EQ(full.get(native::CpuOperation::stage, 1U << 20).concurrency(),
+            policy.kernels);
+}
+
+TEST(CpuThreadPolicy, CompactProblemsHaveOneColumnOnOneNode) {
+  const auto base = general_problem(native::FieldFamily::field_real);
+  EXPECT_TRUE(native::compact_problem(base));
+  auto nodes = base;
+  nodes.n_nodes = 2;
+  EXPECT_FALSE(native::compact_problem(nodes));
+  auto modes = base;
+  modes.n_modes = 2;
+  EXPECT_FALSE(native::compact_problem(modes));
+  auto pairs = base;
+  pairs.n_pol_transform = 2;
+  EXPECT_FALSE(native::compact_problem(pairs));
+  auto long_column = base;
+  long_column.n_to = native::compact_max_fine_samples;
+  EXPECT_FALSE(native::compact_problem(long_column));
+  auto modal = base;
+  modal.general_modal = true;
+  EXPECT_FALSE(native::compact_problem(modal));
+  auto flow = base;
+  flow.coupled_flow = true;
+  EXPECT_FALSE(native::compact_problem(flow));
+  auto free_space = base;
+  free_space.n_x = 2;
+  EXPECT_FALSE(native::compact_problem(free_space));
+}
+
 TEST(CpuThreadPolicy, MetadataDistinguishesEqualWorkWithDifferentResponseShapes) {
   native::CpuExecutionPool pool(native::CpuPool::kernels);
   const auto samples = native::response_full_thread_samples;

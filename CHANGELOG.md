@@ -481,6 +481,12 @@ The first public release. It contains:
   statistics synthesise through two GEMMs. On an Intel Xeon Gold 6240 `kerr_beam_192`
   takes 0.64 of its time at one thread (fields bitwise equal), the 384² beam 0.85 at 16
   threads, `radial_filament_256` 0.83 and `gnlse_raman_shock` 0.84 at one thread.
+- **One-column native CPU runs gain from many threads.** A GNLSE or mode-averaged run
+  woke every thread of the pool for a few short kernels between serial transforms, and
+  ran no faster at 16 threads than at one. A problem of one column on one node now runs
+  its kernels and its FFTs on at most eight threads (FFTW 3.3.9 or later; with an older
+  FFTW its transforms stay serial): on an Intel Xeon Gold 6240 at 16 threads
+  `gnlse_raman_shock` takes 0.80 of its time and `h2_raman_averaged` 0.89.
 - **Native CPU runs no longer re-create OpenMP threads every step.** A four-thread
   kernel between full-width ones made GNU OpenMP end and restart twelve of sixteen
   threads each time; the hydrogen Raman case was slower at 16 threads than at one. A

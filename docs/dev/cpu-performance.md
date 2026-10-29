@@ -106,6 +106,15 @@ time divided by the native backend's: above 1, the native backend is faster.
   medium-width kernels; FFT plans keep four threads, as FFTW's loops keep the whole team.
   `h2_raman_averaged` became 1.9-2.1 times faster at 16 threads (faster than one thread
   again) and `argon_blueshift` 1.2-1.4 times, on a Xeon Gold 6240 and an AMD EPYC 7763.
+- **A compact team for one-column problems** ([measurements](benchmarks.md#compact-cpu-teams)).
+  A GNLSE or mode-averaged run woke all sixteen threads for its stage entry between
+  serial transforms; the main thread then ran at a lower clock and fetched its arrays
+  from other cores, so `gnlse_raman_shock` gained nothing over one thread. Such a
+  problem now runs every kernel on at most eight threads and its FFTs on the same team,
+  through FFTW's loop callback inside a per-call scope (FFTW's own loop takes the
+  runtime's whole team, which would end and restart threads beside a narrower kernel
+  team). On a Xeon Gold 6240 at 16 threads `gnlse_raman_shock` takes 0.80 of its time
+  and `h2_raman_averaged` 0.89; one thread is unchanged.
 - **NumPy's BLAS held to one thread while a native backend lives**
   ([measurements](benchmarks.md#numpys-blas-beside-a-native-run)). Its pthreads
   workers, woken by the small host-side products of each saved plane, spun on the native

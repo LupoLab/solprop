@@ -865,6 +865,11 @@ if(SOLPROP_NATIVE_BLAS_BACKEND STREQUAL "OpenBLAS")
     SOLPROP_NATIVE_TPL_BLAS_OPENBLAS=1
   )
 endif()
+# Compact problems' transforms take a scoped team through FFTW's loop callback
+# (core.cpp, `fftw_team_loops`), which only the OpenMP FFTW runs on the OpenMP team.
+if(SOLPROP_NATIVE_HOST_FFT_BACKEND STREQUAL "FFTW_OPENMP")
+  target_compile_definitions(solprop_native_core PUBLIC SOLPROP_NATIVE_FFTW_OPENMP=1)
+endif()
 if(SOLPROP_NATIVE_BLAS_BACKEND STREQUAL "cuBLAS")
   target_compile_definitions(solprop_native_core PUBLIC
     SOLPROP_NATIVE_TPL_BLAS_CUBLAS=1

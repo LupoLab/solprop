@@ -230,6 +230,55 @@ Every medium width serial instead lost 2.8 times on averaged helium (EPYC geomet
 1.08); every medium width full, the FFTs included, gained on resolved cases but lost on the
 averaged ones (EPYC 0.94, Xeon 0.90 with averaged helium 1.22).
 
+(compact-cpu-teams)=
+### Compact CPU teams
+
+A problem of one column on one node (the GNLSE, the mode-averaged capillary) has few
+operations large enough to thread, and between them serial transforms and products. At
+16 threads `gnlse_raman_shock` (16384 bins, 6289 source evaluations a `--length 0.1`
+window) ran its stage entry on all sixteen threads and its responses on all of them too,
+its FFTs on four threads within the runtime's whole team, and gained nothing over one
+thread (5.86 against 6.02 s on one socket of a Xeon Gold 6240). Its serial kernels each
+ran 1.2-2.5 times slower than in a one-thread process; with every pool forced serial in
+the same 16-thread process they ran at their one-thread times, so the idle pool costs
+nothing and the wide regions do. A per-thread `perf stat` of the timed window shows both
+parts: the main thread ran at about 2.7 GHz instead of 3.5 (waking fifteen cores every
+0.9 ms evaluation holds the socket in its many-core turbo bin), and its loads found
+16 million lines modified in another core's cache, against 60 thousand.
+
+Such a problem (`compact_problem`: one column, one node, one transform polarisation, no
+general modal route, coupled flow or separable geometry, fewer than 65536 fine samples)
+now runs on a compact team: its kernels at most eight threads wide, medium widths
+promoted to that team as in [a stable kernel team](#stable-kernel-team), and its FFT and
+Raman plans at most eight. FFTW's threaded loop normally opens the runtime's whole team
+(sixteen threads for a four-thread plan); beside an eight-thread kernel team that made
+GNU OpenMP end and restart threads at every pair, and a whole run took 2.6 times as long.
+The native backend therefore installs FFTW's loop callback (FFTW 3.3.9 and later, the
+OpenMP FFTW only): outside a scope it runs the jobs on the runtime's team, as FFTW's own
+loop does, and inside the scope that every native call of a compact problem opens it runs
+them on the problem's team. A build without the callback keeps a compact problem's
+transforms serial. An observation now copies the field on the stage's instance rather
+than the default one, which would also widen the team.
+
+Sweeps of the whole native pool on the same 16-thread process (`SOLPROP_NATIVE_THREADS`,
+2 rounds, wall s) chose the team: `gnlse_raman_shock` 5.84 at 16, 4.72 at 4, 4.64 at 6,
+4.76 at 8, 5.42 at 12; `h2_raman_averaged` 0.71 at 16, 0.61 at 4 and at 8; the 33-node
+cases lose at 4 (`argon_blueshift` 1.77 against 1.48 s, `rdw` 0.90 against 0.75 s) and
+stay with their own sizing. Interleaved `benchmarks ab` against the parent on the Xeon,
+3 rounds, `--length 0.1`, passive-bound placement, the same steps and fields to the
+measured-plan floor (at most 6e-14 relative):
+
+| case | 1 thread | 16 threads |
+|---|---:|---:|
+| `gnlse_raman_shock` | 0.995 | 0.801 [0.794, 0.831] |
+| `h2_raman_averaged` | 0.992 | 0.888 [0.883, 0.891] |
+| `he_rdw_averaged` | 1.027 [0.971, 1.055] | 0.979 |
+| `gnlse_soliton`, `argon_blueshift_averaged` | 0.983-0.985 | 0.995-1.017 |
+| `argon_blueshift_envelope`, `rdw` (not compact) | 0.988-1.009 | 0.999-1.009 |
+
+`gnlse_raman_shock` now runs 1.25 times faster at 16 threads than at one (4.76 against
+5.94 s), where it ran at the same speed.
+
 (host-blas-pool)=
 ### NumPy's BLAS beside a native run
 
@@ -1031,7 +1080,9 @@ partial chunk.
 A response column is one active node and one component. Every width is capped by the
 global thread setting. A kernel pool that already holds a full-width instance gives it to
 the medium-width kernels too ([a stable kernel team](#stable-kernel-team)); the FFT pools
-keep their medium widths. Explicit per-pool requests bypass this table, including the
+keep their medium widths. A problem of one column on one node takes at most eight
+threads in every pool, its transforms on its kernels' team
+([compact CPU teams](#compact-cpu-teams)). Explicit per-pool requests bypass this table, including the
 short-FFT rule. `build_info()` exposes the constants and override mask; backend metadata
 exposes effective widths and sizing inputs. Non-OpenMP host builds report that
 per-operation sizing is unsupported and keep their existing execution policy.
