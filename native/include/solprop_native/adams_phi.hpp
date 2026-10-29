@@ -7,6 +7,7 @@
 
 #include <Kokkos_Core.hpp>
 
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -165,6 +166,16 @@ inline constexpr std::int64_t adams_lane_zero = 0;
 inline constexpr std::int64_t adams_lane_large = 1;
 inline constexpr std::int64_t adams_lane_series = 2;
 
+// `on ? a : b` as a selection of bits, so that a loop over lanes vectorises on targets
+// whose compilers will not if-convert a conditional store (AVX2 under GCC's Zen
+// tuning); either value is formed whether or not it is kept.
+SOLPROP_NATIVE_STRICT_FUNCTION
+inline double adams_lane_select(const bool on, const double a, const double b) {
+  const std::uint64_t mask = std::uint64_t{0} - static_cast<std::uint64_t>(on);
+  return std::bit_cast<double>((std::bit_cast<std::uint64_t>(a) & mask) |
+                               (std::bit_cast<std::uint64_t>(b) & ~mask));
+}
+
 // A block's lanes. Each pass declares one and uses the parts it needs; the parts are
 // members of one object so that the compiler knows they do not overlap.
 struct AdamsLanes {
@@ -231,27 +242,34 @@ inline void adams_lanes_classify(AdamsLanes& lanes, const ExponentialWeights& we
     const double square = rr + ii;
     const std::int64_t zero = static_cast<std::int64_t>(lanes.ar[b] == 0.0) &
                               static_cast<std::int64_t>(lanes.ai[b] == 0.0);
-    const std::int64_t large = static_cast<std::int64_t>(square > 9.0);
-    const std::int64_t above_quarter = static_cast<std::int64_t>(square > 0.25);
-    const std::int64_t above_one = static_cast<std::int64_t>(square > 1.0);
-    const std::int64_t above_four = static_cast<std::int64_t>(square > 4.0);
+    const std::int64_t large = static_cast<std::int64_t>(std::isgreater(square, 9.0));
+    const std::int64_t above_quarter =
+        static_cast<std::int64_t>(std::isgreater(square, 0.25));
+    const std::int64_t above_one =
+        static_cast<std::int64_t>(std::isgreater(square, 1.0));
+    const std::int64_t above_four =
+        static_cast<std::int64_t>(std::isgreater(square, 4.0));
     const std::int64_t uncertain =
-        static_cast<std::int64_t>(!(square <= finite)) |
-        static_cast<std::int64_t>(Kokkos::fabs(square - 0.25) <= margin * 0.25) |
-        static_cast<std::int64_t>(Kokkos::fabs(square - 1.0) <= margin) |
-        static_cast<std::int64_t>(Kokkos::fabs(square - 4.0) <= margin * 4.0) |
-        static_cast<std::int64_t>(Kokkos::fabs(square - 9.0) <= margin * 9.0);
+        static_cast<std::int64_t>(!std::islessequal(square, finite)) |
+        static_cast<std::int64_t>(
+            std::islessequal(Kokkos::fabs(square - 0.25), margin * 0.25)) |
+        static_cast<std::int64_t>(
+            std::islessequal(Kokkos::fabs(square - 1.0), margin)) |
+        static_cast<std::int64_t>(
+            std::islessequal(Kokkos::fabs(square - 4.0), margin * 4.0)) |
+        static_cast<std::int64_t>(
+            std::islessequal(Kokkos::fabs(square - 9.0), margin * 9.0));
     close[b] = uncertain;
     any_close |= uncertain;
     // zero 0, large 1, series 2, and 2^-squarings, each factor exact; spelt as
-    // arithmetic rather than selections, which GCC does not if-convert here.
+    // arithmetic and selections of bits, which every x86-64 target vectorises.
     const std::int64_t branch = (1 - zero) * (2 - large);
     const std::int64_t series = static_cast<std::int64_t>(branch == adams_lane_series);
     lanes.branch[b] = branch;
     lanes.squarings[b] = series * (above_quarter + above_one + above_four);
-    scale[b] = (1.0 - 0.5 * static_cast<double>(above_quarter)) *
-               (1.0 - 0.5 * static_cast<double>(above_one)) *
-               (1.0 - 0.5 * static_cast<double>(above_four));
+    scale[b] = adams_lane_select(above_quarter != 0, 0.5, 1.0) *
+               adams_lane_select(above_one != 0, 0.5, 1.0) *
+               adams_lane_select(above_four != 0, 0.5, 1.0);
   }
   if (any_close != 0)
     for (std::size_t b = 0; b < count; ++b) {
@@ -277,8 +295,8 @@ inline void adams_lanes_classify(AdamsLanes& lanes, const ExponentialWeights& we
     const bool series = lanes.branch[b] == adams_lane_series;
     any_large |= static_cast<std::int64_t>(lanes.branch[b] == adams_lane_large);
     most = lanes.squarings[b] > most ? lanes.squarings[b] : most;
-    lanes.yr[b] = series ? scale[b] * lanes.ar[b] : 0.0;
-    lanes.yi[b] = series ? scale[b] * lanes.ai[b] : 0.0;
+    lanes.yr[b] = adams_lane_select(series, scale[b] * lanes.ar[b], 0.0);
+    lanes.yi[b] = adams_lane_select(series, scale[b] * lanes.ai[b], 0.0);
   }
   lanes.any_large = any_large != 0;
   lanes.most_squarings = most;
@@ -304,7 +322,7 @@ inline void adams_lanes_phi(AdamsLanes& lanes, const std::size_t order) {
     term_i[b] = 0.0;
     sum_r[b] = first;
     sum_i[b] = 0.0;
-    live[b] = lanes.branch[b] == adams_lane_series ? 1 : 0;
+    live[b] = static_cast<std::int64_t>(lanes.branch[b] == adams_lane_series);
   }
   for (std::size_t m = 1; m < static_cast<std::size_t>(adams_series_terms); ++m) {
     const double inverse = adams_lane_inverse_divisor[m + order];
@@ -327,14 +345,14 @@ inline void adams_lanes_phi(AdamsLanes& lanes, const std::size_t order) {
       const double term_norm = term_rr + term_ii;
       const double total_norm = total_rr + total_ii;
       const bool on = live[b] != 0;
-      sum_r[b] = on ? total_r : sum_r[b];
-      sum_i[b] = on ? total_i : sum_i[b];
+      sum_r[b] = adams_lane_select(on, total_r, sum_r[b]);
+      sum_i[b] = adams_lane_select(on, total_i, sum_i[b]);
       // A quiet comparison (no exception on NaN, the same result), which the compiler
       // may evaluate for every lane.
       const bool more = on & !std::islessequal(term_norm, stop * total_norm);
-      live[b] = more ? 1 : 0;
-      term_r[b] = more ? next_r : 0.0;
-      term_i[b] = more ? next_i : 0.0;
+      live[b] = static_cast<std::int64_t>(more);
+      term_r[b] = adams_lane_select(more, next_r, 0.0);
+      term_i[b] = adams_lane_select(more, next_i, 0.0);
       any |= live[b];
     }
     if (any == 0)
@@ -373,8 +391,8 @@ inline void adams_lanes_phi(AdamsLanes& lanes, const std::size_t order) {
       const double ri = lanes.qr[0][b] * lanes.qi[0][b];
       const double ir = lanes.qi[0][b] * lanes.qr[0][b];
       const bool on = pass < lanes.squarings[b];
-      lanes.pr[0][b] = on ? rr - ii : lanes.qr[0][b];
-      lanes.pi[0][b] = on ? ri + ir : lanes.qi[0][b];
+      lanes.pr[0][b] = adams_lane_select(on, rr - ii, lanes.qr[0][b]);
+      lanes.pi[0][b] = adams_lane_select(on, ri + ir, lanes.qi[0][b]);
     }
     double half = 1.0; // 2^-k, exact
     for (std::size_t k = 1; k <= order; ++k) {
@@ -399,8 +417,8 @@ inline void adams_lanes_phi(AdamsLanes& lanes, const std::size_t order) {
       }
       for (std::size_t b = 0; b < count; ++b) {
         const bool on = pass < lanes.squarings[b];
-        lanes.pr[k][b] = on ? half * total_r[b] : lanes.qr[k][b];
-        lanes.pi[k][b] = on ? half * total_i[b] : lanes.qi[k][b];
+        lanes.pr[k][b] = adams_lane_select(on, half * total_r[b], lanes.qr[k][b]);
+        lanes.pi[k][b] = adams_lane_select(on, half * total_i[b], lanes.qi[k][b]);
       }
     }
   }
@@ -426,8 +444,8 @@ inline void adams_lanes_phi(AdamsLanes& lanes, const std::size_t order) {
       last_r[b] = lanes.gr[b];
       last_i[b] = lanes.gi[b];
       const bool on = lanes.branch[b] == adams_lane_large;
-      lanes.pr[0][b] = on ? last_r[b] : lanes.pr[0][b];
-      lanes.pi[0][b] = on ? last_i[b] : lanes.pi[0][b];
+      lanes.pr[0][b] = adams_lane_select(on, last_r[b], lanes.pr[0][b]);
+      lanes.pi[0][b] = adams_lane_select(on, last_i[b], lanes.pi[0][b]);
     }
     for (std::size_t k = 1; k <= order; ++k) {
       const double reciprocal = adams_lane_reciprocal[k - 1];
@@ -441,8 +459,8 @@ inline void adams_lanes_phi(AdamsLanes& lanes, const std::size_t order) {
         last_r[b] = rr - ii;
         last_i[b] = ri + ir;
         const bool on = lanes.branch[b] == adams_lane_large;
-        lanes.pr[k][b] = on ? last_r[b] : lanes.pr[k][b];
-        lanes.pi[k][b] = on ? last_i[b] : lanes.pi[k][b];
+        lanes.pr[k][b] = adams_lane_select(on, last_r[b], lanes.pr[k][b]);
+        lanes.pi[k][b] = adams_lane_select(on, last_i[b], lanes.pi[k][b]);
       }
     }
   }
@@ -450,8 +468,8 @@ inline void adams_lanes_phi(AdamsLanes& lanes, const std::size_t order) {
     const double reciprocal = adams_lane_reciprocal[k];
     for (std::size_t b = 0; b < count; ++b) {
       const bool on = lanes.branch[b] == adams_lane_zero;
-      lanes.pr[k][b] = on ? reciprocal : lanes.pr[k][b];
-      lanes.pi[k][b] = on ? 0.0 : lanes.pi[k][b];
+      lanes.pr[k][b] = adams_lane_select(on, reciprocal, lanes.pr[k][b]);
+      lanes.pi[k][b] = adams_lane_select(on, 0.0, lanes.pi[k][b]);
     }
   }
 }
