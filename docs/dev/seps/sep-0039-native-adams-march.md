@@ -6,7 +6,7 @@
 | **Title** | A native Adams march: the Multistep step loop in the compiled backend |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-10-28) |
-| **Status** | Accepted |
+| **Status** | In progress |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); GPT-6 (AI) |
 | **Type** | Change |
@@ -15,7 +15,7 @@
 | **Requires** | [SEP 16](archive/sep-0016-unified-multistep.md) (the march, its engine, ADR-043); [SEP 25](archive/sep-0025-rounding-level-reproducibility.md) (agreement to the error bound); [SEP 29](archive/sep-0029-compiled-backend-distribution.md) (native z tables and the history export) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | — |
+| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0039-native-adams-march`, based on LupoLab/solprop#56: started 2026-10-28 |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -2123,7 +2123,7 @@ recorded beside its question, and the proposal above follows it.
 
 ## Part II — Implementation record
 
-No phase has started.
+Phase 0 is under way.
 
 ## Part III — History
 
@@ -2189,6 +2189,9 @@ No phase has started.
   of §4.6's landing-search correction; it found nothing else to change.
 - 2026-10-28: **Accepted** by John Travers. Part I is frozen from here; deviations go into
   the phase reports of Part II.
+- 2026-10-28: **In progress.** Implementation started by Opus 5.5 for John Travers on
+  `feature/sep-0039-native-adams-march`, based on LupoLab/solprop#56, with one draft
+  pull request opened early so that CI tests each push.
 
 ### AI review — 2026-10-28
 
