@@ -98,6 +98,25 @@ enum class KerrDensity : int { none = 0, density = 1, table = 2 };
 struct ZSlots;
 
 /**
+ * Write NumPy's `chebvander` row at `x`, `degrees` values: its forward recursion
+ * `T_i = T_{i-1} 2x - T_{i-2}`, each operation rounded on its own.
+ */
+SOLPROP_NATIVE_STRICT_FUNCTION
+inline void chebvander_row(const double x, const std::size_t degrees, double* row) {
+  SOLPROP_NATIVE_STRICT_BLOCK
+  const double zero = x * 0.0;
+  row[0] = zero + 1.0;
+  if (degrees > 1) {
+    const double x2 = 2.0 * x;
+    row[1] = x;
+    for (std::size_t i = 2; i < degrees; ++i) {
+      const double product = row[i - 1] * x2;
+      row[i] = product - row[i - 2];
+    }
+  }
+}
+
+/**
  * A Chebyshev basis in sections along z: a coupled flow's residual weights
  * (`translate.coupled.flow_weights`) and a moving guide's map weights
  * (`translate.modal_path.transform_weights`). Each position's weights are its
@@ -124,27 +143,16 @@ struct Sections {
     return clamped(z - slack);
   }
 
-  /** The weights at `z` in section `index`: `chebvander`'s forward recursion. */
-  SOLPROP_NATIVE_STRICT_FUNCTION
+  /** The weights at `z` in section `index`: its `chebvander` row at the section's
+      mapped coordinate, as `flow_weights` maps it (no product to contract). */
   [[nodiscard]] std::vector<double> weights(const double z,
                                             const std::size_t index) const {
-    SOLPROP_NATIVE_STRICT_BLOCK
     std::vector<double> out(terms(), 0.0);
     const double lo = edges[index];
     const double hi = edges[index + 1];
     const double doubled = 2.0 * z;
     const double x = ((doubled - lo) - hi) / (hi - lo);
-    double* const row = out.data() + index * degrees;
-    const double zero = x * 0.0;
-    row[0] = zero + 1.0;
-    if (degrees > 1) {
-      const double x2 = 2.0 * x;
-      row[1] = x;
-      for (std::size_t i = 2; i < degrees; ++i) {
-        const double product = row[i - 1] * x2;
-        row[i] = product - row[i - 2];
-      }
-    }
+    chebvander_row(x, degrees, out.data() + index * degrees);
     return out;
   }
 
@@ -600,12 +608,11 @@ inline ExponentialWeights weights(const double* nodes, const std::size_t n,
  * sample on, its predictor's on `nodes[:k]`. `nodes` holds the history's normalised
  * positions newest first, `slots` their rows.
  */
-SOLPROP_NATIVE_STRICT_FUNCTION
 inline AdamsWeights fused_weights(const double* nodes, const std::size_t n,
                                   const std::size_t* slots, const std::size_t n_slots,
                                   const std::size_t order, const std::size_t* orders,
                                   const std::size_t n_orders) {
-  SOLPROP_NATIVE_STRICT_BLOCK
+  // `basis_rows` is strict; the defects' subtractions cannot contract.
   constexpr std::size_t most = lagrange::max_nodes;
   std::size_t highest = 0;
   for (std::size_t index = 0; index < n_orders; ++index)
