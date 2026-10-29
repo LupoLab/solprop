@@ -18,6 +18,7 @@ is actually summarised, so that any module may use it.
 """
 
 import math
+import textwrap
 from collections.abc import Iterable, Sequence
 from typing import Protocol, runtime_checkable
 
@@ -51,6 +52,9 @@ wherever a terminal, a log file or an HDF5 attribute may have to carry it."""
 
 _WIDTH = 88
 """Longest line of a block, the package's line length."""
+
+_WRAPPED = 4
+"""Most lines a wrapped value takes in a block; a longer one ends with an ellipsis."""
 
 
 @runtime_checkable
@@ -246,7 +250,9 @@ def block(title: str, rows: Sequence[tuple[str, object]]) -> str:
         The first line: the class and its headline.
     rows : sequence of tuple
         ``(key, value)`` pairs, one line each. A value holding newlines is indented
-        under its key; a line longer than the package's 88 columns is cut with an
+        under its key; a line longer than the package's 88 columns is wrapped at a
+        space, its continuation indented under its value, over at most four lines,
+        and what is left over, or a single word too long for a line, is cut with an
         ellipsis, so that a block is always safe to paste into a page.
 
     Returns
@@ -263,14 +269,54 @@ def block(title: str, rows: Sequence[tuple[str, object]]) -> str:
       duration: 7.5 fs
     """
     width = max((len(key) for key, _ in rows), default=0) + 1
-    lines = [title]
+    under = " " * (width + 3)
+    # A long title continues deeper than the rows, so it cannot be read as one.
+    lines = _fitted("", title, "    ")
     for key, value in rows:
         first, *rest = str(value).split("\n")
-        lines.append(f"  {key + ':':<{width}} {first}")
-        lines.extend(f"  {'':<{width}} {extra}" for extra in rest)
-    return "\n".join(
-        text if len(text) <= _WIDTH else text[: _WIDTH - 3] + "..." for text in lines
-    )
+        lines.extend(_fitted(f"  {key + ':':<{width}} ", first, under))
+        for extra in rest:
+            deeper = extra[: len(extra) - len(extra.lstrip())]
+            lines.extend(_fitted(under + deeper, extra.lstrip(), under + deeper))
+    return "\n".join(lines)
+
+
+def _fitted(lead: str, value: str, indent: str) -> list[str]:
+    """Return one line of a block within the package's width.
+
+    Parameters
+    ----------
+    lead : str
+        What precedes the value on its first line: the key's column, or the
+        indentation of a continuation.
+    value : str
+        The text, wrapped at its spaces when the line is too long.
+    indent : str
+        The indentation of each wrapped continuation, under the value.
+
+    Returns
+    -------
+    list of str
+        The line or its wrapped pieces, at most :data:`_WRAPPED` of them; the last
+        kept piece of a longer value, and a piece holding a single word too long for
+        the width, end with an ellipsis.
+    """
+    if len(lead) + len(value) <= _WIDTH:
+        return [lead + value]
+    pieces = textwrap.wrap(
+        value,
+        _WIDTH,
+        initial_indent=lead,
+        subsequent_indent=indent,
+        break_long_words=False,
+        break_on_hyphens=False,
+    ) or [lead]
+    if len(pieces) > _WRAPPED:
+        pieces = [*pieces[: _WRAPPED - 1], pieces[_WRAPPED - 1][: _WIDTH - 4] + " ..."]
+    return [
+        piece if len(piece) <= _WIDTH else piece[: _WIDTH - 3] + "..."
+        for piece in pieces
+    ]
 
 
 class Displayed:

@@ -29,6 +29,7 @@ from solprop.pulses import GaussianPulse, SechPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import DOPRI5, FixedSchedule, PIController, default_dz_min
+from solprop.stepper.multistep import Multistep
 from solprop.translate.chebyshev import PiecewiseChebyshev, build
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.linop import LinearOperator, constant_phi, profile_table
@@ -843,6 +844,26 @@ def test_the_stepper_group_refuses_planes_that_do_not_increase():
             [1.0, 0.5],
             "tabulate",
         )
+
+
+def _stepper(controller, integrator):
+    """Return stepper settings with one controller and one integrator."""
+    return StepperSettings(
+        DOPRI5, controller, 1e-9, 0.1, 1e-3, 1.1, None, [0.5, 1.0], "tabulate",
+        integrator=integrator,
+    )  # fmt: skip
+
+
+def test_the_adams_march_refuses_the_controller_settings_it_ignores():
+    # It reads the tolerances, the weights and the region, and chooses its steps by its
+    # own safety, min_factor and max_growth: anything else would be silently unused.
+    plain = PIController(rtol=1e-8, atol=1e-14, weights=None, region="active")
+    _stepper(plain, Multistep())
+    tuned = PIController(rtol=1e-8, atol=1e-14, safety=0.5, reject_free=True)
+    with pytest.raises(TranslationError, match="safety, reject_free would be ignored"):
+        _stepper(tuned, Multistep())
+    # The Runge-Kutta march reads them all.
+    _stepper(tuned, None)
 
 
 def test_the_stats_request_is_the_catalogue_object(envelope_grid, gnlse, soliton):

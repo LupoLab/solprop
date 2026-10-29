@@ -4,6 +4,9 @@ ModalSample: internal-convention E/H on physical nodes
   channels:   1
   nodes:      30
   gauge:      analytic-real-transverse
-  provider:   {"channels": [{"azimuthal_order": 1, "display_label": "HE1,1:even", "fa...
+  provider:   {"channels": [{"azimuthal_order": 1, "display_label": "HE1,1:even",
+              "family": "HE", "handedness": null, "parity": "even", "radial_order": 1}],
+              "materials": [{"index": 1.45, "omega_domain": [0.0, null]}, {"index": 1.0,
+              "omega_domain": [0.0, null]}], "model": "bound-step-index", "radius_pa ...
   residual:   1.646e-15 largest
   reciprocal: yes

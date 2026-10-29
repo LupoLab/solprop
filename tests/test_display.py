@@ -881,6 +881,19 @@ def test_the_formatter_handles_the_awkward_numbers():
     assert len(long.split("\n")[1]) == 88
 
 
+def test_a_long_value_wraps_under_itself():
+    # A line past 88 columns breaks at a space and continues under its value, so
+    # nothing is lost from a run's summary (its absorber line passed the width).
+    value = "temporal and spectral collars, in-stage; edges watched: " * 3
+    text = _display.block("Run", [("absorber", value.strip()), ("seed", 7)])
+    rows = text.split("\n")
+    assert all(len(row) <= 88 for row in rows)
+    assert "..." not in text
+    assert rows[2].startswith(" " * 12) and not rows[2].startswith(" " * 13)
+    assert " ".join(row.strip() for row in rows[1:-1]) == f"absorber: {value.strip()}"
+    assert rows[-1] == "  seed:     7"
+
+
 ROUNDING_DIAGNOSTICS = re.compile(
     r"(profile error|missed share|residual|unitary defect):( +)\S+"
 )

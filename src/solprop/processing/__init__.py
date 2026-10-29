@@ -13,6 +13,7 @@ Nothing here touches a backend, and no window is ever applied unless the call as
 one.
 """
 
+from solprop.processing._examples import example_output
 from solprop.processing.axes import (
     BANDS,
     SPECTRAL_AXES,
@@ -131,6 +132,7 @@ __all__ = [
     "coordinate_intensity",
     "electric_field",
     "energy",
+    "example_output",
     "field_autocorrelation",
     "field_plane",
     "fwhm",

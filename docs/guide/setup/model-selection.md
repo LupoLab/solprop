@@ -38,6 +38,20 @@ stepper, the output files and the backends; they differ in what a *mode* is.
 free-space grids, one cross-section figure each, with the boundary condition, the symmetry
 each assumes and when it stops being valid.
 
+**Where the interfaces' keywords differ.** The keyword interfaces share their grid,
+pulse, noise and output keywords; these differ, by interface:
+
+| keyword | `prop_gnlse` | `prop_capillary` | `prop_waveguide` | `prop_radial`, `prop_free`, `prop_planar` |
+|---|---|---|---|---|
+| `noise`, `seed` | yes | yes | yes | yes, except `prop_planar`, whose grid carries no noise model |
+| `rtol`, `atol`, `backend`, `precision` | yes; `atol` 1e-14 √W | yes; `atol` 1e-10 √W | yes; `atol` 1e-10 √W | in the `settings` they require |
+| `raman` | `False`: fused silica's response only when asked | `None`: each species' curated response | `None`, as the capillary | the medium's own |
+| loss | `loss_db_per_m`, a fibre's attenuation | `loss=True`, the capillary's own wall loss | the modes' own | the medium's own |
+| `step_planes`, `interpolate_planes` | yes (`step_planes=0` is off) | yes (`step_planes=None` is off) | no: replace them in `Simulation.from_waveguide(...).settings` | in the settings |
+| `polarisation_taper` | yes | no | no | no |
+
+The default integrators and tolerances are in [choosing a stepper](../numerics/choosing-a-stepper.md#the-defaults).
+
 **Which one?** A hollow guide filled with gas is the capillary route; add the coherent
 wall when linear coupling through the boundary matters to the retained modes,
 even if only the fundamental mode is populated initially. A multimode

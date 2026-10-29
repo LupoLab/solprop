@@ -28,7 +28,6 @@ from solprop.driver.run import (
     plane_from_observation,
     run_problem,
 )
-from solprop.driver.scaffold import propagate_fixed_rk4
 from solprop.driver.simulation import (
     Simulation,
     SimulationRunner,
@@ -57,6 +56,5 @@ __all__ = [
     "prop_planar",
     "prop_radial",
     "prop_waveguide",
-    "propagate_fixed_rk4",
     "run_problem",
 ]
