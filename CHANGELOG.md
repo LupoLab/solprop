@@ -457,6 +457,11 @@ The first public release. It contains:
   `GOMP_CPU_AFFINITY` or `KMP_AFFINITY`), the import sets `OMP_PROC_BIND=false`, which
   leaves them unbound as before; the run's metadata records what applied as
   `openmp_proc_bind`.
+- **Native CPU runs no longer re-create OpenMP threads every step.** A four-thread
+  kernel between full-width ones made GNU OpenMP end and restart twelve of sixteen
+  threads each time; the hydrogen Raman case was slower at 16 threads than at one. A
+  kernel pool that runs a full-width kernel now runs its medium-size kernels at full width
+  too: that case is about twice as fast at 16 threads, resolved argon 1.2-1.4 times.
 - **A main thread bound to one core's hardware threads is recognised.** With
   `OMP_PLACES=cores` on a machine with two threads per core, the native backend's
   OpenMP runtime binds the main thread to its first core, two CPUs, which solprop took

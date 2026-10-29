@@ -227,7 +227,12 @@ and FFT starts (8,192 and 32,768), where a short serial loop is still the faster
 `C` is the clamped capacity of the
 relevant pool, and sizes count work in the operation itself, not bytes. Between the two
 thresholds an operation uses `min(4, C)` threads; equal thresholds give only serial or
-full-width execution.
+full-width execution. A kernel operation (any row but the two FFT rows) of a backend that
+already runs a full-width kernel takes the full pool instead of four threads: GNU OpenMP
+ends the surplus threads of its team whenever a narrower parallel region follows a wider
+one and starts them again for the next wide one, which cost a four-thread kernel between
+full-width ones about half a millisecond each time. FFT plans keep their four threads,
+since FFTW's threaded loops run on the runtime's whole team.
 
 | operation | work used for sizing | threading starts | full pool starts |
 |---|---|---:|---:|

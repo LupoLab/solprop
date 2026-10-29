@@ -194,6 +194,42 @@ fast as one from 5,607 up. On a loaded Apple M5 Max (indicative) four gained 1.0
 at 4,487-8,967 and sixteen beat four only at 71,687 (4.7× against 2.8×). The class
 therefore threads at four from 8,192 and takes the pool from 65,536 on both platforms.
 
+(stable-kernel-team)=
+### A stable kernel team
+
+GNU OpenMP keeps one pool of threads for the main thread's parallel regions. When a region
+asks for fewer threads than the last, the surplus threads end; the next wider region
+starts them again. A four-thread kernel between full-width ones therefore costs a thread
+creation per surplus thread each time: alternating 16- and 4-thread regions took about
+490 us a pair, against 40 us for two 16-thread regions and 23 us for 16 and 1 (one socket
+of a Xeon Gold 6240, idle threads sleeping; twelve `clone3` calls a pair). FFTW's threaded
+loops run on the runtime's whole team and only hand out fewer iterations, so a
+four-thread FFT plan costs no resize. At 16 threads, `h2_raman_averaged` (an exponential
+Adams trial pass and a response at four threads beside a full-width stage) re-created
+twelve threads every source evaluation, and was slower than at one thread.
+
+A kernel pool that already holds a full-width instance now hands it to medium-width
+kernels too; a pool without one keeps four threads (averaged helium, whose other kernels
+are serial, took 14 % longer on the Xeon with its Adams passes at full width). Workspaces ask for their stage
+instance first. Interleaved `benchmarks ab` at 16 threads against the parent, 3 rounds,
+`--length 0.1`, passive-bound placement, the same steps and fields to rounding (at most
+1e-13 relative):
+
+| case | Xeon Gold 6240 (socket 1) | AMD EPYC 7763 (16 cores) |
+|---|---:|---:|
+| `h2_raman_averaged` | 0.526 [0.521, 0.531] | 0.483 [0.483, 0.510] |
+| `argon_blueshift` | 0.717 [0.700, 1.070] | 0.806 [0.800, 0.850] |
+| `ctc` | 1.001 | 0.979 |
+| `gnlse_raman_shock`, `gnlse_soliton`, `rdw`, `he_rdw_averaged`, `argon_blueshift_averaged`, `argon_blueshift_envelope`, `radial_filament_256`, `grin_nonlinear`, `kerr_beam_384` | 0.984-1.036 | 0.983-1.106 (node noise) |
+| geometric mean (12 cases) | 0.924 | 0.938 |
+
+The unchanged cases have no medium-width kernel or none beside a full-width one; their
+spread is the A/A spread (about 2 % on the Xeon, up to 10 % on the shared EPYC nodes). On
+the Xeon `h2_raman_averaged` now takes 0.79 s at 16 threads against 1.06-1.12 s at one.
+Every medium width serial instead lost 2.8 times on averaged helium (EPYC geometric mean
+1.08); every medium width full, the FFTs included, gained on resolved cases but lost on the
+averaged ones (EPYC 0.94, Xeon 0.90 with averaged helium 1.22).
+
 (smooth-size-cliffs)=
 ### Smooth grid sizes
 
@@ -723,7 +759,9 @@ partial chunk.
 | Raman FFT | 65,536 | 262,144 | up to four threads |
 
 A response column is one active node and one component. Every width is capped by the
-global thread setting. Explicit per-pool requests bypass this table, including the
+global thread setting. A kernel pool that already holds a full-width instance gives it to
+the medium-width kernels too ([a stable kernel team](#stable-kernel-team)); the FFT pools
+keep their medium widths. Explicit per-pool requests bypass this table, including the
 short-FFT rule. `build_info()` exposes the constants and override mask; backend metadata
 exposes effective widths and sizing inputs. Non-OpenMP host builds report that
 per-operation sizing is unsupported and keep their existing execution policy.

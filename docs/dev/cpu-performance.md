@@ -99,6 +99,13 @@ time divided by the native backend's: above 1, the native backend is faster.
   - Two interactions were found and corrected during qualification:
     - a narrow response stage followed by a full-width FFT on the Cartesian filament;
     - a serialised coupled-flow matrix on the scalar wall.
+- **A stable kernel team** ([measurements](benchmarks.md#stable-kernel-team)). GNU OpenMP
+  ends surplus pool threads whenever a narrower region follows a wider one, so a
+  four-thread kernel between full-width ones re-created twelve threads each time (about
+  0.45 ms at 16 threads). A kernel pool with a full-width instance now gives it to its
+  medium-width kernels; FFT plans keep four threads, as FFTW's loops keep the whole team.
+  `h2_raman_averaged` became 1.9-2.1 times faster at 16 threads (faster than one thread
+  again) and `argon_blueshift` 1.2-1.4 times, on a Xeon Gold 6240 and an AMD EPYC 7763.
 - **Measured FFTW wisdom only for serial transforms by default**
   ([measurements](benchmarks.md#threaded-fft-plan-selection)). FFTW's construction-time
   trials sometimes chose a slower *threaded* plan: on a 32-core AVX-512 server at 32

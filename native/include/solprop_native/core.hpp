@@ -221,6 +221,8 @@ inline constexpr std::size_t response_full_thread_columns = 40;
 inline constexpr std::size_t dense_full_thread_elements = 1048576;
 inline constexpr std::size_t fft_full_thread_elements = 131072;
 inline constexpr std::size_t raman_full_thread_elements = 262144;
+// A kernel pool that holds a full-width instance gives it to medium-width kernels too
+// (CpuExecutionPool::get): GNU OpenMP ends surplus threads when a team narrows.
 inline constexpr int cpu_medium_threads = 4;
 /** Choose a width without changing the runtime or a vendor library's pool. */
 [[nodiscard]] int operation_threads(const ThreadPolicy& policy, CpuPool pool,

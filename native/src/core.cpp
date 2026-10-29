@@ -130,8 +130,19 @@ int operation_threads(const ThreadPolicy& policy, const CpuPool pool,
 const ExecutionSpace& CpuExecutionPool::get(const CpuOperation operation,
                                             const std::size_t elements,
                                             const std::size_t fine_samples) {
-  const int width =
-      operation_threads(thread_policy(), pool_, operation, elements, fine_samples);
+  const ThreadPolicy policy = thread_policy();
+  int width = operation_threads(policy, pool_, operation, elements, fine_samples);
+  const int capacity = policy.kernels;
+  // A stable kernel team. GNU OpenMP ends the surplus threads of its pool whenever a
+  // parallel region asks for fewer than the last one, and starts them again for the
+  // next wider region, so a four-thread kernel between full-width ones costs a thread
+  // creation per surplus thread every time (about 0.45 ms for 12 threads). Once this
+  // pool has a full-width kernel, a medium one takes the full width too. FFTW's
+  // threaded loops keep the runtime's team and only distribute fewer iterations, so the
+  // FFT pools keep their medium widths. Workspaces ask for their stage instance first.
+  if (pool_ == CpuPool::kernels && width > 1 && width < capacity &&
+      instances_.contains(capacity))
+    width = capacity;
   auto found = instances_.find(width);
   if (found == instances_.end())
     found = instances_.emplace(width, execution_instance(width)).first;

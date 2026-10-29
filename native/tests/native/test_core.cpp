@@ -2824,6 +2824,34 @@ TEST(CpuThreadPolicy, MetadataNamesEveryOperationClass) {
   }
 }
 
+TEST(CpuThreadPolicy, AKernelPoolAtFullWidthKeepsItsTeam) {
+  // GNU OpenMP ends a pool's surplus threads when a narrower region follows a wider
+  // one, so a kernel pool that holds a full-width instance hands it to medium-width
+  // operations too; without one, they keep the medium width.
+  const int cap = native::thread_policy().kernels;
+  if (!native::cpu_size_policy_enabled || cap <= native::cpu_medium_threads)
+    GTEST_SKIP() << "needs per-operation sizing and more than the medium width";
+  const auto response = std::size_t{33} * 4096;
+  native::CpuExecutionPool alone(native::CpuPool::kernels);
+  EXPECT_EQ(alone.get(native::CpuOperation::response, response, 4096).concurrency(),
+            native::cpu_medium_threads);
+  EXPECT_EQ(alone.get(native::CpuOperation::stage, 1).concurrency(), 1);
+  native::CpuExecutionPool full(native::CpuPool::kernels);
+  EXPECT_EQ(full.get(native::CpuOperation::stage, 1U << 20).concurrency(), cap);
+  EXPECT_EQ(full.get(native::CpuOperation::response, response, 4096).concurrency(),
+            cap);
+  EXPECT_EQ(full.get(native::CpuOperation::adams, 16384).concurrency(), cap);
+  EXPECT_EQ(full.get(native::CpuOperation::stage, 1).concurrency(), 1);
+  const auto key = "kernels.response." + std::to_string(response) + ".samples.4096";
+  EXPECT_EQ(full.sizing().at(key).at("threads"), static_cast<std::size_t>(cap));
+  // The FFT pools keep their medium widths: FFTW's threaded loops run on the
+  // runtime's whole team and only distribute fewer iterations.
+  native::CpuExecutionPool transforms(native::CpuPool::fft);
+  EXPECT_EQ(transforms.get(native::CpuOperation::fft, 1U << 20).concurrency(), cap);
+  EXPECT_EQ(transforms.get(native::CpuOperation::fft, 32768).concurrency(),
+            native::cpu_medium_threads);
+}
+
 TEST(CpuThreadPolicy, MetadataDistinguishesEqualWorkWithDifferentResponseShapes) {
   native::CpuExecutionPool pool(native::CpuPool::kernels);
   const auto samples = native::response_full_thread_samples;
