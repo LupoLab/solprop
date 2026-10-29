@@ -57,6 +57,9 @@ def build(point, backend="numpy_ref"):
     )
 
 
+# A native lockstep batch replays its Adams members on solprop's march, with the
+# warning native/tests/test_batch.py asserts (SEP 39).
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
 @pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native", "auto"])
 @pytest.mark.parametrize("size", [1, 2, 3])
 def test_batch_scan_matches_local_with_partial_groups(tmp_path, backend, size):

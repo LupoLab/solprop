@@ -94,6 +94,9 @@ def test_tensor_run_resumes_with_the_same_realisation_and_configuration(
     assert "tensor_terms" in record and "rank2" in record and "isotropic" in record
 
 
+# A native lockstep batch replays its Adams members on solprop's march, with the
+# warning native/tests/test_batch.py asserts (SEP 39).
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
 @pytest.mark.medium
 @pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
 def test_jones_tensor_scan_batches_match_singletons_with_a_partial_group(

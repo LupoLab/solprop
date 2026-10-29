@@ -307,6 +307,9 @@ def test_native_runs_ten_steps_of_the_flow_as_numpy_ref_does(name, record_proper
     assert departure <= bound
 
 
+# Off the eigenbasis route the flow keeps the host engine, which runs solprop's march
+# with the warning tests/backends/test_native_march_admission.py asserts (SEP 39).
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
 @pytest.mark.parametrize("route", ["eigenbasis", "scaling_and_squaring"])
 def test_the_flow_s_native_actions_are_the_reference_s_within_the_formation_bound(
     route, monkeypatch
