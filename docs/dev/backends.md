@@ -818,6 +818,13 @@ bandwidth-bound GPU; at cache-resident sizes the answer may reverse again. Both 
 implemented behind a flag. In a prototype with separate passes, tabulating won — 18 % of a
 whole RDW step and 4 % on CtC without Raman, a wash with the Raman convolution.
 
+The native backend's host kernels form these exponentials, the exponential Adams
+method's flows, phi-function exponentials and compensation factors, and the plasma's
+rates and fractions in passes over blocks of elements through one vector-maths layer
+(`native/include/solprop_native/vmath.hpp`): SLEEF's 1.0 ulp vector functions on x86-64
+builds, the system libm, with each element's own calls, on Arm and on devices
+([ADR-059](decisions.md)).
+
 **In the fused backend the answer is a property of the fusion.** Both signs are consumed by
 the stage that formed them — the forward in pass 1 and the inverse in pass 7 — so
 `recompute` evaluates `ΔΦ` exactly as often as `tabulate` does and the table buys residency

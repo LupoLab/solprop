@@ -585,6 +585,20 @@ The first public release. It contains:
   on an Apple M5 Max 65 µs (was 179) and 51 µs (was 131). The steps taken are the same;
   only the defect polynomial's coefficients move, within 2 ulp, so fields change at
   rounding level.
+- **Vector maths in the native CPU kernels on x86-64** (ADR-059). The Runge-Kutta stage
+  entry, the band-rule plasma column, the exponential Adams predict pass and the
+  low-storage flow table formed each `exp`, `log`, `cos` and `sin` in a per-element call
+  to the system libm, which on Linux was up to two thirds of a kernel. They now form a
+  block's transcendentals in one pass of a vector-maths layer that calls SLEEF 3.9.0's
+  1.0 ulp vector functions (AVX2; AVX-512F on request with
+  `SOLPROP_NATIVE_VECTOR_MATH_AVX512`), statically linked, its licence in the wheel. Arm
+  builds keep the system libm and their per-element calls, which measured faster there;
+  device builds are unchanged. The absorber split's factor is formed once a sample
+  instead of once an element, on every build. `SOLPROP_NATIVE_VECTOR_MATH` selects the
+  route, and `build_info().vector_math` records it. Steps taken are the same and fields
+  change only by rounding. At one thread the tracking cases run 11 % faster on an AMD
+  EPYC 7763 (geometric mean; 6 to 19 %, `gnlse_raman_shock` most) and 7 % on an AMD EPYC
+  9B45, and 5 % at sixteen threads there; an Apple M5 Max is unchanged.
 - **A single-precision step that overflows is rejected, not fatal.** An adaptive trial
   whose propagator passed binary32's `exp(88.72)` (a long step under a strong collar)
   scored a non-finite error norm, which the controller rejected and the step history

@@ -111,6 +111,8 @@ def main() -> None:
     required = {"LICENSE-fftw.txt"}
     if info.blas_backend == "OpenBLAS":
         required.add("LICENSE-openblas.txt")
+    if info.vector_math.startswith("SLEEF"):
+        required.add("LICENSE-sleef.txt")
     if info.openmp_enabled and not licences & {
         "LICENSE-libomp.txt",
         "LICENSE-libgomp.txt",

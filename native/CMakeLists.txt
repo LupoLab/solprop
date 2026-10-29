@@ -787,6 +787,8 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(kokkosfft)
 set_property(DIRECTORY "${kokkosfft_SOURCE_DIR}" PROPERTY EXCLUDE_FROM_ALL TRUE)
 
+include(cmake/VectorMath.cmake)
+
 # nvcc_wrapper loses spaces embedded in quoted preprocessor definitions. Encode
 # them for the compiler command and restore them while forming the build record.
 string(REPLACE " " "__SOLPROP_SPACE__" SOLPROP_NATIVE_COMPILER_FLAGS_ENCODED
@@ -869,6 +871,7 @@ if(SOLPROP_NATIVE_RAMAN_FFT_PROVIDER STREQUAL "ACCELERATE")
   target_compile_definitions(solprop_native_core PUBLIC SOLPROP_NATIVE_RAMAN_ACCELERATE=1)
   target_link_libraries(solprop_native_core PUBLIC "-framework Accelerate")
 endif()
+solprop_native_link_vector_math(solprop_native_core)
 solprop_native_mark_dependency_headers_system(solprop_native_core)
 solprop_native_configure_project_target(solprop_native_core)
 
@@ -891,6 +894,7 @@ target_compile_definitions(_core PRIVATE
   SOLPROP_NATIVE_KOKKOS_VERSION="5.2.1"
   SOLPROP_NATIVE_KOKKOSFFT_VERSION="2.0.0"
   SOLPROP_NATIVE_KOKKOSKERNELS_VERSION="5.2.0"
+  SOLPROP_NATIVE_SLEEF_VERSION="${SOLPROP_NATIVE_SLEEF_VERSION}"
   SOLPROP_NATIVE_GEMM_PROVIDER="${SOLPROP_NATIVE_GEMM_PROVIDER}"
   SOLPROP_NATIVE_TPL_BLAS_ENABLED=$<BOOL:${SOLPROP_NATIVE_ENABLE_TPL_BLAS}>
   SOLPROP_NATIVE_BLAS_BACKEND="${SOLPROP_NATIVE_BLAS_BACKEND}"
@@ -950,6 +954,7 @@ if(BUILD_TESTING)
     tests/native/test_coupled_flow.cpp
     tests/native/test_dispersive.cpp
     tests/native/test_aperture.cpp
+    tests/native/test_vmath.cpp
   )
   target_link_libraries(solprop_native_tests PRIVATE
     solprop_native_core
@@ -1018,8 +1023,8 @@ if(SKBUILD)
   file(WRITE "${PROJECT_BINARY_DIR}/cpu_baseline.txt" "${SOLPROP_NATIVE_CPU_BASELINE}\n")
   install(FILES "${PROJECT_BINARY_DIR}/cpu_baseline.txt" DESTINATION solprop_native
           RENAME _cpu_baseline.txt)
-  # Kokkos, Kokkos Kernels, Kokkos-FFT, nanobind and nanobind's robin_map are compiled
-  # into the extension, so the wheel carries their notices beside it. Kokkos-FFT is
+  # Kokkos, Kokkos Kernels, Kokkos-FFT, SLEEF, nanobind and nanobind's robin_map are
+  # compiled into the extension, so the wheel carries their notices beside it. Kokkos-FFT is
   # MIT OR Apache-2.0 WITH LLVM-exception; its MIT terms are the ones taken here.
   install(FILES "${kokkos_SOURCE_DIR}/LICENSE" DESTINATION solprop_native
           RENAME LICENSE-kokkos.txt)
@@ -1027,6 +1032,11 @@ if(SKBUILD)
           RENAME LICENSE-kokkos-kernels.txt)
   install(FILES "${kokkosfft_SOURCE_DIR}/LICENSES/MIT.txt" DESTINATION solprop_native
           RENAME LICENSE-kokkos-fft.txt)
+  # SLEEF (the host vector maths, linked static) is under the Boost Software License.
+  if(SOLPROP_NATIVE_VECTOR_MATH STREQUAL "SLEEF")
+    install(FILES "${sleef_SOURCE_DIR}/LICENSE.txt" DESTINATION solprop_native
+            RENAME LICENSE-sleef.txt)
+  endif()
   # nanobind's licence is in its distribution metadata; robin_map ships no licence
   # file inside nanobind, and its MIT notice is the leading comment of its header.
   execute_process(

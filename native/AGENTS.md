@@ -41,7 +41,8 @@ approved dependencies are Kokkos, Kokkos Kernels (BLAS component) with a vendor 
 behind it (the distribution build's BLAS on Linux and in the Windows wheel is OpenBLAS
 built with OpenMP from pinned source; a Windows build without it falls back to
 `scipy-openblas32`, a build requirement; each is carried in the wheel), Kokkos-FFT with
-FFTW or the device FFT, nanobind
+FFTW or the device FFT, SLEEF (the host vector maths, static, on x86-64 CPU builds;
+solprop's ADR-059), nanobind
 and scikit-build-core; GoogleTest is test-only. Adding any other dependency needs approval.
 
 Major changes follow solprop's enhancement proposal process (SEPs,
@@ -127,6 +128,13 @@ the gate.
   CUDA and HIP builds leave the strict blocks empty and follow their compilers'
   contraction defaults, held to the measured device envelopes (solprop's ADR-049,
   amended) until device round-to-nearest helpers land.
+- A host kernel's hot transcendentals go through `include/solprop_native/vmath.hpp`
+  (solprop's ADR-059): form a block's arguments into a buffer, call the batch function
+  once over it, and finish each element from the results, behind
+  `if constexpr (vmath::vectorised)` where the per-element form is faster with the
+  system libm. Device code keeps the `Kokkos::` functions. The layer's functions keep
+  their own error bounds (SLEEF's u10, 1.0 ulp); a protected block that uses one
+  takes its result as an input.
 - Reductions and scans take whatever order measures fastest within their rounding
   bound; the native-order GEMM (`native_order_gemm`) is held to the GEMM rounding
   bound against `KokkosBlas::gemm`, not to its bits.

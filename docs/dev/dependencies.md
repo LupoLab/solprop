@@ -76,6 +76,20 @@ and KokkosKernels, and its HIP build rocFFT and rocBLAS; it neither fetches nor 
 device libraries. Both distributions resolve in the root workspace's one `uv.lock`;
 solprop-native has no runtime dependency on solprop.
 
+**SLEEF 3.9.0** ([sleef.org](https://sleef.org), Boost Software License 1.0) is the
+native CPU build's host vector maths on x86-64 (ADR-059): vector `exp`, `log` and
+`sincos`, its u10 functions (1.0 ulp over each function's domain), called over blocks
+by `native/include/solprop_native/vmath.hpp`. It is fetched at its release tag like
+Kokkos (`FETCHCONTENT_SOURCE_DIR_SLEEF` names a local copy for an offline build), built
+static as its own CMake project with only `libsleef` and the variants the layer calls
+(SSE2, AVX2, AVX-512F on request; AdvSIMD on aarch64), and compiled into the extension, whose wheel
+carries its licence as `LICENSE-sleef.txt`. Arm builds (Apple silicon, Linux aarch64)
+and GPU builds use the system libm and do not fetch it; `SOLPROP_NATIVE_VECTOR_MATH`
+overrides the choice. Its floor is the pinned release: it is never resolved from a
+package index. Evaluated against glibc's `libmvec` (2 ulp, and reachable from GCC only
+through fast-math or hand-written vector declarations) and Intel's MKL (faster on Intel
+only, by at most 1.5 times, and a large dependency); see ADR-059.
+
 ## Development
 
 The benchmark controller uses **psutil ≥ 7.1.0** for the CPU allocation, core

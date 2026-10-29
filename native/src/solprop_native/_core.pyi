@@ -329,6 +329,19 @@ def trial_tables(
     endpoint: npt.NDArray[np.float64],
     defects: npt.NDArray[np.float64],
 ) -> None: ...
+def vector_exp(x: npt.NDArray[np.float64], out: npt.NDArray[np.float64]) -> None: ...
+def vector_log(x: npt.NDArray[np.float64], out: npt.NDArray[np.float64]) -> None: ...
+def vector_sincos(
+    x: npt.NDArray[np.float64],
+    sine: npt.NDArray[np.float64],
+    cosine: npt.NDArray[np.float64],
+) -> None: ...
+def vector_exp_complex(
+    a: npt.NDArray[np.float64],
+    b: npt.NDArray[np.float64],
+    real: npt.NDArray[np.float64],
+    imag: npt.NDArray[np.float64],
+) -> None: ...
 
 class BatchState:
     def __init__(self, members: list[State]) -> None: ...

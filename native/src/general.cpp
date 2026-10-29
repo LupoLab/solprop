@@ -15,6 +15,7 @@
 
 #include "solprop_native/raman_fft.hpp"
 #include "solprop_native/slab.hpp"
+#include "solprop_native/vmath.hpp"
 #include "solprop_native/z_table.hpp"
 #include <KokkosFFT.hpp>
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
@@ -649,15 +650,21 @@ KOKKOS_INLINE_FUNCTION double trapezoid(const double current, const double previ
   return dt * (current + previous) / 2.0;
 }
 
-// The fraction ionised from an exposure, `1 - (1 - p) exp(-X)`, as `bodies.fraction_at`
-// rounds it. A small response: strict arithmetic (solprop SEP 25 section 4.2,
-// `fp.hpp`), so the product and the difference round separately.
+// The fraction ionised from an exposure's decay `exp(-X)`, `1 - (1 - p) exp(-X)`, as
+// `bodies.fraction_at` rounds it. A small response: strict arithmetic (solprop SEP 25
+// section 4.2, `fp.hpp`), so the product and the difference round separately.
 SOLPROP_NATIVE_STRICT_FUNCTION
-KOKKOS_INLINE_FUNCTION double ionised_fraction(const double exposure,
+KOKKOS_INLINE_FUNCTION double decayed_fraction(const double decay,
                                                const double preionisation) {
   SOLPROP_NATIVE_STRICT_BLOCK
-  const double survival = (1.0 - preionisation) * Kokkos::exp(-exposure);
+  const double survival = (1.0 - preionisation) * decay;
   return 1.0 - survival;
+}
+
+// The fraction ionised from an exposure, `decayed_fraction` of its `exp(-X)`.
+KOKKOS_INLINE_FUNCTION double ionised_fraction(const double exposure,
+                                               const double preionisation) {
+  return decayed_fraction(Kokkos::exp(-exposure), preionisation);
 }
 
 // The envelope column's fraction, `p + (1 - p) (-expm1(-X))`, strict as above.
@@ -698,6 +705,31 @@ KOKKOS_INLINE_FUNCTION double band_loss_scale(const double rate, const double fr
   return 0.0;
 }
 
+// The rate table's cubic in `log(rate)` at a field's `log |E|` within the table's
+// range: the interval's local coordinate and its Horner form (`ionisation_rate`).
+template <class View>
+KOKKOS_INLINE_FUNCTION double
+ionisation_log_rate(const double log_field, const View& coefficients,
+                    const double log_field_min, const double d_log_field,
+                    const std::size_t intervals, const std::size_t offset = 0) {
+  long raw_index = static_cast<long>((log_field - log_field_min) / d_log_field);
+  if (raw_index < 0)
+    raw_index = 0;
+  if (raw_index >= static_cast<long>(intervals))
+    raw_index = static_cast<long>(intervals - 1);
+  const auto index = static_cast<std::size_t>(raw_index);
+  const double local =
+      log_field - (log_field_min + static_cast<double>(index) * d_log_field);
+  return ((coefficients(offset + index) * local +
+           coefficients(offset + intervals + index)) *
+              local +
+          coefficients(offset + 2 * intervals + index)) *
+             local +
+         coefficients(offset + 3 * intervals + index);
+}
+
+// The ionisation rate at a field magnitude: the table's limits outside its range, and
+// within it the exponential of its cubic in `log |E|`.
 template <class View>
 KOKKOS_INLINE_FUNCTION double
 ionisation_rate(const double magnitude, const View& coefficients,
@@ -708,23 +740,31 @@ ionisation_rate(const double magnitude, const View& coefficients,
     return rate_max;
   if (magnitude < field_min)
     return 0.0;
-  const double log_field = Kokkos::log(magnitude);
-  long raw_index = static_cast<long>((log_field - log_field_min) / d_log_field);
-  if (raw_index < 0)
-    raw_index = 0;
-  if (raw_index >= static_cast<long>(intervals))
-    raw_index = static_cast<long>(intervals - 1);
-  const auto index = static_cast<std::size_t>(raw_index);
-  const double local =
-      log_field - (log_field_min + static_cast<double>(index) * d_log_field);
-  const double cubic = ((coefficients(offset + index) * local +
-                         coefficients(offset + intervals + index)) *
-                            local +
-                        coefficients(offset + 2 * intervals + index)) *
-                           local +
-                       coefficients(offset + 3 * intervals + index);
-  return Kokkos::exp(cubic);
+  return Kokkos::exp(ionisation_log_rate(Kokkos::log(magnitude), coefficients,
+                                         log_field_min, d_log_field, intervals,
+                                         offset));
 }
+
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+// The samples a host pass of the plasma column takes at a time.
+constexpr std::size_t rate_block = 256;
+
+// `ionisation_rate`'s values at `live <= rate_block` magnitudes within the table's
+// range, in place: one `log` and one `exp` pass of the vector-maths layer (solprop
+// ADR-059) around the cubic. A host block gathers the magnitudes it passes, so the
+// samples outside the range (most of a pulse's wings) cost what they cost before.
+template <class View>
+void ionisation_rates_within(double* values, const std::size_t live,
+                             const View& coefficients, const double log_field_min,
+                             const double d_log_field, const std::size_t intervals,
+                             const std::size_t offset = 0) {
+  vmath::log(values, values, live);
+  for (std::size_t k = 0; k < live; ++k)
+    values[k] = ionisation_log_rate(values[k], coefficients, log_field_min, d_log_field,
+                                    intervals, offset);
+  vmath::exp(values, values, live);
+}
+#endif
 
 template <class View, class Value>
 void copy_vector(const ExecutionSpace& execution_space, const View& destination,
@@ -1380,6 +1420,28 @@ constexpr std::size_t stage_block = 64;
 // How a stage's entry forms its propagator pair (`StageTerms::combine`).
 enum class EntryPhase { general, lossless, repeated };
 
+// The transcendental factors of a stage's combination at one bin: the phase's
+// `cos b` and `sin b`, its magnitudes `e^a` and `e^-a` (one on a lossless problem),
+// and the noise phase's cosine and sine.
+struct EntryFactors {
+  double cosine = 0.0, sine = 0.0, magnitude = 1.0, inverse = 1.0;
+  double noise_cosine = 0.0, noise_sine = 0.0;
+};
+
+// A host work item's factors for its block of bins, formed by the vector-maths layer
+// in one pass of each function (`StageTerms::entry_factors_block`); the factors a
+// stage does not use stay zero.
+struct EntryBlock {
+  double cosine[stage_block], sine[stage_block];
+  double magnitude[stage_block], inverse[stage_block];
+  double noise_cosine[stage_block], noise_sine[stage_block];
+
+  EntryFactors at(const std::size_t bin) const {
+    return {cosine[bin],  sine[bin],         magnitude[bin],
+            inverse[bin], noise_cosine[bin], noise_sine[bin]};
+  }
+};
+
 struct StageTerms {
   ComplexView2 current, fine, whole, solution, error, stage_phase, stage_inverse, noise;
   ComplexView2 flow_input, flow_lab, flow_drive, general_scaled, general_source;
@@ -1461,40 +1523,90 @@ struct StageTerms {
     return sum;
   }
 
-  // The combination of stage `stage` at one bin, from the stage's phase increment.
-  // The propagator `exp(phase)` and its inverse `exp(-phase)`, which the finish
-  // applies, share their cosine and sine (solprop SEP 25 section 6.7): the angle's
-  // parts are even and odd, so `exp(-phase)` is `e^{-a} (cos b, -sin b)` with its own
-  // magnitude, never a reciprocal of the forward value, and is the finish's former
-  // `exponential(-phase)` to the bit. A coupled flow's residual reads the phase.
-  // A lossless problem (`EntryPhase::lossless`: every Phi term's real part exactly
-  // zero, so the phase's is a signed zero) takes both magnitudes as `exp(+-0)`,
-  // exactly one, without the calls. A lossless stage whose phase weights equal the
-  // stage before's (`EntryPhase::repeated`) has that stage's inverse still in place,
-  // and its propagator is that inverse's conjugate, `(cos b, -(-sin b))`, to the bit.
+  // The factors of stage `stage`'s combination at one bin, one bin at a time (a
+  // device's entry; the host forms a block's together, `entry_factors_block`). The
+  // propagator `exp(phase)` and its inverse `exp(-phase)` share their cosine and sine,
+  // each magnitude is its own `exp`, and a lossless problem's are exactly one, taken
+  // without the calls (`combine`).
+  template <EntryPhase Mode>
+  KOKKOS_INLINE_FUNCTION EntryFactors entry_factors(const std::size_t stage,
+                                                    const std::size_t column,
+                                                    const std::size_t index,
+                                                    const Complex phase) const {
+    EntryFactors factors;
+    if constexpr (Mode != EntryPhase::repeated)
+      cosine_sine(phase.imag(), factors.cosine, factors.sine);
+    if constexpr (Mode == EntryPhase::general) {
+      factors.magnitude = Kokkos::exp(phase.real());
+      factors.inverse = Kokkos::exp(-phase.real());
+    }
+    if (add_noise) {
+      const Complex phase_at = noise_phase(stage, column, index);
+      factors.noise_cosine = Kokkos::cos(phase_at.imag());
+      factors.noise_sine = Kokkos::sin(phase_at.imag());
+    }
+    return factors;
+  }
+
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+  // A host work item's factors for its `count` bins from `first`, each function one
+  // pass of the vector-maths layer over the block (solprop ADR-059): the phases' sines
+  // and cosines, their magnitudes and inverse magnitudes, and the noise phases'.
+  template <EntryPhase Mode>
+  [[maybe_unused]] void
+  entry_factors_block(const std::size_t stage, const std::size_t column,
+                      const std::size_t first, const std::size_t count,
+                      const double (&real)[stage_block],
+                      const double (&imag)[stage_block], EntryBlock& block) const {
+    if constexpr (Mode != EntryPhase::repeated)
+      vmath::sincos(imag, block.sine, block.cosine, count);
+    if constexpr (Mode == EntryPhase::general) {
+      double negated[stage_block];
+      for (std::size_t bin = 0; bin < count; ++bin)
+        negated[bin] = -real[bin];
+      vmath::exp(real, block.magnitude, count);
+      vmath::exp(negated, block.inverse, count);
+    }
+    if (add_noise) {
+      double angle[stage_block];
+      for (std::size_t bin = 0; bin < count; ++bin)
+        angle[bin] = noise_phase(stage, column, first + bin).imag();
+      vmath::sincos(angle, block.noise_sine, block.noise_cosine, count);
+    }
+  }
+#endif
+
+  // The combination of stage `stage` at one bin, from the stage's phase increment and
+  // its factors (`entry_factors`). The propagator `exp(phase)` and its inverse
+  // `exp(-phase)`, which the finish applies, share their cosine and sine (solprop SEP
+  // 25 section 6.7): the angle's parts are even and odd, so `exp(-phase)` is
+  // `e^{-a} (cos b, -sin b)` with its own magnitude, never a reciprocal of the forward
+  // value. A coupled flow's residual reads the phase. A lossless problem
+  // (`EntryPhase::lossless`: every Phi term's real part exactly zero, so the phase's
+  // is a signed zero) takes both magnitudes as `exp(+-0)`, exactly one, without the
+  // calls. A lossless stage whose phase weights equal the stage before's
+  // (`EntryPhase::repeated`) has that stage's inverse still in place, and its
+  // propagator is that inverse's conjugate, `(cos b, -(-sin b))`, to the bit.
   // Returns the propagator.
   template <EntryPhase Mode = EntryPhase::general>
   KOKKOS_INLINE_FUNCTION Complex combine(const std::size_t stage, const double dz,
                                          const double solution_weight,
                                          const double error_weight,
                                          const std::size_t column,
-                                         const std::size_t index,
-                                         const Complex phase) const {
-    const Complex phase_at = add_noise ? noise_phase(stage, column, index) : Complex{};
+                                         const std::size_t index, const Complex phase,
+                                         const EntryFactors& factors) const {
     Complex propagator;
     if constexpr (Mode == EntryPhase::repeated) {
       const Complex inverse = stage_inverse(column, index);
       propagator = Complex(inverse.real(), -inverse.imag());
+    } else if constexpr (Mode == EntryPhase::lossless) {
+      propagator = Complex(factors.cosine, factors.sine);
+      stage_inverse(column, index) = Complex(factors.cosine, -factors.sine);
     } else {
-      constexpr bool lossless = Mode == EntryPhase::lossless;
-      double cosine = 0.0;
-      double sine = 0.0;
-      cosine_sine(phase.imag(), cosine, sine);
-      const double magnitude = lossless ? 1.0 : Kokkos::exp(phase.real());
-      const double inverse_magnitude = lossless ? 1.0 : Kokkos::exp(-phase.real());
-      propagator = Complex(magnitude * cosine, magnitude * sine);
+      propagator =
+          Complex(factors.magnitude * factors.cosine, factors.magnitude * factors.sine);
       stage_inverse(column, index) =
-          Complex(inverse_magnitude * cosine, -(inverse_magnitude * sine));
+          Complex(factors.inverse * factors.cosine, -(factors.inverse * factors.sine));
     }
     if (flow)
       stage_phase(column, index) = phase;
@@ -1509,8 +1621,7 @@ struct StageTerms {
       value = propagator * (current(column, index) + dz * accumulated);
     }
     if (add_noise)
-      value += noise(column, index) *
-               Complex(Kokkos::cos(phase_at.imag()), Kokkos::sin(phase_at.imag()));
+      value += noise(column, index) * Complex(factors.noise_cosine, factors.noise_sine);
     const double analytic_scale =
         analytic && index > 0 && 2 * crop(index) < n_to ? 2.0 : 1.0;
     fine(column, crop(index)) = analytic_scale * inverse_n_to * value;
@@ -4408,6 +4519,55 @@ void GeneralWorkspace::low_storage_flows_formed(const bool rebuild_table) {
   if (count == 0 || (count == 1 && !rebuild_table))
     return;
   const auto n = problem_.n_omega;
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+  // With vector maths a host task forms a column's exponents a block of bins at a
+  // time and their exponentials in one pass (solprop ADR-059).
+  if constexpr (vmath::vectorised) {
+    const bool separable = problem_.separable_geometry();
+    const auto spatial = spatial_;
+    const auto delta = stage_phi_delta_;
+    const auto active = active_mask_;
+    const auto n_pol = problem_.n_pol_state;
+    const auto terms = stage_terms(0);
+    const auto n_phi = problem_.n_phi_terms;
+    const std::size_t blocks = (n + stage_block - 1) / stage_block;
+    Kokkos::parallel_for(
+        separable ? "solprop_native.low_storage.separable_table"
+                  : "solprop_native.low_storage.modal_flows",
+        Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0,
+                                            problem_.n_columns() * blocks),
+        KOKKOS_LAMBDA(const std::size_t item) {
+          const std::size_t column = item / blocks;
+          const std::size_t first = (item % blocks) * stage_block;
+          const std::size_t bins = n - first < stage_block ? n - first : stage_block;
+          double real[stage_block], imag[stage_block];
+          const auto form = [&](const std::size_t flow, const std::size_t offset) {
+            if (separable) {
+              for (std::size_t bin = 0; bin < bins; ++bin) {
+                const auto omega = first + bin;
+                const Complex x =
+                    delta(2) *
+                    spatial.value(column / n_pol, omega, active(omega) != 0U).linear;
+                real[bin] = x.real();
+                imag[bin] = x.imag();
+              }
+            } else {
+              terms.phase_block(offset, column, first, bins, real, imag);
+            }
+            vmath::exp_complex(real, imag, real, imag, bins);
+            for (std::size_t bin = 0; bin < bins; ++bin)
+              flows(flow, column, first + bin) = Complex(real[bin], imag[bin]);
+          };
+          if (separable || count == 1)
+            form(0, 2 * n_phi);
+          else {
+            form(0, 0);
+            form(1, n_phi);
+          }
+        });
+    return;
+  }
+#endif
   if (problem_.separable_geometry()) {
     const auto spatial = spatial_;
     const auto delta = stage_phi_delta_;
@@ -5540,13 +5700,46 @@ constexpr double adams_phi_join = 3.0;
 constexpr int adams_series_terms = 24;
 
 /**
- * phi_0(x) .. phi_order(x) for one element into `out`, as solprop's compiled _phi.
+ * The halvings of the phi-functions' series branch: the count that brings |x| to at
+ * most 1/2, ceil(log2(2 |x|)), and `scale = 2^-count`, each halving exact.
+ */
+KOKKOS_INLINE_FUNCTION int adams_phi_halvings(const double magnitude, double& scale) {
+  int squarings = 0;
+  scale = 1.0;
+  double reduced = magnitude;
+  while (reduced > 0.5) {
+    ++squarings;
+    scale *= 0.5;
+    reduced *= 0.5;
+  }
+  return squarings;
+}
+
+/**
+ * The argument `y = 2^-s x` whose exponential the series branch of `adams_phi` forms
+ * (`0 < |x| <= adams_phi_join`), or zero where that branch does not apply; `magnitude`
+ * is `|x|`. A host block forms these first and their exponentials in one pass.
+ */
+[[maybe_unused]] KOKKOS_INLINE_FUNCTION Complex
+adams_phi_argument(const Complex x, const double magnitude) {
+  if (magnitude == 0.0 || magnitude > adams_phi_join)
+    return {};
+  double scale = 1.0;
+  adams_phi_halvings(magnitude, scale);
+  return strict_scale(scale, x);
+}
+
+/**
+ * phi_0(x) .. phi_order(x) for one element into `out`, as solprop's compiled _phi,
+ * given `magnitude = |x|` and `exp_x`; the series branch takes its `exp(y)` from
+ * `exp_y` when a host block formed it (`adams_phi_argument`), else forms it here.
  *
  * The small-argument phi-functions: strict arithmetic (solprop SEP 25 section 4.2).
  */
 SOLPROP_NATIVE_STRICT_FUNCTION
-KOKKOS_INLINE_FUNCTION void adams_phi(const Complex x, const Complex exp_x,
-                                      const std::size_t order, Complex* out) {
+KOKKOS_INLINE_FUNCTION void adams_phi(const Complex x, const double magnitude,
+                                      const Complex exp_x, const std::size_t order,
+                                      Complex* out, const Complex* exp_y = nullptr) {
   SOLPROP_NATIVE_STRICT_BLOCK
   // 1/k! for k <= 2 adams_max_samples, exactly representable rounding of the reference.
   constexpr double reciprocal[17] = {1.0,
@@ -5576,7 +5769,6 @@ KOKKOS_INLINE_FUNCTION void adams_phi(const Complex x, const Complex exp_x,
       1.0 / 24.0, 1.0 / 25.0, 1.0 / 26.0, 1.0 / 27.0, 1.0 / 28.0, 1.0 / 29.0,
       1.0 / 30.0, 1.0 / 31.0, 1.0 / 32.0, 1.0 / 33.0, 1.0 / 34.0, 1.0 / 35.0,
       1.0 / 36.0, 1.0 / 37.0, 1.0 / 38.0, 1.0 / 39.0};
-  const double magnitude = Kokkos::abs(x);
   if (magnitude == 0.0) {
     for (std::size_t k = 0; k <= order; ++k)
       out[k] = reciprocal[k];
@@ -5589,16 +5781,8 @@ KOKKOS_INLINE_FUNCTION void adams_phi(const Complex x, const Complex exp_x,
       out[k] = strict_mul(strict_sub(out[k - 1], Complex(reciprocal[k - 1])), inverse);
     return;
   }
-  // The halvings that bring |x| to at most 1/2, ceil(log2(2 |x|)), each one exact:
-  // `scale` is 2^-squarings.
-  int squarings = 0;
   double scale = 1.0;
-  double reduced = magnitude;
-  while (reduced > 0.5) {
-    ++squarings;
-    scale *= 0.5;
-    reduced *= 0.5;
-  }
+  const int squarings = adams_phi_halvings(magnitude, scale);
   const Complex y = strict_scale(scale, x);
   // Each later term is below |y| / (m + order) of this one, |y| <= 1/2: once this one
   // is under a quarter ulp of the sum, the rest cannot change it. The test compares
@@ -5618,7 +5802,7 @@ KOKKOS_INLINE_FUNCTION void adams_phi(const Complex x, const Complex exp_x,
   out[order] = total;
   for (std::size_t k = order - 1; k > 0; --k)
     out[k] = strict_add(reciprocal[k], strict_mul(y, out[k + 1]));
-  out[0] = Kokkos::exp(y);
+  out[0] = exp_y != nullptr ? *exp_y : Kokkos::exp(y);
   Complex old[2 * adams_max_samples + 1];
   for (int pass = 0; pass < squarings; ++pass) {
     for (std::size_t k = 0; k <= order; ++k)
@@ -5652,20 +5836,32 @@ KOKKOS_INLINE_FUNCTION double adams_factorial(const std::size_t k) {
  * x - sigma with that argument's own exponential (solprop SEP 35 section 4.1). The
  * flow stays exp(x), which the caller holds.
  */
+KOKKOS_INLINE_FUNCTION Complex adams_moment_argument(const ExponentialWeights& weights,
+                                                     const Complex x) {
+  return weights.shifted ? x - Complex(0.0, weights.shift) : x;
+}
+
+/**
+ * `adams_moment_argument`'s magnitude and series exponential may come formed by a
+ * host block (`magnitude`, `exp_y`), or are formed here.
+ */
 KOKKOS_INLINE_FUNCTION void adams_moment_phi(const ExponentialWeights& weights,
                                              const Complex x, const Complex exp_x,
-                                             const std::size_t order, Complex* out) {
+                                             const std::size_t order, Complex* out,
+                                             const double* magnitude = nullptr,
+                                             const Complex* exp_y = nullptr) {
+  const Complex argument = adams_moment_argument(weights, x);
+  const double size = magnitude != nullptr ? *magnitude : Kokkos::abs(argument);
   if (!weights.shifted) {
-    adams_phi(x, exp_x, order, out);
+    adams_phi(argument, size, exp_x, order, out, exp_y);
     return;
   }
   // exp(x - sigma) = exp(x) exp(-sigma): one product with the trial's exp(-sigma)
   // rather than a second exponential per element (a few ulp, inside the moments'
   // share of the rounding budget).
-  const Complex residual = x - Complex(0.0, weights.shift);
-  adams_phi(residual,
+  adams_phi(argument, size,
             strict_mul(exp_x, Complex(weights.unshift_re, weights.unshift_im)), order,
-            out);
+            out, exp_y);
 }
 
 /**
@@ -5876,13 +6072,17 @@ void GeneralWorkspace::adams_compensation_start(const std::size_t slot,
 // `carried`, and the prediction `value + dz sum_t c_t carried_t`. A span of one (the
 // newest sample, at the step's start) takes the step's flow `flow = e^x` as it is:
 // `strict_scale(1, x)` is x, so its exponential is the same bits.
+// A host block may pass the spans' exponentials `e^{s_t x}` formed in one pass each
+// (`spanned`, slot `t`'s parts at `spanned[2 t]` and `[2 t + 1]`); otherwise they are
+// formed here.
 template <class Rates, class States, class Carried>
 SOLPROP_NATIVE_STRICT_FUNCTION KOKKOS_INLINE_FUNCTION Complex
 adams_predicted_compensation(const ExponentialWeights& weights, const Complex x,
                              const Complex flow, const double inverse_dz,
                              const double dz, const Complex value, const Rates& rates,
                              const States& states, const Carried& carried,
-                             const std::size_t column, const std::size_t index) {
+                             const std::size_t column, const std::size_t index,
+                             const double* spanned = nullptr) {
   SOLPROP_NATIVE_STRICT_BLOCK
   for (std::size_t t = 0; t + 1 < weights.width; ++t) {
     const auto slot = weights.slot[t];
@@ -5892,7 +6092,9 @@ adams_predicted_compensation(const ExponentialWeights& weights, const Complex x,
     if (span == 1.0)
       term = strict_mul(flow, term);
     else if (span != 0.0)
-      term = strict_mul(exponential(strict_scale(span, x)), term);
+      term = strict_mul(spanned != nullptr ? Complex(spanned[2 * t], spanned[2 * t + 1])
+                                           : exponential(strict_scale(span, x)),
+                        term);
     carried(t, column, index) = term;
   }
   Complex compensation{};
@@ -5962,7 +6164,9 @@ constexpr std::size_t adams_block = 32;
 
 // The step's exponent and flow on the elements [first, last) of a column. The phase
 // increment: strict (solprop SEP 25 section 4.2).
-template <class Terms, class Weights, class Points>
+// With `Flow` false only the exponents are written (a host block forms the flows in
+// one pass, `AdamsBlock`).
+template <bool Flow = true, class Terms, class Weights, class Points>
 SOLPROP_NATIVE_STRICT_FUNCTION KOKKOS_INLINE_FUNCTION void
 adams_phase_block(const Terms& phi_terms, const Weights& phi_delta,
                   const std::size_t offset, const std::size_t n_phi,
@@ -5973,9 +6177,71 @@ adams_phase_block(const Terms& phi_terms, const Weights& phi_delta,
     const Complex x =
         adams_phase_sum(phi_terms, phi_delta, offset, n_phi, column, index);
     exponent(column, index) = x;
-    flow(column, index) = exponential(x);
+    if constexpr (Flow)
+      flow(column, index) = exponential(x);
   }
 }
+
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+/**
+ * A host block's exponentials for the predict pass, each a pass of the vector-maths
+ * layer over the block's elements (solprop ADR-059): the flows `e^x`, the moments'
+ * series exponentials `e^y` (`adams_phi_argument`) with the arguments' magnitudes,
+ * and a varying operator's spans' `e^{s_t x}`.
+ */
+// Plain doubles, so that the block costs nothing where it is not formed.
+struct AdamsBlock {
+  double magnitude[adams_block];
+  double series_real[adams_block], series_imag[adams_block];
+  // Slot t's exponential of element b at spanned[b][2 t] and [2 t + 1].
+  double spanned[adams_block][2 * adams_max_samples];
+
+  template <class Points>
+  [[maybe_unused]] void form(const ExponentialWeights& weights, const bool compensated,
+                             const std::size_t column, const std::size_t first,
+                             const std::size_t last, const Points& exponent,
+                             const Points& flow) {
+    const std::size_t count = last - first;
+    double real[adams_block], imag[adams_block];
+    double out_real[adams_block], out_imag[adams_block];
+    for (std::size_t b = 0; b < count; ++b) {
+      const Complex x = exponent(column, first + b);
+      real[b] = x.real();
+      imag[b] = x.imag();
+    }
+    vmath::exp_complex(real, imag, out_real, out_imag, count);
+    for (std::size_t b = 0; b < count; ++b)
+      flow(column, first + b) = Complex(out_real[b], out_imag[b]);
+    double y_real[adams_block], y_imag[adams_block];
+    for (std::size_t b = 0; b < count; ++b) {
+      const Complex argument =
+          adams_moment_argument(weights, Complex(real[b], imag[b]));
+      magnitude[b] = Kokkos::abs(argument);
+      const Complex y = adams_phi_argument(argument, magnitude[b]);
+      y_real[b] = y.real();
+      y_imag[b] = y.imag();
+    }
+    vmath::exp_complex(y_real, y_imag, series_real, series_imag, count);
+    if (!compensated)
+      return;
+    for (std::size_t t = 0; t + 1 < weights.width; ++t) {
+      const double span = weights.span[t];
+      if (span == 1.0 || span == 0.0)
+        continue;
+      for (std::size_t b = 0; b < count; ++b) {
+        const Complex argument = strict_scale(span, Complex(real[b], imag[b]));
+        y_real[b] = argument.real();
+        y_imag[b] = argument.imag();
+      }
+      vmath::exp_complex(y_real, y_imag, out_real, out_imag, count);
+      for (std::size_t b = 0; b < count; ++b) {
+        spanned[b][2 * t] = out_real[b];
+        spanned[b][2 * t + 1] = out_imag[b];
+      }
+    }
+  }
+};
+#endif
 
 // The squared scaled norms of up to three factored defects on the in-band elements of
 // [first, last) of a column, added to `update`: a divided difference of the samples
@@ -6167,23 +6433,44 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
     const auto column = task / blocks;
     const auto first = (task % blocks) * adams_block;
     const auto last = first + adams_block < n ? first + adams_block : n;
+    // With vector maths a host block forms its exponentials in passes (`AdamsBlock`);
+    // otherwise each element forms its own.
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+    constexpr bool passes = vmath::vectorised;
+    AdamsBlock formed_block;
+#else
+    constexpr bool passes = false;
+#endif
     if (separable)
       for (std::size_t index = first; index < last; ++index) {
         const Complex x =
             phi_delta(n_stages) *
             spatial.value(column / n_pol, index, active(index) != 0U).linear;
         exponent(column, index) = x;
-        flow(column, index) = exponential(x);
+        if constexpr (!passes)
+          flow(column, index) = exponential(x);
       }
     else
-      adams_phase_block(phi_terms, phi_delta, offset, n_phi, column, first, last,
-                        exponent, flow);
+      adams_phase_block<!passes>(phi_terms, phi_delta, offset, n_phi, column, first,
+                                 last, exponent, flow);
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+    if constexpr (passes)
+      formed_block.form(weights, compensated, column, first, last, exponent, flow);
+#endif
     double squares = 0.0;
     for (std::size_t index = first; index < last; ++index) {
       const Complex x = exponent(column, index);
       const Complex propagate = flow(column, index);
       Complex phi[2 * adams_max_samples + 1];
-      adams_moment_phi(weights, x, propagate, formed, phi);
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+      if constexpr (passes) {
+        const std::size_t b = index - first;
+        const Complex series(formed_block.series_real[b], formed_block.series_imag[b]);
+        adams_moment_phi(weights, x, propagate, formed, phi, &formed_block.magnitude[b],
+                         &series);
+      } else
+#endif
+        adams_moment_phi(weights, x, propagate, formed, phi);
       for (std::size_t k = 0; k < count; ++k)
         moments(k, column, index) = adams_factorial(k) * phi[k + 1];
       const Complex accepted = current(column, index);
@@ -6200,9 +6487,14 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
       }
       Complex value = propagate * accepted + dz * total;
       if (compensated) {
-        value =
-            adams_predicted_compensation(weights, x, propagate, inverse_dz, dz, value,
-                                         rates, states, carried, column, index);
+        const double* spanned = nullptr;
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+        if constexpr (passes)
+          spanned = formed_block.spanned[index - first];
+#endif
+        value = adams_predicted_compensation(weights, x, propagate, inverse_dz, dz,
+                                             value, rates, states, carried, column,
+                                             index, spanned);
         lab(column, index) = value;
       }
       predicted(column, index) = value;
@@ -6920,9 +7212,9 @@ void GeneralWorkspace::adams_exponential_observe(const double xi, const double d
           // xi (x - sigma), its rotated samples, and exp(-sigma (1 - xi)) on the sum.
           const Complex residual =
               xi * (exponent(column, index) - Complex(0.0, weights.shift));
-          adams_phi(residual, exponential(residual), count, phi);
+          adams_phi(residual, Kokkos::abs(residual), exponential(residual), count, phi);
         } else {
-          adams_phi(x, e, count, phi);
+          adams_phi(x, Kokkos::abs(x), e, count, phi);
         }
         Complex total{};
         double power = xi;
@@ -7578,7 +7870,8 @@ void GeneralWorkspace::stage_entry_with(const std::size_t stage, const double dz
           terms.finish(previous, previous_solution, previous_error, column, index);
         const Complex phase = terms.phase_sum(stage * n_phi, column, index);
         const Complex propagator = terms.template combine<Mode>(
-            stage, dz, solution_weight, error_weight, column, index, phase);
+            stage, dz, solution_weight, error_weight, column, index, phase,
+            terms.template entry_factors<Mode>(stage, column, index, phase));
         if (reuse_whole) {
           terms.whole(column, index) = propagator;
         } else if (last) {
@@ -7609,18 +7902,46 @@ void GeneralWorkspace::stage_entry_with(const std::size_t stage, const double dz
         double real[stage_block];
         double imag[stage_block];
         terms.phase_block(stage * n_phi, column, first, count, real, imag);
-        for (std::size_t bin = 0; bin < count; ++bin) {
-          const Complex propagator = terms.template combine<Mode>(
-              stage, dz, solution_weight, error_weight, column, first + bin,
-              Complex(real[bin], imag[bin]));
-          if (reuse_whole)
-            terms.whole(column, first + bin) = propagator;
-        }
-        if (last && !reuse_whole) {
-          terms.phase_block(n_stages * n_phi, column, first, count, real, imag);
-          for (std::size_t bin = 0; bin < count; ++bin)
-            terms.whole(column, first + bin) =
-                entry_exponential<lossless>(Complex(real[bin], imag[bin]));
+        // With vector maths the block's transcendentals are passes of the layer; with
+        // the system libm each bin keeps its own calls, which measured faster there
+        // (the passes' buffers cost 1 to 3 % on an AMD EPYC 7763 with glibc's).
+        if constexpr (vmath::vectorised) {
+          EntryBlock factors{};
+          terms.template entry_factors_block<Mode>(stage, column, first, count, real,
+                                                   imag, factors);
+          for (std::size_t bin = 0; bin < count; ++bin) {
+            const Complex propagator = terms.template combine<Mode>(
+                stage, dz, solution_weight, error_weight, column, first + bin,
+                Complex(real[bin], imag[bin]), factors.at(bin));
+            if (reuse_whole)
+              terms.whole(column, first + bin) = propagator;
+          }
+          if (last && !reuse_whole) {
+            // The whole step's propagator, `entry_exponential` over the block.
+            terms.phase_block(n_stages * n_phi, column, first, count, real, imag);
+            if constexpr (lossless)
+              vmath::sincos(imag, factors.sine, factors.cosine, count);
+            else
+              vmath::exp_complex(real, imag, factors.cosine, factors.sine, count);
+            for (std::size_t bin = 0; bin < count; ++bin)
+              terms.whole(column, first + bin) =
+                  Complex(factors.cosine[bin], factors.sine[bin]);
+          }
+        } else {
+          for (std::size_t bin = 0; bin < count; ++bin) {
+            const Complex phase(real[bin], imag[bin]);
+            const Complex propagator = terms.template combine<Mode>(
+                stage, dz, solution_weight, error_weight, column, first + bin, phase,
+                terms.template entry_factors<Mode>(stage, column, first + bin, phase));
+            if (reuse_whole)
+              terms.whole(column, first + bin) = propagator;
+          }
+          if (last && !reuse_whole) {
+            terms.phase_block(n_stages * n_phi, column, first, count, real, imag);
+            for (std::size_t bin = 0; bin < count; ++bin)
+              terms.whole(column, first + bin) =
+                  entry_exponential<lossless>(Complex(real[bin], imag[bin]));
+          }
         }
         terms.zero_gaps(column, block * gaps / blocks, (block + 1) * gaps / blocks);
       });
@@ -8842,6 +9163,9 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
   const auto rate_intervals = problem_.rate_intervals;
   const std::size_t channels = Multiple ? problem_.n_channels : 1;
   const auto samples = static_cast<int>(problem_.n_to);
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+  const std::size_t sample_count = problem_.n_to;
+#endif
   const auto half = static_cast<int>(problem_.plasma_half_width());
   const std::size_t last = problem_.n_to - 1;
   const std::size_t league = band_league(node_count);
@@ -8877,7 +9201,8 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
         else
           return Kokkos::abs(first);
       };
-      const auto rate_of = [&](const double magnitude, const std::size_t channel) {
+      [[maybe_unused]] const auto rate_of = [&](const double magnitude,
+                                                const std::size_t channel) {
         if constexpr (Multiple)
           return ionisation_rate(
               magnitude, channel_coefficients, channel_parameters(channel, 0),
@@ -8894,19 +9219,79 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
       integrand_live.min_val = samples;
       integrand_live.max_val = -1;
 
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+      // With vector maths a host team thread takes blocks of samples and gathers the
+      // live ones' transcendentals into passes of the layer (`ionisation_rates_within`,
+      // the decays below), writing the rest as it goes; with the system libm each
+      // sample keeps its own calls, as on a device.
+      [[maybe_unused]] const auto blocks =
+          static_cast<int>((sample_count + rate_block - 1) / rate_block);
+      [[maybe_unused]] const auto rates_into =
+          [&](const std::size_t first, const std::size_t count,
+              const std::size_t channel, BandLive& update) {
+            const double lower = Multiple ? channel_parameters(channel, 2) : field_min;
+            const double upper = Multiple ? channel_parameters(channel, 3) : field_max;
+            const double highest = Multiple ? channel_parameters(channel, 4) : rate_max;
+            double values[rate_block];
+            std::size_t active[rate_block];
+            std::size_t live = 0;
+            // `ionisation_rate`'s limits as it takes them: a NaN magnitude is live.
+            for (std::size_t time = first; time < first + count; ++time) {
+              const double magnitude = magnitude_at(time);
+              double rate = 0.0;
+              if (magnitude > upper) {
+                rate = highest;
+              } else if (!(magnitude < lower)) {
+                values[live] = magnitude;
+                active[live] = time;
+                ++live;
+              }
+              rates(slot, time) = rate;
+              band_note(update, static_cast<int>(time), rate);
+            }
+            if constexpr (Multiple)
+              ionisation_rates_within(
+                  values, live, channel_coefficients, channel_parameters(channel, 0),
+                  channel_parameters(channel, 1),
+                  static_cast<std::size_t>(channel_parameters(channel, 5)),
+                  static_cast<std::size_t>(channel_parameters(channel, 6)));
+            else
+              ionisation_rates_within(values, live, rate_coefficients, log_field_min,
+                                      d_log_field, rate_intervals);
+            for (std::size_t k = 0; k < live; ++k) {
+              rates(slot, active[k]) = values[k];
+              band_note(update, static_cast<int>(active[k]), values[k]);
+            }
+          };
+#endif
+
       // 1. Per channel: rates -> filter -> scan -> exposure, then the fraction, the
       // guard and the weight pointwise.
       for (std::size_t channel = 0; channel < channels; ++channel) {
         BandLive rate_live;
-        Kokkos::parallel_reduce(
-            Kokkos::TeamThreadRange(team, samples),
-            [&](const int sample, BandLive& update) {
-              const auto time = static_cast<std::size_t>(sample);
-              const double rate = rate_of(magnitude_at(time), channel);
-              rates(slot, time) = rate;
-              band_note(update, sample, rate);
-            },
-            Kokkos::MinMax<int>(rate_live));
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+        if constexpr (vmath::vectorised) {
+          Kokkos::parallel_reduce(
+              Kokkos::TeamThreadRange(team, blocks),
+              [&](const int block, BandLive& update) {
+                const auto first = static_cast<std::size_t>(block) * rate_block;
+                rates_into(first, std::min(rate_block, sample_count - first), channel,
+                           update);
+              },
+              Kokkos::MinMax<int>(rate_live));
+        } else
+#endif
+        {
+          Kokkos::parallel_reduce(
+              Kokkos::TeamThreadRange(team, samples),
+              [&](const int sample, BandLive& update) {
+                const auto time = static_cast<std::size_t>(sample);
+                const double rate = rate_of(magnitude_at(time), channel);
+                rates(slot, time) = rate;
+                band_note(update, sample, rate);
+              },
+              Kokkos::MinMax<int>(rate_live));
+        }
         team.team_barrier();
         const BandWindow window = band_window_of(rate_live, samples, half);
         if (window.first <= window.last)
@@ -8926,7 +9311,7 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
         const int changing_end = Kokkos::min(window.last + 2, samples);
         const double before = band_fraction(0.0, initial);
         const double after = band_fraction(total, initial);
-        const auto fraction_at = [&](const int sample) {
+        [[maybe_unused]] const auto fraction_at = [&](const int sample) {
           if (sample < window.first)
             return before;
           if (sample >= changing_end)
@@ -8934,40 +9319,99 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
           return band_fraction(exposures(slot, static_cast<std::size_t>(sample)),
                                initial);
         };
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+        // A host block's fractions with vector maths, each handed to `apply` with its
+        // sample: the changing samples' decays `exp(-max(X, 0))` in one pass, each
+        // fraction then `band_fraction`'s strict arithmetic.
+        [[maybe_unused]] const auto fractions_into =
+            [&](const std::size_t first, const std::size_t count, const auto& apply) {
+              double decay[rate_block];
+              std::size_t active[rate_block];
+              std::size_t live = 0;
+              for (std::size_t time = first; time < first + count; ++time) {
+                const auto sample = static_cast<int>(time);
+                if (sample < window.first) {
+                  apply(time, before);
+                } else if (sample >= changing_end) {
+                  apply(time, after);
+                } else {
+                  const double exposure = exposures(slot, time);
+                  decay[live] = -(exposure < 0.0 ? 0.0 : exposure);
+                  active[live] = time;
+                  ++live;
+                }
+              }
+              vmath::exp(decay, decay, live);
+              for (std::size_t k = 0; k < live; ++k)
+                apply(active[k], decayed_fraction(decay[k], initial));
+            };
+#endif
         if constexpr (Multiple) {
           const double partial = channel_density(stage, channel);
           const double charge = channel_parameters(channel, 7);
           const double potential = channel_parameters(channel, 8);
-          Kokkos::parallel_for(
-              Kokkos::TeamThreadRange(team, samples), [&](const int sample) {
-                const auto time = static_cast<std::size_t>(sample);
-                const double fraction = fraction_at(sample);
-                const double rate = rates(slot, time);
-                const double share = partial * fraction * charge;
-                const double paid = partial * potential * rate * (1.0 - fraction);
-                const double weight = channel == 0 ? 0.0 : weights(slot, time);
-                const double work = channel == 0 ? 0.0 : guards(slot, time);
-                weights(slot, time) = weight + share;
-                guards(slot, time) = work + paid;
-              });
+          const auto share_at = [&](const std::size_t time, const double fraction) {
+            const double rate = rates(slot, time);
+            const double share = partial * fraction * charge;
+            const double paid = partial * potential * rate * (1.0 - fraction);
+            const double weight = channel == 0 ? 0.0 : weights(slot, time);
+            const double work = channel == 0 ? 0.0 : guards(slot, time);
+            weights(slot, time) = weight + share;
+            guards(slot, time) = work + paid;
+          };
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+          if constexpr (vmath::vectorised) {
+            Kokkos::parallel_for(
+                Kokkos::TeamThreadRange(team, blocks), [&](const int block) {
+                  const auto first = static_cast<std::size_t>(block) * rate_block;
+                  fractions_into(first, std::min(rate_block, sample_count - first),
+                                 share_at);
+                });
+          } else
+#endif
+          {
+            Kokkos::parallel_for(
+                Kokkos::TeamThreadRange(team, samples), [&](const int sample) {
+                  share_at(static_cast<std::size_t>(sample), fraction_at(sample));
+                });
+          }
         } else {
-          Kokkos::parallel_reduce(
-              Kokkos::TeamThreadRange(team, samples),
-              [&](const int sample, BandLive& update) {
-                const auto time = static_cast<std::size_t>(sample);
-                const double fraction = fraction_at(sample);
-                const double magnitude = magnitude_at(time);
-                const double squared = magnitude * magnitude;
-                guards(slot, time) = band_loss_scale(rates(slot, time), fraction,
-                                                     squared, ionisation_potential);
-                const double weight = fraction * charge_mass_ratio;
-                for (std::size_t component = 0; component < Components; ++component) {
-                  const double value = weight * field_at(base + component, time);
-                  integrands(own + component, time) = value;
-                  band_note(update, sample, value);
-                }
-              },
-              Kokkos::MinMax<int>(integrand_live));
+          const auto integrand_at = [&](const std::size_t time, const double fraction,
+                                        BandLive& update) {
+            const double magnitude = magnitude_at(time);
+            const double squared = magnitude * magnitude;
+            guards(slot, time) = band_loss_scale(rates(slot, time), fraction, squared,
+                                                 ionisation_potential);
+            const double weight = fraction * charge_mass_ratio;
+            for (std::size_t component = 0; component < Components; ++component) {
+              const double value = weight * field_at(base + component, time);
+              integrands(own + component, time) = value;
+              band_note(update, static_cast<int>(time), value);
+            }
+          };
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+          if constexpr (vmath::vectorised) {
+            Kokkos::parallel_reduce(
+                Kokkos::TeamThreadRange(team, blocks),
+                [&](const int block, BandLive& update) {
+                  const auto first = static_cast<std::size_t>(block) * rate_block;
+                  fractions_into(first, std::min(rate_block, sample_count - first),
+                                 [&](const std::size_t time, const double fraction) {
+                                   integrand_at(time, fraction, update);
+                                 });
+                },
+                Kokkos::MinMax<int>(integrand_live));
+          } else
+#endif
+          {
+            Kokkos::parallel_reduce(
+                Kokkos::TeamThreadRange(team, samples),
+                [&](const int sample, BandLive& update) {
+                  integrand_at(static_cast<std::size_t>(sample), fraction_at(sample),
+                               update);
+                },
+                Kokkos::MinMax<int>(integrand_live));
+          }
         }
         if (stashing) {
           double largest = 0.0;
@@ -11929,6 +12373,47 @@ void GeneralWorkspace::mask(const ComplexView2& values) {
       });
 }
 
+namespace {
+// The absorber split's factor `exp(-rate h / 2)` on `rows` rows of `time`. The factor
+// depends on the sample alone: a device forms it at every element, and a host task
+// forms it once for a tile of samples, through the vector-maths layer (solprop
+// ADR-059), and applies it to a block of rows, the same expression to the bit on the
+// libm route.
+template <class TimeView>
+void split_apply(const char* label, const ExecutionSpace& execution,
+                 const TimeView& time, const RealView& rate, const double dz,
+                 const std::size_t rows, const std::size_t samples) {
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  Kokkos::parallel_for(
+      label, Range2(execution, {0, 0}, {rows, samples}),
+      KOKKOS_LAMBDA(const std::size_t row, const std::size_t index) {
+        time(row, index) *= Kokkos::exp(-0.5 * rate(index) * dz);
+      });
+#else
+  constexpr std::size_t tile = 256;
+  constexpr std::size_t row_block = 64;
+  const std::size_t tiles = (samples + tile - 1) / tile;
+  const std::size_t blocks = (rows + row_block - 1) / row_block;
+  Kokkos::parallel_for(
+      label, Kokkos::RangePolicy<ExecutionSpace>(execution, 0, tiles * blocks),
+      KOKKOS_LAMBDA(const std::size_t task) {
+        const std::size_t first = (task % tiles) * tile;
+        const std::size_t count = samples - first < tile ? samples - first : tile;
+        const std::size_t row_first = (task / tiles) * row_block;
+        const std::size_t row_last =
+            rows - row_first < row_block ? rows : row_first + row_block;
+        double factor[tile];
+        for (std::size_t sample = 0; sample < count; ++sample)
+          factor[sample] = -0.5 * rate(first + sample) * dz;
+        vmath::exp(factor, factor, count);
+        for (std::size_t row = row_first; row < row_last; ++row)
+          for (std::size_t sample = 0; sample < count; ++sample)
+            time(row, first + sample) *= factor[sample];
+      });
+#endif
+}
+} // namespace
+
 void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
                                      const double parseval) {
   const bool tail = temporal_tail_rows_ != 0 && active_rows == temporal_tail_rows_;
@@ -11942,14 +12427,8 @@ void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
                          coarse_time_complex_, KokkosFFT::Normalization::none);
     if (monitoring_split())
       add_split_removal(dz, active_rows, parseval);
-    const auto time = coarse_time_complex_;
-    const auto rate = absorber_coarse_;
-    Kokkos::parallel_for(
-        "solprop_native.absorber.split_apply_complex",
-        Range2(execution_space_, {0, 0}, {active_rows, problem_.n_t}),
-        KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
-          time(column, index) *= Kokkos::exp(-0.5 * rate(index) * dz);
-        });
+    split_apply("solprop_native.absorber.split_apply_complex", execution_space_,
+                coarse_time_complex_, absorber_coarse_, dz, active_rows, problem_.n_t);
     if (tail)
       coarse_tail_forward_complex_.execute();
     else
@@ -11963,14 +12442,8 @@ void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
                          coarse_time_real_, KokkosFFT::Normalization::none);
     if (monitoring_split())
       add_split_removal(dz, active_rows, parseval);
-    const auto time = coarse_time_real_;
-    const auto rate = absorber_coarse_;
-    Kokkos::parallel_for(
-        "solprop_native.absorber.split_apply_real",
-        Range2(execution_space_, {0, 0}, {active_rows, problem_.n_t}),
-        KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
-          time(column, index) *= Kokkos::exp(-0.5 * rate(index) * dz);
-        });
+    split_apply("solprop_native.absorber.split_apply_real", execution_space_,
+                coarse_time_real_, absorber_coarse_, dz, active_rows, problem_.n_t);
     if (tail)
       coarse_tail_forward_real_.execute();
     else

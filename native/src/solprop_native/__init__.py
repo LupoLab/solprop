@@ -411,6 +411,12 @@ class BuildInfo:
         The oldest processor the build runs on (``-march`` on x86-64, ``-mcpu`` on
         Arm), for example ``"x86-64-v3"``; ``"none"`` for the compiler's default or a
         native build.
+    vector_math
+        The host kernels' transcendental functions: ``"SLEEF 3.9.0 u10, AVX2"`` (its
+        1.0 ulp vector functions, in the variant the build selected: ``AVX2``, ``SSE2``,
+        ``AVX-512F`` on request or ``AdvSIMD``), the default on x86-64, or
+        ``"scalar libm"``, the system's, on Arm and in device builds
+        (``SOLPROP_NATIVE_VECTOR_MATH``).
     gemm_provider, tpl_blas_enabled, blas_backend, blas_thread_policy
         Dense-transform implementation and external-library threading policy.
     blas_selection
@@ -505,6 +511,7 @@ class BuildInfo:
     nanobind_version: str
     build_profile: str
     cpu_baseline: str
+    vector_math: str
     gemm_provider: str
     tpl_blas_enabled: bool
     blas_backend: str
@@ -611,6 +618,7 @@ def build_info() -> BuildInfo:
         nanobind_version=str(record["nanobind_version"]),
         build_profile=str(record["build_profile"]),
         cpu_baseline=str(record["cpu_baseline"]),
+        vector_math=str(record["vector_math"]),
         gemm_provider=str(record["gemm_provider"]),
         tpl_blas_enabled=bool(record["tpl_blas_enabled"]),
         blas_backend=str(record["blas_backend"]),

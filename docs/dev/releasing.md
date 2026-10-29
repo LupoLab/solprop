@@ -31,6 +31,7 @@ also runs by hand.
 | OpenMP runtime | GCC's `libgomp` | GCC's `libgomp` | LLVM `libomp`, built for the target | LLVM `libomp` from the LLVM installation |
 | BLAS | OpenBLAS 0.3.34, OpenMP, `DYNAMIC_ARCH`, `solprop_` prefix (built by the configure step) | the same | Accelerate | OpenBLAS 0.3.34, OpenMP, one fixed Haswell target (no `DYNAMIC_ARCH`), static |
 | FFTW 3.3.11 | shared, SSE2 and AVX codelets | shared, cycle counter, NEON codelets | shared, cycle counter, NEON codelets | static, SSE2 and AVX codelets |
+| vector maths (ADR-059) | SLEEF 3.9.0, AVX2, static | the system libm | the system libm | SLEEF 3.9.0, AVX2, static |
 | repair | `auditwheel` | `auditwheel` | `delocate` | `delvewheel` (mangled names) |
 
 Every bundled library runs on the same OpenMP runtime as Kokkos, so a process holds one

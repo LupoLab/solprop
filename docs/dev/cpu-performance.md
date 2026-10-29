@@ -187,5 +187,8 @@ These are in the [roadmap](roadmap.md):
 - **Value-safe floating-point options** (`-fno-math-errno`, `-fno-trapping-math`), a
   subnormal count on long runs, and reduced precision: the roadmap's item on
   floating-point options.
-- **Batched vector transcendentals for the plasma response.** About 38 % faster on the
-  exp/log work itself, but it needs the dependent recurrence reorganised.
+- **Vector maths in the remaining per-element kernels** (ADR-059): the trapezoid and
+  envelope plasma columns, whose dependent recurrences need a batched rate pass first,
+  the Adams corrector and dense observation, and the separable stage propagators; and
+  SLEEF on Linux aarch64 and AVX-512 against AVX2, unmeasured end to end. The roadmap's
+  item on vector maths.
