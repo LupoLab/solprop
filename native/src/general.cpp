@@ -232,6 +232,9 @@ using RamanForwardPlan = RamanFftPlan<ExecutionSpace, RealView2, ComplexView2>;
 using RamanInversePlan = RamanFftPlan<ExecutionSpace, ComplexView2, RealView2>;
 using ComplexPlan = KokkosFFT::Plan<ExecutionSpace, ComplexView2, ComplexView2>;
 using TransversePlan = KokkosFFT::Plan<ExecutionSpace, ComplexView3, ComplexView3, 2>;
+// A device's Kerr-only free-space envelope takes the stage's time axis with the plane's
+// in one rank-3 transform (`volume_kerr_`).
+using VolumePlan = KokkosFFT::Plan<ExecutionSpace, ComplexView3, ComplexView3, 3>;
 // The hybrid planar kind transforms y alone, the trailing axis of (bins, n_p, n_y).
 using SlabPlan = KokkosFFT::Plan<ExecutionSpace, ComplexView3, ComplexView3, 1>;
 
@@ -1998,6 +2001,7 @@ public:
   void seed_modal_wisdom();
   void seed_stream_wisdom();
   void separable_core(std::size_t stage, bool material);
+  void separable_volume_core(std::size_t stage);
   void separable_stage_input(std::size_t stage, double dz);
   void separable_load_current();
   void separable_pack_chunk(const TransverseChunk& chunk, bool material);
@@ -2244,6 +2248,13 @@ public:
   ComplexView3 flux_transverse_;
   ComplexView3 transverse_;
   std::unique_ptr<TransversePlan> transverse_forward_, transverse_inverse_;
+  // On a device, a free-space envelope whose material response is the Kerr term alone,
+  // on a time grid the spectrum fills (n_t = n_to = n_omega, the crop the identity),
+  // with one polarisation: the stage core transforms the whole scratch volume in
+  // (omega, y, x) at once and forms the response there, in place of the chunks'
+  // transposes and temporal transforms (`separable_volume_core`).
+  bool volume_kerr_ = false;
+  std::unique_ptr<VolumePlan> volume_forward_, volume_inverse_;
   std::unique_ptr<SlabPlan> slab_forward_, slab_inverse_;
   ComplexView2 current_, advanced_, solution_, error_, residual_, recycled_, noise_;
   // solprop SEP 24 phase 3: the low-storage march's registers B and C (the state is
@@ -3749,6 +3760,27 @@ void GeneralWorkspace::plan() {
     transverse_inverse_ = std::make_unique<TransversePlan>(
         fft_space_for(transverse_.size()), transverse_, transverse_,
         KokkosFFT::Direction::backward, axes);
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+    bool identity_crop = problem_.crop_index.size() == problem_.n_omega;
+    for (std::size_t index = 0; identity_crop && index < problem_.n_omega; ++index)
+      identity_crop = problem_.crop_index[index] == index;
+    volume_kerr_ = identity_crop && problem_.family == FieldFamily::envelope &&
+                   problem_.n_pol_state == 1 && problem_.effective_node_pol() == 1 &&
+                   problem_.n_to == problem_.n_omega && problem_.n_t == problem_.n_to &&
+                   separable_aliased_ && problem_.nonlinear && !problem_.plasma &&
+                   !problem_.raman && !problem_.envelope_plasma &&
+                   !problem_.dispersive && separable_dispersive_ == nullptr &&
+                   problem_.harmonic_factor == 0.0 && separable_gaps_.empty();
+    if (volume_kerr_) {
+      const KokkosFFT::axis_type<3> volume_axes{-3, -2, -1};
+      volume_forward_ =
+          std::make_unique<VolumePlan>(execution_space_, transverse_, transverse_,
+                                       KokkosFFT::Direction::forward, volume_axes);
+      volume_inverse_ =
+          std::make_unique<VolumePlan>(execution_space_, transverse_, transverse_,
+                                       KokkosFFT::Direction::backward, volume_axes);
+    }
+#endif
   }
   constexpr int axis = -1;
   if (held_plasma())
@@ -7686,12 +7718,59 @@ void GeneralWorkspace::separable_to_frequency(const TransverseChunk& chunk) {
   }
 }
 
+// `volume_kerr_`'s stage core: the scratch's (omega, y, x) volume to time and the
+// plane at once, the Kerr polarisation in place sample by sample -- the device
+// column's arithmetic (`device_response`), the pad scale 1/n_t that the chunk's pack
+// would apply taken with the field -- and back. The rank-3 transform is the chunks'
+// temporal transforms and the plane's together, the same DFT to rounding, without the
+// pack's and the crop's transposes.
+void GeneralWorkspace::separable_volume_core(const std::size_t stage) {
+  Kokkos::Profiling::pushRegion("solprop_native.free.volume_core");
+  KokkosFFT::execute(*volume_inverse_, transverse_, transverse_,
+                     KokkosFFT::Normalization::none);
+  const auto scratch = transverse_;
+  const auto window = time_window_;
+  const auto kerr_density = stage_kerr_density_;
+  const double kerr_coefficient = problem_.kerr_coefficient;
+  const double self_factor = problem_.self_factor;
+  const double conjugate_factor = problem_.conjugate_factor;
+  const double scale = 1.0 / static_cast<double>(problem_.n_t);
+  const auto plane = transverse_.extent(1) * transverse_.extent(2);
+  Kokkos::parallel_for(
+      "solprop_native.free.volume_kerr",
+      Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, transverse_.size()),
+      KOKKOS_LAMBDA(const std::size_t item) {
+        const std::size_t time = item / plane;
+        Complex& cell = scratch.data()[item];
+        const Complex value = scale * cell;
+        const double modulus = squared_abs(value);
+        const Complex square = value * value;
+        const double factor = kerr_coefficient * kerr_density(stage);
+        const double weighted_real = conjugate_factor * square.real();
+        const double weighted_imag = conjugate_factor * square.imag();
+        const double weighted_self = self_factor * modulus;
+        const Complex result(
+            factor * (weighted_self * value.real() +
+                      (weighted_real * value.real() + weighted_imag * value.imag())),
+            factor * (weighted_self * value.imag() +
+                      (weighted_imag * value.real() - weighted_real * value.imag())));
+        cell = result * window(time);
+      });
+  KokkosFFT::execute(*volume_forward_, transverse_, transverse_,
+                     KokkosFFT::Normalization::none);
+  Kokkos::Profiling::popRegion();
+}
+
 // The separable stage's core (solprop SEP 24 Q5): from its input in the transverse
 // scratch, the material response (or, `material` false, the in-stage absorber's term)
 // back into the scratch, in frequency, chunk by chunk through the temporal transforms.
 // Shared by the Runge-Kutta stage and the low-storage march's passes, which differ in
 // how they form the input and fold the output.
 void GeneralWorkspace::separable_core(const std::size_t stage, const bool material) {
+  if (material && volume_kerr_) {
+    separable_volume_core(stage);
+    return;
+  }
   // SEP 6's dispersive response runs chunk by chunk beside the material's response
   // column, or alone in its place (`SeparableDispersive`).
   auto* const dispersive = separable_dispersive_.get();
@@ -13272,6 +13351,8 @@ void GeneralWorkspace::close() noexcept {
   radial_blas_input_ = {};
   radial_blas_output_ = {};
   transverse_forward_.reset();
+  volume_forward_.reset();
+  volume_inverse_.reset();
   transverse_inverse_.reset();
   slab_forward_.reset();
   slab_inverse_.reset();
