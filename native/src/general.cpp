@@ -7075,8 +7075,9 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
   const std::size_t formed = count > weights.order ? count : weights.order;
   const double inverse_dz = 1.0 / dz;
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
-  // A host block's predict pass forms the corrector's endpoint rate beside the phase.
-  const auto endpoint_rates = adams_rate_weights_;
+  // A host block's predict pass forms the corrector's endpoint rate beside the phase,
+  // from the weights the trial uploaded with its scalars.
+  const auto endpoint_rates = stage_rate_weights_;
   const auto endpoint_rate = adams_endpoint_rate_;
 #endif
   // The step's exponent, on a separable route the step's length times each element's
