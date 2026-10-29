@@ -107,9 +107,9 @@ time divided by the native backend's: above 1, the native backend is faster.
   `h2_raman_averaged` became 1.9-2.1 times faster at 16 threads (faster than one thread
   again) and `argon_blueshift` 1.2-1.4 times, on a Xeon Gold 6240 and an AMD EPYC 7763.
 - **NumPy's BLAS held to one thread while a native backend lives**
-  ([measurements](benchmarks.md#host-blas-pool)). Its pthreads workers, woken by the
-  small host-side products of each saved plane, spun on the native pool's cores for the
-  whole run: at 16 threads the four-mode capillary became 2.2 times faster on a Xeon Gold
+  ([measurements](benchmarks.md#numpys-blas-beside-a-native-run)). Its pthreads
+  workers, woken by the small host-side products of each saved plane, spun on the native
+  pool's cores for the whole run: at 16 threads the four-mode capillary became 2.2 times faster on a Xeon Gold
   6240 (1.3 times on an AMD EPYC 7763), the radial filament 1.4 (1.6) times and averaged
   helium 1.4 (2.9) times; one thread is unchanged.
 - **Measured FFTW wisdom only for serial transforms by default**
