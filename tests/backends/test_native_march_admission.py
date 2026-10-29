@@ -157,6 +157,10 @@ def test_the_host_engine_takes_the_host_march(monkeypatch):
         backend.close()
 
 
+@pytest.mark.skipif(
+    pytest.importorskip("solprop_native").build_info().device_backend != "none",
+    reason="device builds refuse the carrier frame by name",
+)
 def test_the_carrier_frame_is_native():
     # The chord of a constant or an expanded operator is formed natively; a z table's
     # stays solprop's.

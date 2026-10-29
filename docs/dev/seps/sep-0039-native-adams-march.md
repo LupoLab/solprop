@@ -2567,6 +2567,35 @@ frame; lockstep batch replay.
 - The z-table, coupled-flow, moving-guide, carrier-frame, dispersive and driver modules
   on the M5 Max; the full gate on CI.
 
+### Phase 5 — report (in progress)
+
+**Scope.** Device builds, 2026-10-29: CUDA on NVIDIA A40s only (John Travers's budget
+for the night: no rented devices). Opus 5.5 (AI) for John Travers.
+
+**Delivered.**
+
+- **CUDA builds take the native march.** The march is host code; its engine calls the
+  device kernels the Python march calls, one norm read-back a trial as before. z tables
+  and the carrier frame stay refused on devices by name, as before.
+- **HIP builds keep the warned host march** until their own qualification (§6.7).
+- **Two compile fixes found building for the A40:**
+  1. `general.cpp` (from LupoLab/solprop#56, already on `main`): nvcc refuses a device
+     lambda's first capture of a view inside `if constexpr`; the host-only branch is
+     now guarded for host compilers alone. Device builds of `main` do not compile
+     without it.
+  2. nvcc 12.8's front end re-emitted the fused tables' constant `std::array` bounds
+     as `unsigned long(...)`, which GCC refuses, where the exponential tables' twin is
+     emitted plainly (not reproduced in isolation); their host-side scratch is sized at
+     run time instead. It was first misread as GCC refusing the strict-function
+     attribute there: that attribute went (harmlessly, since the fused tables only
+     subtract), and the sections' recursion became a free strict function.
+
+**Verification.** A40_RESULTS
+
+**Not done.** The pinned single upload a trial (§6.7, item 2) was not built: the trial
+still uploads its scalars as before. HIP (AMD MI325X) and H100-class timings wait for a
+GPU budget.
+
 ## Part III — History
 
 - 2026-10-28: Drafted by Opus 5.5 for John Travers, from a profiling study of the
