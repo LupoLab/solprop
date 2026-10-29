@@ -8276,13 +8276,11 @@ void GeneralWorkspace::synthesise(const std::size_t first_node,
   }
   // A radial analytic field can exceed the node budget even at 256 nodes. Its
   // row chunks are contiguous in LayoutRight, including the short final chunk:
-  // alias those rows directly instead of falling through to scalar synthesis.
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-  constexpr bool radial_analytic_chunk = false;
-#else
+  // alias those rows directly instead of falling through to scalar synthesis. A
+  // device takes the same GEMM wherever its shape guard admits the interleaved
+  // synthesis, which `synthesis_provider` reports.
   const bool radial_analytic_chunk = problem_.family == FieldFamily::field_analytic &&
                                      !problem_.spatial_spectral_weights.empty();
-#endif
   if ((whole_transform || radial_analytic_chunk) && use_interleaved_synthesis()) {
     Kokkos::Profiling::pushRegion(
         "solprop_native.transform.synthesis.kokkosblas_interleaved");
