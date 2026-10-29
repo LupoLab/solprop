@@ -2080,6 +2080,8 @@ public:
                           const std::vector<double>& divisor, const TrialScalars& step,
                           const TrialScalars& sample, const std::vector<double>& rate);
   void adams_exponential_accept(double dz, std::size_t free, const AdamsWeights& dense);
+  // The end of an accepted Adams step (a host fence; nothing on a device).
+  void adams_accepted_boundary() const;
   void adams_exponential_observe(double xi, double dz,
                                  const ExponentialWeights& weights);
   std::vector<std::string> adams_row_names() const;
@@ -6034,7 +6036,7 @@ void GeneralWorkspace::adams_fused_accept(const double dz, const AdamsWeights& k
           store(keep.slot[t], column, index) = store(keep.slot[t], column, index) * u;
         store(free, column, index) = u * source(column, index);
       });
-  execution_space_.fence("solprop_native Adams accepted-step boundary");
+  adams_accepted_boundary();
 }
 
 void GeneralWorkspace::adams_hold() {
@@ -8402,7 +8404,19 @@ void GeneralWorkspace::adams_exponential_accept(const double dz, const std::size
     Kokkos::deep_copy(execution_space_,
                       Kokkos::subview(adams_applied_, free, Kokkos::ALL, Kokkos::ALL),
                       adams_end_applied_);
+  adams_accepted_boundary();
+}
+
+// A host's execution instances are partitions of its thread pool, and the next
+// trial's passes may run on another one than this step's, so the accepted step ends
+// with a fence there. A device's instances are its one stream, which already orders
+// the next trial's work after this step's: there the host goes on to the next trial's
+// tables while the device finishes the step (on an AMD Instinct MI325X a trial's
+// kernels take a few microseconds each, so the wait was a visible part of a trial).
+void GeneralWorkspace::adams_accepted_boundary() const {
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
   execution_space_.fence("solprop_native Adams accepted-step boundary");
+#endif
 }
 
 // The field at the fraction `xi` of the last accepted step: the accepted corrector's
