@@ -133,7 +133,15 @@ from solprop.translate.stage import (
 )
 from solprop.translate.tdse import TDSEPurpose
 
-from . import PROC_BIND, THREAD_BUDGET, WAIT_POLICY, _core, build_info, check_build
+from . import (
+    PROC_BIND,
+    THREAD_BUDGET,
+    WAIT_POLICY,
+    _core,
+    _host_blas,
+    build_info,
+    check_build,
+)
 from ._helpers import NATIVE
 
 type ComplexArray = npt.NDArray[np.complex128]
@@ -333,6 +341,11 @@ class NativeBackend(StepDriver[_core.State]):
         # engine `_low_storage_engine` returns, built over the native state above.
         if isinstance(integrator, LowStorageRungeKutta):
             self._low_storage = LowStorageMarch(self, integrator)
+        # NumPy's own BLAS pool would spin beside the native one while this backend
+        # lives; it is held to one thread until the last native backend closes.
+        self._host_blas = _host_blas.hold(
+            build_info().blas_library, THREAD_BUDGET.threads
+        )
 
     def _apply_mask(self, state: ComplexArray) -> _core.State:
         self._last_loaded = np.ascontiguousarray(state.reshape(-1))
@@ -1601,6 +1614,7 @@ class NativeBackend(StepDriver[_core.State]):
             "thread_budget_source": THREAD_BUDGET.source,
             "openmp_wait_policy": WAIT_POLICY,
             "openmp_proc_bind": PROC_BIND,
+            "host_blas": self._host_blas,
             "planning_seconds": self._native_state.planning_seconds,
             "raman_fft_provider": self._native_state.raman_fft_provider,
             "raman_fft_tasks": self._native_state.raman_fft_tasks,
@@ -1660,6 +1674,7 @@ class NativeBackend(StepDriver[_core.State]):
         """Release native plans and views; repeated calls have no effect."""
         if not self._closed:
             self._native_state.close()
+            _host_blas.release()
         self._state = None
         self._noise = None
         self._closed = True
