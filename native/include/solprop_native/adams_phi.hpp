@@ -7,6 +7,7 @@
 
 #include <Kokkos_Core.hpp>
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 
@@ -242,15 +243,15 @@ inline void adams_lanes_classify(AdamsLanes& lanes, const ExponentialWeights& we
         static_cast<std::int64_t>(Kokkos::fabs(square - 9.0) <= margin * 9.0);
     close[b] = uncertain;
     any_close |= uncertain;
-    const std::int64_t branch =
-        zero != 0 ? adams_lane_zero
-                  : (large != 0 ? adams_lane_large : adams_lane_series);
+    // zero 0, large 1, series 2, and 2^-squarings, each factor exact; spelt as
+    // arithmetic rather than selections, which GCC does not if-convert here.
+    const std::int64_t branch = (1 - zero) * (2 - large);
+    const std::int64_t series = static_cast<std::int64_t>(branch == adams_lane_series);
     lanes.branch[b] = branch;
-    lanes.squarings[b] =
-        branch == adams_lane_series ? above_quarter + above_one + above_four : 0;
-    // 2^-squarings, each factor exact.
-    scale[b] = (above_quarter != 0 ? 0.5 : 1.0) * (above_one != 0 ? 0.5 : 1.0) *
-               (above_four != 0 ? 0.5 : 1.0);
+    lanes.squarings[b] = series * (above_quarter + above_one + above_four);
+    scale[b] = (1.0 - 0.5 * static_cast<double>(above_quarter)) *
+               (1.0 - 0.5 * static_cast<double>(above_one)) *
+               (1.0 - 0.5 * static_cast<double>(above_four));
   }
   if (any_close != 0)
     for (std::size_t b = 0; b < count; ++b) {
@@ -328,7 +329,9 @@ inline void adams_lanes_phi(AdamsLanes& lanes, const std::size_t order) {
       const bool on = live[b] != 0;
       sum_r[b] = on ? total_r : sum_r[b];
       sum_i[b] = on ? total_i : sum_i[b];
-      const bool more = on & !(term_norm <= stop * total_norm);
+      // A quiet comparison (no exception on NaN, the same result), which the compiler
+      // may evaluate for every lane.
+      const bool more = on & !std::islessequal(term_norm, stop * total_norm);
       live[b] = more ? 1 : 0;
       term_r[b] = more ? next_r : 0.0;
       term_i[b] = more ? next_i : 0.0;
