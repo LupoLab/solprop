@@ -310,6 +310,24 @@ Interleaved `benchmarks ab` against the compact-team commit, Xeon, 3 rounds, `--
 `argon_blueshift` now runs 4.1 times faster at 16 threads than at one (1.01 against
 4.13 s), where it was 2.8 times.
 
+(stacked-projection-splits)=
+### Stacked projection splits
+
+A real projection that also forms the embedded rule's coarse rows projects both in one
+stacked product and then copies the halves into the fine and coarse rows. The copy ran
+on the temporal copy's instance, which the copy sizing keeps serial below 65536 samples:
+on the four-mode capillary (`rdw`, 4 × 10240 samples) each took about 90 us at 16 threads
+on a Xeon Gold 6240, 43 ms of a `--length 0.1` window, beside full-width kernels; on `ctc`
+159 us. It now runs on the stage's instance (full width there, serial where the stage
+is). Interleaved `benchmarks ab` against the one-mode commit, 3 rounds, `--length 0.05`,
+the same steps, fields within 6.1e-15:
+
+| case | 1 thread | 16 threads |
+|---|---:|---:|
+| `ctc` | 0.990 | 0.977 [0.976, 0.980] |
+| `rdw` | 0.987 | 0.992 [0.962, 0.994] |
+| `argon_blueshift_envelope` | 1.004 | 1.012 (no stacked real split) |
+
 (host-blas-pool)=
 ### NumPy's BLAS beside a native run
 

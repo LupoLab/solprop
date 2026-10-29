@@ -11777,6 +11777,10 @@ void GeneralWorkspace::project(const std::size_t first_node,
     Kokkos::Profiling::popRegion();
     return;
   }
+  // The stacked projections' splits copy on the stage's instance: on the temporal
+  // copy's serial instance one took about 90 us at 16 threads on the four-mode
+  // capillary, beside full-width kernels (docs/dev/benchmarks.md, "Stacked projection
+  // splits").
   if (whole_transform && use_blas_for_projection()) {
     Kokkos::Profiling::pushRegion("solprop_native.transform.projection.kokkosblas");
     if (problem_.family == FieldFamily::envelope && project_coarse_ &&
@@ -11789,7 +11793,7 @@ void GeneralWorkspace::project(const std::size_t first_node,
       const auto columns = problem_.n_columns();
       Kokkos::parallel_for(
           "solprop_native.transform.projection.split_stacked_complex",
-          Range2(temporal_execution_space_, {0, 0}, {columns, problem_.n_to}),
+          Range2(execution_space_, {0, 0}, {columns, problem_.n_to}),
           KOKKOS_LAMBDA(const std::size_t column, const std::size_t time) {
             fine(column, time) = stacked(column, time);
             coarse(column, time) = stacked(columns + column, time);
@@ -11811,7 +11815,7 @@ void GeneralWorkspace::project(const std::size_t first_node,
       const auto columns = problem_.n_columns();
       Kokkos::parallel_for(
           "solprop_native.transform.projection.split_stacked",
-          Range2(temporal_execution_space_, {0, 0}, {columns, problem_.n_to}),
+          Range2(execution_space_, {0, 0}, {columns, problem_.n_to}),
           KOKKOS_LAMBDA(const std::size_t column, const std::size_t time) {
             fine(column, time) = stacked(column, time);
             coarse(column, time) = stacked(columns + column, time);
@@ -11855,7 +11859,7 @@ void GeneralWorkspace::project(const std::size_t first_node,
           const auto columns = problem_.n_columns();
           Kokkos::parallel_for(
               "solprop_native.transform.projection.split_stacked_complex",
-              Range2(temporal_execution_space_, {0, 0}, {columns, problem_.n_to}),
+              Range2(execution_space_, {0, 0}, {columns, problem_.n_to}),
               KOKKOS_LAMBDA(const std::size_t column, const std::size_t time) {
                 fine(column, time) = projected(column, time);
                 coarse(column, time) = projected(columns + column, time);
@@ -11905,7 +11909,7 @@ void GeneralWorkspace::project(const std::size_t first_node,
           const auto columns = problem_.n_columns();
           Kokkos::parallel_for(
               "solprop_native.transform.projection.split_stacked",
-              Range2(temporal_execution_space_, {0, 0}, {columns, problem_.n_to}),
+              Range2(execution_space_, {0, 0}, {columns, problem_.n_to}),
               KOKKOS_LAMBDA(const std::size_t column, const std::size_t time) {
                 fine(column, time) = projected(column, time);
                 coarse(column, time) = projected(columns + column, time);
