@@ -89,6 +89,9 @@ def test_the_hold_above_the_maximum_field_is_inside_the_run():
 
 
 @pytest.mark.medium
+# A native lockstep batch replays its Adams members on solprop's march, with the
+# warning native/tests/test_batch.py asserts (SEP 39).
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
 @pytest.mark.parametrize("name", ["n2_field", "ar_envelope"])
 def test_a_batch_equals_its_members(name, equivalence_backend_name):
     # Within the rounding budget tests/backends/test_batch_responses.py holds its own
