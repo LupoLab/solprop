@@ -953,6 +953,7 @@ if(BUILD_TESTING)
   add_executable(solprop_native_tests
     tests/native/main.cpp
     tests/native/test_adams_march.cpp
+    tests/native/test_adams_phi.cpp
     tests/native/test_core.cpp
     tests/native/test_envelope_plasma.cpp
     tests/native/test_fft.cpp

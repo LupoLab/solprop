@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "solprop_native/adams_phi.hpp"
 #include "solprop_native/core.hpp"
 #include "solprop_native/coupled_flow.hpp"
 #include "solprop_native/dispersive.hpp"
@@ -5979,133 +5980,6 @@ void GeneralWorkspace::adams_observe(const AdamsWeights& weights, const bool her
 
 namespace {
 
-constexpr double adams_phi_join = 3.0;
-constexpr int adams_series_terms = 24;
-
-/**
- * The halvings of the phi-functions' series branch: the count that brings |x| to at
- * most 1/2, ceil(log2(2 |x|)), and `scale = 2^-count`, each halving exact.
- */
-KOKKOS_INLINE_FUNCTION int adams_phi_halvings(const double magnitude, double& scale) {
-  int squarings = 0;
-  scale = 1.0;
-  double reduced = magnitude;
-  while (reduced > 0.5) {
-    ++squarings;
-    scale *= 0.5;
-    reduced *= 0.5;
-  }
-  return squarings;
-}
-
-/**
- * The argument `y = 2^-s x` whose exponential the series branch of `adams_phi` forms
- * (`0 < |x| <= adams_phi_join`), or zero where that branch does not apply; `magnitude`
- * is `|x|`. A host block forms these first and their exponentials in one pass.
- */
-[[maybe_unused]] KOKKOS_INLINE_FUNCTION Complex
-adams_phi_argument(const Complex x, const double magnitude) {
-  if (magnitude == 0.0 || magnitude > adams_phi_join)
-    return {};
-  double scale = 1.0;
-  adams_phi_halvings(magnitude, scale);
-  return strict_scale(scale, x);
-}
-
-/**
- * phi_0(x) .. phi_order(x) for one element into `out`, as solprop's compiled _phi,
- * given `magnitude = |x|` and `exp_x`; the series branch takes its `exp(y)` from
- * `exp_y` when a host block formed it (`adams_phi_argument`), else forms it here.
- *
- * The small-argument phi-functions: strict arithmetic (solprop SEP 25 section 4.2).
- */
-SOLPROP_NATIVE_STRICT_FUNCTION
-KOKKOS_INLINE_FUNCTION void adams_phi(const Complex x, const double magnitude,
-                                      const Complex exp_x, const std::size_t order,
-                                      Complex* out, const Complex* exp_y = nullptr) {
-  SOLPROP_NATIVE_STRICT_BLOCK
-  // 1/k! for k <= 2 adams_max_samples, exactly representable rounding of the reference.
-  constexpr double reciprocal[17] = {1.0,
-                                     1.0,
-                                     0.5,
-                                     1.0 / 6.0,
-                                     1.0 / 24.0,
-                                     1.0 / 120.0,
-                                     1.0 / 720.0,
-                                     1.0 / 5040.0,
-                                     1.0 / 40320.0,
-                                     1.0 / 362880.0,
-                                     1.0 / 3628800.0,
-                                     1.0 / 39916800.0,
-                                     1.0 / 479001600.0,
-                                     1.0 / 6227020800.0,
-                                     1.0 / 87178291200.0,
-                                     1.0 / 1307674368000.0,
-                                     1.0 / 20922789888000.0};
-  // 1/n for the series' divisors m + order, the doubles the division rounds to.
-  static_assert(adams_series_terms + 2 * adams_max_samples <= 40);
-  constexpr double inverse_divisor[40] = {
-      0.0,        1.0 / 1.0,  1.0 / 2.0,  1.0 / 3.0,  1.0 / 4.0,  1.0 / 5.0,
-      1.0 / 6.0,  1.0 / 7.0,  1.0 / 8.0,  1.0 / 9.0,  1.0 / 10.0, 1.0 / 11.0,
-      1.0 / 12.0, 1.0 / 13.0, 1.0 / 14.0, 1.0 / 15.0, 1.0 / 16.0, 1.0 / 17.0,
-      1.0 / 18.0, 1.0 / 19.0, 1.0 / 20.0, 1.0 / 21.0, 1.0 / 22.0, 1.0 / 23.0,
-      1.0 / 24.0, 1.0 / 25.0, 1.0 / 26.0, 1.0 / 27.0, 1.0 / 28.0, 1.0 / 29.0,
-      1.0 / 30.0, 1.0 / 31.0, 1.0 / 32.0, 1.0 / 33.0, 1.0 / 34.0, 1.0 / 35.0,
-      1.0 / 36.0, 1.0 / 37.0, 1.0 / 38.0, 1.0 / 39.0};
-  if (magnitude == 0.0) {
-    for (std::size_t k = 0; k <= order; ++k)
-      out[k] = reciprocal[k];
-    return;
-  }
-  if (magnitude > adams_phi_join) {
-    const Complex inverse = strict_divide(Complex(1.0), x);
-    out[0] = exp_x;
-    for (std::size_t k = 1; k <= order; ++k)
-      out[k] = strict_mul(strict_sub(out[k - 1], Complex(reciprocal[k - 1])), inverse);
-    return;
-  }
-  double scale = 1.0;
-  const int squarings = adams_phi_halvings(magnitude, scale);
-  const Complex y = strict_scale(scale, x);
-  // Each later term is below |y| / (m + order) of this one, |y| <= 1/2: once this one
-  // is under a quarter ulp of the sum, the rest cannot change it. The test compares
-  // squared magnitudes, which differ from hypot's only in the test's own rounding, so a
-  // term below a quarter ulp may be added once more or once less.
-  constexpr double quarter_ulp = 0.25 * Kokkos::Experimental::epsilon_v<double>;
-  constexpr double stop = quarter_ulp * quarter_ulp;
-  Complex term = reciprocal[order];
-  Complex total = term;
-  for (int m = 1; m < adams_series_terms; ++m) {
-    term = strict_scale(inverse_divisor[static_cast<std::size_t>(m) + order],
-                        strict_mul(term, y));
-    total = strict_add(total, term);
-    if (strict_norm(term) <= stop * strict_norm(total))
-      break;
-  }
-  out[order] = total;
-  for (std::size_t k = order - 1; k > 0; --k)
-    out[k] = strict_add(reciprocal[k], strict_mul(y, out[k + 1]));
-  out[0] = exp_y != nullptr ? *exp_y : Kokkos::exp(y);
-  Complex old[2 * adams_max_samples + 1];
-  for (int pass = 0; pass < squarings; ++pass) {
-    for (std::size_t k = 0; k <= order; ++k)
-      old[k] = out[k];
-    out[0] = strict_mul(old[0], old[0]);
-    double half = 1.0; // 2^-k, exact
-    for (std::size_t k = 1; k <= order; ++k) {
-      half *= 0.5;
-      Complex sum = strict_mul(old[0], old[k]);
-      for (std::size_t i = 1; i <= k; ++i)
-        sum = strict_accumulate(sum, reciprocal[k - i], old[i]);
-      out[k] = strict_scale(half, sum);
-    }
-  }
-}
-
-} // namespace
-
-namespace {
-
 /** k! for k < 2 adams_max_samples, the moments' scale. */
 KOKKOS_INLINE_FUNCTION double adams_factorial(const std::size_t k) {
   double value = 1.0;
@@ -6124,19 +5998,14 @@ KOKKOS_INLINE_FUNCTION Complex adams_moment_argument(const ExponentialWeights& w
   return weights.shifted ? x - Complex(0.0, weights.shift) : x;
 }
 
-/**
- * `adams_moment_argument`'s magnitude and series exponential may come formed by a
- * host block (`magnitude`, `exp_y`), or are formed here.
- */
+/** `adams_phi` at `adams_moment_argument`, with the flow `exp_x`. */
 KOKKOS_INLINE_FUNCTION void adams_moment_phi(const ExponentialWeights& weights,
                                              const Complex x, const Complex exp_x,
-                                             const std::size_t order, Complex* out,
-                                             const double* magnitude = nullptr,
-                                             const Complex* exp_y = nullptr) {
+                                             const std::size_t order, Complex* out) {
   const Complex argument = adams_moment_argument(weights, x);
-  const double size = magnitude != nullptr ? *magnitude : Kokkos::abs(argument);
+  const double size = Kokkos::abs(argument);
   if (!weights.shifted) {
-    adams_phi(argument, size, exp_x, order, out, exp_y);
+    adams_phi(argument, size, exp_x, order, out);
     return;
   }
   // exp(x - sigma) = exp(x) exp(-sigma): one product with the trial's exp(-sigma)
@@ -6144,7 +6013,7 @@ KOKKOS_INLINE_FUNCTION void adams_moment_phi(const ExponentialWeights& weights,
   // share of the rounding budget).
   adams_phi(argument, size,
             strict_mul(exp_x, Complex(weights.unshift_re, weights.unshift_im)), order,
-            out, exp_y);
+            out);
 }
 
 /**
@@ -6354,18 +6223,16 @@ void GeneralWorkspace::adams_compensation_start(const std::size_t slot,
 // The predictor's carried samples `e^{s_t x} (R_t - x / dz) u_t`, written to
 // `carried`, and the prediction `value + dz sum_t c_t carried_t`. A span of one (the
 // newest sample, at the step's start) takes the step's flow `flow = e^x` as it is:
-// `strict_scale(1, x)` is x, so its exponential is the same bits.
-// A host block may pass the spans' exponentials `e^{s_t x}` formed in one pass each
-// (`spanned`, slot `t`'s parts at `spanned[2 t]` and `[2 t + 1]`); otherwise they are
-// formed here.
+// `strict_scale(1, x)` is x, so its exponential is the same bits. A host block with
+// vector maths forms the same values on its lanes
+// (`adams_lanes_predicted_compensation`).
 template <class Rates, class States, class Carried>
 SOLPROP_NATIVE_STRICT_FUNCTION KOKKOS_INLINE_FUNCTION Complex
 adams_predicted_compensation(const ExponentialWeights& weights, const Complex x,
                              const Complex flow, const double inverse_dz,
                              const double dz, const Complex value, const Rates& rates,
                              const States& states, const Carried& carried,
-                             const std::size_t column, const std::size_t index,
-                             const double* spanned = nullptr) {
+                             const std::size_t column, const std::size_t index) {
   SOLPROP_NATIVE_STRICT_BLOCK
   for (std::size_t t = 0; t + 1 < weights.width; ++t) {
     const auto slot = weights.slot[t];
@@ -6375,9 +6242,7 @@ adams_predicted_compensation(const ExponentialWeights& weights, const Complex x,
     if (span == 1.0)
       term = strict_mul(flow, term);
     else if (span != 0.0)
-      term = strict_mul(spanned != nullptr ? Complex(spanned[2 * t], spanned[2 * t + 1])
-                                           : exponential(strict_scale(span, x)),
-                        term);
+      term = strict_mul(exponential(strict_scale(span, x)), term);
     carried(t, column, index) = term;
   }
   Complex compensation{};
@@ -6442,14 +6307,13 @@ namespace {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
 constexpr std::size_t adams_block = 1;
 #else
-constexpr std::size_t adams_block = 32;
+constexpr std::size_t adams_block = adams_lane_width;
 #endif
 
 // The step's exponent and flow on the elements [first, last) of a column. The phase
-// increment: strict (solprop SEP 25 section 4.2).
-// With `Flow` false only the exponents are written (a host block forms the flows in
-// one pass, `AdamsBlock`).
-template <bool Flow = true, class Terms, class Weights, class Points>
+// increment: strict (solprop SEP 25 section 4.2). A host block with vector maths
+// forms both on its lanes instead (`adams_lanes_predict`).
+template <class Terms, class Weights, class Points>
 SOLPROP_NATIVE_STRICT_FUNCTION KOKKOS_INLINE_FUNCTION void
 adams_phase_block(const Terms& phi_terms, const Weights& phi_delta,
                   const std::size_t offset, const std::size_t n_phi,
@@ -6460,70 +6324,411 @@ adams_phase_block(const Terms& phi_terms, const Weights& phi_delta,
     const Complex x =
         adams_phase_sum(phi_terms, phi_delta, offset, n_phi, column, index);
     exponent(column, index) = x;
-    if constexpr (Flow)
-      flow(column, index) = exponential(x);
+    flow(column, index) = exponential(x);
   }
 }
 
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
-/**
- * A host block's exponentials for the predict pass, each a pass of the vector-maths
- * layer over the block's elements (solprop ADR-059): the flows `e^x`, the moments'
- * series exponentials `e^y` (`adams_phi_argument`) with the arguments' magnitudes,
- * and a varying operator's spans' `e^{s_t x}`.
- */
-// Plain doubles, so that the block costs nothing where it is not formed.
-struct AdamsBlock {
-  double magnitude[adams_block];
-  double series_real[adams_block], series_imag[adams_block];
-  // Slot t's exponential of element b at spanned[b][2 t] and [2 t + 1].
-  double spanned[adams_block][2 * adams_max_samples];
 
-  template <class Points>
-  [[maybe_unused]] void form(const ExponentialWeights& weights, const bool compensated,
-                             const std::size_t column, const std::size_t first,
-                             const std::size_t last, const Points& exponent,
-                             const Points& flow) {
-    const std::size_t count = last - first;
-    double real[adams_block], imag[adams_block];
-    double out_real[adams_block], out_imag[adams_block];
-    for (std::size_t b = 0; b < count; ++b) {
-      const Complex x = exponent(column, first + b);
-      real[b] = x.real();
-      imag[b] = x.imag();
+// The history rows a pass reads, rotated by a carrier frame's factors
+// (`adams_history`). Strict.
+template <class Store>
+SOLPROP_NATIVE_STRICT_FUNCTION inline void
+adams_lanes_history(AdamsLanes& lanes, const ExponentialWeights& weights,
+                    const Store& store, const std::size_t rows,
+                    const std::size_t column, const std::size_t first) {
+  SOLPROP_NATIVE_STRICT_BLOCK
+  const std::size_t count = lanes.count;
+  for (std::size_t t = 0; t < rows; ++t) {
+    const Complex* row = &store(weights.slot[t], column, first);
+    if (!weights.shifted) {
+      for (std::size_t b = 0; b < count; ++b) {
+        lanes.hr[t][b] = row[b].real();
+        lanes.hi[t][b] = row[b].imag();
+      }
+      continue;
     }
-    vmath::exp_complex(real, imag, out_real, out_imag, count);
-    for (std::size_t b = 0; b < count; ++b)
-      flow(column, first + b) = Complex(out_real[b], out_imag[b]);
-    double y_real[adams_block], y_imag[adams_block];
+    const double factor_r = weights.factor_re[t];
+    const double factor_i = weights.factor_im[t];
     for (std::size_t b = 0; b < count; ++b) {
-      const Complex argument =
-          adams_moment_argument(weights, Complex(real[b], imag[b]));
-      magnitude[b] = Kokkos::abs(argument);
-      const Complex y = adams_phi_argument(argument, magnitude[b]);
-      y_real[b] = y.real();
-      y_imag[b] = y.imag();
+      const double rr = factor_r * row[b].real();
+      const double ii = factor_i * row[b].imag();
+      const double ri = factor_r * row[b].imag();
+      const double ir = factor_i * row[b].real();
+      lanes.hr[t][b] = rr - ii;
+      lanes.hi[t][b] = ri + ir;
     }
-    vmath::exp_complex(y_real, y_imag, series_real, series_imag, count);
-    if (!compensated)
-      return;
+  }
+}
+
+// The spans' arguments s_t x of a varying operator's carried samples, into `sr`/`si`
+// (strict_scale), for the exponentials the caller forms over them.
+SOLPROP_NATIVE_STRICT_FUNCTION
+inline void adams_lanes_span(AdamsLanes& lanes, const double span,
+                             const std::size_t t) {
+  SOLPROP_NATIVE_STRICT_BLOCK
+  for (std::size_t b = 0; b < lanes.count; ++b) {
+    lanes.sr[t][b] = span * lanes.xr[b];
+    lanes.si[t][b] = span * lanes.xi[b];
+  }
+}
+
+// The predictor's carried samples `e^{s_t x} (R_t - x / dz) u_t` into `cr`/`ci`, and
+// the prediction in `vr`/`vi` plus `dz sum_t c_t carried_t`, as
+// `adams_predicted_compensation`. Strict.
+template <class Rates, class States>
+SOLPROP_NATIVE_STRICT_FUNCTION inline void
+adams_lanes_predicted_compensation(AdamsLanes& lanes, const ExponentialWeights& weights,
+                                   const double inverse_dz, const double dz,
+                                   const Rates& rates, const States& states,
+                                   const std::size_t column, const std::size_t first) {
+  SOLPROP_NATIVE_STRICT_BLOCK
+  const std::size_t count = lanes.count;
+  for (std::size_t t = 0; t + 1 < weights.width; ++t) {
+    const auto slot = weights.slot[t];
+    const Complex* rate = &rates(slot, column, first);
+    const Complex* state = &states(slot, column, first);
+    const double span = weights.span[t];
+    for (std::size_t b = 0; b < count; ++b) {
+      const double scaled_r = inverse_dz * lanes.xr[b];
+      const double scaled_i = inverse_dz * lanes.xi[b];
+      const double difference_r = rate[b].real() - scaled_r;
+      const double difference_i = rate[b].imag() - scaled_i;
+      const double rr = difference_r * state[b].real();
+      const double ii = difference_i * state[b].imag();
+      const double ri = difference_r * state[b].imag();
+      const double ir = difference_i * state[b].real();
+      lanes.cr[t][b] = rr - ii;
+      lanes.ci[t][b] = ri + ir;
+    }
+    if (span == 0.0)
+      continue;
+    const double* factor_r = span == 1.0 ? lanes.fr : lanes.sr[t];
+    const double* factor_i = span == 1.0 ? lanes.fi : lanes.si[t];
+    for (std::size_t b = 0; b < count; ++b) {
+      const double rr = factor_r[b] * lanes.cr[t][b];
+      const double ii = factor_i[b] * lanes.ci[t][b];
+      const double ri = factor_r[b] * lanes.ci[t][b];
+      const double ir = factor_i[b] * lanes.cr[t][b];
+      lanes.cr[t][b] = rr - ii;
+      lanes.ci[t][b] = ri + ir;
+    }
+  }
+  double total_r[AdamsLanes::B], total_i[AdamsLanes::B];
+  for (std::size_t b = 0; b < count; ++b) {
+    total_r[b] = 0.0;
+    total_i[b] = 0.0;
+  }
+  for (std::size_t t = 0; t < weights.order; ++t) {
+    const double weight = weights.comp_predictor[t];
+    for (std::size_t b = 0; b < count; ++b) {
+      const double real = weight * lanes.cr[t][b];
+      const double imag = weight * lanes.ci[t][b];
+      total_r[b] = total_r[b] + real;
+      total_i[b] = total_i[b] + imag;
+    }
+  }
+  for (std::size_t b = 0; b < count; ++b) {
+    const double real = dz * total_r[b];
+    const double imag = dz * total_i[b];
+    lanes.vr[b] = lanes.vr[b] + real;
+    lanes.vi[b] = lanes.vi[b] + imag;
+  }
+}
+
+// The corrector's endpoint rate `sum_t w_t Phi_t` and compensation `(R - x / dz) u`,
+// into `endpoint_rate` and `nr`/`ni`, and the correction in `vr`/`vi` plus
+// `dz (c_0 endpoint + sum_t c_{t+1} carried_t)`, as `adams_corrected_compensation`;
+// `ur`/`ui` hold the lab-frame field. Strict.
+template <class Weights, class Terms, class Points>
+SOLPROP_NATIVE_STRICT_FUNCTION inline void
+adams_lanes_corrected_compensation(AdamsLanes& lanes, const ExponentialWeights& weights,
+                                   const std::size_t n_phi, const Weights& rate_weights,
+                                   const Terms& phi_terms, const double inverse_dz,
+                                   const double dz, const Points& endpoint_rate,
+                                   const std::size_t column, const std::size_t first) {
+  SOLPROP_NATIVE_STRICT_BLOCK
+  constexpr std::size_t B = AdamsLanes::B;
+  const std::size_t count = lanes.count;
+  double rate_r[B], rate_i[B];
+  for (std::size_t b = 0; b < count; ++b) {
+    rate_r[b] = 0.0;
+    rate_i[b] = 0.0;
+  }
+  for (std::size_t term = 0; term < n_phi; ++term) {
+    const double weight = rate_weights(term);
+    const Complex* fixed = &phi_terms(term, column, first);
+    for (std::size_t b = 0; b < count; ++b) {
+      const double real = weight * fixed[b].real();
+      const double imag = weight * fixed[b].imag();
+      rate_r[b] = rate_r[b] + real;
+      rate_i[b] = rate_i[b] + imag;
+    }
+  }
+  Complex* rate_out = &endpoint_rate(column, first);
+  for (std::size_t b = 0; b < count; ++b)
+    rate_out[b] = Complex(rate_r[b], rate_i[b]);
+  double total_r[B], total_i[B];
+  const double weight0 = weights.comp_corrector[0];
+  for (std::size_t b = 0; b < count; ++b) {
+    const double scaled_r = inverse_dz * lanes.xr[b];
+    const double scaled_i = inverse_dz * lanes.xi[b];
+    const double difference_r = rate_r[b] - scaled_r;
+    const double difference_i = rate_i[b] - scaled_i;
+    const double rr = difference_r * lanes.ur[b];
+    const double ii = difference_i * lanes.ui[b];
+    const double ri = difference_r * lanes.ui[b];
+    const double ir = difference_i * lanes.ur[b];
+    lanes.nr[b] = rr - ii;
+    lanes.ni[b] = ri + ir;
+    total_r[b] = weight0 * lanes.nr[b];
+    total_i[b] = weight0 * lanes.ni[b];
+  }
+  for (std::size_t t = 0; t < weights.order; ++t) {
+    const double weight = weights.comp_corrector[t + 1];
+    for (std::size_t b = 0; b < count; ++b) {
+      const double real = weight * lanes.cr[t][b];
+      const double imag = weight * lanes.ci[t][b];
+      total_r[b] = total_r[b] + real;
+      total_i[b] = total_i[b] + imag;
+    }
+  }
+  for (std::size_t b = 0; b < count; ++b) {
+    const double real = dz * total_r[b];
+    const double imag = dz * total_i[b];
+    lanes.vr[b] = lanes.vr[b] + real;
+    lanes.vi[b] = lanes.vi[b] + imag;
+  }
+}
+
+// The squared scaled norms of up to three factored defects of every lane into
+// `defect`, as `adams_defect_block` forms them: `wr`/`wi` hold the new sample,
+// `hr`/`hi` the history, `mr`/`mi` the moments, `nr`/`ni` the endpoint's and `cr`/`ci`
+// the carried compensation, `scale` the divisors. Strict.
+SOLPROP_NATIVE_STRICT_FUNCTION
+inline void adams_lanes_defects(AdamsLanes& lanes, const ExponentialWeights& weights,
+                                const std::size_t scored, const double dz) {
+  SOLPROP_NATIVE_STRICT_BLOCK
+  constexpr std::size_t B = AdamsLanes::B;
+  const std::size_t count = lanes.count;
+  for (std::size_t row = 0; row < scored; ++row) {
+    double difference_r[B], difference_i[B], weight_r[B], weight_i[B];
+    const double weight0 = weights.rows[row][0];
+    for (std::size_t b = 0; b < count; ++b) {
+      difference_r[b] = weight0 * lanes.wr[b];
+      difference_i[b] = weight0 * lanes.wi[b];
+      weight_r[b] = 0.0;
+      weight_i[b] = 0.0;
+    }
+    for (std::size_t t = 1; t < weights.width; ++t) {
+      const double weight = weights.rows[row][t];
+      for (std::size_t b = 0; b < count; ++b) {
+        const double real = weight * lanes.hr[t - 1][b];
+        const double imag = weight * lanes.hi[t - 1][b];
+        difference_r[b] = difference_r[b] + real;
+        difference_i[b] = difference_i[b] + imag;
+      }
+    }
+    for (std::size_t k = 0; k < weights.count; ++k) {
+      const double weight = weights.rows[row][weights.width + k];
+      for (std::size_t b = 0; b < count; ++b) {
+        const double real = weight * lanes.mr[k][b];
+        const double imag = weight * lanes.mi[k][b];
+        weight_r[b] = weight_r[b] + real;
+        weight_i[b] = weight_i[b] + imag;
+      }
+    }
+    double defect_r[B], defect_i[B];
+    for (std::size_t b = 0; b < count; ++b) {
+      const double rr = difference_r[b] * weight_r[b];
+      const double ii = difference_i[b] * weight_i[b];
+      const double ri = difference_r[b] * weight_i[b];
+      const double ir = difference_i[b] * weight_r[b];
+      const double product_r = rr - ii;
+      const double product_i = ri + ir;
+      defect_r[b] = dz * product_r;
+      defect_i[b] = dz * product_i;
+    }
+    if (weights.compensated) {
+      double total_r[B], total_i[B];
+      const double first = weights.comp_rows[row][0];
+      for (std::size_t b = 0; b < count; ++b) {
+        total_r[b] = first * lanes.nr[b];
+        total_i[b] = first * lanes.ni[b];
+      }
+      for (std::size_t t = 0; t + 1 < weights.width; ++t) {
+        const double weight = weights.comp_rows[row][t + 1];
+        for (std::size_t b = 0; b < count; ++b) {
+          const double real = weight * lanes.cr[t][b];
+          const double imag = weight * lanes.ci[t][b];
+          total_r[b] = total_r[b] + real;
+          total_i[b] = total_i[b] + imag;
+        }
+      }
+      for (std::size_t b = 0; b < count; ++b) {
+        const double real = dz * total_r[b];
+        const double imag = dz * total_i[b];
+        defect_r[b] = defect_r[b] + real;
+        defect_i[b] = defect_i[b] + imag;
+      }
+    }
+    for (std::size_t b = 0; b < count; ++b) {
+      const double real = defect_r[b] / lanes.scale[b];
+      const double imag = defect_i[b] / lanes.scale[b];
+      const double rr = real * real;
+      const double ii = imag * imag;
+      lanes.defect[row][b] = rr + ii;
+    }
+  }
+}
+#endif
+
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+// The whole step's phase increment `sum_t dPhi_t Phi_t` of every lane into `xr`/`xi`,
+// as `adams_phase_sum` forms it. Strict.
+template <class Terms, class Weights>
+SOLPROP_NATIVE_STRICT_FUNCTION inline void
+adams_lanes_phase(AdamsLanes& lanes, const Terms& phi_terms, const Weights& phi_delta,
+                  const std::size_t offset, const std::size_t n_phi,
+                  const std::size_t column, const std::size_t first) {
+  SOLPROP_NATIVE_STRICT_BLOCK
+  const std::size_t count = lanes.count;
+  for (std::size_t b = 0; b < count; ++b) {
+    lanes.xr[b] = 0.0;
+    lanes.xi[b] = 0.0;
+  }
+  for (std::size_t term = 0; term < n_phi; ++term) {
+    const double weight = phi_delta(offset + term);
+    // Exact, as in `StageTerms::phase_sum`.
+    if (weight == 0.0)
+      continue;
+    const Complex* fixed = &phi_terms(term, column, first);
+    for (std::size_t b = 0; b < count; ++b) {
+      lanes.xr[b] = lanes.xr[b] + weight * fixed[b].real();
+      lanes.xi[b] = lanes.xi[b] + weight * fixed[b].imag();
+    }
+  }
+}
+#endif
+
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+/**
+ * The predict pass on a host block's lanes, the elements [first, last) of a column
+ * whose exponents are formed: the flow, the moments, the predictor's carried samples
+ * and the prediction, as the element-by-element form writes them. Returns the block's
+ * share of the accepted state's squared magnitude, summed in element order.
+ */
+template <bool Phase, class Terms, class Weights, class Points, class Cube, class Mask>
+inline double adams_lanes_predict(
+    const Terms& phi_terms, const Weights& phi_delta, const std::size_t offset,
+    const std::size_t n_phi, const ExponentialWeights& weights,
+    const std::size_t formed, const double dz, const double inverse_dz,
+    const Points& exponent, const Points& flow, const Points& current,
+    const Points& predicted, const Points& lab, const Cube& moments, const Cube& store,
+    const Cube& carried, const Cube& states, const Cube& rates, const Mask& in_norm,
+    const std::size_t column, const std::size_t first, const std::size_t last) {
+  constexpr std::size_t B = AdamsLanes::B;
+  AdamsLanes lanes;
+  const std::size_t n = last - first;
+  lanes.count = n;
+  if constexpr (Phase) {
+    adams_lanes_phase(lanes, phi_terms, phi_delta, offset, n_phi, column, first);
+    Complex* x = &exponent(column, first);
+    for (std::size_t b = 0; b < n; ++b)
+      x[b] = Complex(lanes.xr[b], lanes.xi[b]);
+  } else {
+    const Complex* x = &exponent(column, first);
+    for (std::size_t b = 0; b < n; ++b) {
+      lanes.xr[b] = x[b].real();
+      lanes.xi[b] = x[b].imag();
+    }
+  }
+  vmath::exp_complex(lanes.xr, lanes.xi, lanes.fr, lanes.fi, n);
+  Complex* flow_out = &flow(column, first);
+  for (std::size_t b = 0; b < n; ++b)
+    flow_out[b] = Complex(lanes.fr[b], lanes.fi[b]);
+  adams_lanes_classify(lanes, weights);
+  vmath::exp_complex(lanes.yr, lanes.yi, lanes.er, lanes.ei, n);
+  if (lanes.any_large)
+    adams_lanes_large_exponential(lanes, weights);
+  adams_lanes_phi(lanes, formed);
+  if (weights.compensated)
     for (std::size_t t = 0; t + 1 < weights.width; ++t) {
       const double span = weights.span[t];
       if (span == 1.0 || span == 0.0)
         continue;
-      for (std::size_t b = 0; b < count; ++b) {
-        const Complex argument = strict_scale(span, Complex(real[b], imag[b]));
-        y_real[b] = argument.real();
-        y_imag[b] = argument.imag();
-      }
-      vmath::exp_complex(y_real, y_imag, out_real, out_imag, count);
-      for (std::size_t b = 0; b < count; ++b) {
-        spanned[b][2 * t] = out_real[b];
-        spanned[b][2 * t + 1] = out_imag[b];
-      }
+      adams_lanes_span(lanes, span, t);
+      vmath::exp_complex(lanes.sr[t], lanes.si[t], lanes.sr[t], lanes.si[t], n);
+    }
+  // The moments M_k = k! phi_{k+1}.
+  const std::size_t moment_rows = formed;
+  for (std::size_t k = 0; k < moment_rows; ++k) {
+    const double factorial = adams_factorial(k);
+    for (std::size_t b = 0; b < n; ++b) {
+      lanes.mr[k][b] = factorial * lanes.pr[k + 1][b];
+      lanes.mi[k][b] = factorial * lanes.pi[k + 1][b];
     }
   }
-};
+  for (std::size_t k = 0; k < weights.count; ++k) {
+    Complex* out = &moments(k, column, first);
+    for (std::size_t b = 0; b < n; ++b)
+      out[b] = Complex(lanes.mr[k][b], lanes.mi[k][b]);
+  }
+  adams_lanes_history(lanes, weights, store, weights.order, column, first);
+  // The prediction exp(x) u + dz sum_k M_k sum_j c_jk F_j.
+  const Complex* accepted = &current(column, first);
+  double total_r[B], total_i[B];
+  for (std::size_t b = 0; b < n; ++b) {
+    lanes.ur[b] = accepted[b].real();
+    lanes.ui[b] = accepted[b].imag();
+    total_r[b] = 0.0;
+    total_i[b] = 0.0;
+  }
+  for (std::size_t k = 0; k < weights.order; ++k) {
+    double combined_r[B], combined_i[B];
+    for (std::size_t b = 0; b < n; ++b) {
+      combined_r[b] = 0.0;
+      combined_i[b] = 0.0;
+    }
+    for (std::size_t t = 0; t < weights.order; ++t) {
+      const double weight = weights.predictor[t][k];
+      for (std::size_t b = 0; b < n; ++b) {
+        combined_r[b] += weight * lanes.hr[t][b];
+        combined_i[b] += weight * lanes.hi[t][b];
+      }
+    }
+    for (std::size_t b = 0; b < n; ++b) {
+      total_r[b] += lanes.mr[k][b] * combined_r[b] - lanes.mi[k][b] * combined_i[b];
+      total_i[b] += lanes.mr[k][b] * combined_i[b] + lanes.mi[k][b] * combined_r[b];
+    }
+  }
+  for (std::size_t b = 0; b < n; ++b) {
+    lanes.vr[b] =
+        lanes.fr[b] * lanes.ur[b] - lanes.fi[b] * lanes.ui[b] + dz * total_r[b];
+    lanes.vi[b] =
+        lanes.fr[b] * lanes.ui[b] + lanes.fi[b] * lanes.ur[b] + dz * total_i[b];
+  }
+  double squares = 0.0;
+  for (std::size_t b = 0; b < n; ++b)
+    if (in_norm(first + b) != 0)
+      squares += lanes.ur[b] * lanes.ur[b] + lanes.ui[b] * lanes.ui[b];
+  if (weights.compensated) {
+    adams_lanes_predicted_compensation(lanes, weights, inverse_dz, dz, rates, states,
+                                       column, first);
+    for (std::size_t t = 0; t + 1 < weights.width; ++t) {
+      Complex* out = &carried(t, column, first);
+      for (std::size_t b = 0; b < n; ++b)
+        out[b] = Complex(lanes.cr[t][b], lanes.ci[t][b]);
+    }
+    Complex* lab_out = &lab(column, first);
+    for (std::size_t b = 0; b < n; ++b)
+      lab_out[b] = Complex(lanes.vr[b], lanes.vi[b]);
+  }
+  Complex* out = &predicted(column, first);
+  for (std::size_t b = 0; b < n; ++b)
+    out[b] = Complex(lanes.vr[b], lanes.vi[b]);
+  return squares;
+}
 #endif
 
 // The squared scaled norms of up to three factored defects on the in-band elements of
@@ -6599,12 +6804,126 @@ struct ExponentialCorrection {
   std::size_t n, blocks, n_phi;
   bool device_scale;
 
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+  // The pass on a host block's lanes (`AdamsLanes`), as the element-by-element form
+  // below writes it; the norms' sums are taken in element order.
+  void lanes_block(const std::size_t column, const std::size_t first,
+                   const std::size_t last, const double magnitude,
+                   value_type update) const {
+    constexpr std::size_t B = AdamsLanes::B;
+    AdamsLanes lanes;
+    const std::size_t count = last - first;
+    lanes.count = count;
+    const Complex* sample = &stages(0, column, first);
+    Complex* sample_out = &source(column, first);
+    for (std::size_t b = 0; b < count; ++b) {
+      lanes.wr[b] = sample[b].real();
+      lanes.wi[b] = sample[b].imag();
+      sample_out[b] = sample[b];
+    }
+    adams_lanes_history(lanes, weights, store, weights.width - 1, column, first);
+    for (std::size_t k = 0; k < weights.count; ++k) {
+      const Complex* moment = &moments(k, column, first);
+      for (std::size_t b = 0; b < count; ++b) {
+        lanes.mr[k][b] = moment[b].real();
+        lanes.mi[k][b] = moment[b].imag();
+      }
+    }
+    double total_r[B], total_i[B];
+    for (std::size_t b = 0; b < count; ++b) {
+      total_r[b] = 0.0;
+      total_i[b] = 0.0;
+    }
+    for (std::size_t k = 0; k < weights.count; ++k) {
+      double combined_r[B], combined_i[B];
+      const double weight0 = weights.corrector[0][k];
+      for (std::size_t b = 0; b < count; ++b) {
+        combined_r[b] = weight0 * lanes.wr[b];
+        combined_i[b] = weight0 * lanes.wi[b];
+      }
+      for (std::size_t t = 1; t < weights.width; ++t) {
+        const double weight = weights.corrector[t][k];
+        for (std::size_t b = 0; b < count; ++b) {
+          combined_r[b] += weight * lanes.hr[t - 1][b];
+          combined_i[b] += weight * lanes.hi[t - 1][b];
+        }
+      }
+      for (std::size_t b = 0; b < count; ++b) {
+        total_r[b] += lanes.mr[k][b] * combined_r[b] - lanes.mi[k][b] * combined_i[b];
+        total_i[b] += lanes.mr[k][b] * combined_i[b] + lanes.mi[k][b] * combined_r[b];
+      }
+    }
+    const Complex* propagate = &flow(column, first);
+    const Complex* accepted = &current(column, first);
+    for (std::size_t b = 0; b < count; ++b) {
+      const Complex value =
+          propagate[b] * accepted[b] + dz * Complex(total_r[b], total_i[b]);
+      lanes.vr[b] = value.real();
+      lanes.vi[b] = value.imag();
+    }
+    if (weights.compensated) {
+      const Complex* x = &exponent(column, first);
+      const Complex* field = &lab(column, first);
+      for (std::size_t b = 0; b < count; ++b) {
+        lanes.xr[b] = x[b].real();
+        lanes.xi[b] = x[b].imag();
+        lanes.ur[b] = field[b].real();
+        lanes.ui[b] = field[b].imag();
+      }
+      for (std::size_t t = 0; t + 1 < weights.width; ++t) {
+        const Complex* row = &carried(t, column, first);
+        for (std::size_t b = 0; b < count; ++b) {
+          lanes.cr[t][b] = row[b].real();
+          lanes.ci[t][b] = row[b].imag();
+        }
+      }
+      adams_lanes_corrected_compensation(lanes, weights, n_phi, rate_weights, phi_terms,
+                                         inverse_dz, dz, endpoint_rate, column, first);
+      Complex* out = &endpoint(column, first);
+      for (std::size_t b = 0; b < count; ++b)
+        out[b] = Complex(lanes.nr[b], lanes.ni[b]);
+    }
+    Complex* out = &advanced(column, first);
+    for (std::size_t b = 0; b < count; ++b)
+      out[b] = Complex(lanes.vr[b], lanes.vi[b]);
+    if (device_scale) {
+      if (scale_weights.extent(0) != 0)
+        for (std::size_t b = 0; b < count; ++b)
+          lanes.scale[b] = rtol * scale_weights(first + b) * magnitude + atol;
+      else
+        for (std::size_t b = 0; b < count; ++b)
+          lanes.scale[b] = rtol * magnitude + atol;
+    } else {
+      for (std::size_t b = 0; b < count; ++b)
+        lanes.scale[b] = divisor(first + b);
+    }
+    constexpr std::size_t max_rows = 3;
+    const std::size_t scored = value_count < max_rows ? value_count : max_rows;
+    adams_lanes_defects(lanes, weights, scored, dz);
+    double sums[max_rows] = {0.0, 0.0, 0.0};
+    for (std::size_t b = 0; b < count; ++b) {
+      if (in_norm(first + b) == 0)
+        continue;
+      for (std::size_t row = 0; row < scored; ++row)
+        sums[row] += lanes.defect[row][b];
+    }
+    for (std::size_t row = 0; row < scored; ++row)
+      update[row] += sums[row];
+  }
+#endif
+
   KOKKOS_INLINE_FUNCTION void operator()(const std::size_t task,
                                          value_type update) const {
     const auto column = task / blocks;
     const auto first = (task % blocks) * adams_block;
     const auto last = first + adams_block < n ? first + adams_block : n;
     const double magnitude = device_scale ? Kokkos::sqrt(magnitude_sum()) : 0.0;
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+    if constexpr (vmath::vectorised) {
+      lanes_block(column, first, last, magnitude, update);
+      return;
+    }
+#endif
     double scale[adams_block]{};
     for (std::size_t index = first; index < last; ++index) {
       const Complex g = stages(0, column, index);
@@ -6710,11 +7029,11 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
     const auto column = task / blocks;
     const auto first = (task % blocks) * adams_block;
     const auto last = first + adams_block < n ? first + adams_block : n;
-    // With vector maths a host block forms its exponentials in passes (`AdamsBlock`);
-    // otherwise each element forms its own.
+    // With vector maths a host block forms its exponentials in passes and the rest of
+    // the pass on its lanes (`adams_lanes_predict`); otherwise each element forms its
+    // own.
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
     constexpr bool passes = vmath::vectorised;
-    AdamsBlock formed_block;
 #else
     constexpr bool passes = false;
 #endif
@@ -6731,27 +7050,29 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
 #endif
           flow(column, index) = exponential(x);
       }
-    else
-      adams_phase_block<!passes>(phi_terms, phi_delta, offset, n_phi, column, first,
-                                 last, exponent, flow);
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
-    if constexpr (passes)
-      formed_block.form(weights, compensated, column, first, last, exponent, flow);
+    if constexpr (passes) {
+      magnitude +=
+          separable ? adams_lanes_predict<false>(
+                          phi_terms, phi_delta, offset, n_phi, weights, formed, dz,
+                          inverse_dz, exponent, flow, current, predicted, lab, moments,
+                          store, carried, states, rates, in_norm, column, first, last)
+                    : adams_lanes_predict<true>(
+                          phi_terms, phi_delta, offset, n_phi, weights, formed, dz,
+                          inverse_dz, exponent, flow, current, predicted, lab, moments,
+                          store, carried, states, rates, in_norm, column, first, last);
+      return;
+    }
 #endif
+    if (!separable)
+      adams_phase_block(phi_terms, phi_delta, offset, n_phi, column, first, last,
+                        exponent, flow);
     double squares = 0.0;
     for (std::size_t index = first; index < last; ++index) {
       const Complex x = exponent(column, index);
       const Complex propagate = flow(column, index);
       Complex phi[2 * adams_max_samples + 1];
-#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
-      if constexpr (passes) {
-        const std::size_t b = index - first;
-        const Complex series(formed_block.series_real[b], formed_block.series_imag[b]);
-        adams_moment_phi(weights, x, propagate, formed, phi, &formed_block.magnitude[b],
-                         &series);
-      } else
-#endif
-        adams_moment_phi(weights, x, propagate, formed, phi);
+      adams_moment_phi(weights, x, propagate, formed, phi);
       for (std::size_t k = 0; k < count; ++k)
         moments(k, column, index) = adams_factorial(k) * phi[k + 1];
       const Complex accepted = current(column, index);
@@ -6768,14 +7089,9 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
       }
       Complex value = propagate * accepted + dz * total;
       if (compensated) {
-        const double* spanned = nullptr;
-#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
-        if constexpr (passes)
-          spanned = formed_block.spanned[index - first];
-#endif
-        value = adams_predicted_compensation(weights, x, propagate, inverse_dz, dz,
-                                             value, rates, states, carried, column,
-                                             index, spanned);
+        value =
+            adams_predicted_compensation(weights, x, propagate, inverse_dz, dz, value,
+                                         rates, states, carried, column, index);
         lab(column, index) = value;
       }
       predicted(column, index) = value;
