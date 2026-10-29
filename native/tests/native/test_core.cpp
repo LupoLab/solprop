@@ -968,7 +968,7 @@ TEST(GeneralState, HeldCurrentMatchesTheDiscreteSinusoidalDrift) {
   native::GeneralState state(problem);
   auto scalars = trial(problem);
   scalars.preionisation = {population};
-  state.set_initial({{}, {1.0, 0.0}, {}}, {});
+  state.set_initial(std::vector<Complex>{{}, {1.0, 0.0}, {}}, {});
   static_cast<void>(state.trial_step(0.0, scalars));
   const auto actual = state.stage_to_host(0);
   EXPECT_EQ(actual[0], Complex{});
@@ -1065,7 +1065,7 @@ TEST(GeneralState, IndependentChannelStashesSurviveRejectedTrials) {
                                             static_cast<double>(problem.n_to - 1));
   };
   native::GeneralState state(problem);
-  state.set_initial({{2.0, 0.0}, {0.0, 0.0}, {0.0, 0.0}}, {});
+  state.set_initial(std::vector<Complex>{{2.0, 0.0}, {0.0, 0.0}, {0.0, 0.0}}, {});
   static_cast<void>(state.trial_step(0.0, accepted));
   state.finish(0.0);
   state.promote_fsal();
