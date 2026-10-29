@@ -16,8 +16,9 @@ import pytest
 from bounds import assert_within, gamma, step_bound
 from conftest import PhaseACase
 from solprop.backends.protocol import BatchBackend
+from solprop.exceptions import HostMarchWarning
 from solprop.stats import StatsSpec
-from solprop.stepper import FixedSchedule
+from solprop.stepper import FixedSchedule, Multistep
 
 from solprop_native import (
     NativeBackend,
@@ -155,3 +156,34 @@ def test_native_batch_rejects_unprepared_and_closed_members(
         batch.close()
         with pytest.raises(RuntimeError, match="closed"):
             batch.accept(1e-4)
+
+
+def test_a_batch_of_adams_members_replays_on_solprop_s_march(
+    phase_a_case: PhaseACase,
+) -> None:
+    """A lockstep batch replays its Adams members through solprop's march (SEP 39).
+
+    The batch advances each member's `replay_step`, the Python march, so it says so
+    once and its members' marches record it.
+    """
+    original, grid = phase_a_case
+    problem = dataclasses.replace(
+        original,
+        stepper=dataclasses.replace(
+            original.stepper,
+            integrator=Multistep(),
+            schedule=FixedSchedule.uniform(0.0, 1e-3, 2.5e-4),
+        ),
+    )
+    with ExitStack() as cleanup:
+        members: list[NativeBackend] = []
+        for _ in range(2):
+            owner = NativeBackend(problem, grid=grid)
+            cleanup.callback(owner.close)
+            owner.set_initial(problem.initial.field0, None)
+            members.append(owner)
+        with pytest.warns(HostMarchWarning, match="lockstep"):
+            batch = NativeBatchBackend(members)
+        cleanup.callback(batch.close)
+        for member in members:
+            assert member.metadata()["adams_march"] == "host"

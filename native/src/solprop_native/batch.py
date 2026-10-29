@@ -4,17 +4,21 @@
 
 """Expose Kokkos member ownership through solprop's versioned batch seam."""
 
+import warnings
 from collections.abc import Sequence
 from typing import cast
 
 import numpy as np
 from solprop.backends.batch import LockstepRunner
 from solprop.backends.driver import StepDriver
-from solprop.exceptions import BackendError
+from solprop.exceptions import BackendError, HostMarchWarning
 
 from . import _core, check_build
 from ._helpers import NATIVE
-from .backend import NativeBackend
+from .backend import (
+    NativeBackend,
+    _NativeAdamsMarch,  # pyright: ignore[reportPrivateUsage] - the members' march
+)
 
 __all__ = ["NativeBatchBackend"]
 
@@ -58,6 +62,23 @@ class NativeBatchBackend(LockstepRunner):
                 "runs on its own NativeBackend"
             )
         super().__init__([cast(StepDriver[object], member) for member in members])
+        # The batch replays its members in lockstep through each march's own
+        # `replay_step`, solprop's march (SEP 39 Q14): the members say so, and the run
+        # is warned once.
+        marches = [
+            march
+            for member in members
+            if isinstance(march := member._adams, _NativeAdamsMarch) and march.native  # pyright: ignore[reportPrivateUsage] - the member's own march
+        ]
+        for march in marches:
+            march.refusal = "a lockstep batch's replay"
+        if marches:
+            warnings.warn(
+                "solprop-native replays this batch's Adams members in lockstep with "
+                "solprop's Python march: the native march (SEP 39) steps single runs",
+                HostMarchWarning,
+                stacklevel=2,
+            )
 
         self._native_members: tuple[NativeBackend, ...] = tuple(members)
         self._batch_native = _core.BatchState(

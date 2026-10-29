@@ -2549,9 +2549,9 @@ frame; lockstep batch replay.
    it on the native one: its chord is the table's value at the reference element,
    which the native state would have to evaluate per position from the table's element
    column. Not built; a small follow-up if a z-table carrier run is ever wanted.
-2. **Lockstep batch replay is not warned.** The batch runner calls each member's
-   `replay_step`, the Python march, as before (Q14); the members' `native` flag still
-   reads true, and no `HostMarchWarning` is issued.
+2. **Lockstep batch replay** was at first not warned; it is now: the native batch
+   marks its Adams members' marches as host-stepped (`refusal`, so the metadata says
+   `host`) and warns once, as the matrix asks.
 
 **Verification.**
 
