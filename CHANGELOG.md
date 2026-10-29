@@ -400,7 +400,10 @@ The first public release. It contains:
   coefficient tables and controller in compiled code, one native call for many
   steps, returning to Python only when a statistics row, a save plane, a monitor check,
   the budget, the floor or an error needs it; the native backend's Python time per step
-  falls from tens or hundreds of microseconds to about one. The algorithm is solprop's,
+  falls from tens or hundreds of microseconds to about one. CUDA and HIP builds take the
+  native march too (qualified on an NVIDIA A40 and an AMD Instinct MI325X); HIP builds no
+  longer step it with solprop's Python march and its warning, which made their own
+  device test lanes fail. The algorithm is solprop's,
   specified in the kernel contract and handed over as a policy record
   (`MarchPolicy`); solprop's march stays the reference and steps the configurations
   the native one does not yet cover, with a `HostMarchWarning` naming the reason, and
@@ -548,6 +551,17 @@ The first public release. It contains:
   time per step at $2^{16}$ on an NVIDIA A40; runs with many nodes (radial, Cartesian)
   and short steps are unchanged. Device results move at rounding level, since the norms
   and the plasma's running sums are summed in tiles.
+- **Short device kernels launch without waiting, and the Adams passes run faster on a
+  GPU.** Kokkos's HIP backend copied every kernel argument of 512 B or more into constant
+  memory behind a wait on the previous such kernel, so the host could not queue work
+  ahead; the backend now passes arguments under 3840 B with the launch. On a device the
+  Adams predict pass holds its phi-functions in registers and the correct pass reads the
+  history once, an accepted step no longer waits for its kernels, and the two held
+  plasma currents are transformed together. On an AMD Instinct MI325X the
+  mode-averaged helium and argon runs take 0.64 to 0.75 of the time of the previous
+  build with the native march, the radial filament 0.90 and `ctc` 0.80; fields agree to
+  1e-11 or better, the same steps. HIP builds also compile again (an unused flag
+  refused by Clang).
 - **`python -m benchmarks ab` between builds whose grids differ** recorded the field
   difference as infinite, which the summary's JSON refused, so the run ended without
   its summary; the difference is now recorded as not defined.

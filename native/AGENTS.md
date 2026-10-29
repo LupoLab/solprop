@@ -101,7 +101,9 @@ the gate.
   in device code, hidden default execution spaces, or backend-dependent field layout.
 - Use RAII, Kokkos views, `Kokkos::complex`, device-callable math, named kernels and
   allocations (`solprop_native.*` labels), explicit `LayoutRight` and explicit
-  execution-space instances.
+  execution-space instances. Dispatch top-level kernels through `launch::parallel_for`,
+  `parallel_reduce` and `parallel_scan` (`include/solprop_native/launch.hpp`), which pass
+  a device kernel's functor as its launch argument; team-level loops stay `Kokkos::`.
 - Allocate field-sized views, scratch and FFT plans once, when a state is constructed.
   A trial step performs no allocation, planning, logging, Python call or unplanned
   fence.
