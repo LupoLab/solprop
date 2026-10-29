@@ -341,7 +341,13 @@ native backend therefore carries an OpenBLAS built with OpenMP, which shares the
 backend's runtime. At start-up the backend fits a host OpenBLAS to its own pool unless
 `OPENBLAS_NUM_THREADS`, `GOTO_NUM_THREADS` or `OMP_NUM_THREADS` is set: a pthreads build
 is held to one thread, an OpenMP build capped at the Kokkos thread count. `numba_cpu`
-sizes its BLAS pool through threadpoolctl. Otherwise a BLAS's own variables apply:
+sizes its BLAS pool through threadpoolctl. NumPy's own BLAS, a separate library beside
+the native backend's, serves only small host-side products during a native run, yet its
+idle workers spin on the cores the native pool needs: while a native backend lives, every
+BLAS threadpoolctl finds other than the backend's own is held to one thread
+(`SOLPROP_BLAS_THREADS` sets another count), and the last backend to close gives the pools
+back. The run's metadata records what applied as `host_blas`. Otherwise a BLAS's own
+variables apply:
 
 | library | thread variable | notes |
 |---|---|---|

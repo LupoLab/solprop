@@ -230,6 +230,32 @@ Every medium width serial instead lost 2.8 times on averaged helium (EPYC geomet
 1.08); every medium width full, the FFTs included, gained on resolved cases but lost on the
 averaged ones (EPYC 0.94, Xeon 0.90 with averaged helium 1.22).
 
+(host-blas-pool)=
+### NumPy's BLAS beside a native run
+
+NumPy's OpenBLAS is a pthreads library with a pool of its own, sized from
+`OPENBLAS_NUM_THREADS` or every CPU (the benchmark suite sets the variable to the run's
+width). During a native run the host calls it only for small products: the power
+weights' expansion at each saved plane is a 3 × 2561 `dgemv` on averaged helium, 24 of
+them in a `--length 0.5` window. After each call OpenBLAS's workers spin before they
+sleep, and the planes come often enough that they never do: at 16 threads on the Xeon
+Gold 6240, its 15 workers took 1.09 s of CPU each in a 1.24 s window, and the
+four-thread Adams passes ran three times as slowly (0.74 s against 0.22 s, label timer).
+The native backend now holds every BLAS but its own to one thread while it lives, as
+`numba_cpu` holds its BLAS pool. Interleaved `benchmarks ab` against the parent, 3 rounds,
+`--length 0.1`, passive-bound placement, the same steps and fields to rounding:
+
+| case | Xeon Gold 6240, 1 thread | Xeon Gold 6240, 16 threads |
+|---|---:|---:|
+| `rdw` | 0.996 | 0.462 [0.456, 0.465] |
+| `he_rdw_averaged` | 1.011 | 0.693 [0.670, 0.773] |
+| `radial_filament_256` | 0.996 | 0.725 [0.718, 0.726] |
+| the other nine tracking cases | 0.984-1.019 | 0.979-1.010 |
+| geometric mean (12 cases) | 1.000 | 0.886 |
+
+The four-mode capillary now runs 3.1 times faster at 16 threads than at one (0.77 s
+against 2.40 s), where it was 1.4 times.
+
 (smooth-size-cliffs)=
 ### Smooth grid sizes
 

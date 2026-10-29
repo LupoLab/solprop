@@ -457,6 +457,12 @@ The first public release. It contains:
   `GOMP_CPU_AFFINITY` or `KMP_AFFINITY`), the import sets `OMP_PROC_BIND=false`, which
   leaves them unbound as before; the run's metadata records what applied as
   `openmp_proc_bind`.
+- **NumPy's BLAS threads no longer spin beside a native run.** NumPy's OpenBLAS is a
+  separate pool, sized from `OPENBLAS_NUM_THREADS` or every CPU; the small host-side
+  products of each saved plane woke it often enough that its workers spun on the native
+  pool's cores throughout a run. While a native backend lives, every BLAS other than the
+  backend's own is now held to one thread (`SOLPROP_BLAS_THREADS` sets another), as
+  `numba_cpu` holds its own; the run's metadata records it as `host_blas`.
 - **Native CPU runs no longer re-create OpenMP threads every step.** A four-thread
   kernel between full-width ones made GNU OpenMP end and restart twelve of sixteen
   threads each time; the hydrogen Raman case was slower at 16 threads than at one. A
