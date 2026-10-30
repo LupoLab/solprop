@@ -3212,7 +3212,8 @@ std::string GeneralWorkspace::gemm_shape_policy() {
          "preconverted complex GEMM for eligible envelope transforms; eligible chunked "
          "transforms are packed into persistent buffers for vendor BLAS; vector state "
          "uses custom; a host build without a vendor BLAS runs KokkosBlas's native "
-         "arithmetic through a tiled host kernel, bit for bit";
+         "arithmetic through a tiled host kernel, bit for bit; a compute capability "
+         "8.6 build forms the real GEMMs with a device kernel in place of cuBLAS";
 }
 
 std::size_t GeneralWorkspace::response_team_size() const noexcept {
