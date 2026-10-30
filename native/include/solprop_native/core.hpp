@@ -578,6 +578,9 @@ struct Problem {
 /** The most samples an Adams formula of solprop's shipped orders combines. */
 inline constexpr std::size_t adams_max_samples = 8;
 
+/** The most defect norms an Adams trial scores: its order's and its two neighbours'. */
+inline constexpr std::size_t adams_max_norms = 3;
+
 /**
  * The most channels a coupled block the resident Adams engine steps may have (solprop
  * SEP 16 phase 6): its per-bin passes hold a block's channel vectors in registers. A
@@ -595,7 +598,7 @@ struct AdamsWeights {
   std::size_t slot[adams_max_samples]{};
   double predictor[adams_max_samples]{};
   double corrector[adams_max_samples]{};
-  double rows[3][adams_max_samples]{};
+  double rows[adams_max_norms][adams_max_samples]{};
   std::size_t order{};
   std::size_t width{};
   std::size_t n_rows{};
@@ -612,7 +615,7 @@ struct ExponentialWeights {
   std::size_t slot[adams_max_samples]{};
   double predictor[adams_max_samples][adams_max_samples]{};
   double corrector[adams_max_samples][adams_max_samples]{};
-  double rows[3][2 * adams_max_samples]{};
+  double rows[adams_max_norms][2 * adams_max_samples]{};
   std::size_t order{};
   std::size_t width{};
   std::size_t count{};

@@ -2233,6 +2233,23 @@ public:
                           const std::vector<double>& divisor, const TrialScalars& step,
                           const TrialScalars& sample, const std::vector<double>& rate);
   void adams_rate(const std::vector<double>& rate, const ComplexView2& out);
+  // A trial's `rows` norms: its reduction over `policy` into the pinned buffer, then
+  // the trial's one fence, on `boundary`.
+  template <class Policy, class Reducer>
+  std::vector<double> adams_norms(const char* label, const Policy& policy,
+                                  const Reducer& reducer, const std::size_t rows,
+                                  const ExecutionSpace& boundary) {
+    const Kokkos::View<double*, Kokkos::SharedHostPinnedSpace,
+                       Kokkos::MemoryTraits<Kokkos::Unmanaged>>
+        result(adams_norms_.data(), rows);
+    launch::parallel_reduce(label, policy, reducer, result);
+    boundary.fence("solprop_native Adams trial boundary");
+    std::vector<double> norms(rows);
+    for (std::size_t row = 0; row < rows; ++row)
+      norms[row] = std::sqrt(result(row));
+    adams_trial_ready_ = true;
+    return norms;
+  }
   void allocate();
   void upload();
   void upload_trial(const TrialScalars& scalars, const TrialScalars* sample = nullptr,
@@ -2704,6 +2721,10 @@ public:
   ComplexView2 adams_source_, adams_propagator_, adams_exponent_, adams_saved_;
   ComplexView2 adams_held_, adams_dense_start_, adams_dense_end_, adams_dense_exponent_;
   Kokkos::View<double*, Layout, MemorySpace> adams_divisor_;
+  // A trial's squared norms, which its reduction writes and the host reads: in pinned
+  // host memory on a device, which the reduction's last block writes directly, so that
+  // no copy from the device follows it before the trial's one fence.
+  Kokkos::View<double*, Kokkos::SharedHostPinnedSpace> adams_norms_;
   // A varying operator's compensation: each sample's state and rate, the trial's
   // carried rows, its predicted field, endpoint term and rate, and dense observation's
   // terms.
@@ -5729,6 +5750,9 @@ void GeneralWorkspace::adams_allocate(const std::size_t slots, const bool compen
   if (adams_divisor_.extent(0) != n)
     adams_divisor_ =
         Kokkos::View<double*, Layout, MemorySpace>("solprop_native.adams.divisor", n);
+  if (adams_norms_.extent(0) == 0)
+    adams_norms_ = Kokkos::View<double*, Kokkos::SharedHostPinnedSpace>(
+        "solprop_native.adams.norms", adams_max_norms);
   // A trial's elementwise passes cost about ten stage entries an element, rising with
   // the moments formed, so they take a width of their own; the accepted step's rows
   // are copies.
@@ -6047,22 +6071,13 @@ GeneralWorkspace::adams_fused_trial(const double dz, const AdamsWeights& weights
         advanced(column, index) =
             propagator(column, index) * (current(column, index) + dz * total);
       });
-  std::vector<double> norms(weights.n_rows, 0.0);
   const AdamsDefectNorms reducer{weights.n_rows, store,      source,
                                  propagator,     norm_mask_, adams_divisor_,
                                  weights,        dz,         n};
-  const Kokkos::View<double*, Kokkos::HostSpace,
-                     Kokkos::MemoryTraits<Kokkos::Unmanaged>>
-      result(norms.data(), weights.n_rows);
-  launch::parallel_reduce(
+  return adams_norms(
       "solprop_native.adams.defect_norms",
       Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, columns * n), reducer,
-      result);
-  execution_space_.fence("solprop_native Adams trial boundary");
-  for (auto& value : norms)
-    value = std::sqrt(value);
-  adams_trial_ready_ = true;
-  return norms;
+      weights.n_rows, execution_space_);
 }
 
 void GeneralWorkspace::adams_fused_accept(const double dz, const AdamsWeights& keep,
@@ -7817,10 +7832,6 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
   use_uploaded_sample(sample);
   adams_evaluate_source(sample);
   std::swap(current_, adams_saved_);
-  std::vector<double> norms(weights.n_rows, 0.0);
-  const Kokkos::View<double*, Kokkos::HostSpace,
-                     Kokkos::MemoryTraits<Kokkos::Unmanaged>>
-      result(norms.data(), weights.n_rows);
   const ExponentialCorrection reducer{weights.n_rows,
                                       store,
                                       moments,
@@ -7850,12 +7861,8 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
                                       n_phi,
                                       device_scale,
                                       !separable};
-  launch::parallel_reduce("solprop_native.adams.exponential_correct", tasks, reducer,
-                          result);
-  adams_execution_space_.fence("solprop_native Adams trial boundary");
-  for (auto& value : norms)
-    value = std::sqrt(value);
-  adams_trial_ready_ = true;
+  auto norms = adams_norms("solprop_native.adams.exponential_correct", tasks, reducer,
+                           weights.n_rows, adams_execution_space_);
   adams_trial_compensated_ = compensated;
   adams_trial_coupled_ = false;
   return norms;
@@ -8364,10 +8371,6 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
         }
       });
 #endif
-  std::vector<double> norms(weights.n_rows, 0.0);
-  const Kokkos::View<double*, Kokkos::HostSpace,
-                     Kokkos::MemoryTraits<Kokkos::Unmanaged>>
-      result(norms.data(), weights.n_rows);
   const CoupledDefectNorms reducer{
       weights.n_rows, store,      moments,        source,  carried, endpoint, block,
       slots,          norm_mask_, adams_divisor_, weights, dz,      modes};
@@ -8377,14 +8380,10 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
 #else
   const auto items = n;
 #endif
-  launch::parallel_reduce(
-      "solprop_native.adams.coupled_norms",
-      Kokkos::RangePolicy<ExecutionSpace>(flow_execution_space_, 0, items), reducer,
-      result);
-  execution_space_.fence("solprop_native Adams trial boundary");
-  for (auto& value : norms)
-    value = std::sqrt(value);
-  adams_trial_ready_ = true;
+  auto norms =
+      adams_norms("solprop_native.adams.coupled_norms",
+                  Kokkos::RangePolicy<ExecutionSpace>(flow_execution_space_, 0, items),
+                  reducer, weights.n_rows, execution_space_);
   adams_trial_compensated_ = compensated;
   adams_trial_coupled_ = residual && compensated;
   return norms;
@@ -14696,6 +14695,8 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
        stage_staging_.empty() || stage_staging_.front().data() == stage_scalars_.data()
            ? 0
            : stage_staging_.size() * stage_scalars_.size() * real_bytes},
+      // An Adams trial's norms, read back in pinned host memory on a device.
+      {"trial_norms", adams_norms_.size() * real_bytes},
       {"crop_index", crop_index_.size() * index_bytes},
       {"masks", (active_mask_.size() + norm_mask_.size()) * byte_bytes},
       {"windows", (omega_window_.size() + time_window_.size()) * real_bytes},
@@ -14892,6 +14893,7 @@ void GeneralWorkspace::close() noexcept {
   adams_dense_end_ = {};
   adams_dense_exponent_ = {};
   adams_divisor_ = {};
+  adams_norms_ = {};
   adams_states_ = {};
   adams_rates_ = {};
   adams_carried_ = {};
