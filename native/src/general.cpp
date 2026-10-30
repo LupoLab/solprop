@@ -1398,23 +1398,6 @@ inline std::size_t reduction_slots(const std::size_t columns, const std::size_t 
 #endif
 }
 
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-// The embedded quadrature's partial sums on a device: a team of this many threads per
-// chunk of this many bins of a column, so that a few-column run's score spreads over
-// the multiprocessors (an NVIDIA A40 took 39 us for four columns on four teams). HIP
-// keeps one team of SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE per column.
-constexpr std::size_t device_quadrature_chunk = 128;
-inline std::size_t device_quadrature_chunks(const std::size_t n) {
-#if defined(KOKKOS_ENABLE_CUDA)
-  return std::max<std::size_t>(1, (n + device_quadrature_chunk - 1) /
-                                      device_quadrature_chunk);
-#else
-  static_cast<void>(n);
-  return 1;
-#endif
-}
-#endif
-
 // The bins `[first, end)` of slot `slot` of `slots` over `n`.
 KOKKOS_INLINE_FUNCTION void slot_range(const std::size_t n, const std::size_t slots,
                                        const std::size_t slot, std::size_t& first,
@@ -3474,13 +3457,8 @@ void GeneralWorkspace::allocate() {
       RealView2("solprop_native.step.error_partials", 3,
                 checked_product(columns, reduction_slots_, "norm partial slots"));
   if (!problem_.projection_coarse_matrix.empty())
-    quadrature_partials_ = RealView2("solprop_native.transform.quadrature_partials", 2,
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-                                     columns * device_quadrature_chunks(n)
-#else
-                                     columns
-#endif
-    );
+    quadrature_partials_ =
+        RealView2("solprop_native.transform.quadrature_partials", 2, columns);
   quadrature_scores_ = RealView("solprop_native.transform.quadrature_scores", 2);
   Kokkos::deep_copy(quadrature_scores_, Kokkos::Experimental::quiet_NaN_v<double>);
   if (problem_.weighted_controller) {
@@ -14187,26 +14165,18 @@ void GeneralWorkspace::score_quadrature() {
   const auto n = problem_.n_omega;
   const auto n_prefactor = problem_.n_prefactor_terms;
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-  // A team per (column, chunk of bins), its sums the partials' entry of that pair.
   using TeamPolicy = Kokkos::TeamPolicy<ExecutionSpace>;
   using TeamMember = TeamPolicy::member_type;
-  const auto chunks = device_quadrature_chunks(n);
-  const auto width = static_cast<int>(chunks == 1 ? n : device_quadrature_chunk);
-  const TeamPolicy policy(execution_space_,
-                          static_cast<int>(problem_.n_columns() * chunks),
-                          chunks == 1 ? SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE
-                                      : static_cast<int>(device_quadrature_chunk));
+  const TeamPolicy policy(execution_space_, static_cast<int>(problem_.n_columns()),
+                          SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE);
   launch::parallel_for(
       "solprop_native.transform.device_quadrature_partials", policy,
       KOKKOS_LAMBDA(const TeamMember& team) {
-        const auto entry = static_cast<std::size_t>(team.league_rank());
-        const auto column = entry / chunks;
-        const int first = static_cast<int>(entry % chunks) * width;
-        const int end = Kokkos::min(first + width, static_cast<int>(n));
+        const auto column = static_cast<std::size_t>(team.league_rank());
         double difference_sum = 0.0;
         double fine_sum = 0.0;
         Kokkos::parallel_reduce(
-            Kokkos::TeamThreadRange(team, first, end),
+            Kokkos::TeamThreadRange(team, static_cast<int>(n)),
             [&](const int index_value, double& update) {
               const auto index = static_cast<std::size_t>(index_value);
               Complex prefactor{};
@@ -14220,7 +14190,7 @@ void GeneralWorkspace::score_quadrature() {
             },
             difference_sum);
         Kokkos::parallel_reduce(
-            Kokkos::TeamThreadRange(team, first, end),
+            Kokkos::TeamThreadRange(team, static_cast<int>(n)),
             [&](const int index_value, double& update) {
               const auto index = static_cast<std::size_t>(index_value);
               Complex prefactor{};
@@ -14232,8 +14202,8 @@ void GeneralWorkspace::score_quadrature() {
             },
             fine_sum);
         Kokkos::single(Kokkos::PerTeam(team), [&]() {
-          partials(0, entry) = difference_sum;
-          partials(1, entry) = fine_sum;
+          partials(0, column) = difference_sum;
+          partials(1, column) = fine_sum;
         });
       });
 #else
@@ -14261,11 +14231,7 @@ void GeneralWorkspace::score_quadrature() {
   // The columns' sums in their order, on the device: the last score and the peak
   // since the backend last read it.
   const auto scores = quadrature_scores_;
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-  const auto columns = partials.extent(1);
-#else
   const auto columns = problem_.n_columns();
-#endif
   launch::parallel_for(
       "solprop_native.transform.quadrature_score",
       Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, 1),
