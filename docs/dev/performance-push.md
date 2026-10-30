@@ -64,6 +64,7 @@ a graph is the largest remaining lever.
 | NumPy's BLAS pool held at one thread beside a native run | sixteen threads, geometric mean: 0.886 (Xeon), 0.855 (EPYC); `rdw` 0.462 (Xeon) |
 | opt-in persistent FFTW wisdom (`SOLPROP_FFTW_WISDOM`) | one-thread construction, warm against cold: from 1.4–6.6 s to 0.03–0.1 s |
 | the host stage entry as lanes; the separable fold, crossings and monitor without divisions; radial statistics through two products | one thread (Xeon): `kerr_beam_384` 0.689, `kerr_beam_192` 0.682, `radial_filament_256` 0.808, `gnlse_raman_shock` 0.842 |
+| a compact team for one-column problems, with FFTW's threaded loops on the same team; one-mode node products on the response team | sixteen threads (Xeon): `gnlse_raman_shock` 0.774, `argon_blueshift` 0.680, `h2_raman_averaged` 0.895, `ctc` 0.947; `argon_blueshift` 0.601 (EPYC) |
 
 Every A/B above took the same steps. Final fields agree with the baseline to between
 $10^{-15}$ and $10^{-14}$.
@@ -100,6 +101,9 @@ $10^{-15}$ and $10^{-14}$.
   - a BLAS width per product;
   - spinning OpenMP waits;
   - binding threads by default.
+- **Sixteen-thread kernels:** Raman transforms from the modal transform's start on the
+  compact team, and one-column products as team kernels. Each gained on the Xeon and lost
+  on the EPYC.
 - **FFT planning:** measured planning of threaded FFT rows speeds up a sixteen-thread
   window by up to 13 % but adds 1.8–9.5 s of planning.
 - **Kernels:**
@@ -118,4 +122,7 @@ $10^{-15}$ and $10^{-14}$.
   configuration and converting the 1.77 GB field at each saved plane.
 - solprop's power weights call `numpy.tensordot` at every saved plane, which woke NumPy's
   BLAS pool. The native backend now holds that pool, but the call remains.
+- At sixteen threads `rdw` is limited by solprop's per-run Python inside the timed window,
+  such as the simulation metadata and the configuration hash. The native part scales 4.3
+  times.
 - Building the averaged helium case's gas transport model takes about 2.25 s per process.
