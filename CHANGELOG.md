@@ -506,8 +506,8 @@ The first public release. It contains:
   from a complex-to-real transform, half the complex inverse's work, and the route's
   projection and synthesis stream their maps in longer runs. On an Intel Xeon Gold 6240
   at one thread the three-mode `ctc` takes 0.70 of its time, resolved argon 0.64 and the
-  graded-index guide 0.70 (0.85, 0.85 and 0.80 at 16 threads); on an AMD EPYC 7763 0.76,
-  0.76 and 0.75 at one thread. Fields move at most
+  graded-index guide 0.70 (0.85, 0.85 and 0.80 at 16 threads); on an AMD EPYC 7763 0.75,
+  0.72 and 0.75 at one thread. Fields move at most
   by rounding; the band statistics' peak ionisation rate by 3.6e-14 relative.
 - **Native CPU runs no longer re-create OpenMP threads every step.** A four-thread
   kernel between full-width ones made GNU OpenMP end and restart twelve of sixteen

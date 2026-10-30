@@ -1309,6 +1309,10 @@ fragmented allocation; all but the quiet-block skip), one / sixteen threads:
 | `argon_blueshift_averaged` | 0.918 (0.912–0.927) | 0.922 (0.906–0.929) |
 | `he_rdw_averaged` | 0.985 (0.943–1.056) | 0.967 (0.941–0.975) |
 
+With the quiet-block skip as well (another allocation, the same CPUs): `argon_blueshift`
+0.720 (0.715–0.724) / 0.937, `ctc` 0.754 (0.751–0.755) / 0.907, `rdw` 0.883 / 0.989,
+`grin_nonlinear` 0.749 / 0.918 (0.835–0.918).
+
 Not adopted: summing each block of eight scan increments locally before the running
 prefix, so that only block totals form a dependent chain (`ctc` column 0.538 → 0.534 s,
 within noise, for a change of association).
