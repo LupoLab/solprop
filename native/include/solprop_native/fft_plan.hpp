@@ -419,8 +419,10 @@ public:
       graph::execute(*direct_, input, output, normalization);
       return;
     }
+    const std::size_t real = forward ? input.extent(1) : output.extent(1);
+    const std::size_t bins = forward ? output.extent(1) : input.extent(1);
     if (normalization != KokkosFFT::Normalization::none || input.extent(0) != rows_ ||
-        output.extent(0) != rows_)
+        output.extent(0) != rows_ || real != 2 * m_ || bins != m_ + 1)
       throw std::invalid_argument("a split real-row plan's views do not match it");
     const std::size_t points = rows_ * m_;
     if constexpr (forward) {
