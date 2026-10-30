@@ -193,7 +193,7 @@ void evaluate(const char* label, const Space& space, const Table& table,
   const std::size_t n_values = coefficients.extent(2);
   const std::size_t blocks = (n_values + block_values - 1) / block_values;
   const Complex* data = coefficients.data();
-  Kokkos::parallel_for(
+  launch::parallel_for(
       label, Kokkos::RangePolicy<Space>(space, 0, blocks),
       KOKKOS_LAMBDA(const std::size_t block) {
         const std::size_t first = block * block_values;

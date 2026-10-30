@@ -4,6 +4,7 @@
 
 #include "solprop_native/general_modal.hpp"
 #include "solprop_native/fft_plan.hpp"
+#include "solprop_native/launch.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -534,7 +535,7 @@ void GeneralModalSource::combine_maps(const std::size_t stage) {
   const auto rows = one_map / n_omega;
   const auto policy =
       TeamPolicy(maps_, static_cast<int>(rows), 1, general_team_lanes());
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.general.combine_maps", policy,
       KOKKOS_LAMBDA(const TeamMember& team) {
         const auto base = static_cast<std::size_t>(team.league_rank()) * n_omega;
@@ -590,7 +591,7 @@ void GeneralModalSource::synthesise(const std::size_t first, const std::size_t c
   const auto samples = static_cast<int>(n_to_);
   const auto policy = TeamPolicy(
       dense_for(count), static_cast<int>(chunk_ * components), 1, general_team_lanes());
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.general.synthesise", policy,
       KOKKOS_LAMBDA(const TeamMember& team) {
         const auto row = static_cast<std::size_t>(team.league_rank());
@@ -660,7 +661,7 @@ void GeneralModalSource::respond_components(const std::size_t first,
   constexpr auto monomials = symmetric_monomials(Components);
   const auto policy =
       TeamPolicy(response_for(count), static_cast<int>(count), 1, general_team_lanes());
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.general.respond", policy, KOKKOS_LAMBDA(const TeamMember& team) {
         const auto node = static_cast<std::size_t>(team.league_rank());
         const auto row = node * components;
@@ -783,7 +784,7 @@ void GeneralModalSource::delayed(const std::size_t first, const std::size_t coun
   constexpr auto components = max_components;
   constexpr auto stride = components * components * components * components;
   for (std::size_t term = 0; term < terms_; ++term) {
-    Kokkos::parallel_for(
+    launch::parallel_for(
         "solprop_native.general.delayed_product",
         Range2(response_for(count), {0, 0}, {count * general_pair_histories, bins}),
         KOKKOS_LAMBDA(const std::size_t row, const std::size_t bin) {
@@ -799,7 +800,7 @@ void GeneralModalSource::delayed(const std::size_t first, const std::size_t coun
     else
       execute_raman(*tail_history_plan_, tail_product_, tail_histories_,
                     KokkosFFT::Normalization::none);
-    Kokkos::parallel_for(
+    launch::parallel_for(
         "solprop_native.general.delayed_contract",
         Range2(response_for(count), {0, 0}, {count, n_to}),
         KOKKOS_LAMBDA(const std::size_t node, const std::size_t time) {
@@ -834,7 +835,7 @@ void GeneralModalSource::delayed(const std::size_t first, const std::size_t coun
   }
   const auto polarisation = node_polarisation_;
   const double epsilon0 = epsilon0_;
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.general.delayed_add",
       Range2(response_for(count), {0, 0}, {count * components, n_to}),
       KOKKOS_LAMBDA(const std::size_t row, const std::size_t time) {
@@ -894,7 +895,7 @@ void GeneralModalSource::project_device(const std::size_t first,
                  static_cast<int>(threads), static_cast<int>(lanes))
           .set_scratch_size(0,
                             Kokkos::PerTeam(Scratch::shmem_size(threads, 2 * lanes)));
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.general.project_device", policy,
       KOKKOS_LAMBDA(const TeamMember& team) {
         const auto block = static_cast<std::size_t>(team.league_rank());
@@ -963,7 +964,7 @@ void GeneralModalSource::project_lanes(const std::size_t first,
   const auto policy =
       TeamPolicy(dense_for(count), static_cast<int>(n_modes_ * blocks), 1,
                  Kokkos::min(static_cast<int>(Lanes), TeamPolicy::vector_length_max()));
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.general.project", policy, KOKKOS_LAMBDA(const TeamMember& team) {
         const auto block = static_cast<std::size_t>(team.league_rank());
         const auto mode = block / blocks;
@@ -1002,7 +1003,7 @@ void GeneralModalSource::project_lanes(const std::size_t first,
 void GeneralModalSource::finish() {
   const auto source = source_;
   const auto factor = frequency_factor_;
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.general.frequency_factor",
       Range2(kernels_, {0, 0}, {n_modes_, n_omega_}),
       KOKKOS_LAMBDA(const std::size_t mode, const std::size_t omega) {

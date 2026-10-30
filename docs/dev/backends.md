@@ -1467,6 +1467,20 @@ conversion or allocation. cuFFT plans are persistent and explicitly none-normali
 response column's `if constexpr` blocks carry a capture anchor, because CUDA 13's extended
 lambdas otherwise refuse the capture.
 
+Every top-level kernel dispatches through `launch::parallel_for`, `parallel_reduce` and
+`parallel_scan` (`native/include/solprop_native/launch.hpp`). On a device they hint a
+functor of at most 3840 B light-weight, which Kokkos passes as the kernel's argument;
+Kokkos's HIP default copied any functor of 512 B or more into constant memory, a blit
+kernel behind a wait on the previous such launch, which kept the host from queuing a
+trial's kernels ahead. A plain range reduction on HIP takes launch bounds of 256
+threads with the hint, since Kokkos gives a light-weight HIP reduction its largest block.
+CUDA builds pass functors as grid constants and are unchanged; host builds dispatch as
+Kokkos does. The device Adams passes hold a trial's phi-functions and history in registers,
+dispatched on its order and width (one to eight samples): indexed per-thread arrays live
+in scratch memory. An accepted Adams step ends without a fence on a device, whose
+execution instances are its one stream. A device holds the two held plasma currents'
+fine and coarse rows in one buffer that one plan transforms.
+
 A trial's per-stage scalars (with a Raman run's stage rates and densities and a compensated
 Adams trial's rate weights) live in one packed buffer of two slots and cross in one copy a
 trial from a ring of eight pinned host buffers (`Kokkos::SharedHostPinnedSpace`), the ring's

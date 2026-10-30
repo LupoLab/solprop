@@ -45,13 +45,21 @@ KOKKOS_INLINE_FUNCTION int adams_phi_halvings(const double magnitude, double& sc
  * given `magnitude = |x|` and `exp_x`. A host block forms the same values on its lanes
  * (`adams_lanes_phi`).
  *
+ * `Fixed`, when not zero, is `order` known at compile time: every loop over the
+ * functions then has a constant bound and unrolls, so that a device thread holds
+ * `out` and the squarings' copy in registers rather than in private (scratch) memory,
+ * which the indexed loops need. The operations and their order are the same either
+ * way.
+ *
  * The small-argument phi-functions: strict arithmetic (solprop SEP 25 section 4.2).
  */
-SOLPROP_NATIVE_STRICT_FUNCTION
-KOKKOS_INLINE_FUNCTION void adams_phi(const Complex x, const double magnitude,
-                                      const Complex exp_x, const std::size_t order,
-                                      Complex* out) {
+template <std::size_t Fixed>
+SOLPROP_NATIVE_STRICT_FUNCTION KOKKOS_INLINE_FUNCTION void
+adams_phi_fixed(const Complex x, const double magnitude, const Complex exp_x,
+                const std::size_t runtime_order, Complex* out) {
   SOLPROP_NATIVE_STRICT_BLOCK
+  static_assert(Fixed <= 2 * adams_max_samples);
+  const std::size_t order = Fixed != 0 ? Fixed : runtime_order;
   // 1/k! for k <= 2 adams_max_samples, exactly representable rounding of the reference.
   constexpr double reciprocal[17] = {1.0,
                                      1.0,
@@ -114,7 +122,7 @@ KOKKOS_INLINE_FUNCTION void adams_phi(const Complex x, const double magnitude,
   for (std::size_t k = order - 1; k > 0; --k)
     out[k] = strict_add(reciprocal[k], strict_mul(y, out[k + 1]));
   out[0] = Kokkos::exp(y);
-  Complex old[2 * adams_max_samples + 1];
+  Complex old[Fixed != 0 ? Fixed + 1 : 2 * adams_max_samples + 1];
   for (int pass = 0; pass < squarings; ++pass) {
     for (std::size_t k = 0; k <= order; ++k)
       old[k] = out[k];
@@ -128,6 +136,13 @@ KOKKOS_INLINE_FUNCTION void adams_phi(const Complex x, const double magnitude,
       out[k] = strict_scale(half, sum);
     }
   }
+}
+
+/** `adams_phi_fixed` at a run-time `order`. */
+KOKKOS_INLINE_FUNCTION void adams_phi(const Complex x, const double magnitude,
+                                      const Complex exp_x, const std::size_t order,
+                                      Complex* out) {
+  adams_phi_fixed<0>(x, magnitude, exp_x, order, out);
 }
 
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)

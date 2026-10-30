@@ -857,6 +857,19 @@ steps in both arms): host time per trial 64 → 2.2 µs (`he_rdw_averaged`, 0.3)
 (`argon_blueshift_averaged`, 0.1) and 83 → 5.0 (`rdw`, 0.1), walls −6.7 %, −10.6 % and
 −1.8 %. A trial costs about a millisecond on this FP64-weak device.
 
+**On an AMD Instinct MI325X** (HIP 7.14 prerelease, `AMD_GFX942`; the same build,
+`--host-march` against the native march, five rounds, the same steps): host time per trial
+21.7 → 1.5 µs (`he_rdw_averaged`, 0.3), 17.3 → 0.8 (`argon_blueshift_averaged`, 0.1), 40.5 →
+3.0 (`rdw`, 0.1), 14.9 → 0.5 (`h2_raman_averaged`, 0.4) and 30.2 → 2.9
+(`radial_filament_256`, 0.1); walls (`ab --device`, three rounds) −2.9 %, −3.4 %, −2.0 %,
+−3.0 % and −0.8 %, fields bitwise equal. A trial there is 160 to 550 µs of device time in 25
+to 70 kernels, most of it launch-bound
+([device launches on an MI325X](#device-launches-and-the-adams-passes-on-an-amd-instinct-mi325x)).
+**On an NVIDIA H200** (CUDA 13.1, `HOPPER90`, three rounds, the same steps): 49 → 2.2 µs
+(`he_rdw_averaged`), 44 → 1.2 (`argon_blueshift_averaged`), 70 → 5.2 (`rdw`), 41 → 0.8
+(`h2_raman_averaged`) and 65 → 4.7 (`radial_filament_256`, 0.1); walls −15 %, −21 %, −4 %,
+−23 % and −3 %.
+
 ### The Adams passes on x86-64 lanes
 
 The exponential Adams trial's predict and correct passes on a host block of 32 elements
@@ -951,6 +964,71 @@ kernel time 238 → 200 ms over a 71-trial window.
 The device prefactor with one reciprocal in place of two divisions took the separable
 fold from 29.5 to 21.6 ms (`kerr_beam_384`, kernels 651 → 620 ms a step, wall 0.981,
 0.936–0.984, fields to 2.4e-17).
+
+### Device launches and the Adams passes on an AMD Instinct MI325X
+
+On an AMD Instinct MI325X (HIP 7.14 prerelease, AMD Clang 23, `AMD_GFX942`, band staging
+on), `rocprofv3 --kernel-trace` over a timed window showed the device busy for a third of
+an Adams run. A single-mode trial was 30 to 70 kernels of 2 to 9 µs, launched one by one,
+and between them Kokkos's constant-memory launches: a functor of 512 B to 32 kB (most of
+a trial's) is copied by a blit kernel behind an event wait on the previous such launch,
+4 to 10 a trial, 13 to 18 % of the kernel time. Each change below, `ab --device`,
+interleaved fresh processes, three rounds, the same steps:
+
+| change | case | ratio (range) | field difference |
+|---|---|---:|---:|
+| functors under 3840 B passed as the launch argument (a light-weight hint) | `he_rdw_averaged` (0.3) | 0.900 (0.885–0.935) | 1.4e-11 |
+| | `argon_blueshift_averaged` (0.1) | 0.829 (0.823–0.849) | 3.7e-15 |
+| | `radial_filament_256` (0.5) | 0.938 (0.935–0.947) | 3.4e-15 |
+| HIP range reductions back to 256-thread blocks with the hint | `he_rdw_averaged` | 0.944 (0.931–0.953) | 0 (against no hint) |
+| predict pass's phi-functions in registers (order dispatched, one to eight) | `he_rdw_averaged` | 0.971 (0.949–0.984) | 1.0e-12 |
+| correct pass's history read once into registers | `he_rdw_averaged` | 0.979 (0.973–0.995) | 1.3e-11 |
+| | `radial_filament_256` | 1.000 (0.983–1.002) | 3.8e-15 |
+| no fence after an accepted step on a device | `he_rdw_averaged` | 0.959 (0.955–1.005) | 0 |
+| | `argon_blueshift_averaged` | 0.966 (0.900–0.971) | 0 |
+| the held currents' transforms in one plan | `he_rdw_averaged` | 0.964 (0.957–0.967) | 0 |
+| | `argon_blueshift` (0.1) | 0.903 (0.890–0.938) | 0 |
+
+The light-weight hint first took the range reductions to Kokkos's largest HIP block (1024
+threads), which put a single-mode trial's predict and correct passes on three compute
+units, 40 → 56 µs; their reduction order moved the norms, hence the 1.4e-11 over 411 steps.
+The predict pass held its phi-functions in scratch memory (560 B a thread) because their
+loops ran to a run-time order: 38.9 → 28.8 µs a trial on `he_rdw_averaged` and 64.6 → 32.7 µs
+on `radial_filament_256`. The correct pass's register copy is 31.9 → 27.5 µs on the former
+and 54.2 → 57.7 µs on the latter (its registers doubled); it is kept for the small runs.
+The unrolled device arithmetic contracts differently, so fields move at rounding level,
+which the adaptive steps carry to the 1e-12 and 1e-11 above with the same steps.
+
+All of them, against the HIP build with the native march alone (five rounds; radial three
+repeats):
+
+| case | wall, s | ratio (range) | field difference |
+|---|---|---:|---:|
+| `he_rdw_averaged` (0.3) | 0.196 → 0.145 | 0.744 (0.697–0.814) | 1.3e-11 |
+| `argon_blueshift_averaged` (0.1) | 0.346 → 0.237 | 0.686 (0.683–0.688) | 2.9e-15 |
+| `h2_raman_averaged` (0.4) | 1.344 → 0.994 | 0.740 (0.715–0.791) | 1.3e-13 |
+| `rdw` (0.1) | 0.196 → 0.171 | 0.875 (0.861–0.901) | 8.1e-15 |
+| `radial_filament_256` (0.5) | 0.182 → 0.165 | 0.901 (0.889–0.907) | 3.7e-15 |
+
+A trial's native time (`benchmarks.adams_host`, medians of five) went 323 → 206 µs, 279 →
+178, 224 → 160, 446 → 291 and 547 → 399 µs. Against the previous HIP build, which stepped
+the runs with the Python march: `he_rdw_averaged` 0.463 (0.405–0.666; that build's walls
+are bimodal on this device, 0.20 or 0.37 s), `argon_blueshift_averaged` 0.629, `h2_raman_averaged`
+0.624, `rdw` 0.605, `radial_filament_256` 0.843, `kerr_beam_384` (half) 0.650 and
+`kerr_beam_192` (half) 0.702 (both from the free-space work above), and at a tenth of their
+length (two rounds) `gnlse_raman_shock` 0.843, `argon_blueshift` 0.657, `ctc` 0.780.
+What remains is mostly the host's launch rate: a trial's kernels take 2 to 4 µs each, and
+rocFFT runs each of these transforms as four kernels.
+
+**On an NVIDIA H200** (CUDA 13.1, `HOPPER90`) the same changes, of which the light-weight
+hint is a no-op there (grid-constant arguments), against the build without them (three
+rounds, the same steps): `he_rdw_averaged` 0.920 (0.904–0.936, fields to 1.2e-11),
+`argon_blueshift_averaged` 0.902 (0.880–0.912), `h2_raman_averaged` 0.918 (0.916–0.920),
+`rdw` 0.969 (0.962–1.035), `radial_filament_256` 0.989 (0.962–1.134). Over a 411-trial window
+of the first the correct pass went 21.4 → 14.1 µs and the predict pass 24.7 → 22.2 µs, the
+transforms 4 → 3 a trial (cuFFT's one kernel each). Against the previous main build:
+`he_rdw_averaged` 0.790, `argon_blueshift_averaged` 0.882, `h2_raman_averaged` 0.788, `rdw`
+0.841, `radial_filament_256` 0.868, `kerr_beam_384` (half) 0.722, `kerr_beam_192` (half) 0.776.
 
 ### Retained radial synthesis and Raman modal products
 
