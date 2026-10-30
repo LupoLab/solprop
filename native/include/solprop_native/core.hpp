@@ -296,7 +296,8 @@ public:
   CpuTeamScope& operator=(CpuTeamScope&&) = delete;
 
 private:
-  int saved_;
+  // The enclosing scope's team; unread where FFTW has no loop callback.
+  [[maybe_unused]] int saved_;
 };
 
 /** solprop SEP 28 section 4.2's per-evaluation reference, independent of any
