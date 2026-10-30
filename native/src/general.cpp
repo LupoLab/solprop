@@ -97,7 +97,7 @@ void upload_weights(const ExecutionSpace& space, const Row& out,
   const Kokkos::View<const double*, Kokkos::HostSpace,
                      Kokkos::MemoryTraits<Kokkos::Unmanaged>>
       host(weights.data(), out.extent(0));
-  graph::copy(space, out, host);
+  graph::deep_copy(space, out, host);
 }
 
 // A frozen-residual flow's generator at one position applied to a field, `sum_t w_t
@@ -867,7 +867,7 @@ void upload_span(const ExecutionSpace& execution_space, const ComplexView2& dest
   const Kokkos::View<const Complex**, Layout, Kokkos::HostSpace,
                      Kokkos::MemoryTraits<Kokkos::Unmanaged>>
       host(source.data(), destination.extent(0), destination.extent(1));
-  graph::copy(execution_space, destination, host);
+  graph::deep_copy(execution_space, destination, host);
 }
 
 template <class View, class Value>
@@ -879,7 +879,7 @@ void copy_vector(const ExecutionSpace& execution_space, const View& destination,
   auto* data = mirror.data();
   for (std::size_t index = 0; index < source.size(); ++index)
     data[index] = source[index];
-  graph::copy(execution_space, destination, mirror);
+  graph::deep_copy(execution_space, destination, mirror);
 }
 
 void require_extent(const std::size_t actual, const std::size_t expected,
@@ -2985,10 +2985,10 @@ void GeneralWorkspace::synthesise_retained(const std::size_t first_node,
   // A device zeroes the chunk's padded rows first, a fill at its bandwidth, rather
   // than relying on the modal buffer's other bins staying zero, and pads a thread per
   // element.
-  graph::copy(execution_space_,
-              Kokkos::subview(padded, std::make_pair(std::size_t{0}, node_count),
-                              Kokkos::ALL()),
-              Complex{});
+  graph::deep_copy(execution_space_,
+                   Kokkos::subview(padded, std::make_pair(std::size_t{0}, node_count),
+                                   Kokkos::ALL()),
+                   Complex{});
   launch::parallel_for(
       "solprop_native.transform.retained_pad",
       Range2(execution_space_, {0, 0}, {node_count, n}),
@@ -3006,10 +3006,10 @@ void GeneralWorkspace::synthesise_retained(const std::size_t first_node,
 #endif
   const bool tail = node_count != problem_.node_chunk;
   const auto rows = std::make_pair(std::size_t{0}, node_count);
-  fft_execute(tail ? *retained_tail_inverse_plan_ : *retained_inverse_plan_,
-              Kokkos::subview(modal_complex_, rows, Kokkos::ALL()),
-              Kokkos::subview(node_complex_, rows, Kokkos::ALL()),
-              KokkosFFT::Normalization::none);
+  graph::execute(tail ? *retained_tail_inverse_plan_ : *retained_inverse_plan_,
+                 Kokkos::subview(modal_complex_, rows, Kokkos::ALL()),
+                 Kokkos::subview(node_complex_, rows, Kokkos::ALL()),
+                 KokkosFFT::Normalization::none);
   Kokkos::Profiling::popRegion();
 }
 
@@ -3283,7 +3283,7 @@ public:
             one.current_.data() + column * one.current_.stride(0)};
       }
     }
-    graph::copy(execution_, descriptors_, host_);
+    graph::deep_copy(execution_, descriptors_, host_);
     const auto descriptors = descriptors_;
     // The members' own split: a member sums its norms as its solo run does.
     const auto slots = members_.front()->workspace_->reduction_slots_;
@@ -3469,7 +3469,7 @@ void GeneralWorkspace::allocate() {
   statistics_power_weight_ =
       RealView2("solprop_native.statistics.power_weight",
                 problem_.spatial_spectral_weights.empty() ? columns : 0, n);
-  graph::copy(execution_space_, statistics_power_weight_, 1.0);
+  graph::deep_copy(execution_space_, statistics_power_weight_, 1.0);
   // A spatial run's rows hold the magnetic closure in time (solprop SEP 34) when a
   // local flux statistic is asked for.
   statistics_weighted_time_ =
@@ -4214,7 +4214,7 @@ void GeneralWorkspace::upload() {
   if (problem_.raman) {
     copy_vector(execution_space_, raman_undamped_, problem_.raman_undamped);
     copy_vector(execution_space_, raman_tensor_weights_, problem_.raman_tensor_weights);
-    graph::copy(execution_space_, node_raman_drive_, 0.0);
+    graph::deep_copy(execution_space_, node_raman_drive_, 0.0);
   }
 }
 
@@ -4239,20 +4239,20 @@ void GeneralWorkspace::seed_free_wisdom() {
     seed_fftw_wisdom(fft_space_for(transverse_.size()), transverse_.data(),
                      transverse_.data(), {n_y, n_x}, planes, n_y * n_x, n_y * n_x,
                      sign);
-  graph::copy(execution_space_, transverse_, Complex{});
+  graph::deep_copy(execution_space_, transverse_, Complex{});
   if (problem_.family != FieldFamily::envelope &&
       problem_.family != FieldFamily::field_analytic)
     return;
   // A fine spectrum wider than n_to is not a plain row pair; the helper leaves it.
   seed_row_fft_wisdom(fft_space_for(modal_complex_.size()), fine_spectrum_,
                       modal_complex_, KokkosFFT::Direction::backward);
-  graph::copy(execution_space_, fine_spectrum_, Complex{});
-  graph::copy(execution_space_, modal_complex_, Complex{});
+  graph::deep_copy(execution_space_, fine_spectrum_, Complex{});
+  graph::deep_copy(execution_space_, modal_complex_, Complex{});
   if (problem_.family == FieldFamily::envelope) {
     seed_row_fft_wisdom(fft_space_for(projected_complex_.size()), projected_complex_,
                         projected_spectrum_, KokkosFFT::Direction::forward);
-    graph::copy(execution_space_, projected_complex_, Complex{});
-    graph::copy(execution_space_, projected_spectrum_, Complex{});
+    graph::deep_copy(execution_space_, projected_complex_, Complex{});
+    graph::deep_copy(execution_space_, projected_spectrum_, Complex{});
   }
 }
 
@@ -4264,23 +4264,23 @@ void GeneralWorkspace::seed_modal_wisdom() {
   if (problem_.family == FieldFamily::field_real) {
     seed_row_fft_wisdom(fft_space_for(modal_real_.size()), fine_spectrum_, modal_real_,
                         KokkosFFT::Direction::backward);
-    graph::copy(execution_space_, modal_real_, 0.0);
+    graph::deep_copy(execution_space_, modal_real_, 0.0);
   } else {
     seed_row_fft_wisdom(fft_space_for(modal_complex_.size()), fine_spectrum_,
                         modal_complex_, KokkosFFT::Direction::backward);
-    graph::copy(execution_space_, modal_complex_, Complex{});
+    graph::deep_copy(execution_space_, modal_complex_, Complex{});
   }
   if (problem_.family == FieldFamily::envelope) {
     seed_row_fft_wisdom(fft_space_for(projected_complex_.size()), projected_complex_,
                         projected_spectrum_, KokkosFFT::Direction::forward);
-    graph::copy(execution_space_, projected_complex_, Complex{});
+    graph::deep_copy(execution_space_, projected_complex_, Complex{});
   } else {
     seed_row_fft_wisdom(fft_space_for(projected_real_.size()), projected_real_,
                         projected_spectrum_, KokkosFFT::Direction::forward);
-    graph::copy(execution_space_, projected_real_, 0.0);
+    graph::deep_copy(execution_space_, projected_real_, 0.0);
   }
-  graph::copy(execution_space_, fine_spectrum_, Complex{});
-  graph::copy(execution_space_, projected_spectrum_, Complex{});
+  graph::deep_copy(execution_space_, fine_spectrum_, Complex{});
+  graph::deep_copy(execution_space_, projected_spectrum_, Complex{});
 }
 
 // The plasma streams' forward rows, fine and coarse. Most share a shape with the
@@ -4293,27 +4293,27 @@ void GeneralWorkspace::seed_stream_wisdom() {
         continue;
       seed_row_fft_wisdom(fft_space_for(stream.projected.size()), stream.projected,
                           stream.spectrum, KokkosFFT::Direction::forward);
-      graph::copy(execution_space_, stream.projected, 0.0);
-      graph::copy(execution_space_, stream.spectrum, Complex{});
+      graph::deep_copy(execution_space_, stream.projected, 0.0);
+      graph::deep_copy(execution_space_, stream.spectrum, Complex{});
       if (stream.coarse.empty())
         continue;
       seed_row_fft_wisdom(fft_space_for(stream.coarse.size()), stream.coarse,
                           stream.coarse_spectrum, KokkosFFT::Direction::forward);
-      graph::copy(execution_space_, stream.coarse, 0.0);
-      graph::copy(execution_space_, stream.coarse_spectrum, Complex{});
+      graph::deep_copy(execution_space_, stream.coarse, 0.0);
+      graph::deep_copy(execution_space_, stream.coarse_spectrum, Complex{});
     }
   if (problem_.envelope_plasma)
     for (auto& stream : envelope_streams_) {
       seed_row_fft_wisdom(fft_space_for(stream.projected.size()), stream.projected,
                           stream.spectrum, KokkosFFT::Direction::forward);
-      graph::copy(execution_space_, stream.projected, Complex{});
-      graph::copy(execution_space_, stream.spectrum, Complex{});
+      graph::deep_copy(execution_space_, stream.projected, Complex{});
+      graph::deep_copy(execution_space_, stream.spectrum, Complex{});
       if (stream.coarse.empty())
         continue;
       seed_row_fft_wisdom(fft_space_for(stream.coarse.size()), stream.coarse,
                           stream.coarse_spectrum, KokkosFFT::Direction::forward);
-      graph::copy(execution_space_, stream.coarse, Complex{});
-      graph::copy(execution_space_, stream.coarse_spectrum, Complex{});
+      graph::deep_copy(execution_space_, stream.coarse, Complex{});
+      graph::deep_copy(execution_space_, stream.coarse_spectrum, Complex{});
     }
 }
 #endif
@@ -4453,8 +4453,8 @@ void GeneralWorkspace::plan() {
                                                 KokkosFFT::Direction::backward, axis);
       // The padded rows' unretained bins stay zero from here on
       // (`synthesise_retained`), whatever planning wrote.
-      graph::copy(execution_space_, padded, Complex{});
-      graph::copy(execution_space_, node, Complex{});
+      graph::deep_copy(execution_space_, padded, Complex{});
+      graph::deep_copy(execution_space_, node, Complex{});
       return plan;
     };
     retained_inverse_plan_ = plan_rows(problem_.node_chunk);
@@ -4612,7 +4612,7 @@ void GeneralWorkspace::set_initial(const std::span<const Complex> field,
   upload_span(execution_space_, current_, field);
   if (noise.empty()) {
     if (problem_.modified_noise)
-      graph::copy(execution_space_, noise_, Complex{});
+      graph::deep_copy(execution_space_, noise_, Complex{});
     has_noise_ = false;
   } else {
     if (!problem_.modified_noise)
@@ -4623,7 +4623,7 @@ void GeneralWorkspace::set_initial(const std::span<const Complex> field,
   }
   mask(current_);
   if (!stash_current_.empty())
-    graph::copy(execution_space_, stash_current_, 0.0);
+    graph::deep_copy(execution_space_, stash_current_, 0.0);
   execution_space_.fence("solprop_native set_initial");
   initialized_ = true;
   rk_source_evaluations_ = 0;
@@ -4632,8 +4632,8 @@ void GeneralWorkspace::set_initial(const std::span<const Complex> field,
   stash_is_current_ = false;
   quadrature_error_ = Kokkos::Experimental::quiet_NaN_v<double>;
   quadrature_stale_ = false;
-  graph::copy(execution_space_, quadrature_scores_,
-              Kokkos::Experimental::quiet_NaN_v<double>);
+  graph::deep_copy(execution_space_, quadrature_scores_,
+                   Kokkos::Experimental::quiet_NaN_v<double>);
   clear_fsal();
 }
 
@@ -4824,7 +4824,7 @@ void GeneralWorkspace::upload_trial(const TrialScalars& scalars,
     require_extent(rate->size(), problem_.n_phi_terms, "Adams rate weights");
     std::copy(rate->begin(), rate->end(), staging.data() + stage_offsets_[13]);
   }
-  graph::copy(execution_space_, stage_scalars_, staging);
+  graph::deep_copy(execution_space_, stage_scalars_, staging);
   bind_stage_scalars(0);
   note_trial_scalars(scalars);
 }
@@ -4848,7 +4848,7 @@ void GeneralWorkspace::prepare_raman(const std::vector<double>& rates,
   auto host = Kokkos::create_mirror_view(stage_raman_rates_);
   for (std::size_t term = 0; term < problem_.n_raman_terms; ++term)
     host(0, term) = rates[term];
-  graph::copy(execution_space_, stage_raman_rates_, host);
+  graph::deep_copy(execution_space_, stage_raman_rates_, host);
   if (problem_.n_raman_components > 1) {
     require_extent(densities.size(), problem_.n_raman_components,
                    "Raman amplitude densities");
@@ -4859,7 +4859,7 @@ void GeneralWorkspace::prepare_raman(const std::vector<double>& rates,
     auto density_host = Kokkos::create_mirror_view(stage_raman_densities_);
     for (std::size_t component = 0; component < densities.size(); ++component)
       density_host(0, component) = densities[component];
-    graph::copy(execution_space_, stage_raman_densities_, density_host);
+    graph::deep_copy(execution_space_, stage_raman_densities_, density_host);
   }
   prepare_raman_stage(0, rates.data(), densities.data());
   execution_space_.fence("solprop_native Raman diagnostic boundary");
@@ -5064,14 +5064,14 @@ std::vector<Complex> GeneralWorkspace::adams_source(const std::vector<Complex>& 
   upload_trial(scalars);
   if (general_)
     general_->set_weights(scalars.transform_weights);
-  graph::copy(execution_space_, advanced_, current_);
+  graph::deep_copy(execution_space_, advanced_, current_);
   copy_vector(execution_space_, current_, input);
   if (problem_.raman)
     prepare_raman_stage(0, scalars.raman_rates.data(),
                         problem_.n_raman_components > 1 ? scalars.raman_densities.data()
                                                         : nullptr);
   evaluate_stage_source(0, 0.0);
-  graph::copy(execution_space_, current_, advanced_);
+  graph::deep_copy(execution_space_, current_, advanced_);
   stages_ready_ = true;
   // No Runge-Kutta stage of this state exists to recycle.
   pending_fsal_ = false;
@@ -5765,7 +5765,7 @@ void GeneralWorkspace::hold_plane() {
         Kokkos::view_alloc(Kokkos::WithoutInitializing,
                            std::string("solprop_native.low_storage.held_plane")),
         problem_.n_columns(), problem_.n_omega);
-  graph::copy(execution_space_, held_plane_, current_);
+  graph::deep_copy(execution_space_, held_plane_, current_);
   held_ready_ = true;
 }
 
@@ -5976,7 +5976,7 @@ void GeneralWorkspace::adams_evaluate_source(const TrialScalars& scalars) {
 // The same, with current_ restored from adams_saved_ afterwards.
 void GeneralWorkspace::adams_evaluate(const TrialScalars& scalars) {
   adams_evaluate_source(scalars);
-  graph::copy(execution_space_, current_, adams_saved_);
+  graph::deep_copy(execution_space_, current_, adams_saved_);
 }
 
 void GeneralWorkspace::adams_start(const std::size_t slot,
@@ -5986,7 +5986,7 @@ void GeneralWorkspace::adams_start(const std::size_t slot,
     throw std::out_of_range("Adams history row");
   require_trial_scalars(scalars);
   upload_trial(scalars);
-  graph::copy(execution_space_, adams_saved_, current_);
+  graph::deep_copy(execution_space_, adams_saved_, current_);
   {
     const FlowAside aside(flow_);
     adams_evaluate(scalars);
@@ -6160,7 +6160,7 @@ GeneralWorkspace::adams_fused_trial(const double dz, const AdamsWeights& weights
   const auto saved = adams_saved_;
   // The predictor in the anchor's frame, a_n + dz sum_t w_t g_t, is the field the
   // stage-zero source evaluates; the accepted state is kept aside meanwhile.
-  graph::copy(execution_space_, saved, current);
+  graph::deep_copy(execution_space_, saved, current);
   launch::parallel_for(
       "solprop_native.adams.predict", policy,
       KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
@@ -6216,8 +6216,8 @@ void GeneralWorkspace::adams_fused_accept(const double dz, const AdamsWeights& k
   // rows: the slopes (source, newest, ...) and the state it starts from.
   adams_dense_count_ = dense.width;
   if (dense.width > 0) {
-    graph::copy(execution_space_, adams_dense_start_, current_);
-    graph::copy(execution_space_, adams_dense_exponent_, adams_exponent_);
+    graph::deep_copy(execution_space_, adams_dense_start_, current_);
+    graph::deep_copy(execution_space_, adams_dense_exponent_, adams_exponent_);
     launch::parallel_for(
         "solprop_native.adams.dense_slopes", policy,
         KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
@@ -6253,14 +6253,14 @@ void GeneralWorkspace::adams_hold() {
   require_adams();
   if (adams_held_.empty())
     throw std::logic_error("Adams dense observation storage is not allocated");
-  graph::copy(execution_space_, adams_held_, current_);
+  graph::deep_copy(execution_space_, adams_held_, current_);
 }
 
 void GeneralWorkspace::adams_restore() {
   require_adams();
   if (adams_held_.empty())
     throw std::logic_error("Adams dense observation storage is not allocated");
-  graph::copy(execution_space_, current_, adams_held_);
+  graph::deep_copy(execution_space_, current_, adams_held_);
   stash_is_current_ = false;
   execution_space_.fence("solprop_native Adams restore boundary");
 }
@@ -6395,7 +6395,7 @@ void GeneralWorkspace::table_upload(const TableKind kind, std::vector<double> ed
   for (std::size_t index = 0; index < count; ++index)
     data[index] =
         chebyshev::Coefficient<std::complex<double>>::load(coefficients[index]);
-  graph::copy(execution_space_, table.coefficients, mirror);
+  graph::deep_copy(execution_space_, table.coefficients, mirror);
   table.edges = std::move(edges);
   table.lower = lower;
   table.upper = upper;
@@ -6861,9 +6861,10 @@ void GeneralWorkspace::adams_compensation_start(const std::size_t slot,
     throw std::out_of_range("Adams history row");
   const auto rates = Kokkos::subview(adams_rates_, slot, Kokkos::ALL, Kokkos::ALL);
   adams_rate(rate, adams_endpoint_rate_);
-  graph::copy(execution_space_, rates, adams_endpoint_rate_);
-  graph::copy(execution_space_,
-              Kokkos::subview(adams_states_, slot, Kokkos::ALL, Kokkos::ALL), current_);
+  graph::deep_copy(execution_space_, rates, adams_endpoint_rate_);
+  graph::deep_copy(execution_space_,
+                   Kokkos::subview(adams_states_, slot, Kokkos::ALL, Kokkos::ALL),
+                   current_);
 }
 
 // The exponential Adams march's compensation at one bin, each a single strict function
@@ -8233,7 +8234,7 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
   const auto current = current_;
   const auto saved = adams_saved_;
   const auto lab = adams_lab_;
-  graph::copy(execution_space_, saved, current);
+  graph::deep_copy(execution_space_, saved, current);
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   launch::parallel_for(
       "solprop_native.adams.coupled_predict",
@@ -8523,8 +8524,8 @@ void GeneralWorkspace::adams_exponential_accept(const double dz, const std::size
   if (dense.width > 0) {
     // The step's samples and the state it starts from, before the new sample takes a
     // row: the accepted corrector's interpolant for dense observation.
-    graph::copy(execution_space_, adams_dense_start_, current_);
-    graph::copy(execution_space_, adams_dense_exponent_, adams_exponent_);
+    graph::deep_copy(execution_space_, adams_dense_start_, current_);
+    graph::deep_copy(execution_space_, adams_dense_exponent_, adams_exponent_);
     launch::parallel_for(
         "solprop_native.adams.exponential_dense", policy,
         KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
@@ -8595,9 +8596,9 @@ void GeneralWorkspace::adams_exponential_accept(const double dz, const std::size
   stash_is_current_ = false;
   // A frozen-residual flow's weights at the new sample, the trial's end.
   if (adams_trial_coupled_)
-    graph::copy(execution_space_,
-                Kokkos::subview(adams_applied_, free, Kokkos::ALL, Kokkos::ALL),
-                adams_end_applied_);
+    graph::deep_copy(execution_space_,
+                     Kokkos::subview(adams_applied_, free, Kokkos::ALL, Kokkos::ALL),
+                     adams_end_applied_);
   adams_accepted_boundary();
 }
 
@@ -8728,11 +8729,11 @@ GeneralWorkspace::transverse_chunk(const std::size_t first_unit) const noexcept 
 
 void GeneralWorkspace::transverse_forward() {
   if (slab_forward_)
-    fft_execute(*slab_forward_, transverse_, transverse_,
-                KokkosFFT::Normalization::none);
+    graph::execute(*slab_forward_, transverse_, transverse_,
+                   KokkosFFT::Normalization::none);
   else
-    fft_execute(*transverse_forward_, transverse_, transverse_,
-                KokkosFFT::Normalization::none);
+    graph::execute(*transverse_forward_, transverse_, transverse_,
+                   KokkosFFT::Normalization::none);
 }
 
 void GeneralWorkspace::transverse_inverse() { transverse_inverse(transverse_); }
@@ -8741,9 +8742,10 @@ void GeneralWorkspace::transverse_inverse() { transverse_inverse(transverse_); }
 // plan's own scratch or the magnetic closure's (solprop SEP 34).
 void GeneralWorkspace::transverse_inverse(const ComplexView3& scratch) {
   if (slab_inverse_)
-    fft_execute(*slab_inverse_, scratch, scratch, KokkosFFT::Normalization::none);
+    graph::execute(*slab_inverse_, scratch, scratch, KokkosFFT::Normalization::none);
   else
-    fft_execute(*transverse_inverse_, scratch, scratch, KokkosFFT::Normalization::none);
+    graph::execute(*transverse_inverse_, scratch, scratch,
+                   KokkosFFT::Normalization::none);
 }
 
 void GeneralWorkspace::separable_stage_input(const std::size_t stage, const double dz) {
@@ -8986,14 +8988,14 @@ void GeneralWorkspace::separable_to_time(const TransverseChunk& chunk) {
     if (tail)
       temporal_tail_inverse_real_.execute();
     else
-      fft_execute(*inverse_real_plan_, fine_spectrum_, modal_real_,
-                  KokkosFFT::Normalization::none);
+      graph::execute(*inverse_real_plan_, fine_spectrum_, modal_real_,
+                     KokkosFFT::Normalization::none);
   } else {
     if (tail)
       temporal_tail_inverse_complex_.execute();
     else
-      fft_execute(*inverse_complex_plan_, fine_spectrum_, modal_complex_,
-                  KokkosFFT::Normalization::none);
+      graph::execute(*inverse_complex_plan_, fine_spectrum_, modal_complex_,
+                     KokkosFFT::Normalization::none);
   }
 }
 
@@ -9004,14 +9006,14 @@ void GeneralWorkspace::separable_to_frequency(const TransverseChunk& chunk) {
     if (tail)
       temporal_tail_forward_complex_.execute();
     else
-      fft_execute(*forward_complex_plan_, projected_complex_, projected_spectrum_,
-                  KokkosFFT::Normalization::none);
+      graph::execute(*forward_complex_plan_, projected_complex_, projected_spectrum_,
+                     KokkosFFT::Normalization::none);
   } else {
     if (tail)
       temporal_tail_forward_real_.execute();
     else
-      fft_execute(*forward_real_plan_, projected_real_, projected_spectrum_,
-                  KokkosFFT::Normalization::none);
+      graph::execute(*forward_real_plan_, projected_real_, projected_spectrum_,
+                     KokkosFFT::Normalization::none);
   }
 }
 
@@ -9023,8 +9025,8 @@ void GeneralWorkspace::separable_to_frequency(const TransverseChunk& chunk) {
 // pack's and the crop's transposes.
 void GeneralWorkspace::separable_volume_core(const std::size_t stage) {
   Kokkos::Profiling::pushRegion("solprop_native.free.volume_core");
-  fft_execute(*volume_inverse_, transverse_, transverse_,
-              KokkosFFT::Normalization::none);
+  graph::execute(*volume_inverse_, transverse_, transverse_,
+                 KokkosFFT::Normalization::none);
   const auto scratch = transverse_;
   const auto window = time_window_;
   const auto kerr_density = stage_kerr_density_;
@@ -9053,8 +9055,8 @@ void GeneralWorkspace::separable_volume_core(const std::size_t stage) {
                       (weighted_imag * value.real() - weighted_real * value.imag())));
         cell = result * window(time);
       });
-  fft_execute(*volume_forward_, transverse_, transverse_,
-              KokkosFFT::Normalization::none);
+  graph::execute(*volume_forward_, transverse_, transverse_,
+                 KokkosFFT::Normalization::none);
   Kokkos::Profiling::popRegion();
 }
 
@@ -9124,9 +9126,9 @@ void GeneralWorkspace::separable_core(const std::size_t stage, const bool materi
     Kokkos::Profiling::pushRegion("solprop_native.free.clear_projected");
     if (!overwrites) {
       if (envelope)
-        graph::copy(execution_space_, projected_complex_, Complex{});
+        graph::deep_copy(execution_space_, projected_complex_, Complex{});
       else
-        graph::copy(execution_space_, projected_real_, 0.0);
+        graph::deep_copy(execution_space_, projected_real_, 0.0);
     }
     Kokkos::Profiling::popRegion();
     if (material) {
@@ -9493,11 +9495,11 @@ bool GeneralWorkspace::modal_core(const std::size_t stage) {
   if (dispersive_)
     dispersive_->prepare(stage);
   if (problem_.family == FieldFamily::field_real)
-    fft_execute(*inverse_real_plan_, fine_spectrum_, modal_real_,
-                KokkosFFT::Normalization::none);
+    graph::execute(*inverse_real_plan_, fine_spectrum_, modal_real_,
+                   KokkosFFT::Normalization::none);
   else if (!retained_synthesis_)
-    fft_execute(*inverse_complex_plan_, fine_spectrum_, modal_complex_,
-                KokkosFFT::Normalization::none);
+    graph::execute(*inverse_complex_plan_, fine_spectrum_, modal_complex_,
+                   KokkosFFT::Normalization::none);
   // A single node's synthesis and projection are folded into its response column.
   const bool folded = folds_single_node();
   if (!folded)
@@ -9514,13 +9516,13 @@ bool GeneralWorkspace::modal_core(const std::size_t stage) {
   // product), so only a stage that does not project needs them zeroed.
   if (!stage_projects) {
     if (problem_.family == FieldFamily::envelope) {
-      graph::copy(execution_space_, projected_complex_, Complex{});
+      graph::deep_copy(execution_space_, projected_complex_, Complex{});
       if (!projected_coarse_complex_.empty())
-        graph::copy(execution_space_, projected_coarse_complex_, Complex{});
+        graph::deep_copy(execution_space_, projected_coarse_complex_, Complex{});
     } else {
-      graph::copy(execution_space_, projected_real_, 0.0);
+      graph::deep_copy(execution_space_, projected_real_, 0.0);
       if (!projected_coarse_real_.empty())
-        graph::copy(execution_space_, projected_coarse_real_, 0.0);
+        graph::deep_copy(execution_space_, projected_coarse_real_, 0.0);
     }
   }
   if (dispersive_)
@@ -9556,17 +9558,17 @@ bool GeneralWorkspace::modal_core(const std::size_t stage) {
     dispersive_->finish();
   if (!held_radial() && (!dispersive_ || !dispersive_->replaces_transform())) {
     if (problem_.family == FieldFamily::envelope) {
-      fft_execute(*forward_complex_plan_, projected_complex_, projected_spectrum_,
-                  KokkosFFT::Normalization::none);
+      graph::execute(*forward_complex_plan_, projected_complex_, projected_spectrum_,
+                     KokkosFFT::Normalization::none);
       if (forward_coarse_complex_plan_ && !defer_quadrature_)
-        fft_execute(*forward_coarse_complex_plan_, projected_coarse_complex_,
-                    projected_coarse_spectrum_, KokkosFFT::Normalization::none);
+        graph::execute(*forward_coarse_complex_plan_, projected_coarse_complex_,
+                       projected_coarse_spectrum_, KokkosFFT::Normalization::none);
     } else if (!packed) {
-      fft_execute(*forward_real_plan_, projected_real_, projected_spectrum_,
-                  KokkosFFT::Normalization::none);
+      graph::execute(*forward_real_plan_, projected_real_, projected_spectrum_,
+                     KokkosFFT::Normalization::none);
       if (forward_coarse_real_plan_ && !defer_quadrature_)
-        fft_execute(*forward_coarse_real_plan_, projected_coarse_real_,
-                    projected_coarse_spectrum_, KokkosFFT::Normalization::none);
+        graph::execute(*forward_coarse_real_plan_, projected_coarse_real_,
+                       projected_coarse_spectrum_, KokkosFFT::Normalization::none);
     }
   }
   // The response's spectrum joins the stage's, before the envelope currents'.
@@ -9575,11 +9577,11 @@ bool GeneralWorkspace::modal_core(const std::size_t stage) {
   if (absorbing()) {
     form_absorber();
     if (problem_.family == FieldFamily::envelope)
-      fft_execute(*absorber_complex_plan_, absorber_complex_, absorber_spectrum_,
-                  KokkosFFT::Normalization::none);
+      graph::execute(*absorber_complex_plan_, absorber_complex_, absorber_spectrum_,
+                     KokkosFFT::Normalization::none);
     else if (!packed)
-      fft_execute(*absorber_real_plan_, absorber_real_, absorber_spectrum_,
-                  KokkosFFT::Normalization::none);
+      graph::execute(*absorber_real_plan_, absorber_real_, absorber_spectrum_,
+                     KokkosFFT::Normalization::none);
   }
   if (packed)
     transform_forward_pack();
@@ -9598,11 +9600,11 @@ bool GeneralWorkspace::modal_core(const std::size_t stage) {
 // return to the interaction picture (solprop `NumpyRefBackend._nonlinear_general`).
 void GeneralWorkspace::general_core(const std::size_t stage) {
   if (problem_.in_stage_absorber) {
-    fft_execute(*inverse_real_plan_, fine_spectrum_, modal_real_,
-                KokkosFFT::Normalization::none);
+    graph::execute(*inverse_real_plan_, fine_spectrum_, modal_real_,
+                   KokkosFFT::Normalization::none);
     form_absorber();
-    fft_execute(*absorber_real_plan_, absorber_real_, absorber_spectrum_,
-                KokkosFFT::Normalization::none);
+    graph::execute(*absorber_real_plan_, absorber_real_, absorber_spectrum_,
+                   KokkosFFT::Normalization::none);
   }
   // A guide whose every region is linear has an identically zero source, which
   // solprop's reference short-circuits in the same way.
@@ -9612,7 +9614,7 @@ void GeneralWorkspace::general_core(const std::size_t stage) {
       general_->dispersive()->begin(stage);
     general_->evaluate();
   } else
-    graph::copy(execution_space_, general_->source(), Complex{});
+    graph::deep_copy(execution_space_, general_->source(), Complex{});
 }
 
 // The transforms scaled by stage `stage`'s taper, whose value `taper` the host holds.
@@ -11971,7 +11973,8 @@ void GeneralWorkspace::envelope_cycle(const std::size_t channel,
       });
 #endif
   // This planned scalar boundary rejects failed refinement before a current FFT.
-  graph::copy(response_space_for(node_count), envelope_host_status_, envelope_status_);
+  graph::deep_copy(response_space_for(node_count), envelope_host_status_,
+                   envelope_status_);
   response_space_for(node_count).fence("solprop_native envelope refinement boundary");
   if (envelope_host_status_(0) != no_failure)
     throw EnvelopeConvergenceError("envelope plasma channel " +
@@ -12055,17 +12058,17 @@ void GeneralWorkspace::envelope_response(const std::size_t stage,
   for (auto& stream : envelope_streams_) {
     if (problem_.slab_geometry()) {
       // As the polarisation: the chunk's y rows, zero beyond a final partial chunk.
-      graph::copy(response_space_for(node_count), stream.projected, Complex{});
+      graph::deep_copy(response_space_for(node_count), stream.projected, Complex{});
       slab_project(*chunk, &stream);
     } else if (problem_.free_geometry()) {
       // The persistent maximum-chunk plan transforms zero padding in a final
       // partial chunk; only its actual rows are ever copied to the spatial FFT.
-      graph::copy(response_space_for(node_count), stream.projected, Complex{});
+      graph::deep_copy(response_space_for(node_count), stream.projected, Complex{});
       const auto rows =
           std::make_pair(std::size_t{0}, node_count * problem_.effective_node_pol());
-      graph::copy(response_space_for(node_count),
-                  Kokkos::subview(stream.projected, rows, Kokkos::ALL()),
-                  Kokkos::subview(stream.node, rows, Kokkos::ALL()));
+      graph::deep_copy(response_space_for(node_count),
+                       Kokkos::subview(stream.projected, rows, Kokkos::ALL()),
+                       Kokkos::subview(stream.node, rows, Kokkos::ALL()));
     } else {
       project(first_node, node_count, first_node == 0, &stream);
     }
@@ -12108,12 +12111,12 @@ void GeneralWorkspace::held_response(const std::size_t stage,
             target(row, time) = projection(0, 0) / taper(stage) * source(row, time);
           });
     } else if (problem_.slab_geometry()) {
-      graph::copy(response_space_for(node_count), stream.projected, 0.0);
+      graph::deep_copy(response_space_for(node_count), stream.projected, 0.0);
       slab_contract("solprop_native.held.slab_projection",
                     response_space_for(node_count), projection_, stream.node,
                     stream.projected, chunk->nodes / problem_.n_x, n_to);
     } else if (problem_.free_geometry() || radial) {
-      graph::copy(response_space_for(node_count), stream.projected, stream.node);
+      graph::deep_copy(response_space_for(node_count), stream.projected, stream.node);
     } else {
       project(first_node, node_count, first_node == 0, nullptr, &stream);
     }
@@ -12135,14 +12138,14 @@ void GeneralWorkspace::held_response(const std::size_t stage,
 // due, else those after the absorber's (or the projection's alone).
 void GeneralWorkspace::transform_forward_pack() {
   if (absorbing() || forward_pack_absorber_rows_ == 0)
-    fft_execute(*forward_pack_plan_, forward_pack_, forward_pack_spectrum_,
-                KokkosFFT::Normalization::none);
+    graph::execute(*forward_pack_plan_, forward_pack_, forward_pack_spectrum_,
+                   KokkosFFT::Normalization::none);
   else if (forward_pack_tail_plan_)
-    fft_execute(*forward_pack_tail_plan_, forward_pack_tail_,
-                forward_pack_tail_spectrum_, KokkosFFT::Normalization::none);
+    graph::execute(*forward_pack_tail_plan_, forward_pack_tail_,
+                   forward_pack_tail_spectrum_, KokkosFFT::Normalization::none);
   else
-    fft_execute(*forward_real_plan_, projected_real_, projected_spectrum_,
-                KokkosFFT::Normalization::none);
+    graph::execute(*forward_real_plan_, projected_real_, projected_spectrum_,
+                   KokkosFFT::Normalization::none);
 }
 
 void GeneralWorkspace::held_transform(const bool coarse_only, const bool transformed) {
@@ -12152,17 +12155,17 @@ void GeneralWorkspace::held_transform(const bool coarse_only, const bool transfo
   const bool every_row =
       !coarse_only && (!held_streams_[0].coarse_forward || !defer_quadrature_);
   if (held_pack_forward_ && every_row) {
-    fft_execute(*held_pack_forward_, held_pack_, held_pack_spectrum_,
-                KokkosFFT::Normalization::none);
+    graph::execute(*held_pack_forward_, held_pack_, held_pack_spectrum_,
+                   KokkosFFT::Normalization::none);
   } else if (!transformed) {
     for (std::size_t index = 0; index < 2; ++index) {
       auto& stream = held_streams_[index];
       if (!coarse_only)
-        fft_execute(*stream.forward, stream.projected, stream.spectrum,
-                    KokkosFFT::Normalization::none);
+        graph::execute(*stream.forward, stream.projected, stream.spectrum,
+                       KokkosFFT::Normalization::none);
       if (stream.coarse_forward && (coarse_only || !defer_quadrature_))
-        fft_execute(*stream.coarse_forward, stream.coarse, stream.coarse_spectrum,
-                    KokkosFFT::Normalization::none);
+        graph::execute(*stream.coarse_forward, stream.coarse, stream.coarse_spectrum,
+                       KokkosFFT::Normalization::none);
     }
   }
   const auto product = held_streams_[0].spectrum;
@@ -12200,12 +12203,12 @@ void GeneralWorkspace::held_transform(const bool coarse_only, const bool transfo
 void GeneralWorkspace::held_radial_projection(const std::size_t first_node,
                                               const std::size_t node_count) {
   if (held_pack_forward_)
-    fft_execute(*held_pack_forward_, held_pack_, held_pack_spectrum_,
-                KokkosFFT::Normalization::none);
+    graph::execute(*held_pack_forward_, held_pack_, held_pack_spectrum_,
+                   KokkosFFT::Normalization::none);
   else
     for (auto& stream : held_streams_)
-      fft_execute(*stream.forward, stream.projected, stream.spectrum,
-                  KokkosFFT::Normalization::none);
+      graph::execute(*stream.forward, stream.projected, stream.spectrum,
+                     KokkosFFT::Normalization::none);
   const auto product = held_streams_[0].spectrum;
   const auto edge = held_streams_[1].spectrum;
   const auto polarisation = held_streams_[2].spectrum;
@@ -12249,7 +12252,7 @@ void GeneralWorkspace::held_radial_projection(const std::size_t first_node,
                            problem_.n_modes, columns);
   selected_gemm(transform_space_for(node_count), packed, input, output, 0.0, true);
   if (first_node == 0)
-    graph::copy(temporal_execution_space_, projected_spectrum_, Complex{});
+    graph::deep_copy(temporal_execution_space_, projected_spectrum_, Complex{});
   const auto source = held_projected_spectrum_;
   const auto target = projected_spectrum_;
   cartesian_for(
@@ -12262,11 +12265,11 @@ void GeneralWorkspace::held_radial_projection(const std::size_t first_node,
 
 void GeneralWorkspace::envelope_transform() {
   for (auto& stream : envelope_streams_) {
-    fft_execute(*stream.forward, stream.projected, stream.spectrum,
-                KokkosFFT::Normalization::none);
+    graph::execute(*stream.forward, stream.projected, stream.spectrum,
+                   KokkosFFT::Normalization::none);
     if (stream.coarse_forward)
-      fft_execute(*stream.coarse_forward, stream.coarse, stream.coarse_spectrum,
-                  KokkosFFT::Normalization::none);
+      graph::execute(*stream.coarse_forward, stream.coarse, stream.coarse_spectrum,
+                     KokkosFFT::Normalization::none);
   }
   const auto drive = envelope_streams_[0].spectrum;
   const auto loss = envelope_streams_[1].spectrum;
@@ -12737,7 +12740,7 @@ void GeneralWorkspace::fill_statistics_time(const bool windowed, const double lo
                                             const double upper, const bool weighted) {
   if (omega_.empty())
     throw std::logic_error("native statistics need the coarse frequency axis");
-  graph::copy(execution_space_, statistics_spectrum_, Complex{});
+  graph::deep_copy(execution_space_, statistics_spectrum_, Complex{});
   const auto current = current_;
   const auto spectrum = statistics_spectrum_;
   const auto omega = omega_;
@@ -12758,15 +12761,15 @@ void GeneralWorkspace::fill_statistics_time(const bool windowed, const double lo
         if (weighted)
           spectrum(column, index) *= power_weight(column, index);
       });
-  fft_execute(*statistics_inverse_plan_, statistics_spectrum_, statistics_time_,
-              KokkosFFT::Normalization::none);
+  graph::execute(*statistics_inverse_plan_, statistics_spectrum_, statistics_time_,
+                 KokkosFFT::Normalization::none);
 }
 
 void GeneralWorkspace::fill_statistics_pair(const bool windowed, const double lower,
                                             const double upper) {
   if (!statistics_unit_weight_) {
     fill_statistics_time(windowed, lower, upper, true);
-    graph::copy(execution_space_, statistics_weighted_time_, statistics_time_);
+    graph::deep_copy(execution_space_, statistics_weighted_time_, statistics_time_);
   }
   fill_statistics_time(windowed, lower, upper);
 }
@@ -12991,9 +12994,9 @@ std::vector<double> GeneralWorkspace::statistics(
               "statistics power weight must be positive and finite");
         host_weight(column, index) = value;
       }
-    graph::copy(execution_space_, statistics_power_weight_, host_weight);
+    graph::deep_copy(execution_space_, statistics_power_weight_, host_weight);
   } else {
-    graph::copy(execution_space_, statistics_power_weight_, 1.0);
+    graph::deep_copy(execution_space_, statistics_power_weight_, 1.0);
   }
   const auto power_weights = statistics_power_weight_;
   if (!initialized_)
@@ -13066,7 +13069,7 @@ std::vector<double> GeneralWorkspace::statistics(
     auto initial = Kokkos::create_mirror_view(stage_channel_preionisation_);
     for (std::size_t channel = 0; channel < problem_.n_channels; ++channel)
       initial(0, channel) = channel_preionisation[channel];
-    graph::copy(execution_space_, stage_channel_preionisation_, initial);
+    graph::deep_copy(execution_space_, stage_channel_preionisation_, initial);
   }
 
   if (statistics_packed_.size() < packed_size) {
@@ -13075,7 +13078,8 @@ std::vector<double> GeneralWorkspace::statistics(
   }
   const auto packed = statistics_packed_;
   if (packed_size != 0)
-    graph::copy(execution_space_, packed, Kokkos::Experimental::quiet_NaN_v<double>);
+    graph::deep_copy(execution_space_, packed,
+                     Kokkos::Experimental::quiet_NaN_v<double>);
 
   if (omega0_offset != absent || energy_offset != absent) {
     if (omega_.empty() || !(problem_.dt > 0.0))
@@ -13299,7 +13303,7 @@ std::vector<double> GeneralWorkspace::statistics(
     if (fwhm_offset != absent) {
       const auto destination = Kokkos::subview(
           packed, std::make_pair(fwhm_offset, fwhm_offset + problem_.n_t));
-      graph::copy(execution_space_, destination, statistics_total_power_);
+      graph::deep_copy(execution_space_, destination, statistics_total_power_);
     }
   }
   if (intensity_offset != absent) {
@@ -13307,7 +13311,7 @@ std::vector<double> GeneralWorkspace::statistics(
         on_axis.size() / problem_.n_modes > 2)
       throw std::invalid_argument(
           "on-axis synthesis must have one or two rows and n_modes columns");
-    graph::copy(execution_space_, statistics_on_axis_, 0.0);
+    graph::deep_copy(execution_space_, statistics_on_axis_, 0.0);
     const auto destination = Kokkos::subview(
         statistics_on_axis_, std::make_pair<std::size_t>(0, on_axis.size()));
     copy_vector(execution_space_, destination, on_axis);
@@ -13449,7 +13453,7 @@ std::vector<double> GeneralWorkspace::statistics(
                                  preionisation);
         }
       } else {
-        graph::copy(execution_space_, fine_spectrum_, Complex{});
+        graph::deep_copy(execution_space_, fine_spectrum_, Complex{});
         const auto current = current_;
         const auto fine = fine_spectrum_;
         const auto crop = crop_index_;
@@ -13466,12 +13470,12 @@ std::vector<double> GeneralWorkspace::statistics(
                   analytic_scale * inverse_n_to * current(column, index);
             });
         if (problem_.family == FieldFamily::field_real)
-          fft_execute(*inverse_real_plan_, fine_spectrum_, modal_real_,
-                      KokkosFFT::Normalization::none);
+          graph::execute(*inverse_real_plan_, fine_spectrum_, modal_real_,
+                         KokkosFFT::Normalization::none);
         else if (!retained_synthesis_)
-          fft_execute(*inverse_complex_plan_, fine_spectrum_, modal_complex_,
-                      KokkosFFT::Normalization::none);
-        graph::copy(execution_space_, stage_taper_, taper);
+          graph::execute(*inverse_complex_plan_, fine_spectrum_, modal_complex_,
+                         KokkosFFT::Normalization::none);
+        graph::deep_copy(execution_space_, stage_taper_, taper);
         scale_transform(problem_.n_stages - 1, taper);
         for (std::size_t first = 0; first < problem_.n_nodes;
              first += problem_.node_chunk) {
@@ -13547,7 +13551,7 @@ std::vector<double> GeneralWorkspace::statistics(
   const auto active =
       Kokkos::subview(packed, std::make_pair<std::size_t>(0, packed_size));
   auto host = Kokkos::create_mirror_view(active);
-  graph::copy(execution_space_, host, active);
+  graph::deep_copy(execution_space_, host, active);
   execution_space_.fence("solprop_native statistics packed boundary");
   std::vector<double> result(packed_size);
   for (std::size_t index = 0; index < packed_size; ++index)
@@ -13583,7 +13587,7 @@ void GeneralWorkspace::require_flux_closure() {
 // analytic spectrum times the conjugate admittance, inverted into the statistics'
 // time rows and kept in `statistics_weighted_time_`.
 void GeneralWorkspace::fill_statistics_closure() {
-  graph::copy(execution_space_, statistics_spectrum_, Complex{});
+  graph::deep_copy(execution_space_, statistics_spectrum_, Complex{});
   const auto current = current_;
   const auto spectrum = statistics_spectrum_;
   const auto omega = omega_;
@@ -13604,9 +13608,9 @@ void GeneralWorkspace::fill_statistics_closure() {
         spectrum(column, index) = analytic_scale / static_cast<double>(n_t) *
                                   (closing * current(column, index));
       });
-  fft_execute(*statistics_inverse_plan_, statistics_spectrum_, statistics_time_,
-              KokkosFFT::Normalization::none);
-  graph::copy(execution_space_, statistics_weighted_time_, statistics_time_);
+  graph::execute(*statistics_inverse_plan_, statistics_spectrum_, statistics_time_,
+                 KokkosFFT::Normalization::none);
+  graph::deep_copy(execution_space_, statistics_weighted_time_, statistics_time_);
 }
 
 void GeneralWorkspace::separable_time_statistics(const std::size_t axis_peak,
@@ -13642,7 +13646,7 @@ void GeneralWorkspace::separable_time_statistics(const std::size_t axis_peak,
     // The axis's closure first, kept in the closure rows, then its field: each the
     // coherent on-axis sum of the analytic spectrum (solprop SEP 34).
     for (const bool closed : {true, false}) {
-      graph::copy(execution_space_, spectrum, Complex{});
+      graph::deep_copy(execution_space_, spectrum, Complex{});
       launch::parallel_for(
           "solprop_native.free.statistics_axis_input",
           Range2(execution_space_, {0, 0}, {n_pol, n}),
@@ -13660,10 +13664,10 @@ void GeneralWorkspace::separable_time_statistics(const std::size_t axis_peak,
                 static_cast<double>(n_t);
             spectrum(pol, index) = scale * sum;
           });
-      fft_execute(*statistics_inverse_plan_, statistics_spectrum_, statistics_time_,
-                  KokkosFFT::Normalization::none);
+      graph::execute(*statistics_inverse_plan_, statistics_spectrum_, statistics_time_,
+                     KokkosFFT::Normalization::none);
       if (closed)
-        graph::copy(
+        graph::deep_copy(
             execution_space_,
             Kokkos::subview(closure, std::make_pair<std::size_t>(0, n_pol),
                             Kokkos::ALL),
@@ -13720,7 +13724,7 @@ void GeneralWorkspace::separable_time_statistics(const std::size_t axis_peak,
     // The chunk's closure first, kept in the closure rows, then its field.
     for (const bool closed : {true, false}) {
       const auto source = closed ? closure_scratch : scratch;
-      graph::copy(execution_space_, spectrum, Complex{});
+      graph::deep_copy(execution_space_, spectrum, Complex{});
       launch::parallel_for(
           "solprop_native.free.statistics_temporal_input",
           Range2(execution_space_, {0, 0}, {count * n_pol, n}),
@@ -13744,10 +13748,10 @@ void GeneralWorkspace::separable_time_statistics(const std::size_t axis_peak,
                   scale * layout.cell(source, index * n_pol + row % n_pol, node);
             }
           });
-      fft_execute(*statistics_inverse_plan_, statistics_spectrum_, statistics_time_,
-                  KokkosFFT::Normalization::none);
+      graph::execute(*statistics_inverse_plan_, statistics_spectrum_, statistics_time_,
+                     KokkosFFT::Normalization::none);
       if (closed)
-        graph::copy(
+        graph::deep_copy(
             execution_space_,
             Kokkos::subview(closure, std::make_pair<std::size_t>(0, count * n_pol),
                             Kokkos::ALL),
@@ -14053,7 +14057,7 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
   const auto filled =
       Kokkos::subview(packed, std::make_pair<std::size_t>(0, packed_size));
   auto host = Kokkos::create_mirror_view(filled);
-  graph::copy(execution_space_, host, filled);
+  graph::deep_copy(execution_space_, host, filled);
   execution_space_.fence("solprop_native spatial statistics packed boundary");
   std::vector<double> result(packed_size);
   for (std::size_t index = 0; index < packed_size; ++index)
@@ -14083,7 +14087,7 @@ void GeneralWorkspace::finish(const double dz) {
     mask(advanced_);
   std::swap(current_, advanced_);
   if (!stash_current_.empty())
-    graph::copy(execution_space_, stash_current_, stash_candidate_);
+    graph::deep_copy(execution_space_, stash_current_, stash_candidate_);
   stash_is_current_ = !stash_current_.empty();
   execution_space_.fence("solprop_native accepted-step boundary");
 }
@@ -14092,11 +14096,11 @@ void GeneralWorkspace::finish_quadrature() {
   if (!coarse_pending_)
     return;
   if (problem_.family == FieldFamily::envelope)
-    fft_execute(*forward_coarse_complex_plan_, projected_coarse_complex_,
-                projected_coarse_spectrum_, KokkosFFT::Normalization::none);
+    graph::execute(*forward_coarse_complex_plan_, projected_coarse_complex_,
+                   projected_coarse_spectrum_, KokkosFFT::Normalization::none);
   else
-    fft_execute(*forward_coarse_real_plan_, projected_coarse_real_,
-                projected_coarse_spectrum_, KokkosFFT::Normalization::none);
+    graph::execute(*forward_coarse_real_plan_, projected_coarse_real_,
+                   projected_coarse_spectrum_, KokkosFFT::Normalization::none);
   if (held_plasma())
     held_transform(true);
   coarse_pending_ = false;
@@ -14226,9 +14230,9 @@ double GeneralWorkspace::quadrature_peak() {
     return Kokkos::Experimental::quiet_NaN_v<double>;
   double peak = 0.0;
   const auto stored = Kokkos::subview(quadrature_scores_, 1);
-  graph::copy(execution_space_, peak, stored);
+  graph::deep_copy(execution_space_, peak, stored);
   execution_space_.fence("solprop_native quadrature peak");
-  graph::copy(execution_space_, stored, Kokkos::Experimental::quiet_NaN_v<double>);
+  graph::deep_copy(execution_space_, stored, Kokkos::Experimental::quiet_NaN_v<double>);
   return peak;
 }
 
@@ -14256,7 +14260,7 @@ void GeneralWorkspace::clear_fsal() {
   pending_fsal_ = false;
   coarse_pending_ = false;
   if (!stash_current_.empty())
-    graph::copy(execution_space_, stash_current_, 0.0);
+    graph::deep_copy(execution_space_, stash_current_, 0.0);
   stash_is_current_ = false;
 }
 
@@ -14328,8 +14332,8 @@ void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
     if (tail)
       coarse_tail_inverse_complex_.execute();
     else
-      fft_execute(*coarse_inverse_complex_plan_, coarse_spectrum_, coarse_time_complex_,
-                  KokkosFFT::Normalization::none);
+      graph::execute(*coarse_inverse_complex_plan_, coarse_spectrum_,
+                     coarse_time_complex_, KokkosFFT::Normalization::none);
     if (monitoring_split())
       add_split_removal(dz, active_rows, parseval, first_column);
     split_apply("solprop_native.absorber.split_apply_complex", execution_space_,
@@ -14338,14 +14342,14 @@ void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
     if (tail)
       coarse_tail_forward_complex_.execute();
     else
-      fft_execute(*coarse_forward_complex_plan_, coarse_time_complex_, coarse_spectrum_,
-                  KokkosFFT::Normalization::none);
+      graph::execute(*coarse_forward_complex_plan_, coarse_time_complex_,
+                     coarse_spectrum_, KokkosFFT::Normalization::none);
   } else {
     if (tail)
       coarse_tail_inverse_real_.execute();
     else
-      fft_execute(*coarse_inverse_real_plan_, coarse_spectrum_, coarse_time_real_,
-                  KokkosFFT::Normalization::none);
+      graph::execute(*coarse_inverse_real_plan_, coarse_spectrum_, coarse_time_real_,
+                     KokkosFFT::Normalization::none);
     if (monitoring_split())
       add_split_removal(dz, active_rows, parseval, first_column);
     split_apply("solprop_native.absorber.split_apply_real", execution_space_,
@@ -14354,8 +14358,8 @@ void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
     if (tail)
       coarse_tail_forward_real_.execute();
     else
-      fft_execute(*coarse_forward_real_plan_, coarse_time_real_, coarse_spectrum_,
-                  KokkosFFT::Normalization::none);
+      graph::execute(*coarse_forward_real_plan_, coarse_time_real_, coarse_spectrum_,
+                     KokkosFFT::Normalization::none);
   }
 }
 
@@ -14433,14 +14437,14 @@ void GeneralWorkspace::bind_monitor(const std::vector<double>& weights,
   for (std::size_t row = 0; row < 4; ++row)
     for (std::size_t index = 0; index < n_t; ++index)
       host_weights(row, index) = weights[row * n_t + index];
-  graph::copy(execution_space_, monitor_weights_, host_weights);
+  graph::deep_copy(execution_space_, monitor_weights_, host_weights);
   // A state column is `mode * n_pol + pol`.
   std::vector<double> expanded(columns, 1.0);
   if (!column_weights.empty())
     for (std::size_t column = 0; column < columns; ++column)
       expanded[column] = column_weights[column / problem_.n_pol_state];
   copy_vector(execution_space_, monitor_column_weights_, expanded);
-  graph::copy(execution_space_, monitor_removed_, 0.0);
+  graph::deep_copy(execution_space_, monitor_removed_, 0.0);
   execution_space_.fence("solprop_native monitor bind");
   monitor_bound_ = true;
 }
@@ -14532,8 +14536,8 @@ std::vector<double> GeneralWorkspace::monitor_reading() {
           KOKKOS_LAMBDA(const std::size_t row, const std::size_t index) {
             coarse(row, index) = inverse_n * current(first + row, index);
           });
-      fft_execute(*coarse_inverse_real_plan_, coarse, samples,
-                  KokkosFFT::Normalization::none);
+      graph::execute(*coarse_inverse_real_plan_, coarse, samples,
+                     KokkosFFT::Normalization::none);
       sums += monitor_sums(
           "solprop_native.monitor.sums_real", execution_space_, count, n_t, weights,
           KOKKOS_LAMBDA(const std::size_t row, const std::size_t index) {
@@ -14560,8 +14564,8 @@ std::vector<double> GeneralWorkspace::monitor_reading() {
           spectrum(row, index) = (single ? 1.0 : 2.0) / static_cast<double>(n_t) *
                                  current(first + row, index);
         });
-    fft_execute(*statistics_inverse_plan_, spectrum, time,
-                KokkosFFT::Normalization::none);
+    graph::execute(*statistics_inverse_plan_, spectrum, time,
+                   KokkosFFT::Normalization::none);
     sums += monitor_sums(
         "solprop_native.monitor.sums", execution_space_, count, n_t, weights,
         KOKKOS_LAMBDA(const std::size_t row, const std::size_t index) {
@@ -14575,7 +14579,7 @@ std::vector<double> GeneralWorkspace::monitor_reading() {
     execution_space_.fence("solprop_native monitor reading");
     removed =
         Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, monitor_removed_)();
-    graph::copy(execution_space_, monitor_removed_, 0.0);
+    graph::deep_copy(execution_space_, monitor_removed_, 0.0);
   }
   execution_space_.fence("solprop_native monitor reading");
   return {sums.values[0], sums.values[1], sums.values[2],
@@ -14643,7 +14647,7 @@ void GeneralWorkspace::separable_split_step(const double dz,
     const auto chunk = transverse_chunk(unit);
     const auto first = chunk.first_row;
     const auto count = chunk.rows;
-    graph::copy(execution_space_, coarse, Complex{});
+    graph::deep_copy(execution_space_, coarse, Complex{});
     launch::parallel_for(
         "solprop_native.free.split_temporal_input",
         Range2(execution_space_, {0, 0}, {count * n_pol, n}),
@@ -14736,7 +14740,7 @@ void GeneralWorkspace::field_to_host(const std::span<Complex> destination) const
       host(destination.data(), problem_.n_columns(), problem_.n_omega);
   // On the stage's instance: a compact problem's team, which the default instance's
   // whole-runtime copy would end and restart.
-  graph::copy(execution_space_, host, current_);
+  graph::deep_copy(execution_space_, host, current_);
   execution_space_.fence("solprop_native field_to_host copy");
 }
 

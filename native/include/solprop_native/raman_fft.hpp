@@ -110,7 +110,7 @@ public:
       return;
     }
 #endif
-    fft_execute(*fallback_, input, output, normalization);
+    graph::execute(*fallback_, input, output, normalization);
   }
 
   [[nodiscard]] const char* provider() const noexcept {

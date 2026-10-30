@@ -6,6 +6,15 @@
 
 #include <Kokkos_Core.hpp>
 
+#include <utility>
+
+#ifndef SOLPROP_NATIVE_DEVICE_GRAPH
+#define SOLPROP_NATIVE_DEVICE_GRAPH 1
+#endif
+
+#if (defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)) &&                     \
+    SOLPROP_NATIVE_DEVICE_GRAPH
+#define SOLPROP_NATIVE_IMPL_GRAPH 1
 #include <array>
 #include <cstddef>
 #include <cstring>
@@ -15,16 +24,7 @@
 #include <string>
 #include <type_traits>
 #include <typeinfo>
-#include <utility>
 #include <vector>
-
-#ifndef SOLPROP_NATIVE_DEVICE_GRAPH
-#define SOLPROP_NATIVE_DEVICE_GRAPH 1
-#endif
-
-#if (defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)) &&                     \
-    SOLPROP_NATIVE_DEVICE_GRAPH
-#define SOLPROP_NATIVE_IMPL_GRAPH 1
 #else
 #define SOLPROP_NATIVE_IMPL_GRAPH 0
 #endif
@@ -35,7 +35,7 @@
     costs the device about 3.4 microseconds however little it does, and about 2.2 as a
     node of an instantiated graph; a trial's source evaluation is a couple of dozen
     such kernels. A `Region` runs host code whose device work goes only through
-    `launch::parallel_for`, `graph::copy` and `fft_execute`, which record each
+    `launch::parallel_for`, `graph::deep_copy` and `graph::execute`, which record each
     operation's identity (a `Key`): its kind and the value bytes of its policy and
     functor, or of its views, plan and scalars. The first run captures the stream's
     work into a graph, which is instantiated and launched. A later run issues nothing
@@ -713,9 +713,9 @@ constexpr bool recordable_copy() {
 /** `Kokkos::deep_copy(space, destination, source)` -- from a view or a value, to a
     view or a scalar -- recorded in the calling thread's region when both sides live
     where `space` runs; a copy that crosses to or from the host stops the region
-    first. */
+    first. Host builds call `Kokkos::deep_copy` itself. */
 template <class Space, class Destination, class Source>
-void copy(const Space& space, Destination&& destination, const Source& source) {
+void deep_copy(const Space& space, Destination&& destination, const Source& source) {
   using Target = std::remove_cvref_t<Destination>;
   if (Region::current() == nullptr) {
     Kokkos::deep_copy(space, std::forward<Destination>(destination), source);
@@ -749,20 +749,13 @@ public:
 
 inline void unrecordable() noexcept {}
 
-template <class Kind, class Issue, class... Parts>
-void operation(const Issue& issue, const Parts&... /*parts*/) {
-  issue();
-}
-
 template <typename Label, typename Policy, typename Functor>
 void parallel_for(const Label& label, const Policy& policy, const Functor& functor) {
   Kokkos::parallel_for(label, policy, functor);
 }
 
-template <class Space, class Destination, class Source>
-void copy(const Space& space, Destination&& destination, const Source& source) {
-  Kokkos::deep_copy(space, std::forward<Destination>(destination), source);
-}
+// The wrappers' calls are Kokkos's own.
+using Kokkos::deep_copy;
 
 #endif
 

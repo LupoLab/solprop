@@ -86,7 +86,7 @@ void upload(const ExecutionSpace& execution, const View& destination,
   auto* data = mirror.data();
   for (std::size_t index = 0; index < source.size(); ++index)
     data[index] = source[index];
-  graph::copy(execution, destination, mirror);
+  graph::deep_copy(execution, destination, mirror);
 }
 
 constexpr std::size_t fourth_power(const std::size_t value) {
@@ -455,7 +455,7 @@ void GeneralModalSource::evaluate() {
     throw std::logic_error("the general modal source is closed");
   if (!inverse_plan_ && !signal_plan_)
     throw std::logic_error("the general modal source has not been planned");
-  graph::copy(kernels_, source_, Complex{});
+  graph::deep_copy(kernels_, source_, Complex{});
   std::size_t chunk = 0;
   for (std::size_t first = 0; first < nodes_; first += chunk_, ++chunk) {
     const auto count = std::min(chunk_, nodes_ - first);
@@ -466,18 +466,18 @@ void GeneralModalSource::evaluate() {
       dispersive_->prepare(chunk);
     if (real_signal_ && regional_) {
       if (count < chunk_)
-        fft_execute(*tail_signal_plan_, tail_half_spectrum_, tail_real_field_,
-                    KokkosFFT::Normalization::none);
+        graph::execute(*tail_signal_plan_, tail_half_spectrum_, tail_real_field_,
+                       KokkosFFT::Normalization::none);
       else
-        fft_execute(*signal_plan_, half_spectrum_, real_field_,
-                    KokkosFFT::Normalization::none);
+        graph::execute(*signal_plan_, half_spectrum_, real_field_,
+                       KokkosFFT::Normalization::none);
     } else if (regional_ || (live && dispersive_->reads_bare())) {
       if (count < chunk_)
-        fft_execute(*tail_inverse_plan_, tail_spectrum_, tail_field_,
-                    KokkosFFT::Normalization::none);
+        graph::execute(*tail_inverse_plan_, tail_spectrum_, tail_field_,
+                       KokkosFFT::Normalization::none);
       else
-        fft_execute(*inverse_plan_, node_spectrum_, node_field_,
-                    KokkosFFT::Normalization::none);
+        graph::execute(*inverse_plan_, node_spectrum_, node_field_,
+                       KokkosFFT::Normalization::none);
     }
     if (regional_) {
       respond(first, count);
@@ -488,13 +488,13 @@ void GeneralModalSource::evaluate() {
       dispersive_->respond(chunk, first, count);
     if (regional_) {
       if (count < chunk_)
-        fft_execute(*tail_forward_plan_, tail_polarisation_, tail_source_,
-                    KokkosFFT::Normalization::none);
+        graph::execute(*tail_forward_plan_, tail_polarisation_, tail_source_,
+                       KokkosFFT::Normalization::none);
       else
-        fft_execute(*forward_plan_, node_polarisation_, node_source_,
-                    KokkosFFT::Normalization::none);
+        graph::execute(*forward_plan_, node_polarisation_, node_source_,
+                       KokkosFFT::Normalization::none);
     } else if (!live)
-      graph::copy(kernels_, node_source_, Complex{});
+      graph::deep_copy(kernels_, node_source_, Complex{});
     // The products' spectra join the regional polarisation's, or are the chunk's.
     if (live)
       dispersive_->combine(!regional_);
@@ -536,7 +536,7 @@ void GeneralModalSource::set_weights(const std::vector<double>& weights) {
   auto* data = host_map_weights_.data();
   for (std::size_t index = 0; index < weights.size(); ++index)
     data[index] = weights[index];
-  graph::copy(kernels_, map_weights_, host_map_weights_);
+  graph::deep_copy(kernels_, map_weights_, host_map_weights_);
   weights_ready_ = true;
 }
 
@@ -890,7 +890,7 @@ void GeneralModalSource::delayed(const std::size_t first, const std::size_t coun
   else
     execute_raman(*tail_drive_plan_, tail_drive_, tail_drive_spectrum_,
                   KokkosFFT::Normalization::none);
-  graph::copy(response_for(count), node_delayed_, 0.0);
+  graph::deep_copy(response_for(count), node_delayed_, 0.0);
   const auto drive_spectrum = node_drive_spectrum_;
   const auto product_view = node_product_;
   const auto histories = node_histories_;

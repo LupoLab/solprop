@@ -4,9 +4,9 @@
 
 #pragma once
 
-#include "solprop_native/graph.hpp"
-
 #include <Kokkos_Core.hpp>
+
+#include "solprop_native/graph.hpp"
 
 #include <cstddef>
 #include <type_traits>

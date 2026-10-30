@@ -1481,6 +1481,24 @@ in scratch memory. An accepted Adams step ends without a fence on a device, whos
 execution instances are its one stream. A device holds the two held plasma currents'
 fine and coarse rows in one buffer that one plan transforms.
 
+On a device an elementwise Adams trial's source evaluation runs in a graph region
+(`graph::Region`, `native/include/solprop_native/graph.hpp`). The region's launches, its
+device-to-device copies and its transforms go through `launch::parallel_for`,
+`graph::deep_copy` and `graph::execute`, which key each operation by its kind and the
+value bytes of its policy and functor, or of its views, plan and scalars. The first trial
+captures them into a CUDA or HIP graph; a trial whose keys all repeat in order issues
+nothing and launches the instantiated graph, which saves the device about a microsecond a
+kernel; a trial that departs re-captures from the first difference. A key leaves out a
+type's padding, which the region zeroes on the stack, and the host pointer that nvcc's
+wrapper of an extended `__host__ __device__` lambda appends to its captures. Reductions,
+scans, vendor GEMM, team launches with level-1 scratch, functors Kokkos would stage in
+constant or global memory, work on another stream, copies to or from the host and loaded
+Kokkos tools disable the region for the workspace's life, as does device work that
+bypassed the wrappers (found in the capture before the next operation is skipped). The
+header states why a matching key replays exactly what the trial's own launches would do.
+Host builds call Kokkos's and Kokkos-FFT's own functions through those names and compile
+none of it; `SOLPROP_NATIVE_DEVICE_GRAPH=OFF` does the same on a device.
+
 A trial's per-stage scalars (with a Raman run's stage rates and densities and a compensated
 Adams trial's rate weights) live in one packed buffer of two slots and cross in one copy a
 trial from a ring of eight pinned host buffers (`Kokkos::SharedHostPinnedSpace`), the ring's

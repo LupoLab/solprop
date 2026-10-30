@@ -44,7 +44,7 @@ void upload(const ExecutionSpace& space,
   const Kokkos::View<const Value*, Kokkos::HostSpace,
                      Kokkos::MemoryTraits<Kokkos::Unmanaged>>
       host(source.data(), source.size());
-  graph::copy(space, target, host);
+  graph::deep_copy(space, target, host);
 }
 
 template <class Value>
@@ -55,7 +55,7 @@ void upload(const ExecutionSpace& space,
   const Kokkos::View<const Value**, Layout, Kokkos::HostSpace,
                      Kokkos::MemoryTraits<Kokkos::Unmanaged>>
       host(source.data(), target.extent(0), target.extent(1));
-  graph::copy(space, target, host);
+  graph::deep_copy(space, target, host);
 }
 
 // One product of the field with itself twice at every node of a chunk: the symmetric
@@ -744,9 +744,9 @@ DispersiveWeights::DispersiveWeights(const Problem& problem,
   term_channels_ = IndexView("solprop_native.dispersive.term_channels", terms);
   members_ = IndexView("solprop_native.dispersive.members", channels_);
   upload(kernels_, static_inputs_, problem.dispersive_inputs);
-  graph::copy(kernels_, inputs_, static_inputs_);
+  graph::deep_copy(kernels_, inputs_, static_inputs_);
   upload(kernels_, term_multipliers_, problem.dispersive_term_multipliers);
-  graph::copy(kernels_, outputs_, term_multipliers_);
+  graph::deep_copy(kernels_, outputs_, term_multipliers_);
   if (mixtures_ != 0)
     upload(kernels_, quartics_, problem.dispersive_quartics);
   upload(kernels_, input_scale_, problem.dispersive_input_scale);
@@ -811,7 +811,7 @@ void DispersiveWeights::update(const std::size_t stage) {
       pairs_[2 * group] = c0;
       pairs_[2 * group + 1] = c1;
     }
-  graph::copy(kernels_, factors_, factors);
+  graph::deep_copy(kernels_, factors_, factors);
   for (std::size_t mixture = 0; mixture < mixtures_; ++mixture) {
     const auto group = mixture_groups_[mixture];
     const auto members = Kokkos::subview(
@@ -1040,11 +1040,11 @@ void DispersiveResponse::prepare(const std::size_t stage) {
   filter_rows(kernels_, weights_.inputs(), fine, filtered_spectrum_, columns_,
               weights_.fields(), weights_.bins(), 1.0);
   if (inverse_real_)
-    fft_execute(*inverse_real_, filtered_spectrum_, filtered_real_,
-                KokkosFFT::Normalization::none);
+    graph::execute(*inverse_real_, filtered_spectrum_, filtered_real_,
+                   KokkosFFT::Normalization::none);
   else
-    fft_execute(*inverse_complex_, filtered_spectrum_, filtered_complex_,
-                KokkosFFT::Normalization::none);
+    graph::execute(*inverse_complex_, filtered_spectrum_, filtered_complex_,
+                   KokkosFFT::Normalization::none);
 }
 
 void DispersiveResponse::begin() {
@@ -1202,11 +1202,11 @@ void DispersiveResponse::finish() {
   if (borrowed_)
     return;
   if (forward_real_)
-    fft_execute(*forward_real_, products_real_, spectra_,
-                KokkosFFT::Normalization::none);
+    graph::execute(*forward_real_, products_real_, spectra_,
+                   KokkosFFT::Normalization::none);
   else
-    fft_execute(*forward_complex_, products_complex_, spectra_,
-                KokkosFFT::Normalization::none);
+    graph::execute(*forward_complex_, products_complex_, spectra_,
+                   KokkosFFT::Normalization::none);
   coarse_pending_ = embedded_;
 }
 
@@ -1230,11 +1230,11 @@ void DispersiveResponse::finish_coarse() {
     return;
   coarse_pending_ = false;
   if (coarse_real_plan_)
-    fft_execute(*coarse_real_plan_, coarse_real_, spectra_,
-                KokkosFFT::Normalization::none);
+    graph::execute(*coarse_real_plan_, coarse_real_, spectra_,
+                   KokkosFFT::Normalization::none);
   else
-    fft_execute(*coarse_complex_plan_, coarse_complex_, spectra_,
-                KokkosFFT::Normalization::none);
+    graph::execute(*coarse_complex_plan_, coarse_complex_, spectra_,
+                   KokkosFFT::Normalization::none);
   land_rows(kernels_, weights_.weights(), spectra_, stage_.projected_coarse_spectrum,
             columns_, weights_.bins(), weights_.products(), alone_);
 }
@@ -1466,11 +1466,11 @@ void SeparableDispersive::prepare(const std::size_t node_count) {
     return;
   }
   if (inverse_real_)
-    fft_execute(*inverse_real_, filtered_spectrum_, filtered_real_,
-                KokkosFFT::Normalization::none);
+    graph::execute(*inverse_real_, filtered_spectrum_, filtered_real_,
+                   KokkosFFT::Normalization::none);
   else
-    fft_execute(*inverse_complex_, filtered_spectrum_, filtered_complex_,
-                KokkosFFT::Normalization::none);
+    graph::execute(*inverse_complex_, filtered_spectrum_, filtered_complex_,
+                   KokkosFFT::Normalization::none);
 }
 
 void SeparableDispersive::slab_offsets(const std::size_t units) {
@@ -1612,11 +1612,11 @@ void SeparableDispersive::finish() {
     return;
   }
   if (forward_real_)
-    fft_execute(*forward_real_, products_real_, spectra_,
-                KokkosFFT::Normalization::none);
+    graph::execute(*forward_real_, products_real_, spectra_,
+                   KokkosFFT::Normalization::none);
   else
-    fft_execute(*forward_complex_, products_complex_, spectra_,
-                KokkosFFT::Normalization::none);
+    graph::execute(*forward_complex_, products_complex_, spectra_,
+                   KokkosFFT::Normalization::none);
 }
 
 void SeparableDispersive::combine() {
@@ -1790,7 +1790,8 @@ void GeneralDispersive::prepare(const std::size_t chunk) {
     tail_inverse_.execute();
     return;
   }
-  fft_execute(*inverse_, filtered_spectrum_, filtered_, KokkosFFT::Normalization::none);
+  graph::execute(*inverse_, filtered_spectrum_, filtered_,
+                 KokkosFFT::Normalization::none);
 }
 
 template <bool Real, std::size_t Components>
@@ -1847,8 +1848,8 @@ void GeneralDispersive::respond(const std::size_t chunk, const std::size_t first
       tail_forward_real_.execute();
       return;
     }
-    fft_execute(*forward_real_, products_real_, spectra_,
-                KokkosFFT::Normalization::none);
+    graph::execute(*forward_real_, products_real_, spectra_,
+                   KokkosFFT::Normalization::none);
     return;
   }
   if (components_ == 3)
@@ -1861,8 +1862,8 @@ void GeneralDispersive::respond(const std::size_t chunk, const std::size_t first
     tail_forward_complex_.execute();
     return;
   }
-  fft_execute(*forward_complex_, products_complex_, spectra_,
-              KokkosFFT::Normalization::none);
+  graph::execute(*forward_complex_, products_complex_, spectra_,
+                 KokkosFFT::Normalization::none);
 }
 
 void GeneralDispersive::combine(const bool overwrite) {
