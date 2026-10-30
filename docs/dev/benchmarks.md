@@ -279,22 +279,25 @@ measured-plan floor (at most 6e-14 relative):
 `gnlse_raman_shock` now runs 1.25 times faster at 16 threads than at one (4.76 against
 5.94 s), where it ran at the same speed.
 
-On the compact team the transforms' own sizing was a 16-thread one: the four-thread
-plans of the 16384-sample transform left half the team idle, and the 32768-sample Raman
-transforms stayed serial below the Raman start (65536), set where a threaded Raman
-plan woke the whole runtime. A compact problem's threaded transform now takes its whole
-team, and its Raman transforms thread from the modal FFT's start. Interleaved `benchmarks
-ab` against the commit above, Xeon, 3 rounds, `--length 0.1`, the same steps:
+On the compact team the transforms kept a 16-thread sizing: the four-thread plans of the
+16384-sample transform left half the team idle. A compact problem's threaded transform now
+takes its whole team. Three refinements were measured on both machines, interleaved
+`benchmarks ab` at 16 threads, 3 rounds, `--length 0.1`, the same steps (AMD EPYC 7763: 16
+cores of a quiet shared node):
 
-| case | 1 thread | 16 threads |
+| change | Xeon Gold 6240 | AMD EPYC 7763 |
 |---|---:|---:|
-| `gnlse_raman_shock` | 0.994 | 0.875 [0.871, 0.903] |
-| `h2_raman_averaged` | 0.985 | 0.983 [0.977, 1.000] |
+| threaded transforms at the team width: `gnlse_raman_shock` | 0.943 | 0.981 |
+| the same: `h2_raman_averaged` | 1.003 | 0.995 |
+| Raman transforms from the modal FFT's start (not kept): `gnlse_raman_shock` | 0.946 | 1.056 |
+| the same: `h2_raman_averaged` | 0.978 | 1.17 [1.08, 1.21] |
+| one-node products as the one-mode kernel on the team (not kept): `gnlse_raman_shock` | 0.973 | 1.045 |
 
-The Raman start alone gave 1.012 [0.950, 1.015] and 0.976. With both, `gnlse_raman_shock`
-takes 4.31 s at 16 threads, 1.38 times faster than one thread. Threading every compact
-kernel of at least 4096 elements at the team width instead gained nothing
-(`h2_raman_averaged` 3 % slower).
+The Raman transforms therefore keep their own start (65536 samples), and the GNLSE's
+1 × 1 synthesis and projection stay with the vendor GEMM. Threading every compact kernel
+of at least 4096 elements at the team width gained nothing either (`h2_raman_averaged` 3 %
+slower on the Xeon), nor did threading compact transforms from 4096 or 8192 samples
+(averaged argon 1.6 times slower at 4096).
 
 (one-mode-products)=
 ### One-mode products on the response team

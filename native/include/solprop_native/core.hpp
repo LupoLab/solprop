@@ -227,13 +227,12 @@ inline constexpr int cpu_medium_threads = 4;
 // A compact problem (`compact_problem`: one column on one node with fewer than
 // `compact_max_fine_samples` fine samples, the GNLSE and the mode-averaged capillary
 // among them) runs its kernels on a team of at most `cpu_compact_threads` threads and
-// its threaded transforms (the Raman ones from the modal FFT's start) on that whole
-// team. Its stage of a few thousand to 16384 bins otherwise woke
-// the whole pool for one short pass between serial transforms: on 16 cores of an
-// Intel Xeon Gold 6240 the main thread then ran at about 2.7 instead of 3.5 GHz, its
-// arrays came back from other cores' caches, and gnlse_raman_shock took as long on 16
-// threads as on one. FFTW's threaded loops take the runtime's whole team, so a
-// threaded transform beside the narrower kernel team would make GNU OpenMP end and
+// its threaded transforms on that whole team. Its stage of a few thousand to 16384 bins
+// otherwise woke the whole pool for one short pass between serial transforms: on 16
+// cores of an Intel Xeon Gold 6240 the main thread then ran at about 2.7 instead of 3.5
+// GHz, its arrays came back from other cores' caches, and gnlse_raman_shock took as
+// long on 16 threads as on one. FFTW's threaded loops take the runtime's whole team, so
+// a threaded transform beside the narrower kernel team would make GNU OpenMP end and
 // restart threads at every pair: compact transforms run their loops on the team
 // through FFTW's callback (`CpuTeamScope`), or stay serial without it (solprop
 // docs/dev/benchmarks.md, "Compact CPU teams").

@@ -113,9 +113,11 @@ time divided by the native backend's: above 1, the native backend is faster.
   problem now runs every kernel on at most eight threads and its FFTs on the same team,
   through FFTW's loop callback inside a per-call scope (FFTW's own loop takes the
   runtime's whole team, which would end and restart threads beside a narrower kernel
-  team), its threaded transforms at the team's width. On a Xeon Gold 6240 at 16 threads
-  `gnlse_raman_shock` takes 0.70 of its time and `h2_raman_averaged` 0.87; one thread is
-  unchanged.
+  team), its threaded transforms at the team's width. At 16 threads `gnlse_raman_shock`
+  takes 0.75 of its time on a Xeon Gold 6240 and 0.92 on an AMD EPYC 7763, and
+  `h2_raman_averaged` 0.89 on the Xeon (unchanged on the EPYC); one thread is unchanged.
+  Threading the Raman transforms from the modal FFT's start gained 2-6 % on the Xeon but
+  lost 6-17 % on the EPYC, and was not kept.
 - **One-mode products on the response team** ([measurements](benchmarks.md#one-mode-products-on-the-response-team)).
   One real mode at several nodes synthesised and projected through the vendor GEMM, which
   threaded each 33 × 1 and 2 × 33 product over its own pool at 2.3 times its one-thread

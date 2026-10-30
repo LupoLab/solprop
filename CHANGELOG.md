@@ -485,8 +485,9 @@ The first public release. It contains:
   woke every thread of the pool for a few short kernels between serial transforms, and
   ran no faster at 16 threads than at one. A problem of one column on one node now runs
   its kernels and its FFTs on at most eight threads (FFTW 3.3.9 or later; with an older
-  FFTW its transforms stay serial): on an Intel Xeon Gold 6240 at 16 threads
-  `gnlse_raman_shock` takes 0.70 of its time and `h2_raman_averaged` 0.87.
+  FFTW its transforms stay serial): at 16 threads `gnlse_raman_shock` takes 0.75 of its
+  time on an Intel Xeon Gold 6240 and 0.92 on an AMD EPYC 7763, `h2_raman_averaged` 0.89
+  on the Xeon.
 - **One-mode capillaries with a plasma column run faster on many CPU threads.** Their
   node synthesis and projection, an outer product and a weighted sum over the radial
   nodes, went to the vendor BLAS, which threaded each small call over its own pool; they

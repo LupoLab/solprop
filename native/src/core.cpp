@@ -197,16 +197,11 @@ const ExecutionSpace& CpuExecutionPool::get(const CpuOperation operation,
     capacity = pool_ == CpuPool::kernels || fftw_team_loops()
                    ? std::min(capacity, cpu_compact_threads)
                    : 1;
-    // On the compact team a transform threads from the modal FFT's start, the Raman
-    // ones too (their own start priced in waking the whole runtime), and takes the
-    // whole team: its loops run on that team anyway.
-    if (pool_ != CpuPool::kernels) {
-      if (operation == CpuOperation::raman)
-        width =
-            operation_threads(policy, pool_, CpuOperation::fft, elements, fine_samples);
-      if (width > 1)
-        width = capacity;
-    }
+    // On the compact team a threaded transform takes the whole team: its loops run on
+    // that team anyway. The Raman transforms keep their own start: threading the
+    // 18432-sample ones of the averaged hydrogen case cost it 17 % on an AMD EPYC 7763.
+    if (pool_ != CpuPool::kernels && width > 1)
+      width = capacity;
     width = std::min(width, capacity);
   }
   // A stable kernel team. GNU OpenMP ends the surplus threads of its pool whenever a
