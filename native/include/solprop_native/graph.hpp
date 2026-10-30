@@ -209,10 +209,13 @@ inline std::size_t captured(Stream stream) {
       cudaStreamGetCaptureInfo(stream, &status, nullptr, &graph, &dependencies, &count),
       "cudaStreamGetCaptureInfo");
 #elif defined(KOKKOS_ENABLE_CUDA)
+  // CUDA 13 returns the edges' data before their count.
   cudaStreamCaptureStatus status{};
-  check(cudaStreamGetCaptureInfo(stream, &status, nullptr, &graph),
+  const cudaGraphNode_t* dependencies = nullptr;
+  const cudaGraphEdgeData* edges = nullptr;
+  check(cudaStreamGetCaptureInfo(stream, &status, nullptr, &graph, &dependencies,
+                                 &edges, &count),
         "cudaStreamGetCaptureInfo");
-  check(cudaGraphGetNodes(graph, nullptr, &count), "cudaGraphGetNodes");
 #else
   hipStreamCaptureStatus status{};
   const hipGraphNode_t* dependencies = nullptr;
