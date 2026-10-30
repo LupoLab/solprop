@@ -162,6 +162,11 @@ inline constexpr int band_max_half = static_cast<int>(plasma_max_taps) - 1;
 /** Samples one staged tile's scratch holds: the tile and the widest halo. */
 inline constexpr int band_staging_extent = band_staging_tile + 2 * band_max_half;
 
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+/** Samples a host thread filters at a time (`team_band_filter`). */
+inline constexpr int band_host_filter_block = 512;
+#endif
+
 /** A staged band filter's tile in a team's scratch. */
 template <class ScratchSpace>
 using BandTile =
@@ -295,11 +300,39 @@ team_band_filter(const TeamMember& team, const Tile& tile, const Source& source,
     const auto direct = [&](const int i) {
       return source(source_row, static_cast<std::size_t>(i));
     };
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+    // On the host each thread takes blocks of samples and runs a block's interior
+    // samples as loops over the block, one per tap pair, so they vectorise across the
+    // samples; each sample's sum keeps `band_filter_at`'s order.
+    const double* const row = &source(source_row, 0);
+    double* const out = &target(target_row, 0);
+    const int interior_end = samples - half;
+    const int blocks =
+        (finish - begin + band_host_filter_block - 1) / band_host_filter_block;
+    Kokkos::parallel_for(Kokkos::TeamThreadRange(team, blocks), [&](const int block) {
+      const int low = begin + block * band_host_filter_block;
+      const int high = Kokkos::min(low + band_host_filter_block, finish);
+      const int inner_low = Kokkos::min(Kokkos::max(low, half), high);
+      const int inner_high = Kokkos::max(Kokkos::min(high, interior_end), inner_low);
+      for (int index = low; index < inner_low; ++index)
+        out[index] = band_filter_at(direct, index, samples, taps, half);
+      for (int index = inner_low; index < inner_high; ++index)
+        out[index] = taps[0] * row[index];
+      for (int k = 1; k <= half; ++k) {
+        const double tap = taps[k];
+        for (int index = inner_low; index < inner_high; ++index)
+          out[index] += tap * (row[index - k] + row[index + k]);
+      }
+      for (int index = inner_high; index < high; ++index)
+        out[index] = band_filter_at(direct, index, samples, taps, half);
+    });
+#else
     Kokkos::parallel_for(Kokkos::TeamThreadRange(team, begin, finish),
                          [&](const int index) {
                            target(target_row, static_cast<std::size_t>(index)) =
                                band_filter_at(direct, index, samples, taps, half);
                          });
+#endif
     team.team_barrier();
   }
 }
