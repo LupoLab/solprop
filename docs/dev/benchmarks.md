@@ -230,6 +230,142 @@ Every medium width serial instead lost 2.8 times on averaged helium (EPYC geomet
 1.08); every medium width full, the FFTs included, gained on resolved cases but lost on the
 averaged ones (EPYC 0.94, Xeon 0.90 with averaged helium 1.22).
 
+(compact-cpu-teams)=
+### Compact CPU teams
+
+A problem of one column on one node (the GNLSE, the mode-averaged capillary) has few
+operations large enough to thread, and between them serial transforms and products. At
+16 threads `gnlse_raman_shock` (16384 bins, 6289 source evaluations a `--length 0.1`
+window) ran its stage entry on all sixteen threads and its responses on all of them too,
+its FFTs on four threads within the runtime's whole team, and gained nothing over one
+thread (5.86 against 6.02 s on one socket of a Xeon Gold 6240). Its serial kernels each
+ran 1.2-2.5 times slower than in a one-thread process; with every pool forced serial in
+the same 16-thread process they ran at their one-thread times, so the idle pool costs
+nothing and the wide regions do. A per-thread `perf stat` of the timed window shows both
+parts: the main thread ran at about 2.7 GHz instead of 3.5 (waking fifteen cores every
+0.9 ms evaluation holds the socket in its many-core turbo bin), and its loads found
+16 million lines modified in another core's cache, against 60 thousand.
+
+Such a problem (`compact_problem`: one column, one node, one transform polarisation, no
+general modal route, coupled flow or separable geometry, fewer than 65536 fine samples)
+now runs on a compact team: its kernels at most eight threads wide, medium widths
+promoted to that team as in [a stable kernel team](#stable-kernel-team), and its FFT and
+Raman plans at most eight (see the end of this section for their sizing). FFTW's threaded loop normally opens the runtime's whole team
+(sixteen threads for a four-thread plan); beside an eight-thread kernel team that made
+GNU OpenMP end and restart threads at every pair, and a whole run took 2.6 times as long.
+The native backend therefore installs FFTW's loop callback (FFTW 3.3.9 and later, the
+OpenMP FFTW only): outside a scope it runs the jobs on the runtime's team, as FFTW's own
+loop does, and inside the scope that every native call of a compact problem opens it runs
+them on the problem's team. A build without the callback keeps a compact problem's
+transforms serial. An observation now copies the field on the stage's instance rather
+than the default one, which would also widen the team.
+
+Sweeps of the whole native pool on the same 16-thread process (`SOLPROP_NATIVE_THREADS`,
+2 rounds, wall s) chose the team: `gnlse_raman_shock` 5.84 at 16, 4.72 at 4, 4.64 at 6,
+4.76 at 8, 5.42 at 12; `h2_raman_averaged` 0.71 at 16, 0.61 at 4 and at 8; the 33-node
+cases lose at 4 (`argon_blueshift` 1.77 against 1.48 s, `rdw` 0.90 against 0.75 s) and
+stay with their own sizing. Interleaved `benchmarks ab` against the parent on the Xeon,
+3 rounds, `--length 0.1`, passive-bound placement, the same steps and fields to the
+measured-plan floor (at most 6e-14 relative):
+
+| case | 1 thread | 16 threads |
+|---|---:|---:|
+| `gnlse_raman_shock` | 0.995 | 0.801 [0.794, 0.831] |
+| `h2_raman_averaged` | 0.992 | 0.888 [0.883, 0.891] |
+| `he_rdw_averaged` | 1.027 [0.971, 1.055] | 0.979 |
+| `gnlse_soliton`, `argon_blueshift_averaged` | 0.983-0.985 | 0.995-1.017 |
+| `argon_blueshift_envelope`, `rdw` (not compact) | 0.988-1.009 | 0.999-1.009 |
+
+`gnlse_raman_shock` now runs 1.25 times faster at 16 threads than at one (4.76 against
+5.94 s), where it ran at the same speed.
+
+On the compact team the transforms kept a 16-thread sizing: the four-thread plans of the
+16384-sample transform left half the team idle. A compact problem's threaded transform now
+takes its whole team. Three refinements were measured on both machines, interleaved
+`benchmarks ab` at 16 threads, 3 rounds, `--length 0.1`, the same steps (AMD EPYC 7763: 16
+cores of a quiet shared node):
+
+| change | Xeon Gold 6240 | AMD EPYC 7763 |
+|---|---:|---:|
+| threaded transforms at the team width: `gnlse_raman_shock` | 0.943 | 0.981 |
+| the same: `h2_raman_averaged` | 1.003 | 0.995 |
+| Raman transforms from the modal FFT's start (not kept): `gnlse_raman_shock` | 0.946 | 1.056 |
+| the same: `h2_raman_averaged` | 0.978 | 1.17 [1.08, 1.21] |
+| one-node products as the one-mode kernel on the team (not kept): `gnlse_raman_shock` | 0.973 | 1.045 |
+
+The Raman transforms therefore keep their own start (65536 samples), and the GNLSE's
+1 × 1 synthesis and projection stay with the vendor GEMM. Threading every compact kernel
+of at least 4096 elements at the team width gained nothing either (`h2_raman_averaged` 3 %
+slower on the Xeon), nor did threading compact transforms from 4096 or 8192 samples
+(averaged argon 1.6 times slower at 4096).
+
+The final rule against the parent of the compact-team commit, 3 rounds, `--length 0.1`,
+the same steps (fields within 9e-14), 16 threads; one thread moved by 0.98-1.02:
+
+| case | Xeon Gold 6240 | AMD EPYC 7763 (16 cores of a quiet shared node) |
+|---|---:|---:|
+| `gnlse_raman_shock` | 0.774 [0.763, 0.800] | 0.965 [0.960, 0.970] |
+| `h2_raman_averaged` | 0.895 [0.872, 0.905] | 0.965 [0.957, 0.980] |
+| `gnlse_soliton`, `he_rdw_averaged`, `argon_blueshift_averaged` | 0.98-1.05 | 0.97-1.04 |
+
+With the package's own plan mode (threaded rows planned at `FFTW_ESTIMATE`, where the
+suite measures every plan) the Xeon rows were 0.780 and 0.905. On the EPYC the 16
+allocated cores lay in three CCXs; its 16-thread `gnlse_raman_shock` window ran 1.04
+times faster than one thread before and 1.08 times after (Xeon: 1.02 and 1.29).
+
+(one-mode-products)=
+### One-mode products on the response team
+
+A one-mode capillary with a field plasma column (`argon_blueshift`: 33 radial nodes,
+6400 fine samples) synthesises its node fields as an outer product (33 × 1 by 1 × 6400)
+and projects three node drives a source evaluation as a stacked 2 × 33 by 33 × 6400
+product. The product sizing keeps them serial on the engine's side (211200 work, below
+the dense threshold), so the vendor GEMM threaded each call over its own pool: at 16
+threads on a Xeon Gold 6240 the 4212 calls of a `--length 0.1` window took 0.46 s, 108 us
+each, against 0.29 s at one thread; the band column, which writes the node rows, runs on
+the full-width response team. Plain loops tried earlier ran on the product's
+serial instance and lost to the threaded library. On a host build with a vendor BLAS,
+one real mode at several nodes in one chunk now synthesises and projects through two
+small kernels on the response team: the projection one contiguous share of the samples
+per thread, both stacked rows from one read of the node rows, written straight into the
+fine and coarse rows (no stacked copy); the synthesis one node row per item. Each element
+sums the nodes in order from zero (within the GEMM rounding bound; a native test holds
+both kernels to `KokkosBlas::gemm`). Label timer at 16 threads: projection 40 us a call
+instead of 112, synthesis 26 instead of about 100; the band column and the held products
+that read the synthesised rows also ran faster (0.35 to 0.29 s, 0.10 to 0.06 s).
+Interleaved `benchmarks ab` against the compact-team commit, Xeon, 3 rounds, `--length
+0.1`, the same steps, fields within 4.4e-15:
+
+| case | 1 thread | 16 threads |
+|---|---:|---:|
+| `argon_blueshift` | 0.999 [0.993, 1.000] | 0.679 [0.672, 0.688] |
+| `rdw` (four modes, unchanged path) | 1.000 | 1.000 |
+
+`argon_blueshift` now runs 4.1 times faster at 16 threads than at one (1.01 against
+4.13 s), where it was 2.8 times. On one thread the kernels are left to the vendor GEMM's
+serial ones: in two tracking-set runs the one-thread window was 1.8 % slower with them,
+and without them it took 0.963 [0.948, 0.969] of the time with them (the four-mode `rdw`,
+whose code is unchanged, also moved by 0.964 in that A/B: code-layout noise of this size
+is present at one thread).
+
+(stacked-projection-splits)=
+### Stacked projection splits
+
+A real projection that also forms the embedded rule's coarse rows projects both in one
+stacked product and then copies the halves into the fine and coarse rows. The copy ran
+on the temporal copy's instance, which the copy sizing keeps serial below 65536 samples:
+on the four-mode capillary (`rdw`, 4 × 10240 samples) each took about 90 us at 16 threads
+on a Xeon Gold 6240, 43 ms of a `--length 0.1` window, beside full-width kernels; on `ctc`
+159 us. It now runs on the stage's instance (full width there, serial where the stage
+is). Interleaved `benchmarks ab` against the one-mode commit, 3 rounds, `--length 0.05`,
+the same steps, fields within 6.1e-15:
+
+| case | 1 thread | 16 threads |
+|---|---:|---:|
+| `ctc` | 0.990 | 0.977 [0.976, 0.980] |
+| `rdw` | 0.987 | 0.992 [0.962, 0.994] |
+| `argon_blueshift_envelope` | 1.004 | 1.012 (no stacked real split) |
+
 (host-blas-pool)=
 ### NumPy's BLAS beside a native run
 
@@ -1109,7 +1245,9 @@ partial chunk.
 A response column is one active node and one component. Every width is capped by the
 global thread setting. A kernel pool that already holds a full-width instance gives it to
 the medium-width kernels too ([a stable kernel team](#stable-kernel-team)); the FFT pools
-keep their medium widths. Explicit per-pool requests bypass this table, including the
+keep their medium widths. A problem of one column on one node takes at most eight
+threads in every pool, its transforms on its kernels' team
+([compact CPU teams](#compact-cpu-teams)). Explicit per-pool requests bypass this table, including the
 short-FFT rule. `build_info()` exposes the constants and override mask; backend metadata
 exposes effective widths and sizing inputs. Non-OpenMP host builds report that
 per-operation sizing is unsupported and keep their existing execution policy.

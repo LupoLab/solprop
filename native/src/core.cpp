@@ -127,12 +127,83 @@ int operation_threads(const ThreadPolicy& policy, const CpuPool pool,
 #endif
 }
 
+#if defined(KOKKOS_ENABLE_OPENMP) && defined(SOLPROP_NATIVE_FFTW_OPENMP) &&            \
+    !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+namespace {
+thread_local int fftw_loop_team = 0;
+
+// FFTW's threaded loop (its `threads_set_callback`): the jobs on the scoped team, or,
+// outside a scope, on the runtime's whole team as FFTW's own OpenMP loop runs them.
+void fftw_team_loop(void* (*work)(char*), char* jobs, const std::size_t size,
+                    const int count, void* /*data*/) {
+  const int team = fftw_loop_team;
+  if (team == 0) {
+#pragma omp parallel for
+    for (int job = 0; job < count; ++job)
+      work(jobs + size * static_cast<std::size_t>(job));
+  } else {
+#pragma omp parallel for num_threads(std::max(team, count))
+    for (int job = 0; job < count; ++job)
+      work(jobs + size * static_cast<std::size_t>(job));
+  }
+}
+
+// FFTW before 3.3.9 has no loop callback; the call is dependent so that only a header
+// that declares it compiles it.
+template <class Loop>
+concept LoopCallback =
+    requires(Loop loop) { fftw_threads_set_callback(loop, nullptr); };
+
+template <class Loop> bool install_team_loop(Loop loop) {
+  if constexpr (LoopCallback<Loop>) {
+    fftw_init_threads();
+    fftw_threads_set_callback(loop, nullptr);
+    return true;
+  } else {
+    static_cast<void>(loop);
+    return false;
+  }
+}
+} // namespace
+
+bool fftw_team_loops() noexcept {
+  static const bool installed = install_team_loop(&fftw_team_loop);
+  return installed;
+}
+CpuTeamScope::CpuTeamScope(const int threads) noexcept : saved_(fftw_loop_team) {
+  fftw_loop_team = threads;
+}
+CpuTeamScope::~CpuTeamScope() { fftw_loop_team = saved_; }
+#else
+bool fftw_team_loops() noexcept { return false; }
+CpuTeamScope::CpuTeamScope(const int threads) noexcept : saved_(threads) {}
+CpuTeamScope::~CpuTeamScope() = default;
+#endif
+
+bool compact_problem(const Problem& problem) noexcept {
+  return problem.n_columns() == 1 && problem.n_nodes == 1 &&
+         problem.n_pol_transform == 1 && !problem.general_modal &&
+         !problem.coupled_flow && !problem.separable_geometry() &&
+         problem.n_to < compact_max_fine_samples;
+}
+
 const ExecutionSpace& CpuExecutionPool::get(const CpuOperation operation,
                                             const std::size_t elements,
                                             const std::size_t fine_samples) {
   const ThreadPolicy policy = thread_policy();
   int width = operation_threads(policy, pool_, operation, elements, fine_samples);
-  const int capacity = policy.kernels;
+  int capacity = policy.kernels;
+  if (compact_ && policy.explicit_pools == 0) {
+    capacity = pool_ == CpuPool::kernels || fftw_team_loops()
+                   ? std::min(capacity, cpu_compact_threads)
+                   : 1;
+    // On the compact team a threaded transform takes the whole team: its loops run on
+    // that team anyway. The Raman transforms keep their own start: threading the
+    // 18432-sample ones of the averaged hydrogen case cost it 17 % on an AMD EPYC 7763.
+    if (pool_ != CpuPool::kernels && width > 1)
+      width = capacity;
+    width = std::min(width, capacity);
+  }
   // A stable kernel team. GNU OpenMP ends the surplus threads of its pool whenever a
   // parallel region asks for fewer than the last one, and starts them again for the
   // next wider region, so a four-thread kernel between full-width ones costs a thread
@@ -345,6 +416,11 @@ class Workspace {
 public:
   explicit Workspace(Problem problem) : problem_(std::move(problem)) {
     require_problem(problem_);
+    compact_ = compact_problem(problem_);
+    if (compact_) {
+      kernel_pool_.compact();
+      fft_pool_.compact();
+    }
     execution_space_ = kernel_pool_.get(CpuOperation::stage, problem_.n_omega);
     response_execution_space_ =
         kernel_pool_.get(CpuOperation::response, problem_.n_to, problem_.n_to);
@@ -469,7 +545,9 @@ public:
     const Kokkos::View<Complex*, Layout, Kokkos::HostSpace,
                        Kokkos::MemoryTraits<Kokkos::Unmanaged>>
         host(destination.data(), destination.size());
-    Kokkos::deep_copy(host, current_);
+    // On the stage's instance, so that a compact problem keeps its team.
+    Kokkos::deep_copy(execution_space_, host, current_);
+    execution_space_.fence("solprop_native field_to_host copy");
   }
 
   std::map<std::string, std::size_t> memory_ledger() const;
@@ -477,6 +555,10 @@ public:
     auto result = kernel_pool_.sizing();
     result.merge(fft_pool_.sizing());
     return result;
+  }
+  /** The team a compact problem's FFTW loops take (`CpuTeamScope`); zero otherwise. */
+  [[nodiscard]] int cpu_team() const noexcept {
+    return compact_ ? std::max(kernel_pool_.widest(), fft_pool_.widest()) : 0;
   }
   double planning_seconds() const noexcept { return planning_seconds_; }
   bool fsal_ready() const noexcept { return has_recycled_; }
@@ -531,6 +613,7 @@ public:
   double monitor_column_weight_ = 1.0;
 
   Problem problem_;
+  bool compact_{};
   CpuExecutionPool kernel_pool_{CpuPool::kernels};
   CpuExecutionPool fft_pool_{CpuPool::fft};
   mutable ExecutionSpace execution_space_;
@@ -1381,44 +1464,74 @@ State::State(Problem problem)
 State::~State() { close(); }
 void State::set_initial(const std::span<const Complex> field,
                         const std::span<const Complex> noise) {
+  const CpuTeamScope team(workspace_->cpu_team());
   workspace_->set_initial(field, noise);
 }
 std::array<double, 3> State::trial_step(const double dz, const TrialScalars& scalars) {
+  const CpuTeamScope team(workspace_->cpu_team());
   return workspace_->trial_step(dz, scalars);
 }
-void State::finish(const double dz) { workspace_->finish(dz); }
-void State::promote_fsal() { workspace_->promote_fsal(); }
-void State::clear_fsal() { workspace_->clear_fsal(); }
+void State::finish(const double dz) {
+  const CpuTeamScope team(workspace_->cpu_team());
+  workspace_->finish(dz);
+}
+void State::promote_fsal() {
+  const CpuTeamScope team(workspace_->cpu_team());
+  workspace_->promote_fsal();
+}
+void State::clear_fsal() {
+  const CpuTeamScope team(workspace_->cpu_team());
+  workspace_->clear_fsal();
+}
 void State::set_absorber_quiet(const bool quiet) {
+  const CpuTeamScope team(workspace_->cpu_team());
   workspace_->set_absorber_quiet(quiet);
 }
 void State::bind_monitor(const std::vector<double>& weights,
                          const std::vector<double>& column_weights) {
+  const CpuTeamScope team(workspace_->cpu_team());
   workspace_->bind_monitor(weights, column_weights);
 }
 void State::unbind_monitor() noexcept {
   if (workspace_)
     workspace_->unbind_monitor();
 }
-std::vector<double> State::monitor_reading() { return workspace_->monitor_reading(); }
+std::vector<double> State::monitor_reading() {
+  const CpuTeamScope team(workspace_->cpu_team());
+  return workspace_->monitor_reading();
+}
 std::vector<Complex> State::field_to_host() const {
+  const CpuTeamScope team(workspace_->cpu_team());
   return workspace_->field_to_host();
 }
 void State::field_to_host(const std::span<Complex> destination) const {
+  const CpuTeamScope team(workspace_->cpu_team());
   workspace_->field_to_host(destination);
 }
 std::map<std::string, std::size_t> State::memory_ledger() const {
+  const CpuTeamScope team(workspace_->cpu_team());
   return workspace_->memory_ledger();
 }
-CpuSizing State::execution_sizing() const { return workspace_->execution_sizing(); }
+CpuSizing State::execution_sizing() const {
+  const CpuTeamScope team(workspace_->cpu_team());
+  return workspace_->execution_sizing();
+}
 double State::planning_seconds() const noexcept {
+  const CpuTeamScope team(workspace_->cpu_team());
   return workspace_->planning_seconds();
 }
-bool State::fsal_ready() const noexcept { return workspace_->fsal_ready(); }
+bool State::fsal_ready() const noexcept {
+  const CpuTeamScope team(workspace_->cpu_team());
+  return workspace_->fsal_ready();
+}
 std::size_t State::rk_source_evaluations() const noexcept {
+  const CpuTeamScope team(workspace_->cpu_team());
   return workspace_->rk_source_evaluations();
 }
-bool State::closed() const noexcept { return workspace_->closed(); }
+bool State::closed() const noexcept {
+  const CpuTeamScope team(workspace_->cpu_team());
+  return workspace_->closed();
+}
 void State::close() noexcept {
   if (workspace_)
     workspace_->close();

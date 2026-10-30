@@ -226,6 +226,20 @@ inline constexpr std::size_t raman_full_thread_elements = 262144;
 // A kernel pool that holds a full-width instance gives it to medium-width kernels too
 // (CpuExecutionPool::get): GNU OpenMP ends surplus threads when a team narrows.
 inline constexpr int cpu_medium_threads = 4;
+// A compact problem (`compact_problem`: one column on one node with fewer than
+// `compact_max_fine_samples` fine samples, the GNLSE and the mode-averaged capillary
+// among them) runs its kernels on a team of at most `cpu_compact_threads` threads and
+// its threaded transforms on that whole team. Its stage of a few thousand to 16384 bins
+// otherwise woke the whole pool for one short pass between serial transforms: on 16
+// cores of an Intel Xeon Gold 6240 the main thread then ran at about 2.7 instead of 3.5
+// GHz, its arrays came back from other cores' caches, and gnlse_raman_shock took as
+// long on 16 threads as on one. FFTW's threaded loops take the runtime's whole team, so
+// a threaded transform beside the narrower kernel team would make GNU OpenMP end and
+// restart threads at every pair: compact transforms run their loops on the team
+// through FFTW's callback (`CpuTeamScope`), or stay serial without it (solprop
+// docs/dev/benchmarks.md, "Compact CPU teams").
+inline constexpr int cpu_compact_threads = 8;
+inline constexpr std::size_t compact_max_fine_samples = 65536;
 /** Choose a width without changing the runtime or a vendor library's pool. */
 [[nodiscard]] int operation_threads(const ThreadPolicy& policy, CpuPool pool,
                                     CpuOperation operation, std::size_t elements,
@@ -245,13 +259,44 @@ public:
   explicit CpuExecutionPool(CpuPool pool) : pool_(pool) {}
   const ExecutionSpace& get(CpuOperation operation, std::size_t elements,
                             std::size_t fine_samples = 0);
+  /** Size a compact problem's instances (`cpu_compact_threads`), before any `get`;
+      explicit pool requests still apply as given. */
+  void compact() noexcept { compact_ = cpu_size_policy_enabled; }
+  /** The widest instance handed out so far; zero before any. */
+  [[nodiscard]] int widest() const noexcept {
+    return instances_.empty() ? 0 : instances_.rbegin()->first;
+  }
   void clear() { instances_.clear(); }
   [[nodiscard]] CpuSizing sizing() const { return sizing_; }
 
 private:
   CpuPool pool_;
+  bool compact_{};
   std::map<int, ExecutionSpace> instances_;
   CpuSizing sizing_;
+};
+
+/** Whether the host FFTW's threaded loops take a scoped team (`CpuTeamScope`): the
+    OpenMP FFTW with its loop callback (FFTW 3.3.9 and later). Without it a compact
+    problem's transforms stay serial. The first call installs the callback, whose
+    loops take the runtime's whole team, as FFTW's own do, outside a scope. */
+[[nodiscard]] bool fftw_team_loops() noexcept;
+
+/** While it lives, the calling thread's threaded FFTW loops run on a team of
+    `threads` (at least their own job count), so that a compact problem's transforms
+    keep its kernels' team instead of waking the whole runtime; zero restores the
+    runtime's team. Scopes nest. */
+class CpuTeamScope {
+public:
+  explicit CpuTeamScope(int threads) noexcept;
+  ~CpuTeamScope();
+  CpuTeamScope(const CpuTeamScope&) = delete;
+  CpuTeamScope& operator=(const CpuTeamScope&) = delete;
+  CpuTeamScope(CpuTeamScope&&) = delete;
+  CpuTeamScope& operator=(CpuTeamScope&&) = delete;
+
+private:
+  int saved_;
 };
 
 /** solprop SEP 28 section 4.2's per-evaluation reference, independent of any
@@ -619,6 +664,11 @@ struct TrialScalars {
 
 /** Which general z table a call names (solprop SEP 29 G1). */
 enum class TableKind { phi, prefactor, rate, flux };
+
+/** Whether `problem` runs on a compact CPU team (`cpu_compact_threads`): one column
+    on one node, fewer than `compact_max_fine_samples` fine samples, and neither the
+    general modal route, a coupled flow nor a separable geometry. */
+[[nodiscard]] bool compact_problem(const Problem& problem) noexcept;
 
 /** Execution-space views, FFT plans, and scratch owned by one State. */
 class Workspace;

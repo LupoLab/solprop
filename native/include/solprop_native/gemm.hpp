@@ -9,6 +9,7 @@
 #include <KokkosBlas3_gemm.hpp>
 #include <Kokkos_Core.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <stdexcept>
 #include <string_view>
@@ -211,6 +212,87 @@ void engine_gemm(const ExecutionSpace& execution_space, const AView& a, const BV
   } else {
     kokkosblas_gemm(execution_space, a, b, c, beta);
   }
+}
+
+// One mode at several nodes on a host build with a vendor BLAS: the synthesis is an
+// outer product (A's single column) and the projection one weighted sum of node rows,
+// or two when it stacks the embedded rule's. The vendor library threads such a call
+// over its own pool, and the product sizing keeps the engine's dense operations serial;
+// these kernels run on the caller's team instead, the response team that writes the
+// node rows (solprop docs/dev/benchmarks.md, "One-mode products on the response
+// team"). Each element is one product, or a sum over the nodes in order from zero,
+// within the GEMM rounding bound.
+inline constexpr bool one_mode_products_enabled =
+#if defined(KOKKOSKERNELS_ENABLE_TPL_BLAS) && !defined(KOKKOS_ENABLE_CUDA) &&          \
+    !defined(KOKKOS_ENABLE_HIP)
+    true;
+#else
+    false;
+#endif
+
+/** `fine = a.row(0) * b` and, when `a` has a second row, `coarse = a.row(1) * b`, over
+    one contiguous share of b's columns per thread of `execution_space`. */
+template <class ExecutionSpace, class AView, class BView, class FineView,
+          class CoarseView>
+void one_mode_projection(const ExecutionSpace& execution_space, const AView& a,
+                         const BView& b, const FineView& fine,
+                         const CoarseView& coarse) {
+  const std::size_t inner = b.extent(0);
+  const std::size_t columns = b.extent(1);
+  const bool stacked = a.extent(0) == 2;
+  if (a.extent(1) != inner || (a.extent(0) != 1 && !stacked) ||
+      fine.extent(1) != columns || (stacked && coarse.extent(1) != columns))
+    throw std::invalid_argument("one-mode projection extents are inconsistent");
+  const auto parts =
+      static_cast<std::size_t>(std::max(1, execution_space.concurrency()));
+  const std::size_t share = (columns + parts - 1) / parts;
+  constexpr std::size_t chunk = 256;
+  launch::parallel_for(
+      "solprop_native.transform.one_mode_projection",
+      Kokkos::RangePolicy<ExecutionSpace>(execution_space, 0, parts),
+      KOKKOS_LAMBDA(const std::size_t part) {
+        const std::size_t end = Kokkos::min(columns, (part + 1) * share);
+        for (std::size_t first = part * share; first < end; first += chunk) {
+          const std::size_t count = Kokkos::min(chunk, end - first);
+          double fine_total[chunk];
+          double coarse_total[chunk];
+          for (std::size_t offset = 0; offset < count; ++offset)
+            fine_total[offset] = coarse_total[offset] = 0.0;
+          for (std::size_t node = 0; node < inner; ++node) {
+            const double weight = a(0, node);
+            for (std::size_t offset = 0; offset < count; ++offset)
+              fine_total[offset] += weight * b(node, first + offset);
+            if (stacked) {
+              const double coarse_weight = a(1, node);
+              for (std::size_t offset = 0; offset < count; ++offset)
+                coarse_total[offset] += coarse_weight * b(node, first + offset);
+            }
+          }
+          for (std::size_t offset = 0; offset < count; ++offset)
+            fine(0, first + offset) = fine_total[offset];
+          if (stacked)
+            for (std::size_t offset = 0; offset < count; ++offset)
+              coarse(0, first + offset) = coarse_total[offset];
+        }
+      });
+}
+
+/** `c = a * b` for `a` of one column: each node row the mode's row times its weight. */
+template <class ExecutionSpace, class AView, class BView, class CView>
+void one_mode_synthesis(const ExecutionSpace& execution_space, const AView& a,
+                        const BView& b, const CView& c) {
+  if (a.extent(1) != 1 || b.extent(0) != 1 || c.extent(0) != a.extent(0) ||
+      c.extent(1) != b.extent(1))
+    throw std::invalid_argument("one-mode synthesis extents are inconsistent");
+  const std::size_t columns = b.extent(1);
+  launch::parallel_for(
+      "solprop_native.transform.one_mode_synthesis",
+      Kokkos::RangePolicy<ExecutionSpace>(execution_space, 0, c.extent(0)),
+      KOKKOS_LAMBDA(const std::size_t node) {
+        const double weight = a(node, 0);
+        for (std::size_t column = 0; column < columns; ++column)
+          c(node, column) = weight * b(0, column);
+      });
 }
 
 template <class ExecutionSpace, class AView, class BView, class CView>

@@ -106,6 +106,25 @@ time divided by the native backend's: above 1, the native backend is faster.
   medium-width kernels; FFT plans keep four threads, as FFTW's loops keep the whole team.
   `h2_raman_averaged` became 1.9-2.1 times faster at 16 threads (faster than one thread
   again) and `argon_blueshift` 1.2-1.4 times, on a Xeon Gold 6240 and an AMD EPYC 7763.
+- **A compact team for one-column problems** ([measurements](benchmarks.md#compact-cpu-teams)).
+  A GNLSE or mode-averaged run woke all sixteen threads for its stage entry between
+  serial transforms; the main thread then ran at a lower clock and fetched its arrays
+  from other cores, so `gnlse_raman_shock` gained nothing over one thread. Such a
+  problem now runs every kernel on at most eight threads and its FFTs on the same team,
+  through FFTW's loop callback inside a per-call scope (FFTW's own loop takes the
+  runtime's whole team, which would end and restart threads beside a narrower kernel
+  team), its threaded transforms at the team's width. At 16 threads `gnlse_raman_shock`
+  takes 0.77 of its time on a Xeon Gold 6240 and 0.97 on an AMD EPYC 7763, and
+  `h2_raman_averaged` 0.90 and 0.97; one thread is unchanged.
+  Threading the Raman transforms from the modal FFT's start gained 2-6 % on the Xeon but
+  lost 6-17 % on the EPYC, and was not kept.
+- **One-mode products on the response team** ([measurements](benchmarks.md#one-mode-products-on-the-response-team)).
+  One real mode at several nodes synthesised and projected through the vendor GEMM, which
+  threaded each 33 × 1 and 2 × 33 product over its own pool at 2.3 times its one-thread
+  cost; two small kernels now run them on the band column's response team. Plain
+  loops tried earlier ran on the product's serial instance and lost; on the team
+  `argon_blueshift` takes 0.68 of its time at 16 threads on a Xeon Gold 6240 and 0.60
+  on an AMD EPYC 7763, one thread unchanged.
 - **NumPy's BLAS held to one thread while a native backend lives**
   ([measurements](benchmarks.md#numpys-blas-beside-a-native-run)). Its pthreads
   workers, woken by the small host-side products of each saved plane, spun on the native
