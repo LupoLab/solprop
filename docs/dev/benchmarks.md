@@ -328,7 +328,11 @@ Interleaved `benchmarks ab` against the compact-team commit, Xeon, 3 rounds, `--
 | `rdw` (four modes, unchanged path) | 1.000 | 1.000 |
 
 `argon_blueshift` now runs 4.1 times faster at 16 threads than at one (1.01 against
-4.13 s), where it was 2.8 times.
+4.13 s), where it was 2.8 times. On one thread the kernels are left to the vendor GEMM's
+serial ones: in two tracking-set runs the one-thread window was 1.8 % slower with them,
+and without them it took 0.963 [0.948, 0.969] of the time with them (the four-mode `rdw`,
+whose code is unchanged, also moved by 0.964 in that A/B: code-layout noise of this size
+is present at one thread).
 
 (stacked-projection-splits)=
 ### Stacked projection splits

@@ -2002,6 +2002,9 @@ public:
         nodes * problem_.effective_node_pol() * problem_.n_to;
     response_execution_space_ =
         kernel_pool_.get(CpuOperation::response, response_elements, problem_.n_to);
+    // On one thread the vendor GEMM's serial kernels are as fast.
+    one_mode_products_ =
+        one_mode_products_ && response_execution_space_.concurrency() > 1;
     const auto tail = problem_.n_nodes % nodes;
     response_tail_execution_space_ = kernel_pool_.get(
         CpuOperation::response, tail * problem_.effective_node_pol() * problem_.n_to,
