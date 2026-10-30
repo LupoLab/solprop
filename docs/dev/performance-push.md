@@ -44,7 +44,20 @@ This is `main` against the branch at `25b8ebb` on the Intel Xeon Gold 6240. It c
 | `kerr_beam_192` | 0.585 | 0.702 |
 | geometric mean | 0.663 | 0.613 |
 
-The AMD EPYC 7763 and NVIDIA A40 confirmations are still running.
+On a shared AMD EPYC 7763 node (64 cores), `main` against `733e5df` gives a geometric mean of 0.706 at one thread and 0.743 at sixteen. Every case took the same steps, with fields within $2 \times 10^{-13}$. A run on an exclusive node is still to come.
+
+On the NVIDIA A40, `main` against `a413afd`:
+
+| Case | Ratio | Field difference |
+|---|---|---|
+| `he_rdw_averaged` | 0.459 | $1.0 \times 10^{-11}$ (flagged) |
+| `argon_blueshift_averaged` | 0.658 | $3.4 \times 10^{-15}$ |
+| `h2_raman_averaged` | 0.825 | $7.1 \times 10^{-14}$ |
+| `rdw` | 0.672 | $2.1 \times 10^{-15}$ |
+| `radial_filament_256` | 0.725 | $3.2 \times 10^{-15}$ |
+| `kerr_beam_384` | 0.640 | $1.0 \times 10^{-15}$ |
+
+Every case took the same steps. Some of `main`'s A40 timings vary by up to a factor of two from round to round, because NumPy's BLAS threads spin beside the host thread (the branch holds them), so these ratios are medians. The device suites pass, except one free-space thread-count test that `main` also fails.
 
 ## NVIDIA A40
 
@@ -55,6 +68,7 @@ The AMD EPYC 7763 and NVIDIA A40 confirmations are still running.
 | the free-space prefactor with one reciprocal | `kerr_beam_384`: 0.981 |
 | one pinned upload per trial (SEP 39 §6.7) | from 2.1 to 1.1 host-to-device copies a trial; time unchanged on this card |
 | radial analytic synthesis through the real product, then on the retained spectrum | `radial_filament_256`: 0.902 |
+| a stage's forward rows in one batched transform; a trial's norms from pinned memory | `he_rdw_averaged` 0.784, `argon_blueshift_averaged` 0.755, `h2_raman_averaged` 0.878 |
 
 The A40's radial trial is bound by its binary64 rate throughout. The Kerr case's remaining
 kernel time is its three-dimensional transforms and the separable fold, both bound by the
@@ -70,7 +84,8 @@ device lanes on its own warning. SEP 39's report for phase 5 records the qualifi
 |---|---|---|
 | the native march instead of the Python march, same build | wall −1 % to −3 %; host µs a trial 15–40 → 0.5–3 | wall −3 % to −23 %; host µs a trial 41–70 → 0.8–5.2 |
 | a kernel's functor as its launch argument; 256-thread HIP range reductions; φ-functions and history rows in registers; no fence after an accepted step; the held currents in one plan | `he_rdw_averaged` 0.744, `argon_blueshift_averaged` 0.686, `h2_raman_averaged` 0.740, `rdw` 0.875, `radial_filament_256` 0.901 | 0.920, 0.902, 0.918, 0.969, 0.989 |
-| `main` against the branch | `he_rdw_averaged` 0.463, `h2_raman_averaged` 0.624, `rdw` 0.605, `radial_filament_256` 0.843, `kerr_beam_384` 0.650 | 0.790, 0.788, 0.841, 0.868, 0.722 |
+| a trial's norms read from pinned host memory; a stage's forward rows in one batched transform; the three radial held streams in one plan | `he_rdw_averaged` 0.903, `argon_blueshift_averaged` 0.858, `h2_raman_averaged` 0.888, `radial_filament_256` 0.969 | not measured |
+| `main` against the branch (before the row above) | `he_rdw_averaged` 0.463, `h2_raman_averaged` 0.624, `rdw` 0.605, `radial_filament_256` 0.843, `kerr_beam_384` 0.650 | 0.790, 0.788, 0.841, 0.868, 0.722 |
 
 Both devices now spend most of a trial waiting for the host to launch kernels of 2–4 µs.
 Their kernels keep the GPU busy only 35–50 % of the time. Capturing a trial's launches as

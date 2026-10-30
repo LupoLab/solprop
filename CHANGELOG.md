@@ -591,6 +591,12 @@ The first public release. It contains:
   Adams runs take 0.90 to 0.97 of the time of the build without these changes. HIP
   builds also compile again (a flag that only the host reads, which Clang refused as
   unused).
+- **A device Adams trial reads its norms from pinned memory, and a stage transforms its
+  forward rows together.** The absorber's, the projection's and the held currents' rows
+  of a modal stage now go through one batched transform, and the radial route's three
+  held streams through one plan. On an AMD Instinct MI325X the mode-averaged helium,
+  argon and hydrogen Raman runs take 0.86 to 0.90 of the time; on an NVIDIA A40 they
+  take 0.76 to 0.88. They take the same steps, and the fields are bitwise equal.
 - **`python -m benchmarks ab` between builds whose grids differ** recorded the field
   difference as infinite, which the summary's JSON refused, so the run ended without
   its summary; the difference is now recorded as not defined.

@@ -1044,6 +1044,34 @@ transforms 4 → 3 a trial (cuFFT's one kernel each). Against the previous main 
 `he_rdw_averaged` 0.790, `argon_blueshift_averaged` 0.882, `h2_raman_averaged` 0.788, `rdw`
 0.841, `radial_filament_256` 0.868, `kerr_beam_384` (half) 0.722, `kerr_beam_192` (half) 0.776.
 
+### Pinned trial norms and batched forward rows on a device
+
+On a device, an Adams trial's defect norms are reduced into pinned host memory. The
+reduction's last block writes them there directly, so the device-to-host copy is gone (on
+HIP it was a blit kernel: 2.16 → 1.16 copies a trial), and the trial keeps its one fence.
+A modal stage's in-stage absorber, projection and held-current rows are carved from one
+buffer and transformed with one batched plan after the absorber is formed. This does not
+apply to dispersive responses, the general route or coarse rows. The radial route's three
+held streams also take one plan.
+
+All A/Bs use `ab --device`, three rounds, against the tree before the change. Every case
+took the same steps, and the fields were bitwise equal.
+
+| device | case | ratio (range) |
+|---|---|---:|
+| AMD Instinct MI325X | `he_rdw_averaged` (0.3) | 0.903 (0.856–0.906) |
+| | `argon_blueshift_averaged` (0.1) | 0.858 (0.854–0.929) |
+| | `h2_raman_averaged` (0.4) | 0.888 (0.836–0.893) |
+| | `rdw` (0.1, coarse rows, not packed) | 0.994 (0.959–1.001) |
+| | `radial_filament_256` (0.5) | 0.969 (0.963–0.977) |
+| | `kerr_beam_192` (0.5, unaffected) | 1.004 (0.984–1.024) |
+| NVIDIA A40 (batched rows and pinned norms) | `he_rdw_averaged` | 0.784 |
+| | `argon_blueshift_averaged` | 0.755 |
+| | `h2_raman_averaged` | 0.878 |
+
+The pinned norms alone were within noise on the MI325X. When the pack is forced on a CPU
+build, the fields are bitwise equal.
+
 ### Retained radial synthesis and Raman modal products
 
 Two work reductions from the CPU experiment's handoff, each measured with
