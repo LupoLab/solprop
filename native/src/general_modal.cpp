@@ -611,10 +611,8 @@ void GeneralModalSource::combine_maps(const std::size_t stage) {
 void GeneralModalSource::synthesise(const std::size_t first, const std::size_t count) {
   // Every fine bin outside the crop multiplies a zero amplitude, and a partial
   // chunk's unused rows transform to zero rather than to the previous chunk. One
-  // team per row zeroes it and then accumulates its crop mode by mode, in the
-  // reference's order (a zero, then each mode's product), while the row is in cache;
-  // each vector loop runs over contiguous bins, and the barrier orders the zeroing
-  // before the sums where lanes are threads. The real signal's one-sided rows take
+  // team per row zeroes it and accumulates its crop mode by mode, in the reference's
+  // order (a zero, then each mode's product). The real signal's one-sided rows take
   // each product halved where the doubling doubled it (exact) and no imaginary part
   // at the zero and Nyquist bins, which its real transform does not read; its
   // transform overwrites the rows, so they are zeroed every time as well.
@@ -622,19 +620,81 @@ void GeneralModalSource::synthesise(const std::size_t first, const std::size_t c
   using TeamMember = TeamPolicy::member_type;
   const UnmanagedView<const Complex*> synthesis = synthesis_;
   const UnmanagedView<const Complex**> scaled = scaled_;
-  const bool real_signal = real_signal_;
   const UnmanagedView<Complex**> spectrum =
-      real_signal ? UnmanagedView<Complex**>(half_spectrum_)
-                  : UnmanagedView<Complex**>(node_spectrum_);
+      real_signal_ ? UnmanagedView<Complex**>(half_spectrum_)
+                   : UnmanagedView<Complex**>(node_spectrum_);
   const auto components = components_;
   const auto modes = n_modes_;
   const auto n_omega = n_omega_;
-  const auto n_to = n_to_;
   const auto rows = count * components;
   const auto crop = crop_offset_;
   const auto samples = static_cast<int>(spectrum.extent(1));
   const auto policy = TeamPolicy(
       dense_for(count), static_cast<int>(chunk_ * components), 1, general_team_lanes());
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+  // On the host a row's crop is summed in blocks of bins held in two local arrays,
+  // each mode's products added in turn over contiguous bins of the map and the state,
+  // and stored once; only the bins outside the crop are zeroed.
+  const bool real_signal = real_signal_;
+  const auto n_to = n_to_;
+  launch::parallel_for(
+      "solprop_native.general.synthesise", policy,
+      KOKKOS_LAMBDA(const TeamMember& team) {
+        const auto row = static_cast<std::size_t>(team.league_rank());
+        Complex* const out = &spectrum(row, 0);
+        const auto bins = static_cast<std::size_t>(samples);
+        if (row >= rows) {
+          for (std::size_t bin = 0; bin < bins; ++bin)
+            out[bin] = Complex{};
+          return;
+        }
+        for (std::size_t bin = 0; bin < crop; ++bin)
+          out[bin] = Complex{};
+        for (std::size_t bin = crop + n_omega; bin < bins; ++bin)
+          out[bin] = Complex{};
+        const auto base = ((first * components + row) * modes) * n_omega;
+        for (std::size_t start = 0; start < n_omega; start += general_synthesis_block) {
+          const std::size_t width =
+              Kokkos::min(general_synthesis_block, n_omega - start);
+          double real[general_synthesis_block];
+          double imag[general_synthesis_block];
+          for (std::size_t k = 0; k < width; ++k) {
+            real[k] = 0.0;
+            imag[k] = 0.0;
+          }
+          for (std::size_t mode = 0; mode < modes; ++mode) {
+            const Complex* const map = &synthesis(base + mode * n_omega + start);
+            const Complex* const state = &scaled(mode, start);
+            if (real_signal)
+              for (std::size_t k = 0; k < width; ++k) {
+                const double product_real =
+                    map[k].real() * state[k].real() - map[k].imag() * state[k].imag();
+                const double product_imag =
+                    map[k].real() * state[k].imag() + map[k].imag() * state[k].real();
+                const auto fine = crop + start + k;
+                const bool edge = fine == 0 || 2 * fine == n_to;
+                const double scale = edge ? 1.0 : 0.5;
+                real[k] = real[k] + scale * product_real;
+                imag[k] = edge ? 0.0 : imag[k] + scale * product_imag;
+              }
+            else
+              for (std::size_t k = 0; k < width; ++k) {
+                // Kokkos::complex's product and sum, written on the parts.
+                const double product_real =
+                    map[k].real() * state[k].real() - map[k].imag() * state[k].imag();
+                const double product_imag =
+                    map[k].real() * state[k].imag() + map[k].imag() * state[k].real();
+                real[k] = real[k] + product_real;
+                imag[k] = imag[k] + product_imag;
+              }
+          }
+          for (std::size_t k = 0; k < width; ++k)
+            out[crop + start + k] = Complex(real[k], imag[k]);
+        }
+      });
+#else
+  // Each vector loop runs over contiguous bins, and the barrier orders the zeroing
+  // before the sums where lanes are threads.
   launch::parallel_for(
       "solprop_native.general.synthesise", policy,
       KOKKOS_LAMBDA(const TeamMember& team) {
@@ -645,48 +705,26 @@ void GeneralModalSource::synthesise(const std::size_t first, const std::size_t c
           return;
         team.team_barrier();
         const auto base = ((first * components + row) * modes) * n_omega;
-        for (std::size_t mode = 0; mode < modes; ++mode) {
-          if (real_signal)
-            Kokkos::parallel_for(
-                Kokkos::ThreadVectorRange(team, static_cast<int>(n_omega)),
-                [=](const int lane) {
-                  const auto omega = static_cast<std::size_t>(lane);
-                  const auto map = base + mode * n_omega + omega;
-                  const double map_real = synthesis(map).real();
-                  const double map_imag = synthesis(map).imag();
-                  const double state_real = scaled(mode, omega).real();
-                  const double state_imag = scaled(mode, omega).imag();
-                  const double product_real =
-                      map_real * state_real - map_imag * state_imag;
-                  const double product_imag =
-                      map_real * state_imag + map_imag * state_real;
-                  const auto fine = crop + omega;
-                  const bool edge = fine == 0 || 2 * fine == n_to;
-                  const double scale = edge ? 1.0 : 0.5;
-                  auto& bin = spectrum(row, fine);
-                  bin = Complex(bin.real() + scale * product_real,
-                                edge ? 0.0 : bin.imag() + scale * product_imag);
-                });
-          else
-            Kokkos::parallel_for(
-                Kokkos::ThreadVectorRange(team, static_cast<int>(n_omega)),
-                [=](const int lane) {
-                  const auto omega = static_cast<std::size_t>(lane);
-                  // Kokkos::complex's product and sum, written on the parts.
-                  const auto map = base + mode * n_omega + omega;
-                  const double map_real = synthesis(map).real();
-                  const double map_imag = synthesis(map).imag();
-                  const double state_real = scaled(mode, omega).real();
-                  const double state_imag = scaled(mode, omega).imag();
-                  const double product_real =
-                      map_real * state_real - map_imag * state_imag;
-                  const double product_imag =
-                      map_real * state_imag + map_imag * state_real;
-                  auto& bin = spectrum(row, crop + omega);
-                  bin = Complex(bin.real() + product_real, bin.imag() + product_imag);
-                });
-        }
+        for (std::size_t mode = 0; mode < modes; ++mode)
+          Kokkos::parallel_for(
+              Kokkos::ThreadVectorRange(team, static_cast<int>(n_omega)),
+              [=](const int lane) {
+                const auto omega = static_cast<std::size_t>(lane);
+                // Kokkos::complex's product and sum, written on the parts.
+                const auto map = base + mode * n_omega + omega;
+                const double map_real = synthesis(map).real();
+                const double map_imag = synthesis(map).imag();
+                const double state_real = scaled(mode, omega).real();
+                const double state_imag = scaled(mode, omega).imag();
+                const double product_real =
+                    map_real * state_real - map_imag * state_imag;
+                const double product_imag =
+                    map_real * state_imag + map_imag * state_real;
+                auto& bin = spectrum(row, crop + omega);
+                bin = Complex(bin.real() + product_real, bin.imag() + product_imag);
+              });
       });
+#endif
 }
 
 void GeneralModalSource::respond(const std::size_t first, const std::size_t count) {

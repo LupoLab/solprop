@@ -31,6 +31,9 @@ inline constexpr std::size_t general_pair_histories = 6;
  */
 inline constexpr std::size_t general_vector_lanes = 8;
 
+/** The bins a host synthesis team sums at a time in local arrays. */
+inline constexpr std::size_t general_synthesis_block = 256;
+
 /** The widest block of bins a host projection team accumulates. */
 inline constexpr std::size_t general_projection_max_lanes = 2048;
 
