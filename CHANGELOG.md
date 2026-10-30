@@ -562,9 +562,10 @@ The first public release. It contains:
   the HIP build with the native march alone, the four-mode RDW 0.88 and the radial
   filament 0.90, in the same steps, fields agreeing to 1.3e-11 or better; against the
   previous HIP build, which stepped them with the Python march, the mode-averaged runs
-  take 0.46 to 0.63 of the time. On an NVIDIA H200 the mode-averaged and four-mode Adams
-  runs take 0.90 to 0.97 of the time of the build without these changes. HIP builds also compile again (a
-  flag that only the host reads, which Clang refused as unused).
+  take 0.46 to 0.63 of the time. On an NVIDIA H200 the mode-averaged and four-mode
+  Adams runs take 0.90 to 0.97 of the time of the build without these changes. HIP
+  builds also compile again (a flag that only the host reads, which Clang refused as
+  unused).
 - **`python -m benchmarks ab` between builds whose grids differ** recorded the field
   difference as infinite, which the summary's JSON refused, so the run ended without
   its summary; the difference is now recorded as not defined.
