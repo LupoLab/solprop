@@ -934,6 +934,21 @@ void GeneralModalSource::project(const std::size_t first, const std::size_t coun
   project_device(first, count);
 #else
   switch (projection_lanes_) {
+  case 2048:
+    project_lanes<2048>(first, count);
+    break;
+  case 1024:
+    project_lanes<1024>(first, count);
+    break;
+  case 512:
+    project_lanes<512>(first, count);
+    break;
+  case 256:
+    project_lanes<256>(first, count);
+    break;
+  case 128:
+    project_lanes<128>(first, count);
+    break;
   case 64:
     project_lanes<64>(first, count);
     break;

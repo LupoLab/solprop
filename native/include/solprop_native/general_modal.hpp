@@ -31,19 +31,27 @@ inline constexpr std::size_t general_pair_histories = 6;
  */
 inline constexpr std::size_t general_vector_lanes = 8;
 
+/** The widest block of bins a host projection team accumulates. */
+inline constexpr std::size_t general_projection_max_lanes = 2048;
+
 /**
  * The block of adjacent output bins one projection team accumulates.
  *
- * The widest power of two from `general_vector_lanes` to 64 that still gives every
- * one of `concurrency` threads a team: wider blocks cost less per row walked, and
- * the blocks do not change any bin's sum, so the choice moves no bit (measured on
- * the general route's source on native CPU before the first public release).
+ * The widest power of two from `general_vector_lanes` to
+ * `general_projection_max_lanes` that still gives every one of `concurrency` threads
+ * a team, and no wider than the first power of two covering the bins: wider blocks
+ * cost less per row walked, and a block of the whole row walks a mode's map rows as
+ * one contiguous stream (the graded-index guide's 4 modes x 1537 bins on an Intel
+ * Xeon Gold 6240: 1.81 s at 64 bins against 1.17 s at 2048, one thread; 0.20 s against
+ * 0.17 s at 512, sixteen threads). The blocks do not change any bin's sum, so the
+ * choice moves no bit.
  */
 constexpr std::size_t general_projection_lanes(const std::size_t modes,
                                                const std::size_t n_omega,
                                                const std::size_t concurrency) {
   std::size_t lanes = general_vector_lanes;
-  while (lanes < 64 && modes * ((n_omega + 2 * lanes - 1) / (2 * lanes)) >= concurrency)
+  while (lanes < general_projection_max_lanes && lanes < n_omega &&
+         modes * ((n_omega + 2 * lanes - 1) / (2 * lanes)) >= concurrency)
     lanes *= 2;
   return lanes;
 }

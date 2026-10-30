@@ -328,16 +328,19 @@ TEST(GeneralModal, AWideOffsetCropMatchesTheStraightforwardHostSource) {
   }
 }
 
-// The projection's block widens while every thread still has a team, and the widest
-// block is 64 bins: the graded-index guide's 2 modes x 65 bins take 64 at one and
-// four threads and 8 at eighteen (a measured optimum on an 18-core socket).
+// The projection's block widens while every thread still has a team, up to the
+// first power of two that covers the bins and at most 2048 bins: the graded-index
+// guide's 2 modes x 65 bins take 128 at one thread, 64 at four and 8 at eighteen (a
+// measured optimum on an 18-core socket).
 TEST(GeneralModal, TheProjectionBlockWidensWhileEveryThreadHasATeam) {
-  EXPECT_EQ(native::general_projection_lanes(2, 65, 1), 64U);
+  EXPECT_EQ(native::general_projection_lanes(2, 65, 1), 128U);
   EXPECT_EQ(native::general_projection_lanes(2, 65, 4), 64U);
   EXPECT_EQ(native::general_projection_lanes(2, 65, 10), 16U);
   EXPECT_EQ(native::general_projection_lanes(2, 65, 18), native::general_vector_lanes);
   EXPECT_EQ(native::general_projection_lanes(1, 3, 1000), native::general_vector_lanes);
-  EXPECT_EQ(native::general_projection_lanes(40, 4097, 1), 64U);
+  EXPECT_EQ(native::general_projection_lanes(40, 4097, 1),
+            native::general_projection_max_lanes);
+  EXPECT_EQ(native::general_projection_lanes(4, 1537, 16), 512U);
 }
 
 TEST(GeneralModal, DelayedTensorResponseMatchesTheDirectConvolution) {
