@@ -497,6 +497,18 @@ The first public release. It contains:
   now run as two small kernels on the plasma column's thread team. On an Intel Xeon Gold
   6240 at 16 threads `argon_blueshift` takes 0.68 of its time (0.60 on an AMD EPYC 7763);
   one thread is unchanged.
+- **Plasma capillaries and graded-index guides run faster on a CPU.** The band plasma
+  column's host passes ran sample by sample, with an out-of-line call and a division in
+  each sample's fraction and loss guard, a scan that Kokkos' host team runs twice, and a
+  filter that summed each sample's taps serially; they now run as block loops over the
+  vector-maths passes (on x86-64 the filter a tap pair at a time), and the band
+  statistics take the same blocks. A real-form general-route cubic now reads its field
+  from a complex-to-real transform, half the complex inverse's work, and the route's
+  projection and synthesis stream their maps in longer runs. On an Intel Xeon Gold 6240
+  at one thread the three-mode `ctc` takes 0.70 of its time, resolved argon 0.64 and the
+  graded-index guide 0.70 (0.85, 0.85 and 0.80 at 16 threads); on an AMD EPYC 7763 0.76,
+  0.76 and 0.75 at one thread. Fields move at most
+  by rounding; the band statistics' peak ionisation rate by 3.6e-14 relative.
 - **Native CPU runs no longer re-create OpenMP threads every step.** A four-thread
   kernel between full-width ones made GNU OpenMP end and restart twelve of sixteen
   threads each time; the hydrogen Raman case was slower at 16 threads than at one. A
