@@ -394,8 +394,8 @@ The first public release. It contains:
   `ctc_reduced_two_mode`), the mode-averaged cases ask for `mode_average=True`, and the
   declared array sizes and costs are those of the current grids.
 - **The Adams march runs natively**
-  ([SEP 39](https://solprop.readthedocs.io/en/latest/dev/seps/sep-0039-native-adams-march.html),
-  in progress). On the native CPU backend `Multistep()` (in either formulation, and the
+  ([SEP 39](https://solprop.readthedocs.io/en/latest/dev/seps/archive/sep-0039-native-adams-march.html),
+  final). On the native CPU backend `Multistep()` (in either formulation, and the
   one-order-higher PEC comparisons, adaptive or replayed) runs its stage scalars,
   coefficient tables and controller in compiled code, one native call for many
   steps, returning to Python only when a statistics row, a save plane, a monitor check,

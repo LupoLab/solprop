@@ -31,14 +31,6 @@ being implemented.
   identifies a new material contract. Ne/Xe, mixtures, mode-averaged and multimode
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
-- [SEP 39 — A native Adams march: the Multistep step loop in the compiled backend](seps/sep-0039-native-adams-march.md):
-  the exponential `Multistep()` controller, order choice, landings, coefficient tables
-  and stage scalars executed natively under a policy record solprop hands over, with the
-  Python march as the reference. It returns to the host only at planes, monitor checks
-  and statistics rows. It removes most of the 40–210 µs of Python left per trial: 2–11 %
-  of a single-mode CPU run beyond its native-tables phase, and most of a device trial's
-  host time. Configurations it does not cover run the Python march with a warning, and
-  it changes no default. A device-resident controller remains open.
 
 ## Draft enhancement proposals
 
@@ -715,7 +707,7 @@ GPUs with slow double precision.
   kernels only. The first was measured on the exponential Adams march on an AMD EPYC 7763
   under GCC 16.2: 1.9–2.7 % faster at one thread, and **not value-identical** — with the
   same steps the final field moved by up to 1.9e-10 relative, within SEP 25's rules but
-  to be stated when adopted ([SEP 39](seps/sep-0039-native-adams-march.md) §6.9). The
+  to be stated when adopted ([SEP 39](seps/archive/sep-0039-native-adams-march.md) §6.9). The
   second is not yet measured.
 - Subnormals: no build sets flush-to-zero. On x86-64 an operation on a subnormal can cost
   of the order of a hundred cycles (NVIDIA GPUs and Apple silicon take them at full
@@ -891,6 +883,14 @@ The frozen split is the default and the more accurate on every case measured, so
 `numba_cpu` and `native` is needed only if a use case favours it; its Gauss-node weights
 are evaluated inside the backend, not carried in the stage bundle.
 
+**A device-resident Adams controller.** On CUDA and HIP builds the native Adams march
+([SEP 39](seps/archive/sep-0039-native-adams-march.md), final) keeps its controller on
+the host. Each trial reads its error norms back once and launches its kernels from the
+host, with the trial's source replayed as one device graph where its operations repeat.
+A controller held on the device, choosing the step and the order there, would remove
+the read-back and the host's launches. It needs device forms of the landing search and
+the order choice, and it must take the same steps as the host controller.
+
 **The z table on GPU builds.** Every CPU backend runs the general z table, the native
 CPU build in its own kernels (SEP 29 section 6.6), but the native GPU builds refuse it,
 naming its size: the table is the state's size times the degree times the intervals,
@@ -1060,7 +1060,7 @@ and per-plane times, not allocations.
 90–190 ms outside its steps (122 ms on an AMD EPYC 7763) on metadata, provenance,
 output and plane observation, the same for either integrator: 0.12 s of a 0.7 s
 mode-averaged helium run once its steps are cheap
-([SEP 39](seps/sep-0039-native-adams-march.md) §6.9, which leaves it out of scope).
+([SEP 39](seps/archive/sep-0039-native-adams-march.md) §6.9, which leaves it out of scope).
 Profile it and remove what is not needed per run.
 
 **A copy-free Adams sample.** The Adams sample on `numba_cpu` makes 16

@@ -649,7 +649,7 @@ On a cheap source, calls are not run time. On the compiled backends one source
 evaluation can cost less than a Runge–Kutta step's own linear work, and the Adams march
 takes more steps, so the call saving shrinks in wall time or disappears: a
 single-mode capillary, a coupled wall. On `native` the `Multistep()` controller runs
-natively as well ([SEP 39](../../dev/seps/sep-0039-native-adams-march.md)),
+natively as well ([SEP 39](../../dev/seps/archive/sep-0039-native-adams-march.md)),
 so a step costs its kernels and almost no Python. [Choosing a stepper](choosing-a-stepper.md)
 gives the measured ranking by regime, on both compiled backends and on devices.
 
@@ -739,3 +739,6 @@ gives the measured ranking by regime, on both compiled backends and on devices.
 
 The carrier frame on this page was proposed, measured and delivered by
 [SEP 35](../../dev/seps/archive/sep-0035-carrier-frame-exponential-adams.md).
+The native march, which runs the `Multistep()` controller in the compiled backend, was
+proposed, measured and delivered by
+[SEP 39](../../dev/seps/archive/sep-0039-native-adams-march.md).

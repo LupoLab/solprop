@@ -746,7 +746,7 @@ functions forced on (`SOLPROP_NATIVE_VECTOR_MATH=SLEEF`) +11.6 %, `gnlse_raman_s
 ### Exponential Adams host cost: the SEP 39 baseline
 
 The host side of an exponential `Multistep()` trial on the native CPU backend, before
-[SEP 39](seps/sep-0039-native-adams-march.md)'s native march, at the head of the vector
+[SEP 39](seps/archive/sep-0039-native-adams-march.md)'s native march, at the head of the vector
 maths change (a500d2d). The SEP's §3.3 reads these figures.
 
 **Method.**
@@ -822,7 +822,7 @@ the source.
 
 ### The native Adams march
 
-[SEP 39](seps/sep-0039-native-adams-march.md)'s native march against solprop's Python
+[SEP 39](seps/archive/sep-0039-native-adams-march.md)'s native march against solprop's Python
 march on the same build (`benchmarks.adams_host --host-march`), and against the march
 with the host packing the stage rows, as before the SEP's phase 1 (`--host-stages`).
 Interleaved fresh processes, the arm order reversed every round, medians; every arm

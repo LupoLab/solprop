@@ -1504,7 +1504,7 @@ Adams trial's rate weights) live in one packed buffer of two slots and cross in 
 trial from a ring of eight pinned host buffers (`Kokkos::SharedHostPinnedSpace`), the ring's
 reuse waiting for the space to drain; an Adams trial's step scalars fill slot 0 and its
 sample's slot 1, and the stage views turn to slot 1 for the source
-([SEP 39](seps/sep-0039-native-adams-march.md) §6.7). A radial analytic field's node
+([SEP 39](seps/archive/sep-0039-native-adams-march.md) §6.7). A radial analytic field's node
 chunks take the interleaved real GEMM on a device as on the host, and a square radial
 analytic map synthesises its retained spectrum there too (the gather and the pad a thread
 per element, the chunk's padded rows zeroed first): the product covers `n_omega` complex
@@ -1814,7 +1814,7 @@ Every backend reports `memory_ledger()`: buffer name → bytes, including transf
 A test asserts which entries are field-sized, that everything is named even when empty, and
 that the total is within the documented budget for the standard cases.
 
-**The native Adams march** (ADR-060, [SEP 39](seps/sep-0039-native-adams-march.md)).
+**The native Adams march** (ADR-060, [SEP 39](seps/archive/sep-0039-native-adams-march.md)).
 `native` steps `Multistep()` itself, in either formulation, the one-order-higher PEC
 comparisons and replayed schedules: `_NativeAdamsMarch` hands the native state
 solprop's `MarchPolicy` (and a replay's schedule) once, then each call runs attempts on

@@ -425,7 +425,7 @@ corrector, carry and defect norms are native passes over its resident eigenbasis
 frozen-residual flow's generator applied once per sample. The general
 path (PECE and the comparison variants) keeps host arrays.
 
-**The policy and the native march** (ADR-060, [SEP 39](seps/sep-0039-native-adams-march.md)):
+**The policy and the native march** (ADR-060, [SEP 39](seps/archive/sep-0039-native-adams-march.md)):
 every number the controller reads -- the order and its variability, the safety and
 growth factors, the restart and hysteresis constants, the collar's and the carrier's
 caps, the budget, the floor and ceiling, the landings and the run's end -- is one

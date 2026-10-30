@@ -1587,7 +1587,7 @@ Withdrawn (development-process record, not a design decision).
     corrector and dense observation, the separable stage propagators).
 
 ## ADR-060 — The exponential Adams march executes natively; solprop's is the reference
-- **Status:** accepted ([SEP 39](seps/sep-0039-native-adams-march.md)); amends ADR-043
+- **Status:** accepted ([SEP 39](seps/archive/sep-0039-native-adams-march.md)); amends ADR-043
 - **Context:** ADR-043 keeps the Adams controller in solprop and hands the state-sized
   work to an engine, so each trial of a native run crosses the seam several times and
   runs Python on the host: 150 to 210 µs per trial on an AMD EPYC 7763 before SEP 39,
