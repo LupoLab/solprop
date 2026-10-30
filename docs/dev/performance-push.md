@@ -46,18 +46,18 @@ This is `main` against the branch at `25b8ebb` on the Intel Xeon Gold 6240. It c
 
 On a shared AMD EPYC 7763 node (64 cores), `main` against `733e5df` gives a geometric mean of 0.706 at one thread and 0.743 at sixteen. Every case took the same steps, with fields within $2 \times 10^{-13}$. A run on an exclusive node is still to come.
 
-On the NVIDIA A40, `main` against `a413afd`:
+On the NVIDIA A40, `main` against `01d051c`, which includes the device graph region:
 
 | Case | Ratio | Field difference |
 |---|---|---|
-| `he_rdw_averaged` | 0.459 | $1.0 \times 10^{-11}$ (flagged) |
-| `argon_blueshift_averaged` | 0.658 | $3.4 \times 10^{-15}$ |
-| `h2_raman_averaged` | 0.825 | $7.1 \times 10^{-14}$ |
-| `rdw` | 0.672 | $2.1 \times 10^{-15}$ |
-| `radial_filament_256` | 0.725 | $3.2 \times 10^{-15}$ |
-| `kerr_beam_384` | 0.640 | $1.0 \times 10^{-15}$ |
+| `he_rdw_averaged` | 0.667 | $1.0 \times 10^{-11}$ (flagged) |
+| `argon_blueshift_averaged` | 0.625 | $3.4 \times 10^{-15}$ |
+| `h2_raman_averaged` | 0.807 | $7.1 \times 10^{-14}$ |
+| `rdw` | 0.891 | $2.1 \times 10^{-15}$ |
+| `radial_filament_256` | 0.863 | $3.2 \times 10^{-15}$ |
+| `kerr_beam_384` | 0.777 | $1.0 \times 10^{-15}$ |
 
-Every case took the same steps. Some of `main`'s A40 timings vary by up to a factor of two from round to round, because NumPy's BLAS threads spin beside the host thread (the branch holds them), so these ratios are medians. The device suites pass, except one free-space thread-count test that `main` also fails.
+Every case took the same steps. The rounds ranged within one per cent. The device suites pass, except one free-space thread-count test that `main` also fails.
 
 ## NVIDIA A40
 
