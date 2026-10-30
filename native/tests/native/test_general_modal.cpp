@@ -301,6 +301,19 @@ TEST(GeneralModal, BothCubicsMatchTheStraightforwardHostSource) {
   }
 }
 
+// Five coarse bins at fine bins 0 to 4 of an eight-sample grid, the last the Nyquist
+// bin: the real form's complex-to-real transform halves the doubled bins and drops
+// the imaginary parts of the zero and Nyquist bins, as the analytic signal's real part
+// does.
+TEST(GeneralModal, ACropThroughTheNyquistBinMatchesTheStraightforwardHostSource) {
+  for (const bool real_form : {true, false}) {
+    const auto problem = modal_problem(real_form, 2, false, 5, 0, 8);
+    const auto scaled = scaled_state(problem);
+    expect_close(evaluated(problem, scaled), reference_source(problem, scaled),
+                 kInstantaneousBound);
+  }
+}
+
 // Eleven coarse bins at fine bins 3 to 13 of a 32-sample grid: the projection's
 // teams of `general_vector_lanes` bins include a partial one, and the crop starts
 // away from bin zero. The products per element grow to 2 + 81 + 3 + 15 + 64 = 165,

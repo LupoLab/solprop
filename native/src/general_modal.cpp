@@ -315,6 +315,13 @@ GeneralModalSource::GeneralModalSource(const Problem& problem)
   node_spectrum_ =
       ComplexView2("solprop_native.general.node_spectrum", chunk_rows, n_to_);
   node_field_ = ComplexView2("solprop_native.general.node_field", chunk_rows, n_to_);
+  real_signal_ = general_real_signal_enabled && real_form_ && !problem.dispersive;
+  if (real_signal_) {
+    half_spectrum_ =
+        AliasComplexView2(node_spectrum_.data(), chunk_rows, n_to_ / 2 + 1);
+    real_field_ = AliasRealView2(reinterpret_cast<double*>(node_field_.data()),
+                                 chunk_rows, n_to_);
+  }
   node_polarisation_ =
       RealView2("solprop_native.general.node_polarisation", chunk_rows, n_to_);
   node_source_ =
@@ -357,13 +364,21 @@ void GeneralModalSource::plan() {
   delayed_transforms_ = raman_pool_.get(CpuOperation::raman, node_drive_.size());
   constexpr int axis = -1;
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
-  seed_row_fft_wisdom(transforms_, node_spectrum_, node_field_,
-                      KokkosFFT::Direction::backward);
+  if (real_signal_)
+    seed_row_fft_wisdom(transforms_, half_spectrum_, real_field_,
+                        KokkosFFT::Direction::backward);
+  else
+    seed_row_fft_wisdom(transforms_, node_spectrum_, node_field_,
+                        KokkosFFT::Direction::backward);
   seed_row_fft_wisdom(transforms_, node_polarisation_, node_source_,
                       KokkosFFT::Direction::forward);
 #endif
-  inverse_plan_ = std::make_unique<ComplexPlan>(
-      transforms_, node_spectrum_, node_field_, KokkosFFT::Direction::backward, axis);
+  if (real_signal_)
+    signal_plan_ = std::make_unique<SignalPlan>(
+        transforms_, half_spectrum_, real_field_, KokkosFFT::Direction::backward, axis);
+  else
+    inverse_plan_ = std::make_unique<ComplexPlan>(
+        transforms_, node_spectrum_, node_field_, KokkosFFT::Direction::backward, axis);
   forward_plan_ =
       std::make_unique<RealPlan>(transforms_, node_polarisation_, node_source_,
                                  KokkosFFT::Direction::forward, axis);
@@ -376,15 +391,30 @@ void GeneralModalSource::plan() {
     tail_field_ = Kokkos::subview(node_field_, rows, Kokkos::ALL());
     tail_source_ = Kokkos::subview(node_source_, rows, Kokkos::ALL());
     tail_polarisation_ = Kokkos::subview(node_polarisation_, rows, Kokkos::ALL());
+    if (real_signal_) {
+      tail_half_spectrum_ =
+          AliasComplexView2(node_spectrum_.data(), tail * components_, n_to_ / 2 + 1);
+      tail_real_field_ = AliasRealView2(reinterpret_cast<double*>(node_field_.data()),
+                                        tail * components_, n_to_);
+    }
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
-    seed_row_fft_wisdom(tail_transforms, tail_spectrum_, tail_field_,
-                        KokkosFFT::Direction::backward);
+    if (real_signal_)
+      seed_row_fft_wisdom(tail_transforms, tail_half_spectrum_, tail_real_field_,
+                          KokkosFFT::Direction::backward);
+    else
+      seed_row_fft_wisdom(tail_transforms, tail_spectrum_, tail_field_,
+                          KokkosFFT::Direction::backward);
     seed_row_fft_wisdom(tail_transforms, tail_polarisation_, tail_source_,
                         KokkosFFT::Direction::forward);
 #endif
-    tail_inverse_plan_ =
-        std::make_unique<ComplexPlan>(tail_transforms, tail_spectrum_, tail_field_,
-                                      KokkosFFT::Direction::backward, axis);
+    if (real_signal_)
+      tail_signal_plan_ = std::make_unique<SignalPlan>(
+          tail_transforms, tail_half_spectrum_, tail_real_field_,
+          KokkosFFT::Direction::backward, axis);
+    else
+      tail_inverse_plan_ =
+          std::make_unique<ComplexPlan>(tail_transforms, tail_spectrum_, tail_field_,
+                                        KokkosFFT::Direction::backward, axis);
     tail_forward_plan_ =
         std::make_unique<RealPlan>(tail_transforms, tail_polarisation_, tail_source_,
                                    KokkosFFT::Direction::forward, axis);
@@ -423,7 +453,7 @@ std::string GeneralModalSource::delayed_fft_provider() const {
 void GeneralModalSource::evaluate() {
   if (closed_)
     throw std::logic_error("the general modal source is closed");
-  if (!inverse_plan_)
+  if (!inverse_plan_ && !signal_plan_)
     throw std::logic_error("the general modal source has not been planned");
   Kokkos::deep_copy(kernels_, source_, Complex{});
   std::size_t chunk = 0;
@@ -434,7 +464,14 @@ void GeneralModalSource::evaluate() {
     const bool live = dispersive_ && dispersive_->live(chunk);
     if (live)
       dispersive_->prepare(chunk);
-    if (regional_ || (live && dispersive_->reads_bare())) {
+    if (real_signal_ && regional_) {
+      if (count < chunk_)
+        KokkosFFT::execute(*tail_signal_plan_, tail_half_spectrum_, tail_real_field_,
+                           KokkosFFT::Normalization::none);
+      else
+        KokkosFFT::execute(*signal_plan_, half_spectrum_, real_field_,
+                           KokkosFFT::Normalization::none);
+    } else if (regional_ || (live && dispersive_->reads_bare())) {
       if (count < chunk_)
         KokkosFFT::execute(*tail_inverse_plan_, tail_spectrum_, tail_field_,
                            KokkosFFT::Normalization::none);
@@ -577,18 +614,25 @@ void GeneralModalSource::synthesise(const std::size_t first, const std::size_t c
   // team per row zeroes it and then accumulates its crop mode by mode, in the
   // reference's order (a zero, then each mode's product), while the row is in cache;
   // each vector loop runs over contiguous bins, and the barrier orders the zeroing
-  // before the sums where lanes are threads.
+  // before the sums where lanes are threads. The real signal's one-sided rows take
+  // each product halved where the doubling doubled it (exact) and no imaginary part
+  // at the zero and Nyquist bins, which its real transform does not read; its
+  // transform overwrites the rows, so they are zeroed every time as well.
   using TeamPolicy = Kokkos::TeamPolicy<ExecutionSpace>;
   using TeamMember = TeamPolicy::member_type;
   const UnmanagedView<const Complex*> synthesis = synthesis_;
   const UnmanagedView<const Complex**> scaled = scaled_;
-  const UnmanagedView<Complex**> spectrum = node_spectrum_;
+  const bool real_signal = real_signal_;
+  const UnmanagedView<Complex**> spectrum =
+      real_signal ? UnmanagedView<Complex**>(half_spectrum_)
+                  : UnmanagedView<Complex**>(node_spectrum_);
   const auto components = components_;
   const auto modes = n_modes_;
   const auto n_omega = n_omega_;
+  const auto n_to = n_to_;
   const auto rows = count * components;
   const auto crop = crop_offset_;
-  const auto samples = static_cast<int>(n_to_);
+  const auto samples = static_cast<int>(spectrum.extent(1));
   const auto policy = TeamPolicy(
       dense_for(count), static_cast<int>(chunk_ * components), 1, general_team_lanes());
   launch::parallel_for(
@@ -601,38 +645,68 @@ void GeneralModalSource::synthesise(const std::size_t first, const std::size_t c
           return;
         team.team_barrier();
         const auto base = ((first * components + row) * modes) * n_omega;
-        for (std::size_t mode = 0; mode < modes; ++mode)
-          Kokkos::parallel_for(
-              Kokkos::ThreadVectorRange(team, static_cast<int>(n_omega)),
-              [=](const int lane) {
-                const auto omega = static_cast<std::size_t>(lane);
-                // Kokkos::complex's product and sum, written on the parts.
-                const auto map = base + mode * n_omega + omega;
-                const double map_real = synthesis(map).real();
-                const double map_imag = synthesis(map).imag();
-                const double state_real = scaled(mode, omega).real();
-                const double state_imag = scaled(mode, omega).imag();
-                const double product_real =
-                    map_real * state_real - map_imag * state_imag;
-                const double product_imag =
-                    map_real * state_imag + map_imag * state_real;
-                auto& bin = spectrum(row, crop + omega);
-                bin = Complex(bin.real() + product_real, bin.imag() + product_imag);
-              });
+        for (std::size_t mode = 0; mode < modes; ++mode) {
+          if (real_signal)
+            Kokkos::parallel_for(
+                Kokkos::ThreadVectorRange(team, static_cast<int>(n_omega)),
+                [=](const int lane) {
+                  const auto omega = static_cast<std::size_t>(lane);
+                  const auto map = base + mode * n_omega + omega;
+                  const double map_real = synthesis(map).real();
+                  const double map_imag = synthesis(map).imag();
+                  const double state_real = scaled(mode, omega).real();
+                  const double state_imag = scaled(mode, omega).imag();
+                  const double product_real =
+                      map_real * state_real - map_imag * state_imag;
+                  const double product_imag =
+                      map_real * state_imag + map_imag * state_real;
+                  const auto fine = crop + omega;
+                  const bool edge = fine == 0 || 2 * fine == n_to;
+                  const double scale = edge ? 1.0 : 0.5;
+                  auto& bin = spectrum(row, fine);
+                  bin = Complex(bin.real() + scale * product_real,
+                                edge ? 0.0 : bin.imag() + scale * product_imag);
+                });
+          else
+            Kokkos::parallel_for(
+                Kokkos::ThreadVectorRange(team, static_cast<int>(n_omega)),
+                [=](const int lane) {
+                  const auto omega = static_cast<std::size_t>(lane);
+                  // Kokkos::complex's product and sum, written on the parts.
+                  const auto map = base + mode * n_omega + omega;
+                  const double map_real = synthesis(map).real();
+                  const double map_imag = synthesis(map).imag();
+                  const double state_real = scaled(mode, omega).real();
+                  const double state_imag = scaled(mode, omega).imag();
+                  const double product_real =
+                      map_real * state_real - map_imag * state_imag;
+                  const double product_imag =
+                      map_real * state_imag + map_imag * state_real;
+                  auto& bin = spectrum(row, crop + omega);
+                  bin = Complex(bin.real() + product_real, bin.imag() + product_imag);
+                });
+        }
       });
 }
 
 void GeneralModalSource::respond(const std::size_t first, const std::size_t count) {
   // A compile-time component count unrolls the contraction completely.
-  if (components_ == 3)
-    respond_components<3>(first, count);
+  if (real_signal_) {
+    if (components_ == 3)
+      respond_components<3, true>(first, count);
+    else if (components_ == 2)
+      respond_components<2, true>(first, count);
+    else
+      respond_components<1, true>(first, count);
+  } else if (components_ == 3)
+    respond_components<3, false>(first, count);
   else if (components_ == 2)
-    respond_components<2>(first, count);
+    respond_components<2, false>(first, count);
   else
-    respond_components<1>(first, count);
+    respond_components<1, false>(first, count);
 }
 
-template <std::size_t Components>
+template <std::size_t Components, bool RealSignal>
 void GeneralModalSource::respond_components(const std::size_t first,
                                             const std::size_t count) {
   // One team per node, with independent samples in vector lanes. The real
@@ -647,6 +721,7 @@ void GeneralModalSource::respond_components(const std::size_t first,
   using TeamPolicy = Kokkos::TeamPolicy<ExecutionSpace>;
   using TeamMember = TeamPolicy::member_type;
   const UnmanagedView<const Complex**> field = node_field_;
+  const UnmanagedView<const double**> signal = real_field_;
   const UnmanagedView<double**> polarisation = node_polarisation_;
   const UnmanagedView<double**> drive = node_drive_;
   const auto tensor = tensor_;
@@ -688,7 +763,10 @@ void GeneralModalSource::respond_components(const std::size_t first,
                 double values[components]{};
                 SOLPROP_NATIVE_UNROLL
                 for (std::size_t component = 0; component < components; ++component)
-                  local[component] = field(row + component, time).real() * inverse;
+                  if constexpr (RealSignal)
+                    local[component] = signal(row + component, time) * inverse;
+                  else
+                    local[component] = field(row + component, time).real() * inverse;
                 std::size_t position = 0;
                 SOLPROP_NATIVE_UNROLL
                 for (std::size_t j = 0; j < components; ++j) {
@@ -745,7 +823,11 @@ void GeneralModalSource::respond_components(const std::size_t first,
           Kokkos::parallel_for(
               Kokkos::ThreadVectorRange(team, samples), [=](const int sample) {
                 const auto time = static_cast<std::size_t>(sample);
-                if (real_form) {
+                if constexpr (RealSignal) {
+                  const double left = signal(left_row, time) * inverse;
+                  const double right = signal(right_row, time) * inverse;
+                  drive(history, time) = left * right;
+                } else if (real_form) {
                   const double left = field(left_row, time).real() * inverse;
                   const double right = field(right_row, time).real() * inverse;
                   drive(history, time) = left * right;
@@ -773,6 +855,8 @@ void GeneralModalSource::delayed(const std::size_t first, const std::size_t coun
   const auto histories = node_histories_;
   const auto accumulated = node_delayed_;
   const auto field = node_field_;
+  const auto signal = real_field_;
+  const bool real_signal = real_signal_;
   const auto response = node_response_;
   const auto spectra = delayed_spectrum_;
   const auto tensors = delayed_tensor_;
@@ -818,7 +902,9 @@ void GeneralModalSource::delayed(const std::size_t first, const std::size_t coun
           double local[components]{};
           for (std::size_t component = 0; component < components; ++component)
             local[component] =
-                field(node * components + component, time).real() * inverse;
+                (real_signal ? signal(node * components + component, time)
+                             : field(node * components + component, time).real()) *
+                inverse;
           const auto base = ((owner - 1) * terms + term) * stride;
           for (std::size_t i = 0; i < components; ++i) {
             double sum = 0.0;
@@ -1077,12 +1163,14 @@ void GeneralModalSource::close() noexcept {
     dispersive_->close();
   dispersive_.reset();
   tail_inverse_plan_.reset();
+  tail_signal_plan_.reset();
   tail_forward_plan_.reset();
   tail_spectrum_ = {};
   tail_field_ = {};
   tail_source_ = {};
   tail_polarisation_ = {};
   inverse_plan_.reset();
+  signal_plan_.reset();
   forward_plan_.reset();
   tail_drive_plan_.reset();
   tail_history_plan_.reset();
@@ -1106,6 +1194,10 @@ void GeneralModalSource::close() noexcept {
   node_response_ = {};
   scaled_ = {};
   source_ = {};
+  half_spectrum_ = {};
+  tail_half_spectrum_ = {};
+  real_field_ = {};
+  tail_real_field_ = {};
   node_spectrum_ = {};
   node_field_ = {};
   node_source_ = {};

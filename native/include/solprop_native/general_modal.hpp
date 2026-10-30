@@ -49,6 +49,20 @@ constexpr std::size_t general_projection_lanes(const std::size_t modes,
 }
 
 /**
+ * Whether a real-form cubic reads its field from a complex-to-real inverse transform.
+ *
+ * The real form reads only the real part of the analytic signal, which is the
+ * complex-to-real transform of the one-sided spectrum with the doubled bins halved
+ * (exactly, a power of two): half the inverse transform's work and half the field's
+ * memory traffic. Host builds only; device builds keep the complex transform.
+ */
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+inline constexpr bool general_real_signal_enabled = false;
+#else
+inline constexpr bool general_real_signal_enabled = true;
+#endif
+
+/**
  * Refuse a general modal problem whose extents or data this source cannot execute.
  *
  * Called before any allocation. A problem that does not declare the route passes.
@@ -73,9 +87,11 @@ KOKKOS_INLINE_FUNCTION double general_doubling(const std::size_t fine,
  * The execution twin of `solprop.backends.numpy_ref.general_modal.general_source`:
  * per node chunk, synthesise the three Cartesian components on the coarse grid from
  * the frequency-dependent map S, place them in the fine spectrum, one complex
- * inverse transform to the analytic signal, the tensor cubic (on the real field or
- * on the analytic signal, as declared) with the optional delayed tensor response on
- * the doubled axis, one real forward transform of the real polarisation, and the
+ * inverse transform to the analytic signal (on the host, for a real-form cubic, one
+ * complex-to-real transform to its real part: `general_real_signal_enabled`), the
+ * tensor cubic (on the real field or on the analytic signal, as declared) with the
+ * optional delayed tensor response on the doubled axis, one real forward transform
+ * of the real polarisation, and the
  * contraction with Q. Every reduction is a fixed-order serial loop inside one
  * output element, so the result does not depend on the thread count.
  *
@@ -87,6 +103,10 @@ public:
   using ComplexView2 = Kokkos::View<Complex**, Layout, MemorySpace>;
   using RealView2 = Kokkos::View<double**, Layout, MemorySpace>;
   using IndexView = Kokkos::View<std::size_t*, Layout, MemorySpace>;
+  using AliasComplexView2 = Kokkos::View<Complex**, Layout, MemorySpace,
+                                         Kokkos::MemoryTraits<Kokkos::Unmanaged>>;
+  using AliasRealView2 = Kokkos::View<double**, Layout, MemorySpace,
+                                      Kokkos::MemoryTraits<Kokkos::Unmanaged>>;
 
   /**
    * Allocate and upload every View; `plan` creates the transforms afterwards.
@@ -164,7 +184,7 @@ public:
   void combine_maps(std::size_t stage);
   void synthesise(std::size_t first, std::size_t count);
   void respond(std::size_t first, std::size_t count);
-  template <std::size_t Components>
+  template <std::size_t Components, bool RealSignal>
   void respond_components(std::size_t first, std::size_t count);
   void delayed(std::size_t first, std::size_t count);
   void project(std::size_t first, std::size_t count);
@@ -179,6 +199,7 @@ private:
   using DelayedForwardPlan = RamanFftPlan<ExecutionSpace, RealView2, ComplexView2>;
   using DelayedInversePlan = RamanFftPlan<ExecutionSpace, ComplexView2, RealView2>;
   using ComplexPlan = KokkosFFT::Plan<ExecutionSpace, ComplexView2, ComplexView2>;
+  using SignalPlan = KokkosFFT::Plan<ExecutionSpace, AliasComplexView2, AliasRealView2>;
 
   std::size_t n_modes_{}, n_omega_{}, n_to_{}, components_{}, nodes_{}, chunk_{};
   std::size_t terms_{};
@@ -189,6 +210,10 @@ private:
   /** The projection's block of bins, `general_projection_lanes` at construction. */
   std::size_t projection_lanes_{};
   bool real_form_{}, responds_{}, regional_{}, weights_ready_{};
+  /** The real form's field from the complex-to-real transform
+   * (`general_real_signal_enabled`): a real-form problem without SEP 6's dispersive
+   * response. */
+  bool real_signal_{};
   double epsilon0_{};
   CpuExecutionPool kernel_pool_{CpuPool::kernels}, fft_pool_{CpuPool::fft};
   CpuExecutionPool raman_pool_{CpuPool::raman_fft},
@@ -218,6 +243,11 @@ private:
   // Aliases of the active prefix: tail plans must not transform unused chunk rows.
   ComplexView2 tail_spectrum_, tail_field_, tail_source_;
   RealView2 tail_polarisation_;
+  // The real signal's one-sided spectrum and field, in the first bytes of
+  // `node_spectrum_` and `node_field_` (allocated as for the complex transform, so the
+  // ledger and solprop's estimate are unchanged), and their tail prefixes.
+  AliasComplexView2 half_spectrum_, tail_half_spectrum_;
+  AliasRealView2 real_field_, tail_real_field_;
   RealView2 node_drive_, node_histories_, node_delayed_;
   ComplexView2 node_drive_spectrum_, node_product_;
   RealView2 tail_drive_, tail_histories_;
@@ -225,6 +255,7 @@ private:
   std::unique_ptr<ComplexPlan> inverse_plan_;
   std::unique_ptr<RealPlan> forward_plan_;
   std::unique_ptr<ComplexPlan> tail_inverse_plan_;
+  std::unique_ptr<SignalPlan> signal_plan_, tail_signal_plan_;
   std::unique_ptr<RealPlan> tail_forward_plan_;
   std::unique_ptr<DelayedForwardPlan> drive_plan_;
   std::unique_ptr<DelayedInversePlan> history_plan_;
