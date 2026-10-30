@@ -759,6 +759,9 @@ void GeneralModalSource::respond_components(const std::size_t first,
   using TeamPolicy = Kokkos::TeamPolicy<ExecutionSpace>;
   using TeamMember = TeamPolicy::member_type;
   const UnmanagedView<const Complex**> field = node_field_;
+  // Both field views exist in every instantiation, and the lambdas below choose
+  // between them with a plain `if` on `RealSignal`: nvcc rejects an extended device
+  // lambda whose capture is first named inside an `if constexpr`.
   const UnmanagedView<const double**> signal = real_field_;
   const UnmanagedView<double**> polarisation = node_polarisation_;
   const UnmanagedView<double**> drive = node_drive_;
@@ -801,7 +804,7 @@ void GeneralModalSource::respond_components(const std::size_t first,
                 double values[components]{};
                 SOLPROP_NATIVE_UNROLL
                 for (std::size_t component = 0; component < components; ++component)
-                  if constexpr (RealSignal)
+                  if (RealSignal)
                     local[component] = signal(row + component, time) * inverse;
                   else
                     local[component] = field(row + component, time).real() * inverse;
@@ -861,7 +864,7 @@ void GeneralModalSource::respond_components(const std::size_t first,
           Kokkos::parallel_for(
               Kokkos::ThreadVectorRange(team, samples), [=](const int sample) {
                 const auto time = static_cast<std::size_t>(sample);
-                if constexpr (RealSignal) {
+                if (RealSignal) {
                   const double left = signal(left_row, time) * inverse;
                   const double right = signal(right_row, time) * inverse;
                   drive(history, time) = left * right;
