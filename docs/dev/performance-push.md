@@ -1,7 +1,8 @@
 # Native performance push: working log
 
 This page is the working log of a performance campaign on the native backend. It covers
-the NVIDIA A40 (CUDA, binary64), and the CPU on a dual Intel Xeon Gold 6240 and a dual
+the NVIDIA A40 (CUDA, binary64), an AMD Instinct MI325X (HIP) and an NVIDIA H200 (CUDA),
+and the CPU on a dual Intel Xeon Gold 6240 and a dual
 AMD EPYC 7763 at one and sixteen threads. It records what was tried and what each
 attempt measured. Adopted changes also have their entries in [benchmarks](benchmarks.md)
 and [CPU performance](cpu-performance.md), which hold the full measurements. This page
@@ -36,6 +37,22 @@ The A40's radial trial is bound by its binary64 rate throughout. The Kerr case's
 kernel time is its three-dimensional transforms and the separable fold, both bound by the
 same rate.
 
+## AMD Instinct MI325X and NVIDIA H200
+
+HIP builds now step with the native Adams march. On the MI325X the SEP 39 targeted tests
+and the device suites all pass. The earlier HIP default, the Python march, failed the
+device lanes on its own warning. SEP 39's report for phase 5 records the qualification.
+
+| Change | MI325X | H200 |
+|---|---|---|
+| the native march instead of the Python march, same build | wall −1 % to −3 %; host µs a trial 15–40 → 0.5–3 | wall −3 % to −23 %; host µs a trial 41–70 → 0.8–5.2 |
+| a kernel's functor as its launch argument; 256-thread HIP range reductions; φ-functions and history rows in registers; no fence after an accepted step; the held currents in one plan | `he_rdw_averaged` 0.744, `argon_blueshift_averaged` 0.686, `h2_raman_averaged` 0.740, `rdw` 0.875, `radial_filament_256` 0.901 | 0.920, 0.902, 0.918, 0.969, 0.989 |
+| `main` against the branch | `he_rdw_averaged` 0.463, `h2_raman_averaged` 0.624, `rdw` 0.605, `radial_filament_256` 0.843, `kerr_beam_384` 0.650 | 0.790, 0.788, 0.841, 0.868, 0.722 |
+
+Both devices now spend most of a trial waiting for the host to launch kernels of 2–4 µs.
+Their kernels keep the GPU busy only 35–50 % of the time. Capturing a trial's launches as
+a graph is the largest remaining lever.
+
 ## CPU
 
 | Change | Measured |
@@ -62,6 +79,13 @@ $10^{-15}$ and $10^{-14}$.
     $5\times10^{-5}$ by step 360.
   - The final field differs by $4.6\times10^{-12}$. This is the adaptive controller's
     sensitivity, not an arithmetic error.
+
+- **Device Adams passes in registers.**
+  - The per-element arithmetic is unchanged, but the device compiler contracts the
+    unrolled predict and correct passes differently.
+  - On `he_rdw_averaged` both builds take the same 411 steps. The final field moves by
+    $1.3\times10^{-11}$ on the MI325X and $1.2\times10^{-11}$ on the H200.
+  - Every other case is within $1.8\times10^{-13}$.
 
 ## Measured and not adopted
 
