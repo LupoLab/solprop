@@ -354,7 +354,24 @@ team_trapezoid_window(const TeamMember& team, const Values& values,
                : 0.0;
   };
   double total = 0.0;
-  if (first < end)
+  bool scanned = false;
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+  // A host team of one thread forms the same prefixes in one pass: its Kokkos scan
+  // runs the increments twice, the second time from the same zero, in the same order.
+  if (team.team_size() == 1) {
+    double previous = 0.0;
+    for (int sample = first; sample < end; ++sample) {
+      const double current =
+          sample <= window.last ? values(row, static_cast<std::size_t>(sample)) : 0.0;
+      if (sample != 0)
+        total += spacing * (current + previous) / 2.0;
+      previous = current;
+      store(sample, total);
+    }
+    scanned = true;
+  }
+#endif
+  if (!scanned && first < end)
     Kokkos::parallel_scan(
         Kokkos::TeamThreadRange(team, first, end),
         [&](const int sample, double& update, const bool final) {

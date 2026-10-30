@@ -729,6 +729,20 @@ KOKKOS_INLINE_FUNCTION double decayed_fraction(const double decay,
   return 1.0 - survival;
 }
 
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+// `decayed_fraction` of each of a host block's `count` decays, in place: one strict
+// loop that vectorises, each product and difference rounded as there.
+SOLPROP_NATIVE_STRICT_FUNCTION
+inline void decayed_fractions(double* values, const std::size_t count,
+                              const double preionisation) {
+  SOLPROP_NATIVE_STRICT_BLOCK
+  for (std::size_t k = 0; k < count; ++k) {
+    const double survival = (1.0 - preionisation) * values[k];
+    values[k] = 1.0 - survival;
+  }
+}
+#endif
+
 // The fraction ionised from an exposure, `decayed_fraction` of its `exp(-X)`.
 KOKKOS_INLINE_FUNCTION double ionised_fraction(const double exposure,
                                                const double preionisation) {
@@ -10436,6 +10450,27 @@ KOKKOS_INLINE_FUNCTION void band_note(BandLive& live, const int index,
     live.max_val = Kokkos::max(live.max_val, index);
   }
 }
+
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+/**
+ * Count a host block's non-zero values into `live`, as `band_note` of each:
+ * `values[k]` is the sample `offset + k`. Only the first and the last non-zero value
+ * matter, so the block is searched from either end.
+ */
+inline void band_note_block(BandLive& live, const double* values,
+                            const std::size_t count, const int offset) {
+  std::size_t low = 0;
+  while (low < count && values[low] == 0.0)
+    ++low;
+  if (low == count)
+    return;
+  std::size_t high = count - 1;
+  while (values[high] == 0.0)
+    --high;
+  live.min_val = std::min(live.min_val, offset + static_cast<int>(low));
+  live.max_val = std::max(live.max_val, offset + static_cast<int>(high));
+}
+#endif
 } // namespace
 
 int GeneralWorkspace::band_host_team_size(const std::size_t node_count) const {
@@ -10618,43 +10653,66 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
       // sample keeps its own calls, as on a device.
       [[maybe_unused]] const auto blocks =
           static_cast<int>((sample_count + rate_block - 1) / rate_block);
-      [[maybe_unused]] const auto rates_into =
-          [&](const std::size_t first, const std::size_t count,
-              const std::size_t channel, BandLive& update) {
-            const double lower = Multiple ? channel_parameters(channel, 2) : field_min;
-            const double upper = Multiple ? channel_parameters(channel, 3) : field_max;
-            const double highest = Multiple ? channel_parameters(channel, 4) : rate_max;
-            double values[rate_block];
-            std::size_t active[rate_block];
-            std::size_t live = 0;
-            // `ionisation_rate`'s limits as it takes them: a NaN magnitude is live.
-            for (std::size_t time = first; time < first + count; ++time) {
-              const double magnitude = magnitude_at(time);
-              double rate = 0.0;
-              if (magnitude > upper) {
-                rate = highest;
-              } else if (!(magnitude < lower)) {
-                values[live] = magnitude;
-                active[live] = time;
-                ++live;
-              }
-              rates(slot, time) = rate;
-              band_note(update, static_cast<int>(time), rate);
+      [[maybe_unused]] const auto rates_into = [&](const std::size_t first,
+                                                   const std::size_t count,
+                                                   const std::size_t channel,
+                                                   BandLive& update) {
+        const double lower = Multiple ? channel_parameters(channel, 2) : field_min;
+        const double upper = Multiple ? channel_parameters(channel, 3) : field_max;
+        const double highest = Multiple ? channel_parameters(channel, 4) : rate_max;
+        const auto within = [&](double* values, const std::size_t live) {
+          if constexpr (Multiple)
+            ionisation_rates_within(
+                values, live, channel_coefficients, channel_parameters(channel, 0),
+                channel_parameters(channel, 1),
+                static_cast<std::size_t>(channel_parameters(channel, 5)),
+                static_cast<std::size_t>(channel_parameters(channel, 6)));
+          else
+            ionisation_rates_within(values, live, rate_coefficients, log_field_min,
+                                    d_log_field, rate_intervals);
+        };
+        double magnitudes[rate_block];
+        double values[rate_block];
+        for (std::size_t k = 0; k < count; ++k)
+          magnitudes[k] = magnitude_at(first + k);
+        // `ionisation_rate`'s limits as it takes them: a NaN magnitude is live.
+        std::size_t live = 0;
+        for (std::size_t k = 0; k < count; ++k)
+          live += (magnitudes[k] > upper) | (magnitudes[k] < lower) ? 0 : 1;
+        double* const row = &rates(slot, first);
+        if (2 * live >= count && lower > 0.0) {
+          // A mostly live block runs every sample through the layer, a quiet one's
+          // magnitude replaced by the table's lower limit, and then keeps the
+          // limits' values: each value is the same function of its own magnitude,
+          // so the passes' lanes do not change it, and no sample is gathered.
+          for (std::size_t k = 0; k < count; ++k) {
+            const double magnitude = magnitudes[k];
+            values[k] = (magnitude > upper) | (magnitude < lower) ? lower : magnitude;
+          }
+          within(values, count);
+          for (std::size_t k = 0; k < count; ++k) {
+            const double magnitude = magnitudes[k];
+            row[k] = magnitude > upper ? highest : magnitude < lower ? 0.0 : values[k];
+          }
+        } else {
+          // A mostly quiet block gathers its live magnitudes into the passes.
+          std::size_t active[rate_block];
+          std::size_t gathered = 0;
+          for (std::size_t k = 0; k < count; ++k) {
+            const double magnitude = magnitudes[k];
+            row[k] = magnitude > upper ? highest : 0.0;
+            if (!(magnitude > upper) && !(magnitude < lower)) {
+              values[gathered] = magnitude;
+              active[gathered] = k;
+              ++gathered;
             }
-            if constexpr (Multiple)
-              ionisation_rates_within(
-                  values, live, channel_coefficients, channel_parameters(channel, 0),
-                  channel_parameters(channel, 1),
-                  static_cast<std::size_t>(channel_parameters(channel, 5)),
-                  static_cast<std::size_t>(channel_parameters(channel, 6)));
-            else
-              ionisation_rates_within(values, live, rate_coefficients, log_field_min,
-                                      d_log_field, rate_intervals);
-            for (std::size_t k = 0; k < live; ++k) {
-              rates(slot, active[k]) = values[k];
-              band_note(update, static_cast<int>(active[k]), values[k]);
-            }
-          };
+          }
+          within(values, gathered);
+          for (std::size_t k = 0; k < gathered; ++k)
+            row[active[k]] = values[k];
+        }
+        band_note_block(update, row, count, static_cast<int>(first));
+      };
 #endif
 
       // 1. Per channel: rates -> filter -> scan -> exposure, then the fraction, the
@@ -10737,6 +10795,50 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
               for (std::size_t k = 0; k < live; ++k)
                 apply(active[k], decayed_fraction(decay[k], initial));
             };
+        // A single gas's host block of free-current integrands and loss guards as
+        // loops over the block's samples: the fractions as `fractions_into` forms
+        // them (the changing samples' decays in one pass, `decayed_fractions` in
+        // another), then `band_loss_scale` and the weights with their branch taken
+        // as a selection, and the integrand rows' live samples searched afterwards.
+        [[maybe_unused]] const auto integrands_into = [&](const std::size_t first,
+                                                          const std::size_t count,
+                                                          BandLive& update) {
+          double fraction[rate_block];
+          const auto start = static_cast<int>(first);
+          const auto stop = static_cast<int>(first + count);
+          for (std::size_t k = 0; k < count; ++k)
+            fraction[k] = start + static_cast<int>(k) < window.first ? before : after;
+          const int begin = Kokkos::max(window.first, start);
+          const int end = Kokkos::min(changing_end, stop);
+          if (begin < end) {
+            double* const changing = fraction + (begin - start);
+            const auto changing_count = static_cast<std::size_t>(end - begin);
+            const double* const exposure =
+                &exposures(slot, static_cast<std::size_t>(begin));
+            for (std::size_t k = 0; k < changing_count; ++k)
+              changing[k] = -(exposure[k] < 0.0 ? 0.0 : exposure[k]);
+            vmath::exp(changing, changing, changing_count);
+            decayed_fractions(changing, changing_count, initial);
+          }
+          const double* const rate_row = &rates(slot, first);
+          double* const guard_row = &guards(slot, first);
+          for (std::size_t k = 0; k < count; ++k) {
+            const std::size_t time = first + k;
+            const double magnitude = magnitude_at(time);
+            const double squared = magnitude * magnitude;
+            const double rate = rate_row[k];
+            const bool loses = rate > 0.0 && squared > 0.0;
+            const double scale = ionisation_potential * rate * (1.0 - fraction[k]) /
+                                 (loses ? squared : 1.0);
+            guard_row[k] = loses ? scale : 0.0;
+            const double weight = fraction[k] * charge_mass_ratio;
+            for (std::size_t component = 0; component < Components; ++component)
+              integrands(own + component, time) =
+                  weight * field_at(base + component, time);
+          }
+          for (std::size_t component = 0; component < Components; ++component)
+            band_note_block(update, &integrands(own + component, first), count, start);
+        };
 #endif
         if constexpr (Multiple) {
           const double partial = channel_density(stage, channel);
@@ -10787,10 +10889,8 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
                 Kokkos::TeamThreadRange(team, blocks),
                 [&](const int block, BandLive& update) {
                   const auto first = static_cast<std::size_t>(block) * rate_block;
-                  fractions_into(first, std::min(rate_block, sample_count - first),
-                                 [&](const std::size_t time, const double fraction) {
-                                   integrand_at(time, fraction, update);
-                                 });
+                  integrands_into(first, std::min(rate_block, sample_count - first),
+                                  update);
                 },
                 Kokkos::MinMax<int>(integrand_live));
           } else
