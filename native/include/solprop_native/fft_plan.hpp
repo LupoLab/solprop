@@ -121,10 +121,39 @@ inline bool import_fftw_wisdom(const std::string& text) {
 } // namespace solprop_native
 #endif
 
+#include "solprop_native/graph.hpp"
+
 #include <utility>
 #include <vector>
 
 namespace solprop_native {
+
+namespace graph {
+#if SOLPROP_NATIVE_IMPL_GRAPH
+/** `KokkosFFT::execute(plan, input, output, normalization)`, recorded in the calling
+    thread's device graph region (`graph::Region`), if any, as the plan, the views it
+    transforms and the normalisation. */
+template <class Plan, class Input, class Output>
+void execute(const Plan& plan, const Input& input, const Output& output,
+             const KokkosFFT::Normalization normalization) {
+  if (Region::current() == nullptr) {
+    KokkosFFT::execute(plan, input, output, normalization);
+    return;
+  }
+  operation<detail::Transform<Plan, Input, Output>>(
+      [&] { KokkosFFT::execute(plan, input, output, normalization); },
+      [&] {
+        return [&plan, input, output, normalization] {
+          KokkosFFT::execute(plan, input, output, normalization);
+        };
+      },
+      &plan, input, output, normalization);
+}
+#else
+// Host builds call Kokkos-FFT's own.
+using KokkosFFT::execute;
+#endif
+} // namespace graph
 
 // A stacked product buffer has padding between its active tail blocks. Persist one
 // contiguous row plan per block instead of transforming inactive rows or packing
@@ -152,8 +181,8 @@ public:
   }
   void execute() const {
     for (const auto& block : blocks_)
-      KokkosFFT::execute(*block.plan, block.input, block.output,
-                         KokkosFFT::Normalization::none);
+      graph::execute(*block.plan, block.input, block.output,
+                     KokkosFFT::Normalization::none);
   }
   void clear() noexcept { blocks_.clear(); }
 };

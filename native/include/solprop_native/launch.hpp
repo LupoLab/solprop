@@ -6,6 +6,8 @@
 
 #include <Kokkos_Core.hpp>
 
+#include "solprop_native/graph.hpp"
+
 #include <cstddef>
 #include <type_traits>
 #include <utility>
@@ -50,6 +52,13 @@ template <typename Functor, typename Policy>
 
 template <typename Label, typename Policy, typename Functor>
 void parallel_for(const Label& label, const Policy& policy, const Functor& functor) {
+  if constexpr (graph::available) {
+    // A device graph region records the launch (`graph::Region`).
+    if (graph::Region::current() != nullptr) {
+      graph::parallel_for(label, policy_for<Functor>(policy), functor);
+      return;
+    }
+  }
   Kokkos::parallel_for(label, policy_for<Functor>(policy), functor);
 }
 
@@ -82,6 +91,9 @@ template <typename Functor, typename Policy>
 template <typename Label, typename Policy, typename Functor, typename... Results>
 void parallel_reduce(const Label& label, const Policy& policy, const Functor& functor,
                      Results&&... results) {
+  // Kokkos's reduction scratch may move: no device graph holds a reduction.
+  if constexpr (graph::available)
+    graph::unrecordable();
   Kokkos::parallel_reduce(label, reduce_policy_for<Functor>(policy), functor,
                           std::forward<Results>(results)...);
 }
@@ -89,6 +101,8 @@ void parallel_reduce(const Label& label, const Policy& policy, const Functor& fu
 template <typename Label, typename Policy, typename Functor, typename... Results>
 void parallel_scan(const Label& label, const Policy& policy, const Functor& functor,
                    Results&&... results) {
+  if constexpr (graph::available)
+    graph::unrecordable();
   Kokkos::parallel_scan(label, policy_for<Functor>(policy), functor,
                         std::forward<Results>(results)...);
 }
