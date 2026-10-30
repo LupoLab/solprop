@@ -617,6 +617,14 @@ The first public release. It contains:
   AMD Instinct MI325X the four-mode RDW run takes 0.96 and the others are unchanged. Every
   run takes the same steps. The fields agree to 6e-14, except the mode-averaged helium run
   on CUDA, whose reductions' new order moves it by 1e-11. Host builds are unchanged.
+- **Faster real transforms on compute capability 8.6 devices.** cuFFT transforms a real
+  row of a few thousand samples in one thread block, which on a GA10x device's slow FP64
+  left most of the device idle when a stage had a few rows. Builds for compute capability
+  8.6 now split up to 64 such rows into two batched complex passes. On an NVIDIA A40 the
+  mode-averaged helium, argon and hydrogen Raman runs take 0.75, 0.76 and 0.77 of the
+  time and the four-mode RDW run 0.93; the radial filament is unchanged. Every run takes
+  the same steps. The fields agree to 1.2e-13, except the mode-averaged helium run, which
+  moves by 1.1e-11. Other devices and host builds are unchanged.
 - **`python -m benchmarks ab` between builds whose grids differ** recorded the field
   difference as infinite, which the summary's JSON refused, so the run ended without
   its summary; the difference is now recorded as not defined.
