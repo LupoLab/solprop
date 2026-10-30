@@ -1299,13 +1299,8 @@ TEST(Gemm, OneModeKernelsAreKokkosBlasWithinTheGemmBound) {
     return Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, view);
   };
   for (const int threads : {1, 3, native::ExecutionSpace().concurrency()})
-    for (const auto& [rows, inner, columns] :
-         std::array<std::array<std::size_t, 3>, 6>{{{1, 33, 6400},
-                                                    {2, 33, 6400},
-                                                    {2, 33, 257},
-                                                    {1, 2, 7},
-                                                    {2, 5, 1},
-                                                    {1, 1, 9}}}) {
+    for (const auto& [rows, inner, columns] : std::array<std::array<std::size_t, 3>, 5>{
+             {{1, 33, 6400}, {2, 33, 6400}, {2, 33, 257}, {1, 2, 7}, {2, 5, 1}}}) {
       SCOPED_TRACE(std::to_string(threads) + " threads, " + std::to_string(rows) + 'x' +
                    std::to_string(inner) + 'x' + std::to_string(columns));
       const auto execution = native::execution_instance(threads);

@@ -296,13 +296,6 @@ takes 4.31 s at 16 threads, 1.38 times faster than one thread. Threading every c
 kernel of at least 4096 elements at the team width instead gained nothing
 (`h2_raman_averaged` 3 % slower).
 
-The GNLSE's synthesis and projection are 1 × 1 products over the interleaved field,
-which the vendor GEMM ran serially (12578 calls of about 24 us at 16 threads, against
-15 us in a one-thread process). On a threaded compact team they now run as the one-mode
-projection (`one_mode_projection`, an exact product each) over the stage's team:
-`gnlse_raman_shock` 0.973 [0.950, 0.974] at 16 threads, 0.993 at one (`gnlse_soliton`,
-whose stage is serial, 0.99 at both); same steps, Xeon, 3 rounds, `--length 0.1`.
-
 (one-mode-products)=
 ### One-mode products on the response team
 
