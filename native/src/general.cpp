@@ -10490,11 +10490,11 @@ void band_rates_block(const double* magnitudes, double* row, const std::size_t c
   double values[rate_block];
   std::size_t live = 0;
   for (std::size_t k = 0; k < count; ++k)
-    live += (magnitudes[k] > upper) | (magnitudes[k] < lower) ? 0 : 1;
+    live += ((magnitudes[k] > upper) | (magnitudes[k] < lower)) ? 0 : 1;
   if (2 * live >= count && lower > 0.0) {
     for (std::size_t k = 0; k < count; ++k) {
       const double magnitude = magnitudes[k];
-      values[k] = (magnitude > upper) | (magnitude < lower) ? lower : magnitude;
+      values[k] = ((magnitude > upper) | (magnitude < lower)) ? lower : magnitude;
     }
     within(values, count);
     for (std::size_t k = 0; k < count; ++k) {
