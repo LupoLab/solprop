@@ -10503,6 +10503,12 @@ void band_rates_block(const double* magnitudes, double* row, const std::size_t c
     }
     return;
   }
+  if (live == 0) {
+    // A quiet block takes only the limits.
+    for (std::size_t k = 0; k < count; ++k)
+      row[k] = magnitudes[k] > upper ? highest : 0.0;
+    return;
+  }
   std::size_t active[rate_block];
   std::size_t gathered = 0;
   for (std::size_t k = 0; k < count; ++k) {
@@ -10957,20 +10963,24 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
 
       // 2. Per component: the free current, and from it the current.
       const BandWindow free_window = band_window_of(integrand_live, samples, half);
+      // A single gas's density, read once: inside the store below the compiler must
+      // reload it after each store to the current, which might alias it.
+      const double stage_density = Multiple ? 0.0 : density(stage);
       for (std::size_t component = 0; component < Components; ++component) {
         const std::size_t row = base + component;
         if (free_window.first <= free_window.last)
           team_band_filter<band_staging>(team, tile, integrands, own + component,
                                          filtered, slot, samples, taps, half,
                                          free_window.first, free_window.last + 1);
-        team_trapezoid_window(
-            team, filtered, slot, free_window, samples, dt,
-            [&](const int sample, const double prefix) {
-              const auto time = static_cast<std::size_t>(sample);
-              const double drive = guards(slot, time) * field_at(row, time);
-              out(row, time) =
-                  Multiple ? prefix + drive : density(stage) * (prefix + drive);
-            });
+        team_trapezoid_window(team, filtered, slot, free_window, samples, dt,
+                              [&](const int sample, const double prefix) {
+                                const auto time = static_cast<std::size_t>(sample);
+                                const double drive =
+                                    guards(slot, time) * field_at(row, time);
+                                out(row, time) = Multiple
+                                                     ? prefix + drive
+                                                     : stage_density * (prefix + drive);
+                              });
       }
     }
   };
