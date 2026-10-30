@@ -231,8 +231,8 @@ unit_roots(const std::size_t n, const std::size_t count, const int sign) {
   for (std::size_t j = 0; j < count; ++j) {
     const long double angle =
         two_pi * static_cast<long double>(j % n) / static_cast<long double>(n) * sign;
-    roots[j] = {static_cast<double>(std::cos(angle)),
-                static_cast<double>(std::sin(angle))};
+    roots[j] = Kokkos::complex<double>(static_cast<double>(std::cos(angle)),
+                                       static_cast<double>(std::sin(angle)));
   }
   return roots;
 }
@@ -242,13 +242,14 @@ unit_roots(const std::size_t n, const std::size_t count, const int sign) {
 // lies at (r n2 + j2, j1) of the first pass and its output of point k = k1 + n1 k2
 // at (r n1 + k1, k2) of the second.
 template <class Real, class Rows> struct SplitPackRows {
+  using Value = typename Rows::non_const_value_type;
   Real real;
   Rows first;
   std::size_t m, n1, n2;
   KOKKOS_INLINE_FUNCTION void operator()(const std::size_t i) const {
     const std::size_t r = i / m, j = i % m, j2 = j / n1, j1 = j % n1;
     const std::size_t point = n2 * j1 + j2;
-    first(r * n2 + j2, j1) = {real(r, 2 * point), real(r, 2 * point + 1)};
+    first(r * n2 + j2, j1) = Value(real(r, 2 * point), real(r, 2 * point + 1));
   }
 };
 
@@ -264,6 +265,7 @@ template <class Rows, class Table> struct SplitTwiddle {
 
 // X_k = (Z_k + conj Z_{m-k}) / 2 - i W^k (Z_k - conj Z_{m-k}) / 2, W = exp(-pi i / m).
 template <class Rows, class Table, class Spectrum> struct SplitForwardSpectrum {
+  using Value = typename Spectrum::non_const_value_type;
   Rows second;
   Table roots;
   Spectrum spectrum;
@@ -274,13 +276,14 @@ template <class Rows, class Table, class Spectrum> struct SplitForwardSpectrum {
     const auto zb = Kokkos::conj(second(r * n1 + b % n1, b / n1));
     const auto even = 0.5 * (za + zb);
     const auto turned = roots(k) * (0.5 * (za - zb));
-    spectrum(r, k) = {even.real() + turned.imag(), even.imag() - turned.real()};
+    spectrum(r, k) = Value(even.real() + turned.imag(), even.imag() - turned.real());
   }
 };
 
 // Z_k = (X_k + conj X_{m-k}) + i conj(W^k) (X_k - conj X_{m-k}), the imaginary parts
 // of X_0 and X_m dropped as cuFFT's and FFTW's inverses do.
 template <class Spectrum, class Table, class Rows> struct SplitInverseRows {
+  using Value = typename Rows::non_const_value_type;
   Spectrum spectrum;
   Table roots;
   Rows first;
@@ -291,12 +294,13 @@ template <class Spectrum, class Table, class Rows> struct SplitInverseRows {
     auto xa = spectrum(r, k);
     auto xb = Kokkos::conj(spectrum(r, m - k));
     if (k == 0) {
-      xa = {xa.real(), 0.0};
-      xb = {xb.real(), 0.0};
+      xa = Value(xa.real(), 0.0);
+      xb = Value(xb.real(), 0.0);
     }
     const auto even = xa + xb;
     const auto turned = Kokkos::conj(roots(k)) * (xa - xb);
-    first(r * n2 + j2, j1) = {even.real() - turned.imag(), even.imag() + turned.real()};
+    first(r * n2 + j2, j1) =
+        Value(even.real() - turned.imag(), even.imag() + turned.real());
   }
 };
 
