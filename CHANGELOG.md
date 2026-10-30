@@ -558,10 +558,12 @@ The first public release. It contains:
   Adams predict pass holds its phi-functions in registers and the correct pass reads the
   history once, an accepted step no longer waits for its kernels, and the two held
   plasma currents are transformed together. On an AMD Instinct MI325X the
-  mode-averaged helium and argon runs take 0.64 to 0.75 of the time of the previous
-  build with the native march, the radial filament 0.90 and `ctc` 0.80; fields agree to
-  1e-11 or better, the same steps. HIP builds also compile again (an unused flag
-  refused by Clang).
+  mode-averaged helium, argon and hydrogen Raman runs take 0.69 to 0.74 of the time of
+  the HIP build with the native march alone, the four-mode RDW 0.88 and the radial
+  filament 0.90, in the same steps, fields agreeing to 1.3e-11 or better; against the
+  previous HIP build, which stepped them with the Python march, the mode-averaged runs
+  take 0.46 to 0.63 of the time. HIP builds also compile again (a flag that only the
+  host reads, which Clang refused as unused).
 - **`python -m benchmarks ab` between builds whose grids differ** recorded the field
   difference as infinite, which the summary's JSON refused, so the run ended without
   its summary; the difference is now recorded as not defined.
