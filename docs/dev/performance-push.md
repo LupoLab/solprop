@@ -23,6 +23,29 @@ The accuracy rule has two levels:
 - Over an adaptive run, the step counts may shift slightly. The fields then agree within
   what the stepper's relative tolerance implies.
 
+## Whole-branch confirmation
+
+This is `main` against the branch at `25b8ebb` on the Intel Xeon Gold 6240. It covers the tracking set at one and sixteen threads, with `--length 0.1` and three interleaved rounds. Every case took the same steps, and the final fields agree with `main` to within $10^{-13}$.
+
+| Case | One thread | Sixteen threads |
+|---|---|---|
+| `gnlse_raman_shock` | 0.849 | 0.755 |
+| `gnlse_soliton` | 0.845 | 0.887 |
+| `rdw` | 0.686 | 0.337 |
+| `he_rdw_averaged` | 0.694 | 0.568 |
+| `argon_blueshift` | 0.584 | 0.375 |
+| `argon_blueshift_averaged` | 0.609 | 0.710 |
+| `argon_blueshift_envelope` | 0.864 | 0.887 |
+| `h2_raman_averaged` | 0.648 | 0.379 |
+| `ctc` | 0.524 | 0.699 |
+| `radial_filament_256` | 0.595 | 0.581 |
+| `grin_nonlinear` | 0.669 | 0.797 |
+| `kerr_beam_384` | 0.581 | 0.663 |
+| `kerr_beam_192` | 0.585 | 0.702 |
+| geometric mean | 0.663 | 0.613 |
+
+The AMD EPYC 7763 and NVIDIA A40 confirmations are still running.
+
 ## NVIDIA A40
 
 | Change | Measured |
@@ -65,6 +88,7 @@ a graph is the largest remaining lever.
 | opt-in persistent FFTW wisdom (`SOLPROP_FFTW_WISDOM`) | one-thread construction, warm against cold: from 1.4–6.6 s to 0.03–0.1 s |
 | the host stage entry as lanes; the separable fold, crossings and monitor without divisions; radial statistics through two products | one thread (Xeon): `kerr_beam_384` 0.689, `kerr_beam_192` 0.682, `radial_filament_256` 0.808, `gnlse_raman_shock` 0.842 |
 | a compact team for one-column problems, with FFTW's threaded loops on the same team; one-mode node products on the response team | sixteen threads (Xeon): `gnlse_raman_shock` 0.774, `argon_blueshift` 0.680, `h2_raman_averaged` 0.895, `ctc` 0.947; `argon_blueshift` 0.601 (EPYC) |
+| the band column's rates, integrands and filter as vector blocks; the general route's real cubic through a half-spectrum inverse; wider projection blocks; synthesis that zeroes only outside the crop | one thread (Xeon): `ctc` 0.703, `argon_blueshift` 0.641, `grin_nonlinear` 0.701, `rdw` 0.865; sixteen threads (Xeon): `ctc` 0.846, `grin_nonlinear` 0.802; one thread (EPYC): `ctc` 0.754, `argon_blueshift` 0.720, `grin_nonlinear` 0.749 |
 
 Every A/B above took the same steps. Final fields agree with the baseline to between
 $10^{-15}$ and $10^{-14}$.
