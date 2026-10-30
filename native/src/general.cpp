@@ -2890,11 +2890,14 @@ public:
 // kernel at every shape tried -- a radial field's transforms 1.1 to 1.5 times faster
 // at 2 to 6 nodes and 1.6 to 35 times at 16 to 256 nodes and 256 to 2048 samples, a
 // one-mode field capillary's 2.4 to 3.1 times -- and lost at none. A device build
-// keeps the earlier conservative guard (two modes, eight nodes, 1024 samples) until
-// its own crossover is measured.
+// takes the vendor GEMM from eight modes (with eight nodes and 1024 samples): below
+// that the product is a few rows deep, which the custom kernels take in one pass over
+// the samples. On an NVIDIA A40 a four-mode capillary's stacked projection (8 rows,
+// 36 nodes, 10240 samples) took 71 us in cuBLAS and its synthesis 27 us; at 256
+// radial modes the vendor GEMM runs near the FP64 peak.
 bool GeneralWorkspace::hybrid_shape_eligible() const noexcept {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-  return problem_.n_modes >= 2 && problem_.n_nodes >= 8 && problem_.n_to >= 1024;
+  return problem_.n_modes >= 8 && problem_.n_nodes >= 8 && problem_.n_to >= 1024;
 #else
   return true;
 #endif
