@@ -401,9 +401,9 @@ The first public release. It contains:
   steps, returning to Python only when a statistics row, a save plane, a monitor check,
   the budget, the floor or an error needs it; the native backend's Python time per step
   falls from tens or hundreds of microseconds to about one. CUDA and HIP builds take the
-  native march too (qualified on an NVIDIA A40 and an AMD Instinct MI325X); HIP builds no
-  longer step it with solprop's Python march and its warning, which made their own
-  device test lanes fail. The algorithm is solprop's,
+  native march too (qualified on NVIDIA A40 and H200 GPUs and an AMD Instinct MI325X);
+  HIP builds no longer step it with solprop's Python march and its warning, which made
+  their own device test lanes fail. The algorithm is solprop's,
   specified in the kernel contract and handed over as a policy record
   (`MarchPolicy`); solprop's march stays the reference and steps the configurations
   the native one does not yet cover, with a `HostMarchWarning` naming the reason, and
@@ -562,8 +562,9 @@ The first public release. It contains:
   the HIP build with the native march alone, the four-mode RDW 0.88 and the radial
   filament 0.90, in the same steps, fields agreeing to 1.3e-11 or better; against the
   previous HIP build, which stepped them with the Python march, the mode-averaged runs
-  take 0.46 to 0.63 of the time. HIP builds also compile again (a flag that only the
-  host reads, which Clang refused as unused).
+  take 0.46 to 0.63 of the time. On an NVIDIA H200 the mode-averaged and four-mode Adams
+  runs take 0.90 to 0.97 of the time of the build without these changes. HIP builds also compile again (a
+  flag that only the host reads, which Clang refused as unused).
 - **`python -m benchmarks ab` between builds whose grids differ** recorded the field
   difference as infinite, which the summary's JSON refused, so the run ended without
   its summary; the difference is now recorded as not defined.

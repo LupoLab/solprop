@@ -743,6 +743,10 @@ steps in both arms): host time per trial 64 → 2.2 µs (`he_rdw_averaged`, 0.3)
 −3.0 % and −0.8 %, fields bitwise equal. A trial there is 160 to 550 µs of device time in 25
 to 70 kernels, most of it launch-bound
 ([device launches on an MI325X](#device-launches-and-the-adams-passes-on-an-amd-instinct-mi325x)).
+**On an NVIDIA H200** (CUDA 13.1, `HOPPER90`, three rounds, the same steps): 49 → 2.2 µs
+(`he_rdw_averaged`), 44 → 1.2 (`argon_blueshift_averaged`), 70 → 5.2 (`rdw`), 41 → 0.8
+(`h2_raman_averaged`) and 65 → 4.7 (`radial_filament_256`, 0.1); walls −15 %, −21 %, −4 %,
+−23 % and −3 %.
 
 ### The Adams passes on x86-64 lanes
 
@@ -893,6 +897,16 @@ are bimodal on this device, 0.20 or 0.37 s), `argon_blueshift_averaged` 0.629, `
 length (two rounds) `gnlse_raman_shock` 0.843, `argon_blueshift` 0.657, `ctc` 0.780.
 What remains is mostly the host's launch rate: a trial's kernels take 2 to 4 µs each, and
 rocFFT runs each of these transforms as four kernels.
+
+**On an NVIDIA H200** (CUDA 13.1, `HOPPER90`) the same changes, of which the light-weight
+hint is a no-op there (grid-constant arguments), against the build without them (three
+rounds, the same steps): `he_rdw_averaged` 0.920 (0.904–0.936, fields to 1.2e-11),
+`argon_blueshift_averaged` 0.902 (0.880–0.912), `h2_raman_averaged` 0.918 (0.916–0.920),
+`rdw` 0.969 (0.962–1.035), `radial_filament_256` 0.989 (0.962–1.134). Over a 411-trial window
+of the first the correct pass went 21.4 → 14.1 µs and the predict pass 24.7 → 22.2 µs, the
+transforms 4 → 3 a trial (cuFFT's one kernel each). Against the previous main build:
+`he_rdw_averaged` 0.790, `argon_blueshift_averaged` 0.882, `h2_raman_averaged` 0.788, `rdw`
+0.841, `radial_filament_256` 0.868, `kerr_beam_384` (half) 0.722, `kerr_beam_192` (half) 0.776.
 
 ### Retained radial synthesis and Raman modal products
 

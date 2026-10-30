@@ -15,7 +15,7 @@
 | **Requires** | [SEP 16](archive/sep-0016-unified-multistep.md) (the march, its engine, ADR-043); [SEP 25](archive/sep-0025-rounding-level-reproducibility.md) (agreement to the error bound); [SEP 29](archive/sep-0029-compiled-backend-distribution.md) (native z tables and the history export) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0039-native-adams-march` (LupoLab/solprop#58), based on LupoLab/solprop#56 and on `main` once it merged: started 2026-10-28; phases 0–5 complete (2026-10-29; phase 5 on NVIDIA A40s and an AMD Instinct MI325X) |
+| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0039-native-adams-march` (LupoLab/solprop#58), based on LupoLab/solprop#56 and on `main` once it merged: started 2026-10-28; phases 0–5 complete (2026-10-30; phase 5 on NVIDIA A40s, an AMD Instinct MI325X and an NVIDIA H200) |
 | **Manual pages** | [The Adams methods](../../guide/numerics/adams.md) |
 
 ## Part I — Proposal
@@ -2617,7 +2617,7 @@ FP32's, so the host's share is small there; on the FP64 devices SEP 16 measured
 still uploads its scalars as before. HIP (AMD MI325X) and H100-class timings wait for a
 GPU budget.
 
-### Phase 5 — report, part 2 (HIP on an AMD Instinct MI325X)
+### Phase 5 — report, part 2 (HIP on an AMD Instinct MI325X; an NVIDIA H200)
 
 **Scope.** HIP builds, 2026-10-29: one AMD Instinct MI325X (`gfx942`, 304 compute units)
 with a ROCm 7 prerelease stack (HIP 7.14, AMD Clang 23), within the maintainer's GPU
@@ -2665,11 +2665,27 @@ synchronisation overhead in the native backend's own device code, which the
 performance work that followed reduced (the benchmark ledger, "Device launches and the
 Adams passes on an AMD Instinct MI325X").
 
-**Not done.** HIP's device sanitizer does not exist (ROCm ships none), so the CUDA
-sanitizers' role is not filled on HIP. An NVIDIA H100-class device has not run the
-march.
+**On an NVIDIA H200** (CUDA 13.1, GCC 14.3 host, `HOPPER90`; the same session's tree):
+the native package's device tests 31 passed, solprop's 63 (one skipped, `mlx`), the native
+march's modules 203 passed and 7 skipped, the native radial and backend modules 103. The
+native march against the Python march on the same build (three rounds, the same steps):
 
-**Handoff.** Phase 5 is complete on both vendors' devices; the SEP is ready for `Final`.
+| case | host µs/trial: Python march → native | wall |
+|---|---|---:|
+| `he_rdw_averaged` (0.3) | 49 → 2.2 | −15 % |
+| `argon_blueshift_averaged` (0.1) | 44 → 1.2 | −21 % |
+| `rdw` (0.1) | 70 → 5.2 | −4 % |
+| `h2_raman_averaged` (0.4) | 41 → 0.8 | −23 % |
+| `radial_filament_256` (0.1) | 65 → 4.7 | −3 % |
+
+The H200's host ran the Python march at about twice the MI325X host's cost a trial, which
+is most of the difference between the two devices' walls here.
+
+**Not done.** HIP's device sanitizer does not exist (ROCm ships none), so the CUDA
+sanitizers' role is not filled on HIP.
+
+**Handoff.** Phase 5 is complete on both vendors' devices (NVIDIA A40 and H200, AMD Instinct
+MI325X); the SEP is ready for `Final`.
 
 ## Part III — History
 
