@@ -3713,13 +3713,13 @@ void GeneralWorkspace::allocate() {
   // the coarse projection's and the held pack's, in that order, carved from one buffer
   // and one spectrum.
   const bool pack = packs_forward();
-  const bool coarse_projection = !problem_.projection_coarse_matrix.empty();
   const std::size_t absorber_rows =
       pack && problem_.in_stage_absorber ? temporal_columns : 0;
-  const std::size_t projection_rows = (coarse_projection ? 2 : 1) * temporal_columns;
+  const std::size_t coarse_rows =
+      pack && !problem_.projection_coarse_matrix.empty() ? temporal_columns : 0;
   const std::size_t pack_rows =
-      absorber_rows + projection_rows +
-      (held_plasma() ? 2 * (coarse_projection ? 2 : 1) * temporal_columns : 0);
+      absorber_rows + temporal_columns + coarse_rows +
+      (held_plasma() ? 2 * (temporal_columns + coarse_rows) : 0);
   const auto pack_slice = [&](const std::size_t first, const std::size_t count) {
     return std::pair<std::size_t, std::size_t>(first, first + count);
   };
@@ -3744,14 +3744,15 @@ void GeneralWorkspace::allocate() {
                                           Kokkos::ALL))
            : ComplexView2("solprop_native.fft.projected_spectrum", temporal_columns,
                           projected_spectrum_size());
-  if (coarse_projection)
+  if (!problem_.projection_coarse_matrix.empty())
     projected_coarse_spectrum_ =
-        pack ? ComplexView2(Kokkos::subview(
-                   forward_pack_spectrum_,
-                   pack_slice(absorber_rows + temporal_columns, temporal_columns),
-                   Kokkos::ALL))
-             : ComplexView2("solprop_native.fft.projected_coarse_spectrum", columns,
-                            projected_spectrum_size());
+        coarse_rows != 0
+            ? ComplexView2(Kokkos::subview(
+                  forward_pack_spectrum_,
+                  pack_slice(absorber_rows + temporal_columns, coarse_rows),
+                  Kokkos::ALL))
+            : ComplexView2("solprop_native.fft.projected_coarse_spectrum", columns,
+                           projected_spectrum_size());
   absorber_spectrum_ =
       absorber_rows != 0
           ? ComplexView2(Kokkos::subview(forward_pack_spectrum_,
@@ -3804,14 +3805,15 @@ void GeneralWorkspace::allocate() {
                              ? projected_real_
                              : RealView2("solprop_native.response.polarisation_real",
                                          chunk_rows, problem_.n_to);
-    if (coarse_projection)
+    if (!problem_.projection_coarse_matrix.empty())
       projected_coarse_real_ =
-          pack ? RealView2(Kokkos::subview(
-                     forward_pack_,
-                     pack_slice(absorber_rows + temporal_columns, temporal_columns),
-                     Kokkos::ALL))
-               : RealView2("solprop_native.response.projected_coarse_real",
-                           temporal_columns, problem_.n_to);
+          coarse_rows != 0
+              ? RealView2(Kokkos::subview(
+                    forward_pack_,
+                    pack_slice(absorber_rows + temporal_columns, coarse_rows),
+                    Kokkos::ALL))
+              : RealView2("solprop_native.response.projected_coarse_real",
+                          temporal_columns, problem_.n_to);
     absorber_real_ =
         absorber_rows != 0
             ? RealView2(Kokkos::subview(forward_pack_, pack_slice(0, absorber_rows),
@@ -3841,7 +3843,7 @@ void GeneralWorkspace::allocate() {
     if (packed && pack) {
       // The stage's forward pack ends with the held pack's rows.
       const auto held_rows =
-          pack_slice(absorber_rows + projection_rows, 2 * (coarse ? 2 * rows : rows));
+          pack_slice(absorber_rows + rows + coarse_rows, 2 * (rows + coarse_rows));
       held_pack_ = Kokkos::subview(forward_pack_, held_rows, Kokkos::ALL);
       held_pack_spectrum_ =
           Kokkos::subview(forward_pack_spectrum_, held_rows, Kokkos::ALL);
