@@ -1072,6 +1072,38 @@ took the same steps, and the fields were bitwise equal.
 The pinned norms alone were within noise on the MI325X. When the pack is forced on a CPU
 build, the fields are bitwise equal.
 
+### Device graph replay of an Adams trial's source
+
+On a CUDA or HIP build, an elementwise Adams trial's source evaluation runs in a graph
+region (`graph::Region`). The first trial captures its kernels, device copies and
+transforms. Each later trial whose operations repeat, in order and with equal keys,
+launches the instantiated graph instead. In a microbenchmark, thirty dependent tiny
+kernels cost 3.36 µs each back to back and 2.18 µs as a replayed graph on an AMD Instinct
+MI325X, and 2.41 and 1.67 µs on an NVIDIA A40. Capturing every trial and updating the
+instantiated graph cost more than plain launches (4.04 µs on the MI325X).
+
+All A/Bs below use `ab --device`, three rounds, against the build without the region.
+Every case took the same steps, and the fields were bitwise equal.
+
+| case | MI325X | NVIDIA H200 | NVIDIA A40 |
+|---|---:|---:|---:|
+| `he_rdw_averaged` (0.3) | 0.915 (0.902–0.995) | 0.991 (0.937–1.003) | 0.972 (0.944–0.976) |
+| `argon_blueshift_averaged` (0.1) | 0.893 (0.880–0.897) | 0.918 (0.917–0.962) | 0.962 (0.959–0.965) |
+| `h2_raman_averaged` (0.4) | 0.885 (0.864–0.889) | 0.964 (0.948–0.976) | 0.978 (0.976–0.981) |
+| `rdw` (0.1) | 1.029 (0.978–1.031) | 0.987 (0.968–1.039) | 0.999 (0.997–1.000) |
+| `radial_filament_256` (0.5) | 0.990 (0.986–0.994) | 1.022 (0.992–1.114) | 0.999 (0.997–1.004) |
+| `kerr_beam_384` (0.5) | 1.001 (0.981–1.003) | 1.001 (0.993–1.023) | 0.987 (0.986–1.005) |
+
+The three mode-averaged runs replay all but their first trial: 410, 1048 and 5418 replays
+to one capture. The sources of `rdw` and `radial_filament_256` hold a vendor GEMM or a
+reduction. Their region stops at its second operation and the run continues with ordinary
+launches; its one capture is the 3 % on the MI325X's short `rdw` window. The Kerr cases do
+not use the region. A first version on the H200, whose trial is bound by the host, was
+slower (`he_rdw_averaged` 1.10, `argon_blueshift_averaged` 1.25). A verifying trial walks
+the whole source before its one launch, and that walk copied every operation it skipped.
+Comparing keys in place and copying an operation only when it is recorded removed that
+cost.
+
 ### Retained radial synthesis and Raman modal products
 
 Two work reductions from the CPU experiment's handoff, each measured with

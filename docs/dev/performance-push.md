@@ -87,9 +87,16 @@ device lanes on its own warning. SEP 39's report for phase 5 records the qualifi
 | a trial's norms read from pinned host memory; a stage's forward rows in one batched transform; the three radial held streams in one plan | `he_rdw_averaged` 0.903, `argon_blueshift_averaged` 0.858, `h2_raman_averaged` 0.888, `radial_filament_256` 0.969 | not measured |
 | `main` against the branch (before the row above) | `he_rdw_averaged` 0.463, `h2_raman_averaged` 0.624, `rdw` 0.605, `radial_filament_256` 0.843, `kerr_beam_384` 0.650 | 0.790, 0.788, 0.841, 0.868, 0.722 |
 
-Both devices now spend most of a trial waiting for the host to launch kernels of 2–4 µs.
-Their kernels keep the GPU busy only 35–50 % of the time. Capturing a trial's launches as
-a graph is the largest remaining lever.
+Both devices spent most of a trial waiting for the host to launch kernels of 2–4 µs. A graph region now replays an Adams trial's source evaluation as one CUDA or HIP graph while its operations repeat. Against the tree before it, with the same steps and bitwise-equal fields:
+
+| Case | MI325X | H200 | A40 |
+|---|---|---|---|
+| `he_rdw_averaged` | 0.915 | 0.991 | 0.972 |
+| `argon_blueshift_averaged` | 0.893 | 0.918 | 0.962 |
+| `h2_raman_averaged` | 0.885 | 0.964 | 0.978 |
+| `rdw` | 1.029 | 0.987 | 0.999 |
+
+The `rdw` and `radial_filament_256` sources hold a vendor GEMM or a reduction, which stops their region. On the MI325X's short `rdw` window, the one capture costs 3 %.
 
 ## CPU
 
