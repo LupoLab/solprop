@@ -14262,10 +14262,42 @@ void GeneralWorkspace::score_quadrature() {
   // since the backend last read it.
   const auto scores = quadrature_scores_;
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-  const auto columns = partials.extent(1);
-#else
-  const auto columns = problem_.n_columns();
+  // A device's chunks' sums by one team's reductions, which a single thread's walk
+  // over them took a few microseconds longer than.
+  if (chunks > 1) {
+    const auto entries = static_cast<int>(partials.extent(1));
+    launch::parallel_for(
+        "solprop_native.transform.device_quadrature_score",
+        TeamPolicy(execution_space_, 1, static_cast<int>(device_quadrature_chunk)),
+        KOKKOS_LAMBDA(const TeamMember& team) {
+          double difference_sum = 0.0;
+          double fine_sum = 0.0;
+          Kokkos::parallel_reduce(
+              Kokkos::TeamThreadRange(team, entries),
+              [&](const int entry, double& update) {
+                update += partials(0, static_cast<std::size_t>(entry));
+              },
+              difference_sum);
+          Kokkos::parallel_reduce(
+              Kokkos::TeamThreadRange(team, entries),
+              [&](const int entry, double& update) {
+                update += partials(1, static_cast<std::size_t>(entry));
+              },
+              fine_sum);
+          Kokkos::single(Kokkos::PerTeam(team), [&]() {
+            double value = Kokkos::Experimental::quiet_NaN_v<double>;
+            if (fine_sum != 0.0)
+              value = Kokkos::sqrt(difference_sum / fine_sum);
+            scores(0) = value;
+            if (fine_sum != 0.0 && !(scores(1) >= value))
+              scores(1) = value;
+          });
+        });
+    quadrature_stale_ = true;
+    return;
+  }
 #endif
+  const auto columns = problem_.n_columns();
   launch::parallel_for(
       "solprop_native.transform.quadrature_score",
       Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, 1),
