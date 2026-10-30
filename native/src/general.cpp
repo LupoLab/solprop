@@ -2251,16 +2251,16 @@ public:
                           const TrialScalars& sample, const std::vector<double>& rate);
   void adams_rate(const std::vector<double>& rate, const ComplexView2& out);
   // A trial's `rows` norms: its reduction over `policy` into the pinned buffer, then
-  // the trial's one fence, on `boundary`.
+  // the trial's one fence, on the reduction's own instance. A reduction into memory the
+  // device writes returns before it completes.
   template <class Policy, class Reducer>
   std::vector<double> adams_norms(const char* label, const Policy& policy,
-                                  const Reducer& reducer, const std::size_t rows,
-                                  const ExecutionSpace& boundary) {
+                                  const Reducer& reducer, const std::size_t rows) {
     const Kokkos::View<double*, Kokkos::SharedHostPinnedSpace,
                        Kokkos::MemoryTraits<Kokkos::Unmanaged>>
         result(adams_norms_.data(), rows);
     launch::parallel_reduce(label, policy, reducer, result);
-    boundary.fence("solprop_native Adams trial boundary");
+    policy.space().fence("solprop_native Adams trial boundary");
     std::vector<double> norms(rows);
     for (std::size_t row = 0; row < rows; ++row)
       norms[row] = std::sqrt(result(row));
@@ -6187,7 +6187,7 @@ GeneralWorkspace::adams_fused_trial(const double dz, const AdamsWeights& weights
   return adams_norms(
       "solprop_native.adams.defect_norms",
       Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, columns * n), reducer,
-      weights.n_rows, execution_space_);
+      weights.n_rows);
 }
 
 void GeneralWorkspace::adams_fused_accept(const double dz, const AdamsWeights& keep,
@@ -7972,7 +7972,7 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
                                       device_scale,
                                       !separable};
   auto norms = adams_norms("solprop_native.adams.exponential_correct", tasks, reducer,
-                           weights.n_rows, adams_execution_space_);
+                           weights.n_rows);
   adams_trial_compensated_ = compensated;
   adams_trial_coupled_ = false;
   return norms;
@@ -8493,7 +8493,7 @@ std::vector<double> GeneralWorkspace::adams_exponential_trial(
   auto norms =
       adams_norms("solprop_native.adams.coupled_norms",
                   Kokkos::RangePolicy<ExecutionSpace>(flow_execution_space_, 0, items),
-                  reducer, weights.n_rows, execution_space_);
+                  reducer, weights.n_rows);
   adams_trial_compensated_ = compensated;
   adams_trial_coupled_ = residual && compensated;
   return norms;
