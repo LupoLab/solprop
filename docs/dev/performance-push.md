@@ -69,6 +69,14 @@ Every case took the same steps. The rounds ranged within one per cent. The devic
 | one pinned upload per trial (SEP 39 §6.7) | from 2.1 to 1.1 host-to-device copies a trial; time unchanged on this card |
 | radial analytic synthesis through the real product, then on the retained spectrum | `radial_filament_256`: 0.902 |
 | a stage's forward rows in one batched transform; a trial's norms from pinned memory | `he_rdw_averaged` 0.784, `argon_blueshift_averaged` 0.755, `h2_raman_averaged` 0.878 |
+| a four-mode stage's coarse rows in the batched transform; custom kernels below eight modes; CUDA Adams reductions in blocks of 128; a device kernel for real GEMMs on compute capability 8.6 | `rdw` 0.799, `radial_filament_256` 0.930, `he_rdw_averaged` 0.934 (flagged), `argon_blueshift_averaged` 0.940, `h2_raman_averaged` 0.952 |
+
+The four-mode `rdw` trial was bound by its transform shapes, not by its launches. Each of
+its four real transforms took about 96 µs on 16 of the A40's 84 multiprocessors, and cuBLAS
+took 71 µs for its eight-row projection. With all of its forward rows in one transform and
+its few-row products on the custom kernels, its source has no vendor GEMM left and replays
+as one graph. On the MI325X the same tree measured `rdw` 0.962 and the other cases within
+one per cent; the reduction blocks and the GEMM kernel apply to CUDA only.
 
 The A40's radial trial is bound by its binary64 rate throughout. The Kerr case's remaining
 kernel time is its three-dimensional transforms and the separable fold, both bound by the
@@ -133,6 +141,14 @@ $10^{-15}$ and $10^{-14}$.
   - On `he_rdw_averaged` both builds take the same 411 steps. The final field moves by
     $1.3\times10^{-11}$ on the MI325X and $1.2\times10^{-11}$ on the H200.
   - Every other case is within $1.8\times10^{-13}$.
+
+- **CUDA Adams reductions in blocks of 128.**
+  - A trial's norms are summed in a different order on CUDA, so they move by rounding and
+    the step sizes follow.
+  - On `he_rdw_averaged` both builds take the same 410 steps, and the final field moves by
+    $1.0\times10^{-11}$ on the A40. HIP's blocks of 1024 had the same effect, at
+    $1.4\times10^{-11}$.
+  - Every other case is within $6.2\times10^{-14}$. The H200 has not been measured.
 
 ## Measured and not adopted
 
