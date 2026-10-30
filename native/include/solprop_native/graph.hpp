@@ -8,6 +8,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstring>
 #include <functional>
 #include <new>
 #include <stdexcept>
@@ -70,7 +71,8 @@
     - Branches of the host code that change what is issued change the sequence of keys,
       and only an unchanged sequence replays.
     - Bytes that are not a value are left out of a key: a type's padding as far as a
-      copy shows it, and the host pointer that nvcc's wrapper of an extended
+      copy shows it (the rest is zeroed on the stack beforehand, `detail::scrub_stack`),
+      and the host pointer that nvcc's wrapper of an extended
       `__host__ __device__` lambda appends to its captures (`detail::mask_host_copy`).
     The device sees its kernels' arguments only; what a recorded copy of an operation
     reads on the host (a label) changes no device result.
@@ -283,6 +285,19 @@ inline void validate(GraphHandle graph) {
     throw std::logic_error(
         "a device graph region captured a host transfer, event or callback");
   }
+}
+
+/** Zero the stack below the caller. Padding inside a closure holds whatever its stack
+    slot held before (a copy carries it along with the members), and a key compares a
+    closure's bytes: values left there by the host's work before a region, or by the
+    capture's own calls, would differ from run to run, so that a repeated sequence would
+    not match. Zeroing at a region's start and after each operation leaves only what
+    the region's own host code writes. How often keys match depends on it; what a match
+    means does not. */
+[[gnu::noinline]] inline void scrub_stack() noexcept {
+  unsigned char area[32768];
+  std::memset(area, 0, sizeof(area));
+  asm volatile("" : : "r"(area) : "memory");
 }
 
 /** Launch `graph` once; it is destroyed. */
@@ -578,6 +593,7 @@ template <class Space, class Body> void Region::run(const Space& space, Body&& b
     operations_.clear();
   detail::begin_capture(stream_);
   detail::active = this;
+  detail::scrub_stack();
   try {
     body();
   } catch (...) {
@@ -613,14 +629,16 @@ void operation(const Issue& issue, const Parts&... parts) {
   (key.add(parts), ...);
   switch (region->admit(key)) {
   case Admit::skip:
-    return;
+    break;
   case Admit::record:
     region->keep(key, std::function<void()>(issue));
+    issue();
     break;
   case Admit::issue:
+    issue();
     break;
   }
-  issue();
+  detail::scrub_stack();
 }
 
 namespace detail {
