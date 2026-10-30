@@ -591,6 +591,15 @@ The first public release. It contains:
   Adams runs take 0.90 to 0.97 of the time of the build without these changes. HIP
   builds also compile again (a flag that only the host reads, which Clang refused as
   unused).
+- **A device replays a mode-averaged Adams trial's source as one graph.** On CUDA and HIP
+  builds the kernels, device copies and transforms of an elementwise Adams trial's source
+  evaluation are captured once into a device graph and replayed while they repeat from
+  trial to trial, which saves the device about a microsecond a kernel. The mode-averaged
+  helium, argon and hydrogen Raman runs take 0.92, 0.89 and 0.88 of the time on an AMD
+  Instinct MI325X, 0.99, 0.92 and 0.96 on an NVIDIA H200 and 0.97, 0.96 and 0.98 on an
+  NVIDIA A40, with fields equal bit for bit and the same steps; runs whose source needs a
+  vendor GEMM or a reduction (the four-mode RDW, the radial filament) keep their launches.
+  `SOLPROP_NATIVE_DEVICE_GRAPH=OFF` turns it off; host builds are unchanged.
 - **`python -m benchmarks ab` between builds whose grids differ** recorded the field
   difference as infinite, which the summary's JSON refused, so the run ended without
   its summary; the difference is now recorded as not defined.
