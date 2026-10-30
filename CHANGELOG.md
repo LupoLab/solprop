@@ -488,14 +488,15 @@ The first public release. It contains:
   woke every thread of the pool for a few short kernels between serial transforms, and
   ran no faster at 16 threads than at one. A problem of one column on one node now runs
   its kernels and its FFTs on at most eight threads (FFTW 3.3.9 or later; with an older
-  FFTW its transforms stay serial): at 16 threads `gnlse_raman_shock` takes 0.75 of its
-  time on an Intel Xeon Gold 6240 and 0.92 on an AMD EPYC 7763, `h2_raman_averaged` 0.89
-  on the Xeon.
+  FFTW its transforms stay serial): at 16 threads `gnlse_raman_shock` takes 0.77 of its
+  time on an Intel Xeon Gold 6240 and 0.97 on an AMD EPYC 7763, `h2_raman_averaged` 0.90
+  and 0.97.
 - **One-mode capillaries with a plasma column run faster on many CPU threads.** Their
   node synthesis and projection, an outer product and a weighted sum over the radial
   nodes, went to the vendor BLAS, which threaded each small call over its own pool; they
   now run as two small kernels on the plasma column's thread team. On an Intel Xeon Gold
-  6240 at 16 threads `argon_blueshift` takes 0.68 of its time; one thread is unchanged.
+  6240 at 16 threads `argon_blueshift` takes 0.68 of its time (0.60 on an AMD EPYC 7763);
+  one thread is unchanged.
 - **Native CPU runs no longer re-create OpenMP threads every step.** A four-thread
   kernel between full-width ones made GNU OpenMP end and restart twelve of sixteen
   threads each time; the hydrogen Raman case was slower at 16 threads than at one. A

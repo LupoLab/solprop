@@ -299,6 +299,20 @@ of at least 4096 elements at the team width gained nothing either (`h2_raman_ave
 slower on the Xeon), nor did threading compact transforms from 4096 or 8192 samples
 (averaged argon 1.6 times slower at 4096).
 
+The final rule against the parent of the compact-team commit, 3 rounds, `--length 0.1`,
+the same steps (fields within 9e-14), 16 threads; one thread moved by 0.98-1.02:
+
+| case | Xeon Gold 6240 | AMD EPYC 7763 (16 cores of a quiet shared node) |
+|---|---:|---:|
+| `gnlse_raman_shock` | 0.774 [0.763, 0.800] | 0.965 [0.960, 0.970] |
+| `h2_raman_averaged` | 0.895 [0.872, 0.905] | 0.965 [0.957, 0.980] |
+| `gnlse_soliton`, `he_rdw_averaged`, `argon_blueshift_averaged` | 0.98-1.05 | 0.97-1.04 |
+
+With the package's own plan mode (threaded rows planned at `FFTW_ESTIMATE`, where the
+suite measures every plan) the Xeon rows were 0.780 and 0.905. On the EPYC the 16
+allocated cores lay in three CCXs; its 16-thread `gnlse_raman_shock` window ran 1.04
+times faster than one thread before and 1.08 times after (Xeon: 1.02 and 1.29).
+
 (one-mode-products)=
 ### One-mode products on the response team
 

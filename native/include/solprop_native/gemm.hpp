@@ -247,13 +247,13 @@ void one_mode_projection(const ExecutionSpace& execution_space, const AView& a,
       static_cast<std::size_t>(std::max(1, execution_space.concurrency()));
   const std::size_t share = (columns + parts - 1) / parts;
   constexpr std::size_t chunk = 256;
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.transform.one_mode_projection",
       Kokkos::RangePolicy<ExecutionSpace>(execution_space, 0, parts),
       KOKKOS_LAMBDA(const std::size_t part) {
-        const std::size_t end = std::min(columns, (part + 1) * share);
+        const std::size_t end = Kokkos::min(columns, (part + 1) * share);
         for (std::size_t first = part * share; first < end; first += chunk) {
-          const std::size_t count = std::min(chunk, end - first);
+          const std::size_t count = Kokkos::min(chunk, end - first);
           double fine_total[chunk];
           double coarse_total[chunk];
           for (std::size_t offset = 0; offset < count; ++offset)
@@ -285,7 +285,7 @@ void one_mode_synthesis(const ExecutionSpace& execution_space, const AView& a,
       c.extent(1) != b.extent(1))
     throw std::invalid_argument("one-mode synthesis extents are inconsistent");
   const std::size_t columns = b.extent(1);
-  Kokkos::parallel_for(
+  launch::parallel_for(
       "solprop_native.transform.one_mode_synthesis",
       Kokkos::RangePolicy<ExecutionSpace>(execution_space, 0, c.extent(0)),
       KOKKOS_LAMBDA(const std::size_t node) {
