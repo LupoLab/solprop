@@ -10470,6 +10470,51 @@ inline void band_note_block(BandLive& live, const double* values,
   live.min_val = std::min(live.min_val, offset + static_cast<int>(low));
   live.max_val = std::max(live.max_val, offset + static_cast<int>(high));
 }
+
+/**
+ * `ionisation_rate` of a host block's `count <= rate_block` magnitudes into `row`,
+ * with the table's limits `lower`, `upper` and `highest` as it takes them (a NaN
+ * magnitude is live); `within(values, live)` runs `ionisation_rates_within` on the
+ * live ones. A mostly live block runs every sample through the layer, a quiet one's
+ * magnitude replaced by the lower limit, and then keeps the limits' values: each value
+ * is the same function of its own magnitude, so the passes' lanes do not change it,
+ * and no sample is gathered. A mostly quiet block gathers its live magnitudes.
+ */
+template <class Within>
+void band_rates_block(const double* magnitudes, double* row, const std::size_t count,
+                      const double lower, const double upper, const double highest,
+                      const Within& within) {
+  double values[rate_block];
+  std::size_t live = 0;
+  for (std::size_t k = 0; k < count; ++k)
+    live += (magnitudes[k] > upper) | (magnitudes[k] < lower) ? 0 : 1;
+  if (2 * live >= count && lower > 0.0) {
+    for (std::size_t k = 0; k < count; ++k) {
+      const double magnitude = magnitudes[k];
+      values[k] = (magnitude > upper) | (magnitude < lower) ? lower : magnitude;
+    }
+    within(values, count);
+    for (std::size_t k = 0; k < count; ++k) {
+      const double magnitude = magnitudes[k];
+      row[k] = magnitude > upper ? highest : magnitude < lower ? 0.0 : values[k];
+    }
+    return;
+  }
+  std::size_t active[rate_block];
+  std::size_t gathered = 0;
+  for (std::size_t k = 0; k < count; ++k) {
+    const double magnitude = magnitudes[k];
+    row[k] = magnitude > upper ? highest : 0.0;
+    if (!(magnitude > upper) && !(magnitude < lower)) {
+      values[gathered] = magnitude;
+      active[gathered] = k;
+      ++gathered;
+    }
+  }
+  within(values, gathered);
+  for (std::size_t k = 0; k < gathered; ++k)
+    row[active[k]] = values[k];
+}
 #endif
 } // namespace
 
@@ -10653,66 +10698,30 @@ void GeneralWorkspace::team_band_plasma_column(const std::size_t stage,
       // sample keeps its own calls, as on a device.
       [[maybe_unused]] const auto blocks =
           static_cast<int>((sample_count + rate_block - 1) / rate_block);
-      [[maybe_unused]] const auto rates_into = [&](const std::size_t first,
-                                                   const std::size_t count,
-                                                   const std::size_t channel,
-                                                   BandLive& update) {
-        const double lower = Multiple ? channel_parameters(channel, 2) : field_min;
-        const double upper = Multiple ? channel_parameters(channel, 3) : field_max;
-        const double highest = Multiple ? channel_parameters(channel, 4) : rate_max;
-        const auto within = [&](double* values, const std::size_t live) {
-          if constexpr (Multiple)
-            ionisation_rates_within(
-                values, live, channel_coefficients, channel_parameters(channel, 0),
-                channel_parameters(channel, 1),
-                static_cast<std::size_t>(channel_parameters(channel, 5)),
-                static_cast<std::size_t>(channel_parameters(channel, 6)));
-          else
-            ionisation_rates_within(values, live, rate_coefficients, log_field_min,
-                                    d_log_field, rate_intervals);
-        };
-        double magnitudes[rate_block];
-        double values[rate_block];
-        for (std::size_t k = 0; k < count; ++k)
-          magnitudes[k] = magnitude_at(first + k);
-        // `ionisation_rate`'s limits as it takes them: a NaN magnitude is live.
-        std::size_t live = 0;
-        for (std::size_t k = 0; k < count; ++k)
-          live += (magnitudes[k] > upper) | (magnitudes[k] < lower) ? 0 : 1;
-        double* const row = &rates(slot, first);
-        if (2 * live >= count && lower > 0.0) {
-          // A mostly live block runs every sample through the layer, a quiet one's
-          // magnitude replaced by the table's lower limit, and then keeps the
-          // limits' values: each value is the same function of its own magnitude,
-          // so the passes' lanes do not change it, and no sample is gathered.
-          for (std::size_t k = 0; k < count; ++k) {
-            const double magnitude = magnitudes[k];
-            values[k] = (magnitude > upper) | (magnitude < lower) ? lower : magnitude;
-          }
-          within(values, count);
-          for (std::size_t k = 0; k < count; ++k) {
-            const double magnitude = magnitudes[k];
-            row[k] = magnitude > upper ? highest : magnitude < lower ? 0.0 : values[k];
-          }
-        } else {
-          // A mostly quiet block gathers its live magnitudes into the passes.
-          std::size_t active[rate_block];
-          std::size_t gathered = 0;
-          for (std::size_t k = 0; k < count; ++k) {
-            const double magnitude = magnitudes[k];
-            row[k] = magnitude > upper ? highest : 0.0;
-            if (!(magnitude > upper) && !(magnitude < lower)) {
-              values[gathered] = magnitude;
-              active[gathered] = k;
-              ++gathered;
-            }
-          }
-          within(values, gathered);
-          for (std::size_t k = 0; k < gathered; ++k)
-            row[active[k]] = values[k];
-        }
-        band_note_block(update, row, count, static_cast<int>(first));
-      };
+      [[maybe_unused]] const auto rates_into =
+          [&](const std::size_t first, const std::size_t count,
+              const std::size_t channel, BandLive& update) {
+            const double lower = Multiple ? channel_parameters(channel, 2) : field_min;
+            const double upper = Multiple ? channel_parameters(channel, 3) : field_max;
+            const double highest = Multiple ? channel_parameters(channel, 4) : rate_max;
+            const auto within = [&](double* values, const std::size_t live) {
+              if constexpr (Multiple)
+                ionisation_rates_within(
+                    values, live, channel_coefficients, channel_parameters(channel, 0),
+                    channel_parameters(channel, 1),
+                    static_cast<std::size_t>(channel_parameters(channel, 5)),
+                    static_cast<std::size_t>(channel_parameters(channel, 6)));
+              else
+                ionisation_rates_within(values, live, rate_coefficients, log_field_min,
+                                        d_log_field, rate_intervals);
+            };
+            double magnitudes[rate_block];
+            for (std::size_t k = 0; k < count; ++k)
+              magnitudes[k] = magnitude_at(first + k);
+            double* const row = &rates(slot, first);
+            band_rates_block(magnitudes, row, count, lower, upper, highest, within);
+            band_note_block(update, row, count, static_cast<int>(first));
+          };
 #endif
 
       // 1. Per channel: rates -> filter -> scan -> exposure, then the fraction, the
@@ -11345,25 +11354,61 @@ void GeneralWorkspace::team_band_statistics(const std::size_t first_node,
       for (std::size_t channel = 0; channel < channels; ++channel) {
         const double initial =
             multiple ? channel_preionisation(0, channel) : preionisation;
-        Kokkos::parallel_for(
-            Kokkos::TeamThreadRange(team, samples), [&](const int sample) {
-              const auto time = static_cast<std::size_t>(sample);
-              const double first = field_at(base, time);
-              const double magnitude =
-                  n_pol == 2 ? Kokkos::hypot(first, field_at(base + 1, time))
-                             : Kokkos::abs(first);
-              rates(slot, time) =
-                  multiple
-                      ? ionisation_rate(
-                            magnitude, channel_coefficients, parameters(channel, 0),
-                            parameters(channel, 1), parameters(channel, 2),
-                            parameters(channel, 3), parameters(channel, 4),
-                            static_cast<std::size_t>(parameters(channel, 5)),
-                            static_cast<std::size_t>(parameters(channel, 6)))
-                      : ionisation_rate(magnitude, coefficients, log_field_min,
-                                        d_log_field, field_min, field_max, rate_max,
-                                        intervals);
-            });
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+        // With vector maths a host thread forms blocks of rates as the column does
+        // (`band_rates_block`).
+        if constexpr (vmath::vectorised) {
+          const double lower = multiple ? parameters(channel, 2) : field_min;
+          const double upper = multiple ? parameters(channel, 3) : field_max;
+          const double highest = multiple ? parameters(channel, 4) : rate_max;
+          const auto within = [&](double* values, const std::size_t live) {
+            if (multiple)
+              ionisation_rates_within(values, live, channel_coefficients,
+                                      parameters(channel, 0), parameters(channel, 1),
+                                      static_cast<std::size_t>(parameters(channel, 5)),
+                                      static_cast<std::size_t>(parameters(channel, 6)));
+            else
+              ionisation_rates_within(values, live, coefficients, log_field_min,
+                                      d_log_field, intervals);
+          };
+          const auto sample_count = static_cast<std::size_t>(samples);
+          const auto blocks =
+              static_cast<int>((sample_count + rate_block - 1) / rate_block);
+          Kokkos::parallel_for(
+              Kokkos::TeamThreadRange(team, blocks), [&](const int block) {
+                const auto start = static_cast<std::size_t>(block) * rate_block;
+                const auto count = std::min(rate_block, sample_count - start);
+                double magnitudes[rate_block];
+                for (std::size_t k = 0; k < count; ++k) {
+                  const double first = field_at(base, start + k);
+                  magnitudes[k] =
+                      n_pol == 2 ? Kokkos::hypot(first, field_at(base + 1, start + k))
+                                 : Kokkos::abs(first);
+                }
+                band_rates_block(magnitudes, &rates(slot, start), count, lower, upper,
+                                 highest, within);
+              });
+        } else
+#endif
+          Kokkos::parallel_for(
+              Kokkos::TeamThreadRange(team, samples), [&](const int sample) {
+                const auto time = static_cast<std::size_t>(sample);
+                const double first = field_at(base, time);
+                const double magnitude =
+                    n_pol == 2 ? Kokkos::hypot(first, field_at(base + 1, time))
+                               : Kokkos::abs(first);
+                rates(slot, time) =
+                    multiple
+                        ? ionisation_rate(
+                              magnitude, channel_coefficients, parameters(channel, 0),
+                              parameters(channel, 1), parameters(channel, 2),
+                              parameters(channel, 3), parameters(channel, 4),
+                              static_cast<std::size_t>(parameters(channel, 5)),
+                              static_cast<std::size_t>(parameters(channel, 6)))
+                        : ionisation_rate(magnitude, coefficients, log_field_min,
+                                          d_log_field, field_min, field_max, rate_max,
+                                          intervals);
+              });
         team.team_barrier();
         team_band_filter<band_staging>(team, tile, rates, slot, filtered, slot, samples,
                                        taps, half);
@@ -11414,13 +11459,39 @@ void GeneralWorkspace::team_band_statistics(const std::size_t first_node,
               Kokkos::Max<double>(rise));
           team.team_barrier();
           // The filtered row becomes the owed work, the exposure row the fraction.
-          Kokkos::parallel_for(
-              Kokkos::TeamThreadRange(team, samples), [&](const int sample) {
-                const auto time = static_cast<std::size_t>(sample);
-                const double fraction = band_fraction(exposures(slot, time), initial);
-                filtered(slot, time) = rates(slot, time) * (1.0 - fraction);
-                exposures(slot, time) = fraction;
-              });
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+          // With vector maths a host thread takes blocks: the decays in one pass,
+          // then `decayed_fractions`, as the column forms them.
+          if constexpr (vmath::vectorised) {
+            const auto sample_count = static_cast<std::size_t>(samples);
+            const auto blocks =
+                static_cast<int>((sample_count + rate_block - 1) / rate_block);
+            Kokkos::parallel_for(
+                Kokkos::TeamThreadRange(team, blocks), [&](const int block) {
+                  const auto start = static_cast<std::size_t>(block) * rate_block;
+                  const auto count = std::min(rate_block, sample_count - start);
+                  double* const exposed = &exposures(slot, start);
+                  double* const owed = &filtered(slot, start);
+                  const double* const rate = &rates(slot, start);
+                  double fraction[rate_block];
+                  for (std::size_t k = 0; k < count; ++k)
+                    fraction[k] = -(exposed[k] < 0.0 ? 0.0 : exposed[k]);
+                  vmath::exp(fraction, fraction, count);
+                  decayed_fractions(fraction, count, initial);
+                  for (std::size_t k = 0; k < count; ++k) {
+                    owed[k] = rate[k] * (1.0 - fraction[k]);
+                    exposed[k] = fraction[k];
+                  }
+                });
+          } else
+#endif
+            Kokkos::parallel_for(
+                Kokkos::TeamThreadRange(team, samples), [&](const int sample) {
+                  const auto time = static_cast<std::size_t>(sample);
+                  const double fraction = band_fraction(exposures(slot, time), initial);
+                  filtered(slot, time) = rates(slot, time) * (1.0 - fraction);
+                  exposures(slot, time) = fraction;
+                });
           team.team_barrier();
           double paid = 0.0;
           Kokkos::parallel_reduce(

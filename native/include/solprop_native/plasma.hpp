@@ -350,6 +350,21 @@ KOKKOS_INLINE_FUNCTION void
 team_trapezoid_prefix(const TeamMember& team, const Values& values,
                       const std::size_t row, const int samples, const double spacing,
                       const Store& store) {
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+  // A host team of one thread forms the same prefixes in one pass, as
+  // `team_trapezoid_window` does.
+  if (team.team_size() == 1) {
+    double update = 0.0;
+    for (int sample = 0; sample < samples; ++sample) {
+      const auto index = static_cast<std::size_t>(sample);
+      if (index != 0)
+        update += spacing * (values(row, index) + values(row, index - 1)) / 2.0;
+      store(sample, update);
+    }
+    team.team_barrier();
+    return;
+  }
+#endif
   Kokkos::parallel_scan(Kokkos::TeamThreadRange(team, samples),
                         [&](const int sample, double& update, const bool final) {
                           const auto index = static_cast<std::size_t>(sample);
