@@ -199,15 +199,68 @@ void native_order_gemm(const ExecutionSpace& execution_space, const AView& a,
     native_order_gemm_tiles<4, 128, 8>(execution_space, a, b, c, beta);
 }
 
+// An NVIDIA GA10x device (compute capability 8.6) runs FP64 at a sixty-fourth of its
+// FP32 rate, and cuBLAS gives its DGEMM the FP64 tensor-op kernels of compute
+// capability 8.0: on an NVIDIA A40 a radial filament's 128 x 256 x 866 synthesis ran
+// at 316 GFLOP/s, about 54 % of the FP64 peak, at any row pitch. Such a build forms
+// the engine's real GEMMs with `device_dense_gemm`.
+inline constexpr bool device_dense_gemm_enabled =
+#if defined(KOKKOS_ARCH_AMPERE86)
+    true;
+#else
+    false;
+#endif
+
+/** `c = a * b + beta * c`, real, on a device: a thread takes `Rows` rows of one column
+    of C, so that each element of B it reads serves all of them. Each element is the
+    custom kernel's sum (`custom_gemm`), its products added in order from zero. */
+template <class ExecutionSpace, class AView, class BView, class CView>
+void device_dense_gemm(const ExecutionSpace& execution_space, const AView& a,
+                       const BView& b, const CView& c, const double beta) {
+  if (a.extent(1) != b.extent(0) || a.extent(0) != c.extent(0) ||
+      b.extent(1) != c.extent(1)) {
+    throw std::invalid_argument("GEMM view extents are inconsistent");
+  }
+  constexpr std::size_t Rows = 4;
+  const std::size_t rows = c.extent(0);
+  const std::size_t columns = c.extent(1);
+  const std::size_t inner = a.extent(1);
+  const std::size_t blocks = (rows + Rows - 1) / Rows;
+  launch::parallel_for(
+      "solprop_native.transform.device_dense_gemm",
+      Kokkos::RangePolicy<ExecutionSpace>(execution_space, 0, blocks * columns),
+      KOKKOS_LAMBDA(const std::size_t item) {
+        const std::size_t column = item % columns;
+        const std::size_t first = (item / columns) * Rows;
+        std::size_t row_of[Rows];
+        for (std::size_t r = 0; r < Rows; ++r)
+          row_of[r] = Kokkos::min(first + r, rows - 1);
+        double value[Rows] = {};
+        for (std::size_t index = 0; index < inner; ++index) {
+          const double right = b(index, column);
+          for (std::size_t r = 0; r < Rows; ++r)
+            value[r] += a(row_of[r], index) * right;
+        }
+        for (std::size_t r = 0; r < Rows && first + r < rows; ++r)
+          c(first + r, column) =
+              beta == 0.0 ? value[r] : value[r] + beta * c(first + r, column);
+      });
+}
+
 // The engine's KokkosBlas call: vendor or device GEMM where the build has one, and
 // otherwise KokkosBlas's own native arithmetic through the faster host kernel above.
 template <class ExecutionSpace, class AView, class BView, class CView>
 void engine_gemm(const ExecutionSpace& execution_space, const AView& a, const BView& b,
                  const CView& c, const typename CView::non_const_value_type beta) {
-  if constexpr (native_order_gemm_enabled &&
+  if constexpr (device_dense_gemm_enabled &&
                 std::is_same_v<typename AView::non_const_value_type, double> &&
                 std::is_same_v<typename BView::non_const_value_type, double> &&
                 std::is_same_v<typename CView::non_const_value_type, double>) {
+    device_dense_gemm(execution_space, a, b, c, beta);
+  } else if constexpr (native_order_gemm_enabled &&
+                       std::is_same_v<typename AView::non_const_value_type, double> &&
+                       std::is_same_v<typename BView::non_const_value_type, double> &&
+                       std::is_same_v<typename CView::non_const_value_type, double>) {
     native_order_gemm(execution_space, a, b, c, beta);
   } else {
     // The vendor library's calls are not a device graph's (`graph::Region`).
