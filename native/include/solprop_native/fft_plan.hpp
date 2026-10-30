@@ -141,8 +141,11 @@ void execute(const Plan& plan, const Input& input, const Output& output,
     return;
   }
   operation<detail::Transform<Plan, Input, Output>>(
-      [&plan, input, output, normalization] {
-        KokkosFFT::execute(plan, input, output, normalization);
+      [&] { KokkosFFT::execute(plan, input, output, normalization); },
+      [&] {
+        return [&plan, input, output, normalization] {
+          KokkosFFT::execute(plan, input, output, normalization);
+        };
       },
       &plan, input, output, normalization);
 }

@@ -648,9 +648,10 @@ inline void unrecordable() {
 }
 
 /** Issue the operation of kind `Kind` that `parts...` identify, as `issue`, through
-    the calling thread's region (which the caller has checked exists). */
-template <class Kind, class Issue, class... Parts>
-void operation(const Issue& issue, const Parts&... parts) {
+    the calling thread's region (which the caller has checked exists); `own()` makes the
+    copy a recording keeps, so that a skipped operation copies nothing. */
+template <class Kind, class Issue, class Own, class... Parts>
+void operation(const Issue& issue, const Own& own, const Parts&... parts) {
   Region* const region = Region::current();
   const auto admitted = region->admit(
       [&](const Key& recorded) { return recorded.matches(typeid(Kind), parts...); });
@@ -661,7 +662,7 @@ void operation(const Issue& issue, const Parts&... parts) {
     Key& key = detail::scratch();
     key.clear(typeid(Kind));
     (key.add(parts), ...);
-    region->keep(key, std::function<void()>(issue));
+    region->keep(key, std::function<void()>(own()));
     issue();
     break;
   }
@@ -712,8 +713,11 @@ void parallel_for(const Label& label, const Policy& policy, const Functor& funct
     return;
   }
   operation<detail::Launch<Policy, Functor>>(
-      [name = detail::kept_label(label), policy, functor] {
-        Kokkos::parallel_for(name, policy, functor);
+      [&] { Kokkos::parallel_for(label, policy, functor); },
+      [&] {
+        return [name = detail::kept_label(label), policy, functor] {
+          Kokkos::parallel_for(name, policy, functor);
+        };
       },
       policy, functor);
 }
@@ -755,8 +759,11 @@ void deep_copy(const Space& space, Destination&& destination, const Source& sour
   if constexpr (detail::recordable_copy<Space, Target, Source>()) {
     if (detail::stream_of(space) == Region::current()->stream()) {
       operation<detail::Copy<Target, Source>>(
-          [space, target = Target(destination), source] {
-            Kokkos::deep_copy(space, target, source);
+          [&] { Kokkos::deep_copy(space, destination, source); },
+          [&] {
+            return [space, target = Target(destination), source] {
+              Kokkos::deep_copy(space, target, source);
+            };
           },
           destination, source);
       return;
