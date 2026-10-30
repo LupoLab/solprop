@@ -7833,8 +7833,16 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
   // weights cross, with the step's and the sample's scalars, in the trial's one copy.
   upload_trial(step, &sample, compensated ? &rate : nullptr);
   const std::size_t blocks = (n + adams_block - 1) / adams_block;
-  const auto tasks =
-      Kokkos::RangePolicy<ExecutionSpace>(adams_execution_space_, 0, columns * blocks);
+#if defined(KOKKOS_ENABLE_CUDA)
+  // A device thread takes one element of a long FP64 chain, and Kokkos's CUDA range
+  // reduction gives each block 256 of them: a four-mode capillary's 10496 elements
+  // were 41 blocks on an NVIDIA A40's 84 multiprocessors. Blocks of 128 take them
+  // all.
+  using Tasks = Kokkos::RangePolicy<ExecutionSpace, Kokkos::LaunchBounds<128, 1>>;
+#else
+  using Tasks = Kokkos::RangePolicy<ExecutionSpace>;
+#endif
+  const auto tasks = Tasks(adams_execution_space_, 0, columns * blocks);
   const bool separable = problem_.separable_geometry();
   const auto spatial = spatial_;
   const auto active = active_mask_;
