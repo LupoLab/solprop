@@ -2767,6 +2767,8 @@ public:
   // host memory on a device, which the reduction's last block writes directly, so that
   // no copy from the device follows it before the trial's one fence.
   Kokkos::View<double*, Kokkos::SharedHostPinnedSpace> adams_norms_;
+  // An elementwise trial's source evaluation, replayed as a device graph.
+  graph::Region adams_source_graph_;
   // A varying operator's compensation: each sample's state and rate, the trial's
   // carried rows, its predicted field, endpoint term and rate, and dense observation's
   // terms.
@@ -5863,6 +5865,8 @@ void GeneralWorkspace::adams_allocate(const std::size_t slots, const bool compen
   if (adams_norms_.extent(0) == 0)
     adams_norms_ = Kokkos::View<double*, Kokkos::SharedHostPinnedSpace>(
         "solprop_native.adams.norms", adams_max_norms);
+  // The history's views may move: a graph that names them is dropped.
+  adams_source_graph_.reset();
   // A trial's elementwise passes cost about ten stage entries an element, rising with
   // the moments formed, so they take a width of their own; the accepted step's rows
   // are copies.
@@ -7939,7 +7943,8 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
   }
   std::swap(current_, adams_saved_);
   use_uploaded_sample(sample);
-  adams_evaluate_source(sample);
+  // On a device the source's launches replay as one graph while they repeat.
+  adams_source_graph_.run(execution_space_, [&] { adams_evaluate_source(sample); });
   std::swap(current_, adams_saved_);
   const ExponentialCorrection reducer{weights.n_rows,
                                       store,
@@ -15194,6 +15199,7 @@ void GeneralWorkspace::close() noexcept {
   adams_dense_exponent_ = {};
   adams_divisor_ = {};
   adams_norms_ = {};
+  adams_source_graph_.reset();
   adams_states_ = {};
   adams_rates_ = {};
   adams_carried_ = {};
