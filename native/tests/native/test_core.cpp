@@ -25,6 +25,10 @@
 #include <utility>
 #include <vector>
 
+#if defined(KOKKOS_ENABLE_OPENMP)
+#include <omp.h>
+#endif
+
 namespace {
 
 namespace native = solprop_native;
@@ -2913,11 +2917,46 @@ TEST(CpuThreadPolicy, MetadataNamesEveryOperationClass) {
   }
 }
 
+TEST(CpuThreadPolicy, ACompactTeamScopeHoldsAnOpenMpBlasAtOneThread) {
+#if !defined(KOKKOS_ENABLE_OPENMP)
+  GTEST_SKIP() << "the hold is an OpenMP build's";
+#else
+  const int before = omp_get_max_threads();
+  if (before == 1)
+    GTEST_SKIP() << "needs an OpenMP default width above one";
+  native::register_openmp_blas(true);
+  {
+    // A scope without a compact team leaves the default alone.
+    const native::CpuTeamScope none(0);
+    EXPECT_EQ(omp_get_max_threads(), before);
+  }
+  {
+    const native::CpuTeamScope outer(4);
+    EXPECT_EQ(omp_get_max_threads(), 1);
+    {
+      // Nested scopes hold it once and release it with the outermost.
+      const native::CpuTeamScope inner(4);
+      EXPECT_EQ(omp_get_max_threads(), 1);
+    }
+    EXPECT_EQ(omp_get_max_threads(), 1);
+  }
+  EXPECT_EQ(omp_get_max_threads(), before);
+  native::register_openmp_blas(false);
+  {
+    // Without an OpenMP OpenBLAS there is nothing to hold.
+    const native::CpuTeamScope unregistered(4);
+    EXPECT_EQ(omp_get_max_threads(), before);
+  }
+#endif
+}
+
 TEST(CpuThreadPolicy, AKernelPoolAtFullWidthKeepsItsTeam) {
   // GNU OpenMP ends a pool's surplus threads when a narrower region follows a wider
   // one, so a kernel pool that holds a full-width instance hands it to medium-width
-  // operations too; without one, they keep the medium width.
+  // operations too; without one, they keep the medium width. On macOS medium
+  // operations keep the medium width beside one too (`stable_kernel_team`).
   const int cap = native::thread_policy().kernels;
+  const int promoted = native::stable_kernel_team ? cap : native::cpu_medium_threads;
   if (!native::cpu_size_policy_enabled || cap <= native::cpu_medium_threads)
     GTEST_SKIP() << "needs per-operation sizing and more than the medium width";
   const auto response = std::size_t{33} * 4096;
@@ -2928,11 +2967,11 @@ TEST(CpuThreadPolicy, AKernelPoolAtFullWidthKeepsItsTeam) {
   native::CpuExecutionPool full(native::CpuPool::kernels);
   EXPECT_EQ(full.get(native::CpuOperation::stage, 1U << 20).concurrency(), cap);
   EXPECT_EQ(full.get(native::CpuOperation::response, response, 4096).concurrency(),
-            cap);
-  EXPECT_EQ(full.get(native::CpuOperation::adams, 16384).concurrency(), cap);
+            promoted);
+  EXPECT_EQ(full.get(native::CpuOperation::adams, 16384).concurrency(), promoted);
   EXPECT_EQ(full.get(native::CpuOperation::stage, 1).concurrency(), 1);
   const auto key = "kernels.response." + std::to_string(response) + ".samples.4096";
-  EXPECT_EQ(full.sizing().at(key).at("threads"), static_cast<std::size_t>(cap));
+  EXPECT_EQ(full.sizing().at(key).at("threads"), static_cast<std::size_t>(promoted));
   // The FFT pools keep their medium widths: FFTW's threaded loops run on the
   // runtime's whole team and only distribute fewer iterations.
   native::CpuExecutionPool transforms(native::CpuPool::fft);
@@ -2943,8 +2982,8 @@ TEST(CpuThreadPolicy, AKernelPoolAtFullWidthKeepsItsTeam) {
 
 TEST(CpuThreadPolicy, ACompactPoolKeepsAFewThreads) {
   // A compact problem's kernels share a team of at most cpu_compact_threads, medium
-  // widths promoted to it; its transforms take that team only where FFTW's loops
-  // follow a scope, and run serially otherwise.
+  // widths promoted to it except on macOS; its transforms take that team only where
+  // FFTW's loops follow a scope, and run serially otherwise.
   const auto policy = native::thread_policy();
   if (!native::cpu_size_policy_enabled || policy.explicit_pools != 0)
     GTEST_SKIP() << "needs automatic per-operation sizing";
@@ -2955,7 +2994,8 @@ TEST(CpuThreadPolicy, ACompactPoolKeepsAFewThreads) {
   EXPECT_EQ(kernels.get(native::CpuOperation::stage, 1U << 20).concurrency(), team);
   EXPECT_EQ(kernels.get(native::CpuOperation::response, std::size_t{33} * 4096, 4096)
                 .concurrency(),
-            team);
+            native::stable_kernel_team ? team
+                                       : std::min(team, native::cpu_medium_threads));
   EXPECT_EQ(kernels.get(native::CpuOperation::stage, 1).concurrency(), 1);
   EXPECT_EQ(kernels.widest(), team);
   native::CpuExecutionPool transforms(native::CpuPool::fft);

@@ -1890,6 +1890,16 @@ std::string fit_blas_threads(const int threads) {
   return runtime_state.blas_policy;
 }
 
+// Let a compact problem's scope hold an OpenMP OpenBLAS at one thread (`CpuTeamScope`),
+// whatever width the environment or `fit_blas_threads` gave it. A pthreads or serial
+// OpenBLAS keeps no team beside Kokkos's to resize.
+void register_host_blas() {
+  if (std::string(SOLPROP_NATIVE_BLAS_BACKEND) != "OpenBLAS")
+    return;
+  const auto parallel = library_integer(blas_symbol("openblas_get_parallel").c_str());
+  native::register_openmp_blas(parallel == 2);
+}
+
 nb::dict build_record() {
   const std::scoped_lock lock(runtime_state.mutex);
   nb::dict result;
@@ -2087,6 +2097,7 @@ NB_MODULE(_core, module_) {
               "fft"_a = 0, "raman_fft"_a = 0, "raman_tail_fft"_a = 0,
               "threaded_fft_min_samples"_a = 0, "band_tiles"_a = -1);
   module_.def("fit_blas_threads", &fit_blas_threads, "threads"_a);
+  module_.def("register_host_blas", &register_host_blas);
   module_.def("available_device_memory", []() -> nb::object {
 #if defined(KOKKOS_ENABLE_CUDA)
     std::size_t free_bytes = 0;

@@ -8,6 +8,7 @@
 #include <KokkosFFT.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <complex>
@@ -17,6 +18,10 @@
 #include <stdexcept>
 #include <utility>
 #include <vector>
+
+#if defined(KOKKOS_ENABLE_OPENMP)
+#include <omp.h>
+#endif
 
 namespace solprop_native {
 namespace {
@@ -170,15 +175,64 @@ bool fftw_team_loops() noexcept {
   static const bool installed = install_team_loop(&fftw_team_loop);
   return installed;
 }
-CpuTeamScope::CpuTeamScope(const int threads) noexcept : saved_(fftw_loop_team) {
+namespace {
+int enter_fftw_team(const int threads) noexcept {
+  const int saved = fftw_loop_team;
   fftw_loop_team = threads;
+  return saved;
 }
-CpuTeamScope::~CpuTeamScope() { fftw_loop_team = saved_; }
+void leave_fftw_team(const int saved) noexcept { fftw_loop_team = saved; }
+} // namespace
 #else
 bool fftw_team_loops() noexcept { return false; }
-CpuTeamScope::CpuTeamScope(const int threads) noexcept : saved_(threads) {}
-CpuTeamScope::~CpuTeamScope() = default;
+namespace {
+int enter_fftw_team(const int threads) noexcept { return threads; }
+void leave_fftw_team(int /*saved*/) noexcept {}
+} // namespace
 #endif
+
+namespace {
+// Whether the build's BLAS is an OpenMP OpenBLAS (`register_openmp_blas`), how many of
+// the calling thread's scopes hold it at one thread, and the thread's OpenMP default
+// width before the outermost of them.
+std::atomic<bool> openmp_blas{false};
+thread_local int blas_holds = 0;
+thread_local int blas_saved_default = 0;
+
+// An OpenMP OpenBLAS runs a call serially when the caller's OpenMP default width
+// (`omp_get_max_threads`) is one, before it reads its own count, so the hold sets only
+// that: `openblas_set_num_threads` frees the per-thread buffers above the new count and
+// allocates them again when the count returns, at every scope. Every region inside a
+// scope names its width (Kokkos's instances, `fftw_team_loop`), so the default reaches
+// only OpenBLAS.
+void hold_blas() noexcept {
+#if defined(KOKKOS_ENABLE_OPENMP)
+  blas_saved_default = omp_get_max_threads();
+  omp_set_num_threads(1);
+#endif
+}
+void release_blas() noexcept {
+#if defined(KOKKOS_ENABLE_OPENMP)
+  omp_set_num_threads(blas_saved_default);
+#endif
+}
+} // namespace
+
+void register_openmp_blas(const bool registered) noexcept { openmp_blas = registered; }
+
+CpuTeamScope::CpuTeamScope(const int threads) noexcept
+    : saved_(enter_fftw_team(threads)) {
+  if (threads != 0 && openmp_blas.load()) {
+    holds_blas_ = true;
+    if (blas_holds++ == 0)
+      hold_blas();
+  }
+}
+CpuTeamScope::~CpuTeamScope() {
+  leave_fftw_team(saved_);
+  if (holds_blas_ && --blas_holds == 0)
+    release_blas();
+}
 
 bool compact_problem(const Problem& problem) noexcept {
   return problem.n_columns() == 1 && problem.n_nodes == 1 &&
@@ -211,8 +265,9 @@ const ExecutionSpace& CpuExecutionPool::get(const CpuOperation operation,
   // pool has a full-width kernel, a medium one takes the full width too. FFTW's
   // threaded loops keep the runtime's team and only distribute fewer iterations, so the
   // FFT pools keep their medium widths. Workspaces ask for their stage instance first.
-  if (pool_ == CpuPool::kernels && width > 1 && width < capacity &&
-      instances_.contains(capacity))
+  // Not on macOS (`stable_kernel_team`).
+  if (stable_kernel_team && pool_ == CpuPool::kernels && width > 1 &&
+      width < capacity && instances_.contains(capacity))
     width = capacity;
   auto found = instances_.find(width);
   if (found == instances_.end())

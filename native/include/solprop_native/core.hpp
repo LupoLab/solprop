@@ -224,7 +224,16 @@ inline constexpr std::size_t dense_full_thread_elements = 1048576;
 inline constexpr std::size_t fft_full_thread_elements = 131072;
 inline constexpr std::size_t raman_full_thread_elements = 262144;
 // A kernel pool that holds a full-width instance gives it to medium-width kernels too
-// (CpuExecutionPool::get): GNU OpenMP ends surplus threads when a team narrows.
+// (CpuExecutionPool::get): GNU OpenMP ends surplus threads when a team narrows, and on
+// Windows, with LLVM's libomp, the wider team still ran h2_raman_averaged 1.1 times
+// faster at eight threads. Not on macOS: on an Apple M5 Max, whose 18 cores are of two
+// kinds, the promoted passes took argon_blueshift from 3.0 to 3.2 s at 18 threads.
+inline constexpr bool stable_kernel_team =
+#if defined(__APPLE__)
+    false;
+#else
+    true;
+#endif
 inline constexpr int cpu_medium_threads = 4;
 // A compact problem (`compact_problem`: one column on one node with fewer than
 // `compact_max_fine_samples` fine samples, the GNLSE and the mode-averaged capillary
@@ -282,10 +291,19 @@ private:
     loops take the runtime's whole team, as FFTW's own do, outside a scope. */
 [[nodiscard]] bool fftw_team_loops() noexcept;
 
+/** Record that the build's BLAS is an OpenMP OpenBLAS, so that a compact problem's
+    scope holds it at one thread (`CpuTeamScope`). */
+void register_openmp_blas(bool registered) noexcept;
+
 /** While it lives, the calling thread's threaded FFTW loops run on a team of
     `threads` (at least their own job count), so that a compact problem's transforms
     keep its kernels' team instead of waking the whole runtime; zero restores the
-    runtime's team. Scopes nest. */
+    runtime's team. A nonzero team also holds an OpenMP OpenBLAS at one thread, through
+    the calling thread's OpenMP default width: a compact problem's products are a row
+    or two deep, and an OpenBLAS region at the fitted width between the team's narrower
+    ones made GNU OpenMP end and restart the surplus threads at every pair (16 cores of
+    a Neoverse V2: about 100,000 thread creations in a short GNLSE window). Scopes
+    nest. */
 class CpuTeamScope {
 public:
   explicit CpuTeamScope(int threads) noexcept;
@@ -298,6 +316,8 @@ public:
 private:
   // The enclosing scope's team; unread where FFTW has no loop callback.
   [[maybe_unused]] int saved_;
+  // Whether this scope holds the registered OpenBLAS at one thread.
+  bool holds_blas_{};
 };
 
 /** solprop SEP 28 section 4.2's per-evaluation reference, independent of any

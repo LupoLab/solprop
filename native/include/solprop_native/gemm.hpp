@@ -270,16 +270,18 @@ void engine_gemm(const ExecutionSpace& execution_space, const AView& a, const BV
   }
 }
 
-// One mode at several nodes on a host build with a vendor BLAS: the synthesis is an
-// outer product (A's single column) and the projection one weighted sum of node rows,
-// or two when it stacks the embedded rule's. The vendor library threads such a call
-// over its own pool, and the product sizing keeps the engine's dense operations serial;
-// these kernels run on the caller's team instead, the response team that writes the
-// node rows (solprop docs/dev/benchmarks.md, "One-mode products on the response
-// team"). Each element is one product, or a sum over the nodes in order from zero,
-// within the GEMM rounding bound.
+// One mode at several nodes on a host build with OpenBLAS: the synthesis is an outer
+// product (A's single column) and the projection one weighted sum of node rows, or two
+// when it stacks the embedded rule's. OpenBLAS threads such a call over its own pool,
+// and the product sizing keeps the engine's dense operations serial; these kernels run
+// on the caller's team instead, the response team that writes the node rows (solprop
+// docs/dev/benchmarks.md, "One-mode products on the response team"). Each element is
+// one product, or a sum over the nodes in order from zero, within the GEMM rounding
+// bound. Apple's Accelerate runs the small calls well: on an 18-core Apple M5 Max the
+// kernels on the 18-thread response team took argon_blueshift from 3.0 to 3.8 s.
 inline constexpr bool one_mode_products_enabled =
-#if defined(KOKKOSKERNELS_ENABLE_TPL_BLAS) && !defined(KOKKOS_ENABLE_CUDA) &&          \
+#if defined(KOKKOSKERNELS_ENABLE_TPL_BLAS) &&                                          \
+    defined(SOLPROP_NATIVE_TPL_BLAS_OPENBLAS) && !defined(KOKKOS_ENABLE_CUDA) &&       \
     !defined(KOKKOS_ENABLE_HIP)
     true;
 #else

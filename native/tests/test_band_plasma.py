@@ -301,8 +301,8 @@ def test_response_column_boundary_preserves_full_and_tail_windows(chunk: int) ->
         choice = sizing[key]
         assert choice["columns"] == columns
         # A kernel pool that already holds a full-width instance keeps its team: a
-        # medium-width response takes the full pool too.
-        full_team = any(
+        # medium-width response takes the full pool too, except on macOS.
+        full_team = sys.platform != "darwin" and any(
             entry["threads"] == INFO.thread_count
             for name, entry in sizing.items()
             if name.startswith("kernels.") and name != key
