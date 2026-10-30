@@ -601,7 +601,9 @@ template <class Space, class Body> void Region::run(const Space& space, Body&& b
     throw;
   }
   detail::active = nullptr;
-  finish();
+  // A run the region stopped part-way (a refusal or stray work) has issued its own.
+  if (mode_ != Mode::off)
+    finish();
 }
 
 namespace detail {
