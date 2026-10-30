@@ -210,6 +210,9 @@ void engine_gemm(const ExecutionSpace& execution_space, const AView& a, const BV
                 std::is_same_v<typename CView::non_const_value_type, double>) {
     native_order_gemm(execution_space, a, b, c, beta);
   } else {
+    // The vendor library's calls are not a device graph's (`graph::Region`).
+    if constexpr (graph::available)
+      graph::unrecordable();
     kokkosblas_gemm(execution_space, a, b, c, beta);
   }
 }

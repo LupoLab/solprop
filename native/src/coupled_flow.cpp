@@ -43,7 +43,7 @@ void upload(const ExecutionSpace& execution, const View& destination,
   auto* data = mirror.data();
   for (std::size_t index = 0; index < source.size(); ++index)
     data[index] = source[index];
-  Kokkos::deep_copy(execution, destination, mirror);
+  graph::copy(execution, destination, mirror);
 }
 
 KOKKOS_INLINE_FUNCTION Complex flow_exponential(const Complex value) {
@@ -451,7 +451,7 @@ CoupledFlowAction::form_actions(const std::size_t section, const double dz,
   }
   // Forgotten first: a refusal of what this forms leaves no action set behind.
   ready_ = false;
-  Kokkos::deep_copy(kernels_, fractions_, host_fractions_);
+  graph::copy(kernels_, fractions_, host_fractions_);
   const auto slots = n_stages_ + 1;
   const auto whole = n_stages_;
   const auto modes = n_modes_;
@@ -507,7 +507,7 @@ CoupledFlowAction::form_actions(const std::size_t section, const double dz,
         measured(bin) = spectral_norm(forward, whole, bin, modes, gram) *
                         spectral_norm(inverse, whole, bin, modes, gram);
       });
-  Kokkos::deep_copy(kernels_, host_measured_, measured_);
+  graph::copy(kernels_, host_measured_, measured_);
   kernels_.fence("solprop_native coupled flow formation");
   std::copy(host_measured_.data(), host_measured_.data() + active_,
             measured_host_.begin());
@@ -566,8 +566,8 @@ void CoupledFlowAction::set_trial(const std::size_t section,
     counts(stage) = count;
     listed_counts_.at(stage) = count;
   }
-  Kokkos::deep_copy(kernels_, active_terms_, listed);
-  Kokkos::deep_copy(kernels_, active_counts_, counts);
+  graph::copy(kernels_, active_terms_, listed);
+  graph::copy(kernels_, active_counts_, counts);
 }
 
 std::vector<Complex> CoupledFlowAction::actions_to_host(const bool inverse) const {

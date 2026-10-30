@@ -110,7 +110,7 @@ public:
       return;
     }
 #endif
-    KokkosFFT::execute(*fallback_, input, output, normalization);
+    fft_execute(*fallback_, input, output, normalization);
   }
 
   [[nodiscard]] const char* provider() const noexcept {
