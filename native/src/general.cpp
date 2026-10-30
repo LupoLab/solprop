@@ -3711,11 +3711,12 @@ void GeneralWorkspace::allocate() {
 #else
     const bool packed = false;
 #endif
-    const std::size_t per_stream = coarse ? 2 * rows : rows;
+    const auto per_stream = [&] { return coarse ? 2 * rows : rows; };
     if (packed) {
-      held_pack_ = RealView2("solprop_native.held.pack", 2 * per_stream, problem_.n_to);
+      held_pack_ =
+          RealView2("solprop_native.held.pack", 2 * per_stream(), problem_.n_to);
       held_pack_spectrum_ = ComplexView2("solprop_native.held.pack_spectrum",
-                                         2 * per_stream, problem_.n_to / 2 + 1);
+                                         2 * per_stream(), problem_.n_to / 2 + 1);
     }
     for (std::size_t index = 0; index < (radial ? 3U : 2U); ++index) {
       auto& stream = held_streams_[index];
@@ -3724,7 +3725,7 @@ void GeneralWorkspace::allocate() {
       if (index < 2)
         stream.node = RealView2(label + "node", chunk_rows, problem_.n_to);
       if (packed) {
-        const std::size_t first = index * per_stream;
+        const std::size_t first = index * per_stream();
         const auto rows_from = [&](const std::size_t start, const std::size_t count) {
           return std::pair<std::size_t, std::size_t>(start, start + count);
         };
