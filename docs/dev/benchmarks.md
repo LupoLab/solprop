@@ -1214,6 +1214,109 @@ and setup: tens of milliseconds, a few tenths of a second for the free-space Ker
 construction and translation (0.7 s and 3.0 s for averaged helium on the Xeon), which
 the native backend does not own.
 
+### Band column passes and the general route's real signal
+
+Host-only changes found by profiling `ctc` and `grin_nonlinear` (Kokkos label timer and
+`perf`, Intel Xeon Gold 6240, GCC 16.2 `-march=cascadelake`, SLEEF's AVX2 functions).
+In a one-thread `ctc` window (0.01 of the guide) the band plasma column took 1.00 of
+1.99 s inside Kokkos, 25 ns a sample, and the band statistics another 0.29 s; in a
+`grin_nonlinear` window (0.05) the complex inverse transform took 2.53 of 8.02 s, the
+projection 1.81 s and the synthesis 1.57 s.
+
+- **The band column's passes as block loops.** In the column's own code a third of the
+  samples went to the integrand pass (an out-of-line strict call per sample for the
+  ionised fraction, a scalar division in the loss guard, a live-window note per
+  sample), two fifths to the scans (Kokkos' host team scan runs each closure twice, the
+  second time from the same zero), and a fifth to the rates' classification and
+  scatter. A rate block of 256 samples that is mostly live now takes every sample
+  through the vector-maths passes, a quiet one's magnitude replaced by the table's lower
+  limit, and selects the limits after; a mostly quiet block gathers as before. The
+  fractions come from one strict block loop, the guard's branch is a selection that
+  divides by one where it is not taken, the live window is searched from a block's
+  ends, and a one-thread team scans in one pass. Every value is unchanged to the bit.
+  Label timer, column: 1.00 → 0.69 s at one thread, 0.147 → 0.100 s at sixteen.
+- **The filter one tap pair at a time, on x86-64.** GCC had vectorised each sample's
+  nine-tap sum across the taps, a serial chain of additions per sample. A thread now
+  takes blocks of 512 samples and runs the interior as one loop per tap pair; each
+  sample keeps its order of terms, and only the contraction of its multiply-adds can
+  move it (one `ctc` step: 2.2 × 10⁻¹⁶ of the field's peak). Column: 0.69 → 0.54 s at
+  one thread, 0.100 → 0.082 s at sixteen. Other hosts keep the per-sample traversal: the
+  earlier tap-first filter slowed an Apple M-series argon window (see the rejected
+  leads below).
+- **The rate table's cubic vectorised out of line.** Called from the blocks, the table's
+  cubic ran scalar, a division per sample: the compiled-out-of-line loop stored through
+  the pointer it read while it gathered from the table, which GCC could not prove
+  apart. It now writes a local block. Bitwise; column 0.54 → 0.51 s.
+- **The quiet-block skip.** A rate block with no live sample takes only the table's
+  limits, without the gather, and the single gas's density is read once per node, not
+  after each store of the current (which the compiler had to assume might alias it).
+  Bitwise; `argon_blueshift` column 0.72 → 0.64 s of a 0.05 window at one thread, `ctc`
+  0.51 → 0.49 s.
+- **The band statistics in the same blocks.** The statistics scan took each sample's
+  rate and diagnostic fraction through the system libm and its whole-row prefix through
+  Kokkos' two-pass scan; it now uses the column's rate blocks, block fractions and the
+  one-pass scan. `ctc`: 22.8 → 14.0 ms a call at one thread. The statistics' rates now
+  carry the vector maths' rounding: the peak ionisation rate moves by 3.6 × 10⁻¹⁴
+  relative (a one-ulp change of `log |E|` through the cubic's slope), every other
+  statistic not at all.
+- **The real form's field through a complex-to-real transform.** A real-form cubic
+  reads only the real part of the analytic signal, which is the c2r transform of the
+  one-sided spectrum with its doubled bins halved (exactly) and the imaginary parts of
+  the zero and Nyquist bins dropped. The host now synthesises that half spectrum and
+  transforms it c2r; the buffers are the complex transform's, aliased, so the ledger
+  and solprop's memory estimate are unchanged. Not with SEP 6's dispersive response,
+  and not on devices. One `grin_nonlinear` step: 4.7 × 10⁻¹⁷ of the field's peak.
+  Inverse transform 2.53 → 1.21 s, respond 0.68 → 0.50 s at one thread.
+- **The projection's block of bins up to the whole row.** A host projection team walked
+  the chunk's rows over at most 64 bins, 1 KiB of each map row in turn; the block now
+  widens to 2048 bins and to the first power of two covering the bins, so at one thread
+  a team streams a mode's map rows contiguously. No bin's sum changes order. Project
+  1.81 → 1.17 s at one thread (2048 bins), 0.20 → 0.17 s at sixteen (512 bins).
+- **The synthesis summed in local blocks.** The host synthesis zeroed each row and
+  added every mode's products into it in memory; it now zeroes only the bins outside
+  the crop and sums blocks of 256 bins in two local arrays before one store, each bin's
+  sum in the same order. Synthesise 1.47 → 1.31 s at one thread. At one thread the
+  synthesis and the projection each stream a 122 MB map per evaluation at 8–9 GB/s,
+  about what one core of this socket draws from memory.
+
+Each case measured with `python -m benchmarks ab` against the parent of these changes
+(fresh interleaved processes on 18 cores of one socket of the Xeon, passive bound
+threads, `SOLPROP_FFTW_PLAN=measure`, `--length 0.05`, three rounds of one repeat;
+medians of the per-round pairs, range over rounds). Every pair did the same work, and
+the final fields agree within the measured-plan floor (2 × 10⁻¹⁵ to 3 × 10⁻¹⁴):
+
+| case | one thread | sixteen threads |
+|---|---:|---:|
+| `ctc` | 0.703 (0.694–0.705): 7.74 → 5.46 s | 0.846 (0.829–0.868) |
+| `argon_blueshift` | 0.641 (0.627–0.649) | 0.853 (0.844–0.868) |
+| `rdw` | 0.865 (0.859–0.886) | 0.982 (0.949–0.984) |
+| `grin_nonlinear` | 0.701 (0.687–0.705): 8.04 → 5.67 s | 0.802 (0.800–0.805) |
+| `argon_blueshift_averaged` | 0.913 (0.911–0.947) | 0.919 (0.901–0.922) |
+| `he_rdw_averaged` | 0.945 (0.773–0.951) | 0.958 (0.947–1.019) |
+
+The two averaged cases were measured without the quiet-block skip, which affects the
+resolved cases only (a separate run).
+
+On 16 cores of an AMD EPYC 7763 (GCC 16.2 `-march=znver3`, the same protocol on a
+fragmented allocation; all but the quiet-block skip), one / sixteen threads:
+
+| case | one thread | sixteen threads |
+|---|---:|---:|
+| `ctc` | 0.760 (0.754–0.770): 6.37 → 4.84 s | 0.927 (0.924–0.929) |
+| `argon_blueshift` | 0.755 (0.744–0.765) | 0.937 (0.904–0.940) |
+| `rdw` | 0.884 (0.874–0.885) | 0.975 (0.963–1.020) |
+| `grin_nonlinear` | 0.750 (0.750–0.766): 5.53 → 4.16 s | 0.872 (0.845–0.881) |
+| `argon_blueshift_averaged` | 0.918 (0.912–0.927) | 0.922 (0.906–0.929) |
+| `he_rdw_averaged` | 0.985 (0.943–1.056) | 0.967 (0.941–0.975) |
+
+With the quiet-block skip as well (another allocation, the same CPUs): `argon_blueshift`
+0.720 (0.715–0.724) / 0.937, `ctc` 0.754 (0.751–0.755) / 0.907, `rdw` 0.883 / 0.989,
+`grin_nonlinear` 0.749 / 0.918 (0.835–0.918).
+
+Not adopted: summing each block of eight scan increments locally before the running
+prefix, so that only block totals form a dependent chain (`ctc` column 0.538 → 0.534 s,
+within noise, for a change of association).
+
 ## Reference tables
 
 These tables back the indicative results above.

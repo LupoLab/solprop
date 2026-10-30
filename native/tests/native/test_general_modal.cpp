@@ -301,6 +301,19 @@ TEST(GeneralModal, BothCubicsMatchTheStraightforwardHostSource) {
   }
 }
 
+// Five coarse bins at fine bins 0 to 4 of an eight-sample grid, the last the Nyquist
+// bin: the real form's complex-to-real transform halves the doubled bins and drops
+// the imaginary parts of the zero and Nyquist bins, as the analytic signal's real part
+// does.
+TEST(GeneralModal, ACropThroughTheNyquistBinMatchesTheStraightforwardHostSource) {
+  for (const bool real_form : {true, false}) {
+    const auto problem = modal_problem(real_form, 2, false, 5, 0, 8);
+    const auto scaled = scaled_state(problem);
+    expect_close(evaluated(problem, scaled), reference_source(problem, scaled),
+                 kInstantaneousBound);
+  }
+}
+
 // Eleven coarse bins at fine bins 3 to 13 of a 32-sample grid: the projection's
 // teams of `general_vector_lanes` bins include a partial one, and the crop starts
 // away from bin zero. The products per element grow to 2 + 81 + 3 + 15 + 64 = 165,
@@ -315,16 +328,19 @@ TEST(GeneralModal, AWideOffsetCropMatchesTheStraightforwardHostSource) {
   }
 }
 
-// The projection's block widens while every thread still has a team, and the widest
-// block is 64 bins: the graded-index guide's 2 modes x 65 bins take 64 at one and
-// four threads and 8 at eighteen (a measured optimum on an 18-core socket).
+// The projection's block widens while every thread still has a team, up to the
+// first power of two that covers the bins and at most 2048 bins: the graded-index
+// guide's 2 modes x 65 bins take 128 at one thread, 64 at four and 8 at eighteen (a
+// measured optimum on an 18-core socket).
 TEST(GeneralModal, TheProjectionBlockWidensWhileEveryThreadHasATeam) {
-  EXPECT_EQ(native::general_projection_lanes(2, 65, 1), 64U);
+  EXPECT_EQ(native::general_projection_lanes(2, 65, 1), 128U);
   EXPECT_EQ(native::general_projection_lanes(2, 65, 4), 64U);
   EXPECT_EQ(native::general_projection_lanes(2, 65, 10), 16U);
   EXPECT_EQ(native::general_projection_lanes(2, 65, 18), native::general_vector_lanes);
   EXPECT_EQ(native::general_projection_lanes(1, 3, 1000), native::general_vector_lanes);
-  EXPECT_EQ(native::general_projection_lanes(40, 4097, 1), 64U);
+  EXPECT_EQ(native::general_projection_lanes(40, 4097, 1),
+            native::general_projection_max_lanes);
+  EXPECT_EQ(native::general_projection_lanes(4, 1537, 16), 512U);
 }
 
 TEST(GeneralModal, DelayedTensorResponseMatchesTheDirectConvolution) {

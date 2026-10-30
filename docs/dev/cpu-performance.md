@@ -225,6 +225,28 @@ time divided by the native backend's: above 1, the native backend is faster.
   that reads four arrays 32 columns apart at every bin, which the prefetchers do not
   follow.
 
+- **The band plasma column's host passes as block loops**
+  ([measurements](benchmarks.md#band-column-passes-and-the-general-routes-real-signal)).
+  A rate block that is mostly live takes every sample through the vector-maths passes
+  and selects the table's limits after, the fractions come from one strict block loop,
+  the loss guard's branch is a selection, a one-thread team scans in one pass (Kokkos'
+  host team scan runs each closure twice), and on x86-64 the nine-tap filter runs a
+  block of samples one tap pair at a time. The band statistics take the same blocks.
+  The resolved three-mode CTC takes 0.70 of its time at one thread on the Xeon, resolved
+  argon 0.64; only the filter's contraction moves values, by rounding. What kept these
+  loops scalar: an out-of-line strict helper per sample, a conditional division (an
+  ordered comparison guarding it), a short-circuit `||` in a classification loop, and a
+  loop that stores through a pointer while it gathers from a table view, which GCC
+  cannot prove apart once the function is compiled out of line (the rate table's cubic
+  now writes a local block).
+- **General route: a real-form cubic reads its field from a complex-to-real transform**
+  ([measurements](benchmarks.md#band-column-passes-and-the-general-routes-real-signal)).
+  The real part of the analytic signal is the c2r transform of the one-sided spectrum
+  with its doubled bins halved, exactly, so the inverse transform does half the work and
+  the response reads a real row; with the projection's block of bins widened to the
+  whole row at one thread and the synthesis summed in blocks of local bins, the
+  graded-index guide takes 0.70 of its time at one thread and 0.80 at 16 on the Xeon.
+
 **Tried and not adopted**
 - **Skinny products off the vendor BLAS** (the native-order kernel for small left
   matrices; plain loops for one mode). Both lost to the vendor library's threaded GEMM
@@ -244,10 +266,11 @@ time divided by the native backend's: above 1, the native backend is faster.
   wrapper overhead.
 - **Complete vDSP removal.** Even with NEON codelets, short parallel FFTW plans
   regress former vDSP shapes. Keep the compact construction-time rule above.
-- **Tap-first CPU band filtering.** It preserves tap order and passed the boundary,
-  support-window and high-dynamic-range checks. It improved the x86 windows but
-  repeatedly slowed the Apple-silicon argon window by 6–9%; an architecture-specific
-  fork was not justified. The original traversal remains, with stronger tests.
+- **Tap-first CPU band filtering on every host.** It preserves tap order and passed the
+  boundary, support-window and high-dynamic-range checks. It improved the x86 windows but
+  repeatedly slowed the Apple-silicon argon window by 6–9%. Its block form is now kept
+  to x86-64 hosts, where the column gains more than it did then (the CTC column 0.69 →
+  0.54 s of a one-thread window); other hosts keep the per-sample traversal.
 - **An 8×32 Cartesian crossing tile and omitted unused register loads.** Three
   alternating rounds on the 192² Kerr window reduced the initial apparent gain to
   about 2%, below the complexity threshold. The 32×16 traversal remains.
@@ -255,13 +278,12 @@ time divided by the native backend's: above 1, the native backend is faster.
   it: no faster than the transform pair with the chunks' pack and crop at one thread,
   after seconds of measured planning
   ([measurements](benchmarks.md#host-stage-entry-free-space-crossings-and-statistics)).
-- **Vector maths for the band plasma statistics' rates.** The statistics' column takes
-  each sample's ionisation rate with the scalar `exp` and `log`; the propagation's column
-  passes them in blocks to SLEEF. Moving the statistics to the blocks gave the same
-  statistics to the bit on the four-mode capillary and took its statistics pass from
-  8.1 to 7.9 ms a saved plane at one thread on a Xeon Gold 6240: the pass's cost is its
-  whole-row band filter, prefix sum and reductions (the propagation's column restricts
-  them to the live window), not its rates.
+- **Vector maths for the band plasma statistics' rates alone.** Moving only the
+  statistics' rates to SLEEF blocks took the four-mode capillary's statistics pass from
+  8.1 to 7.9 ms a saved plane at one thread on a Xeon Gold 6240: the pass then cost its
+  whole-row band filter, two-pass prefix sum and reductions. With the column's block
+  filter, a one-pass prefix and block fractions as well, the three-mode CTC's pass falls
+  from 22.8 to 14.0 ms (adopted above).
 - **An errno-free square root for the free-space Kerr beam.** A build with
   `-fno-math-errno` ran the 192² Kerr window 7 % faster on a Xeon Gold 6240 and no faster
   on an AMD EPYC 7763. No element loop calls the library's `sqrt`: the separable

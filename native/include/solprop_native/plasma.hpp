@@ -162,6 +162,23 @@ inline constexpr int band_max_half = static_cast<int>(plasma_max_taps) - 1;
 /** Samples one staged tile's scratch holds: the tile and the widest halo. */
 inline constexpr int band_staging_extent = band_staging_tile + 2 * band_max_half;
 
+/**
+ * Whether host band filters run blocks of samples tap pair by tap pair
+ * (`team_band_filter`): x86-64 hosts only. On an Apple M-series host an earlier
+ * tap-first traversal slowed the argon window by 6-9 % (docs/dev/benchmarks.md,
+ * "Rejected leads"), where on an Intel Xeon Gold 6240 this one takes the CTC column
+ * from 0.69 s to 0.54 s of a one-thread window.
+ */
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP) &&                     \
+    (defined(__x86_64__) || defined(_M_X64))
+inline constexpr bool band_block_filter = true;
+#else
+inline constexpr bool band_block_filter = false;
+#endif
+
+/** Samples a host thread filters at a time with `band_block_filter`. */
+inline constexpr int band_host_filter_block = 512;
+
 /** A staged band filter's tile in a team's scratch. */
 template <class ScratchSpace>
 using BandTile =
@@ -295,11 +312,39 @@ team_band_filter(const TeamMember& team, const Tile& tile, const Source& source,
     const auto direct = [&](const int i) {
       return source(source_row, static_cast<std::size_t>(i));
     };
-    Kokkos::parallel_for(Kokkos::TeamThreadRange(team, begin, finish),
-                         [&](const int index) {
-                           target(target_row, static_cast<std::size_t>(index)) =
-                               band_filter_at(direct, index, samples, taps, half);
-                         });
+    if constexpr (band_block_filter) {
+      // On an x86-64 host each thread takes blocks of samples and runs a block's
+      // interior samples as loops over the block, one per tap pair, so they vectorise
+      // across the samples; each sample's sum keeps `band_filter_at`'s order.
+      const double* const row = &source(source_row, 0);
+      double* const out = &target(target_row, 0);
+      const int interior_end = samples - half;
+      const int blocks =
+          (finish - begin + band_host_filter_block - 1) / band_host_filter_block;
+      Kokkos::parallel_for(Kokkos::TeamThreadRange(team, blocks), [&](const int block) {
+        const int low = begin + block * band_host_filter_block;
+        const int high = Kokkos::min(low + band_host_filter_block, finish);
+        const int inner_low = Kokkos::min(Kokkos::max(low, half), high);
+        const int inner_high = Kokkos::max(Kokkos::min(high, interior_end), inner_low);
+        for (int index = low; index < inner_low; ++index)
+          out[index] = band_filter_at(direct, index, samples, taps, half);
+        for (int index = inner_low; index < inner_high; ++index)
+          out[index] = taps[0] * row[index];
+        for (int k = 1; k <= half; ++k) {
+          const double tap = taps[k];
+          for (int index = inner_low; index < inner_high; ++index)
+            out[index] += tap * (row[index - k] + row[index + k]);
+        }
+        for (int index = inner_high; index < high; ++index)
+          out[index] = band_filter_at(direct, index, samples, taps, half);
+      });
+    } else {
+      Kokkos::parallel_for(Kokkos::TeamThreadRange(team, begin, finish),
+                           [&](const int index) {
+                             target(target_row, static_cast<std::size_t>(index)) =
+                                 band_filter_at(direct, index, samples, taps, half);
+                           });
+    }
     team.team_barrier();
   }
 }
@@ -317,6 +362,21 @@ KOKKOS_INLINE_FUNCTION void
 team_trapezoid_prefix(const TeamMember& team, const Values& values,
                       const std::size_t row, const int samples, const double spacing,
                       const Store& store) {
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+  // A host team of one thread forms the same prefixes in one pass, as
+  // `team_trapezoid_window` does.
+  if (team.team_size() == 1) {
+    double update = 0.0;
+    for (int sample = 0; sample < samples; ++sample) {
+      const auto index = static_cast<std::size_t>(sample);
+      if (index != 0)
+        update += spacing * (values(row, index) + values(row, index - 1)) / 2.0;
+      store(sample, update);
+    }
+    team.team_barrier();
+    return;
+  }
+#endif
   Kokkos::parallel_scan(Kokkos::TeamThreadRange(team, samples),
                         [&](const int sample, double& update, const bool final) {
                           const auto index = static_cast<std::size_t>(sample);
@@ -354,7 +414,24 @@ team_trapezoid_window(const TeamMember& team, const Values& values,
                : 0.0;
   };
   double total = 0.0;
-  if (first < end)
+  bool scanned = false;
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+  // A host team of one thread forms the same prefixes in one pass: its Kokkos scan
+  // runs the increments twice, the second time from the same zero, in the same order.
+  if (team.team_size() == 1) {
+    double previous = 0.0;
+    for (int sample = first; sample < end; ++sample) {
+      const double current =
+          sample <= window.last ? values(row, static_cast<std::size_t>(sample)) : 0.0;
+      if (sample != 0)
+        total += spacing * (current + previous) / 2.0;
+      previous = current;
+      store(sample, total);
+    }
+    scanned = true;
+  }
+#endif
+  if (!scanned && first < end)
     Kokkos::parallel_scan(
         Kokkos::TeamThreadRange(team, first, end),
         [&](const int sample, double& update, const bool final) {
