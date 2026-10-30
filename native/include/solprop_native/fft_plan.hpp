@@ -198,11 +198,13 @@ public:
 
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
 // cuFFT transforms a real row of a few thousand samples in one thread block, so a
-// batch of a few rows leaves most of a device's multiprocessors idle: on an NVIDIA
-// A40 a four-mode capillary's 4 x 10240 inverse ran 96 microseconds on 4 of its 84,
-// FP64-bound in each. CUDA builds split such rows (`RealRowPlan`).
+// batch of a few rows leaves most of a device's multiprocessors idle. An NVIDIA GA10x
+// device (compute capability 8.6) runs FP64 at a sixty-fourth of its FP32 rate, so
+// that block is FP64-bound: on an NVIDIA A40 a four-mode capillary's 4 x 10240 inverse
+// ran 96 microseconds on 4 of its 84. Such a build splits the rows (`RealRowPlan`).
+// An NVIDIA H200 took 12 microseconds for the same transform, faster than the split.
 inline constexpr bool split_real_rows_enabled =
-#if defined(KOKKOS_ENABLE_CUDA)
+#if defined(KOKKOS_ARCH_AMPERE86)
     true;
 #else
     false;
