@@ -197,20 +197,28 @@ inline ExecHandle instantiate(GraphHandle graph) {
   return exec;
 }
 
-/** The nodes captured on `stream` so far. */
+/** Whether anything has been captured on `stream` since its capture began (nonzero):
+   the nodes the next one would depend on, of which there are none before the first. */
 inline std::size_t captured(Stream stream) {
   GraphHandle graph{};
   std::size_t count = 0;
-#if defined(KOKKOS_ENABLE_CUDA)
+#if defined(KOKKOS_ENABLE_CUDA) && CUDART_VERSION < 13000
+  cudaStreamCaptureStatus status{};
+  const cudaGraphNode_t* dependencies = nullptr;
+  check(
+      cudaStreamGetCaptureInfo(stream, &status, nullptr, &graph, &dependencies, &count),
+      "cudaStreamGetCaptureInfo");
+#elif defined(KOKKOS_ENABLE_CUDA)
   cudaStreamCaptureStatus status{};
   check(cudaStreamGetCaptureInfo(stream, &status, nullptr, &graph),
         "cudaStreamGetCaptureInfo");
   check(cudaGraphGetNodes(graph, nullptr, &count), "cudaGraphGetNodes");
 #else
   hipStreamCaptureStatus status{};
-  check(hipStreamGetCaptureInfo_v2(stream, &status, nullptr, &graph, nullptr, nullptr),
+  const hipGraphNode_t* dependencies = nullptr;
+  check(hipStreamGetCaptureInfo_v2(stream, &status, nullptr, &graph, &dependencies,
+                                   &count),
         "hipStreamGetCaptureInfo_v2");
-  check(hipGraphGetNodes(graph, nullptr, &count), "hipGraphGetNodes");
 #endif
   return count;
 }
@@ -388,12 +396,29 @@ public:
     for (std::size_t index = 0; index < sizeof(T); ++index)
       bytes_[start + index] = static_cast<unsigned char>(bytes[index] & mask[index]);
   }
-  [[nodiscard]] bool operator==(const Key& other) const noexcept {
-    return kind_ != nullptr && other.kind_ != nullptr && *kind_ == *other.kind_ &&
-           bytes_ == other.bytes_;
+  /** Whether the operation of kind `kind` that `parts...` identify has this key,
+     compared in place. */
+  template <class... Parts>
+  [[nodiscard]] bool matches(const std::type_info& kind, const Parts&... parts) const {
+    if (kind_ == nullptr || *kind_ != kind)
+      return false;
+    std::size_t at = 0;
+    return (match(at, parts) && ...) && at == bytes_.size();
   }
 
 private:
+  template <class T> bool match(std::size_t& at, const T& part) const {
+    if (bytes_.size() - at < sizeof(T))
+      return false;
+    const auto& mask = detail::value_mask(part);
+    const auto* bytes = reinterpret_cast<const unsigned char*>(&part);
+    for (std::size_t index = 0; index < sizeof(T); ++index)
+      if (static_cast<unsigned char>(bytes[index] & mask[index]) != bytes_[at + index])
+        return false;
+    at += sizeof(T);
+    return true;
+  }
+
   const std::type_info* kind_ = nullptr;
   std::vector<unsigned char> bytes_;
 };
@@ -422,8 +447,9 @@ public:
 
   /** The stream the current run captures. */
   [[nodiscard]] Stream stream() const noexcept { return stream_; }
-  /** What to do with the next operation, whose identity is `key`. */
-  Admit admit(const Key& key);
+  /** What to do with the next operation; `matches(key)` says whether it is the one the
+      recorded `key` identifies. */
+  template <class Matches> Admit admit(const Matches& matches);
   /** The copy of the operation just admitted to `record`. */
   void keep(const Key& key, std::function<void()>&& issue) {
     operations_.push_back(Operation{key, std::move(issue)});
@@ -498,14 +524,14 @@ inline void Region::stray() {
   stop();
 }
 
-inline Admit Region::admit(const Key& key) {
+template <class Matches> Admit Region::admit(const Matches& matches) {
   if (mode_ == Mode::capture)
     return Admit::record;
   if (detail::captured(stream_) != 0) {
     stray();
     return Admit::issue;
   }
-  if (next_ < operations_.size() && operations_[next_].key == key) {
+  if (next_ < operations_.size() && matches(operations_[next_].key)) {
     ++next_;
     return Admit::skip;
   }
@@ -626,16 +652,19 @@ inline void unrecordable() {
 template <class Kind, class Issue, class... Parts>
 void operation(const Issue& issue, const Parts&... parts) {
   Region* const region = Region::current();
-  Key& key = detail::scratch();
-  key.clear(typeid(Kind));
-  (key.add(parts), ...);
-  switch (region->admit(key)) {
+  const auto admitted = region->admit(
+      [&](const Key& recorded) { return recorded.matches(typeid(Kind), parts...); });
+  switch (admitted) {
   case Admit::skip:
     break;
-  case Admit::record:
+  case Admit::record: {
+    Key& key = detail::scratch();
+    key.clear(typeid(Kind));
+    (key.add(parts), ...);
     region->keep(key, std::function<void()>(issue));
     issue();
     break;
+  }
   case Admit::issue:
     issue();
     break;
