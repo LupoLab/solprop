@@ -37,17 +37,13 @@
     such kernels. A `Region` runs host code whose device work goes only through
     `launch::parallel_for`, `graph::deep_copy` and `graph::execute`, which record each
     operation's identity (a `Key`): its kind and the value bytes of its policy and
-    functor, or of its views, plan and scalars. A first capturing run records the
-    stream's work into a graph, which is instantiated and launched. A later run issues
-   nothing while each operation matches the recorded one in order; when all have
-   matched, the instantiated graph runs in their place. At the first operation that
-   differs, or a run that ends early, the matched ones are issued again from their
-   recorded copies under a new capture, which takes the rest of the run and replaces the
-   graph. The host code runs every time, so that its own state advances as without a
-   graph. The region's very first run issues everything as written while the wrappers
-   only check that a graph could hold each operation: a body that needs anything else
-   (below) disables the region before any capture, and capturing starts with the second
-   run.
+    functor, or of its views, plan and scalars. The first run captures the stream's
+    work into a graph, which is instantiated and launched. A later run issues nothing
+    while each operation matches the recorded one in order; when all have matched, the
+    instantiated graph runs in their place. At the first operation that differs, or a
+    run that ends early, the matched ones are issued again from their recorded copies
+    under a new capture, which takes the rest of the run and replaces the graph. The
+    host code runs every time, so that its own state advances as without a graph.
 
     Why a match replays exactly what issuing the run would. A graph node holds what its
     capture issued: a kernel with its argument bytes and launch shape, a copy or a fill
@@ -450,7 +446,7 @@ public:
   }
 
 private:
-  enum class Mode { off, probe, verify, capture };
+  enum class Mode { off, verify, capture };
   struct Operation {
     Key key;
     std::function<void()> issue;
@@ -473,7 +469,6 @@ private:
   Stream stream_{};
   ExecHandle exec_{};
   Mode mode_ = Mode::off;
-  bool probed_ = false;
   bool disabled_ = false;
   std::size_t next_ = 0;
   std::vector<Operation> operations_;
@@ -504,8 +499,6 @@ inline void Region::stray() {
 }
 
 inline Admit Region::admit(const Key& key) {
-  if (mode_ == Mode::probe)
-    return Admit::issue;
   if (mode_ == Mode::capture)
     return Admit::record;
   if (detail::captured(stream_) != 0) {
@@ -521,9 +514,7 @@ inline Admit Region::admit(const Key& key) {
 }
 
 inline void Region::refuse() {
-  if (mode_ == Mode::probe) {
-    // Everything so far was issued as written.
-  } else if (mode_ == Mode::verify) {
+  if (mode_ == Mode::verify) {
     if (detail::captured(stream_) != 0) {
       stray();
       return;
@@ -574,9 +565,7 @@ inline void Region::finish() {
 inline void Region::abandon() noexcept {
   detail::active = nullptr;
   try {
-    if (mode_ == Mode::probe) {
-      // Everything was issued as written.
-    } else if (mode_ == Mode::verify && detail::captured(stream_) == 0) {
+    if (mode_ == Mode::verify && detail::captured(stream_) == 0) {
       detail::destroy(detail::end_capture(stream_));
       mode_ = Mode::off;
       reissue(next_);
@@ -599,16 +588,10 @@ template <class Space, class Body> void Region::run(const Space& space, Body&& b
   }
   stream_ = detail::stream_of(space);
   next_ = 0;
-  if (!probed_) {
-    // The first run issues as written and only finds whether a graph can hold it, so
-    // that work a graph cannot hold never meets a capture.
-    mode_ = Mode::probe;
-  } else {
-    mode_ = exec_ != nullptr ? Mode::verify : Mode::capture;
-    if (mode_ == Mode::capture)
-      operations_.clear();
-    detail::begin_capture(stream_);
-  }
+  mode_ = exec_ != nullptr ? Mode::verify : Mode::capture;
+  if (mode_ == Mode::capture)
+    operations_.clear();
+  detail::begin_capture(stream_);
   detail::active = this;
   detail::scrub_stack();
   try {
@@ -618,11 +601,6 @@ template <class Space, class Body> void Region::run(const Space& space, Body&& b
     throw;
   }
   detail::active = nullptr;
-  if (mode_ == Mode::probe) {
-    mode_ = Mode::off;
-    probed_ = true;
-    return;
-  }
   finish();
 }
 
