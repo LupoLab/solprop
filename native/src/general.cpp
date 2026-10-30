@@ -840,11 +840,14 @@ void ionisation_rates_within(double* values, const std::size_t live,
                              const View& coefficients, const double log_field_min,
                              const double d_log_field, const std::size_t intervals,
                              const std::size_t offset = 0) {
+  // The cubic writes a local block, which no table gather can alias, so the loop
+  // vectorises with the table's gathers wherever this is compiled out of line.
+  double log_rates[rate_block];
   vmath::log(values, values, live);
   for (std::size_t k = 0; k < live; ++k)
-    values[k] = ionisation_log_rate(values[k], coefficients, log_field_min, d_log_field,
-                                    intervals, offset);
-  vmath::exp(values, values, live);
+    log_rates[k] = ionisation_log_rate(values[k], coefficients, log_field_min,
+                                       d_log_field, intervals, offset);
+  vmath::exp(log_rates, values, live);
 }
 #endif
 
