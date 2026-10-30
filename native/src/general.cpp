@@ -227,8 +227,14 @@ write_raman_drive(const RealView2& drive, const std::size_t node,
 }
 using ByteView = Kokkos::View<unsigned char*, Layout, MemorySpace>;
 using IndexView = Kokkos::View<std::size_t*, Layout, MemorySpace>;
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+// A device splits a few long real rows over its multiprocessors (`RealRowPlan`).
+using InverseRealPlan = RealRowPlan<ExecutionSpace, ComplexView2, RealView2>;
+using ForwardRealPlan = RealRowPlan<ExecutionSpace, RealView2, ComplexView2>;
+#else
 using InverseRealPlan = KokkosFFT::Plan<ExecutionSpace, ComplexView2, RealView2>;
 using ForwardRealPlan = KokkosFFT::Plan<ExecutionSpace, RealView2, ComplexView2>;
+#endif
 using RamanForwardPlan = RamanFftPlan<ExecutionSpace, RealView2, ComplexView2>;
 using RamanInversePlan = RamanFftPlan<ExecutionSpace, ComplexView2, RealView2>;
 using ComplexPlan = KokkosFFT::Plan<ExecutionSpace, ComplexView2, ComplexView2>;

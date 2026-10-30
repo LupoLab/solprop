@@ -1166,6 +1166,61 @@ column's four kernels (235 µs), the three projections (57 µs), the prediction 
 the correction (41 µs) and the quadrature partials (39 µs on 4 teams). A timed run is
 also one long host gap at the first saved plane, in solprop's output layer.
 
+### Split real-row transforms on compute capability 8.6
+
+After the device transforms of the four-mode capillary, an NVIDIA A40 trace of one `rdw`
+trial still spent a quarter of its 0.77 ms of kernels in two cuFFT kernels: the inverse
+transform of the fine spectrum (4 rows of 10240 samples, 96 µs) and the packed forward
+transform (28 rows, 96 µs). cuFFT gives a real row of a few thousand samples one thread
+block, and a GA10x device (compute capability 8.6) runs FP64 at a sixty-fourth of its
+FP32 rate, so each block is FP64-bound on its multiprocessor while the rest of the
+device waits. A single-mode run's one-row transforms used one multiprocessor of 84.
+
+An AMPERE86 build now transforms up to 64 contiguous real rows of n = 2m samples as
+m-point complex rows (sample pairs as one point, the standard half-length real
+transform) by the four-step method (`RealRowPlan`, `fft_plan.hpp`): m = n1 n2, with n2
+the largest power of two up to 512 that divides m. Our kernels pack the rows into n2 × n1
+columns, cuFFT transforms n1 points per column, a kernel applies the twiddle
+exp(∓2πi j2 k1 / m) and transposes, cuFFT transforms n2 points per row, and a last kernel
+forms the real spectrum (or unpacks the samples). The roots are rounded once from long
+double. The inverse drops the imaginary parts of the DC and Nyquist bins, as cuFFT's and
+FFTW's do. A probe on the A40 timed 4 × 10240 at 20 µs against cuFFT's 102, and 28 rows
+at 60 against 114, both agreeing with cuFFT to 2e-15 relative. Of the splits of 5120
+points, 10 × 512 and 40 × 128 were fastest; those with an 80-point pass took half as
+long again. In the engine the two transforms of an `rdw` trial take about 78 µs where
+they took 193.
+
+An NVIDIA H200 runs the same cuFFT kernels in 12 to 13 µs, faster than the split (12.5
+µs for 4 rows and 17.8 for 28), and on it the single-mode mode-averaged runs lost 4 to
+5 % with the split, so only AMPERE86 builds split their rows, as they form their own real
+GEMMs.
+
+| case | NVIDIA A40 |
+|---|---:|
+| `rdw` (0.1) | 0.932 (0.924–0.939) |
+| `he_rdw_averaged` (0.3) | 0.751 (0.750–0.752) |
+| `argon_blueshift_averaged` (0.1) | 0.757 (0.756–0.758) |
+| `h2_raman_averaged` (0.4) | 0.770 (0.768–0.771) |
+| `radial_filament_256` (0.5) | 0.996 (0.985–0.997) |
+
+`ab --device`, three rounds, against the build before the change. Every case took the
+same steps; the radial filament's rows are too many to split and its field is bitwise.
+The fields agree to 1.2e-13, except `he_rdw_averaged` (1.1e-11): the split moves each
+transform by rounding, the trial norms follow, and through the step sizes the final
+field, as the CUDA reductions' order did (1.0e-11). On the H200 the build with the split
+off agrees with the build before bit for bit and takes 0.99 to 1.01 of its time.
+
+Two other levers were measured and dropped. A team per 128-bin chunk of a column's
+quadrature partials took them from 39 to 7.8 µs, but the score's sum over the chunks took
+most of that back, by one thread (2.5 to 7.9 µs) or by a team: 0.989 on `rdw`, 0.994 and
+1.005 on the single-mode runs. The band column's four tiled kernels (235 µs of the `rdw`
+trial) moved neither with teams of half a tile (0.985 on `rdw`, 1.002 on
+`he_rdw_averaged`) nor with 512-sample tiles (1.010, 1.019). The A40 we measured on
+gave no access to its performance counters, so what bounds them is not known. A
+single-mode trial's prediction and correction (84 of its 205 µs of kernels) ran on 21
+blocks of 128 threads; blocks of 64 gave 0.985, 0.980 and 0.987 on the mode-averaged
+runs and 1.000 on `rdw`, and blocks of 32 regressed the radial filament (1.029).
+
 ### Retained radial synthesis and Raman modal products
 
 Two work reductions from the CPU experiment's handoff, each measured with
