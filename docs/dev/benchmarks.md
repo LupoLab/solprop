@@ -1494,6 +1494,124 @@ Not adopted: summing each block of eight scan increments locally before the runn
 prefix, so that only block totals form a dependent chain (`ctc` column 0.538 → 0.534 s,
 within noise, for a change of association).
 
+### The native performance push: `main` at `740b24d` against its result
+
+The native performance push started from `main` at `740b24d`, the merge of SEP 39's
+native Adams march, and changed only the native backend and its build. It left the
+benchmark cases and stepper settings unchanged. The sections above record each adopted
+change with its own A/B. This section compares the two ends.
+
+**Complete runs** (`ab --length 1.0`, three interleaved rounds, fresh processes) on a
+dual Intel Xeon Gold 6240, timed on the 18 physical cores of one socket. Every case took the same steps.
+
+| Case | One thread (field difference) | Sixteen threads (field difference) |
+|---|---|---|
+| `gnlse_raman_shock` | 0.841 ($3.6\times10^{-13}$) | 0.765 ($1.0\times10^{-12}$) |
+| `gnlse_soliton` | 0.802 ($9.4\times10^{-14}$) | 0.796 ($7.9\times10^{-14}$) |
+| `rdw` | 0.659 ($7.9\times10^{-14}$) | 0.704 ($1.7\times10^{-13}$) |
+| `he_rdw_averaged` | 0.608 ($2.4\times10^{-10}$) | 0.505 ($2.1\times10^{-10}$) |
+| `argon_blueshift` | 0.563 ($5.4\times10^{-14}$) | 0.366 ($1.1\times10^{-13}$) |
+| `argon_blueshift_averaged` | 0.605 ($5.3\times10^{-14}$) | 0.697 ($1.3\times10^{-13}$) |
+| `argon_blueshift_envelope` | 0.724 ($2.0\times10^{-12}$) | 0.818 ($1.7\times10^{-12}$) |
+| `h2_raman_averaged` | 0.645 ($1.4\times10^{-13}$) | 0.387 ($9.5\times10^{-14}$) |
+| `radial_filament_256` | 0.623 ($4.7\times10^{-15}$) | 0.627 ($4.5\times10^{-15}$) |
+| `grin_nonlinear` | 0.684 ($1.7\times10^{-12}$) | 0.792 ($6.9\times10^{-13}$) |
+| `kerr_beam_384` | 0.559 ($1.1\times10^{-15}$) | 0.640 ($1.1\times10^{-15}$) |
+| `kerr_beam_192` | 0.545 ($9.4\times10^{-16}$) | 0.659 ($9.5\times10^{-16}$) |
+| `ctc` | not run (hours) | 0.679 ($2.0\times10^{-10}$) |
+| geometric mean | 0.649 | 0.627 (without `ctc`) |
+
+The geometric means are 0.649 at one thread and 0.627 at sixteen. Short windows
+(`--length 0.1`) gave 0.663 and 0.613, but individual cases differ. `rdw` at sixteen
+threads is 0.337 in a window and 0.704 over a complete run, because the window's
+baseline is dominated by per-run costs that the push removed (an idle NumPy BLAS pool
+spinning beside the native team).
+
+**Short windows on an exclusive AMD EPYC 7763 node** (`--length 0.1`, three rounds, 128
+cores, timing at one and sixteen threads). Every case took the same steps, with fields
+within $2\times10^{-13}$.
+
+| Case | One thread | Sixteen threads |
+|---|---|---|
+| `gnlse_raman_shock` | 0.839 | 0.784 |
+| `gnlse_soliton` | 0.886 | 0.882 |
+| `rdw` | 0.685 | 0.934 |
+| `he_rdw_averaged` | 0.663 | 0.785 |
+| `argon_blueshift` | 0.662 | 0.448 |
+| `argon_blueshift_averaged` | 0.595 | 0.718 |
+| `argon_blueshift_envelope` | 0.863 | 0.928 |
+| `h2_raman_averaged` | 0.618 | 0.351 |
+| `ctc` | 0.574 | 0.748 |
+| `radial_filament_256` | 0.528 | 0.751 |
+| `grin_nonlinear` | 0.763 | 0.811 |
+| `kerr_beam_384` | 0.817 | 0.858 |
+| `kerr_beam_192` | 0.824 | 0.875 |
+| geometric mean | 0.707 | 0.735 |
+
+**Complete runs on an NVIDIA A40** (`ab --device --length 1.0`, three rounds). Every case
+took the same steps.
+
+| Case | `main` s | branch s | Ratio | Field difference |
+|---|---|---|---|---|
+| `he_rdw_averaged` | 1.330 | 0.476 | 0.358 | $1.2\times10^{-10}$ |
+| `argon_blueshift_averaged` | 6.691 | 2.731 | 0.408 | $1.7\times10^{-13}$ |
+| `h2_raman_averaged` | 10.119 | 6.171 | 0.610 | $1.1\times10^{-13}$ |
+| `rdw` | 3.302 | 1.377 | 0.417 | $7.9\times10^{-14}$ |
+| `radial_filament_256` | 0.701 | 0.528 | 0.753 | $3.6\times10^{-15}$ |
+| `kerr_beam_384` | 6.455 | 5.036 | 0.791 | $1.7\times10^{-15}$ |
+
+On this card `main` runs some cases at one of two speeds from process to process. For
+`rdw` and `radial_filament_256`, the `main` column is therefore the faster of two
+complete-run jobs, and the ratio is the branch's median over it, which makes it
+conservative. The final tree's own job measured 0.403 and 0.392 directly. The other
+ratios are that job's direct medians of paired rounds.
+
+On the A40 the complete-run gains are larger than the short windows'. A window spends
+a larger share of its time in solprop's per-run host work, which both arms share.
+
+**Accuracy.** Every A/B took the same steps.
+- On the Xeon, complete runs of `he_rdw_averaged` and `ctc` moved the final field by
+  about $2\times10^{-10}$, against $10^{-13}$ in short windows. `main` against itself, over
+  the same complete runs, gives $6\times10^{-11}$ to $2\times10^{-10}$: measured FFTW plans
+  differ between processes at about $10^{-16}$, and the adaptive controller amplifies the
+  difference over a long run. The branch's differences are at that floor.
+- On the A40, fields are reproducible bitwise between processes. The device's contraction of the
+  Adams passes, its reduction order and the split transforms each change a step by
+  rounding. Together they move `he_rdw_averaged` by $10^{-11}$ in a window and by
+  $1.2\times10^{-10}$ over a complete run, with the same steps: the adaptive controller
+  amplifies the rounding, as on the CPU.
+- Every other case agrees to within about $2\times10^{-12}$.
+
+**Measured and not adopted.**
+- Compiler options: `-fno-math-errno -fno-trapping-math -fcx-fortran-rules`, `-O2`,
+  IPO off, 512-bit vectors, SLEEF's AVX-512 functions on the Xeon, branch padding.
+- Threading: spinning OpenMP waits, binding threads by default (on an exclusive EPYC
+  allocation, `OMP_PROC_BIND=close OMP_PLACES=cores` is worth about 11 % on average; it
+  was neutral on the Xeon), a BLAS width per product, serial or full-width medium
+  operations.
+- Sixteen-thread Raman and one-column team kernels: they gained on one CPU and lost on
+  the other.
+- Hand-written skinny products, Adams lane blocks of 16 and 64, band statistics through
+  vector maths.
+- On devices: a whole-transform node chunk, eight rows a thread in the compute
+  capability 8.6 GEMM, other device reduction block sizes, band column tilings, and
+  quadrature partials in chunks.
+
+**Outside the native backend.** On complete runs, solprop's host work outside the steps
+is a fixed cost per run, not per step: 0.1–0.3 s on the capillary and radial cases,
+about 6 s on `kerr_beam_384`. That is 2–9 % of a complete one-thread capillary run, and
+up to a third of the complete `radial_filament_256` (sixteen threads) and
+`kerr_beam_384` runs, which take one to twenty seconds. The configuration hash is
+computed once, at the first output write: 0.07–0.27 s, or 1.7 s for `kerr_beam_384`'s
+configuration. The cost that repeats is a saved field plane of a large Cartesian field.
+For `kerr_beam_384`'s 1.77 GB field that is about 3 s per plane:
+- the saved plane's copy, 1.1 s;
+- the conversion to the optics convention, 1.0 s;
+- the output store's copy, 0.6 s;
+- the native observation, 0.35 s.
+
+A capillary or radial plane costs 7–25 ms.
+
 ## Reference tables
 
 These tables back the indicative results above.
