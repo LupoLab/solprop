@@ -3202,7 +3202,7 @@ std::string GeneralWorkspace::gemm_shape_policy() {
          "with n_nodes/n_to >= 256 and a 22-column inventory within 64 MiB; "
          "device radial scalar envelope uses vendor complex BLAS with "
          "n_nodes/n_to >= 256; otherwise hybrid uses KokkosBlas for every whole "
-         "transform on the host, and on a device for those with n_modes >= 2, "
+         "transform on the host, and on a device for those with n_modes >= 8, "
          "n_nodes >= 8 and n_to >= 1024: real ones directly, an analytic field's "
          "synthesis as one real GEMM over its samples' interleaved real view, and its "
          "projection; host radial analytic synthesis also uses unallocated row views "
