@@ -2425,19 +2425,23 @@ public:
     return held_plasma() && !problem_.separable_geometry() &&
            !problem_.spatial_spectral_weights.empty();
   }
-  // Whether a device takes a modal stage's forward transforms -- the projection's, the
-  // in-stage absorber's and the held currents', each a real row of n_to samples -- as
-  // one batched transform at the end of the stage (`transform_forward_pack`). On an
-  // AMD Instinct MI325X each transform of a single-mode run was four rocFFT kernels of
-  // a few microseconds, launched one by one; batched, the stage's rows share them.
+  // Whether a device takes a modal stage's forward transforms -- the projection's
+  // (fine and coarse), the in-stage absorber's and the held currents', each a real row
+  // of n_to samples -- as one batched transform at the end of the stage
+  // (`transform_forward_pack`). On an AMD Instinct MI325X each transform of a
+  // single-mode run was four rocFFT kernels of a few microseconds, launched one by one;
+  // on an NVIDIA A40 a transform of a four-mode capillary's rows took about 96
+  // microseconds on 16 of its 84 multiprocessors, whatever the rows. Batched, the
+  // stage's rows share them. A device never defers the coarse quadrature
+  // (`deferred_quadrature_eligible`), so the coarse rows are projected at every stage.
   // A host keeps its separate plans.
   bool packs_forward() const noexcept {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
     return problem_.family == FieldFamily::field_real &&
            !problem_.separable_geometry() && !problem_.general_modal &&
-           !problem_.dispersive && !problem_.envelope_plasma &&
-           problem_.projection_coarse_matrix.empty() && !held_radial() &&
-           (problem_.in_stage_absorber || held_plasma());
+           !problem_.dispersive && !problem_.envelope_plasma && !held_radial() &&
+           (problem_.in_stage_absorber || held_plasma() ||
+            !problem_.projection_coarse_matrix.empty());
 #else
     return false;
 #endif
@@ -2886,11 +2890,14 @@ public:
 // kernel at every shape tried -- a radial field's transforms 1.1 to 1.5 times faster
 // at 2 to 6 nodes and 1.6 to 35 times at 16 to 256 nodes and 256 to 2048 samples, a
 // one-mode field capillary's 2.4 to 3.1 times -- and lost at none. A device build
-// keeps the earlier conservative guard (two modes, eight nodes, 1024 samples) until
-// its own crossover is measured.
+// takes the vendor GEMM from eight modes (with eight nodes and 1024 samples): below
+// that the product is a few rows deep, which the custom kernels take in one pass over
+// the samples. On an NVIDIA A40 a four-mode capillary's stacked projection (8 rows,
+// 36 nodes, 10240 samples) took 71 us in cuBLAS and its synthesis 27 us; at 256
+// radial modes the vendor GEMM runs near the FP64 peak.
 bool GeneralWorkspace::hybrid_shape_eligible() const noexcept {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-  return problem_.n_modes >= 2 && problem_.n_nodes >= 8 && problem_.n_to >= 1024;
+  return problem_.n_modes >= 8 && problem_.n_nodes >= 8 && problem_.n_to >= 1024;
 #else
   return true;
 #endif
@@ -3195,7 +3202,7 @@ std::string GeneralWorkspace::gemm_shape_policy() {
          "with n_nodes/n_to >= 256 and a 22-column inventory within 64 MiB; "
          "device radial scalar envelope uses vendor complex BLAS with "
          "n_nodes/n_to >= 256; otherwise hybrid uses KokkosBlas for every whole "
-         "transform on the host, and on a device for those with n_modes >= 2, "
+         "transform on the host, and on a device for those with n_modes >= 8, "
          "n_nodes >= 8 and n_to >= 1024: real ones directly, an analytic field's "
          "synthesis as one real GEMM over its samples' interleaved real view, and its "
          "projection; host radial analytic synthesis also uses unallocated row views "
@@ -3205,7 +3212,8 @@ std::string GeneralWorkspace::gemm_shape_policy() {
          "preconverted complex GEMM for eligible envelope transforms; eligible chunked "
          "transforms are packed into persistent buffers for vendor BLAS; vector state "
          "uses custom; a host build without a vendor BLAS runs KokkosBlas's native "
-         "arithmetic through a tiled host kernel, bit for bit";
+         "arithmetic through a tiled host kernel, bit for bit; a compute capability "
+         "8.6 build forms the real GEMMs with a device kernel in place of cuBLAS";
 }
 
 std::size_t GeneralWorkspace::response_team_size() const noexcept {
@@ -3702,13 +3710,17 @@ void GeneralWorkspace::allocate() {
     separable_gaps_ = IndexView("solprop_native.free.fine_gaps", bins.size());
     copy_vector(execution_space_, separable_gaps_, bins);
   }
-  // A device's packed forward rows (`packs_forward`): the absorber's, the projection's
-  // and the held pack's, in that order, carved from one buffer and one spectrum.
+  // A device's packed forward rows (`packs_forward`): the absorber's, the projection's,
+  // the coarse projection's and the held pack's, in that order, carved from one buffer
+  // and one spectrum.
   const bool pack = packs_forward();
   const std::size_t absorber_rows =
       pack && problem_.in_stage_absorber ? temporal_columns : 0;
+  const std::size_t coarse_rows =
+      pack && !problem_.projection_coarse_matrix.empty() ? temporal_columns : 0;
   const std::size_t pack_rows =
-      absorber_rows + temporal_columns + (held_plasma() ? 2 * temporal_columns : 0);
+      absorber_rows + temporal_columns + coarse_rows +
+      (held_plasma() ? 2 * (temporal_columns + coarse_rows) : 0);
   const auto pack_slice = [&](const std::size_t first, const std::size_t count) {
     return std::pair<std::size_t, std::size_t>(first, first + count);
   };
@@ -3718,7 +3730,7 @@ void GeneralWorkspace::allocate() {
         RealView2("solprop_native.fft.forward_pack", pack_rows, problem_.n_to);
     forward_pack_spectrum_ = ComplexView2("solprop_native.fft.forward_pack_spectrum",
                                           pack_rows, projected_spectrum_size());
-    if (absorber_rows != 0 && held_plasma()) {
+    if (absorber_rows != 0 && pack_rows - absorber_rows > temporal_columns) {
       forward_pack_tail_ = Kokkos::subview(
           forward_pack_, pack_slice(absorber_rows, pack_rows - absorber_rows),
           Kokkos::ALL);
@@ -3735,8 +3747,13 @@ void GeneralWorkspace::allocate() {
                           projected_spectrum_size());
   if (!problem_.projection_coarse_matrix.empty())
     projected_coarse_spectrum_ =
-        ComplexView2("solprop_native.fft.projected_coarse_spectrum", columns,
-                     projected_spectrum_size());
+        coarse_rows != 0
+            ? ComplexView2(Kokkos::subview(
+                  forward_pack_spectrum_,
+                  pack_slice(absorber_rows + temporal_columns, coarse_rows),
+                  Kokkos::ALL))
+            : ComplexView2("solprop_native.fft.projected_coarse_spectrum", columns,
+                           projected_spectrum_size());
   absorber_spectrum_ =
       absorber_rows != 0
           ? ComplexView2(Kokkos::subview(forward_pack_spectrum_,
@@ -3791,8 +3808,13 @@ void GeneralWorkspace::allocate() {
                                          chunk_rows, problem_.n_to);
     if (!problem_.projection_coarse_matrix.empty())
       projected_coarse_real_ =
-          RealView2("solprop_native.response.projected_coarse_real", temporal_columns,
-                    problem_.n_to);
+          coarse_rows != 0
+              ? RealView2(Kokkos::subview(
+                    forward_pack_,
+                    pack_slice(absorber_rows + temporal_columns, coarse_rows),
+                    Kokkos::ALL))
+              : RealView2("solprop_native.response.projected_coarse_real",
+                          temporal_columns, problem_.n_to);
     absorber_real_ =
         absorber_rows != 0
             ? RealView2(Kokkos::subview(forward_pack_, pack_slice(0, absorber_rows),
@@ -3821,7 +3843,8 @@ void GeneralWorkspace::allocate() {
 #endif
     if (packed && pack) {
       // The stage's forward pack ends with the held pack's rows.
-      const auto held_rows = pack_slice(absorber_rows + rows, 2 * rows);
+      const auto held_rows =
+          pack_slice(absorber_rows + rows + coarse_rows, 2 * (rows + coarse_rows));
       held_pack_ = Kokkos::subview(forward_pack_, held_rows, Kokkos::ALL);
       held_pack_spectrum_ =
           Kokkos::subview(forward_pack_spectrum_, held_rows, Kokkos::ALL);
@@ -7813,8 +7836,16 @@ std::vector<double> GeneralWorkspace::adams_elementwise_trial(
   // weights cross, with the step's and the sample's scalars, in the trial's one copy.
   upload_trial(step, &sample, compensated ? &rate : nullptr);
   const std::size_t blocks = (n + adams_block - 1) / adams_block;
-  const auto tasks =
-      Kokkos::RangePolicy<ExecutionSpace>(adams_execution_space_, 0, columns * blocks);
+#if defined(KOKKOS_ENABLE_CUDA)
+  // A device thread takes one element of a long FP64 chain, and Kokkos's CUDA range
+  // reduction gives each block 256 of them: a four-mode capillary's 10496 elements
+  // were 41 blocks on an NVIDIA A40's 84 multiprocessors. Blocks of 128 take them
+  // all.
+  using Tasks = Kokkos::RangePolicy<ExecutionSpace, Kokkos::LaunchBounds<128, 1>>;
+#else
+  using Tasks = Kokkos::RangePolicy<ExecutionSpace>;
+#endif
+  const auto tasks = Tasks(adams_execution_space_, 0, columns * blocks);
   const bool separable = problem_.separable_geometry();
   const auto spatial = spatial_;
   const auto active = active_mask_;

@@ -606,6 +606,17 @@ The first public release. It contains:
   NVIDIA A40, with fields equal bit for bit and the same steps; runs whose source needs a
   vendor GEMM or a reduction (the four-mode RDW, the radial filament) keep their launches.
   `SOLPROP_NATIVE_DEVICE_GRAPH=OFF` turns it off; host builds are unchanged.
+- **Faster device transforms for few-mode capillaries and radial filaments.** A device
+  stage's coarse projection rows now join its batched forward transform. Below eight modes a
+  device forms the synthesis and projection with its own kernels instead of the vendor
+  GEMM, which also lets a four-mode trial's source replay as a graph. CUDA builds reduce an
+  Adams trial in 128-thread blocks. Builds for compute capability 8.6 form their real GEMMs
+  with a device kernel, because cuBLAS gave those devices' DGEMM about half the FP64 peak.
+  On an NVIDIA A40 the four-mode RDW run takes 0.80 of the time, the radial filament 0.93
+  and the mode-averaged helium, argon and hydrogen Raman runs 0.93, 0.94 and 0.95. On an
+  AMD Instinct MI325X the four-mode RDW run takes 0.96 and the others are unchanged. Every
+  run takes the same steps. The fields agree to 6e-14, except the mode-averaged helium run
+  on CUDA, whose reductions' new order moves it by 1e-11. Host builds are unchanged.
 - **`python -m benchmarks ab` between builds whose grids differ** recorded the field
   difference as infinite, which the summary's JSON refused, so the run ended without
   its summary; the difference is now recorded as not defined.

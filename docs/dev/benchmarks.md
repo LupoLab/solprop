@@ -1104,6 +1104,68 @@ the whole source before its one launch, and that walk copied every operation it 
 Comparing keys in place and copying an operation only when it is recorded removed that
 cost.
 
+### Device transforms of the four-mode capillary and the radial filament
+
+`rdw` and `radial_filament_256` gained least on devices from the batched rows and the graph
+replay. An NVIDIA A40 trace of one `rdw` trial (34 kernels, 1.30 ms of kernels, gaps of
+about 0.9 µs) showed why: the trial is bound by its transform shapes, not by its launches.
+
+- **Coarse rows in the forward pack.** Each of the stage's four real transforms (fine and
+  coarse projection, absorber, held currents) took about 96 µs on 16 of the A40's 84
+  multiprocessors, whatever its rows: the held pack's 16 rows cost the same as the
+  projection's 4. The coarse projection's rows now join the device forward pack, so the
+  stage's 28 rows are one transform (`packs_forward`). A device never defers the coarse
+  quadrature, so those rows are projected at every stage.
+- **Few-mode transforms through the custom kernels.** cuBLAS took 71 µs for the stacked
+  projection (8 rows, 36 nodes, 10240 samples; about 84 GFLOP/s) and 27 µs for the
+  synthesis. Below eight modes the device's hybrid guard now keeps the custom kernels,
+  which form the fine and coarse rows in one pass: 19 µs and 8 µs. With no vendor GEMM
+  left, the whole source replays as a graph (158 replays to one capture).
+- **CUDA trial reductions in blocks of 128.** Kokkos's CUDA range reduction gave the
+  prediction and correction 256-thread blocks of one element each: `rdw`'s 10496 elements
+  were 41 blocks. Blocks of 128 occupy every multiprocessor. On the A40 the prediction went
+  from 92.5 to 55.4 µs and the correction from 49.3 to 41.0 µs. The reductions' order
+  changes, so the trial norms move by rounding.
+- **An AMPERE86 build's real GEMMs.** cuBLAS runs a compute capability 8.6 device's DGEMM
+  with the FP64 tensor-op kernels of 8.0. A probe on the A40 measured 316 GFLOP/s for the
+  radial filament's 128 × 256 × 866 synthesis, about 54 % of the FP64 peak, at any row
+  pitch. `device_dense_gemm` gives a thread four rows of one column and takes 132 µs where
+  cuBLAS took 180. Eight rows a thread were 5 % slower. The radial source then replays as a
+  graph too (70 replays to one capture).
+
+All A/Bs use `ab --device`, three rounds, against the build before these changes.
+
+| case | NVIDIA A40 | AMD Instinct MI325X |
+|---|---:|---:|
+| `rdw` (0.1) | 0.799 (0.795–0.810) | 0.962 (0.912–0.974) |
+| `radial_filament_256` (0.5) | 0.930 (0.928–0.934) | 1.000 (0.995–1.005) |
+| `he_rdw_averaged` (0.3) | 0.934 (0.927–0.937) | 0.996 (0.990–1.004) |
+| `argon_blueshift_averaged` (0.1) | 0.940 (0.938–0.956) | 0.994 (0.990–1.007) |
+| `h2_raman_averaged` (0.4) | 0.952 (0.947–0.954) | 0.999 (0.989–1.025) |
+
+Every case took the same steps. Measured one change at a time on the A40, the coarse rows
+gave `rdw` 0.892 and the custom transforms 0.923, both bitwise. The CUDA reductions gave
+`rdw` 0.981 (0.968–1.008), and they are the whole of the single-mode runs' gain. The
+AMPERE86 GEMM gave `radial_filament_256` 0.933, bitwise. The reductions' order moves the
+norms by rounding, and through the step sizes it moves the final fields: by 2e-15 to
+6e-14, and by 1.0e-11 on `he_rdw_averaged` (410 steps). The HIP reduction's block did the
+same before (1.4e-11). On the MI325X only the first two changes apply. There, `rdw`'s
+field moves by 2.5e-15 (the custom transforms against rocBLAS) and the others are bitwise.
+The MI325X's `rdw` source replays as a graph after four captures, while its radial source
+still holds rocBLAS.
+
+Three leads were dropped. Eight rows a thread in the AMPERE86 GEMM ran at 1.054 against
+four. Padding the radial GEMM's row pitch changed nothing: cuBLAS ran at 316 GFLOP/s with
+866, 872, 896 and 1024 doubles. Recording vendor GEMMs in the graph was not tried. The
+trace puts its saving at about 1 % of a radial trial, and KokkosBlas sets cuBLAS's stream
+at every call, which resets cuBLAS's workspace to its default pool.
+
+What is left on the A40's `rdw` trial (0.77 ms of kernels): the inverse transform (96 µs
+on 4 multiprocessors, one block a row), the packed forward transform (96 µs), the band
+column's four kernels (235 µs), the three projections (57 µs), the prediction (55 µs),
+the correction (41 µs) and the quadrature partials (39 µs on 4 teams). A timed run is
+also one long host gap at the first saved plane, in solprop's output layer.
+
 ### Retained radial synthesis and Raman modal products
 
 Two work reductions from the CPU experiment's handoff, each measured with
