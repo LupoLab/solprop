@@ -3791,12 +3791,14 @@ void GeneralWorkspace::allocate() {
     // On a device the two currents' fine and coarse rows are one buffer, a stream's
     // fine rows then its coarse ones, so that one transform takes all four: on an AMD
     // Instinct MI325X each transform of a single-mode run was four library kernels of a
-    // few microseconds, launched one by one. The radial route transforms its streams
-    // one at a time.
+    // few microseconds, launched one by one. On the radial route the three streams'
+    // fine rows are one buffer, which a node chunk's one transform takes.
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
     const bool packed = !radial;
+    const bool radial_packed = radial;
 #else
     const bool packed = false;
+    const bool radial_packed = false;
 #endif
     if (packed && pack) {
       // The stage's forward pack ends with the held pack's rows.
@@ -3808,6 +3810,10 @@ void GeneralWorkspace::allocate() {
       const std::size_t held_rows = 2 * (coarse ? 2 * rows : rows);
       held_pack_ = RealView2("solprop_native.held.pack", held_rows, problem_.n_to);
       held_pack_spectrum_ = ComplexView2("solprop_native.held.pack_spectrum", held_rows,
+                                         problem_.n_to / 2 + 1);
+    } else if (radial_packed) {
+      held_pack_ = RealView2("solprop_native.held.pack", 3 * rows, problem_.n_to);
+      held_pack_spectrum_ = ComplexView2("solprop_native.held.pack_spectrum", 3 * rows,
                                          problem_.n_to / 2 + 1);
     }
     for (std::size_t index = 0; index < (radial ? 3U : 2U); ++index) {
@@ -3835,8 +3841,15 @@ void GeneralWorkspace::allocate() {
         }
         continue;
       }
-      stream.projected = RealView2(label + "projected", rows, problem_.n_to);
-      stream.spectrum = ComplexView2(label + "spectrum", rows, problem_.n_to / 2 + 1);
+      if (radial_packed) {
+        // Each of the three streams holds a third of the pack.
+        const auto third = pack_slice(index * rows, rows);
+        stream.projected = Kokkos::subview(held_pack_, third, Kokkos::ALL);
+        stream.spectrum = Kokkos::subview(held_pack_spectrum_, third, Kokkos::ALL);
+      } else {
+        stream.projected = RealView2(label + "projected", rows, problem_.n_to);
+        stream.spectrum = ComplexView2(label + "spectrum", rows, problem_.n_to / 2 + 1);
+      }
       if (coarse) {
         stream.coarse = RealView2(label + "coarse", rows, problem_.n_to);
         stream.coarse_spectrum =
@@ -12001,9 +12014,13 @@ void GeneralWorkspace::held_transform(const bool coarse_only, const bool transfo
 
 void GeneralWorkspace::held_radial_projection(const std::size_t first_node,
                                               const std::size_t node_count) {
-  for (auto& stream : held_streams_)
-    KokkosFFT::execute(*stream.forward, stream.projected, stream.spectrum,
+  if (held_pack_forward_)
+    KokkosFFT::execute(*held_pack_forward_, held_pack_, held_pack_spectrum_,
                        KokkosFFT::Normalization::none);
+  else
+    for (auto& stream : held_streams_)
+      KokkosFFT::execute(*stream.forward, stream.projected, stream.spectrum,
+                         KokkosFFT::Normalization::none);
   const auto product = held_streams_[0].spectrum;
   const auto edge = held_streams_[1].spectrum;
   const auto polarisation = held_streams_[2].spectrum;
