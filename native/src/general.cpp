@@ -3716,8 +3716,7 @@ void GeneralWorkspace::allocate() {
   const bool coarse_projection = !problem_.projection_coarse_matrix.empty();
   const std::size_t absorber_rows =
       pack && problem_.in_stage_absorber ? temporal_columns : 0;
-  const std::size_t projection_rows =
-      (coarse_projection ? 2 : 1) * temporal_columns;
+  const std::size_t projection_rows = (coarse_projection ? 2 : 1) * temporal_columns;
   const std::size_t pack_rows =
       absorber_rows + projection_rows +
       (held_plasma() ? 2 * (coarse_projection ? 2 : 1) * temporal_columns : 0);
@@ -3841,8 +3840,8 @@ void GeneralWorkspace::allocate() {
 #endif
     if (packed && pack) {
       // The stage's forward pack ends with the held pack's rows.
-      const auto held_rows = pack_slice(absorber_rows + projection_rows,
-                                        2 * (coarse ? 2 * rows : rows));
+      const auto held_rows =
+          pack_slice(absorber_rows + projection_rows, 2 * (coarse ? 2 * rows : rows));
       held_pack_ = Kokkos::subview(forward_pack_, held_rows, Kokkos::ALL);
       held_pack_spectrum_ =
           Kokkos::subview(forward_pack_spectrum_, held_rows, Kokkos::ALL);
