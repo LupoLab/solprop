@@ -22,18 +22,20 @@ build:
       - asdf global uv latest
     install:
       - UV_PROJECT_ENVIRONMENT=$READTHEDOCS_VIRTUALENV_PATH uv sync --frozen
-    # Some builds stall in the tutorials and are killed at Read the Docs' time limit,
-    # which discards their output. A stalled attempt is stopped after 720 s with
-    # SIGABRT, so faulthandler writes every thread's stack to the log, and is run once
-    # more: sphinx-gallery keeps the tutorials that finished, so the second attempt
-    # executes only the rest. A failed build (warnings are errors) is not retried.
+    # Some builds stall in the tutorials and are killed at Read the Docs' time limit
+    # (about 1500 s), which discards their output. A stalled attempt is stopped with
+    # SIGABRT, so faulthandler writes every thread's stack to the log (SIGKILL 15 s
+    # later if that does not end it), and is run once more: sphinx-gallery keeps the
+    # tutorials that finished, so the second attempt executes only the rest. Both
+    # limits together end the command before Read the Docs does, so the log survives.
+    # A failed build (warnings are errors) is not retried.
     build:
       html:
         - |
-          for attempt in 1 2; do
-            PYTHONFAULTHANDLER=1 timeout -s ABRT 720 "$READTHEDOCS_VIRTUALENV_PATH/bin/python" -m sphinx -b html -W -n --keep-going docs "$READTHEDOCS_OUTPUT/html" && exit 0
+          for limit in 700 600; do
+            PYTHONFAULTHANDLER=1 timeout -k 15 -s ABRT "$limit" "$READTHEDOCS_VIRTUALENV_PATH/bin/python" -m sphinx -b html -W -n --keep-going docs "$READTHEDOCS_OUTPUT/html" && exit 0
             status=$?
-            [ "$status" -eq 124 ] || exit "$status"
-            echo "sphinx-build stalled past 720 s (attempt $attempt); the stacks above show where"
+            [ "$status" -eq 124 ] || [ "$status" -eq 137 ] || exit "$status"
+            echo "sphinx-build stalled past $limit s (status $status); the stacks above show where"
           done
           exit 124
