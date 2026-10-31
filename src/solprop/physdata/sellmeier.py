@@ -939,12 +939,18 @@ class OptmatSusceptibility(GasSusceptibility):
         if np.any(inside):
             wavelength = wavelength[inside]
         state = f"{density:.6g} m^-3 and {temperature:g} K"
-        with _optmat.translated(
-            self.model,
-            "dilute-scaling check",
-            material=self.gas.value,
-            wavelength=wavelength,
-            state=state,
+        # Beside a pole of the law 1 + chi can fall below zero, in optmat's refractivity
+        # and in the comparison below; the error there is NaN, as before, without a
+        # RuntimeWarning at every sample of a pressure search.
+        with (
+            np.errstate(invalid="ignore"),
+            _optmat.translated(
+                self.model,
+                "dilute-scaling check",
+                material=self.gas.value,
+                wavelength=wavelength,
+                state=state,
+            ),
         ):
             # optmat's ideal-gas state of this density: its law then takes N = p /
             # (k_B T), which is `density` to one rounding, and the refractivity
@@ -955,8 +961,8 @@ class OptmatSusceptibility(GasSusceptibility):
                 model.refractivity(wavelength, ideal, ideal=True, warn=False)
             )
             alpha = np.asarray(model.polarizability(wavelength, warn=False))
-        chi = density * alpha / EPS0
-        error = (chi / (np.sqrt(1.0 + chi) + 1.0)) / exact - 1.0
+            chi = density * alpha / EPS0
+            error = (chi / (np.sqrt(1.0 + chi) + 1.0)) / exact - 1.0
         worst = int(np.argmax(np.abs(error)))
         return float(error[worst]), float(wavelength[worst])
 

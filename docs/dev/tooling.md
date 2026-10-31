@@ -40,8 +40,8 @@ Other tasks: `poe test-medium` (the medium tier alone, timed against its budget)
 `poe test-slow`, `poe cov` (interpreted bodies, then the compiled suite), `poe bench`
 (the benchmark plan in `benchmarks/`; `track` runs it on a quiet machine;
 [manual](benchmarking.md)), `poe docs`, `poe docs-clean`, `poe figures` (redraw the
-committed structure and geometry SVGs) and `poe docs-examples` (execute the worked
-examples and refresh their committed output).
+committed structure and geometry SVGs) and `poe docs-examples` (execute the stale
+gallery scripts and refresh their committed output).
 
 The native package has a gate of its own, `uv run poe check-native`
 (`native/scripts/check.sh`, bash, so Linux and macOS): its ruff and strict pyright,
@@ -152,11 +152,14 @@ ruff (check with `--fix`, then format), numpydoc validation, codespell, `uv-lock
 
 `docs/conf.py`: myst-parser, numpydoc (without napoleon), autosummary (recursive, `generate = True`),
 mathjax, intersphinx (numpy, scipy, matplotlib, h5py, numba, python), viewcode, matplotlib
-plot directive, sphinx-gallery, pydata-sphinx-theme. sphinx-gallery executes the tutorials
-(`docs/tutorials/` → `docs/auto_tutorials/`) on every build; the worked examples
-(`docs/examples/` → `docs/auto_examples/`) take minutes each, so their generated pages,
-figures and checksums are committed and reused, a normal build refuses a stale one, and
-`poe docs-examples` (`SOLPROP_RUN_EXAMPLES`) executes them. Warnings are errors and
+plot directive, sphinx-gallery, pydata-sphinx-theme. The three galleries, lessons
+(`docs/introduction/tutorials/` → `docs/introduction/lessons/`), tutorials
+(`docs/tutorials/` → `docs/auto_tutorials/`) and worked examples (`docs/examples/` →
+`docs/auto_examples/`), have their generated pages, figures and checksums committed: a
+normal build reuses them, executes nothing and refuses a stale one, so the build that
+publishes the manual runs no propagation. `poe docs-examples` (`SOLPROP_RUN_EXAMPLES`)
+executes the stale scripts, or one by name, and CI's docs job runs every lesson and
+tutorial again (`SOLPROP_RUN_EXAMPLES=tutorials`). Warnings are errors and
 missing references are warnings (`-W -n`). `docs/dev/` is included in the manual under
 "Development". Intersphinx inventories are fetched from each project's site
 first and read from the vendored copies under `docs/_inventories/` when that fails, so the
@@ -179,7 +182,8 @@ build works offline and survives a flaky mirror; refresh the copies occasionally
   `SOLPROP_TEST_SHARD=i/n` (run shard *i* of *n*, whole modules, as CI does) and
   `SOLPROP_WRITE_RECORDS=1` (rewrite the committed convergence records, announced at the
   end of the session).
-- In the docs build: `SOLPROP_RUN_EXAMPLES` (set by `poe docs-examples`).
+- In the docs build: `SOLPROP_RUN_EXAMPLES` (`stale` or a script name, set by
+  `poe docs-examples`; `tutorials` in CI's docs job).
 
 ## CI
 

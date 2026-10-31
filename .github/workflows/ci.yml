@@ -127,8 +127,12 @@ jobs:
           enable-cache: true
       - run: uv python install 3.14
       - run: uv sync --locked
-      # The build's wall time and peak memory, on the backend Read the Docs runs.
+      # Every lesson and tutorial runs again here, on numba_cpu, so each change still
+      # executes them; the build refuses committed gallery output that is stale. GNU time
+      # reports the run's wall time and peak memory.
       - run: /usr/bin/time -v uv run poe docs
+        env:
+          SOLPROP_RUN_EXAMPLES: tutorials
 
   # The native CPU distribution wheel for each test platform, built once per change to
   # the native sources and cached under their hash: most changes do not touch native/,

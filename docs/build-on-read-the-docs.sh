@@ -7,12 +7,13 @@
 # Build the manual on Read the Docs, ending before the service's time limit.
 #
 # Read the Docs stops a build at its time limit (about 1500 s, set-up included) and
-# discards its log. Since 2026-10-29 some builds have run into it, though the same tools
-# build in about 600 s otherwise. So Sphinx runs in a session of its own with its log in
-# a file, and this script always ends first: at WATCHDOG seconds Sphinx writes every
-# thread's stack to the log (SOLPROP_DOCS_WATCHDOG, docs/conf.py); at LIMIT seconds the
-# process table is printed with each process's state and kernel wait, the session is
-# killed and the log printed. A failed or stalled build is not retried.
+# discards its log. From 2026-10-29 builds that executed the lessons and tutorials ran
+# into it, though they took about 600 s otherwise; a build now executes no gallery
+# script (docs/conf.py). Should one stall again, Sphinx runs in a session of its own
+# with its log in a file, and this script always ends first: at WATCHDOG seconds Sphinx
+# writes every thread's stack to the log (SOLPROP_DOCS_WATCHDOG, docs/conf.py); at LIMIT
+# seconds the process table is printed with each process's state and kernel wait, the
+# session is killed and the log printed. A failed or stalled build is not retried.
 #
 # Usage: docs/build-on-read-the-docs.sh PYTHON OUTPUT_DIR
 

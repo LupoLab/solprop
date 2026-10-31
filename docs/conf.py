@@ -15,6 +15,7 @@ import importlib
 import importlib.util
 import os
 import re
+import warnings
 from importlib.metadata import version as _version
 from pathlib import Path
 from typing import Any
@@ -172,47 +173,78 @@ nitpick_ignore_regex = [
 
 # --- gallery
 # ---------------------------------------------------------------------------
-# Introductory lessons and focused tutorials execute on normal builds, with
-# unchanged results cached. Lessons run developed physical problems; their
-# execution is not a short smoke test. `examples/` holds the worked examples,
-# full-size runs of minutes to half an hour each, which a normal build NEVER
-# executes: their generated pages, figures and sphinx-gallery checksums under
-# `auto_examples/` are committed, and sphinx-gallery reuses an example's stored
-# output unchanged whenever the source's checksum matches the stored one.
+# Three galleries, each with committed output: the introductory lessons
+# (`introduction/tutorials/` → `introduction/lessons/`), which run developed physical
+# problems; the focused tutorials (`tutorials/` → `auto_tutorials/`); and the worked
+# examples (`examples/` → `auto_examples/`), full-size runs of minutes to half an hour
+# each. A normal build executes none of them: their generated pages, figures and
+# sphinx-gallery checksums are committed, and sphinx-gallery reuses a script's stored
+# output unchanged whenever the source's checksum matches the stored one. The build
+# that publishes the manual therefore runs no propagation (Read the Docs' builders
+# stalled on the lessons and tutorials from 2026-10-29).
 #
-# `SOLPROP_RUN_EXAMPLES` (set by `poe docs-examples`) is the only way to execute
-# them: "stale" runs every worked example whose source no longer matches its
-# stored output, and a script name (`plot_03_...`, with or without `.py`, without its
-# subsection directory) re-runs that one example even if it is current. Commit what
-# the run writes.
+# `SOLPROP_RUN_EXAMPLES` executes them. "stale" (`poe docs-examples`) runs every
+# script, in any gallery, whose source no longer matches its stored output; a script
+# name (`plot_03_...`, with or without `.py`, without its directory) re-runs that one
+# even if it is current; commit what either writes. "tutorials" (CI's docs job) runs
+# every lesson and tutorial again, current or not, so that each change still executes
+# them, and writes nothing that is committed.
 #
-# A normal build refuses a stale worked example rather than showing it: an edited
-# script beside the output of its previous version would be a page whose code and
-# figures disagree, with nothing on it to say so, and rendering it without output
-# would overwrite the committed page in the working tree. The refusal names the
-# command that refreshes it (`_check_worked_examples` below).
-_EXAMPLES_SOURCE = Path(__file__).parent / "examples"
-_EXAMPLES_OUTPUT = Path(__file__).parent / "auto_examples"
+# A normal build, and a "tutorials" run, refuse a stale script rather than showing it:
+# an edited script beside the output of its previous version would be a page whose
+# code and figures disagree, with nothing on it to say so, and rendering it without
+# output would overwrite the committed page in the working tree. The refusal names the
+# command that refreshes it (`_check_committed_galleries` below).
+_DOCS = Path(__file__).parent
+_GALLERIES = (
+    (_DOCS / "introduction" / "tutorials", _DOCS / "introduction" / "lessons"),
+    (_DOCS / "tutorials", _DOCS / "auto_tutorials"),
+    (_DOCS / "examples", _DOCS / "auto_examples"),
+)
 _RUN_EXAMPLES = os.environ.get("SOLPROP_RUN_EXAMPLES", "").strip()
 
 # sphinx-gallery matches these against native paths, so a separator is either slash.
 if not _RUN_EXAMPLES:
-    _filename_pattern = r"[\\/]tutorials[\\/](.+[\\/])?plot_"
+    _filename_pattern = r"$^"  # matches no script: every page is the committed one
     _run_stale = False
 elif _RUN_EXAMPLES == "stale":
     _filename_pattern = r"[\\/](tutorials|examples)[\\/](.+[\\/])?plot_"
     _run_stale = False
+elif _RUN_EXAMPLES == "tutorials":
+    _filename_pattern = r"[\\/]tutorials[\\/](.+[\\/])?plot_"
+    _run_stale = True  # every lesson and tutorial, current or not
 else:
     _name = Path(_RUN_EXAMPLES.removesuffix(".py")).name
-    if not any(_EXAMPLES_SOURCE.rglob(f"{_name}.py")):
-        msg = f"SOLPROP_RUN_EXAMPLES={_RUN_EXAMPLES!r}: no docs/examples/**/{_name}.py"
+    if not any(any(source.rglob(f"{_name}.py")) for source, _ in _GALLERIES):
+        msg = f"SOLPROP_RUN_EXAMPLES={_RUN_EXAMPLES!r}: no gallery script {_name}.py"
         raise FileNotFoundError(msg)
-    _filename_pattern = rf"[\\/]examples[\\/](.+[\\/])?{re.escape(_name)}\.py$"
+    _filename_pattern = (
+        rf"[\\/](tutorials|examples)[\\/](.+[\\/])?{re.escape(_name)}\.py$"
+    )
     _run_stale = True  # re-run it even though its checksum is current
 
+# A warning that a gallery script raises is committed with its output, so it names its
+# category and message, not the path of the file that raised it on the machine that ran
+# the script.
+
+
+def _format_warning(
+    message: Warning | str,
+    category: type[Warning],
+    filename: str,
+    lineno: int,
+    line: str | None = None,
+) -> str:
+    """Format a warning by its category and message alone (see above)."""
+    del filename, lineno, line
+    return f"{category.__name__}: {message}\n"
+
+
+warnings.formatwarning = _format_warning
+
 sphinx_gallery_conf = {
-    "examples_dirs": ["introduction/tutorials", "tutorials", "examples"],
-    "gallery_dirs": ["introduction/lessons", "auto_tutorials", "auto_examples"],
+    "examples_dirs": [str(source.relative_to(_DOCS)) for source, _ in _GALLERIES],
+    "gallery_dirs": [str(output.relative_to(_DOCS)) for _, output in _GALLERIES],
     # Each gallery is split into subsections, in this order; within a subsection the
     # scripts run in the order of their file names.
     "subsection_order": ExplicitOrder(
@@ -239,35 +271,37 @@ sphinx_gallery_conf = {
 }
 
 
-def _stale_worked_examples() -> list[str]:
-    """Return the worked examples whose committed output is not of their source."""
+def _stale_gallery_scripts() -> list[str]:
+    """Return the gallery scripts whose committed output is not of their source."""
     stale = []
-    for source in sorted(_EXAMPLES_SOURCE.rglob("plot_*.py")):
-        output = _EXAMPLES_OUTPUT / source.parent.relative_to(_EXAMPLES_SOURCE)
-        stored = output / f"{source.name}.md5"
-        page = output / f"{source.stem}.rst"
-        if (
-            not stored.is_file()
-            or not page.is_file()
-            or stored.read_text().strip() != get_md5sum(source, mode="t")
-        ):
-            stale.append(source.name)
+    for source_dir, output_dir in _GALLERIES:
+        for source in sorted(source_dir.rglob("plot_*.py")):
+            output = output_dir / source.parent.relative_to(source_dir)
+            stored = output / f"{source.name}.md5"
+            page = output / f"{source.stem}.rst"
+            if (
+                not stored.is_file()
+                or not page.is_file()
+                or stored.read_text().strip() != get_md5sum(source, mode="t")
+            ):
+                stale.append(str(source.relative_to(_DOCS)))
     return stale
 
 
-def _check_worked_examples(app: object) -> None:
-    """Refuse a normal build whose worked examples' committed outputs are stale."""
+def _check_committed_galleries(app: object) -> None:
+    """Refuse a build that would show a stale gallery script's committed output."""
     del app
-    if _RUN_EXAMPLES:
+    if _RUN_EXAMPLES not in ("", "tutorials"):
         return
-    stale = _stale_worked_examples()
+    stale = _stale_gallery_scripts()
     if stale:
         names = ", ".join(stale)
         msg = (
-            f"worked example(s) {names} changed since their committed output was "
-            "generated, and a normal docs build never executes docs/examples/. "
-            "Refresh with `uv run poe docs-examples` (every stale example) or "
-            "`uv run poe docs-examples <name>` (one), then commit docs/auto_examples/. "
+            f"gallery script(s) {names} changed since their committed output was "
+            "generated, and this docs build executes no gallery script to replace it. "
+            "Refresh with `uv run poe docs-examples` (every stale script) or "
+            "`uv run poe docs-examples <name>` (one), then commit what it writes under "
+            "docs/introduction/lessons/, docs/auto_tutorials/ or docs/auto_examples/. "
             "See AGENTS.md, Documentation."
         )
         raise ConfigError(msg)
@@ -292,8 +326,8 @@ def _no_edit_link_on_generated_pages(
 
 def setup(app: Any) -> None:
     # Before sphinx-gallery's own builder-inited handler (priority 500), so a stale
-    # example fails the build before any page is written.
-    app.connect("builder-inited", _check_worked_examples, priority=100)
+    # script fails the build before any page is written.
+    app.connect("builder-inited", _check_committed_galleries, priority=100)
     app.connect("html-page-context", _no_edit_link_on_generated_pages)
 
 

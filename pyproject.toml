@@ -413,16 +413,17 @@ sequence = [
 ]
 help = "Redraw the structure, geometry and primer figures (needs the dev group)."
 
-# The worked examples (docs/examples/) are never executed by `poe docs`: their
-# generated pages, figures and checksums under docs/auto_examples/ are committed and
-# reused. This task executes them -- every stale one by default, or one by name even if
-# it is current -- and rewrites docs/auto_examples/, which is then committed. Each takes
-# minutes to half an hour; run it on a quiet machine (AGENTS.md, Documentation).
+# No gallery script is executed by `poe docs`: the generated pages, figures and
+# checksums of the lessons, tutorials and worked examples (docs/introduction/lessons/,
+# docs/auto_tutorials/, docs/auto_examples/) are committed and reused. This task
+# executes them -- every stale one by default, or one by name even if it is current --
+# and rewrites their output, which is then committed. A worked example takes minutes
+# to half an hour; run it on a quiet machine (AGENTS.md, Documentation).
 [tool.poe.tasks.docs-examples]
 cmd = "sphinx-build -b html -W -n --keep-going docs docs/_build/html"
 # A positional argument is exported under its own name, which is what conf.py reads.
-args = [{ name = "SOLPROP_RUN_EXAMPLES", positional = true, default = "stale", help = "A worked example's script name (plot_NN_...), or 'stale' for every changed one." }]
-help = "Execute the worked examples and refresh their committed output (slow)."
+args = [{ name = "SOLPROP_RUN_EXAMPLES", positional = true, default = "stale", help = "A gallery script's name (plot_NN_...), or 'stale' for every changed one." }]
+help = "Execute the stale gallery scripts and refresh their committed output (slow)."
 
 [tool.poe.tasks.check]
 sequence = ["lint-fix", "fmt", "lint", "types", "docstrings", "spell", "reuse", "test", "docs"]

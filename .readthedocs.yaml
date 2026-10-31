@@ -3,9 +3,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 # Read the Docs: the manual, built from the locked environment with uv, exactly as
-# `poe docs` builds it (warnings are errors). The worked examples' output is committed
-# (docs/auto_examples/), so nothing long runs here; the tutorials execute as in every
-# normal build. The native package is not installed: the manual needs no compiled code.
+# `poe docs` builds it (warnings are errors). Every gallery's output is committed (the
+# lessons, tutorials and worked examples), so no propagation runs here. The native
+# package is not installed: the manual needs no compiled code.
 version: 2
 
 build:
