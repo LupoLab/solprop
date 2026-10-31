@@ -454,6 +454,14 @@ the temporal collar from the walk-off a run expects, `absorber(..., walkoff=...)
 refusing a conflicting `boundary_N`; a run cut into slices keeps its parent's strength
 through `boundary_length`, which the boundaries guide does not yet say.
 
+**A crossing limit for the split temporal collar.** [SEP 40](seps/sep-0040-transverse-absorbing-boundaries.md)
+(§4.7, Q4) found that a split absorber applied once per step cannot see content that
+crosses the collar and wraps within that step; the error controller, seeing no source
+defect, does not shorten it. The same argument applies in time to SEP 21's split temporal
+collar, the default on the spatial routes. There a step's group-delay walk-off is
+normally far below the collar's width, but no step limit enforces it. Check the bound
+on the suite's cases, and add the limit if any approaches it.
+
 **The collar's consumers converged.** The Raman response's tail taper and the held
 plasma current's gate are sized by the temporal collar's width. Their convergence in
 that width, on plasma and Raman cases, is unmeasured.

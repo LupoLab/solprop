@@ -476,6 +476,9 @@ All are $0 \le P \le 1$ on $s\in[0,1]$ and zero for $s\le0$, in three classes:
   - It is admissible only under the split scheme (§4.7), because in-stage its peak rate
     would set the step.
 
+The default is the Planck taper's complement (Q3). The polynomials are measured against
+it, and the singular profile is kept only if phase 0 shows a large gain.
+
 **A fair comparison** holds fixed the width, the grid, the protected band and the attained
 $\Gamma(\kappa_p)$. It compares the reflection floor over the protected band, the
 attenuation over the intermediate band, and the steps taken under the step limits of §4.7.
@@ -664,9 +667,9 @@ FreeGrid(radius_x, n_x, radius_y, n_y, collar_fraction=0.5)
 definition the §2 radial AN 30 collar has `collar_fraction = 1.0`, and the Cartesian ones
 0.3 and 0.5.
 
-- The default fraction is a phase 0 decision (Q2), per geometry: a fraction $f$ costs
-  $(1+f)$ in radial samples and $(1+f)^2$ in dense radial work, and $(1+f)^2$ in Cartesian
-  memory.
+- The default fraction is 1.0 on the radial grid and 0.5 on the Cartesian, line and
+  planar grids (Q2, to be confirmed in phase 0). A fraction $f$ costs $(1+f)$ in radial
+  samples and $(1+f)^2$ in dense radial work, and $(1+f)^2$ in Cartesian memory.
 - `collar_fraction=0` leaves no room for a collar. The real-space part is then refused, and
   a ramp-only absorber is allowed.
 - The window `W` keeps its role as the monitor's region marker.
@@ -776,7 +779,7 @@ own measured quantity. Every share is normalised by the launch's field norm $U_\
 |---|---|---|
 | launch clipped by the aperture | the launch's share in the guard (the outer 5 % of the requested size) at $z=0$ | warn above budget, as for time |
 | intended outward flow | guard and collar shares along $z$; `spatial_removed` | recorded at INFO, never a stop |
-| inadequate absorption, or contamination returning | the **inward-travelling** share in the guard | warn, then stop, above budget |
+| inadequate absorption, or contamination returning | the **inward-travelling** share in the guard | warn above budget; stop above $10^{-2}$ of the launch until qualified (Q7) |
 | a design gap | the intermediate band's weakest $\Gamma_\mathrm{tot}$ and the crossing limit, both at translation | a warning |
 
 The returned share is the field in the guard that travels *towards* the aperture's
@@ -1084,24 +1087,38 @@ interface change.
 
 ### 12. Open questions
 
-Each question is answered by the phase 0 report and decided by the maintainer before
-phase 1, unless stated.
+The maintainer decided Q1–Q7 on 2026-10-31 (John Travers), taking the drafting agent's
+recommendations. Where a decision depends on a value phase 0 measures, phase 0 confirms
+or reports against it, and a departure returns the question to the maintainer.
 
-1. **Q1 — the default.** Do `prop_radial`, `prop_free` and `prop_planar` resolve
-   `SpatialAbsorber()` when none is given? Recommendation: yes, if the witnesses meet §7.1's
-   budget at an acceptable cost; `spatial_absorber=False` for a bare wall or wrap.
-2. **Q2 — the default collar fraction** per geometry. The §2 probe's best radial collar was
-   as wide as the aperture ($f = 1$), which doubles $n_r$ and quadruples dense work.
-3. **Q3 — the profile** (§4.5), compared on the terms stated there.
-4. **Q4 — the default scheme.** Recommendation: in-stage (§4.7), unless the split is as
-   accurate inside the aperture at lower cost on every integrator it would be the default
-   for.
-5. **Q5 — the default protected band.** The launch times $c_b$, a mandatory declaration, or
-   a declaration with the launch as a fallback that warns. The value of $c_b$.
-6. **Q6 — the safety band's fraction and strength rule** on each geometry, and the
-   passivity tolerance $\varepsilon_P$ (§4.9).
-7. **Q7 — the monitor's measure and budgets** for the returned share (§5.4), and whether
-   exceeding them warns or stops by default.
+1. **Q1 — the default.** *Decided:* `prop_radial`, `prop_free` and `prop_planar` resolve
+   `SpatialAbsorber()` when none is given, provided the phase 0 witnesses meet §7.1's
+   budget; `spatial_absorber=False` gives a bare wall or wrap.
+2. **Q2 — the default collar fraction.** *Decided:* `collar_fraction = 1.0` on the radial
+   grid and 0.5 on the Cartesian, line and planar grids, to be confirmed in phase 0. The
+   §2 probe's best radial collar was as wide as the aperture; the radial cost, $(1+f)^2$ in
+   dense work, is small in absolute terms, while the Cartesian cost, $(1+f)^2$ in memory,
+   is not. A run short of memory narrows the collar and declares its protected band.
+3. **Q3 — the profile.** *Decided:* the Planck taper's complement is the default. The
+   polynomials are measured against it in phase 0. The singular profile is dropped unless
+   phase 0 shows a large gain, because it would bring the split scheme and its history
+   restrictions with it.
+4. **Q4 — the default scheme.** *Decided:* in-stage by default; `"split_step"` optional for
+   `RungeKutta` only, refused under `Multistep` and `LowStorageRungeKutta` (§4.7). Whether
+   SEP 21's split temporal collar needs the analogous crossing limit goes to the roadmap.
+5. **Q5 — the default protected band.** *Decided:* the launch times $c_b$, as a fallback
+   that the resolved design records as protecting the launched spread only, with the
+   monitor's returned share as the safety net. The guide tells users who expect generated
+   radiation (four-wave mixing, conical emission) to declare an `angle`. $c_b$ is set in
+   phase 0.
+6. **Q6 — the safety band and passivity tolerance.** *Decided:* the safety band is the
+   outer 10 % of each axis's wavenumbers, on by default on every geometry, radial and
+   planar included, with the strength rule of §4.4. $arepsilon_P$ is phase 0's worst
+   measured admission value with a margin of ten.
+7. **Q7 — the monitor's policy.** *Decided:* a returned share above budget warns; the run
+   stops only on gross return, above $10^{-2}$ of the launch's field norm, until phase 0
+   qualifies the measure. The policy is then revisited, to mirror the temporal monitor's if
+   the measure's floor allows.
 
 ### 13. References
 
@@ -1148,6 +1165,9 @@ transcribed, is checked against the full text in phase 0 and recorded in its rep
   below): in-stage default under a collar-crossing step limit, protected and safety
   bands, a returned-light monitor, a specification resolved at translation, a signed
   ordered ledger, the planar route, and an allocated error budget.
+- 2026-10-31: Maintainer decisions (John Travers): R1–R14 accepted as revised; Q1–Q7
+  decided as recommended (§12). The §2 probe was re-run on main at b09d43b with
+  unchanged step counts and errors.
 
 ### AI review — 2026-10-31 (GPT-6)
 
@@ -1191,6 +1211,8 @@ decision.
    requirement survive this linear counterexample? Treat work counts as measured
    performance at equal accuracy, unless a restricted claim is justified.
 
+   **Maintainer decision (John Travers, 2026-10-31):** accepted as revised.
+
 2. **R2 — P1: the launch-derived spectral ramp can remove the intended signal
    (§§2, 4.4, 5.2, 7.5, 10).** A $k_\perp$-diagonal loss acts throughout the physical
    aperture. A multiple of the launch's rms wavenumber cannot protect arbitrary
@@ -1207,6 +1229,8 @@ decision.
    a wide aperture and compare its spectrum/port energy with a larger-domain reference.
    Should a launch-derived ramp require explicit opt-in or a declared physical band?
 
+   **Maintainer decision (John Travers, 2026-10-31):** accepted as revised.
+
 3. **R3 — P1: the inherited monitor policy stops successful escape (§§1, 5.4,
    7.2, 12 Q7).** `BoundaryCheck` and `BoundaryMonitor._judge` currently warn when
    the square root of guard occupancy exceeds $10^{-3}$ and stop above $10^{-2}$:
@@ -1222,6 +1246,8 @@ decision.
    that accurate strong escape completes under the selected default, while an
    under-resolved or ineffective boundary is detected. What measured quantity can
    distinguish those outcomes, rather than merely detecting light at the edge?
+
+   **Maintainer decision (John Travers, 2026-10-31):** accepted as revised.
 
 4. **R4 — P1: the proposed builder lacks inputs required by its design (§§4.2–4.4,
    5.2, 5.5, 7.7).** `spatial_absorber(space, grid)` cannot evaluate the medium's
@@ -1242,6 +1268,8 @@ decision.
    `with_input`, scans, coupling to another grid/medium and resume rebuild or retain
    it? Make the length-independence claim cover the complete resolved operator.
 
+   **Maintainer decision (John Travers, 2026-10-31):** accepted as revised.
+
 5. **R5 — P1: complementary bands need a quantitative overlap (§§4.4, 5.2,
    7.1).** Section 4.4 allows $\kappa_\mathrm{hi}$ below the ramp's start, leaving
    a gap; §5.2 instead puts the start at or below $\kappa_\mathrm{hi}$. Even equality
@@ -1257,6 +1285,8 @@ decision.
    is in $|k_\perp|$ or the existing normalised maximum of its components, and how
    the two widths and corner crossings enter the design. Which component normal to
    each face sets that face's absorption/reflection interval?
+
+   **Maintainer decision (John Travers, 2026-10-31):** accepted as revised.
 
 6. **R6 — P1: the scattering approximation needs explicit limits (§§4.1–4.3,
    4.6, 7.1).** Replacing $k$ by $k_z$ does not turn the paraxial local ODE into
@@ -1277,6 +1307,8 @@ decision.
    and cutoff. What happens when the protected band approaches cutoff, or the
    required low-angle content falls outside the asymptotic regime? Include those
    cases in phase 0 or refuse them explicitly.
+
+   **Maintainer decision (John Travers, 2026-10-31):** accepted as revised.
 
 7. **R7 — P1: passivity to rounding contradicts both the metric and the cited
    evidence (§§3, 4.7, 7.4).** For physical-node multiplication
@@ -1300,6 +1332,8 @@ decision.
    infinitesimal generator. Keep removal signed; under what conditions may it be
    called absorbed physical energy?
 
+   **Maintainer decision (John Travers, 2026-10-31):** accepted as revised.
+
 8. **R8 — P1: specify the removal ledger when collars are fused (§§4.7, 5.4,
    6, 7.5).** The current `BoundaryMonitor.split_removal` uses the field-norm proxy
    on spatial routes and excludes the following hard mask; SEP 21 D16 deferred
@@ -1316,6 +1350,8 @@ decision.
    planes, checkpoints/resume and child relaunches, consistent with SEP 21 D10.
    Test a run with both collars active and verify the complete ledger in one stated
    metric. How will flux evaluation fit the memory ledger and the advertised cost?
+
+   **Maintainer decision (John Travers, 2026-10-31):** accepted as revised.
 
 9. **R9 — P1: qualify the changed state against integrator history (§§5.3–5.5,
    6, 7.6, 11).** Runge–Kutta FSAL reuse must be disabled when the spatial factor
@@ -1334,6 +1370,8 @@ decision.
    demonstrated with a nonlinear field occupying the collar, rather than only with
    a temporal collar that stays nearly empty?
 
+   **Maintainer decision (John Travers, 2026-10-31):** accepted as revised.
+
 10. **R10 — P2: make the candidate profiles mathematically implementable (§§4.3,
     4.5, 4.7, 11).** A nonzero polynomial cannot have all derivatives vanish at its
     onset: $s^n$ joined to zero has only finite smoothness. It therefore does not
@@ -1349,6 +1387,8 @@ decision.
     Re-measure transmission and reflection after capping and discretising; do not
     carry over a continuum zero-transmission claim. What parameters are held fixed
     when comparing the singular and bounded candidates fairly?
+
+    **Maintainer decision (John Travers, 2026-10-31):** accepted as revised.
 
 11. **R11 — P2: resolve planar scope and qualify every advertised route (§§2–3,
     5–7, 11).** The current transverse ramp is refused on `PlanarGrid` as well as
@@ -1366,6 +1406,8 @@ decision.
     two radial/Cartesian probes alone cannot qualify those interfaces. Name refusal
     and serialization tests as well as numerical parity tests.
 
+    **Maintainer decision (John Travers, 2026-10-31):** accepted as revised.
+
 12. **R12 — P2: the “free” split cost has prerequisites (§§4.7, 6, 9).** In
     `numpy_ref.backend.NumpyRefBackend._finish`, the physical-space visit occurs when
     a nonzero temporal split is applied. `absorber=False` explicitly leaves the new
@@ -1379,6 +1421,8 @@ decision.
     transform, diagnostic, storage and history costs. Measure temporal split on/off,
     matched physical resolution at several collar widths, and accuracy-qualified
     schedules. Which scratch is reused, and what additional buffers are admitted?
+
+    **Maintainer decision (John Travers, 2026-10-31):** accepted as revised.
 
 13. **R13 — P2: repair the numerical audit trail (§§2, 4.4, 7.2–7.3).** The
     probe requests a radius of 150 µm, but §4.4 calls its 50 % outside collar
@@ -1396,6 +1440,8 @@ decision.
     common physical evaluation grid because changing the outer radius changes its
     nodes. Are three reference sizes available to establish an extrapolation order,
     rather than assuming one from the temporal campaign?
+
+    **Maintainer decision (John Travers, 2026-10-31):** accepted as revised.
 
 14. **R14 — P2: separate the acceptance error budgets (§§7, 11).** Grid convergence
     of the 1D ODE does not set a tolerance for its discrepancy from WKB, radial
@@ -1415,6 +1461,8 @@ decision.
     from WKB trend checks, and use matched discrete methods for parity. Which
     protected observables, including weak far-field ports, must pass before a
     default is recommended?
+
+    **Maintainer decision (John Travers, 2026-10-31):** accepted as revised.
 
 **Evidence and limits of this review.** Part I was read in full. Repository checks
 covered the architecture, sign/flux conventions, tolerance policy, SEP 21's findings
