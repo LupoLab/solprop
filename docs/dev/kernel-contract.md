@@ -18,8 +18,11 @@ operator, the quadrature, the compiled responses — are in [algorithms.md](algo
 already converted from the optics-convention user inputs; the output layer converts
 observations back. Backends never conjugate.
 
-**Current kernel schema: 36; saved-output schema: 25.** These versions are independent.
-Internal modal amplitudes are vacuum normalised; the launch and observation boundaries
+**The kernel schema and the saved-output schema are versioned independently.** The
+kernel schema's current number is stated in §1 (`KERNEL_SCHEMA_VERSION`), the saved
+output's in [the output guide](../guide/results/output.md#the-schema-version)
+(`solprop.output.SCHEMA_VERSION`). Internal modal amplitudes are vacuum normalised; the
+launch and observation boundaries
 carry the true-power conversion, and every backend reads the modal power weight (§3) in its
 statistics alone. Radial columns are Hankel
 frequencies and Cartesian columns are transverse FFT frequencies, the latter flattened as
@@ -90,8 +93,9 @@ expansion. A
 total-degree expansion is not part of the contract: it failed the joint memory and
 build-cost criterion on the short fixture.
 
-The current version is **39** (`solprop.translate.problem.KERNEL_SCHEMA_VERSION`), and the
-tables of this document describe it. A version bump that adds an optional field
+The current version is kernel schema **39**
+(`solprop.translate.problem.KERNEL_SCHEMA_VERSION`), and the tables of this document
+describe it. A version bump that adds an optional field
 leaves every problem that does not use it unchanged, `schema_version` itself being the
 one thing that moves. Removing an admitted value needs no bump, because no consumer can
 misread a problem that no longer carries it.
@@ -1153,7 +1157,7 @@ over `rtol`, `atol`, `weights` and `region`), which the engine already applies.
 **The state**: the position and the proposal; the stored order; the history's entries
 (position, identity, engine row), oldest first; the consecutive rejections; whether the
 last attempt was rejected; whether the collar was quiet at the last attempt; and the call
-ledger. A resume carries all of it exactly (`MarchSnapshot`, output schema 28).
+ledger. A resume carries all of it exactly (`MarchSnapshot`).
 
 **One attempt**, in order (SEP 39 §4.3–§4.6):
 

@@ -47,9 +47,8 @@ edge may be resumed under a relaxed check, and its monitor's record continues ac
 resume ([watching the window's edges](../numerics/boundaries.md#watching-the-windows-edges)).
 Only the quiet-collar opt-in, which changes what the stages compute, is part of the key.
 
-The schema version, on the other hand, is inside it, so only a file written at the
-current output schema (22) can be resumed; an older file reads normally but is not
-continued ([the schema version](output.md#the-schema-version)).
+The schema version, on the other hand, is inside it, and a file of another output
+schema is not read at all ([the schema version](output.md#the-schema-version)).
 
 The material manifest is inside it too, deliberately conservatively: a resume is
 refused when any optmat model's identity, any material policy or the optmat version

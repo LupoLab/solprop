@@ -48,8 +48,8 @@ with ω the absolute frequency. τ is the absolute time of the record's $t = 0$ 
 carrier phase; `plane.absolute()` applies them. Keeping the pair as numbers, rather
 than shifting the samples, means that a long path never translates a femtosecond pulse
 out of its window. Each run records its frame integral, so any saved plane's reference
-is rebuilt from the file alone (output schema 24,
-[provenance](../results/provenance.md#the-metadata-schema)).
+is rebuilt from the file alone
+([provenance](../results/provenance.md#the-metadata-schema)).
 
 ## Reading a plane back
 

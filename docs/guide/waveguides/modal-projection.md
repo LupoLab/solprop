@@ -280,7 +280,7 @@ declared in the near infrared puts none of its own spectrum. On the weakly guidi
 fibre the whole-band figure is $1.1\times10^{-4}$ near 1.73 µm, inside the 790–890 nm
 launch window it is $2.3\times10^{-7}$, and weighted by the pulse's own spectrum — which
 is what `from_waveguide` passes, since it builds the launch first — it is
-$3.7\times10^{-8}$. The number is on the record as `occupied_departure`, in the schema-7
+$3.7\times10^{-8}$. The number is on the record as `occupied_departure`, in the modal
 identity beside the knot defect, and in the printed block. It is an interpolation error,
 so a guide refused here is fixed by **adding knots**, not by widening the rule.
 

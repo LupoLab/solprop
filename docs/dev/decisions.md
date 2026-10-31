@@ -1505,7 +1505,7 @@ Withdrawn (development-process record, not a design decision).
   (`solprop.translate` alone exports 61 names), and some internal seams are known to be
   provisional: the state's vestigial batch axis, the two step loops that one march
   protocol would replace, and the integrator's tie to `PIController`. Development output
-  files carry schemas up to 27, and solprop keeps readers for them.
+  files carry schemas up to 28, and solprop keeps readers for them.
 - **Decision:**
   - The first releases are 0.x. A minor release may break the API, the output schema or
     the resume key; every break is listed under "Changed (breaking)" in the changelog.

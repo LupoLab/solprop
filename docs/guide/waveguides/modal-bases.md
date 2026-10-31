@@ -130,7 +130,7 @@ channel's departure from the reference, so a basis declared over channels that w
 never a degenerate group would put their whole dispersion difference into a matrix
 exponential taken by scaling and squaring.
 
-The run records what it propagated. `modal.flow` joins the schema-7 identity with the
+The run records what it propagated. `modal.flow` joins the modal identity with the
 section methods, the degree, the reference channel, the three certificate rows and the
 largest coupling, so a resume against a changed block is refused by the block that
 moved. The key is written **only** where a flow exists; a run without one has no

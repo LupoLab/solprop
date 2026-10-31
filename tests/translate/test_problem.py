@@ -23,6 +23,7 @@ from solprop.noise import modified_noise
 from solprop.nonlinear.gnlse import problem_from
 from solprop.nonlinear.raman import response_for
 from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
+from solprop.output import SCHEMA_VERSION as OUTPUT_SCHEMA_VERSION
 from solprop.physdata import Gas
 from solprop.profiles import Constant, FromCallable, PressureGradient
 from solprop.pulses import GaussianPulse, SechPulse, SpatialPulse
@@ -48,6 +49,13 @@ from solprop.translate.problem import (
 from solprop.translate.responses import CompiledResponses, prefactor_at
 
 CONTRACT = Path(__file__).resolve().parents[2] / "docs" / "dev" / "kernel-contract.md"
+DOCS = CONTRACT.parents[1]
+CURRENT_SCHEMA = re.compile(r"\b(kernel|output) schema \*\*(\d+)\*\*")
+"""How a page states a current schema number: in bold, after the schema's name."""
+NUMBERED_SCHEMA = re.compile(
+    r"\b(?:(kernel|saved-output|output) )?schema:? \(?\**(\d+)\b"
+)
+"""Any schema number, bold, bracketed or plain; one not named kernel is the output's."""
 
 # The six array groups the contract's own walking rule names; everything else a field
 # holds -- Flags, StatsSpec, a Tableau, a RateTable -- is a leaf whose fields are not
@@ -190,12 +198,42 @@ def test_the_contract_document_lists_every_flag(soliton):
     assert documented == {entry.name for entry in dataclasses.fields(Flags)}
 
 
-def test_the_document_is_the_version_the_module_writes():
-    """A bump of one without the other is exactly what the contract test is for."""
+def test_every_page_states_the_schemas_the_code_writes():
+    """A bump of a schema without its pages is exactly what this test is for.
+
+    A page states a current schema number in bold after the schema's name, and each
+    is stated once: the kernel's in the contract (``KERNEL_SCHEMA_VERSION``), the
+    saved output's in the output guide (``solprop.output.SCHEMA_VERSION``). A
+    sentence that calls a plain number current, or says what this release writes,
+    is held to the same numbers, so a stale statement elsewhere fails here too.
+    History, which names the version a change took, is not a statement of the
+    current one; the SEP records are history throughout.
+    """
     assert KERNEL_SCHEMA_VERSION == 39
+    assert OUTPUT_SCHEMA_VERSION == 1
     assert soliton_schema_version_row().startswith("incremented on every change")
-    assert f"current version is **{KERNEL_SCHEMA_VERSION}**" in CONTRACT.read_text(
-        encoding="utf-8"
+    written = {"kernel": KERNEL_SCHEMA_VERSION, "output": OUTPUT_SCHEMA_VERSION}
+    stated: dict[str, list[str]] = {}
+    for page in sorted(DOCS.rglob("*.md")):
+        name = page.relative_to(DOCS).as_posix()
+        if name.startswith(("dev/seps/", "_build/", "auto_examples/")):
+            continue
+        text = " ".join(page.read_text(encoding="utf-8").split())
+        for kind, number in CURRENT_SCHEMA.findall(text):
+            assert int(number) == written[kind], (name, kind, number)
+            stated.setdefault(name, []).append(kind)
+        for sentence in re.split(r"(?<=\.)\s+", text):
+            if not re.search(r"\b(current|currently|this release)\b", sentence, re.I):
+                continue
+            for kind, number in NUMBERED_SCHEMA.findall(sentence):
+                schema = "kernel" if kind == "kernel" else "output"
+                assert int(number) == written[schema], (name, sentence)
+    assert stated == {
+        "dev/kernel-contract.md": ["kernel"],
+        "guide/results/output.md": ["output"],
+    }
+    assert f"current version is kernel schema **{KERNEL_SCHEMA_VERSION}**" in (
+        " ".join(CONTRACT.read_text(encoding="utf-8").split())
     )
 
 
