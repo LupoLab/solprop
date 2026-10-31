@@ -127,7 +127,8 @@ jobs:
           enable-cache: true
       - run: uv python install 3.14
       - run: uv sync --locked
-      - run: uv run poe docs
+      # The build's wall time and peak memory, on the backend Read the Docs runs.
+      - run: /usr/bin/time -v uv run poe docs
 
   # The native CPU distribution wheel for each test platform, built once per change to
   # the native sources and cached under their hash: most changes do not touch native/,
