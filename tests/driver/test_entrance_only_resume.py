@@ -20,7 +20,7 @@ def test_entrance_without_terminal_checkpoint_resumes_dense_run_normally(tmp_pat
         0.0,
         4 * step,
         [0.0, 0.0, -1e-26],
-        lambda0=800e-9,
+        wavelength=800e-9,
         wavelength_limits=(500e-9, 1.6e-6),
         trange=200e-15,
         fwhm=20e-15,

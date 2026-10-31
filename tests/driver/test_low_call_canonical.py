@@ -34,7 +34,7 @@ def canonical(rtol, **extra):
         LENGTH,
         "He",
         fill,
-        lambda0=800e-9,
+        wavelength=800e-9,
         fwhm=6e-15,
         energy=1e-3,
         modes=1,

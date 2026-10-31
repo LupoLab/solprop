@@ -44,7 +44,7 @@ class FamilyTable(TypedDict):
     """Pulse and gas values of the M2 benchmark cases (``m2_cases.py``)."""
 
     gas: str
-    lambda0: float
+    wavelength: float
     tau_fwhm: float
     energy: float
     loss: bool
@@ -96,7 +96,7 @@ def _worker(backend_name: str, case_name: str, target: float, repeats: int) -> N
                 family["gas"],
                 case["pressure"],
                 pressure_floor=0.0,
-                lambda0=family["lambda0"],
+                wavelength=family["wavelength"],
                 wavelength_limits=(case["lambda_min"], case["lambda_max"]),
                 trange=case["trange"],
                 fwhm=family["tau_fwhm"],

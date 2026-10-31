@@ -117,7 +117,7 @@ def simulation():
         0.1,
         "He",
         1.0,
-        lambda0=800e-9,
+        wavelength=800e-9,
         # The grid the record's literals below were taken on.
         grid=FieldGrid.from_limits(0.1, 800e-9, (200e-9, 2e-6), 300e-15, **LEGACY_GRID),
         fwhm=10e-15,

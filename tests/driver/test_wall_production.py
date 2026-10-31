@@ -66,7 +66,7 @@ def pinned_final():
         length,
         "He",
         0.0,
-        lambda0=wavelength,
+        wavelength=wavelength,
         grid=grid,
         absorber=absorber(grid, boundary_length=1e12),
         fwhm=30e-15,

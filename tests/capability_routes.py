@@ -76,12 +76,12 @@ def gnlse(noise: str | None) -> Simulation:
         0.11,
         LENGTH,
         [0.0, 0.0, -1.183e-26],
-        lambda0=835e-9,
+        wavelength=835e-9,
         wavelength_limits=(500e-9, 2e-6),
         trange=1e-12,
         width=100e-15,
         peak_power=9.8,
-        pulseshape="sech",
+        shape="sech",
         noise=noise,  # pyright: ignore[reportArgumentType]
         seed=None if noise is None else SEED,
         **_run_keywords(),
@@ -95,7 +95,7 @@ CAPILLARY_GRID = FieldGrid.from_limits(LENGTH, 800e-9, (400e-9, 1.6e-6), 300e-15
 def _capillary(noise: str | None, **overrides: Any) -> Simulation:
     """Return a helium-filled capillary on the shared small grid."""
     arguments = {
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "grid": CAPILLARY_GRID,
         "fwhm": 30e-15,
         "energy": 1e-5,
@@ -189,7 +189,7 @@ def general_constant(noise: str | None) -> Simulation:
         LENGTH,
         provider=_step_index_guide(),
         grid=GENERAL_GRID,
-        lambda0=835e-9,
+        wavelength=835e-9,
         fwhm=20e-15,
         energy=1e-12,
         noise=noise,  # pyright: ignore[reportArgumentType]
@@ -224,7 +224,7 @@ def general_moving(noise: str | None, **overrides: Any) -> Simulation:
         sections=1,
     )
     arguments = {
-        "lambda0": 1.03e-6,
+        "wavelength": 1.03e-6,
         "fwhm": 60e-15,
         "energy": 1e-12,
         "noise": noise,

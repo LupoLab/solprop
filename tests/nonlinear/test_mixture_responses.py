@@ -69,7 +69,7 @@ def test_air_defaults_select_optmat_rates_and_one_composition_raman(caplog):
     # at the first label (argon has no Raman response and is part of it).
     mixture = Mixture.air(1.0)
     with caplog.at_level(logging.INFO, logger="solprop"):
-        responses = responses_for(mixture, plasma=True, raman=True, lambda0=800e-9)
+        responses = responses_for(mixture, plasma=True, raman=True, wavelength=800e-9)
     plasma = [r for r in responses if isinstance(r, PlasmaResponse)]
     assert [r.species for r in plasma] == ["N2", "O2", "Ar"]
     field = np.geomspace(1e8, 5e10, 100)
@@ -97,7 +97,7 @@ def test_explicit_selection_of_a_species_without_terms_names_the_missing_data(
     custom = dataclasses.replace(nitrogen, name="synthetic empty", raman=empty)
     mixture = Mixture.of(Component(custom, Constant(1e24), "empty"))
     with pytest.raises(MaterialError, match=r"empty.*no data was tabulated"):
-        responses_for(mixture, raman=selection, lambda0=800e-9)
+        responses_for(mixture, raman=selection, wavelength=800e-9)
 
 
 @pytest.mark.parametrize("option", ["plasma", "raman"])
@@ -117,7 +117,7 @@ def test_custom_rotation_only_model_runs_without_inventing_oxygen_constants():
     )
     mixture = Mixture.of(component)
     selected = responses_for(
-        mixture, raman={"rotor": MolecularOptions(vibration=False)}, lambda0=800e-9
+        mixture, raman={"rotor": MolecularOptions(vibration=False)}, wavelength=800e-9
     )
     raman = next(r for r in selected if isinstance(r, RamanResponse))
     assert len(raman.models) == 1
@@ -128,7 +128,7 @@ def test_custom_rotation_only_model_runs_without_inventing_oxygen_constants():
         responses_for(
             mixture,
             raman={"rotor": MolecularOptions(rotation=False)},
-            lambda0=800e-9,
+            wavelength=800e-9,
         )
 
 
@@ -145,7 +145,9 @@ def test_per_label_rates_and_preionisation_use_the_component_population():
 
 def test_bare_rate_requires_the_named_species_and_a_named_rate():
     with pytest.raises(MaterialError, match="bare plasma rate"):
-        responses_for(Mixture.air(1.0), plasma=OptmatRate("N2", 800e-9), lambda0=800e-9)
+        responses_for(
+            Mixture.air(1.0), plasma=OptmatRate("N2", 800e-9), wavelength=800e-9
+        )
     with pytest.raises(MaterialError, match="bare plasma rate"):
         responses_for(mixture_case()[0], plasma=AnalyticRate())
     single = Mixture.fill({"N2": 1.0}, 1.0)
@@ -153,7 +155,7 @@ def test_bare_rate_requires_the_named_species_and_a_named_rate():
     assert (
         next(
             r
-            for r in responses_for(single, plasma=rate, lambda0=800e-9)
+            for r in responses_for(single, plasma=rate, wavelength=800e-9)
             if isinstance(r, PlasmaResponse)
         ).rate
         is rate
@@ -217,7 +219,7 @@ def test_default_rate_needs_optmats_potential_but_not_its_citation(name):
         Mixture.of(Component(relabelled, Constant(1e24))),
         kerr=False,
         plasma=True,
-        lambda0=800e-9,
+        wavelength=800e-9,
     )[0]
     assert isinstance(response, PlasmaResponse)
     assert isinstance(response.rate, OptmatRate)
@@ -228,7 +230,7 @@ def test_default_rate_needs_optmats_potential_but_not_its_citation(name):
             Mixture.of(Component(changed, Constant(1e24))),
             kerr=False,
             plasma=True,
-            lambda0=800e-9,
+            wavelength=800e-9,
         )
 
 
@@ -239,7 +241,7 @@ def test_default_atomic_rate_requires_a_wavelength():
 
 def test_kerr_component_labels_are_in_mixture_order():
     mixture = Mixture.air(1.0)
-    responses = responses_for(mixture, lambda0=800e-9)
+    responses = responses_for(mixture, wavelength=800e-9)
     assert all(isinstance(r, KerrResponse) for r in responses)
     assert tuple(r.species for r in responses) == mixture.labels
 
@@ -249,7 +251,7 @@ def test_single_component_traits_keep_the_original_profile_names():
         Mixture.fill({"N2": 1.0}, 1.0),
         plasma=True,
         raman=True,
-        lambda0=800e-9,
+        wavelength=800e-9,
     )
     for response in responses:
         assert response.species is None
@@ -274,13 +276,13 @@ def test_default_rate_refuses_a_species_optmat_has_no_rate_for(name):
     material = dataclasses.replace(species("Ar"), name=name)
     mixture = Mixture.of(Component(material, Constant(1e24)))
     with pytest.raises(MaterialError, match="custom species"):
-        responses_for(mixture, kerr=False, plasma=True, lambda0=800e-9)
+        responses_for(mixture, kerr=False, plasma=True, wavelength=800e-9)
 
 
 def test_an_ideal_eos_does_not_remove_optmats_rate():
     material = dataclasses.replace(species("Ar"), equation_of_state=IdealGas())
     mixture = Mixture.of(Component(material, Constant(1e24)))
-    response = responses_for(mixture, kerr=False, plasma=True, lambda0=800e-9)[0]
+    response = responses_for(mixture, kerr=False, plasma=True, wavelength=800e-9)[0]
     assert isinstance(response, PlasmaResponse)
     assert isinstance(response.rate, OptmatRate)
     reference = OptmatRate("Ar", 800e-9)

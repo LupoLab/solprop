@@ -67,17 +67,17 @@ pytestmark = [
 ]
 
 GNLSE = {
-    "lambda0": 835e-9,
+    "wavelength": 835e-9,
     "wavelength_limits": (500e-9, 2e-6),
     "trange": 1e-12,
     "width": 100e-15,
     "peak_power": 9.8,
-    "pulseshape": "sech",
+    "shape": "sech",
     "n_save": 3,
     "backend": "numpy_ref",
 }
 CAPILLARY = {
-    "lambda0": 800e-9,
+    "wavelength": 800e-9,
     "wavelength_limits": (200e-9, 3e-6),
     "trange": 200e-15,
     "fwhm": 10e-15,

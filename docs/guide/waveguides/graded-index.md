@@ -210,7 +210,7 @@ sampled), and `area_at(omega)` does so at every sampled position of a moving gui
 path and returns the area as a path along z. Every channel a
 `ModalGuide.from_provider` builds carries its provider for this (a `ChannelSource`,
 left out of the channel's serialised record). `SpecifiedMode.from_mode(channel,
-wavelength=...)` uses it, and `prop_gnlse` passes its `lambda0`
+wavelength=...)` uses it, and `prop_gnlse` passes its `wavelength`
 ([GNLSE page](gnlse.md)). Without it `from_mode` falls back to the median-knot
 surrogate, which on a graded-index guide can be tens of per cent off the area at the
 pump.

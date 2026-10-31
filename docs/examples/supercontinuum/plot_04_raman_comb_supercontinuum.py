@@ -76,7 +76,7 @@ with warnings.catch_warnings():
         0.4,
         "H2",
         40.0,
-        lambda0=515e-9,
+        wavelength=515e-9,
         fwhm=400e-15,
         energy=10e-6,
         loss=False,

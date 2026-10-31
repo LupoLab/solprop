@@ -39,14 +39,14 @@ def grid() -> FieldGrid:
 
 def _capillary(**keywords: Any) -> Simulation:
     return Simulation.from_capillary(
-        100e-6, 0.1, "Ar", 0.5, lambda0=800e-9, fwhm=30e-15, energy=10e-6,
+        100e-6, 0.1, "Ar", 0.5, wavelength=800e-9, fwhm=30e-15, energy=10e-6,
         wavelength_limits=(200e-9, 2e-6), trange=200e-15, noise=None, **keywords,
     )  # fmt: skip
 
 
 def _gnlse(*, trange: float = 2e-12, **keywords: Any) -> Simulation:
     return Simulation.from_gnlse(
-        0.1, 0.1, [0.0, 0.0, -1e-26], lambda0=1e-6, fwhm=100e-15, peak_power=1.0,
+        0.1, 0.1, [0.0, 0.0, -1e-26], wavelength=1e-6, fwhm=100e-15, peak_power=1.0,
         trange=trange, wavelength_limits=(0.7e-6, 1.5e-6), noise=None, **keywords,
     )  # fmt: skip
 
@@ -100,7 +100,7 @@ def test_waveguide_takes_the_scheme() -> None:
     """``from_waveguide`` passes the scheme to a hollow guide's settings."""
     simulation = Simulation.from_waveguide(
         [MarcatiliMode(100e-6, "Ar", 0.5, loss=False, cladding=1.45)], 0.1, "Ar", 0.5,
-        lambda0=800e-9, fwhm=30e-15, energy=10e-6, wavelength_limits=(200e-9, 2e-6),
+        wavelength=800e-9, fwhm=30e-15, energy=10e-6, wavelength_limits=(200e-9, 2e-6),
         trange=200e-15, noise=None, absorber_scheme="split_step",
     )  # fmt: skip
     assert simulation.settings.absorber_scheme == "split_step"
@@ -198,7 +198,7 @@ def test_the_modal_interfaces_take_the_boundary_check() -> None:
     from solprop.output.schema import PlaneStore  # noqa: PLC0415
 
     run = prop_gnlse(
-        0.1, 0.01, [0.0, 0.0, -1e-26], lambda0=1e-6, fwhm=100e-15, peak_power=1.0,
+        0.1, 0.01, [0.0, 0.0, -1e-26], wavelength=1e-6, fwhm=100e-15, peak_power=1.0,
         trange=2e-12, wavelength_limits=(0.7e-6, 1.5e-6), noise=None, n_save=2,
         progress="none", boundary_check=None, backend="numpy_ref",
     )  # fmt: skip
@@ -206,7 +206,7 @@ def test_the_modal_interfaces_take_the_boundary_check() -> None:
     assert run.outcome is not None and run.outcome.execution is not None
     assert "boundary_monitor" not in run.outcome.execution
     watched = prop_gnlse(
-        0.1, 0.01, [0.0, 0.0, -1e-26], lambda0=1e-6, fwhm=100e-15, peak_power=1.0,
+        0.1, 0.01, [0.0, 0.0, -1e-26], wavelength=1e-6, fwhm=100e-15, peak_power=1.0,
         trange=2e-12, wavelength_limits=(0.7e-6, 1.5e-6), noise=None, n_save=2,
         progress="none", backend="numpy_ref",
     )  # fmt: skip

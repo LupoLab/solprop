@@ -177,7 +177,7 @@ def _case(
     *,
     mix: complex | None = None,
     kerr_form: Literal["real", "analytic"] = "real",
-    lambda0: float = WAVELENGTH,
+    wavelength: float = WAVELENGTH,
 ) -> Case:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", GeneralModalBasisWarning)
@@ -189,10 +189,10 @@ def _case(
             backend="numpy_ref",
             kerr_form=kerr_form,
             save_planes=[Z_END],
-            lambda0=lambda0,
+            wavelength=wavelength,
             fwhm=20e-15,
             energy=2e-9,
-            pulseshape="gauss",
+            shape="gauss",
             noise=None,
         )
         # No collar: ten replayed steps are far beyond the in-stage collar's limit
@@ -323,7 +323,7 @@ CASES: dict[str, Callable[[], Case]] = {
         mix=0.5j,
     ),
     "grin": lambda: _case(
-        _grin_guide(_grin_grid()), _grin_grid(), mix=0.4, lambda0=1.03e-6
+        _grin_guide(_grin_grid()), _grin_grid(), mix=0.4, wavelength=1.03e-6
     ),
 }
 
@@ -609,10 +609,10 @@ def _moving_grin() -> tuple[Simulation, KernelProblem]:
             dz_max=FIBRE / STEPS,
             dz_init=FIBRE / STEPS,
             schedule=FixedSchedule(np.full(STEPS, FIBRE / STEPS)),
-            lambda0=1.03e-6,
+            wavelength=1.03e-6,
             fwhm=60e-15,
             energy=1e-8,
-            pulseshape="gauss",
+            shape="gauss",
             noise=None,
         )
         simulation.settings = dataclasses.replace(simulation.settings, absorber=None)

@@ -97,7 +97,7 @@ def capillary_options(
         "length": LENGTH,
         "gas": "Ar",
         "pressure": 1.0,
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "grid": grid,
         "absorber": absorber(grid, boundary_length=1.0),
         "fwhm": 30e-15,
@@ -242,12 +242,12 @@ def test_each_material_warning_is_raised_once_per_run():
 def test_a_gnlse_run_records_its_selection_and_changes_nothing_else():
     # A GNLSE run resolves no material, so another selection moves only its record.
     options = {
-        "lambda0": 835e-9,
+        "wavelength": 835e-9,
         "wavelength_limits": (500e-9, 2e-6),
         "trange": 1e-12,
         "width": 100e-15,
         "peak_power": 9.8,
-        "pulseshape": "sech",
+        "shape": "sech",
         "n_save": 3,
     }
     plain = Simulation.from_gnlse(
@@ -698,10 +698,10 @@ def general(guide, grid, materials: MaterialSelection | None = SELECTION) -> Any
         GENERAL_Z_END,
         provider=guide,
         grid=grid,
-        lambda0=835e-9,
+        wavelength=835e-9,
         fwhm=20e-15,
         energy=1e-12,
-        pulseshape="gauss",
+        shape="gauss",
         save_planes=[GENERAL_Z_END / 10],
         backend="numpy_ref",
         dz_max=GENERAL_Z_END / 20,

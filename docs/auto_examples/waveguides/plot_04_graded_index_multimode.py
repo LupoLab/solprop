@@ -244,7 +244,7 @@ def propagate(length, n_save):
         grid=grid,
         incident=beam,
         coupling=coupling,
-        lambda0=WAVELENGTH,
+        wavelength=WAVELENGTH,
         noise="input",
         seed=41,
         dz_max=z_p / 10.0,

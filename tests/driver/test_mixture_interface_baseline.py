@@ -53,7 +53,7 @@ def test_the_launch_and_the_log_weight_reconstruct_the_dispersion_problem(
             gas,
             (2.0, 1.0),
             vacuum_end="floor",
-            lambda0=800e-9,
+            wavelength=800e-9,
             wavelength_limits=(400e-9, 1600e-9),
             trange=400e-15,
             fwhm=20e-15,

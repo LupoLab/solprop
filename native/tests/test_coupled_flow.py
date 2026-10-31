@@ -89,7 +89,7 @@ def simulation(*, radius: float | PiecewiseLinear, wall: CoherentWall) -> Simula
         "He",
         10.0 if isinstance(radius, float) else (10.0, 1.0),
         wall=wall,
-        lambda0=800e-9,
+        wavelength=800e-9,
         grid=GRID,
         absorber=absorber(GRID, boundary_length=1.0e3),
         fwhm=30e-15,

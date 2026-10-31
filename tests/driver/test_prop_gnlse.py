@@ -71,12 +71,12 @@ def cheap_settings(**keywords):
         "gamma": 0.11,
         "length": SHORT,
         "betas": [0.0, 0.0, -11.83e-27],
-        "lambda0": 835e-9,
+        "wavelength": 835e-9,
         "wavelength_limits": (500e-9, 2e-6),
         "trange": 1e-12,
         "width": 100e-15,
         "peak_power": 9.8,
-        "pulseshape": "sech",
+        "shape": "sech",
         "shock": False,
         "rtol": 1e-8,
         "atol": 1e-18,
@@ -193,12 +193,12 @@ def test_the_third_order_soliton_runs_the_same_through_the_interface(
         soliton.gamma,
         soliton.period,
         [0.0, 0.0, soliton.beta2],
-        lambda0=soliton.wavelength,
+        wavelength=soliton.wavelength,
         grid=grid,
         absorber=bare_absorber(grid),
         width=soliton.tau0,
         peak_power=soliton.peak_power(3),
-        pulseshape="sech",
+        shape="sech",
         shock=False,
         schedule=FixedSchedule.uniform(
             0.0, soliton.period, soliton.period / MEDIUM_STEPS
@@ -244,11 +244,11 @@ def test_the_sixth_order_soliton_runs_the_same_through_the_interface(
         soliton.gamma,
         stop,
         [0.0, 0.0, soliton.beta2],
-        lambda0=soliton.wavelength,
+        wavelength=soliton.wavelength,
         grid=wide_grid,
         width=soliton.tau0,
         peak_power=soliton.peak_power(6),
-        pulseshape="sech",
+        shape="sech",
         shock=False,
         schedule=FixedSchedule.uniform(0.0, stop, stop / MEDIUM_STEPS),
         integrator=FIXED_ORDER,
@@ -351,11 +351,11 @@ def test_the_shock_term_can_be_switched_on():
 
 
 @pytest.mark.parametrize(
-    ("pulseshape", "duration"),
+    ("shape", "duration"),
     [("sech", {"width": 100e-15}), ("gauss", {"fwhm": 176e-15})],
 )
-def test_both_pulse_shapes_run(pulseshape, duration):
-    handler = cheap(pulseshape=pulseshape, **({"width": None} | duration))
+def test_both_pulse_shapes_run(shape, duration):
+    handler = cheap(shape=shape, **({"width": None} | duration))
     assert handler.n_saved == 2
     # peak_power carries one value per mode, so the stored array is (n_z, n_modes).
     assert float(handler["stats/peak_power"][0, 0]) == pytest.approx(9.8, rel=1e-3)
@@ -516,12 +516,12 @@ def test_a_field_grid_is_refused_by_name(soliton):
 
 def test_a_gaussian_asked_for_by_its_natural_width_is_refused():
     with pytest.raises(DriverError, match="intensity fwhm"):
-        cheap(pulseshape="gauss", width=100e-15)
+        cheap(shape="gauss", width=100e-15)
 
 
 def test_an_unknown_pulse_shape_is_refused():
     with pytest.raises(DriverError, match="'gauss' or 'sech'"):
-        cheap(pulseshape="lorentz", width=None, fwhm=100e-15)
+        cheap(shape="lorentz", width=None, fwhm=100e-15)
 
 
 def test_an_unknown_noise_model_is_refused(narrow_grid):
@@ -704,12 +704,12 @@ def test_supplied_mode_and_table_without_area_use_gamma():
             0.11,
             0.001,
             fibre=fibre,
-            lambda0=835e-9,
+            wavelength=835e-9,
             wavelength_limits=(500e-9, 2e-6),
             trange=1e-12,
             width=100e-15,
             peak_power=9.8,
-            pulseshape="sech",
+            shape="sech",
             n_save=2,
             noise=None,
         )
@@ -789,7 +789,7 @@ def test_index_table_gnlse_metadata_hash_across_processes(use_mode):
                 0.001,
                 fibre=fibre,
                 n2=1e-20,
-                lambda0=835e-9,
+                wavelength=835e-9,
                 wavelength_limits=(500e-9, 2e-6),
                 trange=1e-12,
                 fwhm=100e-15,
@@ -808,7 +808,7 @@ from solprop.driver import Simulation
 omega = np.linspace(.3e15, 4.5e15, 200)
 table = IndexTable(omega, np.full(200, 1.45 + 1e-9j), area=np.full(200, 1e-10))
 simulation = Simulation.from_gnlse(None, .001, fibre=table, n2=1e-20,
-    lambda0=835e-9, wavelength_limits=(500e-9, 2e-6), trange=1e-12,
+    wavelength=835e-9, wavelength_limits=(500e-9, 2e-6), trange=1e-12,
     fwhm=100e-15, energy=1e-12, n_save=2, noise=None)
 print(simulation.metadata().configuration_hash())
 """
@@ -866,12 +866,12 @@ def test_gnlse_mode_fill_is_only_a_linear_source():
         0.11,
         SHORT,
         fibre=original,
-        lambda0=835e-9,
+        wavelength=835e-9,
         wavelength_limits=(500e-9, 2e-6),
         trange=1e-12,
         width=100e-15,
         peak_power=9.8,
-        pulseshape="sech",
+        shape="sech",
         n_save=2,
         noise=None,
     )

@@ -165,7 +165,7 @@ per wavelength includes the omega-to-wavelength Jacobian before normalisation.
         "Ar",
         1.0,
         lattice=lattice,
-        lambda0=800e-9,
+        wavelength=800e-9,
         wavelength_limits=(300e-9, 1600e-9),
         trange=200e-15,
         fwhm=30e-15,

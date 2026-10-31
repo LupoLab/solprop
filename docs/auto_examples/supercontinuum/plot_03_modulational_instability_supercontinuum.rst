@@ -101,7 +101,7 @@ so the approximation is recorded with the result.
                 0.4,
                 "Ar",
                 40.0,
-                lambda0=1030e-9,
+                wavelength=1030e-9,
                 fwhm=400e-15,
                 energy=5e-6,
                 loss=False,

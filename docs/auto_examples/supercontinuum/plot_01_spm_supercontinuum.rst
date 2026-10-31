@@ -100,7 +100,7 @@ spectrum
                     3.0,
                     "Ar",
                     (0.0, 0.3),
-                    lambda0=800e-9,
+                    wavelength=800e-9,
                     fwhm=40e-15,
                     energy=2e-3,
                     trange=1e-12,

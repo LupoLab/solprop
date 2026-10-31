@@ -70,7 +70,7 @@ PRESSURE = 3.0
 ARGON = SpatialMedium("Ar", PRESSURE)
 SCALAR = CouplingModel("scalar_paraxial", model_error=0.05)
 ENVELOPE_GRID = {
-    "lambda0": 800e-9,
+    "wavelength": 800e-9,
     "wavelength_limits": (700e-9, 920e-9),
     "trange": 200e-15,
 }
@@ -250,7 +250,7 @@ def test_a_kerr_prepared_radial_beam_into_a_capillary():
         2e-3,
         "Ar",
         PRESSURE,
-        lambda0=800e-9,
+        wavelength=800e-9,
         grid=grid,
         modes=4,
         plasma=False,
@@ -354,7 +354,7 @@ def test_a_field_grid_kerr_plasma_thg_entrance_is_transferred_with_its_harmonic(
         1e-3,
         "Ar",
         1.0,
-        lambda0=800e-9,
+        wavelength=800e-9,
         grid=grid,
         modes=4,
         plasma=False,
@@ -455,7 +455,7 @@ def test_a_solid_fibre_into_another_fibre():
             1e-3,
             fibre=mode,
             n2=2.6e-20,
-            lambda0=1064e-9,
+            wavelength=1064e-9,
             grid=EnvelopeGrid.from_limits(
                 1e-3, 1064e-9, (900e-9, 1300e-9), 400e-15, **LEGACY_GRID
             ),
@@ -521,7 +521,7 @@ def test_a_gaussian_beam_into_a_solid_fibre():
         1e-3,
         fibre=mode,
         n2=2.6e-20,
-        lambda0=1064e-9,
+        wavelength=1064e-9,
         wavelength_limits=(900e-9, 1300e-9),
         trange=400e-15,
         fwhm=100e-15,
@@ -777,7 +777,7 @@ def test_spm_then_a_compressor_and_a_4f_relay_into_a_second_capillary():
     windows' angular removals as removed energy.
     """
     grid = {
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "wavelength_limits": (600e-9, 1100e-9),
         "trange": 300e-15,
     }

@@ -146,7 +146,7 @@ def build_field_point(point):
         1e-4,
         "He",
         1.0,
-        lambda0=800e-9,
+        wavelength=800e-9,
         wavelength_limits=(110e-9, 4e-6),
         trange=200e-15,
         fwhm=10e-15,

@@ -77,7 +77,7 @@ pulse launched at ``t0`` and with the monitor's thresholds changed.
             0.11,
             LENGTH,
             BETAS,
-            lambda0=835e-9,
+            wavelength=835e-9,
             wavelength_limits=(600e-9, 1600e-9),
             trange=trange,
             raman=True,

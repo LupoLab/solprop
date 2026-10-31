@@ -109,13 +109,13 @@ def build(kind: str) -> Simulation:
             0.11,
             0.01,
             [0.0, 0.0, -1.183e-26],
-            lambda0=835e-9,
+            wavelength=835e-9,
             grid=EnvelopeGrid.from_limits(
                 0.01, 835e-9, (500e-9, 2e-6), 1e-12, **LEGACY_GRID
             ),
             width=100e-15,
             peak_power=9.8,
-            pulseshape="sech",
+            shape="sech",
             n_save=3,
             backend="numpy_ref",
             absorber=False,

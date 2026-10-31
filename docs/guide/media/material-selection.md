@@ -71,7 +71,7 @@ the model, an {class}`~solprop.physdata.nonlinear_data.OptmatKerr`,
 not a number: its `gamma3` is `None`, and
 {meth}`~solprop.physdata.species.Species.kerr_coefficient` evaluates the model at a
 carrier $\lambda_c$. A run's carrier is its **grid's reference wavelength**, which the
-drivers build at `lambda0`; the selection's `carrier_wavelength` may be left unset, and
+drivers build at `wavelength`; the selection's `carrier_wavelength` may be left unset, and
 if it is given it must agree with that, or the run is refused — one carrier sets every
 optmat species' coefficient. The Kerr fits hold from 400 nm to 20 µm and warn once per
 run outside.
@@ -219,7 +219,7 @@ optmat; what the caller built is taken as it is.
        one-population mixture of that gas under the selection, at the same pressure
        and temperature; a supplied susceptibility is kept beside optmat's equation of
        state. The declared responses are the caller's: write
-       ``KerrResponse(gamma3("Ar", wavelength=lambda0))`` for optmat's coefficient at
+       ``KerrResponse(gamma3("Ar", wavelength=wavelength))`` for optmat's coefficient at
        the carrier. An optmat rate's energy per event is bound to the input's peak
        field, as on the capillary route
    * - ``prop_planar``
@@ -256,7 +256,7 @@ simulation = Simulation.from_capillary(
     4e-4,
     "Ar",
     1.0,
-    lambda0=800e-9,
+    wavelength=800e-9,
     wavelength_limits=(300e-9, 3e-6),
     trange=100e-15,
     fwhm=30e-15,
@@ -588,7 +588,7 @@ and carry their own citations.
   beyond a gas's band edge they are best effort, with no resonant response
   ([limitations](dispersive-kerr.md#limitations)).
 - A free-space run's declared {class}`~solprop.nonlinear.responses.KerrResponse` is the
-  caller's, coefficient included; `gamma3(gas, wavelength=lambda0)` gives optmat's.
+  caller's, coefficient included; `gamma3(gas, wavelength=wavelength)` gives optmat's.
 - The design tools take the same `materials=` ([design tools](../workflows/design-tools.md)), so a
   design and a run under one selection agree.
 - Objects that describe a gas by name outside a driver — a mode's own `gas=` fill, a

@@ -189,7 +189,7 @@ def fwm_run(policy):
             LENGTH,
             "Ar",
             PRESSURE,
-            lambda0=PUMP,
+            wavelength=PUMP,
             pulses=[
                 GaussianPulse(wavelength=PUMP, fwhm=30e-15, energy=10e-6),
                 GaussianPulse(wavelength=IDLER, fwhm=30e-15, energy=10e-6),
@@ -290,7 +290,7 @@ def rdw_run(policy):
             1.0,
             "He",
             (1.2, 0.0),
-            lambda0=800e-9,
+            wavelength=800e-9,
             wavelength_limits=(100e-9, 1.5e-6),
             trange=200e-15,
             fwhm=7.5e-15,

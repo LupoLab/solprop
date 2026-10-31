@@ -123,7 +123,7 @@ as the only arguments. Every run takes the default backend.
             1.5,  # length, m
             "He",
             (0.8, 0.0),  # bar, entrance to exit
-            lambda0=800e-9,
+            wavelength=800e-9,
             fwhm=7.5e-15,
             energy=275e-6,
             modes=modes,

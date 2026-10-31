@@ -65,7 +65,7 @@ from solprop.translate.general import general_modal_route
 # monitor warns (SEP 21), and the window's edge is not what this module tests.
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
 
-PULSE = {"lambda0": 835e-9, "fwhm": 20e-15, "energy": 1e-12, "pulseshape": "gauss"}
+PULSE = {"wavelength": 835e-9, "fwhm": 20e-15, "energy": 1e-12, "shape": "gauss"}
 RUN = {
     # Two steps over a tenth of a millimetre: a reconstruction is made on one
     # saved plane and needs no propagation at all, and the route's arithmetic is
@@ -731,12 +731,12 @@ def test_both_cpu_backends_refuse_a_general_name_on_an_ordinary_run(backend):
         0.11,
         1e-4,
         [0.0, 0.0, -1.183e-26],
-        lambda0=835e-9,
+        wavelength=835e-9,
         wavelength_limits=(500e-9, 2e-6),
         trange=1e-12,
         width=100e-15,
         peak_power=1.0,
-        pulseshape="sech",
+        shape="sech",
         n_save=2,
         backend=backend,
         noise=None,

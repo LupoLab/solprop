@@ -102,7 +102,7 @@ branches, which carry 3 % (H₂, D₂) to 19 % (O₂) of a band's anisotropic sh
 
 **Pump dispersion.** optmat disperses the vibrational strengths to the pump wavelength
 it is given. The response always takes the run's carrier: the selection's
-`carrier_wavelength` when it names one, otherwise the grid reference `lambda0`.
+`carrier_wavelength` when it names one, otherwise the grid reference `wavelength`.
 
 **Temperature.** A response fixes its temperature, which sets both the populations and
 the widths' temperature laws. A temperature path along z takes the existing

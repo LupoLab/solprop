@@ -106,7 +106,7 @@ def gnlse(  # noqa: PLR0913 - the case's own knobs
         gamma,
         length,
         [beta0, 0.0, -1.183e-26, 8.1e-41],
-        lambda0=835e-9,
+        wavelength=835e-9,
         # The former 1024-bin window and no collar: the bounds below count its bins,
         # and a replayed schedule is refused beside the default collar.
         grid=EnvelopeGrid.from_limits(
@@ -115,7 +115,7 @@ def gnlse(  # noqa: PLR0913 - the case's own knobs
         absorber=False,
         width=50e-15,
         peak_power=power,
-        pulseshape="sech",
+        shape="sech",
         save_planes=[length],
         backend="numpy_ref",
         precision=precision,  # pyright: ignore[reportArgumentType]
@@ -137,7 +137,7 @@ def capillary(
     """
     length = overrides.pop("length", 0.004)
     keywords = {
-        "lambda0": 800e-9,
+        "wavelength": 800e-9,
         "wavelength_limits": (150e-9, 3e-6),
         "trange": 300e-15,
         "fwhm": 10e-15,
@@ -205,9 +205,9 @@ def test_single_precision_takes_its_defaults_and_refuses_what_it_does_not_run():
 
     def automatic() -> Simulation:
         return Simulation.from_gnlse(
-            0.11, 0.05, [0.0, 0.0, -1e-26], lambda0=835e-9, trange=1e-12,
+            0.11, 0.05, [0.0, 0.0, -1e-26], wavelength=835e-9, trange=1e-12,
             wavelength_limits=(500e-9, 2e-6), width=50e-15, peak_power=1.0,
-            pulseshape="sech", precision="single", noise=None,
+            shape="sech", precision="single", noise=None,
         )  # fmt: skip
 
     # "auto" is the GPU backend where MLX and a Metal device are present, and refused
@@ -358,9 +358,9 @@ def test_a_step_within_a_tenth_of_binary32s_range_is_warned_of():
 def test_a_noise_model_is_refused_under_single_precision():
     with pytest.raises(Exception, match="noise model"):
         Simulation.from_gnlse(
-            0.11, 0.05, [0.0, 0.0, -1e-26], lambda0=835e-9, trange=1e-12,
+            0.11, 0.05, [0.0, 0.0, -1e-26], wavelength=835e-9, trange=1e-12,
             wavelength_limits=(500e-9, 2e-6), width=50e-15, peak_power=1.0,
-            pulseshape="sech",
+            shape="sech",
             precision="single", backend="numpy_ref", noise="input", seed=1,
         ).translate()  # fmt: skip
 
@@ -379,8 +379,8 @@ def test_a_resume_in_the_other_precision_is_refused(tmp_path):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         keywords = {
-            "lambda0": 835e-9, "wavelength_limits": (500e-9, 2e-6), "trange": 1e-12,
-            "width": 50e-15, "peak_power": 10.0, "pulseshape": "sech", "n_save": 2,
+            "wavelength": 835e-9, "wavelength_limits": (500e-9, 2e-6), "trange": 1e-12,
+            "width": 50e-15, "peak_power": 10.0, "shape": "sech", "n_save": 2,
             "backend": "numpy_ref", "integrator": RungeKutta(), "progress": "none",
         }  # fmt: skip
         prop_gnlse(
@@ -956,7 +956,7 @@ def gradient(precision: str) -> Simulation:
         0.004,
         "Ar",
         (1.0, 0.5),
-        lambda0=800e-9,
+        wavelength=800e-9,
         wavelength_limits=(300e-9, 3e-6),
         trange=300e-15,
         fwhm=10e-15,

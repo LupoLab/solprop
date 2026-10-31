@@ -130,7 +130,7 @@ $\mathrm{HE}_{11}, \mathrm{HE}_{12}, \mathrm{EH}_{11}, \mathrm{EH}_{12}$.
        with warnings.catch_warnings():
            warnings.simplefilter("ignore")
            return prop_capillary(
-               50e-6, length, "He", 1.0, lambda0=800e-9, grid=grid,
+               50e-6, length, "He", 1.0, wavelength=800e-9, grid=grid,
                # A collar weak enough that twenty-micrometre steps are stable.
                absorber=absorber(grid, boundary_length=1e3),
                fwhm=30e-15, energy=1e-9, modes=modes, n_save=6,

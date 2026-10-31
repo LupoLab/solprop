@@ -29,7 +29,7 @@ output = prop_capillary(
     0.1,
     "He",
     0.8,
-    lambda0=800e-9,
+    wavelength=800e-9,
     fwhm=10e-15,
     energy=100e-6,
     wavelength_limits=(200e-9, 3e-6),

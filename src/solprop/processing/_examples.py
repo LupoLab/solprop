@@ -372,7 +372,7 @@ def example_general_run() -> tuple[MemoryOutput, ModalTransformTables, ModalGuid
         length,
         provider=guide,
         grid=grid,
-        lambda0=wavelength,
+        wavelength=wavelength,
         fwhm=30e-15,
         energy=1e-12,
         dz_max=length / 2,

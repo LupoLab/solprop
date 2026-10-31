@@ -766,7 +766,7 @@ def test_response_for_takes_the_optmat_path_under_a_selection():
 
 def test_responses_for_builds_one_composition_response_in_label_order():
     air = Mixture.air(1.0, selection=SELECTION)
-    responses = responses_for(air, raman=True, selection=SELECTION, lambda0=800e-9)
+    responses = responses_for(air, raman=True, selection=SELECTION, wavelength=800e-9)
     raman = [r for r in responses if isinstance(r, RamanResponse)]
     assert len(raman) == 1
     assert isinstance(raman[0], OptmatRamanResponse)
@@ -776,15 +776,15 @@ def test_responses_for_builds_one_composition_response_in_label_order():
         Mixture.fill({"N2": 1.0}, 1.0, selection=SELECTION),
         raman=True,
         selection=SELECTION,
-        lambda0=800e-9,
+        wavelength=800e-9,
     )
     (one,) = [r for r in single if isinstance(r, OptmatRamanResponse)]
     assert one.species is None
     assert one.labels == ("N2",)
-    off = responses_for(air, raman=False, selection=SELECTION, lambda0=800e-9)
+    off = responses_for(air, raman=False, selection=SELECTION, wavelength=800e-9)
     assert not any(isinstance(r, RamanResponse) for r in off)
     atoms = responses_for(
-        constant_fill({"Ar": 1.0}), raman=True, selection=SELECTION, lambda0=800e-9
+        constant_fill({"Ar": 1.0}), raman=True, selection=SELECTION, wavelength=800e-9
     )
     assert not any(isinstance(r, RamanResponse) for r in atoms)
 
@@ -794,11 +794,11 @@ def test_a_built_in_fill_is_optmats_and_a_supplied_species_keeps_its_own():
     the former registry family is refused by name, and a caller's species is
     answered from its own constants, per component."""
     air = Mixture.air(1.0, selection=SELECTION)
-    built_in = responses_for(air, raman=True, lambda0=800e-9, selection=SELECTION)
+    built_in = responses_for(air, raman=True, wavelength=800e-9, selection=SELECTION)
     assert sum(isinstance(r, OptmatRamanResponse) for r in built_in) == 1
     registry = dataclasses.replace(SELECTION, raman="registry")
     with pytest.raises(MaterialError, match="'registry' names no gas Raman response"):
-        responses_for(air, raman=True, lambda0=800e-9, selection=registry)
+        responses_for(air, raman=True, wavelength=800e-9, selection=registry)
     with pytest.raises(MaterialError, match="'registry' names no gas Raman response"):
         response_for(Gas.N2, selection=registry)
     # solprop's former N2 constants (dc4ca0d), as a caller's species.

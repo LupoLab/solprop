@@ -78,7 +78,7 @@ def connected_simulation(ffac=6.0, *, passive=False):
             # term was the deleted registry's.
             raman=False,
             thg=False,
-            lambda0=800e-9,
+            wavelength=800e-9,
         )
     )
     return Simulation(

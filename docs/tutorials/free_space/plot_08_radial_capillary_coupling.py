@@ -281,7 +281,7 @@ capillary = Simulation.from_capillary(
     LENGTH,
     "Ar",
     PRESSURE,
-    lambda0=WAVELENGTH,
+    wavelength=WAVELENGTH,
     grid=grid,
     envelope=True,
     fwhm=FWHM,
