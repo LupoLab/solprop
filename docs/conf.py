@@ -24,8 +24,8 @@ from sphinx_gallery.sorting import ExplicitOrder
 from sphinx_gallery.utils import get_md5sum
 
 # Read the Docs discards the log of a build it stops at its time limit. There
-# `docs/build-on-read-the-docs.sh` sets SOLPROP_DOCS_WATCHDOG to a delay in seconds after
-# which every thread's stack is written to the log, before the build is stopped.
+# `docs/build-on-read-the-docs.sh` sets SOLPROP_DOCS_WATCHDOG to a delay in seconds
+# after which every thread's stack is written to the log, before the build is stopped.
 if _watchdog := os.environ.get("SOLPROP_DOCS_WATCHDOG"):
     faulthandler.dump_traceback_later(float(_watchdog), exit=False)
 

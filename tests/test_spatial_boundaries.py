@@ -134,13 +134,21 @@ def test_direct_spatial_constructor_derives_a_default_frame(case):
     assert simulation.translate().shape[1] == space.n_r
 
 
-@pytest.mark.parametrize("changes", [{"schema_version": 3}, {"spatial": None}])
-def test_spatial_metadata_requires_geometry_and_new_output_schema(case, changes):
+@pytest.mark.parametrize(
+    ("changes", "refusal"),
+    [
+        ({"schema_version": 3}, "reads output schema 1 only"),
+        ({"spatial": None}, "requires a spatial geometry record"),
+    ],
+)
+def test_spatial_metadata_requires_geometry_and_the_current_schema(
+    case, changes, refusal
+):
     grid, space, pulse, settings = case
     metadata = Simulation.from_radial(
         grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
     ).metadata()
-    with pytest.raises(OutputError, match="schema 4"):
+    with pytest.raises(OutputError, match=refusal):
         dataclasses.replace(metadata, **changes)
 
 

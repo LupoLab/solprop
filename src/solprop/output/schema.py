@@ -2495,7 +2495,7 @@ class RunMetadata(Displayed):
         the hash; the inherited origin enters it through
         ``configuration["coupling"]``. Every run records one; ``None`` on a record
         built without it, as by hand, whose planes cannot be exchanged
-        (:func:`solprop.processing.field_plane`).
+        (:func:`solprop.processing.planes.field_plane`).
 
     Examples
     --------
