@@ -153,57 +153,6 @@
    "name": "float"
   }
  ],
- "SolpropWarning": [
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "solprop.exceptions",
-   "module_short": "solprop.exceptions",
-   "name": "SolpropWarning"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "solprop",
-   "module_short": "solprop",
-   "name": "SolpropWarning"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "UserWarning"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "Warning"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "Exception"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "builtins",
-   "module_short": "builtins",
-   "name": "BaseException"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.exceptions",
-   "module_short": "solprop.exceptions",
-   "name": "SolpropWarning"
-  }
- ],
  "UV": [
   {
    "is_class": false,

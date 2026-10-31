@@ -30,7 +30,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import NamedTuple
 
-from solprop.translate.problem import SCHEMA_VERSION as _KERNEL_SCHEMA_VERSION
+from solprop.translate.problem import KERNEL_SCHEMA_VERSION
 
 try:
     import drawsvg
@@ -1690,7 +1690,7 @@ RUN_ARTEFACTS = (
     (
         "T",
         "KernelProblem",
-        (f"plain arrays, frozen, validated, schema_version {_KERNEL_SCHEMA_VERSION}",),
+        (f"plain arrays, frozen, validated, schema_version {KERNEL_SCHEMA_VERSION}",),
     ),
     ("B", "StepSummary", ("z, n_steps, n_rejected, max_norm, mean_norm, wall_time",)),
     (

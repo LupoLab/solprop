@@ -221,7 +221,7 @@ class ChannelLabel(Displayed):
     def from_mapping(cls, mapping: Mapping[str, object]) -> "ChannelLabel":  # noqa: UP037 - the runtime hook resolves this while the class body runs
         """Rebuild a label from the mapping :meth:`as_mapping` produced.
 
-        The round trip a provider's ``identity["channels"]`` and output schema 7
+        The round trip a provider's ``identity["channels"]`` and the run record
         need: the mapping has been through JSON, so every value arrives as an
         ordinary Python object and is checked here before it becomes a label.
 
@@ -286,7 +286,7 @@ class ChannelLabel(Displayed):
         collections.abc.Mapping
             The six fields by name, in the order they are declared, with ``None``
             where a family has no such quantum number. This is what a provider's
-            ``identity`` publishes and what output schema 7 will persist.
+            ``identity`` publishes and what the run record persists.
 
         Examples
         --------
@@ -335,7 +335,7 @@ class Mode(Protocol):
 
         The label is a property of the mode itself, not of its place in a set:
         :attr:`solprop.modes.collection.ModeCollection.channel_labels` is the ordered
-        tuple of its members' labels, and output schema 7 persists them beside the
+        tuple of its members' labels, and the run record persists them beside the
         mode axis.
         """
         ...

@@ -7,7 +7,7 @@
 Two products of the translation layer feed plane exchange. :func:`frame_record` is
 the persisted frame integral of a run: the antiderivatives of the frame quantities
 its linear operator removed, so that any saved plane's reference can be rebuilt
-without the run (output schema 24). :func:`input_port` fills the
+without the run (SEP 31). :func:`input_port` fills the
 :class:`solprop.coupling.port.InputPort` of a translated problem's entrance: its native
 metric at that plane, the frame it has accumulated there, the entrance medium's
 index, the coupling models it admits and what they need: an ordinary mode set's

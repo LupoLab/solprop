@@ -17,15 +17,14 @@ runs in binary64 on ``backend="auto"`` and in binary32, where ``"auto"`` chooses
 ``mlx`` backend on a Mac with a Metal GPU.
 
 **What to look for.** The two precisions' output spectra lie on top of each other on a
-40 dB scale; their difference, normwise over the whole saved field, is of order
-:math:`10^{-5}` for the capillary and :math:`10^{-6}` for the filament -- set by the
-controller's tolerance and the binary32 propagator's rounding, which accumulates over
-the run's steps -- and the energy, the spectral centroid, the electron density, the
+40 dB scale; their difference, normwise over the whole saved field, is a few times
+:math:`10^{-5}` for the capillary and of order :math:`10^{-6}` for the filament -- set
+by the controller's tolerance and the binary32 propagator's rounding, which accumulates
+over the run's steps -- and the energy, the spectral centroid, the electron density, the
 peak intensity and the beam radius agree to the digits printed. At these sizes much
-of each run's wall time is its set-up: the GPU run took about 0.6 times ``native``'s
-binary64 time for the capillary and the same for the filament on a MacBook Pro M5
-Max, while
-the envelope plasma's step itself is several times faster on the GPU
+of each run's wall time is its set-up. The printed times, from an Apple M5 Max, show the
+GPU ahead on the capillary and behind ``native``'s binary64 run on the short filament,
+while the envelope plasma's step itself is several times faster on the GPU
 (:doc:`/guide/performance/single-precision`).
 
 **What is approximate.** Single precision's tolerance floor is ``rtol = 1e-6`` (the

@@ -124,7 +124,11 @@ from solprop.translate.modal import DEFAULT_NODE_BUDGET
 from solprop.translate.plasma_source import (
     _BENCHMARK_GATED,  # pyright: ignore[reportPrivateUsage] - refuse the private NumPy benchmark hook
 )
-from solprop.translate.problem import SCHEMA_VERSION, KernelProblem, PropagatorMode
+from solprop.translate.problem import (
+    KERNEL_SCHEMA_VERSION,
+    KernelProblem,
+    PropagatorMode,
+)
 from solprop.translate.stage import (
     StageScalars,
     StageTerms,
@@ -3114,10 +3118,10 @@ def _refuse_adams(problem: KernelProblem) -> None:
 
 
 def _refuse_unsupported(problem: KernelProblem) -> None:
-    if problem.schema_version != SCHEMA_VERSION:
+    if problem.schema_version != KERNEL_SCHEMA_VERSION:
         raise BackendError(
-            f"solprop-native implements schema {SCHEMA_VERSION}; problem declares "
-            f"{problem.schema_version}"
+            f"solprop-native implements kernel schema {KERNEL_SCHEMA_VERSION}; "
+            f"problem declares {problem.schema_version}"
         )
     if problem.precision.single:
         raise BackendError(

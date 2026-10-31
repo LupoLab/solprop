@@ -46,9 +46,9 @@ complete when they pass there. A change to the documentation alone needs less; s
 
 ## Work on the documentation
 
-Build the manual with `uv run poe docs`. This executes introductory lessons and
-focused demonstrations, and reuses
-the committed output of the worked examples. After changing a worked-example
-source, including its prose, regenerate its output with
-`uv run poe docs-examples <name>` and include the generated files in the change.
+Build the manual with `uv run poe docs`. It executes no gallery script: the
+introductory lessons, the focused tutorials and the worked examples all have committed
+output, which it reuses. After changing a gallery script, including its prose,
+regenerate its output with `uv run poe docs-examples <name>` (or with no name, every
+stale script) and include the generated files in the change.
 Never edit generated gallery or API pages by hand.

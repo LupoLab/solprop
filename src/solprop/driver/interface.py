@@ -154,7 +154,7 @@ def prop_radial(  # noqa: PLR0913 - the simulation interface and output controls
         Take the run's built-in materials from optmat under this selection: the medium's
         built-in gas resolves through it (see
         :meth:`~solprop.driver.simulation.Simulation.from_radial`). Supplied objects are
-        taken as they are, and the run records its material manifest (output schema 8).
+        taken as they are, and the run records its material manifest.
         ``None`` (the default) is ``MaterialSelection()``, optmat's recommended models.
     absorber : solprop.boundaries.Absorber, False or None, optional
         Overrides `settings`' absorber, which must then declare none. ``False``
@@ -266,7 +266,7 @@ def prop_free(  # noqa: PLR0913 - the simulation interface and output controls
         Take the run's built-in materials from optmat under this selection: the medium's
         built-in gas resolves through it (see
         :meth:`~solprop.driver.simulation.Simulation.from_free`). Supplied objects are
-        taken as they are, and the run records its material manifest (output schema 8).
+        taken as they are, and the run records its material manifest.
         ``None`` (the default) is ``MaterialSelection()``, optmat's recommended models.
     absorber : solprop.boundaries.Absorber, False or None, optional
         Overrides `settings`' absorber, which must then declare none. ``False``
@@ -367,7 +367,7 @@ def prop_planar(  # noqa: PLR0913 - the simulation interface and output controls
         built-in gas fill takes the selection's single-species susceptibility and a slab
         without a declared cladding optmat's recommended fused silica (see
         :meth:`~solprop.driver.simulation.Simulation.from_planar`). Supplied objects are
-        taken as they are, and the run records its material manifest (output schema 8).
+        taken as they are, and the run records its material manifest.
         ``None`` (the default) is ``MaterialSelection()``, optmat's recommended models.
     absorber : solprop.boundaries.Absorber, False or None, optional
         Overrides `settings`' absorber, which must then declare none. ``False``
@@ -671,7 +671,7 @@ def prop_gnlse(  # noqa: PLR0913 - the interface's keyword surface
         selection: with `raman` on, an omitted fraction is the bundle's ``f_R`` and the
         response its sampled shape, and ``n2="recommended"`` is its total ``n2``. The
         fibre's dispersion and a given ``gamma`` or ``n2`` are the caller's. The run
-        records its material manifest (output schema 8), with the held-back fraction
+        records its material manifest, with the held-back fraction
         and its origin. ``None`` (the default) is ``MaterialSelection()``, optmat's
         recommended models.
 
@@ -1145,8 +1145,8 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         Take the run's built-in materials from optmat under this selection: the gas,
         ``"air"`` and the default cladding resolve through it (see
         :meth:`~solprop.driver.simulation.Simulation.from_capillary`). Supplied objects
-        are taken as they are, and the run records its material manifest (output schema
-        8). ``None`` (the default) is ``MaterialSelection()``, optmat's recommended
+        are taken as they are, and the run records its material manifest.
+        ``None`` (the default) is ``MaterialSelection()``, optmat's recommended
         models.
     tdse : solprop.nonlinear.tdse.TDSEGasResponse or None, optional
         A helium TDSE response (SAE or haCC) as the complete electronic response,
@@ -1362,8 +1362,7 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
     in J/m, `peak_power` in W/m, and the recorded powers and energies likewise --
     and step-index fibres use ``prop_gnlse(fibre=...)`` instead. With `provider` it
     is the **general modal route** (``docs/guide/waveguides/general-modal.md``), on a
-    field grid, on every backend (Kokkos on CPUs and GPUs), with HDF5 output from output
-    schema 7.
+    field grid, on every backend (Kokkos on CPUs and GPUs), with HDF5 output.
 
     Parameters
     ----------
@@ -1636,8 +1635,8 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         Take the run's built-in materials from optmat under this selection: the gas and
         ``"air"`` resolve through it (see
         :meth:`~solprop.driver.simulation.Simulation.from_waveguide`). Supplied objects
-        are taken as they are, and the run records its material manifest (output schema
-        8). ``None`` (the default) is ``MaterialSelection()``, optmat's recommended
+        are taken as they are, and the run records its material manifest.
+        ``None`` (the default) is ``MaterialSelection()``, optmat's recommended
         models.
 
     Returns

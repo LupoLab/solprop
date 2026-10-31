@@ -250,7 +250,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    35 s; backend native
+    6 s; backend native
 
 
 
@@ -258,7 +258,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 34.512 seconds)
+   **Total running time of the script:** (0 minutes 6.371 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_00_vuv_dispersive_wave.py:

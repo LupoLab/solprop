@@ -1015,7 +1015,7 @@ def test_a_declared_basis_draws_once_in_the_reference_basis_and_carries_it(grid)
 
 
 def test_the_route_records_its_own_names_and_refuses_the_legacy_ones(guide, grid):
-    """Output schema 7's whitelist: `physical_energy` and `analytic_flux`, not `energy`.
+    """The record's whitelist: `physical_energy` and `analytic_flux`, not `energy`.
 
     `energy` and `peak_power` are refused in favour of the route's own names,
     because they promise a sum of coordinate powers and a general basis does not
@@ -1159,7 +1159,7 @@ def test_a_record_that_misnames_the_basis_is_refused_at_the_run_loop(
     """The lowest door: the record and the problem must agree, in both directions.
 
     `run_problem(general_problem, backend, handler, metadata=...)` with a record
-    carrying no `modal` identity would write a schema-7 file that `capability_of`
+    carrying no `modal` identity would write a file that `capability_of`
     reads as an **ordinary modal** run, and every legacy accessor would then be
     admitted on a three-component basis -- the one thing the whitelist exists to
     prevent. The other way round, a record claiming a guide for a problem that
@@ -1187,7 +1187,7 @@ def test_a_record_that_misnames_the_basis_is_refused_at_the_run_loop(
 
 
 def test_an_hdf5_file_carries_the_labels_and_the_identities(guide, grid, tmp_path):
-    """Output schema 7 admits a general modal run at the run loop's own door.
+    """The run record admits a general modal run at the run loop's own door.
 
     The other three doors -- `MemoryOutput.to_file`, a scan point's capture and
     its spool, and the batch member that stays refused -- belong to the file and
@@ -1197,7 +1197,7 @@ def test_an_hdf5_file_carries_the_labels_and_the_identities(guide, grid, tmp_pat
     simulation = build(guide, grid)
     simulation.run(path, progress="none")
     stored = resume(path).metadata
-    assert stored.schema_version == 28
+    assert stored.schema_version == 1
     assert stored.modal is not None
     assert dict(stored.modal)["basis"] == "general_modal"
     labels = [dict(one.label) for one in stored.modes if one.label is not None]

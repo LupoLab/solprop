@@ -193,7 +193,7 @@ spectra.
       duration:   132.4 fs before, 1.951 fs after, 1.47 fs at the transform limit
       peak power: 1.547 GW before, 85.5 GW after, 131.6 GW at the limit
       quality:    0.6495 of the transform-limited peak power
-      search:     converged: Optimization terminated successfully. (1775 evaluations)
+      search:     converged: Optimization terminated successfully. (1835 evaluations)
 
 
 
@@ -217,7 +217,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    65 s; backend native
+    11 s; backend native
 
 
 
@@ -225,7 +225,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (1 minutes 4.730 seconds)
+   **Total running time of the script:** (0 minutes 11.187 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_01_self_phase_modulation.py:

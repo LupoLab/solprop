@@ -256,7 +256,7 @@ Cartesian one).
   `R = beta0 + beta1 (omega - omega_o)`, with `omega_o` the frame's reference
   frequency on an envelope grid that removes `beta0` and zero on a field grid or an
   envelope grid with a third harmonic (where `beta0` is kept in the operator and
-  contributes nothing here). Output schema 24 stores the exact
+  contributes nothing here). The run record stores the exact
   Chebyshev antiderivatives of the frame tables, so the pair is rebuilt from the
   file; a launched run inherits its source plane's pair as its origin.
 - *Affine phase and delay.* An operation that removes a known affine term adds it to

@@ -2984,12 +2984,11 @@ def wall_identity(  # noqa: PLR0913 - the flow, its limits and the CF4 declarati
     n_components: int = 1,
     has_noise: bool = False,
 ) -> Mapping[str, JsonValue]:
-    """Return the schema-7 modal identity of a capillary carrying a coherent wall.
+    """Return the modal identity of a capillary carrying a coherent wall.
 
-    A **new key entry, not a new schema**: ``modal.flow`` joins the identity the
-    general modal route writes, as ``modal.guide.sampling.basis`` does, without moving
-    output schema 7. A file written without a ``flow`` entry keeps the key it was
-    stamped with.
+    ``modal.flow`` joins the identity the general modal route writes, as
+    ``modal.guide.sampling.basis`` does. A route without a coupled flow writes no
+    ``flow`` entry.
 
     The identity is what a resume compares, so **no array enters it** and every
     measured float is quantised (:func:`solprop.modes.material.quantised_measurement`)
@@ -3157,7 +3156,7 @@ def taper_identity(
     n_components: int = 1,
     has_noise: bool = False,
 ) -> Mapping[str, JsonValue]:
-    """Return the schema-7 modal identity of a capillary taper's coupling.
+    """Return the modal identity of a capillary taper's coupling.
 
     A multimode capillary taper without a wall carries the taper coupling in a
     coupled flow, and a file must say so: a resume against the adiabatic route of

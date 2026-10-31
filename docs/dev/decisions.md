@@ -1186,8 +1186,8 @@ Withdrawn (development-process record, not a design decision).
   no scientific use of it was found.
 - **Consequences:** an unwindowed native SAE run's lattice must pass the certificate. A
   change that moves an identity bumps the version it moves and adds no compatibility
-  layer; before the first public release a resume-compatibility policy is decided
-  (roadmap, *Release preparation*).
+  layer; a resume-compatibility policy is decided before 1.0 (ADR-058; roadmap,
+  *Release preparation*).
 
 ## ADR-052 — One thread budget per process, which every pool stays within
 
@@ -1505,7 +1505,7 @@ Withdrawn (development-process record, not a design decision).
   (`solprop.translate` alone exports 61 names), and some internal seams are known to be
   provisional: the state's vestigial batch axis, the two step loops that one march
   protocol would replace, and the integrator's tie to `PIController`. Development output
-  files carry schemas up to 27, and solprop keeps readers for them.
+  files carry schemas up to 28, and solprop keeps readers for them.
 - **Decision:**
   - The first releases are 0.x. A minor release may break the API, the output schema or
     the resume key; every break is listed under "Changed (breaking)" in the changelog.
@@ -1626,3 +1626,42 @@ Withdrawn (development-process record, not a design decision).
   - Within one build the two marches read the same tables and norms and take the same
     steps; across builds they differ by rounding, as any two builds do.
   - A native run's metadata records which march stepped it (`adams_march`).
+
+## ADR-061 — Backend tiers: where features land first
+
+- **Status:** accepted (maintainer, 2026-10-31); amends
+  [SEP 0](seps/sep-0000-process.md)'s completion rule, which asked for every feature on
+  `numpy_ref`, `numba_cpu` and the native CPU build
+- **Context:** solprop has four backends, and each new feature was implemented three
+  times before its SEP could be final: in the reference, in Numba and in C++. The native
+  backend is where production runs happen; `numba_cpu` runs the same CPU problems more
+  slowly, and `mlx` is experimental ([backends.md](backends.md) §4a). Every further
+  backend would multiply the cost of a feature.
+- **Decision:** the backends are ranked in three tiers, which set where development
+  goes, not what a backend may run.
+  - **Tier 1, the core: `numpy_ref` and `native`.** `numpy_ref` is the reference for
+    correctness and for developing an algorithm; `native` is the backend for production
+    at speed. Every new feature lands on both, the native CPU build first; device
+    builds follow in one qualification pass, as before. They come first for testing
+    and development, and a SEP is final when its feature runs on both with parity
+    tests.
+  - **Tier 2, mature: `numba_cpu`.** Tested, kept correct and in parity with the
+    reference for everything it runs. A SEP adds its feature here only when the SEP
+    says so; otherwise `numba_cpu` refuses the feature by name.
+  - **Tier 3, experimental: `mlx`.** For testing and development. Kept runnable and
+    correct for what it runs; it gains features only through work proposed for it, even
+    less often than Tier 2.
+  - A backend moves between tiers by a new record; a new backend starts in Tier 3.
+- **Why:** development time goes where the runs are and where correctness is decided;
+  the reference keeps every algorithm checkable, and the other backends keep what
+  they have without taxing every feature.
+- **Consequences:**
+  - A backend without a feature refuses it by name and names a backend that runs it;
+    nothing falls back silently (as before).
+  - `backend="auto"` is `numba_cpu` where the native backend is not installed or the
+    processor is below its wheel's baseline, so there a newer feature is refused, and
+    the refusal names `native` and `numpy_ref`.
+  - The documentation build installs no native backend: a lesson or tutorial of a
+    feature that `numba_cpu` does not run names `numpy_ref`, or is a worked example
+    with committed output.
+  - Features that `numba_cpu` and `mlx` run today stay, with their parity tests.

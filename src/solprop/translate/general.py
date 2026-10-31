@@ -239,7 +239,7 @@ class GeneralModalRoute(Displayed):
         is carried here because the route is the last object that sees the guide --
         :func:`solprop.translate.problem.assemble` takes the leaves apart and the
         guide never reaches a
-        :class:`~solprop.translate.problem.KernelProblem` -- and output schema 7
+        :class:`~solprop.translate.problem.KernelProblem` -- and the run record
         persists it inside :attr:`solprop.output.schema.RunMetadata.modal`.
         ``None`` for a record built by hand, which :func:`modal_identity` then
         refuses by name rather than writing a file that cannot say what produced it.
@@ -1687,7 +1687,7 @@ def modal_identity(
     has_noise: bool,
     flow: CoupledFlowTables | None = None,
 ) -> Mapping[str, JsonValue]:
-    """Return the general modal identity output schema 7 persists.
+    """Return the general modal identity the run record persists.
 
     One mapping answering, for a file read years later, every question the mode
     axis of a general modal run raises: **which channels**, in which order, with
@@ -1701,7 +1701,7 @@ def modal_identity(
     :mod:`solprop.output.capability` gates with).
 
     It goes into :attr:`solprop.output.schema.RunMetadata.modal`, which is inside
-    the schema-7 resume key, so a run continued against a changed guide, table,
+    the resume key, so a run continued against a changed guide, table,
     material or channel order is refused by the field that changed.
 
     **A declared change of basis is in the key by four independent paths**, so a

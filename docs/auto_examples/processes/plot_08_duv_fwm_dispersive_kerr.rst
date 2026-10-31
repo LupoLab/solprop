@@ -377,7 +377,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    348 s; backend native
+    79 s; backend native
 
 
 
@@ -385,7 +385,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (5 minutes 47.981 seconds)
+   **Total running time of the script:** (1 minutes 18.797 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_08_duv_fwm_dispersive_kerr.py:

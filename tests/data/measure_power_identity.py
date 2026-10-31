@@ -37,7 +37,7 @@ import solprop
 from power_identity import constant_fill_m2
 from solprop.backends.registry import select
 from solprop.exceptions import MaterialRangeWarning
-from solprop.translate.problem import SCHEMA_VERSION
+from solprop.translate.problem import KERNEL_SCHEMA_VERSION
 
 
 def main():
@@ -55,8 +55,8 @@ def main():
             root_weight[0, mode_index, 0, active] = np.sqrt(
                 np.real(mode.neff(simulation.grid.omega[active], 0.0))
             )
-    assert SCHEMA_VERSION in (10, 11, 12, 13)
-    if SCHEMA_VERSION == 10:
+    assert KERNEL_SCHEMA_VERSION in (10, 11, 12, 13)
+    if KERNEL_SCHEMA_VERSION == 10:
         assert problem.initial.noise0 is not None
         problem = replace(
             problem,
@@ -91,7 +91,7 @@ def main():
     arguments.output.with_suffix(".json").write_text(
         json.dumps(
             {
-                "schema": SCHEMA_VERSION,
+                "schema": KERNEL_SCHEMA_VERSION,
                 "backend": arguments.backend,
                 "solprop_source": solprop.__file__,
                 "native_source": None if native is None else native.__file__,

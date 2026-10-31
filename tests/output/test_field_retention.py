@@ -330,39 +330,6 @@ def test_a_field_free_file_resumes_only_from_its_checkpoint(tmp_path, metadata):
     assert np.array_equal(state.plane.field, field(metadata, 9.0))
 
 
-def test_a_file_without_its_count_reads_its_planes_from_z(tmp_path, metadata):
-    path = tmp_path / "run.h5"
-    resolved = FieldRetention("none").resolved(N_PLANES)
-    with HDF5Output(path) as written:
-        store(written, metadata, resolved)
-    with h5py.File(path, "r+") as file:
-        del file.attrs["n_saved"]
-    # A file without the count holds its datasets' extents, read from z: a
-    # field-free file has no field dataset to read them from.
-    with open_file(path) as stored:
-        assert stored.n_saved == N_PLANES
-    assert resume(path).n_saved == N_PLANES
-
-
-def test_a_file_of_the_previous_schema_keeps_every_field(tmp_path, metadata):
-    path = tmp_path / "old.h5"
-    older = dataclasses.replace(metadata, schema_version=19)
-    with HDF5Output(path) as written:
-        written.open(older)
-        for plane in planes(older, FieldRetention()):
-            written.save(plane)
-    with h5py.File(path, "r+") as file:
-        # What schema 19 and earlier wrote: no field-retention attributes at all.
-        del file.attrs["fields"]
-        del file.attrs["field_shape"]
-    with open_file(path) as stored:
-        assert stored.retention == FieldRetention()
-        assert stored.field_shape == (1, 1, metadata.grid.n_omega)
-        assert stored["field"].shape[0] == N_PLANES
-        assert stored.metadata is not None
-        assert stored.metadata.configuration_hash() == older.configuration_hash()
-
-
 # ----------------------------------------------------------- record helpers
 
 
@@ -396,7 +363,7 @@ class _Recorded:
 
 
 def test_every_field_is_recorded_at_its_default_too():
-    # Output schema 21: no field is left out of a record, whatever it holds.
+    # No field is left out of a record, whatever it holds.
     assert serialise(_Recorded(1.0)) == {
         "__class__": f"{__name__}._Recorded",
         "value": 1.0,

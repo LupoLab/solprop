@@ -251,7 +251,7 @@ Runtime and reproducibility
 
  .. code-block:: none
 
-    9 s; backend native
+    3 s; backend native
 
 
 
@@ -259,7 +259,7 @@ Runtime and reproducibility
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 9.458 seconds)
+   **Total running time of the script:** (0 minutes 2.746 seconds)
 
 
 .. _sphx_glr_download_auto_examples_processes_plot_03_four_wave_mixing.py:

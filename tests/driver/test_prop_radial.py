@@ -5,8 +5,6 @@
 """Radial input, noise, output geometry and resume compatibility."""
 
 import dataclasses
-import hashlib
-import json
 from functools import partial
 
 import numpy as np
@@ -22,9 +20,8 @@ from solprop.exceptions import DriverError, NoiseError, OutputError
 from solprop.fourier import spectral_density
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.noise import spatial_noise
-from solprop.output.hdf5 import HDF5Output, check_cache, open_file
-from solprop.output.schema import RunMetadata, SavedPlane
-from solprop.physdata.selection import MaterialManifest
+from solprop.output.hdf5 import check_cache
+from solprop.output.schema import RunMetadata
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialFlux, SpatialMedium, spatial_energy
 from solprop.stepper import PIController
@@ -76,7 +73,7 @@ def test_radial_interface_caches_and_saves_geometry(case, backend, request):
     # Preserve the compact pulse specification; serializing the built transverse
     # volume here would duplicate the input and make Cartesian metadata enormous.
     assert metadata.configuration["initial"] is pulse
-    assert metadata.schema_version == 28
+    assert metadata.schema_version == 1
     assert metadata.simulation_kind == "radial"
     assert metadata.spatial is not None
     assert metadata.spatial["stored_field_units"] == "V m"
@@ -218,55 +215,6 @@ def test_spatial_resume_refuses_geometry_changes(case, tmp_path):
     )
     with pytest.raises(OutputError, match="spatial"):
         changed.run(path, resume=True)
-
-
-def test_version_three_file_retains_its_original_hash_and_reads(case, tmp_path):
-    grid, space, pulse, settings = case
-    # A version-three file keys on no manifest: every run records its selection now
-    # (the registry selection that once made such a run is deleted, SEP 3 Phase 4b),
-    # so the legacy record is given the empty manifest directly.
-    simulation = Simulation.from_radial(
-        grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
-    )
-    current = simulation.metadata()
-    legacy = dataclasses.replace(
-        current,
-        schema_version=3,
-        simulation_kind="multimode",
-        spatial=None,
-        materials=MaterialManifest(),
-    )
-    # Recreate the literal v3 hash independently, without a spatial key. This is
-    # exactly the legacy format; pretending a v4 hash were v3 would not test reading.
-    document = json.loads(legacy.to_json())
-    assert "spatial" not in document
-    keys = (
-        "schema_version",
-        "simulation_kind",
-        "grid",
-        "modes",
-        "configuration",
-        "noise",
-        "stepper",
-    )
-    payload = json.dumps(
-        {key: document[key] for key in keys},
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=True,
-        allow_nan=True,
-    )
-    assert legacy.configuration_hash() == hashlib.sha256(payload.encode()).hexdigest()
-    path = tmp_path / "legacy.h5"
-    with HDF5Output(path) as handler:
-        handler.open(legacy)
-        handler.save(SavedPlane(z=0.0, field=simulation.translate().initial.field0[0]))
-    with open_file(path) as stored:
-        assert stored.n_saved == 1
-        assert stored.fields("fft").shape[0] == 1
-    assert check_cache(path, legacy)
-    with pytest.raises(OutputError, match=r"different run.*schema_version"):
-        check_cache(path, current)
 
 
 def test_radial_input_rejects_ambiguous_noise_and_shape(case):

@@ -484,10 +484,10 @@ def test_the_route_keeps_the_carrier_mode_independent_and_the_weight_per_channel
         assert_allclose(weights[index, 0, band], expected, rtol=1e-14)
 
 
-def test_the_route_records_its_flow_on_the_schema_seven_identity():
+def test_the_route_records_its_flow_on_the_modal_identity():
     """`modal.flow` carries the method, the ratios and the certificate, as scalars.
 
-    A new key entry, not a new output schema: the capability stays `modal`, because a
+    A key entry of the modal identity: the capability stays `modal`, because a
     coupled flow through a basis does not change the basis, and nothing already
     written reads differently.
     """
@@ -499,7 +499,7 @@ def test_the_route_records_its_flow_on_the_schema_seven_identity():
     assert record["residual_norm_bound"] == 0.0
     assert record["radius"] == RADIUS
     assert 0.0 < float(cast("float", record["quasi_static"])) < 0.25
-    assert metadata.schema_version == 28
+    assert metadata.schema_version == 1
     assert capability_of(metadata) == "modal"
     assert "mean impedance coherent wall" in str(metadata)
     # Nothing that is not a scalar reaches the resume key.

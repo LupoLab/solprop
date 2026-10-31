@@ -1237,7 +1237,7 @@ splines, a transform's component count), which appear in their constructors'
 signatures. The state must survive `dataclasses.replace`, which `field(init=False)`
 would reset, so keeping it out of the signature is a change of construction pattern.
 
-**A resume-compatibility policy before the first public release.** The output schema
+**A resume-compatibility policy before 1.0.** The output schema
 records every field of a recorded dataclass, at its default too
 (ADR-051 in [decisions](decisions.md)),
 so a release that adds a field moves every configuration hash, and a run written by the

@@ -357,7 +357,7 @@ def test_capillary_constructor_takes_the_collar_scheme_and_integrator():
 
 
 def test_the_record_names_the_method_and_keys_on_it():
-    # Output schema 9 records the Adams method in full and hashes it, so a resume can
+    # The run record holds the Adams method in full and hashes it, so a resume can
     # never continue a run with a different stepping method.
     def metadata(integrator):
         simulation = Simulation.from_capillary(
@@ -379,7 +379,7 @@ def test_the_record_names_the_method_and_keys_on_it():
     runge_kutta = metadata(RungeKutta())
     adams = metadata(None)
     assert runge_kutta.stepper.method is None
-    # The default integrator, recorded with its formulation (output schema 15).
+    # The default integrator, recorded with its formulation.
     assert adams.stepper.method == repr(Multistep(formulation="exponential"))
     assert runge_kutta.configuration_hash() != adams.configuration_hash()
 

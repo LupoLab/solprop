@@ -61,8 +61,8 @@ slightly noisy beam through a longer guide to show the break-up that sets the li
   only a small part of its power near the fastest period. At the 21 cm exit they are
   a few parts in :math:`10^4`. By 40 cm, at B of about 17, the rms ripple is 4 %;
   beyond, the beam breaks up into filaments that self-focus, so the peak intensity,
-  and with it the B integral, runs away (B of about 35 at 45 cm and 100 at 50 cm)
-  and the ripple reaches 15 to 23 %. So at this seed the beam breaks up just beyond
+  and with it the B integral, runs away (B of about 33 at 45 cm and 58 at 50 cm)
+  and the ripple reaches 14 to 17 %. So at this seed the beam breaks up just beyond
   the limit Arnold place, :math:`B \approx 15.5`. (With solprop's former argon
   Kerr coefficient, 23 % lower, B reached 16 only at 50 cm, where the beam was
   just beginning to break up.)
@@ -127,6 +127,7 @@ from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import MaterialRangeWarning
 from solprop.grid import EnvelopeGrid
 from solprop.modes import PlanarGrid, SlabMode, gaussian_coupling
+from solprop.monitor import BoundaryCheck
 from solprop.nonlinear.envelope_plasma import linear_cycle_averages
 from solprop.nonlinear.optmat_rates import OptmatRate
 from solprop.nonlinear.responses import KerrResponse
@@ -247,12 +248,13 @@ print(
 # %%
 # The grid and the launch
 # -----------------------
-# The time window is 400 fs, which the transform rounds up to 512 samples, 715 fs.
+# The time window is 600 fs, which the grid widens for its absorbing collar and the
+# transform rounds up to 576 samples, 804 fs.
 # The higher modes are slower: over 21 cm, TE3 falls 28 fs behind TE1 and TE7
 # 170 fs, and both stay inside the window. (Over the 50 cm of the second run below,
-# TE7 falls 400 fs behind and wraps around, but by then it carries less than 1e-6 of
-# the energy.) The y window holds the beam out to 2.5 radii, where its intensity is
-# 4e-6 of the peak, before the collar begins.
+# TE7 falls 400 fs behind and runs into the collar, which absorbs it; by then it
+# carries less than 1e-6 of the energy.) The y window holds the beam out to 2.5
+# radii, where its intensity is 4e-6 of the peak, before the collar begins.
 #
 # :class:`~solprop.pulses.PlanarPulse` projects the Gaussian line focus onto the
 # modes. Its energy is the incident beam's, so what falls on the plates is lost at the
@@ -276,7 +278,7 @@ def settings_for(planes):
     )
 
 
-grid = EnvelopeGrid.from_limits(LENGTH, WAVELENGTH, (450e-9, 1.6e-6), 400e-15)
+grid = EnvelopeGrid.from_limits(LENGTH, WAVELENGTH, (450e-9, 1.6e-6), 600e-15)
 space = PlanarGrid(modes, RADIUS_Y, N_Y)
 launch = PlanarPulse(
     GaussianPulse(wavelength=WAVELENGTH, fwhm=DURATION, energy=ENERGY),
@@ -291,9 +293,10 @@ clean = Simulation.from_planar(
 )
 
 # The persistent memory of the run, before anything is allocated:
-# ``estimate_memory`` gives 0.83 GB at this size, all of it the base group (the
-# state, the stage buffers and the operator tables), for this run and for the seeded
-# one below. The saved planes come on top, 34 MB each: two here, twelve there.
+# ``estimate_memory`` gives 1.95 GB at this size on the native backend, 1.28 GB of it
+# the base group (the state, the stage buffers and the operator tables) and the rest
+# the Adams history, for this run and for the seeded one below. The saved planes come
+# on top, 38 MB each: two here, twelve there.
 estimate = estimate_memory(clean.translate(), "auto")
 print(f"estimated memory on {estimate.backend}: {estimate.total / 1e9:.2f} GB")
 
@@ -543,6 +546,12 @@ fig.tight_layout()
 # :math:`k_0n_2I` per metre, a factor :math:`e^B` over the guide. Ripples grow for
 # :math:`K` up to :math:`2k_0\sqrt{n_2I}`, 3.6e4 rad/m here, and fastest at a period
 # of 0.25 mm.
+#
+# Near the end of this run its B integral runs away and the spectrum broadens, and some
+# light leaves the time window: the temporal collar takes 4.5e-6 of the launch energy
+# with this 600 fs window, still 1.1e-6 with 800 fs, for half again the run time. The
+# run accepts it explicitly: ``BoundaryCheck(budget=3e-3)`` lets the collar take up to
+# 9e-6 of the energy before the boundary monitor warns.
 
 rng = np.random.default_rng(49)
 noise = 1.0 + SEED * rng.standard_normal(space.n_y)
@@ -551,9 +560,14 @@ seeded_rows = (
 )
 seeded_launch = np.fft.fft(seeded_rows, axis=0).reshape(space.n_columns, 1, -1)
 planes = np.union1d(np.arange(1, 11) * LONG / 10, [LENGTH])
-long_grid = EnvelopeGrid.from_limits(LONG, WAVELENGTH, (450e-9, 1.6e-6), 400e-15)
+long_grid = EnvelopeGrid.from_limits(LONG, WAVELENGTH, (450e-9, 1.6e-6), 600e-15)
 seeded = Simulation.from_planar(
-    long_grid, space, kerr, seeded_launch, settings=settings_for(planes)
+    long_grid,
+    space,
+    kerr,
+    seeded_launch,
+    settings=settings_for(planes),
+    boundary_check=BoundaryCheck(budget=3e-3),
 )
 seeded_output = seeded.run(progress="none")
 seeded_fields = seeded_output.fields("fft")
@@ -653,7 +667,7 @@ fig.tight_layout()
 # %%
 # Runtime and reproducibility
 # ---------------------------
-# Two runs of four slab modes by 1024 samples in y by 512 in time: 21 cm with a clean
+# Two runs of four slab modes by 1024 samples in y by 576 in time: 21 cm with a clean
 # beam and 50 cm with a seeded one.
 
 backend = clean_output.metadata.backend
